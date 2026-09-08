@@ -2,9 +2,12 @@ import type { PlateLeafProps } from 'platejs/react'
 import { createPlatePlugin, PlateLeaf } from 'platejs/react'
 import {
   CHAT_FRESH_MARK,
+  CHAT_FRESH_WORD_INDEX_MARK,
+  CHAT_FRESH_WORD_TOTAL_MARK,
   freshDecorations,
   freshLeafDelay,
   settleFreshGeneration,
+  settleFreshWord,
 } from '@/features/agent/transcript/plate/streaming-value-patch'
 
 /**
@@ -26,14 +29,28 @@ import {
 function ChatFreshTextLeaf(props: PlateLeafProps) {
   const { editor, leaf, children } = props
   const delayMs = freshLeafDelay(leaf) ?? 0
-  const generation = (leaf as unknown as Record<string, unknown>)[CHAT_FRESH_MARK]
+  const record = leaf as unknown as Record<string, unknown>
+  const generation = record[CHAT_FRESH_MARK]
+  const wordIndex = record[CHAT_FRESH_WORD_INDEX_MARK]
+  const totalWords = record[CHAT_FRESH_WORD_TOTAL_MARK]
   return (
     <PlateLeaf {...props}>
       <span
         className="chat-fresh-text"
         style={{ animationDelay: `${delayMs}ms` }}
         onAnimationEnd={() => {
-          if (typeof generation === 'number') settleFreshGeneration(editor, generation)
+          if (typeof generation !== 'number') return
+          // Present only on a per-word split (see CHAT_FRESH_WORD_INDEX_MARK)
+          // — this word's own end, not the whole chunk's, is what just
+          // happened, so the generation only retires once every word sharing
+          // it has reported. A capped run's single, unsplit span carries
+          // neither field and settles the old way, directly: one span, one
+          // fade, nothing to wait on.
+          if (typeof wordIndex === 'number' && typeof totalWords === 'number') {
+            settleFreshWord(editor, generation, wordIndex, totalWords)
+          } else {
+            settleFreshGeneration(editor, generation)
+          }
         }}
       >
         {children}

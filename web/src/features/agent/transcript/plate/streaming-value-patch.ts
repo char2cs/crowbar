@@ -16,6 +16,15 @@ export const CHAT_FRESH_DELAY_MARK = 'chatFreshDelay'
  *  plugin: it splits the leaf (which is its whole job) and renders as the
  *  plain text it now is, with no animation to restart. */
 export const CHAT_FRESH_HELD = 'chatFreshHeld'
+/** This word's own index within its whole generation's cascade, and that
+ *  generation's total word count — carried ONLY on a per-word split (never
+ *  on a capped run's single, unsplit span; see WORD_SPLIT_CAP) so the leaf's
+ *  `animationend` can report exactly one word done via `settleFreshWord`,
+ *  instead of the whole run's shared `generation` — which would retire every
+ *  OTHER word sharing it the instant the FIRST one finishes, since
+ *  `staggerDelay(0, n)` is always 0 and so always finishes first. */
+export const CHAT_FRESH_WORD_INDEX_MARK = 'chatFreshWordIndex'
+export const CHAT_FRESH_WORD_TOTAL_MARK = 'chatFreshWordTotal'
 
 // Keys equality must look past, because a PLUGIN derives them rather than the
 // markdown carrying them — so the document and a fresh parse of the very same
@@ -237,6 +246,43 @@ export function settleFreshGeneration(editor: PlateEditor, generation: number): 
   scheduleFadeCleanup(editor)
 }
 
+// Per-generation set of word indices that have reported their own
+// `animationend` — see `settleFreshWord`.
+const settledWordCounts = new WeakMap<PlateEditor, Map<number, Set<number>>>()
+
+/**
+ * One word of a per-word cascade finished its own fade — called from
+ * `chat-fresh-text-plugin.tsx` only when the leaf carries
+ * `CHAT_FRESH_WORD_INDEX_MARK` (a per-word split; see `freshDecorations`).
+ *
+ * Unlike `settleFreshGeneration` (called directly only for a capped run's
+ * single, unsplit span — see `WORD_SPLIT_CAP`), this waits for EVERY word
+ * sharing `generation` to report before retiring it. Settling on the first
+ * word's `animationend` alone — which the old code did, because every word
+ * shared one `generation` — is exactly the bug this exists to fix:
+ * `staggerDelay(0, n)` is always 0, so the first word always finishes
+ * first, and settling then made `freshDecorations` render every OTHER word
+ * in the same chunk as instantly inert (`CHAT_FRESH_HELD`) before its own
+ * staggered delay had even elapsed — the cascade never played past word one.
+ */
+export function settleFreshWord(
+  editor: PlateEditor,
+  generation: number,
+  wordIndex: number,
+  totalWords: number,
+): void {
+  const byGeneration = settledWordCounts.get(editor) ?? new Map<number, Set<number>>()
+  const words = byGeneration.get(generation) ?? new Set<number>()
+  // A Set, not a counter: pruneRuns holds a settled leaf's SPLIT stable
+  // rather than dropping it while a neighbour still fades, which can replay
+  // the same word's `animationend` on remount. Idempotent add is what makes
+  // a repeat call harmless instead of over-counting toward `totalWords`.
+  words.add(wordIndex)
+  byGeneration.set(generation, words)
+  settledWordCounts.set(editor, byGeneration)
+  if (words.size >= totalWords) settleFreshGeneration(editor, generation)
+}
+
 /**
  * The fade, as Slate ranges over text the document already holds.
  *
@@ -267,7 +313,10 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
     // text that merely happens to be its own leaf — and, crucially, no
     // animation to be restarted if React does remount it.
     const held = settled?.has(run.generation) || run.generation <= floor
-    const mark = (offset: number, next: number, delay: number) =>
+    // `wordIndex` is present only on a per-word split (never the capped
+    // branch below) — see CHAT_FRESH_WORD_INDEX_MARK's own doc for why that
+    // distinction matters to how this word's OWN animationend settles.
+    const mark = (offset: number, next: number, delay: number, wordIndex?: number) =>
       ranges.push(
         (held
           ? { anchor: { path, offset }, focus: { path, offset: next }, [CHAT_FRESH_HELD]: true }
@@ -276,11 +325,19 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
               focus: { path, offset: next },
               [CHAT_FRESH_MARK]: run.generation,
               [CHAT_FRESH_DELAY_MARK]: delay,
+              ...(wordIndex === undefined
+                ? {}
+                : {
+                    [CHAT_FRESH_WORD_INDEX_MARK]: wordIndex,
+                    [CHAT_FRESH_WORD_TOTAL_MARK]: run.totalWords,
+                  }),
             }) as unknown as DecoratedRange,
       )
 
     // See WORD_SPLIT_CAP: past this many words the stagger step is already
-    // imperceptible, and one range beats hundreds of DOM spans.
+    // imperceptible, and one range beats hundreds of DOM spans. Genuinely one
+    // fade, not a cascade, so it settles directly (no word index) same as
+    // ever — there is no first-word-finishes-early bug when there's only one.
     if (run.totalWords > WORD_SPLIT_CAP) {
       mark(run.start, run.end, SCROLL_LEAD_MS)
       continue
@@ -288,7 +345,8 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
     let offset = run.start
     splitIntoWords(text.slice(run.start, run.end)).forEach((word, i) => {
       const next = offset + word.length
-      mark(offset, next, SCROLL_LEAD_MS + staggerDelay(run.wordOffset + i, run.totalWords))
+      const wordIndex = run.wordOffset + i
+      mark(offset, next, SCROLL_LEAD_MS + staggerDelay(wordIndex, run.totalWords), wordIndex)
       offset = next
     })
   }
@@ -368,7 +426,15 @@ function recordBlockRuns(
   generation: number,
   wordIndex: { current: number },
   total: number,
-  skip: { remaining: number } = { remaining: 0 },
+  // `take` bounds how much of the subtree past `remaining` still counts as
+  // fresh — left at Infinity (its default) for a whole-new-block insert,
+  // where everything past the skip genuinely IS new all the way to the
+  // block's own end. The mid-paragraph mark-completing caller narrows it to
+  // the exact freshSuffix length: without a stop, this would keep marking
+  // fresh past that suffix too, all the way to the block's real end, which
+  // re-flashes a trailing run of text neither edit touched. See
+  // commonSuffixLength's own doc for why that text needs excluding at all.
+  skip: { remaining: number; take?: number } = { remaining: 0 },
 ): void {
   if (typeof node.text === 'string') {
     const length = node.text.length
@@ -377,17 +443,22 @@ function recordBlockRuns(
       skip.remaining -= length
       return
     }
+    const take = skip.take ?? Number.POSITIVE_INFINITY
+    if (take <= 0) return
     const start = skip.remaining
     skip.remaining = 0
+    const end = Math.min(length, start + take)
+    if (skip.take !== undefined) skip.take -= end - start
+    if (end <= start) return
     recordRun(editor, {
       generation,
       path,
       start,
-      end: length,
+      end,
       wordOffset: wordIndex.current,
       totalWords: total,
     })
-    wordIndex.current += splitIntoWords(node.text.slice(start)).length
+    wordIndex.current += splitIntoWords(node.text.slice(start, end)).length
     return
   }
   node.children?.forEach((child, i) => {
@@ -414,6 +485,24 @@ function commonPrefixLength(a: string, b: string): number {
   const max = Math.min(a.length, b.length)
   let i = 0
   while (i < max && a[i] === b[i]) i++
+  return i
+}
+
+/** How many of `a` and `b`'s TRAILING characters agree — the suffix twin of
+ *  `commonPrefixLength`, needed together with it. A mark can complete
+ *  anywhere in the block, not only at the end, and the prefix alone cannot
+ *  tell "an earlier mark shrank the text" apart from "genuinely new text was
+ *  appended": everything after a mid-block divergence reads as fresh under
+ *  the prefix check alone, even text neither edit ever touched. Comparing
+ *  from both ends and keeping only the middle — the classic prefix+suffix
+ *  diff trick — is what tells "a code span's closing backtick landed here"
+ *  from "the reply kept streaming past here." The caller must clamp the two
+ *  against the shorter string's length: an identical string reports its
+ *  full length from BOTH ends, and unclamped they overlap. */
+function commonSuffixLength(a: string, b: string): number {
+  const max = Math.min(a.length, b.length)
+  let i = 0
+  while (i < max && a[a.length - 1 - i] === b[b.length - 1 - i]) i++
   return i
 }
 
@@ -576,8 +665,14 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
         pruneRuns(editor, stable)
         editor.tf.removeNodes({ at: [stable] })
         editor.tf.insertNodes([nextBlock] as Value, { at: [stable] })
-        const keepChars = commonPrefixLength(flattenText(prevBlock), flattenText(nextBlock))
-        const freshSuffix = flattenText(nextBlock).slice(keepChars)
+        const prevText = flattenText(prevBlock)
+        const nextText = flattenText(nextBlock)
+        const keepPrefix = commonPrefixLength(prevText, nextText)
+        // Clamped against what's left after the prefix: an unclamped suffix
+        // match can overlap it (an identical string matches fully from BOTH
+        // ends), which would otherwise make freshSuffix's length negative.
+        const keepSuffix = Math.min(commonSuffixLength(prevText, nextText), nextText.length - keepPrefix)
+        const freshSuffix = nextText.slice(keepPrefix, nextText.length - keepSuffix)
         if (freshSuffix !== '') {
           recordBlockRuns(
             editor,
@@ -586,7 +681,7 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
             nextFreshGeneration(editor),
             { current: 0 },
             splitIntoWords(freshSuffix).length,
-            { remaining: keepChars },
+            { remaining: keepPrefix, take: freshSuffix.length },
           )
         }
         return

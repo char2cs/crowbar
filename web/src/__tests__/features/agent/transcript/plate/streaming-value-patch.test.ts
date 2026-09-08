@@ -5,6 +5,7 @@ import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-compos
 import {
   applyStreamedValue,
   freshDecorations,
+  settleFreshWord,
   splitIntoWords,
   stableBlockCount,
   staggerDelay,
@@ -369,6 +370,80 @@ describe('applyStreamedValue: a completing mark does not re-fade the rest of the
 
     expect(editor.api.string([0])).toBe('Run the build command')
     expect(fadeWords(editor).join('')).not.toContain('Run the ')
+  })
+
+  // Regression: `commonPrefixLength` alone can only find a TRAILING
+  // divergence correctly. A mark resolving BEFORE the end of the block
+  // shrinks the flattened text at that earlier point, so a prefix-only
+  // comparison diverges there and misreads everything after it — including
+  // long stretches of text that were already fully visible and settled — as
+  // fresh, and it flashes/replays its fade-in animation for no reason.
+  it('does not re-fade already-visible text after a NON-trailing mark completes mid-paragraph', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('Use `code and more text that was already visible'),
+    })
+
+    applyStreamedValue(
+      editor,
+      chatMarkdownToValue('Use `code` and more text that was already visible'),
+    )
+
+    expect(editor.api.string([0])).toBe('Use code and more text that was already visible')
+    // Nothing in this reply grew — only an earlier code span's closing
+    // backtick landed — so there is no genuinely new text to fade at all.
+    expect(fadeWords(editor)).toEqual([])
+  })
+})
+
+// Regression: `generation` used to be the ONLY thing `settleFreshGeneration`
+// keyed on, and every word split from one streamed chunk shared it — so the
+// FIRST word's own `animationend` (always the one with a zero stagger delay;
+// see `staggerDelay`) retired the whole chunk, and every other word — even
+// ones whose own delay hadn't elapsed yet — was rendered instantly inert on
+// the very next decoration pass instead of playing its own staggered fade.
+describe('settleFreshWord: a per-word cascade does not retire on its first word alone', () => {
+  it('keeps later words animating after only the fastest (zero-delay) word settles', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(''),
+    })
+
+    applyStreamedValue(editor, chatMarkdownToValue('one two three four'))
+
+    const entry = [...editor.api.nodes({ at: [] })].find(
+      ([node]) => typeof (node as { text?: string }).text === 'string',
+    )
+    if (!entry) throw new Error('no text leaf found')
+
+    type Range = {
+      chatFresh?: number
+      chatFreshWordIndex?: number
+      chatFreshWordTotal?: number
+    }
+    const before = freshDecorations(editor, entry) as Range[]
+    // More than one word split out of the chunk — otherwise this test proves
+    // nothing about a cascade.
+    expect(before.length).toBeGreaterThan(1)
+    const generation = before[0]?.chatFresh
+    const totalWords = before[0]?.chatFreshWordTotal
+    expect(typeof generation).toBe('number')
+    expect(typeof totalWords).toBe('number')
+
+    // Settle exactly the word at index 0 — the one a real browser's
+    // `animationend` would always fire first, since its own stagger delay is
+    // always zero.
+    settleFreshWord(editor, generation as number, 0, totalWords as number)
+
+    const after = freshDecorations(editor, entry) as Range[]
+    const others = after.filter((r) => r.chatFreshWordIndex !== 0)
+    expect(others.length).toBeGreaterThan(0)
+    for (const r of others) {
+      // Still carries chatFresh (still animating), NOT rendered as the
+      // instantly-inert CHAT_FRESH_HELD shape — settling one word must not
+      // retire the rest of the chunk's cascade.
+      expect(r.chatFresh).toBe(generation)
+    }
   })
 })
 
