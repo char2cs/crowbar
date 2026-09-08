@@ -38,7 +38,7 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 	homeRoutes := agentSubRoutes(t, func(r *gin.Engine) {
 		home.Register(
 			r.Group("/scope"),
-			nil, nil, nil, nil, nil, // home deps: unused, the routing table is what is under test
+			nil, nil, nil, nil, nil, nil, // home deps: unused, the routing table is what is under test
 			noopWS,
 			nil, nil, noopWS,
 			nil, nil, nil, nil, nil, // the five agent concerns

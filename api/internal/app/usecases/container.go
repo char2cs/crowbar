@@ -187,6 +187,10 @@ func New(
 		nowFunc,
 		crowbarHome,
 		workspace.WithTerminalReaper(engines.Terminal),
+		// Every workspace this usecase creates (fork, import, adopted repo
+		// default) mints its own Node{Kind:workspace} row unconditionally at
+		// creation — 2026-09-08 sidebar-placement-unification Task 7.
+		workspace.WithNodes(repos.Node),
 	)
 	fileUsecase := file.New(
 		newFsEngineAdapter(engines.FS),
@@ -226,12 +230,15 @@ func New(
 	// workspace.Usecase.SetChatObserver's doc comment.
 	workspaceUsecase.SetChatObserver(agentic.chat)
 	// Both ways a branch becomes locked at RUNTIME — the user's own lock, and a
-	// provider poll reporting the branch protected — hand the workspace to the
-	// same reconciler, so its owning row is a branch row from that instant
-	// rather than from the next boot's backfill. Wired here for the same reason
-	// as the observer above: the chat tree is built after both of them.
-	workspaceUsecase.SetOwningChatReconciler(agentic.chatTree)
-	providerSync.SetOwningChatReconciler(agentic.chatTree)
+	// provider poll reporting the branch protected — used to hand the workspace
+	// to a chat-tree reconciler here (EnsureOwningChat), so its owning row was a
+	// branch row from that instant rather than from the next boot's backfill.
+	// Deleted (2026-09-08 sidebar-placement-unification Task 7): every
+	// Workspace now mints its own Node{Kind:workspace} row unconditionally at
+	// creation (see hierarchy.WithNodes / project.ImportDeps.Nodes below), so
+	// there is no more "does this now-locked workspace have an owning row yet"
+	// question for a reconciler to answer here. workspaceUsecase.SetLock and
+	// providerSync.SyncFromState no longer take a reconciler at all.
 	// Every workspace the import paths create is minted UNDER a chat from here
 	// on. Wired at the same point and for the same reason as the two setters
 	// above — the chat tree does not exist until agentic is built — and this is

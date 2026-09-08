@@ -80,10 +80,34 @@ func (u *projectImport) createOwnedWorkspace(
 	if err != nil {
 		return domain.Workspace{}, u.discardOwningChat(ctx, chatID, err)
 	}
+	// Every workspace mints its OWN Node{Kind:workspace} row unconditionally at
+	// creation, the same instant a repo does (see importOneRepo's own mint) —
+	// 2026-09-08 sidebar-placement-unification Task 7. Filed at the root the
+	// same way a fresh repo Node is; nothing places it for real yet.
+	if nErr := u.mintWorkspaceNode(ctx, ws.ID); nErr != nil {
+		return domain.Workspace{}, u.discardUnownedWorkspace(ctx, chatID, ws.ID, nErr)
+	}
 	if aErr := u.owningChats.AttachOwningWorkspace(ctx, chatID, ws); aErr != nil {
 		return domain.Workspace{}, u.discardUnownedWorkspace(ctx, chatID, ws.ID, aErr)
 	}
 	return ws, nil
+}
+
+// mintWorkspaceNode mints wsID's own position row, refusing rather than
+// persisting a workspace with no Node row when the surface was never wired —
+// mirrors ErrNoNodesWired's own reasoning for a repo (project.go's
+// importOneRepo).
+func (u *projectImport) mintWorkspaceNode(
+	ctx context.Context,
+	wsID string,
+) error {
+	if u.deps.Nodes == nil {
+		return ErrNoNodesWired
+	}
+	if _, err := u.deps.Nodes.Create(ctx, wsID, domain.NodeKindWorkspace, "", 0); err != nil {
+		return fmt.Errorf("mint workspace node: %w", err)
+	}
+	return nil
 }
 
 // discardOwningChat takes back a chat minted for a workspace that then failed
@@ -101,10 +125,12 @@ func (u *projectImport) discardOwningChat(
 	return cause
 }
 
-// discardUnownedWorkspace rolls back both halves when the row was written but
-// could not be attached to the chat minted for it. The workspace goes first,
-// while nothing claims it, then the chat — a row left behind here would be the
-// exact orphan this change exists to make unrepresentable.
+// discardUnownedWorkspace rolls back every half of a create that could not be
+// finished — either its own Node row failed to mint, or the row could not be
+// attached to the chat minted for it. The workspace goes first, while nothing
+// claims it, then its Node row (best-effort — Create may never have been
+// reached), then the chat — a row left behind here would be the exact orphan
+// this change exists to make unrepresentable.
 func (u *projectImport) discardUnownedWorkspace(
 	ctx context.Context,
 	chatID string,
@@ -114,6 +140,12 @@ func (u *projectImport) discardUnownedWorkspace(
 	if err := u.deps.Workspaces.Delete(ctx, workspaceID); err != nil {
 		slog.WarnContext(ctx, "project import: discard the workspace no chat came to own",
 			"workspace_id", workspaceID, "err", err)
+	}
+	if u.deps.Nodes != nil {
+		if err := u.deps.Nodes.Forget(ctx, workspaceID); err != nil {
+			slog.WarnContext(ctx, "project import: discard the node row of a workspace no chat came to own",
+				"workspace_id", workspaceID, "err", err)
+		}
 	}
 	return u.discardOwningChat(ctx, chatID, cause)
 }

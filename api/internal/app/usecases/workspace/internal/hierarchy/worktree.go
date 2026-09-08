@@ -182,6 +182,10 @@ type hierarchyUsecase struct {
 	terminals    TerminalReaper
 	chatObserver ChatWorkObserver
 	owningChats  OwningChats
+	// nodes mints a workspace's own Node position row at creation. Wired via
+	// WithNodes; see that doc for why it degrades gracefully rather than
+	// failing the create when unset.
+	nodes NodeCreator
 }
 
 // Option configures optional hierarchyUsecase dependencies without widening the
@@ -243,7 +247,7 @@ func (u *hierarchyUsecase) CreateChild(
 	// does not own a worktree (explicitly, or defaulted off a workspace-less
 	// parent), skip all git operations and create a workspace row directly.
 	if in.RepoPath == "" || !ownWorktree {
-		return u.workspaces.Create(ctx, workspace.CreateInput{
+		ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 			ID:        uuid.NewString(),
 			RepoID:    in.RepoID,
 			ProjectID: in.ProjectID,
@@ -251,6 +255,11 @@ func (u *hierarchyUsecase) CreateChild(
 			ParentID:  in.ParentID,
 			Protected: in.ForceLocked,
 		}, u.now())
+		if err != nil {
+			return domain.Workspace{}, err
+		}
+		u.mintWorkspaceNode(ctx, ws.ID)
+		return ws, nil
 	}
 	// A spontaneous create (Promote is the first caller) leaves Branch blank: it
 	// has nothing of its own to name the branch, and the model spec puts naming
@@ -350,6 +359,7 @@ func (u *hierarchyUsecase) CreateChild(
 		}
 		return domain.Workspace{}, err
 	}
+	u.mintWorkspaceNode(ctx, ws.ID)
 	return ws, nil
 }
 
@@ -720,7 +730,7 @@ func (u *hierarchyUsecase) adoptMainWorktree(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: adopt main worktree: locked: %w", err)
 	}
-	return u.workspaces.Create(ctx, workspace.CreateInput{
+	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 		ID:           uuid.NewString(),
 		RepoID:       in.RepoID,
 		ProjectID:    in.ProjectID,
@@ -734,6 +744,11 @@ func (u *hierarchyUsecase) adoptMainWorktree(
 		// which must never count the default.
 		IsDefault: true,
 	}, u.now())
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	u.mintWorkspaceNode(ctx, ws.ID)
+	return ws, nil
 }
 
 // branchWorkspaceExists reports whether a non-deleted workspace already holds

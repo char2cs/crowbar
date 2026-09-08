@@ -155,6 +155,22 @@ type WorkSignal interface {
 	) bool
 }
 
+// NodeCreator is the narrow write-only Node surface resolveHome's lazy
+// provisioning needs to mint a legacy project's home workspace its own
+// position row the instant it creates one (2026-09-08
+// sidebar-placement-unification Task 7) — every OTHER home-workspace creation
+// path (a fresh project import) already mints one via project.ImportDeps.Nodes;
+// this is the one lazy-provisioning path that lives outside that usecase.
+type NodeCreator interface {
+	Create(
+		ctx context.Context,
+		id string,
+		kind domain.NodeKind,
+		parentID string,
+		order int,
+	) (domain.Node, error)
+}
+
 // Handlers serves all /home/* routes.
 type Handlers struct {
 	workspaces HomeWorkspaces
@@ -163,6 +179,7 @@ type Handlers struct {
 	termEng    TerminalEngine
 	working    WorkSignal
 	chats      ChatResolver
+	nodes      NodeCreator
 }
 
 // New builds Handlers.
@@ -194,6 +211,22 @@ func (h *Handlers) WithChats(
 	return h
 }
 
+// WithNodes wires the Node surface the lazy home-provisioning path in
+// resolveHome mints a legacy project's home workspace's own position row
+// through. Unlike WithChats this is NOT optional in effect: resolveHome
+// refuses the request when CreateHome runs but no Nodes surface was wired,
+// the same ErrNoNodesWired-style refusal project.ImportDeps.Nodes already
+// enforces for every other workspace-creation path (2026-09-08
+// sidebar-placement-unification Task 7) — a lazily-provisioned home workspace
+// must not persist with no position row any more than a freshly-imported one
+// may.
+func (h *Handlers) WithNodes(
+	nodes NodeCreator,
+) *Handlers {
+	h.nodes = nodes
+	return h
+}
+
 // resolveHome fetches the home workspace for the project. If not yet
 // provisioned (ErrNotFound), it looks up the project path and creates one
 // lazily — supporting projects created before the home feature was introduced.
@@ -217,6 +250,18 @@ func (h *Handlers) resolveHome(c *gin.Context) (domain.Workspace, bool) {
 	ws, cErr := h.workspaces.CreateHome(c.Request.Context(), projectID, project.Path, time.Now())
 	if cErr != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, "failed to provision home workspace")
+		return domain.Workspace{}, false
+	}
+	// The freshly-provisioned home workspace mints its OWN Node{Kind:workspace}
+	// row unconditionally, right here at creation — mirrors every other
+	// workspace-creation path (project.createOwnedWorkspace,
+	// hierarchy.CreateChild/adoptMainWorktree/importPlaceholder).
+	if h.nodes == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "failed to provision home workspace position")
+		return domain.Workspace{}, false
+	}
+	if _, nErr := h.nodes.Create(c.Request.Context(), ws.ID, domain.NodeKindWorkspace, "", 0); nErr != nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "failed to provision home workspace position")
 		return domain.Workspace{}, false
 	}
 	return ws, true

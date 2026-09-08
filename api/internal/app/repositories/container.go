@@ -529,6 +529,14 @@ func (c *Container) enrichFrame(
 // Container built with only the fields its own assertion needs, matching
 // eligibilityFor's own zero-value tolerance below), an unresolvable read, or
 // a workspace this backfill has not reached yet all degrade to "".
+//
+// Deliberately left resolving through the CHAT side, unchanged, by 2026-09-08
+// sidebar-placement-unification Task 7: every workspace now also mints its own
+// Node row (ID == ws.ID), but dozens of live frontend call sites still address
+// a workspace's sidebar position through THIS chat id (see
+// web/src/components/sidebar/lib/branch-row-id.ts), not ws.ID — repointing it
+// here with no frontend migration would break them. That migration, and
+// retiring this field, is Task 8/9's job.
 func (c *Container) owningChatIDFor(
 	ctx context.Context,
 	wsID string,

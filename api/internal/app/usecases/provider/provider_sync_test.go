@@ -59,6 +59,44 @@ func TestProviderSync_SyncFromState_NilPR(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestProviderSync_SyncFromState_BranchNewlyProtected_NoOwningChatReconciler
+// is the regression test 2026-09-08 sidebar-placement-unification Task 7's
+// brief asks for: a provider poll reporting a branch newly protected used to
+// hand the workspace to a chat-tree reconciler (EnsureOwningChat) so its
+// owning row became a branch row immediately. That call is now a pure
+// deletion — Usecase no longer exposes a reconciler setter at all — because
+// every Workspace mints its own Node{Kind:workspace} row unconditionally at
+// creation, so there is no more "does this now-locked workspace have an
+// owning row yet" question left for a poll to answer. This proves the
+// newly-protected transition itself still syncs cleanly with nothing wired
+// into that former gap.
+func TestProviderSync_SyncFromState_BranchNewlyProtected_NoOwningChatReconciler(t *testing.T) {
+	wsRepo, _, uc := newProviderSyncUsecase(t)
+	ctx := context.Background()
+	now := time.Unix(2000, 0)
+
+	wsRepo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		// Status starts unlocked: this is the "newly protected" transition, not
+		// a re-poll of an already-locked branch.
+		return domain.Workspace{ID: id, Branch: "main", WorktreePath: "/repos/x", Status: domain.WorkspaceStatusNew}, nil
+	}
+	var syncedProtected bool
+	wsRepo.SyncProviderFn = func(
+		_ context.Context,
+		in workspace.ProviderInput,
+		_ time.Time,
+	) (domain.Workspace, error) {
+		syncedProtected = in.Protected
+		return domain.Workspace{ID: in.ID, Status: domain.WorkspaceStatusLocked}, nil
+	}
+
+	state := engineprovider.ProviderState{Protected: true, PR: nil}
+	err := uc.SyncFromState(ctx, "w1", state, now)
+
+	require.NoError(t, err)
+	assert.True(t, syncedProtected, "the newly-protected flag still reaches SyncProviderState")
+}
+
 func TestProviderSync_SyncFromState_WithPR(t *testing.T) {
 	wsRepo, _, uc := newProviderSyncUsecase(t)
 	ctx := context.Background()

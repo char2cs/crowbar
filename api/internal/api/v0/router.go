@@ -141,6 +141,9 @@ func (c *Container) Register(
 		// workspace's only REST read, so it stamps Working from here to agree with
 		// the frames the container broadcasts for that same workspace.
 		c.app.Repositories,
+		// Mints a lazily-provisioned legacy project's home workspace its own
+		// Node row (2026-09-08 sidebar-placement-unification Task 7).
+		c.app.Repositories.Node,
 		// Reused from the workspace-scoped surface: the file-change WS handler and
 		// the review-thread store/broadcaster/WS, dual-served via the same wrapper.
 		// home.Register injects the resolved home :wsId so these scope correctly.
