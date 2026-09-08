@@ -578,6 +578,23 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* `AgentToolCall.status` (turn-tools.tsx) is `ok`, `error` or `abandoned` —
+   without this, all three rendered pixel-identical, so a failed tool call
+   read as a successful one with nothing on screen to say otherwise. */
+.agent-chat .tools li[data-status='error'] {
+  color: var(--destructive);
+}
+.agent-chat .tools li[data-status='error']::before {
+  content: '✕';
+  flex: none;
+}
+.agent-chat .tools li[data-status='abandoned'] {
+  opacity: 0.6;
+}
+.agent-chat .tools li[data-status='abandoned']::before {
+  content: '–';
+  flex: none;
+}
 
 /* The compaction boundary. Everything above it is out of the model's context and
    still in the transcript — this line is the only thing that says so. */
