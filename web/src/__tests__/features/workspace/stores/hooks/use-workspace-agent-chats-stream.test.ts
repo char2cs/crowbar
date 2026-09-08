@@ -1027,6 +1027,59 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(repointAgentChatBuffer).not.toHaveBeenCalled()
   })
 
+  it('a stale displaced refetch must not clobber the replacement runner a later started frame already confirmed', async () => {
+    // The real shape: an ordinary prompt submission to a mixed-transport CLI (codex,
+    // no live api connection) displaces the outgoing runner and spawns its
+    // replacement inside ONE backend call (SubmitPrompt -> displaceForPrompt ->
+    // spawnRunner) — two runner frames reach the client in quick succession,
+    // `displaced` for the outgoing runner and `started` for its replacement, BOTH
+    // naming this same chat. Each fires its own refetchOne, and resolution order is
+    // not issue order.
+    listChatsFn.mockResolvedValue([chat('c1')])
+    buffers = [openTab('buf1', 'c1', 'c1-r')]
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    getChatFn.mockClear()
+
+    // displaced's own read: issued FIRST, served by the daemon BEFORE the
+    // replacement is placed (so it reads dormant), and resolved LAST.
+    let landStaleRead: () => void = () => {}
+    getChatFn.mockImplementationOnce(
+      (_ws: string, id: string) =>
+        new Promise((resolve) => {
+          landStaleRead = () =>
+            resolve({ ...chat(id), liveRunnerId: '', terminalSessionId: '', conversations: [] })
+        }),
+    )
+    // started's own read: issued SECOND, answers with the truth, and lands FIRST.
+    getChatFn.mockImplementationOnce((_ws: string, id: string) =>
+      Promise.resolve({
+        ...chat(id),
+        liveRunnerId: 'c1-r2',
+        terminalSessionId: 'c1-pty2',
+        conversations: [],
+      }),
+    )
+
+    const onFrame = captureCb()
+    onFrame({ runnerId: 'c1-r', chatId: '', workspaceId: 'w1', kind: 'displaced' })
+    await flush()
+    onFrame({ runnerId: 'c1-r2', chatId: 'c1', workspaceId: 'w1', kind: 'started' })
+    await flush()
+
+    // The replacement's own fresher read has already landed...
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r2')
+
+    landStaleRead() // ...and now the stale, superseded request finally resolves.
+    await flush()
+
+    // It must not win. The pane's own attach effect reads liveRunnerId straight off
+    // this row — losing it here reads as "this agent has exited" over a CLI that is
+    // alive and answering, and fires an unwanted revive() against it.
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r2')
+    expect(storeChats.find((c) => c.id === 'c1')?.terminalSessionId).toBe('c1-pty2')
+  })
+
   it('displaced tolerates a runner the client never saw on any chat or tab', async () => {
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
