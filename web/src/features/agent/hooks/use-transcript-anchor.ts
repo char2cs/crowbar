@@ -30,6 +30,20 @@ const STICK_SLACK = 96
  */
 const READER_INPUT_MS = 1000
 
+/**
+ * How long after a turn starts (`pinTurnToTop`) a scroll cannot be read as
+ * the reader's, full stop — see `pinGraceUntil`.
+ *
+ * Sized to the pin's OWN settle sequence, not to any input's recency: the
+ * just-sent prompt swaps from a queued row to its ledger row, the working
+ * indicator mounts, tail-room finds its real reservation — measured live,
+ * that cascade runs for up to ~1.3s. Shorter than that would let the last
+ * of it slip back through the generic heuristic; there is no cost to
+ * generosity here the way there is with `READER_INPUT_MS`, since this
+ * window opens at a moment this file chose, not one it is guessing about.
+ */
+const PIN_SETTLE_GRACE_MS = 1500
+
 /** Where the reader was, captured on unmount so the NEXT time this exact
  *  chat mounts (a switch back, this session) it can pick up from here
  *  instead of defaulting to the bottom — see UseTranscriptAnchorOptions. */
@@ -209,6 +223,24 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // then run for as long as the reader holds the button; the timestamp alone
   // would go stale under them mid-drag.
   const pointerHeld = useRef(false)
+  // Until this timestamp, `onScroll` cannot read a scroll as the reader's,
+  // no matter what `lastInputAt`/`pointerHeld` say. Set only by
+  // `pinTurnToTop`, which already knows — explicitly, synchronously, with
+  // no inference involved — that a turn just started and `stuck` needs to
+  // survive whatever resizes that turn's own settling produces (a queued
+  // row swapping for its ledger row, tail-room finding its footing).
+  //
+  // `READER_INPUT_MS` above exists to solve a DIFFERENT, harder problem —
+  // telling a real gesture apart from the browser's own scroll anchoring,
+  // which fires with NO programmatic signal at all, so recency is the only
+  // evidence available. Sending a prompt is not that problem: submitting IS
+  // a keydown (Enter) or a pointerdown/up (Send), so it always sits inside
+  // that same recency window, and the reader-heuristic could only ever be
+  // taught to carve THIS keystroke or THAT click out one at a time. Asserting
+  // the known window directly, from the one call site that actually knows it
+  // exists, closes the whole class at once instead of chasing each new event
+  // source into it.
+  const pinGraceUntil = useRef(0)
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -359,18 +391,48 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     const noteInput = () => {
       lastInputAt.current = performance.now()
     }
-    const onPointerDown = () => {
+    // A keydown ONLY: typing, or pressing Enter to send, in the composer is
+    // never "the reader scrolling the transcript" — it just happens to be a
+    // keydown, the same event type PageDown/Space/arrow keys use to
+    // legitimately scroll the transcript when IT has focus. Without this,
+    // the send keystroke itself armed `reader` for a full READER_INPUT_MS
+    // afterward, and any resize-driven scroll adjustment in that window (the
+    // browser's own clamp when content shrinks, say) got misread as the
+    // reader grabbing the scrollbar. Observed live: `stuck` latched false
+    // right after send, the pin-to-top reservation kept adjusting
+    // (`applyTailRoom` runs unconditionally) while `scrollTop` itself never
+    // moved again — "the space is there, the auto-scroll didn't work."
+    const noteKeydownUnlessEditing = (event: Event) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('[contenteditable], input, textarea')) return
+      noteInput()
+    }
+    // Scoped to a pointerdown that actually STARTS on this container (its
+    // scrollbar, its rows) — the scrollbar-drag `pointerHeld` above exists
+    // for. Unscoped, this was the pointer-event twin of the keydown bug just
+    // above: clicking Send, or literally anything else anywhere in the app,
+    // fired a pointerdown/pointerup pair on `window` and got read as the
+    // reader grabbing the scrollbar. `pointerup`/`pointercancel` stay
+    // UNSCOPED on purpose — a real drag can end with the cursor anywhere
+    // once it outruns the scrollbar's bounds — but only ever DO anything
+    // when `pointerHeld` says a drag we actually started tracking is the
+    // one ending.
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element) || !el.contains(target)) return
       pointerHeld.current = true
       noteInput()
     }
     const onPointerUp = () => {
+      if (!pointerHeld.current) return
       pointerHeld.current = false
       noteInput()
     }
-    const INPUT_EVENTS = ['wheel', 'touchstart', 'touchmove', 'keydown'] as const
+    const INPUT_EVENTS = ['wheel', 'touchstart', 'touchmove'] as const
     for (const type of INPUT_EVENTS) {
       window.addEventListener(type, noteInput, { capture: true, passive: true })
     }
+    window.addEventListener('keydown', noteKeydownUnlessEditing, { capture: true, passive: true })
     window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true })
     window.addEventListener('pointerup', onPointerUp, { capture: true, passive: true })
     window.addEventListener('pointercancel', onPointerUp, { capture: true, passive: true })
@@ -380,6 +442,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       for (const type of INPUT_EVENTS) {
         window.removeEventListener(type, noteInput, { capture: true })
       }
+      window.removeEventListener('keydown', noteKeydownUnlessEditing, { capture: true })
       window.removeEventListener('pointerdown', onPointerDown, { capture: true })
       window.removeEventListener('pointerup', onPointerUp, { capture: true })
       window.removeEventListener('pointercancel', onPointerUp, { capture: true })
@@ -427,6 +490,10 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     // own prompt that just landed. Without this, a prompt sent after reading
     // back through history would reserve the room and then not move.
     stuck.current = true
+    // Protects the assertion just above for as long as this pin's own
+    // settling can plausibly still be resizing things — see
+    // `pinGraceUntil`/`PIN_SETTLE_GRACE_MS`.
+    pinGraceUntil.current = performance.now() + PIN_SETTLE_GRACE_MS
     resyncRef.current()
   }, [])
 
@@ -454,7 +521,9 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     // stranded mid-generation with the transcript refusing to follow it any
     // further. Nobody having touched anything means the view is still where
     // the reader left it: keep following, from wherever it now sits.
-    const reader = pointerHeld.current || performance.now() - lastInputAt.current < READER_INPUT_MS
+    const reader =
+      performance.now() >= pinGraceUntil.current &&
+      (pointerHeld.current || performance.now() - lastInputAt.current < READER_INPUT_MS)
     if (!reader) {
       resyncRef.current()
       return

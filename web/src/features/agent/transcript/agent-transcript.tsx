@@ -10,6 +10,7 @@ import type {
   AgentToolCall,
 } from '@/features/agent/api/agent-api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
+import { samePrompt } from '@/features/agent/hooks/use-prompt-queue'
 import { WorkingLine } from '@/features/agent/activity/working-line'
 import {
   useTranscriptAnchor,
@@ -419,6 +420,93 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // what removes the conflict rather than papering over its symptom.
     useFlushSync: false,
   })
+
+  // The streaming bubble's own LAST REAL height, by message sequence — kept
+  // only as long as that message is actually streaming. Read once, in the
+  // settle effect below, the moment that same sequence reappears as a
+  // virtualized row: `estimateRowHeight` has to guess from raw character
+  // count alone, and for anything its line-height model doesn't fit — a
+  // heading, a list, a table — that guess lands well short of a real reply's
+  // height. This is the one case a guess is unnecessary: the content just sat
+  // on screen, laid out for real, a moment before the same message settles
+  // into the virtualizer. Reusing that measurement instead of re-guessing is
+  // what closes the "glides up, then drops hard, then glides back up" gap
+  // `estimateRowHeight`'s own doc comment already describes as a residual,
+  // physical drop in `.stream`'s height the browser clamps `scrollTop`
+  // against — measured live: a 212px hard drop, then a ~230ms climb back.
+  const lastStreamedHeight = useRef(new Map<number, number>())
+  useLayoutEffect(() => {
+    const bubbles = props.streamingBubbles
+    const container = anchor.scrollRef.current
+    if (!bubbles?.length || !container) return
+    for (const bubble of bubbles) {
+      const el = container.querySelector<HTMLElement>(`[data-sequence="${bubble.sequence}"]`)
+      if (el) lastStreamedHeight.current.set(bubble.sequence, el.getBoundingClientRect().height)
+    }
+  })
+  // Primes the virtualizer with that real height BEFORE this row's first
+  // paint as a virtualized item, rather than letting it start from
+  // `estimateRowHeight`'s guess and wait for `measureElement` to correct it a
+  // beat later. One-shot per message: the cache entry is consumed (deleted)
+  // the instant it is used, so a later, ordinary re-measurement of the same
+  // row (content still settling, a code block highlighting in) is untouched.
+  useLayoutEffect(() => {
+    if (lastStreamedHeight.current.size === 0) return
+    rows.forEach((row, index) => {
+      if (row.kind !== 'message') return
+      const cached = lastStreamedHeight.current.get(row.message.sequence)
+      if (cached === undefined) return
+      lastStreamedHeight.current.delete(row.message.sequence)
+      rowVirtualizer.resizeItem(index, cached)
+    })
+  }, [rows, rowVirtualizer])
+
+  // The queued row's own LAST REAL height, by clientRequestId — the same
+  // idea as `lastStreamedHeight` above, one step earlier in a message's
+  // life. Dispatch removes a prompt's `QueuedRow` from `.stream` the
+  // instant the daemon confirms it, well before the corresponding message
+  // is necessarily back in `rows` (that needs its own fetch or WS push) —
+  // so the real height that row's own prompt text was occupying vanishes
+  // outright for however long that gap lasts, and `estimateRowHeight`'s
+  // guess stands in until `measureElement` corrects it a beat later.
+  // Measured live: a 245px hard drop the instant the queued row unmounts,
+  // then a climb back — reported as "bouncing... once the provider
+  // approved and confirmed the message has been submitted".
+  //
+  // Matched via `samePrompt` — the SAME evidence usePromptQueue itself
+  // trusts to retire a queued item — rather than a second, driftable
+  // definition of "is this THAT prompt" living here.
+  const lastQueuedHeight = useRef(new Map<string, { item: PromptQueueItem; height: number }>())
+  useLayoutEffect(() => {
+    const container = anchor.scrollRef.current
+    if (!container) return
+    for (const item of queue) {
+      const el = container.querySelector<HTMLElement>(
+        `[data-client-request-id="${CSS.escape(item.clientRequestId)}"]`,
+      )
+      if (el)
+        lastQueuedHeight.current.set(item.clientRequestId, {
+          item,
+          height: el.getBoundingClientRect().height,
+        })
+    }
+  })
+  // Primes the virtualizer the same way the streaming-bubble effect above
+  // does, for the same reason. One-shot per prompt: consumed (deleted) the
+  // instant a match is used, so a later, ordinary re-measurement of the
+  // same row is untouched.
+  useLayoutEffect(() => {
+    if (lastQueuedHeight.current.size === 0) return
+    rows.forEach((row, index) => {
+      if (row.kind !== 'message') return
+      for (const [key, { item, height }] of lastQueuedHeight.current) {
+        if (!samePrompt(row.message, item)) continue
+        lastQueuedHeight.current.delete(key)
+        rowVirtualizer.resizeItem(index, height)
+        break
+      }
+    })
+  }, [rows, rowVirtualizer])
 
   return (
     <div

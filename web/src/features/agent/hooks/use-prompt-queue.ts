@@ -57,7 +57,11 @@ export function awaitingEvidence(item: PromptQueueItem): boolean {
   )
 }
 
-function samePrompt(message: AgentChatMessage, prompt: PromptQueueItem): boolean {
+/** Exported for `agent-transcript.tsx`'s own use of the same evidence match
+ *  — priming a settling row's virtualizer height from the queued row it
+ *  replaces needs the identical "is this THAT prompt" answer this FIFO
+ *  already trusts, not a second, driftable copy of it. */
+export function samePrompt(message: AgentChatMessage, prompt: PromptQueueItem): boolean {
   return (
     message.role === 'user' &&
     message.sequence > prompt.baselineSequence &&

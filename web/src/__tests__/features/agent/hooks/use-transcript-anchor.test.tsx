@@ -691,6 +691,39 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
     expect(pinTop - scroller.scrollTop).toBe(0)
   })
 
+  // Regression: chasing this bug through the input-recency heuristic (the
+  // composer's Enter keydown, then the Send button's pointerdown/up) fixed
+  // two live-reported causes one at a time, with no reason to believe those
+  // were the last of them — the send gesture is ALWAYS one of wheel/touch/
+  // key/pointer, by definition, so it always sits inside READER_INPUT_MS
+  // regardless of which of those it happens to be. `pinTurnToTop` protects
+  // its own `stuck = true` directly instead: for PIN_SETTLE_GRACE_MS after a
+  // turn starts, NOTHING reads a scroll as the reader's, whatever kind of
+  // input just happened — proven here with a plain `wheel`, an event this
+  // file has always correctly tracked, to show the grace window is what is
+  // actually holding `stuck` here, not the type of the event.
+  it('a real, ordinary input event landing right after pinning does not un-stick the pin', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+
+    // A real, unrelated wheel-driven scroll event lands moments later — the
+    // same shape as the browser's own resize-driven adjustment landing near
+    // any ordinary input, not specifically Enter or Send.
+    act(() => {
+      fireEvent.wheel(scroller)
+      scroller.scrollTop = 500
+      fireEvent.scroll(scroller)
+    })
+
+    vi.advanceTimersByTime(1500)
+
+    // Still lands the pin — the wheel event did not un-stick it.
+    expect(scroller.scrollTop).toBe(900)
+  })
+
   it('holds the prompt at the top while a short reply grows underneath it', () => {
     let anchor!: TranscriptAnchor
     const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
@@ -893,6 +926,163 @@ describe('useTranscriptAnchor: telling the reader apart from the browser', () =>
     grow(1400)
     vi.advanceTimersByTime(1500)
 
+    expect(scroller.scrollTop).toBe(200)
+  })
+
+  // Regression: the live bug reported as "the space is there, the
+  // auto-scroll didn't work" right after sending a message. Pressing Enter
+  // to SEND is a keydown too, and it fires on the composer — a
+  // contenteditable, nowhere near the transcript — but the window-level
+  // listener could not tell that apart from PageUp/PageDown scrolling the
+  // transcript itself, so the send keystroke armed `reader` for a full
+  // second afterward. Any resize-driven scroll adjustment landing in that
+  // window (the browser's own clamp when content shrinks while a queued
+  // prompt settles into the ledger, say) then read as the reader grabbing
+  // the scrollbar, latched `stuck` false, and following never resumed for
+  // the rest of the turn — visible live as the transcript freezing exactly
+  // where that one adjustment left it, while the tail-room reservation kept
+  // adjusting around it with nothing to show for it.
+  it('does not treat a keydown that fires while typing/sending in the composer as the reader scrolling', () => {
+    function HostWithComposer() {
+      const anchor = useTranscriptAnchor()
+      return (
+        <div>
+          <div data-testid="composer" contentEditable suppressContentEditableWarning />
+          <div
+            data-testid="scroller"
+            ref={(node) => {
+              anchor.scrollRef.current = node
+              if (!node || Object.hasOwn(node, 'scrollHeight')) return
+              let top = 0
+              Object.defineProperty(node, 'scrollTop', {
+                configurable: true,
+                get: () => top,
+                set: (v: number) => {
+                  top = Math.max(0, Math.min(v, Math.max(0, scrollHeight - clientHeight)))
+                },
+              })
+              Object.defineProperty(node, 'scrollHeight', {
+                configurable: true,
+                get: () => scrollHeight,
+              })
+              Object.defineProperty(node, 'clientHeight', {
+                configurable: true,
+                get: () => clientHeight,
+              })
+            }}
+            onScroll={anchor.onScroll}
+          >
+            <div data-testid="content" />
+          </div>
+        </div>
+      )
+    }
+
+    const { getByTestId } = render(<HostWithComposer />)
+    const scroller = getByTestId('scroller')
+    const composer = getByTestId('composer')
+    expect(scroller.scrollTop).toBe(600) // pinned to the bottom
+
+    act(() => {
+      // Pressing Enter to send.
+      fireEvent.keyDown(composer, { key: 'Enter' })
+      // A resize-driven scroll adjustment (the browser's own clamp) lands
+      // moments later, well within READER_INPUT_MS of that keystroke — with
+      // no wheel, touch, or pointer gesture anywhere.
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // Recovers and keeps following — the send keystroke must never have
+    // been read as the reader scrolling away.
+    expect(scroller.scrollTop).toBe(1000)
+  })
+
+  // Regression, same bug as the keydown one above, different event: a
+  // pointerdown/pointerup pair is exactly what clicking the SEND BUTTON
+  // fires too, and pointerdown/up were tracked window-wide with no target
+  // check at all — so clicking Send (as opposed to pressing Enter, the
+  // other regression here) reproduced the identical freeze through a
+  // completely different, still-unfixed path.
+  it('does not treat a click on something outside the transcript (e.g. Send) as the reader touching the scrollbar', () => {
+    function HostWithButton() {
+      const anchor = useTranscriptAnchor()
+      return (
+        <div>
+          <button data-testid="send-button" type="button" />
+          <div
+            data-testid="scroller"
+            ref={(node) => {
+              anchor.scrollRef.current = node
+              if (!node || Object.hasOwn(node, 'scrollHeight')) return
+              let top = 0
+              Object.defineProperty(node, 'scrollTop', {
+                configurable: true,
+                get: () => top,
+                set: (v: number) => {
+                  top = Math.max(0, Math.min(v, Math.max(0, scrollHeight - clientHeight)))
+                },
+              })
+              Object.defineProperty(node, 'scrollHeight', {
+                configurable: true,
+                get: () => scrollHeight,
+              })
+              Object.defineProperty(node, 'clientHeight', {
+                configurable: true,
+                get: () => clientHeight,
+              })
+            }}
+            onScroll={anchor.onScroll}
+          >
+            <div data-testid="content" />
+          </div>
+        </div>
+      )
+    }
+
+    const { getByTestId } = render(<HostWithButton />)
+    const scroller = getByTestId('scroller')
+    const sendButton = getByTestId('send-button')
+    expect(scroller.scrollTop).toBe(600)
+
+    act(() => {
+      fireEvent.pointerDown(sendButton)
+      fireEvent.pointerUp(sendButton)
+      // A resize-driven scroll adjustment lands moments later — same shape
+      // as the keydown regression above.
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    expect(scroller.scrollTop).toBe(1000)
+  })
+
+  // The behaviour the scoping above must NOT break: a real scrollbar drag
+  // starts with pointerdown ON the scroller itself and can end anywhere —
+  // the cursor routinely outruns the scrollbar during a fast drag — so
+  // pointerup/pointercancel stay unscoped, gated on `pointerHeld` instead.
+  it('still treats a real scrollbar drag as the reader, even when it ends outside the scroller', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+
+    act(() => {
+      fireEvent.pointerDown(scroller)
+      scroller.scrollTop = 200
+      fireEvent.scroll(scroller)
+      // Released off the scroller — document, not the scroller itself.
+      fireEvent.pointerUp(document.body)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // Left exactly where the drag put it.
     expect(scroller.scrollTop).toBe(200)
   })
 })
