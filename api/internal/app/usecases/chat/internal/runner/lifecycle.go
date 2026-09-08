@@ -229,6 +229,26 @@ func (rs *Runners) retire(
 		slog.WarnContext(ctx, "agent: retire runner: terminate (best-effort, continuing)",
 			"runner_id", runner.ID, "terminal_session_id", runner.TerminalSession, "err", err)
 	}
+	// runner.TerminalSession above is the ORIGINAL companion PTY every
+	// api-transport spawn forks alongside its connection — never reassigned,
+	// so it names a different, LEAKED process once SwitchToTerminal has run:
+	// that call forks a THIRD, separate PTY for the native view and tracks it
+	// only in rs.attached, exactly the one the user is actually looking at.
+	// Retiring a chat that is mid-attach must take that one down too, and
+	// forget it here — SwitchToNative is the only other place that ever does,
+	// and a chat closed while attached never reaches it. Confirmed live: without
+	// this, closing an attached chat killed the long-abandoned companion PTY,
+	// left the real, visible native-view process running forever with nothing
+	// pointing at it, and left rs.attached answering AttachedTerminalSession for
+	// a runner id nothing will ever revisit.
+	if view, ok := rs.attached.get(runner.ID); ok {
+		rs.attached.drop(runner.ID)
+		if err := rs.term.TerminateGraceful(ctx, view.termSessID); err != nil &&
+			!errors.Is(err, engineterminal.ErrSessionNotFound) {
+			slog.WarnContext(ctx, "agent: retire runner: terminate attached native view (best-effort, continuing)",
+				"runner_id", runner.ID, "terminal_session_id", view.termSessID, "err", err)
+		}
+	}
 	// See quitOutgoingCLI's own comment: an api-transport runner's serve process
 	// is not the terminal session above, has no PTY to take it down on exit, and
 	// is otherwise leaked forever. Retire (Stop) is the other path a runner
@@ -382,15 +402,36 @@ func (rs *Runners) StopChat(
 	if err != nil {
 		return fmt.Errorf("agent: stop chat: live runner: %w", err)
 	}
+	// Read BEFORE either teardown path runs, for the same reason RecordStop
+	// below is: interruptTurn's async send and retire's kill both race the
+	// CLI's own last words, and neither is a moment to still be asking "was a
+	// turn actually running" from.
+	working, err := rs.turns.ChatWorking(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: stop chat: chat working: %w", err)
+	}
 	// Recorded BEFORE either teardown path runs, while the turn this is about is
-	// still the one in flight: interruptTurn's async send and retire's kill both
-	// race the CLI's own last words, and neither is a moment to still be asking
-	// "was a turn actually running" from. A closed chat tab also calls StopChat —
-	// RecordStop itself is the no-op guard for that case, not this call site.
+	// still the one in flight. A closed chat tab also calls StopChat — RecordStop
+	// itself is the no-op guard for that case, not this call site.
 	if err := rs.turns.RecordStop(ctx, chatID); err != nil {
 		slog.WarnContext(ctx, "agent: stop chat: record interruption", "chat_id", chatID, "err", err)
 	}
-	if rs.interruptTurn(ctx, live) {
+	// ONLY WHILE THERE IS A TURN TO INTERRUPT. interruptTurn asks a live api
+	// connection to cancel gracefully and leaves the CLI running — exactly what
+	// the Stop button wants mid-answer (see this function's own history: killing
+	// mid-turn is what corrupted a resumed session's transcript, the same
+	// reasoning switchProviderLocked's awaitTurnOrForce is built around). But a
+	// closed chat tab reaches this same call on an IDLE chat just as often as a
+	// mid-turn one, and interruptTurn's own check has no notion of idle — a live
+	// api connection plus a descriptor that declares a non-"prompt" interrupt
+	// gesture (codex, always) made it return true regardless, so StopChat
+	// returned having neither interrupted anything nor retired the runner.
+	// Confirmed live: closing a codex tab left its runner, its api connection
+	// and its companion PTY all running indefinitely, still placed on the
+	// "closed" chat, directly contradicting closeBuffer's own "closing stops
+	// the CLI" contract on the frontend. Gating on working restores it: an idle
+	// chat always falls through to a real retire below.
+	if working && rs.interruptTurn(ctx, live) {
 		return nil
 	}
 	rs.retire(ctx, live)
