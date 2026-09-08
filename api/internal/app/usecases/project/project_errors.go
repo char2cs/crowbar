@@ -18,3 +18,12 @@ var ErrFolderNotFound = errors.New("folder does not exist")
 // to HTTP 409 via libs.StatusAndMessage, and it is wrapped with the name of the
 // project that already has the folder so the message says where to look.
 var ErrRepoAlreadyImported = errors.New("this folder is already added as a repository")
+
+// ErrNoNodesWired is returned when a repo import runs on a usecase whose Node
+// surface (NodePlacements) was never wired.
+//
+// It refuses rather than silently persisting a repo with no position row —
+// mirrors ErrNoOwningChats's own reasoning: an unwired daemon fails at its
+// first import instead of producing a repo whose sidebar entry every densify
+// pass silently skips.
+var ErrNoNodesWired = errors.New("project import: no node surface wired; refusing to create a repo with no position")

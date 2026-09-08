@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/branchimport"
@@ -280,6 +281,142 @@ func (s *WorkspacePlacements) GetHomeForProject(
 		}
 	}
 	return domain.Workspace{}, apperr.ErrNotFound
+}
+
+// NodePlacements is a fake project.NodePlacements: it holds every repo-kind
+// Node row minted so far and records the two placement writes SEPARATELY
+// (mirroring AgentChatPlacements's Placed/Ordered split) — a renumber may
+// write an index and must be unable to write a parent.
+type NodePlacements struct {
+	Rows      []domain.Node
+	CreateErr error
+	GetErr    error
+	ListErr   error
+	OrderErr  error
+	PlaceErr  error
+	// OrderErrForID and PlaceErrForID, when set for a given node id, fail only
+	// that id's SetOrder/SetPlacement call — separate from OrderErr/PlaceErr so
+	// a test can fail one sibling's renumber write (e.g. densifying the
+	// ORIGIN project after a cross-project repo move) while another row's
+	// write in the same operation still succeeds, mirroring
+	// RepositoryStore.SaveErrForID.
+	OrderErrForID map[string]error
+	PlaceErrForID map[string]error
+	Placed        []NodePlacementWrite
+	Ordered       []NodeOrderWrite
+}
+
+// NodePlacementWrite is one recorded call to SetPlacement: the node moved,
+// and where to.
+type NodePlacementWrite struct {
+	ID       string
+	ParentID string
+	Order    int
+}
+
+// NodeOrderWrite is one recorded call to SetOrder: a node a densify
+// renumbered, and the index it was given. It carries no parent, which is the
+// whole point.
+type NodeOrderWrite struct {
+	ID    string
+	Order int
+}
+
+// NewNodePlacements returns an empty NodePlacements.
+func NewNodePlacements() *NodePlacements {
+	return &NodePlacements{}
+}
+
+func (s *NodePlacements) Create(
+	ctx context.Context,
+	id string,
+	kind domain.NodeKind,
+	parentID string,
+	order int,
+) (domain.Node, error) {
+	if s.CreateErr != nil {
+		return domain.Node{}, s.CreateErr
+	}
+	n := domain.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}
+	s.Rows = append(s.Rows, n)
+	return n, nil
+}
+
+func (s *NodePlacements) GetNode(
+	ctx context.Context,
+	id string,
+) (domain.Node, error) {
+	if s.GetErr != nil {
+		return domain.Node{}, s.GetErr
+	}
+	for _, n := range s.Rows {
+		if n.ID == id {
+			return n, nil
+		}
+	}
+	return domain.Node{}, node.ErrNotFound
+}
+
+func (s *NodePlacements) ListByParent(
+	ctx context.Context,
+	parentID string,
+) ([]domain.Node, error) {
+	if s.ListErr != nil {
+		return nil, s.ListErr
+	}
+	rows := make([]domain.Node, 0, len(s.Rows))
+	for _, n := range s.Rows {
+		if n.ParentID == parentID {
+			rows = append(rows, n)
+		}
+	}
+	return rows, nil
+}
+
+// SetOrder writes the index and leaves the parent exactly as it stands, like
+// the command it stands in for.
+func (s *NodePlacements) SetOrder(
+	ctx context.Context,
+	id string,
+	order int,
+) error {
+	if s.OrderErr != nil {
+		return s.OrderErr
+	}
+	if err := s.OrderErrForID[id]; err != nil {
+		return err
+	}
+	s.Ordered = append(s.Ordered, NodeOrderWrite{ID: id, Order: order})
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			s.Rows[i].Order = order
+			return nil
+		}
+	}
+	return nil
+}
+
+func (s *NodePlacements) SetPlacement(
+	ctx context.Context,
+	id string,
+	parentID string,
+	order int,
+) error {
+	if s.PlaceErr != nil {
+		return s.PlaceErr
+	}
+	if err := s.PlaceErrForID[id]; err != nil {
+		return err
+	}
+	s.Placed = append(s.Placed, NodePlacementWrite{ID: id, ParentID: parentID, Order: order})
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			s.Rows[i].ParentID = parentID
+			s.Rows[i].Order = order
+			return nil
+		}
+	}
+	return nil
 }
 
 // WorkspaceRepo is a fake of the subset of workspace.Workspace used on import.

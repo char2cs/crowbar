@@ -1,5 +1,10 @@
 package domain
 
+// Repository carries a repo's own identity and its git-adjacent facts. Its
+// SIDEBAR POSITION (what used to be Order/FolderID here, the interim Phase-A
+// fields) now lives on its own Node{Kind: NodeKindRepo, ID: repo.ID} row
+// (api/internal/app/repositories/node) — the ONE aggregate that owns every
+// sidebar row's position at every tree level, replacing this struct's own copy.
 type Repository struct {
 	ID        string `gorm:"primaryKey" json:"id"`
 	ProjectID string `json:"projectId"`
@@ -27,26 +32,6 @@ type Repository struct {
 	AvatarVersion int64  `json:"avatarVersion,omitempty"`
 	AvatarEmoji   string `json:"avatarEmoji,omitempty"`
 	RemoteURL     string `json:"remoteUrl,omitempty"`
-	// Order is the repository's dense index within its project's sidebar section
-	// — specifically, among whatever else shares its FolderID (below): every
-	// other repo filed under the same project-home folder, or, for "", every
-	// other root-level repo. It is not compared against a chat/folder row's own
-	// Order at write time (the two live in different tables, densified
-	// independently), only sorted alongside them client-side — the same loose
-	// interleaving a workspace's own Order already has with a folder's.
-	// AutoMigrate adds the column; rows written before it existed default to 0 and
-	// fall back to the id tiebreak, which the first reorder replaces with a dense
-	// sequence.
-	Order int `json:"order"`
-	// FolderID is the project-home folder this repo's entry is filed under, ""
-	// for the project's home root. It is the repo's OWN placement within its
-	// project's home tree — distinct from anything git: a repo still owns
-	// exactly the same worktrees, branches and default workspace wherever its
-	// entry happens to sit in the sidebar. Always a project-home folder (a
-	// domain.Chat row with Type == ChatTypeFolder and RepoID == ""); never a
-	// folder that lives inside a repo's own tree, which organises that repo's
-	// branches and has nothing to do with where the repo itself is filed.
-	FolderID string `json:"folderId,omitempty"`
 }
 
 func (Repository) TableName() string {

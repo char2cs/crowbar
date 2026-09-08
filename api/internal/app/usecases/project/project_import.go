@@ -222,7 +222,11 @@ type ImportDeps struct {
 	Provider   ImportProviderEngine
 	Discover   DiscoverFunc
 	RefRunner  RefRunnerFactory
-	Now        func() time.Time
+	// Nodes mints the Node{Kind: NodeKindRepo} row that owns a newly imported
+	// repo's own sidebar position, at the same point its Repository row is
+	// persisted — see NodePlacements.
+	Nodes NodePlacements
+	Now   func() time.Time
 	// Stat probes the import path before anything is persisted, so a failed
 	// import leaves no project behind. Defaults to os.Stat when nil; tests
 	// stub it to avoid touching the real filesystem.
@@ -460,6 +464,20 @@ func (u *projectImport) importOneRepo(
 			_ = u.deps.Repos.Delete(ctx, repo.ID)
 		}
 	}()
+	// Mint the Node row that owns this repo's OWN sidebar position — every
+	// repo gets one at creation, not only at its first reorder, so
+	// UpdateRepo's read (getRepoNode) is never guessing at a row that was
+	// never born. Filed at the project-home root ("", order 0) alongside
+	// whatever else already sits there; the first drag densifies it for
+	// real. A repo that never gets one (Nodes left unwired) is exactly the
+	// unusable state HOME ADOPTION failing already rolls back for, so it
+	// shares that same rollback.
+	if u.deps.Nodes == nil {
+		return domain.Repository{}, ErrNoNodesWired
+	}
+	if _, err := u.deps.Nodes.Create(ctx, repo.ID, domain.NodeKindRepo, "", 0); err != nil {
+		return domain.Repository{}, fmt.Errorf("project import: mint repo node: %w", err)
+	}
 	// Resolve protected branches once: it decides whether the home must detach
 	// off a protected branch and which branches get their own managed worktree. A
 	// provider failure is soft — import the repo home alone rather than failing the

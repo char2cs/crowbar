@@ -175,6 +175,17 @@ type RepoImporter interface {
 	) error
 }
 
+// NodeReader is the narrow read-only Node surface the repos handlers need to
+// fill in a RepoDTO's own sidebar position (Order/FolderID) — see domain.Node
+// and dto.RepoPlacement. Every WRITE to a repo's position goes through
+// RepoUpdater (project.Usecase.UpdateRepo) instead; this is display-only.
+type NodeReader interface {
+	GetNode(
+		ctx context.Context,
+		id string,
+	) (domain.Node, error)
+}
+
 // RepoUpdater applies a partial repository update — display name (and its
 // derived avatar), sidebar order, owning project — and returns the updated repo
 // so the handler can broadcast the new RepoDTO.
@@ -200,6 +211,7 @@ type Handlers struct {
 	remote      RemoteRefresher
 	importer    RepoImporter
 	updater     RepoUpdater
+	nodes       NodeReader
 	crowbarHome func() (string, error)
 	fetchAvatar AvatarBytesFetcher
 	broadcast   func(dto.RepoDTO)
@@ -299,6 +311,19 @@ func (h *Handlers) WithUpdater(
 	return h
 }
 
+// WithNodes wires the read-only Node surface a RepoDTO reads its own sidebar
+// position from (see NodeReader). A nil arg leaves every RepoDTO's Order/
+// FolderID at the zero value (root, order 0) — the same degrade a repo with no
+// Node row yet renders as.
+func (h *Handlers) WithNodes(
+	nodes NodeReader,
+) *Handlers {
+	if nodes != nil {
+		h.nodes = nodes
+	}
+	return h
+}
+
 // WithStat overrides the filesystem stat used to validate the create path
 // synchronously. Intended for tests; a nil arg leaves os.Stat in place.
 func (h *Handlers) WithStat(
@@ -326,6 +351,38 @@ func (h *Handlers) WithIconStorage(
 	return h
 }
 
+// placementOf resolves repoID's own sidebar position from its Node row,
+// degrading to the zero value (root, order 0) when no reader is wired or no
+// row exists yet — a repo created through the bare buildRepo+Save fallback (no
+// importer wired) never gets one, and every RepoDTO must still render. This is
+// display-only: never fails the request it enriches.
+func (h *Handlers) placementOf(
+	ctx context.Context,
+	repoID string,
+) dto.RepoPlacement {
+	if h.nodes == nil {
+		return dto.RepoPlacement{}
+	}
+	n, err := h.nodes.GetNode(ctx, repoID)
+	if err != nil {
+		return dto.RepoPlacement{}
+	}
+	return dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}
+}
+
+// placementsOf resolves every repo's own position in one pass, for the List/
+// snapshot paths — see placementOf.
+func (h *Handlers) placementsOf(
+	ctx context.Context,
+	repos []domain.Repository,
+) map[string]dto.RepoPlacement {
+	placements := make(map[string]dto.RepoPlacement, len(repos))
+	for _, r := range repos {
+		placements[r.ID] = h.placementOf(ctx, r.ID)
+	}
+	return placements
+}
+
 // List handles GET /v0/repos, returning every repo as RepoDTO[]. The optional
 // projectId query parameter filters the result to one project's repos.
 func (h *Handlers) List(
@@ -348,7 +405,7 @@ func (h *Handlers) List(
 		projectID = c.Query("projectId")
 	}
 	repos = filterByProject(repos, projectID)
-	libs.WriteQueryOK(c, dto.RepoDTOList(repos))
+	libs.WriteQueryOK(c, dto.RepoDTOList(repos, h.placementsOf(c.Request.Context(), repos)))
 }
 
 // Detail handles GET /v0/projects/:projectId/repos/:repoId, returning a single RepoDTO. The workspace
@@ -368,7 +425,7 @@ func (h *Handlers) Detail(
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	libs.WriteQueryOK(c, dto.RepoDTOFrom(*repo))
+	libs.WriteQueryOK(c, dto.RepoDTOFrom(*repo, h.placementOf(c.Request.Context(), repo.ID)))
 }
 
 // createRequest is the POST .../repos body.
@@ -433,7 +490,7 @@ func (h *Handlers) Create(
 		if !ok {
 			return
 		}
-		h.broadcast(dto.RepoDTOFrom(repo))
+		h.broadcast(dto.RepoDTOFrom(repo, h.placementOf(ctx, repo.ID)))
 	})
 }
 
@@ -600,7 +657,7 @@ func (h *Handlers) Patch(
 		return
 	}
 	h.relocateEntityDir(c, c.Param("projectId"), repo)
-	h.broadcast(dto.RepoDTOFrom(repo))
+	h.broadcast(dto.RepoDTOFrom(repo, h.placementOf(c.Request.Context(), repo.ID)))
 	c.Status(http.StatusNoContent)
 }
 
@@ -1106,7 +1163,7 @@ func (h *Handlers) PutIconEmoji(c *gin.Context) {
 	}
 	// Deliver the updated avatar to every client on the repos WS stream — the
 	// store Save alone does not fan out.
-	h.broadcast(dto.RepoDTOFrom(*repo))
+	h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(c.Request.Context(), repo.ID)))
 	c.Status(http.StatusNoContent)
 }
 
@@ -1130,7 +1187,7 @@ func (h *Handlers) DeleteIcon(c *gin.Context) {
 	}
 	// Deliver the updated avatar to every client on the repos WS stream — the
 	// store Save alone does not fan out.
-	h.broadcast(dto.RepoDTOFrom(*repo))
+	h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(c.Request.Context(), repo.ID)))
 	c.Status(http.StatusNoContent)
 }
 
@@ -1175,7 +1232,7 @@ func (h *Handlers) PutIcon(c *gin.Context) {
 	// 204, consistent with the other icon mutations: the FE apiFetch throws on
 	// any non-enveloped 200 body, and the updated avatar is delivered on the
 	// repos WS stream by the broadcast below, not in this response.
-	h.broadcast(dto.RepoDTOFrom(*repo))
+	h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(c.Request.Context(), repo.ID)))
 	c.Status(http.StatusNoContent)
 }
 
@@ -1224,6 +1281,6 @@ func (h *Handlers) PutIconGithub(c *gin.Context) {
 	}
 	// Deliver the updated avatar to every client on the repos WS stream — the
 	// store Save alone does not fan out.
-	h.broadcast(dto.RepoDTOFrom(*repo))
+	h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(c.Request.Context(), repo.ID)))
 	c.Status(http.StatusNoContent)
 }

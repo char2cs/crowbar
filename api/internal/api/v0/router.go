@@ -121,6 +121,7 @@ func (c *Container) Register(
 		c.app.Repositories.Workspace,
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.Project,
+		c.app.Repositories.Node,
 		c.eng.Git,
 		c.app.Usecases.Workspace,
 		c.app.Repositories.Workspace,

@@ -35,11 +35,20 @@ type RepoDTO struct {
 	FolderID string `json:"folderId,omitempty"`
 }
 
-// RepoDTOFrom maps a domain Repository onto the wire DTO. Icon precedence is
-// resolved client-side (emoji > on-disk image > generated label/color); this
-// converter only surfaces the proxy URL when an on-disk icon exists and passes
-// the emoji through untouched.
-func RepoDTOFrom(r domain.Repository) RepoDTO {
+// RepoPlacement is a repo's own sidebar position, read off its
+// Node{Kind: NodeKindRepo} row (api/internal/app/repositories/node) rather
+// than domain.Repository itself — see that struct's own doc. The zero value
+// (root, order 0) is what a repo with no Node row yet renders as.
+type RepoPlacement struct {
+	FolderID string
+	Order    int
+}
+
+// RepoDTOFrom maps a domain Repository plus its own Node-sourced placement
+// onto the wire DTO. Icon precedence is resolved client-side (emoji > on-disk
+// image > generated label/color); this converter only surfaces the proxy URL
+// when an on-disk icon exists and passes the emoji through untouched.
+func RepoDTOFrom(r domain.Repository, placement RepoPlacement) RepoDTO {
 	avatarURL := ""
 	if r.AvatarHasIcon {
 		// The ?v=<AvatarVersion> query param cache-busts the otherwise-stable
@@ -58,23 +67,25 @@ func RepoDTOFrom(r domain.Repository) RepoDTO {
 		AvatarColor:   r.AvatarColor,
 		AvatarURL:     avatarURL,
 		AvatarEmoji:   r.AvatarEmoji,
-		Order:         r.Order,
-		FolderID:      r.FolderID,
+		Order:         placement.Order,
+		FolderID:      placement.FolderID,
 	}
 }
 
 // RepoDTOList converts a slice of domain Repositories into wire DTOs in sidebar
 // order, returning a non-nil empty slice when the input is empty so the envelope
-// carries [].
+// carries []. placements supplies each repo's own Node-sourced position by id;
+// a repo with no entry (no Node row yet) renders at the zero value (root,
+// order 0).
 //
 // The sort lives HERE, in the converter both the REST list handler and the WS
 // snapshot go through, because those are the two answers to the same question
 // and a client that got different orders from them would watch its sidebar
 // reshuffle on every reconnect.
-func RepoDTOList(repos []domain.Repository) []RepoDTO {
+func RepoDTOList(repos []domain.Repository, placements map[string]RepoPlacement) []RepoDTO {
 	dtos := make([]RepoDTO, 0, len(repos))
 	for _, r := range repos {
-		dtos = append(dtos, RepoDTOFrom(r))
+		dtos = append(dtos, RepoDTOFrom(r, placements[r.ID]))
 	}
 	slices.SortFunc(dtos, compareRepoDTOs)
 	return dtos

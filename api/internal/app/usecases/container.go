@@ -167,6 +167,7 @@ func New(
 		gormStores.Repositories,
 		repos.Workspace,
 		repos.AgentChat,
+		repos.Node,
 	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,
@@ -398,6 +399,7 @@ func newProjectImport(
 		Provider:    engines.Provider,
 		Discover:    discover.Repos,
 		RefRunner:   newRefRunner,
+		Nodes:       repos.Node,
 		Now:         nowFunc,
 		CrowbarHome: crowbarHome,
 	})
