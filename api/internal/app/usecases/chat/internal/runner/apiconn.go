@@ -80,8 +80,13 @@ func (r *apiConnRegistry) get(runnerID string) (*apiconn, bool) {
 }
 
 // drop closes and forgets runnerID's connection, if it has one. Safe to call
-// for a runner that never had one (the hooks-only common case).
+// for a runner that never had one (the hooks-only common case), and on a nil
+// registry — pumpAPIConn's own loss handler runs on a goroutine that outlives
+// whatever built it, including test doubles that never made one.
 func (r *apiConnRegistry) drop(runnerID string) {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	c, ok := r.byRun[runnerID]
 	delete(r.byRun, runnerID)
@@ -345,6 +350,16 @@ func (rs *Runners) pumpAPIConn(
 ) {
 	ctx := conn.ctx
 	go func() {
+		// Events() closing means the connection is GONE — the `serve` process
+		// died, the socket dropped. This used to just return, which left the
+		// registry entry standing: HasLiveAPIConnection answered true forever,
+		// so apiOwnsThisEvent went on dropping the companion PTY's hooks copy of
+		// every api-owned event as a redundant duplicate of a transport that no
+		// longer existed. The chat went silent for good, spinner stuck on, and
+		// nothing else could reach it — the companion PTY is still alive, so no
+		// runner-exit reconcile fires, and neither termwait sweep applies to a
+		// clean screen that streamed nothing.
+		defer rs.onAPIConnLost(ctx, runnerID)
 		for ev := range conn.driver.Events() {
 			if agent.TransportFor(ev.Canonical) != "api" {
 				// Declared on hooks by this descriptor — the hooks wire already

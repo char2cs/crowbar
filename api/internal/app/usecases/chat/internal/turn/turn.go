@@ -2,10 +2,13 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+
+	asynxModels "github.com/char2cs/asynx/models"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -258,15 +261,19 @@ func (t *Turns) fallbackAsyncWork(ctx context.Context, chatID string, reported i
 // happened to start and stop. It is a no-op while a turn is genuinely open (that turn's
 // own eventual turn_stop is what restates it) and a no-op when the level hasn't actually
 // changed, so this never appends a redundant event on the hot path (every tool_pre/post).
+// Both of this function's preconditions — that no turn is currently open, and that
+// the level actually changed — used to be decided HERE, off domain.Chat read back
+// through GetChat. That read model is folded by an ASYNCHRONOUS projection, so a
+// turn_stop already durable in the log could still read as open: this took the
+// early return, no recount was ever appended, and for codex — which reports no
+// async-work level of its own — nothing else would ever darken the spinner. The
+// chat stayed lit until the next turn happened to start and stop.
+//
+// Both now live in the StopTurn command's Validate, where asynx evaluates them
+// against the authoritative fold and appends at that same version. ErrValidation
+// is therefore the ORDINARY no-op answer here, not a failure: a turn is open, or
+// the level already stands.
 func (t *Turns) restateAsyncWork(ctx context.Context, chatID string) {
-	chat, err := t.chats.GetChat(ctx, chatID)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: restate async work: get chat", "chat_id", chatID, "err", err)
-		return
-	}
-	if chat.CurrentTurnStarted != nil {
-		return
-	}
 	open, err := t.OpenWork(ctx, chatID)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: restate async work: open work", "chat_id", chatID, "err", err)
@@ -276,12 +283,11 @@ func (t *Turns) restateAsyncWork(ctx context.Context, chatID string) {
 	if open {
 		level = 1
 	}
-	if level == chat.AsyncWork {
-		return
-	}
-	stopped, err := t.chats.StopTurn(ctx, chatID, time.Now(), level)
+	stopped, err := t.chats.RestateAsyncWork(ctx, chatID, time.Now(), level)
 	if err != nil {
-		slog.WarnContext(ctx, "agent: restate async work: stop turn", "chat_id", chatID, "err", err)
+		if !errors.Is(err, asynxModels.ErrValidation) {
+			slog.WarnContext(ctx, "agent: restate async work: stop turn", "chat_id", chatID, "err", err)
+		}
 		return
 	}
 	t.work.Set(chatID, stopped.Working)
