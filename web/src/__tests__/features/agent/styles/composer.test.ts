@@ -30,7 +30,7 @@ const transcriptCss = read('src/features/agent/styles/transcript.css')
  * never actually reached the screen.
  */
 function cascadedDeclarations(css: string, selector: string): Record<string, string> {
-  const escaped = selector.replace(/[.]/g, '\\.')
+  const escaped = selector.replace(/[.\\]/g, '\\$&')
   const pattern = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 'g')
   const declarations: Record<string, string> = {}
   for (const match of css.matchAll(pattern)) {
