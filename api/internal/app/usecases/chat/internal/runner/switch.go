@@ -311,7 +311,23 @@ func (rs *Runners) resumableConversation(
 	// every conversation from before the activity table existed looks like,
 	// forever, no matter how much real history it has on the provider's own side
 	// (see this function's package-level doc references for the migration this
-	// guards against). Age is what tells the two apart.
+	// guards against). Age is what tells the two apart — UNLESS the chat itself
+	// already has other recorded turns, which age cannot overrule: a chat that has
+	// ever recorded a real turn proves the activity table was live while this chat
+	// was in use, so a turnless session on it is never "predates the table", no
+	// matter how long ago it was announced. Without this, a session that crashed
+	// on its first turn and was not retried within the window became permanently
+	// unresumable — every later attempt found the same zero rows, aged past the
+	// window, and kept re-resuming a corpse that dies again in a second or two.
+	count, err := rs.activity.CountTurns(ctx, chat.ID)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("count turns: %w", err)
+	}
+	if count > 0 {
+		slog.InfoContext(ctx, "agent: prior conversation has no recorded turns but this chat has others; spawning fresh instead of resuming a corpse",
+			"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID)
+		return "", time.Time{}, nil
+	}
 	if time.Since(firstSeenAt) < sessionAnnounceCrashWindow {
 		// Recent enough to be the genuine crash race: the CLI reported this
 		// conversation id but never recorded a turn under it, so there is no

@@ -88,6 +88,36 @@ func TestRegression_ResumableConversation_RecentConversationWithNoRecordedTurns_
 	assert.True(t, leftAt.IsZero(), "a refused resume carries no gap cutoff")
 }
 
+// TestRegression_ResumableConversation_TurnlessSessionButChatHasOtherTurns_AlwaysSpawnsFresh
+// is the fix for a live bug: a session that crashes before its first turn and is not
+// retried within sessionAnnounceCrashWindow ages past the crash-race check and falls
+// into the "predates the activity table" branch forever after — every later resume
+// attempt re-resumes the same turnless session, finds nothing to attach to, and the CLI
+// exits again in a second or two, looping "This agent has exited" indefinitely with no
+// escape. Age alone cannot tell a crash apart from legacy data once it exceeds the
+// window, but the chat's OTHER recorded turns can: if this chat has ever produced a real
+// turn (under any session), the activity table was plainly live while it was in use, so
+// a turnless session on it — however old — cannot be pre-migration data and must never
+// be resumed.
+func TestRegression_ResumableConversation_TurnlessSessionButChatHasOtherTurns_AlwaysSpawnsFresh(t *testing.T) {
+	hoursAgo := time.Now().Add(-2 * time.Hour)
+
+	rs := &Runners{
+		runnerStore: stubRunnerStoreForResumable{convs: []engineagents.ChatConversation{
+			{ChatID: "chat-1", ProviderID: "claude", SessionID: "sid-crashed-session", FirstSeenAt: hoursAgo},
+		}},
+		activity: stubActivityForAttach{found: false, turnCount: 3},
+	}
+	chat := domain.Chat{ID: "chat-1", LastActivityAt: hoursAgo}
+
+	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude")
+
+	require.NoError(t, err)
+	assert.Empty(t, sessionID,
+		"a chat with other recorded turns proves the activity table was live; a turnless session on it must never be trusted as legacy data, however old")
+	assert.True(t, leftAt.IsZero(), "a refused resume carries no gap cutoff")
+}
+
 // stubRunnerStoreLiveness answers only LiveRunnerForChat, either with a runner or
 // with ErrNotFound — the two answers displaceForSwitch's work check now turns on.
 type stubRunnerStoreLiveness struct {
