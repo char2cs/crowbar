@@ -332,6 +332,46 @@ describe('applyStreamedValue: reconciliation replaces part of a paragraph', () =
   })
 })
 
+// Regression: the live bug reported as "we're losing markdown styling that
+// then reconciles". A markdown span (bold, italic, code, a link) renders as
+// plain literal text while it is still open — the closing syntax hasn't
+// arrived yet — and only gains its mark once it closes. That mark landing on
+// the leaf is a prop change trailingTextDivergence cannot express as a text
+// edit, so it fell back to tearing down and reinserting the WHOLE paragraph —
+// and the old fallback marked that entire reinserted block as one fresh run,
+// re-fading every word in the paragraph that had already faded in and
+// settled, not just the one word whose markup just resolved. Visually: a
+// long-since-visible sentence flashes and redraws itself the instant any
+// **bold** or `code` span anywhere in it completes.
+describe('applyStreamedValue: a completing mark does not re-fade the rest of the paragraph', () => {
+  it('marks only the genuinely new text fresh when a bold span closes mid-paragraph', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('The cat is very '),
+    })
+
+    applyStreamedValue(editor, chatMarkdownToValue('The cat is very **special**'))
+
+    expect(editor.api.string([0])).toBe('The cat is very special')
+    // The parser trims the initial fragment's trailing space, so the space
+    // separating "very" and "special" is genuinely new in the flattened diff
+    // too — only "The cat is very" (no trailing space) was already visible.
+    expect(fadeWords(editor).join('')).toBe(' special')
+  })
+
+  it('marks only the genuinely new text fresh when an inline code span closes mid-paragraph', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('Run the '),
+    })
+
+    applyStreamedValue(editor, chatMarkdownToValue('Run the `build` command'))
+
+    expect(editor.api.string([0])).toBe('Run the build command')
+    expect(fadeWords(editor).join('')).not.toContain('Run the ')
+  })
+})
+
 /** Every fade range currently emitted, as the text each one covers. */
 function fadeWords(editor: ReturnType<typeof createPlateEditor>): string[] {
   const out: string[] = []

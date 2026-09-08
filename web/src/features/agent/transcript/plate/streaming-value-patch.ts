@@ -352,7 +352,15 @@ function countWords(node: Node): number {
 
 /** Records a fade over every text leaf of a newly-inserted block, threading
  *  one continuous word index through all of them so a heading and the body
- *  under it cascade as one run rather than restarting. */
+ *  under it cascade as one run rather than restarting.
+ *
+ *  `skip` is characters of the block's FLATTENED text to treat as already
+ *  seen — not fresh, not re-animated — even though this whole block is being
+ *  torn down and reinserted. See `replaceTrailingBlock`: a mark completing
+ *  mid-paragraph forces a full block replace, and without this every already
+ *  -settled word in that paragraph would flash and re-fade along with the one
+ *  word whose markup actually just resolved. Mutated as leaves consume it, so
+ *  callers share one counter across the whole subtree. */
 function recordBlockRuns(
   editor: PlateEditor,
   node: Node,
@@ -360,23 +368,53 @@ function recordBlockRuns(
   generation: number,
   wordIndex: { current: number },
   total: number,
+  skip: { remaining: number } = { remaining: 0 },
 ): void {
   if (typeof node.text === 'string') {
-    if (node.text.length === 0) return
+    const length = node.text.length
+    if (length === 0) return
+    if (skip.remaining >= length) {
+      skip.remaining -= length
+      return
+    }
+    const start = skip.remaining
+    skip.remaining = 0
     recordRun(editor, {
       generation,
       path,
-      start: 0,
-      end: node.text.length,
+      start,
+      end: length,
       wordOffset: wordIndex.current,
       totalWords: total,
     })
-    wordIndex.current += splitIntoWords(node.text).length
+    wordIndex.current += splitIntoWords(node.text.slice(start)).length
     return
   }
   node.children?.forEach((child, i) => {
-    recordBlockRuns(editor, child, [...path, i], generation, wordIndex, total)
+    recordBlockRuns(editor, child, [...path, i], generation, wordIndex, total, skip)
   })
+}
+
+/** Flattened text of a node's whole subtree, leaf order — the same shape
+ *  `countWords` walks, but concatenated rather than counted. Used only to
+ *  find how much of a replaced block's text was already on screen; never
+ *  read to decide what Slate operation runs. */
+function flattenText(node: Node): string {
+  if (typeof node.text === 'string') return node.text
+  return (node.children ?? []).map(flattenText).join('')
+}
+
+/** How many of `a` and `b`'s leading characters agree, ignoring marks
+ *  entirely — the flattened-text analogue of `stableBlockCount`, one level
+ *  down. Marks are exactly what a completing markdown span changes, so a
+ *  mark-aware comparison here would defeat the point: this exists to tell
+ *  "already visible" apart from "genuinely new" when marks are precisely
+ *  what a full block replace can no longer preserve leaf-for-leaf. */
+function commonPrefixLength(a: string, b: string): number {
+  const max = Math.min(a.length, b.length)
+  let i = 0
+  while (i < max && a[i] === b[i]) i++
+  return i
 }
 
 /** How many leading top-level blocks `prev` and `next` already agree on. */
@@ -524,6 +562,34 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
           }
           return
         }
+      }
+      if (!divergence) {
+        // trailingTextDivergence found no text-edit shape at all — the common
+        // real cause is a mark completing mid-paragraph (a markdown span like
+        // **bold** or `code` resolving once its closing syntax arrives), which
+        // changes a leaf's OWN props and so reads as structural, not a growing
+        // tail. Slate has no cheaper way to change a leaf's marks than
+        // replacing it, so the block still gets torn down and reinserted — but
+        // nothing else in the paragraph changed, so the fade stays scoped to
+        // whatever text is actually new rather than re-fading words that were
+        // already fully visible a moment ago. See recordBlockRuns' `skip`.
+        pruneRuns(editor, stable)
+        editor.tf.removeNodes({ at: [stable] })
+        editor.tf.insertNodes([nextBlock] as Value, { at: [stable] })
+        const keepChars = commonPrefixLength(flattenText(prevBlock), flattenText(nextBlock))
+        const freshSuffix = flattenText(nextBlock).slice(keepChars)
+        if (freshSuffix !== '') {
+          recordBlockRuns(
+            editor,
+            nextBlock,
+            [stable],
+            nextFreshGeneration(editor),
+            { current: 0 },
+            splitIntoWords(freshSuffix).length,
+            { remaining: keepChars },
+          )
+        }
+        return
       }
     }
     pruneRuns(editor, stable)
