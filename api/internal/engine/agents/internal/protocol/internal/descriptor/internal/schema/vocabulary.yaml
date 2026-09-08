@@ -102,6 +102,22 @@ events:
     required: []
     optional: [session_id, reason]
 
+  # The provider's OWN word that it is doing nothing: no turn running, nothing
+  # waiting on a person. It is not a turn-close event and must never be treated as
+  # one — measured against codex-cli 0.149.1, it arrives IMMEDIATELY BEFORE the
+  # turn-close on a perfectly healthy turn, so acting on it directly would abandon
+  # every turn microseconds before it ended properly.
+  #
+  # What it is good for is the case nothing else can reach: a turn whose close is
+  # never sent at all (codex.yaml records that happening live). The turn-close
+  # clears the latch this arms; a latch still armed when the sweep next looks is a
+  # turn nothing is going to close, and the provider has said so itself. That
+  # replaces a 120s screen-scraping heuristic with an authoritative signal.
+  idle:
+    direction: in
+    required: []
+    optional: [session_id]
+
   # Compaction is a STATE the chat is in, not an interrupt that happened to a turn:
   # the CLI is busy, prompts queue, and the transcript needs a boundary marker so
   # AssembleHandoff stops replaying turns the model can no longer see.

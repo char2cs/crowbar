@@ -83,6 +83,7 @@ const (
 	HookMessageDelta   = spec.HookMessageDelta
 	HookReasoningDelta = spec.HookReasoningDelta
 	HookTurnFailed     = spec.HookTurnFailed
+	HookIdle           = spec.HookIdle
 )
 
 const (

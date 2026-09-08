@@ -249,6 +249,20 @@ events:
     out: turn/interrupt
     send: { threadId: "{session_id}", turnId: "{turn_id}" }
 
+  # Captured live (0.149.1): thread/status/changed fires `active` when a turn
+  # opens and `idle` when it ends — and the idle one lands IMMEDIATELY BEFORE
+  # turn/completed on a perfectly healthy turn. So this can never close a turn
+  # directly; it only ARMS the reconcile that catches the turn whose close never
+  # comes at all (this file's own terminal_notices note records that happening).
+  #
+  # `systemError` and `notLoaded` are deliberately unmapped: neither means the
+  # work is finished, and treating them as idle would close a turn that is merely
+  # broken, or one that has not been loaded yet.
+  idle:
+    in: thread/status/changed
+    when: { status.type: idle }
+    map: { session_id: threadId }
+
   compact_start:
     out: thread/compact/start
     send: { threadId: "{session_id}" }

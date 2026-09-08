@@ -115,6 +115,9 @@ func (t *Turns) closeAssistantTurn(
 	// superseded it. Nothing durable is dropped here — a reasoning stream is never
 	// recorded (see reasoning.go).
 	defer t.reasoning.forget(chat.ID)
+	// Crowbar has now noticed the turn ending, so the provider's own "I am idle"
+	// report has nothing left to reconcile — see idle.go.
+	defer t.idle.clear(chat.ID)
 
 	var lastRecorded string
 	for i, message := range streamed {

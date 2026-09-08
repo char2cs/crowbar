@@ -79,7 +79,8 @@ func (stubTurns) MatchTerminalNotice(
 
 func (stubTurns) OpenWork(context.Context, string) (bool, error) { return false, nil }
 
-func (stubTurns) UnfinishedSince(string) (time.Time, bool) { return time.Time{}, false }
+func (stubTurns) UnfinishedSince(string) (time.Time, bool)   { return time.Time{}, false }
+func (stubTurns) ProviderIdleSince(string) (time.Time, bool) { return time.Time{}, false }
 
 func (stubTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
 

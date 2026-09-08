@@ -31,6 +31,9 @@ func (t *Turns) openAssistantTurn(
 	chat domain.Chat,
 	runner engineagents.Runner,
 ) {
+	// A new turn is starting, so any "the provider says it is idle" report left
+	// over from the previous one is stale — see idle.go.
+	t.idle.clear(chat.ID)
 	if err := t.activity.OpenTurn(ctx, agentactivity.TurnInput{
 		ChatID:     chat.ID,
 		TurnID:     openTurnID(chat.ID, runner.ID),

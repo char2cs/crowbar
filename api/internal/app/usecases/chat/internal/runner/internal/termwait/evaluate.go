@@ -23,6 +23,9 @@ func (d *detector) evaluate(
 	}
 
 	if chat.Working {
+		if d.providerSaysItIsIdle(ctx, runner) {
+			return domain.AgentTerminalWait{}, prev, false
+		}
 		if d.abandonedMessage(ctx, runner) {
 			return domain.AgentTerminalWait{}, prev, false
 		}
@@ -172,6 +175,47 @@ func (d *detector) abandonedMessage(ctx context.Context, runner agents.Runner) b
 		if err != nil || open {
 			return false
 		}
+	}
+	closed, err := d.deps.Messages.AbandonMessage(ctx, runner.CurrentChatID)
+	if err != nil {
+		return false
+	}
+	return closed
+}
+
+// providerSaysItIsIdle closes a turn the provider itself has reported finished
+// and that nothing else ever closed.
+//
+// It is tried BEFORE the two screen-derived detectors because it is the only one
+// of the three that is authoritative rather than heuristic: the provider said so.
+// The others infer it from a notice sitting unchanged on a PTY for two minutes,
+// or from a half-written message going quiet — and a turn that only reasoned
+// produces neither, which is exactly the turn that used to hang forever.
+//
+// Deliberately NOT gated on OpenWork, unlike those two. A tool call or subagent
+// still open in Crowbar's ledger while the provider reports idle is a STALE
+// record, not live work — it is the provider that knows, and AbandonMessage
+// zeroes the async-work level as it closes. Gating on it would have preserved
+// exactly the stuck spinner this exists to clear.
+func (d *detector) providerSaysItIsIdle(ctx context.Context, runner agents.Runner) bool {
+	if d.deps.Idle == nil || d.deps.Messages == nil {
+		return false
+	}
+	since, ok := d.deps.Idle.ProviderIdleSince(runner.CurrentChatID)
+	if !ok || since.IsZero() {
+		return false
+	}
+	// The report lands microseconds before an ordinary turn close, so the wait is
+	// what separates "this turn is ending normally" from "nothing is going to end
+	// it". A close clears the latch, so a healthy turn never reaches here at all.
+	if d.now().Sub(since) < d.idleQuiet() {
+		return false
+	}
+	// A chat holding a prompt for a human is not stranded, whatever the provider
+	// says about its own idleness: the person is the one being waited on.
+	pending, err := d.deps.Choices.PendingChoices(ctx, runner.CurrentChatID)
+	if err != nil || len(pending) > 0 {
+		return false
 	}
 	closed, err := d.deps.Messages.AbandonMessage(ctx, runner.CurrentChatID)
 	if err != nil {

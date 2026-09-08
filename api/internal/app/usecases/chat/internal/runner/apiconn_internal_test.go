@@ -60,7 +60,8 @@ func (noopTurns) MatchTerminalNotice(
 
 func (noopTurns) OpenWork(context.Context, string) (bool, error) { return false, nil }
 
-func (noopTurns) UnfinishedSince(string) (time.Time, bool) { return time.Time{}, false }
+func (noopTurns) UnfinishedSince(string) (time.Time, bool)   { return time.Time{}, false }
+func (noopTurns) ProviderIdleSince(string) (time.Time, bool) { return time.Time{}, false }
 
 func (noopTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
 

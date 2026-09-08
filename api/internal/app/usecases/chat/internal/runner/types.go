@@ -132,13 +132,14 @@ type Turns interface {
 		runner engineagents.Runner,
 	) (bool, error)
 
-	// The four seams the terminal-wait detector reads through. They are here
+	// The five seams the terminal-wait detector reads through. They are here
 	// rather than passed separately because they all belong to the hook side, and
 	// splitting them would only make the detector's construction lie about that.
 	termwait.Prompts
 	termwait.Notices
 	termwait.Work
 	termwait.Messages
+	termwait.Idle
 	// CloseStalledTurn ends a turn the screen says will never finish — a usage
 	// limit, a service outage — because no hook will ever report it.
 	CloseStalledTurn(ctx context.Context, stall seam.Stall)

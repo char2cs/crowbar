@@ -27,4 +27,8 @@ const (
 	HookReasoningDelta = "reasoning_delta"
 
 	HookTurnFailed = "turn_failed"
+
+	// HookIdle is the provider reporting that it is doing nothing. It is NOT a
+	// turn close — it routinely precedes one — and only ever arms a reconcile.
+	HookIdle = "idle"
 )

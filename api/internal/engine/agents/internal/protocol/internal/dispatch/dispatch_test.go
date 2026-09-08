@@ -165,3 +165,27 @@ func TestRegression_AStatuslessToolItemStillClosesViaToolPost(t *testing.T) {
 	require.True(t, ok, "a webSearch must still close")
 	assert.Equal(t, "tool_post", canonical)
 }
+
+// thread/status/changed is a sum type on status.type. Only `idle` means the work
+// is finished — `active` is a turn opening, and `systemError`/`notLoaded` mean
+// broken or not-yet-loaded, neither of which may close a turn.
+func TestResolve_OnlyTheIdleThreadStatusIsMapped(t *testing.T) {
+	d := loadCodexAPIDescriptor(t)
+
+	canonical, ok := dispatch.Resolve(d, "thread/status/changed",
+		loadParams(t, "thread_status_changed.idle"))
+	require.True(t, ok)
+	assert.Equal(t, "idle", canonical)
+
+	// The live capture of the ACTIVE variant, which must map to nothing.
+	_, ok = dispatch.Resolve(d, "thread/status/changed",
+		loadParams(t, "thread_status_changed"))
+	assert.False(t, ok, "an opening turn must never be read as a finished one")
+
+	for _, status := range []string{"systemError", "notLoaded"} {
+		_, ok := dispatch.Resolve(d, "thread/status/changed", map[string]any{
+			"threadId": "t1", "status": map[string]any{"type": status},
+		})
+		assert.False(t, ok, "%s does not mean the work is done", status)
+	}
+}
