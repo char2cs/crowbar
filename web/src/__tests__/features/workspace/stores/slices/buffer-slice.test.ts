@@ -6,6 +6,7 @@ import {
   type BufferSlice,
 } from '@/features/workspace/stores/slices/buffer-slice'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
 const { killTerminalSession } = vi.hoisted(() => ({
   killTerminalSession: vi.fn(async () => {}),
@@ -212,6 +213,126 @@ describe('buffer-slice', () => {
     expect(store.getState().buffers).toHaveLength(0)
     await vi.waitFor(() => expect(stopChat).toHaveBeenCalledWith('ws-agent', 'chat-dormant'))
     expect(deleteChat).not.toHaveBeenCalled()
+  })
+
+  // ── closeBuffer: multi-pane split (the close race) ─────────────────────────
+  //
+  // A split (createPaneBeside's shared-bufferId path in pane-slice's splitPane,
+  // reached via Cmd+\ on a chat pane, or an editor's own split gesture) puts ONE
+  // buffer id in TWO panes' bufferIds — the SAME live view, shown twice, not two
+  // independent copies. Closing ONE pane's tab used to call closeBuffer
+  // unconditionally, which killed the vendor CLI (stopChat) and deleted the
+  // buffer from the store regardless of whether a SIBLING pane was still
+  // showing it live — confirmed live: splitting a chat pane and closing one
+  // side's tab took the OTHER side's live session down too, and orphaned that
+  // sibling's own bufferIds entry (nothing else ever prunes a dead id back out
+  // of a pane that never asked to close it). Needs no provider-specific
+  // knowledge: it is keyed on pane membership, not on which chat or CLI is
+  // behind the buffer, so it protects every provider uniformly.
+  describe('closeBuffer: multi-pane split (the close race)', () => {
+    it('closing one pane while a sibling still holds the buffer does not stop the CLI or delete it', async () => {
+      stopChat.mockClear()
+      const s = createWorkspaceStore('ws-agent')
+      const paneA = s.getState().activePaneId
+      const id = s.getState().bufferActions.openContent({
+        type: 'agentChat',
+        chatId: 'chat-split',
+        wsId: 'ws-agent',
+        name: 'Split chat',
+      })
+      expect(s.getState().panes[paneA]?.bufferIds).toContain(id)
+
+      // Share the SAME buffer into a second pane — exactly what splitPane does
+      // for createPaneBeside's shareable-buffer path (Cmd+\ on a chat pane).
+      const paneB = s.getState().paneActions.splitPane(paneA, 'vertical', id)
+      expect(paneB).not.toBeNull()
+      expect(s.getState().panes[paneB as string]?.bufferIds).toContain(id)
+
+      // Close pane B's tab — the ordinary tab-bar.tsx sequence: remove from
+      // THAT pane, then closeBuffer.
+      s.getState().paneActions.removeBufferFromPane(paneB as string, id)
+      s.getState().bufferActions.closeBuffer(id)
+
+      // Pane A's live view survives untouched, and the buffer itself is not
+      // orphaned out from under it.
+      expect(s.getState().buffers.some((b) => b.id === id)).toBe(true)
+      expect(s.getState().panes[paneA]?.bufferIds).toContain(id)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(stopChat).not.toHaveBeenCalled()
+    })
+
+    it('closing the LAST pane holding the buffer then stops the CLI and deletes it', async () => {
+      stopChat.mockClear()
+      const s = createWorkspaceStore('ws-agent')
+      const paneA = s.getState().activePaneId
+      const id = s.getState().bufferActions.openContent({
+        type: 'agentChat',
+        chatId: 'chat-split-2',
+        wsId: 'ws-agent',
+        name: 'Split chat 2',
+      })
+      const paneB = s.getState().paneActions.splitPane(paneA, 'vertical', id)
+      expect(paneB).not.toBeNull()
+
+      // Sibling closes first — buffer survives (guarded above).
+      s.getState().paneActions.removeBufferFromPane(paneB as string, id)
+      s.getState().bufferActions.closeBuffer(id)
+      expect(s.getState().buffers.some((b) => b.id === id)).toBe(true)
+      expect(stopChat).not.toHaveBeenCalled()
+
+      // The LAST holder closes — now the CLI is stopped and the buffer is gone.
+      s.getState().paneActions.removeBufferFromPane(paneA, id)
+      s.getState().bufferActions.closeBuffer(id)
+
+      expect(s.getState().buffers.some((b) => b.id === id)).toBe(false)
+      await vi.waitFor(() => expect(stopChat).toHaveBeenCalledWith('ws-agent', 'chat-split-2'))
+    })
+
+    // terminal-tab.tsx's handleTerminalExit and pane-container.tsx's
+    // handleExternalEditorExit both call closeBuffer when the underlying
+    // process has ALREADY exited on its own — there is no "sibling still
+    // showing it live" to protect, so both strip the buffer from every pane
+    // holding it FIRST (mirroring chat-removal.ts's own established pattern)
+    // before calling closeBuffer once. This guards that shape against the fix
+    // above: closeBuffer must still fully tear down once no pane references
+    // the id, exactly as before this change, for a buffer whose one and only
+    // pane just released it this same way.
+    it('a buffer stripped from every pane first (the exited-on-its-own pattern) still fully tears down', async () => {
+      killTerminalSession.mockClear()
+      const s = createWorkspaceStore('ws-term')
+      const id = s
+        .getState()
+        .bufferActions.openContent({ type: 'terminal', sessionId: 'sess-exit', name: 'T' })
+
+      for (const pane of Object.values(s.getState().panes)) {
+        if (pane.bufferIds.includes(id)) {
+          s.getState().paneActions.removeBufferFromPane(pane.id, id)
+        }
+      }
+      s.getState().bufferActions.closeBuffer(id)
+
+      expect(s.getState().buffers.some((b) => b.id === id)).toBe(false)
+      await vi.waitFor(() => expect(killTerminalSession).toHaveBeenCalledWith('sess-exit'))
+    })
+
+    it('an editor split the same way is protected identically — no provider/type-specific carve-out', () => {
+      const s = createWorkspaceStore('ws-ed')
+      const paneA = s.getState().activePaneId
+      const id = s.getState().bufferActions.openContent({
+        type: 'editor',
+        path: '/shared.ts',
+        name: 'shared.ts',
+        content: '',
+      })
+      const paneB = s.getState().paneActions.splitPane(paneA, 'vertical', id)
+      expect(paneB).not.toBeNull()
+
+      s.getState().paneActions.removeBufferFromPane(paneB as string, id)
+      s.getState().bufferActions.closeBuffer(id)
+
+      expect(s.getState().buffers.some((b) => b.id === id)).toBe(true)
+      expect(s.getState().panes[paneA]?.bufferIds).toContain(id)
+    })
   })
 
   it('preview flag is set when isPreview is true', () => {
