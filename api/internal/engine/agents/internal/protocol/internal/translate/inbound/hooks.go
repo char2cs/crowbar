@@ -92,6 +92,7 @@ func build(
 		Kind:      canonical,
 		SessionID: get("session_id"),
 		Message:   get("message"),
+		TurnID:    get("turn_id"),
 		AsyncWork: mapping.Count(decoded, fields["async_work"]),
 		Model:     get("model"),
 		Effort:    get("effort"),

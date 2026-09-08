@@ -196,6 +196,16 @@ func (t *Turns) closeTurnFromStop(
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {
+	// A turn_stop whose turn id is the one compact_pre armed is codex's own
+	// compact_start wrapper closing, not an assistant reply — see
+	// compaction.go. Nothing below has anything to do: closeAssistantTurn
+	// would find an empty message and no stream to close, but StopTurn would
+	// still append a real (if inert) turn_stopped event and reset
+	// CurrentTurnStarted on a chat that was never marked working for this,
+	// on every compaction, forever.
+	if t.compacting.consume(chat.ID, ev.TurnID) {
+		return nil
+	}
 	// THE ANSWER IS DURABLE BEFORE ANYBODY IS TOLD THE TURN ENDED. StopTurn's
 	// projection broadcasts Working=false, and the React chat treats that edge as
 	// its cue to do ONE ledger read and then stop polling (spec §6). Publishing the

@@ -52,6 +52,10 @@ type Turns struct {
 	// idle latches a provider's own "I am doing nothing" report. It is never
 	// acted on directly — see idle.go.
 	idle *idleLatch
+	// compacting latches which turn id belongs to a compact_start round trip,
+	// so its own turn/completed-shaped close is never misread as an ordinary
+	// reply or failure. See compaction.go.
+	compacting *compactionTurns
 	// pendingHooks is the fork-before-runner-persistence barrier: hooks that arrive
 	// before the runner row exists are buffered into it and replayed after.
 	pendingHooks *inflight.Hooks
@@ -156,6 +160,7 @@ func New(d Deps) *Turns {
 		messages:            stream.New(),
 		live:                newLiveText(),
 		idle:                newIdleLatch(),
+		compacting:          newCompactionTurns(),
 		hookDeliveries:      agentjournal.NewHookDeliveries(),
 		hookGates:           inflight.NewGate(),
 		pendingHooks:        d.PendingHooks,

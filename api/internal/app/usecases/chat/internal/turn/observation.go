@@ -91,17 +91,29 @@ func (t *Turns) handleObservation(
 
 		t.openChoice(ctx, chat, runner, agent, ev, cid, raw, now)
 	case engineagents.HookCompactPre:
+		// Arm BEFORE anything else below: codex's own compact_start round trip
+		// (api transport) wraps its contextCompaction item/started..completed in
+		// a turn/started..completed pair too, riding the exact wire event
+		// turn_stop/turn_failed already consume unconditionally — see
+		// compaction.go. A hooks-transport compact_pre (claude has none today;
+		// codex's own disconnected companion PTY does) maps no turn_id, so this
+		// is a no-op for it.
+		t.compacting.arm(chat.ID, ev.TurnID)
 		note(ctx, "interrupted", t.activity.Interrupt(
 			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
-		// /compact is delivered as an ordinary prompt (compact.go) that never
-		// confirms via a user_prompt hook, so no turn is ever open when this
-		// fires — which means Interrupt's own idle-chat handling
-		// (commands/interrupt.go) has ALREADY marked it resolved, instantly,
-		// regardless of whether compact_post goes on to arrive at all (it does
-		// not reliably: confirmed live, most compactions on a small chat never
-		// produce one). Settle the pending delivery on this same signal rather
-		// than waiting on compact_post or termwait's unrelated 30s timeout.
+		// /compact is delivered either as an ordinary prompt (claude, over
+		// compact.go's prompt path) or as a direct api-transport call (codex:
+		// thread/compact/start) — neither ever confirms via a user_prompt hook,
+		// so no turn is ever open when this fires — which means Interrupt's own
+		// idle-chat handling (commands/interrupt.go) has ALREADY marked it
+		// resolved, instantly, regardless of whether compact_post goes on to
+		// arrive at all (it does not reliably: confirmed live, most compactions
+		// on a small chat never produce one over the hooks-transport path — the
+		// api-transport path now does, every time, since it is the same
+		// contextCompaction item this now maps compact_post from). Settle the
+		// pending delivery on this same signal rather than waiting on
+		// compact_post or termwait's unrelated 30s timeout.
 		note(ctx, "settle delivery after compaction", t.runners.SettleDeliveryFor(ctx, chat.ID, runner.ID))
 		// The ledger record above is already resolved by the time any reader
 		// sees it (same idle-chat shortcut), so it can never drive a LIVE

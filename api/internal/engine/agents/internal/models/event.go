@@ -5,6 +5,18 @@ type CanonicalEvent struct {
 	SessionID string
 	Message   string
 
+	// TurnID is the provider's own turn identifier, when its descriptor maps
+	// one. Most canonical events never need it — a chat has one open turn at
+	// a time, so Kind plus SessionID is enough to place the effect. It exists
+	// for the case that assumption breaks: codex's turn/completed is a sum
+	// type that ALSO wraps a compact_start round trip, with nothing else on
+	// the frame telling that apart from an ordinary reply (confirmed live —
+	// a genuinely interrupted turn and a genuine turn with no final message
+	// produce the IDENTICAL shape). compact_pre maps turn_id to arm a latch
+	// keyed by it; turn_stop and turn_failed map turn_id to consult and
+	// consume that latch before acting. See turn/compaction.go.
+	TurnID string
+
 	AsyncWork int
 
 	Model string

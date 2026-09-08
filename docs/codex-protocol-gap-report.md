@@ -470,4 +470,285 @@ Confirmed working end to end:
 - **`tool_fail` / `turn_failed`** — mapped and unit-tested, but no failing codex
   turn was provoked live.
 - The **B1** hooks-routed events (subagent/compaction/session-end on a
-  disconnected companion PTY) are untouched and remain a known gap.
+  disconnected companion PTY) were untouched and a known gap as of this
+  section — **see section F below**: compact_pre/compact_post are now moved
+  and live-verified (including in the real dev-desktop app), session_end was
+  investigated and confirmed to need no change, and subagent_pre/subagent_post
+  remain hooks-transport with a much better-informed follow-up spec, plus a
+  real, live-verified partial fix (collabAgentToolCall as an ordinary tool
+  call) landed alongside them.
+
+---
+
+## F. Section B1 — the disconnected-PTY gap, closed for two of five events
+
+Investigation date: 2026-09-08. Branch: this one, on top of `337a59437`.
+
+Same discipline as the rest of this report: codex's own generated protocol
+schema (`codex app-server generate-json-schema`, codex-cli 0.149.1 — the exact
+version already captured against elsewhere in this file) was read first for a
+hypothesis, and every mapping below was then driven against a REAL `codex
+app-server` process over its actual stdio JSON-RPC transport before being
+trusted. The capture harness lives at `scratchpad/capture.py` in this
+worktree (a fresh one — the prior one did not survive into a new worktree, per
+this doc's own note; `git log --all --diff-filter=A -- '**/capture.py'`
+confirmed there was nothing to recover).
+
+### F1. `compact_pre` / `compact_post` — moved onto the live connection
+
+**CONFIRMED live.** `thread/compacted` really is deprecated in favour of a
+`contextCompaction` ThreadItem, exactly as its schema description says. Driving
+`thread/compact/start` against a real app-server produces:
+
+```
+turn/started   (a NEW turn, itemsView: notLoaded)
+item/started   {type: contextCompaction, id: "..."}      <- compact_pre
+item/completed {type: contextCompaction, id: "..."}      <- compact_post
+turn/completed (status: completed, items: [], itemsView: notLoaded)
+```
+
+`codex.yaml`'s `compact_pre`/`compact_post` now declare `in: item/started` /
+`in: item/completed`, `when: { item.type: contextCompaction }` — the exact
+same sum-type pattern `tool_pre`/`tool_post` already use, gated by `item.type`
+instead of a dedicated notification. The `contextCompaction` item itself
+carries only `{id, type}` — no trigger, no summary — so `trigger:` is left
+unmapped rather than pointed at a path that would never resolve, the same
+call `plan_update`'s own `explanation` field already made.
+
+**The trap only live capture found.** `thread/compact/start`'s own
+`turn/started..turn/completed` wrapper rides the EXACT SAME wire event
+`turn_stop`/`turn_failed` already consume unconditionally. The obvious
+guess — gate on the wrapper's empty `items`/`itemsView: notLoaded` shape — is
+**wrong**, proven by driving two more scenarios against the same live
+app-server:
+
+| Scenario | `turn.status` | `turn.items` | `turn.itemsView` |
+|---|---|---|---|
+| Compaction's own wrapper | `completed` | `[]` | `notLoaded` |
+| A genuinely **interrupted** real turn | `interrupted` | `[]` | `notLoaded` |
+| A real turn that ran a tool and sent **no final message** | `completed` | `[]` | `notLoaded` |
+
+All three are byte-for-byte the same shape. Gating `turn_stop` on itemsView or
+an empty items list — the first idea — would have suppressed the close of a
+real turn the user actually interrupted, or one that legitimately ended with
+only tool calls: the identical class of "designed from the schema, wrong
+against real traffic" mistake this report's own `thread/status/changed`
+section already documents once.
+
+**The fix**: `turn_id`. `compact_pre`'s `item/started` envelope carries
+`turnId`; the wrapper's own `turn/completed` carries `turn.id` — the SAME
+value. `turn_stop` and `turn_failed` now map `turn_id: turn.id`
+(`vocabulary.yaml` grew an optional `turn_id` field on both, plus on
+`compact_pre` — `compact_post` already had one). A new latch,
+`api/internal/app/usecases/chat/internal/turn/compaction.go`
+(`compactionTurns`, one armed id per chat, the same shape `idle.go`'s
+`idleLatch` already uses), is armed by `compact_pre` and consulted+consumed by
+`closeTurnFromStop`/`closeTurnFromFailure` before either does anything else. A
+miss leaves whatever is genuinely armed untouched — the first version deleted
+on any lookup, match or not, which would have cleared a real compaction's own
+latch out from under it if an unrelated turn's stop ever landed first; caught
+by `TestCompactionTurns_AnUnrelatedTurnIDIsNotConsumed` before it shipped.
+
+Two `TestRegression_*` tests in `api/internal/app/usecases/chat/turn_test.go`
+drive this end to end through the real usecase and the real descriptor
+(`TestRegression_CodexCompactionTurnNeverStopsTheChat`,
+`TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice`), and both
+were confirmed to actually fail without the guard (temporarily reverted,
+rerun, restored) before being trusted — the guard against a guard test that
+passes vacuously.
+
+**A related dead-code fix, necessary to make any of this reachable from the
+UI**: `Runners.Compact` (`internal/app/usecases/chat/internal/runner/compact.go`)
+refused outright whenever a provider's `compact_start` declared anything other
+than `wire == "prompt"` — "the jsonrpc transport... does not exist yet". It
+did, since `interruptTurn` already drives `turn/interrupt` the identical way
+(`conn.driver.Send`, confirmed by `APIConn.Send`'s own doc comment: "drives a
+plain outbound canonical event (interrupt, **compact_start**)"). Codex's own
+compact button was calling this function and getting `ErrUnavailable` every
+time, silently. `Compact` now drives `conn.driver.Send(ctx, "compact_start",
+nil)` over the chat's live api connection for any non-prompt wire, mirroring
+`interruptTurn` exactly. Without this fix, `compact_pre`/`compact_post`'s new
+live mapping would have nothing to observe except codex's own automatic
+compaction, which cannot be provoked on demand.
+
+New fixtures, both live captures:
+`item_started.contextCompaction.json`, `item_completed.contextCompaction.json`.
+
+### F2. `subagent_pre` / `subagent_post` — the model's own multi-agent tool, mapped as a tool call; the nested-thread redesign left as a scoped follow-up
+
+**Do not guess how this behaves** was the instruction, so it was driven live
+rather than designed from the schema. Two independent full runs
+(`-c features.collab_agents=true`, a prompt asking the model to spawn a
+sub-agent, wait for it, and relay its answer) produced the **exact same**
+sequence both times:
+
+```
+PARENT thread, ordinary turn:
+  item/started   {type: collabAgentToolCall, tool: spawnAgent, receiverThreadIds: []}
+  item/completed {type: collabAgentToolCall, tool: spawnAgent,
+                   receiverThreadIds: [childId], agentsStates: {childId: {status: pendingInit}}}
+
+CHILD thread — its OWN complete, independent turn/started..item/*..turn/completed
+cycle, pushed over the SAME connection despite the client never calling
+thread/start or thread/resume on it:
+  turn/started -> item/started(userMessage) -> item/started(reasoning) ->
+  item/started(agentMessage) -> delta -> item/completed -> turn/completed
+
+PARENT thread, continuing:
+  item/started   {type: collabAgentToolCall, tool: wait, receiverThreadIds: [childId]}
+  item/completed {type: collabAgentToolCall, tool: wait,
+                   agentsStates: {childId: {status: completed, message: "done"}}}
+  item/started   {type: collabAgentToolCall, tool: closeAgent, receiverThreadIds: [childId]}
+  item/completed {type: collabAgentToolCall, tool: closeAgent, ...}
+  (parent's own agentMessage relaying "done", then turn/completed)
+```
+
+**`subAgentActivity` — the item type the first pass's schema reading guessed
+this would ride, with its `started|interacted|interrupted` kinds — NEVER
+appeared, in either full capture.** It is presumably reserved for codex's OWN
+internally-spawned subagents (`SubAgentSource`'s bare `review | compact |
+memory_consolidation` variants — an auto-review or auto-compaction subagent
+Crowbar never asked for), not for an explicit model-driven collab tool call.
+That remains **unconfirmed** — no live capture of it exists.
+
+`review/start` with `delivery: detached` was also tried as a more
+deterministic trigger (it does exist, and does spawn a real independent
+thread, returned as `reviewThreadId`) — it turned out to be an unrelated
+mechanism entirely, nothing to do with `collabAgentToolCall`/`subAgentActivity`,
+and is not part of this pass's design.
+
+**What shipped**: `collabAgentToolCall` was added to `tool_pre`/`tool_post`/
+`tool_fail`'s existing `item.type` gate, alongside `commandExecution` etc. —
+not as a new `subagent_pre`/`subagent_post` pair, but as an ordinary tool
+call, because that is structurally what it is: one `item/started`..
+`item/completed` pair per collab action, with an `id`, a `status`
+(`inProgress|completed|failed` — no `declined`, so it can only ever match
+`tool_fail`'s `failed` branch), and (for `spawnAgent`) a human-readable
+`prompt`. `tool_target`'s alternation grew `item.prompt || item.receiverThreadIds[0]`
+(the latter an INDEX selector — the grammar has no way to select a value out
+of `agentsStates`, which is keyed by a thread id it cannot know in advance,
+so that map is exposed via `tool_result`'s alternation whole, as JSON, rather
+than picked apart). Live-verified: a real spawn/wait/closeAgent sequence now
+renders as three ordinary, correctly-targeted-and-timed tool rows instead of
+nothing at all — the actual current state of things before this pass, since
+neither `tool_pre`/`tool_post` (item.type not in the gate) nor the
+hooks-transport `subagent_pre`/`subagent_post` (fired from the disconnected
+companion PTY's own unrelated conversation) ever saw it.
+
+**What is deliberately left as a follow-up**: a real `StartSubagent`/
+`StopSubagent`-shaped `subagent_pre`/`subagent_post` — the activity-ledger
+entries the subagent shelf reads (`subagent-shelf.tsx`). That needs Crowbar's
+own activity ledger to grow a model it does not have: a subagent is a WHOLE
+SECOND THREAD with its own turn/item stream, not a flat id with a start and a
+stop. Landing that without either a broken mapping or a redesign of
+`domain.ActivitySubagent` itself was judged out of scope for this pass — per
+the task's own priority order, tool-call visibility for the *existing*
+mechanism first, a correct nested model later, rather than a hurried and
+unverified one now. `subagent_pre`/`subagent_post` remain hooks-transport,
+unchanged, still reading the disconnected companion PTY's own conversation —
+codex.yaml's comment on them now records this investigation's findings in
+full for whoever picks this up next.
+
+New fixtures, both live captures:
+`item_started.collabAgentToolCall.json` (spawnAgent),
+`item_completed.collabAgentToolCall.json` (spawnAgent, completed),
+`item_completed.collabAgentToolCall.wait.json` (wait, completed — the
+variant whose `prompt` is null, proving the `tool_target` fallback to
+`receiverThreadIds[0]` is real rather than merely written).
+
+### F3. `session_end` — investigated, confirmed no new mapping needed
+
+`HookSessionEnd`'s dispatch (`turn/ingest.go`) was already, deliberately, a
+no-op on EITHER transport — its own comment says why: "A session ending is
+already observed authoritatively by the PTY exit reconcile... Acting on it
+here as well would close a turn twice." For the api transport specifically,
+`onAPIConnLost` (`runner/connloss.go`) is that authority: it forgets the
+connection's registry entry and reconciles the turn the instant the driver's
+`Events()` channel closes, whether that is a clean exit or the process dying.
+
+Codex's api schema has no dedicated "session is ending, and here is why"
+notification. The closest candidate, `thread/closed` (`{threadId}`, no
+reason field), was tried live against the one client-reachable action that
+looked like it might precede it — `thread/unsubscribe` — and it did not fire.
+No other `ClientRequest` looked like a plausible trigger for it either. Absent
+a reachable trigger, mapping it would have been exactly the kind of
+ships-but-never-fires change this report's own methodology exists to catch
+(see section D's `thread/status/changed` correction). Nothing was added;
+`session_end` stays on hooks, unchanged, with a comment recording this
+investigation so it is not repeated blind.
+
+### F4. Verification
+
+**Automated**: `go build`/`go vet` clean on every touched package (`gofmt -l`
+clean too). Targeted suites green:
+`internal/app/usecases/chat/...`, `internal/engine/agents/...`
+(includes the fixture-replay harness — `codex/compact_pre` and
+`codex/compact_post` now resolve against live-captured traffic instead of
+logging "event unverified"). Per this repo's own rule, the full `go test
+./...` was NOT run — only the packages this pass touched or that import them.
+Both new `TestRegression_*` tests, and all six new `compactionTurns` unit
+tests, were confirmed to actually catch the bug they guard (guard temporarily
+reverted, test rerun to see it fail, guard restored) before being trusted —
+not just asserted to pass.
+
+**Live, in the real app**: `make dev-desktop` in this worktree, own
+`CROWBAR_HOME`, own derived origin/MCP-bridge port 9225 (checked `ps aux`
+first; other worktrees' dev instances on ports 9223/9224 and vite 5699/5719
+were running and were **not** touched), seeded with `make seed`, driving a
+real `codex` 0.149.1 chat via the Tauri MCP bridge.
+
+A real ordinary turn confirmed the baseline is unharmed: a fresh codex chat
+replied normally (`ready`), the context gauge rendered `7% context`, and the
+turn closed cleanly (`working: false`).
+
+**A real /compact, driven and observed live.** The frontend gap the live app
+surfaced first: `compactChat()` (`web/src/features/agent/api/agent-api.ts`)
+is wired to the backend but **no component in `web/src` currently calls
+it** — there is no button, menu item, or shortcut in the running UI to press.
+That is a pre-existing frontend gap, separate from this pass's backend scope
+(confirmed by a dedicated search of the whole frontend tree; the `/compact`
+text some chats accept is an unrelated path — a literal prompt string a CLI's
+own built-in slash-command parser may or may not honor, which for an
+api-transport codex turn does nothing but ask the model to talk about
+compacting). Rather than leave `Compact` unverified, it was driven the way
+any other real client of this same daemon would — a `POST` on its own unix
+socket, the exact route `compactChat()` itself calls
+(`.../projects/:id/home/chats/:id/compact`), against the SAME live app,
+SAME live codex connection, SAME running frontend watching the same
+WebSocket:
+
+```
+$ curl -s -X POST --unix-socket <daemon socket> \
+    http://localhost/v0/projects/.../home/chats/<id>/compact
+{"success":true,"data":{"id":"2a01b8b0-6544-4f24-ae74-d4463bf289b2"}}   (202 Accepted, 2.6ms)
+```
+
+Confirmed in the running webview, immediately after:
+
+- The working line rendered **`Compacting…`** and the composer showed
+  **`Compacting… your message will be queued`** — the live push
+  (`compaction_started`) this pass's `Compact` fix made reachable for codex
+  for the first time.
+- Both cleared on their own moments later (`compaction_stopped`), composer
+  back to `Message the agent…` — no stuck indicator.
+- The ledger (`GET .../messages`) shows **exactly the same two turns** as
+  before the compaction — the user prompt and the `ready` reply, nothing
+  else — confirming the turn_id-armed latch did its job: the compaction's own
+  turn/completed produced **no** spurious ledger entry.
+- `GET .../chats/:id` shows `working: false` throughout, and the daemon's own
+  access log (`.crowbar/logs/daemon.log`) shows the request and every
+  telemetry poll around it clean — `200`/`202`, no warnings, no errors.
+
+This is the exact live proof the "ships but never fires" trap this report's
+own methodology exists to catch — the frontend button doesn't exist yet, but
+everything this pass actually owns (the wire mapping, the turn_id guard, the
+RPC-transport `Compact` fix) was driven for real and behaved correctly.
+
+**`collabAgentToolCall` (tool_pre/tool_post/tool_fail)** was live-verified
+against a real codex app-server twice over (Section F2's capture, not
+dev-desktop — it needs `-c features.collab_agents=true`, a flag Crowbar's own
+spawn config does not set, and adding it purely to re-run this one check in
+the full app was judged not worth changing production spawn args for). The
+frontend rendering of a tool_pre/tool_post pair as a transcript row is
+already the mechanism this branch's own A1 fix verified live, unchanged by
+this addition — only the `item.type` gate grew a new accepted value.
