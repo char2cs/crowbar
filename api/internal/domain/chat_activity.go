@@ -221,6 +221,14 @@ type ActivityChoice struct {
 	// wire rather than removed outright: a client reading it still gets a
 	// truthful answer, just a constant one.
 	AutoApproved bool `json:"autoApproved,omitempty"`
+	// AnsweredOptionIDs is which of Options (or a question's own options) was
+	// actually picked, when Resolution is "answered" — set only by an answer
+	// that went through Crowbar, never guessed at for one that proceeded at the
+	// provider's own terminal or was abandoned with its turn. A reader resolves
+	// these ids against Options/Questions to say WHAT was decided, not merely
+	// THAT it was — the transcript record of a permission is otherwise
+	// indistinguishable from one that was denied.
+	AnsweredOptionIDs []string `json:"answeredOptionIds,omitempty"`
 }
 
 type ActivityChoiceQuestion struct {
