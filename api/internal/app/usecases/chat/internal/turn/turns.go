@@ -91,6 +91,11 @@ type Turns struct {
 	// of them. Wired at sweep start, same reasoning as messageDelta.
 	compactionStatus func(chatID, workspaceID string, active bool)
 
+	// planUpdate fans the agent's own to-do list out to any client watching, the
+	// same way compactionStatus does and for the same reason: it is a LIVE view
+	// of a turn in progress, restated wholesale, and nothing durable records it.
+	planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep)
+
 	// messageAwaitTimeout bounds how long closeAssistantTurn will wait on
 	// stream.Streams.AwaitOpen before concluding nothing streamed. It is a
 	// self-releasing channel wait, not a lock another path can hold — it never
@@ -180,6 +185,12 @@ func (t *Turns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text, ki
 // SetCompactionStatus wires the fan-out for the live compact_pre/compact_post
 // edge. Called at sweep start, same as SetMessageDelta: a daemon with nobody
 // to publish to just skips the call (see observation.go), never panics.
+// SetPlanUpdate wires the fan-out for the agent's running to-do list. Called at
+// sweep start, same as SetMessageDelta.
+func (t *Turns) SetPlanUpdate(fn func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
+	t.planUpdate = fn
+}
+
 func (t *Turns) SetCompactionStatus(fn func(chatID, workspaceID string, active bool)) {
 	t.compactionStatus = fn
 }

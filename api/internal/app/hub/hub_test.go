@@ -1,6 +1,7 @@
 package hub_test
 
 import (
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -171,6 +172,8 @@ func (f *fakeSubscriber) PushAgentChatMessageDelta(
 		chatID: chatID, workspaceID: workspaceID, messageID: messageID, text: text,
 	})
 }
+
+func (f *fakeSubscriber) PushAgentChatPlan(_, _ string, _ []agents.PlanStep) {}
 
 func (f *fakeSubscriber) PushAgentChatCompaction(
 	chatID string,

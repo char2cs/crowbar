@@ -322,6 +322,44 @@ describe('WorkingLine', () => {
     expect(screen.queryByTestId('agent-tool-output')).not.toBeInTheDocument()
   })
 
+  // Statuses reaching the component are CROWBAR'S words, already translated from
+  // the provider's own by its descriptor.
+  it("shows the agent's own to-do list with the active step marked", () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity()}
+        plan={[
+          { text: 'Run the command', status: 'done' },
+          { text: 'Summarise it', status: 'active' },
+          { text: 'Clean up', status: 'pending' },
+        ]}
+      />,
+    )
+    const list = screen.getByTestId('agent-plan')
+    expect(list).toHaveTextContent('Run the command')
+    expect(list).toHaveTextContent('Summarise it')
+    const active = [...list.querySelectorAll('li')].filter(
+      (li) => li.getAttribute('data-status') === 'active',
+    )
+    expect(active).toHaveLength(1)
+    expect(active[0]).toHaveTextContent('Summarise it')
+  })
+
+  // A status the descriptor's map did not name is still a step: dropping it
+  // would silently shorten the plan.
+  it('still renders a step whose status it does not recognise', () => {
+    render(
+      <WorkingLine working activity={activity()} plan={[{ text: 'Mystery', status: 'whoKnows' }]} />,
+    )
+    expect(screen.getByTestId('agent-plan')).toHaveTextContent('Mystery')
+  })
+
+  it('shows no plan when the agent reports none', () => {
+    render(<WorkingLine working activity={activity()} />)
+    expect(screen.queryByTestId('agent-plan')).not.toBeInTheDocument()
+  })
+
   it('names no tools while compacting — there is nothing to enumerate', () => {
     render(<WorkingLine working activity={activity({ toolCalls: [tool()] })} compactingLive />)
     expect(screen.queryByRole('list')).not.toBeInTheDocument()

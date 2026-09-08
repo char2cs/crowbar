@@ -82,6 +82,9 @@ type EventSpec struct {
 	RateLimits []RateLimitSpec `yaml:"rate_limits"`
 	// AnswersInto is permission's structured extra.
 	AnswersInto string `yaml:"answers_into"`
+	// Steps is plan_update's structured extra: a field map cannot express a LIST
+	// of {text, status} pairs.
+	Steps *StepsSpec `yaml:"steps"`
 
 	// Fresh/Resume/Action are the alternative to Out/Send for an api-transport
 	// event that must first ESTABLISH a session before it can act — codex's
@@ -115,6 +118,21 @@ type CallStep struct {
 	Call    string            `yaml:"call"`
 	Send    map[string]any    `yaml:"send"`
 	Capture map[string]string `yaml:"capture"`
+}
+
+// StepsSpec maps a provider's plan array onto Crowbar's own step vocabulary.
+//
+// StatusMap is what keeps provider words out of Go: codex says "inProgress",
+// another provider will say something else, and the descriptor translates both
+// into Crowbar's own pending/active/done. A status with no entry passes through
+// unchanged rather than being dropped — an unrecognised status is still a step.
+type StepsSpec struct {
+	// Items is the path to the array itself.
+	Items string `yaml:"items"`
+	// Text and Status are paths WITHIN one element.
+	Text      string            `yaml:"text"`
+	Status    string            `yaml:"status"`
+	StatusMap map[string]string `yaml:"status_map"`
 }
 
 type RateLimitSpec struct {

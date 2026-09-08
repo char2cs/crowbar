@@ -184,6 +184,30 @@ events:
       text:       delta
       turn_id:    turnId
 
+  # The agent's own to-do list for the turn, restated wholesale on each update.
+  # Captured live: codex emits four of these across a three-step task, each
+  # carrying the FULL list with one more step advanced.
+  #
+  # status_map is where codex's words become Crowbar's. Go never learns
+  # "inProgress"; a provider that spells it differently changes this map and
+  # nothing else.
+  plan_update:
+    in: turn/plan/updated
+    # No `message:` — turn/plan/updated carries an `explanation`, but it was null
+    # on every plan update captured live, and the replay harness rejects a path
+    # that resolves to nothing.
+    map:
+      session_id: threadId
+      turn_id:    turnId
+    steps:
+      items:  plan
+      text:   step
+      status: status
+      status_map:
+        pending:    pending
+        inProgress: active
+        completed:  done
+
   # tokenUsage nests under total/ — not tokenUsage.inputTokens directly.
   telemetry:
     in: thread/tokenUsage/updated

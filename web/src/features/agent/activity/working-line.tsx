@@ -51,6 +51,15 @@ interface WorkingLineProps {
    * without it the tool row sits static with no sign of progress.
    */
   toolOutput?: { id: string; text: string }
+  /**
+   * The agent's own to-do list for this turn, newest state wholesale.
+   *
+   * Statuses are CROWBAR'S words — pending / active / done — already translated
+   * from the provider's own vocabulary by its descriptor, so nothing here knows
+   * how any CLI spells "in progress". An unrecognised status still renders, just
+   * unstyled: silently dropping a step would shorten the plan.
+   */
+  plan?: { text: string; status: string }[]
 }
 
 /** How much of the current thought to show. It is a status line, not a document:
@@ -96,6 +105,7 @@ export function WorkingLine({
   compactingLive,
   reasoning,
   toolOutput,
+  plan,
 }: WorkingLineProps) {
   const [tick, setTick] = useState(0)
   const [elapsed, setElapsed] = useState(0)
@@ -184,6 +194,15 @@ export function WorkingLine({
         <p className="thinking" data-testid="agent-reasoning">
           {tailOf(reasoning, REASONING_LIMIT)}
         </p>
+      )}
+      {plan && plan.length > 0 && !compacting && (
+        <ol className="plan" data-testid="agent-plan">
+          {plan.map((step, i) => (
+            <li key={`${i}-${step.text}`} data-status={step.status}>
+              {step.text}
+            </li>
+          ))}
+        </ol>
       )}
       {tools.length > 0 && (
         <ul>

@@ -460,6 +460,9 @@ func startTerminalWaitSweep(
 		func(chatID, workspaceID string, active bool) {
 			h.BroadcastAgentChatCompaction(chatID, workspaceID, active)
 		},
+		func(chatID, workspaceID string, steps []agents.PlanStep) {
+			h.BroadcastAgentChatPlan(chatID, workspaceID, steps)
+		},
 	)
 }
 

@@ -108,6 +108,20 @@ events:
     required: [text]
     optional: [session_id, message_id, turn_id, index, final]
 
+  # The agent's own running to-do list for this turn, restated WHOLESALE on every
+  # update rather than as a diff — the newest list is the whole truth, exactly the
+  # way turn_stop's async_work level is, and for the same anti-drift reason.
+  #
+  # The steps themselves are a structured extra (`steps:`), because a flat field
+  # map cannot express a list of {text, status} pairs. Its status_map is where a
+  # provider's own words for "in progress" get translated into Crowbar's, so Go
+  # never learns them.
+  plan_update:
+    direction: in
+    required: []
+    optional: [session_id, turn_id, message]
+    extras: [steps]
+
   session_end:
     direction: in
     required: []

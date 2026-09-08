@@ -200,7 +200,7 @@ func TestObservation_CompactionPushesTheLiveEdgeDirectly(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			calls = append(calls, active)
-		})
+		}, nil)
 
 	hook(t, f, runnerID, "claude", engineagents.HookCompactPre, map[string]any{"trigger": "auto"})
 	hook(t, f, runnerID, "claude", engineagents.HookCompactPost, map[string]any{"trigger": "auto"})

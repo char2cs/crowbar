@@ -170,6 +170,7 @@ func (t *Turns) ingestResolvedHook(
 		return t.handleTurn(ctx, runner, descriptor, ev)
 	case engineagents.HookMessageDelta, engineagents.HookReasoningDelta,
 		engineagents.HookIdle, engineagents.HookToolOutputDelta,
+		engineagents.HookPlanUpdate,
 		engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail,
 		engineagents.HookSubagentPre, engineagents.HookSubagentPost,
 		engineagents.HookNotification, engineagents.HookPermission,

@@ -35,4 +35,7 @@ const (
 	// HookIdle is the provider reporting that it is doing nothing. It is NOT a
 	// turn close — it routinely precedes one — and only ever arms a reconcile.
 	HookIdle = "idle"
+
+	// HookPlanUpdate is the agent restating its own to-do list for this turn.
+	HookPlanUpdate = "plan_update"
 )

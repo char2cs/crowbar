@@ -15,6 +15,7 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // Container is the v0 delivery surface: the seven realtime topics plus REST
@@ -365,6 +366,25 @@ func (c *Container) PushAgentChatMessageDelta(
 		WorkspaceID: workspaceID,
 		Kind:        dto.AgentChatKindMessageDelta,
 		Message:     &dto.AgentStreamingMessageDTO{ID: messageID, Text: text, Kind: kind},
+	})
+}
+
+// PushAgentChatPlan implements hub.Subscriber, on the SAME workspace-scoped
+// agent-chat WebSocket as every other conversation fact.
+func (c *Container) PushAgentChatPlan(
+	chatID string,
+	workspaceID string,
+	steps []agents.PlanStep,
+) {
+	out := make([]dto.AgentPlanStepDTO, 0, len(steps))
+	for _, s := range steps {
+		out = append(out, dto.AgentPlanStepDTO{Text: s.Text, Status: s.Status})
+	}
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      chatID,
+		WorkspaceID: workspaceID,
+		Kind:        dto.AgentChatKindPlan,
+		Plan:        out,
 	})
 }
 

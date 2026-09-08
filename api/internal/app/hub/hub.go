@@ -6,6 +6,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // Hub fans out domain broadcasts to all registered Subscribers. It implements
@@ -210,6 +211,25 @@ func (h *Hub) BroadcastAgentChatMessageDelta(
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
 		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text, kind)
+	}
+}
+
+// BroadcastAgentChatPlan fans the agent's own running to-do list out on the same
+// workspace-scoped feed as every other fact about a conversation.
+//
+// Restated WHOLESALE on every update, like the streamed message's text-so-far:
+// the newest list is the entire truth, so a client that missed a frame is correct
+// again on the next one. Like that one it is deliberately never stored — a plan
+// for a turn in progress is a view, not a record.
+func (h *Hub) BroadcastAgentChatPlan(
+	chatID string,
+	workspaceID string,
+	steps []agents.PlanStep,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatPlan(chatID, workspaceID, steps)
 	}
 }
 

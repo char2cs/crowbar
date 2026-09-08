@@ -15,6 +15,17 @@ func (d *Descriptor) EventFields(canonical string) (map[string]string, bool) {
 	return e.Map, true
 }
 
+// EventSteps is the structured `steps:` extra for an event, if it declares one.
+// It is separate from EventFields because a flat field map cannot express a LIST
+// of {text, status} pairs — see StepsSpec.
+func (d *Descriptor) EventSteps(canonical string) *StepsSpec {
+	e, ok := d.Events[canonical]
+	if !ok {
+		return nil
+	}
+	return e.Steps
+}
+
 // DeclaredEvents lists every canonical event the provider observes, sorted.
 func (d *Descriptor) DeclaredEvents() []string {
 	var out []string

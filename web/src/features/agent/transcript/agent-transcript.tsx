@@ -45,6 +45,8 @@ interface AgentTranscriptProps {
   reasoning?: string
   /** The running tool's live output — see WorkingLine's own prop doc. */
   toolOutput?: { id: string; text: string }
+  /** The agent's own to-do list — see WorkingLine's own prop doc. */
+  plan?: { text: string; status: string }[]
   loading: boolean
   error: Error | null
   hasOlder: boolean
@@ -525,6 +527,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           compactingLive={props.compacting}
           reasoning={props.reasoning}
           toolOutput={props.toolOutput}
+          plan={props.plan}
         />
         {/* A REAL, measured spacer — not `.scroll`'s own `padding-bottom` (see
             `.dock-spacer`'s own comment in transcript.css for why: the

@@ -106,6 +106,8 @@ export interface AgentChatViewProps {
   reasoning?: string
   /** The running tool's live output — see WorkingLine's own prop doc. */
   toolOutput?: { id: string; text: string }
+  /** The agent's own to-do list — see WorkingLine's own prop doc. */
+  plan?: { text: string; status: string }[]
   /** Prune confirmed ids out of the store's own streamingMessages[chatId] —
    *  see useChatMessages' onStreamingSettled for why this is safe where a
    *  turn-boundary clear was not. */
@@ -221,6 +223,7 @@ export function AgentChatView({
   streamingMessages,
   reasoning,
   toolOutput,
+  plan,
   onStreamingSettled,
   onPromptSpawned,
   onPromptDispatchStart,
@@ -716,6 +719,7 @@ export function AgentChatView({
       compacting={compacting}
       reasoning={reasoning}
       toolOutput={toolOutput}
+      plan={plan}
       loading={ledger.loading}
       error={ledger.error}
       hasOlder={ledger.hasOlder}

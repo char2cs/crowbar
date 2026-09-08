@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"context"
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"testing"
 	"time"
 
@@ -46,10 +47,11 @@ func (s *capturingSubscriber) PushAgentChatFolder(_, _, _ string) {}
 func (s *capturingSubscriber) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWaitDTO) {
 }
 
-func (s *capturingSubscriber) PushAgentChatPromptSettled(_, _, _ string)   {}
-func (s *capturingSubscriber) PushAgentChatMessageDelta(_, _, _, _, _ string) {}
-func (s *capturingSubscriber) PushAgentChatCompaction(_, _ string, _ bool) {}
-func (s *capturingSubscriber) PushAgentRunner(_, _, _, _ string)           {}
+func (s *capturingSubscriber) PushAgentChatPromptSettled(_, _, _ string)          {}
+func (s *capturingSubscriber) PushAgentChatMessageDelta(_, _, _, _, _ string)     {}
+func (s *capturingSubscriber) PushAgentChatPlan(_, _ string, _ []agents.PlanStep) {}
+func (s *capturingSubscriber) PushAgentChatCompaction(_, _ string, _ bool)        {}
+func (s *capturingSubscriber) PushAgentRunner(_, _, _, _ string)                  {}
 
 func (s *capturingSubscriber) PushGit(
 	wsID string,

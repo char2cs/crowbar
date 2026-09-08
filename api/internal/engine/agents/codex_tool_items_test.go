@@ -155,3 +155,40 @@ func TestRegression_CodexStreamsARunningCommandsOutput(t *testing.T) {
 	// puts the lines under the right running row.
 	assert.Equal(t, "call_PQbUMzNNrlEGDg3Y4zc7JwNW", ev.Delta.MessageID)
 }
+
+// The agent's own to-do list, restated wholesale on each update. Payload is a
+// LIVE capture against codex-cli 0.149.1
+// (testdata/fixtures/codex/turn_plan_updated.json).
+//
+// The statuses asserted here are CROWBAR'S words, not codex's: the descriptor's
+// steps.status_map translates them, so Go never learns that codex spells the
+// middle state "inProgress".
+func TestRegression_CodexReportsItsPlan(t *testing.T) {
+	raw := []byte(`{"threadId":"01a081af-73bf-7fd1-bc4b-efd041f46edc",
+	  "turnId":"01a081af-7550-79d0-a51e-6424d9724c88","explanation":null,
+	  "plan":[{"step":"Run the requested five-line shell command exactly.","status":"inProgress"},
+	          {"step":"List the top-level directory contents.","status":"pending"},
+	          {"step":"Check repository status, then summarize.","status":"completed"}]}`)
+
+	ev, err := get(t, "codex").ParseHook(agents.HookPlanUpdate, raw)
+
+	require.NoError(t, err)
+	require.Len(t, ev.Plan, 3)
+	assert.Equal(t, "Run the requested five-line shell command exactly.", ev.Plan[0].Text)
+	assert.Equal(t, agents.PlanStepActive, ev.Plan[0].Status)
+	assert.Equal(t, agents.PlanStepPending, ev.Plan[1].Status)
+	assert.Equal(t, agents.PlanStepDone, ev.Plan[2].Status)
+}
+
+// A status the descriptor's map does not name is still a step worth showing —
+// dropping it would silently shorten the plan.
+func TestAgent_AnUnmappedPlanStatusPassesThrough(t *testing.T) {
+	raw := []byte(`{"threadId":"t","turnId":"tn",
+	  "plan":[{"step":"something","status":"somethingCodexAddedLater"}]}`)
+
+	ev, err := get(t, "codex").ParseHook(agents.HookPlanUpdate, raw)
+
+	require.NoError(t, err)
+	require.Len(t, ev.Plan, 1)
+	assert.Equal(t, "somethingCodexAddedLater", ev.Plan[0].Status)
+}

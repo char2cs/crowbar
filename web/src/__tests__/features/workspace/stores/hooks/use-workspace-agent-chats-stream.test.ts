@@ -19,6 +19,7 @@ const {
   setAgentChatStreamingMessage,
   setAgentChatStreamingReasoning,
   setAgentChatStreamingToolOutput,
+  setAgentChatStreamingPlan,
   setAgentProviders,
   hydrateAgentChatOrder,
   closeBuffer,
@@ -42,6 +43,7 @@ const {
   setAgentChatStreamingMessage: vi.fn(),
   setAgentChatStreamingReasoning: vi.fn(),
   setAgentChatStreamingToolOutput: vi.fn(),
+  setAgentChatStreamingPlan: vi.fn(),
   setAgentProviders: vi.fn(),
   hydrateAgentChatOrder: vi.fn(),
   closeBuffer: vi.fn(),
@@ -115,6 +117,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       setAgentChatStreamingMessage,
       setAgentChatStreamingReasoning,
       setAgentChatStreamingToolOutput,
+      setAgentChatStreamingPlan,
       setAgentProviders,
       hydrateAgentChatOrder,
       buffers,
@@ -145,6 +148,7 @@ type Frame = {
   terminalWait?: { kind: string }
   /** An assistant message still being produced. Present on `message_delta` only. */
   message?: { id: string; text: string; kind?: string }
+  plan?: { text: string; status: string }[]
 }
 
 const chat = (id: string) => ({
@@ -518,6 +522,29 @@ describe('useWorkspaceAgentChatsStream', () => {
         text: 'line 1\n',
       })
       expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
+
+    // The plan arrives WHOLESALE — the newest list is the entire truth, so this
+    // is a replace and a missed frame costs nothing.
+    it("replaces the agent's to-do list wholesale", async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'plan',
+        plan: [
+          { text: 'Run the command', status: 'active' },
+          { text: 'Summarise', status: 'pending' },
+        ],
+      })
+
+      expect(setAgentChatStreamingPlan).toHaveBeenCalledWith('c1', [
+        { text: 'Run the command', status: 'active' },
+        { text: 'Summarise', status: 'pending' },
+      ])
     })
 
     // The thought belongs to the turn that produced it — a stale one outliving

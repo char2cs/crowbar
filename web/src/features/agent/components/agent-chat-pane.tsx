@@ -254,6 +254,7 @@ export function AgentChatPane({
   // is its own slot and not part of streamingMessages — see the slice's own doc.
   const reasoning = useStore(store, (s) => s.agentChats.streamingReasoning[shownChatId]?.text)
   const toolOutput = useStore(store, (s) => s.agentChats.streamingToolOutput[shownChatId])
+  const plan = useStore(store, (s) => s.agentChats.streamingPlan[shownChatId])
 
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   const columnRef = useRef<HTMLDivElement>(null)
@@ -1116,6 +1117,7 @@ export function AgentChatPane({
               streamingMessages={streamingMessages}
               reasoning={reasoning}
               toolOutput={toolOutput}
+              plan={plan}
               onStreamingSettled={handleStreamingSettled}
               onPromptDispatchStart={() => {
                 switchingRef.current = true

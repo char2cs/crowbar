@@ -37,6 +37,7 @@ type (
 	MoveKind         = models.MoveKind
 
 	MessageDelta     = models.MessageDelta
+	PlanStep         = models.PlanStep
 	TurnFailure      = models.TurnFailure
 	SlashCatalog     = models.SlashCatalog
 	SlashCatalogItem = models.SlashCatalogItem
@@ -85,6 +86,7 @@ const (
 	HookTurnFailed      = spec.HookTurnFailed
 	HookIdle            = spec.HookIdle
 	HookToolOutputDelta = spec.HookToolOutputDelta
+	HookPlanUpdate      = spec.HookPlanUpdate
 )
 
 const (
@@ -125,6 +127,12 @@ const (
 	CatalogCompletenessPluginOnly   = string(spec.CatalogCompletenessPluginOnly)
 
 	CatalogItemKindSkill = models.CatalogItemKindSkill
+)
+
+const (
+	PlanStepPending = models.PlanStepPending
+	PlanStepActive  = models.PlanStepActive
+	PlanStepDone    = models.PlanStepDone
 )
 
 const (

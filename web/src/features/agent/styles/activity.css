@@ -54,6 +54,42 @@
   contain: layout;
 }
 
+/* The agent's own to-do list for the turn. A checklist, not prose: one line per
+   step, the active one carried at full strength and the finished ones struck
+   through, so a glance says where in its own plan the agent is. */
+.agent-chat .activity .plan {
+  margin: 2px 0 0;
+  padding: 0 0 0 24px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--ui-text-xs);
+  contain: layout;
+}
+.agent-chat .activity .plan li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.55;
+}
+.agent-chat .activity .plan li::before {
+  content: '○ ';
+}
+.agent-chat .activity .plan li[data-status='active'] {
+  opacity: 1;
+  color: var(--foreground);
+}
+.agent-chat .activity .plan li[data-status='active']::before {
+  content: '◍ ';
+}
+.agent-chat .activity .plan li[data-status='done'] {
+  text-decoration: line-through;
+}
+.agent-chat .activity .plan li[data-status='done']::before {
+  content: '● ';
+}
+
 .agent-chat .activity ul {
   margin: 0;
   padding: 0 0 0 24px;

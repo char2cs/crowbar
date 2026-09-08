@@ -96,6 +96,7 @@ interface AgentStreamEvent {
     | 'terminal_wait'
     | 'prompt_settled'
     | 'message_delta'
+    | 'plan'
     | 'compaction_started'
     | 'compaction_stopped'
     | 'title_set'
@@ -171,6 +172,12 @@ interface AgentStreamEvent {
      */
     kind?: string
   }
+  /**
+   * The agent's own running to-do list, on the `plan` kind. Always the WHOLE
+   * list — the newest one is the entire truth, so a client replaces rather than
+   * merges and a missed frame costs nothing.
+   */
+  plan?: { text: string; status: string }[]
 }
 
 /**
@@ -604,6 +611,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // edge (turn/reasoning.go).
           st.setAgentChatStreamingReasoning(ev.chatId, null)
           st.setAgentChatStreamingToolOutput(ev.chatId, null)
+          st.setAgentChatStreamingPlan(ev.chatId, null)
           //
           // Deliberately NOT clearing streamingMessages[chatId] here (tried,
           // reverted): "interrupted" does not mean dead. Stopping a turn is a
@@ -646,6 +654,10 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // moment the message completes. Batched to the next frame rather than
           // written straight through — see streamingMessages above.
           streamingMessages.schedule(ev.chatId, ev.message)
+          return
+        case 'plan':
+          // Wholesale replace: see the frame's own doc above.
+          st.setAgentChatStreamingPlan(ev.chatId, ev.plan ?? null)
           return
         case 'compaction_started':
           // The ledger's own interruption record for this is born already

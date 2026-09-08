@@ -4,6 +4,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // Subscriber receives hub broadcasts. Implemented by the API WS handler set,
@@ -76,6 +77,14 @@ type Subscriber interface {
 		messageID string,
 		text string,
 		kind string,
+	)
+	// PushAgentChatPlan receives the agent's own running to-do list for the turn,
+	// restated wholesale. Never stored: a plan for a turn in progress is a view of
+	// it, not a record of it.
+	PushAgentChatPlan(
+		chatID string,
+		workspaceID string,
+		steps []agents.PlanStep,
 	)
 	// PushAgentChatCompaction receives the live compact_pre/compact_post edge —
 	// a fact the ledger's own interruption record cannot carry live (see

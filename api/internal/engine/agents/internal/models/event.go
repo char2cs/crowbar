@@ -23,6 +23,10 @@ type CanonicalEvent struct {
 
 	Choice *ChoicePrompt
 
+	// Plan is the agent's own running to-do list for this turn, newest state
+	// wholesale. Nil when the event carries none.
+	Plan []PlanStep
+
 	Raw map[string]any
 }
 
@@ -148,3 +152,23 @@ type ChoiceOption struct {
 	Label       string
 	Description string
 }
+
+// PlanStep is one entry of an agent's running plan.
+//
+// Status is CROWBAR'S word, not the provider's: a descriptor translates its own
+// vocabulary with `steps.status_map` (the same mechanism permission's
+// suggestion_label.* uses), so Go never learns any provider's spelling of
+// "in progress".
+type PlanStep struct {
+	Text   string
+	Status string
+}
+
+// The step statuses Crowbar renders. A descriptor whose status_map produces
+// anything else leaves the step unstyled rather than failing — an unknown status
+// is still a step worth showing.
+const (
+	PlanStepPending = "pending"
+	PlanStepActive  = "active"
+	PlanStepDone    = "done"
+)

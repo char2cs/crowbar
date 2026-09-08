@@ -4,6 +4,7 @@ package v0_test
 
 import (
 	"context"
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -131,7 +132,8 @@ func (fileProbe) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWait
 
 func (fileProbe) PushAgentChatPromptSettled(_, _, _ string) {}
 
-func (fileProbe) PushAgentChatMessageDelta(_, _, _, _, _ string) {}
+func (fileProbe) PushAgentChatMessageDelta(_, _, _, _, _ string)     {}
+func (fileProbe) PushAgentChatPlan(_, _ string, _ []agents.PlanStep) {}
 
 func (fileProbe) PushAgentChatCompaction(_, _ string, _ bool) {}
 

@@ -31,6 +31,12 @@ func (t *Turns) handleObservation(
 	case engineagents.HookMessageDelta:
 
 		t.recordMessageDelta(ctx, chat, runner, ev)
+	case engineagents.HookPlanUpdate:
+		// Live only, restated wholesale — see turns.planUpdate. Nothing durable is
+		// written, so a provider mapping this cannot corrupt a transcript either.
+		if t.planUpdate != nil && len(ev.Plan) > 0 {
+			t.planUpdate(chat.ID, chat.WorkspaceID, ev.Plan)
+		}
 	case engineagents.HookIdle:
 		// ARMS a reconcile; closes nothing. This routinely arrives microseconds
 		// BEFORE the turn's own close — see idle.go.
