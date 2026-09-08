@@ -111,10 +111,10 @@ func (t *Turns) closeAssistantTurn(
 	// be swept up and recorded under THIS runner's provider.
 	streamed := t.awaitStreamed(chat.ID, runner.ID, ev.Message)
 	defer t.messages.Forget(chat.ID, runner.ID)
-	// The thinking belonged to the turn that is now ending, and the answer has
-	// superseded it. Nothing durable is dropped here — a reasoning stream is never
-	// recorded (see reasoning.go).
-	defer t.reasoning.forget(chat.ID)
+	// The thinking and the tool output belonged to the turn that is now ending,
+	// and the answer has superseded them. Nothing durable is dropped here — a live
+	// stream is never recorded (see livetext.go).
+	defer t.live.forget(chat.ID)
 	// Crowbar has now noticed the turn ending, so the provider's own "I am idle"
 	// report has nothing left to reconcile — see idle.go.
 	defer t.idle.clear(chat.ID)

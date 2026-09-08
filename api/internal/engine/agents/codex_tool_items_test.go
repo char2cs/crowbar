@@ -136,3 +136,22 @@ func TestAgent_ReasoningAndMessageDeltasAreDistinctEvents(t *testing.T) {
 	_, err := get(t, "claude").ParseHook(agents.HookReasoningDelta, []byte(`{"delta":"x"}`))
 	require.Error(t, err, "claude declares no reasoning stream, and must not claim one")
 }
+
+// A long command emits one of these per line and nothing else for its whole
+// duration, so with it unmapped the tool row sat static with no sign of
+// progress. Payload shape is a LIVE capture against codex-cli 0.149.1
+// (testdata/fixtures/codex/item_commandExecution_outputDelta.json).
+func TestRegression_CodexStreamsARunningCommandsOutput(t *testing.T) {
+	raw := []byte(`{"threadId":"01a081af-73bf-7fd1-bc4b-efd041f46edc",
+	  "turnId":"01a081af-7550-79d0-a51e-6424d9724c88",
+	  "itemId":"call_PQbUMzNNrlEGDg3Y4zc7JwNW","delta":"line 2\n"}`)
+
+	ev, err := get(t, "codex").ParseHook(agents.HookToolOutputDelta, raw)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Delta)
+	assert.Equal(t, "line 2\n", ev.Delta.Text)
+	// The item id is the SAME id tool_pre opened the call under — that is what
+	// puts the lines under the right running row.
+	assert.Equal(t, "call_PQbUMzNNrlEGDg3Y4zc7JwNW", ev.Delta.MessageID)
+}

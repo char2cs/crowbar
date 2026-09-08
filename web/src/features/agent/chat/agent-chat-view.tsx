@@ -104,6 +104,8 @@ export interface AgentChatViewProps {
   /** The agent's in-flight thinking — live-only, never in the ledger.
    *  See AgentChatsState.streamingReasoning. */
   reasoning?: string
+  /** The running tool's live output — see WorkingLine's own prop doc. */
+  toolOutput?: { id: string; text: string }
   /** Prune confirmed ids out of the store's own streamingMessages[chatId] —
    *  see useChatMessages' onStreamingSettled for why this is safe where a
    *  turn-boundary clear was not. */
@@ -218,6 +220,7 @@ export function AgentChatView({
   settledPrompts,
   streamingMessages,
   reasoning,
+  toolOutput,
   onStreamingSettled,
   onPromptSpawned,
   onPromptDispatchStart,
@@ -712,6 +715,7 @@ export function AgentChatView({
       working={working}
       compacting={compacting}
       reasoning={reasoning}
+      toolOutput={toolOutput}
       loading={ledger.loading}
       error={ledger.error}
       hasOlder={ledger.hasOlder}

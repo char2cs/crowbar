@@ -65,25 +65,26 @@ const (
 )
 
 const (
-	HookSessionStart   = spec.HookSessionStart
-	HookUserPrompt     = spec.HookUserPrompt
-	HookTurnStop       = spec.HookTurnStop
-	HookToolPre        = spec.HookToolPre
-	HookToolPost       = spec.HookToolPost
-	HookSubagentPre    = spec.HookSubagentPre
-	HookSubagentPost   = spec.HookSubagentPost
-	HookNotification   = spec.HookNotification
-	HookPermission     = spec.HookPermission
-	HookCompactPre     = spec.HookCompactPre
-	HookCompactPost    = spec.HookCompactPost
-	HookSessionEnd     = spec.HookSessionEnd
-	HookTelemetry      = spec.HookTelemetry
-	HookToolFail       = spec.HookToolFail
-	HookElicitation    = spec.HookElicitation
-	HookMessageDelta   = spec.HookMessageDelta
-	HookReasoningDelta = spec.HookReasoningDelta
-	HookTurnFailed     = spec.HookTurnFailed
-	HookIdle           = spec.HookIdle
+	HookSessionStart    = spec.HookSessionStart
+	HookUserPrompt      = spec.HookUserPrompt
+	HookTurnStop        = spec.HookTurnStop
+	HookToolPre         = spec.HookToolPre
+	HookToolPost        = spec.HookToolPost
+	HookSubagentPre     = spec.HookSubagentPre
+	HookSubagentPost    = spec.HookSubagentPost
+	HookNotification    = spec.HookNotification
+	HookPermission      = spec.HookPermission
+	HookCompactPre      = spec.HookCompactPre
+	HookCompactPost     = spec.HookCompactPost
+	HookSessionEnd      = spec.HookSessionEnd
+	HookTelemetry       = spec.HookTelemetry
+	HookToolFail        = spec.HookToolFail
+	HookElicitation     = spec.HookElicitation
+	HookMessageDelta    = spec.HookMessageDelta
+	HookReasoningDelta  = spec.HookReasoningDelta
+	HookTurnFailed      = spec.HookTurnFailed
+	HookIdle            = spec.HookIdle
+	HookToolOutputDelta = spec.HookToolOutputDelta
 )
 
 const (

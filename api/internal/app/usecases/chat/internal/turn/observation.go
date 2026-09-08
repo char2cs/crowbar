@@ -36,9 +36,11 @@ func (t *Turns) handleObservation(
 		// BEFORE the turn's own close — see idle.go.
 		t.recordIdle(chat)
 	case engineagents.HookReasoningDelta:
-		// Live only — see recordReasoningDelta. Nothing durable is written, so a
-		// provider that maps this can never corrupt a transcript with it.
-		t.recordReasoningDelta(chat, ev)
+		// Live only — see recordLiveText. Nothing durable is written, so a provider
+		// that maps either of these can never corrupt a transcript with them.
+		t.recordLiveText(chat, ev, DeltaKindReasoning)
+	case engineagents.HookToolOutputDelta:
+		t.recordLiveText(chat, ev, DeltaKindToolOutput)
 	case engineagents.HookToolPre:
 		note(ctx, "tool invoked", t.activity.InvokeTool(ctx, agentactivity.ToolInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,

@@ -46,9 +46,9 @@ type Turns struct {
 	// messages assembles each assistant message from the increments its provider
 	// streams, because the terminating hook carries only the LAST message of a turn.
 	messages *stream.Streams
-	// reasoning holds the model's in-flight thinking, live-only and never
-	// recorded. See reasoning.go.
-	reasoning *reasoningBuffer
+	// live holds the streamed text that is shown while it happens and never
+	// recorded — the model's thinking, a running tool's output. See livetext.go.
+	live *liveText
 	// idle latches a provider's own "I am doing nothing" report. It is never
 	// acted on directly — see idle.go.
 	idle *idleLatch
@@ -149,7 +149,7 @@ func New(d Deps) *Turns {
 		// the exactly-once ingress journal and the per-runner ingest gate are named
 		// by nothing outside this package.
 		messages:            stream.New(),
-		reasoning:           newReasoningBuffer(),
+		live:                newLiveText(),
 		idle:                newIdleLatch(),
 		hookDeliveries:      agentjournal.NewHookDeliveries(),
 		hookGates:           inflight.NewGate(),

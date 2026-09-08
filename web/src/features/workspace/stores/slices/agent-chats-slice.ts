@@ -164,6 +164,17 @@ export interface AgentChatsState {
    * Cleared on every turn edge — it belongs to the turn that produced it.
    */
   streamingReasoning: Record<string, { id: string; text: string }>
+  /**
+   * A running tool's output as it is produced, keyed by chat — the newest tool
+   * only. `id` is the tool call it belongs to, so a client can put the lines
+   * under the right running row.
+   *
+   * Live-only for the same reason as streamingReasoning: the tool's FULL output
+   * lands once, on the completed tool call, and keeping every line of every
+   * build in the ledger would multiply the transcript for text nobody scrolls
+   * back to. Cleared on every turn edge.
+   */
+  streamingToolOutput: Record<string, { id: string; text: string }>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
@@ -241,6 +252,12 @@ export interface AgentChatsSlice {
     chatId: string,
     block: { id: string; text: string } | null,
   ) => void
+  /** Replace (or clear, with null) the live output of the tool a chat is
+   *  currently running. See AgentChatsState.streamingToolOutput. */
+  setAgentChatStreamingToolOutput: (
+    chatId: string,
+    block: { id: string; text: string } | null,
+  ) => void
   /** Drop the given ids' entries once the ledger has recorded them for real —
    *  see useChatMessages' streamingBubbles for the matching id computation
    *  this is the store-side twin of. NOT a blanket clear on a turn boundary:
@@ -303,6 +320,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   settledPrompts: {},
   streamingMessages: {},
   streamingReasoning: {},
+  streamingToolOutput: {},
   turnRevision: {},
   scrollPositions: {},
   excalidrawEditRequests: {},
@@ -499,6 +517,7 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.settledPrompts[chatId]
       delete s.agentChats.streamingMessages[chatId]
       delete s.agentChats.streamingReasoning[chatId]
+      delete s.agentChats.streamingToolOutput[chatId]
       delete s.agentChats.turnRevision[chatId]
       delete s.agentChats.scrollPositions[chatId]
       delete s.agentChats.excalidrawEditRequests[chatId]
@@ -558,6 +577,15 @@ export const createAgentChatsSlice: StateCreator<
         return
       }
       s.agentChats.streamingReasoning[chatId] = block
+    }),
+
+  setAgentChatStreamingToolOutput: (chatId, block) =>
+    set((s) => {
+      if (!block) {
+        delete s.agentChats.streamingToolOutput[chatId]
+        return
+      }
+      s.agentChats.streamingToolOutput[chatId] = block
     }),
 
   pruneAgentChatStreamingMessages: (chatId, ids) =>

@@ -171,6 +171,19 @@ events:
       turn_id:    turnId
       index:      summaryIndex
 
+  # A long command's output, line by line, while it runs. Captured live: a
+  # five-second command emits one of these per line and nothing else, so without
+  # it the tool row sat static for the whole run with no sign of progress.
+  # itemId is the commandExecution item, which is the same id tool_pre opened the
+  # call under — that is what puts the lines under the right running row.
+  tool_output_delta:
+    in: item/commandExecution/outputDelta
+    map:
+      session_id: threadId
+      message_id: itemId
+      text:       delta
+      turn_id:    turnId
+
   # tokenUsage nests under total/ — not tokenUsage.inputTokens directly.
   telemetry:
     in: thread/tokenUsage/updated

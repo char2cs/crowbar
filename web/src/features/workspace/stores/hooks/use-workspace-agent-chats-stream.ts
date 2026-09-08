@@ -603,6 +603,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // one can only mislead. The server drops its own buffer on the same
           // edge (turn/reasoning.go).
           st.setAgentChatStreamingReasoning(ev.chatId, null)
+          st.setAgentChatStreamingToolOutput(ev.chatId, null)
           //
           // Deliberately NOT clearing streamingMessages[chatId] here (tried,
           // reverted): "interrupted" does not mean dead. Stopping a turn is a
@@ -625,6 +626,16 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // the whole reason it is carried at all.
           if (ev.message.kind === 'reasoning') {
             st.setAgentChatStreamingReasoning(ev.chatId, {
+              id: ev.message.id,
+              text: ev.message.text,
+            })
+            return
+          }
+          // A running tool's output. Same contract as a thought: nothing in the
+          // ledger will ever match it (the tool's full output arrives once, on
+          // the completed call), so it must never reach streamingMessages either.
+          if (ev.message.kind === 'tool_output') {
+            st.setAgentChatStreamingToolOutput(ev.chatId, {
               id: ev.message.id,
               text: ev.message.text,
             })

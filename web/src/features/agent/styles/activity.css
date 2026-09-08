@@ -68,6 +68,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A running tool's newest output, on the same row as the tool it belongs to.
+   One line, ellipsised by the rule above — it is a sign of progress, not a log,
+   and the tool's full output is on the finished call. */
+.agent-chat .activity li .out {
+  margin-left: 8px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
 
 /* The subagent shelf, sitting on the top edge of the input box.
  *

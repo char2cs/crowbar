@@ -45,12 +45,22 @@ interface WorkingLineProps {
    * what-is-happening-now strip, and not as a transcript row.
    */
   reasoning?: string
+  /**
+   * The output of the tool that is running right now, and which tool it belongs
+   * to. A long build or test run emits nothing else for its whole duration, so
+   * without it the tool row sits static with no sign of progress.
+   */
+  toolOutput?: { id: string; text: string }
 }
 
 /** How much of the current thought to show. It is a status line, not a document:
  *  the point is to prove the agent is alive and say roughly what it is chewing
  *  on, and an unbounded block would push the transcript around on every token. */
 const REASONING_LIMIT = 240
+
+/** Tool output is a progress signal, not a log — one line's worth. The full
+ *  output is on the completed tool call. */
+const TOOL_OUTPUT_LIMIT = 120
 
 function tailOf(text: string, limit: number): string {
   // Providers head each thinking block with a markdown-bold title (codex emits
@@ -85,6 +95,7 @@ export function WorkingLine({
   since,
   compactingLive,
   reasoning,
+  toolOutput,
 }: WorkingLineProps) {
   const [tick, setTick] = useState(0)
   const [elapsed, setElapsed] = useState(0)
@@ -177,7 +188,16 @@ export function WorkingLine({
       {tools.length > 0 && (
         <ul>
           {tools.slice(0, TOOL_LIMIT).map((call) => (
-            <li key={call.id}>{describeTool(call)}</li>
+            <li key={call.id}>
+              {describeTool(call)}
+              {/* Only under the row it belongs to: a build's output under the
+                  build, never under whatever else happens to be running. */}
+              {toolOutput?.id === call.id && toolOutput.text && (
+                <span className="out" data-testid="agent-tool-output">
+                  {tailOf(toolOutput.text, TOOL_OUTPUT_LIMIT)}
+                </span>
+              )}
+            </li>
           ))}
           {tools.length > TOOL_LIMIT && <li>+{tools.length - TOOL_LIMIT} more</li>}
         </ul>

@@ -18,6 +18,7 @@ const {
   setAgentChatCompacting,
   setAgentChatStreamingMessage,
   setAgentChatStreamingReasoning,
+  setAgentChatStreamingToolOutput,
   setAgentProviders,
   hydrateAgentChatOrder,
   closeBuffer,
@@ -40,6 +41,7 @@ const {
   setAgentChatCompacting: vi.fn(),
   setAgentChatStreamingMessage: vi.fn(),
   setAgentChatStreamingReasoning: vi.fn(),
+  setAgentChatStreamingToolOutput: vi.fn(),
   setAgentProviders: vi.fn(),
   hydrateAgentChatOrder: vi.fn(),
   closeBuffer: vi.fn(),
@@ -112,6 +114,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       setAgentChatCompacting,
       setAgentChatStreamingMessage,
       setAgentChatStreamingReasoning,
+      setAgentChatStreamingToolOutput,
       setAgentProviders,
       hydrateAgentChatOrder,
       buffers,
@@ -493,6 +496,26 @@ describe('useWorkspaceAgentChatsStream', () => {
       expect(setAgentChatStreamingReasoning).toHaveBeenCalledWith('c1', {
         id: 'rs_1',
         text: '**Clarifying**',
+      })
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
+
+    it("routes a tool's output delta to its own slot", async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'call_1', text: 'line 1\n', kind: 'tool_output' },
+      })
+      await nextFrame()
+
+      expect(setAgentChatStreamingToolOutput).toHaveBeenCalledWith('c1', {
+        id: 'call_1',
+        text: 'line 1\n',
       })
       expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
     })

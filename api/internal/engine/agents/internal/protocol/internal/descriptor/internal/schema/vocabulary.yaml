@@ -97,6 +97,17 @@ events:
     required: [text]
     optional: [session_id, message_id, turn_id, index, final]
 
+  # A running tool's output as it is produced — the lines of a build, a test run,
+  # a long command. Same shape and same live channel as reasoning_delta, and like
+  # it never recorded: the tool's FULL output lands once, on tool_post.
+  #
+  # message_id is the tool call it belongs to, so a client can put the lines under
+  # the right running row.
+  tool_output_delta:
+    direction: in
+    required: [text]
+    optional: [session_id, message_id, turn_id, index, final]
+
   session_end:
     direction: in
     required: []

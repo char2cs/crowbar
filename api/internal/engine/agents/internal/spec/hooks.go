@@ -26,6 +26,10 @@ const (
 	// the assistant's answer.
 	HookReasoningDelta = "reasoning_delta"
 
+	// HookToolOutputDelta is a running tool's output as it is produced. Same
+	// live channel, same never-recorded contract.
+	HookToolOutputDelta = "tool_output_delta"
+
 	HookTurnFailed = "turn_failed"
 
 	// HookIdle is the provider reporting that it is doing nothing. It is NOT a

@@ -43,6 +43,8 @@ interface AgentTranscriptProps {
   compacting?: boolean
   /** What the agent is thinking right now — see WorkingLine's own prop doc. */
   reasoning?: string
+  /** The running tool's live output — see WorkingLine's own prop doc. */
+  toolOutput?: { id: string; text: string }
   loading: boolean
   error: Error | null
   hasOlder: boolean
@@ -522,6 +524,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           since={messages.at(-1)?.at}
           compactingLive={props.compacting}
           reasoning={props.reasoning}
+          toolOutput={props.toolOutput}
         />
         {/* A REAL, measured spacer — not `.scroll`'s own `padding-bottom` (see
             `.dock-spacer`'s own comment in transcript.css for why: the

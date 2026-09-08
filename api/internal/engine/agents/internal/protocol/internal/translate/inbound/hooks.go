@@ -113,7 +113,7 @@ func build(
 	case spec.HookElicitation:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptElicitation, Detail: ev.Message}
 		ev.Choice = elicitationChoice(fields, decoded, ev.Message)
-	case spec.HookMessageDelta, spec.HookReasoningDelta:
+	case spec.HookMessageDelta, spec.HookReasoningDelta, spec.HookToolOutputDelta:
 		// Same payload shape, deliberately: a thought and an answer are both
 		// streamed text belonging to one item. Only ev.Kind tells them apart, and
 		// only the consumer acts on that difference.

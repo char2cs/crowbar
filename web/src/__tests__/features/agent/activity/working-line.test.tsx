@@ -296,6 +296,32 @@ describe('WorkingLine', () => {
     expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
   })
 
+  // A long build emits nothing but this for its whole duration, so without it the
+  // tool row sat static with no sign of progress.
+  it("shows a running tool's output on that tool's own row", () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({ toolCalls: [tool({ id: 'c1', name: 'commandExecution' })] })}
+        toolOutput={{ id: 'c1', text: 'line 1\nline 2\nline 3' }}
+      />,
+    )
+    expect(screen.getByTestId('agent-tool-output')).toHaveTextContent('line 3')
+  })
+
+  // Output belongs under the command that produced it, never under whatever else
+  // happens to be running.
+  it("does not put one tool's output under a different tool", () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({ toolCalls: [tool({ id: 'c1' })] })}
+        toolOutput={{ id: 'SOMETHING-ELSE', text: 'line 1' }}
+      />,
+    )
+    expect(screen.queryByTestId('agent-tool-output')).not.toBeInTheDocument()
+  })
+
   it('names no tools while compacting — there is nothing to enumerate', () => {
     render(<WorkingLine working activity={activity({ toolCalls: [tool()] })} compactingLive />)
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
