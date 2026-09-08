@@ -430,6 +430,14 @@ effort:
 # do) made cleanup destroy the user's own threads.
 config_injection:
   - pass_arg: { arg: "-c", value: 'check_for_update_on_startup=false' }
+  # ASK for reasoning summaries. Codex emits NONE by default — measured on
+  # 0.149.1 by running the identical reasoning-heavy prompt twice: zero
+  # item/reasoning/* frames with the default, a full stream with this set. So
+  # without this line the reasoning_delta event above is inert in production and
+  # a reasoning model's long silences stay unexplained, which is exactly the
+  # dead air it was added to fix. Caught only by driving the real app; every
+  # unit test passed either way.
+  - pass_arg: { arg: "-c", value: 'model_reasoning_summary=detailed' }
   # TUI-native modals, suppressed rather than answered — no hook fires for
   # these. Only the three unambiguous ones: migration-prompt keys contain
   # dots, which a TOML dotted-key override would parse as nested tables. An
