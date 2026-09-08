@@ -454,6 +454,7 @@ type FolderStore struct {
 	SaveErr      error
 	FindErr      error
 	FindByKeyErr error
+	DeleteErr    error
 	Deleted      []string
 }
 
@@ -483,6 +484,9 @@ func (s *FolderStore) Delete(
 	ctx context.Context,
 	id string,
 ) error {
+	if s.DeleteErr != nil {
+		return s.DeleteErr
+	}
 	s.Deleted = append(s.Deleted, id)
 	kept := s.Saved[:0]
 	for _, f := range s.Saved {
@@ -494,6 +498,15 @@ func (s *FolderStore) Delete(
 	return nil
 }
 
+// FindByKey returns a pointer to a COPY, deliberately — never &s.Saved[i].
+// Delete's own in-place compaction below (kept := s.Saved[:0]) reuses
+// s.Saved's backing array, so a caller holding a pointer straight INTO that
+// array (as this used to hand back) could have it silently overwritten with
+// a DIFFERENT row's data the moment Delete ran, before the caller ever read
+// it again — caught live: tree.go's own Delete resolves f via FindByKey,
+// calls folders.Delete(ctx, f.ID), THEN reads f.ID again for nodes.Forget,
+// and with the old aliasing pointer that second read could name the WRONG
+// folder whenever the deleted row was not gorm.Saved's last element.
 func (s *FolderStore) FindByKey(
 	ctx context.Context,
 	id string,
@@ -503,7 +516,8 @@ func (s *FolderStore) FindByKey(
 	}
 	for i := range s.Saved {
 		if s.Saved[i].ID == id {
-			return &s.Saved[i], nil
+			found := s.Saved[i]
+			return &found, nil
 		}
 	}
 	return nil, nil
@@ -1368,7 +1382,12 @@ func (s *TerminalProfileStore) FindAll(
 // worse than no note, since the record it writes into the chat's conversation is
 // permanent and is what a reader would believe afterwards.
 type AgentChatPlacements struct {
-	Rows      []domain.Chat
+	Rows []domain.Chat
+	// Nodes is an OPTIONAL cross-reference to the fake NodePlacements a test
+	// wires the SAME tree.Usecase over — see parentOf's own doc. Left nil, a
+	// call site that never seeds one behaves exactly as it always has (Chat
+	// rows only).
+	Nodes     *NodePlacements
 	Purged    []string
 	Forgotten []string
 	Noted     []LineageNote
@@ -1856,9 +1875,22 @@ func (s *AgentChatPlacements) AttachWorkspace(
 	return nil
 }
 
+// parentOf answers chatID's CURRENT parent for StartCall.ParentAtStart's
+// ordering proof (2026-09-08 sidebar-placement-unification Task 8 note: a
+// Node-backed chat's placement never touches Chat.ParentID at all, so this
+// checks Nodes FIRST — set it via AgentChatPlacements.Nodes for a test
+// exercising a repo-scoped (or home-scoped) placement, matching production's
+// own Node-first dispatch — falling back to the Chat row for a bubble.
 func (s *AgentChatPlacements) parentOf(
 	chatID string,
 ) string {
+	if s.Nodes != nil {
+		for _, n := range s.Nodes.Rows {
+			if n.ID == chatID {
+				return n.ParentID
+			}
+		}
+	}
 	for _, c := range s.Rows {
 		if c.ID == chatID {
 			return c.ParentID

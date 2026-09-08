@@ -387,14 +387,22 @@ func (u *chatFolderUsecase) purgeAll(
 // PurgeChat: they are removed rather than promoted because the level that would
 // have held them is gone, and a folder never had a runner or a ledger for the
 // agent usecase to tear down in the first place.
+//
+// A folder is a domain.Folder+domain.Node pair now (2026-09-08
+// sidebar-placement-unification Task 5 for home-scoped, Task 8 for
+// repo-scoped too), never a Chats.Forget-able row — both halves are erased
+// here, mirroring Delete's own home/repo-scoped folder erasure (tree.go).
 func (u *chatFolderUsecase) removeAll(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	ids []string,
 ) error {
 	for _, id := range ids {
-		if err := u.chats.Forget(ctx, id); err != nil {
+		if err := u.folders.Delete(ctx, id); err != nil {
 			return fmt.Errorf("agent chat folder: delete %s: %w", id, err)
+		}
+		if err := u.nodes.Forget(ctx, id); err != nil {
+			return fmt.Errorf("agent chat folder: delete %s: node: %w", id, err)
 		}
 		snapshot.drop(id)
 	}

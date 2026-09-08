@@ -281,16 +281,14 @@ func New(
 		ProviderSync:  providerSync,
 		BranchReview:  branchReview,
 		TerminalMeta:  terminalMeta,
-		// Wrapped, not the raw chat usecase: a home-scoped chat's ParentID/
-		// Order are frozen at creation now (2026-09-08
-		// sidebar-placement-unification Task 5) — every READ needs its live
-		// Node position overlaid, or a chat filed into a home folder renders
-		// at the panel root forever, surviving a reload. See
+		// Wrapped, not the raw chat usecase: a chat's ParentID/Order are
+		// frozen at creation now (2026-09-08 sidebar-placement-unification
+		// Task 5 for home-scoped, Task 8 for repo-scoped too) — every READ
+		// needs its live Node position overlaid, or a chat filed into a
+		// folder renders at the panel root forever, surviving a reload. See
 		// agentusecase.NewHomeCorrectedChats' own doc for what this does and
 		// does not close (no WS-broadcast fix, only the read/reload path).
-		AgentChat: agentusecase.NewHomeCorrectedChats(
-			agentic.chat, workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories}, repos.Node,
-		),
+		AgentChat:            agentusecase.NewHomeCorrectedChats(agentic.chat, repos.Node),
 		AgentTurn:            agentic.chat,
 		AgentRunner:          agentic.chat,
 		AgentAnswer:          agentic.chat,
@@ -349,14 +347,15 @@ func newAgentWiring(
 	// needs the same answer and gets it from the chat usecase, which re-exposes
 	// this as Ancestors.)
 	//
-	// Wrapped, not the raw repository: a home-scoped chat's ParentID is frozen
-	// at creation now (2026-09-08 sidebar-placement-unification Task 5), and
-	// this lineage read (LoadChat/ListByWorkspace) is what decides what a
-	// freshly spawned CLI is told to read — unlike Container.AgentChat, wrapped
-	// separately above in New, this one is built here, independently, and was
-	// missed by that fix. See agentusecase.NewHomeCorrectedTreeChats' own doc.
+	// Wrapped, not the raw repository: a chat's ParentID is frozen at
+	// creation now (2026-09-08 sidebar-placement-unification Task 5 for
+	// home-scoped, Task 8 for repo-scoped too), and this lineage read
+	// (LoadChat/ListByWorkspace) is what decides what a freshly spawned CLI
+	// is told to read — unlike Container.AgentChat, wrapped separately above
+	// in New, this one is built here, independently, and was missed by that
+	// fix. See agentusecase.NewHomeCorrectedTreeChats' own doc.
 	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
-		repos.AgentChat, workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories}, repos.Node,
+		repos.AgentChat, repos.Node, gormStores.Folders,
 	))
 	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase)
 	if err != nil {

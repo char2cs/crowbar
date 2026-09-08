@@ -16,11 +16,11 @@ import (
 // workspaces (see WorkspaceGitStatus). Reading only one workspace's rows would
 // silently drop every other workspace's files from the count.
 //
-// chatID may also name a home-scoped folder (2026-09-08
-// sidebar-placement-unification Task 5), which is no longer a Chat row at
-// all — checked first, the same way Move/Delete/Rename dispatch, before
-// falling through to the unchanged Chats.LoadChat path every other id (a
-// repo-scoped folder, or any chat) still resolves through.
+// chatID may also name a folder (2026-09-08 sidebar-placement-unification
+// Task 5 for home-scoped, Task 8 for repo-scoped too), which is no longer a
+// Chat row at all — checked first, the same way Move/Delete/Rename dispatch,
+// before falling through to the unchanged Chats.LoadChat path any other id
+// still resolves through.
 func (u *chatFolderUsecase) DeletePreview(
 	ctx context.Context,
 	chatID string,
@@ -37,8 +37,8 @@ func (u *chatFolderUsecase) DeletePreview(
 }
 
 // loadForPreview resolves id to its Chat-shaped view for DeletePreview: a
-// home-scoped folder (Folder+Node) or, for everything else (a repo-scoped
-// folder, or any chat), the unchanged Chats.LoadChat read.
+// folder (Folder+Node, home OR repo-scoped) or, for everything else (any
+// chat), the unchanged Chats.LoadChat read.
 func (u *chatFolderUsecase) loadForPreview(
 	ctx context.Context,
 	id string,
@@ -47,7 +47,7 @@ func (u *chatFolderUsecase) loadForPreview(
 	if ferr != nil {
 		return domain.Chat{}, ferr
 	}
-	if f != nil && f.RepoID == "" {
+	if f != nil {
 		n, nerr := u.nodes.GetNode(ctx, id)
 		if nerr != nil {
 			return domain.Chat{}, nerr

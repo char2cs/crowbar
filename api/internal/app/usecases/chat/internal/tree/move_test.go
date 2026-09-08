@@ -19,7 +19,26 @@ func newUsecaseWithWork(
 	t *testing.T,
 ) (*mocks.AgentChatPlacements, tree.Usecase, *inflight.Work) {
 	t.Helper()
+	chats, _, _, uc, work := newUsecaseWithStores(t)
+	return chats, uc, work
+}
+
+// newUsecaseWithStores is newUsecaseWithWork with the Folders/Nodes fakes
+// ALSO exposed — 2026-09-08 sidebar-placement-unification Task 8, for the
+// tests that need to seed a Node row directly or inject a Folders/Nodes
+// store failure now that a folder's identity/position live there instead of
+// on chats.Rows.
+func newUsecaseWithStores(
+	t *testing.T,
+) (*mocks.AgentChatPlacements, *mocks.FolderStore, *mocks.NodePlacements, tree.Usecase, *inflight.Work) {
+	t.Helper()
 	chats := mocks.NewAgentChatPlacements()
+	folders := mocks.NewFolderStore()
+	nodes := mocks.NewNodePlacements()
+	// Cross-referenced so StartCall.ParentAtStart's ordering proof (see
+	// AgentChatPlacements.parentOf's own doc) can see a repo-scoped chat's
+	// live Node position too, not just the Chat row's frozen field.
+	chats.Nodes = nodes
 	work := inflight.NewWork()
 	roster := mocks.NewAgentWorkspaceRoster()
 	// Every fixture in this file is a single-repo world: workspaceID ("ws-1")
@@ -29,9 +48,10 @@ func newUsecaseWithWork(
 	// see domain.Chat.RepoID / checkFolderContainer's golden rule.
 	workspaceGitStatus := mocks.NewAgentWorkspaceGitStatus()
 	workspaceGitStatus.SetRepo(workspaceID, repoID)
-	return chats, tree.New(chats, chats, work, workspaceGitStatus, roster,
+	uc := tree.New(chats, chats, work, workspaceGitStatus, roster,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats),
-		mocks.NewFolderStore(), mocks.NewNodePlacements()), work
+		folders, nodes)
+	return chats, folders, nodes, uc, work
 }
 
 // seedFolderTree creates "root" and "other" as sibling folders and files
@@ -182,6 +202,72 @@ func TestMove_AllowsAFolderIntoAPlainChatSiblingAtTheSameRoot(t *testing.T) {
 	placed, _, err := uc.Move(context.Background(), folder.ID, tree.MoveInput{ParentID: name("sibling")})
 	require.NoError(t, err)
 	assert.Equal(t, "sibling", placed.ParentID)
+}
+
+// 2026-09-08 sidebar-placement-unification Task 8's own additions: folder
+// discovery/densify against an UN-NODED branch container ("branch-1", a raw
+// Chat fixture that never itself goes through placeChat/Node — the golden
+// rule's own fallback, per validate.go's resolveRow/parentOf) has to see
+// MULTIPLE Node-backed siblings sharing it, not just the one
+// TestMove_AllowsAMoveWithinTheSameBranchContext already proves — this is
+// the direct test for mergeForest's "seed every known chat id" BFS fix
+// (home_forest.go): before it, a folder filed under a Chat-only container
+// with no Node row of its own was invisible to any OTHER folder's own
+// densify/discovery pass sharing that same container.
+func TestMove_DensifiesAgainstASiblingFolderSharingAnUnNodedBranchContainer(t *testing.T) {
+	chats, uc, _ := newUsecaseWithWork(t)
+	seedChat(chats, "branch-1", 1)
+	first, _, err := uc.Create(context.Background(), tree.CreateInput{
+		RepoID: repoID, ParentID: "branch-1", Name: "first",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 0, first.Order)
+
+	second, _, err := uc.Create(context.Background(), tree.CreateInput{
+		RepoID: repoID, ParentID: "branch-1", Name: "second",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, second.Order, "the second folder must see the first as an occupied slot")
+
+	placed, shifted, err := uc.Move(context.Background(), second.ID, tree.MoveInput{Order: index(0)})
+	require.NoError(t, err)
+	assert.Equal(t, 0, placed.Order)
+	require.Len(t, shifted, 1)
+	assert.Equal(t, first.ID, shifted[0].ID)
+	assert.Equal(t, 1, shifted[0].Order, "the sibling folder correctly shifted too")
+}
+
+// The repo-scoped mirror of project.go's cross-project repo-phantom scoping
+// (SDD review Critical 2/fix round 3, home_folder_test.go's own
+// TestRegression_PlaceChat_Home_DoesNotCorruptAnotherProjectsRepoSharingTheBareRoot):
+// a repo-scoped chat's OWN placement must never include ANOTHER repo's
+// Node{Kind:repo} phantom as a sibling at all — a repo is never a
+// legitimate sibling INSIDE a repo's own internal tree (see mergeForest's
+// own doc, home_forest.go) — so densifying a chat at this repo's bare
+// internal root must leave every repo phantom completely untouched,
+// regardless of which project or repo it belongs to.
+func TestPlaceChat_NeverDensifiesAgainstAnyRepoPhantom(t *testing.T) {
+	chats, nodes, gitStatus, uc := newHomeUsecaseWithGitStatus(t)
+	gitStatus.SetRepo(workspaceID, repoID)
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
+	nodes.Rows = []domain.Node{
+		{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0}, // this repo's OWN phantom
+		{ID: "repo-2", Kind: domain.NodeKindRepo, Order: 1}, // an unrelated repo's
+	}
+
+	_, _, err := uc.PlaceChat(context.Background(), workspaceID, "c1", tree.PlaceInput{Order: index(0)})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, nodeRowFor(t, nodes, "repo-1").Order, "no repo phantom is EVER a sibling inside a repo's own tree")
+	assert.Equal(t, 1, nodeRowFor(t, nodes, "repo-2").Order)
+	for _, w := range nodes.Ordered {
+		assert.NotEqual(t, "repo-1", w.ID, "a repo phantom must never be WRITTEN by a repo-internal densify")
+		assert.NotEqual(t, "repo-2", w.ID)
+	}
+	for _, w := range nodes.Placed {
+		assert.NotEqual(t, "repo-1", w.ID)
+		assert.NotEqual(t, "repo-2", w.ID)
+	}
 }
 
 // PlaceChat makes the identical refusal for a CHAT's own move: a thread below

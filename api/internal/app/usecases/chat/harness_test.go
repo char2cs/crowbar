@@ -22,6 +22,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -776,6 +777,12 @@ type testFixture struct {
 	// minter is the SAME token minter the usecase's MCP seam verifies against, so
 	// a test can mint the token a spawned runner would have been handed.
 	minter *agenttools.TokenMinter
+	// folders/nodes are the Folder+Node fakes the lineage resolver reads
+	// through (2026-09-08 sidebar-placement-unification Task 8) — a folder
+	// is never a Chat row any more, so file() (below) seeds through these
+	// instead of usedChats.Create.
+	folders *mocks.FolderStore
+	nodes   *mocks.NodePlacements
 }
 
 // fixtureChatReader adapts the chat EventStore into agenttools.ChatReader, whose
@@ -1244,12 +1251,18 @@ func newFixtureUsing(
 		chatReader,
 		fixtureWorkspaceLister{},
 	)
-	// The REAL lineage resolver, over the same chat store folder rows and
-	// conversation rows now share, so a threaded chat in this package resolves
-	// its ancestors exactly the way production does — folders and all. A stub
-	// here would have let the walk and the spawn path agree with each other
-	// while both were wrong.
-	lineage := tree.NewLineage(usedChats)
+	// The REAL lineage resolver, wrapped over the chat store the SAME way
+	// container.go wires production (NewHomeCorrectedTreeChats) — a folder
+	// is Folder+Node-backed now (2026-09-08 sidebar-placement-unification
+	// Task 5 for home-scoped, Task 8 for repo-scoped too), never a row
+	// usedChats itself carries, so a threaded chat in this package resolves
+	// its ancestors exactly the way production does — folders and all — only
+	// once this same decorator folds them back in. A stub here would have
+	// let the walk and the spawn path agree with each other while both were
+	// wrong.
+	folders := mocks.NewFolderStore()
+	nodes := mocks.NewNodePlacements()
+	lineage := tree.NewLineage(agentusecase.NewHomeCorrectedTreeChats(usedChats, nodes, folders))
 	u := agentusecase.New(agentusecase.Deps{
 		Chats:           usedChats,
 		Runners:         usedRunners,
@@ -1304,6 +1317,8 @@ func newFixtureUsing(
 		providerPrefs: providerPrefs,
 		connected:     connected,
 		minter:        minter,
+		folders:       folders,
+		nodes:         nodes,
 	}
 	return f, realChats, realRunners
 }

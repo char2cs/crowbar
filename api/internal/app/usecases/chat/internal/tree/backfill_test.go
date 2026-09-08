@@ -303,7 +303,7 @@ func TestBackfillOwningChats_RetypesTheOwningRowOfAWorkspaceThatBecameLocked(t *
 func TestBackfillOwningChats_RetypeKeepsThePlacementTheRowAlreadyHad(t *testing.T) {
 	chats, uc, roster := newUsecaseWithRoster(t)
 	ctx := context.Background()
-	seedFolder(chats, "folder-1", "")
+	seedFolder(t, uc, "folder-1", "")
 	seedWorkspace(roster, "ws-turned", "", 1)
 	require.NoError(t, uc.BackfillOwningChats(ctx))
 	before := ownedRow(t, chats, "ws-turned")
@@ -518,16 +518,25 @@ func TestBackfillOwningChats_OrdersSameParentSiblingsByCreationTime(t *testing.T
 
 // The backfilled rows join a sibling space that already has rows in it, so they
 // land after them rather than on top of their indices.
+//
+// Fixture is two plain chats, not folders, since 2026-09-08
+// sidebar-placement-unification Task 8: BackfillOwningChats (owning_rows.go)
+// is untouched by this migration — Task 9's job, alongside its deletion —
+// so its own sibling-counting (siblingCounts) still reads ONLY Chat rows; a
+// folder is Folder/Node-backed now and genuinely invisible to it. That gap
+// is real but out of this task's scope to close; this test's own point
+// (backfill appends after whatever's already there) is unaffected by which
+// KIND of pre-existing row proves it.
 func TestBackfillOwningChats_AppendsAfterTheRowsAlreadyAtThatLevel(t *testing.T) {
 	chats, uc, roster := newUsecaseWithRoster(t)
-	seedFolder(chats, "folder-1", "")
-	seedFolder(chats, "folder-2", "")
+	seedChat(chats, "c1", 1)
+	seedChat(chats, "c2", 2)
 	seedWorkspace(roster, "ws-root", "", 1)
 
 	require.NoError(t, uc.BackfillOwningChats(context.Background()))
 
 	assert.Equal(t, 2, ownedRow(t, chats, "ws-root").Order,
-		"the two folders already at the root hold slots 0 and 1")
+		"the two chats already at the root hold slots 0 and 1")
 }
 
 // A tombstoned workspace is on its way out — the boot sweep purges it moments

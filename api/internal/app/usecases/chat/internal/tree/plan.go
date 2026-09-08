@@ -16,37 +16,17 @@ import (
 // serving the pre-write list. Planning from a single snapshot removes the race
 // rather than papering over it with a barrier.
 
-// load resolves a FOLDER row by id, log-folded so it is never stale. A row this
-// call names that turns out to be a CHAT is refused as not-found: from this
-// API's own vocabulary that id simply does not name a folder, and any other
-// answer would let a rename or a delete reach a conversation through the wrong
-// door.
-func (u *chatFolderUsecase) load(
-	ctx context.Context,
-	id string,
-) (domain.Chat, error) {
-	row, err := u.chats.LoadChat(ctx, id)
-	if err != nil {
-		return domain.Chat{}, fmt.Errorf("agent chat folder: get %s: %w", id, err)
-	}
-	if row.Type != domain.ChatTypeFolder {
-		return domain.Chat{}, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
-	}
-	return row, nil
-}
-
 // loadChat resolves a chat and refuses one anchored to another workspace. It is
 // a NOT-FOUND rather than a cross-workspace refusal: the caller addressed a row
 // that does not exist in the scope it asked in, and answering otherwise would
 // tell it that a chat it may not touch exists.
 //
-// A FOLDER row reached through this door is refused the same way, mirroring
-// load() above: the chat verbs and the folder verbs apply opposite rules to the
-// subtree they take (a chat delete cascades, a folder delete promotes), so an id
-// arriving through the wrong verb must be told it names nothing rather than
-// quietly getting the other rule. The workspace comparison alone does not
-// separate them — a folder carries no workspace, so it matched the repo-scoped
-// mount's empty :wsId exactly.
+// A folder id can no longer reach this door at all (2026-09-08
+// sidebar-placement-unification Task 8): a folder is a domain.Folder row now,
+// home-scoped or repo-scoped alike, never a Chats.LoadChat result — the
+// chat/folder verb split that used to need a Type check here is now a
+// resolution-door split instead (Rename/Move/Delete resolve through
+// u.folders.FindByKey first, tree.go).
 //
 // It reads the LOG FOLD: the ParentID it hands back is the origin the move is
 // planned against — the level to close up behind the row, and, for a reorder
@@ -61,9 +41,6 @@ func (u *chatFolderUsecase) loadChat(
 	chat, err := u.chats.LoadChat(ctx, chatID)
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agent chat folder: get chat %s: %w", chatID, err)
-	}
-	if chat.Type == domain.ChatTypeFolder {
-		return domain.Chat{}, fmt.Errorf("agent chat folder: %s is a folder: %w", chatID, apperr.ErrNotFound)
 	}
 	if chat.WorkspaceID != workspaceID {
 		return domain.Chat{}, fmt.Errorf(
@@ -85,14 +62,17 @@ func (u *chatFolderUsecase) globalSnapshot(
 // globalSnapshotAround is globalSnapshot with the SUBJECT's row corrected from
 // the log fold the caller already holds — see corrected.
 //
-// For the home scope (2026-09-08 sidebar-placement-unification Task 5), rows
-// beyond the repo-scoped ListChats() read are merged in from Node.ListByParent
-// + Folder instead of ListByWorkspace("") + ChatTypeFolder rows — see
-// mergeHomeForest.
+// Every FOLDER, home (RepoID=="") or repo-scoped (RepoID!="") alike since
+// Task 8, is Node/Folder-backed now — rows beyond the raw ListChats() read
+// are merged in from Node.ListByParent + Folder instead of ChatTypeFolder
+// rows — see mergeForest. includeRepoPhantoms is passed true: a repo's own
+// header row IS a legitimate sibling at project home, the one level folder
+// CRUD's own global read has to plan against alongside home AND repo-scoped
+// folders both.
 //
 // Folder CRUD (Create/Move/Delete) has no workspace, and therefore no project,
 // to resolve a repo scope from — CreateInput/MoveInput carry no project id at
-// all — so this passes mergeHomeForest a nil repoMemberIDs (no filter). A
+// all — so this passes mergeForest a nil repoMemberIDs (no filter). A
 // bare-root folder operation can therefore still renumber another project's
 // repo Node row sharing that container; a real, deliberately deferred gap
 // (SDD review fix round 3), unlike PlaceChat's identical risk, which
@@ -106,12 +86,12 @@ func (u *chatFolderUsecase) globalSnapshotAround(
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: %w", err)
 	}
-	merged, homeIDs, err := u.mergeHomeForest(ctx, rows, nil)
+	merged, homeIDs, err := u.mergeForest(ctx, rows, true, nil)
 	if err != nil {
 		return nil, err
 	}
-	subjectIsHome := subject.ID != "" && subject.Type == domain.ChatTypeFolder && subject.RepoID == ""
-	return buildHomeSnapshot(merged, subject, homeIDs, subjectIsHome), nil
+	subjectIsFolder := subject.ID != "" && subject.Type == domain.ChatTypeFolder
+	return buildHomeSnapshot(merged, subject, homeIDs, subjectIsFolder), nil
 }
 
 // workspaceSnapshot reads one workspace's rows, PLUS every folder, as of a
@@ -145,18 +125,28 @@ func (u *chatFolderUsecase) workspaceSnapshot(
 // and placed in one breath, long before the projection lists it, and a plan
 // without it would discard the very placement that makes it a thread.
 //
-// The folder pass is SKIPPED for the empty workspace, which is a BUBBLE's own
-// scope (model spec §3.1: a chat with no workspace at all). A folder carries no
-// workspace either, so ListByWorkspace("") already returned every one of them —
-// appending them again put each folder in the plan twice, and a level counted
-// twice hands the next row a slot past the end of it (see NextSlot).
+// The empty workspace is a BUBBLE's own scope (model spec §3.1: a chat with
+// no workspace at all) — the SUBJECT never routes through Node here (a
+// bubble's placement is always Chat-based, ownWorktree's own mid-creation
+// scope), but folder SIBLINGS it densifies against still might: a bubble can
+// be dropped at the panel root alongside a real folder, and once folders
+// left Chat entirely (2026-09-08 sidebar-placement-unification Task 5 for
+// home-scoped, Task 8 for repo-scoped too) they no longer arrive through
+// ListByWorkspace("") at all — mergeForest folds them in the same way it
+// does for every other scope, just without ever marking the bubble ITSELF as
+// Node-backed. includeRepoPhantoms is false: a bubble never densified
+// against a Repository row before this migration either (Repository was
+// never a Chat row), and nothing here changes that.
 //
-// For the home workspace (2026-09-08 sidebar-placement-unification Task 5),
-// the folder pass is replaced entirely by mergeHomeForest: home folders are
-// Node/Folder-backed now, not Chat rows, and a home chat's own ParentID/Order
+// For every OTHER workspace — home (Task 5) AND repo-scoped alike (Task 8)
+// — the folder pass is replaced entirely by mergeForest: every folder is
+// Node/Folder-backed now, not a Chat row, and a chat's own ParentID/Order
 // need the SAME Node correction loadChat already applies (see
 // correctHomePlacement) — a bare ListByWorkspace read alone would serve a
-// home chat's stale, write-once-at-creation Chat fields.
+// chat's stale, write-once-at-creation Chat fields the moment its placement
+// is Node-backed. isHomeWorkspace's answer decides ONLY whether repo
+// phantoms participate (see mergeForest's own doc) — the merge itself runs
+// either way.
 func (u *chatFolderUsecase) workspaceSnapshotAround(
 	ctx context.Context,
 	workspaceID string,
@@ -167,25 +157,19 @@ func (u *chatFolderUsecase) workspaceSnapshotAround(
 		return nil, fmt.Errorf("agent chat folder: snapshot: chats: %w", err)
 	}
 	if workspaceID == "" {
-		return newTreeSnapshot(corrected(rows, subject)), nil
+		merged, nodeIDs, err := u.mergeForest(ctx, rows, false, nil)
+		if err != nil {
+			return nil, err
+		}
+		snap := newTreeSnapshot(corrected(merged, subject))
+		snap.homeIDs = nodeIDs
+		return snap, nil
 	}
 	home, err := u.isHomeWorkspace(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	if home {
-		return u.homeSnapshotAround(ctx, workspaceID, rows, subject)
-	}
-	all, err := u.chats.ListChats(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("agent chat folder: snapshot: folders: %w", err)
-	}
-	for _, row := range all {
-		if row.Type == domain.ChatTypeFolder {
-			rows = append(rows, row)
-		}
-	}
-	return newTreeSnapshot(corrected(rows, subject)), nil
+	return u.homeSnapshotAround(ctx, workspaceID, home, rows, subject)
 }
 
 // corrected replaces the projected row for subject with the log-folded one, or

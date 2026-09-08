@@ -50,13 +50,20 @@ func (u *chatFolderUsecase) checkFolderMove(
 // checkFolderContainer's repo-level check alone would allow all of those
 // (same repo, or both "").
 //
-// The anchor itself is never stored: it is answered by walking ParentID
+// The anchor itself is never stored: it is answered by walking the live Node
+// position (2026-09-08 sidebar-placement-unification Task 8 — see parentOf)
 // until a row with a real WorkspaceID turns up (a locked or unlocked
 // branch's own owning row) — reaching the root without finding one means
 // the anchor is the bare repo root (or project home, already distinguished
 // by folderRepoID's own "" convention). Comparing this walk's answer for the
 // folder's CURRENT position against the same walk for its PROPOSED one is
 // the whole check; nothing here is written or persisted.
+//
+// Walking Node.ParentID rather than Chat.ParentID matters the moment a row's
+// placement is Node-backed: Chat.ParentID freezes at creation for such a
+// row (writeRow's dispatch, plan.go), so a walk that trusted it would answer
+// against a row's ORIGINAL container forever, not wherever it has since been
+// dragged.
 func (u *chatFolderUsecase) checkFolderContextMove(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -115,13 +122,9 @@ func (u *chatFolderUsecase) nearestWorkspaceAnchor(
 			return "", nil
 		}
 		seen[id] = true
-		row := snapshot.row(id)
-		if row == nil {
-			got, err := u.chats.Get(ctx, id)
-			if err != nil {
-				return "", fmt.Errorf("resolve %s: %w", id, err)
-			}
-			row = &got
+		row, err := u.resolveRow(ctx, snapshot, id)
+		if err != nil {
+			return "", fmt.Errorf("resolve %s: %w", id, err)
 		}
 		if row.WorkspaceID != "" {
 			owns, err := u.ownsWorkspace(ctx, *row)
@@ -132,9 +135,66 @@ func (u *chatFolderUsecase) nearestWorkspaceAnchor(
 				return row.WorkspaceID, nil
 			}
 		}
-		id = row.ParentID
+		id, err = u.parentOf(ctx, id, *row)
+		if err != nil {
+			return "", fmt.Errorf("resolve parent of %s: %w", id, err)
+		}
 	}
 	return "", nil
+}
+
+// parentOf answers id's parent for nearestWorkspaceAnchor's walk: the live
+// Node position when one exists — a folder or chat placed since this
+// migration is Node-backed and its Chat.ParentID is frozen at creation (see
+// writeRow's dispatch, plan.go) — falling back to row's own ParentID for a
+// row Node has never touched (a locked branch's own owning row, still
+// governed entirely by owning_rows.go/placeOwningRow until Task 9 gives it a
+// Node of its own; row.ParentID for THAT row is exactly as live as it always
+// was, since nothing but placeOwningRow ever writes it).
+func (u *chatFolderUsecase) parentOf(
+	ctx context.Context,
+	id string,
+	row domain.Chat,
+) (string, error) {
+	n, err := u.nodes.GetNode(ctx, id)
+	if err != nil {
+		return row.ParentID, nil
+	}
+	return n.ParentID, nil
+}
+
+// resolveRow answers id's Chat-shaped view for a validation walk: the
+// snapshot's own copy when it has one (already Node-corrected by
+// mergeForest, for whichever rows that walk discovered — see its own doc),
+// falling back to a keyed Chats.Get and, only once THAT comes back
+// not-found, a keyed Folders+Nodes read — a folder mergeForest's own BFS
+// happened not to reach (its "seed every known chat id" walk is thorough but
+// not exhaustive against every conceivable ancestor chain; see mergeForest's
+// own doc) is still a legitimate container the golden rule must be able to
+// resolve, exactly as a chat the global list did not carry already is
+// (TestCreate_AcceptsAChatTheGlobalListDidNotCarry).
+func (u *chatFolderUsecase) resolveRow(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	id string,
+) (*domain.Chat, error) {
+	if row := snapshot.row(id); row != nil {
+		return row, nil
+	}
+	got, err := u.chats.Get(ctx, id)
+	if err == nil {
+		return &got, nil
+	}
+	f, ferr := u.folders.FindByKey(ctx, id)
+	if ferr != nil || f == nil {
+		return nil, err // the ORIGINAL Chats.Get failure -- the folder lookup found nothing either.
+	}
+	n, nerr := u.nodes.GetNode(ctx, id)
+	if nerr != nil {
+		n = domain.Node{}
+	}
+	row := homeFolderView(*f, n)
+	return &row, nil
 }
 
 // ownsWorkspace answers whether row is the one row that OWNS row.WorkspaceID
@@ -174,13 +234,9 @@ func (u *chatFolderUsecase) checkFolderContainer(
 	if parentID == "" {
 		return nil
 	}
-	row := snapshot.row(parentID)
-	if row == nil {
-		got, err := u.chats.Get(ctx, parentID)
-		if err != nil {
-			return fmt.Errorf("agent chat folder: parent %s: %w", parentID, err)
-		}
-		row = &got
+	row, err := u.resolveRow(ctx, snapshot, parentID)
+	if err != nil {
+		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, err)
 	}
 	if row.Type == nodePhantomType {
 		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, ErrNotAContainer)
@@ -267,14 +323,11 @@ func (u *chatFolderUsecase) checkChatContainer(
 	if parentID == "" {
 		return nil
 	}
-	if row := snapshot.row(parentID); row != nil {
-		return checkParentKind(*row, workspaceID, parentID, ownWorktree)
-	}
-	row, err := u.chats.Get(ctx, parentID)
+	row, err := u.resolveRow(ctx, snapshot, parentID)
 	if err != nil {
 		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, err)
 	}
-	return checkParentKind(row, workspaceID, parentID, ownWorktree)
+	return checkParentKind(*row, workspaceID, parentID, ownWorktree)
 }
 
 // checkParentKind is the second half of checkChatContainer, split out because

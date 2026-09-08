@@ -107,9 +107,8 @@ func TestNewHomeCorrectedChats_OverlaysLiveNodePositionForAHomeScopedChat(t *tes
 	nodes.Rows = []domain.Node{
 		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "folder-1", Order: 2},
 	}
-	gitStatus := mocks.NewAgentWorkspaceGitStatus() // homeWorkspaceID never SetRepo -> RepoOf answers ""
 
-	corrected := agentusecase.NewHomeCorrectedChats(inner, gitStatus, nodes)
+	corrected := agentusecase.NewHomeCorrectedChats(inner, nodes)
 
 	rows, err := corrected.ListChatsByWorkspace(context.Background(), homeWorkspaceID)
 	require.NoError(t, err)
@@ -133,27 +132,26 @@ func TestNewHomeCorrectedChats_OverlaysLiveNodePositionForAHomeScopedChat(t *tes
 	assert.Equal(t, "folder-1", inRepo[0].ParentID, "ListChatsInRepo is corrected too")
 }
 
-// A repo-scoped chat's Chat.ParentID/.Order are still the live, authoritative
-// fields (unchanged by this task) — the decorator must leave them exactly as
-// the inner usecase answered, never substituting a Node lookup for a row
-// this task never touched the write path of.
-func TestNewHomeCorrectedChats_LeavesARepoScopedChatUntouched(t *testing.T) {
+// A repo-scoped chat's placement is Node-backed too now (2026-09-08
+// sidebar-placement-unification Task 8 widens Critical 1's fix from
+// home-only to every non-bubble workspace) — the decorator must overlay its
+// live Node position exactly as it already does for a home-scoped chat, not
+// leave it at its stale Chat.ParentID/.Order.
+func TestNewHomeCorrectedChats_OverlaysLiveNodePositionForARepoScopedChatToo(t *testing.T) {
 	inner := &fakeChatUsecase{rows: []domain.Chat{
 		{ID: "c2", Type: domain.ChatTypeChat, WorkspaceID: "ws-repo-1", ParentID: "some-branch", Order: 5},
 	}}
 	nodes := mocks.NewNodePlacements()
 	nodes.Rows = []domain.Node{
-		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "should-never-be-read", Order: 99},
+		{ID: "c2", Kind: domain.NodeKindChat, ParentID: "a-repo-scoped-folder", Order: 1},
 	}
-	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	gitStatus.SetRepo("ws-repo-1", "repo-1")
 
-	corrected := agentusecase.NewHomeCorrectedChats(inner, gitStatus, nodes)
+	corrected := agentusecase.NewHomeCorrectedChats(inner, nodes)
 
 	got, err := corrected.GetChat(context.Background(), "c2")
 	require.NoError(t, err)
-	assert.Equal(t, "some-branch", got.ParentID, "a repo-scoped chat's own Chat fields are still authoritative")
-	assert.Equal(t, 5, got.Order)
+	assert.Equal(t, "a-repo-scoped-folder", got.ParentID, "the live Node position, not the frozen Chat field")
+	assert.Equal(t, 1, got.Order)
 }
 
 // A bubble (WorkspaceID == "") is never home-scoped -- correcting it would
@@ -164,9 +162,8 @@ func TestNewHomeCorrectedChats_LeavesABubbleUntouched(t *testing.T) {
 		{ID: "c3", Type: domain.ChatTypeChat, WorkspaceID: "", ParentID: "", Order: 0},
 	}}
 	nodes := mocks.NewNodePlacements()
-	gitStatus := mocks.NewAgentWorkspaceGitStatus()
 
-	corrected := agentusecase.NewHomeCorrectedChats(inner, gitStatus, nodes)
+	corrected := agentusecase.NewHomeCorrectedChats(inner, nodes)
 
 	got, err := corrected.GetChat(context.Background(), "c3")
 	require.NoError(t, err)
@@ -183,9 +180,8 @@ func TestNewHomeCorrectedChats_DegradesWhenNoNodeRowExistsYet(t *testing.T) {
 		{ID: "c4", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
 	}}
 	nodes := mocks.NewNodePlacements() // no rows -- GetNode answers not-found
-	gitStatus := mocks.NewAgentWorkspaceGitStatus()
 
-	corrected := agentusecase.NewHomeCorrectedChats(inner, gitStatus, nodes)
+	corrected := agentusecase.NewHomeCorrectedChats(inner, nodes)
 
 	got, err := corrected.GetChat(context.Background(), "c4")
 	require.NoError(t, err)
@@ -258,9 +254,8 @@ func TestNewHomeCorrectedTreeChats_LoadChatOverlaysLiveNodePosition(t *testing.T
 	nodes.Rows = []domain.Node{
 		{ID: "c1", Kind: domain.NodeKindChat, ParentID: "folder-1", Order: 3},
 	}
-	gitStatus := mocks.NewAgentWorkspaceGitStatus()
 
-	corrected := agentusecase.NewHomeCorrectedTreeChats(inner, gitStatus, nodes)
+	corrected := agentusecase.NewHomeCorrectedTreeChats(inner, nodes, mocks.NewFolderStore())
 
 	got, err := corrected.LoadChat(context.Background(), "c1")
 	require.NoError(t, err)
@@ -288,15 +283,45 @@ func TestNewHomeCorrectedTreeChats_FeedsCorrectAncestryToTheRealLineageResolver(
 		{ID: "parent-chat", Kind: domain.NodeKindChat, ParentID: "", Order: 0},
 		{ID: "thread", Kind: domain.NodeKindChat, ParentID: "parent-chat", Order: 0},
 	}
-	gitStatus := mocks.NewAgentWorkspaceGitStatus()
 
-	corrected := agentusecase.NewHomeCorrectedTreeChats(inner, gitStatus, nodes)
+	corrected := agentusecase.NewHomeCorrectedTreeChats(inner, nodes, mocks.NewFolderStore())
 	lineage := agentusecase.NewChatLineage(corrected)
 
 	ancestors, err := lineage.Ancestors(context.Background(), "thread")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"parent-chat"}, ancestors,
 		"a freshly spawned CLI on this thread must be told it reads parent-chat's turns")
+}
+
+// TestNewHomeCorrectedTreeChats_FeedsAncestryThroughAFolder is Task 8's own
+// addition: a folder is Folder/Node-backed now, never a Chat row, so it no
+// longer arrives through ListByWorkspace's raw read at all — RED before
+// foldersReachableFrom (internal/lineage.Resolver's own walk finds no
+// ParentID entry for the folder id, so it stops there and reports no
+// ancestor), GREEN after (the folder is folded into the list so the walk
+// steps straight through it, exactly as it already does for an ordinary
+// chat-typed container).
+func TestNewHomeCorrectedTreeChats_FeedsAncestryThroughAFolder(t *testing.T) {
+	inner := &fakeTreeChats{rows: []domain.Chat{
+		{ID: "parent-chat", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
+		{ID: "thread", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID, ParentID: "", Order: 0},
+	}}
+	nodes := mocks.NewNodePlacements()
+	nodes.Rows = []domain.Node{
+		{ID: "parent-chat", Kind: domain.NodeKindChat, ParentID: "", Order: 0},
+		{ID: "a-folder", Kind: domain.NodeKindFolder, ParentID: "parent-chat", Order: 0},
+		{ID: "thread", Kind: domain.NodeKindChat, ParentID: "a-folder", Order: 0},
+	}
+	folders := mocks.NewFolderStore()
+	folders.Saved = []domain.Folder{{ID: "a-folder", Name: "notes"}}
+
+	corrected := agentusecase.NewHomeCorrectedTreeChats(inner, nodes, folders)
+	lineage := agentusecase.NewChatLineage(corrected)
+
+	ancestors, err := lineage.Ancestors(context.Background(), "thread")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"parent-chat"}, ancestors,
+		"the folder between thread and parent-chat must be stepped through, not lost")
 }
 
 var _ tree.Chats = (*fakeTreeChats)(nil)
