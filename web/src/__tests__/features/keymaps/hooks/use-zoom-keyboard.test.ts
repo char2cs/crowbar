@@ -56,6 +56,17 @@ describe('useZoomKeyboard', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
+  // REGRESSION: every sibling keyboard hook guards e.repeat; this one
+  // didn't, so holding the chord down fired zoomIn once per OS key-repeat
+  // tick instead of once per actual press.
+  it('does not fire again on an OS key-repeat while the chord is held down', () => {
+    renderHook(() => useZoomKeyboard())
+    dispatchKeydown({ key: '=', ctrlKey: true })
+    dispatchKeydown({ key: '=', ctrlKey: true, repeat: true })
+    dispatchKeydown({ key: '=', ctrlKey: true, repeat: true })
+    expect(zoomIn).toHaveBeenCalledTimes(1)
+  })
+
   it('does not fire without the modifier', () => {
     renderHook(() => useZoomKeyboard())
     dispatchKeydown({ key: '=' })

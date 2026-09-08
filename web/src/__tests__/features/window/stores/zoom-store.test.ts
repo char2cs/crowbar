@@ -25,6 +25,21 @@ describe('zoom-store', () => {
     expect(useZoomStore.getState().zoom).toBeCloseTo(0.9)
   })
 
+  // REGRESSION: zoomIn/zoomOut added/subtracted 0.1 straight onto the
+  // previous zoom every call, so repeated presses accumulate real IEEE-754
+  // error — 1.2000000000000002, 1.3000000000000003, and so on — written
+  // straight into `style={{ zoom: chatZoom }}`.
+  it('stays on the exact 0.1 grid across many repeated presses, mod+= held down', () => {
+    for (let i = 0; i < 9; i++) useZoomStore.getState().actions.zoomIn()
+    expect(useZoomStore.getState().zoom).toBe(1.9)
+  })
+
+  it('stays on the exact 0.1 grid zooming back out the same number of steps', () => {
+    for (let i = 0; i < 9; i++) useZoomStore.getState().actions.zoomIn()
+    for (let i = 0; i < 9; i++) useZoomStore.getState().actions.zoomOut()
+    expect(useZoomStore.getState().zoom).toBe(1)
+  })
+
   it('clamps zoomIn at 3x', () => {
     useZoomStore.setState({ zoom: 3 })
     useZoomStore.getState().actions.zoomIn()

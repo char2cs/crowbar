@@ -14,6 +14,11 @@ export function useZoomKeyboard(): void {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Every sibling keyboard hook in this directory guards this — missing
+      // here, holding the chord down sent a KeyboardEvent with repeat:true
+      // on every OS key-repeat tick, firing zoomIn/zoomOut/resetZoom once
+      // per tick instead of once per actual press.
+      if (e.repeat) return
       const matches = (commandId: string): boolean => {
         const chord = chordMap[commandId]
         return chord ? eventMatchesChord(e, chord) : false
