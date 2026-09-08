@@ -94,7 +94,8 @@ func (h *Handlers) choiceDTOs(chatID string, in []domain.ActivityChoice) []dto.A
 			Pending:    c.Pending(),
 			Answerable: answerable[c.ID],
 			At:         c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
-			AutoApproved: c.AutoApproved,
+			AutoApproved:      c.AutoApproved,
+			AnsweredOptionIDs: c.AnsweredOptionIDs,
 		})
 	}
 	return out

@@ -1,6 +1,12 @@
 import { memo } from 'react'
 import { cn } from '@/lib/utils'
-import type { AgentChatMessage, AgentProvider, AgentToolCall } from '@/features/agent/api/agent-api'
+import type {
+  AgentChatMessage,
+  AgentChoice,
+  AgentProvider,
+  AgentSubagent,
+  AgentToolCall,
+} from '@/features/agent/api/agent-api'
 import { Button } from '@/components/ui/button'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import { CopyIcon } from '@/features/agent/shared/agent-icons'
@@ -12,7 +18,11 @@ import {
 } from '@/features/agent/lib/turn-time'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
 import { MarkdownMessageStatic } from '@/features/agent/transcript/plate/markdown-message-static'
-import { AgentTurnTools } from '@/features/agent/transcript/turn-tools'
+import {
+  AgentTurnChoices,
+  AgentTurnSubagents,
+  AgentTurnTools,
+} from '@/features/agent/transcript/turn-tools'
 import { toast } from '@/features/window/stores/toast-store'
 
 function providerName(providers: AgentProvider[], id: string): string {
@@ -66,6 +76,10 @@ function MessageRowComponent({
   firstReply = false,
   streaming = false,
   toolCallsByTurn,
+  subagentsByTurn,
+  choicesByTurn,
+  wsId,
+  chatId,
   precedingUserAt,
   turnbar = true,
 }: {
@@ -95,6 +109,15 @@ function MessageRowComponent({
    *  still-running call belongs to the working line, not a turn already
    *  answered. */
   toolCallsByTurn?: Map<string, AgentToolCall[]>
+  /** Ended subagents for every turn, keyed by turnId — the same shape and the
+   *  same "closed turn only" rule as `toolCallsByTurn`. */
+  subagentsByTurn?: Map<string, AgentSubagent[]>
+  /** Resolved choices for every turn, keyed by turnId — same rule again. */
+  choicesByTurn?: Map<string, AgentChoice[]>
+  /** Needed only to fetch a finished tool call's own request/result bytes on
+   *  demand (AgentTurnTools) — absent means that row stays a plain summary. */
+  wsId?: string
+  chatId?: string
   /** The `at` of the user turn this reply actually answers — what the
    *  turnbar times ITSELF against: how long the agent took to answer, not
    *  how long ago that was. Absent for a reply with no user turn before it
@@ -212,11 +235,30 @@ function MessageRowComponent({
             to the working line, and copying or timing text that is still
             changing offers a reader something that isn't real yet. */}
         {assistant && !streaming && toolCallsByTurn && (
-          <AgentTurnTools callsByTurn={toolCallsByTurn} turnId={message.turnId ?? ''} />
+          <AgentTurnTools
+            callsByTurn={toolCallsByTurn}
+            turnId={message.turnId ?? ''}
+            wsId={wsId}
+            chatId={chatId}
+          />
+        )}
+        {assistant && !streaming && subagentsByTurn && (
+          <AgentTurnSubagents subagentsByTurn={subagentsByTurn} turnId={message.turnId ?? ''} />
+        )}
+        {assistant && !streaming && choicesByTurn && (
+          <AgentTurnChoices choicesByTurn={choicesByTurn} turnId={message.turnId ?? ''} />
         )}
         {assistant && !streaming && turnbar && (
           <div className="turnbar" data-testid="message-turn-actions">
             {glyph && <ProviderIcon svg={glyph} className="size-3" />}
+            {/* What the CLI actually ran at, not what the chat asked for (see
+                AgentChatMessage.effort's own doc) — the two can legitimately
+                differ, so this is reported rather than assumed. */}
+            {message.effort && (
+              <span className="turn-effort" data-testid="message-effort">
+                {message.effort}
+              </span>
+            )}
             <Button
               size="icon-sm"
               variant="ghost"

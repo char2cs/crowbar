@@ -717,6 +717,8 @@ export function AgentChatView({
 
   const transcript = (
     <AgentTranscript
+      wsId={wsId}
+      chatId={chatId}
       messages={ledger.messages}
       streamingBubbles={ledger.streamingBubbles}
       queue={queue}

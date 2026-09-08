@@ -344,6 +344,10 @@ type AgentChoiceDTO struct {
 	// domain.ActivityChoice.AutoApproved). Never omitted — false is a real
 	// answer here, not an absence.
 	AutoApproved bool `json:"autoApproved"`
+	// AnsweredOptionIDs is which of Options/Questions was actually picked, set
+	// only when Resolution is "answered" through Crowbar — see
+	// domain.ActivityChoice.AnsweredOptionIDs.
+	AnsweredOptionIDs []string `json:"answeredOptionIds,omitempty"`
 }
 
 // AgentHookAckDTO is the daemon's reply to a relay that has just delivered a
