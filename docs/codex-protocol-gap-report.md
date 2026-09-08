@@ -212,6 +212,78 @@ the real connection.
 
 ---
 
+## B2. "We lose track of whether codex is working" — three separate desyncs
+
+Reported as the single most annoying bug. It is not one defect but three, and
+codex hits all three hardest for the same structural reason: **codex reports no
+async-work level of its own**, so Crowbar's own recount of the tool calls and
+subagents in its activity ledger is the *only* thing that ever darkens a codex
+chat once its top-level turn has ended with work still open. Claude restates its
+own `background_tasks` level and is largely self-healing; codex has nothing.
+
+### B2.1 The activity ledger was read back before it had been written
+
+`OpenWork` — "is any tool call or subagent still open?" — reads the activity
+**read model**. The four commands that write it (`InvokeTool`, `CompleteTool`,
+`StartSubagent`, `StopSubagent`) were on asynx's **async** send path, and
+`turn.go` calls `OpenWork` on the very next line after each of them.
+
+So the recount routinely observed the state from *before* the write it was meant
+to see. Both directions are a wrong spinner:
+
+- a close not yet folded reads as still-open → the recount that would have
+  stopped the spinner never happens → **stuck on**;
+- an open not yet folded reads as idle at `turn_stop` → **the spinner darkens
+  under a tool call that is genuinely still running**.
+
+Measured: `TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking` failed
+**6/20 and 8/20** on the unmodified tree. This was a *pre-existing* flake that
+had been living in the suite; it is a real production race, not a test artifact.
+After the fix: **0/25**.
+
+### B2.2 The recount decided its own preconditions on projected state
+
+`restateAsyncWork` asked both of its preconditions — that no turn is currently
+open, and that the level actually changed — out in the caller, off `domain.Chat`
+read back through `GetChat`. That read model is folded by an asynchronous
+projection, so a `turn_stop` already durable in the log could still read as open:
+the function took its early return and no recount was ever appended.
+
+This is the *identical* mistake `stop_turn.go` already documents having fixed for
+`AbandonTurn`:
+
+> It used to be asked by the caller instead … and the read model is folded by an
+> ASYNCHRONOUS projection … The caller took the early return, nothing ever closed
+> the turn, and the chat spun forever. **A reconcile must not decide on projected
+> state.**
+
+### B2.3 A lost api connection was never noticed — the chat went permanently silent
+
+The highest-severity one. `pumpAPIConn`'s loop simply **returned** when the
+driver's `Events()` channel closed — no teardown of any kind:
+
+```go
+go func() {
+    for ev := range conn.driver.Events() { ... }
+}()   // no defer, no drop, no reconcile
+```
+
+When the `codex app-server` process died or the socket dropped:
+
+1. the open turn was never closed → `working` stayed true forever;
+2. the registry entry stayed → `HasLiveAPIConnection` kept answering **true**;
+3. so `apiOwnsThisEvent` kept **discarding the companion PTY's hooks copy** of
+   every api-owned event as a redundant duplicate of a transport that no longer
+   existed — the chat fell **permanently silent**, not merely stuck-spinning;
+4. nothing else could reach it: the companion PTY is still alive, so no
+   runner-exit reconcile fires, and neither `termwait` sweep applies (one needs a
+   declared `ends_turn` needle on screen for 120s, the other needs a half-streamed
+   message idle for 30s — a codex turn that only *reasoned* produces neither,
+   because reasoning deltas are unmapped, per section B).
+
+This survives a daemon restart: the event log records the turn as open, and the
+boot reconcile only closes turns whose PTY is also dead.
+
 ## C. Frontend defects (provider-agnostic, but codex hits them hardest)
 
 ### C1. An unresolved interruption blanks the working line and renders nothing in its place
@@ -287,6 +359,15 @@ See the commits on `worktree-agent-a7e53caf132134af8`.
 - **A2** — fixed generically: `telemetry.ParseCallback` now falls back to the v3
   `events.telemetry` field map when no v2 `telemetry.callback` block is declared.
   This is a Crowbar-wide primitive; any v3 provider gets it.
+- **B2.1** — the four tool/subagent lifecycle commands use `sendWait`, exactly as
+  `OpenChoice` already does for the same "a caller reads this back immediately"
+  reason. 6–8/20 flake → 0/25.
+- **B2.2** — both preconditions moved into `StopTurn.Validate` behind a new
+  `Restate` flag, where asynx evaluates them against the authoritative fold.
+- **B2.3** — a lost api connection now forgets its registry entry (so the hooks
+  wire is honoured again instead of being suppressed) and reconciles its turn the
+  same way a dead CLI does. A *deliberate* teardown is told apart by the
+  connection's own cancelled ctx, since each of those already owns its turn.
 - **C1** — the working line now renders the blocking interruption instead of
   returning `null`, using the already-written `describeInterruption` copy.
 
@@ -299,17 +380,50 @@ one reviewable change):
 - **B1** — moving the five hooks-routed events onto the api transport.
 - **C2**, **C3**, **C4**.
 
+### The single highest-value item still open
+
+`thread/status/changed` is codex's **authoritative** answer to "am I working":
+`status.type` ∈ `{notLoaded, idle, systemError, active}`, plus `activeFlags` ∈
+`{waitingOnApproval, waitingOnUserInput}`. Crowbar ignores it completely — there
+is even a captured live fixture (`thread_status_changed.json`) sitting unused in
+testdata.
+
+Mapping it needs a new canonical event, because the vocabulary is closed and has
+no name for a provider-reported idle state. The design that fits: an `idle`
+inbound event (`required: []`, `optional: [session_id]`), which codex maps as
+`in: thread/status/changed`, `when: {status.type: idle}`. Its Go handler
+reconciles an orphaned open turn — the same `AbandonMessage` salvage-then-abandon
+the quiet-screen sweep already performs, but driven by the provider's own word
+instead of a 30–120s heuristic that a codex turn frequently never satisfies.
+
+That would close the residual of B2.3 (a turn orphaned while the connection is
+still *up*) and is a genuinely generic primitive — ACP models the same thing as
+`SessionComplete` / `StatusChanged`. It was scoped out here because it needs
+vocabulary + Go + persistence + tests, and the three fixes above address the
+measured causes.
+
 ## E. Honest verification status
 
-- Go: targeted `go test` runs on the touched packages, all green (see commits).
+- Go: targeted `go test` runs on the touched packages, then the **whole**
+  `./internal/...` suite, all green. The specific race in B2 was measured before
+  and after (6–8/20 failing → 0/25), not asserted.
 - Payload shapes: derived from codex's **generated schema**, not from live
   capture — codex is not installed on this machine. The new fixtures are marked
   as schema-derived in-file so nobody mistakes them for live recordings. This
   matters: the repo's own history records four paths written from a published
   schema that were wrong against real traffic. These are generated-from-source
   rather than hand-written docs, which is stronger, but it is **not** a live capture.
-- Frontend: unit tests only.
-- **No live Tauri verification was performed**, because reproducing any of this
-  requires a working codex CLI and an authenticated account, neither of which is
-  available in this worktree. Every UI-visible change here should be re-checked
-  in `make dev-desktop` against a real codex chat before this is considered done.
+- Frontend: unit tests only, and only a subset could run at all. This worktree
+  has no `node_modules`; the tests were run against the main worktree's install,
+  which predates several of this branch's dependencies (`react-dnd`,
+  `papaparse`, `platejs`). 26 test files fail to resolve imports there
+  **regardless of these changes**. The files covering what was touched do run:
+  `working-line`, `agent-activity`, `composer-choice`, `composer-state`,
+  `use-agent-activity` — 114 tests, green.
+- **No live Tauri verification was performed.** `codex` is not installed on this
+  machine (`which codex` → not found), so a real codex chat cannot be exercised
+  here at all. Every UI-visible change in this branch — the tool rows now showing
+  a target and output, the context gauge appearing, the blocked-state line, the
+  spinner actually stopping — must be re-checked in `make dev-desktop` against a
+  real codex chat before this is considered done. Treat that as outstanding work,
+  not a caveat.
