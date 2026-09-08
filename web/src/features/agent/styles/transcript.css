@@ -74,7 +74,18 @@
      The second gradient is solid across exactly --agent-scrollbar-w at the
      right edge; `mask-composite`'s default (`add`, i.e. union) between mask
      layers means that strip stays fully opaque no matter what the first
-     gradient says at that height. */
+     gradient says at that height.
+
+     TRIED moving this to a non-scrolling wrapper ancestor instead (masking
+     the actual `overflow-y: auto` element is a documented WebKit
+     slow-scrolling-region reason) — reverted: it broke `pinTurnToTop`
+     bringing a just-sent prompt to the top of the viewport, reported live,
+     and this repo's own live-verification tooling could not confirm the
+     mask was even the dominant cost of the reported scroll-fps drop before
+     that regression was found, so the risk wasn't worth carrying. If this
+     is revisited, the fix needs to keep `.scroll` itself as the thing
+     `pinTurnToTop`'s caller measures and reserves padding on — not move it
+     behind a second flex layer. */
   mask-image:
     linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
     linear-gradient(
