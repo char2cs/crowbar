@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { parseExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
+import {
+  computeSceneAspectRatio,
+  parseExcalidrawScene,
+} from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 
 describe('parseExcalidrawScene', () => {
   it('accepts a plausible scene shape', () => {
@@ -142,5 +145,62 @@ describe('parseExcalidrawScene', () => {
     expect(parseExcalidrawScene('{')).toBeNull()
     expect(parseExcalidrawScene('{invalid}')).toBeNull()
     expect(parseExcalidrawScene('{"unclosed": ')).toBeNull()
+  })
+})
+
+// Regression: the live bug reported as "the scroll bugs out" when an agent
+// authors an Excalidraw diagram. ExcalidrawPreview shows a short text-line
+// placeholder until @excalidraw/excalidraw's dynamic import resolves and the
+// real SVG renders — a real, physical height change on top of whatever the
+// message row's own settle already cost, and the transcript's spring-based
+// follow-scroll (follow-scroll.ts) now gives each such resize its own long,
+// visibly bouncy glide, so two landing close together read as the
+// transcript fighting itself. computeSceneAspectRatio lets the placeholder
+// reserve the real footprint up front from the scene's own element bounds,
+// so nothing changes height once the real render lands.
+describe('computeSceneAspectRatio', () => {
+  it('is the bounding box of the scene’s elements, height over width', () => {
+    // A 200x100 rectangle at the origin: exactly 0.5.
+    expect(
+      computeSceneAspectRatio([{ type: 'rectangle', x: 0, y: 0, width: 200, height: 100 }]),
+    ).toBe(0.5)
+  })
+
+  it('spans multiple elements, not just the first one', () => {
+    const elements = [
+      { x: 0, y: 0, width: 100, height: 50 },
+      { x: 300, y: 0, width: 100, height: 400 }, // pushes the overall bounds far taller/wider
+    ]
+    // Overall bounds: x from 0 to 400 (width 400), y from 0 to 400 (height 400) -> ratio 1.
+    expect(computeSceneAspectRatio(elements)).toBe(1)
+  })
+
+  it('ignores elements with negative offsets correctly (bounds, not just widths/heights)', () => {
+    const elements = [
+      { x: -50, y: -50, width: 50, height: 50 }, // spans x: -50..0, y: -50..0
+      { x: 0, y: 0, width: 50, height: 50 }, // spans x: 0..50, y: 0..50
+    ]
+    // Overall bounds: x -50..50 (width 100), y -50..50 (height 100) -> ratio 1.
+    expect(computeSceneAspectRatio(elements)).toBe(1)
+  })
+
+  it('returns null for an empty scene — nothing to reserve a footprint for', () => {
+    expect(computeSceneAspectRatio([])).toBeNull()
+  })
+
+  it('returns null when no element carries numeric x/y/width/height', () => {
+    expect(computeSceneAspectRatio([{ type: 'rectangle' }, { foo: 'bar' }])).toBeNull()
+  })
+
+  it('skips malformed elements but still uses the well-formed ones', () => {
+    const elements = [
+      { type: 'rectangle' }, // no bounds — skipped, not a crash
+      { x: 0, y: 0, width: 300, height: 150 },
+    ]
+    expect(computeSceneAspectRatio(elements)).toBe(0.5)
+  })
+
+  it('returns null for a degenerate (zero-area) scene', () => {
+    expect(computeSceneAspectRatio([{ x: 0, y: 0, width: 0, height: 0 }])).toBeNull()
   })
 })
