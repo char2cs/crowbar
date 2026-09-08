@@ -79,11 +79,11 @@ func (t *Turns) handleObservation(
 		// TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption.
 		cid := ""
 		if ev.Choice != nil {
-			cid = choiceID(chat.ID, ev.Choice)
+			cid = choiceID(ctx, chat.ID, ev.Choice)
 		}
 		iid := answerdesk.PermissionInterruptionID(cid)
 		if iid == "" {
-			iid = interruptionID(chat.ID, ev)
+			iid = interruptionID(ctx, chat.ID, ev)
 		}
 		note(ctx, "interrupted", t.activity.Interrupt(
 			ctx, chat.ID, iid, ev.Interrupt.Kind, ev.Interrupt.Detail, now,
@@ -92,7 +92,7 @@ func (t *Turns) handleObservation(
 		t.openChoice(ctx, chat, runner, agent, ev, cid, raw, now)
 	case engineagents.HookCompactPre:
 		note(ctx, "interrupted", t.activity.Interrupt(
-			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
+			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
 		// /compact is delivered as an ordinary prompt (compact.go) that never
 		// confirms via a user_prompt hook, so no turn is ever open when this
@@ -114,7 +114,7 @@ func (t *Turns) handleObservation(
 		}
 	case engineagents.HookCompactPost:
 		note(ctx, "interruption resolved", t.activity.ResolveInterruption(
-			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
+			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
 		// Settled already by compact_pre in the ordinary (idle-chat) case —
 		// this is the defensive twin for the day compaction happens mid-turn
@@ -171,11 +171,20 @@ func (t *Turns) openChoice(
 	t.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
 }
 
-func choiceID(chatID string, prompt *engineagents.ChoicePrompt) string {
+// choiceID falls back to inflight.RecordID, not fallbackID, when the
+// provider gives no PromptID to build promptCorrelationKey from (codex's own
+// permission payload never does — see vocabulary.yaml's `permission` entry).
+// RecordID keys on the SAME hook delivery id the answer-relay itself
+// correlates by, so a redelivered ask (a dropped connection retried, a
+// buffered hook replayed) mints the identical choiceID both times instead of
+// a fresh one nobody can ever resolve against — the same idempotency
+// RecordID already gives every durable turn/message record for the same
+// reason (see inflight.RecordID's own doc).
+func choiceID(ctx context.Context, chatID string, prompt *engineagents.ChoicePrompt) string {
 	if key := promptCorrelationKey(chatID, prompt); key != "" {
 		return "choice-" + key
 	}
-	return "choice-" + fallbackID()
+	return "choice-" + inflight.RecordID(ctx)
 }
 
 // promptCorrelationKey is the "chatID-promptID-toolName" suffix choiceID and
@@ -254,7 +263,9 @@ func subagentID(ev engineagents.CanonicalEvent) string {
 	return "subagent-" + fallbackID()
 }
 
-func interruptionID(chatID string, ev engineagents.CanonicalEvent) string {
+// interruptionID falls back to inflight.RecordID for the same redelivery
+// reason choiceID does — see that function's own doc.
+func interruptionID(ctx context.Context, chatID string, ev engineagents.CanonicalEvent) string {
 	kind := ""
 	if ev.Interrupt != nil {
 		kind = ev.Interrupt.Kind
@@ -267,7 +278,7 @@ func interruptionID(chatID string, ev engineagents.CanonicalEvent) string {
 			return "interrupt-" + key
 		}
 	}
-	return "interrupt-" + fallbackID()
+	return "interrupt-" + inflight.RecordID(ctx)
 }
 
 var (
