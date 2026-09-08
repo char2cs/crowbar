@@ -337,9 +337,16 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   // prompt has no ledger-confirmed row yet, and by the time it does the pin's
   // work is already done (`pinTurnToTop` keeps the offset, not the element).
   const pinnedRequestId = useRef<string | null>(null)
+  // The prompt item the CURRENT pin was measured from, if any — kept so a
+  // later run, once the queue drains it, can tell "this prompt settled into
+  // the ledger, the pin is still exactly right" apart from "this prompt
+  // vanished without ever sending" (canceled before it dispatched), which
+  // needs an explicit release. See the empty-queue branch below.
+  const pinnedItem = useRef<PromptQueueItem | null>(null)
   const sawFirstQueue = useRef(false)
   useLayoutEffect(() => {
-    const newest = queue.at(-1)?.clientRequestId ?? null
+    const newestItem = queue.at(-1) ?? null
+    const newest = newestItem?.clientRequestId ?? null
     // A chat REOPENED with prompts still waiting inherits them; that is a
     // restore, not a send, so the first run only ever records what it found.
     //
@@ -356,12 +363,31 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     sawFirstQueue.current = true
     if (newest === pinnedRequestId.current) return
     pinnedRequestId.current = newest
-    if (!newest || inherited) return
-    const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
-      `[data-client-request-id="${CSS.escape(newest)}"]`,
-    )
-    if (row) anchor.pinTurnToTop(row)
-  }, [queue, anchor.scrollRef, anchor.pinTurnToTop])
+    if (inherited) return
+    if (newest) {
+      pinnedItem.current = newestItem
+      const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
+        `[data-client-request-id="${CSS.escape(newest)}"]`,
+      )
+      if (row) anchor.pinTurnToTop(row)
+      return
+    }
+    // The queue just drained to empty. If the prompt that was pinned settled
+    // into a real ledger message, the pin is still exactly right — it keeps
+    // an OFFSET, not the element, and releases itself once the reply grows
+    // past the reserved room (see tailRoom). But if it vanished WITHOUT
+    // settling — "Cancel unsent prompts", before it ever dispatched —
+    // nothing will ever grow to fill that room: applyTailRoom's own
+    // shortfall math then reads the now-SHRUNKEN content as needing MORE
+    // reserved space, not less, and grows a permanent, ever-widening blank
+    // gap instead of releasing it. `pinTurnToTop(null)` — the documented
+    // release path — is the only way out of that once it has happened, and
+    // nothing else in this file ever calls it.
+    const settled =
+      pinnedItem.current && messages.some((m) => samePrompt(m, pinnedItem.current!))
+    if (!settled) anchor.pinTurnToTop(null)
+    pinnedItem.current = null
+  }, [queue, messages, anchor.scrollRef, anchor.pinTurnToTop])
   const callsByTurn = useMemo(
     () => groupToolCallsByTurn(props.activity.toolCalls),
     [props.activity.toolCalls],

@@ -646,6 +646,121 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
 
     expect(pinTurnToTopCalls).toEqual([])
   })
+
+  // REGRESSION: `pinTurnToTop(null)` — the documented release path — was
+  // never called anywhere. A prompt canceled via "Cancel unsent prompts"
+  // before it ever dispatched drains the queue back to empty with nothing
+  // to replace it; without an explicit release, tailRoom's own shortfall
+  // math reads the now-shrunken content as needing MORE reserved space, not
+  // less, and grows a permanent, ever-widening blank gap instead.
+  it('releases the pin when the pinned prompt is canceled before it ever settles into a message', () => {
+    const item = queueItem('never actually sent')
+    const { rerender } = draw([], { queue: [] })
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(pinTurnToTopCalls).toHaveLength(1)
+    expect(pinTurnToTopCalls[0]).not.toBeNull()
+
+    // Canceled: the queue drains back to empty, and no message with this
+    // text ever appears — nothing replaced it.
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls.at(-1)).toBeNull()
+  })
+
+  // The ordinary case this fix must not disturb: a prompt that DISPATCHES
+  // (settles into a real ledger message) also drains the queue back to
+  // empty, but the pin is still exactly right — it keeps an offset, not the
+  // element, and releases itself naturally once the reply grows past the
+  // reserved room. This must NOT call pinTurnToTop(null).
+  it('does not release the pin when the pinned prompt settles into a real message instead', () => {
+    const item = queueItem('this one actually sent')
+    const { rerender } = draw([], { queue: [] })
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(pinTurnToTopCalls).toHaveLength(1)
+
+    // Settled: the queue drains to empty, but a matching user message (same
+    // text, a real sequence past the prompt's baseline) is now present.
+    rerender(
+      <AgentTranscript
+        messages={[
+          {
+            turnId: 't1',
+            sequence: 1,
+            role: 'user',
+            providerId: '',
+            text: item.text,
+            at: '',
+          },
+        ]}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls).toHaveLength(1) // still just the original pin — no release call
+  })
 })
 
 describe('AgentTranscript interrupted marker', () => {
