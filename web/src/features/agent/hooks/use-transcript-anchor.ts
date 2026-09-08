@@ -407,6 +407,19 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       if (target instanceof Element && target.closest('[contenteditable], input, textarea')) return
       noteInput()
     }
+    // Scoped to a wheel/touch event that actually targets THIS container —
+    // unscoped, this was the wheel/touch twin of the keydown and pointerdown
+    // bugs just above/below: scrolling a DIFFERENT pane entirely (split
+    // view) or any other on-screen scrollable region set `lastInputAt` for
+    // every mounted instance of this hook, and if the browser's own scroll
+    // anchoring then adjusted a DIFFERENT, actively-streaming pane within
+    // READER_INPUT_MS, `onScroll` misread it as that pane's own reader
+    // grabbing the scrollbar and stopped following for the rest of the turn.
+    const noteWheelOrTouchWithinContainer = (event: Event) => {
+      const target = event.target
+      if (!(target instanceof Element) || !el.contains(target)) return
+      noteInput()
+    }
     // Scoped to a pointerdown that actually STARTS on this container (its
     // scrollbar, its rows) — the scrollbar-drag `pointerHeld` above exists
     // for. Unscoped, this was the pointer-event twin of the keydown bug just
@@ -430,7 +443,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     }
     const INPUT_EVENTS = ['wheel', 'touchstart', 'touchmove'] as const
     for (const type of INPUT_EVENTS) {
-      window.addEventListener(type, noteInput, { capture: true, passive: true })
+      window.addEventListener(type, noteWheelOrTouchWithinContainer, { capture: true, passive: true })
     }
     window.addEventListener('keydown', noteKeydownUnlessEditing, { capture: true, passive: true })
     window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true })
@@ -440,7 +453,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       observer.disconnect()
       window.removeEventListener('focus', onWindowFocus)
       for (const type of INPUT_EVENTS) {
-        window.removeEventListener(type, noteInput, { capture: true })
+        window.removeEventListener(type, noteWheelOrTouchWithinContainer, { capture: true })
       }
       window.removeEventListener('keydown', noteKeydownUnlessEditing, { capture: true })
       window.removeEventListener('pointerdown', onPointerDown, { capture: true })

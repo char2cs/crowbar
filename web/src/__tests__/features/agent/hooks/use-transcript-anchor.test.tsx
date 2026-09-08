@@ -1085,4 +1085,72 @@ describe('useTranscriptAnchor: telling the reader apart from the browser', () =>
     // Left exactly where the drag put it.
     expect(scroller.scrollTop).toBe(200)
   })
+
+  // REGRESSION: wheel/touchstart/touchmove were captured on `window` with NO
+  // scoping check at all — unlike onPointerDown a few lines above it, which
+  // is explicitly scoped to this container. With two chat panes open (split
+  // view) or any other on-screen scrollable region, scrolling ELSEWHERE set
+  // `lastInputAt` for every mounted instance of this hook. If the browser's
+  // own scroll anchoring then adjusted a DIFFERENT, actively-streaming
+  // pane's transcript within READER_INPUT_MS, that pane's own `onScroll`
+  // misread it as ITS reader grabbing the scrollbar and stopped following
+  // for the rest of the turn — with nobody having touched that pane at all.
+  it('does not treat a wheel event over a DIFFERENT scrollable region (e.g. a sibling pane) as this transcript being scrolled', () => {
+    function HostWithSibling() {
+      const anchor = useTranscriptAnchor()
+      return (
+        <div>
+          <div data-testid="other-pane" />
+          <div
+            data-testid="scroller"
+            ref={(node) => {
+              anchor.scrollRef.current = node
+              if (!node || Object.hasOwn(node, 'scrollHeight')) return
+              let top = 0
+              Object.defineProperty(node, 'scrollTop', {
+                configurable: true,
+                get: () => top,
+                set: (v: number) => {
+                  top = Math.max(0, Math.min(v, Math.max(0, scrollHeight - clientHeight)))
+                },
+              })
+              Object.defineProperty(node, 'scrollHeight', {
+                configurable: true,
+                get: () => scrollHeight,
+              })
+              Object.defineProperty(node, 'clientHeight', {
+                configurable: true,
+                get: () => clientHeight,
+              })
+            }}
+            onScroll={anchor.onScroll}
+          >
+            <div data-testid="content" />
+          </div>
+        </div>
+      )
+    }
+
+    const { getByTestId } = render(<HostWithSibling />)
+    const scroller = getByTestId('scroller')
+    const otherPane = getByTestId('other-pane')
+    expect(scroller.scrollTop).toBe(600)
+
+    act(() => {
+      // A real wheel gesture, but over the OTHER pane entirely.
+      fireEvent.wheel(otherPane)
+      // A resize-driven scroll adjustment lands moments later on THIS
+      // transcript — same shape as the keydown/pointerdown regressions
+      // above.
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // It has to recover on its own — the wheel event over the sibling pane
+    // must never have counted as this transcript's own reader gesture.
+    expect(scroller.scrollTop).toBe(1000)
+  })
 })
