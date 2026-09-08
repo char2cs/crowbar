@@ -158,10 +158,12 @@ type HomeFolders interface {
 // position row at repo creation (Create), the repo-kind sibling-space read a
 // densify or a placement pass renumbers (ListByParent), one repo's own row for
 // UpdateRepo's before/after read and the DTO's folderId/order fields (GetNode),
-// and the two writes a densify or a move ends in — SetOrder when a row's
+// the two writes a densify or a move ends in — SetOrder when a row's
 // container does not change, SetPlacement when it does (mirrors
-// chat/internal/tree/plan.go's writeRow dispatch). Satisfied structurally by
-// the node repository itself (repositories.Container.Node).
+// chat/internal/tree/plan.go's writeRow dispatch) — and Forget, which undoes
+// a Create a repo import's own rollback takes back out (see importOneRepo).
+// Satisfied structurally by the node repository itself
+// (repositories.Container.Node).
 //
 // This is deliberately the REPO side only. Home chats/folders are not yet
 // Node-backed (that is a later task in the plan) and keep reading/writing
@@ -192,6 +194,14 @@ type NodePlacements interface {
 		id string,
 		parentID string,
 		order int,
+	) error
+	// Forget purges a Node row outright. Used ONLY to unwind a Create that a
+	// repo import's own rollback is taking back out — never to delete a
+	// live, in-use row (a repo delete leaving its Node row behind is a
+	// separate, harmless gap tracked elsewhere, not this method's job here).
+	Forget(
+		ctx context.Context,
+		id string,
 	) error
 }
 

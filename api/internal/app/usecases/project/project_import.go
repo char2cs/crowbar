@@ -452,16 +452,23 @@ func (u *projectImport) importOneRepo(
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
 		return domain.Repository{}, fmt.Errorf("project import: save repository: %w", err)
 	}
-	// Roll back the repo row if HOME ADOPTION fails. A repository with no
-	// workspaces is unnavigable (workspaces are the UI's unit) and unusable; never
-	// leave one persisted. Once the home workspace exists the repo is navigable and
+	// Roll back the repo row (AND its own Node row, once minted below) if HOME
+	// ADOPTION fails. A repository with no workspaces is unnavigable
+	// (workspaces are the UI's unit) and unusable; never leave one persisted
+	// — nor its position row, which a retry could never reclaim (the retry
+	// mints a Node under a FRESH repo id, leaving the old one permanently
+	// orphaned). Once the home workspace exists the repo is navigable and
 	// must be kept, so committed is set before the best-effort protected-branch
 	// managed worktrees (whose per-branch failure must NOT roll back a repo that
 	// already has its home workspace).
 	committed := false
 	defer func() {
-		if !committed {
-			_ = u.deps.Repos.Delete(ctx, repo.ID)
+		if committed {
+			return
+		}
+		_ = u.deps.Repos.Delete(ctx, repo.ID)
+		if u.deps.Nodes != nil {
+			_ = u.deps.Nodes.Forget(ctx, repo.ID)
 		}
 	}()
 	// Mint the Node row that owns this repo's OWN sidebar position — every
@@ -471,7 +478,7 @@ func (u *projectImport) importOneRepo(
 	// whatever else already sits there; the first drag densifies it for
 	// real. A repo that never gets one (Nodes left unwired) is exactly the
 	// unusable state HOME ADOPTION failing already rolls back for, so it
-	// shares that same rollback.
+	// shares that same rollback (the defer above).
 	if u.deps.Nodes == nil {
 		return domain.Repository{}, ErrNoNodesWired
 	}

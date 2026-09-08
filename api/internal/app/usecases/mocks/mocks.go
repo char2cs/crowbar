@@ -304,6 +304,11 @@ type NodePlacements struct {
 	PlaceErrForID map[string]error
 	Placed        []NodePlacementWrite
 	Ordered       []NodeOrderWrite
+	// Forgotten records every id Forget purged, in call order — so a test can
+	// prove a rolled-back import's Node row was actually taken back out, not
+	// merely that Forget was never asked to fail.
+	Forgotten []string
+	ForgetErr error
 }
 
 // NodePlacementWrite is one recorded call to SetPlacement: the node moved,
@@ -416,6 +421,28 @@ func (s *NodePlacements) SetPlacement(
 			return nil
 		}
 	}
+	return nil
+}
+
+// Forget purges the row for id from Rows, mirroring the real store's hard
+// delete, and records the call in Forgotten regardless of whether a matching
+// row existed (Forget is best-effort at the caller — see importOneRepo's
+// rollback — and the real store does not error on an unknown id either).
+func (s *NodePlacements) Forget(
+	ctx context.Context,
+	id string,
+) error {
+	if s.ForgetErr != nil {
+		return s.ForgetErr
+	}
+	s.Forgotten = append(s.Forgotten, id)
+	kept := s.Rows[:0]
+	for _, n := range s.Rows {
+		if n.ID != id {
+			kept = append(kept, n)
+		}
+	}
+	s.Rows = kept
 	return nil
 }
 
