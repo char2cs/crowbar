@@ -10,6 +10,7 @@ import {
 import type { KeyboardEvent, Ref } from 'react'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import {
+  compactChat,
   stopChat,
   type AgentChatMessage,
   type AgentInterruption,
@@ -547,6 +548,14 @@ export function AgentChatView({
     void stopChat(wsId, chatId)
   }
 
+  // Fire-and-forget, same as handleStop above: compactChat's own doc is the
+  // provider's declared gesture, not a durable write Crowbar makes itself,
+  // and the ledger's compact_pre/compact_post pair (already live-pushed as
+  // `compacting`) is what actually reflects whether it happened.
+  const handleCompact = () => {
+    void compactChat(wsId, chatId)
+  }
+
   const selectSlashItem = (item: SlashCatalogItem) => {
     seedDraft(slash.accept(item))
   }
@@ -863,6 +872,7 @@ export function AgentChatView({
               presentation={presentation}
               splitEnabled={splitEnabled && provider?.hotswap === true}
               queued={queue.length}
+              onCompact={provider?.compaction && live && !compacting ? handleCompact : undefined}
               onSelectionChange={onSelectionChange}
               onSelectPresentation={onSelectPresentation}
               showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}

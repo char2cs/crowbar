@@ -859,6 +859,29 @@
 .agent-chat .gbar.warn > span {
   background: var(--warning);
 }
+/* The gauge as a button — only ever rendered when compaction is actually
+   offered (context-gauge.tsx), never a disabled decoration. `.chip` gives it
+   the same hover treatment as its row-mates; `.gtext`'s two children stack in
+   the same grid cell and swap opacity on hover, so hovering turns the report
+   into the offer without a second element crowding the row the rest of the
+   time, and without the button's own width jumping when it does. */
+.gauge .gtext {
+  display: grid;
+}
+.gauge .gpct,
+.gauge .gaction {
+  grid-area: 1 / 1;
+}
+.gauge .gaction {
+  opacity: 0;
+}
+.gauge.chip:hover:not(:disabled) .gpct {
+  opacity: 0;
+}
+.gauge.chip:hover:not(:disabled) .gaction {
+  opacity: 1;
+  color: var(--foreground);
+}
 
 /* ── the view switcher (ui/tabs pill variant) ──────────── */
 /* Scoped to the PANE, not the chat. The terminal surface draws this same

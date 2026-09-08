@@ -33,6 +33,9 @@ interface ProviderBarProps {
   showSwitcher?: boolean
   /** Prompts waiting behind the running turn. 0 draws nothing. */
   queued?: number
+  /** See AgentContextGauge's own doc — absent means the caller has already
+   *  decided compaction cannot be offered right now. */
+  onCompact?: () => void
 }
 
 /**
@@ -66,6 +69,7 @@ export function ProviderBar({
   onSelectPresentation,
   showSwitcher,
   queued = 0,
+  onCompact,
 }: ProviderBarProps) {
   return (
     <div className="underbar">
@@ -93,7 +97,7 @@ export function ProviderBar({
       {/* Right: what this chat has SPENT, and the one gesture that spends less. */}
       <div className="right">
         {queued > 0 && <span>{queued} queued</span>}
-        <AgentContextGauge telemetry={telemetry} />
+        <AgentContextGauge telemetry={telemetry} onCompact={onCompact} />
       </div>
     </div>
   )
