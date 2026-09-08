@@ -666,6 +666,15 @@ type AgentStreamingMessageDTO struct {
 	// missed a frame is therefore correct again on the next one, with no
 	// reassembly and no gap detection of its own.
 	Text string `json:"text"`
+	// Kind names WHICH stream this text belongs to. Absent (the default) is the
+	// agent's answer — the stream that existed before there was more than one, and
+	// the only one that is ever recorded in the ledger. "reasoning" is the agent
+	// thinking on the way there: live-only, dropped when the turn ends, and
+	// rendered as a thought rather than as the reply.
+	//
+	// Omitempty deliberately: an answer frame is byte-identical to what every
+	// client already parses.
+	Kind string `json:"kind,omitempty"`
 }
 
 // AgentChatKindPromptSettled announces that a prompt Crowbar delivered is OVER

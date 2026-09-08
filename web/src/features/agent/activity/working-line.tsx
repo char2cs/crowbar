@@ -32,6 +32,40 @@ interface WorkingLineProps {
    * This prop is the only authoritative "is it happening right now" answer.
    */
   compactingLive?: boolean
+  /**
+   * What the agent is THINKING right now, if it is telling us.
+   *
+   * This is the only thing on screen during the long stretch a reasoning model
+   * spends before it says anything at all — codex emits nothing but reasoning
+   * deltas for most of a hard turn — so without it the whole of that reads as a
+   * frozen chat with a spinner on it.
+   *
+   * Live-only and never recorded (see the backend's turn/reasoning.go and the
+   * store's streamingReasoning), which is why it renders HERE, in the
+   * what-is-happening-now strip, and not as a transcript row.
+   */
+  reasoning?: string
+}
+
+/** How much of the current thought to show. It is a status line, not a document:
+ *  the point is to prove the agent is alive and say roughly what it is chewing
+ *  on, and an unbounded block would push the transcript around on every token. */
+const REASONING_LIMIT = 240
+
+function tailOf(text: string, limit: number): string {
+  // Providers head each thinking block with a markdown-bold title (codex emits
+  // `**Clarifying ambiguous wording**`). This is one muted italic line, not a
+  // rendered document — the markers would read as literal asterisks, and running
+  // a markdown pipeline over text that is replaced on every token is not worth
+  // the cost. Strip the emphasis runs and collapse the whitespace.
+  const flat = text
+    .replace(/\*{1,3}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (flat.length <= limit) return flat
+  // The TAIL, not the head: the newest thought is the one that says what it is
+  // doing now.
+  return `…${flat.slice(flat.length - limit)}`
 }
 
 /**
@@ -45,7 +79,13 @@ interface WorkingLineProps {
  * an answer is not working, and saying otherwise is how a blocked agent came to
  * look busy.
  */
-export function WorkingLine({ activity, working, since, compactingLive }: WorkingLineProps) {
+export function WorkingLine({
+  activity,
+  working,
+  since,
+  compactingLive,
+  reasoning,
+}: WorkingLineProps) {
   const [tick, setTick] = useState(0)
   const [elapsed, setElapsed] = useState(0)
 
@@ -129,6 +169,11 @@ export function WorkingLine({ activity, working, since, compactingLive }: Workin
           {elapsed > 0 && <span className="dim"> · {formatElapsed(elapsed)}</span>}
         </span>
       </div>
+      {reasoning && !compacting && (
+        <p className="thinking" data-testid="agent-reasoning">
+          {tailOf(reasoning, REASONING_LIMIT)}
+        </p>
+      )}
       {tools.length > 0 && (
         <ul>
           {tools.slice(0, TOOL_LIMIT).map((call) => (

@@ -101,6 +101,9 @@ export interface AgentChatViewProps {
   settledPrompts?: string[]
   /** The message(s) the agent is mid-way through saying — see useChatMessages. */
   streamingMessages?: { id: string; text: string }[]
+  /** The agent's in-flight thinking — live-only, never in the ledger.
+   *  See AgentChatsState.streamingReasoning. */
+  reasoning?: string
   /** Prune confirmed ids out of the store's own streamingMessages[chatId] —
    *  see useChatMessages' onStreamingSettled for why this is safe where a
    *  turn-boundary clear was not. */
@@ -214,6 +217,7 @@ export function AgentChatView({
   terminalWaitKind,
   settledPrompts,
   streamingMessages,
+  reasoning,
   onStreamingSettled,
   onPromptSpawned,
   onPromptDispatchStart,
@@ -707,6 +711,7 @@ export function AgentChatView({
       // silencing it, and would make that carve-out unreachable.
       working={working}
       compacting={compacting}
+      reasoning={reasoning}
       loading={ledger.loading}
       error={ledger.error}
       hasOlder={ledger.hasOlder}

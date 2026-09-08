@@ -146,7 +146,7 @@ type RunnerUsecase interface {
 		ctx context.Context,
 		publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
 		promptSettled func(chatID, workspaceID, requestID string),
-		messageDelta func(chatID, workspaceID, messageID, text string),
+		messageDelta func(chatID, workspaceID, messageID, text, kind string),
 		compactionStatus func(chatID, workspaceID string, active bool),
 	)
 }
@@ -383,7 +383,7 @@ func (u *Usecase) StartTerminalWaitSweep(
 	ctx context.Context,
 	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
 	promptSettled func(chatID, workspaceID, requestID string),
-	messageDelta func(chatID, workspaceID, messageID, text string),
+	messageDelta func(chatID, workspaceID, messageID, text, kind string),
 	compactionStatus func(chatID, workspaceID string, active bool),
 ) {
 	u.runners.StartTerminalWaitSweep(ctx, publish, promptSettled, messageDelta, compactionStatus)

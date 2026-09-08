@@ -25,7 +25,7 @@ func (rs *Runners) StartTerminalWaitSweep(
 	ctx context.Context,
 	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
 	promptSettled func(chatID, workspaceID, requestID string),
-	messageDelta func(chatID, workspaceID, messageID, text string),
+	messageDelta func(chatID, workspaceID, messageID, text, kind string),
 	compactionStatus func(chatID, workspaceID string, active bool),
 ) {
 	rs.promptSettled = promptSettled

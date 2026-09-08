@@ -195,16 +195,21 @@ func (h *Hub) BroadcastAgentChatPromptSettled(
 // second per streaming chat — and it is deliberately the only thing in this
 // feature that never touches durable storage. A partial message is a view, not a
 // record; the ledger gets the message once, when it is finished.
+// kind says WHICH stream this text belongs to: the empty string (or "answer")
+// for what the agent is saying, "reasoning" for what it is thinking on the way
+// there. Both are transient views of the same shape; only the answer is ever
+// recorded, and a client renders the two differently.
 func (h *Hub) BroadcastAgentChatMessageDelta(
 	chatID string,
 	workspaceID string,
 	messageID string,
 	text string,
+	kind string,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text)
+		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text, kind)
 	}
 }
 

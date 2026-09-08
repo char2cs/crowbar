@@ -131,7 +131,7 @@ func (fileProbe) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWait
 
 func (fileProbe) PushAgentChatPromptSettled(_, _, _ string) {}
 
-func (fileProbe) PushAgentChatMessageDelta(_, _, _, _ string) {}
+func (fileProbe) PushAgentChatMessageDelta(_, _, _, _, _ string) {}
 
 func (fileProbe) PushAgentChatCompaction(_, _ string, _ bool) {}
 

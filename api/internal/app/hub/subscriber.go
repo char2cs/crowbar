@@ -62,14 +62,20 @@ type Subscriber interface {
 		workspaceID string,
 		requestID string,
 	)
-	// PushAgentChatMessageDelta receives an assistant message as far as it has been
-	// said, so a client can render it growing. Carries the text so far rather than
-	// the increment, so a dropped frame costs nothing.
+	// PushAgentChatMessageDelta receives one streamed text block as far as it has
+	// been said, so a client can render it growing. Carries the text so far rather
+	// than the increment, so a dropped frame costs nothing.
+	//
+	// kind names the stream: empty (or "answer") is the agent talking, "reasoning"
+	// is the agent thinking. A reasoning stream is never recorded in the ledger —
+	// it is a live view only, and it exists because a reasoning model spends most
+	// of a hard turn emitting nothing else.
 	PushAgentChatMessageDelta(
 		chatID string,
 		workspaceID string,
 		messageID string,
 		text string,
+		kind string,
 	)
 	// PushAgentChatCompaction receives the live compact_pre/compact_post edge —
 	// a fact the ledger's own interruption record cannot carry live (see

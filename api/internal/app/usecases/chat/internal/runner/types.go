@@ -117,7 +117,7 @@ type Turns interface {
 		chatID, kind, detail string,
 	) error
 	// SetMessageDelta wires the growing-assistant-message fan-out at sweep start.
-	SetMessageDelta(fn func(chatID, workspaceID, messageID, text string))
+	SetMessageDelta(fn func(chatID, workspaceID, messageID, text, kind string))
 	// SetCompactionStatus wires the live compact_pre/compact_post fan-out at
 	// sweep start — see turn.Turns.SetCompactionStatus's own doc comment for
 	// why this cannot ride the ledger's interruption record.

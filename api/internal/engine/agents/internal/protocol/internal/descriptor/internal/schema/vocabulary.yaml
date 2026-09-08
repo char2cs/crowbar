@@ -80,6 +80,23 @@ events:
     required: [message_id, text]
     optional: [session_id, turn_id, index, final]
 
+  # The model thinking out loud, as it happens. Same shape as message_delta and it
+  # rides the same live channel, distinguished by kind — it is NOT the answer and
+  # must never be recorded as one.
+  #
+  # This is the difference between a reasoning model looking busy and looking dead:
+  # codex spends most of a hard turn here, emitting item/reasoning/summaryTextDelta
+  # and nothing else (measured live against codex-cli 0.149.1). With no name for it
+  # Crowbar showed a spinner and a rotating flavour verb for the whole of it.
+  #
+  # message_id groups the deltas of one thinking block. It is OPTIONAL rather than
+  # required, unlike message_delta's: a provider that streams one undifferentiated
+  # thought stream per turn has no id to give, and the turn is grouping enough.
+  reasoning_delta:
+    direction: in
+    required: [text]
+    optional: [session_id, message_id, turn_id, index, final]
+
   session_end:
     direction: in
     required: []

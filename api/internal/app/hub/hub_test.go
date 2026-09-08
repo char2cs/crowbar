@@ -165,6 +165,7 @@ func (f *fakeSubscriber) PushAgentChatMessageDelta(
 	workspaceID string,
 	messageID string,
 	text string,
+	_ string,
 ) {
 	f.messageDeltas = append(f.messageDeltas, messageDeltaPush{
 		chatID: chatID, workspaceID: workspaceID, messageID: messageID, text: text,
@@ -443,8 +444,8 @@ func TestHub_BroadcastAgentChatMessageDelta_FansOut(t *testing.T) {
 	h.Register(a)
 	h.Register(b)
 
-	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial tex")
-	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial text")
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial tex", "")
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial text", "")
 
 	want := []messageDeltaPush{
 		{chatID: "c1", workspaceID: "w1", messageID: "m1", text: "partial tex"},

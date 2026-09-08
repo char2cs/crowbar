@@ -21,5 +21,10 @@ const (
 
 	HookMessageDelta = "message_delta"
 
+	// HookReasoningDelta is the model thinking out loud. It rides the same live
+	// channel as HookMessageDelta, tagged with a kind, and is never recorded as
+	// the assistant's answer.
+	HookReasoningDelta = "reasoning_delta"
+
 	HookTurnFailed = "turn_failed"
 )

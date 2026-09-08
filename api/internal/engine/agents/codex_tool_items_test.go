@@ -106,3 +106,33 @@ func TestRegression_CodexFailedToolCarriesItsError(t *testing.T) {
 	assert.Equal(t, "server closed the connection", ev.Tool.Error)
 	assert.Equal(t, "get_chat_log", ev.Tool.Name)
 }
+
+// Reasoning is where codex spends most of a hard turn, emitting nothing else
+// while it does — so with this unmapped the chat showed a spinner and a rotating
+// flavour verb for all of it. Payload shape is from a LIVE capture against
+// codex-cli 0.149.1 (testdata/fixtures/codex/item_reasoning_summaryTextDelta.json).
+func TestRegression_CodexStreamsItsReasoning(t *testing.T) {
+	raw := []byte(`{"threadId":"01a081b0-fe3e-7610-bd5d-341d4c4f7749",
+	  "turnId":"01a081b0-ffd3-7a11-a381-ec122201eb91",
+	  "itemId":"rs_052b6896240d8d9d016aa02d538cd087d2b6f5760993ec63b9",
+	  "delta":"**Clarifying ambiguous wording**","summaryIndex":0}`)
+
+	ev, err := get(t, "codex").ParseHook(agents.HookReasoningDelta, raw)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Delta)
+	assert.Equal(t, "**Clarifying ambiguous wording**", ev.Delta.Text)
+	assert.Equal(t, "rs_052b6896240d8d9d016aa02d538cd087d2b6f5760993ec63b9", ev.Delta.MessageID)
+	assert.Equal(t, "01a081b0-ffd3-7a11-a381-ec122201eb91", ev.Delta.TurnID)
+	assert.Equal(t, 0, ev.Delta.Index, "summaryIndex orders the parts of one thinking block")
+}
+
+// A thought is not an answer. Mapping reasoning onto message_delta would have
+// recorded the model's thinking as its reply, so the two must stay separate
+// events and a provider that streams no reasoning must not claim to.
+func TestAgent_ReasoningAndMessageDeltasAreDistinctEvents(t *testing.T) {
+	assert.NotEqual(t, agents.HookMessageDelta, agents.HookReasoningDelta)
+
+	_, err := get(t, "claude").ParseHook(agents.HookReasoningDelta, []byte(`{"delta":"x"}`))
+	require.Error(t, err, "claude declares no reasoning stream, and must not claim one")
+}

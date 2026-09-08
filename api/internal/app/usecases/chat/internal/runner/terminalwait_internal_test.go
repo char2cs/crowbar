@@ -77,7 +77,7 @@ func (seeingTerminal) Screen(string, uint64) (string, uint64, bool) { return "",
 // be able to bind it.
 type noTurns struct{ Turns }
 
-func (noTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
+func (noTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text, kind string)) {}
 
 func (noTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
 

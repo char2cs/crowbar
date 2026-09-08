@@ -150,6 +150,27 @@ events:
       text:       delta
       turn_id:    turnId
 
+  # Codex spends most of a hard turn HERE and emits nothing else while it does
+  # (captured live, codex-cli 0.149.1: item/started type reasoning, then
+  # summaryPartAdded, then a run of summaryTextDelta, then item/completed). With
+  # this unmapped the chat sat on a spinner and a rotating flavour verb for the
+  # whole of it — the single biggest source of apparent dead air.
+  #
+  # summaryTextDelta, not textDelta: the summary is the stream codex actually
+  # emits for a normal turn, and it is the human-readable one. Raw reasoning
+  # content is gated behind a separate opt-in and was never observed live.
+  #
+  # index is summaryIndex — a thinking block is emitted in numbered parts, and
+  # without it the parts of one block cannot be ordered.
+  reasoning_delta:
+    in: item/reasoning/summaryTextDelta
+    map:
+      session_id: threadId
+      message_id: itemId
+      text:       delta
+      turn_id:    turnId
+      index:      summaryIndex
+
   # tokenUsage nests under total/ — not tokenUsage.inputTokens directly.
   telemetry:
     in: thread/tokenUsage/updated

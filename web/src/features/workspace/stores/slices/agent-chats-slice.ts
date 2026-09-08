@@ -150,6 +150,20 @@ export interface AgentChatsState {
    * streaming chat to store text that is superseded a moment later.
    */
   streamingMessages: Record<string, { id: string; text: string }[]>
+  /**
+   * What the agent is THINKING right now, keyed by chat — the current thinking
+   * block only, never a history.
+   *
+   * Separate from streamingMessages on purpose. A thought is not an answer: it is
+   * never recorded in the ledger, so useChatMessages' prune-against-the-ledger
+   * pass could never retire it, and rendering it as an assistant bubble would put
+   * the model's reasoning into the transcript as though it had said it out loud.
+   *
+   * A reasoning model spends most of a hard turn here emitting nothing else, so
+   * this is the difference between a chat that looks busy and one that looks dead.
+   * Cleared on every turn edge — it belongs to the turn that produced it.
+   */
+  streamingReasoning: Record<string, { id: string; text: string }>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
@@ -221,6 +235,12 @@ export interface AgentChatsSlice {
     chatId: string,
     message: { id: string; text: string } | null,
   ) => void
+  /** Replace (or clear, with null) the thinking block a chat is mid-way through.
+   *  Only the latest is kept — see AgentChatsState.streamingReasoning. */
+  setAgentChatStreamingReasoning: (
+    chatId: string,
+    block: { id: string; text: string } | null,
+  ) => void
   /** Drop the given ids' entries once the ledger has recorded them for real —
    *  see useChatMessages' streamingBubbles for the matching id computation
    *  this is the store-side twin of. NOT a blanket clear on a turn boundary:
@@ -282,6 +302,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   compacting: {},
   settledPrompts: {},
   streamingMessages: {},
+  streamingReasoning: {},
   turnRevision: {},
   scrollPositions: {},
   excalidrawEditRequests: {},
@@ -477,6 +498,7 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.compacting[chatId]
       delete s.agentChats.settledPrompts[chatId]
       delete s.agentChats.streamingMessages[chatId]
+      delete s.agentChats.streamingReasoning[chatId]
       delete s.agentChats.turnRevision[chatId]
       delete s.agentChats.scrollPositions[chatId]
       delete s.agentChats.excalidrawEditRequests[chatId]
@@ -527,6 +549,15 @@ export const createAgentChatsSlice: StateCreator<
       const existing = list.find((m) => m.id === message.id)
       if (existing) existing.text = message.text
       else list.push(message)
+    }),
+
+  setAgentChatStreamingReasoning: (chatId, block) =>
+    set((s) => {
+      if (!block) {
+        delete s.agentChats.streamingReasoning[chatId]
+        return
+      }
+      s.agentChats.streamingReasoning[chatId] = block
     }),
 
   pruneAgentChatStreamingMessages: (chatId, ids) =>

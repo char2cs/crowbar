@@ -17,6 +17,7 @@ const {
   setAgentChatTerminalWait,
   setAgentChatCompacting,
   setAgentChatStreamingMessage,
+  setAgentChatStreamingReasoning,
   setAgentProviders,
   hydrateAgentChatOrder,
   closeBuffer,
@@ -38,6 +39,7 @@ const {
   setAgentChatTerminalWait: vi.fn(),
   setAgentChatCompacting: vi.fn(),
   setAgentChatStreamingMessage: vi.fn(),
+  setAgentChatStreamingReasoning: vi.fn(),
   setAgentProviders: vi.fn(),
   hydrateAgentChatOrder: vi.fn(),
   closeBuffer: vi.fn(),
@@ -109,6 +111,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       setAgentChatTerminalWait,
       setAgentChatCompacting,
       setAgentChatStreamingMessage,
+      setAgentChatStreamingReasoning,
       setAgentProviders,
       hydrateAgentChatOrder,
       buffers,
@@ -138,7 +141,7 @@ type Frame = {
    *  `terminal_wait` kind only, and its ABSENCE there is the clearing edge. */
   terminalWait?: { kind: string }
   /** An assistant message still being produced. Present on `message_delta` only. */
-  message?: { id: string; text: string }
+  message?: { id: string; text: string; kind?: string }
 }
 
 const chat = (id: string) => ({
@@ -468,6 +471,42 @@ describe('useWorkspaceAgentChatsStream', () => {
       expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
       await nextFrame()
       expect(setAgentChatStreamingMessage).toHaveBeenCalledWith('c1', { id: 'm1', text: 'Bui' })
+    })
+
+    // A THOUGHT is not an answer. It rides the same frame kind, tagged, and must
+    // never reach streamingMessages: nothing in the ledger will ever match it, so
+    // useChatMessages' prune-against-the-ledger pass could not retire it and it
+    // would sit in the transcript as an assistant bubble forever.
+    it('routes a reasoning delta to its own slot, never to the message stream', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'rs_1', text: '**Clarifying**', kind: 'reasoning' },
+      })
+      await nextFrame()
+
+      expect(setAgentChatStreamingReasoning).toHaveBeenCalledWith('c1', {
+        id: 'rs_1',
+        text: '**Clarifying**',
+      })
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
+
+    // The thought belongs to the turn that produced it — a stale one outliving
+    // its turn would claim the agent is mid-thought when it has already answered.
+    it('drops the thought at a turn edge', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped', working: false })
+
+      expect(setAgentChatStreamingReasoning).toHaveBeenCalledWith('c1', null)
     })
 
     it('collapses several deltas arriving before the frame into one write, with the latest text', async () => {

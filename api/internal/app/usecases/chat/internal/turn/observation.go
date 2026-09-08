@@ -31,6 +31,10 @@ func (t *Turns) handleObservation(
 	case engineagents.HookMessageDelta:
 
 		t.recordMessageDelta(ctx, chat, runner, ev)
+	case engineagents.HookReasoningDelta:
+		// Live only — see recordReasoningDelta. Nothing durable is written, so a
+		// provider that maps this can never corrupt a transcript with it.
+		t.recordReasoningDelta(chat, ev)
 	case engineagents.HookToolPre:
 		note(ctx, "tool invoked", t.activity.InvokeTool(ctx, agentactivity.ToolInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,

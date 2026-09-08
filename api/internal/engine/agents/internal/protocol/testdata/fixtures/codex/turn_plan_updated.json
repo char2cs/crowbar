@@ -1,0 +1,23 @@
+{
+  "method": "turn/plan/updated",
+  "params": {
+    "threadId": "01a081af-73bf-7fd1-bc4b-efd041f46edc",
+    "turnId": "01a081af-7550-79d0-a51e-6424d9724c88",
+    "explanation": null,
+    "plan": [
+      {
+        "step": "Run the requested five-line shell command exactly.",
+        "status": "inProgress"
+      },
+      {
+        "step": "List the top-level directory contents.",
+        "status": "pending"
+      },
+      {
+        "step": "Check repository/status context if available, then summarize.",
+        "status": "pending"
+      }
+    ]
+  },
+  "emittedAtMs": 1788882161086
+}

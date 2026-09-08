@@ -61,7 +61,7 @@ func (stubTurns) RecordStop(context.Context, string) error { return nil }
 
 func (stubTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 
-func (stubTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
+func (stubTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text, kind string)) {}
 
 func (stubTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
 
@@ -128,7 +128,7 @@ func TestStartTerminalWaitSweep_WiresMessageDeltaEvenWithNoDetector(t *testing.T
 	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
 	rs.SetTurns(turns)
 
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, func(_, _, _, _ string) {}, nil)
+	rs.StartTerminalWaitSweep(t.Context(), nil, nil, func(_, _, _, _, _ string) {}, nil)
 
 	require.True(t, turns.wired, "a daemon with no detector still has messages to stream")
 }
@@ -138,7 +138,7 @@ type deltaRecordingTurns struct {
 	wired bool
 }
 
-func (d *deltaRecordingTurns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text string)) {
+func (d *deltaRecordingTurns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text, kind string)) {
 	d.wired = fn != nil
 }
 

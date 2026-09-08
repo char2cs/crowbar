@@ -46,6 +46,9 @@ type Turns struct {
 	// messages assembles each assistant message from the increments its provider
 	// streams, because the terminating hook carries only the LAST message of a turn.
 	messages *stream.Streams
+	// reasoning holds the model's in-flight thinking, live-only and never
+	// recorded. See reasoning.go.
+	reasoning *reasoningBuffer
 	// pendingHooks is the fork-before-runner-persistence barrier: hooks that arrive
 	// before the runner row exists are buffered into it and replayed after.
 	pendingHooks *inflight.Hooks
@@ -70,7 +73,7 @@ type Turns struct {
 	// Wired at sweep start rather than at construction, because what it publishes
 	// through is the hub — a layer above this one. Nil until then, and nil forever
 	// in a daemon with no detector.
-	messageDelta func(chatID, workspaceID, messageID, text string)
+	messageDelta func(chatID, workspaceID, messageID, text, kind string)
 
 	// compactionStatus fans the live compact_pre/compact_post edge out to any
 	// client watching, the same way messageDelta fans out a growing message.
@@ -143,6 +146,7 @@ func New(d Deps) *Turns {
 		// the exactly-once ingress journal and the per-runner ingest gate are named
 		// by nothing outside this package.
 		messages:            stream.New(),
+		reasoning:           newReasoningBuffer(),
 		hookDeliveries:      agentjournal.NewHookDeliveries(),
 		hookGates:           inflight.NewGate(),
 		pendingHooks:        d.PendingHooks,
@@ -165,7 +169,7 @@ func (t *Turns) SetMessageAwaitTimeout(d time.Duration) { t.messageAwaitTimeout 
 // SetMessageDelta wires the fan-out for a growing assistant message. It is called
 // at sweep start, not at construction: a daemon with nobody to publish to records
 // the message when it finishes instead.
-func (t *Turns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text string)) {
+func (t *Turns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text, kind string)) {
 	t.messageDelta = fn
 }
 

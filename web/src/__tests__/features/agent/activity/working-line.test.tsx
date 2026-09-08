@@ -251,6 +251,51 @@ describe('WorkingLine', () => {
     expect(screen.getByText('Compacting…')).toBeInTheDocument()
   })
 
+  // A reasoning model spends most of a hard turn emitting nothing but this. With
+  // no home for it the whole of that stretch was a spinner over a frozen chat.
+  it('shows what the agent is thinking while it works', () => {
+    render(
+      <WorkingLine working activity={activity()} reasoning="**Clarifying** the wording" />,
+    )
+    expect(screen.getByTestId('agent-reasoning')).toHaveTextContent('Clarifying the wording')
+  })
+
+  // It is a status line, not a document: the newest thought is the one that says
+  // what the agent is doing NOW, so a long block keeps its tail.
+  it('trims a long thought from the front, keeping the newest end', () => {
+    const long = `START${'x'.repeat(400)}NEWEST`
+    render(<WorkingLine working activity={activity()} reasoning={long} />)
+
+    const el = screen.getByTestId('agent-reasoning')
+    expect(el).toHaveTextContent('NEWEST')
+    expect(el).not.toHaveTextContent('START')
+  })
+
+  it('says nothing about thinking when the agent reports none', () => {
+    render(<WorkingLine working activity={activity()} />)
+    expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
+  })
+
+  // Compaction is a known, named operation — a stale thought from the turn before
+  // it must not sit under "Compacting…".
+  it('hides the thought while compacting', () => {
+    render(<WorkingLine working activity={activity()} reasoning="old thought" compactingLive />)
+    expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
+  })
+
+  // The whole point of quieting for a block is that the agent is NOT working;
+  // a thought left over from before it would contradict that.
+  it('hides the thought when blocked on a person', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({ interruptions: [interruption()] })}
+        reasoning="old thought"
+      />,
+    )
+    expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
+  })
+
   it('names no tools while compacting — there is nothing to enumerate', () => {
     render(<WorkingLine working activity={activity({ toolCalls: [tool()] })} compactingLive />)
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
