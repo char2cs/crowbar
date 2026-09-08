@@ -95,18 +95,23 @@ func TestRegression_ResumableConversation_RecentConversationWithNoRecordedTurns_
 // attempt re-resumes the same turnless session, finds nothing to attach to, and the CLI
 // exits again in a second or two, looping "This agent has exited" indefinitely with no
 // escape. Age alone cannot tell a crash apart from legacy data once it exceeds the
-// window, but the chat's OTHER recorded turns can: if this chat has ever produced a real
-// turn (under any session), the activity table was plainly live while it was in use, so
-// a turnless session on it — however old — cannot be pre-migration data and must never
-// be resumed.
+// window, but this SAME PROVIDER's other recorded turns on this chat can: if it has ever
+// produced a real turn (under a different session), the activity table was plainly live
+// for this (chat, provider) pair, so a turnless session on it — however old — cannot be
+// pre-migration data and must never be resumed.
 func TestRegression_ResumableConversation_TurnlessSessionButChatHasOtherTurns_AlwaysSpawnsFresh(t *testing.T) {
+	weeksAgo := time.Now().Add(-21 * 24 * time.Hour)
 	hoursAgo := time.Now().Add(-2 * time.Hour)
 
 	rs := &Runners{
 		runnerStore: stubRunnerStoreForResumable{convs: []engineagents.ChatConversation{
+			// Oldest first, per ConversationsForChat's own contract — an earlier
+			// claude session that DID record a turn, then a later one that crashed
+			// before recording anything.
+			{ChatID: "chat-1", ProviderID: "claude", SessionID: "sid-earlier-claude-session", FirstSeenAt: weeksAgo},
 			{ChatID: "chat-1", ProviderID: "claude", SessionID: "sid-crashed-session", FirstSeenAt: hoursAgo},
 		}},
-		activity: stubActivityForAttach{found: false, turnCount: 3},
+		activity: stubActivityBySession{wantSession: "sid-earlier-claude-session"},
 	}
 	chat := domain.Chat{ID: "chat-1", LastActivityAt: hoursAgo}
 
@@ -114,8 +119,39 @@ func TestRegression_ResumableConversation_TurnlessSessionButChatHasOtherTurns_Al
 
 	require.NoError(t, err)
 	assert.Empty(t, sessionID,
-		"a chat with other recorded turns proves the activity table was live; a turnless session on it must never be trusted as legacy data, however old")
+		"an earlier session of this SAME provider having a recorded turn proves the activity table was live for it; the current turnless session must never be trusted as legacy data, however old")
 	assert.True(t, leftAt.IsZero(), "a refused resume carries no gap cutoff")
+}
+
+// TestRegression_ResumableConversation_OtherProviderHasTurns_DoesNotBlockThisProvidersLegacyResume
+// is the fix for the fix above: the sibling-session check must be scoped to the provider
+// actually being resumed, not the whole chat. A chat that switched providers has real,
+// table-live history for the OTHER provider — that says nothing about whether THIS
+// provider's own, genuinely pre-migration session predates the table, and must not stop
+// it from being trusted and resumed.
+func TestRegression_ResumableConversation_OtherProviderHasTurns_DoesNotBlockThisProvidersLegacyResume(t *testing.T) {
+	weeksAgo := time.Now().Add(-21 * 24 * time.Hour)
+	lastActivity := time.Now().Add(-2 * time.Hour)
+
+	rs := &Runners{
+		runnerStore: stubRunnerStoreForResumable{convs: []engineagents.ChatConversation{
+			{ChatID: "chat-1", ProviderID: "claude", SessionID: "sid-legacy-claude-session", FirstSeenAt: weeksAgo},
+			{ChatID: "chat-1", ProviderID: "codex", SessionID: "sid-codex-with-turns", FirstSeenAt: weeksAgo},
+		}},
+		// Only codex's session has a recorded turn — claude's own is genuinely
+		// turnless, pre-migration data.
+		activity: stubActivityBySession{wantSession: "sid-codex-with-turns"},
+	}
+	chat := domain.Chat{ID: "chat-1", LastActivityAt: lastActivity}
+
+	sessionID, leftAt, err := rs.resumableConversation(context.Background(), chat, "claude")
+
+	require.NoError(t, err)
+	assert.Equal(t, "sid-legacy-claude-session", sessionID,
+		"codex's own recorded turns say nothing about claude's session on the same chat; it must still be trusted and resumed")
+	assert.True(t, leftAt.Equal(lastActivity),
+		"with no per-turn record to draw the gap from, chat.LastActivityAt must stand in for it; got %v want %v",
+		leftAt, lastActivity)
 }
 
 // stubRunnerStoreLiveness answers only LiveRunnerForChat, either with a runner or
