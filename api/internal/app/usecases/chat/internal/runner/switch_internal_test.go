@@ -235,3 +235,39 @@ func TestRegression_DisplaceForSwitch_LiveRunnerFlaggedWorking_StillWaits(t *tes
 		"a LIVE runner still doing background work must still be waited for — "+
 			"there is a CLI to finish it and a hook coming to say so")
 }
+
+// TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY
+// mirrors TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY
+// (lifecycle_internal_test.go): quitOutgoingCLI — SwitchProvider's own teardown of the
+// chat's outgoing CLI, reached from displaceForSwitch — had the SAME gap retire() did
+// before its fix. It terminated only live.TerminalSession, the ORIGINAL companion PTY
+// every api-transport spawn forks alongside its connection and never reassigns; once
+// SwitchToTerminal has run, that field names a different, already-abandoned process, and
+// the actually-attached native-view PTY it forks separately (tracked only in rs.attached)
+// kept running indefinitely — a real process leak reachable by switching provider on a
+// chat while it is attached to its native terminal view, with rs.attached left answering
+// AttachedTerminalSession for a runner id the switch has already moved past.
+func TestRegression_QuitOutgoingCLI_TerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY(t *testing.T) {
+	term := &fakeTermForAttach{}
+	store := &stopRetireRunnerStore{
+		runner: engineagents.Runner{ID: "runner-1", TerminalSession: "companion-pty-term"},
+	}
+	rs := &Runners{
+		runnerStore:   store,
+		attached:      newAttachRegistry(),
+		apiConns:      newAPIConnRegistry(),
+		term:          term,
+		inflightTurns: inflight.NewTurns(),
+	}
+	rs.attached.set("runner-1", attachedView{termSessID: "native-view-term"})
+
+	require.NoError(t, rs.quitOutgoingCLI(context.Background(), "chat-1"))
+
+	assert.Contains(t, term.terminated, "companion-pty-term",
+		"the original companion PTY is still a real process and must still be torn down")
+	assert.Contains(t, term.terminated, "native-view-term",
+		"the actually-attached native view PTY — the one the user was looking at — must be torn down too")
+	_, stillAttached := rs.attached.get("runner-1")
+	assert.False(t, stillAttached, "the attach registry entry must be forgotten, or it answers for a runner nothing will revisit")
+	assert.True(t, store.displaced, "the outgoing runner must still be displaced from the chat")
+}

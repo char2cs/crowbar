@@ -250,6 +250,18 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // see seedChats.
     let chatWrites = 0
 
+    // refetchOne's OWN ordering guard, one counter per chatId — the seedChats/listSeq/
+    // providerSeq pattern applied to single-chat reads, which had nothing of their own.
+    // A `displaced` frame and the `started` frame for its replacement both refetch the
+    // SAME chat in quick succession (an ordinary prompt submission that restarts a
+    // mixed-transport CLI: displaceForPrompt's own displacement, then the replacement
+    // runner's spawn), and resolution order is not issue order. The older (displaced-
+    // triggered) read can resolve AFTER the newer one and reinstate a dormant snapshot
+    // over a chat a replacement runner already sits on — live-reachable from a chat open
+    // in two panes, where each AgentChatPane's own attach effect reads the resulting
+    // false "no live runner" and fires an unwanted revive() against a CLI that never left.
+    const chatFetchSeq = new Map<string, number>()
+
     // ONLY THE MOST-RECENTLY ISSUED SEED MAY WRITE — the same guard `latestFetch`
     // carries in lib/store/loadable-slice.ts, and needed here for the same reason.
     // chatWrites protects a seed from being overtaken by a per-chat READ; nothing
@@ -420,9 +432,15 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // before it — hence the chatWrites bump, which is what lets seedChats know it has been
     // overtaken (see there).
     const refetchOne = async (chatId: string): Promise<boolean> => {
+      const seq = (chatFetchSeq.get(chatId) ?? 0) + 1
+      chatFetchSeq.set(chatId, seq)
       try {
         const chat = await getChat(wsId, chatId)
         if (cancelled) return false
+        // A LATER refetchOne for this same chat was issued while this one was still in
+        // flight — its answer is the one that gets to land. Applying this older snapshot
+        // now would only stomp the newer truth right back out (see chatFetchSeq's own doc).
+        if (chatFetchSeq.get(chatId) !== seq) return false
         getOrCreateWorkspaceStore(wsId).getState().upsertAgentChat(chat)
         chatWrites++
         return true

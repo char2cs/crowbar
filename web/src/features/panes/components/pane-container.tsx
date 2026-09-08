@@ -237,9 +237,24 @@ export function PaneContainer({ pane, position = ROOT_PANE_POSITION }: PaneConta
 
   const handleExternalEditorExit = useCallback(() => {
     if (activeBuffer?.type === 'externalEditor') {
-      closeBufferForce(activeBuffer.id)
+      // The external process is already gone, so this buffer must be torn down
+      // regardless of how many panes still list it (an externalEditor buffer is
+      // shareable across a split, same as an ordinary editor — see
+      // getShareableSplitBufferId). closeBuffer only tears a buffer down once NO
+      // pane references the id any more, reading any remaining membership as a
+      // SIBLING still showing a live split — which this is not. Strip every
+      // pane's membership first, same pattern chat-removal.ts already uses for
+      // the identical reason.
+      const bufferId = activeBuffer.id
+      const state = workspaceStore.getState()
+      for (const p of Object.values(state.panes)) {
+        if (p.bufferIds.includes(bufferId)) {
+          state.paneActions.removeBufferFromPane(p.id, bufferId)
+        }
+      }
+      closeBufferForce(bufferId)
     }
-  }, [activeBuffer, closeBufferForce])
+  }, [activeBuffer, closeBufferForce, workspaceStore])
 
   // Listen for file tree drops on this pane
   useEffect(() => {

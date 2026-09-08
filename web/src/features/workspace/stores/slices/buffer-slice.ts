@@ -417,6 +417,34 @@ export const createBufferSlice: StateCreator<
       },
 
       closeBuffer(id) {
+        // A SPLIT (createPaneBeside's own shared-bufferId path — see pane-slice's
+        // splitPane) puts ONE buffer id in TWO panes' bufferIds, so a chat, an
+        // editor or any other split-able content can be showing LIVE in a sibling
+        // pane while this call is closing a DIFFERENT pane's tab onto the same
+        // buffer. Every caller here already calls removeBufferFromPane for the
+        // pane it is actually closing before reaching this action (tab-bar.tsx,
+        // use-pane-keyboard.ts, chat-removal.ts), so any pane still listing `id`
+        // below is a genuine SIBLING still showing it, not this call's own
+        // not-yet-applied removal.
+        //
+        // Tearing this buffer down anyway is the multi-pane close race: closing
+        // one pane's tab on a chat split across two panes killed the vendor CLI
+        // (and, for an agent chat, its whole runner) out from under the sibling
+        // pane still displaying it live — confirmed live, splitting a chat pane
+        // and closing one side's tab took the OTHER side's live session down too
+        // — and unconditionally deleting the buffer from `state.buffers` below
+        // orphaned the sibling pane's own `bufferIds` entry, since nothing else
+        // ever prunes a dead id back out of a pane that never asked to close it.
+        //
+        // A buffer with no such sibling — the ordinary non-split case, where the
+        // caller's own removeBufferFromPane already emptied this out, or a
+        // terminal reporting its own exit (handleTerminalExit calls closeBuffer
+        // directly, with no sibling: splitPane's shared-bufferId path explicitly
+        // excludes terminals, see getShareableSplitBufferId) — falls straight
+        // through to the full teardown below exactly as before.
+        if (Object.values(get().panes ?? {}).some((pane) => pane.bufferIds.includes(id))) {
+          return
+        }
         const buf = get().buffers.find((b) => b.id === id)
         // Closing a terminal tab is final (terminals never enter the undo-close
         // history) — terminate the backend PTY so shell processes don't leak.

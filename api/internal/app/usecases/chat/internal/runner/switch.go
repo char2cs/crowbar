@@ -238,6 +238,26 @@ func (rs *Runners) quitOutgoingCLI(
 		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
 			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
 	}
+	// live.TerminalSession above is the ORIGINAL companion PTY every api-transport
+	// spawn forks alongside its connection — never reassigned, so it names a
+	// different, LEAKED process once SwitchToTerminal has run: that call forks a
+	// THIRD, separate PTY for the native view and tracks it only in rs.attached,
+	// exactly the one the user is actually looking at. Switching provider away
+	// from a chat mid-attach must take that one down too, and forget it here —
+	// the same gap retire() had (lifecycle.go) before its own fix, for the
+	// identical reason: SwitchToNative is otherwise the only place that ever
+	// clears rs.attached, and a chat switched away from while attached never
+	// reaches it. Best-effort, like retire()'s own: the outgoing CLI is already
+	// being torn down regardless, so a stuck attached view must not abort a
+	// switch that has already committed to happening.
+	if view, ok := rs.attached.get(live.ID); ok {
+		rs.attached.drop(live.ID)
+		if err := rs.term.TerminateGraceful(ctx, view.termSessID); err != nil &&
+			!errors.Is(err, engineterminal.ErrSessionNotFound) {
+			slog.WarnContext(ctx, "agent: switch provider: terminate attached native view (best-effort, continuing)",
+				"runner_id", live.ID, "terminal_session_id", view.termSessID, "err", err)
+		}
+	}
 	// An api-transport runner's serve process is NOT the terminal session above —
 	// it is a separate background process (apiconn.go's forkServeProcess), never a
 	// PTY, for exactly the hotswap:false shape codex declares: no attach at spawn,
