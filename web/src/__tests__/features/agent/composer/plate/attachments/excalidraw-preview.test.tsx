@@ -332,6 +332,79 @@ describe('ExcalidrawPreview height cap', () => {
   })
 })
 
+// REGRESSION: reservedHeight used to read containerRef.current.clientWidth
+// exactly once, on mount — a resize BEFORE the async render below resolves
+// left the reservation computed from a stale width, reintroducing the exact
+// "scroll bugs out" height-jump this feature exists to prevent.
+describe('ExcalidrawPreview reservation follows a resize while still loading', () => {
+  const tallScene: ParsedExcalidrawScene = {
+    elements: [{ type: 'rectangle', x: 0, y: 0, width: 400, height: 200 }],
+    appState: {},
+  }
+
+  let observerCallbacks: Array<() => void> = []
+  const RealResizeObserver = globalThis.ResizeObserver
+
+  beforeEach(() => {
+    observerCallbacks = []
+    class ControllableResizeObserver {
+      callback: () => void
+      constructor(callback: () => void) {
+        this.callback = callback
+      }
+      observe() {
+        observerCallbacks.push(this.callback)
+      }
+      unobserve() {}
+      disconnect() {
+        observerCallbacks = observerCallbacks.filter((c) => c !== this.callback)
+      }
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: ControllableResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: RealResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+  })
+
+  it('recomputes the reserved height after the container resizes, before the live render ever resolves', () => {
+    let width = 400
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get() {
+        return this.classList.contains('excalidraw-preview') ? width : 0
+      },
+    })
+
+    const { container } = render(<ExcalidrawPreview scene={tallScene} />)
+    const box = container.querySelector('.excalidraw-preview') as HTMLElement
+
+    // scene is 400x200 (aspect 0.5) at width 400 → reserves 200px.
+    expect(box.style.minHeight).toBe('200px')
+
+    // The pane narrows before exportToSvg (which never resolves in this
+    // test — see the default beforeEach mock) has settled.
+    width = 200
+    act(() => {
+      for (const cb of observerCallbacks) cb()
+    })
+
+    // Same 0.5 aspect ratio, now at the NEW 200px width → 100px, not the
+    // stale 200px a one-shot read would still be showing.
+    expect(box.style.minHeight).toBe('100px')
+
+    Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth')
+  })
+})
+
 // REGRESSION: an agent's own diagram, or the user's past one, could only ever
 // be looked at in the transcript — this is what actually lets someone iterate
 // on a diagram that already exists rather than always starting a fresh one.

@@ -72,22 +72,41 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
   const asset = useMarkdownAsset()
   const [src, setSrc] = useState<string | null>(null)
   const [svgMarkup, setSvgMarkup] = useState<string | null>(null)
-  // Reserves the loaded render's real footprint from the FIRST paint —
-  // before `@excalidraw/excalidraw` has even started loading, let alone
-  // exported anything — so nothing here changes height once it does. Read
-  // only while nothing has loaded yet (see the `loaded` guard below): once
-  // the real content is on screen it drives its own height, and holding
-  // this reservation past that point would just be a second, now-wrong
-  // guess fighting the real content's natural size.
+  const loaded = pngRef ? src !== null : svgMarkup !== null
+  // Reserves the loaded render's real footprint before `@excalidraw/
+  // excalidraw` has even started loading, let alone exported anything — so
+  // nothing here changes height once it does. Read only while nothing has
+  // loaded yet (see the `loaded` guard below): once the real content is on
+  // screen it drives its own height, and holding this reservation past that
+  // point would just be a second, now-wrong guess fighting the real
+  // content's natural size.
   const aspectRatio = useMemo(() => computeSceneAspectRatio(scene.elements), [scene.elements])
   const containerRef = useRef<HTMLDivElement>(null)
   const [reservedHeight, setReservedHeight] = useState<number | null>(null)
   useLayoutEffect(() => {
-    if (aspectRatio === null) return
-    const width = containerRef.current?.clientWidth
-    if (!width) return
-    setReservedHeight(Math.min(MAX_PREVIEW_HEIGHT_PX, width * aspectRatio))
-  }, [aspectRatio])
+    if (aspectRatio === null || loaded) return
+    const node = containerRef.current
+    if (!node) return
+    // A ResizeObserver, not a one-shot read of clientWidth: a flat read at
+    // mount alone misses two real cases — the container resizing (a pane
+    // width change, a sidebar toggling) BEFORE the async render below ever
+    // resolves, which leaves the reservation computed from a stale width;
+    // and the chat surface mounting `display:none` (a background tab), whose
+    // clientWidth reads 0 and skipped the reservation entirely, forever,
+    // even once the surface actually became visible. Either path reproduces
+    // the exact height-jump this reservation exists to prevent. Stops
+    // observing the instant `loaded` flips true — the dependency array
+    // re-runs this effect, whose cleanup disconnects, and the new run bails
+    // immediately on the `loaded` check above.
+    const measure = () => {
+      const width = node.clientWidth
+      if (width) setReservedHeight(Math.min(MAX_PREVIEW_HEIGHT_PX, width * aspectRatio))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [aspectRatio, loaded])
   // Reactive: the dark-mode filter below must follow the app's theme toggle,
   // not just whatever was active the first time this mounted.
   useThemeVersion()
@@ -170,7 +189,6 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
   }, [pngRef, scene])
 
   const count = scene.elements.length
-  const loaded = pngRef ? src !== null : svgMarkup !== null
 
   return (
     <div
