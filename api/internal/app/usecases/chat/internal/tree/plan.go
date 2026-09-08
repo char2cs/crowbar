@@ -70,7 +70,7 @@ func (u *chatFolderUsecase) loadChat(
 			"agent chat folder: chat %s is not in workspace %s: %w", chatID, workspaceID, apperr.ErrNotFound,
 		)
 	}
-	return chat, nil
+	return u.correctHomePlacement(ctx, chat)
 }
 
 // globalSnapshot reads every row the daemon knows — the whole forest folder CRUD
@@ -84,6 +84,11 @@ func (u *chatFolderUsecase) globalSnapshot(
 
 // globalSnapshotAround is globalSnapshot with the SUBJECT's row corrected from
 // the log fold the caller already holds — see corrected.
+//
+// For the home scope (2026-09-08 sidebar-placement-unification Task 5), rows
+// beyond the repo-scoped ListChats() read are merged in from Node.ListByParent
+// + Folder instead of ListByWorkspace("") + ChatTypeFolder rows — see
+// mergeHomeForest.
 func (u *chatFolderUsecase) globalSnapshotAround(
 	ctx context.Context,
 	subject domain.Chat,
@@ -92,7 +97,12 @@ func (u *chatFolderUsecase) globalSnapshotAround(
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: %w", err)
 	}
-	return newTreeSnapshot(corrected(rows, subject)), nil
+	merged, homeIDs, err := u.mergeHomeForest(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	subjectIsHome := subject.ID != "" && subject.Type == domain.ChatTypeFolder && subject.RepoID == ""
+	return buildHomeSnapshot(merged, subject, homeIDs, subjectIsHome), nil
 }
 
 // workspaceSnapshot reads one workspace's rows, PLUS every folder, as of a
@@ -131,6 +141,13 @@ func (u *chatFolderUsecase) workspaceSnapshot(
 // workspace either, so ListByWorkspace("") already returned every one of them —
 // appending them again put each folder in the plan twice, and a level counted
 // twice hands the next row a slot past the end of it (see NextSlot).
+//
+// For the home workspace (2026-09-08 sidebar-placement-unification Task 5),
+// the folder pass is replaced entirely by mergeHomeForest: home folders are
+// Node/Folder-backed now, not Chat rows, and a home chat's own ParentID/Order
+// need the SAME Node correction loadChat already applies (see
+// correctHomePlacement) — a bare ListByWorkspace read alone would serve a
+// home chat's stale, write-once-at-creation Chat fields.
 func (u *chatFolderUsecase) workspaceSnapshotAround(
 	ctx context.Context,
 	workspaceID string,
@@ -142,6 +159,13 @@ func (u *chatFolderUsecase) workspaceSnapshotAround(
 	}
 	if workspaceID == "" {
 		return newTreeSnapshot(corrected(rows, subject)), nil
+	}
+	home, err := u.isHomeWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if home {
+		return u.homeSnapshotAround(ctx, rows, subject)
 	}
 	all, err := u.chats.ListChats(ctx)
 	if err != nil {
@@ -180,19 +204,46 @@ func corrected(
 // write now too, but the wire contract this feeds is a folder-only list, so a
 // densified chat sibling stays reported through its own channel instead of
 // this one.
+//
+// A row in snapshot.freshIDs is force-included even when the generic
+// tree.Tree plan reports it as NOT dirty: a home-scoped chat's very first
+// placement (right after MintChat) is already sitting at the exact
+// ParentID/Order its OWN row carried into the snapshot (a zero-value bubble,
+// "" / 0) whenever it happens to land back at the front of an empty or
+// tied level, so SetParent/Reorder record no CHANGE for it — invisible to
+// the plan's own numeric diff, the identical coincidence project.go's
+// forceReparentWrite/finalIndexOf exists to catch for a reparenting repo.
+// Fresh means "no Node row exists yet at all," which owes a Nodes.Create
+// regardless of whether anything about its ParentID/Order actually moved.
 func (u *chatFolderUsecase) persist(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 ) ([]domain.Chat, error) {
 	ids := snapshot.plan.Dirty()
+	seen := make(map[string]bool, len(ids)+len(snapshot.freshIDs))
 	written := make([]domain.Chat, 0, len(ids))
-	for _, id := range ids {
+	writeOne := func(id string) error {
+		seen[id] = true
 		row, err := u.writeRow(ctx, snapshot, id)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if row != nil && row.Type == domain.ChatTypeFolder {
 			written = append(written, *row)
+		}
+		return nil
+	}
+	for _, id := range ids {
+		if err := writeOne(id); err != nil {
+			return nil, err
+		}
+	}
+	for id := range snapshot.freshIDs {
+		if seen[id] {
+			continue
+		}
+		if err := writeOne(id); err != nil {
+			return nil, err
 		}
 	}
 	return written, nil
@@ -204,6 +255,11 @@ func (u *chatFolderUsecase) persist(
 // nothing else. A densify can therefore never restate a parent — and every
 // parent in the snapshot came from the projection, one of them being stale being
 // a routine consequence of the write before this one, not a rare interleaving.
+//
+// A row snapshot.homeIDs marks (2026-09-08 sidebar-placement-unification
+// Task 5 — a home-scoped chat, a home folder, or a repo phantom, see
+// mergeHomeForest) is dispatched to writeHomeNode instead: its POSITION lives
+// on Node now, not Chat.ParentID/.Order.
 func (u *chatFolderUsecase) writeRow(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -212,6 +268,9 @@ func (u *chatFolderUsecase) writeRow(
 	row := snapshot.placedRow(id)
 	if row == nil {
 		return nil, nil
+	}
+	if snapshot.homeIDs[id] {
+		return u.writeHomeNode(ctx, snapshot, row)
 	}
 	if !snapshot.plan.Reparented(id) {
 		updated, err := u.chats.SetOrder(ctx, id, row.Order)

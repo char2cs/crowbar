@@ -96,6 +96,12 @@ type (
 	// run: every chat currently resolving to a workspace, so a worktree
 	// surviving siblings still hold is never cascaded out from under them.
 	TreeWorkspaceHolders = tree.WorkspaceHolders
+	// TreeFolders is the plain-GORM identity surface a home-scoped folder's
+	// name lives on (2026-09-08 sidebar-placement-unification Task 5).
+	TreeFolders = tree.Folders
+	// TreeNodes is the position surface a home-scoped chat or folder's
+	// placement goes through instead of Chat.SetOrder/.SetPlacement.
+	TreeNodes = tree.Nodes
 
 	// CreateInput, MoveInput and PlaceInput are the three writes the panel makes.
 	CreateInput = tree.CreateInput
@@ -172,8 +178,10 @@ func NewTree(
 	roster TreeWorkspaceRoster,
 	reaper TreeWorkspaceReaper,
 	holders TreeWorkspaceHolders,
+	folders TreeFolders,
+	nodes TreeNodes,
 ) TreeUsecase {
-	return tree.New(chats, agent, work, workspaces, roster, reaper, holders)
+	return tree.New(chats, agent, work, workspaces, roster, reaper, holders, folders, nodes)
 }
 
 // Work exposes the in-flight turn tracker this usecase's own components

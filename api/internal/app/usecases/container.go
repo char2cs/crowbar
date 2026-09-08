@@ -166,7 +166,7 @@ func New(
 		gormStores.Projects,
 		gormStores.Repositories,
 		repos.Workspace,
-		repos.AgentChat,
+		gormStores.Folders,
 		repos.Node,
 	)
 	workspaceUsecase := workspace.New(
@@ -372,6 +372,11 @@ func newAgentWiring(
 		// chat is anchored to, never that it is anchored there alone, so the
 		// delete asks who else is currently resolving to it before cascading.
 		worktreeUsecase,
+		// Home-scoped (project-home) folders/chat placement now go through
+		// Folder/Node (2026-09-08 sidebar-placement-unification Task 5) —
+		// repo-scoped folders/chats are untouched by these, still Chat-backed.
+		gormStores.Folders,
+		repos.Node,
 	)
 	return agentWiring{
 		chat:     chat,

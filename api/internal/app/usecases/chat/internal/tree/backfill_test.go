@@ -23,7 +23,8 @@ func newUsecaseWithRoster(
 	chats := mocks.NewAgentChatPlacements()
 	roster := mocks.NewAgentWorkspaceRoster()
 	return chats, tree.New(chats, chats, inflight.NewWork(), mocks.NewAgentWorkspaceGitStatus(), roster,
-		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats)), roster
+		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats),
+		mocks.NewFolderStore(), mocks.NewNodePlacements()), roster
 }
 
 // seedWorkspace appends a plain unlocked worktree to the census, born at the

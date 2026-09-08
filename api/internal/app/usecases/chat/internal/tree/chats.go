@@ -167,6 +167,11 @@ func (u *chatFolderUsecase) placeChat(
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
+	// A home-scoped chat's placement write goes through Node, not
+	// Chat.SetOrder/.SetPlacement (2026-09-08 sidebar-placement-unification
+	// Task 5) -- workspaceSnapshotAround marks chatID in snapshot.homeIDs
+	// (and, for its very first placement right after MintChat, snapshot.
+	// freshIDs) whenever workspaceID resolves home-scoped; see its own doc.
 	snapshot, err := u.workspaceSnapshotAround(ctx, workspaceID, current)
 	if err != nil {
 		return domain.Chat{}, nil, err

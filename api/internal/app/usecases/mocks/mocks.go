@@ -447,6 +447,79 @@ func (s *NodePlacements) Forget(
 }
 
 // WorkspaceRepo is a fake of the subset of workspace.Workspace used on import.
+// FolderStore is a fake store.Store[domain.Folder, string] — the plain-GORM
+// identity surface a home-scoped folder's name now lives on (2026-09-08
+// sidebar-placement-unification Task 5).
+type FolderStore struct {
+	Saved        []domain.Folder
+	SaveErr      error
+	FindErr      error
+	FindByKeyErr error
+	Deleted      []string
+}
+
+// NewFolderStore returns an empty FolderStore.
+func NewFolderStore() *FolderStore {
+	return &FolderStore{}
+}
+
+func (s *FolderStore) Save(
+	ctx context.Context,
+	item domain.Folder,
+) error {
+	if s.SaveErr != nil {
+		return s.SaveErr
+	}
+	for i := range s.Saved {
+		if s.Saved[i].ID == item.ID {
+			s.Saved[i] = item
+			return nil
+		}
+	}
+	s.Saved = append(s.Saved, item)
+	return nil
+}
+
+func (s *FolderStore) Delete(
+	ctx context.Context,
+	id string,
+) error {
+	s.Deleted = append(s.Deleted, id)
+	kept := s.Saved[:0]
+	for _, f := range s.Saved {
+		if f.ID != id {
+			kept = append(kept, f)
+		}
+	}
+	s.Saved = kept
+	return nil
+}
+
+func (s *FolderStore) FindByKey(
+	ctx context.Context,
+	id string,
+) (*domain.Folder, error) {
+	if s.FindByKeyErr != nil {
+		return nil, s.FindByKeyErr
+	}
+	for i := range s.Saved {
+		if s.Saved[i].ID == id {
+			return &s.Saved[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *FolderStore) FindAll(
+	ctx context.Context,
+) ([]domain.Folder, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	return s.Saved, nil
+}
+
+// WorkspaceRepo is a fake of the subset of workspace.Workspace used on import.
 type WorkspaceRepo struct {
 	Created   []domain.Workspace
 	CreateErr error

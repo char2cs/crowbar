@@ -91,9 +91,9 @@ type Update struct {
 // ProjectID moves the repo to another project, which also carries every
 // workspace under it — see WorkspaceRelocator. FolderID/Order re-file the
 // repo's own entry within its project's home tree — written to the repo's
-// own Node row (NodePlacements), interleaved against real home chats/folders
-// (HomeFolders) that are not yet Node-backed themselves — see
-// placeRepoAmongHomeSiblings.
+// own Node row (NodePlacements), interleaved against its real home chat and
+// folder siblings, which are Node-backed too now (2026-09-08
+// sidebar-placement-unification Task 5) — see placeRepoAmongHomeSiblings.
 type RepoUpdate struct {
 	Name      *string
 	ProjectID *string
@@ -132,25 +132,16 @@ type WorkspaceRelocator interface {
 	) (domain.Workspace, error)
 }
 
-// HomeFolders is the narrow chat-tree surface a repo's OWN home placement
-// needs: Get confirms a FolderID names a genuine project-home folder before
-// writing it (the same golden rule tree/validate.go's checkFolderContainer
-// already enforces for an ordinary chat folder — "" is always legal, nothing
-// to inherit a scope from; anything else must resolve and be home-scoped).
-// ListByWorkspace/ListChats/SetOrder are placeRepoAmongHomeSiblings's own
-// chat-side surface: reading every chat/folder sharing a repo's exact
-// container, and writing back whichever ones a repo's own move displaces —
-// see that function's doc for why a repo's Order cannot be densified in
-// isolation from them. This whole surface stays UNCHANGED by the repo's own
-// migration onto Node (NodePlacements, above): home chats/folders are not yet
-// Node-backed themselves — a later task in the plan. Satisfied structurally
-// by the chat repository itself (repos.AgentChat), which already answers the
-// full agentic Chats port (chat/internal/tree/types.go) this is a subset of.
-type HomeFolders interface {
-	Get(ctx context.Context, id string) (domain.Chat, error)
-	ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.Chat, error)
-	ListChats(ctx context.Context) ([]domain.Chat, error)
-	SetOrder(ctx context.Context, chatID string, order int) (domain.Chat, error)
+// Folders is the plain-GORM home-folder identity surface validateRepoFolder
+// needs: confirming a FolderID names a genuine project-home folder (RepoID ==
+// "") before writing it — the same golden rule tree/validate.go's
+// checkFolderContainer enforces for an ordinary chat folder. Home folders are
+// Node/Folder-backed now (2026-09-08 sidebar-placement-unification Task 5),
+// so this is the SAME domain.Folder store the tree package's own home-scoped
+// CRUD reads/writes — satisfied structurally by the GORM store
+// (gormStores.Folders).
+type Folders interface {
+	FindByKey(ctx context.Context, id string) (*domain.Folder, error)
 }
 
 // NodePlacements is the narrow Node surface a repo's OWN placement needs
@@ -165,9 +156,11 @@ type HomeFolders interface {
 // Satisfied structurally by the node repository itself
 // (repositories.Container.Node).
 //
-// This is deliberately the REPO side only. Home chats/folders are not yet
-// Node-backed (that is a later task in the plan) and keep reading/writing
-// through HomeFolders above, unchanged — see placeRepoAmongHomeSiblings.
+// Every home-scope sibling a repo interleaves with — chat, folder, or
+// another repo — now shares this ONE surface (2026-09-08
+// sidebar-placement-unification Task 5 made chats/folders Node-backed too),
+// which is what let placeRepoAmongHomeSiblings drop its cross-aggregate merge
+// with the chat package entirely.
 type NodePlacements interface {
 	Create(
 		ctx context.Context,
@@ -206,31 +199,31 @@ type NodePlacements interface {
 }
 
 type projectUsecase struct {
-	projects    store.Store[domain.Project, string]
-	repos       store.ScopedStore[domain.Repository, string]
-	workspaces  WorkspaceRelocator
-	homeFolders HomeFolders
-	nodes       NodePlacements
+	projects   store.Store[domain.Project, string]
+	repos      store.ScopedStore[domain.Repository, string]
+	workspaces WorkspaceRelocator
+	folders    Folders
+	nodes      NodePlacements
 }
 
 // New builds a Usecase from the project and repository GORM stores, the
-// workspace relocator a cross-project repo move needs, the chat-tree read port
-// a repo's own home-folder placement needs to interleave against real
-// chat/folder siblings, and the Node surface that now owns a repo's OWN
-// position (see NodePlacements).
+// workspace relocator a cross-project repo move needs, the home-folder
+// identity store validateRepoFolder checks a FolderID against, and the Node
+// surface that now owns every home-scope sibling's OWN position (see
+// NodePlacements).
 func New(
 	projects store.Store[domain.Project, string],
 	repos store.ScopedStore[domain.Repository, string],
 	workspaces WorkspaceRelocator,
-	homeFolders HomeFolders,
+	folders Folders,
 	nodes NodePlacements,
 ) Usecase {
 	return &projectUsecase{
-		projects:    projects,
-		repos:       repos,
-		workspaces:  workspaces,
-		homeFolders: homeFolders,
-		nodes:       nodes,
+		projects:   projects,
+		repos:      repos,
+		workspaces: workspaces,
+		folders:    folders,
+		nodes:      nodes,
 	}
 }
 
@@ -413,11 +406,11 @@ func (u *projectUsecase) applyRepoPlacement(
 
 // validateRepoFolder confirms folderID names a genuine project-home folder —
 // "" (the project's own home root) is always legal; anything else must
-// resolve to a domain.Chat row that IS a folder and carries no repo scope of
-// its own (RepoID == ""). A repo-internal folder (one that organises that
-// repo's OWN branches, RepoID == the repo's id) is refused: a repo's entry is
-// filed in some project's home, never inside its own tree — that would be a
-// repo containing itself.
+// resolve to a domain.Folder row with no repo scope of its own (RepoID ==
+// ""). A repo-internal folder (one that organises that repo's OWN branches,
+// RepoID == the repo's id) is refused: a repo's entry is filed in some
+// project's home, never inside its own tree — that would be a repo
+// containing itself.
 //
 // This checks the SAME granularity checkFolderContainer (tree/validate.go)
 // already accepts for an ordinary chat folder move, no finer: it does not
@@ -426,13 +419,11 @@ func (u *projectUsecase) applyRepoPlacement(
 // project over another (every project's home folder scope reads "" alike).
 // The frontend never offers a cross-project target; closing that gap for real
 // would need a project anchor on the home tree itself, which is out of scope
-// here.
+// here (Task 8's own golden-rule Node port is where this would land, per this
+// task's SDD ledger).
 //
-// This still validates against domain.Chat, not domain.Node: home folders are
-// not yet Node-backed (a later task in the plan). Once every kind shares one
-// Node.ListByParent read, a folder id's containment becomes the SAME golden
-// rule every other kind's ParentID is checked against — that generalisation is
-// a different task's job, not this one's.
+// This now validates against domain.Folder, not domain.Chat: home folders
+// are Node/Folder-backed (2026-09-08 sidebar-placement-unification Task 5).
 func (u *projectUsecase) validateRepoFolder(
 	ctx context.Context,
 	folderID string,
@@ -440,11 +431,11 @@ func (u *projectUsecase) validateRepoFolder(
 	if folderID == "" {
 		return nil
 	}
-	folder, err := u.homeFolders.Get(ctx, folderID)
+	folder, err := u.folders.FindByKey(ctx, folderID)
 	if err != nil {
 		return fmt.Errorf("project: update repo: folder %s: %w", folderID, err)
 	}
-	if folder.Type != domain.ChatTypeFolder || folder.RepoID != "" {
+	if folder == nil || folder.RepoID != "" {
 		return fmt.Errorf(
 			"project: update repo: %s is not a project-home folder: %w", folderID, apperr.ErrInvalidArgument,
 		)
@@ -576,7 +567,7 @@ func (u *projectUsecase) densifyReposScoped(
 		row := rows[moved.at]
 		written[row.ID] = true
 		reparenting := subject != nil && row.ID == subject.ID && subject.ParentID != folderID
-		if err := u.writeRepoNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
+		if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
 			return err
 		}
 	}
@@ -617,10 +608,12 @@ func densifyRows(
 	return rows
 }
 
-// writeRepoNode issues the one write a densify or placement pass owes a repo
-// row: SetPlacement when it is reparenting, SetOrder otherwise — the same
-// per-row dispatch plan.go's writeRow makes for chats.
-func (u *projectUsecase) writeRepoNode(
+// writeNode issues the one write a densify or placement pass owes a Node
+// row — repo, chat, or folder alike, now that every home-scope sibling
+// shares this one surface (2026-09-08 sidebar-placement-unification Task 5):
+// SetPlacement when it is reparenting, SetOrder otherwise — the same per-row
+// dispatch chat/internal/tree's own writeHomeNode makes.
+func (u *projectUsecase) writeNode(
 	ctx context.Context,
 	id string,
 	folderID string,
@@ -666,75 +659,10 @@ func (u *projectUsecase) forceReparentWrite(
 	return nil
 }
 
-// homeContainerSibling is one non-repo row sharing a repo's exact
-// project-home container — a chat or a folder, {@link placeRepoAmongHomeSiblings}
-// only ever needs its id, kind and current Order to seat a repo among them.
-type homeContainerSibling struct {
-	id    string
-	order int
-}
-
-// homeContainerChats answers every chat/folder sharing ONE project-home
-// container — the repo-agnostic half of {@link placeRepoAmongHomeSiblings}'s
-// sibling space. Unchanged by the Node migration: home chats/folders are not
-// yet Node-backed, and keep reading/writing through HomeFolders exactly as
-// before — only the REPO side of the merge that follows moved onto Node.
-//
-// A nested folder (folderID != "") is scoped by ParentID alone: a folder id
-// is globally unique, so filtering the daemon's WHOLE chat/folder set
-// (ListChats) by it can never leak another project's row in — this is the
-// SAME safety `checkFolderContainer`'s golden rule already leans on.
-//
-// The bare project-home ROOT (folderID == "") has no such anchor for a
-// FOLDER row (a folder never carries a WorkspaceID — see domain.Chat's own
-// doc — so "" repo scope is indistinguishable between projects there, the
-// same pre-existing gap validateRepoFolder's own doc discloses). CHATS are
-// still scoped correctly there via homeWorkspaceID (ListByWorkspace), which
-// IS project-specific — so root-level folders are left out of the sibling
-// space rather than risked against the wrong project, and only chats are
-// returned. This narrows what a repo dropped at the bare root can correctly
-// displace to its sibling CHATS, not root-level folders — a real, disclosed
-// gap, not silently assumed correct.
-func (u *projectUsecase) homeContainerChats(
-	ctx context.Context,
-	homeWorkspaceID string,
-	folderID string,
-) ([]homeContainerSibling, error) {
-	if folderID != "" {
-		all, err := u.homeFolders.ListChats(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("project: reorder repos: list chats: %w", err)
-		}
-		out := make([]homeContainerSibling, 0, len(all))
-		for _, c := range all {
-			if c.ParentID == folderID {
-				out = append(out, homeContainerSibling{id: c.ID, order: c.Order})
-			}
-		}
-		return out, nil
-	}
-	if homeWorkspaceID == "" {
-		return nil, nil
-	}
-	chats, err := u.homeFolders.ListByWorkspace(ctx, homeWorkspaceID)
-	if err != nil {
-		return nil, fmt.Errorf("project: reorder repos: list home chats: %w", err)
-	}
-	out := make([]homeContainerSibling, 0, len(chats))
-	for _, c := range chats {
-		// ParentID "" is the panel root; the home workspace's own owning
-		// BRANCH chat is excluded — it draws no row of its own (rows-from-
-		// home.ts's identical exclusion), so it is not a sibling to displace.
-		if c.ParentID == "" && c.Type != domain.ChatTypeBranch {
-			out = append(out, homeContainerSibling{id: c.ID, order: c.Order})
-		}
-	}
-	return out, nil
-}
-
 // placeRepoAmongHomeSiblings gives subject exactly the Order the caller asked
 // for within (projectID, folderID), shifting whatever ELSE shares that
-// container — other repos AND home chats/folders alike — out of its way.
+// container — other repos, home chats, AND home folders alike — out of its
+// way.
 //
 // This is the fix for a real, caught-live bug: densifyRepos (above) only
 // ever renumbers a repo among its OWN kind, clamping any requested target to
@@ -747,17 +675,17 @@ func (u *projectUsecase) homeContainerChats(
 // rowsFromHome's own repo-interleave — see that file's doc), so its Order
 // has to be placed against ALL of them, not a repo-only subset.
 //
-// This is now a merge of a Node-backed kind (repos, via Node.ListByParent)
-// with a Chat-backed kind (home chats/folders, via homeContainerChats) rather
-// than the two Repository/Chat reads the interim fix used — home chats/
-// folders are not yet Node-backed (a later task in the plan), so that half of
-// the merge is UNCHANGED. Reuses place()'s exact reinsert-and-renumber
-// algorithm (ordering.go), unchanged — the only difference from densifyRepos
-// is that home siblings are merged in alongside the repo siblings before
-// place() ever runs, so its clamp and its dense renumbering are computed
-// against the REAL sibling count, and every row that shifts is written back
-// to whichever aggregate it actually belongs to (Node via SetOrder/
-// SetPlacement, Chat via SetOrder).
+// Every home-scope sibling is Node-backed now (2026-09-08
+// sidebar-placement-unification Task 5 made chats/folders Node-backed too,
+// same as repos already were), so this reads ONE Node.ListByParent(folderID)
+// call — no more cross-aggregate merge with the chat package at all. Repos
+// are narrowed to this project via memberIDs (Node carries no project id of
+// its own — see repoIDSet's doc); every chat/folder Node sharing folderID is
+// included unconditionally, since Node.ParentID scoping already narrows them
+// to the one container this call touches (folder ids are globally unique;
+// the bare root, folderID == "", is scoped project-wide the same way
+// densifyReposScoped's own repo-only pass already was — a pre-existing,
+// disclosed cross-project root-folder gap, see this task's report).
 //
 // subject is included AUTHORITATIVELY (see densifyRepos's own doc for why) —
 // UpdateRepo's pre-write read of the row being placed, not merely whatever
@@ -772,17 +700,6 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	subject domain.Node,
 	target int,
 ) error {
-	homeWorkspaceID := ""
-	// A nil relocator (no cross-project move ever wired up for this
-	// caller) or an unresolved home workspace still lets a project's repos
-	// reorder among each other — homeContainerChats answers no chats for ""
-	// either way, the same posture Get takes on an unresolved home elsewhere.
-	if u.workspaces != nil {
-		if ws, err := u.workspaces.GetHomeForProject(ctx, projectID); err == nil {
-			homeWorkspaceID = ws.ID
-		}
-	}
-
 	memberIDs, err := u.repoIDSet(ctx, projectID)
 	if err != nil {
 		return err
@@ -791,26 +708,27 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	if err != nil {
 		return fmt.Errorf("project: reorder repos: list nodes: %w", err)
 	}
-	chatSiblings, err := u.homeContainerChats(ctx, homeWorkspaceID, folderID)
-	if err != nil {
-		return err
+	rows := make([]domain.Node, 0, len(nodes)+1)
+	for _, n := range nodes {
+		if n.ID == subject.ID {
+			continue // subject is added below, authoritatively
+		}
+		if n.Kind == domain.NodeKindRepo && !memberIDs[n.ID] {
+			continue // another project's repo sharing the bare root -- see doc above
+		}
+		rows = append(rows, n)
 	}
-	slots, order := placementSlots(memberIDs, nodes, subject, chatSiblings)
+	rows = append(rows, subject)
+	slots := nodeIndex(rows)
 
 	reparented := subject.ParentID != folderID
 	written := make(map[string]bool, len(slots))
 	for _, moved := range place(slots, subject.ID, &target) {
-		sib := order[moved.at]
-		written[sib.id] = true
-		if sib.isRepo {
-			reparenting := sib.id == subject.ID && reparented
-			if err := u.writeRepoNode(ctx, sib.id, folderID, moved.order, reparenting); err != nil {
-				return err
-			}
-			continue
-		}
-		if _, err := u.homeFolders.SetOrder(ctx, sib.id, moved.order); err != nil {
-			return fmt.Errorf("project: reorder repos: save home row %s: %w", sib.id, err)
+		row := rows[moved.at]
+		written[row.ID] = true
+		reparenting := row.ID == subject.ID && reparented
+		if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
+			return err
 		}
 	}
 	if reparented {
@@ -819,49 +737,6 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 		}
 	}
 	return nil
-}
-
-// atID names one placementSlots row by its position in the parallel `order`
-// slice: place() sorts its slots argument IN PLACE (slices.SortFunc mutates
-// the backing array), so indexing back into slots itself after calling
-// place() would read whatever the sort left at that position, not the row
-// move.at actually named. A SEPARATE, untouched slice is how densifyRows'
-// own []domain.Node avoids the same trap for a single-aggregate list; this is
-// that same defence for a slot list holding two aggregates (repo Node rows
-// and home chat/folder rows) at once.
-type atID struct {
-	id     string
-	isRepo bool
-}
-
-// placementSlots builds placeRepoAmongHomeSiblings's merged slot list: every
-// repo Node belonging to projectID and sitting in folderID (memberIDs,
-// nodes), subject appended in its own place (authoritatively — see
-// densifyRows' identical reasoning), and every home chat/folder sharing the
-// same container (chatSiblings, UNCHANGED by this migration — see
-// homeContainerChats' own doc).
-func placementSlots(
-	memberIDs map[string]bool,
-	nodes []domain.Node,
-	subject domain.Node,
-	chatSiblings []homeContainerSibling,
-) ([]slot, []atID) {
-	order := make([]atID, 0, len(nodes)+len(chatSiblings)+1)
-	slots := make([]slot, 0, len(nodes)+len(chatSiblings)+1)
-	for _, n := range nodes {
-		if !memberIDs[n.ID] || n.ID == subject.ID {
-			continue // subject is added below, authoritatively
-		}
-		slots = append(slots, slot{at: len(slots), id: n.ID, order: n.Order})
-		order = append(order, atID{id: n.ID, isRepo: true})
-	}
-	slots = append(slots, slot{at: len(slots), id: subject.ID, order: subject.Order})
-	order = append(order, atID{id: subject.ID, isRepo: true})
-	for _, c := range chatSiblings {
-		slots = append(slots, slot{at: len(slots), id: c.id, order: c.order})
-		order = append(order, atID{id: c.id, isRepo: false})
-	}
-	return slots, order
 }
 
 // Reorder sets a project's sidebar index and densifies the whole list. Projects

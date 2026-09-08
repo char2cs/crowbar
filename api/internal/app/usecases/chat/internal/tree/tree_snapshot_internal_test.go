@@ -18,7 +18,10 @@ import (
 func newTestUsecase(t *testing.T) *chatFolderUsecase {
 	t.Helper()
 	fake := mocks.NewAgentChatPlacements()
-	return &chatFolderUsecase{chats: fake, agent: fake}
+	return &chatFolderUsecase{
+		chats: fake, agent: fake,
+		folders: mocks.NewFolderStore(), nodes: mocks.NewNodePlacements(),
+	}
 }
 
 // A folder created through the new API is a Chat row, not a row in a separate

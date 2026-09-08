@@ -368,23 +368,23 @@ func TestListInRepo_ReturnsOnlyFolderTypedRows(t *testing.T) {
 // a DIFFERENT repo, or to project-home ("" — a distinct scope of its own,
 // never a wildcard), never bleeds into another repo's list. Caught live as a
 // folder left "on top of" the wrong repo.
+// The home half of this isolation ("" never sees another repo's folders, or
+// vice versa) moved to TestListInRepo_Home_IsolatesFromRepoScoped
+// (home_folder_test.go) once home folders stopped being Chat rows at all
+// (2026-09-08 sidebar-placement-unification Task 5) — a ChatTypeFolder row
+// with RepoID == "" seeded directly onto chats.Rows, as this test used to,
+// no longer represents a real home folder.
 func TestListInRepo_IsolatesByRepo(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.Rows = append(chats.Rows,
 		domain.Chat{ID: "f-this-repo", Type: domain.ChatTypeFolder, RepoID: repoID, Title: "mine"},
 		domain.Chat{ID: "f-other-repo", Type: domain.ChatTypeFolder, RepoID: "repo-2", Title: "theirs"},
-		domain.Chat{ID: "f-home", Type: domain.ChatTypeFolder, RepoID: "", Title: "home"},
 	)
 
 	rows, err := uc.ListInRepo(context.Background(), repoID)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "f-this-repo", rows[0].ID)
-
-	homeRows, err := uc.ListInRepo(context.Background(), "")
-	require.NoError(t, err)
-	require.Len(t, homeRows, 1)
-	assert.Equal(t, "f-home", homeRows[0].ID)
 }
 
 func TestListInRepo_SurfacesAStoreFailure(t *testing.T) {

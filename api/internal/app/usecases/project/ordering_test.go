@@ -77,35 +77,32 @@ func TestUpdateRepo_ReorderLeavesTheProjectDense(t *testing.T) {
 
 // TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero pins the
 // ORIGINAL production bug this whole migration exists to fix, now against
-// Node. Caught live: with only ONE repo in a project, the OLD densifyRepos
-// (repo-only, Repository.Order) had ZERO other repos to place against —
-// reinsert (ordering.go) clamps to len(slots) after removing the moved row,
-// and a repo-only view of "how many OTHER repos share this folder" is zero
-// the instant a project has a single repo, no matter how many home
-// chats/folders sit beside it. So a repo dragged to sit AFTER a home chat
-// always snapped straight back to the very front, no matter what position the
-// drag actually asked for.
+// Node end to end. Caught live: with only ONE repo in a project, the OLD
+// densifyRepos (repo-only, Repository.Order) had ZERO other repos to place
+// against — reinsert (ordering.go) clamps to len(slots) after removing the
+// moved row, and a repo-only view of "how many OTHER repos share this
+// folder" is zero the instant a project has a single repo, no matter how
+// many home chats/folders sit beside it. So a repo dragged to sit AFTER a
+// home chat always snapped straight back to the very front, no matter what
+// position the drag actually asked for.
 //
-// Node.ListByParent, merged against the SAME real home-chat sibling space
-// placeRepoAmongHomeSiblings already reads (homeContainerChats, unchanged by
-// this migration), is the fix: a repo's Order is now placed against the SAME
-// sibling space it actually renders in.
+// Node.ListByParent now answers the WHOLE sibling space directly — repos,
+// chats and folders alike (2026-09-08 sidebar-placement-unification Task 5
+// deleted the interim cross-aggregate merge with the chat package once
+// chats/folders became Node-backed too) — which is the fix: a repo's Order
+// is placed against the SAME sibling space it actually renders in, read from
+// one call, no merge step.
 func TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
-	workspaces := mocks.NewWorkspacePlacements()
-	workspaces.Rows = []domain.Workspace{
-		{ID: "home-ws-1", ProjectID: "p1", Kind: domain.WorkspaceKindHome},
-	}
-	homeFolders := mocks.NewAgentChatPlacements()
-	homeFolders.Rows = []domain.Chat{
-		{ID: "chat-1", WorkspaceID: "home-ws-1", Type: domain.ChatTypeChat, Order: 0},
-		{ID: "chat-2", WorkspaceID: "home-ws-1", Type: domain.ChatTypeChat, Order: 1},
-	}
-	uc := project.New(mocks.NewProjectStore(), repos, workspaces, homeFolders, nodes)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-1", ProjectID: "p1"}))
-	nodes.Rows = []domain.Node{{ID: "repo-1", Kind: domain.NodeKindRepo}}
+	nodes.Rows = []domain.Node{
+		{ID: "repo-1", Kind: domain.NodeKindRepo},
+		{ID: "chat-1", Kind: domain.NodeKindChat, Order: 0},
+		{ID: "chat-2", Kind: domain.NodeKindChat, Order: 1},
+	}
 
 	// Drag the SOLE repo to sit after both home chats: order 2, not 0.
 	_, err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(2)})
@@ -123,69 +120,65 @@ func TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero(t *testing.T) {
 		"the repo's position must be stable across an identical re-drag")
 }
 
-// TestUpdateRepo_PlacesAgainstHomeChatsToo ports today's interim fix's own
-// regression coverage onto the Node-based path: the repo side of the merge
-// now reads/writes through Node, the chat/folder side is UNCHANGED
-// (homeContainerChats/Chat.SetOrder, via AgentChatPlacements) — see
-// placeRepoAmongHomeSiblings's own doc for why both halves are still needed.
+// TestUpdateRepo_PlacesAgainstHomeChatsToo pins placeRepoAmongHomeSiblings'
+// whole point now that the merge with the chat package is gone (2026-09-08
+// sidebar-placement-unification Task 5): a repo's own Node write densifies
+// against home CHAT Node rows read from the SAME Node.ListByParent call, no
+// separate chat-side surface at all.
 func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 	newFixture := func(t *testing.T) (
 		*mocks.NodePlacements,
-		*mocks.AgentChatPlacements,
 		project.Usecase,
 	) {
 		t.Helper()
 		repos := mocks.NewRepositoryStore()
 		nodes := mocks.NewNodePlacements()
-		workspaces := mocks.NewWorkspacePlacements()
-		workspaces.Rows = []domain.Workspace{
-			{ID: "home-ws-1", ProjectID: "p1", Kind: domain.WorkspaceKindHome},
-		}
-		homeFolders := mocks.NewAgentChatPlacements()
-		uc := project.New(mocks.NewProjectStore(), repos, workspaces, homeFolders, nodes)
+		uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes)
 		require.NoError(t, repos.Save(context.Background(),
 			domain.Repository{ID: "repo-1", ProjectID: "p1"}))
 		nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
-		return nodes, homeFolders, uc
+		return nodes, uc
 	}
 
 	t.Run("sorts the repo AFTER a home chat when the target says so, not always before it", func(t *testing.T) {
-		nodes, homeFolders, uc := newFixture(t)
-		homeFolders.Rows = append(homeFolders.Rows,
-			domain.Chat{ID: "chat-1", WorkspaceID: "home-ws-1", Type: domain.ChatTypeChat, Order: 1})
+		nodes, uc := newFixture(t)
+		nodes.Rows = append(nodes.Rows, domain.Node{ID: "chat-1", Kind: domain.NodeKindChat, Order: 1})
 		ctx := context.Background()
 
 		_, err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(1)})
 		require.NoError(t, err)
 
 		repoOrder := nodeRow(t, nodes, "repo-1").Order
-		chat, err := homeFolders.Get(ctx, "chat-1")
-		require.NoError(t, err)
-		assert.Less(t, chat.Order, repoOrder, "the chat must sort BEFORE the repo")
+		chatOrder := nodeRow(t, nodes, "chat-1").Order
+		assert.Less(t, chatOrder, repoOrder, "the chat must sort BEFORE the repo")
 	})
 
 	t.Run("sorts the repo BEFORE a home chat when the target says so, not always after it", func(t *testing.T) {
-		nodes, homeFolders, uc := newFixture(t)
-		homeFolders.Rows = append(homeFolders.Rows,
-			domain.Chat{ID: "chat-1", WorkspaceID: "home-ws-1", Type: domain.ChatTypeChat, Order: 0})
+		nodes, uc := newFixture(t)
+		nodes.Rows = append(nodes.Rows, domain.Node{ID: "chat-1", Kind: domain.NodeKindChat, Order: 0})
 		ctx := context.Background()
 
 		_, err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(0)})
 		require.NoError(t, err)
 
 		repoOrder := nodeRow(t, nodes, "repo-1").Order
-		chat, err := homeFolders.Get(ctx, "chat-1")
-		require.NoError(t, err)
-		assert.Less(t, repoOrder, chat.Order, "the repo must sort BEFORE the chat")
+		chatOrder := nodeRow(t, nodes, "chat-1").Order
+		assert.Less(t, repoOrder, chatOrder, "the repo must sort BEFORE the chat")
 	})
 
 	t.Run("placing a repo INTO a home folder positions it against that folder’s real children", func(t *testing.T) {
-		nodes, homeFolders, uc := newFixture(t)
-		homeFolders.Rows = append(homeFolders.Rows,
-			domain.Chat{ID: "home-folder-1", Type: domain.ChatTypeFolder, RepoID: "", Order: 0},
-			domain.Chat{ID: "chat-in-folder", ParentID: "home-folder-1", Type: domain.ChatTypeChat, Order: 0},
-		)
+		repos := mocks.NewRepositoryStore()
+		nodes := mocks.NewNodePlacements()
+		folders := mocks.NewFolderStore()
+		folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder-1", RepoID: ""})
+		uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes)
 		ctx := context.Background()
+		require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-1", ProjectID: "p1"}))
+		nodes.Rows = []domain.Node{
+			{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0},
+			{ID: "home-folder-1", Kind: domain.NodeKindFolder, Order: 0},
+			{ID: "chat-in-folder", Kind: domain.NodeKindChat, ParentID: "home-folder-1", Order: 0},
+		}
 
 		_, err := uc.UpdateRepo(ctx, "repo-1",
 			project.RepoUpdate{FolderID: name("home-folder-1"), Order: index(1)})
@@ -193,9 +186,8 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 
 		n := nodeRow(t, nodes, "repo-1")
 		assert.Equal(t, "home-folder-1", n.ParentID)
-		chat, err := homeFolders.Get(ctx, "chat-in-folder")
-		require.NoError(t, err)
-		assert.Less(t, chat.Order, n.Order, "the folder’s existing child must sort BEFORE the repo")
+		chatOrder := nodeRow(t, nodes, "chat-in-folder").Order
+		assert.Less(t, chatOrder, n.Order, "the folder’s existing child must sort BEFORE the repo")
 	})
 }
 
@@ -269,10 +261,9 @@ func TestUpdateRepo_SameProjectMovesNothing(t *testing.T) {
 func TestUpdateRepo_FilesIntoAHomeFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
-	homeFolders := mocks.NewAgentChatPlacements()
-	homeFolders.Rows = append(homeFolders.Rows,
-		domain.Chat{ID: "home-folder", Type: domain.ChatTypeFolder, RepoID: ""})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, homeFolders, nodes)
+	folders := mocks.NewFolderStore()
+	folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder", RepoID: ""})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1"}))
@@ -298,10 +289,9 @@ func TestUpdateRepo_FilesIntoAHomeFolder(t *testing.T) {
 func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
-	homeFolders := mocks.NewAgentChatPlacements()
-	homeFolders.Rows = append(homeFolders.Rows,
-		domain.Chat{ID: "repo-folder", Type: domain.ChatTypeFolder, RepoID: "other-repo"})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, homeFolders, nodes)
+	folders := mocks.NewFolderStore()
+	folders.Saved = append(folders.Saved, domain.Folder{ID: "repo-folder", RepoID: "other-repo"})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -312,14 +302,14 @@ func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 	assert.Empty(t, nodes.Ordered, "a refused move leaves the repo where it was")
 }
 
-// A folder id naming a CHAT, not a folder, is refused the same way — the
-// route accepts a home folder id and nothing else.
+// A folder id naming a CHAT, not a folder, is refused the same way an
+// unknown id is — chats live on a different store entirely now (Folders is
+// domain.Folder-only, 2026-09-08 sidebar-placement-unification Task 5), so
+// FindByKey answers not-found for either, exactly the same "not a
+// project-home folder" refusal TestUpdateRepo_RefusesAnUnknownFolder pins.
 func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	homeFolders := mocks.NewAgentChatPlacements()
-	homeFolders.Rows = append(homeFolders.Rows,
-		domain.Chat{ID: "some-chat", Type: domain.ChatTypeChat, RepoID: ""})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, homeFolders, mocks.NewNodePlacements())
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements())
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -329,12 +319,12 @@ func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 
 func TestUpdateRepo_RefusesAnUnknownFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewAgentChatPlacements(), mocks.NewNodePlacements())
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements())
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
 	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("missing")})
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
 }
 
 // A repo that LEAVES a folder closes the gap it left behind, exactly as
@@ -342,10 +332,9 @@ func TestUpdateRepo_RefusesAnUnknownFolder(t *testing.T) {
 func TestUpdateRepo_LeavingAFolderDensifiesIt(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
-	homeFolders := mocks.NewAgentChatPlacements()
-	homeFolders.Rows = append(homeFolders.Rows,
-		domain.Chat{ID: "home-folder", Type: domain.ChatTypeFolder, RepoID: ""})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, homeFolders, nodes)
+	folders := mocks.NewFolderStore()
+	folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder", RepoID: ""})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "a", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "b", ProjectID: "p1"}))
@@ -413,7 +402,7 @@ func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
 func TestUpdateRepo_ProjectMoveNeedsARelocator(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(projects, repos, nil, mocks.NewAgentChatPlacements(), mocks.NewNodePlacements())
+	uc := project.New(projects, repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements())
 	ctx := context.Background()
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
@@ -633,7 +622,7 @@ func (s *repositoryStoreMissingAfterSave) FindWhere(
 // failed — the caller gets back what it just wrote instead of an error.
 func TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmpty(t *testing.T) {
 	repos := &repositoryStoreMissingAfterSave{row: domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}}
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewAgentChatPlacements(), mocks.NewNodePlacements())
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements())
 
 	got, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("renamed")})
 

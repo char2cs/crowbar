@@ -772,7 +772,8 @@ func newUsecaseOverRoster(
 	reaper := mocks.NewAgentWorkspaceReaperOver(roster)
 	holders := mocks.NewAgentWorkspaceHolders(chats)
 	uc := tree.New(chats, chats, inflight.NewWork(),
-		mocks.NewAgentWorkspaceGitStatus(), roster, reaper, holders)
+		mocks.NewAgentWorkspaceGitStatus(), roster, reaper, holders,
+		mocks.NewFolderStore(), mocks.NewNodePlacements())
 	return chats, uc, roster, reaper, holders
 }
 

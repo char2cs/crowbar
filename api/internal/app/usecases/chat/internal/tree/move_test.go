@@ -30,7 +30,8 @@ func newUsecaseWithWork(
 	workspaceGitStatus := mocks.NewAgentWorkspaceGitStatus()
 	workspaceGitStatus.SetRepo(workspaceID, repoID)
 	return chats, tree.New(chats, chats, work, workspaceGitStatus, roster,
-		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats)), work
+		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats),
+		mocks.NewFolderStore(), mocks.NewNodePlacements()), work
 }
 
 // seedFolderTree creates "root" and "other" as sibling folders and files
@@ -129,7 +130,8 @@ func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
 	gitStatus.SetRepo("ws-1", repoID)
 	gitStatus.SetRepo("ws-2", repoID)
 	uc2 := tree.New(chats, chats, inflight.NewWork(), gitStatus, mocks.NewAgentWorkspaceRoster(),
-		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats))
+		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats),
+		mocks.NewFolderStore(), mocks.NewNodePlacements())
 	underBranch1, _, err := uc2.Create(context.Background(), tree.CreateInput{
 		RepoID: repoID, ParentID: "branch-1", Name: "notes",
 	})

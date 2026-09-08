@@ -26,6 +26,14 @@ type treeSnapshot struct {
 	rows []domain.Chat
 	at   map[string]int
 	plan tree.Tree
+	// homeIDs marks every row (chat, folder, or a repo phantom — see plan.go's
+	// mergeHomeForest) whose PLACEMENT write goes through Nodes instead of
+	// Chats (2026-09-08 sidebar-placement-unification Task 5). Always
+	// non-nil; empty for a snapshot no home merge ever touched.
+	homeIDs map[string]bool
+	// freshIDs is homeIDs' subset that has no Node row yet — writeRow mints
+	// one via Nodes.Create instead of SetOrder/SetPlacement. Always non-nil.
+	freshIDs map[string]bool
 }
 
 // newTreeSnapshot builds the snapshot over one read of Chat rows — either one
@@ -35,8 +43,10 @@ func newTreeSnapshot(
 	rows []domain.Chat,
 ) *treeSnapshot {
 	t := &treeSnapshot{
-		rows: rows,
-		at:   make(map[string]int, len(rows)),
+		rows:     rows,
+		at:       make(map[string]int, len(rows)),
+		homeIDs:  map[string]bool{},
+		freshIDs: map[string]bool{},
 	}
 	for i, row := range rows {
 		t.at[row.ID] = i
