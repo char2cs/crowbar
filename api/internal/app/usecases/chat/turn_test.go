@@ -2225,3 +2225,139 @@ func TestRegression_CodexSubagentsDrainOneAtATime_SpinnerFollowsTheLastOne(t *te
 		assert.NotNil(t, s.EndedAt, "subagent %q must be closed in the ledger", s.ID)
 	}
 }
+
+// TestRegression_CodexCompactionTurnNeverStopsTheChat is B1's own regression.
+//
+// Moving compact_pre/compact_post onto the live api transport (item/started /
+// item/completed, item.type: contextCompaction) surfaced a trap only live
+// capture found: thread/compact/start's response wraps that item pair in its
+// OWN turn/started..turn/completed round trip, on the connection's SAME wire
+// event turn_stop already consumes unconditionally. Confirmed live against
+// codex-cli 0.149.1, that wrapper's turn/completed is byte-for-byte the same
+// shape (items: [], itemsView: "notLoaded", status: "completed") a genuinely
+// interrupted real turn produces — so nothing on the frame itself can tell a
+// compaction's own close from an ordinary one. Without the turn_id-armed
+// latch in turn/compaction.go, every compaction would append an inert-but-real
+// turn_stopped event and reset the chat's turn bookkeeping.
+func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+
+	before, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	require.NoError(t, err)
+	lastActivityBefore := f.chat(t, chatID).LastActivityAt
+
+	// compact_pre: the contextCompaction item/started, in the same shape
+	// codex.yaml's own mapping reads (threadId, item.type, the envelope's
+	// turnId) — this is what ARMS the latch.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_pre",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-1"},
+			"turnId":   "compact-turn-1",
+		})))
+	f.wait()
+
+	// The wrapper's own turn/completed — same turn id, no items — exactly the
+	// shape captured live from a real thread/compact/start round trip.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"turn": map[string]any{
+				"id":        "compact-turn-1",
+				"items":     []any{},
+				"itemsView": "notLoaded",
+				"status":    "completed",
+			},
+		})))
+	f.wait()
+
+	chat := f.chat(t, chatID)
+	require.False(t, chat.Working, "a compaction round trip must never mark the chat working")
+	require.Nil(t, chat.CurrentTurnStarted, "no assistant turn was ever opened for this")
+	// StopTurn.EmitEvent always stamps LastActivityAt to time.Now(), even when
+	// nothing else about the projected state visibly changes (an idle chat's
+	// Working and CurrentTurnStarted were already false/nil) — this is what
+	// actually distinguishes "the guard skipped closeTurnFromStop entirely"
+	// from "closeTurnFromStop ran and happened to restate the same values".
+	require.Equal(t, lastActivityBefore, chat.LastActivityAt,
+		"the compaction's own turn_stop must not touch the chat at all — StopTurn must never run for it")
+
+	afterCompaction, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	require.NoError(t, err)
+	require.Equal(t, len(before.Items), len(afterCompaction.Items),
+		"the compaction's own turn_stop must record NOTHING in the ledger")
+
+	// The guard must be surgically scoped to the armed id, not to turn_stop as
+	// a whole: an ORDINARY turn right after, with its own different turn id,
+	// must still record its reply exactly as it always has.
+	prompt(t, f, runnerID, "codex", "what changed?")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"turn": map[string]any{
+				"id":        "ordinary-turn-1",
+				"items":     []any{map[string]any{"type": "agentMessage", "text": "nothing much"}},
+				"itemsView": "summary",
+				"status":    "completed",
+			},
+		})))
+	f.wait()
+
+	chat = f.chat(t, chatID)
+	require.False(t, chat.Working, "the ordinary turn closed normally")
+
+	afterOrdinary, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	require.NoError(t, err)
+	require.Greater(t, len(afterOrdinary.Items), len(afterCompaction.Items),
+		"an ordinary turn_stop with its OWN turn id must still record its reply — the guard must not be overbroad")
+}
+
+// TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice is the failure
+// half of the sum type: turn_failed (not turn_stop) fires when
+// thread/compact/start's wrapper turn ends with turn.status: failed. Without
+// the same turn_id-armed guard in closeTurnFromFailure, this would append a
+// spurious TurnRoleNotice row to the transcript ("failed: ...") for a turn
+// that was never the assistant's own reply.
+func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+
+	before, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	require.NoError(t, err)
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_pre",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-2"},
+			"turnId":   "compact-turn-2",
+		})))
+	f.wait()
+
+	// The wrapper's turn/completed with turn.status: failed. IngestHook takes
+	// the canonical event by name (not the raw wire frame), which bypasses
+	// dispatch.Resolve's own when:-based turn_stop/turn_failed selection —
+	// so this drives turn_failed directly, exactly as real dispatch would
+	// have resolved this exact payload to, given the SAME turn id
+	// compact_pre armed.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_failed",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"turn": map[string]any{
+				"id":     "compact-turn-2",
+				"items":  []any{},
+				"status": "failed",
+				"error":  map[string]any{"message": "compaction blew up"},
+			},
+		})))
+	f.wait()
+
+	after, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	require.NoError(t, err)
+	require.Equal(t, len(before.Items), len(after.Items),
+		"a failed compaction round trip must record NO notice row in the transcript")
+}

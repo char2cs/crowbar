@@ -32,12 +32,18 @@ events:
   turn_stop:
     direction: in
     required: [message]
-    optional: [session_id, async_work, effort]
+    # turn_id is OPTIONAL and unused by Go's own field-by-field reads — it
+    # exists so a provider whose turn-closing wire event is a sum type (codex:
+    # turn/completed also wraps a compact_start round trip, with no other
+    # field distinguishing the two — confirmed live, see codex.yaml's
+    # compact_pre) can correlate against a turn armed by a DIFFERENT
+    # canonical event and be skipped instead of misread as an ordinary reply.
+    optional: [session_id, async_work, effort, turn_id]
 
   turn_failed:
     direction: in
     required: [reason]
-    optional: [session_id, message, detail]
+    optional: [session_id, message, detail, turn_id]
 
   tool_pre:
     direction: in
@@ -149,7 +155,9 @@ events:
   compact_pre:
     direction: in
     required: []
-    optional: [session_id, trigger]
+    # turn_id: see turn_stop's own doc comment — this is the half that ARMS
+    # the latch turn_stop/turn_failed consult.
+    optional: [session_id, trigger, turn_id]
 
   compact_post:
     direction: in

@@ -1,0 +1,28 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "collabAgentToolCall",
+      "id": "call_H8aC8zBDlP2iuazhGagPJquT",
+      "tool": "wait",
+      "status": "completed",
+      "senderThreadId": "01a0822b-76e6-7ef2-939b-4c50ef4b2046",
+      "receiverThreadIds": [
+        "01a0822b-a47b-70d1-92c6-081774183c7b"
+      ],
+      "prompt": null,
+      "model": null,
+      "reasoningEffort": null,
+      "agentsStates": {
+        "01a0822b-a47b-70d1-92c6-081774183c7b": {
+          "status": "completed",
+          "message": "done"
+        }
+      }
+    },
+    "threadId": "01a0822b-76e6-7ef2-939b-4c50ef4b2046",
+    "turnId": "01a0822b-7723-7103-bd5b-a52fee26fa2b",
+    "completedAtMs": 1788890301137
+  },
+  "emittedAtMs": 1788890301137
+}

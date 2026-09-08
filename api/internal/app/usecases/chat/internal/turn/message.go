@@ -185,6 +185,13 @@ func (t *Turns) closeTurnFromFailure(
 	runner engineagents.Runner,
 	ev engineagents.CanonicalEvent,
 ) error {
+	// Same guard closeTurnFromStop makes, for the other half of the sum type:
+	// a FAILED compact_start round trip would otherwise record a spurious
+	// "failed" notice row in the transcript for a turn that was never the
+	// assistant's own. See compaction.go and closeTurnFromStop's own comment.
+	if t.compacting.consume(chat.ID, ev.TurnID) {
+		return nil
+	}
 	appendErr := t.closeAssistantTurn(ctx, chat, runner, ev)
 	defer t.turns.Complete(runner.ID)
 

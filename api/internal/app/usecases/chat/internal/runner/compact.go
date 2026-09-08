@@ -17,9 +17,9 @@ const compactStartEvent = "compact_start"
 //
 // Crowbar does not compact anything itself — it cannot, the context belongs to the
 // provider. It sends the provider's own declared gesture: claude has no API for it and
-// declares the /compact slash command over the prompt transport, codex would call
-// thread/compact/start. A provider that declares neither cannot be asked, and says so
-// with ErrNotFound rather than silently doing nothing.
+// declares the /compact slash command over the prompt transport; codex declares
+// thread/compact/start over the api transport. A provider that declares neither
+// cannot be asked, and says so with ErrNotFound rather than silently doing nothing.
 //
 // The provider then reports back through compact_pre and compact_post, which is how
 // the chat learns it happened; nothing here writes that record.
@@ -51,24 +51,42 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 		)
 	}
 
-	// The only outbound wire this package can currently drive is the prompt path: the
-	// text goes to the CLI exactly as a human typing it would. An RPC-transport
-	// provider needs the jsonrpc transport, which does not exist yet — so rather than
-	// half-send it, that case is refused explicitly.
-	if wire != "prompt" {
+	if wire == "prompt" {
+		text := payload["text"]
+		if text == "" {
+			return fmt.Errorf(
+				"agent: compact: %q declares compact_start with no text: %w",
+				providerID, apperr.ErrInvalidArgument,
+			)
+		}
+		if _, err := rs.SubmitPrompt(ctx, chatID, text, uuid.NewString()); err != nil {
+			return fmt.Errorf("agent: compact: %w", err)
+		}
+		return nil
+	}
+
+	// Any other wire is an api-transport call (codex: thread/compact/start),
+	// driven over this chat's already-live connection exactly the way
+	// interruptTurn drives turn/interrupt — a fresh dial has no session to
+	// compact. A chat with no live api connection (still spawning, running
+	// over hooks-only, or between runners) cannot be asked yet.
+	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
+	if err != nil {
 		return fmt.Errorf(
-			"agent: compact: %q compacts over the %q wire, which Crowbar cannot drive yet: %w",
+			"agent: compact: %q compacts over the %q wire, which needs a live api "+
+				"connection this chat does not currently have: %w",
 			providerID, wire, apperr.ErrUnavailable,
 		)
 	}
-	text := payload["text"]
-	if text == "" {
+	conn, ok := rs.apiConns.get(live.ID)
+	if !ok {
 		return fmt.Errorf(
-			"agent: compact: %q declares compact_start with no text: %w", providerID, apperr.ErrInvalidArgument,
+			"agent: compact: %q compacts over the %q wire, which needs a live api "+
+				"connection this chat does not currently have: %w",
+			providerID, wire, apperr.ErrUnavailable,
 		)
 	}
-
-	if _, err := rs.SubmitPrompt(ctx, chatID, text, uuid.NewString()); err != nil {
+	if err := conn.driver.Send(ctx, compactStartEvent, nil); err != nil {
 		return fmt.Errorf("agent: compact: %w", err)
 	}
 	return nil
