@@ -46,6 +46,12 @@ type Turns struct {
 	// messages assembles each assistant message from the increments its provider
 	// streams, because the terminating hook carries only the LAST message of a turn.
 	messages *stream.Streams
+	// live holds the streamed text that is shown while it happens and never
+	// recorded — the model's thinking, a running tool's output. See livetext.go.
+	live *liveText
+	// idle latches a provider's own "I am doing nothing" report. It is never
+	// acted on directly — see idle.go.
+	idle *idleLatch
 	// pendingHooks is the fork-before-runner-persistence barrier: hooks that arrive
 	// before the runner row exists are buffered into it and replayed after.
 	pendingHooks *inflight.Hooks
@@ -70,7 +76,7 @@ type Turns struct {
 	// Wired at sweep start rather than at construction, because what it publishes
 	// through is the hub — a layer above this one. Nil until then, and nil forever
 	// in a daemon with no detector.
-	messageDelta func(chatID, workspaceID, messageID, text string)
+	messageDelta func(chatID, workspaceID, messageID, text, kind string)
 
 	// compactionStatus fans the live compact_pre/compact_post edge out to any
 	// client watching, the same way messageDelta fans out a growing message.
@@ -84,6 +90,11 @@ type Turns struct {
 	// (still-needed, for the retroactive divider) ledger calls, never instead
 	// of them. Wired at sweep start, same reasoning as messageDelta.
 	compactionStatus func(chatID, workspaceID string, active bool)
+
+	// planUpdate fans the agent's own to-do list out to any client watching, the
+	// same way compactionStatus does and for the same reason: it is a LIVE view
+	// of a turn in progress, restated wholesale, and nothing durable records it.
+	planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep)
 
 	// messageAwaitTimeout bounds how long closeAssistantTurn will wait on
 	// stream.Streams.AwaitOpen before concluding nothing streamed. It is a
@@ -143,6 +154,8 @@ func New(d Deps) *Turns {
 		// the exactly-once ingress journal and the per-runner ingest gate are named
 		// by nothing outside this package.
 		messages:            stream.New(),
+		live:                newLiveText(),
+		idle:                newIdleLatch(),
 		hookDeliveries:      agentjournal.NewHookDeliveries(),
 		hookGates:           inflight.NewGate(),
 		pendingHooks:        d.PendingHooks,
@@ -165,13 +178,19 @@ func (t *Turns) SetMessageAwaitTimeout(d time.Duration) { t.messageAwaitTimeout 
 // SetMessageDelta wires the fan-out for a growing assistant message. It is called
 // at sweep start, not at construction: a daemon with nobody to publish to records
 // the message when it finishes instead.
-func (t *Turns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text string)) {
+func (t *Turns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text, kind string)) {
 	t.messageDelta = fn
 }
 
 // SetCompactionStatus wires the fan-out for the live compact_pre/compact_post
 // edge. Called at sweep start, same as SetMessageDelta: a daemon with nobody
 // to publish to just skips the call (see observation.go), never panics.
+// SetPlanUpdate wires the fan-out for the agent's running to-do list. Called at
+// sweep start, same as SetMessageDelta.
+func (t *Turns) SetPlanUpdate(fn func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
+	t.planUpdate = fn
+}
+
 func (t *Turns) SetCompactionStatus(fn func(chatID, workspaceID string, active bool)) {
 	t.compactionStatus = fn
 }

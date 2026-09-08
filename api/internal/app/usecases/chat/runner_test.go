@@ -3889,12 +3889,13 @@ type deltaCall struct {
 	workspaceID string
 	messageID   string
 	text        string
+	kind        string
 }
 
-func (r *deltaCallbackRecorder) record(chatID, workspaceID, messageID, text string) {
+func (r *deltaCallbackRecorder) record(chatID, workspaceID, messageID, text, kind string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.calls = append(r.calls, deltaCall{chatID, workspaceID, messageID, text})
+	r.calls = append(r.calls, deltaCall{chatID, workspaceID, messageID, text, kind})
 }
 
 func (r *deltaCallbackRecorder) snapshot() []deltaCall {
@@ -3926,6 +3927,54 @@ func deltaHook(t *testing.T, messageID string, index int, final bool, text strin
 	})
 }
 
+// Reasoning rides the SAME live channel as the answer, tagged with a kind, and is
+// never written to the ledger. codex spends most of a hard turn emitting nothing
+// but this, so before it was mapped the chat sat on a spinner and a rotating
+// flavour verb for the whole of it.
+//
+// Payload shape is a LIVE capture against codex-cli 0.149.1 — see
+// engine/agents/.../testdata/fixtures/codex/item_reasoning_summaryTextDelta.json.
+func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+
+	deltas := &deltaCallbackRecorder{}
+	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record, nil, nil)
+
+	think := func(index int, text string) {
+		t.Helper()
+		require.NoError(t, f.usecase.IngestHookDelivery(
+			f.ctx, "ws1", uuid.NewString(), runnerID, "codex", "reasoning_delta",
+			mustJSON(t, map[string]any{
+				"threadId": "sess-1", "turnId": "turn-1", "itemId": "rs_1",
+				"summaryIndex": index, "delta": text,
+			})))
+	}
+	think(0, "**Clarifying** ")
+	think(0, "the wording")
+	f.wait()
+
+	calls := deltas.snapshot()
+	require.Len(t, calls, 2, "every reasoning delta must reach the live channel")
+	for _, c := range calls {
+		assert.Equal(t, "reasoning", c.kind, "a thought must not arrive tagged as the answer")
+		assert.Equal(t, chatID, c.chatID)
+		assert.Equal(t, "rs_1", c.messageID)
+	}
+	assert.Equal(t, "**Clarifying** the wording", calls[1].text,
+		"the channel carries the block SO FAR, exactly as the answer channel does")
+
+	// The ledger must be untouched: a thought is a view of a turn in progress,
+	// never a record of it. Recording it would put the model's thinking into the
+	// transcript as though it had said it out loud.
+	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	for _, tn := range turns {
+		assert.NotContains(t, tn.Text, "Clarifying",
+			"reasoning must never be written to the ledger")
+	}
+}
+
 // TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar pins the live
 // streaming callback: the thing that puts an assistant message on screen WHILE
 // it is being said. It is a plain field on the usecase, assigned at sweep start
@@ -3946,7 +3995,7 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 	chatID, runnerID := f.spawn(t, "claude")
 
 	deltas := &deltaCallbackRecorder{}
-	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record, nil)
+	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record, nil, nil)
 
 	post := func(index int, final bool, text string) {
 		t.Helper()

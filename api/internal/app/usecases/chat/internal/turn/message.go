@@ -34,7 +34,9 @@ func (t *Turns) recordMessageDelta(
 	}
 
 	if t.messageDelta != nil {
-		t.messageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text)
+		// The empty kind is the ANSWER — the stream that existed before there was
+		// more than one, and the only one that is ever recorded.
+		t.messageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text, "")
 	}
 	if !message.Final {
 		return
@@ -109,6 +111,13 @@ func (t *Turns) closeAssistantTurn(
 	// be swept up and recorded under THIS runner's provider.
 	streamed := t.awaitStreamed(chat.ID, runner.ID, ev.Message)
 	defer t.messages.Forget(chat.ID, runner.ID)
+	// The thinking and the tool output belonged to the turn that is now ending,
+	// and the answer has superseded them. Nothing durable is dropped here — a live
+	// stream is never recorded (see livetext.go).
+	defer t.live.forget(chat.ID)
+	// Crowbar has now noticed the turn ending, so the provider's own "I am idle"
+	// report has nothing left to reconcile — see idle.go.
+	defer t.idle.clear(chat.ID)
 
 	var lastRecorded string
 	for i, message := range streamed {

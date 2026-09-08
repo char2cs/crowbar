@@ -96,6 +96,7 @@ interface AgentStreamEvent {
     | 'terminal_wait'
     | 'prompt_settled'
     | 'message_delta'
+    | 'plan'
     | 'compaction_started'
     | 'compaction_stopped'
     | 'title_set'
@@ -159,7 +160,24 @@ interface AgentStreamEvent {
    * its own. It is deliberately not in the ledger: a message still growing is a
    * view, and the ledger gets it once, when it is finished.
    */
-  message?: { id: string; text: string }
+  message?: {
+    id: string
+    text: string
+    /**
+     * WHICH stream this text belongs to. Absent is the agent's ANSWER — the
+     * stream that existed before there was more than one, and the only one the
+     * ledger ever records. `reasoning` is the agent thinking on the way there:
+     * live-only, dropped at the turn edge, and rendered as a thought rather
+     * than as the reply.
+     */
+    kind?: string
+  }
+  /**
+   * The agent's own running to-do list, on the `plan` kind. Always the WHOLE
+   * list — the newest one is the entire truth, so a client replaces rather than
+   * merges and a missed frame costs nothing.
+   */
+  plan?: { text: string; status: string }[]
 }
 
 /**
@@ -586,6 +604,14 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // Hardcoding false here is exactly what kept the spinner dark under a live
           // background subagent even after the server knew better.
           st.setAgentChatWorking(ev.chatId, ev.working === true)
+          // The thinking belonged to the turn that just changed state, and the
+          // answer supersedes it. Unlike streamingMessages below there is nothing
+          // to preserve across the edge: a thought is never recorded, so a stale
+          // one can only mislead. The server drops its own buffer on the same
+          // edge (turn/reasoning.go).
+          st.setAgentChatStreamingReasoning(ev.chatId, null)
+          st.setAgentChatStreamingToolOutput(ev.chatId, null)
+          st.setAgentChatStreamingPlan(ev.chatId, null)
           //
           // Deliberately NOT clearing streamingMessages[chatId] here (tried,
           // reverted): "interrupted" does not mean dead. Stopping a turn is a
@@ -599,11 +625,39 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // dedup-against-the-ledger check, same as any other item.
           return
         case 'message_delta':
+          if (!ev.message) return
+          // A THOUGHT, not the answer. It must never reach streamingMessages:
+          // nothing in the ledger will ever match it, so useChatMessages' own
+          // prune-against-the-ledger pass could not retire it and it would sit in
+          // the transcript as an assistant bubble forever. It is also the frame
+          // that fills the long silence while a reasoning model works, which is
+          // the whole reason it is carried at all.
+          if (ev.message.kind === 'reasoning') {
+            st.setAgentChatStreamingReasoning(ev.chatId, {
+              id: ev.message.id,
+              text: ev.message.text,
+            })
+            return
+          }
+          // A running tool's output. Same contract as a thought: nothing in the
+          // ledger will ever match it (the tool's full output arrives once, on
+          // the completed call), so it must never reach streamingMessages either.
+          if (ev.message.kind === 'tool_output') {
+            st.setAgentChatStreamingToolOutput(ev.chatId, {
+              id: ev.message.id,
+              text: ev.message.text,
+            })
+            return
+          }
           // The agent is mid-sentence. This is the only frame in the feed that is
           // not a record of anything — it is replaced by the ledger's own copy the
           // moment the message completes. Batched to the next frame rather than
           // written straight through — see streamingMessages above.
-          if (ev.message) streamingMessages.schedule(ev.chatId, ev.message)
+          streamingMessages.schedule(ev.chatId, ev.message)
+          return
+        case 'plan':
+          // Wholesale replace: see the frame's own doc above.
+          st.setAgentChatStreamingPlan(ev.chatId, ev.plan ?? null)
           return
         case 'compaction_started':
           // The ledger's own interruption record for this is born already

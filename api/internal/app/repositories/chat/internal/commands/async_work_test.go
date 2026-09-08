@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	asynxModels "github.com/char2cs/asynx/models"
+
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/internal/commands"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -177,4 +179,65 @@ func TestWorkingIsNeverStrandedOn(t *testing.T) {
 			assert.Equal(t, 0, settled.AsyncWork)
 		})
 	}
+}
+
+// A RESTATE is not a report from the CLI at all — it is Crowbar recounting the open
+// work it is tracking after the last tool call or subagent closes. codex reports no
+// async-work level of its own, so this recount is the ONLY thing that ever clears its
+// spinner once its top-level turn has already ended with work still open.
+//
+// Both conditions it depends on used to be asked by the CALLER, off the read model
+// (turn.go's restateAsyncWork: `chat.CurrentTurnStarted != nil` and
+// `level == chat.AsyncWork`) — and the read model is folded by an ASYNCHRONOUS
+// projection. A turn_stop already durable in the log could still read as open, the
+// caller took the early return, and nothing ever restated the level: the chat spun
+// forever. That is the same mistake, one function over, that this package's own
+// AbandonTurn guard was moved here to fix.
+func TestStopTurn_RestateIsRefusedWhileATurnIsGenuinelyOpen(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	started := commands.StartTurn{ChatID: "c1", Now: now}.EmitEvent(chatAt(now))
+
+	err := commands.StopTurn{ChatID: "c1", Now: now, AsyncWork: 0, Restate: true}.
+		Validate(&started)
+
+	require.ErrorIs(t, err, asynxModels.ErrValidation,
+		"a restate must never close a turn that is actually running")
+}
+
+func TestStopTurn_RestateIsRefusedWhenTheLevelHasNotChanged(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	started := commands.StartTurn{ChatID: "c1", Now: now}.EmitEvent(chatAt(now))
+	stopped := commands.StopTurn{ChatID: "c1", Now: now, AsyncWork: 1}.EmitEvent(&started)
+
+	err := commands.StopTurn{ChatID: "c1", Now: now, AsyncWork: 1, Restate: true}.
+		Validate(&stopped)
+
+	require.ErrorIs(t, err, asynxModels.ErrValidation,
+		"a restate at the level already standing must append no event")
+}
+
+// The case the whole mechanism exists for: the turn ended with work open, the work has
+// now drained, and this recount is what darkens the spinner.
+func TestStopTurn_RestateToZeroIsAcceptedOnceTheTurnHasEnded(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	started := commands.StartTurn{ChatID: "c1", Now: now}.EmitEvent(chatAt(now))
+	stopped := commands.StopTurn{ChatID: "c1", Now: now, AsyncWork: 1}.EmitEvent(&started)
+	require.True(t, stopped.Working)
+
+	restate := commands.StopTurn{ChatID: "c1", Now: now, AsyncWork: 0, Restate: true}
+	require.NoError(t, restate.Validate(&stopped))
+
+	drained := restate.EmitEvent(&stopped)
+	assert.False(t, drained.Working, "the last piece of open work closing must stop the spinner")
+	assert.Equal(t, 0, drained.AsyncWork)
+}
+
+// An ordinary turn_stop is deliberately NOT held to either guard: the hook is the CLI
+// restating its own level, and a level arriving on a chat the fold calls idle is exactly
+// the report that must be recorded.
+func TestStopTurn_AnOrdinaryStopIsNotHeldToTheRestateGuards(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	started := commands.StartTurn{ChatID: "c1", Now: now}.EmitEvent(chatAt(now))
+
+	require.NoError(t, commands.StopTurn{ChatID: "c1", Now: now, AsyncWork: 0}.Validate(&started))
 }

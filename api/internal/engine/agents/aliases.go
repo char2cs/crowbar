@@ -37,6 +37,7 @@ type (
 	MoveKind         = models.MoveKind
 
 	MessageDelta     = models.MessageDelta
+	PlanStep         = models.PlanStep
 	TurnFailure      = models.TurnFailure
 	SlashCatalog     = models.SlashCatalog
 	SlashCatalogItem = models.SlashCatalogItem
@@ -65,23 +66,27 @@ const (
 )
 
 const (
-	HookSessionStart = spec.HookSessionStart
-	HookUserPrompt   = spec.HookUserPrompt
-	HookTurnStop     = spec.HookTurnStop
-	HookToolPre      = spec.HookToolPre
-	HookToolPost     = spec.HookToolPost
-	HookSubagentPre  = spec.HookSubagentPre
-	HookSubagentPost = spec.HookSubagentPost
-	HookNotification = spec.HookNotification
-	HookPermission   = spec.HookPermission
-	HookCompactPre   = spec.HookCompactPre
-	HookCompactPost  = spec.HookCompactPost
-	HookSessionEnd   = spec.HookSessionEnd
-	HookTelemetry    = spec.HookTelemetry
-	HookToolFail     = spec.HookToolFail
-	HookElicitation  = spec.HookElicitation
-	HookMessageDelta = spec.HookMessageDelta
-	HookTurnFailed   = spec.HookTurnFailed
+	HookSessionStart    = spec.HookSessionStart
+	HookUserPrompt      = spec.HookUserPrompt
+	HookTurnStop        = spec.HookTurnStop
+	HookToolPre         = spec.HookToolPre
+	HookToolPost        = spec.HookToolPost
+	HookSubagentPre     = spec.HookSubagentPre
+	HookSubagentPost    = spec.HookSubagentPost
+	HookNotification    = spec.HookNotification
+	HookPermission      = spec.HookPermission
+	HookCompactPre      = spec.HookCompactPre
+	HookCompactPost     = spec.HookCompactPost
+	HookSessionEnd      = spec.HookSessionEnd
+	HookTelemetry       = spec.HookTelemetry
+	HookToolFail        = spec.HookToolFail
+	HookElicitation     = spec.HookElicitation
+	HookMessageDelta    = spec.HookMessageDelta
+	HookReasoningDelta  = spec.HookReasoningDelta
+	HookTurnFailed      = spec.HookTurnFailed
+	HookIdle            = spec.HookIdle
+	HookToolOutputDelta = spec.HookToolOutputDelta
+	HookPlanUpdate      = spec.HookPlanUpdate
 )
 
 const (
@@ -122,6 +127,12 @@ const (
 	CatalogCompletenessPluginOnly   = string(spec.CatalogCompletenessPluginOnly)
 
 	CatalogItemKindSkill = models.CatalogItemKindSkill
+)
+
+const (
+	PlanStepPending = models.PlanStepPending
+	PlanStepActive  = models.PlanStepActive
+	PlanStepDone    = models.PlanStepDone
 )
 
 const (

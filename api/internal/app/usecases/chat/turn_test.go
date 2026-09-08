@@ -200,7 +200,7 @@ func TestObservation_CompactionPushesTheLiveEdgeDirectly(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			calls = append(calls, active)
-		})
+		}, nil)
 
 	hook(t, f, runnerID, "claude", engineagents.HookCompactPre, map[string]any{"trigger": "auto"})
 	hook(t, f, runnerID, "claude", engineagents.HookCompactPost, map[string]any{"trigger": "auto"})
@@ -1377,29 +1377,65 @@ func TestObservation_AnElicitationIsRecordedAsAnInterruptionAndAPrompt(t *testin
 	assert.Contains(t, got[0].Schema, `"enum":["A","B"]`)
 }
 
-// TestObservation_ACodexChatObservesNoToolFailure used to run "elicitation"
-// through this same table too, on the premise that codex.yaml declared no
-// elicitation: event at all. a9ebb6f1 ("merge codex into one mixed-transport
-// descriptor") gave codex a real elicitation: mapping with its own reply
-// templates specifically so it would stop being dropped as unmapped — see
-// TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt for
-// the positive case that replaced it. tool_fail is untouched by that merge:
-// codex.yaml still declares no tool_fail event, so this one case still
-// proves the "unmapped kind is dropped, never failed" invariant.
-func TestObservation_ACodexChatObservesNoToolFailure(t *testing.T) {
+// This test has migrated twice as codex's descriptor grew, and each move is the
+// point: it exists to prove the "unmapped kind is DROPPED, never failed"
+// invariant, so it must always name a kind codex genuinely does not declare.
+//
+// It ran "elicitation" until a9ebb6f1 ("merge codex into one mixed-transport
+// descriptor") gave codex a real elicitation: mapping — see
+// TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt. It then
+// ran "tool_fail" until codex gained one of those too (item/completed gated on
+// item.status: failed || declined) — see the positive case directly below.
+//
+// notification is what is left: codex's app-server exposes no notification of
+// that shape at all, which codex.yaml records in place.
+func TestObservation_ACodexChatObservesNoNotification(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 
-	err := f.usecase.IngestHook(f.ctx, runnerID, "codex", engineagents.HookToolFail,
-		mustJSON(t, map[string]any{"tool_use_id": "t1", "tool_name": "shell", "error": "boom"}))
+	err := f.usecase.IngestHook(f.ctx, runnerID, "codex", engineagents.HookNotification,
+		mustJSON(t, map[string]any{"session_id": "s1", "message": "needs your attention"}))
 	f.wait()
 
 	require.NoError(t, err, "an unmapped kind is dropped, never failed")
 	assert.Empty(t, pendingChoices(t, f, chatID))
+	interruptions, listErr := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, listErr)
+	assert.Empty(t, interruptions)
+}
+
+// The positive case that replaced tool_fail above. A failed or declined codex
+// tool used to be recorded as a silent OK: tool_post fired on item/completed
+// whatever item.status said, and codex declared no tool_fail at all, so its
+// error text was discarded and the row looked exactly like a success.
+func TestRegression_ACodexFailedToolIsRecordedAsAnError(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
+
+	hook(t, f, runnerID, "codex", engineagents.HookToolPre, map[string]any{
+		"threadId": "t1", "turnId": "tn1",
+		"item": map[string]any{
+			"type": "commandExecution", "id": "c1", "command": "rg --files", "status": "inProgress",
+		},
+	})
+	hook(t, f, runnerID, "codex", engineagents.HookToolFail, map[string]any{
+		"threadId": "t1", "turnId": "tn1",
+		"item": map[string]any{
+			"type": "commandExecution", "id": "c1", "command": "rg --files",
+			"status": "failed", "aggregatedOutput": "rg: command not found\n",
+			"exitCode": 127, "durationMs": 31,
+		},
+	})
+	f.wait()
+
 	calls, listErr := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
 	require.NoError(t, listErr)
-	assert.Empty(t, calls)
+	require.Len(t, calls, 1, "tool_pre and tool_fail must correlate on item.id")
+	assert.Equal(t, domain.ToolStatusError, calls[0].Status)
+	// Without a target the transcript renders the bare word "commandExecution".
+	assert.Equal(t, "rg --files", calls[0].Target)
 }
 
 // TestObservation_ACodexElicitationIsRecordedAsAnInterruptionAndAPrompt is

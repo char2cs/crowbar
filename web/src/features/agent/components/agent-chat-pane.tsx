@@ -262,6 +262,11 @@ export function AgentChatPane({
   // upsert writes byte-identical text, e.g. a resent frame), and narrowed to
   // this ONE chat's slot so another chat's streaming update never reaches it.
   const streamingMessages = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId])
+  // The agent's in-flight thinking. Live-only and never recorded, which is why it
+  // is its own slot and not part of streamingMessages — see the slice's own doc.
+  const reasoning = useStore(store, (s) => s.agentChats.streamingReasoning[shownChatId]?.text)
+  const toolOutput = useStore(store, (s) => s.agentChats.streamingToolOutput[shownChatId])
+  const plan = useStore(store, (s) => s.agentChats.streamingPlan[shownChatId])
 
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   const columnRef = useRef<HTMLDivElement>(null)
@@ -1255,6 +1260,9 @@ export function AgentChatPane({
               onSelectPresentation={chooseSurface}
               settledPrompts={settledPrompts}
               streamingMessages={streamingMessages}
+              reasoning={reasoning}
+              toolOutput={toolOutput}
+              plan={plan}
               onStreamingSettled={handleStreamingSettled}
               onPromptDispatchStart={() => {
                 switchingRef.current = true

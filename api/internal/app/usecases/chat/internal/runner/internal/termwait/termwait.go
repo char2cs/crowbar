@@ -18,6 +18,16 @@ const DefaultDeliveryQuiet = 30 * time.Second
 
 const DefaultMessageQuiet = 30 * time.Second
 
+// DefaultIdleQuiet is how long a provider's own idle report is allowed to stand
+// before the turn it belongs to is treated as one nothing will ever close.
+//
+// Far shorter than the screen-scraping quiet periods around it, because the
+// signal is AUTHORITATIVE rather than heuristic: the provider said it is doing
+// nothing. Measured against codex-cli 0.149.1, the gap between that report and
+// the turn's own close on a healthy turn is sub-millisecond, so this is roughly
+// four orders of magnitude of headroom.
+const DefaultIdleQuiet = 5 * time.Second
+
 type Runners interface {
 	AllLive(ctx context.Context) ([]engineagents.Runner, error)
 }
@@ -52,6 +62,13 @@ type Notices interface {
 
 type Work interface {
 	OpenWork(ctx context.Context, chatID string) (bool, error)
+}
+
+// Idle reports when the provider itself last said it was doing nothing, if
+// nothing has closed the turn since. See turn/idle.go for why it is a latch the
+// sweep reads rather than something acted on where it arrives.
+type Idle interface {
+	ProviderIdleSince(chatID string) (at time.Time, ok bool)
 }
 
 type Publish func(chatID, workspaceID string, wait domain.AgentTerminalWait)
@@ -91,6 +108,8 @@ type Deps struct {
 
 	Messages Messages
 
+	Idle Idle
+
 	Interval time.Duration
 
 	StallQuiet time.Duration
@@ -98,6 +117,8 @@ type Deps struct {
 	DeliveryQuiet time.Duration
 
 	MessageQuiet time.Duration
+
+	IdleQuiet time.Duration
 
 	Now func() time.Time
 }
@@ -178,6 +199,13 @@ func (d *detector) messageQuiet() time.Duration {
 		return d.deps.MessageQuiet
 	}
 	return DefaultMessageQuiet
+}
+
+func (d *detector) idleQuiet() time.Duration {
+	if d.deps.IdleQuiet > 0 {
+		return d.deps.IdleQuiet
+	}
+	return DefaultIdleQuiet
 }
 
 func (d *detector) now() time.Time {

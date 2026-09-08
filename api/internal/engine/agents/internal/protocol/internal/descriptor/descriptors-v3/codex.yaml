@@ -52,29 +52,94 @@ events:
       message:    "item.content[type=text].text || prompt"
 
   # turn.lastAgentMessage does not exist — the answer is an item IN a list.
+  #
+  # turn/completed is a SUM TYPE on turn.status (completed|interrupted|failed|
+  # inProgress — codex's own TurnStatus enum). Ungated, this event also swallowed
+  # every FAILED turn: it recorded an ordinary stop whose message resolved to
+  # nothing, so the user saw the spinner end on an empty reply and turn.error was
+  # discarded.
+  #
+  # DELIBERATELY UNGATED all the same — turn_failed below carries the narrow
+  # `failed` clause and dispatch.Resolve offers it FIRST (sorted name order), so
+  # the split works without this event having to enumerate the statuses it wants.
+  # Enumerating them would be a wedge: a status this list forgot — `inProgress`,
+  # or anything codex adds later — would match NEITHER event, and a turn that
+  # never receives a close is a spinner that never stops. Falling through to an
+  # ordinary stop is the safe default. An interrupt is an ordinary stop too: the
+  # human asked for it.
   turn_stop:
     in: turn/completed
     map:
       session_id: "threadId || session_id"
       message:    "turn.items[type=agentMessage].text || last_assistant_message"
 
-  tool_pre:
-    in: item/started
-    when: { item.type: commandExecution || fileChange || mcpToolCall }
+  # The other half of that sum type. No `message:` deliberately: a failed turn's
+  # items are not reliably populated, and closeAssistantTurn has already salvaged
+  # whatever message_delta streamed before the failure — mapping it here would
+  # only risk overwriting real text with an empty string.
+  turn_failed:
+    in: turn/completed
+    when: { turn.status: failed }
     map:
       session_id: "threadId || session_id"
-      tool_id:    "item.id || tool_use_id"
-      tool_name:  "item.type || tool_name"
-      tool_input: item
+      reason:     "turn.error.message || turn.status"
+      detail:     turn.error.additionalDetails
 
-  tool_post:
-    in: item/completed
-    when: { item.type: commandExecution || fileChange || mcpToolCall }
+  # item.type values are codex's ThreadItem variants. webSearch and dynamicToolCall
+  # were missing, so a turn that searched the web showed NO activity for that step.
+  #
+  # tool_target is what the transcript actually renders (`name · target`); with it
+  # unmapped every codex tool call read as the bare word "commandExecution". Each
+  # variant keeps its target in its own field, hence the alternation:
+  #   commandExecution -> command   fileChange  -> changes[0].path
+  #   webSearch        -> query     mcpToolCall -> server (its tool is the NAME)
+  # changes[0] is an INDEX selector: FileUpdateChange.kind is an object
+  # ({"type":"update"}), so no [field=value] selector can address that list.
+  tool_pre:
+    in: item/started
+    when: { item.type: commandExecution || fileChange || mcpToolCall || webSearch || dynamicToolCall }
     map:
       session_id:  "threadId || session_id"
       tool_id:     "item.id || tool_use_id"
-      tool_name:   "item.type || tool_name"
-      tool_result: "item.content || tool_response"
+      tool_name:   "item.tool || item.type || tool_name"
+      tool_target: "item.command || item.query || item.server || item.changes[0].path || tool_input.file_path"
+      tool_input:  item
+
+  # tool_result was `item.content`, which exists on NO codex item — every tool
+  # call completed with an empty result. The real output field differs per
+  # variant: aggregatedOutput (commandExecution), result (mcpToolCall),
+  # changes (fileChange).
+  tool_post:
+    in: item/completed
+    when: { item.type: commandExecution || fileChange || mcpToolCall || webSearch || dynamicToolCall }
+    map:
+      session_id:  "threadId || session_id"
+      tool_id:     "item.id || tool_use_id"
+      tool_name:   "item.tool || item.type || tool_name"
+      tool_target: "item.command || item.query || item.server || item.changes[0].path || tool_input.file_path"
+      tool_result: "item.aggregatedOutput || item.result || item.changes || tool_response"
+      duration_ms: "item.durationMs || duration_ms"
+
+  # Fires on the SAME wire event as tool_post, separated only by item.status.
+  # dispatch.Resolve tries candidates in sorted name order, so `tool_fail` is
+  # offered before `tool_post` and its narrower when: wins on a failure; anything
+  # else falls through to tool_post. tool_post deliberately declares NO status
+  # clause: webSearch carries no status field at all, and a `when:` whose path is
+  # missing never matches — gating it would have left every web search open
+  # forever.
+  tool_fail:
+    in: item/completed
+    when:
+      item.type:   commandExecution || fileChange || mcpToolCall || dynamicToolCall
+      item.status: failed || declined
+    map:
+      session_id:  "threadId || session_id"
+      tool_id:     "item.id || tool_use_id"
+      tool_name:   "item.tool || item.type || tool_name"
+      tool_target: "item.command || item.query || item.server || item.changes[0].path || tool_input.file_path"
+      tool_result: "item.aggregatedOutput || item.result || item.changes || tool_response"
+      tool_error:  "item.error.message || item.status"
+      duration_ms: "item.durationMs || duration_ms"
 
   # No index: this delta stream is already arrival-ordered.
   message_delta:
@@ -84,6 +149,64 @@ events:
       message_id: itemId
       text:       delta
       turn_id:    turnId
+
+  # Codex spends most of a hard turn HERE and emits nothing else while it does
+  # (captured live, codex-cli 0.149.1: item/started type reasoning, then
+  # summaryPartAdded, then a run of summaryTextDelta, then item/completed). With
+  # this unmapped the chat sat on a spinner and a rotating flavour verb for the
+  # whole of it — the single biggest source of apparent dead air.
+  #
+  # summaryTextDelta, not textDelta: the summary is the stream codex actually
+  # emits for a normal turn, and it is the human-readable one. Raw reasoning
+  # content is gated behind a separate opt-in and was never observed live.
+  #
+  # index is summaryIndex — a thinking block is emitted in numbered parts, and
+  # without it the parts of one block cannot be ordered.
+  reasoning_delta:
+    in: item/reasoning/summaryTextDelta
+    map:
+      session_id: threadId
+      message_id: itemId
+      text:       delta
+      turn_id:    turnId
+      index:      summaryIndex
+
+  # A long command's output, line by line, while it runs. Captured live: a
+  # five-second command emits one of these per line and nothing else, so without
+  # it the tool row sat static for the whole run with no sign of progress.
+  # itemId is the commandExecution item, which is the same id tool_pre opened the
+  # call under — that is what puts the lines under the right running row.
+  tool_output_delta:
+    in: item/commandExecution/outputDelta
+    map:
+      session_id: threadId
+      message_id: itemId
+      text:       delta
+      turn_id:    turnId
+
+  # The agent's own to-do list for the turn, restated wholesale on each update.
+  # Captured live: codex emits four of these across a three-step task, each
+  # carrying the FULL list with one more step advanced.
+  #
+  # status_map is where codex's words become Crowbar's. Go never learns
+  # "inProgress"; a provider that spells it differently changes this map and
+  # nothing else.
+  plan_update:
+    in: turn/plan/updated
+    # No `message:` — turn/plan/updated carries an `explanation`, but it was null
+    # on every plan update captured live, and the replay harness rejects a path
+    # that resolves to nothing.
+    map:
+      session_id: threadId
+      turn_id:    turnId
+    steps:
+      items:  plan
+      text:   step
+      status: status
+      status_map:
+        pending:    pending
+        inProgress: active
+        completed:  done
 
   # tokenUsage nests under total/ — not tokenUsage.inputTokens directly.
   telemetry:
@@ -162,6 +285,20 @@ events:
   interrupt:
     out: turn/interrupt
     send: { threadId: "{session_id}", turnId: "{turn_id}" }
+
+  # Captured live (0.149.1): thread/status/changed fires `active` when a turn
+  # opens and `idle` when it ends — and the idle one lands IMMEDIATELY BEFORE
+  # turn/completed on a perfectly healthy turn. So this can never close a turn
+  # directly; it only ARMS the reconcile that catches the turn whose close never
+  # comes at all (this file's own terminal_notices note records that happening).
+  #
+  # `systemError` and `notLoaded` are deliberately unmapped: neither means the
+  # work is finished, and treating them as idle would close a turn that is merely
+  # broken, or one that has not been loaded yet.
+  idle:
+    in: thread/status/changed
+    when: { status.type: idle }
+    map: { session_id: threadId }
 
   compact_start:
     out: thread/compact/start
@@ -317,6 +454,14 @@ effort:
 # do) made cleanup destroy the user's own threads.
 config_injection:
   - pass_arg: { arg: "-c", value: 'check_for_update_on_startup=false' }
+  # ASK for reasoning summaries. Codex emits NONE by default — measured on
+  # 0.149.1 by running the identical reasoning-heavy prompt twice: zero
+  # item/reasoning/* frames with the default, a full stream with this set. So
+  # without this line the reasoning_delta event above is inert in production and
+  # a reasoning model's long silences stay unexplained, which is exactly the
+  # dead air it was added to fix. Caught only by driving the real app; every
+  # unit test passed either way.
+  - pass_arg: { arg: "-c", value: 'model_reasoning_summary=detailed' }
   # TUI-native modals, suppressed rather than answered — no hook fires for
   # these. Only the three unambiguous ones: migration-prompt keys contain
   # dots, which a TOML dotted-key override would parse as nested tables. An

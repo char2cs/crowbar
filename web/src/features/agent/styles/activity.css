@@ -26,6 +26,70 @@
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+/* The model thinking out loud, while it does it.
+ *
+ * Indented to the verb's own text column (24px clears the spinner) so it reads
+ * as detail UNDER the working line rather than as something the agent said.
+ * Italic and muted for the same reason: it must never be mistaken for the reply.
+ *
+ * Two lines maximum, clamped rather than scrolled. A reasoning model emits this
+ * continuously, and an unbounded block would push the whole transcript around on
+ * every token — the tail is trimmed in the component (tailOf) so the clamp only
+ * ever has a little to do. */
+.agent-chat .activity .thinking {
+  margin: 0;
+  padding: 0 0 0 24px;
+  font-size: var(--ui-text-xs);
+  font-style: italic;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  opacity: 0.85;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  /* The text is replaced wholesale on every frame; containing layout keeps that
+     off the rest of the transcript. */
+  contain: layout;
+}
+
+/* The agent's own to-do list for the turn. A checklist, not prose: one line per
+   step, the active one carried at full strength and the finished ones struck
+   through, so a glance says where in its own plan the agent is. */
+.agent-chat .activity .plan {
+  margin: 2px 0 0;
+  padding: 0 0 0 24px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--ui-text-xs);
+  contain: layout;
+}
+.agent-chat .activity .plan li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.55;
+}
+.agent-chat .activity .plan li::before {
+  content: '○ ';
+}
+.agent-chat .activity .plan li[data-status='active'] {
+  opacity: 1;
+  color: var(--foreground);
+}
+.agent-chat .activity .plan li[data-status='active']::before {
+  content: '◍ ';
+}
+.agent-chat .activity .plan li[data-status='done'] {
+  text-decoration: line-through;
+}
+.agent-chat .activity .plan li[data-status='done']::before {
+  content: '● ';
+}
+
 .agent-chat .activity ul {
   margin: 0;
   padding: 0 0 0 24px;
@@ -39,6 +103,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A running tool's newest output, on the same row as the tool it belongs to.
+   One line, ellipsised by the rule above — it is a sign of progress, not a log,
+   and the tool's full output is on the finished call. */
+.agent-chat .activity li .out {
+  margin-left: 8px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
 }
 
 /* The subagent shelf, sitting on the top edge of the input box.

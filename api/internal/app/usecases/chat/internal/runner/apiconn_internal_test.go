@@ -42,7 +42,9 @@ func (noopTurns) RecordStop(context.Context, string) error { return nil }
 
 func (noopTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 
-func (noopTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
+func (noopTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text, kind string)) {}
+func (noopTurns) SetPlanUpdate(func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
+}
 
 func (noopTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
 
@@ -60,7 +62,8 @@ func (noopTurns) MatchTerminalNotice(
 
 func (noopTurns) OpenWork(context.Context, string) (bool, error) { return false, nil }
 
-func (noopTurns) UnfinishedSince(string) (time.Time, bool) { return time.Time{}, false }
+func (noopTurns) UnfinishedSince(string) (time.Time, bool)   { return time.Time{}, false }
+func (noopTurns) ProviderIdleSince(string) (time.Time, bool) { return time.Time{}, false }
 
 func (noopTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
 

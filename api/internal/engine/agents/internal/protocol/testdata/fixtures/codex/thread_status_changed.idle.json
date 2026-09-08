@@ -1,0 +1,10 @@
+{
+  "method": "thread/status/changed",
+  "params": {
+    "threadId": "01a081ae-15cb-72d0-acab-538cfaef5646",
+    "status": {
+      "type": "idle"
+    }
+  },
+  "emittedAtMs": 1788882076492
+}

@@ -86,6 +86,22 @@ type EventStore interface {
 		now time.Time,
 		asyncWork int,
 	) (domain.Chat, error)
+	// RestateAsyncWork records Crowbar's OWN recount of the open work it is tracking,
+	// for a provider that reports no such level itself. codex ends its top-level turn
+	// the moment it delegates, so when the last tool call or subagent in the activity
+	// ledger closes, this is the only thing that ever darkens the spinner.
+	//
+	// Like AbandonTurn it may be called UNCONDITIONALLY, and for the same reason: its
+	// two preconditions — that no turn is currently open, and that the level actually
+	// changed — are decided by the command against the authoritative fold, never out
+	// here against the read model the asynchronous projection lags. ErrValidation from
+	// this call is the ordinary no-op answer, not a failure.
+	RestateAsyncWork(
+		ctx context.Context,
+		chatID string,
+		now time.Time,
+		asyncWork int,
+	) (domain.Chat, error)
 	// AbandonTurn closes the turn AND zeroes the async-work level. It is the reconcile
 	// door — a dead CLI, a displaced runner — and nothing but a reconcile may call it:
 	// it is precisely what an ordinary StopTurn must not do.
@@ -339,6 +355,21 @@ func (r *eventSourced) StopTurn(
 	evt, err := r.sendWithOCC(ctx, commands.StopTurn{ChatID: chatID, Now: now, AsyncWork: asyncWork})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: stop turn: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) RestateAsyncWork(
+	ctx context.Context,
+	chatID string,
+	now time.Time,
+	asyncWork int,
+) (domain.Chat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.StopTurn{
+		ChatID: chatID, Now: now, AsyncWork: asyncWork, Restate: true,
+	})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: restate async work: %w", err)
 	}
 	return evt.Aggregate, nil
 }

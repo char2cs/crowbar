@@ -80,10 +80,68 @@ events:
     required: [message_id, text]
     optional: [session_id, turn_id, index, final]
 
+  # The model thinking out loud, as it happens. Same shape as message_delta and it
+  # rides the same live channel, distinguished by kind — it is NOT the answer and
+  # must never be recorded as one.
+  #
+  # This is the difference between a reasoning model looking busy and looking dead:
+  # codex spends most of a hard turn here, emitting item/reasoning/summaryTextDelta
+  # and nothing else (measured live against codex-cli 0.149.1). With no name for it
+  # Crowbar showed a spinner and a rotating flavour verb for the whole of it.
+  #
+  # message_id groups the deltas of one thinking block. It is OPTIONAL rather than
+  # required, unlike message_delta's: a provider that streams one undifferentiated
+  # thought stream per turn has no id to give, and the turn is grouping enough.
+  reasoning_delta:
+    direction: in
+    required: [text]
+    optional: [session_id, message_id, turn_id, index, final]
+
+  # A running tool's output as it is produced — the lines of a build, a test run,
+  # a long command. Same shape and same live channel as reasoning_delta, and like
+  # it never recorded: the tool's FULL output lands once, on tool_post.
+  #
+  # message_id is the tool call it belongs to, so a client can put the lines under
+  # the right running row.
+  tool_output_delta:
+    direction: in
+    required: [text]
+    optional: [session_id, message_id, turn_id, index, final]
+
+  # The agent's own running to-do list for this turn, restated WHOLESALE on every
+  # update rather than as a diff — the newest list is the whole truth, exactly the
+  # way turn_stop's async_work level is, and for the same anti-drift reason.
+  #
+  # The steps themselves are a structured extra (`steps:`), because a flat field
+  # map cannot express a list of {text, status} pairs. Its status_map is where a
+  # provider's own words for "in progress" get translated into Crowbar's, so Go
+  # never learns them.
+  plan_update:
+    direction: in
+    required: []
+    optional: [session_id, turn_id, message]
+    extras: [steps]
+
   session_end:
     direction: in
     required: []
     optional: [session_id, reason]
+
+  # The provider's OWN word that it is doing nothing: no turn running, nothing
+  # waiting on a person. It is not a turn-close event and must never be treated as
+  # one — measured against codex-cli 0.149.1, it arrives IMMEDIATELY BEFORE the
+  # turn-close on a perfectly healthy turn, so acting on it directly would abandon
+  # every turn microseconds before it ended properly.
+  #
+  # What it is good for is the case nothing else can reach: a turn whose close is
+  # never sent at all (codex.yaml records that happening live). The turn-close
+  # clears the latch this arms; a latch still armed when the sweep next looks is a
+  # turn nothing is going to close, and the provider has said so itself. That
+  # replaces a 120s screen-scraping heuristic with an authoritative signal.
+  idle:
+    direction: in
+    required: []
+    optional: [session_id]
 
   # Compaction is a STATE the chat is in, not an interrupt that happened to a turn:
   # the CLI is busy, prompts queue, and the transcript needs a boundary marker so

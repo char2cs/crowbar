@@ -17,6 +17,9 @@ const {
   setAgentChatTerminalWait,
   setAgentChatCompacting,
   setAgentChatStreamingMessage,
+  setAgentChatStreamingReasoning,
+  setAgentChatStreamingToolOutput,
+  setAgentChatStreamingPlan,
   setAgentProviders,
   hydrateAgentChatOrder,
   closeBuffer,
@@ -38,6 +41,9 @@ const {
   setAgentChatTerminalWait: vi.fn(),
   setAgentChatCompacting: vi.fn(),
   setAgentChatStreamingMessage: vi.fn(),
+  setAgentChatStreamingReasoning: vi.fn(),
+  setAgentChatStreamingToolOutput: vi.fn(),
+  setAgentChatStreamingPlan: vi.fn(),
   setAgentProviders: vi.fn(),
   hydrateAgentChatOrder: vi.fn(),
   closeBuffer: vi.fn(),
@@ -109,6 +115,9 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       setAgentChatTerminalWait,
       setAgentChatCompacting,
       setAgentChatStreamingMessage,
+      setAgentChatStreamingReasoning,
+      setAgentChatStreamingToolOutput,
+      setAgentChatStreamingPlan,
       setAgentProviders,
       hydrateAgentChatOrder,
       buffers,
@@ -138,7 +147,8 @@ type Frame = {
    *  `terminal_wait` kind only, and its ABSENCE there is the clearing edge. */
   terminalWait?: { kind: string }
   /** An assistant message still being produced. Present on `message_delta` only. */
-  message?: { id: string; text: string }
+  message?: { id: string; text: string; kind?: string }
+  plan?: { text: string; status: string }[]
 }
 
 const chat = (id: string) => ({
@@ -468,6 +478,85 @@ describe('useWorkspaceAgentChatsStream', () => {
       expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
       await nextFrame()
       expect(setAgentChatStreamingMessage).toHaveBeenCalledWith('c1', { id: 'm1', text: 'Bui' })
+    })
+
+    // A THOUGHT is not an answer. It rides the same frame kind, tagged, and must
+    // never reach streamingMessages: nothing in the ledger will ever match it, so
+    // useChatMessages' prune-against-the-ledger pass could not retire it and it
+    // would sit in the transcript as an assistant bubble forever.
+    it('routes a reasoning delta to its own slot, never to the message stream', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'rs_1', text: '**Clarifying**', kind: 'reasoning' },
+      })
+      await nextFrame()
+
+      expect(setAgentChatStreamingReasoning).toHaveBeenCalledWith('c1', {
+        id: 'rs_1',
+        text: '**Clarifying**',
+      })
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
+
+    it("routes a tool's output delta to its own slot", async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'message_delta',
+        message: { id: 'call_1', text: 'line 1\n', kind: 'tool_output' },
+      })
+      await nextFrame()
+
+      expect(setAgentChatStreamingToolOutput).toHaveBeenCalledWith('c1', {
+        id: 'call_1',
+        text: 'line 1\n',
+      })
+      expect(setAgentChatStreamingMessage).not.toHaveBeenCalled()
+    })
+
+    // The plan arrives WHOLESALE — the newest list is the entire truth, so this
+    // is a replace and a missed frame costs nothing.
+    it("replaces the agent's to-do list wholesale", async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({
+        chatId: 'c1',
+        workspaceId: 'w1',
+        kind: 'plan',
+        plan: [
+          { text: 'Run the command', status: 'active' },
+          { text: 'Summarise', status: 'pending' },
+        ],
+      })
+
+      expect(setAgentChatStreamingPlan).toHaveBeenCalledWith('c1', [
+        { text: 'Run the command', status: 'active' },
+        { text: 'Summarise', status: 'pending' },
+      ])
+    })
+
+    // The thought belongs to the turn that produced it — a stale one outliving
+    // its turn would claim the agent is mid-thought when it has already answered.
+    it('drops the thought at a turn edge', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const onFrame = captureCb()
+
+      onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'turn_stopped', working: false })
+
+      expect(setAgentChatStreamingReasoning).toHaveBeenCalledWith('c1', null)
     })
 
     it('collapses several deltas arriving before the frame into one write, with the latest text', async () => {

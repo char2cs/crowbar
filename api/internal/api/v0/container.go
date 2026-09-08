@@ -15,6 +15,7 @@ import (
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // Container is the v0 delivery surface: the seven realtime topics plus REST
@@ -358,12 +359,32 @@ func (c *Container) PushAgentChatMessageDelta(
 	workspaceID string,
 	messageID string,
 	text string,
+	kind string,
 ) {
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      chatID,
 		WorkspaceID: workspaceID,
 		Kind:        dto.AgentChatKindMessageDelta,
-		Message:     &dto.AgentStreamingMessageDTO{ID: messageID, Text: text},
+		Message:     &dto.AgentStreamingMessageDTO{ID: messageID, Text: text, Kind: kind},
+	})
+}
+
+// PushAgentChatPlan implements hub.Subscriber, on the SAME workspace-scoped
+// agent-chat WebSocket as every other conversation fact.
+func (c *Container) PushAgentChatPlan(
+	chatID string,
+	workspaceID string,
+	steps []agents.PlanStep,
+) {
+	out := make([]dto.AgentPlanStepDTO, 0, len(steps))
+	for _, s := range steps {
+		out = append(out, dto.AgentPlanStepDTO{Text: s.Text, Status: s.Status})
+	}
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      chatID,
+		WorkspaceID: workspaceID,
+		Kind:        dto.AgentChatKindPlan,
+		Plan:        out,
 	})
 }
 
@@ -602,13 +623,17 @@ func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 		// genuinely stateful kinds (turn_started, folder events, ...), and
 		// those must keep the ordinary bounded-queue-then-disconnect
 		// contract untouched — CoalesceKey is what lets the two coexist on
-		// one broadcaster. Keyed by (chat, message id) so two chats, or two
-		// co-open items in one chat's turn, never coalesce into each other.
+		// one broadcaster. Keyed by (chat, stream kind, message id) so two chats,
+		// two co-open items in one chat's turn, or the answer and the thinking
+		// that runs alongside it never coalesce into each other. The kind is in
+		// the key structurally rather than because the two id spaces happen to
+		// differ today: collapsing a thought onto an answer would replace the
+		// reply with the reasoning that preceded it.
 		CoalesceKey: func(e dto.AgentChatEvent) (string, bool) {
 			if e.Kind != dto.AgentChatKindMessageDelta || e.Message == nil {
 				return "", false
 			}
-			return e.ChatID + "\x00" + e.Message.ID, true
+			return e.ChatID + "\x00" + e.Message.Kind + "\x00" + e.Message.ID, true
 		},
 	}
 }

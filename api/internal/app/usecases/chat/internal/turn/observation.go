@@ -31,6 +31,22 @@ func (t *Turns) handleObservation(
 	case engineagents.HookMessageDelta:
 
 		t.recordMessageDelta(ctx, chat, runner, ev)
+	case engineagents.HookPlanUpdate:
+		// Live only, restated wholesale — see turns.planUpdate. Nothing durable is
+		// written, so a provider mapping this cannot corrupt a transcript either.
+		if t.planUpdate != nil && len(ev.Plan) > 0 {
+			t.planUpdate(chat.ID, chat.WorkspaceID, ev.Plan)
+		}
+	case engineagents.HookIdle:
+		// ARMS a reconcile; closes nothing. This routinely arrives microseconds
+		// BEFORE the turn's own close — see idle.go.
+		t.recordIdle(chat)
+	case engineagents.HookReasoningDelta:
+		// Live only — see recordLiveText. Nothing durable is written, so a provider
+		// that maps either of these can never corrupt a transcript with them.
+		t.recordLiveText(chat, ev, DeltaKindReasoning)
+	case engineagents.HookToolOutputDelta:
+		t.recordLiveText(chat, ev, DeltaKindToolOutput)
 	case engineagents.HookToolPre:
 		note(ctx, "tool invoked", t.activity.InvokeTool(ctx, agentactivity.ToolInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,

@@ -42,6 +42,12 @@ interface AgentTranscriptProps {
   /** Is this chat LIVE mid-compaction right now — see WorkingLine's own prop
    *  doc for why this cannot come from `activity`. */
   compacting?: boolean
+  /** What the agent is thinking right now — see WorkingLine's own prop doc. */
+  reasoning?: string
+  /** The running tool's live output — see WorkingLine's own prop doc. */
+  toolOutput?: { id: string; text: string }
+  /** The agent's own to-do list — see WorkingLine's own prop doc. */
+  plan?: { text: string; status: string }[]
   loading: boolean
   error: Error | null
   hasOlder: boolean
@@ -683,6 +689,9 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           working={props.working}
           since={messages.at(-1)?.at}
           compactingLive={props.compacting}
+          reasoning={props.reasoning}
+          toolOutput={props.toolOutput}
+          plan={props.plan}
         />
         {/* A REAL, measured spacer — not `.scroll`'s own `padding-bottom` (see
             `.dock-spacer`'s own comment in transcript.css for why: the

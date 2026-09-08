@@ -81,13 +81,32 @@ func TestAgent_ParseHookToleratesAFailedTurnWithNoDetail(t *testing.T) {
 	assert.Empty(t, ev.Failure.Detail)
 }
 
-// codex still declares no failure hook at all — turn_failed has no wire event
-// on either transport.
-func TestAgent_CodexDeclaresNoFailureHook(t *testing.T) {
-	_, err := get(t, "codex").ParseHook(agents.HookTurnFailed, []byte(`{"session_id":"s"}`))
+// This test used to assert the opposite — "codex still declares no failure hook
+// at all — turn_failed has no wire event on either transport". That claim was
+// wrong against codex's own generated protocol schema
+// (codex-rs/app-server-protocol/schema/json/ServerNotification.json): turn/completed
+// is a SUM TYPE carrying turn.status ∈ {completed, interrupted, failed, inProgress}
+// plus a turn.error, and `failed` is the failure signal.
+//
+// While it went unmapped, a failed codex turn was ingested as an ordinary stop
+// whose message resolved to nothing — the user saw the spinner end on an empty
+// reply and turn.error.message was discarded.
+func TestAgent_CodexMapsAFailedTurnOffTurnStatus(t *testing.T) {
+	raw := []byte(`{"threadId":"t","turn":{"id":"tn","items":[],"status":"failed",
+	  "error":{"message":"stream error: exceeded retry limit",
+	           "additionalDetails":"connection reset by peer"}}}`)
 
-	require.Error(t, err, "codex must not claim to observe turn_failed")
+	ev, err := get(t, "codex").ParseHook(agents.HookTurnFailed, raw)
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Failure)
+	assert.Equal(t, "stream error: exceeded retry limit", ev.Failure.Reason)
+	assert.Equal(t, "connection reset by peer", ev.Failure.Detail)
 }
+
+// The routing half of the same sum type — which of turn_stop / turn_failed a given
+// turn/completed frame is delivered as — is asserted in the dispatch package, where
+// the when: clauses are actually evaluated.
 
 // message_delta IS observed now — over the api transport (item/agentMessage/delta),
 // not a hook. See the mixed transport design spec.
