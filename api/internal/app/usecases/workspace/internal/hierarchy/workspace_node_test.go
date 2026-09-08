@@ -156,11 +156,12 @@ func TestCreateFromImport_Placeholder_MintsWorkspaceNode(t *testing.T) {
 	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
 }
 
-// TestCreateChild_NoNodesWired_StillSucceeds proves the Node mint is
-// best-effort in this package (unlike the project package's harder
-// ErrNoNodesWired refusal): nothing yet reads a workspace's own Node row, so a
-// usecase built with no WithNodes option at all must not fail the create.
-func TestCreateChild_NoNodesWired_StillSucceeds(t *testing.T) {
+// TestCreateChild_NoWithNodesOption_UsesNoOpDefaultAndStillSucceeds proves
+// hierarchy.New defaults u.nodes to a trivially-succeeding no-op when no
+// WithNodes option is given at all (the shape all ~180 pre-existing
+// hierarchy.New(...) test call sites use), so those tests keep passing
+// unchanged even though u.nodes is never nil.
+func TestCreateChild_NoWithNodesOption_UsesNoOpDefaultAndStillSucceeds(t *testing.T) {
 	g := &fakeGit{}
 	ws := &fakeWorkspace{
 		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
@@ -176,23 +177,159 @@ func TestCreateChild_NoNodesWired_StillSucceeds(t *testing.T) {
 	assert.NotEmpty(t, out.ID)
 }
 
-// TestCreateChild_NodeCreateFails_StillSucceeds proves a Node.Create failure
-// never fails the workspace create it rode in on — the lock has already been
-// committed and stands, mirroring EnsureOwningChat's own never-fail-the-write
-// contract for a secondary reconciliation write.
-func TestCreateChild_NodeCreateFails_StillSucceeds(t *testing.T) {
+// ── Node-mint failure ⇒ full rollback (2026-09-08 sidebar-placement-unification
+// Task 7 review fix) ─────────────────────────────────────────────────────────
+//
+// The mint used to be best-effort: log a warning, let the create stand. That
+// was wrong even in a perfectly healthy, fully-wired daemon — u.nodes.Create
+// runs AFTER a potentially-slow git worktree operation, so a client
+// disconnect/timeout cancelling ctx in that window fails it as a direct
+// consequence, not a misconfiguration, and (unlike the old EnsureOwningChat)
+// there is no boot-time backfill to catch the straggler. Every path below now
+// proves the WHOLE create rolls back instead: no orphaned Workspace row
+// survives with no Node row of its own.
+
+// TestCreateChild_NoRepoPath_NodeMintFails_RollsBackWorkspaceRow covers the
+// path-less/no-worktree branch: nothing on disk to unwind, but the just-created
+// workspace row must still be taken back out.
+func TestCreateChild_NoRepoPath_NodeMintFails_RollsBackWorkspaceRow(t *testing.T) {
 	g := &fakeGit{}
+	var createdID string
+	var deletedIDs []string
 	ws := &fakeWorkspace{
 		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			createdID = in.ID
 			return domain.Workspace{ID: in.ID}, nil
+		},
+		DeleteFn: func(_ context.Context, id string) error {
+			deletedIDs = append(deletedIDs, id)
+			return nil
 		},
 	}
 	nodes := &fakeNodeCreator{err: errors.New("node create boom")}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(), hierarchy.WithNodes(nodes))
 
-	out, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
+	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
 		RepoID: "r1", ProjectID: "p1", Branch: "feature/x", ParentID: "w-parent",
 	})
-	require.NoError(t, err, "a failed node mint must not fail the workspace create")
-	assert.NotEmpty(t, out.ID)
+
+	require.Error(t, err, "a failed node mint must now fail the whole create")
+	require.NotEmpty(t, createdID)
+	assert.Equal(t, []string{createdID}, deletedIDs,
+		"the workspace whose own node row could not be minted must be taken back out")
+}
+
+// TestCreateChild_WorktreeBacked_NodeMintFails_RollsBackWorktreeBranchAndRow
+// is the critical regression test: a live fork (very likely the most common
+// workspace-creation path in the app) whose worktree and branch were already
+// created on disk must have ALL of it — worktree, branch, and the workspace
+// row itself — rolled back when its own Node row fails to mint, exactly as a
+// failed workspaces.Create already does, not just logged and left standing.
+func TestCreateChild_WorktreeBacked_NodeMintFails_RollsBackWorktreeBranchAndRow(t *testing.T) {
+	g := &fakeGit{addStartSha: "sha123"}
+	var createdID string
+	var deletedIDs []string
+	ws := &fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			createdID = in.ID
+			return domain.Workspace{ID: in.ID}, nil
+		},
+		DeleteFn: func(_ context.Context, id string) error {
+			deletedIDs = append(deletedIDs, id)
+			return nil
+		},
+	}
+	nodes := &fakeNodeCreator{err: errors.New("node create boom")}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(), hierarchy.WithNodes(nodes))
+
+	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		RemoteURL:    "https://github.com/test/repo.git",
+		Branch:       "feature/x",
+		ParentID:     "w-parent",
+		ParentBranch: "develop",
+	})
+
+	require.Error(t, err, "a failed node mint must now fail the whole create")
+	require.NotEmpty(t, createdID)
+	assert.Equal(t, []string{createdID}, deletedIDs,
+		"the workspace whose own node row could not be minted must be taken back out")
+	ops := g.ops()
+	assert.Contains(t, ops, "WorktreeRemove", "the orphaned worktree must be removed too")
+	assert.Contains(t, ops, "ForceDeleteBranch", "the orphaned branch must be deleted too")
+}
+
+// TestCreateChild_AdoptMainWorktree_NodeMintFails_RollsBackWorkspaceRow covers
+// the repo-home adoption path: no NEW worktree/branch was created (it adopts
+// the repo's existing checkout in place), but the workspace row itself must
+// still be rolled back.
+func TestCreateChild_AdoptMainWorktree_NodeMintFails_RollsBackWorkspaceRow(t *testing.T) {
+	g := &fakeGit{revParseSha: "headsha"}
+	var createdID string
+	var deletedIDs []string
+	ws := &fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			createdID = in.ID
+			return domain.Workspace{ID: in.ID}, nil
+		},
+		DeleteFn: func(_ context.Context, id string) error {
+			deletedIDs = append(deletedIDs, id)
+			return nil
+		},
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return nil, nil },
+	}
+	nodes := &fakeNodeCreator{err: errors.New("node create boom")}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(), hierarchy.WithNodes(nodes))
+
+	_, err := uc.CreateChild(context.Background(), hierarchy.CreateChildInput{
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		RepoPath:     "/repo",
+		Branch:       "main",
+		ParentID:     "",
+		ParentBranch: "main",
+	})
+
+	require.Error(t, err, "a failed node mint must now fail the whole create")
+	require.NotEmpty(t, createdID)
+	assert.Equal(t, []string{createdID}, deletedIDs,
+		"the adopted workspace whose own node row could not be minted must be taken back out")
+}
+
+// TestCreateFromImport_Placeholder_NodeMintFails_RollsBackWorkspaceAndChat
+// covers the fourth hierarchy-package path: a placeholder whose own Node row
+// fails to mint must take BOTH the workspace row and the chat minted to own
+// it back out, via the same discardUnownedWorkspace path a failed
+// AttachOwningWorkspace already uses.
+func TestCreateFromImport_Placeholder_NodeMintFails_RollsBackWorkspaceAndChat(t *testing.T) {
+	var createdID string
+	var deletedIDs []string
+	inner := &fakeWorkspace{
+		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+			createdID = in.ID
+			return domain.Workspace{ID: in.ID}, nil
+		},
+		DeleteFn: func(_ context.Context, id string) error {
+			deletedIDs = append(deletedIDs, id)
+			return nil
+		},
+	}
+	g := &fakeGit{addErr: errBoom} // WorktreeAddBranch fails: a plain git failure, no holder involved
+	nodes := &fakeNodeCreator{err: errors.New("node create boom")}
+	uc := hierarchy.New(inner, g, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome(), hierarchy.WithNodes(nodes))
+	chats := withOwningChats(uc)
+
+	err := uc.CreateFromImport(context.Background(), hierarchy.ImportInput{
+		RepoID: "r1", ProjectID: "p1", RepoPath: "/repo",
+		RemoteURL: "https://github.com/test/repo.git", DefaultBranch: "main",
+		Branches: []string{"feat/x"},
+	})
+
+	require.Error(t, err, "a placeholder whose own node row could not be minted produces no row at all")
+	require.NotEmpty(t, createdID)
+	assert.Equal(t, []string{createdID}, deletedIDs,
+		"the placeholder whose own node row could not be minted must be taken back out")
+	assert.NotEmpty(t, chats.discards(), "the chat minted for the placeholder goes too")
 }
