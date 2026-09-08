@@ -63,6 +63,11 @@ type Container struct {
 	// behind a tool-call storm.
 	axAgentActivity asynx.Asynx[domain.ChatActivity]
 	axAgentRunner   asynx.Asynx[agents.Runner]
+	// axNode is the Node position aggregate's own per-type singleton
+	// (2026-09-08 sidebar-placement-unification): the ONE entity that will own
+	// every sidebar row's ParentID/Order. This wiring is purely additive —
+	// nothing else in the codebase reads or writes it yet.
+	axNode asynx.Asynx[domain.Node]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -111,17 +116,18 @@ func New(
 		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
 	}
 
+	axNode, err := newAxNode(adapters)
+	if err != nil {
+		return nil, err
+	}
+
 	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
 		return nil, err
 	}
 
 	h := hub.NewHub()
-	// The agent aggregates announce; the fanout decides what a client is told. The hub
-	// still reaches the repository layer for workspace frames, which are outside this
-	// subsystem.
-	agentFanout := agentusecase.NewFanout(h)
-	repos, err := repositories.New(
+	repos, err := newRepositoriesContainer(
 		ctx,
 		adapters,
 		h,
@@ -130,13 +136,11 @@ func New(
 		axAgentChat,
 		axAgentActivity,
 		axAgentRunner,
-		engines.Git,
-		terminateAgentSession(engines.Terminal),
-		agentFanout.ChatWatch(),
-		agentFanout.RunnerWatch(),
+		axNode,
+		engines,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("app: repositories: %w", err)
+		return nil, err
 	}
 
 	// Path-deriving usecases must share the adapter's resolved home so git
@@ -188,6 +192,7 @@ func New(
 		axAgentChat:     axAgentChat,
 		axAgentActivity: axAgentActivity,
 		axAgentRunner:   axAgentRunner,
+		axNode:          axNode,
 	}, nil
 }
 
@@ -265,6 +270,7 @@ func (c *Container) Shutdown(
 		c.axAgentRunner.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
 		c.axAgentActivity.Shutdown(ctx),
+		c.axNode.Shutdown(ctx),
 	)
 }
 
@@ -415,6 +421,66 @@ type threadBroadcaster interface {
 	BroadcastThread(
 		t dto.ThreadDTO,
 	)
+}
+
+// newAxNode builds the Node position aggregate's per-type singleton, mirroring
+// axAgentChat's own construction. Purely additive (2026-09-08
+// sidebar-placement-unification, Task 1): nothing else sends Node commands
+// yet — later tasks migrate existing placement logic onto it one vertical
+// slice at a time. Split out of New only to keep that constructor within its
+// length budget.
+func newAxNode(
+	adapters *adapter.Container,
+) (asynx.Asynx[domain.Node], error) {
+	axNode, err := newAsynx[domain.Node](adapters.NodeES(), adapters.NodeSS())
+	if err != nil {
+		return nil, fmt.Errorf("app: asynx node: %w", err)
+	}
+	return axNode, nil
+}
+
+// newRepositoriesContainer builds the repository layer from every per-type
+// asynx singleton and the injected app-layer seams. The agent aggregates
+// announce; the fanout built here decides what a client is told — the hub
+// still reaches the repository layer for workspace frames, which are outside
+// this subsystem. No live-update consumer is wired to Node yet (Task 1 is
+// purely additive), so its watch is nil — safe, mirroring agentchat's own
+// nil-tolerant hub projection. Split out of New only to keep that constructor
+// within its length budget, mirroring newAgentWiring/newProjectImport in
+// usecases/container.go.
+func newRepositoriesContainer(
+	ctx context.Context,
+	adapters *adapter.Container,
+	h *hub.Hub,
+	axReviewThread asynx.Asynx[domain.ReviewThread],
+	axWorkspace asynx.Asynx[domain.Workspace],
+	axAgentChat asynx.Asynx[domain.Chat],
+	axAgentActivity asynx.Asynx[domain.ChatActivity],
+	axAgentRunner asynx.Asynx[agents.Runner],
+	axNode asynx.Asynx[domain.Node],
+	engines *engine.Container,
+) (*repositories.Container, error) {
+	agentFanout := agentusecase.NewFanout(h)
+	repos, err := repositories.New(
+		ctx,
+		adapters,
+		h,
+		axReviewThread,
+		axWorkspace,
+		axAgentChat,
+		axAgentActivity,
+		axAgentRunner,
+		axNode,
+		engines.Git,
+		terminateAgentSession(engines.Terminal),
+		agentFanout.ChatWatch(),
+		agentFanout.RunnerWatch(),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("app: repositories: %w", err)
+	}
+	return repos, nil
 }
 
 func toUsecaseStores(

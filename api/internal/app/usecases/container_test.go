@@ -26,6 +26,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -69,10 +70,12 @@ func newContainerDeps(
 		newTestAsynx[domain.Chat](t, adapters.AgentChatES()),
 		newTestAsynx[domain.ChatActivity](t, adapters.AgentActivityES()),
 		newTestAsynx[agents.Runner](t, adapters.AgentRunnerES()),
+		newTestAsynx[domain.Node](t, adapters.NodeES()),
 		nil, // git conflict-checker not exercised by this test
 		nil, // terminateSession not exercised by this test
 		noChatWatch,
 		noRunnerWatch,
+		noNodeWatch,
 	)
 	require.NoError(t, err)
 
@@ -453,3 +456,8 @@ func (containerStatusStub) GitStatus(
 // that fails to build), so `nil` here would break every container in this file.
 func noChatWatch(_ agentchat.ChatEvent)       {}
 func noRunnerWatch(_ agentrunner.RunnerEvent) {}
+
+// noNodeWatch is node's own announcement seam, spelled out for the same
+// readability reason noChatWatch/noRunnerWatch are — node's store (mirroring
+// agentchat's) tolerates a nil watch, unlike agentrunner's.
+func noNodeWatch(_ node.NodeEvent) {}
