@@ -371,59 +371,103 @@ See the commits on `worktree-agent-a7e53caf132134af8`.
 - **C1** — the working line now renders the blocking interruption instead of
   returning `null`, using the already-written `describeInterruption` copy.
 
-**Left open** (designed, not implemented — each needs a new vocabulary event plus
-Go persistence plus frontend rendering plus live verification, which is more than
-one reviewable change):
 
-- **B / reasoning streaming** — the highest-value remaining item.
-- **B / plan updates**, **command output deltas**, **tool progress**.
-- **B1** — moving the five hooks-routed events onto the api transport.
-- **C2**, **C3**, **C4**.
+### Second pass — the capability gaps in section B
 
-### The single highest-value item still open
+Everything in section B was then closed too, driven by **real captured traffic**
+rather than the schema. A harness (`scratchpad/capture.py`) drove a real
+`codex app-server` over stdio and recorded every frame; the recordings replaced
+the schema-derived fixtures and are what the mappings below were written against.
 
-`thread/status/changed` is codex's **authoritative** answer to "am I working":
-`status.type` ∈ `{notLoaded, idle, systemError, active}`, plus `activeFlags` ∈
-`{waitingOnApproval, waitingOnUserInput}`. Crowbar ignores it completely — there
-is even a captured live fixture (`thread_status_changed.json`) sitting unused in
-testdata.
+- **B / reasoning** — `reasoning_delta`, a new canonical event. Same shape as
+  `message_delta` and it rides the **same live channel**, distinguished by a
+  `kind` on the frame rather than by a parallel fan-out. Live-only: nothing
+  durable is written, because recording it would put the model's thinking into
+  the transcript as though it had said it. Rendered in the working line, trimmed
+  to its tail, markdown emphasis stripped, clamped to two lines.
+- **B / command output deltas** — `tool_output_delta`, the second kind on that
+  same channel. Rendered under the running tool row it belongs to.
+- **B / plan updates** — `plan_update`, the first canonical event to need a
+  **structured extra** (`steps:`, beside `map:`, as `rate_limits:` already is).
+  Its `status_map` translates a provider's own status words into Crowbar's
+  pending/active/done, so Go never learns that codex spells one "inProgress".
+- **B / `thread/status/changed`** — `idle`. See the correction below.
 
-Mapping it needs a new canonical event, because the vocabulary is closed and has
-no name for a provider-reported idle state. The design that fits: an `idle`
-inbound event (`required: []`, `optional: [session_id]`), which codex maps as
-`in: thread/status/changed`, `when: {status.type: idle}`. Its Go handler
-reconciles an orphaned open turn — the same `AbandonMessage` salvage-then-abandon
-the quiet-screen sweep already performs, but driven by the provider's own word
-instead of a 30–120s heuristic that a codex turn frequently never satisfies.
+### A design in this report that live capture proved WRONG
 
-That would close the residual of B2.3 (a turn orphaned while the connection is
-still *up*) and is a genuinely generic primitive — ACP models the same thing as
-`SessionComplete` / `StatusChanged`. It was scoped out here because it needs
-vocabulary + Go + persistence + tests, and the three fixes above address the
-measured causes.
+The first pass proposed mapping `thread/status/changed` as a turn-closer.
+Capturing a real session showed `{"type":"idle"}` arriving **immediately before**
+`turn/completed` on a perfectly healthy turn — sub-millisecond. Implementing it
+as proposed would have abandoned *every* turn microseconds before it ended
+properly, salvaging and closing work that was about to be recorded correctly.
 
-## E. Honest verification status
+It is instead a **latch**: the report arms it, the turn's own close disarms it,
+and a latch still armed when the 2s sweep next looks is a turn nothing is going
+to close, on a provider that has said so itself. That covers the case nothing
+else could reach — the stall detector needs a declared notice on a PTY for 120s
+and the abandoned-message detector needs a half-written message idle for 30s, and
+a codex turn that only reasoned produces neither.
 
-- Go: targeted `go test` runs on the touched packages, then the **whole**
-  `./internal/...` suite, all green. The specific race in B2 was measured before
-  and after (6–8/20 failing → 0/25), not asserted.
-- Payload shapes: derived from codex's **generated schema**, not from live
-  capture — codex is not installed on this machine. The new fixtures are marked
-  as schema-derived in-file so nobody mistakes them for live recordings. This
-  matters: the repo's own history records four paths written from a published
-  schema that were wrong against real traffic. These are generated-from-source
-  rather than hand-written docs, which is stronger, but it is **not** a live capture.
-- Frontend: unit tests only, and only a subset could run at all. This worktree
-  has no `node_modules`; the tests were run against the main worktree's install,
-  which predates several of this branch's dependencies (`react-dnd`,
-  `papaparse`, `platejs`). 26 test files fail to resolve imports there
-  **regardless of these changes**. The files covering what was touched do run:
-  `working-line`, `agent-activity`, `composer-choice`, `composer-state`,
-  `use-agent-activity` — 114 tests, green.
-- **No live Tauri verification was performed.** `codex` is not installed on this
-  machine (`which codex` → not found), so a real codex chat cannot be exercised
-  here at all. Every UI-visible change in this branch — the tool rows now showing
-  a target and output, the context gauge appearing, the blocked-state line, the
-  spinner actually stopping — must be re-checked in `make dev-desktop` against a
-  real codex chat before this is considered done. Treat that as outstanding work,
-  not a caveat.
+### A second thing only live verification could find
+
+Mapping `reasoning_delta` was not enough: **codex emits no reasoning summaries
+unless asked**. Measured by running the identical reasoning-heavy prompt twice —
+zero `item/reasoning/*` frames with the default configuration, a full stream with
+`model_reasoning_summary` set, isolated to that one knob. Without the matching
+`config_injection` line the whole feature was inert in production while every
+unit test passed. It was found by driving the real app and watching nothing
+appear.
+
+## E. Verification status
+
+### Automated
+
+- Go: the **whole** `./internal/...` suite, green.
+- Frontend: `bun tsc --noEmit` clean, and the full `features/agent` +
+  `features/workspace` suites — **2028 tests, green**. (The first pass could only
+  run a subset because this worktree had no `node_modules`; they are installed now.)
+- The B2.1 race was **measured**, not asserted: 6/20 and 8/20 failing on the
+  unmodified tree, 0/25 after.
+
+### Live, in the real app
+
+`make dev-desktop` in this worktree (its own `CROWBAR_HOME`, its own derived
+origin `localhost:5515`, its own MCP bridge on 9225 — three other worktrees'
+dev apps were running and were **not** touched), seeded with `make seed`, driving
+a real `codex` 0.149.1 chat. Console evidence captured via `read_logs`.
+
+Confirmed working end to end:
+
+- **Tool target and duration** — rows render
+  `set_chat_title · crowbar 7ms` and
+  `commandExecution · /bin/zsh -lc "…" 8.0s`.
+  Before the fix both were bare type names with no target and no duration.
+- **Telemetry** — the context gauge renders `36% context`,
+  title `93,876 of 258,400 tokens`. A codex chat had never shown this.
+- **Reasoning** — the working line showed the model's own thought,
+  `"Searching for crowbar tool"`, during the stretch where codex emits nothing else.
+- **Tool output** — streamed live under its own tool row, one line per second:
+  `tick 2` → `tick 2 tick 3` → … → `tick 2 … tick 10`.
+- **Plan** — a three-step task drove the checklist through every state, captured
+  as four distinct renders:
+  `active,pending,pending` → `done,active,pending` → `done,done,active` →
+  `done,done,done`. Those are CROWBAR'S status words, translated from codex's
+  `inProgress`/`completed` by the descriptor's `status_map` — the frontend never
+  saw a codex spelling.
+- **No stuck spinner, and live state cleared** — at turn end the working line was
+  gone (`workingLine: false`) and the plan with it (`planStillShown: false`),
+  which is the turn-edge clear working on both sides.
+
+### Still not verified live
+
+- **`idle`** is covered by unit tests (the latch, and the sweep detector's three
+  branches) and its `when:` routing is replayed against a live-captured fixture of
+  the real `thread/status/changed` frame — but its RECONCILE was not observed
+  firing in the running app. By construction it only fires on a turn whose close
+  never arrives, which is not something a healthy codex will do on demand. Every
+  healthy turn exercised above disarmed the latch correctly, which is the other
+  half of the contract and is what a wrong implementation would have broken.
+- **`tool_fail` / `turn_failed`** — mapped and unit-tested, but no failing codex
+  turn was provoked live.
+- The **B1** hooks-routed events (subagent/compaction/session-end on a
+  disconnected companion PTY) are untouched and remain a known gap.
