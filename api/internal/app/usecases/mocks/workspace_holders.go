@@ -39,5 +39,9 @@ func (s *AgentWorkspaceHolders) ChatsForWorkspace(
 	if s.Err != nil {
 		return nil, s.Err
 	}
-	return worktree.ChatsForWorkspace(ctx, workspaceID, s.Chats)
+	// nil, nil: this fake's own fixtures are chat-only (no Folder/Node
+	// awareness needed) — see worktree.ChatsForWorkspace's own nil-safety
+	// doc, 2026-09-08 sidebar-placement-unification Task 8's review fix
+	// round.
+	return worktree.ChatsForWorkspace(ctx, workspaceID, s.Chats, nil, nil)
 }

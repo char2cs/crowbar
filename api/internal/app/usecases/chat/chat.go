@@ -180,6 +180,18 @@ type Usecase struct {
 	agents      engineagents.Agents
 	ws          WorkspaceReader
 	worktree    WorktreeCreator
+	// folders/nodes are the Folder+Node ports 2026-09-08
+	// sidebar-placement-unification Task 8's own review fix round added:
+	// own_worktree.go/promote.go/repo_scope.go/cwd_resolver.go all walk the
+	// chat/folder placement tree looking for a fork parent, a cwd, or a
+	// repo-scoped chat's ground workspace, and a folder is never a Chat row
+	// any more (home-scoped since Task 5, repo-scoped too since Task 8) — a
+	// raw Chats.ListChats/ListByWorkspace read alone can no longer see past
+	// one. May be nil (a caller with neither wired, e.g. a narrow test
+	// double); every consumer degrades to the pre-Task-8 Chat-only walk
+	// rather than failing.
+	folders TreeFolders
+	nodes   TreeNodes
 	// answers is the desk of relays currently BLOCKED on a human. It is in memory
 	// because a slot describes a live hook process holding a live provider gate
 	// open; see answers.go.

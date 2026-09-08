@@ -19,14 +19,23 @@ import (
 // scoped to chatID's OWN workspace — and is empty for exactly the chat this
 // reader must resolve: one with no workspace of its own, filed under a
 // folder, whose worktree-owning ancestor sits above it.
+//
+// folders/nodes (2026-09-08 sidebar-placement-unification Task 8's own
+// review fix round) let the walk step past a Folder-only ancestor — see
+// newChatForest/foldersReachableFromRoots (chat_forest.go). Either may be
+// nil, degrading to the pre-Task-8, Chat-only walk.
 func NewChatTreeAncestryReader(
 	lister ChatLister,
+	folders Folders,
+	nodes Nodes,
 ) ChatAncestryReader {
-	return chatTreeAncestryReader{lister: lister}
+	return chatTreeAncestryReader{lister: lister, folders: folders, nodes: nodes}
 }
 
 type chatTreeAncestryReader struct {
-	lister ChatLister
+	lister  ChatLister
+	folders Folders
+	nodes   Nodes
 }
 
 // Ancestors implements ChatAncestryReader: chatID itself first, then each
@@ -40,5 +49,5 @@ func (r chatTreeAncestryReader) Ancestors(
 	if err != nil {
 		return nil, fmt.Errorf("chat ancestry: list chats: %w", err)
 	}
-	return newChatForest(rows).ancestry(chatID), nil
+	return newChatForest(ctx, r.folders, r.nodes, rows).ancestry(chatID), nil
 }

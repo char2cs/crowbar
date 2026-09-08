@@ -130,6 +130,11 @@ type worktreeResolver struct {
 	chats      worktree.ChatAncestryReader
 	chatRows   worktree.ChatLister
 	workspaces worktree.WorkspaceReader
+	// folders/nodes let ChatsForWorkspace's own ancestry walk step past a
+	// Folder-only ancestor (2026-09-08 sidebar-placement-unification Task
+	// 8's own review fix round) — see worktree.ChatsForWorkspace's own doc.
+	folders worktree.Folders
+	nodes   worktree.Nodes
 }
 
 // Resolve implements WorktreeResolver.
@@ -145,7 +150,7 @@ func (r worktreeResolver) ChatsForWorkspace(
 	ctx context.Context,
 	workspaceID string,
 ) ([]string, error) {
-	return worktree.ChatsForWorkspace(ctx, workspaceID, r.chatRows)
+	return worktree.ChatsForWorkspace(ctx, workspaceID, r.chatRows, r.folders, r.nodes)
 }
 
 // New builds the usecases container. It takes the aggregate repositories, the
@@ -377,6 +382,12 @@ func newAgentWiring(
 		// install probe. Only tests inject a stub to isolate from the host PATH.
 		Minter: minter,
 		Tools:  toolDeps,
+		// Folders/Nodes let own_worktree.go/promote.go/repo_scope.go/
+		// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
+		// (2026-09-08 sidebar-placement-unification Task 8's own review fix
+		// round) — see agentusecase.Deps' own doc.
+		Folders: gormStores.Folders,
+		Nodes:   repos.Node,
 	})
 	// The chat→worktree resolver, built here because it reads the chat forest
 	// off the usecase above and because the tree below needs its inverse. The
@@ -384,9 +395,11 @@ func newAgentWiring(
 	// worktreeUsecase), so the fan-out set a shared write pushes to and the
 	// holder set a delete checks against are one function, not two.
 	worktreeUsecase := worktreeResolver{
-		chats:      worktree.NewChatTreeAncestryReader(chat),
+		chats:      worktree.NewChatTreeAncestryReader(chat, gormStores.Folders, repos.Node),
 		chatRows:   chat,
 		workspaces: workspaceUsecase,
+		folders:    gormStores.Folders,
+		nodes:      repos.Node,
 	}
 	chatTree := agentusecase.NewTree(
 		repos.AgentChat,

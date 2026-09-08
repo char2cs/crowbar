@@ -59,7 +59,7 @@ func (r *rowsWorktreeResolver) Resolve(
 	return worktree.Resolve(
 		ctx,
 		chatID,
-		worktree.NewChatTreeAncestryReader(r.rows),
+		worktree.NewChatTreeAncestryReader(r.rows, nil, nil),
 		r.workspaces,
 	)
 }
@@ -68,7 +68,7 @@ func (r *rowsWorktreeResolver) ChatsForWorkspace(
 	ctx context.Context,
 	workspaceID string,
 ) ([]string, error) {
-	return worktree.ChatsForWorkspace(ctx, workspaceID, r.rows)
+	return worktree.ChatsForWorkspace(ctx, workspaceID, r.rows, nil, nil)
 }
 
 // fork adds a chat to the forest, the way a fork onto an existing worktree

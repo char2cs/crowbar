@@ -45,16 +45,28 @@ func CwdWorkspaceID(
 // It exists so a caller asking the question of a whole list builds the forest
 // once instead of once per row. The walk itself is the same one; nothing here
 // re-implements it.
+//
+// folders/nodes (2026-09-08 sidebar-placement-unification Task 8's own
+// review fix round) fold in every reachable Folder+Node row first — see
+// foldersReachableFromRoots — so a row whose walk passes through a folder
+// ancestor still resolves correctly. Either port may be nil, degrading to
+// the pre-Task-8, Chat-only walk.
 func CwdWorkspaceIDs(
+	ctx context.Context,
+	folders Folders,
+	nodes Nodes,
 	rows []domain.Chat,
 ) map[string]string {
-	nodes := make([]tree.Node, len(rows))
+	if folderRows, err := foldersReachableFromRoots(ctx, folders, nodes, rows); err == nil {
+		rows = append(rows, folderRows...)
+	}
+	treeNodes := make([]tree.Node, len(rows))
 	byID := make(map[string]domain.Chat, len(rows))
 	for i, row := range rows {
-		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
+		treeNodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
 		byID[row.ID] = row
 	}
-	forest := tree.New(nodes)
+	forest := tree.New(treeNodes)
 	out := make(map[string]string, len(rows))
 	for _, row := range rows {
 		if id, ok := CwdWorkspaceID(forest, byID, row.ID); ok {
@@ -96,9 +108,22 @@ func ForkParentID(
 // This is the one read+build step every Resolve* walk below needs and no
 // caller with its own in-progress plan does — PlaceChat and friends already
 // hold a snapshot to walk instead.
+//
+// folders/nodes fold in every reachable Folder+Node row (see
+// foldersReachableFromRoots below) — 2026-09-08 sidebar-placement-
+// unification Task 8's own review fix round: a folder is never a Chat row
+// any more (home-scoped since Task 5, repo-scoped too since Task 8), so
+// chats.ListChats' raw read no longer carries it at all, and a walk built
+// from that read alone stops dead the moment it reaches a folder ancestor —
+// even when a real fork parent/workspace sits one hop further up. Either
+// port may be nil (a caller with no Folders/Nodes wired at all, e.g. a
+// narrow test double) and the walk degrades to its old, Chat-only
+// behaviour rather than failing outright.
 func freshForest(
 	ctx context.Context,
 	chats Chats,
+	folders Folders,
+	nodes Nodes,
 	rowID string,
 ) (tree.Tree, map[string]domain.Chat, error) {
 	subject, err := chats.LoadChat(ctx, rowID)
@@ -110,13 +135,16 @@ func freshForest(
 		return nil, nil, err
 	}
 	rows = corrected(rows, subject)
-	nodes := make([]tree.Node, len(rows))
+	if folderRows, ferr := foldersReachableFromRoots(ctx, folders, nodes, rows); ferr == nil {
+		rows = append(rows, folderRows...)
+	}
+	treeNodes := make([]tree.Node, len(rows))
 	byID := make(map[string]domain.Chat, len(rows))
 	for i, row := range rows {
-		nodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
+		treeNodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
 		byID[row.ID] = row
 	}
-	return tree.New(nodes), byID, nil
+	return tree.New(treeNodes), byID, nil
 }
 
 // ResolveForkParent is ForkParentID over freshForest's log-corrected read of
@@ -125,9 +153,11 @@ func freshForest(
 func ResolveForkParent(
 	ctx context.Context,
 	chats Chats,
+	folders Folders,
+	nodes Nodes,
 	rowID string,
 ) (string, bool, error) {
-	t, byID, err := freshForest(ctx, chats, rowID)
+	t, byID, err := freshForest(ctx, chats, folders, nodes, rowID)
 	if err != nil {
 		return "", false, err
 	}
@@ -140,14 +170,82 @@ func ResolveForkParent(
 func ResolveCwdWorkspaceID(
 	ctx context.Context,
 	chats Chats,
+	folders Folders,
+	nodes Nodes,
 	rowID string,
 ) (string, bool, error) {
-	t, byID, err := freshForest(ctx, chats, rowID)
+	t, byID, err := freshForest(ctx, chats, folders, nodes, rowID)
 	if err != nil {
 		return "", false, err
 	}
 	id, ok := CwdWorkspaceID(t, byID, rowID)
 	return id, ok, nil
+}
+
+// foldersReachableFromRoots discovers every Folder+Node row filed somewhere
+// between baseRows' own ids and the panel root, rendered as the same
+// Chat-shaped view PlaceChat itself uses — mirrors chat package's own
+// foldersReachableFrom (home_read.go) exactly (same BFS shape: seed the
+// queue with "" plus every id baseRows already names, so a folder nested
+// under an ordinary chat or a locked branch's own un-Noded owning row is
+// still discovered), duplicated rather than imported because this package
+// cannot import the outer chat package it is itself imported BY (no cross
+// -package call here — see Folders/Nodes' own docs, home_ports.go, for why
+// this package already carries these two ports for its own placement work).
+//
+// A nil folders or nodes port (a caller with neither wired) answers ("",
+// nil) immediately — the walk simply gets no folder augmentation, exactly
+// its pre-Task-8 behaviour.
+func foldersReachableFromRoots(
+	ctx context.Context,
+	folders Folders,
+	nodes Nodes,
+	baseRows []domain.Chat,
+) ([]domain.Chat, error) {
+	if folders == nil || nodes == nil {
+		return nil, nil
+	}
+	var found []domain.Chat
+	queried := map[string]bool{}
+	seenFolder := map[string]bool{}
+	queue := make([]string, 0, len(baseRows)+1)
+	queue = append(queue, "")
+	for _, row := range baseRows {
+		queue = append(queue, row.ID)
+	}
+	for len(queue) > 0 {
+		parent := queue[0]
+		queue = queue[1:]
+		if queried[parent] {
+			continue
+		}
+		queried[parent] = true
+		children, err := nodes.ListByParent(ctx, parent)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range children {
+			if n.Kind != domain.NodeKindFolder || seenFolder[n.ID] {
+				continue
+			}
+			seenFolder[n.ID] = true
+			f, ferr := folders.FindByKey(ctx, n.ID)
+			if ferr != nil {
+				return nil, ferr
+			}
+			if f == nil {
+				continue
+			}
+			found = append(found, domain.Chat{
+				ID: f.ID, Type: domain.ChatTypeFolder, RepoID: f.RepoID,
+				Title: f.Name, ParentID: n.ParentID, Order: n.Order,
+			})
+			if !queried[n.ID] {
+				queue = append(queue, n.ID)
+			}
+		}
+	}
+	return found, nil
 }
 
 // ChatLineage answers what rowID reads: its CHAT ancestors, nearest first,

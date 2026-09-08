@@ -8,6 +8,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	apptree "github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -103,7 +104,7 @@ func TestResolveForkParent_ReadsEveryRowAndWalksLikeForkParentID(t *testing.T) {
 	}
 	chats := stubListChats{rows: rows}
 
-	got, ok, err := tree.ResolveForkParent(context.Background(), chats, "self")
+	got, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "self")
 
 	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("want (ws-root, true, nil), got (%q, %v, %v)", got, ok, err)
@@ -116,7 +117,7 @@ func TestResolveForkParent_NoAncestorAtAll_ReportsNotFound(t *testing.T) {
 	}
 	chats := stubListChats{rows: rows}
 
-	_, ok, err := tree.ResolveForkParent(context.Background(), chats, "root")
+	_, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "root")
 
 	if err != nil || ok {
 		t.Fatalf("a row with no ancestor has no fork parent, got ok=%v err=%v", ok, err)
@@ -130,7 +131,7 @@ func TestResolveForkParent_PropagatesTheListError(t *testing.T) {
 	// not-found would be the error this test observes, not ListChats'.
 	chats := stubListChats{rows: []domain.Chat{{ID: "any"}}, err: wantErr}
 
-	_, _, err := tree.ResolveForkParent(context.Background(), chats, "any")
+	_, _, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "any")
 
 	if err != wantErr {
 		t.Fatalf("want the list error propagated, got %v", err)
@@ -144,7 +145,7 @@ func TestResolveForkParent_PropagatesTheLoadFailure(t *testing.T) {
 	wantErr := context.Canceled
 	chats := stubListChats{loadErr: wantErr, err: errors.New("must never be reached")}
 
-	_, _, err := tree.ResolveForkParent(context.Background(), chats, "any")
+	_, _, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "any")
 
 	if err != wantErr {
 		t.Fatalf("want the load error propagated, got %v", err)
@@ -172,10 +173,107 @@ func TestResolveForkParent_UsesTheLogFoldedRowNotTheStaleProjection(t *testing.T
 		},
 	}
 
-	got, ok, err := tree.ResolveForkParent(context.Background(), chats, "self")
+	got, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "self")
 
 	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("must resolve through the log-folded parent, not the stale projection; got (%q, %v, %v)", got, ok, err)
+	}
+}
+
+// TestResolveForkParent_WalksThroughAFolderAncestor is the SDD review's own
+// required regression, Critical finding fix round: a folder is Folder/Node-
+// backed now (never a Chat row — home-scoped since Task 5, repo-scoped too
+// since Task 8), so it is invisible to stubListChats' raw ListChats/LoadChat
+// reads. Before this fix, freshForest built its walk tree from that raw read
+// alone — the moment the walk reached "folder" (present in the Node forest
+// but absent from rows), t.Node("folder") answered not-found and the walk
+// stopped dead, even though "root" (a real fork parent/workspace) sits one
+// hop further up. This is the routine, expected shape a fork/promote hits
+// in production: a bubble chat filed under a folder nested inside a
+// branch's own subtree.
+func TestResolveForkParent_WalksThroughAFolderAncestor(t *testing.T) {
+	rows := []domain.Chat{
+		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
+		// "self"'s own ParentID names "folder" -- a Folder+Node row, never a
+		// member of rows.
+		{ID: "self", Type: domain.ChatTypeChat, ParentID: "folder"},
+	}
+	chats := stubListChats{rows: rows}
+	folders := mocks.NewFolderStore()
+	folders.Saved = []domain.Folder{{ID: "folder", Name: "notes"}}
+	nodes := mocks.NewNodePlacements()
+	nodes.Rows = []domain.Node{
+		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
+	}
+
+	got, ok, err := tree.ResolveForkParent(context.Background(), chats, folders, nodes, "self")
+
+	if err != nil || !ok || got != "ws-root" {
+		t.Fatalf("must walk THROUGH the folder to find root's workspace; got (%q, %v, %v)", got, ok, err)
+	}
+}
+
+// TestResolveCwdWorkspaceID_WalksThroughAFolderAncestor is
+// TestResolveForkParent_WalksThroughAFolderAncestor's counterpart for the
+// OTHER walk the same review finding named — the spawn path's own cwd
+// resolution (cwd_resolver.go), which starts ON the subject itself rather
+// than one hop above it.
+func TestResolveCwdWorkspaceID_WalksThroughAFolderAncestor(t *testing.T) {
+	rows := []domain.Chat{
+		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
+		{ID: "self", Type: domain.ChatTypeChat, ParentID: "folder"},
+	}
+	chats := stubListChats{rows: rows}
+	folders := mocks.NewFolderStore()
+	folders.Saved = []domain.Folder{{ID: "folder", Name: "notes"}}
+	nodes := mocks.NewNodePlacements()
+	nodes.Rows = []domain.Node{
+		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
+	}
+
+	got, ok, err := tree.ResolveCwdWorkspaceID(context.Background(), chats, folders, nodes, "self")
+
+	if err != nil || !ok || got != "ws-root" {
+		t.Fatalf("must walk THROUGH the folder to find root's workspace; got (%q, %v, %v)", got, ok, err)
+	}
+}
+
+// TestCwdWorkspaceIDs_WalksThroughAFolderAncestor is the batch form
+// (repo_scope.go's ListChatsInRepo) of the same fix.
+func TestCwdWorkspaceIDs_WalksThroughAFolderAncestor(t *testing.T) {
+	rows := []domain.Chat{
+		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
+		{ID: "self", Type: domain.ChatTypeChat, ParentID: "folder"},
+	}
+	folders := mocks.NewFolderStore()
+	folders.Saved = []domain.Folder{{ID: "folder", Name: "notes"}}
+	nodes := mocks.NewNodePlacements()
+	nodes.Rows = []domain.Node{
+		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
+	}
+
+	got := tree.CwdWorkspaceIDs(context.Background(), folders, nodes, rows)
+
+	if got["self"] != "ws-root" {
+		t.Fatalf("want self -> ws-root through the folder, got %q", got["self"])
+	}
+}
+
+// TestResolveForkParent_NilFoldersAndNodesDegradesGracefully pins the
+// nil-safety contract both new params carry: a caller with neither wired
+// (an existing narrow test double, or Deps{} left zero-valued) gets the
+// pre-Task-8, Chat-only walk back, not a panic.
+func TestResolveForkParent_NilFoldersAndNodesDegradesGracefully(t *testing.T) {
+	rows := []domain.Chat{
+		{ID: "root", Type: domain.ChatTypeBranch, WorkspaceID: "ws-root"},
+		{ID: "self", Type: domain.ChatTypeBranch, ParentID: "root", WorkspaceID: "ws-self"},
+	}
+	chats := stubListChats{rows: rows}
+
+	got, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "self")
+
+	if err != nil || !ok || got != "ws-root" {
+		t.Fatalf("nil folders/nodes must degrade, not fail; got (%q, %v, %v)", got, ok, err)
 	}
 }
 

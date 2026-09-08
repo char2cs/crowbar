@@ -65,10 +65,17 @@ func Resolve(
 // having no subscribers is a fact, not a failure. So does an empty
 // workspaceID, which must never be read as "every chat whose ancestry owns no
 // worktree at all".
+//
+// folders/nodes (2026-09-08 sidebar-placement-unification Task 8's own
+// review fix round) let the walk step past a Folder-only ancestor — see
+// newChatForest. Either may be nil, degrading to the pre-Task-8, Chat-only
+// walk.
 func ChatsForWorkspace(
 	ctx context.Context,
 	workspaceID string,
 	chats ChatLister,
+	folders Folders,
+	nodes Nodes,
 ) ([]string, error) {
 	if workspaceID == "" {
 		return []string{}, nil
@@ -77,7 +84,7 @@ func ChatsForWorkspace(
 	if err != nil {
 		return nil, fmt.Errorf("worktree: chats for workspace %s: list chats: %w", workspaceID, err)
 	}
-	forest := newChatForest(rows)
+	forest := newChatForest(ctx, folders, nodes, rows)
 	memo := make(map[string]string, len(rows))
 	chatIDs := make([]string, 0, len(rows))
 	for _, row := range rows {

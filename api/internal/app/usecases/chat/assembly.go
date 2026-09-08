@@ -39,6 +39,12 @@ type Deps struct {
 	Worktree  WorktreeCreator // Promote's seam onto the worktree hierarchy usecase
 	// Lineage answers "what does this chat read" at spawn time.
 	Lineage ChatLineage
+	// Folders/Nodes let own_worktree.go/promote.go/repo_scope.go/
+	// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
+	// (2026-09-08 sidebar-placement-unification Task 8's own review fix
+	// round) — see Usecase's own doc for why. May be left nil.
+	Folders TreeFolders
+	Nodes   TreeNodes
 	// ProviderPrefs is the global (per user/machine) provider priority+enabled table.
 	ProviderPrefs store.Store[domain.AgentProviderPreference, string]
 	// PermissionPrefs is the global default permission level a new chat is
@@ -112,6 +118,8 @@ func New(d Deps) *Usecase {
 		answers:     sh.answers,
 		tools:       d.Tools,
 		work:        sh.work,
+		folders:     d.Folders,
+		nodes:       d.Nodes,
 	}
 	// The tool surface's four self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
@@ -176,7 +184,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Agents:        d.Agents,
 		Terminal:      d.Terminal,
 		Workspace:     d.Workspace,
-		AncestorCwd:   cwdResolver{chats: d.Chats},
+		AncestorCwd:   cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes},
 		Home:          d.Home,
 		Spawns:        sh.spawns,
 		InflightTurns: sh.turns,

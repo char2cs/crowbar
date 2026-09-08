@@ -40,7 +40,7 @@ func (u *Usecase) SpawnChatWithOwnWorktree(
 	chatID string,
 	providerID string,
 ) (string, error) {
-	forkParentID, ok, err := tree.ResolveForkParent(ctx, u.chats, chatID)
+	forkParentID, ok, err := tree.ResolveForkParent(ctx, u.chats, u.folders, u.nodes, chatID)
 	if err != nil {
 		return "", fmt.Errorf("create chat: resolve fork parent: %w", err)
 	}
