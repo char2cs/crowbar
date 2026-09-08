@@ -212,6 +212,20 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		workspaceID string,
 	) (added, deleted int, err error)
+	// RepoOf answers the repo a workspace belongs to — "" for the project-home
+	// workspace, a real repo id otherwise (domain.Workspace.RepoID, straight
+	// off the same Get the adapter already makes for WorkingTreeSummary, no
+	// new dependency). checkFolderContainer's golden rule uses it to resolve
+	// the scope on the OTHER side of a folder-under-workspace-owning-row
+	// containment check: a folder's own scope is its stored RepoID (or, for a
+	// folder-under-folder check, the parent folder's own RepoID — no lookup
+	// needed there at all), but a folder filed under a BRANCH or forked CHAT
+	// row has to resolve that row's WorkspaceID back to a repo id to compare
+	// against.
+	RepoOf(
+		ctx context.Context,
+		workspaceID string,
+	) (repoID string, err error)
 }
 
 // WorkspaceRoster is the boot backfill's census: every workspace the daemon

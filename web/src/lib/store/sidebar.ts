@@ -141,6 +141,10 @@ export interface Repo {
    *  omit it, in which case the repo sorts after the ordered ones in arrival
    *  order (the same rule buildSidebarTree applies to a workspace's). */
   order?: number
+  /** Project-home folder this repo's own entry is filed under, undefined (or
+   *  '') for the project's home root. Lets the repo header row interleave
+   *  with the project's home chats/folders — see rows-from-repo.ts. */
+  folderId?: string
   name: string
   avatarLabel: string
   avatarColor: string

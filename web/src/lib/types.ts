@@ -141,6 +141,9 @@ export interface RepoDTO {
   /** Dense index within its project's sidebar section. Absent on frames from a
    *  daemon that predates ordering. */
   order?: number
+  /** Project-home folder this repo's entry is filed under, absent (root) on
+   *  frames from a daemon that predates repo placement. */
+  folderId?: string
 }
 
 export interface FolderDTO {

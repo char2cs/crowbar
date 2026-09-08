@@ -181,13 +181,22 @@ describe('buildPaneContentStyle — right sidebar (mirror)', () => {
 // frame." Task 1 measured this live as 0px everywhere — no gutter mechanism
 // existed at all. Gated by the exact same we(edge)/isWindowEdge test the
 // border/radius already use, so a window edge always reads 0 on every axis.
+//
+// One deliberate departure from §7.4: the pane actually touching the
+// window's top (atTop) now reserves the same inset the header row's own
+// icons (traffic lights, back/forward, sidebar toggle) sit at above the
+// window's top edge — 8px on macOS (44px row, 28px icon-sm buttons,
+// centered) — instead of the plain 4px, so the rounded tile's top edge
+// lines up with where those icons start. A split neighbour merely stacked
+// below another pane (atTop: false) still gets the plain 4px, so two split
+// neighbours keep sitting 8px apart — only the true window-top edge changed.
 describe('buildPaneContentStyle — gutter (§7.4)', () => {
   const sidebar = 'left' as const
 
-  it('single pane: 4px beside the (open) sidebar and above, 0 at the window', () => {
+  it('single pane: header-icon inset above (atTop), 4px beside the (open) sidebar, 0 at the window', () => {
     const s = buildPaneContentStyle(full, sidebar, false)
     expect(s.marginLeft).toBe('4px') // chrome side — not the window frame
-    expect(s.marginTop).toBe('4px') // top is never a window edge
+    expect(s.marginTop).toBe('8px') // atTop — matches the header row's icon inset (macOS: (44-28)/2)
     expect(s.marginRight).toBe('0') // window edge — gives it up
     expect(s.marginBottom).toBe('0') // window edge — gives it up
   })
@@ -195,9 +204,15 @@ describe('buildPaneContentStyle — gutter (§7.4)', () => {
   it('interior pane (not at any edge): 4px on every side, so two neighbours sit 8px apart', () => {
     const s = buildPaneContentStyle(notAtEdge, sidebar, false)
     expect(s.marginLeft).toBe('4px')
-    expect(s.marginTop).toBe('4px')
+    expect(s.marginTop).toBe('4px') // not atTop — a split neighbour, not the window's top
     expect(s.marginRight).toBe('4px')
     expect(s.marginBottom).toBe('4px')
+  })
+
+  it('V-split bottom pane (atTop: false): keeps the plain 4px top gutter', () => {
+    const pos: PanePosition = { atLeft: true, atTop: false, atRight: true, atBottom: true }
+    const s = buildPaneContentStyle(pos, sidebar, false)
+    expect(s.marginTop).toBe('4px')
   })
 
   it('collapsed sidebar: the side it was shielding becomes a window edge and gives up its gutter', () => {

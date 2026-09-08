@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // newUsecaseWithWork is newUsecase with the in-flight tracker exposed, for the
@@ -21,7 +22,14 @@ func newUsecaseWithWork(
 	chats := mocks.NewAgentChatPlacements()
 	work := inflight.NewWork()
 	roster := mocks.NewAgentWorkspaceRoster()
-	return chats, tree.New(chats, chats, work, mocks.NewAgentWorkspaceGitStatus(), roster,
+	// Every fixture in this file is a single-repo world: workspaceID ("ws-1")
+	// belongs to repoID ("repo-1"), so a folder created/moved under a plain
+	// CHAT parent (which carries workspaceID, not a repo id of its own)
+	// resolves to the SAME repo every Create/Move call here already assumes —
+	// see domain.Chat.RepoID / checkFolderContainer's golden rule.
+	workspaceGitStatus := mocks.NewAgentWorkspaceGitStatus()
+	workspaceGitStatus.SetRepo(workspaceID, repoID)
+	return chats, tree.New(chats, chats, work, workspaceGitStatus, roster,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats)), work
 }
 
@@ -68,6 +76,110 @@ func TestMove_TakesWholeSubtree(t *testing.T) {
 	assert.Equal(t, "other", placed.ParentID)
 	assert.Equal(t, "root", chatRow(t, chats, "child-1").ParentID)
 	assert.Equal(t, "root", chatRow(t, chats, "child-2").ParentID)
+}
+
+// The folder-scoping golden rule at the OTHER usecase (Move, not Create): a
+// folder's own repo scope is fixed at creation and never changes by being
+// dragged — moving it under a folder from a DIFFERENT repo is refused, the
+// same way ErrCrossWorkspace already refuses a cross-workspace CHAT move.
+// Caught live as a folder left "on top of" the wrong repo after a cross-repo
+// drag.
+func TestMove_RefusesAMoveAcrossRepos(t *testing.T) {
+	chats, uc, _ := newUsecaseWithWork(t)
+	seedFolderTree(t, chats, uc) // "root" and "other", both repoID
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "other-repo-folder", Type: domain.ChatTypeFolder, RepoID: "repo-2"},
+	)
+
+	_, _, err := uc.Move(context.Background(), "root", tree.MoveInput{ParentID: name("other-repo-folder")})
+	assert.ErrorIs(t, err, tree.ErrCrossRepo)
+}
+
+// The golden rule's finer grain (checkFolderContextMove): "context", in
+// order, is Project -> Repo -> Locked branch -> Parent unlocked branch — a
+// folder may move freely WITHIN whichever one it already sits under, but
+// never jump to a different one, even inside the SAME repo. These three
+// tests exercise that boundary directly: refused root -> a branch's own
+// subtree, refused branch -> a DIFFERENT branch's own subtree (same repo,
+// same ErrCrossRepo-passing check, still refused), and allowed within one
+// branch's own subtree. Caught live: dragging a repo-root folder onto a
+// branch (or vice versa) silently reverted with no explanation — this is
+// the check that was missing, not merely the toast that now names it.
+func TestMove_RefusesRootToBranchContext(t *testing.T) {
+	chats, uc, _ := newUsecaseWithWork(t)
+	seedFolderTree(t, chats, uc) // "root", a repo-root folder — its own context
+	// A workspace-owning row — a locked or unlocked branch is just a chat
+	// with a real WorkspaceID from this package's point of view.
+	seedChat(chats, "branch-1", 1)
+
+	_, _, err := uc.Move(context.Background(), "root", tree.MoveInput{ParentID: name("branch-1")})
+	assert.ErrorIs(t, err, tree.ErrCrossContext)
+}
+
+func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
+	chats := mocks.NewAgentChatPlacements()
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeChat, WorkspaceID: "ws-1"},
+		domain.Chat{ID: "branch-2", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"},
+	)
+	// Both branches resolve to the SAME repo — isolates the finer context
+	// check from the coarser repo check TestMove_RefusesAMoveAcrossRepos
+	// already covers.
+	gitStatus := mocks.NewAgentWorkspaceGitStatus()
+	gitStatus.SetRepo("ws-1", repoID)
+	gitStatus.SetRepo("ws-2", repoID)
+	uc2 := tree.New(chats, chats, inflight.NewWork(), gitStatus, mocks.NewAgentWorkspaceRoster(),
+		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats))
+	underBranch1, _, err := uc2.Create(context.Background(), tree.CreateInput{
+		RepoID: repoID, ParentID: "branch-1", Name: "notes",
+	})
+	require.NoError(t, err)
+
+	_, _, err = uc2.Move(context.Background(), underBranch1.ID, tree.MoveInput{ParentID: name("branch-2")})
+	assert.ErrorIs(t, err, tree.ErrCrossContext)
+}
+
+func TestMove_AllowsAMoveWithinTheSameBranchContext(t *testing.T) {
+	chats, uc, _ := newUsecaseWithWork(t)
+	seedChat(chats, "branch-1", 1)
+	underBranch1, _, err := uc.Create(context.Background(), tree.CreateInput{
+		RepoID: repoID, ParentID: "branch-1", Name: "notes",
+	})
+	require.NoError(t, err)
+	nestedDeeper, _, err := uc.Create(context.Background(), tree.CreateInput{
+		RepoID: repoID, ParentID: "branch-1", Name: "deeper",
+	})
+	require.NoError(t, err)
+
+	// Re-nesting one folder inside another, both already anchored to the
+	// SAME branch, stays within that one context — allowed.
+	placed, _, err := uc.Move(context.Background(), underBranch1.ID, tree.MoveInput{
+		ParentID: name(nestedDeeper.ID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, nestedDeeper.ID, placed.ParentID)
+}
+
+// A folder filed INTO a plain chat SIBLING that already sits at the exact
+// same panel root never leaves its context, even though that chat carries a
+// real WorkspaceID of its own (every chat does — domain.Chat's own doc) and
+// the folder does not. Caught live: this was refused with ErrCrossContext,
+// because nearestWorkspaceAnchor used to stop at the FIRST row carrying a
+// WorkspaceID rather than the row that actually OWNS it — "sibling" here is
+// an ordinary chat in "owner"'s workspace, never itself an ancestor of the
+// folder, exactly like a project's home-owning chat sits outside the very
+// tree it roots (rows-from-home.ts) while an ordinary bubble beside it still
+// carries that same home workspace id.
+func TestMove_AllowsAFolderIntoAPlainChatSiblingAtTheSameRoot(t *testing.T) {
+	chats, uc, _ := newUsecaseWithWork(t)
+	seedChat(chats, "owner", 1)
+	seedChat(chats, "sibling", 2)
+	folder, _, err := uc.Create(context.Background(), tree.CreateInput{RepoID: repoID, Name: "folder"})
+	require.NoError(t, err)
+
+	placed, _, err := uc.Move(context.Background(), folder.ID, tree.MoveInput{ParentID: name("sibling")})
+	require.NoError(t, err)
+	assert.Equal(t, "sibling", placed.ParentID)
 }
 
 // PlaceChat makes the identical refusal for a CHAT's own move: a thread below

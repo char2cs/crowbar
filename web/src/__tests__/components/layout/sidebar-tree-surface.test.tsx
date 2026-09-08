@@ -8,7 +8,7 @@
  * excluding the other's rows.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 const navigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
@@ -48,9 +48,21 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }))
 
+// The real resolver hits the network (fetchHomeWorkspace) — the one test
+// below that needs a project-home row seeds a resolved workspace id directly
+// instead of waiting on that fetch to land.
+const UNRESOLVED = vi.hoisted(() => ({ wsId: null, owningChatId: null, error: false }))
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
+  useHomeWorkspaceState: (projectId: string) =>
+    projectId === 'p1' ? { wsId: 'home-ws-1', owningChatId: null, error: false } : UNRESOLVED,
+  ensureHomeWorkspaceResolved: vi.fn(),
+  getHomeWorkspaceId: (projectId: string) => (projectId === 'p1' ? 'home-ws-1' : null),
+}))
+
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import type { Project } from '@/lib/types'
 
@@ -100,6 +112,7 @@ beforeEach(() => {
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set() })
+  useHomeTreeStore.setState({ trees: {} })
 })
 
 describe('SidebarTreeSurface', () => {
@@ -243,5 +256,50 @@ describe('SidebarTreeSurface — rows wait for the repo’s tree seed', () => {
 
     expect(screen.getByText('repo-a')).toBeInTheDocument()
     expect(screen.queryByText('repo-b')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * `SidebarTreeChrome`'s `rows` prop (which `SidebarRowContextMenu` and the
+ * double-click-to-rename listener both look a right-clicked/double-clicked
+ * id up in) used to come ONLY from `treeRepos.flatMap(rowsFromRepo)` — a
+ * project-home chat or folder was never a member of it, so right-clicking
+ * (or double-clicking) one found no matching row and did nothing at all: no
+ * menu, no inline editor. Caught live as "can't create folders with right
+ * click" / "can't rename folders", for exactly the home-scoped ones.
+ */
+describe('SidebarTreeSurface — a project-home row is reachable by the context menu', () => {
+  it('right-clicking a project-home folder opens Rename/New folder, not a silent no-op', () => {
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [
+            {
+              id: 'home-branch-chat',
+              repoId: '',
+              type: 'branch',
+              workspaceId: 'home-ws-1',
+              title: '',
+              order: 0,
+            },
+          ],
+          folders: [{ id: 'home-folder-1', repoId: '', name: 'Docs', order: 0 }],
+        },
+      },
+    })
+
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+
+    const row = screen.getByText('Docs').closest('[role="treeitem"]')!
+    fireEvent.contextMenu(row)
+
+    expect(screen.getByText('Rename')).toBeInTheDocument()
+    expect(screen.getByText('New folder')).toBeInTheDocument()
   })
 })

@@ -58,6 +58,88 @@ func TestUpdateRepo_ReorderLeavesTheProjectDense(t *testing.T) {
 	assert.Equal(t, []int{0, 1, 2}, repoOrders(t, uc, ctx, repos.FindByKey, "a", "b", "c"))
 }
 
+// Caught live: with only ONE repo in a project, the OLD densifyRepos clamped
+// ANY requested target down to 0 — reinsert (ordering.go) clamps to
+// len(slots) after removing the moved row, and a repo-only view of "how many
+// OTHER repos share this folder" is zero the instant a project has a single
+// repo, no matter how many home chats/folders sit beside it. So a repo
+// dragged to sit AFTER a home chat always snapped straight back to the very
+// front. These pin the fix: a repo's Order is now placed against the SAME
+// sibling space it actually renders in (SidebarTree's roots.sort(byOrder),
+// fed by rowsFromHome's own repo-interleave).
+func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
+	newFixture := func(t *testing.T) (
+		*mocks.RepositoryStore,
+		*mocks.WorkspacePlacements,
+		*mocks.AgentChatPlacements,
+		project.Usecase,
+	) {
+		t.Helper()
+		repos := mocks.NewRepositoryStore()
+		workspaces := mocks.NewWorkspacePlacements()
+		workspaces.Rows = []domain.Workspace{
+			{ID: "home-ws-1", ProjectID: "p1", Kind: domain.WorkspaceKindHome},
+		}
+		homeFolders := mocks.NewAgentChatPlacements()
+		uc := project.New(mocks.NewProjectStore(), repos, workspaces, homeFolders)
+		require.NoError(t, repos.Save(context.Background(),
+			domain.Repository{ID: "repo-1", ProjectID: "p1", Order: 0}))
+		return repos, workspaces, homeFolders, uc
+	}
+
+	t.Run("sorts the repo AFTER a home chat when the target says so, not always before it", func(t *testing.T) {
+		repos, _, homeFolders, uc := newFixture(t)
+		homeFolders.Rows = append(homeFolders.Rows,
+			domain.Chat{ID: "chat-1", WorkspaceID: "home-ws-1", Type: domain.ChatTypeChat, Order: 1})
+		ctx := context.Background()
+
+		_, err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(1)})
+		require.NoError(t, err)
+
+		repo, err := repos.FindByKey(ctx, "repo-1")
+		require.NoError(t, err)
+		chat, err := homeFolders.Get(ctx, "chat-1")
+		require.NoError(t, err)
+		assert.Less(t, chat.Order, repo.Order, "the chat must sort BEFORE the repo")
+	})
+
+	t.Run("sorts the repo BEFORE a home chat when the target says so, not always after it", func(t *testing.T) {
+		repos, _, homeFolders, uc := newFixture(t)
+		homeFolders.Rows = append(homeFolders.Rows,
+			domain.Chat{ID: "chat-1", WorkspaceID: "home-ws-1", Type: domain.ChatTypeChat, Order: 0})
+		ctx := context.Background()
+
+		_, err := uc.UpdateRepo(ctx, "repo-1", project.RepoUpdate{Order: index(0)})
+		require.NoError(t, err)
+
+		repo, err := repos.FindByKey(ctx, "repo-1")
+		require.NoError(t, err)
+		chat, err := homeFolders.Get(ctx, "chat-1")
+		require.NoError(t, err)
+		assert.Less(t, repo.Order, chat.Order, "the repo must sort BEFORE the chat")
+	})
+
+	t.Run("placing a repo INTO a home folder positions it against that folder’s real children", func(t *testing.T) {
+		repos, _, homeFolders, uc := newFixture(t)
+		homeFolders.Rows = append(homeFolders.Rows,
+			domain.Chat{ID: "home-folder-1", Type: domain.ChatTypeFolder, RepoID: "", Order: 0},
+			domain.Chat{ID: "chat-in-folder", ParentID: "home-folder-1", Type: domain.ChatTypeChat, Order: 0},
+		)
+		ctx := context.Background()
+
+		_, err := uc.UpdateRepo(ctx, "repo-1",
+			project.RepoUpdate{FolderID: name("home-folder-1"), Order: index(1)})
+		require.NoError(t, err)
+
+		repo, err := repos.FindByKey(ctx, "repo-1")
+		require.NoError(t, err)
+		assert.Equal(t, "home-folder-1", repo.FolderID)
+		chat, err := homeFolders.Get(ctx, "chat-in-folder")
+		require.NoError(t, err)
+		assert.Less(t, chat.Order, repo.Order, "the folder’s existing child must sort BEFORE the repo")
+	})
+}
+
 // The move is what carries the repo's workspaces across. Left behind, they would
 // still exist but stop rendering: every hierarchical route and the WS namespace
 // are keyed on the workspace's own projectId.
@@ -117,6 +199,96 @@ func TestUpdateRepo_SameProjectMovesNothing(t *testing.T) {
 	assert.Equal(t, "p1", workspaces.Rows[0].ProjectID)
 }
 
+// A repo's own entry may be filed into a project-home folder — the feature
+// this whole file's FolderID plumbing exists for. It lands at order 0 as the
+// only repo in that folder, and a repo left behind at the root is untouched:
+// the two containers densify independently.
+func TestUpdateRepo_FilesIntoAHomeFolder(t *testing.T) {
+	repos := mocks.NewRepositoryStore()
+	homeFolders := mocks.NewAgentChatPlacements()
+	homeFolders.Rows = append(homeFolders.Rows,
+		domain.Chat{ID: "home-folder", Type: domain.ChatTypeFolder, RepoID: ""})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, homeFolders)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1"}))
+
+	got, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("home-folder")})
+	require.NoError(t, err)
+	assert.Equal(t, "home-folder", got.FolderID)
+	assert.Equal(t, 0, got.Order, "the only repo filed into this folder")
+
+	stillRoot, err := repos.FindByKey(ctx, "r2")
+	require.NoError(t, err)
+	assert.Equal(t, "", stillRoot.FolderID)
+	assert.Equal(t, 0, stillRoot.Order, "unaffected by a move in a different container")
+}
+
+// A repo's own entry is filed in some project's home, never inside its own
+// (or any other repo's) internal tree — that folder organises BRANCHES, not
+// repos, and letting a repo land there would be a repo containing itself.
+func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
+	repos := mocks.NewRepositoryStore()
+	homeFolders := mocks.NewAgentChatPlacements()
+	homeFolders.Rows = append(homeFolders.Rows,
+		domain.Chat{ID: "repo-folder", Type: domain.ChatTypeFolder, RepoID: "other-repo"})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, homeFolders)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
+
+	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("repo-folder")})
+	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+
+	row, err := repos.FindByKey(ctx, "r1")
+	require.NoError(t, err)
+	assert.Equal(t, "", row.FolderID, "a refused move leaves the repo where it was")
+}
+
+// A folder id naming a CHAT, not a folder, is refused the same way — the
+// route accepts a home folder id and nothing else.
+func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
+	repos := mocks.NewRepositoryStore()
+	homeFolders := mocks.NewAgentChatPlacements()
+	homeFolders.Rows = append(homeFolders.Rows,
+		domain.Chat{ID: "some-chat", Type: domain.ChatTypeChat, RepoID: ""})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, homeFolders)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
+
+	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("some-chat")})
+	assert.ErrorIs(t, err, apperr.ErrInvalidArgument)
+}
+
+func TestUpdateRepo_RefusesAnUnknownFolder(t *testing.T) {
+	repos := mocks.NewRepositoryStore()
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewAgentChatPlacements())
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
+
+	_, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{FolderID: name("missing")})
+	assert.Error(t, err)
+}
+
+// A repo that LEAVES a folder closes the gap it left behind, exactly as
+// leaving a project does.
+func TestUpdateRepo_LeavingAFolderDensifiesIt(t *testing.T) {
+	repos := mocks.NewRepositoryStore()
+	homeFolders := mocks.NewAgentChatPlacements()
+	homeFolders.Rows = append(homeFolders.Rows,
+		domain.Chat{ID: "home-folder", Type: domain.ChatTypeFolder, RepoID: ""})
+	uc := project.New(mocks.NewProjectStore(), repos, nil, homeFolders)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "a", ProjectID: "p1", FolderID: "home-folder", Order: 0}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "b", ProjectID: "p1", FolderID: "home-folder", Order: 1}))
+
+	_, err := uc.UpdateRepo(ctx, "a", project.RepoUpdate{FolderID: name("")})
+	require.NoError(t, err)
+
+	b, err := repos.FindByKey(ctx, "b")
+	require.NoError(t, err)
+	assert.Equal(t, 0, b.Order, "b closes the gap a left in the folder")
+}
+
 func TestReorder_LeavesTheProjectListDense(t *testing.T) {
 	projects, _, uc := newProjectUsecase(t)
 	ctx := context.Background()
@@ -170,7 +342,7 @@ func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
 func TestUpdateRepo_ProjectMoveNeedsARelocator(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(projects, repos, nil)
+	uc := project.New(projects, repos, nil, mocks.NewAgentChatPlacements())
 	ctx := context.Background()
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
@@ -380,7 +552,7 @@ func (s *repositoryStoreMissingAfterSave) FindWhere(
 // failed — the caller gets back what it just wrote instead of an error.
 func TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmpty(t *testing.T) {
 	repos := &repositoryStoreMissingAfterSave{row: domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}}
-	uc := project.New(mocks.NewProjectStore(), repos, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewAgentChatPlacements())
 
 	got, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("renamed")})
 

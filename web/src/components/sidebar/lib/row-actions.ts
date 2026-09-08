@@ -1,5 +1,7 @@
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { applyHomeFolders, getHomeTree, resolveHomeRowScope } from '@/lib/store/home-tree'
+import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import {
   renameWorkspaceBranch,
   renameRepo,
@@ -7,7 +9,12 @@ import {
   setWorkspaceLock,
   importBranches,
 } from '@/lib/api'
-import { createFolder, placeFolder } from '@/lib/api/sidebar-placement'
+import {
+  createFolder,
+  createHomeFolder,
+  placeFolder,
+  placeHomeFolder,
+} from '@/lib/api/sidebar-placement'
 import { renameChat, promoteChat } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
@@ -96,6 +103,27 @@ export async function performRenameFolder(folderId: string, name: string): Promi
 }
 
 /**
+ * {@link performRenameFolder}'s sibling for a project-home folder — a home
+ * folder is never in any repo's `folders` (home rides no repo), so the repo
+ * lookup above finds nothing for one and silently no-ops, caught live as
+ * "can't rename folders" for exactly the home-scoped ones.
+ */
+export async function performRenameHomeFolder(
+  projectId: string,
+  folderId: string,
+  name: string,
+): Promise<void> {
+  const folder = getHomeTree(projectId).folders.find((f) => f.id === folderId)
+  if (!folder || folder.name === name) return
+  try {
+    const { folder: updated, shifted } = await placeHomeFolder(projectId, folderId, { name })
+    applyHomeFolders(projectId, [updated, ...shifted].map(toSidebarFolder))
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to rename folder')
+  }
+}
+
+/**
  * Any workspace of `repo` whose scope is recorded — all `chatBase` needs.
  *
  * `.../chats` is REPO-scoped (Task 17), so which of a repo's workspaces the
@@ -142,6 +170,30 @@ export async function performRenameChat(chatId: string, title: string): Promise<
   try {
     await renameChat(wsId, chatId, title)
     useFolderSignalStore.getState().bump(repo.id)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to rename chat')
+  }
+}
+
+/**
+ * {@link performRenameChat}'s sibling for a project-home chat — no repo, so
+ * no `scopedWorkspaceIdOf`/`bump` (home has neither): the home workspace's
+ * scope is already recorded for every visible project (`space-scroller.tsx`'s
+ * `SpacePanel` effect), which is all `renameChat`'s `chatBase(wsId)` needs to
+ * build the `/home/chats/...` URL, and home's own `/home/chats/ws` reseed —
+ * the same feed folder creates already ride — is what settles the title.
+ */
+export async function performRenameHomeChat(
+  projectId: string,
+  homeWorkspaceId: string,
+  chatId: string,
+  title: string,
+): Promise<void> {
+  const chat = getHomeTree(projectId).chats.find((c) => c.id === chatId)
+  if (!chat) return
+  if ((chat.title || UNTITLED_CHAT_LABEL) === title) return
+  try {
+    await renameChat(homeWorkspaceId, chatId, title)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to rename chat')
   }
@@ -245,8 +297,20 @@ export async function performRenameProject(projectId: string, name: string): Pro
  * to retitle the chat, same as a bubble does — only a LOCKED branch keeps its
  * branch-name label (addendum rules 1-4's "Folder mechanism") and so is the
  * one workspace-owning row still renamed as a branch.
+ *
+ * A SIXTH id space is a project-home row — a chat or folder living outside
+ * every repo entirely (home rides no repo), so none of the five spaces above
+ * ever match one: it has to be checked first, or the rename silently no-ops
+ * for exactly the rows drag/reorder just made reachable this same pass —
+ * caught live as "can't rename folders."
  */
 export function performRenameRow(rowId: string, name: string): Promise<void> {
+  const homeScope = resolveHomeRowScope(rowId)
+  if (homeScope) {
+    return homeScope.kind === 'chat'
+      ? performRenameHomeChat(homeScope.projectId, homeScope.homeWorkspaceId, rowId, name)
+      : performRenameHomeFolder(homeScope.projectId, rowId, name)
+  }
   const state = useSidebarStore.getState()
   // A branch row's id is the chat that OWNS its workspace, so it sits in the
   // chat id space while being no chat at all. Translating first is what keeps
@@ -418,26 +482,42 @@ function armImportLockWatch(repoId: string, branches: string[]): () => void {
  * folder there lands it at the repo root instead of naming a parent that
  * doesn't exist in that space.
  *
- * `rowId` is translated into the WORKSPACE id space first, for the same reason
- * `sidebar-drop-policy.ts`'s `resolveRowRepo` and `planTreeRowDrop` do: the
- * three spaces matched below (a repo's home workspace, a tree workspace, a
- * folder) are exactly the three a branch row's id is NOT in — it carries the id
- * of the chat that owns its workspace. Untranslated, "New folder" on the repo
- * home or any locked branch found no repo and fired nothing at all, and the
- * home row could not even reach its own root-normalisation.
+ * `rowId` is translated into the WORKSPACE id space to find the owning repo
+ * and to test for the repo's own home workspace, the same reason
+ * `sidebar-drop-policy.ts`'s `resolveRowRepo` and `planTreeRowDrop` translate
+ * it: a branch row's id is not in that space at all — it carries the id of
+ * the chat that owns its workspace. Untranslated, that lookup on the repo
+ * home or any branch found no repo and fired nothing at all.
+ *
+ * The value actually SENT as `parentId`, though, is the untranslated `rowId`
+ * (or `''` for the root-normalised case) — `POST .../chats/folders` resolves
+ * its `parentId` as a CHAT (or folder), not a raw workspace id, unlike the
+ * placement PATCH `planTreeRowDrop` feeds. Sending the translated workspace
+ * id there 404s with "agentchat: get chat: not found": caught live on a
+ * locked branch, but the id space is what was wrong, not the lock — an
+ * ordinary unlocked branch failed the identical way.
  */
 export async function performCreateFolder(rowId: string): Promise<void> {
   const repos = useSidebarStore.getState().repos
-  const parentId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
+  // Workspace-id space ONLY to find the owning repo and to detect the repo's
+  // own home/default workspace (the root-normalisation case right below) —
+  // NOT the id actually sent to the backend. `POST .../chats/folders` looks
+  // its `parentId` up as a CHAT (or folder), the same sibling space
+  // `rowId` already is: sending the translated WORKSPACE id instead (as this
+  // used to) reads as a chat that has never existed and the daemon 404s with
+  // "agentchat: get chat: not found" — caught live on a locked branch, but
+  // the wrong id space, not the lock, is what actually broke it, since it
+  // failed the identical way on an ordinary unlocked one.
+  const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
   const repo = repos.find(
     (r) =>
-      r.defaultWorkspaceId === parentId ||
-      r.workspaces.some((w) => w.id === parentId) ||
-      r.folders?.some((f) => f.id === parentId),
+      r.defaultWorkspaceId === wsId ||
+      r.workspaces.some((w) => w.id === wsId) ||
+      r.folders?.some((f) => f.id === rowId),
   )
   const projectId = repo?.projectId
   if (!repo || !projectId) return
-  const folderParentId = parentId === repo.defaultWorkspaceId ? '' : parentId
+  const folderParentId = wsId === repo.defaultWorkspaceId ? '' : rowId
   try {
     // Applied directly for the same reason performRenameFolder does: no
     // dedicated push channel exists for folders any more, so the response IS
@@ -454,6 +534,29 @@ export async function performCreateFolder(rowId: string): Promise<void> {
     apply(folder)
     shifted.forEach(apply)
     useFolderSignalStore.getState().bump(repo.id)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to create folder')
+  }
+}
+
+/**
+ * {@link performCreateFolder}'s sibling for the project-home workspace.
+ *
+ * No `rowId` translation to do — the caller (the project header's add-menu,
+ * `space-scroller.tsx`) always means the home workspace's own root, never a
+ * clicked row, so this takes `projectId` directly rather than resolving one
+ * out of a repo-scoped tree that project home isn't part of.
+ *
+ * Applied directly, same reasoning as `performCreateFolder`: the response IS
+ * the confirmation, so the row appears immediately rather than waiting on
+ * `home-tree.ts`'s own reseed-on-signal (which still runs as a backstop —
+ * the daemon's `folder_created` frame is a structural kind on the SAME
+ * `/home/chats/ws` feed that subscription already listens on).
+ */
+export async function performCreateHomeFolder(projectId: string, parentId = ''): Promise<void> {
+  try {
+    const { folder, shifted } = await createHomeFolder(projectId, NEW_FOLDER_NAME, parentId)
+    applyHomeFolders(projectId, [folder, ...shifted].map(toSidebarFolder))
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to create folder')
   }

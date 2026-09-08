@@ -1,51 +1,28 @@
-// Lucide (ISC) rather than Phosphor for this cluster: long-tail arrows, a round
-// cog with a ring centre, and a panel glyph — the toolbar language this app is
-// aiming at. Phosphor's GearSix is a six-lobed scalloped gear that reads as a
-// flower at 16px and was the most obviously off-key icon in the set.
-import { ArrowLeft, ArrowRight, Settings } from 'lucide-react'
+// Lucide (ISC) rather than Phosphor for this cluster: long-tail arrows and a
+// panel glyph — the toolbar language this app is aiming at.
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
 import { useSettingsStore } from '@/features/settings/store'
-import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useJumpNavigation } from '@/features/tabs/hooks/use-jump-navigation'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
 
 /**
- * Sidebar top bar: a sidebar-toggle on the leading edge and a back / forward
- * / settings cluster on the trailing edge, with a `flex-1` spacer holding
- * them apart. Mirrors when the sidebar sits on the right. Back/forward reuse
- * the editor jump navigation.
+ * Sidebar top bar: a back / forward / sidebar-toggle cluster on the trailing
+ * edge, with a `flex-1` spacer holding it off the traffic-light side.
+ * Mirrors when the sidebar sits on the right. Back/forward reuse the editor
+ * jump navigation.
  *
- * The project marks (`SidebarFooter`) used to fill that spacer, squeezed to
- * `icon-xs` and horizontally scrollable to fit this row's real 34-44px
- * height. The product owner asked for them back at the sidebar's true
- * bottom, below the floating file-explorer card — see sidebar-footer.tsx
- * and its mount point in ide-shell.tsx.
+ * Settings lives in `SidebarFooter` now, pinned to the content-facing edge
+ * of the project-marks row — see that file's doc comment.
  */
 export function SidebarProjectHeader() {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const { canGoBack, canGoForward, handleJumpBack, handleJumpForward } = useJumpNavigation()
-
-  const toggle = (
-    <Button
-      onClick={toggleSidebar}
-      variant="ghost"
-      size="icon-sm"
-      className={cn(
-        'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
-        isRight && 'scale-x-[-1]',
-      )}
-      tooltip={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
-      tooltipSide="bottom"
-      aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-    >
-      <SidebarToggleIcon />
-    </Button>
-  )
 
   const cluster = (
     <div className="flex shrink-0 items-center gap-0.5">
@@ -74,15 +51,18 @@ export function SidebarProjectHeader() {
         <ArrowRight size={16} />
       </Button>
       <Button
-        onClick={() => useUIState.getState().openSettingsDialog()}
+        onClick={toggleSidebar}
         variant="ghost"
         size="icon-sm"
-        className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
-        tooltip="Settings"
+        className={cn(
+          'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
+          isRight && 'scale-x-[-1]',
+        )}
+        tooltip={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
         tooltipSide="bottom"
-        aria-label="Settings"
+        aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
       >
-        <Settings size={16} />
+        <SidebarToggleIcon />
       </Button>
     </div>
   )
@@ -103,10 +83,6 @@ export function SidebarProjectHeader() {
       {/* Reserve space for the macOS traffic lights on whichever side is
           top-left (only when the sidebar is on the left). */}
       {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
-      {toggle}
-      {/* Holds the toggle and the trailing cluster apart at opposite edges —
-          the project marks used to fill this gap (see the doc comment
-          above); without them it's a bare spacer. */}
       <div className="min-w-0 flex-1" />
       {cluster}
     </div>

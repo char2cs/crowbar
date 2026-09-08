@@ -77,7 +77,15 @@ import (
 //     tree's placement sentinels
 //     (agentusecase.ErrTreeCycle, agentusecase.ErrTreeCrossWorkspace — a move
 //     that would make a row unreachable from the tree's root, or cross a
-//     workspace boundary; agentusecase.ErrTreeSubtreeWorking — a move or
+//     workspace boundary; agentusecase.ErrTreeCrossRepo — a folder create or
+//     move whose parent belongs to a different repo scope (or home, vs. a
+//     repo) — the folder-scoping golden rule: a folder's children may only be
+//     ones its own parent could also have;
+//     agentusecase.ErrTreeCrossContext — the same golden rule's finer grain,
+//     a folder MOVE crossing from one context (project home, a bare repo
+//     root, or one specific branch's own workspace) to a different one even
+//     within the same repo;
+//     agentusecase.ErrTreeSubtreeWorking — a move or
 //     delete refused because a row in the subtree it takes is currently
 //     working, with no confirm-and-override path; the sidebar's own
 //     workspace-into-folder feature and the Chats panel share this one tree
@@ -260,6 +268,8 @@ func isPlacementConflict(
 ) bool {
 	return errors.Is(err, agentusecase.ErrTreeCycle) ||
 		errors.Is(err, agentusecase.ErrTreeCrossWorkspace) ||
+		errors.Is(err, agentusecase.ErrTreeCrossRepo) ||
+		errors.Is(err, agentusecase.ErrTreeCrossContext) ||
 		errors.Is(err, agentusecase.ErrTreeSubtreeWorking)
 }
 

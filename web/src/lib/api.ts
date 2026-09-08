@@ -455,6 +455,25 @@ export function fetchHomeWorkspace(projectId: string): Promise<WorkspaceDTO> {
   return apiFetch(`/v0/projects/${projectId}/home`)
 }
 
+/**
+ * The project-home workspace's own chat rows and folders, in sidebar order.
+ *
+ * Same wire shapes as a repo's `/chats` and `/chats/folders` (the daemon
+ * mounts the SAME `chathandlers.Handlers` at both routes — see
+ * `api/internal/api/v0/endpoints/home/routes.go`), just with no `repoId` to
+ * stamp: `''` is the sentinel every home-scoped `ChatDTO`/`FolderDTO` carries,
+ * matching `WorkspaceDTO.repoId` for the home workspace itself.
+ */
+export async function fetchHomeChats(projectId: string): Promise<ChatDTO[]> {
+  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/home/chats`)
+  return (rows ?? []).map((row) => chatDTOFromWire(row, projectId, ''))
+}
+
+export async function fetchHomeFolders(projectId: string): Promise<FolderDTO[]> {
+  const rows = await apiFetch<ChatsFolderWireDTO[]>(`/v0/projects/${projectId}/home/chats/folders`)
+  return (rows ?? []).map((row) => folderDTOFromWire(row, projectId, ''))
+}
+
 // ---------------------------------------------------------------------------
 // Hierarchical WRITE API (§3/§7) — every mutation is fire-and-forget: the
 // daemon answers 202 Accepted with an empty body and the real entity (with its

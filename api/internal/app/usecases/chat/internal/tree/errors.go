@@ -17,6 +17,23 @@ var ErrCycle = errors.New("usecases: a chat or folder cannot be moved inside its
 // reading turns from a workspace the user is not in. Handlers map it to 409.
 var ErrCrossWorkspace = errors.New("usecases: a chat and its chat parent must be in the same workspace")
 
+// ErrCrossRepo is returned when a FOLDER's parent resolves to a different repo
+// scope — "" (project-home) counts as its own scope here, distinct from every
+// real repo id. The folder-scoping golden rule: a folder may only be created or
+// moved under a parent that shares its own repo, the same way ErrCrossWorkspace
+// already holds a chat to its own workspace. Handlers map it to 409.
+var ErrCrossRepo = errors.New("usecases: a folder and its parent must share the same repo")
+
+// ErrCrossContext is the golden rule's finer grain, returned when a folder
+// MOVE would cross from one context to another even within the same repo —
+// a different branch's own subtree, the bare repo root versus any branch, or
+// project-home versus a repo (ErrCrossRepo's own boundary, restated here at
+// the within-repo granularity ErrCrossRepo alone cannot see). "Context", in
+// order: Project -> Repo -> Locked branch -> Parent unlocked branch. A
+// folder moves freely within whichever one it already sits under; never
+// across. Handlers map it to 409.
+var ErrCrossContext = errors.New("usecases: a folder cannot move to a different context")
+
 // ErrNameRequired is returned when a create or rename supplies a blank name. A
 // nameless folder is an unlabelled box the user cannot tell apart from any
 // other; it is refused at the usecase boundary so the API and any future caller

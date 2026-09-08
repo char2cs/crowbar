@@ -1,5 +1,7 @@
-import { Plus } from 'lucide-react'
+import { Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useSettingsStore } from '@/features/settings/store'
+import { useUIState } from '@/features/window/stores/ui-state-store'
 import { cn } from '@/utils/cn'
 import { ProjectIconMark } from './project-icon-mark'
 import type { Project } from '@/lib/types'
@@ -41,6 +43,13 @@ interface SidebarFooterProps {
  * Same testids as before (`space-mark`/`add-project-mark`, icon-only,
  * current-vs-muted opacity) — only where this mounts, and its own sizing,
  * changed.
+ *
+ * Settings also lives here now, out of `SidebarProjectHeader`'s trailing
+ * cluster. Unlike the marks it does not join the centered group — it is
+ * absolutely pinned to whichever edge faces the main content (right when
+ * the sidebar is docked left, left when docked right), so it reads as
+ * "the sidebar's own settings, at the boundary with the content" rather
+ * than one more centered mark.
  */
 export function SidebarFooter({
   projects = [],
@@ -48,12 +57,15 @@ export function SidebarFooter({
   onSelectProject,
   onAddProject,
 }: SidebarFooterProps = {}) {
+  const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
+  const isRight = sidebarPosition === 'right'
+
   if (projects.length === 0 && !onAddProject) return null
 
   return (
     <div
       data-testid="sidebar-footer"
-      className="flex shrink-0 flex-wrap items-center justify-center gap-1 px-2 py-1.5"
+      className="relative flex shrink-0 flex-wrap items-center justify-center gap-1 px-2 py-1.5"
     >
       {projects.map((project) => {
         const isActive = project.id === activeProjectId
@@ -88,6 +100,21 @@ export function SidebarFooter({
           <Plus size={16} />
         </Button>
       )}
+      <Button
+        onClick={() => useUIState.getState().openSettingsDialog()}
+        variant="ghost"
+        size="icon-sm"
+        data-testid="settings-button"
+        className={cn(
+          'absolute top-1.5 shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
+          isRight ? 'left-2' : 'right-2',
+        )}
+        tooltip="Settings"
+        tooltipSide="top"
+        aria-label="Settings"
+      >
+        <Settings size={16} />
+      </Button>
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { IS_MAC } from '@/utils/platform'
 import type { PanePosition } from '../types/pane'
 
 type Edge = 'left' | 'top' | 'right' | 'bottom'
@@ -53,6 +54,15 @@ export function buildPaneContentStyle(
   // while a real window edge runs flush. Two neighbours across a split each
   // keep their own facing edge's 4px, landing 8px apart.
   const GUTTER = '4px'
+  // The pane actually touching the window's top — not a split neighbour
+  // stacked below one — matches the gap the header row's OWN icons (traffic
+  // lights, back/forward, sidebar toggle) sit at above the window's top
+  // edge, not that row's full height. Those icon-sm buttons render 28px
+  // (button-variants.ts `sm:size-7`) centered in the 44px/34px row
+  // (SidebarProjectHeader), so half the leftover height is that inset.
+  const HEADER_ROW_HEIGHT = IS_MAC ? 44 : 34
+  const HEADER_ICON_HEIGHT = 28
+  const TOP_GUTTER = position.atTop ? `${(HEADER_ROW_HEIGHT - HEADER_ICON_HEIGHT) / 2}px` : GUTTER
 
   return {
     borderTop: BORDER,
@@ -64,7 +74,7 @@ export function buildPaneContentStyle(
     borderBottomLeftRadius: we('left') || we('bottom') ? ZERO : R,
     borderBottomRightRadius: we('right') || we('bottom') ? ZERO : R,
     marginLeft: we('left') ? ZERO : GUTTER,
-    marginTop: we('top') ? ZERO : GUTTER,
+    marginTop: we('top') ? ZERO : TOP_GUTTER,
     marginRight: we('right') ? ZERO : GUTTER,
     marginBottom: we('bottom') ? ZERO : GUTTER,
   }

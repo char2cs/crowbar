@@ -30,6 +30,9 @@ type RepoDTO struct {
 	Status string `json:"status,omitempty"`
 	// Order is the repository's dense index within its project's sidebar section.
 	Order int `json:"order"`
+	// FolderID is the project-home folder this repo's entry is filed under, ""
+	// for the project's home root.
+	FolderID string `json:"folderId,omitempty"`
 }
 
 // RepoDTOFrom maps a domain Repository onto the wire DTO. Icon precedence is
@@ -56,6 +59,7 @@ func RepoDTOFrom(r domain.Repository) RepoDTO {
 		AvatarURL:     avatarURL,
 		AvatarEmoji:   r.AvatarEmoji,
 		Order:         r.Order,
+		FolderID:      r.FolderID,
 	}
 }
 

@@ -7,15 +7,19 @@
  * is what stops that decision from meaning "subscribe the world at boot": a
  * project only starts costing streams once its row actually exists.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { idle, success } from '@/lib/loadable'
 import { getVisibleProjectIds, readVisibleRepoTree } from '@/lib/store/project-visibility'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { FolderDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
+
+const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({ getHomeWorkspaceId }))
 
 const repoDTO = (id: string, projectId: string): RepoDTO => ({
   id,
@@ -74,6 +78,8 @@ const project = (id: string): Project => ({
 beforeEach(async () => {
   resetDB()
   globalThis.indexedDB = new IDBFactory()
+  vi.clearAllMocks()
+  useHomeTreeStore.setState({ trees: {} })
   useProjectStore.setState({ activeProjectId: 'p1' })
   useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
   useSidebarStore.setState({ collapsedProjects: new Set<string>() })
@@ -189,5 +195,23 @@ describe('readVisibleRepoTree', () => {
     useProjectDataStore.setState({ data: idle() })
     useProjectStore.setState({ activeProjectId: '' })
     expect(await readVisibleRepoTree()).toBe(await readVisibleRepoTree())
+  })
+
+  it('excludes a project-home folder even when the cache has it stamped with a repo id', async () => {
+    // The daemon's `ListInRepo` doesn't filter by the repoId in its own URL, so
+    // a repo-scoped folder fetch can come back — and get cached — with a real
+    // repo's id on a folder that actually belongs to the project's home. The
+    // home tree (resolveHomeRowScope) is ground truth and must win, or a home
+    // folder renders twice: once correctly under home, once falsely as a
+    // sibling of that repo's own branches.
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: {
+        p1: { chats: [], folders: [{ id: 'home-folder', repoId: '', name: 'Home folder', order: 0 }] },
+      },
+    })
+    await upsertEntity('crowbar_folders', folderDTO('home-folder', 'r1', 'p1'))
+    const folders = (await readVisibleRepoTree()).find((r) => r.id === 'r1')!.folders
+    expect(folders?.map((f) => f.id)).toEqual(['f1'])
   })
 })

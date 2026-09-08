@@ -1,6 +1,7 @@
 import { dataOf } from '@/lib/loadable'
 import { getAllEntities } from '@/lib/persistence/entity-cache'
 import { buildRepoTree, toSidebarChat, toSidebarFolder } from '@/lib/store/build-repo-tree'
+import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { EMPTY_PROJECTS, useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
@@ -89,10 +90,23 @@ export async function readVisibleRepoTree(): Promise<Repo[]> {
   // their own, because `toSidebarRepo` keeps only the rows whose repoId matches
   // a repo that survived the filter above. That repoId match is the whole
   // cross-repo guard: the cache holds every repo's rows at once.
+  //
+  // A project-home folder is excluded outright, even though its cached repoId
+  // may say otherwise: the daemon's `ListInRepo` doesn't filter by the repoId
+  // in its own URL (see `fetchFolders`'s doc comment in lib/api.ts), so a
+  // repo-scoped folder fetch can come back stamped with THAT repo's id for a
+  // folder that actually belongs to the project's home — and because this
+  // cache is shared and write-through, that bad repoId then sticks past the
+  // fetch that caused it. `resolveHomeRowScope` is ground truth (it reads the
+  // project's own home tree, never the leniency-poisoned cache), so it wins
+  // over whatever repoId a folder claims — caught live as a folder rendering
+  // twice, once correctly under its project's home and once falsely as a
+  // sibling of a repo's own branches, the same leniency bug `handleTrash`
+  // already guards against for deletion.
   return buildRepoTree(
     repos.filter((repo) => visible.has(repo.projectId)),
     workspaces,
-    folders.map(toSidebarFolder),
+    folders.filter((folder) => !resolveHomeRowScope(folder.id)).map(toSidebarFolder),
     chats.map(toSidebarChat),
   )
 }

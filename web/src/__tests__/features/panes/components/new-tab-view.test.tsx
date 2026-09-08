@@ -49,15 +49,19 @@ describe('NewTabView', () => {
   // ambient decoration, not a control, so it belongs back regardless.
   // Lazy-loaded (see new-tab-view.tsx's own note on why), so this waits for
   // the dynamic import to resolve rather than asserting synchronously.
+  // Rendered onto a `<canvas>` now (perf fix — see ascii-crowbar.tsx's own
+  // doc comment) — `canvas.width` (the sized backing store `measure()`
+  // writes once the geometry is decoded) is the DOM-visible proof the effect
+  // actually ran, the same role `pre.textContent` truthiness used to play.
   it('renders the tumbling ASCII-art backdrop, still marked decorative and inert', async () => {
     const { container } = render(<NewTabView paneId={ROOT_PANE_ID} />)
-    const pre = await waitFor(() => {
-      const el = container.querySelector('pre')
+    const canvas = await waitFor(() => {
+      const el = container.querySelector('canvas')
       expect(el).toBeInTheDocument()
       return el!
     })
-    expect(pre.textContent).toBeTruthy()
-    const backdrop = pre.closest('[aria-hidden="true"]')
+    expect(canvas.width).toBeGreaterThan(0)
+    const backdrop = canvas.closest('[aria-hidden="true"]')
     expect(backdrop).toHaveClass('pointer-events-none')
     // Still nothing clickable — the backdrop must not reopen the hole this
     // pane's whole simplification closed.

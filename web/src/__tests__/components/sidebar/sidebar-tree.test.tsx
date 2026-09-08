@@ -109,22 +109,49 @@ describe('SidebarTree', () => {
     expect(child?.getAttribute('style')).toContain('margin-inline-start: 14px')
   })
 
-  it('an empty container renders the affordance row instead of nothing', () => {
+  // User correction, live: the ghost/bootstrap row a childless folder used to
+  // render underneath itself (removed here) was itself the defect, not a
+  // missing worktree check on it — "it shouldn't exist" full stop. A folder's
+  // own row now carries its own Fork button directly (sidebar-row.tsx), the
+  // same place every other kind's already lived; there is nothing left to
+  // render beneath an empty folder at all.
+  it('an empty folder renders nothing beneath it — its own row carries Fork directly', () => {
     const onCreate = vi.fn()
-    // folder-1 with no children at all.
+    const repoFolder: SidebarRow = { ...rows[0], ownsWorktree: true }
     render(
       <SidebarTree
-        rows={[rows[0]]}
+        rows={[repoFolder]}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={onCreate}
         {...DRAG_PROPS}
       />,
     )
-    // No dropdown: folder-1 does not own a worktree, so only a thread is legal.
     expect(screen.queryByTestId('affordance-dropdown')).not.toBeInTheDocument()
-    screen.getByRole('button', { name: /create new thread/i }).click()
-    expect(onCreate).toHaveBeenCalledWith('folder-1', 'thread')
+    expect(screen.queryByTestId('affordance-thread')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('affordance-workspace')).not.toBeInTheDocument()
+    // Never Thread — a folder has no owning chat for one to run in, whether
+    // or not it owns a worktree (`handleCreate` refuses this outright).
+    expect(screen.queryByRole('button', { name: /^thread bugs$/i })).not.toBeInTheDocument()
+    screen.getByRole('button', { name: /^fork bugs$/i }).click()
+    expect(onCreate).toHaveBeenCalledWith('folder-1', 'workspace')
+  })
+
+  // A project-home folder (rows-from-home.ts) owns no worktree at all — no
+  // repo means no worktree to fork — so it gets neither button, and still
+  // renders nothing beneath it when empty.
+  it('an empty folder with no worktree to fork gets no create affordance at all', () => {
+    render(
+      <SidebarTree
+        rows={[rows[0]]}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        {...DRAG_PROPS}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /^fork bugs$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^thread bugs$/i })).not.toBeInTheDocument()
   })
 
   // Addendum §5: revises the old expectation above (a nested split-control

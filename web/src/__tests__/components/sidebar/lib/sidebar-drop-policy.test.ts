@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   SIDEBAR_DROP_POLICY,
   allowedModes,
@@ -16,7 +16,14 @@ import {
   destroyWorkspaceStore,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+
+// `resolveHomeRowScope` (home-tree.ts) reads this to name the project a
+// resolved home row belongs to — a real async fetch+cache round trip these
+// tests have no reason to exercise.
+const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({ getHomeWorkspaceId }))
 
 function makeRow(over: Partial<SidebarRow> & { id: string }): SidebarRow {
   return {
@@ -39,6 +46,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
     // behind, that would refuse a drag in a later case for a reason that case
     // never set up.
     destroyWorkspaceStore('ws-1')
+    vi.clearAllMocks()
+    useHomeTreeStore.setState({ trees: {} })
     // repo-1 and repo-2 share proj-1; repo-3 is a different project entirely.
     useSidebarStore.setState({
       ...getInitialState(),
@@ -108,6 +117,24 @@ describe('SIDEBAR_DROP_POLICY', () => {
   it('refuses to drop a row onto itself', () => {
     const row = makeRow({ id: 'ws-1' })
     expect(SIDEBAR_DROP_POLICY.allowedModes([row], row)).toEqual(NO_MODES)
+  })
+
+  // The repo-scoped half of the same bug the home-folder case below catches:
+  // `resolveRowRepo` is deliberately chat-blind (a DRAGGED chat is exempt
+  // from the same-repo rule), but that exemption has nothing to do with a
+  // FOLDER reordering past a plain repo CHAT sibling — the two share one
+  // sibling order space same as in a project's home tree.
+  it('allows a repo folder to reorder/file relative to a plain CHAT in the same repo', () => {
+    useSidebarStore.setState((s) => ({
+      repos: s.repos.map((r) =>
+        r.id === 'repo-1'
+          ? { ...r, chats: [{ id: 'chat-1', repoId: 'repo-1', title: 'testing', order: 1 }] }
+          : r,
+      ),
+    }))
+    const folder = makeRow({ id: 'folder-1', kind: 'folder', workspaceId: null })
+    const chat = makeRow({ id: 'chat-1', kind: 'chat', workspaceId: null })
+    expect(SIDEBAR_DROP_POLICY.allowedModes([folder], chat)).toEqual(ALL_MODES)
   })
 
   it('refuses a mixed-kind selection', () => {
@@ -267,23 +294,255 @@ describe('SIDEBAR_DROP_POLICY', () => {
       )
     })
 
-    it('refuses a chat onto a tree row — different aggregates, nothing to land on', () => {
-      // `planChatDrop` refuses a non-chat target too; refusing here means the
-      // indicator never promises a move that would then quietly do nothing.
+    it('refuses a chat onto a branch row — a branch is not one of a chat’s threads', () => {
+      // `planChatDrop` refuses a non-chat, non-folder target too; refusing
+      // here means the indicator never promises a move that would then
+      // quietly do nothing.
       expect(
         SIDEBAR_DROP_POLICY.allowedModes([chatRow('chat-a')], makeRow({ id: 'ws-1' })),
       ).toEqual(NO_MODES)
+    })
+
+    // The literal "can't group chats into a folder" gap, caught live: a
+    // `kind: 'folder'` row is one aggregate in the current unified row
+    // model (rows-from-repo.ts's folder push is the same
+    // `AgentChatFolder`/`ChatsFolderWireDTO` `planChatDrop` targets), not
+    // the two separate "repo folder" / "chat folder" concepts an earlier,
+    // pre-unification version of this policy refused to mix.
+    it('allows a chat onto a folder row — filing it in is a real move now', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes(
           [chatRow('chat-a')],
           makeRow({ id: 'folder-1', kind: 'folder', workspaceId: null }),
         ),
-      ).toEqual(NO_MODES)
+      ).toEqual(ALL_MODES)
     })
 
     it('refuses a tree row onto a chat — a branch is not one of a chat’s threads', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes([makeRow({ id: 'ws-1' })], chatRow('chat-a')),
+      ).toEqual(NO_MODES)
+    })
+  })
+
+  // Project-home folders (rows-from-home.ts) ride no repo at all — the
+  // literal "can't drag/group a home folder" gap, caught live: `resolveRowRepo`
+  // can never see them, so the repo-scoped walk below refused every one.
+  describe('project-home folders are project-scoped, not repo-scoped', () => {
+    const homeFolderRow = (id: string, over: Partial<SidebarRow> = {}) =>
+      makeRow({ id, kind: 'folder', workspaceId: null, ...over })
+
+    it('allows reordering/filing a home folder relative to another row in the SAME project’s home tree', () => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [],
+            folders: [
+              { id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 },
+              { id: 'home-folder-2', repoId: '', name: 'Ideas', order: 1 },
+            ],
+          },
+        },
+      })
+
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes(
+          [homeFolderRow('home-folder-1')],
+          homeFolderRow('home-folder-2'),
+        ),
+      ).toEqual(ALL_MODES)
+    })
+
+    it('refuses a home folder dropped onto a DIFFERENT project’s home folder', () => {
+      getHomeWorkspaceId.mockImplementation((projectId: string) =>
+        projectId === 'proj-2' ? 'home-ws-2' : 'home-ws-1',
+      )
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [],
+            folders: [{ id: 'home-folder-1', repoId: '', name: 'A', order: 0 }],
+          },
+          'proj-2': {
+            chats: [],
+            folders: [{ id: 'home-folder-2', repoId: '', name: 'B', order: 0 }],
+          },
+        },
+      })
+
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes(
+          [homeFolderRow('home-folder-1')],
+          homeFolderRow('home-folder-2'),
+        ),
+      ).toEqual(NO_MODES)
+    })
+
+    // Caught live: "New folder" (a project-home folder) could reorder past
+    // another home FOLDER but never past a home CHAT — the two share one
+    // sibling order space, so nothing about the target being a chat rather
+    // than a folder should matter. Root cause: the block above this one
+    // (`kind === 'chat' || target.kind === 'chat'`) used to catch a FOLDER
+    // subject dragged onto a CHAT target too, saw the subject's kind was not
+    // 'chat', and refused before this block — the one that actually knows
+    // how to resolve a home chat target — was ever reached.
+    it('allows filing/reordering a home folder relative to a home CHAT in the SAME project', () => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+            folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 1 }],
+          },
+        },
+      })
+      const homeChatRow = makeRow({ id: 'home-chat-1', kind: 'chat', workspaceId: null })
+
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes([homeFolderRow('home-folder-1')], homeChatRow),
+      ).toEqual(ALL_MODES)
+    })
+
+    it('refuses mixing a home folder with a repo folder in one drag', () => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [],
+            folders: [{ id: 'home-folder-1', repoId: '', name: 'A', order: 0 }],
+          },
+        },
+      })
+
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes(
+          [homeFolderRow('home-folder-1'), makeRow({ id: 'folder-1', kind: 'folder' })],
+          homeFolderRow('home-folder-1'),
+        ),
+      ).toEqual(NO_MODES)
+    })
+  })
+
+  // Caught live: dragging a repo's own header row did nothing at all —
+  // `planTreeRowDrop` had no call to construct for it, and this matrix had no
+  // branch that recognised it either, so it fell into the generic same-repo
+  // walk and was refused outright (`resolveRowRepo` never resolves a repo's
+  // own id). Its placement lives on `domain.Repository`, a different
+  // aggregate from every ordinary branch/chat/folder row above.
+  describe('a repo header row is project-home-scoped, not repo-scoped', () => {
+    const repoRow = (id: string, projectId: string, repoId: string, over: Partial<SidebarRow> = {}) =>
+      makeRow({
+        id,
+        kind: 'branch',
+        repoIcon: { repoId, projectId, name: repoId, avatarLabel: 'A', avatarColor: 'bg-indigo-700' },
+        ...over,
+      })
+
+    it('reorders (never nests) relative to another repo header in the SAME project', () => {
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes(
+          [repoRow('home-1', 'proj-1', 'repo-1')],
+          repoRow('home-2', 'proj-1', 'repo-2'),
+        ),
+      ).toEqual(REORDER_MODES)
+    })
+
+    it('refuses a repo header dropped onto a DIFFERENT project’s repo header', () => {
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes(
+          [repoRow('home-1', 'proj-1', 'repo-1')],
+          repoRow('home-3', 'proj-2', 'repo-3'),
+        ),
+      ).toEqual(NO_MODES)
+    })
+
+    it('refuses a repo header dropped onto an ORDINARY branch row (not a repo header)', () => {
+      const ordinaryBranch = makeRow({ id: 'ws-1', kind: 'branch', workspaceId: 'ws-1' })
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes([repoRow('home-1', 'proj-1', 'repo-1')], ordinaryBranch),
+      ).toEqual(NO_MODES)
+    })
+
+    it('reorders (never nests) relative to a home CHAT in the same project', () => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+            folders: [],
+          },
+        },
+      })
+      const homeChatRow = makeRow({ id: 'home-chat-1', kind: 'chat', workspaceId: null })
+
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes([repoRow('home-1', 'proj-1', 'repo-1')], homeChatRow),
+      ).toEqual(REORDER_MODES)
+    })
+
+    it('reorders OR nests into a home FOLDER in the same project', () => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [],
+            folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 }],
+          },
+        },
+      })
+      const homeFolderRow = makeRow({ id: 'home-folder-1', kind: 'folder', workspaceId: null })
+
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes([repoRow('home-1', 'proj-1', 'repo-1')], homeFolderRow),
+      ).toEqual(ALL_MODES)
+    })
+
+    // Caught live: "New folder" sits nested inside a home CHAT (a legal spot
+    // for a folder) — reordering a repo "past" it silently promised a move
+    // that would file the repo under that CHAT, refused server-side with a
+    // raw 400 the drag indicator never should have offered in the first
+    // place. Nesting INTO that same folder is still fine — it is the
+    // container the FOLDER itself sits in that disqualifies a reorder, not
+    // the folder as a destination.
+    it('refuses to reorder past a home folder that is itself nested inside a CHAT — but still allows nesting INTO it', () => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+            folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', parentId: 'home-chat-1', order: 0 }],
+          },
+        },
+      })
+      const nestedFolderRow = makeRow({
+        id: 'home-folder-1',
+        kind: 'folder',
+        workspaceId: null,
+        parentId: 'home-chat-1',
+      })
+
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes([repoRow('home-1', 'proj-1', 'repo-1')], nestedFolderRow),
+      ).toEqual({ before: false, after: false, into: true })
+    })
+
+    it('refuses a repo header dropped onto a DIFFERENT project’s home folder', () => {
+      getHomeWorkspaceId.mockImplementation((projectId: string) =>
+        projectId === 'proj-2' ? 'home-ws-2' : 'home-ws-1',
+      )
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-2': {
+            chats: [],
+            folders: [{ id: 'home-folder-2', repoId: '', name: 'Ideas', order: 0 }],
+          },
+        },
+      })
+      const homeFolderRow = makeRow({ id: 'home-folder-2', kind: 'folder', workspaceId: null })
+
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes([repoRow('home-1', 'proj-1', 'repo-1')], homeFolderRow),
       ).toEqual(NO_MODES)
     })
   })

@@ -76,7 +76,22 @@ export function Button({
   if (!tooltip) return buttonEl
 
   return (
-    <TooltipPrimitive.Provider delayDuration={150} skipDelayDuration={100} disableHoverableContent>
+    // skipDelayDuration=0, not Radix's 300ms default or the 100ms this used to
+    // be: that window lets a SECOND trigger's tooltip open instantly, skipping
+    // the normal 150ms delay, once one tooltip has already opened recently.
+    // Live-measured (rAF-delta sampling) as the actual cause of sidebar rows
+    // getting janky specifically while being hovered — sweeping the mouse
+    // down a list of rows crosses many Fork/Thread buttons in quick
+    // succession, and 100ms of "open instantly" is SHORTER than this
+    // tooltip's own 150ms close animation (tw-animate-css's default
+    // --tw-duration), during which Radix keeps the closing tooltip's full
+    // floating-ui rig mounted (two ResizeObservers, an IntersectionObserver
+    // that reconnects on every threshold cross, ancestor scroll/resize
+    // listeners). A fast-enough sweep had two of those rigs alive and doing
+    // setup/teardown at once. At 0, nothing ever skips the delay — a quick
+    // pass over a row never opens a tooltip at all, which is also just the
+    // right behaviour for a pass-through hover.
+    <TooltipPrimitive.Provider delayDuration={150} skipDelayDuration={0} disableHoverableContent>
       <TooltipPrimitive.Root>
         <TooltipPrimitive.Trigger asChild>{buttonEl}</TooltipPrimitive.Trigger>
         <TooltipPrimitive.Portal>

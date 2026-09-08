@@ -27,14 +27,23 @@ import { decodeCrowbarCloud } from './ascii-crowbar-cloud'
  *      from the ramp. The nearest point always writes (at least the dimmest
  *      glyph) so the silhouette stays solid rather than showing through.
  *
- * PERFORMANCE: one string into one <pre> via `textContent` — never a node per
- * cell, never React state per frame. The char + z buffers are allocated once and
- * reused every frame (zero allocation in the hot loop besides the unavoidable
- * output string). Capped at ~30fps; paused only when the work is INVISIBLE —
- * offscreen, or the tab hidden. It deliberately keeps tumbling while the app is
- * merely not the key window: a background window is still on screen, and a
- * backdrop that freezes the moment you click away is a visible defect, not a
- * saving. A single static frame under `prefers-reduced-motion`.
+ * PERFORMANCE: rendered onto a `<canvas>` — one `fillText` call per row, never
+ * a DOM node per cell and never React state per frame. Canvas painting is
+ * compositor-only: it cannot trigger layout or invalidate hit-testing, unlike
+ * the `<pre>`+`textContent` this used to be. That distinction is not
+ * theoretical — live-measured in the dev app (rAF-delta sampling), the old
+ * `<pre>` cratered the WHOLE WINDOW to ~20fps merely by being on screen (no
+ * mouse involved), and `display:none`-ing just that node — leaving the exact
+ * same per-frame JS math running underneath, untouched — instantly restored
+ * 120fps. The cost was never the projection math; it was the browser laying
+ * out a many-thousand-character text block 30 times a second. The char + z
+ * buffers are allocated once and reused every frame (zero allocation in the
+ * hot loop besides the row strings `fillText` needs). Capped at ~30fps; paused
+ * only when the work is INVISIBLE — offscreen, or the tab hidden. It
+ * deliberately keeps tumbling while the app is merely not the key window: a
+ * background window is still on screen, and a backdrop that freezes the
+ * moment you click away is a visible defect, not a saving. A single static
+ * frame under `prefers-reduced-motion`.
  *
  * THEMING: colour and font come from the app's tokens (`text-muted-foreground`,
  * `font-mono`), so it tracks light/dark for free. There is no HEV-orange token
@@ -138,7 +147,7 @@ export default function AsciiCrowbar({
   seed,
 }: AsciiCrowbarProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
-  const preRef = useRef<HTMLPreElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Decoded once (module-cached); independent of every prop.
   const { geo, count } = useMemo(() => decodeCrowbarCloud(), [])
@@ -150,14 +159,17 @@ export default function AsciiCrowbar({
   }, [charRamp])
 
   useEffect(() => {
-    const pre = preRef.current
+    const canvas = canvasRef.current
     const wrap = wrapRef.current
-    if (!pre) return
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
     const rampLen = rampCodes.length
     // Glyph size is FIXED; the grid grows to cover the pane. Cells are square
     // (advance ≈ line-height ≈ 0.6em), so one cell is `cell` px on both axes.
     const cell = fontSize * MONO_ADVANCE_RATIO
+    const lineHeight = fontSize * LINE_HEIGHT_RATIO
 
     // Grid + buffers are (re)allocated by measure() and read by renderFrame().
     let W = 0
@@ -168,6 +180,22 @@ export default function AsciiCrowbar({
     let cx = 0
     let cy = 0
     let K1 = 0
+
+    // `color`/`fontFamily` resolved from CSS classes on the (invisible,
+    // canvas-drawn-nothing-itself) canvas element rather than hardcoded, so
+    // this still "tracks light/dark for free" the way the old `<pre>` did —
+    // canvas ignores `color`/`font-family` for its own box, but they still
+    // resolve correctly via `getComputedStyle`. Re-read on a theme flip
+    // (watched via the same `class`/`data-theme` attributes settings-effects.ts
+    // writes onto `<html>`), not every frame.
+    let color = '#000'
+    let fontFamily = 'monospace'
+    const refreshStyle = () => {
+      const computed = getComputedStyle(canvas)
+      color = computed.color
+      fontFamily = computed.fontFamily
+      ctx.font = `${fontSize}px ${fontFamily}`
+    }
 
     // Seeded surfaces start at their own pose; unseeded ones at the default.
     const start0 = seed !== undefined ? seededAngles(seed) : { a: INIT_A, b: INIT_B }
@@ -218,13 +246,18 @@ export default function AsciiCrowbar({
           screen[cell2] = rampCodes[idx]
         }
       }
+      // Row strings, one `fillText` each — never per-cell draw calls, and
+      // (unlike the old `pre.textContent = rows.join('\n')`) never anything
+      // that touches layout: canvas painting is compositor-only.
+      ctx.clearRect(0, 0, W * cell, H * lineHeight)
+      ctx.fillStyle = color
       for (let r = 0; r < H; r++) {
         const s = r * W
         // Spread one row (W codes) into fromCharCode, then join — array-join
         // style, never per-cell string concatenation.
         rows[r] = String.fromCharCode(...screen.subarray(s, s + W))
+        ctx.fillText(rows[r], 0, r * lineHeight)
       }
-      pre.textContent = rows.join('\n')
     }
 
     // Size the grid to the container (glyph size fixed). `width`/`height` props,
@@ -247,6 +280,22 @@ export default function AsciiCrowbar({
       // Unit sphere → FILL of the shorter (tighter) grid axis. Cells are square,
       // so the same scale applies to both axes; the tighter axis avoids clipping.
       K1 = (FILL * Math.min(W, H) * K2) / 2
+
+      // Backing store at devicePixelRatio, CSS-sized down — the standard
+      // crisp-canvas recipe. `ctx.font` survives a `canvas.width` write on
+      // some engines but not reliably on all, so it's reset in `refreshStyle`
+      // right after, not left to chance.
+      const dpr = window.devicePixelRatio || 1
+      const pixelW = W * cell
+      const pixelH = H * lineHeight
+      canvas.width = Math.max(1, Math.round(pixelW * dpr))
+      canvas.height = Math.max(1, Math.round(pixelH * dpr))
+      canvas.style.width = `${pixelW}px`
+      canvas.style.height = `${pixelH}px`
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.textBaseline = 'top'
+      refreshStyle()
+
       renderFrame()
     }
 
@@ -255,8 +304,6 @@ export default function AsciiCrowbar({
         ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
         : false
 
-    // Fixed glyph size; draw an immediate frame so there's never a blank flash.
-    pre.style.fontSize = `${fontSize}px`
     measure()
 
     let ro: ResizeObserver | undefined
@@ -265,9 +312,29 @@ export default function AsciiCrowbar({
       ro.observe(wrap)
     }
 
+    // A theme flip changes `color`'s resolved value — re-paint the CURRENT
+    // pose immediately rather than waiting for the tumble's next natural
+    // frame (imperceptible while animating, but a visible stale tint for a
+    // whole beat under `prefers-reduced-motion`, which never renders again
+    // on its own).
+    let themeObserver: MutationObserver | undefined
+    if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
+      themeObserver = new MutationObserver(() => {
+        refreshStyle()
+        renderFrame()
+      })
+      themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'data-theme'],
+      })
+    }
+
     if (reduced) {
-      // Static frame only; keep the ResizeObserver so it re-grids on resize.
-      return () => ro?.disconnect()
+      // Static frame only; keep the observers so it re-grids/re-tints.
+      return () => {
+        ro?.disconnect()
+        themeObserver?.disconnect()
+      }
     }
 
     let rafId = 0
@@ -336,6 +403,7 @@ export default function AsciiCrowbar({
       rafId = 0
       io?.disconnect()
       ro?.disconnect()
+      themeObserver?.disconnect()
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibility)
       }
@@ -348,10 +416,10 @@ export default function AsciiCrowbar({
       aria-hidden="true"
       className="pointer-events-none absolute inset-0 grid select-none place-items-center overflow-hidden"
     >
-      <pre
-        ref={preRef}
-        className="m-0 whitespace-pre font-mono text-muted-foreground"
-        style={{ fontSize, lineHeight: LINE_HEIGHT_RATIO, opacity: DIM_OPACITY }}
+      <canvas
+        ref={canvasRef}
+        className="m-0 block font-mono text-muted-foreground"
+        style={{ opacity: DIM_OPACITY }}
       />
     </div>
   )

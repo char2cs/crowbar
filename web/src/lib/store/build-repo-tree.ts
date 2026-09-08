@@ -144,6 +144,9 @@ export function toSidebarRepo(
     // to overwrite. A repo dragged back to index 0 emits `order: 0`, and an
     // omitted key cannot clear the 3 it used to hold.
     order: repo.order ?? 0,
+    // Same rule: a repo dragged OUT of a folder emits `folderId: ''`, and an
+    // omitted key cannot clear the folder it used to hold.
+    folderId: repo.folderId ?? '',
     name: repo.name,
     avatarLabel: repo.avatarLabel || repoAvatarLabel(repo.name),
     avatarColor: repo.avatarColor || repoAvatarColor(repo.name),

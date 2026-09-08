@@ -43,8 +43,11 @@ type (
 type CreateInput struct {
 	ID          string
 	WorkspaceID string
-	Type        domain.ChatType
-	Now         time.Time
+	// RepoID is meaningful only when Type is ChatTypeFolder — see
+	// domain.Chat.RepoID's own doc. Left "" for every other type.
+	RepoID string
+	Type   domain.ChatType
+	Now    time.Time
 }
 
 // EventStore is the asynx-backed AgentChat aggregate repository: mutations
@@ -351,6 +354,7 @@ func (r *eventSourced) Create(
 	evt, err := occSend(ctx, r.ax.SendWait, commands.Create{
 		ID:          in.ID,
 		WorkspaceID: in.WorkspaceID,
+		RepoID:      in.RepoID,
 		Type:        in.Type,
 		Now:         in.Now,
 	})

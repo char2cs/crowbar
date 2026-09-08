@@ -18,8 +18,11 @@ import (
 type Create struct {
 	ID          string
 	WorkspaceID string
-	Type        domain.ChatType
-	Now         time.Time
+	// RepoID is meaningful only when Type is ChatTypeFolder — see
+	// domain.Chat.RepoID's own doc. Left "" for every other type.
+	RepoID string
+	Type   domain.ChatType
+	Now    time.Time
 }
 
 func (c Create) AggregateID() string  { return c.ID }
@@ -52,6 +55,7 @@ func (c Create) EmitEvent(_ *domain.Chat) domain.Chat {
 	return domain.Chat{
 		ID:             c.ID,
 		WorkspaceID:    c.WorkspaceID,
+		RepoID:         c.RepoID,
 		Type:           c.Type,
 		CreatedAt:      c.Now,
 		LastActivityAt: c.Now,

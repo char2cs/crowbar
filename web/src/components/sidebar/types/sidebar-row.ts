@@ -26,13 +26,19 @@ export interface SidebarRow {
    *  than only a locked one. */
   locked?: boolean
   /**
-   * The repo's own identity, present only on the project-home row (the one
-   * `rows-from-repo.ts` ever gives a null parentId) — what its click-to-edit
+   * The repo's own identity, present only on the repo's own home row (the
+   * repo's default-workspace row, `rows-from-repo.ts`'s one root push — its
+   * `parentId` is that repo's own `folderId`, not always null: a repo's entry
+   * may itself be filed into a project-home folder) — what its click-to-edit
    * icon (EditableRepoIcon, repo-icon-mark.tsx) needs to reach the repo's own
    * REST base and render the repo's actual mark, rather than the generic
-   * GitBranch glyph every other branch row draws. Absent when the repo's
-   * `projectId` hasn't seeded yet — that row falls back to the generic glyph
-   * rather than guessing at a REST base it can't yet build.
+   * GitBranch glyph every other branch row draws. Also the signal
+   * `sidebar-drop-policy.ts`/`drop-actions.ts` use to tell this ONE branch row
+   * apart from every other — its placement lives on `domain.Repository`, not
+   * `Workspace`/`Chat`, so it needs a whole different plan. Absent when the
+   * repo's `projectId` hasn't seeded yet — that row falls back to the generic
+   * glyph rather than guessing at a REST base it can't yet build, and (until
+   * it seeds) is not draggable as a repo either.
    */
   repoIcon?: {
     repoId: string

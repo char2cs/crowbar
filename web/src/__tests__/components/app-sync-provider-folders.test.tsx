@@ -92,6 +92,8 @@ vi.mock('@/lib/api', () => ({
   fetchRepoChats: (...args: unknown[]) => fetchRepoChats(...args),
   fetchProjects: vi.fn().mockResolvedValue([]),
   fetchHomeWorkspace: vi.fn().mockResolvedValue(null),
+  fetchHomeChats: vi.fn().mockResolvedValue([]),
+  fetchHomeFolders: vi.fn().mockResolvedValue([]),
 }))
 
 import { AppSyncProvider } from '@/components/app-sync-provider'

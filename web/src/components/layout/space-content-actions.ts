@@ -11,6 +11,7 @@ import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { toast } from '@/features/window/stores/toast-store'
 import { openChatInOwnPane } from '@/components/sidebar/lib/drop-actions'
+import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
 /** What `id` resolves to: its owning repo, and the subject a drag/removal call needs. */
@@ -254,8 +255,23 @@ async function navigateThenOpenChat(
  *     ground workspace resolved by walking up to the nearest owning
  *     ancestor (§3.2) — not built yet (see `handleCreate`'s own note on the
  *     same gap) — so this is an honest fold, not a placeholder.
+ *
+ * A project-home row (chat or folder) is resolved FIRST, against every
+ * visible project's home tree rather than `repos` — see `resolveHomeRowScope`
+ * (lib/store/home-tree.ts), the one shared implementation every caller that
+ * needs to tell a home row apart from a repo one reuses.
  */
 export function handleOpen(id: string, repos: readonly Repo[], navigate: NavigateFn): void {
+  const homeRow = resolveHomeRowScope(id)
+  if (homeRow) {
+    if (homeRow.kind === 'folder') {
+      useSidebarStore.getState().toggleChatRow(id)
+      return
+    }
+    void openHomeChat(homeRow.projectId, homeRow.homeWorkspaceId, id, navigate)
+    return
+  }
+
   const chatRow = resolveChatRow(repos, id)
   if (chatRow) {
     const wsId = openableWorkspaceOf(chatRow.repo, chatRow.chat)
@@ -324,11 +340,24 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
  * live store no longer recognises, a repo-home id (resolves to a `workspace`
  * subject naming no row in `repo.workspaces` — repo deletion gets its own
  * confirmation flow in Part H and is not reachable from a row's trash yet),
- * and a user-locked, non-home workspace (`planRemoval`'s `draftFor` refuses
+ * a user-locked, non-home workspace (`planRemoval`'s `draftFor` refuses
  * one — the daemon would refuse the delete too, so the tray must never
- * accept one and promise otherwise).
+ * accept one and promise otherwise), and — checked FIRST, below — a
+ * project-home row.
+ *
+ * A home row is refused here rather than routed through the removal tray:
+ * `resolveRow`'s repo-scoped walk can find a FALSE match for one. The
+ * daemon's `ListInRepo` never actually filters by the repo id in its own
+ * URL (`fetchFolders`'s own doc — a known, unfixed backend leniency), so a
+ * home folder bleeds into every REPO's own folder list too, stamped with
+ * THAT repo's id. Trusting that match here is what silently deleted a home
+ * folder through a repo-scoped DELETE that had no business resolving it at
+ * all — caught live, dragging a home folder onto the trash target. Home
+ * rows get their own removal-tray wiring in a follow-up; until then this
+ * says so rather than repeating the same mis-resolution.
  */
 export function handleTrash(id: string): boolean {
+  if (resolveHomeRowScope(id)) return false
   const currentRepos = useSidebarStore.getState().repos
   // Checked BEFORE resolveRow, which cannot see a chat at all
   // (`resolveChatRow`'s own doc: "callers must consult THIS FIRST").
@@ -484,6 +513,62 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
 }
 
 /**
+ * The sidebar header's "start a thread on the project's home workspace"
+ * button — NOT reachable through `handleCreate` above, which resolves its
+ * `parentId` against the repo-scoped sidebar store (`resolveRow`) and has no
+ * notion of project home at all (home-workspace-resolver.ts: "home is a
+ * project-level concept, not a repo workspace" — it never appears in
+ * `repos`). Creates directly against the resolved home workspace id, then
+ * opens it the same way `navigateThenOpenChat` opens a freshly-forked repo
+ * chat: navigate to project home, wait for it to become the active
+ * workspace, then open the chat in its own pane. `homeWorkspaceId` is the
+ * caller's job to resolve (home-workspace-resolver.ts's
+ * `useHomeWorkspaceState`/`ensureHomeWorkspaceResolved`) — this function
+ * only spends it.
+ */
+export async function handleCreateHomeThread(
+  projectId: string,
+  homeWorkspaceId: string,
+  navigate: NavigateFn,
+): Promise<void> {
+  const provider = enabledProvider()
+  if (!provider) return
+  let chatId: string
+  try {
+    chatId = await createChat(homeWorkspaceId, provider.id)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to start chat')
+    return
+  }
+  await openHomeChat(projectId, homeWorkspaceId, chatId, navigate)
+}
+
+/**
+ * Open `chatId` (already existing, running in the project's home workspace)
+ * the way a click does — the home-scoped sibling of `navigateThenOpenChat`.
+ * Shared by {@link handleCreateHomeThread} (a freshly-minted chat) and
+ * {@link handleOpen}'s home branch (an existing row the user clicked): both
+ * need the identical sequence — open in place if home is already the active
+ * workspace, otherwise navigate to project home and wait for it to actually
+ * become active before opening, exactly as `navigateThenOpenChat` does for a
+ * repo chat. `/ide/$projectId/home` carries no `repoId`/`wsId` of its own
+ * (project home rides no repo), which is the one thing that keeps this from
+ * just being a call to `navigateThenOpenChat` itself.
+ */
+async function openHomeChat(
+  projectId: string,
+  homeWorkspaceId: string,
+  chatId: string,
+  navigate: NavigateFn,
+): Promise<void> {
+  if (openChatInOwnView(chatId, homeWorkspaceId)) return
+  await navigate({ to: '/ide/$projectId/home', params: { projectId } })
+  const becameActive = await waitForActiveWorkspace(homeWorkspaceId)
+  if (!becameActive) return
+  openChatInOwnPane(paneOpenSubject(chatId, homeWorkspaceId))
+}
+
+/**
  * The provider a new chat is started with, or null — having SAID SO — when
  * there is none.
  *
@@ -495,7 +580,7 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
  * once for that, but only for a MOUNTED workspace — the sidebar can be the only
  * thing on screen). A precondition that stops a click has to be visible.
  */
-function enabledProvider(): { id: string } | null {
+export function enabledProvider(): { id: string } | null {
   const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
   if (provider) return provider
   toast.error(

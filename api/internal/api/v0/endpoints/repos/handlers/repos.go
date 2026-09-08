@@ -532,6 +532,11 @@ type patchRequest struct {
 	Name      *string `json:"name"`
 	ProjectID *string `json:"projectId"`
 	Order     *int    `json:"order"`
+	// FolderID re-files the repo's own entry within its project's home tree —
+	// "" for the project's home root, a project-home folder id otherwise.
+	// *string, not string, for the same reason ProjectID is: a request that
+	// omits it must leave the repo's current folder untouched, not clear it.
+	FolderID *string `json:"folderId"`
 }
 
 // unsafeRepoNameMessage is the 400 both name-taking endpoints answer with.
@@ -645,7 +650,7 @@ func (h *Handlers) bindRepoUpdate(
 	c *gin.Context,
 	body patchRequest,
 ) (project.RepoUpdate, bool) {
-	update := project.RepoUpdate{ProjectID: body.ProjectID, Order: body.Order}
+	update := project.RepoUpdate{ProjectID: body.ProjectID, Order: body.Order, FolderID: body.FolderID}
 	if body.Name == nil {
 		return update, true
 	}

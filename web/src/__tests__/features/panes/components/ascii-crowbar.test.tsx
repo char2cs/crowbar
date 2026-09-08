@@ -10,10 +10,21 @@ import AsciiCrowbar from '@/features/panes/components/ascii-crowbar'
  * that, so a future CPU "optimisation" can't reintroduce a focus/blur gate.
  *
  * rAF is stubbed and driven by hand — no timers, no real waiting.
+ *
+ * Rendered onto a `<canvas>` now (perf fix — see ascii-crowbar.tsx's own doc
+ * comment): there is no `pre.textContent` to read any more, so every test that
+ * used to inspect rendered DOM text instead inspects the SAME `ctx.fillText`
+ * calls the component makes, via a shared instrumented `getContext` stub —
+ * `rowsOf()` collects exactly one frame's worth (everything fillText'd since
+ * the last `clearRect`, which the component calls once per frame before
+ * re-drawing the rows).
  */
 
 let pending: Map<number, FrameRequestCallback>
 let nextRafId: number
+let fillTextCalls: string[]
+let lastFont: string
+let clearRectCount: number
 
 function flushFrame(t: number) {
   const due = [...pending.entries()]
@@ -21,6 +32,11 @@ function flushFrame(t: number) {
   act(() => {
     for (const [, cb] of due) cb(t)
   })
+}
+
+/** Everything fillText'd since the last clearRect — one frame's rows, in order. */
+function rowsOf(): string[] {
+  return fillTextCalls
 }
 
 beforeEach(() => {
@@ -38,6 +54,33 @@ beforeEach(() => {
   // stub it so a test that regresses to reading it fails loudly rather than
   // passing for the wrong reason.
   vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+
+  fillTextCalls = []
+  lastFont = ''
+  clearRectCount = 0
+  const mockCtx = {
+    get font() {
+      return lastFont
+    },
+    set font(v: string) {
+      lastFont = v
+    },
+    fillStyle: '',
+    textBaseline: 'alphabetic',
+    measureText: (text: string) => ({ width: text.length * 8 }),
+    fillText: (text: string) => {
+      fillTextCalls.push(text)
+    },
+    clearRect: () => {
+      fillTextCalls = []
+      clearRectCount++
+    },
+    fillRect: () => {},
+    setTransform: () => {},
+  }
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+    mockCtx as unknown as CanvasRenderingContext2D,
+  )
 })
 
 afterEach(() => {
@@ -124,9 +167,8 @@ describe('AsciiCrowbar — the frame loop is gated on visibility, never on focus
       dispatchEvent: () => false,
     })) as typeof window.matchMedia
     try {
-      const { container } = render(<AsciiCrowbar width={40} height={20} />)
-      const pre = container.querySelector('pre')!
-      expect(pre.textContent?.split('\n')).toHaveLength(20)
+      render(<AsciiCrowbar width={40} height={20} />)
+      expect(rowsOf()).toHaveLength(20)
       expect(pending.size).toBe(0)
     } finally {
       window.matchMedia = original
@@ -139,46 +181,37 @@ describe('AsciiCrowbar — the frame loop is gated on visibility, never on focus
 // "optimisation" of the idle path can't quietly trade visual quality.
 describe('AsciiCrowbar — the rendering is untouched by the idle gate', () => {
   it('renders exactly the grid it was asked for', () => {
-    const { container } = render(<AsciiCrowbar width={76} height={34} />)
-    const rows = container.querySelector('pre')!.textContent!.split('\n')
+    render(<AsciiCrowbar width={76} height={34} />)
+    const rows = rowsOf()
     expect(rows).toHaveLength(34)
     expect(rows[0]).toHaveLength(76)
   })
 
   it('renders a large grid at full size — no cell cap', () => {
-    const { container } = render(<AsciiCrowbar width={500} height={280} />)
-    const rows = container.querySelector('pre')!.textContent!.split('\n')
+    render(<AsciiCrowbar width={500} height={280} />)
+    const rows = rowsOf()
     expect(rows).toHaveLength(280)
     expect(rows[0]).toHaveLength(500)
   })
 
   it('keeps the requested glyph size', () => {
-    const { container } = render(<AsciiCrowbar width={40} height={20} fontSize={9} />)
-    expect(container.querySelector('pre')!.style.fontSize).toBe('9px')
+    render(<AsciiCrowbar width={40} height={20} fontSize={9} />)
+    expect(lastFont).toContain('9px')
   })
 
   it('still lets ~30 frames per second of wall clock through the interval gate', () => {
-    const { container } = render(<AsciiCrowbar width={40} height={20} />)
-    const pre = container.querySelector('pre')!
+    render(<AsciiCrowbar width={40} height={20} />)
 
-    // Count real writes rather than visible differences: a slow tumble on a
-    // small grid can produce two identical frames in a row.
-    let writes = 0
-    let held = pre.textContent
-    Object.defineProperty(pre, 'textContent', {
-      configurable: true,
-      get: () => held,
-      set: (v: string) => {
-        held = v
-        writes++
-      },
-    })
+    // Count real writes (clearRect, once per rendered frame) rather than
+    // visible differences: a slow tumble on a small grid can produce two
+    // identical frames in a row.
+    clearRectCount = 0
 
     // 1ms steps so the measurement resolves the gate itself rather than the
     // aliasing of a coarse tick against it.
     for (let t = 1; t <= 1000; t++) flushFrame(t)
 
-    expect(writes).toBeGreaterThanOrEqual(28)
-    expect(writes).toBeLessThanOrEqual(31)
+    expect(clearRectCount).toBeGreaterThanOrEqual(28)
+    expect(clearRectCount).toBeLessThanOrEqual(31)
   })
 })

@@ -454,6 +454,10 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
   const paneHitRef = useRef<ResolvedPaneHit | null>(null)
   const edgeScrollerRef = useRef<EdgeScroller | null>(null)
   const scrollerXRef = useRef<{ left: number; right: number } | null>(null)
+  // The scroller a wheel-lock was attached to, so `endDrag` removes the SAME
+  // listener from the SAME element rather than re-reading `scrollRef.current`
+  // (which could theoretically have moved on since drag start).
+  const wheelLockScrollerRef = useRef<HTMLElement | null>(null)
   const grabRef = useRef<GrabOffset>({ dx: 0, dy: 0 })
   const draggingRef = useRef<ActiveDrag | null>(null)
   const pendingRef = useRef<{
@@ -621,6 +625,13 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
             onRunningChange: (running) => setDropLineTracking(dropLineRef.current, running),
           },
         )
+        // The list stays put under the wheel for as long as this drag is
+        // live — only a pointer held near the top/bottom edge (the edge
+        // scroller above, which writes scrollTop directly) may move it.
+        // Reuses the same stable `preventDefault` identity `selectstart`
+        // already does, so add/removeEventListener pair up the same way.
+        scroller.addEventListener('wheel', preventDefault, { passive: false })
+        wheelLockScrollerRef.current = scroller
       }
 
       draggingRef.current = drag
@@ -679,6 +690,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       edgeScrollerRef.current?.stop()
       edgeScrollerRef.current = null
       scrollerXRef.current = null
+      wheelLockScrollerRef.current?.removeEventListener('wheel', preventDefault)
+      wheelLockScrollerRef.current = null
       grabRef.current = { dx: 0, dy: 0 }
       document.documentElement.removeAttribute('data-row-dragging')
       document.removeEventListener('selectstart', preventDefault)
@@ -716,14 +729,19 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
         // exactly one: neither tree nor Recents drags carry more than the
         // grabbed row today). `handleTrash` re-resolves each id against the
         // live store itself; a row that turns out not to be deletable (a
-        // locked branch, a repo home) gets the same toast the old row-level
-        // trash confirm gave it, rather than a drop that visibly landed and
-        // did nothing. A working chat never reaches this at all: `1a`'s
-        // pickup-time refusal (`onPointerDownDrag`) already stops the drag
-        // before it starts.
+        // locked branch, a repo home, or — caught live — a project-home row,
+        // not wired into this tray at all yet) gets a toast rather than a
+        // drop that visibly landed and did nothing. The message names no
+        // specific reason: "it may be locked" was flatly wrong for a FOLDER
+        // (folders have no lock state at all — a git concept, not one
+        // `handleTrash`'s other refusal reasons share either), caught live
+        // the same session a home row's refusal started routing through
+        // here. A working chat never reaches this at all: `1a`'s pickup-time
+        // refusal (`onPointerDownDrag`) already stops the drag before it
+        // starts.
         for (const subject of drag.subjects) {
           if (!handleTrash(subject.id)) {
-            toast.error(`Can't delete ${subject.label || 'this row'} — it may be locked`)
+            toast.error(`Can't delete ${subject.label || 'this row'} yet`)
           }
         }
       } else if (hit?.kind === 'row') {
@@ -751,6 +769,32 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
             Boolean(hit.row.inRecents),
           )
         }
+      } else {
+        // `hitTest` (drop-dom.ts's `createDropHitTest`) returns null for TWO
+        // different situations it does not distinguish: no row under the
+        // pointer at all, and a row that IS there but whose policy check
+        // refused every mode. The second one used to look identical to a
+        // drop that just never happened — the drag animates, the release
+        // fires, and the row silently stays exactly where it started, with
+        // no toast and no visual "refused" state. Caught live: a top-level
+        // reorder across a repo/project-home boundary (or, before today,
+        // across repos) "didn't stick" with no explanation why. Re-walking
+        // independently here, past the point `hitTest` itself gives up, is
+        // for that toast alone — it changes nothing about whether the drop
+        // is allowed.
+        for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+          const row = rowDom.read(el)
+          if (!row) continue
+          // A release back onto one of the dragged rows themselves is a
+          // cancel, not a refusal — allowedModes' own first check (never
+          // drop a row onto itself) already reads that way; nothing to tell
+          // the user here that dragging-and-not-moving didn't say itself.
+          const droppedOnItself = drag.subjects.some((s) => s.id === row.id)
+          if (!droppedOnItself && !anyModeAllowed(cycleSafeAllowedModes(drag.subjects, row))) {
+            toast.error(`Can't move ${drag.subjects[0]?.label || 'this row'} there`)
+          }
+          break
+        }
       }
       endDrag()
     }
@@ -764,6 +808,8 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       // selection blocked, with no drag left to end and clear them.
       document.documentElement.removeAttribute('data-row-dragging')
       document.removeEventListener('selectstart', preventDefault)
+      wheelLockScrollerRef.current?.removeEventListener('wheel', preventDefault)
+      wheelLockScrollerRef.current = null
       paintPaneHit(paneHitRef.current, null)
       clearInternalTabDragData()
       window.removeEventListener('pointermove', onPointerMove)

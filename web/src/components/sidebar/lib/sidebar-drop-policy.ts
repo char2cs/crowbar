@@ -11,6 +11,7 @@ import {
 import { isWorkspaceLockedInSidebar, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
+import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -75,6 +76,18 @@ export function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope 
 }
 
 /**
+ * A CHAT's owning repo/project — the one lookup `resolveRowRepo` deliberately
+ * skips (see its own doc: resolving a DRAGGED chat there would defeat spec
+ * §8.3's cross-repo exemption). Used only for a chat as a drop TARGET, never
+ * as a subject — by the time `allowedModes` reaches here the subject can
+ * never be a chat itself (that kind returns earlier, unconditionally).
+ */
+function resolveChatRepo(repos: readonly Repo[], chatId: string): RowScope | null {
+  const repo = repos.find((r) => r.chats?.some((c) => c.id === chatId))
+  return repo ? { repoId: repo.id, projectId: repo.projectId } : null
+}
+
+/**
  * Which of before/after/into this drag may do to this target.
  *
  * Same-project rule generalizes `drop-rules.ts`'s same-repo rule (its
@@ -129,13 +142,29 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   // where a silent policy refusal would be none until §8.3's refusal affordance
   // (still unbuilt, parked in Task 21) exists to say why.
   //
-  // The two classes do not MIX, in either direction: a repo/workspace folder
-  // and a chat folder are different aggregates sharing one `kind: 'folder'`
-  // tag, and a branch is not something a chat can become a thread of.
-  // `planChatDrop` refuses a non-chat target the same way; refusing here too
+  // A branch is not something a chat can become a thread of — that direction
+  // still refuses. A FOLDER is legal now: `kind: 'folder'` is one aggregate
+  // in the current unified row model (rows-from-repo.ts's own folder push is
+  // fed straight off the wire's `AgentChatFolder`/`ChatsFolderWireDTO`, the
+  // same one `planChatDrop`'s target resolves against), not the two separate
+  // "repo folder" / "chat folder" concepts an earlier, pre-unification
+  // version of this comment worried about mixing. Refusing a folder target
+  // here used to be the literal "can't drag a chat into a folder" gap, caught
+  // live — `planChatDrop` accepts one the same way now; refusing here too
   // means the indicator never promises a move that would then do nothing.
-  if (kind === 'chat' || target.kind === 'chat') {
-    if (kind !== 'chat' || target.kind !== 'chat') return NO_MODES
+  // Only when the DRAGGED row is a chat — `|| target.kind === 'chat'` used to
+  // sit here too, thinking it needed to also catch "something dropped onto a
+  // chat", but that dragged something is a FOLDER (or a branch) the exact
+  // same amount whether its sibling happens to be a chat or a folder, and
+  // belongs in whichever block below already resolves ITS kind's scope. With
+  // it, a FOLDER dragged onto a CHAT target hit this block instead, found
+  // `kind !== 'chat'` true, and returned NO_MODES before ever reaching the
+  // home/repo scope logic that would have allowed it — caught live as a
+  // project-home folder that could reorder past another folder but never
+  // past a chat, "stuck" with no explanation (folders and chats share one
+  // sibling order space; nothing about them not stacking blocks a reorder).
+  if (kind === 'chat') {
+    if (target.kind !== 'chat' && target.kind !== 'folder') return NO_MODES
     // THE WORKING REFUSAL, ASKED AGAIN — because `s.working` above cannot
     // answer it for a chat drawn in the TREE.
     //
@@ -158,9 +187,85 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
     return ALL_MODES
   }
 
+  // A FOLDER can also be a project-home one (rows-from-home.ts) — home rides
+  // no repo at all, so `resolveRowRepo` below can never see it (the literal
+  // "can't drag/group a home folder" gap, caught live). Home never forks, so
+  // nothing but a folder ever reaches here for it. Its scope question is
+  // simpler than a repo's: a project has exactly one home workspace, so "the
+  // same project" is the only thing that has to agree — no lock/fork lineage
+  // to protect. A drag that mixes a home folder with anything repo-scoped is
+  // refused (there is no shared container either side could land in).
+  if (kind === 'folder') {
+    const subjectHomeScopes = subjects.map((s) => resolveHomeRowScope(s.id))
+    if (subjectHomeScopes.some((s) => s !== null)) {
+      if (subjectHomeScopes.some((s) => s === null)) return NO_MODES
+      const targetHome = resolveHomeRowScope(target.id)
+      if (!targetHome) return NO_MODES
+      if (subjectHomeScopes.some((s) => s!.projectId !== targetHome.projectId)) return NO_MODES
+      return ALL_MODES
+    }
+  }
+
+  // A BRANCH row can also be a REPO's own header row (rows-from-repo.ts's
+  // `repoIcon`, set only on that one row) — the repo's own placement lives on
+  // a different aggregate entirely (domain.Repository, not Workspace/Chat),
+  // so it does not answer to the same-repo walk every ordinary branch below
+  // is scoped by; it has no repo of its own to BE scoped by, and the walk
+  // would refuse it outright (`resolveRowRepo` never resolves a repo's own id
+  // to anything). Its one legal destination is project home: another repo's
+  // header (reorder only — a repo is not a container), a home chat (reorder
+  // only — nothing for a repo to thread under), or a home folder (reorder or
+  // nest) — always within the SAME project, never a repo-internal folder or
+  // branch. Only ever dragged alone: a multi-row selection mixing a repo
+  // header with anything else already refused above (mixed kinds are
+  // impossible here since every subject shares `kind`, but a multi-REPO
+  // selection is not a thing this drag supports).
+  if (kind === 'branch' && subjects.length === 1 && subjects[0].repoIcon) {
+    const repoIcon = subjects[0].repoIcon
+    if (target.kind === 'branch') {
+      // Another repo's own header row always sits at a container ('' or a
+      // home folder) a repo may legally land in — that is its OWN placement
+      // invariant, enforced the identical way when IT was filed there — so
+      // no further container check is needed here.
+      return target.repoIcon && target.repoIcon.projectId === repoIcon.projectId
+        ? REORDER_MODES
+        : NO_MODES
+    }
+    const targetHome = resolveHomeRowScope(target.id)
+    if (!targetHome || targetHome.projectId !== repoIcon.projectId) return NO_MODES
+    // Reordering before/after TARGET lands the repo in target's OWN
+    // container (target.parentId), which has to itself be legal for a repo —
+    // project-home root, or another home FOLDER, never a CHAT's own thread
+    // space — even when target itself is a folder. Caught live: "New
+    // folder" nested inside a home chat (a legal place for a FOLDER to sit)
+    // still let a repo reorder "past" it, which would have filed the repo
+    // under that chat — refused server-side, but the drag indicator had
+    // already promised a move nothing here should have offered. Nesting
+    // INTO target is a different question (target itself, not its
+    // container) and stays gated on target.kind alone, below.
+    const containerID = target.parentId ?? ''
+    const containerIsRepoSafe =
+      containerID === '' || resolveHomeRowScope(containerID)?.kind === 'folder'
+    return {
+      before: containerIsRepoSafe,
+      after: containerIsRepoSafe,
+      into: target.kind === 'folder',
+    }
+  }
+
   const repos = useSidebarStore.getState().repos
 
-  const targetScope = resolveRowRepo(repos, target.id)
+  // `resolveRowRepo` is deliberately chat-blind (its own doc: resolving a
+  // chat there would hand a DRAGGED chat the same-repo rule §8.3 exempts it
+  // from) — but the SUBJECT here is never a chat (the branch above already
+  // returned for that kind), so that exemption does not apply to the TARGET.
+  // A folder/branch reordering past a plain repo chat sibling needs that
+  // chat's repo resolved same as any other target would be, or it hits the
+  // exact "stuck, no explanation" gap the home-scope block above was already
+  // fixed for — caught live, the repo-scoped half of the same bug.
+  const targetScope =
+    resolveRowRepo(repos, target.id) ??
+    (target.kind === 'chat' ? resolveChatRepo(repos, target.id) : null)
   if (!targetScope) return NO_MODES
 
   for (const subject of subjects) {

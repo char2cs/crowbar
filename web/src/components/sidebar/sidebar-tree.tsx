@@ -1,21 +1,13 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import { useStore } from 'zustand'
-import { cn } from '@/lib/utils'
 import {
   readChatWorking,
   subscribeChatWorking,
 } from '@/features/workspace/stores/workspace-store-registry'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import {
-  ROW_BASE,
-  ROW_INACTIVE,
-  ROW_INDENT_STEP,
-  ROW_INDENT_TRANSITION,
-} from '@/components/layout/workspace-row-base'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
-import { AffordanceRow } from '@/components/sidebar/affordance-row'
 import { useSidebarDrag, type SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { selectChatHasView } from '@/features/panes/stores/slices/pane-slice'
@@ -189,34 +181,12 @@ export function SidebarTree({
           isNestTarget={drag.nestTargetId === row.id}
           onPointerDownDrag={(e) => drag.onPointerDownDrag(row, e)}
         />
-        {!folded &&
-          (hasChildren ? (
-            children!.map((child) => renderRow(child, depth + 1, childPath))
-          ) : row.kind === 'folder' ? (
-            // Addendum §5: a folder has no owning chat of its own, so it is
-            // the one container whose own row can't carry Fork/Thread — it
-            // still needs this nested bootstrap row when childless. A
-            // `branch` or `chat` row, by contrast, already got its own
-            // always-present Fork/Thread buttons straight on the row
-            // (sidebar-row.tsx) — rendering this underneath THOSE kinds too
-            // was the redundant, unlabeled "empty" row users were seeing
-            // under every real chat.
-            <div
-              className={ROW_INDENT_TRANSITION}
-              style={{ marginInlineStart: (depth + 1) * ROW_INDENT_STEP }}
-            >
-              <div
-                className={cn(ROW_BASE, ROW_INACTIVE, 'group cursor-default justify-end pr-2.5')}
-              >
-                <AffordanceRow
-                  onCreateThread={() => onCreate(row.id, 'thread')}
-                  onCreateWorkspace={
-                    row.ownsWorktree ? () => onCreate(row.id, 'workspace') : undefined
-                  }
-                />
-              </div>
-            </div>
-          ) : null)}
+        {/* A childless folder used to render a second, unlabeled "ghost" row
+            here just to hold Fork/Thread buttons — removed. A folder's own
+            Fork button now lives on its own row (sidebar-row.tsx), the same
+            place every other kind's already did; there is nothing left for
+            an empty folder to draw underneath itself. */}
+        {!folded && hasChildren && children!.map((child) => renderRow(child, depth + 1, childPath))}
       </div>
     )
   }

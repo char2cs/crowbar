@@ -3,9 +3,11 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
+import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-resolver'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -28,6 +30,19 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
     },
     shifted: [],
   }),
+  createHomeFolder: vi.fn().mockResolvedValue({
+    folder: { id: 'home-folder-new', repoId: '', projectId: 'proj-1', name: 'New folder', order: 0 },
+    shifted: [],
+  }),
+}))
+
+// `resolveHomeRowScope` needs a resolved home workspace id to recognise any
+// row as home-scoped at all (`getHomeWorkspaceId`) — real elsewhere in this
+// file's fixtures, but real resolution is an async fetch this file has no
+// business exercising.
+vi.mock('@/features/workspace/lib/home-workspace-resolver', async (importOriginal) => ({
+  ...(await importOriginal<typeof homeWorkspaceResolver>()),
+  getHomeWorkspaceId: () => 'home-ws-1',
 }))
 
 /**
@@ -107,10 +122,42 @@ function rightClick(tree: HTMLElement, rowId: string) {
   return target
 }
 
+/** A project-home folder, exactly as `rowsFromHome` would draw it — home
+ *  rides no repo, so it is never part of `rowsFromRepo(REPO)`'s output. */
+const HOME_FOLDER_ROW_ID = 'home-folder-1'
+const homeFolderRow: SidebarRow = {
+  id: HOME_FOLDER_ROW_ID,
+  kind: 'folder',
+  parentId: null,
+  order: 0,
+  label: 'Home Folder',
+  ownsWorktree: false,
+  workspaceId: null,
+  working: false,
+  hasView: false,
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ ...getInitialState(), repos: [REPO] })
-  rows = rowsFromRepo(REPO)
+  useHomeTreeStore.setState({
+    trees: {
+      'proj-1': {
+        chats: [
+          {
+            id: 'home-branch-chat',
+            repoId: '',
+            type: 'branch',
+            workspaceId: 'home-ws-1',
+            title: '',
+            order: 0,
+          },
+        ],
+        folders: [{ id: HOME_FOLDER_ROW_ID, repoId: '', name: 'Home Folder', order: 0 }],
+      },
+    },
+  })
+  rows = [...rowsFromRepo(REPO), homeFolderRow]
 })
 
 describe('SidebarRowContextMenu', () => {
@@ -119,7 +166,7 @@ describe('SidebarRowContextMenu', () => {
   // the fixture must follow it rather than the other way round.
   it('is driven by rowsFromRepo’s real output, where a locked branch is id’d by its owning chat', () => {
     expect(rows.map((r) => r.id).sort()).toEqual(
-      [HOME_ROW_ID, FORK_ROW_ID, LOCKED_ROW_ID, 'folder-1'].sort(),
+      [HOME_ROW_ID, FORK_ROW_ID, LOCKED_ROW_ID, 'folder-1', HOME_FOLDER_ROW_ID].sort(),
     )
     expect(rows.find((r) => r.id === LOCKED_ROW_ID)?.workspaceId).toBe('ws-2')
   })
@@ -195,7 +242,12 @@ describe('SidebarRowContextMenu', () => {
     // Finding 2 of the same review: `performCreateFolder` matched `parentId`
     // against the same three id spaces and was never translated, so "New folder"
     // on a locked branch (or the repo home) fired nothing at all.
-    it('clicking New folder actually creates one under the workspace it owns', () => {
+    //
+    // The value actually sent stays the row's own (chat) id, never the
+    // workspace it translates to along the way — `POST .../chats/folders`
+    // resolves `parentId` as a chat/folder, and sending the workspace id
+    // 404s on the daemon ("agentchat: get chat: not found"), caught live.
+    it('clicking New folder actually creates one under the CHAT it owns, not its workspace', () => {
       const { treeRef } = renderMenu()
       rightClick(treeRef.current, LOCKED_ROW_ID)
       fireEvent.click(screen.getByText('New folder'))
@@ -203,7 +255,7 @@ describe('SidebarRowContextMenu', () => {
         'proj-1',
         'repo-1',
         'New folder',
-        'ws-2',
+        LOCKED_ROW_ID,
       )
     })
   })
@@ -227,6 +279,30 @@ describe('SidebarRowContextMenu', () => {
     rightClick(treeRef.current, HOME_ROW_ID)
     fireEvent.click(screen.getByText('Import branches'))
     expect(onImport).toHaveBeenCalledWith(HOME_ROW_ID)
+  })
+
+  // Caught live: a project-home folder is never in any repo's `folders`
+  // (home rides no repo), so `performCreateFolder`'s repo lookup found
+  // nothing and silently no-op'd — no request, no error, no new folder.
+  it('right-clicking a project-home folder offers only Rename and New folder', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, HOME_FOLDER_ROW_ID)
+    expect(screen.getByText('Rename')).toBeInTheDocument()
+    expect(screen.getByText('New folder')).toBeInTheDocument()
+    expect(screen.queryByText('Lock')).not.toBeInTheDocument()
+    expect(screen.queryByText('Import branches')).not.toBeInTheDocument()
+  })
+
+  it('clicking New folder on a project-home folder creates it HOME-scoped, not through the repo endpoint', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, HOME_FOLDER_ROW_ID)
+    fireEvent.click(screen.getByText('New folder'))
+    expect(sidebarPlacement.createHomeFolder).toHaveBeenCalledWith(
+      'proj-1',
+      'New folder',
+      HOME_FOLDER_ROW_ID,
+    )
+    expect(sidebarPlacement.createFolder).not.toHaveBeenCalled()
   })
 
   it('right-clicking an unknown row is a no-op', () => {

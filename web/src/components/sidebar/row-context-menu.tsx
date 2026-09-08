@@ -2,8 +2,13 @@ import { useEffect, type RefObject } from 'react'
 import { DownloadSimple, Folder, Lock, LockOpen, PencilSimpleLine } from '@phosphor-icons/react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import { performCreateFolder, performSetWorkspaceLock } from '@/components/sidebar/lib/row-actions'
+import {
+  performCreateFolder,
+  performCreateHomeFolder,
+  performSetWorkspaceLock,
+} from '@/components/sidebar/lib/row-actions'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
+import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 interface SidebarRowContextMenuProps {
@@ -122,11 +127,20 @@ export function SidebarRowContextMenu({
   }
 
   if (row.kind === 'branch' || row.kind === 'folder') {
+    // A home row is never in `useSidebarStore`'s `repos` at all (home rides
+    // no repo), so `performCreateFolder`'s repo lookup finds nothing for one
+    // and silently no-ops — a home FOLDER (the only home row this item ever
+    // reaches; a home chat is never `kind: 'branch'`, home has no worktree to
+    // fork) needs the home-scoped create instead, nested under itself.
+    const homeScope = resolveHomeRowScope(row.id)
     items.push({
       id: 'new-folder',
       label: 'New folder',
       icon: <Folder />,
-      onClick: () => void performCreateFolder(row.id),
+      onClick: () =>
+        void (homeScope
+          ? performCreateHomeFolder(homeScope.projectId, row.id)
+          : performCreateFolder(row.id)),
     })
   }
 

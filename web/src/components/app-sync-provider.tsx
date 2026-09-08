@@ -5,6 +5,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeWorkspace } from '@/lib/store/home-workspace'
+import { subscribeHomeTree } from '@/lib/store/home-tree'
 import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { dataOf } from '@/lib/loadable'
 import {
@@ -61,6 +62,11 @@ const MAX_SUPERSEDED_RETRIES = 2
 const KEY_SEP = '|'
 /** The project-home workspace tracker for the ACTIVE project (see below). */
 const homeKey = (projectId: string): string => `home${KEY_SEP}${projectId}`
+/** One project's home-workspace tree rows (chats + folders) — open for every
+ *  VISIBLE project, unlike `homeKey` above: a project's home row has to
+ *  render exactly as reliably as its repos do, and repos are not restricted
+ *  to the active project either. See `home-tree.ts`'s own doc. */
+const homeTreeKey = (projectId: string): string => `hometree${KEY_SEP}${projectId}`
 /** A project's repo list stream. */
 const reposKey = (projectId: string): string => `repos${KEY_SEP}${projectId}`
 /** One repo's worktrees, seeded and pushed through its chat surface. */
@@ -398,6 +404,9 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
       if (kind === 'tree') {
         return openRepoTreeSubscription(projectId, repoId)
       }
+      if (kind === 'hometree') {
+        return subscribeHomeTree(projectId)
+      }
       // A repo's worktrees, read and pushed through its CHATS. There is no
       // workspace resource left to subscribe: a worktree is held by a chat, so
       // the seed is the chat list (`fetchWorkspaces` derives the DTOs from it)
@@ -455,7 +464,10 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
     function desiredKeys(): Set<string> {
       const visibleProjects = getVisibleProjectIds()
       const keys = new Set<string>()
-      for (const projectId of visibleProjects) keys.add(reposKey(projectId))
+      for (const projectId of visibleProjects) {
+        keys.add(reposKey(projectId))
+        keys.add(homeTreeKey(projectId))
+      }
 
       // The project-home workspace rides no repo, so the per-repo workspace
       // streams can never carry it (see home-workspace.ts). It is tracked

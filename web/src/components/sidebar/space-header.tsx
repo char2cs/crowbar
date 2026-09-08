@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CaretDown, DotsThree } from '@phosphor-icons/react'
+import { ArrowElbowDownRight, CaretDown, Plus } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import {
   ROW_BASE,
@@ -16,7 +16,11 @@ interface SpaceHeaderProps {
   project: Project
   folded: boolean
   onToggleFold: () => void
-  onOverflow: () => void
+  /** Starts a new thread on the project's home workspace — same mechanism
+   *  a row's own Thread button uses (`onCreate(homeRowId, 'thread')`). */
+  onCreateThread: () => void
+  /** Opens the "Import a repo" / "Create a folder" menu. */
+  onOpenAddMenu: () => void
 }
 
 /**
@@ -27,12 +31,18 @@ interface SpaceHeaderProps {
  * row's interaction is a LEADING-slot swap (mark -> chevron) that SidebarRow's
  * trailing-controls-only model has no shape for.
  *
- * Hover is tracked in state, not CSS `group-hover`, because the overflow
- * button below is a CONTENT swap (nothing renders at rest), not just a
- * visibility toggle. The leading mark's own swap (icon -> chevron) rides a
- * SECOND, narrower hover state — see `showChevron`'s own doc for why.
+ * Hover is tracked in state, not CSS `group-hover`, because the trailing
+ * thread/add-menu buttons are a CONTENT swap (nothing renders at rest), not
+ * just a visibility toggle. The leading mark's own swap (icon -> chevron)
+ * rides a SECOND, narrower hover state — see `showChevron`'s own doc for why.
  */
-export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: SpaceHeaderProps) {
+export function SpaceHeader({
+  project,
+  folded,
+  onToggleFold,
+  onCreateThread,
+  onOpenAddMenu,
+}: SpaceHeaderProps) {
   const [active, setActive] = useState(false)
   // Whether the pointer is directly over the glyph's OWN hit-target (the
   // size-5 box below), not the row generally — see `showChevron`.
@@ -76,7 +86,13 @@ export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: Space
       aria-expanded={!folded}
       aria-label={`${folded ? 'Expand' : 'Collapse'} ${project.name}`}
       data-testid="space-header-row"
-      className={cn(ROW_BASE, ROW_INACTIVE, 'pr-2.5')}
+      // `mt-0` overrides ROW_BASE's `my-0.5` top half (via twMerge — the
+      // bottom half stays, spacing this row from whatever follows). This is
+      // the FIRST row in the column, directly under SidebarProjectHeader —
+      // `my-0.5`'s 2px top margin reads as normal inter-row rhythm
+      // everywhere else in the tree, but with nothing above it to justify
+      // here it read as unwanted padding under the toolbar.
+      className={cn(ROW_BASE, ROW_INACTIVE, 'mt-0 pr-2.5')}
       onMouseEnter={() => setActive(true)}
       onMouseLeave={() => setActive(false)}
       onFocus={() => setActive(true)}
@@ -148,20 +164,43 @@ export function SpaceHeader({ project, folded, onToggleFold, onOverflow }: Space
       )}
 
       {active && (
-        <button
-          type="button"
-          data-testid="overflow"
-          data-control="overflow"
-          className={ROW_SUB_ACTION}
-          aria-label={`More options for ${project.name}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            onOverflow()
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <DotsThree aria-hidden="true" className="size-3" weight="bold" />
-        </button>
+        <>
+          {/* Starts a thread on the project's home workspace — same
+              mechanism and icon as a row's own Thread button
+              (sidebar-row.tsx), just anchored at the project level instead
+              of a specific row. */}
+          <button
+            type="button"
+            data-testid="new-thread"
+            data-control="thread"
+            className={ROW_SUB_ACTION}
+            aria-label={`New thread on ${project.name}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onCreateThread()
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <ArrowElbowDownRight aria-hidden="true" className="size-3" weight="bold" />
+          </button>
+          {/* Replaces the old "•••" overflow, which opened a menu with
+              nothing in it (addendum §4 left it wired for "the next verb
+              this surface gets" — see space-scroller.tsx's SpacePanel). */}
+          <button
+            type="button"
+            data-testid="add-menu"
+            data-control="add-menu"
+            className={ROW_SUB_ACTION}
+            aria-label={`Add to ${project.name}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenAddMenu()
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <Plus aria-hidden="true" className="size-3" weight="bold" />
+          </button>
+        </>
       )}
     </div>
   )

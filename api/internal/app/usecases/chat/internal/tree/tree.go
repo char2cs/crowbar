@@ -107,7 +107,11 @@ func (u *chatFolderUsecase) ListInRepo(
 	}
 	out := make([]domain.Chat, 0, len(rows))
 	for _, row := range rows {
-		if row.Type == domain.ChatTypeFolder {
+		// repoID is "" for the project-home caller and a real repo id
+		// otherwise — the SAME convention RepoID is stored under (see
+		// domain.Chat.RepoID), so a plain equality is the whole boundary:
+		// no other repo's (or home's) folders bleed in any more.
+		if row.Type == domain.ChatTypeFolder && row.RepoID == repoID {
 			out = append(out, row)
 		}
 	}
@@ -126,7 +130,7 @@ func (u *chatFolderUsecase) Create(
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
-	if cErr := u.checkFolderContainer(ctx, snapshot, in.ParentID); cErr != nil {
+	if cErr := u.checkFolderContainer(ctx, snapshot, in.RepoID, in.ParentID); cErr != nil {
 		return domain.Chat{}, nil, cErr
 	}
 	id := in.ID
@@ -134,14 +138,15 @@ func (u *chatFolderUsecase) Create(
 		id = uuid.NewString()
 	}
 	minted, err := u.chats.Create(ctx, agentchat.CreateInput{
-		ID:   id,
-		Type: domain.ChatTypeFolder,
-		Now:  time.Now(),
+		ID:     id,
+		Type:   domain.ChatTypeFolder,
+		RepoID: in.RepoID,
+		Now:    time.Now(),
 	})
 	if err != nil {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: create %s: %w", id, err)
 	}
-	created, written, err := u.placeNewFolder(ctx, snapshot, id, name, in.ParentID, minted.CreatedAt)
+	created, written, err := u.placeNewFolder(ctx, snapshot, id, in.RepoID, name, in.ParentID, minted.CreatedAt)
 	if err != nil {
 		return domain.Chat{}, nil, u.discardFolder(ctx, id, err)
 	}
@@ -157,6 +162,7 @@ func (u *chatFolderUsecase) placeNewFolder(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	id string,
+	repoID string,
 	name string,
 	parentID string,
 	createdAt time.Time,
@@ -170,6 +176,7 @@ func (u *chatFolderUsecase) placeNewFolder(
 		ID:        id,
 		Type:      domain.ChatTypeFolder,
 		Title:     titled.Title,
+		RepoID:    repoID,
 		ParentID:  parentID,
 		Order:     target,
 		CreatedAt: createdAt,
@@ -233,7 +240,7 @@ func (u *chatFolderUsecase) Move(
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
-	if mErr := u.checkFolderMove(ctx, snapshot, id, destination); mErr != nil {
+	if mErr := u.checkFolderMove(ctx, snapshot, current.RepoID, id, destination); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
 	if wErr := guardNotWorking(subtreeIDsOf(id, snapshot.rows), u.work); wErr != nil {

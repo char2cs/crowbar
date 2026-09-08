@@ -631,6 +631,40 @@ describe('useSidebarDrag', () => {
     expect(onDrop).not.toHaveBeenCalled()
   })
 
+  // `hitTest` (drop-dom.ts) answers `null` for BOTH "no row here" and "a row
+  // here every mode refuses" — indistinguishable from its own return value,
+  // which is exactly what made a refused reorder look identical to one that
+  // never happened: no toast, no visual cue, the row just stays put. Caught
+  // live as a same-repo/project-home-boundary reorder that "didn't stick."
+  it('surfaces a toast when the hit test refuses the ONLY row under the release point, not silence', () => {
+    const rowA = makeRow(baseRow, 0)
+    makeRow({ ...baseRow, id: 'grandchild', label: 'grandchild' }, 1, { path: '/root/a/' })
+    const { result, onDrop } = renderDrag()
+
+    press(result, baseRow, rowA)
+    move(10, ROW_H + 2)
+    release(10, ROW_H + 2)
+
+    expect(onDrop).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledWith("Can't move a there")
+  })
+
+  // The one release position `allowedModes` ALSO refuses (its own first
+  // check: never drop a row onto itself) that must stay silent — a release
+  // back on the row's own origin is a cancel, not a mistake to explain.
+  it('does not toast when the release lands back on the dragged row itself', () => {
+    const rowA = makeRow(baseRow, 0)
+    const { result, onDrop } = renderDrag()
+
+    press(result, baseRow, rowA)
+    move(10, ROW_H + 2)
+    move(10, 3) // back onto rowA's own rect before releasing
+    release(10, 3)
+
+    expect(onDrop).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
   it('does not refuse on a false substring match — a sibling path is not an ancestry hit', () => {
     const rowA = makeRow(baseRow, 0)
     makeRow({ ...baseRow, id: 'ab', label: 'ab' }, 1, { path: '/ab/' })
@@ -719,6 +753,58 @@ describe('useSidebarDrag', () => {
       })
 
       expect(document.querySelector('[data-row-drag-refusal]')).toBeNull()
+    })
+  })
+
+  // The list should "stay put" under the mouse wheel for as long as a row
+  // drag is live — only the edge-auto-scroll (pointer held near the top/
+  // bottom edge) may move it.
+  describe('wheel-lock during a drag', () => {
+    it('prevents wheel scrolling of the list while a drag is in flight', () => {
+      const rowA = makeRow(baseRow, 0)
+      const scroller = document.createElement('div')
+      document.body.appendChild(scroller)
+      const { result } = renderDrag({ scroller })
+
+      press(result, baseRow, rowA)
+      move(10, ROW_H + 2)
+      expect(result.current.dragging).toBe(true)
+
+      const wheelEvent = new WheelEvent('wheel', { cancelable: true })
+      scroller.dispatchEvent(wheelEvent)
+      expect(wheelEvent.defaultPrevented).toBe(true)
+
+      release(10, ROW_H + 2)
+    })
+
+    it('stops blocking the wheel once the drag ends', () => {
+      const rowA = makeRow(baseRow, 0)
+      const scroller = document.createElement('div')
+      document.body.appendChild(scroller)
+      const { result } = renderDrag({ scroller })
+
+      press(result, baseRow, rowA)
+      move(10, ROW_H + 2)
+      release(10, ROW_H + 2)
+
+      const wheelEvent = new WheelEvent('wheel', { cancelable: true })
+      scroller.dispatchEvent(wheelEvent)
+      expect(wheelEvent.defaultPrevented).toBe(false)
+    })
+
+    it('never armed at all when the press never becomes a drag', () => {
+      const rowA = makeRow(baseRow, 0)
+      const scroller = document.createElement('div')
+      document.body.appendChild(scroller)
+      const { result } = renderDrag({ scroller })
+
+      press(result, baseRow, rowA)
+      move(10 + SIDEBAR_DRAG_THRESHOLD_PX - 1, 10) // under threshold
+      expect(result.current.dragging).toBe(false)
+
+      const wheelEvent = new WheelEvent('wheel', { cancelable: true })
+      scroller.dispatchEvent(wheelEvent)
+      expect(wheelEvent.defaultPrevented).toBe(false)
     })
   })
 
@@ -836,7 +922,10 @@ describe('useSidebarDrag', () => {
       expect(handleTrash).not.toHaveBeenCalled()
     })
 
-    it('a refused drop (locked branch, repo home — handleTrash returns false) surfaces a toast, not a silent no-op', () => {
+    it('a refused drop (locked branch, repo home, home row — handleTrash returns false) surfaces a toast, not a silent no-op', () => {
+      // The message names no specific reason: "it may be locked" was flatly
+      // wrong once a project-home row (which has no lock concept at all)
+      // started refusing here too — caught live.
       vi.mocked(handleTrash).mockReturnValue(false)
       const row: SidebarRow = { ...baseRow, label: 'develop' }
       const rowA = makeRow(row, 0)
@@ -847,7 +936,7 @@ describe('useSidebarDrag', () => {
       move(10, 550)
       release(10, 550)
 
-      expect(toast.error).toHaveBeenCalledWith("Can't delete develop — it may be locked")
+      expect(toast.error).toHaveBeenCalledWith("Can't delete develop yet")
     })
 
     it('drops every dragged subject, not just the first', () => {

@@ -74,7 +74,7 @@ export function _resetProviderToastForTests(): void {
  * the structural set: they are the hottest frames on the feed, and reseeding a
  * whole repo's chat list on each one is a request storm per agent turn.
  */
-const NON_STRUCTURAL_CHAT_KINDS: ReadonlySet<string> = new Set([
+export const NON_STRUCTURAL_CHAT_KINDS: ReadonlySet<string> = new Set([
   'turn_started',
   'turn_stopped',
   'message_delta',

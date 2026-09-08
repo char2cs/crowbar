@@ -1,4 +1,11 @@
-import { ArrowElbowDownRight, ChatsCircle, Folder, GitBranch, Lock } from '@phosphor-icons/react'
+import {
+  ArrowElbowDownRight,
+  ChatsCircle,
+  Folder,
+  FolderOpen,
+  GitBranch,
+  Lock,
+} from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import {
@@ -196,7 +203,7 @@ export function SidebarRow({
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
             >
-              <RowGlyph row={row} large={false} />
+              <RowGlyph row={row} large={false} expanded={expanded} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
               <DropdownMenuItem
@@ -221,7 +228,7 @@ export function SidebarRow({
                 size="lg"
               />
             ) : (
-              <RowGlyph row={row} large={isProjectHome} />
+              <RowGlyph row={row} large={isProjectHome} expanded={expanded} />
             )}
           </span>
         )}
@@ -275,17 +282,26 @@ export function SidebarRow({
 
         {/* Addendum §1 (revises spec §3.1): Fork and Thread are two separate,
             always-rendered buttons now, not one contextual "+" that picked
-            between them off `row.ownsWorktree`. Both are always legal —
-            fork always mints a new workspace whose parent is this row's
-            chat, thread always mints a new chat in this row's own
-            workspace — so neither is gated on the row's own fields except
-            kind: a FOLDER has no owning chat to fork or thread from (it
-            groups workspaces, not chats — rows-from-repo.ts), so it gets
-            neither button. Its own create action is the nested affordance
-            row §3.5 already gives an empty container. The trash button that
-            used to lead this cluster is gone entirely (addendum §1/§2):
-            deleting is now a drag-to-trash gesture onto the file explorer
-            card, built elsewhere.
+            between them off `row.ownsWorktree`. Both stay unconditional for
+            a `branch`/`chat` row exactly as before (a bubble's are
+            deliberately dead for now — see the "silent > wrong" note on
+            `handleCreate`'s own resolveChatRow guard — not this fix's
+            business to touch). A FOLDER is the one addition: it gets Fork
+            too, but only `row.ownsWorktree` (`rows-from-repo.ts`: true under
+            a real repo; `rows-from-home.ts`: always false, no repo means no
+            worktree to clone) — never Thread, which `handleCreate` refuses
+            outright for any folder regardless of worktree ownership ("a
+            folder has none to run it in").
+
+            A folder's Fork used to live on a SEPARATE placeholder row
+            rendered under it when childless (sidebar-tree.tsx) instead of
+            here, on its own row — an empty, unlabeled row for a button every
+            other kind already carries inline, and one a project-home folder
+            drew even though clicking its OWN Fork there could never work.
+            Removed; this is that button, correctly gated per-tree now. The
+            trash button that used to lead this cluster is gone entirely
+            (addendum §1/§2): deleting is now a drag-to-trash gesture onto
+            the file explorer card, built elsewhere.
 
             Rule 8: the fork control mints a CHILD chat session with its OWN
             workspace forked from this row's branch — a git operation, not a
@@ -294,7 +310,7 @@ export function SidebarRow({
             matching the thread button's own weight, rather than `"fill"`,
             which reads too heavy at this size next to it). The thread button
             beside it is unchanged. */}
-        {onCreate && row.kind !== 'folder' && (
+        {onCreate && (row.kind !== 'folder' || row.ownsWorktree) && (
           <button
             type="button"
             data-control="fork"
@@ -376,10 +392,22 @@ function BranchSecondLine({ row }: { row: SidebarRowType }) {
   )
 }
 
-function RowGlyph({ row, large }: { row: SidebarRowType; large: boolean }) {
+function RowGlyph({
+  row,
+  large,
+  expanded,
+}: {
+  row: SidebarRowType
+  large: boolean
+  expanded: boolean
+}) {
   const size = large ? 'size-5' : 'size-4'
   if (row.kind === 'folder') {
-    return <Folder aria-hidden="true" className={size} weight="duotone" />
+    return expanded ? (
+      <FolderOpen aria-hidden="true" className={size} weight="duotone" />
+    ) : (
+      <Folder aria-hidden="true" className={size} weight="duotone" />
+    )
   }
   // A locked/protected branch (the repo/project home, or any other locked
   // branch `rows-from-repo.ts`'s `walk()` mints) draws the Lock mark instead

@@ -5,6 +5,9 @@ import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { focusRecent, closeRecent } from '@/components/sidebar/lib/recents-actions'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import {
@@ -73,7 +76,38 @@ export function SidebarTreeSurface({
   // up a row by id regardless of which project's panel drew it (a row's id
   // is never ambiguous by project), so the chrome mounted once below needs
   // the whole set, not any one project's slice.
-  const allRows = useMemo(() => treeRepos.flatMap(rowsFromRepo), [treeRepos])
+  //
+  // Repo rows are not the whole story: a project-home chat or folder is a row
+  // too (`space-scroller.tsx`'s own `SpacePanel` draws it via the identical
+  // `rowsFromHome`), and until it is ALSO in this set, `SidebarRowContextMenu`
+  // silently finds no row for one and returns before even opening — a home
+  // folder never gets a right-click menu at all, caught live (no "New
+  // folder", no "Rename", nothing — not a refusal, just no menu).
+  const homeTrees = useHomeTreeStore((s) => s.trees)
+  const homeRows = useMemo(
+    () =>
+      projects.flatMap((project) => {
+        const homeWorkspaceId = getHomeWorkspaceId(project.id)
+        const homeTree = homeTrees[project.id]
+        // Mirrors `space-scroller.tsx`'s own `homeSeeded` guard: `rowsFromHome`
+        // throws without its owning branch chat, which a project whose home
+        // tree has not seeded yet (or was never resolved) does not have.
+        if (!homeWorkspaceId || !homeTree) return []
+        const seeded = homeTree.chats.some(
+          (c) => c.type === 'branch' && c.workspaceId === homeWorkspaceId,
+        )
+        if (!seeded) return []
+        // Chrome-lookup only (rename dialog, context menu) — id-based, never
+        // sorted, so the repo-interleaved `order`/`parentId` correction
+        // `SpacePanel` applies for RENDERING is not needed here.
+        return rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders).rows
+      }),
+    [projects, homeTrees],
+  )
+  const allRows = useMemo(
+    () => [...homeRows, ...treeRepos.flatMap(rowsFromRepo)],
+    [homeRows, treeRepos],
+  )
 
   const rowsForProjectFn = useCallback(
     (projectId: string) => rowsForProject(treeRepos, projectId),

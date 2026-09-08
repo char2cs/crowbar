@@ -625,5 +625,50 @@ describe('SidebarCarousel', () => {
       fireEvent.click(foldToggle())
       expect(screen.getByTestId('carousel-resize-handle')).toBeInTheDocument()
     })
+
+    // The card floats (`absolute`) and never occupies real flex space, so
+    // `--card-bottom-inset` is the ONE number the rows region trusts to stay
+    // clear of it. Written from `cardHeightPx` alone (never `folded`), it
+    // stayed pinned at the full OPEN height even once the card had collapsed
+    // to just its head — reserving up to a third of the whole rail's height
+    // regardless of what the card was actually showing. jsdom never computes
+    // real layout, so `getBoundingClientRect` is stubbed to mirror a real
+    // browser: whatever height the inline `style` says, or the head's own
+    // small intrinsic height once folding clears that style (see the test
+    // just above this one).
+    it("syncs --card-bottom-inset to the card's REAL height, not the full open height, once folded", () => {
+      const original = HTMLElement.prototype.getBoundingClientRect
+      HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+        if (this.dataset.testid === 'carousel-card') {
+          const height = this.style.height ? parseFloat(this.style.height) : 40
+          return {
+            height,
+            width: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: height,
+            x: 0,
+            y: 0,
+          } as DOMRect
+        }
+        return original.call(this)
+      }
+      try {
+        const railRef = { current: document.createElement('div') }
+        render(
+          <SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} railRef={railRef} />,
+        )
+        expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('300px')
+
+        fireEvent.click(foldToggle())
+        expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('40px')
+
+        fireEvent.click(foldToggle())
+        expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('300px')
+      } finally {
+        HTMLElement.prototype.getBoundingClientRect = original
+      }
+    })
   })
 })

@@ -8,15 +8,21 @@
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
-const { postWorkspace, createChat, createChatWithOwnWorktree, deleteChat, toastError } = vi.hoisted(
-  () => ({
-    postWorkspace: vi.fn(() => Promise.resolve()),
-    createChat: vi.fn(() => Promise.resolve('chat-1')),
-    createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
-    deleteChat: vi.fn(() => Promise.resolve()),
-    toastError: vi.fn(),
-  }),
-)
+const {
+  postWorkspace,
+  createChat,
+  createChatWithOwnWorktree,
+  deleteChat,
+  toastError,
+  getHomeWorkspaceId,
+} = vi.hoisted(() => ({
+  postWorkspace: vi.fn(() => Promise.resolve()),
+  createChat: vi.fn(() => Promise.resolve('chat-1')),
+  createChatWithOwnWorktree: vi.fn(() => Promise.resolve('chat-1')),
+  deleteChat: vi.fn(() => Promise.resolve()),
+  toastError: vi.fn(),
+  getHomeWorkspaceId: vi.fn(),
+}))
 
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
@@ -31,6 +37,11 @@ vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
+// `handleOpen`'s home branch reads this directly (see `resolveHomeRow`) —
+// the real resolver needs an async fetch+cache round trip these tests have
+// no reason to exercise; `handleCreateHomeThread`'s own tests never needed
+// this mock since they take `homeWorkspaceId` as a direct argument instead.
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({ getHomeWorkspaceId }))
 
 import {
   resolveChatRow,
@@ -38,12 +49,14 @@ import {
   handleOpen,
   handleTrash,
   handleCreate,
+  handleCreateHomeThread,
 } from '@/components/layout/space-content-actions'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -67,6 +80,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
+  useHomeTreeStore.setState({ trees: {} })
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
@@ -245,6 +259,114 @@ describe('handleOpen', () => {
         expect(Object.keys(windowPaneStore.getState().panes)).toHaveLength(paneCount)
         expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
       })
+    })
+  })
+
+  // The gap the user hit directly, right after project-home rows started
+  // rendering: `resolveChatRow`/`resolveRow` search `repos`, which home rows
+  // are never part of (home rides no repo) — so every home row rendered but
+  // clicking one did nothing at all. `resolveHomeRow` is checked first now.
+  describe('a project-home row', () => {
+    beforeEach(() => {
+      resetWindowPaneStoreForTests()
+    })
+    afterEach(() => {
+      resetWindowPaneStoreForTests()
+    })
+
+    it('opens an existing home chat in place when home is already active', () => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          p1: {
+            chats: [
+              { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 },
+            ],
+            folders: [],
+          },
+        },
+      })
+      setActiveWorkspaceId('home-ws-1')
+      const navigate = vi.fn()
+
+      handleOpen('c1', [], navigate)
+
+      expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+      expect(navigate).not.toHaveBeenCalled()
+    })
+
+    it('navigates to project home first when it is not already active, then opens', async () => {
+      // A previous test in this file may have left some OTHER workspace
+      // active (there is no way to clear it back to null) — pin it to
+      // something that is definitely not home-ws-1 rather than inherit
+      // whatever the last test happened to leave.
+      setActiveWorkspaceId('unrelated-ws')
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          p1: {
+            chats: [
+              { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 },
+            ],
+            folders: [],
+          },
+        },
+      })
+      // Stands in for the route change actually mounting the home workspace
+      // view (workspace-view.tsx's own effect, which is what really flips
+      // this) — not a sleep, `waitForActiveWorkspace`'s own real signal.
+      const navigate = vi.fn(async () => {
+        setActiveWorkspaceId('home-ws-1')
+      })
+
+      handleOpen('c1', [], navigate)
+
+      await vi.waitFor(() => {
+        expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+      })
+      expect(navigate).toHaveBeenCalledWith({
+        to: '/ide/$projectId/home',
+        params: { projectId: 'p1' },
+      })
+    })
+
+    it('toggles fold for a home folder instead of opening it', () => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: { p1: { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] } },
+      })
+      const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+      const navigate = vi.fn()
+
+      handleOpen('f1', [], navigate)
+
+      expect(toggle).toHaveBeenCalledWith('f1')
+      expect(navigate).not.toHaveBeenCalled()
+    })
+
+    it('resolves the right project among several visible home trees', () => {
+      getHomeWorkspaceId.mockImplementation((projectId: string) =>
+        projectId === 'p2' ? 'home-ws-2' : 'home-ws-1',
+      )
+      useHomeTreeStore.setState({
+        trees: {
+          p1: {
+            chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: '', order: 0 }],
+            folders: [],
+          },
+          p2: {
+            chats: [{ id: 'c2', repoId: '', workspaceId: 'home-ws-2', title: '', order: 0 }],
+            folders: [],
+          },
+        },
+      })
+      setActiveWorkspaceId('home-ws-2')
+      const navigate = vi.fn()
+
+      handleOpen('c2', [], navigate)
+
+      expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c2')
+      expect(navigate).not.toHaveBeenCalled()
     })
   })
 })
@@ -557,6 +679,70 @@ describe('creating a workspace off a REGULAR fork row', () => {
   })
 })
 
+// The sidebar header's Thread button (space-header.tsx) — NOT `handleCreate`,
+// which resolves its parentId against the repo-scoped sidebar store and has
+// no notion of project home at all. This is the fix for the regression where
+// that button landed threads on a REPO's home row instead of the project's.
+describe('handleCreateHomeThread', () => {
+  beforeEach(() => {
+    resetWindowPaneStoreForTests()
+  })
+  afterEach(() => {
+    resetWindowPaneStoreForTests()
+  })
+
+  it('creates against the resolved HOME workspace id, never a repo row', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude')
+  })
+
+  it('opens straight into a pane when the home workspace is already active', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    setActiveWorkspaceId('home-ws-1')
+    const navigate = vi.fn()
+
+    await handleCreateHomeThread('p1', 'home-ws-1', navigate)
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('says why instead of silently doing nothing when no provider is enabled', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: false }] as never,
+    })
+
+    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+
+    expect(createChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+  })
+
+  it('toasts and does not navigate when the create request fails', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    createChat.mockRejectedValueOnce(new Error('boom'))
+    const navigate = vi.fn()
+
+    await handleCreateHomeThread('p1', 'home-ws-1', navigate)
+
+    expect(toastError).toHaveBeenCalledOnce()
+    expect(navigate).not.toHaveBeenCalled()
+  })
+})
+
 describe('starting a thread on an empty folder', () => {
   it('says why instead of silently doing nothing', () => {
     useSidebarStore.setState({
@@ -604,6 +790,31 @@ describe('handleTrash', () => {
     useSidebarStore.setState({ repos: [repo()] })
 
     expect(handleTrash('home-1')).toBe(false)
+
+    expect(useRemovalTrayStore.getState().entries).toEqual([])
+  })
+
+  // The literal live-caught bug: the daemon's ListInRepo never filters by
+  // the repo id in its own URL (fetchFolders's own doc — a known, unfixed
+  // backend leniency), so a home folder bleeds into every REPO's own
+  // folders array too, stamped with THAT repo's id. `resolveRow`'s
+  // repo-scoped walk found this FALSE match, and the removal tray then
+  // committed a real DELETE against a repo that had no business resolving
+  // it at all — silently destroying a home folder dragged onto the trash
+  // target. Home rows must be refused here before that walk ever runs,
+  // regardless of what a repo's own (bled-into) folders array claims.
+  it('refuses a home folder even when a repo’s (backend-leniency-bled) folders array also claims its id', () => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: {
+        p1: { chats: [], folders: [{ id: 'home-folder-1', repoId: '', name: 'x', order: 0 }] },
+      },
+    })
+    useSidebarStore.setState({
+      repos: [repo({ folders: [{ id: 'home-folder-1', repoId: 'r1', name: 'x', order: 0 }] })],
+    })
+
+    expect(handleTrash('home-folder-1')).toBe(false)
 
     expect(useRemovalTrayStore.getState().entries).toEqual([])
   })

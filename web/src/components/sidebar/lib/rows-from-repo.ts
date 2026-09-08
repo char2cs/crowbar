@@ -23,7 +23,7 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
  * chat per locked branch, repo home and project home (`tree/backfill.go`'s
  * `owningChatType`) and never a second, which is what makes the filter safe here.
  */
-function homeOwningChatId(chats: readonly Chat[], homeId: string): string {
+export function homeOwningChatId(chats: readonly Chat[], homeId: string): string {
   const owner = chats.find((c) => c.type === 'branch' && c.workspaceId === homeId)
   if (!owner) {
     throw new Error(`rowsFromRepo: home workspace ${homeId} owns no branch row`)
@@ -88,7 +88,7 @@ function isProvisionalBranchName(branch: string | undefined): boolean {
  * DECORATION (branch name, diff counts, lock) that genuinely lives on the
  * missing half.
  */
-interface Ownership {
+export interface Ownership {
   /** Workspace id -> the chat that owns it. Only workspaces actually present. */
   chatOfWorkspace: Map<string, string>
   /** Chat id -> the workspace it owns, present or not. The authority on "this
@@ -96,7 +96,10 @@ interface Ownership {
   ownerOfChat: Map<string, string>
 }
 
-function resolveOwnership(workspaces: readonly Workspace[], chats: readonly Chat[]): Ownership {
+export function resolveOwnership(
+  workspaces: readonly Workspace[],
+  chats: readonly Chat[],
+): Ownership {
   const chatIds = new Set(chats.map((c) => c.id))
   const chatOfWorkspace = new Map<string, string>()
   const ownerOfChat = new Map<string, string>()
@@ -167,7 +170,7 @@ function resolveOwnership(workspaces: readonly Workspace[], chats: readonly Chat
  * rather than one map: pass 1 needs to know which owners actually have a
  * workspace node to be folded into.
  */
-function foldOwningChats(
+export function foldOwningChats(
   roots: SidebarTreeNode[],
   { chatOfWorkspace }: Ownership,
 ): SidebarTreeNode[] {
@@ -248,7 +251,12 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
     rows.push({
       id: homeRowId,
       kind: 'branch',
-      parentId: null,
+      // A repo's own entry may be filed into a project-home folder (never one
+      // of its own — see sidebar-drop-policy.ts's repo branch), which is what
+      // lets it interleave with the project's home chats/folders instead of
+      // always rooting the whole sidebar. '' is the project's home root,
+      // normalised to null the same way every other row's does.
+      parentId: repo.folderId || null,
       order: repo.order ?? 0,
       label: repo.name,
       // spec §3.4: the branch half of a workspace's provisional naming, not
@@ -298,157 +306,209 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
   )
   const folded = foldOwningChats(roots, ownership)
 
-  const walk = (nodes: SidebarTreeNode[], parentId: string | null) => {
-    nodes.forEach((node, order) => {
-      if (node.kind === 'chat') {
-        // A chat that OWNS a worktree is a workspace row, and it says so
-        // itself — it does not need its `Workspace` record to be on hand to
-        // be one. Reaching `walk` still holding that ownership means exactly
-        // one thing: `foldOwningChats` found no workspace NODE to merge it
-        // onto, because the workspace half is missing right now (a fork whose
-        // `WorkspaceDTO` has not landed; a delete holding the workspace hidden
-        // for its eight-second countdown). The row is unchanged and still a
-        // workspace, so it draws as one — same kind, same glyph, same id, same
-        // Fork/Thread verbs — and only the DECORATION that lives on the absent
-        // half (branch name, diff counts, lock) is left off until it arrives.
-        //
-        // Drawing a `chat` bubble here instead is what made a branch row turn
-        // into a conversation mid-delete and a fresh fork appear as a bubble.
-        const ownedWorkspaceId = ownerOfChat.get(node.id)
-        if (ownedWorkspaceId !== undefined) {
-          rows.push({
-            id: node.id,
-            kind: 'branch',
-            parentId,
-            order,
-            label: node.chat.title || UNTITLED_CHAT_LABEL,
-            labelProvisional: !node.chat.title,
-            ownsWorktree: true,
-            workspaceId: ownedWorkspaceId,
-            working: false,
-            hasView: false,
-            // No `branchName`/`added`/`deleted`/`locked`: every one of those
-            // is a `Workspace` field, and this row exists precisely because
-            // that record is not here. Omitted rather than faked — a row
-            // claiming `locked: false` for a branch that is actually locked
-            // would offer verbs the daemon then refuses.
-          })
-          walk(node.children, node.id)
-          return
-        }
-        rows.push({
-          id: node.id,
-          kind: 'chat',
-          parentId,
-          order,
-          // A chat is born unnamed and every surface has to call that the same
-          // thing (see UNTITLED_CHAT_LABEL) — the tree row and the pane tab
-          // disagreeing reads as two different chats.
-          label: node.chat.title || UNTITLED_CHAT_LABEL,
-          labelProvisional: !node.chat.title,
-          // §3.1: a chat NEVER owns a worktree — a worktree chat owns a
-          // workspace, which is a different fact and a different row. This is
-          // what puts the chat bubble on the row and makes its "+" a thread.
-          // Reaching here means the chat asserted no ownership of its own AND
-          // no `Workspace` claimed it (see `resolveOwnership`) — a real bubble,
-          // not a workspace whose other half is late.
-          ownsWorktree: false,
-          workspaceId: node.chat.workspaceId ?? null,
-          // ALWAYS FALSE HERE, AND NOT AN OVERSIGHT — but no longer the last
-          // word. Seeding a real value into the row object is the latch this
-          // has always refused to build: the only live path THIS function has
-          // is a full repo-scoped reseed, which on the hottest frames in the
-          // app (turn_started/turn_stopped) is a request storm, and a value
-          // seeded once leaves the flip-dot spinner running on a chat whose
-          // turn ended minutes ago.
-          //
-          // The answer that note always pointed at — "anything else that comes
-          // to need real turn state here must subscribe per row the way Recents
-          // does" — is now built: `sidebar-tree.tsx`'s `SidebarTreeRow`
-          // subscribes each row to `subscribeChatWorking`/`readChatWorking` and
-          // overrides this field, exactly as it already did for `hasView`. So
-          // this stays an inert default that the render layer always replaces,
-          // rather than a second, staler opinion about the same fact.
-          //
-          // (`sidebar-drop-policy.ts`'s chat branch still calls `isChatWorking`
-          // at drag time; it acts outside render and has no row to read.)
-          working: false,
-          hasView: false,
-        })
-        walk(node.children, node.id)
-        return
-      }
-      if (node.kind === 'folder') {
-        rows.push({
-          id: node.id,
-          kind: 'folder',
-          parentId,
-          order,
-          label: node.folder.name,
-          // A folder groups workspaces, not chats — its own "+" always forks a
-          // branch, matching the tree being retired.
-          ownsWorktree: true,
-          workspaceId: null,
-          working: false,
-          hasView: false,
-        })
-      } else {
-        // `node.kind === 'workspace'`. `foldOwningChats` relabels `node.id`
-        // to the id of the chat that owns this workspace whenever one was
-        // resolvable — a locked branch, a repo home (never reached here; see
-        // the home row above) and an ordinary fork alike — so `node.id` IS
-        // this row's real identity by the time `walk` sees it; the id space
-        // the daemon places every create under either way (rule 8's fork
-        // button reads it straight off `Workspace.owningChatId`, matching
-        // `space-content-actions.ts`'s `handleCreate`). A workspace that
-        // folded no owner (an absent `owningChatId`, or one naming a chat
-        // this repo has not seeded) is left exactly as `buildSidebarTree`
-        // built it: `node.id` is still its own workspace id.
-        //
-        // `node.workspace.id`, never `node.id`, for the row's OWN
-        // `workspaceId` field below — the two can now disagree by design.
-        const hasOwner = node.id !== node.workspace.id
-        const locked = node.workspace.status === 'locked'
-        // Rule 6: a folded row's title IS the chat's, with branch/diff moved
-        // to the second line (`branchName`/`added`/`deleted` below) — a
-        // locked branch stays branch-labelled (addendum rules 1-4's "Folder
-        // mechanism": unchanged, not a chat by another name). A workspace
-        // that folded no owner has no chat title to borrow either.
-        const chatTitle = hasOwner ? (chatTitleById.get(node.id) ?? '') : undefined
-        const label =
-          chatTitle !== undefined && !locked
-            ? chatTitle || UNTITLED_CHAT_LABEL
-            : node.workspace.branch
-        const labelProvisional =
-          chatTitle !== undefined && !locked
-            ? !chatTitle
-            : isProvisionalBranchName(node.workspace.branch)
+  walkTreeIntoRows(rows, folded, homeRowId, ownerOfChat, chatTitleById, true)
+
+  return rows
+}
+
+/**
+ * Walk a built (and, for `rowsFromRepo`, owner-folded) tree into flat
+ * `SidebarRow`s, pushed onto `rows` in place.
+ *
+ * Extracted so `rows-from-home.ts` can draw a project-home tree's chats and
+ * folders with the identical row shape a repo's produces — the two trees
+ * differ only in what roots them (a repo's default workspace vs. a project's
+ * home workspace, pushed by each caller's own home-row logic), never in how a
+ * chat, folder or owning-chat-folded workspace becomes a row once the tree is
+ * built. `ownerOfChat`/`chatTitleById` come from the caller's own
+ * {@link resolveOwnership} / chat list — this function reads them, never
+ * resolves them, so a caller with no `Workspace[]` at all (project home can
+ * never be forked) can still pass an ownership map derived from an empty one.
+ *
+ * `foldersCanFork` answers the one thing a folder's own row otherwise can't
+ * tell about itself: whether it sits under a real git repo at all. A repo
+ * folder's "+" always forks a branch (there is a worktree to clone); a
+ * project-home folder's cannot (there is no repo, so no worktree exists to
+ * fork) — passed down from each caller's own root call and carried unchanged
+ * through every recursive one, since a folder nested inside another folder
+ * is still in the same repo-or-home tree its ancestor is.
+ *
+ * `repoPositions`, when given, is BOTH an identity set and an out parameter:
+ * `rows-from-home.ts` pre-seeds it with one entry per repo filed in this
+ * project's home (keyed by the repo's own row id, values irrelevant), feeds
+ * a matching stand-in into the SAME `buildSidebarTree` call that placed
+ * `nodes` so the repo shares one real sibling sort with every chat/folder
+ * around it, and reads the entries back afterward. A node whose id is a key
+ * here is one of those stand-ins — it draws no row of its own (the repo
+ * already has one, `rowsFromRepo`'s own header push, corrected in place by
+ * the caller using the position written back here) and it is never a
+ * container: nothing else in a project's home is ever filed INTO a repo, so
+ * its `children` are always empty and the recursion below is a no-op for it.
+ * `rowsFromRepo`'s own call never passes this, so its repo-internal tree
+ * (where "another repo" can never appear as a node) is completely unaffected.
+ */
+export function walkTreeIntoRows(
+  rows: SidebarRow[],
+  nodes: SidebarTreeNode[],
+  parentId: string | null,
+  ownerOfChat: ReadonlyMap<string, string>,
+  chatTitleById: ReadonlyMap<string, string>,
+  foldersCanFork: boolean,
+  repoPositions?: Map<string, { parentId: string | null; order: number }>,
+): void {
+  nodes.forEach((node, order) => {
+    if (node.kind === 'chat' && repoPositions?.has(node.id)) {
+      repoPositions.set(node.id, { parentId, order })
+      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
+      return
+    }
+    if (node.kind === 'chat') {
+      // A chat that OWNS a worktree is a workspace row, and it says so
+      // itself — it does not need its `Workspace` record to be on hand to
+      // be one. Reaching `walk` still holding that ownership means exactly
+      // one thing: `foldOwningChats` found no workspace NODE to merge it
+      // onto, because the workspace half is missing right now (a fork whose
+      // `WorkspaceDTO` has not landed; a delete holding the workspace hidden
+      // for its eight-second countdown). The row is unchanged and still a
+      // workspace, so it draws as one — same kind, same glyph, same id, same
+      // Fork/Thread verbs — and only the DECORATION that lives on the absent
+      // half (branch name, diff counts, lock) is left off until it arrives.
+      //
+      // Drawing a `chat` bubble here instead is what made a branch row turn
+      // into a conversation mid-delete and a fresh fork appear as a bubble.
+      const ownedWorkspaceId = ownerOfChat.get(node.id)
+      if (ownedWorkspaceId !== undefined) {
         rows.push({
           id: node.id,
           kind: 'branch',
           parentId,
           order,
-          label,
-          labelProvisional,
+          label: node.chat.title || UNTITLED_CHAT_LABEL,
+          labelProvisional: !node.chat.title,
           ownsWorktree: true,
-          workspaceId: node.workspace.id,
-          working: node.workspace.working ?? false,
+          workspaceId: ownedWorkspaceId,
+          working: false,
           hasView: false,
-          branchName: node.workspace.branch,
-          added: node.workspace.added,
-          deleted: node.workspace.deleted,
-          locked,
+          // No `branchName`/`added`/`deleted`/`locked`: every one of those
+          // is a `Workspace` field, and this row exists precisely because
+          // that record is not here. Omitted rather than faked — a row
+          // claiming `locked: false` for a branch that is actually locked
+          // would offer verbs the daemon then refuses.
         })
-        // Children hang off the row's OWN id, which is now the owning chat's
-        // (when one was resolved) — a thread the daemon filed under the
-        // workspace still has to arrive at the row the user can see.
-        walk(node.children, node.id)
+        walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
         return
       }
-      walk(node.children, node.id)
-    })
-  }
-  walk(folded, homeRowId)
-
-  return rows
+      rows.push({
+        id: node.id,
+        kind: 'chat',
+        parentId,
+        order,
+        // A chat is born unnamed and every surface has to call that the same
+        // thing (see UNTITLED_CHAT_LABEL) — the tree row and the pane tab
+        // disagreeing reads as two different chats.
+        label: node.chat.title || UNTITLED_CHAT_LABEL,
+        labelProvisional: !node.chat.title,
+        // §3.1: a chat NEVER owns a worktree — a worktree chat owns a
+        // workspace, which is a different fact and a different row. This is
+        // what puts the chat bubble on the row and makes its "+" a thread.
+        // Reaching here means the chat asserted no ownership of its own AND
+        // no `Workspace` claimed it (see `resolveOwnership`) — a real bubble,
+        // not a workspace whose other half is late.
+        ownsWorktree: false,
+        workspaceId: node.chat.workspaceId ?? null,
+        // ALWAYS FALSE HERE, AND NOT AN OVERSIGHT — but no longer the last
+        // word. Seeding a real value into the row object is the latch this
+        // has always refused to build: the only live path THIS function has
+        // is a full repo-scoped reseed, which on the hottest frames in the
+        // app (turn_started/turn_stopped) is a request storm, and a value
+        // seeded once leaves the flip-dot spinner running on a chat whose
+        // turn ended minutes ago.
+        //
+        // The answer that note always pointed at — "anything else that comes
+        // to need real turn state here must subscribe per row the way Recents
+        // does" — is now built: `sidebar-tree.tsx`'s `SidebarTreeRow`
+        // subscribes each row to `subscribeChatWorking`/`readChatWorking` and
+        // overrides this field, exactly as it already did for `hasView`. So
+        // this stays an inert default that the render layer always replaces,
+        // rather than a second, staler opinion about the same fact.
+        //
+        // (`sidebar-drop-policy.ts`'s chat branch still calls `isChatWorking`
+        // at drag time; it acts outside render and has no row to read.)
+        working: false,
+        hasView: false,
+      })
+      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
+      return
+    }
+    if (node.kind === 'folder') {
+      rows.push({
+        id: node.id,
+        kind: 'folder',
+        parentId,
+        order,
+        label: node.folder.name,
+        // A folder's own "+" forks a branch — but only when it sits under a
+        // real repo. A project-home folder has no worktree to fork at all
+        // (see `foldersCanFork`'s own doc), so its "+" would otherwise offer
+        // a verb the daemon has nothing to do with.
+        ownsWorktree: foldersCanFork,
+        workspaceId: null,
+        working: false,
+        hasView: false,
+      })
+    } else {
+      // `node.kind === 'workspace'`. `foldOwningChats` relabels `node.id`
+      // to the id of the chat that owns this workspace whenever one was
+      // resolvable — a locked branch, a repo home (never reached here; see
+      // the home row above) and an ordinary fork alike — so `node.id` IS
+      // this row's real identity by the time `walk` sees it; the id space
+      // the daemon places every create under either way (rule 8's fork
+      // button reads it straight off `Workspace.owningChatId`, matching
+      // `space-content-actions.ts`'s `handleCreate`). A workspace that
+      // folded no owner (an absent `owningChatId`, or one naming a chat
+      // this repo has not seeded) is left exactly as `buildSidebarTree`
+      // built it: `node.id` is still its own workspace id.
+      //
+      // `node.workspace.id`, never `node.id`, for the row's OWN
+      // `workspaceId` field below — the two can now disagree by design.
+      const hasOwner = node.id !== node.workspace.id
+      const locked = node.workspace.status === 'locked'
+      // Rule 6: a folded row's title IS the chat's, with branch/diff moved
+      // to the second line (`branchName`/`added`/`deleted` below) — a
+      // locked branch stays branch-labelled (addendum rules 1-4's "Folder
+      // mechanism": unchanged, not a chat by another name). A workspace
+      // that folded no owner has no chat title to borrow either.
+      const chatTitle = hasOwner ? (chatTitleById.get(node.id) ?? '') : undefined
+      const label =
+        chatTitle !== undefined && !locked
+          ? chatTitle || UNTITLED_CHAT_LABEL
+          : node.workspace.branch
+      const labelProvisional =
+        chatTitle !== undefined && !locked
+          ? !chatTitle
+          : isProvisionalBranchName(node.workspace.branch)
+      rows.push({
+        id: node.id,
+        kind: 'branch',
+        parentId,
+        order,
+        label,
+        labelProvisional,
+        ownsWorktree: true,
+        workspaceId: node.workspace.id,
+        working: node.workspace.working ?? false,
+        hasView: false,
+        branchName: node.workspace.branch,
+        added: node.workspace.added,
+        deleted: node.workspace.deleted,
+        locked,
+      })
+      // Children hang off the row's OWN id, which is now the owning chat's
+      // (when one was resolved) — a thread the daemon filed under the
+      // workspace still has to arrive at the row the user can see.
+      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
+      return
+    }
+    walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork, repoPositions)
+  })
 }

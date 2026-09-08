@@ -144,15 +144,26 @@ export function SidebarCarousel({
 
   // The RESTING value (mount, sidebarHeight resize, or the recompute a
   // completed drag's committed `heightFraction` triggers) — never fired
-  // per-frame from inside a live drag, see the prop doc above. Keeps
-  // `--card-bottom-inset` in sync too, pre-paint (`useLayoutEffect`, not
-  // `useEffect`) so the tree never flashes an unset inset for one frame on
-  // mount.
+  // per-frame from inside a live drag, see the prop doc above.
   useLayoutEffect(() => {
     if (cardHeightPx == null) return
-    railRef?.current?.style.setProperty(CARD_BOTTOM_INSET_VAR, `${cardHeightPx}px`)
     onHeightChange?.(cardHeightPx)
-  }, [cardHeightPx, railRef, onHeightChange])
+  }, [cardHeightPx, onHeightChange])
+
+  // Keeps `--card-bottom-inset` in sync with the card's REAL rendered
+  // height, pre-paint (`useLayoutEffect`, not `useEffect`) so the tree never
+  // flashes a stale inset for one frame. The card floats (`absolute`) and
+  // never occupies real flex space in the rail, so this is the ONE number
+  // the rows region needs to stay clear of it without overlapping it —
+  // measuring the real box rather than trusting `cardHeightPx` (only what
+  // the card measures when OPEN — see its own `style` a few lines down)
+  // is what makes folding the card actually give that space back to the
+  // rows region, instead of reserving a third of the rail's height
+  // regardless of what the card is currently showing.
+  useLayoutEffect(() => {
+    const height = cardRef.current?.getBoundingClientRect().height ?? 0
+    railRef?.current?.style.setProperty(CARD_BOTTOM_INSET_VAR, `${height}px`)
+  }, [cardHeightPx, folded, railRef])
 
   // Pointer-drag resize from the top 6px hot zone (spec §6). Mirrors
   // pane-sash.tsx's/sidebar-split-pane.tsx's own pattern — track window
@@ -314,18 +325,24 @@ export function SidebarCarousel({
   return (
     // Floats over the tree, never splits layout with it (spec §6): absolute
     // within ide-shell.tsx's own `relative` sidebar column, inset 8px
-    // (`inset-x-2 bottom-2`) on three sides — top is the resize handle
-    // below, not an inset. `bg-pane-background`/the pane-content shadow are
-    // the SAME ground and elevation `pane-container.tsx` casts onto the
-    // sidebar from a docked pane; `rounded-lg` is `--radius`, not a
-    // hand-rolled value.
+    // (`inset-x-2`) on the sides only — top is the resize handle below, not
+    // an inset, and bottom is flush (`bottom-0`) against SidebarFooter,
+    // which sits flush below this box's own positioning ancestor with no
+    // gap of its own. A `bottom-2` inset here used to leave an 8px gap
+    // above the footer AND, since the tree's own bottom-inset spacer
+    // (`--card-bottom-inset`, measured off this card's real height) never
+    // accounted for that extra 8px, let the tree's last row peek out from
+    // under the card by that same amount. `bg-pane-background`/the
+    // pane-content shadow are the SAME ground and elevation
+    // `pane-container.tsx` casts onto the sidebar from a docked pane;
+    // `rounded-lg` is `--radius`, not a hand-rolled value.
     <div
       ref={cardRef}
       data-testid="carousel-card"
       // This box's own `absolute` already makes it a positioning ancestor,
       // so the drag-to-trash overlay below (`absolute inset-0`) covers
       // exactly this box without needing a separate `relative`.
-      className="absolute inset-x-2 bottom-2 z-10 flex flex-col overflow-hidden rounded-lg border bg-pane-background shadow-[0_3px_8px_rgba(0,0,0,0.24)]"
+      className="absolute inset-x-2 bottom-0 z-10 flex flex-col overflow-hidden rounded-lg border bg-pane-background shadow-[0_3px_8px_rgba(0,0,0,0.24)]"
       style={cardHeightPx != null && !folded ? { height: `${cardHeightPx}px` } : undefined}
     >
       {/* Top 6px hot zone (spec §6) — matches pane-sash.tsx's own

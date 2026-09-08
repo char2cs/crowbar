@@ -1,9 +1,27 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { vi } from 'vitest'
 import type { Project } from '@/lib/types'
+
+let sidebarPosition: 'left' | 'right' = 'left'
+vi.mock('@/features/settings/store', () => ({
+  useSettingsStore: (sel: (s: unknown) => unknown) => sel({ settings: { sidebarPosition } }),
+}))
+
+const openSettingsDialog = vi.fn()
+vi.mock('@/features/window/stores/ui-state-store', () => ({
+  useUIState: Object.assign(() => undefined, {
+    getState: () => ({ openSettingsDialog }),
+  }),
+}))
+
 import { SidebarFooter } from '@/components/layout/sidebar-footer'
+
+beforeEach(() => {
+  sidebarPosition = 'left'
+  openSettingsDialog.mockClear()
+})
 
 function makeProject(id: string): Project {
   return {
@@ -90,5 +108,23 @@ describe('SidebarFooter', () => {
   it('renders as a self-contained footer element (data-testid=sidebar-footer)', () => {
     render(<SidebarFooter onAddProject={vi.fn()} />)
     expect(screen.getByTestId('sidebar-footer')).toBeInTheDocument()
+  })
+
+  it('opens settings when the settings button is clicked', async () => {
+    render(<SidebarFooter onAddProject={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('settings-button'))
+    expect(openSettingsDialog).toHaveBeenCalledOnce()
+  })
+
+  it('pins settings to the content-facing edge: right when the sidebar is left', () => {
+    sidebarPosition = 'left'
+    render(<SidebarFooter onAddProject={vi.fn()} />)
+    expect(screen.getByTestId('settings-button')).toHaveClass('right-2')
+  })
+
+  it('pins settings to the content-facing edge: left when the sidebar is right', () => {
+    sidebarPosition = 'right'
+    render(<SidebarFooter onAddProject={vi.fn()} />)
+    expect(screen.getByTestId('settings-button')).toHaveClass('left-2')
   })
 })

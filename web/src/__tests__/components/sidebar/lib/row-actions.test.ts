@@ -8,6 +8,7 @@ import {
 } from '@/components/sidebar/lib/row-actions'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { toast } from '@/features/window/stores/toast-store'
 import {
   destroyWorkspaceStore,
@@ -16,6 +17,7 @@ import {
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 import * as agentApi from '@/features/agent/api/agent-api'
+import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-resolver'
 
 vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
   ...(await importOriginal<typeof agentApi>()),
@@ -51,6 +53,18 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
     folder: { id: 'folder-1', repoId: 'repo-1', projectId: 'proj-1', name: 'Fixes', order: 0 },
     shifted: [],
   }),
+  placeHomeFolder: vi.fn().mockResolvedValue({
+    folder: { id: 'home-folder-1', repoId: '', projectId: 'proj-1', name: 'Renamed', order: 0 },
+    shifted: [],
+  }),
+}))
+
+// `resolveHomeRowScope` needs a resolved home workspace id — real elsewhere
+// in this file's fixtures, but real resolution is an async fetch this file
+// has no business exercising.
+vi.mock('@/features/workspace/lib/home-workspace-resolver', async (importOriginal) => ({
+  ...(await importOriginal<typeof homeWorkspaceResolver>()),
+  getHomeWorkspaceId: () => 'home-ws-1',
 }))
 
 describe('row-actions', () => {
@@ -61,6 +75,7 @@ describe('row-actions', () => {
     // a live `agentChats.working` map left behind by one promote case would
     // silently refuse a later one that never set it up.
     destroyWorkspaceStore('ws-home')
+    useHomeTreeStore.setState({ trees: {} })
     useSidebarStore.setState({
       ...getInitialState(),
       repos: [
@@ -573,13 +588,18 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
     expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-1', null)
   })
 
-  it('creating a folder under a locked branch row parents it to that workspace', async () => {
+  it('creating a folder under a locked branch row parents it to that CHAT id, not its workspace', async () => {
+    // The workspace-id translation exists only to find the owning repo and to
+    // detect the repo-home special case below — `POST .../chats/folders`
+    // resolves its `parentId` as a chat (or folder), so the value actually
+    // sent must stay the untranslated row id. Sending the workspace id here
+    // 404s on the daemon ("agentchat: get chat: not found"), caught live.
     await performCreateFolder('ws-1-row')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith(
       'proj-1',
       'repo-1',
       'New folder',
-      'ws-1',
+      'ws-1-row',
     )
   })
 
@@ -590,5 +610,60 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
   it('creating a folder under the repo-home row roots it at the repo', async () => {
     await performCreateFolder('home-row')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
+  })
+})
+
+/**
+ * A SIXTH id space `performRenameRow` has to know about: a project-home row
+ * lives outside every repo entirely (home rides no repo), so none of the
+ * repo-scoped branches above ever match one — renaming a home chat or
+ * folder silently no-op'd before this, caught live as "can't rename
+ * folders."
+ */
+describe('performRenameRow — a project-home row', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useSidebarStore.setState({ ...getInitialState(), repos: [] })
+    useHomeTreeStore.setState({
+      trees: {
+        'proj-1': {
+          chats: [
+            {
+              id: 'home-branch-chat',
+              repoId: '',
+              type: 'branch',
+              workspaceId: 'home-ws-1',
+              title: '',
+              order: 0,
+            },
+            { id: 'home-chat-1', repoId: '', title: 'Old title', order: 1 },
+          ],
+          folders: [{ id: 'home-folder-1', repoId: '', name: 'Old name', order: 0 }],
+        },
+      },
+    })
+  })
+
+  it('renames a project-home chat via the home workspace scope, not a repo', async () => {
+    await performRenameRow('home-chat-1', 'New title')
+    expect(agentApi.renameChat).toHaveBeenCalledWith('home-ws-1', 'home-chat-1', 'New title')
+  })
+
+  it('a no-op home chat rename (same title) sends nothing', async () => {
+    await performRenameRow('home-chat-1', 'Old title')
+    expect(agentApi.renameChat).not.toHaveBeenCalled()
+  })
+
+  it('renames a project-home folder via the home-scoped placement endpoint', async () => {
+    await performRenameRow('home-folder-1', 'New name')
+    expect(sidebarPlacement.placeHomeFolder).toHaveBeenCalledWith('proj-1', 'home-folder-1', {
+      name: 'New name',
+    })
+    expect(sidebarPlacement.placeFolder).not.toHaveBeenCalled()
+  })
+
+  it('a no-op home folder rename (same name) sends nothing', async () => {
+    await performRenameRow('home-folder-1', 'Old name')
+    expect(sidebarPlacement.placeHomeFolder).not.toHaveBeenCalled()
   })
 })

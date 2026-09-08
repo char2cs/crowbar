@@ -165,6 +165,7 @@ func New(
 		gormStores.Projects,
 		gormStores.Repositories,
 		repos.Workspace,
+		repos.AgentChat,
 	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,
@@ -532,6 +533,18 @@ func (w workspaceGitStatusReader) WorkingTreeSummary(
 		return 0, 0, err
 	}
 	return ws.Added, ws.Deleted, nil
+}
+
+// RepoOf implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) RepoOf(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	return ws.RepoID, nil
 }
 
 // worktreeChildCreator adapts the worktree hierarchy usecase into the agent

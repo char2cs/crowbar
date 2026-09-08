@@ -9,19 +9,25 @@ describe('SidebarHeader', () => {
     expect(el.className).toContain('backdrop-blur-sm')
   })
 
-  it('owns the gap between the sidebar tab switcher and the panel under it', () => {
-    // Half of a 10px rhythm the tab bar owns the other half of: the bar is
-    // `py-1.5` (6px) and this is `pt-1` (4px), which makes switcher→panel equal
-    // the pill→switcher gap above it (pill wrapper `pb-1` + bar `pt-1.5`).
-    // It was the symmetric `p-2`, which read 14px here against 6px in the Chats
-    // panel — the switcher sat visibly closer to one neighbour than the other.
+  it('has no vertical padding — sits flush against its neighbours like any other row', () => {
     const { container } = render(<SidebarHeader>test</SidebarHeader>)
     const el = container.firstChild as HTMLElement
-    expect(el.className).toContain('pt-1')
-    expect(el.className).toContain('pb-2')
-    expect(el.className).toContain('px-2')
-    // Not the four-sided shorthand: the top is deliberately not the others.
-    expect(el.className.split(' ')).not.toContain('p-2')
+    const classes = el.className.split(' ')
+    expect(classes).not.toContain('pt-1')
+    expect(classes).not.toContain('pb-2')
+    expect(classes).not.toContain('py-1')
+    expect(classes).not.toContain('p-2')
+  })
+
+  it("matches a depth-0 tree row's own horizontal inset exactly", () => {
+    // `pl-2.5` (10px) is FILE_TREE_BASE_INDENT (file-explorer-tree-item.tsx);
+    // `pr-1.5` (6px) is a row's own untouched `px-1.5` (file-tree-density.ts)
+    // — a row's inline `paddingLeft` override only ever touches the left
+    // side, so the two sides genuinely differ by design, not by accident.
+    const { container } = render(<SidebarHeader>test</SidebarHeader>)
+    const el = container.firstChild as HTMLElement
+    expect(el.className).toContain('pl-2.5')
+    expect(el.className).toContain('pr-1.5')
   })
 
   it('does not set its own background (inherits from body)', () => {

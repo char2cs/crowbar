@@ -23,6 +23,10 @@ function repoBase(projectId: string, repoId: string): string {
   return `/v0/projects/${projectId}/repos/${repoId}`
 }
 
+function homeBase(projectId: string): string {
+  return `/v0/projects/${projectId}/home`
+}
+
 /** A workspace's SIDEBAR placement. `folderId` is never a fork parent. */
 export interface WorkspacePlacement {
   /** Owning folder, or '' for the repo root. Omitted leaves it where it is. */
@@ -110,6 +114,22 @@ export function createFolder(
   ).then((raw) => toFolderWriteResult(raw, projectId, repoId))
 }
 
+/** {@link createFolder}, for the project-home workspace instead of a repo. */
+export function createHomeFolder(
+  projectId: string,
+  name: string,
+  parentId: string,
+): Promise<FolderWriteResult> {
+  return apiFetch<{ folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] }>(
+    `${homeBase(projectId)}/chats/folders`,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ name, parentId }),
+    },
+  ).then((raw) => toFolderWriteResult(raw, projectId, ''))
+}
+
 export function placeFolder(
   projectId: string,
   repoId: string,
@@ -124,6 +144,22 @@ export function placeFolder(
       body: JSON.stringify(placement),
     },
   ).then((raw) => toFolderWriteResult(raw, projectId, repoId))
+}
+
+/** {@link placeFolder}, for the project-home workspace instead of a repo. */
+export function placeHomeFolder(
+  projectId: string,
+  folderId: string,
+  placement: FolderPlacement,
+): Promise<FolderWriteResult> {
+  return apiFetch<{ folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] }>(
+    `${homeBase(projectId)}/chats/folders/${folderId}`,
+    {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(placement),
+    },
+  ).then((raw) => toFolderWriteResult(raw, projectId, ''))
 }
 
 /** Delete a folder, and answer with the rows its children's promotion moved.
@@ -141,10 +177,26 @@ export function deleteFolder(
   ).then((raw) => (raw?.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, repoId)))
 }
 
-/** A repo's owning project and its index within that project's section. */
+/** {@link deleteFolder}, for the project-home workspace instead of a repo. */
+export function deleteHomeFolder(
+  projectId: string,
+  folderId: string,
+  init?: RequestInit,
+): Promise<FolderDTO[]> {
+  return apiFetch<{ shifted?: ChatsFolderWireDTO[] } | null>(
+    `${homeBase(projectId)}/chats/folders/${folderId}`,
+    { method: 'DELETE', ...init },
+  ).then((raw) => (raw?.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, '')))
+}
+
+/** A repo's owning project, its index within that project's section, and the
+ *  project-home folder its own entry is filed under. */
 export interface RepoPlacement {
   projectId?: string
   order?: number
+  /** A project-home folder id, or '' for the project's home root. Omitted
+   *  leaves the repo in whichever folder it already sits in. */
+  folderId?: string
 }
 
 export function placeRepo(

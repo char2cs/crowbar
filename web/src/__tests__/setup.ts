@@ -67,10 +67,13 @@ window.Element.prototype.getAnimations = () => []
 HTMLCanvasElement.prototype.getContext = function () {
   return {
     font: '',
+    fillStyle: '',
+    textBaseline: 'alphabetic',
     measureText: (text: string) => ({ width: text.length * 8 }),
     fillText: () => {},
     clearRect: () => {},
     fillRect: () => {},
+    setTransform: () => {},
   } as unknown as CanvasRenderingContext2D
 } as unknown as typeof HTMLCanvasElement.prototype.getContext
 

@@ -252,6 +252,13 @@ var (
 	// ErrTreeCrossWorkspace is a move whose destination belongs to another
 	// workspace.
 	ErrTreeCrossWorkspace = tree.ErrCrossWorkspace
+	// ErrTreeCrossRepo is a folder create or move whose destination belongs to
+	// a different repo scope (or home, vs. a repo).
+	ErrTreeCrossRepo = tree.ErrCrossRepo
+	// ErrTreeCrossContext is a folder MOVE that would cross from one context
+	// (project home, a bare repo root, or one specific branch's own
+	// workspace) to a different one, even within the same repo.
+	ErrTreeCrossContext = tree.ErrCrossContext
 	// ErrTreeSubtreeWorking is a move or delete refused because the row or a
 	// row in the subtree it takes is currently working.
 	ErrTreeSubtreeWorking = tree.ErrSubtreeWorking

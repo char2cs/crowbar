@@ -4,8 +4,22 @@
 // now scrolls both ways for. Explicit `pan-x pan-y` rather than the `auto`
 // default so the row states its own contract instead of inheriting whatever
 // the browser assumes.
+// `contain-layout` (CSS `contain: layout`) scopes each row's own reflow to
+// itself — live-measured (rAF-delta sampling + a real continuous swipe, not
+// a discrete jump) as the actual fix for a real regression: ROW_SUB_ACTION_HOVER's
+// `hidden`→`inline-flex` toggle (see its own doc comment — deliberately kept,
+// a prior `invisible`-based attempt is the documented reason NOT to swap it
+// for an opacity toggle) was already measured as affordable for ONE row, but
+// a fast flick down the list can toggle MANY rows within a single frame, and
+// without containment the browser's own layout invalidation isn't scoped to
+// just the touched rows — 29/199 frames over 16.7ms, max 65ms. Safe here
+// specifically because every row has a fixed height (`h-9`) and no
+// non-portaled `position: absolute` descendant that would need a farther
+// containing block. With it: 1/199 frames over 16.7ms, max 18ms, same
+// numbers as reserving the buttons' space outright — but without that
+// approach's already-documented cost (permanently truncating the label).
 export const ROW_BASE =
-  'flex cursor-pointer select-none items-center gap-1.5 rounded-lg border ' +
+  'flex cursor-pointer select-none items-center gap-1.5 rounded-lg border contain-layout ' +
   'h-9 px-1.5 mx-1.5 my-0.5 text-[13px] font-medium outline-none [touch-action:pan-x_pan-y] ' +
   'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background'
 

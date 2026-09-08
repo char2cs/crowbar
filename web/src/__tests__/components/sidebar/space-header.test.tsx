@@ -36,11 +36,13 @@ describe('SpaceHeader', () => {
         project={makeProject('p1')}
         folded={false}
         onToggleFold={vi.fn()}
-        onOverflow={vi.fn()}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={vi.fn()}
       />,
     )
     expect(screen.queryByTestId('chevron')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('overflow')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('new-thread')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('add-menu')).not.toBeInTheDocument()
     expect(screen.getByText('p1')).toBeInTheDocument()
   })
 
@@ -53,18 +55,20 @@ describe('SpaceHeader', () => {
   // to drop the swap (that traded a real bug for a spec violation) but to
   // scope it: hovering the ROW swaps the mark for the chevron, per spec;
   // hovering the mark's OWN hit-target does not (see the next test).
-  it('on hover (off the glyph) both the chevron and the overflow button appear', () => {
+  it('on hover (off the glyph) the chevron, thread button and add-menu button all appear', () => {
     render(
       <SpaceHeader
         project={makeProject('p1')}
         folded={false}
         onToggleFold={vi.fn()}
-        onOverflow={vi.fn()}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={vi.fn()}
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
-    expect(screen.getByTestId('overflow')).toBeInTheDocument()
+    expect(screen.getByTestId('new-thread')).toBeInTheDocument()
+    expect(screen.getByTestId('add-menu')).toBeInTheDocument()
   })
 
   // The narrower half of the fix above: a pointer sitting exactly on the
@@ -77,7 +81,8 @@ describe('SpaceHeader', () => {
         project={makeProject('p1')}
         folded={false}
         onToggleFold={vi.fn()}
-        onOverflow={vi.fn()}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={vi.fn()}
       />,
     )
     const row = screen.getByTestId('space-header-row')
@@ -91,19 +96,21 @@ describe('SpaceHeader', () => {
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
   })
 
-  it('mouse leave reverts the overflow button away again', () => {
+  it('mouse leave reverts the thread and add-menu buttons away again', () => {
     render(
       <SpaceHeader
         project={makeProject('p1')}
         folded={false}
         onToggleFold={vi.fn()}
-        onOverflow={vi.fn()}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={vi.fn()}
       />,
     )
     const row = screen.getByTestId('space-header-row')
     fireEvent.mouseEnter(row)
     fireEvent.mouseLeave(row)
-    expect(screen.queryByTestId('overflow')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('new-thread')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('add-menu')).not.toBeInTheDocument()
   })
 
   // Folded reports a state (spec §4), so it does not depend on hover at
@@ -115,7 +122,8 @@ describe('SpaceHeader', () => {
         project={makeProject('p1')}
         folded={true}
         onToggleFold={vi.fn()}
-        onOverflow={vi.fn()}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={vi.fn()}
       />,
     )
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
@@ -130,7 +138,8 @@ describe('SpaceHeader', () => {
         project={makeProject('p1')}
         folded={true}
         onToggleFold={onToggle}
-        onOverflow={vi.fn()}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={vi.fn()}
       />,
     )
     expect(screen.getByTestId('chevron')).toHaveClass('rotate-180')
@@ -143,52 +152,78 @@ describe('SpaceHeader', () => {
         project={makeProject('p1')}
         folded={false}
         onToggleFold={onToggle}
-        onOverflow={vi.fn()}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={vi.fn()}
       />,
     )
     fireEvent.click(screen.getByTestId('space-header-row'))
     expect(onToggle).toHaveBeenCalledTimes(1)
   })
 
-  it('clicking overflow calls onOverflow, not onToggleFold', () => {
+  it('clicking the thread button calls onCreateThread, not onToggleFold', () => {
     const onToggle = vi.fn()
-    const onOverflow = vi.fn()
+    const onCreateThread = vi.fn()
     render(
       <SpaceHeader
         project={makeProject('p1')}
         folded={false}
         onToggleFold={onToggle}
-        onOverflow={onOverflow}
+        onCreateThread={onCreateThread}
+        onOpenAddMenu={vi.fn()}
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
-    fireEvent.click(screen.getByTestId('overflow'))
-    expect(onOverflow).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByTestId('new-thread'))
+    expect(onCreateThread).toHaveBeenCalledTimes(1)
     expect(onToggle).not.toHaveBeenCalled()
   })
 
-  it('keyboard-activating the overflow button fires onOverflow, not onToggleFold', async () => {
-    // Regression: a keydown on the nested overflow button bubbles to the row's
-    // own onKeyDown. Without SidebarRow's `e.target !== e.currentTarget`
-    // guard, Enter/Space on the button fired onToggleFold instead of the
-    // button's own click. fireEvent.keyDown does not exercise this — jsdom
-    // does not synthesize a button's default click-on-Enter/Space action from
-    // a raw keydown event — so this uses userEvent, which does.
+  it('clicking the add-menu button calls onOpenAddMenu, not onToggleFold', () => {
     const onToggle = vi.fn()
-    const onOverflow = vi.fn()
+    const onOpenAddMenu = vi.fn()
+    render(
+      <SpaceHeader
+        project={makeProject('p1')}
+        folded={false}
+        onToggleFold={onToggle}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={onOpenAddMenu}
+      />,
+    )
+    fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+    fireEvent.click(screen.getByTestId('add-menu'))
+    expect(onOpenAddMenu).toHaveBeenCalledTimes(1)
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('keyboard-activating the thread or add-menu button fires its own handler, not onToggleFold', async () => {
+    // Regression: a keydown on a nested button bubbles to the row's own
+    // onKeyDown. Without SidebarRow's `e.target !== e.currentTarget` guard,
+    // Enter/Space on the button fired onToggleFold instead of the button's
+    // own click. fireEvent.keyDown does not exercise this — jsdom does not
+    // synthesize a button's default click-on-Enter/Space action from a raw
+    // keydown event — so this uses userEvent, which does.
+    const onToggle = vi.fn()
+    const onCreateThread = vi.fn()
+    const onOpenAddMenu = vi.fn()
     const user = userEvent.setup()
     render(
       <SpaceHeader
         project={makeProject('p1')}
         folded={false}
         onToggleFold={onToggle}
-        onOverflow={onOverflow}
+        onCreateThread={onCreateThread}
+        onOpenAddMenu={onOpenAddMenu}
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
-    screen.getByTestId('overflow').focus()
+    screen.getByTestId('new-thread').focus()
     await user.keyboard('{Enter}')
-    expect(onOverflow).toHaveBeenCalledTimes(1)
+    expect(onCreateThread).toHaveBeenCalledTimes(1)
+
+    screen.getByTestId('add-menu').focus()
+    await user.keyboard('{Enter}')
+    expect(onOpenAddMenu).toHaveBeenCalledTimes(1)
     expect(onToggle).not.toHaveBeenCalled()
   })
 
@@ -198,7 +233,8 @@ describe('SpaceHeader', () => {
         project={makeProject('p1')}
         folded={false}
         onToggleFold={vi.fn()}
-        onOverflow={vi.fn()}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={vi.fn()}
       />,
     )
     const row = screen.getByTestId('space-header-row')
@@ -224,7 +260,8 @@ describe('SpaceHeader', () => {
           project={makeProject('p1')}
           folded={false}
           onToggleFold={vi.fn()}
-          onOverflow={vi.fn()}
+          onCreateThread={vi.fn()}
+          onOpenAddMenu={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -240,7 +277,8 @@ describe('SpaceHeader', () => {
           project={makeProject('p1')}
           folded={false}
           onToggleFold={vi.fn()}
-          onOverflow={vi.fn()}
+          onCreateThread={vi.fn()}
+          onOpenAddMenu={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -263,7 +301,8 @@ describe('SpaceHeader', () => {
           project={makeProject('p1')}
           folded={false}
           onToggleFold={vi.fn()}
-          onOverflow={vi.fn()}
+          onCreateThread={vi.fn()}
+          onOpenAddMenu={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -280,7 +319,8 @@ describe('SpaceHeader', () => {
           project={makeProject('p1')}
           folded={false}
           onToggleFold={vi.fn()}
-          onOverflow={vi.fn()}
+          onCreateThread={vi.fn()}
+          onOpenAddMenu={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -297,7 +337,8 @@ describe('SpaceHeader', () => {
           project={makeProject('p1')}
           folded={false}
           onToggleFold={onToggle}
-          onOverflow={vi.fn()}
+          onCreateThread={vi.fn()}
+          onOpenAddMenu={vi.fn()}
         />,
       )
       fireEvent.click(screen.getByText('p1'))
@@ -311,7 +352,8 @@ describe('SpaceHeader', () => {
           project={makeProject('p1')}
           folded={false}
           onToggleFold={onToggle}
-          onOverflow={vi.fn()}
+          onCreateThread={vi.fn()}
+          onOpenAddMenu={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -338,7 +380,8 @@ describe('SpaceHeader', () => {
           project={makeProject('p1')}
           folded={false}
           onToggleFold={onToggle}
-          onOverflow={vi.fn()}
+          onCreateThread={vi.fn()}
+          onOpenAddMenu={vi.fn()}
         />,
       )
       await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
@@ -353,7 +396,8 @@ describe('SpaceHeader', () => {
           project={makeProject('p1')}
           folded={false}
           onToggleFold={vi.fn()}
-          onOverflow={vi.fn()}
+          onCreateThread={vi.fn()}
+          onOpenAddMenu={vi.fn()}
         />,
       )
       await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))

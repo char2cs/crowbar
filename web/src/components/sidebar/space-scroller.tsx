@@ -1,12 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { FolderOpen, Folder as FolderIcon } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { useContextMenu } from '@/components/ui/context-menu'
+import { ContextMenu, useContextMenu } from '@/components/ui/context-menu'
 import { SidebarTree } from './sidebar-tree'
 import { SpaceHeader } from './space-header'
 import { RecentsBand, type RecentsBandEntry } from './recents-band'
 import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
+import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
+import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
+import {
+  ensureHomeWorkspaceResolved,
+  useHomeWorkspaceState,
+} from '@/features/workspace/lib/home-workspace-resolver'
+import { handleCreateHomeThread } from '@/components/layout/space-content-actions'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   getAllActiveWorkspaceIds,
   getOrCreateWorkspaceStore,
@@ -172,7 +184,74 @@ function SpacePanel({
   // want the same anchor this component already owns.
 }: SpacePanelProps) {
   const projectId = project.id
-  const rows = rowsForProject(projectId)
+  const repoRows = rowsForProject(projectId)
+  // The REAL project-home workspace — project-scoped, not repo-scoped
+  // (home-workspace-resolver.ts: "home is a project-level concept, not a
+  // repo workspace"). Target for the header's Thread button and the
+  // add-menu's "Create a folder" item — NOT a repo's own home row (a
+  // different workspace entirely; conflating the two was a real bug, a
+  // "New thread on the project" button that silently created the thread
+  // under a REPO instead, caught live).
+  const { wsId: homeWorkspaceId } = useHomeWorkspaceState(projectId)
+  useEffect(() => {
+    ensureHomeWorkspaceResolved(projectId)
+  }, [projectId])
+  // Every chat-scoped API call for this workspace (`setChatPlacement`,
+  // `createChat`, `workspaceBase`'s own throw) needs its scope RECORDED
+  // first (workspace-scope.ts) — `ide-shell.tsx` only ever records the
+  // ACTIVE route's home workspace, but `SpacePanel` mounts one per VISIBLE
+  // project, not just the active one. Without this, dragging/reordering (or
+  // even just opening) a home chat on any project OTHER than the one
+  // currently on screen throws "no project/repo scope recorded" instead of
+  // working — `recordWorkspaceScope` (not `setWorkspaceScope`) is the one
+  // that writes without also claiming this workspace as ACTIVE, exactly
+  // matching how `lib/store/sidebar.ts` already records every repo
+  // workspace's scope "as its data arrives," per that function's own doc.
+  useEffect(() => {
+    if (homeWorkspaceId) recordWorkspaceScope({ projectId, repoId: '', wsId: homeWorkspaceId })
+  }, [projectId, homeWorkspaceId])
+  // This project's home chats/folders — the same two aggregates a repo's
+  // OWN tree holds, kept in their own per-project store (home-tree.ts) since
+  // project home rides no repo. Rendered as FLAT TOP-LEVEL rows, exactly
+  // like a repo itself — explicit user correction: `rowsFromHome` first drew
+  // a container "Home" row for these to nest under, mirroring a repo's own
+  // home row, and it was rejected outright; there is no such container here.
+  const homeTree = useHomeTreeStore((s) => s.trees[projectId])
+  // `rowsFromHome` THROWS if its owning branch chat is missing (same
+  // contract `rowsFromRepo` holds a repo's own home row to) — guarded here
+  // rather than there, the same way `SidebarTreeSurface`'s `seededRepoIds`
+  // keeps a repo's rows from being built before ITS seed has landed: the
+  // backfill that mints project home's owning chat is a daemon-side race
+  // against this store's own first GET, not a caller error.
+  const homeSeeded =
+    homeWorkspaceId !== null &&
+    !!homeTree?.chats.some((c) => c.type === 'branch' && c.workspaceId === homeWorkspaceId)
+  // Every repo header row already in `repoRows` (rowsFromRepo's own push),
+  // reduced to the one placement fact rowsFromHome needs to seat it in the
+  // SAME sibling sort as this project's home chats/folders — see that
+  // function's own doc for why the row's raw `order`/`parentId` cannot be
+  // trusted for rendering as-is (a repo's row never gets its `order`
+  // recomputed the way a chat/folder row's does, so the two collide the
+  // moment they share a container).
+  const repoPlacements = repoRows
+    .filter((r): r is SidebarRow & { repoIcon: NonNullable<SidebarRow['repoIcon']> } =>
+      Boolean(r.repoIcon),
+    )
+    .map((r) => ({ id: r.id, folderId: r.parentId ?? '', order: r.order }))
+  const { rows: homeRows, repoPositions } =
+    homeSeeded && homeTree
+      ? rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders, repoPlacements)
+      : { rows: [], repoPositions: new Map() }
+  // Corrected in place rather than re-built: everything else about the row
+  // (repoIcon, ownsWorktree, branchName, lock state...) still comes from
+  // `rowsFromRepo`'s own push, unchanged — only where it SITS among its
+  // project-home siblings was ever wrong.
+  const positionedRepoRows = repoRows.map((r) => {
+    const position = repoPositions.get(r.id)
+    return position ? { ...r, parentId: position.parentId, order: position.order } : r
+  })
+  const rows = [...homeRows, ...positionedRepoRows]
+  const navigate = useNavigate()
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both
   // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll
   // target off this ref, which points at the actual overflow element
@@ -216,12 +295,13 @@ function SpacePanel({
   // component instance (keyed by project id), so "per space" is free.
   const [folded, setFolded] = useState(false)
 
-  // The overflow menu's anchor. `SpaceHeader.onOverflow` is a bare callback
+  // The add-menu's anchor. `SpaceHeader.onOpenAddMenu` is a bare callback
   // with no event (its own reviewed signature), so the menu is positioned off
   // the header's own box rather than the pointer — which is also the more
   // correct anchor for a control that can be reached by keyboard.
   const headerRef = useRef<HTMLDivElement>(null)
   const menu = useContextMenu()
+  const [addRepoOpen, setAddRepoOpen] = useState(false)
 
   return (
     <div
@@ -234,34 +314,52 @@ function SpacePanel({
           project={project}
           folded={folded}
           onToggleFold={() => setFolded((f) => !f)}
-          onOverflow={() => {
+          onCreateThread={() => {
+            // Not `onCreate`/`handleCreate`: that pipe resolves parentId
+            // against the REPO-scoped sidebar store (resolveRow), which has
+            // no notion of the project-home workspace at all — this calls
+            // the project-home-aware sibling instead, which also owns
+            // opening/navigating to the new chat (mirrors handleCreate's own
+            // open/navigate handling, just scoped to the home workspace).
+            if (!homeWorkspaceId) return
+            void handleCreateHomeThread(projectId, homeWorkspaceId, navigate)
+          }}
+          onOpenAddMenu={() => {
             const rect = headerRef.current?.getBoundingClientRect()
             menu.openAt({ x: rect ? rect.right - 8 : 0, y: rect ? rect.bottom : 0 })
           }}
         />
       </div>
-      {/* Addendum §4: "the dropdown never carries a Delete item" — deletion is
-          reachable only through drag-to-trash (addendum §2) now. The project
-          overflow currently has nothing else §4 names for it either
-          (rename/lock/import are row verbs with a home already in
-          row-context-menu.tsx), so there is no menu left to open here yet —
-          `onOverflow`/`menu` stay wired for the next verb this surface gets. */}
+      {/* Addendum §4's "the dropdown never carries a Delete item" still holds
+          — deletion is reachable only through drag-to-trash (addendum §2).
+          This is the verb that empty menu was left wired for: import another
+          repo into this project, or start a folder on the project's OWN home
+          workspace (the backend's `/home/chats/folders` mount — folders were
+          once thought repo-internal only; they are not). */}
+      {menu.isOpen && (
+        <ContextMenu
+          isOpen
+          items={[
+            {
+              id: 'import-repo',
+              label: 'Import a repo',
+              icon: <FolderOpen />,
+              onClick: () => setAddRepoOpen(true),
+            },
+            {
+              id: 'new-folder',
+              label: 'Create a folder',
+              icon: <FolderIcon />,
+              onClick: () => void performCreateHomeFolder(projectId),
+            },
+          ]}
+          position={menu.position}
+          onClose={menu.close}
+        />
+      )}
+      <AddRepositoryModal open={addRepoOpen} onOpenChange={setAddRepoOpen} projectId={project.id} />
       <ScrollArea className="flex-1">
-        {/* Padding lives on the scrollable CONTENT, not the ScrollArea root —
-            only that extends how far the region actually scrolls, which is
-            the whole point of the inset (spec §6). Reads `--card-bottom-inset`
-            straight off the CSS cascade rather than a prop: that variable is
-            written directly onto the shared rail ancestor by
-            sidebar-carousel.tsx (see ide-shell.tsx's `railRef`), including
-            once per animation frame during a resize drag — routing that
-            through a React prop here would re-render this panel (and every
-            row in it) on every one of those frames. The `0px` fallback
-            covers the one render before the card has measured anything. */}
-        <div
-          ref={contentRef}
-          data-testid="space-scroll-content"
-          style={{ paddingBottom: `var(${CARD_BOTTOM_INSET_VAR}, 0px)` }}
-        >
+        <div ref={contentRef} data-testid="space-scroll-content">
           {!folded && (
             <SidebarTree
               rows={rows}
@@ -283,6 +381,27 @@ function SpacePanel({
           />
         </div>
       </ScrollArea>
+      {/* The clearance itself (spec §6: "the tree keeps a bottom inset the
+          height of the card") — now an outer, non-scrolling spacer instead of
+          padding on the scrollable content. Padding there counted straight
+          toward `scrollHeight`: the card's default open height is a THIRD of
+          the whole sidebar rail (`DEFAULT_CARD_HEIGHT_FRACTION`), so that
+          padding alone could tip an otherwise short, non-overflowing list
+          into "overflowing," showing a scrollbar nothing about the visible
+          rows justified. A `shrink-0` sibling shrinks the ScrollArea's own
+          box instead, so the browser's real overflow check only ever sees
+          genuine row/Recents content — same visual clearance, correct
+          overflow math. Reads `--card-bottom-inset` straight off the CSS
+          cascade rather than a prop for the same reason the content div
+          used to: that variable is written directly onto the shared rail
+          ancestor by sidebar-carousel.tsx, including once per animation
+          frame during a resize drag, and a prop here would re-render this
+          panel (and every row in it) on every one of those frames. */}
+      <div
+        data-testid="space-scroll-bottom-spacer"
+        className="shrink-0"
+        style={{ height: `var(${CARD_BOTTOM_INSET_VAR}, 0px)` }}
+      />
     </div>
   )
 }
@@ -318,6 +437,19 @@ export function SpaceScroller({
   // that moves scrollLeft is reflow, not intent - see sidebar-carousel.tsx.
   const isUserGesture = useRef(false)
   const armUserGesture = () => {
+    isUserGesture.current = true
+  }
+  // The vertical chat-list ScrollArea lives INSIDE this horizontal carousel's
+  // subtree (SpacePanel), so a plain vertical wheel tick over the chat list
+  // still bubbles up and reaches this handler — React's onWheel doesn't
+  // filter by axis. Left unguarded, that armed this exactly like a real
+  // horizontal swipe, and a later scrollLeft nudge for any unrelated reason
+  // would silently swap the active project mid-scroll. Only a
+  // horizontally-dominant gesture is a real swipe of THIS carousel (same
+  // axis check Zen Browser's native arrowscrollbox patch uses on its own
+  // wheel handler).
+  const armUserGestureFromWheel = (e: React.WheelEvent) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
     isUserGesture.current = true
   }
 
@@ -366,7 +498,7 @@ export function SpaceScroller({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      onWheel={armUserGesture}
+      onWheel={armUserGestureFromWheel}
       onTouchStart={armUserGesture}
       data-testid="space-scroll-region"
       // Same geometry, same failure mode, same fix as sidebar-carousel.tsx's

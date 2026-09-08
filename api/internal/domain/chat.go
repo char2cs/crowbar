@@ -25,6 +25,20 @@ type Chat struct {
 	TitleLocked bool      `json:"titleLocked"`
 	CreatedAt   time.Time `json:"createdAt"`
 
+	// RepoID is a FOLDER's (Type == ChatTypeFolder) own repo scope: "" for a
+	// project-home folder, a real repo id otherwise. It exists only because a
+	// folder owns no workspace to derive one from the way every other row can
+	// (WorkspaceID always resolves to a repo — see
+	// usecases/chat/repo_scope.go's "derive, do not store" rule, which this
+	// field deliberately does NOT extend to non-folder rows: a chat or branch
+	// row must never populate this, WorkspaceID remains its one source of
+	// truth). Set once at creation from the caller's own scope (the repo-
+	// scoped or project-home create route) and never rewritten by a move — a
+	// folder cannot change which repo it belongs to by being dragged, only by
+	// which SAME-scoped parent it is filed under (tree/validate.go's
+	// checkFolderContainer enforces this — the folder-scoping "golden rule").
+	RepoID string `json:"repoId,omitempty"`
+
 	// Model and Effort are the chat's STICKY choice of what to run its provider
 	// CLI as: durable config beside the title, not a property of any process. They
 	// persist between messages so the picker has a value to show and the next

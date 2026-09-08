@@ -267,6 +267,21 @@ func (s *WorkspacePlacements) SetProject(
 	return domain.Workspace{}, nil
 }
 
+// GetHomeForProject mirrors the real workspace repository's own scan: the
+// one row in Rows whose ProjectID matches and whose Kind is
+// WorkspaceKindHome, or apperr.ErrNotFound.
+func (s *WorkspacePlacements) GetHomeForProject(
+	ctx context.Context,
+	projectID string,
+) (domain.Workspace, error) {
+	for _, w := range s.Rows {
+		if w.ProjectID == projectID && w.Kind == domain.WorkspaceKindHome {
+			return w, nil
+		}
+	}
+	return domain.Workspace{}, apperr.ErrNotFound
+}
+
 // WorkspaceRepo is a fake of the subset of workspace.Workspace used on import.
 type WorkspaceRepo struct {
 	Created   []domain.Workspace
@@ -1394,7 +1409,9 @@ func (s *AgentChatPlacements) Create(
 	if s.CreateErr != nil {
 		return domain.Chat{}, s.CreateErr
 	}
-	row := domain.Chat{ID: in.ID, Type: in.Type, WorkspaceID: in.WorkspaceID, CreatedAt: in.Now}
+	row := domain.Chat{
+		ID: in.ID, Type: in.Type, WorkspaceID: in.WorkspaceID, RepoID: in.RepoID, CreatedAt: in.Now,
+	}
 	s.Rows = append(s.Rows, row)
 	return row, nil
 }
@@ -1619,13 +1636,32 @@ func (s *AgentChatPlacements) parentOf(
 // workspace id, with no live git call behind it.
 type AgentWorkspaceGitStatus struct {
 	Summaries map[string][2]int
-	Err       error
+	// Repos answers RepoOf, keyed by workspace id — the fake's stand-in for
+	// domain.Workspace.RepoID. A workspace never Set here answers "", the
+	// same value the real home workspace's RepoOf answers.
+	Repos map[string]string
+	Err   error
 }
 
 // NewAgentWorkspaceGitStatus returns an AgentWorkspaceGitStatus with no
-// workspace summaries recorded.
+// workspace summaries or repos recorded.
 func NewAgentWorkspaceGitStatus() *AgentWorkspaceGitStatus {
-	return &AgentWorkspaceGitStatus{Summaries: map[string][2]int{}}
+	return &AgentWorkspaceGitStatus{Summaries: map[string][2]int{}, Repos: map[string]string{}}
+}
+
+// SetRepo records workspaceID's owning repo for RepoOf to answer with.
+func (s *AgentWorkspaceGitStatus) SetRepo(workspaceID, repoID string) {
+	s.Repos[workspaceID] = repoID
+}
+
+func (s *AgentWorkspaceGitStatus) RepoOf(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	if s.Err != nil {
+		return "", s.Err
+	}
+	return s.Repos[workspaceID], nil
 }
 
 // Set records workspaceID's Added/Deleted for WorkingTreeSummary to answer

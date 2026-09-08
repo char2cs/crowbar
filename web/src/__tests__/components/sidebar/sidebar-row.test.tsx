@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { GitBranch, Lock } from '@phosphor-icons/react'
+import { Folder, FolderOpen, GitBranch, Lock } from '@phosphor-icons/react'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
@@ -258,6 +258,36 @@ describe('SidebarRow', () => {
     })
   })
 
+  // Caught live: `RowGlyph` drew the same closed `Folder` glyph regardless of
+  // fold state — `expanded` was computed (line 110-ish, `!folded`) but never
+  // threaded through to it, so a folder never visually distinguished open
+  // from closed at all.
+  describe('folder open/closed glyph', () => {
+    function iconMarkup(el: React.ReactElement): string {
+      const { container, unmount } = render(el)
+      const html = container.querySelector('svg')?.outerHTML ?? ''
+      unmount()
+      return html
+    }
+    const folderRow: SidebarRowType = { ...baseRow, kind: 'folder', ownsWorktree: false }
+
+    it('renders the closed Folder glyph while collapsed', () => {
+      const html = iconMarkup(<SidebarRow row={folderRow} depth={0} onOpen={vi.fn()} folded />)
+      const expected = iconMarkup(<Folder aria-hidden="true" className="size-4" weight="duotone" />)
+      expect(html).toBe(expected)
+    })
+
+    it('renders the open FolderOpen glyph while expanded', () => {
+      const html = iconMarkup(
+        <SidebarRow row={folderRow} depth={0} onOpen={vi.fn()} folded={false} />,
+      )
+      const expected = iconMarkup(
+        <FolderOpen aria-hidden="true" className="size-4" weight="duotone" />,
+      )
+      expect(html).toBe(expected)
+    })
+  })
+
   // Rule 6: a `branch` row that owns a real, unlocked workspace now draws a
   // second line under its label — the workspace's branch name and change
   // counts, muted, beneath the (now chat-titled) label line.
@@ -388,6 +418,40 @@ describe('SidebarRow', () => {
     )
     const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['fork', 'thread', 'fold'])
+  })
+
+  // The ghost/bootstrap row a childless folder used to render underneath
+  // itself (sidebar-tree.tsx, now removed) existed only to hold these two
+  // buttons — a folder's own row carries them directly now, same place
+  // every other kind's Fork/Thread already lived.
+  it('a folder that owns a worktree shows Fork (never Thread) directly on its own row', () => {
+    render(
+      <SidebarRow
+        row={{ ...baseRow, kind: 'folder', ownsWorktree: true }}
+        depth={0}
+        onOpen={vi.fn()}
+        onCreate={vi.fn()}
+        onToggleFold={vi.fn()}
+      />,
+    )
+    const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['fork', 'fold'])
+  })
+
+  // A project-home folder (rows-from-home.ts) never owns a worktree — no
+  // repo, nothing to fork — so it gets neither create button, only fold.
+  it('a folder that owns no worktree shows neither Fork nor Thread', () => {
+    render(
+      <SidebarRow
+        row={{ ...baseRow, kind: 'folder', ownsWorktree: false }}
+        depth={0}
+        onOpen={vi.fn()}
+        onCreate={vi.fn()}
+        onToggleFold={vi.fn()}
+      />,
+    )
+    const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['fold'])
   })
 
   // §3.5/§4.2: a bubble chat's glyph is itself a promotion dropdown — gated

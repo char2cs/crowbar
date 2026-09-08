@@ -253,18 +253,14 @@ export function SidebarHeader({
 }: React.ComponentProps<'div'>): React.ReactElement {
   return (
     <div
-      // `pt-1` rather than the `p-2` this had on all four sides, because the
-      // header's TOP is half of a gap the sidebar tab bar owns the other half of.
-      // The bar below the context pill is `py-1.5`, so the rhythm down the top of
-      // the sidebar is: pill wrapper `pb-1` (4px) + bar `pt-1.5` (6px) = 10px to
-      // the switcher, and bar `pb-1.5` (6px) + this `pt-1` (4px) = 10px from the
-      // switcher to whatever panel follows. It read 14px here and 6px in the
-      // Chats panel, which drew the eye to the switcher sitting closer to one
-      // neighbour than the other.
-      //
-      // It lives HERE, on the header every search panel is wrapped in, so a
-      // third panel inherits the rhythm instead of picking its own padding.
-      className={cn('flex flex-col gap-2 px-2 pt-1 pb-2 backdrop-blur-sm', className)}
+      // No vertical padding — this header sits flush against its neighbours,
+      // same as any other row. Horizontal padding matches a depth-0 tree
+      // row's own inset exactly: `pl-2.5` (10px) is FILE_TREE_BASE_INDENT
+      // (file-explorer-tree-item.tsx), `pr-1.5` (6px) is a row's own
+      // untouched `px-1.5` (file-tree-density.ts) — a row's inline
+      // `paddingLeft` override only ever touches the left side, so the two
+      // sides genuinely differ by design, not by accident.
+      className={cn('flex flex-col gap-2 pl-2.5 pr-1.5 backdrop-blur-sm', className)}
       data-sidebar="header"
       data-slot="sidebar-header"
       {...props}

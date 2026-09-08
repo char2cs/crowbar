@@ -89,6 +89,16 @@ describe('rowsFromRepo', () => {
     expect(rows.find((r) => r.id === 'f-1')?.kind).toBe('folder')
   })
 
+  // A repo folder always sits under a real worktree, unlike a project-home
+  // one (rows-from-home.ts) — its own "+" always forks a branch.
+  it('a repo folder owns a worktree, so its own "+" can fork a branch', () => {
+    const repo = makeTestRepo({
+      folders: [makeTestFolder({ id: 'f-1', name: 'Bugs' })],
+    })
+    const rows = rowsFromRepo(repo)
+    expect(rows.find((r) => r.id === 'f-1')?.ownsWorktree).toBe(true)
+  })
+
   it('the default workspace becomes the one root row, labelled with the repo name', () => {
     const repo = makeTestRepo({ defaultWorkspaceId: 'ws-home', defaultBranch: 'main' })
     const rows = rowsFromRepo(repo)

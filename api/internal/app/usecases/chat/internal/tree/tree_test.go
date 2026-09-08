@@ -23,16 +23,18 @@ const (
 // errNoLog stands in for the event log being unreachable.
 var errNoLog = errors.New("log unavailable")
 
-// seedFolder appends a folder row hanging off parentID. Folders carry no
-// workspace: they are a domain.Chat row like any other, distinguished only by
-// Type.
+// seedFolder appends a folder row hanging off parentID, scoped to the
+// module's single-repo fixture (repoID, "repo-1") — every test in this file
+// that nests folders inside one another lives in that one repo's world.
+// Folders carry no workspace: they are a domain.Chat row like any other,
+// distinguished only by Type.
 func seedFolder(
 	chats *mocks.AgentChatPlacements,
 	id string,
 	parentID string,
 ) {
 	chats.Rows = append(chats.Rows, domain.Chat{
-		ID: id, Type: domain.ChatTypeFolder, ParentID: parentID, Title: id,
+		ID: id, Type: domain.ChatTypeFolder, RepoID: repoID, ParentID: parentID, Title: id,
 	})
 }
 
@@ -236,14 +238,29 @@ func TestCreate_RefusesAParentThatDoesNotExist(t *testing.T) {
 	assert.ErrorIs(t, err, apperr.ErrNotFound)
 }
 
-// A folder carries no workspace of its own (§3.1), so a chat parent is accepted
-// regardless of which workspace it belongs to. Enforcing a repo boundary here
-// is stage 3's walk, not this task's storage retype — this pins the current,
-// deliberately permissive behaviour so a future tightening is a conscious
-// assertion change, not a silent regression nobody noticed.
-func TestCreate_AcceptsAChatParentFromAnyWorkspace(t *testing.T) {
+// Stage 3 (the folder-scoping golden rule) has landed: a chat parent in
+// ANOTHER repo is now refused, the same way ErrCrossWorkspace already refuses
+// a cross-workspace CHAT parent. This is the "conscious assertion change" the
+// deleted permissive-pin test's own doc comment asked for, not a silent
+// regression — caught live as a folder left on top of the wrong repo after a
+// cross-repo drag.
+func TestCreate_RefusesAChatParentFromAnotherRepo(t *testing.T) {
 	chats, uc := newUsecase(t)
+	// ws-2 is never registered against repoID in newUsecaseWithWork's fixture
+	// — RepoOf answers "" for it, a different repo scope than repoID.
 	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"})
+
+	_, _, err := uc.Create(context.Background(), tree.CreateInput{
+		RepoID: repoID, ParentID: "c-other", Name: "spikes",
+	})
+	assert.ErrorIs(t, err, tree.ErrCrossRepo)
+}
+
+// The same chat parent, now in a workspace the fixture's own repo actually
+// owns — accepted, same as TestCreate_NestsInsideAChat's folder-owned parent.
+func TestCreate_AcceptsAChatParentFromTheSameRepo(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c-other", Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
 
 	created, _, err := uc.Create(context.Background(), tree.CreateInput{
 		RepoID: repoID, ParentID: "c-other", Name: "spikes",
@@ -333,9 +350,7 @@ func TestCreate_DiscardsTheFolderWhenItsOwnPlacementWriteFails(t *testing.T) {
 	assert.Equal(t, []string{"f-new"}, chats.Forgotten)
 }
 
-// ListInRepo filters to folder-typed rows. It does not yet enforce a repo
-// boundary — see Chats.ListChats's doc comment — so this proves the row-kind
-// filter, not repo isolation.
+// ListInRepo filters to folder-typed rows.
 func TestListInRepo_ReturnsOnlyFolderTypedRows(t *testing.T) {
 	chats, uc := newUsecase(t)
 	seedFolder(chats, "f1", "")
@@ -345,6 +360,31 @@ func TestListInRepo_ReturnsOnlyFolderTypedRows(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "f1", rows[0].ID)
+}
+
+// The repo boundary IS enforced now (Chats.ListChats itself still returns
+// every row across every repo — the doc comment on that port's own doc is
+// about the store read, not this usecase's filter): a folder that belongs to
+// a DIFFERENT repo, or to project-home ("" — a distinct scope of its own,
+// never a wildcard), never bleeds into another repo's list. Caught live as a
+// folder left "on top of" the wrong repo.
+func TestListInRepo_IsolatesByRepo(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "f-this-repo", Type: domain.ChatTypeFolder, RepoID: repoID, Title: "mine"},
+		domain.Chat{ID: "f-other-repo", Type: domain.ChatTypeFolder, RepoID: "repo-2", Title: "theirs"},
+		domain.Chat{ID: "f-home", Type: domain.ChatTypeFolder, RepoID: "", Title: "home"},
+	)
+
+	rows, err := uc.ListInRepo(context.Background(), repoID)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "f-this-repo", rows[0].ID)
+
+	homeRows, err := uc.ListInRepo(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, homeRows, 1)
+	assert.Equal(t, "f-home", homeRows[0].ID)
 }
 
 func TestListInRepo_SurfacesAStoreFailure(t *testing.T) {
@@ -411,14 +451,26 @@ func TestMove_DensifiesBothLevels(t *testing.T) {
 	ctx := context.Background()
 	seedChat(chats, "c1", 1)
 	seedChat(chats, "c2", 2)
+	// The destination is another repo-root FOLDER, not a chat — a chat
+	// carries a real WorkspaceID (its owning branch's), so filing "moved"
+	// under one would cross from the bare repo-root context into that
+	// branch's own (checkFolderContextMove's golden rule, the finer half:
+	// "context" is Project -> Repo -> Locked branch -> Parent unlocked, and
+	// the repo root is its own context, distinct from every branch in it).
+	// "container" is created BEFORE "moved" so removing "moved" (the LAST
+	// root sibling) never has anyone to renumber — same "shifted is empty"
+	// shape the test always asserted, now for a reason that has nothing to
+	// do with what is under test here.
+	container, _, err := uc.Create(ctx, tree.CreateInput{RepoID: repoID, Name: "container"})
+	require.NoError(t, err)
 	moved, _, err := uc.Create(ctx, tree.CreateInput{RepoID: repoID, Name: "spikes"})
 	require.NoError(t, err)
 
 	placed, shifted, err := uc.Move(ctx, moved.ID, tree.MoveInput{
-		ParentID: name("c1"),
+		ParentID: name(container.ID),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "c1", placed.ParentID)
+	assert.Equal(t, container.ID, placed.ParentID)
 	assert.Equal(t, 0, placed.Order, "the destination level was empty")
 	assert.Empty(t, shifted, "no other FOLDER moved")
 	assert.Equal(t, 0, chatRow(t, chats, "c1").Order)
