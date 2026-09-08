@@ -256,12 +256,20 @@ func (r *eventSourced) InvokeTool(ctx context.Context, in ToolInput) error {
 	})
 }
 
+// CompleteTool uses sendWait, not send, for the same reason StopSubagent
+// does (see that method's own comment): observation.go's HookToolPost/
+// HookToolFail case calls this and then immediately restateAsyncWork,
+// whose OpenWork is a SQL read of the very row this closes. Under send the
+// read can land before the write projects, still see the tool running, and
+// restateAsyncWork returns early without the turn_stopped that clears
+// Working — the exact same stuck-spinner shape, now for tool calls instead
+// of subagents.
 func (r *eventSourced) CompleteTool(ctx context.Context, in ToolResultInput) error {
 	ref, err := r.store.Content().Put(in.Result)
 	if err != nil {
 		ref = ""
 	}
-	return r.send(ctx, commands.CompleteTool{
+	return r.sendWait(ctx, commands.CompleteTool{
 		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Target: in.Target,
 		ResultRef: ref, Status: in.Status, Error: truncate(in.Error, maxToolErrorBytes),
 		DurationMS: in.DurationMS, Now: in.Now,

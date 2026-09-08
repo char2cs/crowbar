@@ -157,6 +157,39 @@ func TestToolCall_RoundTripsThroughInvokeAndComplete(t *testing.T) {
 	assert.Equal(t, "applied", string(result))
 }
 
+// TestRegression_CompleteTool_IsDurableBeforeItReturns_NoWaitNeeded is the
+// fix for the identical stale-read race StopSubagent already had fixed for
+// it (see that method's own doc comment): observation.go's HookToolPost/
+// HookToolFail case calls CompleteTool and then IMMEDIATELY
+// restateAsyncWork, whose OpenWork is a SQL read of the very row
+// CompleteTool just wrote — with no wait of its own, exactly like this test
+// deliberately has none. Under the old fire-and-forget `send`, the read
+// could land before the write projected, still see the tool "running", and
+// the chat's Working spinner would stick forever. `sendWait` makes the
+// write durable before CompleteTool returns, which is what this test
+// actually proves: NOT calling f.wait() and still seeing the completed
+// status immediately.
+func TestRegression_CompleteTool_IsDurableBeforeItReturns_NoWaitNeeded(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: chat, ToolID: "tool-1", Name: "Bash", Now: t0,
+	}))
+	f.wait()
+
+	require.NoError(t, f.repo.CompleteTool(f.ctx, activity.ToolResultInput{
+		ChatID: chat, ToolID: "tool-1", Status: domain.ToolStatusOK,
+		DurationMS: 5, Now: t0.Add(time.Second),
+	}))
+	// Deliberately no f.wait() here — mirrors observation.go's real call
+	// site, which reads back immediately with no wait of its own.
+
+	calls, err := f.repo.ToolCalls(f.ctx, chat, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, domain.ToolStatusOK, calls[0].Status,
+		"CompleteTool must be durably visible to the very next read, with no wait — an immediate caller reading 'running' here reproduces the stuck-spinner bug")
+}
+
 func TestInvokeTool_IsVisibleBeforeItCompletes(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
