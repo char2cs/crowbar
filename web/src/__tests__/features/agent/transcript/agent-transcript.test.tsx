@@ -34,6 +34,32 @@ vi.mock('@tanstack/react-virtual', async (importOriginal) => {
   }
 })
 
+// Spies on every `pinTurnToTop` call the real anchor hook's wiring effect
+// makes — a passthrough, not a stub, so every other test in this file still
+// gets the real hook, real scroll math and all, unchanged. This is what lets
+// a test assert WHETHER agent-transcript.tsx's own queue-watching effect
+// decided to pin at all, independent of jsdom having no real layout engine
+// to observe the resulting padding-bottom through.
+const { pinTurnToTopCalls } = vi.hoisted(() => ({
+  pinTurnToTopCalls: [] as Array<HTMLElement | null>,
+}))
+vi.mock('@/features/agent/hooks/use-transcript-anchor', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/agent/hooks/use-transcript-anchor')>()
+  return {
+    ...actual,
+    useTranscriptAnchor: (...args: Parameters<typeof actual.useTranscriptAnchor>) => {
+      const instance = actual.useTranscriptAnchor(...args)
+      const originalPinTurnToTop = instance.pinTurnToTop
+      instance.pinTurnToTop = (element: HTMLElement | null) => {
+        pinTurnToTopCalls.push(element)
+        originalPinTurnToTop(element)
+      }
+      return instance
+    },
+  }
+})
+
 // The historical rows are windowed (`@tanstack/react-virtual`), and jsdom has no
 // layout engine: every element measures 0×0, and a virtualiser told its viewport
 // is zero pixels tall windows down to NOTHING — `calculateRange` bails on
@@ -46,6 +72,8 @@ const VIEWPORT_HEIGHT = 800
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
 
 beforeEach(() => {
+  resizeItemCalls.length = 0
+  pinTurnToTopCalls.length = 0
   const rect = {
     top: 0,
     left: 0,
@@ -557,6 +585,66 @@ describe('AgentTranscript queued first turn', () => {
     const stream = container.querySelector('.stream')
     const row = screen.getByTestId('queued-prompt')
     expect(row.parentElement).toBe(stream)
+  })
+})
+
+describe('AgentTranscript: pinning the turn a prompt actually started', () => {
+  let nextId = 0
+  function queueItem(text: string) {
+    nextId += 1
+    return {
+      clientRequestId: `pin-r${nextId}`,
+      text,
+      state: 'queued' as const,
+      createdAt: '2026-08-24T00:00:00Z',
+      baselineSequence: 0,
+    }
+  }
+
+  // REGRESSION: the wiring effect's very first run, on a freshly-mounted
+  // pane, sees an EMPTY queue — `newest` (null) already equals
+  // `pinnedRequestId.current`'s own initial value (also null) — so an
+  // equality check placed before the "have I run before" bookkeeping
+  // returned early without ever recording that the first run happened. The
+  // user's actual first send then read its own run as "inherited" (a
+  // restore, not a send) and never pinned — silently losing pin-to-top for
+  // the single most common case, the first prompt in a chat's lifetime.
+  it('pins the very first prompt sent in a freshly-mounted pane', () => {
+    const { rerender } = draw([], { queue: [] })
+    expect(pinTurnToTopCalls).toEqual([])
+
+    const item = queueItem('the first thing I ever said')
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls).toHaveLength(1)
+    expect(pinTurnToTopCalls[0]).not.toBeNull()
+    expect(pinTurnToTopCalls[0]).toHaveAttribute('data-client-request-id', item.clientRequestId)
+  })
+
+  // The existing, already-correct behavior this fix must not disturb: a
+  // chat REOPENED with a prompt still queued from before inherits it — that
+  // is a restore, not a send, and must never pin.
+  it('does not pin an inherited queue found already waiting on mount', () => {
+    draw([], { queue: [queueItem('left over from before')] })
+
+    expect(pinTurnToTopCalls).toEqual([])
   })
 })
 

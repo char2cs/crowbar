@@ -340,12 +340,22 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const sawFirstQueue = useRef(false)
   useLayoutEffect(() => {
     const newest = queue.at(-1)?.clientRequestId ?? null
-    if (newest === pinnedRequestId.current) return
-    pinnedRequestId.current = newest
     // A chat REOPENED with prompts still waiting inherits them; that is a
     // restore, not a send, so the first run only ever records what it found.
+    //
+    // Computed and flipped BEFORE the equality check below, not after: a
+    // freshly-mounted pane's very first run starts with an EMPTY queue, so
+    // `newest` (null) already equals `pinnedRequestId.current`'s own initial
+    // value (also null) — the equality check below would return before ever
+    // reaching this flip, leaving `sawFirstQueue.current` false forever. The
+    // user's actual first send then finds `sawFirstQueue.current` still
+    // false, reads its OWN run as "inherited", and never pins — silently
+    // losing pin-to-top for the single most common case, the first prompt in
+    // a chat's lifetime.
     const inherited = !sawFirstQueue.current
     sawFirstQueue.current = true
+    if (newest === pinnedRequestId.current) return
+    pinnedRequestId.current = newest
     if (!newest || inherited) return
     const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
       `[data-client-request-id="${CSS.escape(newest)}"]`,
@@ -443,7 +453,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       const el = container.querySelector<HTMLElement>(`[data-sequence="${bubble.sequence}"]`)
       if (el) lastStreamedHeight.current.set(bubble.sequence, el.getBoundingClientRect().height)
     }
-  })
+    // Deliberately gated on `streamingBubbles` alone, not every render: this
+    // pays a querySelector + forced-synchronous getBoundingClientRect per
+    // streaming bubble, and AgentTranscript re-renders on every rAF-batched
+    // token flush while a reply is actively streaming — ungated, this
+    // reintroduced exactly the per-frame layout cost the rest of this
+    // branch exists to remove.
+  }, [props.streamingBubbles])
   // Primes the virtualizer with that real height BEFORE this row's first
   // paint as a virtualized item, rather than letting it start from
   // `estimateRowHeight`'s guess and wait for `measureElement` to correct it a
@@ -490,7 +506,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           height: el.getBoundingClientRect().height,
         })
     }
-  })
+    // Gated on `queue` alone — see the streaming-bubble effect above's own
+    // comment for why: the same per-item forced-layout cost, paid on every
+    // render instead of only when the queue actually changes.
+  }, [queue])
   // Primes the virtualizer the same way the streaming-bubble effect above
   // does, for the same reason. One-shot per prompt: consumed (deleted) the
   // instant a match is used, so a later, ordinary re-measurement of the
