@@ -27,7 +27,8 @@ vi.mock('@/lib/api', () => ({
   fetchHomeFolders: (projectId: string) => fetchHomeFoldersSpy(projectId) as unknown,
 }))
 
-const { useHomeTreeStore, getHomeTree, subscribeHomeTree } = await import('@/lib/store/home-tree')
+const { useHomeTreeStore, getHomeTree, subscribeHomeTree, applyHomeFolders } =
+  await import('@/lib/store/home-tree')
 
 function emit(data: unknown): void {
   subscribers.forEach((cb) => cb(data))
@@ -68,6 +69,31 @@ describe('subscribeHomeTree', () => {
     expect(fetchHomeChatsSpy).toHaveBeenCalledWith('p1')
     expect(fetchHomeFoldersSpy).toHaveBeenCalledWith('p1')
     expect(getHomeTree('p1').folders).toHaveLength(1)
+    dispose()
+  })
+
+  // 2026-09-08 sidebar-placement-unification Task 5 moved a home folder's
+  // identity onto domain.Folder and its position onto domain.Node, but kept
+  // the wire field names (`parentId`/`order`) identical — this is the
+  // regression that migration could have introduced: a folder's REAL
+  // Node-sourced position surviving the fetch -> store round trip verbatim,
+  // not silently reset to a default/index-derived value the way it would if
+  // this store still assumed a folder's placement came bundled with a
+  // Chat-typed row.
+  it("carries a folder's real wire parentId/order through untouched", async () => {
+    fetchHomeChatsSpy.mockResolvedValue([])
+    fetchHomeFoldersSpy.mockResolvedValue([
+      folderDTO({ id: 'f1', name: 'Notes', order: 5, parentId: 'f-parent' }),
+    ])
+
+    const dispose = subscribeHomeTree('p1')
+
+    await vi.waitFor(() => {
+      expect(getHomeTree('p1').folders).toHaveLength(1)
+    })
+    const folder = getHomeTree('p1').folders[0]
+    expect(folder.order).toBe(5)
+    expect(folder.parentId).toBe('f-parent')
     dispose()
   })
 
@@ -184,5 +210,51 @@ describe('subscribeHomeTree', () => {
       expect(fetchHomeChatsSpy).toHaveBeenCalledTimes(1)
     })
     expect(getHomeTree('p1')).toEqual({ chats: [], folders: [] })
+  })
+})
+
+describe('applyHomeFolders', () => {
+  it('seeds a fresh project with the given folders, real order/parentId intact', () => {
+    applyHomeFolders('p1', [
+      { id: 'f1', repoId: '', name: 'Notes', order: 3, parentId: 'f-parent' },
+    ])
+
+    expect(getHomeTree('p1').folders).toEqual([
+      { id: 'f1', repoId: '', name: 'Notes', order: 3, parentId: 'f-parent' },
+    ])
+  })
+
+  it('upserts an existing folder by id rather than duplicating it', () => {
+    applyHomeFolders('p1', [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }])
+    applyHomeFolders('p1', [{ id: 'f1', repoId: '', name: 'Renamed', order: 2 }])
+
+    const folders = getHomeTree('p1').folders
+    expect(folders).toHaveLength(1)
+    expect(folders[0]).toEqual({ id: 'f1', repoId: '', name: 'Renamed', order: 2 })
+  })
+
+  it('leaves an unrelated sibling folder untouched', () => {
+    applyHomeFolders('p1', [
+      { id: 'f1', repoId: '', name: 'Notes', order: 0 },
+      { id: 'f2', repoId: '', name: 'Other', order: 1 },
+    ])
+    applyHomeFolders('p1', [{ id: 'f1', repoId: '', name: 'Renamed', order: 0 }])
+
+    const byId = new Map(getHomeTree('p1').folders.map((f) => [f.id, f]))
+    expect(byId.get('f1')?.name).toBe('Renamed')
+    expect(byId.get('f2')?.name).toBe('Other')
+  })
+
+  it("does not disturb the project's chats", async () => {
+    fetchHomeChatsSpy.mockResolvedValue([chatDTO({ id: 'c1', title: 'Existing' })])
+    fetchHomeFoldersSpy.mockResolvedValue([])
+    const dispose = subscribeHomeTree('p1')
+    await whenChatsLength('p1', 1)
+
+    applyHomeFolders('p1', [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }])
+
+    expect(getHomeTree('p1').chats).toHaveLength(1)
+    expect(getHomeTree('p1').folders).toHaveLength(1)
+    dispose()
   })
 })
