@@ -39,15 +39,29 @@ export function ToolPayloadPanel({
 
   useEffect(() => {
     const controller = new AbortController()
+    // Gates every setSides call below, separately from `controller.signal`:
+    // the signal cancels the underlying fetch, this flag is what stops an
+    // already-in-flight read's RESOLUTION (success or failure) from writing
+    // state once this effect's own cleanup has run — a different row
+    // expanded, or unmount. Without it, a stale read's label could clobber a
+    // fresher read the re-run effect already started for the same label.
+    let ignore = false
     const read = async (side: 'request' | 'result', label: string) => {
       try {
+        // The fetch itself must always run regardless of `ignore` — it's the
+        // RESULT that's conditionally applied below, not the request skipped.
+        // react-doctor-disable-next-line async-defer-await -- see comment above, the fetch's own request is unconditional
         const text = await getToolPayload(wsId, chatId, toolId, side, controller.signal)
+        if (ignore) return
         setSides((current) =>
           current.map((s) => (s.label === label ? { ...s, text, loading: false } : s)),
         )
       } catch {
-        // An aborted or failed read leaves the panel saying nothing rather than
-        // a wrong thing — the row itself is still there to retry by reopening it.
+        // A genuine failure leaves the panel saying nothing rather than a
+        // wrong thing — the row itself is still there to retry by reopening
+        // it. An IGNORED (stale) read must not, per this effect's own
+        // `ignore` doc above.
+        if (ignore) return
         setSides((current) =>
           current.map((s) => (s.label === label ? { ...s, loading: false } : s)),
         )
@@ -55,7 +69,10 @@ export function ToolPayloadPanel({
     }
     if (hasRequest) void read('request', 'Request')
     if (hasResult) void read('result', 'Result')
-    return () => controller.abort()
+    return () => {
+      ignore = true
+      controller.abort()
+    }
   }, [wsId, chatId, toolId, hasRequest, hasResult])
 
   return (
