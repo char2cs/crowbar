@@ -134,10 +134,14 @@ type Agent interface {
 	//
 	// It refuses with ErrNoForkParent (see promote.go) when chatID's own walk
 	// resolves no ancestor carrying a workspace — there is nothing to fork from.
+	//
+	// branch names the fresh branch explicitly; blank keeps the server-generated
+	// name every caller before this one always got.
 	SpawnChatWithOwnWorktree(
 		ctx context.Context,
 		chatID string,
 		providerID string,
+		branch string,
 	) (runnerID string, err error)
 	// SpawnChatWithImportedWorktree is SpawnChatWithOwnWorktree's IMPORT
 	// counterpart, with the identical contract: chatID has already been minted

@@ -115,7 +115,7 @@ func newContainerDeps(
 func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	assert.NotNil(t, c.Project)
@@ -148,7 +148,7 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 // the token is arbitrary and the answer is exactly what the daemon advertises.
 func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	out, send, err := c.AgentProvider.DispatchMCP(context.Background(), "RUN", "any-token",
@@ -196,7 +196,7 @@ func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 // for each port.
 func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	minter, err := agentusecase.NewTokenMinter()
@@ -236,7 +236,7 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 // rejected call is counted too, and it is the datum this counter most exists for.
 func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	require.Empty(t, c.AgentToolMetrics(), "a daemon that has served no tool call has nothing to report")
@@ -301,7 +301,7 @@ func TestContainer_New_SurfacesAgentWiringError(t *testing.T) {
 	_, gormStores, eng := newContainerDeps(t)
 
 	_, err := usecases.New(&repositories.Container{}, gormStores, eng,
-		func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+		func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 
 	require.Error(t, err)
 }
@@ -343,7 +343,7 @@ func (stubReviewReaderForContainer) GetOutline(
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -371,7 +371,7 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 // its own fixture with.
 func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkParent(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	root := t.TempDir()
@@ -398,7 +398,7 @@ func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkPare
 
 	creator := usecases.NewWorktreeChildCreatorForTest(c.Workspace)
 
-	child, err := creator.CreateChildWorkspace(context.Background(), parent.ID)
+	child, err := creator.CreateChildWorkspace(context.Background(), parent.ID, "")
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, child.WorktreePath,
@@ -409,7 +409,7 @@ func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkPare
 
 func TestContainer_Import_ResolvesDefaultBranchViaRealGit(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	root := t.TempDir()

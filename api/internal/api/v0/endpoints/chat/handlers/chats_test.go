@@ -173,6 +173,29 @@ func TestCreate_ForwardsOwnWorktreeAtTheRepoScopedMount(
 		tree.gotCreate2)
 }
 
+// TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate pins
+// the sidebar's "type the branch name before it forks" flow (2026-09-09): the
+// body's branch must reach WorktreeSpec.Branch, distinct from Import.Branch
+// (an EXISTING branch being adopted, not a fresh one being cut) and forwarded
+// only alongside ownWorktree.
+func TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a","ownWorktree":true,"branch":"feature/typed-name"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, agentusecase.WorktreeFork, tree.gotWorktree.Mode)
+	assert.Equal(t, "feature/typed-name", tree.gotWorktree.Branch,
+		"the typed branch name must reach WorktreeSpec, not be dropped in favour of the auto-generated one")
+}
+
 // TestCreate_OwnWorktreeIsIgnoredWhenThePathNamesAWorkspace proves the single
 // most important thing to get right here: a request that still names a
 // workspace (the home mount's injected :wsId) takes the EXISTING

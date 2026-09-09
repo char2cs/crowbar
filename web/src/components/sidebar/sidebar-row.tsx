@@ -30,6 +30,10 @@ import {
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performPromoteChat, performRenameRow } from '@/components/sidebar/lib/row-actions'
+import {
+  confirmPendingCreateName,
+  cancelPendingCreate,
+} from '@/components/layout/space-content-actions'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
@@ -107,6 +111,15 @@ export function SidebarRow({
   onPointerDownDrag,
   inlineRenameDisabled,
 }: SidebarRowProps) {
+  // A create still in flight (pending-creates.ts) draws through this SAME row
+  // shape rather than a separate placeholder component, at the exact slot
+  // the finished create lands in — none of the interactive state below (open,
+  // drag, rename, promote, fork/thread affordances) applies to a row with no
+  // real chat/workspace behind it yet, so this returns before touching any
+  // of it.
+  if (row.pending) {
+    return <PendingSidebarRow row={row} depth={depth} pending={row.pending} />
+  }
   // The project-home row is `branch` with no parent — the sidebar's one 20px
   // glyph exception outside the project header itself (spec §3.1), and also
   // the one row spec §9 calls a protected branch: "the repo's own ground …
@@ -366,6 +379,76 @@ export function SidebarRow({
               <path d={DISCLOSURE_GLYPH_PATH} />
             </svg>
           </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A create still in flight, drawn at the exact tree slot the finished create
+ * lands in (pending-creates.ts) — a naming input, a spinner, or an inline
+ * error with a dismiss, matching the pre-migration tree's own
+ * `PendingCreateRow` (workspace-tree-context.tsx/pending-create-row.tsx,
+ * since deleted) in spirit: dimmed and non-interactive except while naming,
+ * which needs a real focused input.
+ */
+function PendingSidebarRow({
+  row,
+  depth,
+  pending,
+}: {
+  row: SidebarRowType
+  depth: number
+  pending: NonNullable<SidebarRowType['pending']>
+}) {
+  const isNaming = pending.status === 'naming'
+  const isError = pending.status === 'error'
+  return (
+    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
+      <div
+        className={cn(ROW_BASE, 'border-transparent', !isNaming && 'pointer-events-none opacity-60')}
+      >
+        <span className={ROW_GLYPH_BOX}>
+          {isError ? (
+            <span
+              aria-hidden="true"
+              className="flex size-4 shrink-0 items-center justify-center text-xs text-destructive"
+            >
+              ✕
+            </span>
+          ) : pending.status === 'creating' ? (
+            <FlickerSpinner className="size-3.5" />
+          ) : (
+            <RowGlyph row={row} large={false} expanded={false} />
+          )}
+        </span>
+
+        {isNaming ? (
+          <InlineRenameInput
+            defaultValue=""
+            mono={row.kind === 'branch'}
+            onConfirm={(name) => confirmPendingCreateName(pending.tempId, name)}
+            onCancel={() => cancelPendingCreate(pending.tempId)}
+          />
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted-foreground">
+            {row.kind === 'branch' ? row.label || 'New workspace' : 'New thread'}
+          </span>
+        )}
+
+        {isError && (
+          <>
+            <span className="text-xs text-destructive">failed</span>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              className="pointer-events-auto ml-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => cancelPendingCreate(pending.tempId)}
+            >
+              ✕
+            </button>
+          </>
         )}
       </div>
     </div>

@@ -8,10 +8,12 @@ import { createChat, createChatWithOwnWorktree } from '@/features/agent/api/agen
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { toast } from '@/features/window/stores/toast-store'
 import { openChatInOwnPane } from '@/components/sidebar/lib/drop-actions'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
 /** What `id` resolves to: its owning repo, and the subject a drag/removal call needs. */
@@ -411,7 +413,60 @@ export function handleTrashProject(projectId: string): boolean {
 // the mess it leaves behind.
 const createInFlight = new Set<string>()
 
-/** Creates a workspace (fork) or a thread (chat) under `parentId`. */
+/**
+ * Resolves once `predicate` matches the live sidebar store, or never — the
+ * same "no ceiling, self-clears the moment the real row's own reseed lands"
+ * shape the pre-migration tree's own `confirmCreate` used
+ * (workspace-tree-context.tsx, since deleted): a create's row always arrives
+ * through the ordinary reseed/WS path everything else here already depends
+ * on, so this only ever needs to notice it, never to invent a timeout for a
+ * path that already has its own liveness guarantee.
+ */
+function waitForRow(predicate: (repos: readonly Repo[]) => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    if (predicate(useSidebarStore.getState().repos)) {
+      resolve()
+      return
+    }
+    const unsubscribe = useSidebarStore.subscribe((state) => {
+      if (!predicate(state.repos)) return
+      unsubscribe()
+      resolve()
+    })
+  })
+}
+
+/** Whether some repo's chat list now carries `chatId` — true once the create
+ *  that minted it has actually reseeded, not merely once its POST resolved.
+ *  A forked branch's own chat lands here too (rows-from-repo.ts draws it
+ *  from the same `repo.chats`), so one check covers both create kinds. */
+function chatHasLanded(chatId: string): (repos: readonly Repo[]) => boolean {
+  return (repos) => repos.some((r) => r.chats?.some((c) => c.id === chatId))
+}
+
+/** A fork create armed by `handleCreate`'s 'workspace' branch, waiting on the
+ *  name the user types into the pending row's inline input before it can
+ *  actually fire — keyed by that row's `tempId`. `confirmPendingCreateName`
+ *  and `cancelPendingCreate` are the only two ways an entry ever leaves this
+ *  map, and each releases the `createInFlight` key with it. */
+const armedBranchCreates = new Map<
+  string,
+  {
+    projectId: string
+    repoId: string
+    providerId: string
+    placementParentId: string
+    release: () => void
+  }
+>()
+
+/** Creates a workspace (fork) or a thread (chat) under `parentId`. Both draw
+ *  an optimistic row at the exact slot the finished create lands in
+ *  (pending-creates.ts) the instant this is called — never after the round
+ *  trip, which for a fork includes provisioning a real git worktree. A fork
+ *  asks for its branch name first (the pending row becomes an inline input,
+ *  confirmed via `confirmPendingCreateName`); a thread has nothing to name
+ *  and fires immediately. */
 export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): void {
   const currentRepos = useSidebarStore.getState().repos
   // A chat row's "+" is inert for now, and it must be SILENTLY inert: falling
@@ -445,11 +500,6 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     // old `placement` distinguished — that split has no counterpart on this
     // endpoint's single `parentId`, so a folder click also just names
     // itself here) — resolved to the chat that owns it, see below.
-    //
-    // A generated branch name is no longer minted client-side either: the
-    // server names it the same way Promote's spontaneous create already
-    // does (model spec §4.1), since this is the same "nothing of its own
-    // to name the branch" shape.
     const provider = enabledProvider()
     if (!provider) {
       release()
@@ -464,12 +514,54 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     // name no workspace of this repo (the repo home, a folder) and for a frame
     // that carries no owner yet.
     const owningChatId = repo.workspaces.find((w) => w.id === subject.id)?.owningChatId
-    createChatWithOwnWorktree(projectId, repo.id, provider.id, owningChatId || parentId)
-      .then(() => announceTreeChange(repo.id))
-      .catch((err: unknown) => {
-        toast.error(err instanceof Error ? err.message : 'Failed to create workspace')
-      })
-      .finally(release)
+    const placementParentId = owningChatId || parentId
+    // The new fork's OWN tree position, once real: nested under
+    // `placementParentId`, never `subject.id`. `walkTreeIntoRows` stamps a
+    // REAL child row's own `parentId` with its parent's RENDERED id —
+    // `node.id`, already folded onto the owning chat for any branch row that
+    // resolved one (rows-from-repo.ts) — so a sibling count (and the pending
+    // row's own `parentId`) keyed on `subject.id`'s raw WORKSPACE-id-space
+    // value matches no real row at all whenever an owning chat exists (the
+    // normal case), landing the naming/spinner row at the sidebar ROOT
+    // instead of nested under the clicked branch — caught live: forking
+    // "main" drew its naming input as a top-level row after every other
+    // project's, not under "main" where its real fork lands.
+    // `placementParentId` is exactly `handleCreate`'s own OTHER id — already
+    // the rendered/folded parent id, since it is either the resolved owning
+    // chat or the clicked row's own (already-rendered) id. EVERY sibling
+    // counts here, any kind — folders, branches AND chats interleave on one
+    // dense order (workspace-tree-utils.ts's own doc), and the backend's own
+    // placement write (owning_chat.go's placeOwningRow) appends a new fork by
+    // counting ALL existing rows under the same parent chat id, not just the
+    // branch/folder-kind ones — a narrower count here would produce an order
+    // value real siblings already hold, landing the pending row somewhere
+    // other than the tail slot the real create actually appends to.
+    const siblingRows = rowsFromRepo(repo)
+    const order = siblingRows.filter((r) => r.parentId === placementParentId).length
+    // Only one naming input is ever open at once (matching the old tree's
+    // own single `creatingChildOf`) — replacing rather than stacking a
+    // second one, and releasing whatever the FIRST one held (its
+    // `createInFlight` lock, its `armedBranchCreates` entry) so opening a
+    // second one elsewhere can never orphan the first's.
+    const otherNaming = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')
+    if (otherNaming) cancelPendingCreate(otherNaming.tempId)
+    const tempId = `pending-${crypto.randomUUID()}`
+    armedBranchCreates.set(tempId, {
+      projectId,
+      repoId: repo.id,
+      providerId: provider.id,
+      placementParentId,
+      release,
+    })
+    usePendingCreatesStore.getState().startNaming({
+      tempId,
+      kind: 'branch',
+      projectId,
+      parentId: placementParentId,
+      order,
+      workspaceId: null,
+      ownsWorktree: true,
+    })
     return
   }
 
@@ -504,12 +596,89 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     release()
     return
   }
+  // The new thread's OWN tree position, once real: nested under the clicked
+  // row's own chat id (`parentId`, the original argument — a thread's
+  // placement lives in CHAT-id space, unlike a fork's, which lives in
+  // WORKSPACE-id space above), after every thread already there.
+  const siblingRows = rowsFromRepo(repo)
+  const order = siblingRows.filter((r) => r.parentId === parentId && r.kind === 'chat').length
+  const tempId = `pending-${crypto.randomUUID()}`
+  usePendingCreatesStore.getState().addCreating({
+    tempId,
+    kind: 'chat',
+    projectId,
+    parentId,
+    order,
+    workspaceId: wsId,
+    ownsWorktree: false,
+  })
+  // `release` fires the moment the REQUEST itself settles, not once the row
+  // has visually landed: `createInFlight`'s whole job is stopping a rapid
+  // double-click from firing a second POST for the same click, and gating it
+  // on `waitForRow` instead would leave it stuck for as long as the reseed
+  // takes — or forever, if the row's own live-update path never fires for
+  // some unrelated reason. That would block every later click on this exact
+  // (kind, parentId) behind a wait nothing here can bound.
   createChat(wsId, provider.id)
-    .then(() => announceTreeChange(repo.id))
-    .catch((err: unknown) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to start chat')
+    .then((chatId) => {
+      release()
+      announceTreeChange(repo.id)
+      return waitForRow(chatHasLanded(chatId)).then(() =>
+        usePendingCreatesStore.getState().clear(tempId),
+      )
     })
-    .finally(release)
+    .catch((err: unknown) => {
+      release()
+      usePendingCreatesStore
+        .getState()
+        .setError(tempId, err instanceof Error ? err.message : 'Failed to start chat')
+    })
+}
+
+/**
+ * Confirms a fork's pending row — the inline input's Enter/blur — with the
+ * typed branch name: flips the row to its spinner state and fires the
+ * create `handleCreate`'s 'workspace' branch armed but did not send. Absent
+ * from `armedBranchCreates` means the row already left naming (a stale
+ * confirm racing a cancel elsewhere) — a no-op rather than a second request.
+ */
+export function confirmPendingCreateName(tempId: string, name: string): void {
+  const armed = armedBranchCreates.get(tempId)
+  if (!armed) return
+  armedBranchCreates.delete(tempId)
+  usePendingCreatesStore.getState().confirmNaming(tempId, name)
+  // `armed.release` fires the moment the REQUEST itself settles — see the
+  // identical reasoning on the thread path above; the same hang risk applies
+  // here, and a stuck naming lock would leave every later "+" click on this
+  // exact row permanently inert.
+  createChatWithOwnWorktree(armed.projectId, armed.repoId, armed.providerId, armed.placementParentId, name)
+    .then((chatId) => {
+      armed.release()
+      announceTreeChange(armed.repoId)
+      return waitForRow(chatHasLanded(chatId)).then(() =>
+        usePendingCreatesStore.getState().clear(tempId),
+      )
+    })
+    .catch((err: unknown) => {
+      armed.release()
+      usePendingCreatesStore
+        .getState()
+        .setError(tempId, err instanceof Error ? err.message : 'Failed to create workspace')
+    })
+}
+
+/** Drops a pending row outright: a naming input the user cancelled (Escape,
+ *  or blurred empty — never reached the network, nothing to roll back) or an
+ *  error the user dismissed. Releasing `createInFlight` here, not in
+ *  `handleCreate`, is what keeps a second "+" click on the same row inert
+ *  for as long as its naming input is still open. */
+export function cancelPendingCreate(tempId: string): void {
+  const armed = armedBranchCreates.get(tempId)
+  if (armed) {
+    armedBranchCreates.delete(tempId)
+    armed.release()
+  }
+  usePendingCreatesStore.getState().clear(tempId)
 }
 
 /**

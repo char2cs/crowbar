@@ -41,7 +41,7 @@ func TestSpawnChatWithOwnWorktree_FillsWorkspaceAndStartsTheCLI(t *testing.T) {
 	rootChatID, _ := f.spawn(t, "claude")
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 
-	runnerID, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude")
+	runnerID, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, runnerID)
 
@@ -57,6 +57,23 @@ func TestSpawnChatWithOwnWorktree_FillsWorkspaceAndStartsTheCLI(t *testing.T) {
 	assert.Equal(t, "claude", live.ProviderID, "starts the REQUESTED provider — there is no prior one to preserve")
 }
 
+// TestRegression_SpawnChatWithOwnWorktree_ForwardsTheRequestedBranchName pins
+// the sidebar's "type the branch name before it forks" flow (2026-09-09): the
+// caller-supplied name must reach CreateChildWorkspace verbatim, not be
+// silently dropped in favour of the server-generated one every caller before
+// this got.
+func TestRegression_SpawnChatWithOwnWorktree_ForwardsTheRequestedBranchName(t *testing.T) {
+	f := newFixture(t)
+	rootChatID, _ := f.spawn(t, "claude")
+	bubbleID := seedPlacedBubble(t, f, rootChatID)
+
+	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "feature/typed-name")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"feature/typed-name"}, f.wt.forkedBranches,
+		"the typed branch name must reach the worktree creator, not the auto-generated fallback")
+}
+
 // A chat with no ancestor carrying a workspace has nothing to fork from, the
 // same refusal Promote makes for the identical shape (TestPromote_NoForkParent_Refuses).
 func TestSpawnChatWithOwnWorktree_NoForkParent_Refuses(t *testing.T) {
@@ -65,7 +82,7 @@ func TestSpawnChatWithOwnWorktree_NoForkParent_Refuses(t *testing.T) {
 	require.NoError(t, err)
 	f.wait()
 
-	_, err = f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude")
+	_, err = f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.ErrorIs(t, err, agentusecase.ErrNoForkParent)
 	assert.Empty(t, f.wt.calls(), "must refuse before ever reaching the worktree usecase")
@@ -79,7 +96,7 @@ func TestSpawnChatWithOwnWorktree_CreateWorkspaceFailure_AbortsBeforeSettingTheW
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	f.wt.err = errOwnWorktreeBoom
 
-	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude")
+	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.ErrorIs(t, err, errOwnWorktreeBoom)
 	chat := f.chat(t, bubbleID)
@@ -95,7 +112,7 @@ func TestSpawnChatWithOwnWorktree_SetWorkspaceFailure_DiscardsTheOrphanedWorkspa
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	chats.failSetWorkspace = errOwnWorktreeBoom
 
-	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude")
+	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.ErrorIs(t, err, errOwnWorktreeBoom, "the caller is told the failure that happened")
 	assert.Equal(t, []string{"ws-child-1"}, f.wt.discards(),
@@ -115,7 +132,7 @@ func TestSpawnChatWithOwnWorktree_StartRunnerFailure_RollsTheWholeCreateBack(t *
 	bubbleID := seedPlacedBubble(t, f, rootChatID)
 	f.term.err = errOwnWorktreeBoom
 
-	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude")
+	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.Error(t, err)
 	assert.Empty(t, f.chat(t, bubbleID).WorkspaceID,
@@ -143,7 +160,7 @@ func TestSpawnChatWithOwnWorktree_StartRunnerFailureAndClearFailure_StillDiscard
 	f.term.err = errOwnWorktreeBoom
 	chats.failClearWorkspace = errors.New("own worktree: the slot-clear also failed")
 
-	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude")
+	_, err := f.own.SpawnChatWithOwnWorktree(f.ctx, bubbleID, "claude", "")
 
 	require.Error(t, err)
 	assert.Equal(t, []string{"ws-child-1"}, f.wt.discards(),

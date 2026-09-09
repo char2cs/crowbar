@@ -906,19 +906,28 @@ export async function createChat(wsId: string, provider: string, parentId = ''):
  * entirely: the backend's `ownWorktree` only takes effect when the request
  * names no workspace, and an omitted key is the same "" its Go struct would
  * bind anyway.
+ *
+ * `branch` is the name the user typed in the sidebar's inline create input
+ * (2026-09-09) — omitted (server-generated name) unless the caller has one.
  */
 export async function createChatWithOwnWorktree(
   projectId: string,
   repoId: string,
   provider: string,
   parentId = '',
+  branch = '',
 ): Promise<string> {
   const p = encodeURIComponent(projectId)
   const r = encodeURIComponent(repoId)
   const res = await apiFetch<{ id: string }>(`/v0/projects/${p}/repos/${r}/chats`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, parentId, ownWorktree: true }),
+    body: JSON.stringify({
+      provider,
+      parentId,
+      ownWorktree: true,
+      ...(branch && { branch }),
+    }),
   })
   return res.id
 }

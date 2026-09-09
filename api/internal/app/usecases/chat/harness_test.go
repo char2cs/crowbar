@@ -369,8 +369,12 @@ func (f *fakeWorkspace) AgentChatsDir(
 type fakeWorktreeCreator struct {
 	mu       sync.Mutex
 	forkedOn []string
-	nextID   int
-	err      error
+	// forkedBranches is the branch name each CreateChildWorkspace call asked
+	// for, in the same order as forkedOn — "" for the server-generated-name
+	// case, mirroring imported below.
+	forkedBranches []string
+	nextID         int
+	err            error
 	// discarded records the workspaces a failed promotion took back out, in
 	// order. Without it a rollback that never ran and one that ran perfectly
 	// look identical from the chat's side.
@@ -390,10 +394,12 @@ type fakeWorktreeCreator struct {
 func (f *fakeWorktreeCreator) CreateChildWorkspace(
 	_ context.Context,
 	forkParentID string,
+	branch string,
 ) (domain.Workspace, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.forkedOn = append(f.forkedOn, forkParentID)
+	f.forkedBranches = append(f.forkedBranches, branch)
 	if f.err != nil {
 		return domain.Workspace{}, f.err
 	}

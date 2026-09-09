@@ -166,6 +166,7 @@ func New(
 	engines *engine.Container,
 	crowbarHome func() (string, error),
 	threadBroadcast agentusecase.ToolThreadBroadcast,
+	broadcastAgentChatFolder func(id, workspaceID, kind string),
 ) (*Container, error) {
 	projectUsecase := project.New(
 		gormStores.Projects,
@@ -180,6 +181,10 @@ func New(
 		// though the rest of project.go deliberately dropped the chat
 		// package as a sibling-read dependency.
 		repos.AgentChat,
+		// Announces a repo reorder's COLLATERAL chat/folder siblings on the
+		// same chats WS their own drag would use — see project.New's own doc
+		// and placeRepoAmongHomeSiblings.
+		broadcastAgentChatFolder,
 	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,
@@ -663,10 +668,12 @@ type worktreeChildCreator struct {
 func (w worktreeChildCreator) CreateChildWorkspace(
 	ctx context.Context,
 	forkParentID string,
+	branch string,
 ) (domain.Workspace, error) {
 	ownWorktree := true
 	return w.worktree.CreateChild(ctx, workspace.CreateChildInput{
 		ParentID:    forkParentID,
+		Branch:      branch,
 		OwnWorktree: &ownWorktree,
 	})
 }

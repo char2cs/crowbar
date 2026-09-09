@@ -19,11 +19,17 @@ import (
 
 // createRequest is the POST .../repos/:repoId/chats body. See Create.
 type createRequest struct {
-	Provider    string               `json:"provider"`
-	ParentID    string               `json:"parentId"`
-	WorkspaceID string               `json:"workspaceId"`
-	OwnWorktree bool                 `json:"ownWorktree"`
-	Import      *createImportRequest `json:"import"`
+	Provider    string `json:"provider"`
+	ParentID    string `json:"parentId"`
+	WorkspaceID string `json:"workspaceId"`
+	OwnWorktree bool   `json:"ownWorktree"`
+	// Branch names the fresh branch an ownWorktree create forks — read only
+	// when OwnWorktree is true. Blank keeps the server-generated name every
+	// caller before this field existed always got; distinct from Import's own
+	// Branch, which names a branch that already exists rather than one this
+	// create is about to cut.
+	Branch string               `json:"branch"`
+	Import *createImportRequest `json:"import"`
 }
 
 // createImportRequest is the import half of the create body. Its PRESENCE is
@@ -123,7 +129,7 @@ func (h *Handlers) worktreeSpec(
 	none := agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeNone}
 	if body.Import == nil {
 		if body.OwnWorktree && wsID == "" {
-			return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeFork}, true
+			return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeFork, Branch: body.Branch}, true
 		}
 		return none, true
 	}

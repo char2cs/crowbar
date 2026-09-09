@@ -48,4 +48,16 @@ export interface SidebarRow {
     avatarColor: string
     avatarURL?: string
   }
+  /**
+   * Present only on a synthetic row standing in for a create still in
+   * flight (pending-creates.ts) — no real chat/workspace exists at `id` yet.
+   * `sidebar-row.tsx` renders it non-interactive: a naming input, a spinner,
+   * or an inline error, at the exact slot the real row lands in once
+   * created.
+   */
+  pending?: {
+    tempId: string
+    status: 'naming' | 'creating' | 'error'
+    error?: string
+  }
 }

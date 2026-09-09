@@ -1410,6 +1410,10 @@ type AgentChatPlacements struct {
 	// ownWorktree counterpart to Started above, and provable ordering for the
 	// identical reason: the placement must land before this call, not after.
 	SpawnedOwnWorktree []StartCall
+	// OwnWorktreeBranches is the branch name each SpawnedOwnWorktree call asked
+	// for, in the same order — "" for the server-generated-name case, mirroring
+	// ImportedBranches below.
+	OwnWorktreeBranches []string
 	// SpawnedImportedWorktree records each SpawnChatWithImportedWorktree call in
 	// the same shape, and ImportedSpecs the branch each one asked for — the
 	// import counterpart of SpawnedOwnWorktree above.
@@ -1813,6 +1817,7 @@ func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
 	ctx context.Context,
 	chatID string,
 	providerID string,
+	branch string,
 ) (string, error) {
 	if s.SpawnOwnWorktreeErr != nil {
 		return "", s.SpawnOwnWorktreeErr
@@ -1822,6 +1827,7 @@ func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
 		ProviderID:    providerID,
 		ParentAtStart: s.parentOf(chatID),
 	})
+	s.OwnWorktreeBranches = append(s.OwnWorktreeBranches, branch)
 	for i := range s.Rows {
 		if s.Rows[i].ID == chatID {
 			s.Rows[i].WorkspaceID = "ws-child-" + chatID

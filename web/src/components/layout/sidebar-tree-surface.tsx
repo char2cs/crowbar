@@ -6,6 +6,8 @@ import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
+import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { focusRecent, closeRecent } from '@/components/sidebar/lib/recents-actions'
@@ -97,14 +99,23 @@ export function SidebarTreeSurface({
       }),
     [projects, homeTrees],
   )
+  // Every create in flight, drawn as a real row at the exact slot the
+  // finished create lands in (pending-creates.ts) — merged in here, the one
+  // place both `allRows` (chrome) and `rowsForProjectFn` (the actual render
+  // path) already converge, so neither needs its own copy of this logic.
+  const pendingEntries = usePendingCreatesStore((s) => s.entries)
+  const pendingRows = useMemo(() => rowsFromPending(pendingEntries), [pendingEntries])
   const allRows = useMemo(
-    () => [...homeRows, ...treeRepos.flatMap(rowsFromRepo)],
-    [homeRows, treeRepos],
+    () => [...homeRows, ...treeRepos.flatMap(rowsFromRepo), ...pendingRows],
+    [homeRows, treeRepos, pendingRows],
   )
 
   const rowsForProjectFn = useCallback(
-    (projectId: string) => rowsForProject(treeRepos, projectId),
-    [treeRepos],
+    (projectId: string) => [
+      ...rowsForProject(treeRepos, projectId),
+      ...rowsFromPending(pendingEntries.filter((e) => e.projectId === projectId)),
+    ],
+    [treeRepos, pendingEntries],
   )
   const recentsForProjectFn = useCallback(
     (projectId: string) => recentsForProject(repos, projectId),
