@@ -298,3 +298,42 @@ func TestPlaceChat_RefusesWorkingSubtree(t *testing.T) {
 		tree.PlaceInput{ParentID: name("other")})
 	assert.ErrorIs(t, err, tree.ErrSubtreeWorking)
 }
+
+// TestPlaceChat_SecondMoveOfAChatUnreachableThroughItsBranchParent pins the
+// live regression this fix closes (2026-09-09, caught live: "reparent a
+// chat" — previously routine — started failing with "create node: exists").
+//
+// "branch-1" is a LOCKED branch's own owning-chat row: placed through the
+// pre-Node placeOwningRow path, so — unlike an ordinary chat — it carries NO
+// Node row of its own for mergeForest's BFS to walk THROUGH (mergeHomeNode's
+// own doc). "fork-chat" is filed under it, and is the SOLE member of its own
+// workspace, so workspaceSnapshotAround's own ListByWorkspace read never
+// discovers "branch-1" as a sibling to walk from either. The result: NO walk,
+// run any number of times, will ever discover "fork-chat"'s own Node row —
+// even though, exactly as here, one already exists from an earlier move.
+//
+// writeHomeNode used to trust "not discovered by this walk" as proof the row
+// was new and mint it again via Nodes.Create, which asynx correctly refuses
+// (Validate: "current != nil") — the toast a live second reparent produced.
+// This pins that a SECOND move of such a chat now succeeds, writing through
+// SetPlacement rather than attempting a second Create.
+func TestPlaceChat_SecondMoveOfAChatUnreachableThroughItsBranchParent(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork", ParentID: "branch-1"},
+	)
+	gitStatus.SetRepo("ws-fork", repoID)
+	gitStatus.SetRepo("ws-branch-1", repoID)
+	// Already Node-backed from an earlier, successful move — the live state
+	// the SECOND move actually found.
+	nodes.Rows = append(nodes.Rows, domain.Node{
+		ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0,
+	})
+
+	_, _, err := uc.PlaceChat(context.Background(), "ws-fork", "fork-chat", tree.PlaceInput{Order: index(0)})
+	require.NoError(t, err,
+		"a chat already Node-backed must never be re-Created just because this walk could not reach it")
+
+	assert.Equal(t, "branch-1", nodeRowFor(t, nodes, "fork-chat").ParentID)
+}

@@ -344,6 +344,11 @@ func (s *NodePlacements) Create(
 	if s.CreateErr != nil {
 		return domain.Node{}, s.CreateErr
 	}
+	for _, row := range s.Rows {
+		if row.ID == id {
+			return domain.Node{}, fmt.Errorf("node: create: exists: %w", asynxModels.ErrValidation)
+		}
+	}
 	n := domain.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}
 	s.Rows = append(s.Rows, n)
 	return n, nil

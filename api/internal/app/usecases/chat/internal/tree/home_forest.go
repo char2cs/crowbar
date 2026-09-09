@@ -399,10 +399,22 @@ func buildHomeSnapshot(
 // (its first-ever placement, right after a folder create or a MintChat) and
 // is minted via Nodes.Create instead — determined explicitly at
 // snapshot-build time (see globalSnapshotAround/workspaceSnapshotAround/
-// createHomeFolder), never by probing a write's own error: the mock store
-// this package's own tests run against does not surface a "no such node"
-// error from SetOrder/SetPlacement, and neither, in general, should a caller
-// need to parse one to know whether a row is new.
+// createHomeFolder).
+//
+// freshIDs is a WALK-DISCOVERY signal, not a ground truth, and this function
+// verifies it before trusting it (2026-09-09, caught live: "reparent a chat"
+// started failing with "create node: exists" on the SECOND move of any chat
+// nested under a locked branch's own owning-chat row). mergeForest's BFS can
+// only discover a Node row by walking down from something ALREADY reachable
+// from "" or a known chat id — and an owning-chat row placed through the
+// pre-Node placeOwningRow path (mergeHomeNode's own doc) carries no Node row
+// of its own to walk THROUGH, so nothing filed under it is reachable either,
+// no matter how many times mergeForest runs. buildHomeSnapshot has no way to
+// tell "genuinely new" apart from "real row this one walk simply couldn't
+// reach" — so this function does, with the one direct, keyed read that
+// settles it: the same mint-vs-move verification project.go's own repo fix
+// and PlaceWorkspace already make (ensureSubjectWritten, place_workspace.go),
+// now applied a third time for the identical reason.
 func (u *chatFolderUsecase) writeHomeNode(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -426,6 +438,14 @@ func (u *chatFolderUsecase) writeHomeNode(
 		kind = domain.NodeKindWorkspace
 	}
 	if snapshot.freshIDs[row.ID] {
+		if _, err := u.nodes.GetNode(ctx, row.ID); err == nil {
+			// A real row exists despite the walk missing it -- SetPlacement,
+			// not Create, is the correct write once that is known.
+			if err := u.nodes.SetPlacement(ctx, row.ID, row.ParentID, row.Order); err != nil {
+				return nil, fmt.Errorf("agent chat folder: node place %s: %w", row.ID, err)
+			}
+			return row, nil
+		}
 		if _, err := u.nodes.Create(ctx, row.ID, kind, row.ParentID, row.Order); err != nil {
 			return nil, fmt.Errorf("agent chat folder: node create %s: %w", row.ID, err)
 		}
