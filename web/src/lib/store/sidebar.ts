@@ -302,10 +302,20 @@ interface SidebarState {
   setActiveTab: (tab: SidebarTab) => void
   setRepos: (repos: Repo[]) => void
   /**
-   * Merge freshly fetched repos into the tree without clobbering local state:
-   * unknown repos are appended, and unknown workspaces are appended to repos
-   * that already exist. Existing entries (with their hierarchy overlays and
-   * optimistic edits) are left untouched.
+   * Merge freshly fetched repos into the tree: unknown repos are appended,
+   * and an already-known repo has its OWN fields (order, folderId, name,
+   * avatar, ...) overwritten from the incoming one — never left stale (see
+   * toSidebarRepo's own "every field present" contract) — while its
+   * `workspaces` array is merged rather than replaced, since the one real
+   * caller (app-sync-provider.tsx's onReposChange) always passes `[]` for a
+   * live single-repo frame and would otherwise wipe out every workspace
+   * this repo's own chat-list stream already populated.
+   *
+   * 2026-09-09, caught live: this used to leave an ALREADY-KNOWN repo's own
+   * fields untouched entirely, on the assumption that the rebuild the one
+   * caller also triggers right after would carry them instead — it doesn't,
+   * for order specifically, so a repo drag wrote successfully but never
+   * repainted until a full reload re-fetched everything from scratch.
    */
   mergeRepos: (repos: Repo[]) => void
   /**
@@ -818,10 +828,18 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
         const existing = next[idx]
         const known = new Set(existing.workspaces.map((w) => w.id))
         const added = repo.workspaces.filter((w) => !known.has(w.id))
-        if (added.length > 0) {
-          next[idx] = { ...existing, workspaces: [...existing.workspaces, ...added] }
-          changed = true
+        // The incoming repo's OWN fields are authoritative — see this
+        // action's own doc for why an already-known repo must not be left
+        // untouched. `workspaces` is the one field kept separate: a live
+        // single-repo frame always carries `[]` there, so replacing it
+        // outright would wipe every workspace this repo's own chat-list
+        // stream already populated.
+        const merged = { ...existing, ...repo, workspaces: [...existing.workspaces, ...added] }
+        if (merged.order !== existing.order || merged.folderId !== existing.folderId) {
+          resort = true
         }
+        next[idx] = merged
+        changed = true
       }
       if (!changed) return s
       return { repos: resort ? sortReposByOrder(next) : next }

@@ -80,7 +80,14 @@ func (u *chatFolderUsecase) globalSnapshot(
 // homeWorkspaceID in hand to resolve a project from.
 //
 // A workspaceAnchorType subject (PlaceWorkspace, 2026-09-09) is Node-backed
-// for exactly the same reason a folder is — see subjectIsNodeBacked. Every
+// for exactly the same reason a folder is — see subjectIsNodeBacked. So is an
+// ordinary fork's subject: PlaceWorkspace resolves it to its OWNING CHAT
+// (place_workspace.go's own nodeID doc), a real domain.Chat whose Type is
+// ChatTypeBranch, not the workspaceAnchorType stand-in — omitting it here
+// left writeRow send that chat's reorder through Chat.SetOrder (the legacy
+// field nothing reads any more) while the Node this route actually placed —
+// and every other reader reads back — never moved, caught live: dragging an
+// ordinary fork past a sibling PATCHed 200 and visibly stayed put. Every
 // other caller passes a folder subject or none at all, so this only changes
 // behaviour for PlaceWorkspace's own call.
 func (u *chatFolderUsecase) globalSnapshotAround(
@@ -91,12 +98,13 @@ func (u *chatFolderUsecase) globalSnapshotAround(
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: %w", err)
 	}
-	merged, homeIDs, err := u.mergeForest(ctx, rows, true, nil)
+	merged, homeIDs, err := u.mergeForest(ctx, rows, true, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	subjectIsNodeBacked := subject.ID != "" &&
-		(subject.Type == domain.ChatTypeFolder || subject.Type == workspaceAnchorType)
+		(subject.Type == domain.ChatTypeFolder || subject.Type == domain.ChatTypeBranch ||
+			subject.Type == workspaceAnchorType)
 	return buildHomeSnapshot(merged, subject, homeIDs, subjectIsNodeBacked), nil
 }
 
@@ -163,7 +171,7 @@ func (u *chatFolderUsecase) workspaceSnapshotAround(
 		return nil, fmt.Errorf("agent chat folder: snapshot: chats: %w", err)
 	}
 	if workspaceID == "" {
-		merged, nodeIDs, err := u.mergeForest(ctx, rows, false, nil)
+		merged, nodeIDs, err := u.mergeForest(ctx, rows, false, nil, nil)
 		if err != nil {
 			return nil, err
 		}

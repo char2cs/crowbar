@@ -311,6 +311,7 @@ func (c *Container) Register(
 	workspace.Register(
 		repoScoped,
 		c.app.Usecases.AgentChatFolder,
+		c.app.Hub.BroadcastAgentChatFolder,
 	)
 	// Editor/LSP completes spec §4.2's OWNED bucket (§8 step 5): the resolver
 	// still runs, for a CWD, but the LSP session itself is never shared with a

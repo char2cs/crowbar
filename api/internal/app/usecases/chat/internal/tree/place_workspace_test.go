@@ -39,6 +39,86 @@ func TestPlaceWorkspace_MovesAnOrdinaryUnlockedForkJustLikeALockedBranch(t *test
 	assert.Equal(t, domain.NodeKindWorkspace, n.Kind)
 }
 
+// TestRegression_PlaceWorkspace_AnOrdinaryForkWritesThroughItsOwningChat
+// pins the deeper live bug behind "fork-1" above: that fixture seeds NO
+// chat row at all, so ResolveOwningChat finds nothing and this call falls
+// back to workspaceID exactly as it always did — never exercising the real
+// case. A real ordinary fork DOES have an owning chat, and the sidebar
+// reads that chat's OWN Node{Kind:chat} row (mergeHomeNode's own doc:
+// RendersAsBranch false excludes the fork's workspace-anchor Node from the
+// merge, "already represented 1:1 by the chat that owns it"). Before this
+// fix, PlaceWorkspace wrote workspaceID's own Node — a row the panel never
+// reads for a fork — so the write succeeded (200) and the panel never
+// moved. This seeds the owning chat AND its pre-existing Node row (already
+// nested under "branch-1", the ordinary "second move" state a live drag
+// finds), and pins that the write lands on the CHAT's id, preserving its
+// container, not on the workspace id or the bare root.
+func TestRegression_PlaceWorkspace_AnOrdinaryForkWritesThroughItsOwningChat(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork", ParentID: "branch-1"},
+		domain.Chat{ID: "sibling-chat", Type: domain.ChatTypeChat, WorkspaceID: "ws-sibling", ParentID: "branch-1"},
+	)
+	nodes.Rows = append(nodes.Rows,
+		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0},
+		domain.Node{ID: "sibling-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 1},
+	)
+	gitStatus.SetRepo("ws-branch-1", repoID)
+	gitStatus.SetRepo("ws-fork", repoID)
+	gitStatus.SetBranch("ws-fork", false)
+
+	// Drag fork-chat past sibling-chat -- the ONLY way target 1 can survive
+	// is if the walk knows there IS a sibling-chat to shift out of the way.
+	_, _, err := uc.PlaceWorkspace(context.Background(), "ws-fork", tree.PlaceInput{Order: index(1)})
+	require.NoError(t, err)
+
+	n := nodeRowFor(t, nodes, "fork-chat")
+	assert.Equal(t, "branch-1", n.ParentID, "the fork's real container must survive a plain reorder")
+	assert.Equal(t, 1, n.Order, "the requested order must land on the row the panel actually reads")
+	assert.Equal(t, 0, nodeRowFor(t, nodes, "sibling-chat").Order, "pushed up to make room")
+	for _, row := range nodes.Rows {
+		assert.NotEqual(t, "ws-fork", row.ID,
+			"the workspace's own abandoned anchor row must never be written instead")
+	}
+}
+
+// TestRegression_PlaceWorkspace_AnOrdinaryForkReorderedPastASiblingFork pins
+// a narrower gap than the fixture above: a fork dragged for the very first
+// time (no pre-existing Node row for it OR its sibling — exactly what a
+// live "main" branch's own never-yet-reordered children look like) whose
+// owning-chat Type is the REAL one an ordinary fork carries,
+// domain.ChatTypeBranch — not the ChatTypeChat the fixture above used, which
+// accidentally routed through writeHomeNode anyway because it pre-seeded a
+// Node row for the walk to discover regardless of Type. globalSnapshotAround's
+// subjectIsNodeBacked check only tested Folder/workspaceAnchorType and missed
+// Branch, so a genuinely fresh fork's reorder fell through to the legacy
+// Chat.SetOrder path: the PATCH answered 200, but the Node every reader
+// (the sidebar, the REST DTO) actually reads back never moved — caught live,
+// "drag one fork past its sibling fork" PATCHed 200 and visibly stayed put.
+func TestRegression_PlaceWorkspace_AnOrdinaryForkReorderedPastASiblingFork(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "fork-a", Type: domain.ChatTypeBranch, WorkspaceID: "ws-fork-a", ParentID: "branch-1"},
+		domain.Chat{ID: "fork-b", Type: domain.ChatTypeBranch, WorkspaceID: "ws-fork-b", ParentID: "branch-1"},
+	)
+	gitStatus.SetRepo("ws-branch-1", repoID)
+	gitStatus.SetBranch("ws-branch-1", true)
+	gitStatus.SetRepo("ws-fork-a", repoID)
+	gitStatus.SetBranch("ws-fork-a", false)
+	gitStatus.SetRepo("ws-fork-b", repoID)
+	gitStatus.SetBranch("ws-fork-b", false)
+	// Deliberately no nodes.Rows entries at all for either fork.
+
+	_, _, err := uc.PlaceWorkspace(context.Background(), "ws-fork-a", tree.PlaceInput{Order: index(1)})
+	require.NoError(t, err)
+
+	n := nodeRowFor(t, nodes, "fork-a")
+	assert.Equal(t, "branch-1", n.ParentID, "the fork's real container must survive a plain reorder")
+	assert.Equal(t, 1, n.Order, "the requested order must land on the Node the panel actually reads, not Chat.Order")
+}
+
 // The project's own HOME workspace is never a member of a repo's tree at
 // all (RepoOf answers "" for it) — the one workspaceID this call still
 // refuses, matching planTreeRowDrop's own defaultWorkspaceId guard

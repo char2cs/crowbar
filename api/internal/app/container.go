@@ -147,7 +147,10 @@ func New(
 	// worktrees and per-entity storages land under the same root.
 	crowbarHome := adapters.CrowbarHome()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
-	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h))
+	ucs, err := usecases.New(
+		repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h),
+		h.BroadcastAgentChatFolder,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}

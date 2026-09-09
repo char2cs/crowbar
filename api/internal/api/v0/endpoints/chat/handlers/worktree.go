@@ -62,21 +62,41 @@ type Nodes interface {
 	) (domain.Node, error)
 }
 
-// nodePlacementReader adapts Handlers.nodes to dto.WorkspacePlacementReader.
-// A resolution failure (no Node row yet — see dto.WorkspacePlacementReader's
-// own doc) degrades to "" / 0 rather than an error: this DTO is serialized
-// for a chat list read, not a placement write, and a row this fix has not
-// reached yet is honestly "at the repo root, first slot" until something
-// places it.
+// nodePlacementReader adapts Handlers.nodes/chats/worktrees to
+// dto.WorkspacePlacementReader. A resolution failure (no Node row yet — see
+// dto.WorkspacePlacementReader's own doc) degrades to "" / 0 rather than an
+// error: this DTO is serialized for a chat list read, not a placement write,
+// and a row this fix has not reached yet is honestly "at the repo root,
+// first slot" until something places it.
 type nodePlacementReader struct {
 	nodes Nodes
+	chats ChatUsecase
+	wt    Worktrees
 }
 
+// Placement reads the SAME Node row PlaceWorkspace itself now writes (2026-
+// 09-09, fixed same day as this route shipped) — not always workspaceID's
+// own. An ordinary fork's workspace-anchor Node is never touched by ANY
+// densify (mergeHomeNode's own doc: "already represented 1:1 by the chat
+// that owns it," so including it too would draw a duplicate row) — only a
+// LOCKED branch, whose owning chat carries no Node of its own, is genuinely
+// addressed by workspaceID. Reading workspaceID unconditionally served a
+// fork's permanently stale anchor row, caught live: the panel kept a fork
+// pinned wherever it was first minted no matter how many times it was
+// dragged, because nothing ever wrote back to the row this read.
 func (r nodePlacementReader) Placement(
 	ctx context.Context,
 	workspaceID string,
 ) (folderID string, order int) {
-	n, err := r.nodes.GetNode(ctx, workspaceID)
+	nodeID := workspaceID
+	if ws, err := r.wt.Get(ctx, workspaceID); err == nil && !ws.RendersAsBranch() {
+		if rows, cErr := r.chats.ListChatsByWorkspace(ctx, workspaceID); cErr == nil {
+			if owner, ok := domain.ResolveOwningChat(rows); ok {
+				nodeID = owner.ID
+			}
+		}
+	}
+	n, err := r.nodes.GetNode(ctx, nodeID)
 	if err != nil {
 		return "", 0
 	}
@@ -91,7 +111,7 @@ func (h *Handlers) placementReader() dto.WorkspacePlacementReader {
 	if h.nodes == nil {
 		return nil
 	}
-	return nodePlacementReader{h.nodes}
+	return nodePlacementReader{nodes: h.nodes, chats: h.chats, wt: h.worktrees}
 }
 
 // worktreeScope is ONE read's worth of the answers the enrichment needs: the

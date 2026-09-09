@@ -67,12 +67,28 @@ export interface SubscribeEntityStreamOptions<T> {
    * Omitted, the frame is cast exactly as it always was.
    */
   mapFrame?: (raw: unknown) => T | null
+  /**
+   * A frame `mapFrame` would drop (returns null for) but that still means
+   * this scope's whole set needs re-reading, not ignoring — the same
+   * reasoning as the reconnect sentinel's own full reseed, for a frame kind
+   * this stream's per-row merge cannot express as one entity.
+   *
+   * `crowbar_workspaces`'s own `mapFrame` (workspaceDTOFromWorktreeFrame)
+   * only understands `worktree_state` frames; a Node-backed placement write
+   * (PlaceWorkspace) broadcasts `placement_set`/`folder_updated` instead —
+   * a kind nothing on this feed maps to an entity — so every frame from that
+   * PATCH was silently dropped and the cached `WorkspaceDTO.order` the
+   * sidebar sorts branch rows by never moved without a manual reload, caught
+   * live: a fork dragged past a sibling PATCHed 200, and the Node itself
+   * genuinely moved, but the panel stayed exactly where it started.
+   */
+  shouldReseed?: (raw: unknown) => boolean
 }
 
 export function subscribeEntityStream<T extends { id: string; status?: string }>(
   opts: SubscribeEntityStreamOptions<T>,
 ): () => void {
-  const { endpoint, store, seed, onChange, pruneScope, mapFrame } = opts
+  const { endpoint, store, seed, onChange, pruneScope, mapFrame, shouldReseed } = opts
   let disposed = false
 
   // §6 ordering: every cache mutation (seed + each live frame) is queued onto a
@@ -154,6 +170,10 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
     // The reconnect sentinel is NOT a DTO — never upsert it; trigger a full
     // GET reseed so any frames missed during the outage are recovered.
     if (isReconnectSentinel(data)) {
+      runSeed()
+      return
+    }
+    if (shouldReseed?.(data)) {
       runSeed()
       return
     }

@@ -41,7 +41,7 @@ func newProjectUsecaseWithWorkspaces(
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
 	workspaces := mocks.NewWorkspacePlacements()
-	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil)
+	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
 	return projects, repos, workspaces, uc
 }
 
@@ -59,7 +59,7 @@ func newProjectUsecaseWithNodes(
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
 	uc := project.New(
-		mocks.NewProjectStore(), repos, mocks.NewWorkspacePlacements(), mocks.NewFolderStore(), nodes, nil,
+		mocks.NewProjectStore(), repos, mocks.NewWorkspacePlacements(), mocks.NewFolderStore(), nodes, nil, nil,
 	)
 	return repos, nodes, uc
 }
@@ -81,7 +81,7 @@ func newProjectUsecaseWithNodesAndWorkspaces(
 	repos := mocks.NewRepositoryStore()
 	workspaces := mocks.NewWorkspacePlacements()
 	nodes := mocks.NewNodePlacements()
-	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), nodes, nil)
+	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), nodes, nil, nil)
 	return projects, repos, workspaces, nodes, uc
 }
 

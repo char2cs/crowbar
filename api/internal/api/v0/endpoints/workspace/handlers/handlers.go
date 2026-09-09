@@ -30,13 +30,21 @@ type Placer interface {
 
 // Handlers serves the workspace placement route.
 type Handlers struct {
-	placer Placer
+	placer          Placer
+	broadcastFolder func(folderID, workspaceID, kind string)
 }
 
 // New builds the workspace Handlers over the tree usecase's PlaceWorkspace
-// surface.
+// surface, plus the SAME chats-WS announce callback chat.Register's own
+// PlaceChat route already takes (c.app.Hub.BroadcastAgentChatFolder) —
+// PlaceWorkspace's write rides Node exactly like a chat's own placement does
+// (see placement.go's own comment on placeWorkspaceResponse), which carries
+// no aggregate-command hub projection of its own; without this, a locked
+// branch dragged past a sibling PATCHed 200 and never moved on a live
+// client's screen (caught live, 2026-09-09).
 func New(
 	placer Placer,
+	broadcastFolder func(folderID, workspaceID, kind string),
 ) *Handlers {
-	return &Handlers{placer: placer}
+	return &Handlers{placer: placer, broadcastFolder: broadcastFolder}
 }

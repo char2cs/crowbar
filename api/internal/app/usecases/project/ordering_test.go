@@ -95,7 +95,7 @@ func TestUpdateRepo_ReorderLeavesTheProjectDense(t *testing.T) {
 func TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-1", ProjectID: "p1"}))
 	nodes.Rows = []domain.Node{
@@ -144,7 +144,7 @@ func TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero(t *testing.T) {
 func TestRegression_UpdateRepo_PreExistingRepoWithNoNodeRowStillReorders(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	nodes := mocks.NewNodePlacements()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "legacy-repo", ProjectID: "p1"}))
 	// Deliberately no nodes.Rows entry for "legacy-repo" — this is the whole point.
@@ -176,7 +176,7 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 		t.Helper()
 		repos := mocks.NewRepositoryStore()
 		nodes := mocks.NewNodePlacements()
-		uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil)
+		uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil, nil)
 		require.NoError(t, repos.Save(context.Background(),
 			domain.Repository{ID: "repo-1", ProjectID: "p1"}))
 		nodes.Rows = append(nodes.Rows, domain.Node{ID: "repo-1", Kind: domain.NodeKindRepo, Order: 0})
@@ -214,7 +214,7 @@ func TestUpdateRepo_PlacesAgainstHomeChatsToo(t *testing.T) {
 		nodes := mocks.NewNodePlacements()
 		folders := mocks.NewFolderStore()
 		folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder-1", RepoID: ""})
-		uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
+		uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil, nil)
 		ctx := context.Background()
 		require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-1", ProjectID: "p1"}))
 		nodes.Rows = []domain.Node{
@@ -257,7 +257,7 @@ func TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeC
 		{ID: "chat-A1", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat},
 		{ID: "chat-B1", WorkspaceID: "home-ws-B", Type: domain.ChatTypeChat},
 	}
-	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, homeChats)
+	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, homeChats, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-A", ProjectID: "pA"}))
 	nodes.Rows = []domain.Node{
@@ -286,6 +286,45 @@ func TestRegression_UpdateRepo_BareRootReorderDoesNotCorruptAnotherProjectsHomeC
 	}
 }
 
+// TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat pins the
+// exact live bug: dragging a repo past a home chat renumbers that chat's Node
+// row too (one dense sibling space, placeRepoAmongHomeSiblings' own doc), but
+// the chat's write goes through Nodes.SetOrder directly — no Chat aggregate
+// command, so no hub projection announces it, and no folder-style announce
+// call sees it either (this whole function lives outside the chat package).
+// Before broadcastChat was wired in, a repo dragged above a chat left that
+// chat's stale order tied against the repo's own new one, so the repo never
+// visibly passed it on a live client despite the write succeeding.
+func TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat(t *testing.T) {
+	repos := mocks.NewRepositoryStore()
+	nodes := mocks.NewNodePlacements()
+	workspaces := mocks.NewWorkspacePlacements()
+	workspaces.Rows = []domain.Workspace{
+		{ID: "home-ws-A", ProjectID: "pA", Kind: domain.WorkspaceKindHome},
+	}
+	type frame struct{ id, workspaceID, kind string }
+	var frames []frame
+	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil,
+		func(id, workspaceID, kind string) {
+			frames = append(frames, frame{id, workspaceID, kind})
+		},
+	)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-A", ProjectID: "pA"}))
+	nodes.Rows = []domain.Node{
+		{ID: "chat-1", Kind: domain.NodeKindChat, Order: 0},
+		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 1},
+	}
+
+	_, err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(0)})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, nodeRow(t, nodes, "repo-A").Order, "the repo itself moved to the top")
+	assert.Equal(t, 1, nodeRow(t, nodes, "chat-1").Order, "the chat was pushed down as collateral")
+	require.Len(t, frames, 1, "the collaterally-shifted chat must be announced")
+	assert.Equal(t, frame{id: "chat-1", workspaceID: "home-ws-A", kind: "order_set"}, frames[0])
+}
+
 // TestUpdateRepo_HomeChatsNotWiredDegradesToTheOldUnscopedBehaviour documents
 // the fallback deliberately: a caller that never wires HomeChats (nil) gets
 // the SAME posture this whole function had for its first Task-5 version —
@@ -296,7 +335,7 @@ func TestUpdateRepo_HomeChatsNotWiredDegradesToTheOldUnscopedBehaviour(t *testin
 	nodes := mocks.NewNodePlacements()
 	workspaces := mocks.NewWorkspacePlacements()
 	workspaces.Rows = []domain.Workspace{{ID: "home-ws-A", ProjectID: "pA", Kind: domain.WorkspaceKindHome}}
-	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-A", ProjectID: "pA"}))
 	nodes.Rows = []domain.Node{
@@ -383,7 +422,7 @@ func TestUpdateRepo_FilesIntoAHomeFolder(t *testing.T) {
 	nodes := mocks.NewNodePlacements()
 	folders := mocks.NewFolderStore()
 	folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder", RepoID: ""})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1"}))
@@ -411,7 +450,7 @@ func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 	nodes := mocks.NewNodePlacements()
 	folders := mocks.NewFolderStore()
 	folders.Saved = append(folders.Saved, domain.Folder{ID: "repo-folder", RepoID: "other-repo"})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -429,7 +468,7 @@ func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 // project-home folder" refusal TestUpdateRepo_RefusesAnUnknownFolder pins.
 func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -439,7 +478,7 @@ func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 
 func TestUpdateRepo_RefusesAnUnknownFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -454,7 +493,7 @@ func TestUpdateRepo_LeavingAFolderDensifiesIt(t *testing.T) {
 	nodes := mocks.NewNodePlacements()
 	folders := mocks.NewFolderStore()
 	folders.Saved = append(folders.Saved, domain.Folder{ID: "home-folder", RepoID: ""})
-	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "a", ProjectID: "p1"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "b", ProjectID: "p1"}))
@@ -522,7 +561,7 @@ func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
 func TestUpdateRepo_ProjectMoveNeedsARelocator(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(projects, repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil)
+	uc := project.New(projects, repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
 	ctx := context.Background()
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
@@ -742,7 +781,7 @@ func (s *repositoryStoreMissingAfterSave) FindWhere(
 // failed — the caller gets back what it just wrote instead of an error.
 func TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmpty(t *testing.T) {
 	repos := &repositoryStoreMissingAfterSave{row: domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}}
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
 
 	got, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("renamed")})
 

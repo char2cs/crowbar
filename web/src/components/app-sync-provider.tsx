@@ -16,9 +16,11 @@ import {
   workspaceDTOFromWorktreeFrame,
 } from '@/lib/api'
 import { subscribeEntityStream, type EntityChange } from '@/lib/ws/entity-stream'
+import { isStructuralChatFolderFrame } from '@/lib/ws/structural-chat-folder-frame'
 import { getAllEntities, removeEntity, upsertEntity } from '@/lib/persistence/entity-cache'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { maybeWipeOnVersionChange } from '@/lib/persistence/idb'
+import { wsManager } from '@/lib/ws/manager'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // §7 startup sequence, subscribed BY VISIBILITY rather than by existence.
@@ -378,9 +380,38 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
         },
       )
 
+      // The bump-signal subscription above only ever fires while SOME
+      // workspace of this repo is mounted (use-workspace-agent-chats-
+      // stream.ts is what calls bump, and it is only mounted per open
+      // workspace-view tab) — an assumption this file's own doc comment
+      // states outright ("a chat can only be created, renamed or moved from
+      // a surface that has that workspace mounted"). That assumption is
+      // false for the sidebar tree itself: dragging a row IN THE SIDEBAR
+      // reorders/reparents it with no tab open at all (caught live: a fork
+      // with no open tab PATCHed 200, correct data, and the sidebar never
+      // repainted without a manual reload). This subscription is mounted
+      // whenever the repo's tree rows are (the same "tree" key desiredKeys
+      // already gates this whole function behind), so it is the one place
+      // that can hear a structural frame regardless of any open tab —
+      // chatBase(wsId)/ws resolves to this SAME repo-scoped URL (see
+      // agent-api.ts's chatBase → repoChatsBaseForWorkspace), so this reuses
+      // the identical multiplexed connection rather than opening a second one.
+      const unsubscribeFrames = wsManager.subscribe(
+        `/v0/projects/${projectId}/repos/${repoId}/chats/ws`,
+        (frame) => {
+          if (disposed || closed) return
+          if (frame && typeof frame === 'object' && 'reconnected' in frame) {
+            void reseed()
+            return
+          }
+          if (isStructuralChatFolderFrame(frame)) void reseed()
+        },
+      )
+
       return () => {
         closed = true
         unsubscribeSignal()
+        unsubscribeFrames()
       }
     }
 
@@ -423,6 +454,7 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
         store: 'crowbar_workspaces',
         seed: () => fetchWorkspaces(projectId, repoId),
         mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repoId),
+        shouldReseed: isStructuralChatFolderFrame,
         onChange: onWorkspacesChange,
         // Authoritative over THIS repo's workspaces only — crowbar_workspaces
         // also holds every other repo's rows; pruning the whole store would

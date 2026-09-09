@@ -199,7 +199,9 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   // past a chat, "stuck" with no explanation (folders and chats share one
   // sibling order space; nothing about them not stacking blocks a reorder).
   if (kind === 'chat') {
-    if (target.kind !== 'chat' && target.kind !== 'folder') return NO_MODES
+    if (target.kind !== 'chat' && target.kind !== 'folder' && target.kind !== 'branch') {
+      return NO_MODES
+    }
     // THE WORKING REFUSAL, ASKED AGAIN — because `s.working` above cannot
     // answer it for a chat drawn in the TREE.
     //
@@ -219,6 +221,23 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
     // workspace is not mounted answers false — the same answer the row already
     // gave, and the server still refuses it.
     if (subjects.some((s) => isChatWorking(s.id))) return NO_MODES
+    // A BRANCH row — a repo's own header, a locked branch, or an ordinary
+    // fork folded to look like one (`rows-from-repo.ts`'s own doc: `kind:
+    // 'branch'` either way) — is never a container a chat can thread INTO
+    // (see this function's own doc above: "A branch is not something a
+    // chat can become a thread of"), but it IS a real sibling a chat may
+    // reorder PAST: chats and branches share one dense order space at
+    // every level this drag reaches — project home (placeRepoAmongHome-
+    // Siblings, for a repo's own header row) and a repo's own root or a
+    // locked branch's own row (writeHomeNode, 2026-09-09's reparent fix).
+    // Caught live as "can't put a chat right at the bottom of the list"
+    // whenever a branch row happened to sit there — refusing before/after
+    // here, unconditionally, is what made every one of those the literal
+    // end of the list a chat could never reach. The finer same-workspace/
+    // same-repo check stays the backend's own (checkChatMove/
+    // checkChatContainer) — this is only the client-side pre-filter, and
+    // "into" stays refused exactly as it already was.
+    if (target.kind === 'branch') return REORDER_MODES
     return ALL_MODES
   }
 

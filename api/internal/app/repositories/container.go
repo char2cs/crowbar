@@ -518,32 +518,54 @@ func (c *Container) enrichFrame(
 ) dto.WorkspaceDTO {
 	ws.Working = c.WorkingFor(ws.ID)
 	elig := c.eligibilityFor(ctx, ws)
-	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws.ID), c.nodePlacement())
+	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws.ID), c.nodePlacement(ctx, ws))
 }
 
 // nodePlacement adapts this container's own Node store to
-// dto.WorkspacePlacementReader, over c.Node.GetNode — the SAME live position
-// PlaceWorkspace itself writes (2026-09-09 sidebar-placement-unification,
-// workspace-placement fix). Nil-safe: an unwired Node store (a test
-// Container built with only the fields its own assertion needs, matching
-// owningChatIDFor's own zero-value tolerance) degrades to
+// dto.WorkspacePlacementReader, reading the SAME Node row PlaceWorkspace
+// itself now writes (2026-09-09, fixed same day as this route shipped) —
+// not always ws.ID's own. An ordinary fork's workspace-anchor Node is never
+// touched by any densify (mergeHomeNode's own doc: "already represented 1:1
+// by the chat that owns it," so a second row would duplicate it) — only a
+// LOCKED branch, whose owning chat carries no Node of its own, is genuinely
+// addressed by ws.ID. Reading ws.ID unconditionally served a fork's
+// permanently stale anchor row on every WS frame, caught live: the panel
+// kept a dragged fork pinned wherever it was first minted, because nothing
+// this broadcast reads was the row anything ever wrote back to.
+//
+// Resolved onto nodeID once here, eagerly, rather than inside Placement:
+// enrichFrame already holds ws and calls this exactly once per frame, and
+// owningChatIDFor's own resolution is the identical one this needs — no
+// second, independently-drifting copy. Nil-safe: an unwired Node store (a
+// test Container built with only the fields its own assertion needs,
+// matching owningChatIDFor's own zero-value tolerance) degrades to
 // WorkspaceDTOFrom's own "" / 0 default rather than a nil-pointer panic.
-func (c *Container) nodePlacement() dto.WorkspacePlacementReader {
+func (c *Container) nodePlacement(
+	ctx context.Context,
+	ws domain.Workspace,
+) dto.WorkspacePlacementReader {
 	if c.Node == nil {
 		return nil
 	}
-	return nodePlacementReader{c.Node}
+	nodeID := ws.ID
+	if !ws.RendersAsBranch() {
+		if owner := c.owningChatIDFor(ctx, ws.ID); owner != "" {
+			nodeID = owner
+		}
+	}
+	return nodePlacementReader{nodes: c.Node, nodeID: nodeID}
 }
 
 type nodePlacementReader struct {
-	nodes node.EventStore
+	nodes  node.EventStore
+	nodeID string
 }
 
 func (r nodePlacementReader) Placement(
 	ctx context.Context,
-	workspaceID string,
+	_ string,
 ) (folderID string, order int) {
-	n, err := r.nodes.GetNode(ctx, workspaceID)
+	n, err := r.nodes.GetNode(ctx, r.nodeID)
 	if err != nil {
 		return "", 0
 	}

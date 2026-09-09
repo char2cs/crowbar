@@ -219,6 +219,13 @@ type projectUsecase struct {
 	folders    Folders
 	nodes      NodePlacements
 	homeChats  HomeChats
+	// broadcastChat announces a collaterally-shifted CHAT/FOLDER-kind Node
+	// row on the same chats WS a chat/folder placement already uses — see
+	// placeRepoAmongHomeSiblings' own doc on why this exists at all. Nilable,
+	// degrading to silence like every other optional dependency here: a repo
+	// reorder still WRITES correctly with it nil, it just leaves a live
+	// client's chat siblings stale until their next reseed.
+	broadcastChat func(id, workspaceID, kind string)
 }
 
 // New builds a Usecase from the project and repository GORM stores, the
@@ -231,6 +238,13 @@ type projectUsecase struct {
 // already does elsewhere in this file: the bare-root densify simply cannot
 // narrow CHAT-kind siblings to this project and falls back to including
 // them all, rather than failing the request outright.
+//
+// broadcastChat is the chats-WS announce callback (Hub.BroadcastAgentChatFolder
+// in production) a repo reorder needs for exactly the same reason PlaceChat
+// does (see that handler's own comment): every home-scope sibling's write now
+// rides Node, which has no aggregate-command hub projection of its own, so
+// nothing tells a live client a CHAT/FOLDER row it did not drag also moved as
+// collateral of the repo it did drag.
 func New(
 	projects store.Store[domain.Project, string],
 	repos store.ScopedStore[domain.Repository, string],
@@ -238,14 +252,16 @@ func New(
 	folders Folders,
 	nodes NodePlacements,
 	homeChats HomeChats,
+	broadcastChat func(id, workspaceID, kind string),
 ) Usecase {
 	return &projectUsecase{
-		projects:   projects,
-		repos:      repos,
-		workspaces: workspaces,
-		folders:    folders,
-		nodes:      nodes,
-		homeChats:  homeChats,
+		projects:      projects,
+		repos:         repos,
+		workspaces:    workspaces,
+		folders:       folders,
+		nodes:         nodes,
+		homeChats:     homeChats,
+		broadcastChat: broadcastChat,
 	}
 }
 
@@ -880,6 +896,19 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	rows := append(homeSiblingRows(memberIDs, chatMemberIDs, nodes, subject.ID), subject)
 	slots := nodeIndex(rows)
 
+	// Resolved once, best-effort: a repo's OWN broadcast is the caller's job
+	// (UpdateRepo's handler already re-fetches and broadcasts the repo DTO);
+	// this is only for announcing a COLLATERAL chat/folder sibling this densify
+	// renumbers but never returns to that caller at all. An error or a nil
+	// workspaces dependency degrades to "announce nothing" — the write above
+	// already committed either way — not a failed reorder.
+	var homeWorkspaceID string
+	if u.broadcastChat != nil && u.workspaces != nil {
+		if ws, err := u.workspaces.GetHomeForProject(ctx, projectID); err == nil {
+			homeWorkspaceID = ws.ID
+		}
+	}
+
 	reparented := subject.ParentID != folderID
 	written := make(map[string]bool, len(slots))
 	for _, moved := range place(slots, subject.ID, &target) {
@@ -894,6 +923,15 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 		reparenting := row.ID == subject.ID && reparented
 		if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
 			return err
+		}
+		// The moved chat/folder rows only, not the repo subject: PlaceChat's
+		// own announce covers a chat/folder's OWN drag, this covers the same
+		// rows moving as collateral of a REPO drag instead (caught live: a
+		// repo dragged above a chat left that chat's stale order tied
+		// against the repo's new one, so the repo never visibly passed it).
+		if row.ID != subject.ID && homeWorkspaceID != "" &&
+			(row.Kind == domain.NodeKindChat || row.Kind == domain.NodeKindFolder) {
+			u.broadcastChat(row.ID, homeWorkspaceID, "order_set")
 		}
 	}
 	if err := u.ensureSubjectWritten(ctx, slots, subject.ID, subjectExists, reparented, folderID, &target, written); err != nil {

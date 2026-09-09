@@ -337,3 +337,45 @@ func TestPlaceChat_SecondMoveOfAChatUnreachableThroughItsBranchParent(t *testing
 
 	assert.Equal(t, "branch-1", nodeRowFor(t, nodes, "fork-chat").ParentID)
 }
+
+// TestRegression_PlaceChat_DensifiesAgainstOtherForksUnderTheSameLockedBranch
+// pins a second, distinct bug the SAME "fork's own workspace has no
+// siblings in it" gap (mergeHomeNode's own doc) causes: workspaceSnapshot-
+// Around's ListByWorkspace read for "fork-c" returns ONLY fork-c (each fork
+// owns its own private workspace, spec §2.4), and before this fix
+// mergeHomeNode's Chat case corrected an ALREADY-known row in place but
+// never appended one it discovered fresh — unlike its own Folder case
+// immediately above it, which always has. mergeForest's BFS still WALKED
+// through "branch-1" and found fork-a/fork-b, but silently dropped both from
+// the snapshot, leaving densify a container of one. Caught live: reordering
+// a fork inside a locked branch always wrote order 0, never the position
+// actually dragged to, no matter what index was requested.
+func TestRegression_PlaceChat_DensifiesAgainstOtherForksUnderTheSameLockedBranch(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "fork-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork-a", ParentID: "branch-1"},
+		domain.Chat{ID: "fork-b", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork-b", ParentID: "branch-1"},
+		domain.Chat{ID: "fork-c", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork-c", ParentID: "branch-1"},
+	)
+	gitStatus.SetRepo("ws-fork-a", repoID)
+	gitStatus.SetRepo("ws-fork-b", repoID)
+	gitStatus.SetRepo("ws-fork-c", repoID)
+	gitStatus.SetRepo("ws-branch-1", repoID)
+	nodes.Rows = []domain.Node{
+		{ID: "fork-a", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0},
+		{ID: "fork-b", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 1},
+		{ID: "fork-c", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 2},
+	}
+
+	// fork-c's own snapshot is read off ws-fork-c, which names only fork-c —
+	// the bug's exact trigger. Target 1 (between fork-a and fork-b) can only
+	// land correctly if the walk's OTHER discoveries survive into the plan.
+	_, _, err := uc.PlaceChat(context.Background(), "ws-fork-c", "fork-c", tree.PlaceInput{Order: index(1)})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, nodeRowFor(t, nodes, "fork-c").Order,
+		"the requested index must survive, not collapse to 0 for lack of a known container size")
+	assert.Equal(t, 0, nodeRowFor(t, nodes, "fork-a").Order, "untouched: still first")
+	assert.Equal(t, 2, nodeRowFor(t, nodes, "fork-b").Order, "pushed down to make room")
+}

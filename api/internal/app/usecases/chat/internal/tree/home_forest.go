@@ -193,11 +193,25 @@ func (u *chatFolderUsecase) correctHomePlacement(
 // "new chat with no parent" gap, disclosed in Task 5's report, unchanged by
 // Task 8) is simply absent, exactly as it already is from the read model
 // today.
+// extraSeeds names containers to walk INTO even though nothing already in
+// baseRows names them and no Node row anywhere makes them discoverable as
+// someone else's child — a locked branch's own owning-chat row is exactly
+// that (placeOwningRow, never Node-backed itself; mergeHomeNode's own doc),
+// so its CHILDREN (other forks filed under it) are otherwise unreachable by
+// this walk no matter how many times it runs. workspaceSnapshotAround's own
+// caller is the one place that knows which container the walk actually
+// needs — the subject's own (Node-corrected) ParentID — so it is the one
+// seed passed today; see homeSnapshotAround's call. Caught live: reordering
+// a fork inside a locked branch always collapsed to order 0, because the
+// walk could reach the dragged fork's own Node row (loadChat's direct
+// GetNode, no walk needed) but never its siblings', leaving densify a
+// container of one no matter what index was requested.
 func (u *chatFolderUsecase) mergeForest(
 	ctx context.Context,
 	baseRows []domain.Chat,
 	includeRepoPhantoms bool,
 	repoMemberIDs map[string]bool,
+	extraSeeds []string,
 ) ([]domain.Chat, map[string]bool, error) {
 	byID := make(map[string]int, len(baseRows))
 	for i, row := range baseRows {
@@ -206,11 +220,12 @@ func (u *chatFolderUsecase) mergeForest(
 	homeIDs := map[string]bool{}
 	nodeSeen := map[string]bool{}
 	queried := map[string]bool{}
-	queue := make([]string, 0, len(baseRows)+1)
+	queue := make([]string, 0, len(baseRows)+1+len(extraSeeds))
 	queue = append(queue, "")
 	for _, row := range baseRows {
 		queue = append(queue, row.ID)
 	}
+	queue = append(queue, extraSeeds...)
 	for len(queue) > 0 {
 		parent := queue[0]
 		queue = queue[1:]
@@ -273,10 +288,19 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		*baseRows = append(*baseRows, homeFolderView(*f, n))
 		return true, n.ID, nil
 	case domain.NodeKindChat:
+		// A fork's true siblings live in OTHER private workspaces (spec
+		// §2.4) so workspaceSnapshotAround's ListByWorkspace read never has
+		// them in byID. Correcting only the already-known case (the prior
+		// behaviour) left densify a container of one no matter how many
+		// siblings this walk discovered — every requested order collapsed
+		// to 0 (caught live). Append a bare stub, same as the FOLDER case.
 		if i, ok := byID[n.ID]; ok {
 			(*baseRows)[i].ParentID = n.ParentID
 			(*baseRows)[i].Order = n.Order
+			return true, n.ID, nil
 		}
+		byID[n.ID] = len(*baseRows)
+		*baseRows = append(*baseRows, domain.Chat{ID: n.ID, ParentID: n.ParentID, Order: n.Order})
 		return true, n.ID, nil
 	case domain.NodeKindRepo:
 		if !includeRepoPhantoms {
@@ -342,7 +366,10 @@ func (u *chatFolderUsecase) homeSnapshotAround(
 	if home {
 		repoMemberIDs = u.repoMemberIDsForHome(ctx, workspaceID)
 	}
-	merged, homeIDs, err := u.mergeForest(ctx, rows, home, repoMemberIDs)
+	// subject.ParentID is the ONE container this call actually needs
+	// densified — see mergeForest's own doc on why nothing else discovers
+	// it when that container is a locked branch's own owning-chat row.
+	merged, homeIDs, err := u.mergeForest(ctx, rows, home, repoMemberIDs, []string{subject.ParentID})
 	if err != nil {
 		return nil, err
 	}

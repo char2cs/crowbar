@@ -40,8 +40,13 @@ type workspacePlacementDTO struct {
 // terms persist's own doc already discloses for a repo-phantom sibling
 // (plan.go): its write is a Node command, not a Chat aggregate command, so it
 // carries no hub-projection broadcast of its own and persist's own `written`
-// filter never includes it. Real, pre-existing, deliberately not solved by
-// this route.
+// filter never includes it — a real, pre-existing, disclosed gap in what
+// THIS HTTP response can report back to the caller that dragged it. The
+// LIVE-UPDATE half of that same gap (caught live, 2026-09-09: a locked
+// branch dragged past a sibling PATCHed 200 and never moved on screen) is
+// closed in PlaceWorkspace itself, which now announces the moved branch's
+// own row and every FOLDER row here on the chats WS regardless of what this
+// struct can carry back in the response body.
 type placeWorkspaceResponse struct {
 	Workspace workspacePlacementDTO `json:"workspace"`
 	Shifted   []dto.AgentChatDTO    `json:"shifted"`
@@ -62,13 +67,23 @@ func (h *Handlers) PlaceWorkspace(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	placed, shifted, err := h.placer.PlaceWorkspace(ctx.Request.Context(), ctx.Param("wsId"),
+	wsID := ctx.Param("wsId")
+	placed, shifted, err := h.placer.PlaceWorkspace(ctx.Request.Context(), wsID,
 		agentusecase.PlaceInput{ParentID: body.ParentID, Order: body.Order})
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
+	// The moved branch's own row, and every FOLDER row the densify shifted —
+	// see placeWorkspaceResponse's own doc: neither used to be announced at
+	// all, this route's write being a Node command with no hub projection of
+	// its own (same gap PlaceChat's identical call already closes for a
+	// chat's own drag).
+	for _, row := range shifted {
+		h.broadcastFolder(row.ID, wsID, "folder_updated")
+	}
+	h.broadcastFolder(placed.ID, wsID, "placement_set")
 	libs.WriteQueryOK(ctx, placeWorkspaceResponse{
 		Workspace: workspacePlacementDTO{ID: placed.ID, ParentID: placed.ParentID, Order: placed.Order},
 		Shifted:   dto.AgentChatDTOList(shifted, nil, nil),

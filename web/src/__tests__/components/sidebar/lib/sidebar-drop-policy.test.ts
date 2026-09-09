@@ -403,13 +403,18 @@ describe('SIDEBAR_DROP_POLICY', () => {
       )
     })
 
-    it('refuses a chat onto a branch row — a branch is not one of a chat’s threads', () => {
-      // `planChatDrop` refuses a non-chat, non-folder target too; refusing
-      // here means the indicator never promises a move that would then
-      // quietly do nothing.
+    // 2026-09-09, caught live as "can't put a chat right at the bottom of
+    // the tree list" whenever a branch row (a repo's own header, a locked
+    // branch, or an ordinary fork) happened to occupy that position: chats
+    // and branches share one dense order space at every level this drag
+    // reaches, so a chat may reorder PAST one — `planChatDropOntoBranch`
+    // (drop-actions.ts) computes that index over the SAME combined tree
+    // that renders it. "Into" still refuses: a branch is not one of a
+    // chat's threads, and that half of the old refusal stays correct.
+    it('lets a chat reorder past a branch row, but never thread into one', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes([chatRow('chat-a')], makeRow({ id: 'ws-1' })),
-      ).toEqual(NO_MODES)
+      ).toEqual(REORDER_MODES)
     })
 
     // The literal "can't group chats into a folder" gap, caught live: a

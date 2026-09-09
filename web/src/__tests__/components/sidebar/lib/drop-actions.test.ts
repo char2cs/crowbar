@@ -313,6 +313,43 @@ describe('performSidebarDrop — clearing a stale folder edge', () => {
   })
 })
 
+// TestRegression: `makeRepo()`'s own fixture wires no workspace's
+// `owningChatId`, so the two tests above never exercise the branch that
+// actually resolves one — `directFolderId`'s old `?? ''` fallback and its
+// correct resolved value are indistinguishable there. A real fork's own
+// locked-branch parent DOES carry one (every workspace mints its Node the
+// instant it's created — place_workspace.go's own doc), and Node.ParentID
+// for a row sitting directly under it is that OWNING CHAT's id, never bare
+// ''. Sending '' filed the row at the true project root — a different level
+// entirely — caught live: dragging a fork past a sibling fork under the
+// SAME locked branch PATCHed 200, the write landed, and the panel never
+// showed the reorder because the row had just left that branch's own level.
+describe('performSidebarDrop — folder edge for a workspace container that owns a chat', () => {
+  it('landing directly under a workspace container writes that workspace\'s OWNING CHAT id, never bare \'\'', async () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          ...makeRepo(),
+          workspaces: [
+            { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' },
+            { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
+            { id: 'ws-e', branch: 'e', age: '', order: 1, parentId: 'ws-a' },
+          ],
+        },
+      ],
+    })
+
+    await performSidebarDrop(
+      [branchRow('ws-fork')],
+      branchRow('ws-e', { parentId: 'ws-a' }),
+      'before',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { folderId: 'chat-a', order: 1 })
+  })
+})
+
 describe('performSidebarDrop — crossing a fork parent', () => {
   it('reparents before placing when the destination is under a different fork parent', async () => {
     // ws-fork currently hangs off ws-a; dropped INTO ws-b it must rebase.
@@ -727,6 +764,85 @@ describe('performSidebarDrop — chats', () => {
     expect(setChatPlacement).toHaveBeenCalledWith('home-ws-1', 'c1', {
       parentId: 'home-folder-1',
       order: 0,
+    })
+  })
+
+  // 2026-09-09, caught live as "can't put a chat right at the bottom of
+  // the tree list": a chat reordering PAST a BRANCH row (a repo's own
+  // header, a locked branch, or an ordinary fork) used to be refused
+  // outright by the drop policy, and even once allowed there, planChatDrop
+  // had no way to see a branch row at all — it comes from a different
+  // aggregate than Chat/Folder, invisible to the workspace-scoped
+  // {chats, folders} read this describe block's other tests use. Both
+  // halves are fixed together: the policy now allows before/after (never
+  // "into" — a branch is still not a chat's thread parent), and
+  // `planChatDropOntoBranch` computes the index over the same combined
+  // tree that actually renders this level.
+  describe('reordering past a branch row', () => {
+    beforeEach(() => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [
+              {
+                id: 'home-owning-chat',
+                repoId: '',
+                ownsWorktree: true,
+                workspaceId: 'home-ws-1',
+                title: '',
+                order: 0,
+              },
+              {
+                id: 'home-chat-1',
+                repoId: '',
+                ownsWorktree: false,
+                workspaceId: 'home-ws-1',
+                title: 'a home chat',
+                parentId: '',
+                order: 1,
+              },
+            ],
+            folders: [],
+          },
+        },
+      })
+    })
+
+    it('reorders a home chat to land BEFORE the repo header row sharing its level', async () => {
+      await performSidebarDrop(
+        [chatRow('home-chat-1', 'home-ws-1')],
+        branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+        'before',
+      )
+
+      expect(setChatPlacement).toHaveBeenCalledWith('home-ws-1', 'home-chat-1', {
+        parentId: '',
+        order: 0,
+      })
+    })
+
+    it('reorders a home chat to land AFTER the repo header row sharing its level', async () => {
+      await performSidebarDrop(
+        [chatRow('home-chat-1', 'home-ws-1')],
+        branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+        'after',
+      )
+
+      expect(setChatPlacement).toHaveBeenCalledWith('home-ws-1', 'home-chat-1', {
+        parentId: '',
+        order: 1,
+      })
+    })
+
+    it('never threads a chat INTO a branch row — the policy still refuses that mode', async () => {
+      await performSidebarDrop(
+        [chatRow('home-chat-1', 'home-ws-1')],
+        branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+        'into',
+      )
+
+      expect(setChatPlacement).not.toHaveBeenCalled()
     })
   })
 })
