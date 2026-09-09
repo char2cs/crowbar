@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -173,7 +172,7 @@ func (s *worktreeScope) project(
 // ordinary case, and some OTHER row when c is a thread carrying its parent's
 // workspace id.
 //
-// It reuses agentusecase.ResolveOwningChat over the workspace's own chat rows,
+// It reuses domain.ResolveOwningChat over the workspace's own chat rows,
 // which is the same call the repositories container's own owningChatIDFor makes
 // as it enriches a workspace's WS frame, so the two surfaces name the same
 // owner for the same worktree. Re-deriving it here with a local rule ("the
@@ -194,7 +193,7 @@ func (s *worktreeScope) owner(
 	}
 	owner := c.ID
 	if rows, err := s.handlers.chats.ListChatsByWorkspace(ctx, c.WorkspaceID); err == nil {
-		if resolved, found := agentusecase.ResolveOwningChat(rows); found {
+		if resolved, found := domain.ResolveOwningChat(rows); found {
 			owner = resolved.ID
 		}
 	}

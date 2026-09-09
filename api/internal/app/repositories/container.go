@@ -25,7 +25,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -523,20 +522,22 @@ func (c *Container) enrichFrame(
 }
 
 // owningChatIDFor resolves wsID's real owning chat id for the wire DTO,
-// reusing Task 3's own branch-preferring resolution
-// (agentusecase.ResolveOwningChat) over this container's own AgentChat read —
+// reusing domain.ResolveOwningChat over this container's own AgentChat read —
 // never a second, independently derived answer. An unwired AgentChat (a test
 // Container built with only the fields its own assertion needs, matching
-// eligibilityFor's own zero-value tolerance below), an unresolvable read, or
-// a workspace this backfill has not reached yet all degrade to "".
+// eligibilityFor's own zero-value tolerance below) or an unresolvable read
+// degrades to "".
 //
 // Deliberately left resolving through the CHAT side, unchanged, by 2026-09-08
 // sidebar-placement-unification Task 7: every workspace now also mints its own
 // Node row (ID == ws.ID), but dozens of live frontend call sites still address
 // a workspace's sidebar position through THIS chat id (see
 // web/src/components/sidebar/lib/branch-row-id.ts), not ws.ID — repointing it
-// here with no frontend migration would break them. That migration, and
-// retiring this field, is Task 8/9's job.
+// here with no frontend migration would break them. Task 9 deleted the
+// backfill machinery that used to MAINTAIN this chat id (a fresh workspace's
+// owning chat is minted chat-first at creation regardless, independent of
+// that machinery); the frontend migration, and retiring this field, is still
+// pending.
 func (c *Container) owningChatIDFor(
 	ctx context.Context,
 	wsID string,
@@ -548,7 +549,7 @@ func (c *Container) owningChatIDFor(
 	if err != nil {
 		return ""
 	}
-	owner, ok := agentusecase.ResolveOwningChat(rows)
+	owner, ok := domain.ResolveOwningChat(rows)
 	if !ok {
 		return ""
 	}

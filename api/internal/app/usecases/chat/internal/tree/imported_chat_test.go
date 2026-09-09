@@ -49,13 +49,12 @@ func TestCreateChat_ImportPlacesTheChatBeforeAttachingTheWorktree(t *testing.T) 
 
 // An import resolves WHERE it hangs from its git lineage, because that is the
 // only thing a batch importer knows: it walked a PR-base graph and came out
-// with a parent WORKSPACE, not a parent conversation. Translating that into the
-// chat that owns it is this package's job (§7.6), and no caller's.
+// with a parent WORKSPACE, not a parent conversation. That parent's own
+// Node{Kind:workspace} row IS the placement id (2026-09-08
+// sidebar-placement-unification Task 9) — no chat to resolve through at all.
 func TestImportBranchAsChat_PlacesUnderTheChatOwningTheLineageParent(t *testing.T) {
-	chats, uc := newUsecase(t)
-	chats.Rows = append(chats.Rows, domain.Chat{
-		ID: "owner-of-base", Type: domain.ChatTypeBranch, WorkspaceID: "ws-base",
-	})
+	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
+	nodes.Rows = append(nodes.Rows, domain.Node{ID: "ws-base", Kind: domain.NodeKindWorkspace})
 	chats.NextID = "c-new"
 
 	spec := importSpec("feature/x")
@@ -65,8 +64,8 @@ func TestImportBranchAsChat_PlacesUnderTheChatOwningTheLineageParent(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.NotEmpty(t, wsID, "the workspace id must come straight back from the create")
-	assert.Equal(t, "owner-of-base", chatRow(t, chats, "c-new").ParentID,
-		"the new row hangs off the chat that owns its lineage parent's workspace")
+	assert.Equal(t, "ws-base", chatRow(t, chats, "c-new").ParentID,
+		"the new row hangs off its lineage parent's own Node row directly")
 }
 
 // A lineage parent nothing owns yet — and an import rooted at the repo, which
@@ -98,20 +97,23 @@ func TestImportBranchAsChat_StartsNoRunner(t *testing.T) {
 	assert.Empty(t, chats.Started, "and the plain runner path is not taken either")
 }
 
-// A LOCKED import — every protected branch — owns a BRANCH row, and the
-// judgement is taken from the workspace that came back rather than restated
-// here. An ordinary branch stays a chat row (the next test).
-func TestImportBranchAsChat_RetypesALockedImportAsABranchRow(t *testing.T) {
+// A LOCKED import — every protected branch — no longer retypes its chat row
+// at all (2026-09-08 sidebar-placement-unification Task 9 deleted the
+// machinery that used to do it): a workspace's own Node{Kind:workspace} row
+// is what the sidebar draws as a branch now, not a Chat.Type. An unlocked
+// import already never retyped (the next test), so this pins that a LOCKED
+// one no longer does either.
+func TestImportBranchAsChat_NeverRetypesALockedImportsChatRow(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 	chats.ImportedWorkspace = domain.Workspace{
 		ID: "ws-locked", Status: domain.WorkspaceStatusLocked,
 	}
 
-	chatID, _, err := uc.ImportBranchAsChat(context.Background(), importSpec("main"))
+	_, _, err := uc.ImportBranchAsChat(context.Background(), importSpec("main"))
 
 	require.NoError(t, err)
-	assert.Equal(t, []mocks.TypeWrite{{ChatID: chatID, Type: domain.ChatTypeBranch}}, chats.Retyped)
+	assert.Empty(t, chats.Retyped, "nothing retypes an imported row any more, locked or not")
 }
 
 func TestImportBranchAsChat_LeavesAnOrdinaryBranchAsAChatRow(t *testing.T) {
@@ -142,10 +144,8 @@ func TestImportBranchAsChat_AttachFailureDiscardsTheChat(t *testing.T) {
 // The three-verb primitive the paths that build their own workspace use. The
 // mint has to come FIRST and has to be PLACED, or the row exists in no level.
 func TestMintOwningChat_MintsAndFilesTheRowBeforeAnyWorkspaceExists(t *testing.T) {
-	chats, uc := newUsecase(t)
-	chats.Rows = append(chats.Rows, domain.Chat{
-		ID: "owner-of-base", Type: domain.ChatTypeBranch, WorkspaceID: "ws-base",
-	})
+	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
+	nodes.Rows = append(nodes.Rows, domain.Node{ID: "ws-base", Kind: domain.NodeKindWorkspace})
 	chats.NextID = "c-new"
 
 	chatID, err := uc.MintOwningChat(context.Background(), "ws-base")
@@ -154,7 +154,8 @@ func TestMintOwningChat_MintsAndFilesTheRowBeforeAnyWorkspaceExists(t *testing.T
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, []string{""}, chats.Minted,
 		"minted in the workspace-less scope: the row is a bubble until the caller's workspace exists")
-	assert.Equal(t, "owner-of-base", chatRow(t, chats, "c-new").ParentID)
+	assert.Equal(t, "ws-base", chatRow(t, chats, "c-new").ParentID,
+		"placed directly under the parent workspace's own Node row")
 	assert.Empty(t, chatRow(t, chats, "c-new").WorkspaceID,
 		"nothing is owned yet: the workspace does not exist until the caller builds it")
 }
@@ -183,9 +184,11 @@ func TestMintOwningChat_GivesEachRowItsOwnSlotInTheLevel(t *testing.T) {
 		"two rows in one level must not hold the same index, or the next drop lands on top of one")
 }
 
-// AttachOwningWorkspace points the row at what the caller built, and retypes it
-// when the workspace turns out to be one the sidebar draws as a branch.
-func TestAttachOwningWorkspace_PointsTheRowAtItAndRetypesALockedOne(t *testing.T) {
+// AttachOwningWorkspace points the row at what the caller built. It no longer
+// retypes it (2026-09-08 sidebar-placement-unification Task 9): a locked
+// workspace's own Node{Kind:workspace} row is what the sidebar draws as a
+// branch now, not a Chat.Type this call would rewrite.
+func TestAttachOwningWorkspace_PointsTheRowAtItAndNeverRetypes(t *testing.T) {
 	chats, uc := newUsecase(t)
 	chats.NextID = "c-new"
 	chatID, err := uc.MintOwningChat(context.Background(), "")
@@ -196,7 +199,7 @@ func TestAttachOwningWorkspace_PointsTheRowAtItAndRetypesALockedOne(t *testing.T
 
 	require.NoError(t, err)
 	assert.Equal(t, "ws-1", chatRow(t, chats, chatID).WorkspaceID)
-	assert.Equal(t, []mocks.TypeWrite{{ChatID: chatID, Type: domain.ChatTypeBranch}}, chats.Retyped)
+	assert.Empty(t, chats.Retyped, "nothing retypes an attached row any more, locked or not")
 }
 
 // A failed attach is REPORTED, never swallowed: the caller is holding a

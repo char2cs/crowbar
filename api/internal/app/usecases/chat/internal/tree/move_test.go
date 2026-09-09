@@ -40,7 +40,6 @@ func newUsecaseWithStores(
 	// live Node position too, not just the Chat row's frozen field.
 	chats.Nodes = nodes
 	work := inflight.NewWork()
-	roster := mocks.NewAgentWorkspaceRoster()
 	// Every fixture in this file is a single-repo world: workspaceID ("ws-1")
 	// belongs to repoID ("repo-1"), so a folder created/moved under a plain
 	// CHAT parent (which carries workspaceID, not a repo id of its own)
@@ -48,7 +47,7 @@ func newUsecaseWithStores(
 	// see domain.Chat.RepoID / checkFolderContainer's golden rule.
 	workspaceGitStatus := mocks.NewAgentWorkspaceGitStatus()
 	workspaceGitStatus.SetRepo(workspaceID, repoID)
-	uc := tree.New(chats, chats, work, workspaceGitStatus, roster,
+	uc := tree.New(chats, chats, work, workspaceGitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats),
 		folders, nodes)
 	return chats, folders, nodes, uc, work
@@ -126,12 +125,20 @@ func TestMove_RefusesAMoveAcrossRepos(t *testing.T) {
 // branch's own subtree. Caught live: dragging a repo-root folder onto a
 // branch (or vice versa) silently reverted with no explanation — this is
 // the check that was missing, not merely the toast that now names it.
+//
+// 2026-09-08 sidebar-placement-unification Task 9 re-ports this suite
+// against nearestWorkspaceAnchor's simplified Node.Kind==NodeKindWorkspace
+// check: a "branch" fixture is now a Node{Kind:workspace} row, seeded under
+// the SAME id as the fixture chat that stands beside it (checkFolderContainer
+// still needs a Chat/Folder-shaped row at that id to resolve a container —
+// wiring a workspace's own Node row into that resolution for real is Task
+// 10's job) so the anchor test recognizes it directly, without the
+// branch-preference tiebreak the deleted boot backfill used to need.
 func TestMove_RefusesRootToBranchContext(t *testing.T) {
-	chats, uc, _ := newUsecaseWithWork(t)
+	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	seedFolderTree(t, chats, uc) // "root", a repo-root folder — its own context
-	// A workspace-owning row — a locked or unlocked branch is just a chat
-	// with a real WorkspaceID from this package's point of view.
 	seedChat(chats, "branch-1", 1)
+	nodes.Rows = append(nodes.Rows, domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace})
 
 	_, _, err := uc.Move(context.Background(), "root", tree.MoveInput{ParentID: name("branch-1")})
 	assert.ErrorIs(t, err, tree.ErrCrossContext)
@@ -143,15 +150,20 @@ func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
 		domain.Chat{ID: "branch-1", Type: domain.ChatTypeChat, WorkspaceID: "ws-1"},
 		domain.Chat{ID: "branch-2", Type: domain.ChatTypeChat, WorkspaceID: "ws-2"},
 	)
+	nodes := mocks.NewNodePlacements()
+	nodes.Rows = append(nodes.Rows,
+		domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace},
+		domain.Node{ID: "branch-2", Kind: domain.NodeKindWorkspace},
+	)
 	// Both branches resolve to the SAME repo — isolates the finer context
 	// check from the coarser repo check TestMove_RefusesAMoveAcrossRepos
 	// already covers.
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
 	gitStatus.SetRepo("ws-1", repoID)
 	gitStatus.SetRepo("ws-2", repoID)
-	uc2 := tree.New(chats, chats, inflight.NewWork(), gitStatus, mocks.NewAgentWorkspaceRoster(),
+	uc2 := tree.New(chats, chats, inflight.NewWork(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats),
-		mocks.NewFolderStore(), mocks.NewNodePlacements())
+		mocks.NewFolderStore(), nodes)
 	underBranch1, _, err := uc2.Create(context.Background(), tree.CreateInput{
 		RepoID: repoID, ParentID: "branch-1", Name: "notes",
 	})
@@ -162,8 +174,9 @@ func TestMove_RefusesBranchToDifferentBranchContext(t *testing.T) {
 }
 
 func TestMove_AllowsAMoveWithinTheSameBranchContext(t *testing.T) {
-	chats, uc, _ := newUsecaseWithWork(t)
+	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	seedChat(chats, "branch-1", 1)
+	nodes.Rows = append(nodes.Rows, domain.Node{ID: "branch-1", Kind: domain.NodeKindWorkspace})
 	underBranch1, _, err := uc.Create(context.Background(), tree.CreateInput{
 		RepoID: repoID, ParentID: "branch-1", Name: "notes",
 	})
@@ -185,13 +198,14 @@ func TestMove_AllowsAMoveWithinTheSameBranchContext(t *testing.T) {
 // A folder filed INTO a plain chat SIBLING that already sits at the exact
 // same panel root never leaves its context, even though that chat carries a
 // real WorkspaceID of its own (every chat does — domain.Chat's own doc) and
-// the folder does not. Caught live: this was refused with ErrCrossContext,
-// because nearestWorkspaceAnchor used to stop at the FIRST row carrying a
-// WorkspaceID rather than the row that actually OWNS it — "sibling" here is
-// an ordinary chat in "owner"'s workspace, never itself an ancestor of the
-// folder, exactly like a project's home-owning chat sits outside the very
-// tree it roots (rows-from-home.ts) while an ordinary bubble beside it still
-// carries that same home workspace id.
+// the folder does not. Neither "owner" nor "sibling" has a Node row of its
+// own here, so nearestWorkspaceAnchor's walk falls all the way through both
+// to the panel root — pinning that a chat's OWN WorkspaceID pointer is never
+// enough to make it an anchor on its own (see nearestWorkspaceAnchor's doc);
+// only a row that IS its own Node{Kind:workspace} counts. Caught live before
+// this simplification: this was refused with ErrCrossContext, because
+// nearestWorkspaceAnchor used to stop at the FIRST row carrying a
+// WorkspaceID rather than the row that actually OWNED it.
 func TestMove_AllowsAFolderIntoAPlainChatSiblingAtTheSameRoot(t *testing.T) {
 	chats, uc, _ := newUsecaseWithWork(t)
 	seedChat(chats, "owner", 1)

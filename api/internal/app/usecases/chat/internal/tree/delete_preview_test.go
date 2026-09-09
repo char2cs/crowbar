@@ -25,7 +25,7 @@ func newUsecaseWithGitStatus(
 	chats := mocks.NewAgentChatPlacements()
 	git := mocks.NewAgentWorkspaceGitStatus()
 	work := inflight.NewWork()
-	return chats, tree.New(chats, chats, work, git, mocks.NewAgentWorkspaceRoster(),
+	return chats, tree.New(chats, chats, work, git,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats),
 		mocks.NewFolderStore(), mocks.NewNodePlacements()), git
 }

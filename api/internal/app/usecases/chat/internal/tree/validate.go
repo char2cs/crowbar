@@ -88,29 +88,30 @@ func (u *chatFolderUsecase) checkFolderContextMove(
 }
 
 // nearestWorkspaceAnchor walks id's ParentID chain (id's OWN row included)
-// until a row that genuinely OWNS a workspace turns up, and answers that
+// until a row that genuinely IS a workspace turns up, and answers that
 // workspace's id. "" is a real answer, not "not found": it means the walk
-// reached the panel root without ever crossing an owning row — the bare repo
-// root, or project home.
+// reached the panel root without ever crossing one — the bare repo root, or
+// project home.
 //
-// "Owns" is answered by ownsWorkspace, deliberately NOT "carries a non-empty
-// WorkspaceID" — a plain chat carries one too (domain.Chat's own doc:
-// "WorkspaceID always resolves to a repo", populated on every row regardless
-// of Type), but that is the chat's GROUND, the workspace whose API scope it
-// happens to live under, not a context boundary; an unlocked branch's own
-// owning row is ALSO merely ChatTypeChat (owningChatType only promotes a
-// locked branch, a repo home or a project home to ChatTypeBranch), so Type
-// alone cannot tell the two apart either. Stopping at "carries a
-// WorkspaceID" made a folder sitting at the bare root (whose own walk
-// correctly falls through folders, which never carry WorkspaceID, straight
-// to "") compare unequal against a PLAIN CHAT SIBLING at that identical
-// root — the chat's walk stopped one step early, on itself, and reported its
-// own ground workspace as if it were a branch anchor. Two rows at the exact
-// same position in the exact same context reported different anchors purely
-// because one kind (chat) happens to store a WorkspaceID pointer the other
-// kind (folder) never does — caught live as a folder that could reorder past
-// a chat sibling but could never be filed INTO one, refused with "crosses
-// context" for two rows that had never left it.
+// "Is a workspace" is answered directly off the Node forest: id's own
+// Node.Kind == NodeKindWorkspace, full stop (2026-09-08
+// sidebar-placement-unification Task 9 — every workspace mints a
+// Node{Kind:workspace} row, keyed by its own id, unconditionally at
+// creation, so this is never ambiguous). Deliberately NOT "carries a
+// non-empty WorkspaceID" — a plain chat carries one too (domain.Chat's own
+// doc: "WorkspaceID always resolves to a repo", populated on every row
+// regardless of Type), but that is the chat's GROUND, the workspace whose
+// API scope it happens to live under, not a context boundary. Stopping at
+// "carries a WorkspaceID" made a folder sitting at the bare root (whose own
+// walk correctly falls through folders, which never carry WorkspaceID,
+// straight to "") compare unequal against a PLAIN CHAT SIBLING at that
+// identical root — the chat's walk stopped one step early, on itself, and
+// reported its own ground workspace as if it were an anchor. Two rows at the
+// exact same position in the exact same context reported different anchors
+// purely because one kind (chat) happens to store a WorkspaceID pointer the
+// other kind (folder) never does — caught live as a folder that could
+// reorder past a chat sibling but could never be filed INTO one, refused
+// with "crosses context" for two rows that had never left it.
 func (u *chatFolderUsecase) nearestWorkspaceAnchor(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -122,57 +123,42 @@ func (u *chatFolderUsecase) nearestWorkspaceAnchor(
 			return "", nil
 		}
 		seen[id] = true
+		n, nErr := u.nodes.GetNode(ctx, id)
+		if nErr == nil && n.Kind == domain.NodeKindWorkspace {
+			return id, nil
+		}
+		if nErr == nil {
+			id = n.ParentID
+			continue
+		}
+		// A row Node has never touched (a proxy owning chat minted before its
+		// worktree existed, still placed through placeOwningRow directly
+		// rather than through Nodes) falls back to its own frozen Chat.ParentID
+		// — exactly as live as it always was, since nothing but placeOwningRow
+		// ever writes it.
 		row, err := u.resolveRow(ctx, snapshot, id)
 		if err != nil {
 			return "", fmt.Errorf("resolve %s: %w", id, err)
 		}
-		if row.WorkspaceID != "" {
-			owns, err := u.ownsWorkspace(ctx, *row)
-			if err != nil {
-				return "", fmt.Errorf("resolve owner of workspace %s: %w", row.WorkspaceID, err)
-			}
-			if owns {
-				return row.WorkspaceID, nil
-			}
-		}
-		id, err = u.parentOf(ctx, id, *row)
-		if err != nil {
-			return "", fmt.Errorf("resolve parent of %s: %w", id, err)
-		}
+		id = row.ParentID
 	}
 	return "", nil
-}
-
-// parentOf answers id's parent for nearestWorkspaceAnchor's walk: the live
-// Node position when one exists — a folder or chat placed since this
-// migration is Node-backed and its Chat.ParentID is frozen at creation (see
-// writeRow's dispatch, plan.go) — falling back to row's own ParentID for a
-// row Node has never touched (a locked branch's own owning row, still
-// governed entirely by owning_rows.go/placeOwningRow until Task 9 gives it a
-// Node of its own; row.ParentID for THAT row is exactly as live as it always
-// was, since nothing but placeOwningRow ever writes it).
-func (u *chatFolderUsecase) parentOf(
-	ctx context.Context,
-	id string,
-	row domain.Chat,
-) (string, error) {
-	n, err := u.nodes.GetNode(ctx, id)
-	if err != nil {
-		return row.ParentID, nil
-	}
-	return n.ParentID, nil
 }
 
 // resolveRow answers id's Chat-shaped view for a validation walk: the
 // snapshot's own copy when it has one (already Node-corrected by
 // mergeForest, for whichever rows that walk discovered — see its own doc),
-// falling back to a keyed Chats.Get and, only once THAT comes back
-// not-found, a keyed Folders+Nodes read — a folder mergeForest's own BFS
-// happened not to reach (its "seed every known chat id" walk is thorough but
-// not exhaustive against every conceivable ancestor chain; see mergeForest's
-// own doc) is still a legitimate container the golden rule must be able to
-// resolve, exactly as a chat the global list did not carry already is
-// (TestCreate_AcceptsAChatTheGlobalListDidNotCarry).
+// falling back in turn to a keyed Chats.Get, a keyed Folders+Nodes read — a
+// folder mergeForest's own BFS happened not to reach (its "seed every known
+// chat id" walk is thorough but not exhaustive against every conceivable
+// ancestor chain; see mergeForest's own doc) is still a legitimate container
+// the golden rule must be able to resolve, exactly as a chat the global list
+// did not carry already is (TestCreate_AcceptsAChatTheGlobalListDidNotCarry)
+// — and, only once BOTH of those come back not-found, a keyed Nodes read for
+// a workspace's own Node{Kind:workspace} row (see workspaceAnchorView): the
+// placement id MintOwningChat/importPlacement resolve a new row's ParentID
+// to (owning_chat.go, 2026-09-08 sidebar-placement-unification Task 9) names
+// no Chat or Folder aggregate at all, only that Node row.
 func (u *chatFolderUsecase) resolveRow(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -185,31 +171,19 @@ func (u *chatFolderUsecase) resolveRow(
 	if err == nil {
 		return &got, nil
 	}
-	f, ferr := u.folders.FindByKey(ctx, id)
-	if ferr != nil || f == nil {
-		return nil, err // the ORIGINAL Chats.Get failure -- the folder lookup found nothing either.
+	if f, ferr := u.folders.FindByKey(ctx, id); ferr == nil && f != nil {
+		n, nerr := u.nodes.GetNode(ctx, id)
+		if nerr != nil {
+			n = domain.Node{}
+		}
+		row := homeFolderView(*f, n)
+		return &row, nil
 	}
-	n, nerr := u.nodes.GetNode(ctx, id)
-	if nerr != nil {
-		n = domain.Node{}
+	if n, nerr := u.nodes.GetNode(ctx, id); nerr == nil && n.Kind == domain.NodeKindWorkspace {
+		row := workspaceAnchorView(id, n)
+		return &row, nil
 	}
-	row := homeFolderView(*f, n)
-	return &row, nil
-}
-
-// ownsWorkspace answers whether row is the one row that OWNS row.WorkspaceID
-// — the same "which row addresses this workspace" question the sidebar
-// itself asks (ResolveOwningChat, owning_rows.go), reused here rather than
-// re-derived: a row's own WorkspaceID pointer is not enough on its own (see
-// nearestWorkspaceAnchor's doc), since any ordinary chat started inside a
-// workspace carries the identical pointer its owning row does.
-func (u *chatFolderUsecase) ownsWorkspace(ctx context.Context, row domain.Chat) (bool, error) {
-	rows, err := u.chats.ListByWorkspace(ctx, row.WorkspaceID)
-	if err != nil {
-		return false, err
-	}
-	owner, ok := ResolveOwningChat(rows)
-	return ok && owner.ID == row.ID, nil
+	return nil, err // the ORIGINAL Chats.Get failure -- neither a folder nor a workspace's own Node row answers to id either.
 }
 
 // checkFolderContainer validates a folder's parent id: "" is the panel root

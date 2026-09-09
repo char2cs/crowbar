@@ -3,7 +3,6 @@ package tree
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -19,11 +18,6 @@ import (
 // Reusing this scaffold is what makes that unrepresentable rather than merely
 // reconciled after the fact: the chat exists BEFORE the workspace does, and a
 // failure anywhere after the mint takes the chat back out.
-//
-// The row is retyped to a BRANCH row when the workspace it ended up owning is
-// one the sidebar draws as a branch — a locked branch, most often, which is
-// what every protected import produces. That judgement is not restated here; it
-// is owningChatType (owning_rows.go), the same rule the boot backfill takes.
 func (u *chatFolderUsecase) createImportedWorktreeChat(
 	ctx context.Context,
 	providerID string,
@@ -54,7 +48,6 @@ func (u *chatFolderUsecase) createImportedWorktreeChat(
 	if err != nil {
 		return "", domain.Workspace{}, "", u.discard(ctx, chatID, err)
 	}
-	u.retypeOwningRow(ctx, chatID, ws)
 	return chatID, ws, runnerID, nil
 }
 
@@ -82,12 +75,11 @@ func (u *chatFolderUsecase) ImportBranchAsChat(
 // batch importer actually knows: the git lineage.
 //
 // An explicit parentID always wins — that is a caller naming a chat outright.
-// Otherwise the spec's ParentWorkspaceID is translated into the chat that owns
-// it, which is the one join §7.6 leaves to this side. A batch import resolves
-// its parents as WORKSPACES (a PR base branch is a branch, not a conversation),
-// and the sidebar places rows under CHATS; keeping the translation here means
-// no caller has to learn it, and the workspace-lineage maps a chain walk
-// already builds stay exactly as they are.
+// Otherwise the spec's ParentWorkspaceID IS the placement id (see
+// owningChatOf): a batch import resolves its parents as WORKSPACES (a PR base
+// branch is a branch, not a conversation), and every workspace's own
+// Node{Kind:workspace} row shares the SAME sibling-order space a chat's
+// placement does, so no translation is needed at all.
 func (u *chatFolderUsecase) importPlacement(
 	ctx context.Context,
 	parentID string,
@@ -97,28 +89,4 @@ func (u *chatFolderUsecase) importPlacement(
 		return parentID, nil
 	}
 	return u.owningChatOf(ctx, spec.ParentWorkspaceID)
-}
-
-// retypeOwningRow makes a just-attached row the BRANCH row its workspace is
-// owed, when that is what the workspace turns out to be.
-//
-// It is best-effort and never fails the create. By the time it runs the branch
-// is imported, the workspace exists and the chat owns it — every invariant this
-// path exists to establish already holds — and the only thing left is which
-// glyph the sidebar draws. Undoing a completed import over that would destroy
-// real work, and the boot backfill takes exactly this decision again anyway
-// (see adopt, owning_rows.go), so a row that misses it here is repaired rather
-// than stranded.
-func (u *chatFolderUsecase) retypeOwningRow(
-	ctx context.Context,
-	chatID string,
-	ws domain.Workspace,
-) {
-	if owningChatType(ws) != domain.ChatTypeBranch {
-		return
-	}
-	if _, err := u.chats.SetType(ctx, chatID, domain.ChatTypeBranch); err != nil {
-		slog.WarnContext(ctx, "agent chat folder: retype imported row as a branch row (best-effort, continuing)",
-			"chat_id", chatID, "workspace_id", ws.ID, "err", err)
-	}
 }

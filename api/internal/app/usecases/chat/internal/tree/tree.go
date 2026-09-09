@@ -47,7 +47,6 @@ type chatFolderUsecase struct {
 	agent      Agent
 	work       *inflight.Work
 	workspaces WorkspaceGitStatus
-	roster     WorkspaceRoster
 	reaper     WorkspaceReaper
 	holders    WorkspaceHolders
 	// folders and nodes are the folder/chat placement surface every scope
@@ -71,9 +70,9 @@ type chatFolderUsecase struct {
 // subtree it takes by asking it directly, so the answer can never lag behind
 // what a hook just announced.
 //
-// workspaces is DeletePreview's seam onto the workspace layer; roster is
-// BackfillOwningChats'; reaper is DeleteChat's, and it is REQUIRED rather than
-// optional for the reason ChatTreeUsecase itself is: a delete wired without it
+// workspaces is DeletePreview's seam onto the workspace layer; reaper is
+// DeleteChat's, and it is REQUIRED rather than optional for the reason
+// ChatTreeUsecase itself is: a delete wired without it
 // would erase a chat and silently strand the worktree it owned, which is the
 // bug this port exists to close. Making it a parameter puts that mis-wire in
 // front of the compiler instead of in front of a user.
@@ -91,7 +90,6 @@ func New(
 	agent Agent,
 	work *inflight.Work,
 	workspaces WorkspaceGitStatus,
-	roster WorkspaceRoster,
 	reaper WorkspaceReaper,
 	holders WorkspaceHolders,
 	folders Folders,
@@ -102,7 +100,6 @@ func New(
 		agent:      agent,
 		work:       work,
 		workspaces: workspaces,
-		roster:     roster,
 		reaper:     reaper,
 		holders:    holders,
 		folders:    folders,

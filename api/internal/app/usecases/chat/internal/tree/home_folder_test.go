@@ -39,7 +39,7 @@ func newHomeUsecase(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus, mocks.NewAgentWorkspaceRoster(),
+	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
 	return chats, folders, nodes, uc
 }
@@ -60,7 +60,7 @@ func newHomeUsecaseWithGitStatus(
 	folders := mocks.NewFolderStore()
 	nodes := mocks.NewNodePlacements()
 	gitStatus := mocks.NewAgentWorkspaceGitStatus()
-	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus, mocks.NewAgentWorkspaceRoster(),
+	uc := tree.New(chats, chats, inflight.NewWork(), gitStatus,
 		mocks.NewAgentWorkspaceReaper(), mocks.NewAgentWorkspaceHolders(chats), folders, nodes)
 	return chats, nodes, gitStatus, uc
 }

@@ -40,6 +40,31 @@ func homeFolderView(
 	}
 }
 
+// workspaceAnchorView renders a workspace's own Node{Kind:workspace} row as
+// the same Chat-shaped view every other verb in this package validates a
+// container against, for a row filed directly under a workspace's own
+// placement id (owning_chat.go's owningChatOf, 2026-09-08
+// sidebar-placement-unification Task 9) that resolveRow's Chat/Folder tiers
+// cannot answer — that id names no Chat or Folder aggregate at all.
+//
+// It carries no real conversation: WorkspaceID is set to the workspace's own
+// id, which is the only fact checkParentKind/repoScopeOf need to accept it
+// as a container (an own-worktree creation accepts any row.WorkspaceID != "",
+// and repoScopeOf resolves a repo scope off it exactly as it already does
+// for an ordinary chat).
+func workspaceAnchorView(
+	workspaceID string,
+	n domain.Node,
+) domain.Chat {
+	return domain.Chat{
+		ID:          workspaceID,
+		Type:        domain.ChatTypeChat,
+		WorkspaceID: workspaceID,
+		ParentID:    n.ParentID,
+		Order:       n.Order,
+	}
+}
+
 // nodePhantomType marks a repo's own Node row as it rides through this
 // package's Chat-shaped treeSnapshot — a repo is neither a folder nor a chat
 // (isFolder/isChat must both answer false for it) and is never written back

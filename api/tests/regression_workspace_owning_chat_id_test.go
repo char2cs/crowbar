@@ -5,86 +5,60 @@ package tests
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestRegression_WorkspaceDTOCarriesItsRealOwningChatID pins Task 5 of the
-// 2026-09-01 owning-chat-backfill plan: the workspace wire DTO carries the id
-// of the chat row the workspace actually owns, so a client (or Task 6's
-// frontend) can address that row directly instead of independently deriving
-// it — and, for a locked/default/home workspace, without re-deriving Task 3's
-// branch-preference tiebreak a second, possibly-inconsistent way.
+// TestRegression_WorkspaceDTOResolvesItsOwningChatWithoutAnyBackfill pins
+// what replaces the boot backfill this file used to pin (2026-09-08
+// sidebar-placement-unification Task 9 deleted BackfillOwningChats,
+// EnsureOwningChat and the machinery behind them): a workspace's owning chat
+// is now guaranteed chat-first, at creation
+// (MintOwningChat/AttachOwningWorkspace, owning_chat.go), and nothing ever
+// reconciles a workspace afterward — this daemon boots exactly once here,
+// and the workspace under test is never touched by anything but its own
+// creation.
 //
-// The repo-home ("main", locked/protected) is planted with a LEGACY
-// conversation from before the owning-chat backfill existed, deliberately, so
-// a resolution that just took the first chat row (as the placement handler's
-// own resolveOwningChat in hierarchy.go still does) would report the WRONG
-// id here: the wire field must resolve to the branch row the backfill mints,
-// exactly as Task 3's own preferred() tiebreak requires.
-func TestRegression_WorkspaceDTOCarriesItsRealOwningChatID(t *testing.T) {
-	home := t.TempDir()
-	first := newHarnessAt(t, home)
-	imported := importWritableWorkspace(t, first)
+// The ambiguity domain.ResolveOwningChat exists to resolve still arises in
+// the fresh system, just from a different source than a boot backfill's
+// adopt-or-mint: a workspace's worktree is many-chats-to-one, so a SECOND,
+// ordinary conversation started inside a workspace shares its WorkspaceID
+// with the row that already owns it. The wire owningChatId must still
+// resolve to the ORIGINAL chat-first row — the id every chat-scoped route
+// addresses that worktree through — never to the later conversation, which
+// this test plants directly against the repository (a real conversation
+// reaches the identical row shape through CreateChat's plain-thread path;
+// this fixture only needs the ROW, never the CLI a live spawn would start).
+func TestRegression_WorkspaceDTOResolvesItsOwningChatWithoutAnyBackfill(t *testing.T) {
+	h := newHarnessAt(t, t.TempDir())
+	imported := importWritableWorkspace(t, h)
 
-	ctx := context.Background()
-	rows, err := first.app.Repositories.Workspace.List(ctx)
+	_, err := h.app.Repositories.AgentChat.Create(context.Background(), agentchat.CreateInput{
+		ID:          "second-conversation",
+		WorkspaceID: imported.workspaceID,
+		Type:        domain.ChatTypeChat,
+		Now:         time.Now().UTC(),
+	})
 	require.NoError(t, err)
-	var lockedID string
-	for _, ws := range rows {
-		if ws.ProjectID == imported.projectID && ws.RepoID == imported.repoID &&
-			ws.Status == domain.WorkspaceStatusLocked {
-			lockedID = ws.ID
-		}
-	}
-	require.NotEmpty(t, lockedID, "precondition: the repo-home main worktree must be locked")
+	h.Quiesce()
 
-	plantLegacyChat(t, first, lockedID)
-	first.shutdown()
-
-	second := newHarnessAt(t, home)
-	second.Quiesce()
-
-	lockedRows, err := second.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, lockedID)
+	rows, err := h.app.Usecases.AgentChat.ListChatsByWorkspace(context.Background(), imported.workspaceID)
 	require.NoError(t, err)
-	require.Len(t, lockedRows, 2, "the legacy conversation is kept and the backfilled branch row joins it")
-	var branchID string
-	for _, row := range lockedRows {
-		if row.Type == domain.ChatTypeBranch {
-			branchID = row.ID
+	require.Len(t, rows, 2, "the workspace's chat-first row and the later conversation both name it")
+
+	var owningChatID string
+	for _, c := range listChats(t, h, imported.projectID, imported.repoID) {
+		if c.WorkspaceID == imported.workspaceID {
+			require.NotNil(t, c.Worktree, "every row naming this workspace must carry its worktree fields")
+			owningChatID = c.Worktree.OwningChatID
 		}
 	}
-	require.NotEmpty(t, branchID, "the locked workspace must have been backfilled a branch row")
-	require.NotEqual(t, legacyChatID, branchID)
-
-	childChat := owningChat(t, second, imported.workspaceID)
-	require.Equal(t, domain.ChatTypeChat, childChat.Type, "precondition: the unlocked fork owns an ordinary chat row")
-
-	// listWorkspaces (fixtures_test.go) is the wrong read here: its OwningChatID
-	// is deliberately the CHAT ROW'S OWN id, not the nested resolved copy — sound
-	// for one chat per workspace, but the locked workspace here is carried by TWO
-	// (the branch row and the legacy conversation planted above), and collapsing
-	// them into a byID map keeps whichever the loop saw last. The chat list's own
-	// worktree.owningChatId is the field this test is actually about, and it
-	// agrees across every row naming that workspace, so which one is read back
-	// does not matter.
-	var lockedOwner, childOwner string
-	for _, c := range listChats(t, second, imported.projectID, imported.repoID) {
-		switch c.WorkspaceID {
-		case lockedID:
-			require.NotNil(t, c.Worktree, "the locked repo-home's row must carry a worktree")
-			lockedOwner = c.Worktree.OwningChatID
-		case imported.workspaceID:
-			require.NotNil(t, c.Worktree, "the unlocked fork's row must carry a worktree")
-			childOwner = c.Worktree.OwningChatID
-		}
-	}
-
-	assert.Equal(t, branchID, lockedOwner,
-		"the locked row's wire owningChatId must resolve to the branch row, not the legacy conversation rows[0] would pick")
-	assert.Equal(t, childChat.ID, childOwner,
-		"a regular fork's wire owningChatId must resolve to its own chat-typed row")
+	assert.Equal(t, imported.chatID, owningChatID,
+		"the wire owningChatId must resolve to the chat-first minted row, never the later conversation, "+
+			"and never through a boot backfill -- this task deleted the last one")
 }

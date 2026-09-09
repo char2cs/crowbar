@@ -208,18 +208,6 @@ type Agent interface {
 // (SDD review fix round 3) is, and the two ports sit together for the same
 // reason Folders/Nodes already do.
 
-// WorkspaceRoster is the boot backfill's census: every workspace the daemon
-// knows, across every repo, tombstones included (they are filtered here — see
-// liveWorkspaces). It is a second port rather than a method on
-// WorkspaceGitStatus because the two are asked at opposite moments for
-// opposite reasons: one answers a per-row question on a hot user path, this
-// one is read exactly once, at startup.
-type WorkspaceRoster interface {
-	List(
-		ctx context.Context,
-	) ([]domain.Workspace, error)
-}
-
 // WorkspaceReaper is the narrow write port DeleteChat needs: tearing down the
 // worktree a chat OWNED, in the same breath the chat is erased.
 //
@@ -444,26 +432,6 @@ type Usecase interface {
 		ctx context.Context,
 		chatID string,
 	) (ChatDeletion, error)
-	// BackfillOwningChats gives every workspace the owning chat row it is owed,
-	// once, at startup — minting one where there is none, and adopting the row a
-	// workspace already has where that workspace has since become something
-	// else. It is the migration for every workspace made before a workspace and
-	// the chat that owns it were minted in one breath: the sidebar addresses a
-	// workspace's placement BY that row, so a workspace without one exists on
-	// disk and nowhere in the tree. See backfill.go.
-	BackfillOwningChats(
-		ctx context.Context,
-	) error
-	// EnsureOwningChat is BackfillOwningChats narrowed to ONE workspace, for the
-	// moment a workspace changes character while the daemon is RUNNING rather
-	// than between boots — a branch the user locks, or one a provider poll
-	// reports protected, is branch-destined from that instant and everything
-	// downstream expects its branch row to be there already. It takes the same
-	// decision by the same code; see backfill.go.
-	EnsureOwningChat(
-		ctx context.Context,
-		ws domain.Workspace,
-	) error
 	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
 	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
 	// row in the subtree, and the working-tree file count summed across every

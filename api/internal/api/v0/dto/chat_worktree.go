@@ -73,7 +73,7 @@ type ChatWorktreeDTO struct {
 	// answer). A client assembling a per-WORKTREE view therefore needs to know
 	// which of those rows is the one the worktree is addressed by, and deriving
 	// it client-side would be a second, independently-drifting copy of
-	// ResolveOwningChat's branch-preferring rule. So the daemon says.
+	// domain.ResolveOwningChat's branch-preferring rule. So the daemon says.
 	//
 	// It is the SAME answer WorkspaceDTO.OwningChatID carries, resolved by the
 	// same call, which is what lets a client keep one identity for a worktree

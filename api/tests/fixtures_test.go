@@ -12,8 +12,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // importedRepo bundles the ids a project import yields: the project, its
@@ -255,8 +255,17 @@ func importWritableWorkspace(
 //
 // CreateChild is the same call the live import path makes
 // (usecases.worktreeChildCreator.CreateImportedWorkspace), with the same
-// arguments, so a fixture worktree is born exactly as a real one is — owning
-// chat included. Only the caller differs.
+// arguments, so a fixture worktree is born exactly as a real one is — except
+// for the chat: the PRODUCT path that reaches CreateChild (chat.go's
+// createOwnWorktreeChat -> agent.SpawnChatWithOwnWorktree) always has an
+// already-minted chat calling into it, and this fixture calls CreateChild
+// directly to name its own branch (a fixture need — auto-derived branch
+// naming is all the live surface offers). It therefore has to mint and
+// attach that chat itself, through the SAME three-verb primitive
+// hierarchy/project's own import paths use (MintOwningChat/
+// AttachOwningWorkspace/DiscardOwningChat, owning_chat.go) — there is no
+// boot backfill any more (2026-09-08 sidebar-placement-unification Task 9)
+// to give an orphaned create one after the fact.
 func createWorktree(
 	t *testing.T,
 	h *harness,
@@ -281,6 +290,10 @@ func createWorktree(
 		require.NoError(t, perr, "createWorktree: read parent workspace")
 		parentBranch = parent.Branch
 	}
+
+	mintedChatID, err := h.app.Usecases.AgentChatFolder.MintOwningChat(ctx, parentID)
+	require.NoError(t, err, "createWorktree: mint the owning chat")
+
 	ownWorktree := true
 	ws, err := h.app.Usecases.Workspace.CreateChild(ctx, wsusecase.CreateChildInput{
 		RepoID:       imported.repoID,
@@ -292,7 +305,14 @@ func createWorktree(
 		ParentBranch: parentBranch,
 		OwnWorktree:  &ownWorktree,
 	})
+	if err != nil {
+		require.NoError(t, h.app.Usecases.AgentChatFolder.DiscardOwningChat(ctx, mintedChatID),
+			"createWorktree: discard the owning chat of a workspace that was never created")
+	}
 	require.NoErrorf(t, err, "createWorktree: create %q under %q", branch, parentID)
+
+	require.NoError(t, h.app.Usecases.AgentChatFolder.AttachOwningWorkspace(ctx, mintedChatID, ws),
+		"createWorktree: attach the minted chat to its workspace")
 
 	// The create's writes are asynx commands; the store/list read model is an
 	// INDEPENDENT projection that settles out of band. Without this barrier the
@@ -303,7 +323,7 @@ func createWorktree(
 	// Linux loses it roughly 7 times in 10.
 	h.Quiesce()
 
-	return ws.ID, owningChatID(t, h, ws.ID)
+	return ws.ID, mintedChatID
 }
 
 // createChildWorkspace cuts a worktree on branch under parentID and returns its
@@ -351,12 +371,14 @@ func repoChatsWS(
 }
 
 // owningChatID resolves the chat that OWNS wsID, through the daemon's own
-// resolver rather than a second one derived here.
+// resolver (domain.ResolveOwningChat) rather than a second one derived here.
 //
-// EnsureOwningChat runs first — the live-path narrowing of the boot backfill,
-// taking the same decision by the same code — because a workspace created
-// mid-run is otherwise owed its chat row only by the NEXT boot's backfill, and a
-// test that just created one would find nothing to address it by.
+// No reconcile runs first any more (2026-09-08 sidebar-placement-unification
+// Task 9 deleted the boot backfill and its live-path narrowing,
+// EnsureOwningChat): a workspace's owning chat is minted chat-first, before
+// the workspace itself exists (MintOwningChat/AttachOwningWorkspace,
+// owning_chat.go), so by the time a caller holds wsID the row this resolves
+// is already there — nothing left to ensure.
 func owningChatID(
 	t *testing.T,
 	h *harness,
@@ -364,18 +386,10 @@ func owningChatID(
 ) string {
 	t.Helper()
 	ctx := context.Background()
-	ws, err := h.app.Repositories.Workspace.Get(ctx, wsID)
-	require.NoError(t, err, "owningChatID: read workspace %s", wsID)
-	require.NoError(
-		t,
-		h.app.Usecases.AgentChatFolder.EnsureOwningChat(ctx, ws),
-		"owningChatID: ensure the owning chat for %s",
-		wsID,
-	)
 	h.Quiesce()
 	rows, err := h.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
 	require.NoError(t, err, "owningChatID: list the chats holding %s", wsID)
-	owner, ok := agentusecase.ResolveOwningChat(rows)
+	owner, ok := domain.ResolveOwningChat(rows)
 	require.Truef(t, ok, "workspace %s must be held by an owning chat", wsID)
 	return owner.ID
 }

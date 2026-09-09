@@ -27,7 +27,6 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/core/gateway"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -624,39 +623,32 @@ func (e *Env) chatScope(
 // OwningChatID returns the id of the chat row that OWNS the given workspace —
 // the chat every chat-scoped route addresses that workspace's worktree through.
 //
-// It first makes sure the row exists, through the daemon's own EnsureOwningChat
-// (the live-path narrowing of the boot backfill, taking the same decision by
-// the same code): a workspace created mid-run is otherwise owed its row only by
-// the NEXT boot's backfill, and a test that just created one would find no chat
-// to address it by.
+// No reconcile runs first any more (2026-09-08 sidebar-placement-unification
+// Task 9 deleted the boot backfill and its live-path narrowing,
+// EnsureOwningChat): a workspace's owning chat is minted chat-first, before
+// the workspace itself exists (MintOwningChat/AttachOwningWorkspace,
+// owning_chat.go), so by the time a caller holds wsID the row this resolves
+// is already there.
 //
 // The read-back is in-process, not over HTTP: a workspace is not addressable
 // any more (spec §8 step 6 deleted GET .../workspaces/:wsId), so there is no
 // route to ask. It takes the SAME two calls the wire DTO's own resolver takes
 // (repositories.Container.owningChatIDFor) — ListChatsByWorkspace then
-// agentusecase.ResolveOwningChat — so the answer is still the production
-// resolver's, never a second one derived here.
+// domain.ResolveOwningChat — so the answer is still the production resolver's,
+// never a second one derived here.
 func (e *Env) OwningChatID(
 	t *testing.T,
 	wsID string,
 ) string {
 	t.Helper()
 	ctx := context.Background()
-	ws, err := e.app.Repositories.Workspace.Get(ctx, wsID)
-	require.NoError(t, err, "OwningChatID: read workspace %s", wsID)
-	require.NoError(
-		t,
-		e.app.Usecases.AgentChatFolder.EnsureOwningChat(ctx, ws),
-		"OwningChatID: ensure the owning chat for %s",
-		wsID,
-	)
-	// The mint is an asynx write; drain the projections so the read below sees
-	// the row rather than racing it (no polling, no sleep).
+	// The chat-first mint is an asynx write; drain the projections so the read
+	// below sees the row rather than racing it (no polling, no sleep).
 	e.Quiesce()
 
 	rows, err := e.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
 	require.NoError(t, err, "OwningChatID: list the chats holding %s", wsID)
-	owner, ok := agentusecase.ResolveOwningChat(rows)
+	owner, ok := domain.ResolveOwningChat(rows)
 	require.Truef(
 		t,
 		ok,
@@ -1149,8 +1141,12 @@ func (e *Env) RegisterRepo(
 //
 // Usecases.Workspace.CreateChild is the same call the live import path makes
 // (usecases.worktreeChildCreator.CreateImportedWorkspace), with the same
-// arguments, so a fixture worktree is born exactly as a real one is — including
-// the owning chat every worktree is created under. Only the caller differs.
+// arguments, so a fixture worktree is born exactly as a real one is — except
+// for the chat: the PRODUCT path that reaches CreateChild (chat.go's
+// createOwnWorktreeChat -> agent.SpawnChatWithOwnWorktree) always has an
+// already-minted chat calling into it, and this fixture calls CreateChild
+// directly to name its own branch, so it has to mint and attach that chat
+// itself — see createWorkspace's own doc.
 func (e *Env) CreateWorkspace(
 	t *testing.T,
 	projectID string,
@@ -1158,7 +1154,8 @@ func (e *Env) CreateWorkspace(
 	branch string,
 ) string {
 	t.Helper()
-	return e.createWorkspace(t, projectID, repoID, branch, "")
+	wsID, _ := e.createWorkspace(t, projectID, repoID, branch, "")
+	return wsID
 }
 
 // CreateChildWorkspace creates a child workspace under parentID (a WORKSPACE
@@ -1171,16 +1168,22 @@ func (e *Env) CreateChildWorkspace(
 	parentID string,
 ) string {
 	t.Helper()
-	return e.createWorkspace(t, projectID, repoID, branch, parentID)
+	wsID, _ := e.createWorkspace(t, projectID, repoID, branch, parentID)
+	return wsID
 }
 
+// createWorkspace mints and attaches the owning chat itself, through the SAME
+// three-verb primitive hierarchy/project's own import paths use
+// (MintOwningChat/AttachOwningWorkspace/DiscardOwningChat, owning_chat.go):
+// there is no boot backfill any more (2026-09-08 sidebar-placement-unification
+// Task 9) to give an orphaned CreateChild call one after the fact.
 func (e *Env) createWorkspace(
 	t *testing.T,
 	projectID string,
 	repoID string,
 	branch string,
 	parentID string,
-) string {
+) (wsID string, chatID string) {
 	t.Helper()
 	ctx := context.Background()
 	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
@@ -1197,6 +1200,10 @@ func (e *Env) createWorkspace(
 		require.NoError(t, perr, "createWorkspace: read parent workspace %s", parentID)
 		parentBranch = parent.Branch
 	}
+
+	mintedChatID, err := e.app.Usecases.AgentChatFolder.MintOwningChat(ctx, parentID)
+	require.NoError(t, err, "createWorkspace: mint the owning chat")
+
 	// Forced true for the same reason the live import path forces it: the
 	// taxonomy default is "inherit whether the parent owns a worktree", and a
 	// fixture asking for a branch is asking for a real worktree on it.
@@ -1211,12 +1218,20 @@ func (e *Env) createWorkspace(
 		ParentBranch: parentBranch,
 		OwnWorktree:  &ownWorktree,
 	})
+	if err != nil {
+		require.NoError(t, e.app.Usecases.AgentChatFolder.DiscardOwningChat(ctx, mintedChatID),
+			"createWorkspace: discard the owning chat of a workspace that was never created")
+	}
 	require.NoErrorf(t, err, "createWorkspace: create %q under %q", branch, parentID)
+	require.NotEmpty(t, ws.ID, "createWorkspace: the created workspace must carry an id")
+
+	require.NoError(t, e.app.Usecases.AgentChatFolder.AttachOwningWorkspace(ctx, mintedChatID, ws),
+		"createWorkspace: attach the minted chat to its workspace")
+
 	// The create's own writes are asynx commands; drain them so a caller that
 	// reads the row (or dials its chat) next sees it rather than racing it.
 	e.Quiesce()
-	require.NotEmpty(t, ws.ID, "createWorkspace: the created workspace must carry an id")
-	return ws.ID
+	return ws.ID, mintedChatID
 }
 
 // CreateWorkspaceWithChat is CreateWorkspace plus the id of the chat the new
@@ -1230,8 +1245,7 @@ func (e *Env) CreateWorkspaceWithChat(
 	parentID string,
 ) (string, string) {
 	t.Helper()
-	wsID := e.createWorkspace(t, projectID, repoID, branch, parentID)
-	return wsID, e.OwningChatID(t, wsID)
+	return e.createWorkspace(t, projectID, repoID, branch, parentID)
 }
 
 // ImportedRepo bundles the ids a full project+repo import yields: the project,

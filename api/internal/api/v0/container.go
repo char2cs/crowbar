@@ -325,15 +325,16 @@ func (c *Container) PushWorkspace(
 //
 // It reads the owning chat id off the frame rather than resolving one, and that
 // is deliberate: enrichFrame has already resolved it, through the same
-// branch-preferring ResolveOwningChat every other surface uses, so taking it
-// here means the chat frame names exactly the row the workspace frame says owns
-// this worktree — never a second, independently derived answer that could pick
-// a different one.
+// branch-preferring domain.ResolveOwningChat every other surface uses, so taking
+// it here means the chat frame names exactly the row the workspace frame says
+// owns this worktree — never a second, independently derived answer that could
+// pick a different one.
 //
 // A workspace with no resolved owning chat pushes nothing. That is the honest
 // answer rather than a broadcast to nobody: such a row is the orphan spec §0
-// diagnosed, it has no chat for a client to draw it on, and the boot backfill
-// (not this push) is what gives it one.
+// diagnosed, with no chat for a client to draw it on — chat-first creation
+// (MintOwningChat/AttachOwningWorkspace, owning_chat.go) is what makes this
+// unrepresentable for every workspace made going forward.
 //
 // RepoID comes straight off the workspace, with no chat-forest walk: unlike a
 // bubble, whose repo is derived from where its cwd lands, a worktree-owning row

@@ -129,8 +129,10 @@ func TestRegression_AnImportedBranchIsOwnedByAChatWithoutARestart(t *testing.T) 
 			"no reboot has happened here, so a backfill cannot be what satisfies this")
 	assert.Equal(t, wsID, owners[0].WorkspaceID)
 	assert.Equal(t, domain.ChatTypeChat, owners[0].Type,
-		"an ordinary unlocked branch owns a CHAT row — the same kind the boot backfill "+
-			"gives an open worktree; only a LOCKED branch or a home owns a branch row")
+		"an ordinary unlocked branch owns a CHAT row — every workspace's owning chat is now, "+
+			"regardless of lock status (2026-09-08 sidebar-placement-unification Task 9 retired "+
+			"the retype-to-branch machinery; a locked/default/home workspace's own "+
+			"Node{Kind:workspace} row is what the sidebar draws as a branch now)")
 
 	assertEveryWorkspaceIsOwned(t, h)
 }
