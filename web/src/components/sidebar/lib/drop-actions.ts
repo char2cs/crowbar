@@ -20,11 +20,16 @@ import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { applyPendingRemovals } from '@/components/layout/removal-plan'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
 import { buildChatTree } from '@/features/agent/tree/lib/chat-rows'
-import { placeWorkspace, placeFolder, placeHomeFolder, placeRepo } from '@/lib/api/sidebar-placement'
+import {
+  placeWorkspace,
+  placeFolder,
+  placeHomeFolder,
+  placeRepo,
+} from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
 import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
-import { homeOwningChatId } from '@/components/sidebar/lib/rows-from-repo'
+import { resolveHomeOwnerId } from '@/components/sidebar/lib/rows-from-repo'
 import { useHomeTreeStore, applyHomeFolders, resolveHomeRowScope } from '@/lib/store/home-tree'
 import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
@@ -332,7 +337,7 @@ function planHomeFolderDrop(
 ): RowPlacementCall[] {
   const tree = useHomeTreeStore.getState().trees[projectId]
   if (!tree) return []
-  const homeRowId = homeOwningChatId(tree.chats, homeWorkspaceId)
+  const homeRowId = resolveHomeOwnerId(homeWorkspaceId, undefined, tree.chats)
   const roots = buildSidebarTree(
     [],
     tree.folders,
@@ -410,7 +415,7 @@ function projectHomeContainerSiblings(
   excludeRepoId: string,
 ): string[] {
   const tree = useHomeTreeStore.getState().trees[projectId]
-  const homeRowId = tree ? homeOwningChatId(tree.chats, homeWorkspaceId) : null
+  const homeRowId = tree ? resolveHomeOwnerId(homeWorkspaceId, undefined, tree.chats) : null
   const entries: { id: string; order: number; arrival: number }[] = []
   let arrival = 0
   for (const c of tree?.chats ?? []) {
@@ -466,9 +471,22 @@ function planRepoHomeDrop(
   // (it checks this exact container before a drop is ever offered), this is
   // the same defensive backstop every other plan function in this file keeps.
   if (containerId !== '' && resolveHomeRowScope(containerId)?.kind !== 'folder') return []
-  const rest = projectHomeContainerSiblings(scope.projectId, containerId, homeWorkspaceId, repoIcon.repoId)
+  const rest = projectHomeContainerSiblings(
+    scope.projectId,
+    containerId,
+    homeWorkspaceId,
+    repoIcon.repoId,
+  )
   const at = mode === 'into' ? rest.length : insertIndex(rest, target.id, mode)
-  return [{ kind: 'repoHome', projectId: scope.projectId, repoId: repoIcon.repoId, folderId: containerId, order: at }]
+  return [
+    {
+      kind: 'repoHome',
+      projectId: scope.projectId,
+      repoId: repoIcon.repoId,
+      folderId: containerId,
+      order: at,
+    },
+  ]
 }
 
 function planRowDrop(

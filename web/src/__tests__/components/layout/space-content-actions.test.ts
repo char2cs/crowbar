@@ -897,7 +897,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
   const branchRow = (id: string, workspaceId: string): Chat => ({
     id,
     repoId: 'r1',
-    type: 'branch',
+    ownsWorktree: true,
     workspaceId,
     title: '',
     order: 0,

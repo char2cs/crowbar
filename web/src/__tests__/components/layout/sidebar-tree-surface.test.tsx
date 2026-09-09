@@ -89,12 +89,16 @@ const repo = (over: Partial<Repo> = {}): Repo => {
   const home: Chat = {
     id: `${base.id}-home-row`,
     repoId: base.id,
-    type: 'branch',
+    ownsWorktree: true,
     workspaceId: base.defaultWorkspaceId,
     title: '',
     order: 0,
   }
-  return { ...base, chats: [home, ...(base.chats ?? [])] }
+  return {
+    ...base,
+    defaultOwningChatId: base.defaultOwningChatId ?? home.id,
+    chats: [home, ...(base.chats ?? [])],
+  }
 }
 
 /** Put repos in the store AND declare their trees read, which is the only state
@@ -187,7 +191,7 @@ describe('SidebarTreeSurface', () => {
           {
             id: 'locked-one-row',
             repoId: 'r1',
-            type: 'branch',
+            ownsWorktree: true,
             workspaceId: 'ws-locked',
             title: '',
             order: 0,
@@ -277,7 +281,7 @@ describe('SidebarTreeSurface — a project-home row is reachable by the context 
             {
               id: 'home-branch-chat',
               repoId: '',
-              type: 'branch',
+              ownsWorktree: true,
               workspaceId: 'home-ws-1',
               title: '',
               order: 0,

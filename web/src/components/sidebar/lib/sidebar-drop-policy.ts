@@ -12,6 +12,8 @@ import { isWorkspaceLockedInSidebar, useSidebarStore, type Repo } from '@/lib/st
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import { foldWorkspaceOwners, resolveOwnerChats } from '@/components/sidebar/lib/rows-from-repo'
+import { buildSidebarTree, indexSidebarTree } from '@/components/layout/workspace-tree-utils'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -85,6 +87,39 @@ export function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope 
 function resolveChatRepo(repos: readonly Repo[], chatId: string): RowScope | null {
   const repo = repos.find((r) => r.chats?.some((c) => c.id === chatId))
   return repo ? { repoId: repo.id, projectId: repo.projectId } : null
+}
+
+/**
+ * The nearest workspace-kind row's id in `id`'s ancestor chain — `id`'s own
+ * row included — mirroring the backend's own golden-rule "context" walk
+ * (`nearestWorkspaceAnchor`, usecases/chat/internal/tree/validate.go): a
+ * folder may reorder freely within whatever branch's (or the bare repo
+ * root's) subtree it already sits in, but never jump to a different one —
+ * even though the coarser same-repo check above would allow it (same repo,
+ * or both the bare root). `""` is the bare repo root, a real answer, not
+ * "not found".
+ *
+ * Built from the SAME folded tree `rows-from-repo.ts` renders (`buildSidebarTree`
+ * + `foldWorkspaceOwners`), so a folder's anchor here always agrees with the
+ * row the user actually sees it nested under — never re-derived off raw
+ * `Workspace`/`Chat` lineage, which is what let a chat's own `workspaceId`
+ * (every chat carries one, folder or not) stand in for an anchor it never
+ * earned; see `nearestWorkspaceAnchor`'s own doc for the exact bug that
+ * caused live.
+ */
+function nearestBranchAnchor(repo: Repo, id: string): string {
+  const ownerChats = resolveOwnerChats(repo.workspaces, repo.chats ?? [])
+  const roots = buildSidebarTree(repo.workspaces, repo.folders ?? [], repo.chats ?? [])
+  const { nodeById, parentById } = indexSidebarTree(foldWorkspaceOwners(roots, ownerChats), '')
+
+  const seen = new Set<string>()
+  let cursor = id
+  while (cursor !== '' && !seen.has(cursor)) {
+    seen.add(cursor)
+    if (nodeById.get(cursor)?.kind === 'workspace') return cursor
+    cursor = parentById.get(cursor) ?? ''
+  }
+  return ''
 }
 
 /**
@@ -273,6 +308,27 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
     if (!subjectScope) return NO_MODES
     if (subjectScope.projectId !== targetScope.projectId) return NO_MODES
     if (subjectScope.repoId !== targetScope.repoId && subject.ownsWorktree) return NO_MODES
+  }
+
+  // The golden rule's finer grain (spec §2.6): a FOLDER may reorder freely
+  // among siblings sharing its own branch/root context, but never cross into
+  // a different one — the repo-scope check above alone would allow that (same
+  // repo, or both the bare root). Scoped to `kind === 'folder'` only: a
+  // BRANCH row's placement is fork lineage (`Workspace.parentId`), a
+  // different edge entirely, with no "context" of its own to protect.
+  if (kind === 'folder') {
+    const repo = repos.find((r) => r.id === targetScope.repoId)
+    if (repo) {
+      const subjectAnchor = nearestBranchAnchor(repo, subjects[0].id)
+      if (subjects.some((s) => nearestBranchAnchor(repo, s.id) !== subjectAnchor)) return NO_MODES
+      const reorderAnchor = nearestBranchAnchor(repo, target.parentId ?? '')
+      const intoAnchor = nearestBranchAnchor(repo, target.id)
+      return {
+        before: subjectAnchor === reorderAnchor,
+        after: subjectAnchor === reorderAnchor,
+        into: subjectAnchor === intoAnchor,
+      }
+    }
   }
 
   const hasLocked = subjects.some((s) => isWorkspaceLockedInSidebar(repos, s.workspaceId))

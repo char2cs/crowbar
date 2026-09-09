@@ -137,6 +137,108 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([folder], chat)).toEqual(ALL_MODES)
   })
 
+  // The golden rule's finer grain (spec §2.6, `nearestBranchAnchor`): a
+  // folder may reorder freely within whatever branch's subtree it already
+  // sits in, but never jump to a DIFFERENT branch's — the coarser same-repo
+  // check above would allow it (both live in repo-1), but the backend's own
+  // `checkFolderContextMove` refuses it with `ErrCrossContext`, pinned by
+  // `TestMove_RefusesBranchToDifferentBranchContext`. This is the frontend
+  // side of that same invariant.
+  describe('a folder may not cross into a different branch’s own context', () => {
+    beforeEach(() => {
+      useSidebarStore.setState((s) => ({
+        repos: s.repos.map((r) =>
+          r.id === 'repo-1'
+            ? {
+                ...r,
+                folders: [
+                  ...(r.folders ?? []),
+                  // Nested under ws-1's own context — a real fork, not locked.
+                  {
+                    id: 'folder-in-ws-1',
+                    repoId: 'repo-1',
+                    name: 'Notes',
+                    parentId: 'ws-1',
+                    order: 0,
+                  },
+                  // Nested under the locked branch's own context.
+                  {
+                    id: 'folder-in-locked',
+                    repoId: 'repo-1',
+                    name: 'Fixes',
+                    parentId: 'ws-locked',
+                    order: 0,
+                  },
+                ],
+              }
+            : r,
+        ),
+      }))
+    })
+
+    it('refuses a folder filed under one branch dropped onto a folder filed under a DIFFERENT branch', () => {
+      const subject = makeRow({
+        id: 'folder-in-ws-1',
+        kind: 'folder',
+        workspaceId: null,
+        parentId: 'ws-1',
+      })
+      const target = makeRow({
+        id: 'folder-in-locked',
+        kind: 'folder',
+        workspaceId: null,
+        parentId: 'ws-locked',
+      })
+      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(NO_MODES)
+    })
+
+    it('refuses nesting a branch-anchored folder INTO a different branch directly', () => {
+      const subject = makeRow({
+        id: 'folder-in-ws-1',
+        kind: 'folder',
+        workspaceId: null,
+        parentId: 'ws-1',
+      })
+      const target = makeRow({ id: 'ws-locked' })
+      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(NO_MODES)
+    })
+
+    it('allows reordering a folder among siblings that share its own branch context', () => {
+      useSidebarStore.setState((s) => ({
+        repos: s.repos.map((r) =>
+          r.id === 'repo-1'
+            ? {
+                ...r,
+                folders: [
+                  ...(r.folders ?? []),
+                  {
+                    id: 'folder-2-in-ws-1',
+                    repoId: 'repo-1',
+                    name: 'More',
+                    parentId: 'ws-1',
+                    order: 1,
+                  },
+                ],
+              }
+            : r,
+        ),
+      }))
+      const subject = makeRow({
+        id: 'folder-in-ws-1',
+        kind: 'folder',
+        workspaceId: null,
+        parentId: 'ws-1',
+      })
+      const target = makeRow({
+        id: 'folder-2-in-ws-1',
+        kind: 'folder',
+        workspaceId: null,
+        parentId: 'ws-1',
+      })
+      expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(ALL_MODES)
+    })
+  })
+
   it('refuses a mixed-kind selection', () => {
     const subjects = [
       makeRow({ id: 'ws-1', kind: 'branch' }),
@@ -198,7 +300,14 @@ describe('SIDEBAR_DROP_POLICY', () => {
   it('a folder row resolves through the folders array, not workspaceId', () => {
     const subject = makeRow({ id: 'folder-1', kind: 'folder', workspaceId: null })
     const target = makeRow({ id: 'ws-1' }) // same repo (repo-1)
-    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(ALL_MODES)
+    // Reorder is legal — folder-1 and ws-1 are both bare-repo-root siblings,
+    // the SAME context. Nesting INTO ws-1 is not: that crosses folder-1 from
+    // the bare root into ws-1's own branch context, refused by the golden
+    // rule's finer grain (§2.6) the same way the backend's own
+    // TestMove_RefusesRootToBranchContext pins it — this used to assert
+    // ALL_MODES, a real pre-existing gap this task's own golden-rule parity
+    // check (2026-09-08 sidebar-placement-unification Task 10) closes.
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(REORDER_MODES)
   })
 
   it('gives a folder target the container band and every other kind the heavy one', () => {
@@ -431,11 +540,22 @@ describe('SIDEBAR_DROP_POLICY', () => {
   // own id). Its placement lives on `domain.Repository`, a different
   // aggregate from every ordinary branch/chat/folder row above.
   describe('a repo header row is project-home-scoped, not repo-scoped', () => {
-    const repoRow = (id: string, projectId: string, repoId: string, over: Partial<SidebarRow> = {}) =>
+    const repoRow = (
+      id: string,
+      projectId: string,
+      repoId: string,
+      over: Partial<SidebarRow> = {},
+    ) =>
       makeRow({
         id,
         kind: 'branch',
-        repoIcon: { repoId, projectId, name: repoId, avatarLabel: 'A', avatarColor: 'bg-indigo-700' },
+        repoIcon: {
+          repoId,
+          projectId,
+          name: repoId,
+          avatarLabel: 'A',
+          avatarColor: 'bg-indigo-700',
+        },
         ...over,
       })
 
@@ -511,7 +631,9 @@ describe('SIDEBAR_DROP_POLICY', () => {
         trees: {
           'proj-1': {
             chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
-            folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', parentId: 'home-chat-1', order: 0 }],
+            folders: [
+              { id: 'home-folder-1', repoId: '', name: 'Notes', parentId: 'home-chat-1', order: 0 },
+            ],
           },
         },
       })

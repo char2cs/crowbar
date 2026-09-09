@@ -90,13 +90,9 @@ export function SidebarTreeSurface({
         const homeWorkspaceId = getHomeWorkspaceId(project.id)
         const homeTree = homeTrees[project.id]
         // Mirrors `space-scroller.tsx`'s own `homeSeeded` guard: `rowsFromHome`
-        // throws without its owning branch chat, which a project whose home
-        // tree has not seeded yet (or was never resolved) does not have.
+        // degrades gracefully (never throws) while its owning chat has not
+        // resolved yet, so this only needs the tree itself to have seeded.
         if (!homeWorkspaceId || !homeTree) return []
-        const seeded = homeTree.chats.some(
-          (c) => c.type === 'branch' && c.workspaceId === homeWorkspaceId,
-        )
-        if (!seeded) return []
         return rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders)
       }),
     [projects, homeTrees],

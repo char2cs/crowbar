@@ -23,12 +23,13 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
   if (!repo.defaultWorkspaceId) return repo
   return {
     ...repo,
+    defaultOwningChatId: repo.defaultOwningChatId ?? homeRowIdOf(repo.id),
     chats: [
       {
         id: homeRowIdOf(repo.id),
         repoId: repo.id,
-        type: 'branch',
         workspaceId: repo.defaultWorkspaceId,
+        ownsWorktree: true,
         title: '',
         order: 0,
       },

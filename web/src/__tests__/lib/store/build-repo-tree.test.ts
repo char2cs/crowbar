@@ -311,22 +311,21 @@ describe('folders and order', () => {
   })
 })
 
-// A `branch` row IS the workspace it owns — a locked branch, a repo home — and
-// the sidebar can only tell one from an ordinary conversation by this field.
+// `type` distinguishes a workflow row from an ordinary conversation.
 // Dropping it in the reshape is what made every chat row look alike.
 describe('toSidebarChat carries the row’s type', () => {
-  it('keeps a branch row’s type through the reshape', () => {
+  it('keeps a workflow row’s type through the reshape', () => {
     const chat = toSidebarChat({
       id: 'b1',
       repoId: 'r1',
       projectId: 'p1',
-      type: 'branch',
+      type: 'workflow',
       workspaceId: 'ws1',
       parentId: '',
       title: '',
       order: 0,
     })
-    expect(chat.type).toBe('branch')
+    expect(chat.type).toBe('workflow')
   })
 
   it('leaves it undefined on a row cached before the daemon emitted it', () => {

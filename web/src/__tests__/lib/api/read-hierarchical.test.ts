@@ -75,7 +75,7 @@ const chatRow = (over: Partial<RepoChatWireDTO> = {}): RepoChatWireDTO => ({
   parentId: '',
   title: 'alpha',
   order: 0,
-  type: 'branch',
+  type: 'chat',
   ...over,
 })
 
@@ -218,7 +218,7 @@ describe('fetchWorkspaces', () => {
         chatRow({
           id: 'c5',
           workspaceId: 'w2',
-          type: 'branch',
+          type: 'chat',
           worktree: worktree({ branch: 'feature/y', owningChatId: 'c5' }),
         }),
       ]),

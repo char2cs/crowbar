@@ -31,7 +31,13 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
     shifted: [],
   }),
   createHomeFolder: vi.fn().mockResolvedValue({
-    folder: { id: 'home-folder-new', repoId: '', projectId: 'proj-1', name: 'New folder', order: 0 },
+    folder: {
+      id: 'home-folder-new',
+      repoId: '',
+      projectId: 'proj-1',
+      name: 'New folder',
+      order: 0,
+    },
     shifted: [],
   }),
 }))
@@ -76,7 +82,7 @@ const REPO: Repo = {
     {
       id: 'home-row',
       repoId: 'repo-1',
-      type: 'branch',
+      ownsWorktree: true,
       workspaceId: 'ws-home',
       title: '',
       order: 0,
@@ -84,7 +90,7 @@ const REPO: Repo = {
     {
       id: 'ws-2-row',
       repoId: 'repo-1',
-      type: 'branch',
+      ownsWorktree: true,
       workspaceId: 'ws-2',
       title: '',
       order: 1,
@@ -92,9 +98,9 @@ const REPO: Repo = {
   ],
 }
 
-/** The repo-home row's id: the owning `branch` chat, never `defaultWorkspaceId`. */
+/** The repo-home row's id: the owning chat, never `defaultWorkspaceId`. */
 const HOME_ROW_ID = 'home-row'
-/** A LOCKED branch row's id: likewise the owning `branch` chat, never `ws-2`. */
+/** A LOCKED branch row's id: likewise the owning chat, never `ws-2`. */
 const LOCKED_ROW_ID = 'ws-2-row'
 /** A regular (unlocked) fork keeps the workspace id — the one branch row whose
  *  two id spaces still coincide, and the reason a bug here stayed invisible. */
@@ -147,7 +153,7 @@ beforeEach(() => {
           {
             id: 'home-branch-chat',
             repoId: '',
-            type: 'branch',
+            ownsWorktree: true,
             workspaceId: 'home-ws-1',
             title: '',
             order: 0,

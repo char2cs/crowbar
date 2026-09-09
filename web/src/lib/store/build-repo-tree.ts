@@ -172,6 +172,10 @@ export function toSidebarRepo(
           // default, and mutation gating (isWorkspaceLockedInSidebar) must see
           // the lock even though the default ws is not a tree row.
           defaultWorkspaceStatus: toSidebarStatus(defaultWs),
+          // Lifted for the same reason: the default ws is never a member of
+          // `workspaces` below, so there is no `Workspace.owningChatId`
+          // `rows-from-repo.ts` can read for it directly — see `Repo`'s own doc.
+          defaultOwningChatId: defaultWs.owningChatId ?? '',
         }
       : {}),
     ...(repo.path ? { localPath: repo.path } : {}),

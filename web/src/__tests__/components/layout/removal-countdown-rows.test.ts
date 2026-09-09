@@ -31,7 +31,7 @@ import { useProjectDataStore } from '@/lib/store/projects'
  * found it with no workspace to fold onto, and drew it as a `kind: 'chat'`
  * BUBBLE. So the row the user had just deleted did not disappear — it visibly
  * turned into a conversation and sat there for eight seconds. Testing
- * `foldOwningChats` alone would have passed the whole time: its inputs were
+ * `foldWorkspaceOwners` alone would have passed the whole time: its inputs were
  * fine, and the skew was introduced one layer up.
  */
 
@@ -70,7 +70,7 @@ function repo(): Repo {
       {
         id: 'chat-home',
         repoId: 'r1',
-        type: 'branch',
+        ownsWorktree: true,
         workspaceId: 'ws-home',
         title: '',
         order: 0,

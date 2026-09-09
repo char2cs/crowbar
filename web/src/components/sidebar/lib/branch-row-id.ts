@@ -14,21 +14,24 @@ import type { Repo } from '@/lib/store/sidebar'
  * helper inside either — importing one from the other closes a cycle.
  *
  * `Workspace.owningChatId` is the authoritative direction for every ROW
- * workspace (`rows-from-repo.ts`'s own `ownerChatIds`) — a chat's own
+ * workspace (`rows-from-repo.ts`'s own `resolveOwnerChats`) — a chat's own
  * `workspaceId` cannot serve here instead, since a thread carries its
  * parent's, not just the true owner's. The repo/project home is the one
  * exception: it is never a member of `repo.workspaces`, so there is no
- * `Workspace` record to read an `owningChatId` off of, and the daemon's
- * `type: 'branch'` guarantee is what stands in for it there.
+ * `Workspace` record to read an `owningChatId` off of — `Repo.defaultOwningChatId`
+ * (lifted from the SAME `WorkspaceDTO.owningChatId` field) stands in for it
+ * there. Never `Chat.type`: Task 9 stopped minting/retyping a `'branch'`
+ * chat to mark this row.
  */
 /**
  * The other direction: the chat that owns `wsId`'s worktree, straight off the
  * sidebar store.
  *
- * The union `rows-from-repo.ts`'s `resolveOwnership` resolves, in single-id
- * form — `Workspace.owningChatId` first, then a `Chat` that claims the
- * workspace itself (`Chat.ownsWorktree`, which lands with the chat rather than
- * with the workspace and so can answer while the `Workspace` record is still in
+ * `rows-from-repo.ts`'s `resolveOwnerChats`/`resolveHomeOwnerId` resolve, in
+ * single-id form — `Workspace.owningChatId` (or, for the repo/project home,
+ * `Repo.defaultOwningChatId`) first, then a `Chat` that claims the workspace
+ * itself (`Chat.ownsWorktree`, which lands with the chat rather than with the
+ * workspace and so can answer while the `Workspace` record is still in
  * flight).
  *
  * This exists so the DELETE path reads the same source of truth the RENDER path
@@ -47,7 +50,8 @@ export function owningChatIdOfWorkspace(repos: readonly Repo[], wsId: string): s
     const owner = repo.chats?.find((c) => c.ownsWorktree && c.workspaceId === wsId)
     if (owner) return owner.id
     if (repo.defaultWorkspaceId === wsId) {
-      const home = repo.chats?.find((c) => c.type === 'branch' && c.workspaceId === wsId)
+      if (repo.defaultOwningChatId) return repo.defaultOwningChatId
+      const home = repo.chats?.find((c) => c.ownsWorktree && c.workspaceId === wsId)
       if (home) return home.id
     }
   }
@@ -59,8 +63,9 @@ export function workspaceIdOfBranchRow(repos: readonly Repo[], id: string): stri
     const ws = repo.workspaces.find((w) => w.owningChatId === id)
     if (ws) return ws.id
     if (repo.defaultWorkspaceId) {
+      if (repo.defaultOwningChatId === id) return repo.defaultWorkspaceId
       const home = repo.chats?.find(
-        (c) => c.id === id && c.type === 'branch' && c.workspaceId === repo.defaultWorkspaceId,
+        (c) => c.id === id && c.ownsWorktree && c.workspaceId === repo.defaultWorkspaceId,
       )
       if (home) return repo.defaultWorkspaceId
     }

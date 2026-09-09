@@ -513,7 +513,7 @@ describe('SpaceScroller', () => {
               {
                 id: HOME_ROW_ID,
                 repoId: '',
-                type: 'branch',
+                ownsWorktree: true,
                 workspaceId: 'home-ws-1',
                 title: '',
                 order: 0,
@@ -575,7 +575,7 @@ describe('SpaceScroller', () => {
               {
                 id: HOME_ROW_ID,
                 repoId: '',
-                type: 'branch',
+                ownsWorktree: true,
                 workspaceId: 'home-ws-1',
                 title: '',
                 order: 0,
@@ -649,7 +649,7 @@ describe('SpaceScroller', () => {
               {
                 id: HOME_ROW_ID,
                 repoId: '',
-                type: 'branch',
+                ownsWorktree: true,
                 workspaceId: 'home-ws-1',
                 title: '',
                 order: 0,

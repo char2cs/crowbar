@@ -663,7 +663,9 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
   // `repos` still held the PRE-seed chats (no `type` at all, on any cached row
   // written before the field existed), and `rows-from-repo.ts` throws on those.
   it('does not raise the flag until the rebuilt rows are actually in the store', async () => {
-    fetchRepoChats.mockResolvedValue([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+    fetchRepoChats.mockResolvedValue([
+      chatDTO('b1', 'r1', { type: 'workflow', workspaceId: 'ws-1' }),
+    ])
 
     // The state of the sidebar store AT THE INSTANT the gate opened — the only
     // thing a consumer could have read on that render.
@@ -688,7 +690,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
 
       expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
       const chats = opened.repos?.find((r) => r.id === 'r1')?.chats
-      expect(chats).toEqual([expect.objectContaining({ id: 'b1', type: 'branch' })])
+      expect(chats).toEqual([expect.objectContaining({ id: 'b1', type: 'workflow' })])
     } finally {
       unsubscribe()
     }
@@ -703,7 +705,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
     const r2Chats = deferred<ChatDTO[]>()
     fetchRepoChats.mockImplementation((_projectId: string, repoId: string) =>
       repoId === 'r1'
-        ? Promise.resolve([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+        ? Promise.resolve([chatDTO('b1', 'r1', { type: 'workflow', workspaceId: 'ws-1' })])
         : r2Chats.promise,
     )
 
@@ -753,7 +755,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
 
       // r2's chats land INSIDE that window — written to the cache, queued, but
       // not in the rows the held read already took.
-      r2Chats.resolve([chatDTO('b2', 'r2', { type: 'branch', workspaceId: 'ws-2' })])
+      r2Chats.resolve([chatDTO('b2', 'r2', { type: 'workflow', workspaceId: 'ws-2' })])
       await settle()
 
       holdRead = false
@@ -764,7 +766,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
 
       expect(useFolderSignalStore.getState().seededRepoIds.has('r2')).toBe(true)
       expect(opened.r2?.find((r) => r.id === 'r2')?.chats).toEqual([
-        expect.objectContaining({ id: 'b2', type: 'branch' }),
+        expect.objectContaining({ id: 'b2', type: 'workflow' }),
       ])
     } finally {
       unsubscribe()
@@ -815,7 +817,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
 
     try {
       // r1's chats land and queue it; the rebuild that follows holds on read #1.
-      r1Chats.resolve([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+      r1Chats.resolve([chatDTO('b1', 'r1', { type: 'workflow', workspaceId: 'ws-1' })])
       await settle()
 
       // Somebody else fetches — the store's `latestFetch` moves, so the held
@@ -837,7 +839,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
       // ever onto rows that actually carry the seed.
       expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
       expect(opened.repos?.find((r) => r.id === 'r1')?.chats).toEqual([
-        expect.objectContaining({ id: 'b1', type: 'branch' }),
+        expect.objectContaining({ id: 'b1', type: 'workflow' }),
       ])
     } finally {
       unsubscribe()
@@ -895,7 +897,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
         return result
       })
 
-      r1Chats.resolve([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+      r1Chats.resolve([chatDTO('b1', 'r1', { type: 'workflow', workspaceId: 'ws-1' })])
       await settle()
       await settle()
 
@@ -903,7 +905,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
       // that carry the seed, never the stale success it started from.
       expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
       expect(opened.repos?.find((r) => r.id === 'r1')?.chats).toEqual([
-        expect.objectContaining({ id: 'b1', type: 'branch' }),
+        expect.objectContaining({ id: 'b1', type: 'workflow' }),
       ])
     } finally {
       unsubscribe()
@@ -979,7 +981,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
 
       // r1's chats land and queue it. The rebuild that follows claims r1, takes
       // its `before` snapshot and holds on read #1.
-      r1Chats.resolve([chatDTO('b1', 'r1', { type: 'branch', workspaceId: 'ws-1' })])
+      r1Chats.resolve([chatDTO('b1', 'r1', { type: 'workflow', workspaceId: 'ws-1' })])
       await settle()
 
       // Somebody else fetches: the rebuild's own fetch is now doomed to return
@@ -1005,7 +1007,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
       // actually carry the seed.
       expect(useFolderSignalStore.getState().seededRepoIds.has('r1')).toBe(true)
       expect(opened.repos?.find((r) => r.id === 'r1')?.chats).toEqual([
-        expect.objectContaining({ id: 'b1', type: 'branch' }),
+        expect.objectContaining({ id: 'b1', type: 'workflow' }),
       ])
     } finally {
       unsubscribe()

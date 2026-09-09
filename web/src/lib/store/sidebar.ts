@@ -57,10 +57,10 @@ export const EMPTY_FOLDERS: Folder[] = []
 export interface Chat {
   id: string
   repoId: string
-  /** This row's own kind. `branch` is the one the tree reads structurally: such
-   *  a row IS the workspace it owns (a locked branch, a repo home), and it is
-   *  that row's id — not the workspace's — that every placement is addressed
-   *  by. Undefined only on a row cached before the daemon emitted the field. */
+  /** This row's own kind (see {@link ChatType}'s own doc) — never a signal
+   *  for whether this chat owns a workspace any more (see
+   *  {@link Chat.ownsWorktree}). Undefined only on a row cached before the
+   *  daemon emitted the field. */
   type?: ChatType
   /** A chat id, a folder id, or undefined/'' for the root of `workspaceId`. */
   parentId?: string
@@ -173,6 +173,14 @@ export interface Repo {
    *  locked state (e.g. the file explorer's mutation menu items) read it from
    *  here. Default workspaces adopted from protected branches are 'locked'. */
   defaultWorkspaceStatus?: WorkspaceStatus
+  /** `WorkspaceDTO.owningChatId` of the default (repo-home) workspace,
+   *  lifted here for the same reason `defaultBranch`/`defaultWorking` are:
+   *  the default workspace is never a `Workspace` tree row, so there is no
+   *  `Workspace.owningChatId` for `rows-from-repo.ts` to read directly. `''`
+   *  when the daemon resolved none yet; absent on a row cached before the
+   *  field existed — both mean "fall back to a chat that claims the row
+   *  itself" (see `resolveHomeOwnerId`). */
+  defaultOwningChatId?: string
   /** `working` of the default (repo-home) workspace. It is not a tree row, so it
    *  has no Workspace entry to carry the flag — the repo header and the context
    *  pill read it from here to spin the repo's icon during an agent turn. */
@@ -862,12 +870,14 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
           defaultBranch: dto.branch,
           defaultWorking: dto.working,
           defaultWorkspaceStatus: toSidebarStatus(dto),
+          defaultOwningChatId: dto.owningChatId ?? '',
         }
         if (
           repo.defaultWorkspaceId === next.defaultWorkspaceId &&
           repo.defaultBranch === next.defaultBranch &&
           repo.defaultWorking === next.defaultWorking &&
-          repo.defaultWorkspaceStatus === next.defaultWorkspaceStatus
+          repo.defaultWorkspaceStatus === next.defaultWorkspaceStatus &&
+          repo.defaultOwningChatId === next.defaultOwningChatId
         ) {
           return s
         }

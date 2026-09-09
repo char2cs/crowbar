@@ -4,10 +4,11 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import type { Chat, Folder } from '@/lib/store/sidebar'
 
 const HOME_WS_ID = 'home-ws-1'
-/** The `branch`-typed chat every fixture's home workspace is owned by —
- *  mirrors rows-from-repo.test.ts's own HOME_ROW_ID: the daemon backfills
- *  one for every project home, and `rowsFromHome`'s caller never builds rows
- *  before that seed has landed. Never itself drawn as a row. */
+/** The chat every fixture's home workspace is owned by — mirrors
+ *  rows-from-repo.test.ts's own HOME_ROW_ID: minted chat-first at creation
+ *  (never a boot backfill, never retyped to `'branch'` — Task 9), and
+ *  `rowsFromHome`'s caller never builds rows before that seed has landed.
+ *  Never itself drawn as a row. */
 const HOME_ROW_ID = 'home-branch-row'
 
 function makeTestFolder(over: Partial<Folder> & { id: string; name: string }): Folder {
@@ -19,7 +20,7 @@ function makeTestChat(over: Partial<Chat> & { id: string; title: string }): Chat
 }
 
 function homeOwningChat(): Chat {
-  return makeTestChat({ id: HOME_ROW_ID, title: '', type: 'branch', workspaceId: HOME_WS_ID })
+  return makeTestChat({ id: HOME_ROW_ID, title: '', workspaceId: HOME_WS_ID, ownsWorktree: true })
 }
 
 describe('rowsFromHome', () => {
@@ -33,8 +34,13 @@ describe('rowsFromHome', () => {
     expect(rows.find((r) => r.id === HOME_ROW_ID)).toBeUndefined()
   })
 
-  it('throws if the daemon has not backfilled an owning branch chat yet', () => {
-    expect(() => rowsFromHome(HOME_WS_ID, [])).toThrow()
+  // Task 9: the owning chat is minted chat-first, atomically, at creation —
+  // there is no boot backfill left to race, so a caller catching this window
+  // (its own creation landed, its chat/folder tree's first seed has not)
+  // degrades gracefully instead of throwing: no rows, not a crash.
+  it('degrades to no rows, never throws, while the owning chat has not seeded yet', () => {
+    expect(() => rowsFromHome(HOME_WS_ID, [])).not.toThrow()
+    expect(rowsFromHome(HOME_WS_ID, [])).toEqual([])
   })
 
   it('a thread on the home workspace becomes a top-level chat-kind row, parentId null', () => {
@@ -99,5 +105,18 @@ describe('rowsFromHome', () => {
     const rows = rowsFromHome(HOME_WS_ID, [homeOwningChat(), chatA, chatB])
     expect(rows.find((r) => r.id === 'c-a')?.order).toBe(0)
     expect(rows.find((r) => r.id === 'c-b')?.order).toBe(5)
+  })
+
+  // Task 9: `owningChatOf` files a NEW chat/folder directly under its parent
+  // workspace's own id — no owning-chat lookup — the instant that parent's
+  // `Node{Kind:workspace}` row exists, which project home always has. Such a
+  // row must still land at the top level, exactly where every other home
+  // chat/folder already does (this file's own doc: no container row here).
+  it('a chat parented onto the raw home-workspace id still renders top-level', () => {
+    const child = makeTestChat({ id: 'c-1', title: 'New-style child', parentId: HOME_WS_ID })
+    const rows = rowsFromHome(HOME_WS_ID, [homeOwningChat(), child])
+    const row = rows.find((r) => r.id === 'c-1')
+    expect(row?.kind).toBe('chat')
+    expect(row?.parentId).toBeNull()
   })
 })

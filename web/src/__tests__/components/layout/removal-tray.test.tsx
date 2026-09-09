@@ -137,14 +137,14 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
     { id: 'b', branch: 'beta', status: 'new', age: '', order: 1 },
   ],
   folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 2 }],
-  // The `branch` row the boot backfill mints for the home workspace. The tree
-  // is only built for a repo whose chat seed has landed, and by then every
-  // home owns one — see rows-from-repo.ts's `branchRowIdFor`.
+  // The chat minted chat-first for the home workspace. The tree is only
+  // built for a repo whose chat seed has landed, and by then every home
+  // owns one — see rows-from-repo.ts's `resolveHomeOwnerId`.
   chats: [
     {
       id: 'w-default-row',
       repoId: 'r1',
-      type: 'branch',
+      ownsWorktree: true,
       workspaceId: 'w-default',
       title: '',
       order: 0,

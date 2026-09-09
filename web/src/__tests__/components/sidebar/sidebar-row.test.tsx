@@ -197,7 +197,7 @@ describe('SidebarRow', () => {
   // locked branch `rows-from-repo.ts` mints) must draw the Lock glyph, not
   // the plain GitBranch mark every ordinary workspace draws — confirmed live
   // as wrong for `main`. Every workspace-owning row is now id'd from its
-  // owning chat, locked or not (`rows-from-repo.ts`'s `foldOwningChats`), so
+  // owning chat, locked or not (`rows-from-repo.ts`'s `foldWorkspaceOwners`), so
   // `row.locked` (`Workspace.status === 'locked'`, carried straight onto the
   // row) is the signal now — the old id-vs-workspaceId mismatch stopped being
   // unique to the locked case the moment a regular fork started folding too.

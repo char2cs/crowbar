@@ -77,7 +77,12 @@ import {
   performSidebarDrop,
 } from '@/components/sidebar/lib/drop-actions'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import { placeWorkspace, placeFolder, placeHomeFolder, placeRepo } from '@/lib/api/sidebar-placement'
+import {
+  placeWorkspace,
+  placeFolder,
+  placeHomeFolder,
+  placeRepo,
+} from '@/lib/api/sidebar-placement'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
@@ -731,15 +736,14 @@ describe('performSidebarDrop — chats', () => {
 // home folder" gap, caught live: `planTreeRowDrop` is entirely `Repo`-shaped
 // and can never see one, so every drag involving one was a silent no-op.
 describe('performSidebarDrop — a project-home folder as the dragged subject', () => {
-  // `planHomeFolderDrop` (via `homeOwningChatId`) throws if the tree carries
-  // no `type: 'branch'` chat owning `home-ws-1` — the daemon backfills
-  // exactly one for every project home; a fixture without it models a state
-  // this function is never actually called in (see rows-from-home.test.ts's
-  // own HOME_ROW_ID fixture).
+  // `planHomeFolderDrop` (via `resolveHomeOwnerId`) resolves the row that owns
+  // `home-ws-1` off `ownsWorktree` — minted chat-first, atomically, at that
+  // workspace's own creation (2026-09-08 sidebar-placement-unification
+  // Task 9), never a boot backfill, and never `type: 'branch'`.
   const HOME_OWNING_CHAT = {
     id: 'home-branch-row',
     repoId: '',
-    type: 'branch' as const,
+    ownsWorktree: true,
     workspaceId: 'home-ws-1',
     title: '',
     order: 0,
@@ -848,13 +852,13 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
 // folders — never a repo-internal target (refused earlier, by
 // `SIDEBAR_DROP_POLICY`).
 describe('performSidebarDrop — a repo header row as the dragged subject', () => {
-  // Same reasoning as the home-folder-subject block above: `homeOwningChatId`
-  // throws without a `type: 'branch'` chat owning the project's home
-  // workspace, which the daemon always backfills for real.
+  // Same reasoning as the home-folder-subject block above: `resolveHomeOwnerId`
+  // resolves the row that owns the project's home workspace off
+  // `ownsWorktree`, never `type: 'branch'`.
   const HOME_OWNING_CHAT = {
     id: 'home-branch-row',
     repoId: '',
-    type: 'branch' as const,
+    ownsWorktree: true,
     workspaceId: 'home-ws-1',
     title: '',
     order: 0,
@@ -893,7 +897,10 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
       'into',
     )
 
-    expect(placeRepo).toHaveBeenCalledWith('proj-1', 'repo-1', { folderId: 'home-folder-1', order: 0 })
+    expect(placeRepo).toHaveBeenCalledWith('proj-1', 'repo-1', {
+      folderId: 'home-folder-1',
+      order: 0,
+    })
   })
 
   it('reorders relative to a home chat, in the same project', async () => {
@@ -1609,12 +1616,14 @@ describe('performSidebarDrop — targetInRecents', () => {
 })
 
 describe('performSidebarDrop — a branch row is addressed by its owning chat', () => {
-  /** The repo above, plus the `branch` rows the boot backfill mints: one for
-   *  the home workspace, one for the locked branch `ws-a`. */
+  /** The repo above, plus the owning chats minted chat-first for it: one for
+   *  the home workspace, one for the locked branch `ws-a` — never `type:
+   *  'branch'` (2026-09-08 sidebar-placement-unification Task 9). */
   function repoWithBranchRows(): Repo {
     const base = makeRepo()
     return {
       ...base,
+      defaultOwningChatId: 'home-row',
       workspaces: base.workspaces.map((w) =>
         w.id === 'ws-a' ? { ...w, status: 'locked', owningChatId: 'ws-a-row' } : w,
       ),
@@ -1622,7 +1631,7 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
         {
           id: 'home-row',
           repoId: 'repo-1',
-          type: 'branch',
+          ownsWorktree: true,
           workspaceId: 'home-1',
           title: '',
           order: 0,
@@ -1630,7 +1639,7 @@ describe('performSidebarDrop — a branch row is addressed by its owning chat', 
         {
           id: 'ws-a-row',
           repoId: 'repo-1',
-          type: 'branch',
+          ownsWorktree: true,
           workspaceId: 'ws-a',
           title: '',
           order: 0,

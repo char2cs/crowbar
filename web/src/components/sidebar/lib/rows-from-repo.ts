@@ -10,25 +10,33 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
- * The id of the `branch` chat that owns the repo/project HOME workspace.
+ * The chat that owns a repo/project HOME workspace's worktree, straight off
+ * `defaultOwningChatId` — the direct field `rows-from-repo.ts`/`toSidebarRepo`
+ * lift from `WorkspaceDTO.owningChatId` for exactly this row, since the home
+ * workspace is never a `Workspace` row (it lives on `repo.defaultWorkspaceId`,
+ * outside `repo.workspaces` entirely) for {@link resolveOwnerChats} to read
+ * directly the way it does for every other row.
  *
- * The home workspace is never a `Workspace` row (it lives on `repo.defaultWorkspaceId`,
- * outside `repo.workspaces` entirely), so there is no `Workspace.owningChatId` to read it
- * off of the way {@link resolveOwnership} does for every other row below — this has to search
- * `chats` directly, and the `type === 'branch'` filter is load-bearing here in a way it no
- * longer is anywhere else in this file: `RepoChatWireDTO.workspaceId` is stamped on every
- * chat that runs INSIDE a workspace, not just the one that owns it (a thread carries its
- * parent's), so without the filter this could just as easily return an ordinary
- * conversation instead of the one real owner. The daemon mints exactly one `branch`-typed
- * chat per locked branch, repo home and project home (`tree/backfill.go`'s
- * `owningChatType`) and never a second, which is what makes the filter safe here.
+ * `defaultOwningChatId` is absent only for a caller with no `Repo` to lift it
+ * from at all (`rows-from-home.ts`'s project home, which has no `Repository`
+ * either) or a frame that predates the field — both fall back to the same
+ * `ownsWorktree` signal {@link resolveOwnerChats} uses for every other row's
+ * degrade case. Never a `Chat.type` check: Task 9 stopped minting/retyping a
+ * `'branch'`-typed chat for this row, so nothing here may depend on it.
+ *
+ * Never throws. A workspace whose owning chat has not resolved by either
+ * channel yet degrades exactly like any other unfolded workspace-owning row
+ * below: left as its own raw id rather than dropped, so a row the user can
+ * see stays visible while the daemon catches up.
  */
-export function homeOwningChatId(chats: readonly Chat[], homeId: string): string {
-  const owner = chats.find((c) => c.type === 'branch' && c.workspaceId === homeId)
-  if (!owner) {
-    throw new Error(`rowsFromRepo: home workspace ${homeId} owns no branch row`)
-  }
-  return owner.id
+export function resolveHomeOwnerId(
+  homeId: string,
+  defaultOwningChatId: string | undefined,
+  chats: readonly Chat[],
+): string {
+  if (defaultOwningChatId) return defaultOwningChatId
+  const owner = chats.find((c) => c.ownsWorktree && c.workspaceId === homeId)
+  return owner?.id ?? homeId
 }
 
 /**
@@ -51,130 +59,103 @@ function isProvisionalBranchName(branch: string | undefined): boolean {
 }
 
 /**
- * Who owns what, resolved ONCE, from BOTH directions, before anything is built.
+ * Every workspace's owning chat, keyed by workspace id — CONFIRMED pairs
+ * only, straight off the direct field (2026-09-08 sidebar-placement-
+ * unification Task 7/9): every workspace mints its owning chat chat-first,
+ * atomically, at creation (`MintOwningChat`/`AttachOwningWorkspace`), and the
+ * daemon resolves `Workspace.owningChatId` off it on every `WorkspaceDTO` it
+ * sends (`domain.ResolveOwningChat`). No boot backfill races this any more,
+ * and the chat is never retyped to mark it (`ChatType` narrows to
+ * `'chat'|'workflow'` — see that type's own doc), so this never compares
+ * `Chat.type`.
  *
- * A workspace-owning row is assembled from two records that arrive on two
- * INDEPENDENT channels: the `Chat` (`crowbar_chats`, reseeded only when a
- * repo's folder-signal generation moves) and the `Workspace`
- * (`crowbar_workspaces`, its own entity stream). They are routinely skewed —
- * by a frame during a create, and for the entire eight-second countdown during
- * a delete, when the removal tray hides one half and not the other.
- *
- * The bug this type exists to delete: the old resolution asked only
- * `Workspace.owningChatId`, so the WORKSPACE half was load-bearing for the
- * row's very KIND. Lose it for one render and the owning chat stopped being
- * foldable, fell through to `buildSidebarTree`'s chat rule, and drew as a
- * `kind: 'chat'` BUBBLE — a different glyph, a different label, a different id
- * space and a different set of verbs, for a row that had not changed at all.
- * That is what turned a branch row into a conversation mid-delete, and what
- * drew a freshly forked workspace as a bubble until its `WorkspaceDTO` caught
- * up.
- *
- * So ownership is a UNION now, and either half alone is enough to establish it:
- *
- *   - `Workspace.owningChatId` — the direction that always worked, and still
- *     the only one available for a row cached before `Chat.ownsWorktree`
- *     existed;
- *   - `Chat.ownsWorktree` + `Chat.workspaceId` — the same fact carried on the
- *     chat itself, delivered atomically with it (see `ChatDTO.ownsWorktree`).
- *
- * A chat's `workspaceId` alone can NOT stand in for the second clause: a thread
- * carries its parent's, so it names a worktree it does not own. `ownsWorktree`
- * is what picks the one real owner out of however many rows hold the worktree.
- *
- * The consequence that matters downstream: `ownerOfChat` is the complete set of
- * chats that are WORKSPACES, whether or not their `Workspace` record is on hand
- * — so `walk` can always draw one as a `branch` row and degrade only the
- * DECORATION (branch name, diff counts, lock) that genuinely lives on the
- * missing half.
+ * "Confirmed" means the WORKSPACE side is present — this is
+ * {@link foldWorkspaceOwners}'s whole input, and it deliberately excludes a
+ * chat's own unconfirmed `ownsWorktree` claim (see
+ * {@link resolveOwnerOfChat}): folding requires a real workspace NODE to fold
+ * onto, and a workspace this repo has not seeded has none. A chat whose
+ * workspace is merely absent from `workspaces` (deleted, or its own
+ * `WorkspaceDTO` has not landed yet) must NOT be treated as foldable, or
+ * `foldWorkspaceOwners` strips it from the tree with nowhere to put it back —
+ * the exact regression `walkTreeIntoRows`'s own chat branch exists to render
+ * instead (see `removal-countdown-rows.test.ts`'s "still draws a branch row
+ * off the chat alone").
  */
-export interface Ownership {
-  /** Workspace id -> the chat that owns it. Only workspaces actually present. */
-  chatOfWorkspace: Map<string, string>
-  /** Chat id -> the workspace it owns, present or not. The authority on "this
-   *  chat is a workspace row", and deliberately the wider of the two maps. */
-  ownerOfChat: Map<string, string>
-}
-
-export function resolveOwnership(
+export function resolveOwnerChats(
   workspaces: readonly Workspace[],
   chats: readonly Chat[],
-): Ownership {
+): Map<string, string> {
   const chatIds = new Set(chats.map((c) => c.id))
-  const chatOfWorkspace = new Map<string, string>()
-  const ownerOfChat = new Map<string, string>()
+  const ownerChats = new Map<string, string>()
   for (const ws of workspaces) {
-    if (!ws.owningChatId || !chatIds.has(ws.owningChatId)) continue
-    chatOfWorkspace.set(ws.id, ws.owningChatId)
-    ownerOfChat.set(ws.owningChatId, ws.id)
+    if (ws.owningChatId && chatIds.has(ws.owningChatId)) ownerChats.set(ws.id, ws.owningChatId)
   }
+  return ownerChats
+}
+
+/**
+ * Chat id -> the workspace it owns, present or not — the WIDER set
+ * {@link resolveOwnerChats} deliberately excludes. The authority
+ * `walkTreeIntoRows` draws a `branch` row off even when that workspace's own
+ * `Workspace` record has not arrived yet (a fresh fork) or is hidden
+ * mid-delete: a chat this map names IS a workspace row, full stop, and only
+ * its DECORATION (branch name, diff counts, lock) depends on the missing
+ * half.
+ *
+ * Starts from {@link resolveOwnerChats}'s CONFIRMED pairs (reversed), then
+ * adds `Chat.ownsWorktree` + `Chat.workspaceId` for whatever workspace that
+ * left unconfirmed — delivered atomically WITH the chat, on a separately
+ * streamed channel (`crowbar_chats` reseeds on its own folder-signal bump,
+ * `crowbar_workspaces` on its own entity stream), so a row still renders as a
+ * workspace even when its `WorkspaceDTO` is the half running late. A chat's
+ * `workspaceId` alone can NOT stand in for `ownsWorktree`: a thread carries
+ * its parent's, so it names a worktree it does not own.
+ */
+export function resolveOwnerOfChat(
+  ownerChats: ReadonlyMap<string, string>,
+  chats: readonly Chat[],
+): Map<string, string> {
+  const ownerOfChat = new Map<string, string>()
+  for (const [wsId, chatId] of ownerChats) ownerOfChat.set(chatId, wsId)
   for (const chat of chats) {
-    if (!chat.ownsWorktree || !chat.workspaceId) continue
-    // The workspace half may name a DIFFERENT owner for the same workspace
-    // (a stale cached `Workspace` from before a re-own). The one that already
-    // agreed with a present `Workspace` record wins; this only ever ADDS the
-    // pairs that record could not answer for.
-    if (chatOfWorkspace.has(chat.workspaceId)) continue
+    if (!chat.ownsWorktree || !chat.workspaceId || ownerChats.has(chat.workspaceId)) continue
     ownerOfChat.set(chat.id, chat.workspaceId)
   }
-  return { chatOfWorkspace, ownerOfChat }
+  return ownerOfChat
 }
 
 /**
  * Fold every workspace-owning chat into the ONE row its workspace already
  * renders as, instead of the two-row split `buildSidebarTree` produces on its
- * own — generalizes the locked-branch/repo-home withhold-and-consume pattern
- * (this file used to reserve for `type: 'branch'` chats only) to every fork
- * and every workspace-owning thread.
+ * own (product rule 6: "a chat with a workspace" is ONE row, not two).
  *
  * Runs on the tree `buildSidebarTree` already built from UNFILTERED
- * workspaces and chats — never on its inputs. That matters: the workspace's
- * own `folderId`/`parentId` lineage is the one edge drag-and-drop actually
- * writes (`WorkspacePlacementWrite`), and it is what `buildSidebarTree`'s
- * folder-anchor-compatibility walk, cycle guard and sibling sort all already
- * resolve correctly for a NESTED fork — re-deriving any of that here, off a
- * pre-filtered input, would be exactly the "second pass" this file's own
- * header already argues against for chats generally. An owning chat's own
- * `parentId` is not trusted for the FOLDED row's placement at all: nothing on
- * the wire guarantees it agrees with the workspace's fork lineage (only that
- * the workspace's `Workspace.parentId` is what merge-eligibility and every
- * other placement-writing surface already commit to), so this only ever uses
- * a chat's position to find what hangs off it, never to decide where the
+ * workspaces and chats — never on its inputs. That matters: a workspace's own
+ * `folderId`/`parentId` lineage is the one edge drag-and-drop actually writes
+ * (`WorkspacePlacementWrite`), and `buildSidebarTree`'s folder-anchor
+ * compatibility walk, cycle guard and sibling sort already resolve it
+ * correctly for a NESTED fork — an owning chat's own `parentId` is used only
+ * to find what hangs off it (a real thread), never to decide where the
  * folded row itself renders.
  *
  * Two passes:
- *   1. `stripOwners` removes every owning-chat node whose WORKSPACE NODE IS
- *      ALSO IN THIS TREE, from wherever it sits — nested under the workspace
- *      it owns, when it has no thread-parent of its own (the common case, and
- *      the exact shape of the original bug), or under its TRUE thread-parent
- *      elsewhere (rule 8's forked-thread case, already placed correctly by
- *      `buildSidebarTree`'s own `filed` rule) — and records it, real children
- *      included, by id. Its own position is discarded here; pass 2 always
- *      re-attaches its children onto the workspace it owns, so nothing is
- *      spliced back into its old spot.
- *   2. `mergeWorkspaces` relabels every workspace node that has a resolved
- *      owner with that owner's id, and appends the owner's own (already
- *      stripped) children onto its own remaining ones. A workspace with no
- *      resolvable owner is left completely untouched.
- *
- * "WHOSE WORKSPACE NODE IS ALSO IN THIS TREE" is the whole correctness
- * condition, and it used to be assumed rather than checked. An owning chat
- * whose `Workspace` record has not arrived (a fresh fork) or has been hidden
- * out from under it (the removal tray, mid-countdown) has nothing to merge
- * ONTO — so stripping it would delete the row outright, and NOT stripping it
- * left it to `walk` as a `kind: 'chat'` bubble. Neither is right: the row
- * still exists and is still a workspace. It stays exactly where
- * `buildSidebarTree` put it and `walk` draws it as a `branch` row off the
- * chat alone (see `branchRowFromChat`), with only the decoration the absent
- * half carried missing. That is why this takes the whole {@link Ownership}
- * rather than one map: pass 1 needs to know which owners actually have a
- * workspace node to be folded into.
+ *   1. `stripOwners` removes every owning-chat node whose workspace is ALSO
+ *      in this tree, from wherever it sits, and records it (real children
+ *      included) by id. Pass 2 always re-attaches its children onto the
+ *      workspace it owns, so nothing is spliced back into its old spot.
+ *   2. `mergeWorkspaces` relabels every workspace node with a resolved owner
+ *      to that owner's id, appending the owner's own (stripped) children
+ *      onto its own. A workspace with no resolvable owner — its owning chat
+ *      has not arrived, or names a chat this repo has not seeded — is left
+ *      completely untouched, exactly as `buildSidebarTree` built it: still a
+ *      `branch` row (see `walkTreeIntoRows`'s workspace branch), just missing
+ *      the title/decoration only the chat half carries.
  */
-export function foldOwningChats(
+export function foldWorkspaceOwners(
   roots: SidebarTreeNode[],
-  { chatOfWorkspace }: Ownership,
+  ownerChats: ReadonlyMap<string, string>,
 ): SidebarTreeNode[] {
-  const foldableOwnerIds = new Set(chatOfWorkspace.values())
+  const foldableOwnerIds = new Set(ownerChats.values())
   const detached = new Map<string, SidebarTreeNode>()
 
   const stripOwners = (nodes: SidebarTreeNode[]): SidebarTreeNode[] => {
@@ -194,7 +175,7 @@ export function foldOwningChats(
     nodes.map((node) => {
       const children = mergeWorkspaces(node.children)
       if (node.kind === 'workspace') {
-        const ownerId = chatOfWorkspace.get(node.id)
+        const ownerId = ownerChats.get(node.id)
         if (ownerId) {
           const owner = detached.get(ownerId)
           const ownerChildren = owner ? mergeWorkspaces(owner.children) : []
@@ -219,7 +200,7 @@ export function foldOwningChats(
  * finished output here — a second pass would need its own cycle guard and its
  * own sibling sort, and a level interleaves all three row kinds on one shared
  * `order`, so a post-pass could not honour it without redoing the sort anyway.
- * {@link foldOwningChats} is the one deliberate exception: it runs AFTER that
+ * {@link foldWorkspaceOwners} is the one deliberate exception: it runs AFTER that
  * builder, on its finished tree, purely to merge two nodes it built correctly
  * on their own terms into the one row a workspace-owning chat now is.
  *
@@ -242,10 +223,11 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
   const chats = (repo.chats ?? EMPTY_CHATS).filter((c) => c.repoId === repo.id)
   const chatTitleById = new Map(chats.map((c) => [c.id, c.title]))
   const workspaces = repo.workspaces.filter((w) => w.status !== 'deleted')
-  const ownership = resolveOwnership(workspaces, chats)
-  const { ownerOfChat } = ownership
+  const ownerChats = resolveOwnerChats(workspaces, chats)
+  const ownerOfChat = resolveOwnerOfChat(ownerChats, chats)
 
-  const homeRowId = homeId === null ? null : homeOwningChatId(chats, homeId)
+  const homeRowId =
+    homeId === null ? null : resolveHomeOwnerId(homeId, repo.defaultOwningChatId, chats)
 
   if (homeRowId !== null && homeId !== null) {
     rows.push({
@@ -304,7 +286,7 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
     repo.folders ?? EMPTY_FOLDERS,
     chats.filter((c) => c.id !== homeRowId),
   )
-  const folded = foldOwningChats(roots, ownership)
+  const folded = foldWorkspaceOwners(roots, ownerChats)
 
   walkTreeIntoRows(rows, folded, homeRowId, ownerOfChat, chatTitleById, true)
 
@@ -320,10 +302,10 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
  * differ only in what roots them (a repo's default workspace vs. a project's
  * home workspace, pushed by each caller's own home-row logic), never in how a
  * chat, folder or owning-chat-folded workspace becomes a row once the tree is
- * built. `ownerOfChat`/`chatTitleById` come from the caller's own
- * {@link resolveOwnership} / chat list — this function reads them, never
- * resolves them, so a caller with no `Workspace[]` at all (project home can
- * never be forked) can still pass an ownership map derived from an empty one.
+ * built. `ownerOfChat`/`chatTitleById` come from the caller's own owner
+ * resolution / chat list — this function reads them, never resolves them, so
+ * a caller with no `Workspace[]` at all (project home can never be forked)
+ * can still pass an owner map derived from an empty one.
  *
  * `foldersCanFork` answers the one thing a folder's own row otherwise can't
  * tell about itself: whether it sits under a real git repo at all. A repo
@@ -360,7 +342,7 @@ export function walkTreeIntoRows(
       // A chat that OWNS a worktree is a workspace row, and it says so
       // itself — it does not need its `Workspace` record to be on hand to
       // be one. Reaching `walk` still holding that ownership means exactly
-      // one thing: `foldOwningChats` found no workspace NODE to merge it
+      // one thing: `foldWorkspaceOwners` found no workspace NODE to merge it
       // onto, because the workspace half is missing right now (a fork whose
       // `WorkspaceDTO` has not landed; a delete holding the workspace hidden
       // for its eight-second countdown). The row is unchanged and still a
@@ -406,7 +388,7 @@ export function walkTreeIntoRows(
         // workspace, which is a different fact and a different row. This is
         // what puts the chat bubble on the row and makes its "+" a thread.
         // Reaching here means the chat asserted no ownership of its own AND
-        // no `Workspace` claimed it (see `resolveOwnership`) — a real bubble,
+        // no `Workspace` claimed it (see `resolveOwnerChats`) — a real bubble,
         // not a workspace whose other half is late.
         ownsWorktree: false,
         workspaceId: node.chat.workspaceId ?? null,
@@ -451,7 +433,7 @@ export function walkTreeIntoRows(
         hasView: false,
       })
     } else {
-      // `node.kind === 'workspace'`. `foldOwningChats` relabels `node.id`
+      // `node.kind === 'workspace'`. `foldWorkspaceOwners` relabels `node.id`
       // to the id of the chat that owns this workspace whenever one was
       // resolvable — a locked branch, a repo home (never reached here; see
       // the home row above) and an ordinary fork alike — so `node.id` IS

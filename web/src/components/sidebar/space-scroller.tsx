@@ -217,15 +217,14 @@ function SpacePanel({
   // a container "Home" row for these to nest under, mirroring a repo's own
   // home row, and it was rejected outright; there is no such container here.
   const homeTree = useHomeTreeStore((s) => s.trees[projectId])
-  // `rowsFromHome` THROWS if its owning branch chat is missing (same
-  // contract `rowsFromRepo` holds a repo's own home row to) — guarded here
-  // rather than there, the same way `SidebarTreeSurface`'s `seededRepoIds`
-  // keeps a repo's rows from being built before ITS seed has landed: the
-  // backfill that mints project home's owning chat is a daemon-side race
-  // against this store's own first GET, not a caller error.
-  const homeSeeded =
-    homeWorkspaceId !== null &&
-    !!homeTree?.chats.some((c) => c.type === 'branch' && c.workspaceId === homeWorkspaceId)
+  // `rowsFromHome` degrades gracefully (never throws) while its owning chat
+  // has not resolved yet — same as `rowsFromRepo`'s own home row — so this
+  // only needs to gate on the tree itself having seeded, the same way
+  // `SidebarTreeSurface`'s `seededRepoIds` keeps a repo's rows from being
+  // built before ITS seed has landed. Task 9 deleted the boot backfill that
+  // used to make that resolution a real (if narrow) race — the owning chat
+  // is minted chat-first, atomically, at this workspace's own creation.
+  const homeSeeded = homeWorkspaceId !== null && homeTree !== undefined
   // A repo header row already in `repoRows` (rowsFromRepo's own push) carries
   // its own real `parentId`/`order` straight off the wire — Task 3 put a
   // repo's position on its own `Node` row, computed server-side against
