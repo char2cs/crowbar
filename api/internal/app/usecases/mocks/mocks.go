@@ -4,8 +4,10 @@ package mocks
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
@@ -379,7 +381,11 @@ func (s *NodePlacements) ListByParent(
 }
 
 // SetOrder writes the index and leaves the parent exactly as it stands, like
-// the command it stands in for.
+// the command it stands in for. Refuses an id with no row, mirroring the real
+// command's Validate (asynxModels.ErrValidation on current == nil) — a fake
+// that silently no-ops here instead let a real, live-caught bug (a
+// pre-existing repo/chat/folder with no Node row failing every reorder with
+// "no node: validation failed") pass every test that used this fake.
 func (s *NodePlacements) SetOrder(
 	ctx context.Context,
 	id string,
@@ -391,14 +397,14 @@ func (s *NodePlacements) SetOrder(
 	if err := s.OrderErrForID[id]; err != nil {
 		return err
 	}
-	s.Ordered = append(s.Ordered, NodeOrderWrite{ID: id, Order: order})
 	for i := range s.Rows {
 		if s.Rows[i].ID == id {
 			s.Rows[i].Order = order
+			s.Ordered = append(s.Ordered, NodeOrderWrite{ID: id, Order: order})
 			return nil
 		}
 	}
-	return nil
+	return fmt.Errorf("node: set order: no node: %w", asynxModels.ErrValidation)
 }
 
 func (s *NodePlacements) SetPlacement(
@@ -413,15 +419,15 @@ func (s *NodePlacements) SetPlacement(
 	if err := s.PlaceErrForID[id]; err != nil {
 		return err
 	}
-	s.Placed = append(s.Placed, NodePlacementWrite{ID: id, ParentID: parentID, Order: order})
 	for i := range s.Rows {
 		if s.Rows[i].ID == id {
 			s.Rows[i].ParentID = parentID
 			s.Rows[i].Order = order
+			s.Placed = append(s.Placed, NodePlacementWrite{ID: id, ParentID: parentID, Order: order})
 			return nil
 		}
 	}
-	return nil
+	return fmt.Errorf("node: set placement: no node: %w", asynxModels.ErrValidation)
 }
 
 // Forget purges the row for id from Rows, mirroring the real store's hard

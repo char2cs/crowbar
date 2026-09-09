@@ -348,6 +348,31 @@ func TestPlaceChat_Home_FirstPlacementMintsANodeRow(t *testing.T) {
 	assert.Empty(t, chats.Placed, "the write went to Node, never Chat.SetPlacement")
 }
 
+// The adversarial case TestPlaceChat_Home_FirstPlacementMintsANodeRow does
+// NOT cover: a lone chat, no Node row, no siblings sharing its container to
+// displace, ordered to the exact index (0) its own zero-value degrade already
+// reads as. This is the SAME coincidence project.go's original repo-side bug
+// missed (place()'s numeric diff sees no change and never visits the row at
+// all) -- proving freshIDs' independent "was this id ever discovered by the
+// Node walk" signal (buildHomeSnapshot), not a diff-driven one, is what saves
+// this path. Written after that live incident specifically to confirm the
+// home-chat side was never exposed to it, not just reasoned to be safe.
+func TestPlaceChat_Home_LoneChatWithNoNodeRowStillMintsWhenTargetCoincidesWithZero(t *testing.T) {
+	chats, _, nodes, uc := newHomeUsecase(t)
+	ctx := context.Background()
+	chats.Rows = append(chats.Rows, domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: homeWorkspaceID})
+	// Deliberately no nodes.Rows entry for "c1", and no other Node row shares
+	// the bare root -- the exact lone-subject shape the repo-side bug needed.
+
+	_, _, err := uc.PlaceChat(ctx, homeWorkspaceID, "c1", tree.PlaceInput{Order: index(0)})
+	require.NoError(t, err, "a lone home chat with no Node row must mint one, not silently do nothing")
+
+	n := nodeRowFor(t, nodes, "c1")
+	assert.Equal(t, domain.NodeKindChat, n.Kind)
+	assert.Equal(t, "", n.ParentID)
+	assert.Equal(t, 0, n.Order)
+}
+
 // Chat.ParentID/.Order are write-once-at-creation-then-ignored for a
 // home-scoped chat (brief's own contract, not deleted until Task 11): a
 // SECOND move reads its live position off Node (not the frozen Chat field)

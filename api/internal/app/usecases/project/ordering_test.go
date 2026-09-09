@@ -120,6 +120,49 @@ func TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero(t *testing.T) {
 		"the repo's position must be stable across an identical re-drag")
 }
 
+// TestRegression_UpdateRepo_PreExistingRepoWithNoNodeRowStillReorders pins a
+// second, DISTINCT live bug from the one above: a repo that predates the Node
+// migration entirely (no Node row was ever created for it — every real
+// pre-existing repo in production, since this migration deliberately ships
+// with no backfill) failed EVERY reorder with "node: set order: no node:
+// asynx: validation failed", caught live by dragging the sole repo in a real
+// seeded dev project.
+//
+// getRepoNode's own doc comment already promised this: "a repo seeded
+// directly... has no Node row... every UpdateRepo call... even a bare
+// rename... must still work" — true for a bare rename (never touches
+// nodes.SetOrder/SetPlacement), false for a reorder. The zero-value phantom
+// Node{ParentID:""} it degrades to happens to equal folderID ("") at the bare
+// root, so `reparenting` computes false and writeNode calls SetOrder on a row
+// that has never been Created — which the real command (and, since this
+// test, the fake) correctly refuses.
+//
+// This escaped every prior test because every OTHER test in this file that
+// exercises a repo's own reorder seeds nodes.Rows with that repo's Node row
+// FIRST (see TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero,
+// immediately above) — none of them left it genuinely absent.
+func TestRegression_UpdateRepo_PreExistingRepoWithNoNodeRowStillReorders(t *testing.T) {
+	repos := mocks.NewRepositoryStore()
+	nodes := mocks.NewNodePlacements()
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "legacy-repo", ProjectID: "p1"}))
+	// Deliberately no nodes.Rows entry for "legacy-repo" — this is the whole point.
+
+	_, err := uc.UpdateRepo(ctx, "legacy-repo", project.RepoUpdate{Order: index(0)})
+	require.NoError(t, err, "a pre-existing repo with no Node row must mint one on its first reorder, not fail")
+
+	got := nodeRow(t, nodes, "legacy-repo")
+	assert.Equal(t, domain.NodeKindRepo, got.Kind)
+	assert.Equal(t, "", got.ParentID)
+	assert.Equal(t, 0, got.Order)
+
+	// A second reorder must now be a genuine SetOrder/SetPlacement against the
+	// row this first call minted, not another mint attempt.
+	_, err = uc.UpdateRepo(ctx, "legacy-repo", project.RepoUpdate{Order: index(0)})
+	require.NoError(t, err)
+}
+
 // TestUpdateRepo_PlacesAgainstHomeChatsToo pins placeRepoAmongHomeSiblings'
 // whole point now that the merge with the chat package is gone (2026-09-08
 // sidebar-placement-unification Task 5): a repo's own Node write densifies

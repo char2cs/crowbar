@@ -328,7 +328,7 @@ func (u *projectUsecase) UpdateRepo(
 	if repo == nil {
 		return domain.Repository{}, fmt.Errorf("project: update repo: id %s: %w", repoID, apperr.ErrNotFound)
 	}
-	subject, err := u.getRepoNode(ctx, repoID)
+	subject, subjectExists, err := u.getRepoNode(ctx, repoID)
 	if err != nil {
 		return domain.Repository{}, fmt.Errorf("project: update repo: node: %w", err)
 	}
@@ -349,7 +349,7 @@ func (u *projectUsecase) UpdateRepo(
 	if err := u.repos.Save(ctx, *repo); err != nil {
 		return domain.Repository{}, fmt.Errorf("project: update repo: save: %w", err)
 	}
-	if err := u.applyRepoPlacement(ctx, *repo, targetFolder, subject, in.Order); err != nil {
+	if err := u.applyRepoPlacement(ctx, *repo, targetFolder, subject, subjectExists, in.Order); err != nil {
 		return domain.Repository{}, err
 	}
 	// The container the repo LEFT — whether it moved project, folder, or both —
@@ -374,18 +374,26 @@ func (u *projectUsecase) UpdateRepo(
 // written before this migration/through the bare buildRepo+Save fallback with
 // no importer wired) has no Node row, and every UpdateRepo call — even a bare
 // rename — must still work.
+//
+// The second return value is the one thing the zero-value degrade loses on
+// its own: whether that row is real. writeNode/forceReparentWrite need this —
+// a row that has never been Created must be Created on its first write, not
+// handed to SetOrder/SetPlacement (which correctly refuse a row that doesn't
+// exist yet) — this is the mint-on-first-touch half of "best effort, no
+// backfill" that only degrading the READ side (this function, before this
+// fix) never actually delivered for the write.
 func (u *projectUsecase) getRepoNode(
 	ctx context.Context,
 	repoID string,
-) (domain.Node, error) {
+) (domain.Node, bool, error) {
 	n, err := u.nodes.GetNode(ctx, repoID)
 	if err != nil {
 		if errors.Is(err, noderepo.ErrNotFound) {
-			return domain.Node{ID: repoID, Kind: domain.NodeKindRepo}, nil
+			return domain.Node{ID: repoID, Kind: domain.NodeKindRepo}, false, nil
 		}
-		return domain.Node{}, err
+		return domain.Node{}, false, err
 	}
-	return n, nil
+	return n, true, nil
 }
 
 // resolveTargetFolder validates and resolves the repo's target folder from
@@ -418,12 +426,13 @@ func (u *projectUsecase) applyRepoPlacement(
 	repo domain.Repository,
 	targetFolder string,
 	subject domain.Node,
+	subjectExists bool,
 	order *int,
 ) error {
 	if order != nil {
-		return u.placeRepoAmongHomeSiblings(ctx, repo.ProjectID, targetFolder, subject, *order)
+		return u.placeRepoAmongHomeSiblings(ctx, repo.ProjectID, targetFolder, subject, subjectExists, *order)
 	}
-	return u.densifyRepos(ctx, repo.ProjectID, targetFolder, &subject)
+	return u.densifyRepos(ctx, repo.ProjectID, targetFolder, &subject, subjectExists)
 }
 
 // validateRepoFolder confirms folderID names a genuine project-home folder —
@@ -580,8 +589,9 @@ func (u *projectUsecase) densifyRepos(
 	projectID string,
 	folderID string,
 	subject *domain.Node,
+	subjectExists bool,
 ) error {
-	return u.densifyReposScoped(ctx, projectID, folderID, subject, "")
+	return u.densifyReposScoped(ctx, projectID, folderID, subject, subjectExists, "")
 }
 
 // densifyReposExcluding is densifyRepos with no subject to include, but a
@@ -594,7 +604,7 @@ func (u *projectUsecase) densifyReposExcluding(
 	folderID string,
 	exclude string,
 ) error {
-	return u.densifyReposScoped(ctx, projectID, folderID, nil, exclude)
+	return u.densifyReposScoped(ctx, projectID, folderID, nil, false, exclude)
 }
 
 func (u *projectUsecase) densifyReposScoped(
@@ -602,6 +612,7 @@ func (u *projectUsecase) densifyReposScoped(
 	projectID string,
 	folderID string,
 	subject *domain.Node,
+	subjectExists bool,
 	exclude string,
 ) error {
 	memberIDs, err := u.repoIDSet(ctx, projectID)
@@ -622,13 +633,20 @@ func (u *projectUsecase) densifyReposScoped(
 	for _, moved := range place(slots, subjectID, nil) {
 		row := rows[moved.at]
 		written[row.ID] = true
+		if subject != nil && row.ID == subject.ID && !subjectExists {
+			if err := u.mintNode(ctx, row.ID, folderID, moved.order); err != nil {
+				return err
+			}
+			continue
+		}
 		reparenting := subject != nil && row.ID == subject.ID && subject.ParentID != folderID
 		if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
 			return err
 		}
 	}
-	if subject != nil && subject.ParentID != folderID {
-		if err := u.forceReparentWrite(ctx, slots, subject.ID, folderID, nil, written); err != nil {
+	if subject != nil {
+		reparented := subject.ParentID != folderID
+		if err := u.ensureSubjectWritten(ctx, slots, subject.ID, subjectExists, reparented, folderID, nil, written); err != nil {
 			return err
 		}
 	}
@@ -688,22 +706,74 @@ func (u *projectUsecase) writeNode(
 	return nil
 }
 
-// forceReparentWrite guarantees a reparenting subject's SetPlacement actually
-// happens even when place() recorded no move for it — see finalIndexOf's own
-// doc for the coincidence this defends against (a reparent that lands back on
-// the same dense index it already held, invisible to place()'s numeric diff).
-// slots is the ORIGINAL (pre-sort) slot list — finalIndexOf takes its own copy
-// and never mutates the caller's.
-func (u *projectUsecase) forceReparentWrite(
+// mintNode is the "best effort, no backfill" half of degrading a Node-less
+// row: a repo that predates this migration entirely (every real pre-existing
+// repo in production — this migration ships with no backfill by design) has
+// no Node row yet, and its FIRST reorder must Create one at exactly the
+// resolved (folderID, order) rather than hand it to SetOrder/SetPlacement,
+// which correctly refuse a row that was never Created (caught live: "node:
+// set order: no node: asynx: validation failed" on the very first drag of a
+// pre-existing repo). One Create call sets both fields the placement needs,
+// so there is no separate reparenting branch to consider here.
+func (u *projectUsecase) mintNode(
+	ctx context.Context,
+	id string,
+	folderID string,
+	order int,
+) error {
+	if _, err := u.nodes.Create(ctx, id, domain.NodeKindRepo, folderID, order); err != nil {
+		return fmt.Errorf("project: reorder repos: mint %s: %w", id, err)
+	}
+	return nil
+}
+
+// ensureSubjectWritten guarantees the subject ends up in the state this call
+// actually asked for, even when place()'s numeric diff saw no move to make —
+// two DIFFERENT coincidences collapse to the same blind spot, and both need
+// the SAME unconditional (not "only if reparenting") check here, not just the
+// main densify loop's per-row dispatch:
+//
+//   - A genuinely NEW row (subjectExists false — every real pre-existing
+//     repo in production, since this migration ships with no backfill) whose
+//     first-ever placement happens to land on the exact index its zero-value
+//     degrade already reads as (dragging a lone repo to "the front" is
+//     already order 0 before it has ever been Created) — invisible to
+//     place()'s diff, which only compares ORDER values, not existence. Caught
+//     live: "node: set order: no node: asynx: validation failed" on the very
+//     first drag of a pre-existing repo, reproduced in
+//     TestRegression_UpdateRepo_PreExistingRepoWithNoNodeRowStillReorders.
+//   - A REPARENTING existing row that lands back on the same dense index it
+//     already held (the original, narrower case this function used to be
+//     named for, before the Node-less case above showed the SAME gap needed
+//     the SAME unconditional check).
+//
+// slots is the ORIGINAL (pre-sort) slot list — finalIndexOf takes its own
+// copy and never mutates the caller's. Called after EVERY densify/place pass,
+// not gated behind "if reparented": a Node-less subject may need minting
+// regardless of whether its resolved parent happens to differ from its
+// (meaningless, zero-value) current one.
+func (u *projectUsecase) ensureSubjectWritten(
 	ctx context.Context,
 	slots []slot,
 	subjectID string,
+	subjectExists bool,
+	reparented bool,
 	folderID string,
 	target *int,
 	written map[string]bool,
 ) error {
 	if written[subjectID] {
 		return nil
+	}
+	if !subjectExists {
+		i := finalIndexOf(slots, subjectID, target)
+		if i < 0 {
+			i = 0
+		}
+		return u.mintNode(ctx, subjectID, folderID, i)
+	}
+	if !reparented {
+		return nil // a real, existing row place() correctly found no write needed for
 	}
 	i := finalIndexOf(slots, subjectID, target)
 	if i < 0 {
@@ -792,6 +862,7 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	projectID string,
 	folderID string,
 	subject domain.Node,
+	subjectExists bool,
 	target int,
 ) error {
 	memberIDs, err := u.repoIDSet(ctx, projectID)
@@ -814,15 +885,19 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	for _, moved := range place(slots, subject.ID, &target) {
 		row := rows[moved.at]
 		written[row.ID] = true
+		if row.ID == subject.ID && !subjectExists {
+			if err := u.mintNode(ctx, row.ID, folderID, moved.order); err != nil {
+				return err
+			}
+			continue
+		}
 		reparenting := row.ID == subject.ID && reparented
 		if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
 			return err
 		}
 	}
-	if reparented {
-		if err := u.forceReparentWrite(ctx, slots, subject.ID, folderID, &target, written); err != nil {
-			return err
-		}
+	if err := u.ensureSubjectWritten(ctx, slots, subject.ID, subjectExists, reparented, folderID, &target, written); err != nil {
+		return err
 	}
 	return nil
 }
