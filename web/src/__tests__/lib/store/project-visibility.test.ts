@@ -207,7 +207,10 @@ describe('readVisibleRepoTree', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
     useHomeTreeStore.setState({
       trees: {
-        p1: { chats: [], folders: [{ id: 'home-folder', repoId: '', name: 'Home folder', order: 0 }] },
+        p1: {
+          chats: [],
+          folders: [{ id: 'home-folder', repoId: '', name: 'Home folder', order: 0 }],
+        },
       },
     })
     await upsertEntity('crowbar_folders', folderDTO('home-folder', 'r1', 'p1'))
