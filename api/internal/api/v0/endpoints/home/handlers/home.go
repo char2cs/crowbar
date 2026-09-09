@@ -26,8 +26,13 @@ func (h *Handlers) Get(c *gin.Context) {
 	// home workspace's icon keeps its spinner across a refetch.
 	ws.Working = h.working.WorkingFor(ws.ID)
 	owningChatID := h.resolveOwningChatID(c.Request.Context(), ws.ID)
-	// Home workspaces carry no git-merge-eligibility context.
-	libs.WriteQueryWithStatus(c, http.StatusOK, dto.WorkspaceDTOFrom(ws, wsrepo.MergeEligibility{}, owningChatID))
+	// Home workspaces carry no git-merge-eligibility context, and no sidebar
+	// FolderID/Order either: PlaceWorkspace itself refuses this row (RepoOf
+	// answers "" for it — see PlaceWorkspace's own doc), so there is nothing
+	// for a Node reader to answer here beyond the "" / 0 default nil already
+	// gives.
+	libs.WriteQueryWithStatus(c, http.StatusOK,
+		dto.WorkspaceDTOFrom(c.Request.Context(), ws, wsrepo.MergeEligibility{}, owningChatID, nil))
 }
 
 // resolveOwningChatID answers wsID's real owning chat id for the wire DTO,

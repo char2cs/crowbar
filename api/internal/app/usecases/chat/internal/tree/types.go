@@ -432,6 +432,17 @@ type Usecase interface {
 		ctx context.Context,
 		chatID string,
 	) (ChatDeletion, error)
+	// PlaceWorkspace moves a workspace's own row within its repo's tree — a
+	// locked branch and an ordinary fork alike, see checkWorkspaceMove and
+	// PlaceWorkspace's own doc for why this is not gated on
+	// domain.Workspace.RendersAsBranch. It refuses with apperr.ErrNotFound
+	// only for a workspaceID with no real repo scope (a nonexistent id, or
+	// the project's own home workspace).
+	PlaceWorkspace(
+		ctx context.Context,
+		workspaceID string,
+		in PlaceInput,
+	) (domain.Chat, []domain.Chat, error)
 	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
 	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
 	// row in the subtree, and the working-tree file count summed across every

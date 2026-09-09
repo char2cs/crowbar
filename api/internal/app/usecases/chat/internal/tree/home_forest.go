@@ -40,25 +40,42 @@ func homeFolderView(
 	}
 }
 
-// workspaceAnchorView renders a workspace's own Node{Kind:workspace} row as
-// the same Chat-shaped view every other verb in this package validates a
-// container against, for a row filed directly under a workspace's own
-// placement id (owning_chat.go's owningChatOf, 2026-09-08
-// sidebar-placement-unification Task 9) that resolveRow's Chat/Folder tiers
-// cannot answer — that id names no Chat or Folder aggregate at all.
+// workspaceAnchorType marks a workspace's own Node{Kind:workspace} row as it
+// rides through this package's Chat-shaped treeSnapshot — a locked branch is
+// neither a folder nor an ordinary chat (isFolder/isChat must both answer
+// false for it, mirroring nodePhantomType's own reasoning), and its FIRST
+// write must mint as NodeKindWorkspace, not NodeKindChat — see
+// writeHomeNode's kind dispatch. Distinct from nodePhantomType only in which
+// Node.Kind a fresh mint resolves to; both are never persisted or
+// serialised, and both exist only to be distinct from every real
+// domain.ChatType.
+const workspaceAnchorType domain.ChatType = "__workspace_anchor__"
+
+// workspaceAnchorView renders a LOCKED workspace's own Node{Kind:workspace}
+// row as the same Chat-shaped view every other verb in this package plans,
+// validates a container against, and (2026-09-09, this fix) writes back —
+// for a row filed directly under a workspace's own placement id
+// (owning_chat.go's owningChatOf, 2026-09-08 sidebar-placement-unification
+// Task 9) that resolveRow's Chat/Folder tiers cannot answer — that id names
+// no Chat or Folder aggregate at all — and, since this fix, for the row's
+// OWN placement too (PlaceWorkspace), not merely as a container for other
+// rows filed under it.
 //
 // It carries no real conversation: WorkspaceID is set to the workspace's own
 // id, which is the only fact checkParentKind/repoScopeOf need to accept it
 // as a container (an own-worktree creation accepts any row.WorkspaceID != "",
 // and repoScopeOf resolves a repo scope off it exactly as it already does
-// for an ordinary chat).
+// for an ordinary chat) — checkParentKind's own unconditional-container
+// branch is widened to workspaceAnchorType for the same reason it already
+// accepts ChatTypeFolder/ChatTypeBranch, rather than relying only on the
+// WorkspaceID coincidence.
 func workspaceAnchorView(
 	workspaceID string,
 	n domain.Node,
 ) domain.Chat {
 	return domain.Chat{
 		ID:          workspaceID,
-		Type:        domain.ChatTypeChat,
+		Type:        workspaceAnchorType,
 		WorkspaceID: workspaceID,
 		ParentID:    n.ParentID,
 		Order:       n.Order,
@@ -275,11 +292,26 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		})
 		return true, "", nil
 	case domain.NodeKindWorkspace:
-		// Not reachable at home before Task 7 -- ignore defensively. A
-		// repo-scoped branch's own owning row is not reachable here either
-		// (untouched by Task 8, still governed entirely by owning_rows.go/
-		// placeOwningRow, never given a Node of its own).
-		return false, "", nil
+		// Every workspace gets a Node{Kind:workspace} row unconditionally at
+		// creation (Task 7), including an ordinary unlocked fork — which
+		// must NOT merge in here: it is already represented 1:1 by the chat
+		// that owns it (spec §2.4), and including it too would draw a
+		// second, duplicate row for the same worktree. RendersAsBranch is
+		// the one live check that tells the two apart.
+		renders, err := u.workspaces.RendersAsBranch(ctx, n.ID)
+		if err != nil {
+			// A resolution failure degrades to "not a branch row" rather
+			// than failing the whole merge — the same posture
+			// repoMemberIDsForHome already takes for an unresolvable
+			// project: excluding a row this walk cannot vouch for is safer
+			// than including one un-checked.
+			return false, "", nil
+		}
+		if !renders {
+			return false, "", nil
+		}
+		*baseRows = append(*baseRows, workspaceAnchorView(n.ID, n))
+		return true, n.ID, nil
 	}
 	return false, "", nil
 }
@@ -382,10 +414,16 @@ func (u *chatFolderUsecase) writeHomeNode(
 		kind = domain.NodeKindFolder
 	case domain.ChatTypeChat, domain.ChatTypeBranch, domain.ChatTypeWorkflow:
 		// kind is already NodeKindChat.
-	default:
-		// nodePhantomType -- a repo's own Node row riding through this
-		// Chat-shaped snapshot, not a member of the domain.ChatType enum.
+	case nodePhantomType:
+		// A repo's own Node row riding through this Chat-shaped snapshot,
+		// not a member of the domain.ChatType enum.
 		kind = domain.NodeKindRepo
+	case workspaceAnchorType:
+		// A locked branch's own Node row (2026-09-09) — see
+		// workspaceAnchorView's own doc. Distinct from nodePhantomType
+		// specifically so a fresh mint lands on the right Kind; both are
+		// otherwise handled identically by everything else in this package.
+		kind = domain.NodeKindWorkspace
 	}
 	if snapshot.freshIDs[row.ID] {
 		if _, err := u.nodes.Create(ctx, row.ID, kind, row.ParentID, row.Order); err != nil {

@@ -50,6 +50,50 @@ type Worktrees interface {
 	) workspace.MergeEligibility
 }
 
+// Nodes is the narrow read port a worktree-owning chat's DTO needs to carry
+// its own sidebar placement (2026-09-09 sidebar-placement-unification,
+// workspace-placement fix): the workspace's own Node{Kind:workspace} row —
+// the SAME position PlaceWorkspace writes — read back so the panel a drag
+// just wrote to actually redraws it.
+type Nodes interface {
+	GetNode(
+		ctx context.Context,
+		id string,
+	) (domain.Node, error)
+}
+
+// nodePlacementReader adapts Handlers.nodes to dto.WorkspacePlacementReader.
+// A resolution failure (no Node row yet — see dto.WorkspacePlacementReader's
+// own doc) degrades to "" / 0 rather than an error: this DTO is serialized
+// for a chat list read, not a placement write, and a row this fix has not
+// reached yet is honestly "at the repo root, first slot" until something
+// places it.
+type nodePlacementReader struct {
+	nodes Nodes
+}
+
+func (r nodePlacementReader) Placement(
+	ctx context.Context,
+	workspaceID string,
+) (folderID string, order int) {
+	n, err := r.nodes.GetNode(ctx, workspaceID)
+	if err != nil {
+		return "", 0
+	}
+	return n.ParentID, n.Order
+}
+
+// placementReader answers this Handlers' own dto.WorkspacePlacementReader,
+// or nil when unwired (h.nodes is nil for a test Handlers built with only
+// the fields its own assertion needs, matching Worktrees' own tolerance) —
+// dto.WorkspaceDTOFrom already degrades a nil reader to "" / 0.
+func (h *Handlers) placementReader() dto.WorkspacePlacementReader {
+	if h.nodes == nil {
+		return nil
+	}
+	return nodePlacementReader{h.nodes}
+}
+
 // worktreeScope is ONE read's worth of the answers the enrichment needs: the
 // repo's workspace rows, and the owning chat resolved per workspace.
 //
@@ -165,7 +209,8 @@ func (s *worktreeScope) project(
 	w domain.Workspace,
 ) *dto.ChatWorktreeDTO {
 	elig := s.handlers.worktrees.MergeEligibilityFor(ctx, w, s.siblings)
-	return dto.ChatWorktreeFrom(dto.WorkspaceDTOFrom(w, elig, s.owner(ctx, c)))
+	return dto.ChatWorktreeFrom(
+		dto.WorkspaceDTOFrom(ctx, w, elig, s.owner(ctx, c), s.handlers.placementReader()))
 }
 
 // owner answers which chat OWNS the worktree c is describing — c itself for the

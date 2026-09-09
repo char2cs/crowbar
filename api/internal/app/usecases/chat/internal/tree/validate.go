@@ -40,6 +40,48 @@ func (u *chatFolderUsecase) checkFolderMove(
 	return nil
 }
 
+// checkWorkspaceMove refuses a LOCKED BRANCH's own placement move (2026-09-09,
+// PlaceWorkspace) onto a container that does not exist, lies inside its own
+// subtree, or would leave its own repo scope — the identical golden rule
+// checkFolderContainer already enforces for a folder, reused as-is: repoID is
+// the branch's own RepoOf answer, playing the part folderRepoID plays for a
+// folder.
+//
+// It deliberately does NOT run checkFolderContextMove, unlike checkFolderMove.
+// That finer check exists to stop a CHILD row silently crossing from one
+// anchor to another — but the branch itself IS one of the four anchor tiers
+// (Project -> Repo -> Locked branch -> Parent unlocked branch, see
+// nearestWorkspaceAnchor's own doc): nearestWorkspaceAnchor(id) resolves to
+// id itself before it ever walks up, since id's own Node.Kind already reads
+// NodeKindWorkspace. Reusing checkFolderMove wholesale would therefore compare
+// the branch's own id against the destination's (almost always different)
+// anchor and refuse EVERY legal move with ErrCrossContext — caught before
+// shipping by tracing what nearestWorkspaceAnchor(workspaceID) actually
+// answers, not by a live failure. The repo-scope check below is the only
+// invariant the branch's own placement owes: see planTreeRowDrop
+// (drop-actions.ts) for the frontend contract this mirrors — a locked branch
+// only ever moves within its OWN repo, to its bare root or one of that
+// repo's own folders (or another branch's own row, nested organisation, not a
+// fork-lineage change — see checkFolderContainer's row-type acceptance).
+func (u *chatFolderUsecase) checkWorkspaceMove(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	repoID string,
+	id string,
+	destination string,
+) error {
+	if destination == id {
+		return fmt.Errorf("agent chat folder: move %s onto itself: %w", id, ErrCycle)
+	}
+	if err := u.checkFolderContainer(ctx, snapshot, repoID, destination); err != nil {
+		return err
+	}
+	if snapshot.plan.Reaches(destination, id) {
+		return fmt.Errorf("agent chat folder: move %s under %s: %w", id, destination, ErrCycle)
+	}
+	return nil
+}
+
 // checkFolderContextMove is the golden rule's fine grain: "context", in
 // order, is Project -> Repo -> Locked branch -> Parent unlocked (branch) —
 // four different anchors a folder can sit under, not just two (home vs a
@@ -330,7 +372,14 @@ func checkParentKind(
 	if row.Type == nodePhantomType {
 		return fmt.Errorf("agent chat folder: parent %s: %w", parentID, ErrNotAContainer)
 	}
-	if row.Type == domain.ChatTypeFolder || row.Type == domain.ChatTypeBranch {
+	// workspaceAnchorType (a locked branch's own row, 2026-09-09) is accepted
+	// unconditionally for the identical reason ChatTypeBranch already is: a
+	// process boundary, not a workspace one, and a locked branch is exactly
+	// the "1:N chats" container spec §2.4 describes. Relying only on the
+	// WorkspaceID == workspaceID fallback below would happen to work too
+	// (workspaceAnchorView sets it to the anchor's own id), but this makes
+	// the acceptance explicit rather than coincidental.
+	if row.Type == domain.ChatTypeFolder || row.Type == domain.ChatTypeBranch || row.Type == workspaceAnchorType {
 		return nil
 	}
 	if ownWorktree && row.WorkspaceID != "" {

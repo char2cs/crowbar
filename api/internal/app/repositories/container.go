@@ -518,7 +518,36 @@ func (c *Container) enrichFrame(
 ) dto.WorkspaceDTO {
 	ws.Working = c.WorkingFor(ws.ID)
 	elig := c.eligibilityFor(ctx, ws)
-	return dto.WorkspaceDTOFrom(ws, elig, c.owningChatIDFor(ctx, ws.ID))
+	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws.ID), c.nodePlacement())
+}
+
+// nodePlacement adapts this container's own Node store to
+// dto.WorkspacePlacementReader, over c.Node.GetNode — the SAME live position
+// PlaceWorkspace itself writes (2026-09-09 sidebar-placement-unification,
+// workspace-placement fix). Nil-safe: an unwired Node store (a test
+// Container built with only the fields its own assertion needs, matching
+// owningChatIDFor's own zero-value tolerance) degrades to
+// WorkspaceDTOFrom's own "" / 0 default rather than a nil-pointer panic.
+func (c *Container) nodePlacement() dto.WorkspacePlacementReader {
+	if c.Node == nil {
+		return nil
+	}
+	return nodePlacementReader{c.Node}
+}
+
+type nodePlacementReader struct {
+	nodes node.EventStore
+}
+
+func (r nodePlacementReader) Placement(
+	ctx context.Context,
+	workspaceID string,
+) (folderID string, order int) {
+	n, err := r.nodes.GetNode(ctx, workspaceID)
+	if err != nil {
+		return "", 0
+	}
+	return n.ParentID, n.Order
 }
 
 // owningChatIDFor resolves wsID's real owning chat id for the wire DTO,

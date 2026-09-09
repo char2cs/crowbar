@@ -83,6 +83,12 @@ import (
 // POST /chats with an `import` body, which adopts a branch that already exists
 // in that repo (spec §4.1 — Create and Import are ONE route with a
 // WorktreeSpec, not two). Every other route below is unaffected by it.
+//
+// nodes resolves a worktree-owning chat's own sidebar FolderID/Order (2026-09-09
+// sidebar-placement-unification, workspace-placement fix) — the Node row
+// PlaceWorkspace (endpoints/workspace) writes, read back here so the chat
+// list this repo's sidebar actually renders from carries a drag's result,
+// not just the git fields worktrees above already resolves.
 func Register(
 	repoScoped *gin.RouterGroup,
 	settingsRG *gin.RouterGroup,
@@ -94,12 +100,14 @@ func Register(
 	folders agenthandlers.ChatTreeUsecase,
 	repos agenthandlers.Repos,
 	worktrees agenthandlers.Worktrees,
+	nodes agenthandlers.Nodes,
 	broadcastFolder func(folderID, workspaceID, kind string),
 	wsHandle gin.HandlerFunc,
 ) {
 	h := agenthandlers.New(chats, turns, runners, answers, providers, folders, broadcastFolder).
 		WithRepos(repos).
-		WithWorktrees(worktrees)
+		WithWorktrees(worktrees).
+		WithNodes(nodes)
 
 	repoScoped.POST("/chats", h.Create)
 	repoScoped.GET("/chats", h.List)

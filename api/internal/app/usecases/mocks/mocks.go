@@ -1923,6 +1923,10 @@ type AgentWorkspaceGitStatus struct {
 	// mergeHomeForest's own "nil means do not filter" contract.
 	HomeRepoMembers map[string]map[string]bool
 	RepoIDsErr      error
+	// Branches answers RendersAsBranch, keyed by workspace id. A workspace
+	// never Set here answers false — the same default an ordinary, unlocked
+	// fork's real domain.Workspace.RendersAsBranch() gives.
+	Branches map[string]bool
 }
 
 // NewAgentWorkspaceGitStatus returns an AgentWorkspaceGitStatus with no
@@ -1968,6 +1972,25 @@ func (s *AgentWorkspaceGitStatus) RepoOf(
 		return "", s.Err
 	}
 	return s.Repos[workspaceID], nil
+}
+
+// SetBranch records whether workspaceID renders as its own sidebar row for
+// RendersAsBranch to answer with.
+func (s *AgentWorkspaceGitStatus) SetBranch(workspaceID string, renders bool) {
+	if s.Branches == nil {
+		s.Branches = map[string]bool{}
+	}
+	s.Branches[workspaceID] = renders
+}
+
+func (s *AgentWorkspaceGitStatus) RendersAsBranch(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	if s.Err != nil {
+		return false, s.Err
+	}
+	return s.Branches[workspaceID], nil
 }
 
 // Set records workspaceID's Added/Deleted for WorkingTreeSummary to answer

@@ -126,6 +126,12 @@ export interface ChatWorktreeDTO {
   parentId?: string
   /** Which chat owns this worktree. Always sent, on every row carrying it. */
   owningChatId: string
+  /** Sidebar grouping folder this workspace belongs to, or absent for the
+   *  repo root. A SEPARATE field from parentId, which stays the fork parent. */
+  folderId?: string
+  /** Dense sibling sort key within its level. Absent on frames from a daemon
+   *  that predates ordering. */
+  order?: number
 }
 
 export interface RepoDTO {

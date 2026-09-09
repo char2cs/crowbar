@@ -116,4 +116,15 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		homeWorkspaceID string,
 	) (map[string]bool, error)
+	// RendersAsBranch answers domain.Workspace.RendersAsBranch for
+	// workspaceID — the one fact mergeForest needs to decide whether a
+	// NodeKindWorkspace row it discovers is a genuine sidebar row (a locked
+	// branch) or an ordinary, unlocked fork's own Node row, which every
+	// workspace gets unconditionally at creation but which must NOT merge in
+	// as a second row beside the chat that already represents it 1:1. See
+	// mergeHomeNode's own doc.
+	RendersAsBranch(
+		ctx context.Context,
+		workspaceID string,
+	) (bool, error)
 }

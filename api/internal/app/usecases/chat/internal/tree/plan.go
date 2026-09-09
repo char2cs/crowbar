@@ -78,6 +78,11 @@ func (u *chatFolderUsecase) globalSnapshot(
 // (SDD review fix round 3), unlike PlaceChat's identical risk, which
 // workspaceSnapshotAround below DOES close, because it has a real
 // homeWorkspaceID in hand to resolve a project from.
+//
+// A workspaceAnchorType subject (PlaceWorkspace, 2026-09-09) is Node-backed
+// for exactly the same reason a folder is — see subjectIsNodeBacked. Every
+// other caller passes a folder subject or none at all, so this only changes
+// behaviour for PlaceWorkspace's own call.
 func (u *chatFolderUsecase) globalSnapshotAround(
 	ctx context.Context,
 	subject domain.Chat,
@@ -90,8 +95,9 @@ func (u *chatFolderUsecase) globalSnapshotAround(
 	if err != nil {
 		return nil, err
 	}
-	subjectIsFolder := subject.ID != "" && subject.Type == domain.ChatTypeFolder
-	return buildHomeSnapshot(merged, subject, homeIDs, subjectIsFolder), nil
+	subjectIsNodeBacked := subject.ID != "" &&
+		(subject.Type == domain.ChatTypeFolder || subject.Type == workspaceAnchorType)
+	return buildHomeSnapshot(merged, subject, homeIDs, subjectIsNodeBacked), nil
 }
 
 // workspaceSnapshot reads one workspace's rows, PLUS every folder, as of a

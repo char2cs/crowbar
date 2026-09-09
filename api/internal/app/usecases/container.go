@@ -629,6 +629,18 @@ func (w workspaceGitStatusReader) RepoIDsForHome(
 	return ids, nil
 }
 
+// RendersAsBranch implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) RendersAsBranch(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	return ws.RendersAsBranch(), nil
+}
+
 // worktreeChildCreator adapts the worktree hierarchy usecase into the agent
 // usecase's WorktreeCreator seam (internal/app/usecases/chat.WorktreeCreator):
 // Promote names only the fork parent it forks from, and this fills in the rest

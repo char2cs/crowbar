@@ -63,6 +63,16 @@ type ChatWorktreeDTO struct {
 	// conflated. A client resolves it the way the workspace list already does.
 	ForkPointSha string `json:"forkPointSha,omitempty"`
 	ParentID     string `json:"parentId,omitempty"`
+	// FolderID and Order are the workspace's own sidebar placement (2026-09-09
+	// sidebar-placement-unification, workspace-placement fix) — see
+	// WorkspaceDTO's own doc on these two fields, which this is projected
+	// from unchanged. This is the ONE read `fetchWorkspaces` (web/src/lib/
+	// api.ts) actually derives the frontend's Workspace.folderId/.order
+	// from, now that the dedicated workspace list is gone — carrying them
+	// here is what lets a locked branch's (or an ordinary fork's) drag
+	// actually redraw, rather than reverting on the next chat-list refetch.
+	FolderID string `json:"folderId"`
+	Order    int    `json:"order"`
 	// OwningChatID names which chat OWNS this worktree, and it is the one field
 	// here that is not a fact about git.
 	//
@@ -114,5 +124,7 @@ func ChatWorktreeFrom(
 		ForkPointSha:    w.ForkPointSha,
 		ParentID:        w.ParentID,
 		OwningChatID:    w.OwningChatID,
+		FolderID:        w.FolderID,
+		Order:           w.Order,
 	}
 }
