@@ -197,7 +197,15 @@ export function WorkingLine({
       )}
       {plan && plan.length > 0 && !compacting && (
         <ol className="plan" data-testid="agent-plan">
+          {/* PlanStep (Go's domain.PlanStep) has no id, only text/status, so
+              there is no natural stable identity to key on. The index is
+              combined WITH text, not used alone: a genuinely reordered/
+              changed step still gets a fresh key (forcing the correct
+              re-render), and two steps sharing identical text — the only
+              case this degrades to a plain index key — is not a real shape
+              for a task list. */}
           {plan.map((step, i) => (
+            // react-doctor-disable-next-line no-array-index-as-key -- see comment above, index is combined with text
             <li key={`${i}-${step.text}`} data-status={step.status}>
               {step.text}
             </li>

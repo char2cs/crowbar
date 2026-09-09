@@ -269,6 +269,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     }
   }, [])
 
+  // The return far below removes every one of this effect's listeners
+  // (`focus`, the three `INPUT_EVENTS`, `keydown`, `pointerdown/up/cancel`)
+  // and disconnects the observer; the analyzer likely can't tie a
+  // loop-registered listener (`INPUT_EVENTS`) to its loop-based removal.
+  // react-doctor-disable-next-line effect-needs-cleanup -- see comment above, cleanup exists at the end of this effect
   useEffect(() => {
     const el = scrollRef.current
     // The LAST child, not the first: `.scroll`'s first child is now

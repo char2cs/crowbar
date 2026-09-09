@@ -111,7 +111,7 @@ describe('settleFreshGeneration', () => {
       value: chatMarkdownToValue('Building'),
     })
     applyStreamedValue(editor, chatMarkdownToValue('Building a CLI'))
-    const before = JSON.parse(JSON.stringify(editor.children))
+    const before = structuredClone(editor.children)
     expect(fades(editor).length).toBeGreaterThan(0)
 
     for (const generation of new Set(fades(editor).map((f) => f.generation))) {

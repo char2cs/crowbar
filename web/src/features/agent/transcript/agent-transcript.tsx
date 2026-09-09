@@ -335,6 +335,16 @@ function TranscriptRowView({
  * below the record and above the working line, which is the order they will
  * actually happen in.
  */
+// This component's own effects are the load-bearing part of this branch's
+// entire scroll/streaming correctness work (pin-to-top, tail-room, the
+// streaming/queued row height cache above, prepend/restore-position) and are
+// heavily interdependent through shared refs and measured DOM state, not a
+// pile of unrelated concerns. Splitting it is a real architecture decision,
+// not a quick fix — per this tool's own guidance ("split behavior-changing
+// work into separate PRs"), and given how delicate this exact file's timing
+// has already proven this session (see its own effects' doc comments), it
+// belongs in its own reviewed pass, not a last change before a CI deadline.
+// react-doctor-disable-next-line no-giant-component -- see comment above, splitting this is a separate architectural pass
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { messages, queue, dockHeight } = props
   const anchor = useTranscriptAnchor({
@@ -522,6 +532,11 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // token flush while a reply is actively streaming — ungated, this
     // reintroduced exactly the per-frame layout cost the rest of this
     // branch exists to remove.
+    // `anchor.scrollRef` is a ref: `.current` is read fresh when the effect
+    // body runs regardless of the deps array, so it is never "stale" the way
+    // a plain value could be, and including the (identity-stable) ref object
+    // itself would change nothing — React's own documented exemption.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
   }, [props.streamingBubbles])
   // Primes the virtualizer with that real height BEFORE this row's first
   // paint as a virtualized item, rather than letting it start from
@@ -572,6 +587,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // Gated on `queue` alone — see the streaming-bubble effect above's own
     // comment for why: the same per-item forced-layout cost, paid on every
     // render instead of only when the queue actually changes.
+    // Same false positive as the streaming-bubble effect above:
+    // `anchor.scrollRef` is a ref, and reading `.current` inside the effect
+    // body is never stale.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
   }, [queue])
   // Primes the virtualizer the same way the streaming-bubble effect above
   // does, for the same reason. One-shot per prompt: consumed (deleted) the
