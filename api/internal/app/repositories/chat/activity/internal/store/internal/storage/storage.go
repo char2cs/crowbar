@@ -43,13 +43,37 @@ func (s *Store) SaveTurn(ctx context.Context, t domain.ActivityTurn) error {
 }
 
 func (s *Store) SaveToolCall(ctx context.Context, c domain.ActivityToolCall) error {
-	return upsert(ctx, s.db, ToolCallRow{
+	row := ToolCallRow{
 		Key: rowKey(c.ChatID, c.ID), ID: c.ID, TurnID: c.TurnID, ChatID: c.ChatID,
 		Seq: c.Seq, Name: c.Name, Target: c.Target,
 		RequestRef: c.RequestRef, ResultRef: c.ResultRef,
 		Status: c.Status, Error: c.Error, DurationMS: c.DurationMS,
 		StartedAt: c.StartedAt, EndedAt: c.EndedAt,
-	})
+	}
+	// c.TurnID is only ever empty when CompleteTool's own aggregate had no open
+	// turn left to attribute this call to — the turn already closed and cleared
+	// the in-flight map (CloseTurn), and this is a tool_post arriving late for a
+	// call the CLI kept running past the turn's own end. AbandonRunningTools
+	// already closed that row correctly, with its real turn id and start time;
+	// blindly upserting this call's own now/empty guesses over it would clobber
+	// that with a fabricated, turn-less, zero-duration-looking record — observed
+	// live on a user Stop that landed mid-tool-call. Merge in the outcome only.
+	if c.TurnID == "" {
+		var existing ToolCallRow
+		if err := s.db.WithContext(ctx).Where("key = ?", row.Key).First(&existing).Error; err == nil {
+			row.TurnID, row.StartedAt = existing.TurnID, existing.StartedAt
+			if row.Name == "" {
+				row.Name = existing.Name
+			}
+			if row.Target == "" {
+				row.Target = existing.Target
+			}
+			if row.RequestRef == "" {
+				row.RequestRef = existing.RequestRef
+			}
+		}
+	}
+	return upsert(ctx, s.db, row)
 }
 
 func (s *Store) SaveSubagent(ctx context.Context, a domain.ActivitySubagent) error {

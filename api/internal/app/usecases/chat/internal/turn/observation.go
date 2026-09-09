@@ -2,7 +2,6 @@ package turn
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -99,22 +98,25 @@ func (t *Turns) handleObservation(
 		// codex's own disconnected companion PTY does) maps no turn_id, so this
 		// is a no-op for it.
 		t.compacting.arm(chat.ID, ev.TurnID)
+		// codex reports no trigger at all, so fall back to Crowbar's own
+		// record of having just asked for this — never overrides a provider
+		// (claude) that DOES report one. See manualCompact.peek's own doc.
+		detail := ev.Interrupt.Detail
+		if detail == "" && t.manualCompact.peek(chat.ID) {
+			detail = "manual"
+		}
 		note(ctx, "interrupted", t.activity.Interrupt(
-			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
+			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, detail, now,
 		))
-		// /compact is delivered either as an ordinary prompt (claude, over
-		// compact.go's prompt path) or as a direct api-transport call (codex:
-		// thread/compact/start) — neither ever confirms via a user_prompt hook,
-		// so no turn is ever open when this fires — which means Interrupt's own
-		// idle-chat handling (commands/interrupt.go) has ALREADY marked it
-		// resolved, instantly, regardless of whether compact_post goes on to
-		// arrive at all (it does not reliably: confirmed live, most compactions
-		// on a small chat never produce one over the hooks-transport path — the
-		// api-transport path now does, every time, since it is the same
-		// contextCompaction item this now maps compact_post from). Settle the
-		// pending delivery on this same signal rather than waiting on
-		// compact_post or termwait's unrelated 30s timeout.
-		note(ctx, "settle delivery after compaction", t.runners.SettleDeliveryFor(ctx, chat.ID, runner.ID))
+		// Neither ever confirms via a user_prompt hook, so no turn is ever open
+		// when this fires — Interrupt's own idle-chat handling (commands/
+		// interrupt.go) has ALREADY resolved the record above regardless of
+		// whether compact_post goes on to arrive (it does not reliably, over
+		// hooks-transport). settleCompactDelivery only settles the pending
+		// prompt delivery when THIS compaction is genuinely what was
+		// dispatched as one — see its own doc for why that gate is load-
+		// bearing, not optional.
+		t.settleCompactDelivery(ctx, chat, runner, agent)
 		// The ledger record above is already resolved by the time any reader
 		// sees it (same idle-chat shortcut), so it can never drive a LIVE
 		// "Compacting…" indicator. This direct push is the only signal that
@@ -125,14 +127,21 @@ func (t *Turns) handleObservation(
 			t.compactionStatus(chat.ID, chat.WorkspaceID, true)
 		}
 	case engineagents.HookCompactPost:
+		// SAME fallback as compact_pre, and NOT redundant with it: this event's
+		// own ResolveInterruption call REBUILDS the interruption from scratch
+		// (see manualCompact.peek's doc) and would otherwise clobber "manual"
+		// back to empty moments after compact_pre set it — live-confirmed.
+		detail := ev.Interrupt.Detail
+		if detail == "" && t.manualCompact.consume(chat.ID) {
+			detail = "manual"
+		}
 		note(ctx, "interruption resolved", t.activity.ResolveInterruption(
-			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
+			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, detail, now,
 		))
 		// Settled already by compact_pre in the ordinary (idle-chat) case —
 		// this is the defensive twin for the day compaction happens mid-turn
 		// and compact_pre's Interrupt call found the chat genuinely busy.
-		// SettleDeliveryFor is a no-op if there is nothing left pending.
-		note(ctx, "settle delivery after compaction", t.runners.SettleDeliveryFor(ctx, chat.ID, runner.ID))
+		t.settleCompactDelivery(ctx, chat, runner, agent)
 		if t.compactionStatus != nil {
 			t.compactionStatus(chat.ID, chat.WorkspaceID, false)
 		}
@@ -277,12 +286,25 @@ func subagentID(ev engineagents.CanonicalEvent) string {
 
 // interruptionID falls back to inflight.RecordID for the same redelivery
 // reason choiceID does — see that function's own doc.
+//
+// Compaction is keyed by ev.TurnID, not just chatID+kind: codex's compact_pre
+// (item/started) and compact_post (item/completed) both map turn_id from the
+// SAME wrapping turn/started..turn/completed envelope (codex.yaml), so a pair
+// still agrees on one id and compact_post still resolves what compact_pre
+// opened. Without the turn id, every compaction a chat ever has shared the
+// identical row key and each new one silently overwrote the last one's
+// transcript position and manual/automatic label — confirmed live. claude's
+// own PreCompact/PostCompact map no turn_id at all (claude.yaml), so this
+// falls back to the old fixed shape for it, unchanged.
 func interruptionID(ctx context.Context, chatID string, ev engineagents.CanonicalEvent) string {
 	kind := ""
 	if ev.Interrupt != nil {
 		kind = ev.Interrupt.Kind
 	}
 	if kind == engineagents.InterruptCompaction {
+		if ev.TurnID != "" {
+			return "interrupt-" + chatID + "-" + kind + "-" + ev.TurnID
+		}
 		return "interrupt-" + chatID + "-" + kind
 	}
 	if kind == engineagents.InterruptPermission {
@@ -317,125 +339,6 @@ func itoa(v int64) string {
 		v /= 10
 	}
 	return string(buf[i:])
-}
-
-func (t *Turns) handleTelemetry(
-	ctx context.Context,
-	runner engineagents.Runner,
-	agent engineagents.Agent,
-	raw []byte,
-) error {
-	chat, ok, err := t.chatForRunner(ctx, runner)
-	if err != nil || !ok {
-		return err
-	}
-	report, err := agent.ParseTelemetry(raw, time.Now())
-	if err != nil {
-		slog.DebugContext(ctx, "agent: telemetry: parse", "err", err, "provider", runner.ProviderID)
-		return nil
-	}
-	if report.Empty() {
-		return nil
-	}
-	t.telemetry.Set(chat.ID, report)
-	return nil
-}
-
-func (t *Turns) Telemetry(chatID string) (engineagents.Telemetry, bool) {
-	return t.telemetry.Get(chatID)
-}
-
-type ChatActivity struct {
-	ToolCalls     []domain.ActivityToolCall
-	Subagents     []domain.ActivitySubagent
-	Interruptions []domain.ActivityInterruption
-
-	Choices []domain.ActivityChoice
-}
-
-const maxActivityPage = 500
-
-func (t *Turns) ReadActivity(
-	ctx context.Context,
-	chatID string,
-	after int64,
-	limit int,
-) (ChatActivity, error) {
-	if _, err := t.chats.GetChat(ctx, chatID); err != nil {
-		return ChatActivity{}, fmt.Errorf("agent: read activity: chat: %w", err)
-	}
-	if limit <= 0 || limit > maxActivityPage {
-		limit = maxActivityPage
-	}
-	var calls []domain.ActivityToolCall
-	var err error
-	if after > 0 {
-		calls, err = t.activity.ToolCalls(ctx, chatID, after, limit)
-	} else {
-		calls, err = t.activity.ToolCallsBefore(ctx, chatID, 0, limit)
-	}
-	if err != nil {
-		return ChatActivity{}, fmt.Errorf("agent: read activity: tool calls: %w", err)
-	}
-	subagents, err := t.activity.Subagents(ctx, chatID)
-	if err != nil {
-		return ChatActivity{}, fmt.Errorf("agent: read activity: subagents: %w", err)
-	}
-	interruptions, err := t.activity.Interruptions(ctx, chatID)
-	if err != nil {
-		return ChatActivity{}, fmt.Errorf("agent: read activity: interruptions: %w", err)
-	}
-	choices, err := t.activity.Choices(ctx, chatID)
-	if err != nil {
-		return ChatActivity{}, fmt.Errorf("agent: read activity: choices: %w", err)
-	}
-	return ChatActivity{
-		ToolCalls:     calls,
-		Subagents:     subagents,
-		Interruptions: interruptions,
-		Choices:       choices,
-	}, nil
-}
-
-func (t *Turns) ReadPendingChoices(
-	ctx context.Context,
-	chatID string,
-) ([]domain.ActivityChoice, error) {
-	if _, err := t.chats.GetChat(ctx, chatID); err != nil {
-		return nil, fmt.Errorf("agent: read pending choices: chat: %w", err)
-	}
-	choices, err := t.activity.PendingChoices(ctx, chatID)
-	if err != nil {
-		return nil, fmt.Errorf("agent: read pending choices: %w", err)
-	}
-	return choices, nil
-}
-
-func (t *Turns) ReadToolPayload(
-	ctx context.Context,
-	chatID, toolID, side string,
-) ([]byte, error) {
-	if _, err := t.chats.GetChat(ctx, chatID); err != nil {
-		return nil, fmt.Errorf("agent: read tool payload: chat: %w", err)
-	}
-	calls, err := t.activity.ToolCalls(ctx, chatID, 0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("agent: read tool payload: tool calls: %w", err)
-	}
-	for _, c := range calls {
-		if c.ID != toolID {
-			continue
-		}
-		ref := c.RequestRef
-		if side == "result" {
-			ref = c.ResultRef
-		}
-		if ref == "" {
-			return nil, agentactivity.ErrNotFound
-		}
-		return t.activity.Payload(ctx, ref)
-	}
-	return nil, agentactivity.ErrNotFound
 }
 
 // holdForAnswer parks the hook relay carrying this prompt on the answer desk, so

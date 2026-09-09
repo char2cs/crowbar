@@ -486,18 +486,34 @@ type SlashCatalogItemDTO struct {
 
 // activeProviderID derives the provider to show for a chat: the live runner's while one
 // is placed on it (mid-switch, the incoming runner is already the truth — it outranks a
-// history whose last entry still names the outgoing vendor), else the provider of the
-// chat's last conversation, else "".
+// history whose last entry still names the outgoing vendor), else the provider that was
+// most recently ACTIVE, else "".
+//
+// rt.Conversations is oldest-FIRST-SEEN-first (ConversationsForChat's own contract —
+// callers besides this one rely on that order), so its last element is NOT necessarily
+// the answer: a chat switched back to a provider it already ran re-activates that
+// provider's own EARLIER row rather than minting a new one, and that row's position in
+// the slice never moves even though it is once again the current one. Scanning for the
+// max LastActiveAt is what actually answers "current" — see LastConversation's own doc
+// for the live bug this replaced (the stale-provider-after-Stop report).
 func activeProviderID(
 	rt ChatRuntime,
 ) string {
 	if rt.LiveRunner != nil {
 		return rt.LiveRunner.ProviderID
 	}
-	if n := len(rt.Conversations); n > 0 {
-		return rt.Conversations[n-1].ProviderID
+	var last agents.ChatConversation
+	found := false
+	for _, c := range rt.Conversations {
+		if !found || c.LastActiveAt.After(last.LastActiveAt) {
+			last = c
+			found = true
+		}
 	}
-	return ""
+	if !found {
+		return ""
+	}
+	return last.ProviderID
 }
 
 // AgentChatDTOList converts a slice of AgentChats into wire DTOs, returning a

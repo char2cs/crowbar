@@ -359,8 +359,19 @@ func (t *Turns) ChatWorking(ctx context.Context, chatID string) (bool, error) {
 // Crowbar's own doing rather than a translated provider hook: nothing on the
 // wire announces "a human clicked Stop", so this is the one place that fact
 // can be recorded at all. Opened and resolved in the same call, back to back,
-// because unlike compaction there is no later event to close it on — Crowbar
-// already knows the full story the instant it decides to stop the CLI.
+// because unlike compaction there is no later event to close it on.
+//
+// CALL THIS ONLY ONCE THE STOP HAS ACTUALLY TAKEN EFFECT — after retire's kill
+// or after an interruptTurn send that itself blocked until the CLI's turn
+// genuinely ended, never at the moment Stop was merely clicked. Crowbar does
+// not learn the full story until the CLI has actually stopped; recording it
+// earlier durably marks the turn "Interrupted" while the CLI is still
+// generating, both in the wrong ledger position (ahead of whatever real
+// content the CLI still produces) and factually wrong (nothing has stopped
+// yet). Confirmed live: a stop that only asked a live codex connection to
+// cancel, without waiting for it to actually do so, left the CLI streaming
+// real tool calls and assistant text for another full minute after the
+// "Interrupted" divider had already rendered.
 //
 // A no-op when the chat is idle: StopChat is also what closing a chat TAB
 // calls, and quitting an already-quiet CLI is not an interruption of anything.

@@ -207,6 +207,40 @@ describe('AgentTranscript turnbar wiring', () => {
     ).not.toBeNull()
   })
 
+  it('drops the persistent turnbar off the last settled reply while the agent is working on the next step', () => {
+    const messages: AgentChatMessage[] = [
+      { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' },
+      { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
+    ]
+
+    const { rerender } = draw(messages)
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+
+    rerender(
+      <AgentTranscript
+        messages={messages}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).toBeNull()
+  })
+
   it("wires a turn's finished tool calls through to its own message row, keyed by turnId", () => {
     draw(
       [{ turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' }],
@@ -769,7 +803,7 @@ describe('AgentTranscript interrupted marker', () => {
   ]
 
   it('draws the trailing marker once the turn has actually gone idle, with nothing after it yet', () => {
-    draw(oneFrozenTurn, { trailingInterruption: true, working: false })
+    draw(oneFrozenTurn, { trailingInterruption: [{ kind: 'interrupted' }], working: false })
 
     expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
   })
@@ -778,13 +812,13 @@ describe('AgentTranscript interrupted marker', () => {
   // instant — never both on screen, and the spinner's own disappearance is
   // what hands off to it, not a separate timer.
   it('does not draw the trailing marker while the turn still reads as working', () => {
-    draw(oneFrozenTurn, { trailingInterruption: true, working: true })
+    draw(oneFrozenTurn, { trailingInterruption: [{ kind: 'interrupted' }], working: true })
 
     expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
 
   it('draws nothing when nothing was interrupted', () => {
-    draw(oneFrozenTurn, { trailingInterruption: false, working: false })
+    draw(oneFrozenTurn, { trailingInterruption: [], working: false })
 
     expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
@@ -807,7 +841,7 @@ describe('AgentTranscript interrupted marker', () => {
     ]
     draw(messages, {
       eventsBefore: { 1: [{ kind: 'interrupted' }] },
-      trailingInterruption: false,
+      trailingInterruption: [],
       working: false,
     })
 
@@ -824,7 +858,7 @@ describe('AgentTranscript interrupted marker', () => {
   // is part of "the record" the queue sits below, same as any confirmed message.
   it('draws the trailing marker above a prompt still waiting on hook confirmation', () => {
     draw(oneFrozenTurn, {
-      trailingInterruption: true,
+      trailingInterruption: [{ kind: 'interrupted' }],
       working: false,
       queue: [
         {

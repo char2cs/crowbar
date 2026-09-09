@@ -21,7 +21,6 @@ import {
 import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
 import { EventDivider } from '@/features/agent/transcript/event-divider'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
-import { InterruptedDivider } from '@/features/agent/transcript/interrupted-divider'
 import {
   flattenTranscriptRows,
   type DividerTag,
@@ -72,11 +71,12 @@ interface AgentTranscriptProps {
    *  (a stop followed by a switch, or model+effort changing together) and
    *  draw as pills on the SAME wavy line rather than one divider each. */
   eventsBefore?: Record<number, DividerTag[]>
-  /** The most recent stop with no later CONFIRMED message loaded yet — nothing
-   *  to key it before, so it draws right after the last confirmed/streaming
-   *  content instead: above any still-queued prompt too, which has no
-   *  sequence yet and so can never anchor `eventsBefore` itself. */
-  trailingInterruption?: boolean
+  /** The most recent `stopped`/`compaction` events with no later CONFIRMED
+   *  message loaded yet — nothing to key them before, so they draw right
+   *  after the last confirmed/streaming content instead: above any
+   *  still-queued prompt too, which has no sequence yet and so can never
+   *  anchor `eventsBefore` itself. */
+  trailingInterruption?: DividerTag[]
   onLoadOlder: () => void
   onRetryLoad: () => void
   onOpenTerminal: () => void
@@ -133,6 +133,8 @@ function precedingUserAtByAssistantSequence(messages: AgentChatMessage[]): Map<n
  *  not stop for one), only a real user turn does — a backward pass one
  *  cheap way to ask "is a later assistant reply still coming before the next
  *  user turn". */
+const EMPTY_SEQUENCE_SET: Set<number> = new Set()
+
 function lastInAgentRunSequences(messages: AgentChatMessage[]): Set<number> {
   const last = new Set<number>()
   let sawAssistantSinceUser = false
@@ -440,7 +442,15 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     [props.activity.choices],
   )
   const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
-  const lastInAgentRun = useMemo(() => lastInAgentRunSequences(messages), [messages])
+  // Empty while `working` — the settled reply this would otherwise mark is not
+  // actually the run's last step any more the instant the agent starts on the
+  // next one (self-continued or freshly prompted; `working` covers both, see
+  // this file's own note on it above). Without this a screenshot showed the
+  // turnbar staying persistent on a reply the agent had already moved past.
+  const lastInAgentRun = useMemo(
+    () => (props.working ? EMPTY_SEQUENCE_SET : lastInAgentRunSequences(messages)),
+    [messages, props.working],
+  )
   // The ABSOLUTE first turn, never the first one merely loaded — `hasOlder`
   // paging in more history must not retroactively unfreeze a message that was
   // never actually the beginning of the conversation. Only meaningful once
@@ -700,7 +710,12 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             })}
           </div>
         )}
-        {props.trailingInterruption && !props.working && <InterruptedDivider />}
+        {props.trailingInterruption &&
+          props.trailingInterruption.length > 0 &&
+          !props.working &&
+          !props.compacting && (
+            <EventDivider tags={props.trailingInterruption} providers={props.providers} />
+          )}
         {props.streamingBubbles?.map((bubble) => (
           <MessageRow
             key={bubble.sequence}

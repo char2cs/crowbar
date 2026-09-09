@@ -340,6 +340,10 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 // Compact asks the chat's provider to compact its own context, through whichever
 // gesture the provider's descriptor declares for it.
 func (u *Usecase) Compact(ctx context.Context, chatID string) error {
+	// A person just asked for this, from the ONE place that fact is knowable.
+	// Armed even though the call below can still fail validation — see
+	// manualCompactRequests' own doc for why that's an acceptable tradeoff.
+	u.turns.ArmManualCompaction(chatID)
 	return u.runners.Compact(ctx, chatID)
 }
 

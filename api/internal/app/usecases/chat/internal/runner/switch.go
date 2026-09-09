@@ -436,12 +436,15 @@ func (rs *Runners) forceOutgoingTurn(ctx context.Context, chatID string) error {
 	if err != nil {
 		return fmt.Errorf("agent: switch provider: force outgoing turn: live runner: %w", err)
 	}
+	slog.WarnContext(ctx, "agent: switch provider: outgoing turn did not finish within the grace period; forcing it",
+		"chat_id", chatID, "runner_id", live.ID, "waited", rs.forceSwitchAfter())
+	rs.retire(ctx, live)
+	// Recorded AFTER retire's kill, not before — see StopChat's own RecordStop
+	// call for why: it must not durably claim "Interrupted" until the CLI has
+	// actually stopped, and retire's kill is what makes that true here.
 	if err := rs.turns.RecordStop(ctx, chatID); err != nil {
 		slog.WarnContext(ctx, "agent: switch provider: force outgoing turn: record interruption",
 			"chat_id", chatID, "err", err)
 	}
-	slog.WarnContext(ctx, "agent: switch provider: outgoing turn did not finish within the grace period; forcing it",
-		"chat_id", chatID, "runner_id", live.ID, "waited", rs.forceSwitchAfter())
-	rs.retire(ctx, live)
 	return nil
 }

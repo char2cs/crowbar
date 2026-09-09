@@ -361,6 +361,55 @@ func TestLastConversation_IsNotInvertedByAnOlderRunner(t *testing.T) {
 	assert.Equal(t, "s2", last.SessionID, "the tail is the conversation opened last, not the one whose runner spawned last")
 }
 
+// TestRegression_LastConversation_RevisitedProviderBecomesCurrentAgain is the
+// stale-provider-after-Stop bug, live-reported: a chat handed from codex to
+// claude, then STOPPED while claude was genuinely the chat's current provider,
+// came back on codex — the provider the chat had already been switched away
+// from — instead of claude.
+//
+// The trigger needs no race at all: claude ran on this chat BEFORE codex ever
+// did (an earlier switch, or claude was the chat's first provider), so when the
+// chat is later handed back to claude, claude's OWN prior conversation is
+// RESUMED — the same session id, already a row in history — not opened fresh.
+// FirstSeenAt on that row is immutable and stays at claude's very first visit,
+// which is OLDER than codex's only conversation, so ordering by it forever
+// answers "codex", even though codex has not held this chat since.
+func TestRegression_LastConversation_RevisitedProviderBecomesCurrentAgain(t *testing.T) {
+	h := newHarness(t)
+
+	// claude opens s1 first.
+	h.start(arCmds.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(10),
+	})
+	h.bindSession("r1", "s1", clock(10))
+
+	// Switched to codex, which opens its own, genuinely newer conversation s2.
+	h.start(arCmds.Start{
+		RunnerID: "r2", WorkspaceID: "w1", ProviderID: "codex",
+		TerminalSession: "pty2", ChatID: "c1", Now: clock(11),
+	})
+	h.bindSession("r2", "s2", clock(11))
+
+	// Handed BACK to claude — resuming s1, its own prior conversation, exactly as
+	// switchProviderLocked's resumableConversation + nativeResumeSteps does for a
+	// provider the chat has already run.
+	h.start(arCmds.Start{
+		RunnerID: "r3", WorkspaceID: "w1", ProviderID: "claude",
+		TerminalSession: "pty3", ChatID: "c1", Now: clock(12),
+	})
+	h.bindSession("r3", "s1", clock(12))
+	h.drain()
+
+	last, err := h.st.LastConversation(h.ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, "claude", last.ProviderID,
+		"claude is the chat's current provider — it was just switched back to and resumed "+
+			"its own conversation — but the stale immutable FirstSeenAt on that reused row "+
+			"still names codex as more recent")
+	assert.Equal(t, "s1", last.SessionID)
+}
+
 // Exit drops the liveness row but NOT the history: a dormant chat must still be
 // resumable, and its conversation must still be recognised on a later /resume.
 func TestExit_ClearsLivenessKeepsHistory(t *testing.T) {

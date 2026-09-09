@@ -101,8 +101,8 @@ func TestAgentChatDTOFrom_AttachedSessionOutranksLiveAPIConnection(t *testing.T)
 func TestAgentChatDTOFrom_DormantFallsBackToLastConversation(t *testing.T) {
 	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{
 		Conversations: []agents.ChatConversation{
-			{ChatID: "c1", ProviderID: "vendor-a", FirstSeenAt: time.Unix(1, 0).UTC()},
-			{ChatID: "c1", ProviderID: "vendor-b", FirstSeenAt: time.Unix(2, 0).UTC()},
+			{ChatID: "c1", ProviderID: "vendor-a", FirstSeenAt: time.Unix(1, 0).UTC(), LastActiveAt: time.Unix(1, 0).UTC()},
+			{ChatID: "c1", ProviderID: "vendor-b", FirstSeenAt: time.Unix(2, 0).UTC(), LastActiveAt: time.Unix(2, 0).UTC()},
 		},
 	})
 

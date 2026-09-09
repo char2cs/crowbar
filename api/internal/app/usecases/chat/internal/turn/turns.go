@@ -56,6 +56,10 @@ type Turns struct {
 	// so its own turn/completed-shaped close is never misread as an ordinary
 	// reply or failure. See compaction.go.
 	compacting *compactionTurns
+	// manualCompact latches which chat's next compaction was asked for by
+	// Crowbar itself, for a provider whose own wire event never says so. See
+	// compaction.go.
+	manualCompact *manualCompactRequests
 	// pendingHooks is the fork-before-runner-persistence barrier: hooks that arrive
 	// before the runner row exists are buffered into it and replayed after.
 	pendingHooks *inflight.Hooks
@@ -161,6 +165,7 @@ func New(d Deps) *Turns {
 		live:                newLiveText(),
 		idle:                newIdleLatch(),
 		compacting:          newCompactionTurns(),
+		manualCompact:       newManualCompactRequests(),
 		hookDeliveries:      agentjournal.NewHookDeliveries(),
 		hookGates:           inflight.NewGate(),
 		pendingHooks:        d.PendingHooks,

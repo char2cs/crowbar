@@ -2361,3 +2361,131 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 	require.Equal(t, len(before.Items), len(after.Items),
 		"a failed compaction round trip must record NO notice row in the transcript")
 }
+
+// TestRegression_CodexManualCompactionIsLabelledManual: codex's own
+// contextCompaction item carries no trigger at all (see codex.yaml's
+// compact_pre comment), so without Crowbar's own record of having just
+// dispatched the request, every codex compaction — including one a person
+// explicitly asked for via Compact() — read as "automatic" in the transcript
+// divider. Compact() has no live api connection to actually send over in this
+// fixture and returns an error, but ArmManualCompaction fires before that
+// failure, exactly as it does in production.
+//
+// Drives compact_post too, not just compact_pre — live-confirmed critical:
+// commands.Interrupt's idle branch never adds the interruption to the
+// aggregate's own open-interruptions map, so commands.ResolveInterruption
+// (compact_post's own call) always finds it unknown and REBUILDS it from
+// scratch off compact_post's OWN (also-empty, for codex) detail, silently
+// discarding whatever compact_pre just wrote. A version of this fix that
+// only patched compact_pre passed this test right up until compact_post was
+// added to it — caught live (a curl read briefly saw "manual", then read
+// back empty about a second later) before it was caught here.
+func TestRegression_CodexManualCompactionIsLabelledManual(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+
+	_ = f.usecase.Compact(f.ctx, chatID)
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_pre",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-3"},
+			"turnId":   "compact-turn-3",
+		})))
+	f.wait()
+
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, ints, 1)
+	assert.Equal(t, "manual", ints[0].Detail, "compact_pre alone must already record manual")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_post",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-3"},
+			"turnId":   "compact-turn-3",
+		})))
+	f.wait()
+
+	ints, err = f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, ints, 1)
+	assert.Equal(t, "manual", ints[0].Detail,
+		"compact_post must not rebuild the interruption and clobber manual back to empty")
+}
+
+// TestRegression_CodexAutomaticCompactionIsNotLabelledManual is the negative
+// case the fix above must not break: a codex compaction NOBODY asked for
+// through Compact() must keep reading as automatic (an empty Detail — the
+// frontend's own fallback is what turns that into "automatically").
+func TestRegression_CodexAutomaticCompactionIsNotLabelledManual(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_pre",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-4"},
+			"turnId":   "compact-turn-4",
+		})))
+	f.wait()
+
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, ints, 1)
+	assert.Empty(t, ints[0].Detail)
+}
+
+// TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery is
+// the live-reported bug: codex can decide, entirely on its own, to compact
+// its context before it even starts processing a message a person already
+// sent — the same compact_pre/compact_post pair a manual /compact produces,
+// but this time a REAL prompt is what the daemon has pending, not the
+// compaction (codex's own Compact() dispatch never touches the prompt
+// journal at all — see settleCompactDelivery's own doc). Settling that real
+// delivery made the just-submitted message vanish from the transcript for
+// the whole compaction, reappearing only once the real turn finally opened.
+func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what changed?", uuid.NewString())
+	require.NoError(t, err)
+	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"precondition: the real prompt is dispatched and still unconfirmed")
+
+	// SubmitPrompt's dispatch may have replaced the runner (this fixture has
+	// no live api connection registered, so it falls to the restart_tui
+	// path) — the delivery belongs to whichever runner is live NOW, exactly
+	// as the pre-existing claude version of this fix's own tests already
+	// account for.
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+
+	// codex's OWN decision, never Compact() — the manual latch is deliberately
+	// left unarmed, matching an automatic pre-turn compaction exactly.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "codex", "compact_pre",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"item":     map[string]any{"type": "contextCompaction", "id": "auto-comp-1"},
+			"turnId":   "auto-compact-turn-1",
+		})))
+	f.wait()
+
+	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"the real prompt must still be pending — compact_pre must not settle a delivery it did not itself create")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "codex", "compact_post",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1",
+			"item":     map[string]any{"type": "contextCompaction", "id": "auto-comp-1"},
+			"turnId":   "auto-compact-turn-1",
+		})))
+	f.wait()
+
+	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
+		"compact_post must not settle it either")
+}

@@ -648,3 +648,105 @@ describe('applyStreamedValue: an ordered list streams as cheaply as prose', () =
     expect(worstFlushOps(orderedList(14))).toBeLessThanOrEqual(worstFlushOps(bulleted) + 2)
   })
 })
+
+// Regression: a mark (bold, inline code) resolving mid-block used to fall
+// straight to the full block-replace fallback — removeNodes + insertNodes on
+// the WHOLE block, which reassigns its NodeIdPlugin `id`. A block whose
+// rendered identity is keyed by that id remounts on every such edit, which
+// resets its `.chat-fresh-text` fade (`animation-fill-mode: both`,
+// transcript.css) to its own zero-opacity start — and a block resolving
+// several marks in quick succession (a bold list-item title, then an inline
+// code span moments later) never gets an uninterrupted 260ms to finish
+// fading in. Confirmed live by instrumenting `applyStreamedValue` across a
+// realistic delta stream shaped like a real report (a numbered list with
+// bold item titles and inline code): the block's `id` changed exactly once
+// per item, at the exact token where its own `**`/`` ` `` closed.
+describe('applyStreamedValue: a resolving mark patches in place, not a block replace', () => {
+  it('keeps the block id stable when a bold span closes mid-paragraph', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('**Fourth item titl'),
+    })
+    const idBefore = (editor.children[0] as { id?: string }).id
+
+    applyStreamedValue(editor, chatMarkdownToValue('**Fourth item title**'))
+
+    expect((editor.children[0] as { id?: string }).id).toBe(idBefore)
+    expect(editor.children[0]).toMatchObject({
+      children: [{ bold: true, text: 'Fourth item title' }],
+    })
+  })
+
+  it('keeps the block id stable when a WHOLE-line code span closes', () => {
+    // Unlike a code span in the MIDDLE of a paragraph (which splits one leaf
+    // into three — a genuine shape change, see the fallback test below), a
+    // code span that is the paragraph's entire content stays a single leaf
+    // both before (unclosed backtick, parsed as literal text) and after
+    // (closed, parsed as one `code` leaf) — patchable in place.
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('`getConfi'),
+    })
+    const idBefore = (editor.children[0] as { id?: string }).id
+
+    applyStreamedValue(editor, chatMarkdownToValue('`getConfig()`'))
+
+    expect((editor.children[0] as { id?: string }).id).toBe(idBefore)
+    expect(editor.children[0]).toMatchObject({
+      children: [{ code: true, text: 'getConfig()' }],
+    })
+  })
+
+  it('falls back to a full replace when a code span splits a leaf in the middle of a paragraph', () => {
+    // A structural change (the paragraph gains two new leaf boundaries where
+    // it had none) cannot be expressed leaf-by-leaf — the id changing here is
+    // correct, not a regression: there is no cheaper way to carve a new leaf
+    // out of the middle of an existing one.
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('Requires an `includ'),
+    })
+
+    applyStreamedValue(editor, chatMarkdownToValue('Requires an `include`.'))
+
+    expect(editor.children[0]).toMatchObject({
+      children: [{ text: 'Requires an ' }, { code: true, text: 'include' }, { text: '.' }],
+    })
+  })
+
+  it('keeps a preceding, untouched list item stable across a LATER item resolving its own mark', () => {
+    // The scenario a real reply hits: item 3 already settled; item 4's own
+    // bold title is what's resolving now. Item 3 must not remount either.
+    const markdown = (fourthTitle: string) =>
+      `3. **Classification rule**\n\n4. ${fourthTitle}`
+
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(markdown('**Fourth item titl')),
+    })
+    const item3IdBefore = (editor.children[0] as { id?: string }).id
+
+    applyStreamedValue(editor, chatMarkdownToValue(markdown('**Fourth item title**')))
+
+    expect((editor.children[0] as { id?: string }).id).toBe(item3IdBefore)
+    expect(editor.children[1]).toMatchObject({
+      children: [{ bold: true, text: 'Fourth item title' }],
+    })
+  })
+
+  it('still falls back to a full replace when the block SHAPE actually changes', () => {
+    // A structural change (here: the paragraph gains a second leaf where it
+    // had one) cannot be expressed leaf-by-leaf — the block replace fallback
+    // is still correct and still exercised.
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue('plain text'),
+    })
+
+    applyStreamedValue(editor, chatMarkdownToValue('plain `code` text'))
+
+    expect(editor.children[0]).toMatchObject({
+      children: [{ text: 'plain ' }, { code: true, text: 'code' }, { text: ' text' }],
+    })
+  })
+})

@@ -7,7 +7,7 @@ import type {
   AgentTerminalWait,
 } from '@/features/agent/api/agent-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
-import type { TranscriptScrollPosition } from '@/features/agent/hooks/use-transcript-anchor'
+import { clearScrollPosition } from '@/features/agent/hooks/lib/transcript-scroll-positions'
 import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 
 // The queue that reads these is itself capped, so an id older than this window is
@@ -206,24 +206,12 @@ export interface AgentChatsState {
    *  may have occurred while the socket was down. */
   turnRevision: Record<string, number>
   /**
-   * Where the reader last left each chat's transcript, keyed by chat id —
-   * read once when a chat's AgentTranscript (re)mounts (a chat remounts
-   * wholesale on every switch, `key={wsId:chatId}` in AgentChatPane, so
-   * nothing else survives a switch-away/switch-back to carry this).
-   *
-   * In-memory only, deliberately never persisted to disk (unlike
-   * agent-chat-order's localStorage above): "still hot" means this running
-   * session, not "restore across an app restart" — a cold app open has
-   * nothing more useful to land on than the newest message anyway.
-   */
-  scrollPositions: Record<string, TranscriptScrollPosition>
-  /**
    * A one-shot "open the takeover with this scene" signal, keyed by chat id —
    * how an Edit button on a diagram rendered deep in a chat's transcript
    * reaches the composer (which owns the takeover) without threading a
    * callback prop through every Plate node component in between. The
    * composer's effect consumes it (opens the takeover, preloaded) and clears
-   * it in the same tick; never persisted, same as scrollPositions above.
+   * it in the same tick; never persisted.
    */
   excalidrawEditRequests: Record<string, ParsedExcalidrawScene>
   order: string[]
@@ -299,9 +287,6 @@ export interface AgentChatsSlice {
    *  is what keeps the array bounded without that regression: an entry is
    *  only ever removed once its own content is durably persisted elsewhere. */
   pruneAgentChatStreamingMessages: (chatId: string, ids: string[]) => void
-  /** Record wherever the reader left a chat's transcript, for its next
-   *  mount this session to restore — see AgentChatsState.scrollPositions. */
-  setAgentChatScrollPosition: (chatId: string, position: TranscriptScrollPosition) => void
   /** Signal the composer to open the takeover, preloaded with this scene —
    *  see AgentChatsState.excalidrawEditRequests. */
   requestExcalidrawEdit: (chatId: string, scene: ParsedExcalidrawScene) => void
@@ -355,7 +340,6 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   streamingToolOutput: {},
   streamingPlan: {},
   turnRevision: {},
-  scrollPositions: {},
   excalidrawEditRequests: {},
   order: [],
   activeChatId: null,
@@ -554,12 +538,13 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.streamingToolOutput[chatId]
       delete s.agentChats.streamingPlan[chatId]
       delete s.agentChats.turnRevision[chatId]
-      delete s.agentChats.scrollPositions[chatId]
       delete s.agentChats.excalidrawEditRequests[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
     })
     clearPersistedPromptQueue(get().workspaceId, chatId)
+    // Not part of this store — see transcript-scroll-positions.ts's own doc.
+    clearScrollPosition(chatId)
   },
 
   setAgentChatWorking: (chatId, working) =>
@@ -642,11 +627,6 @@ export const createAgentChatsSlice: StateCreator<
       if (kept.length === list.length) return
       if (kept.length === 0) delete s.agentChats.streamingMessages[chatId]
       else s.agentChats.streamingMessages[chatId] = kept
-    }),
-
-  setAgentChatScrollPosition: (chatId, position) =>
-    set((s) => {
-      s.agentChats.scrollPositions[chatId] = position
     }),
 
   requestExcalidrawEdit: (chatId, scene) =>

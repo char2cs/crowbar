@@ -204,3 +204,34 @@ describe('computeSceneAspectRatio', () => {
     expect(computeSceneAspectRatio([{ x: 0, y: 0, width: 0, height: 0 }])).toBeNull()
   })
 })
+
+// REGRESSION: React error #185 ("Maximum update depth exceeded"), reported
+// live as a pane crash on submitting a message with an attachment.
+// `excalidrawSceneFromCodeBlock` (chat-code-block-node.tsx) calls this on
+// EVERY render of an interactive attachment block — which Slate re-renders
+// for reasons that have nothing to do with the fence's own text (an
+// unrelated edit elsewhere in the document, an id reassignment, the block
+// still streaming in) — and handing back a brand new object each time fed
+// straight into `ExcalidrawPreview`'s own `useEffect` deps array (`scene`),
+// tearing down and restarting its async export-to-svg pipeline on every one
+// of those unrelated re-renders. Caching by the exact source text is what
+// keeps the reference — not just the content — stable across renders that
+// ought to be no-ops.
+describe('parseExcalidrawScene identity stability', () => {
+  it('returns the SAME object reference for the same source text across repeated calls', () => {
+    const raw = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: { zoom: 1 } })
+    expect(parseExcalidrawScene(raw)).toBe(parseExcalidrawScene(raw))
+  })
+
+  it('returns a DIFFERENT reference for genuinely different source text', () => {
+    const a = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
+    const b = JSON.stringify({ elements: [{ type: 'ellipse' }], appState: {} })
+    expect(parseExcalidrawScene(a)).not.toBe(parseExcalidrawScene(b))
+  })
+
+  it('caches a rejection (null) too, without re-parsing on every call', () => {
+    const raw = 'not json'
+    expect(parseExcalidrawScene(raw)).toBeNull()
+    expect(parseExcalidrawScene(raw)).toBeNull()
+  })
+})

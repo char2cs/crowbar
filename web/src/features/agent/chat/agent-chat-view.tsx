@@ -48,12 +48,15 @@ import {
 import { useAgentActivity } from '@/features/agent/hooks/use-agent-activity'
 import { useAgentTelemetry, limitResetsAt } from '@/features/agent/hooks/use-agent-telemetry'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
+import {
+  getScrollPosition,
+  setScrollPosition,
+} from '@/features/agent/hooks/lib/transcript-scroll-positions'
 import { usePromptHistory } from '@/features/agent/hooks/use-prompt-history'
 import { usePromptQueue } from '@/features/agent/hooks/use-prompt-queue'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 
 import '@/features/agent/styles/composer.css'
 import '@/features/agent/styles/transcript.css'
@@ -178,6 +181,16 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
   }
 }
 
+/** Interruption kinds allowed to draw at the FOOT of the transcript when
+ *  nothing yet follows them — every other kind (a provider/model/effort
+ *  switch) only ever renders anchored above a later message. `stopped`: a
+ *  person cut the turn short. `compaction`: the ledger's own record is born
+ *  already resolved (compact.go — no turn ever opens for it), so without
+ *  this the pill never appeared until whatever was typed next dragged it
+ *  along as an `eventsBefore` anchor instead — reported live as the divider
+ *  only showing up once you sent a follow-up message. */
+const TRAILING_INTERRUPTION_KINDS = new Set(['stopped', 'compaction'])
+
 // `DndScope` (dnd-scope.tsx) is `AgentChatView`'s one `<DndProvider>` —
 // `@platejs/dnd`'s `useDraggable`/`useDropLine` (attachment-drag-handle.tsx)
 // THROW without an ancestor one, and this is the real common ancestor of
@@ -242,9 +255,8 @@ export function AgentChatView({
   onSelectPresentation,
   ref,
 }: AgentChatViewProps) {
-  const activity = useAgentActivity(wsId, chatId, working, visible)
+  const activity = useAgentActivity(wsId, chatId, working, compacting, visible)
   const telemetry = useAgentTelemetry(wsId, chatId, visible)
-  const store = useWorkspaceStore()
   // Read exactly once, at construction — this component remounts wholesale
   // on every chat switch (key={wsId:chatId} in AgentChatPane), so "once per
   // component instance" already means "once per chat". A lazy useState
@@ -252,9 +264,12 @@ export function AgentChatView({
   // FIRST render (it flows down into AgentTranscript's own mount-time
   // scroll-restore effect), before any effect in this component tree could
   // read it instead.
-  const [initialScrollPosition] = useState(
-    () => store.getState().agentChats.scrollPositions[chatId] ?? null,
-  )
+  //
+  // Sourced from transcript-scroll-positions.ts, NOT the workspace store:
+  // destroyWorkspaceStore drops that store wholesale on every workspace
+  // switch, which silently discarded this across a switch away and back —
+  // see that module's own doc.
+  const [initialScrollPosition] = useState(() => getScrollPosition(chatId))
 
   const [draft, setDraft] = useState('')
   // The box is UNCONTROLLED — a controlled contenteditable rebuilds itself under
@@ -438,15 +453,6 @@ export function AgentChatView({
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
   const halted = haltedBy(ledger.messages)
-  // A stopped turn, positioned the exact same way a compaction is: a real,
-  // sequence-anchored activity record (turn.RecordStop, backend-side), not
-  // this session's own memory of having clicked Stop. That is what keeps it
-  // from drifting — the old client-local version pinned itself to "the end of
-  // the transcript" and every later message pushed it along.
-  const stoppedInterruptions = useMemo(
-    () => activity.interruptions.filter((interruption) => interruption.kind === 'stopped'),
-    [activity.interruptions],
-  )
   // Where the transcript draws its boundary pills — one merged wavy line per
   // anchor rather than one full-width divider per event (a stop, a switch and
   // a compaction landing on the same next message used to stack three
@@ -457,13 +463,14 @@ export function AgentChatView({
   // has no way to recover which of two DIFFERENT kinds actually happened
   // first, only this one, chronologically-sorted pass does.
   //
-  // An event with nothing after it yet draws NOTHING, and for compaction that
-  // is the point: the pill says "what is above me is gone from the model's
-  // context", a claim about two sides. Drawing it under the newest message
-  // would put a boundary below the whole conversation and read as if the
-  // chat had ended.
-  const eventsBefore = useMemo(() => {
+  // An event with nothing after it yet falls to `trailingTags` below instead
+  // — not every kind is allowed to draw there (see TRAILING_INTERRUPTION_KINDS).
+  const { eventsBefore, trailingTags } = useMemo(() => {
     const marks: Record<number, DividerTag[]> = {}
+    // Latest wins per kind, same as a single trailing `stopped` always did:
+    // `relevant` is chronological, so a later push simply overwrites an
+    // earlier one of the same kind.
+    const trailingByKind = new Map<string, DividerTag>()
     const relevant = activity.interruptions
       .map((interruption) => ({ interruption, tag: toDividerTag(interruption) }))
       .filter(
@@ -473,23 +480,18 @@ export function AgentChatView({
       .sort((a, b) => displayOrderOf(a.interruption) - displayOrderOf(b.interruption))
     for (const { interruption, tag } of relevant) {
       const next = ledger.messages.find((m) => displayOrderOf(m) > displayOrderOf(interruption))
-      if (!next) continue
-      const list = marks[next.sequence] ?? []
-      list.push(tag)
-      marks[next.sequence] = list
+      if (next) {
+        const list = marks[next.sequence] ?? []
+        list.push(tag)
+        marks[next.sequence] = list
+        continue
+      }
+      if (TRAILING_INTERRUPTION_KINDS.has(interruption.kind)) {
+        trailingByKind.set(tag.kind, tag)
+      }
     }
-    return marks
+    return { eventsBefore: marks, trailingTags: [...trailingByKind.values()] }
   }, [activity.interruptions, ledger.messages])
-  // The most recent stop with nothing after it yet: there is no next message to
-  // anchor before, so this is the one case the divider still draws at the foot
-  // of the transcript — exactly where the working line it replaced just was.
-  const trailingInterruption = useMemo(() => {
-    if (stoppedInterruptions.length === 0) return false
-    const latest = stoppedInterruptions.reduce((a, b) =>
-      displayOrderOf(b) > displayOrderOf(a) ? b : a,
-    )
-    return !ledger.messages.some((m) => displayOrderOf(m) > displayOrderOf(latest))
-  }, [stoppedInterruptions, ledger.messages])
 
   const updateDraft = (value: string) => {
     setDraft(value)
@@ -746,12 +748,10 @@ export function AgentChatView({
       }
       eventsBefore={eventsBefore}
       suppressSequence={halted?.sequence}
-      trailingInterruption={trailingInterruption}
+      trailingInterruption={trailingTags}
       dockHeight={dockHeight}
       initialScrollPosition={initialScrollPosition}
-      onScrollPositionChange={(position) =>
-        store.getState().setAgentChatScrollPosition(chatId, position)
-      }
+      onScrollPositionChange={(position) => setScrollPosition(chatId, position)}
     />
   )
 
