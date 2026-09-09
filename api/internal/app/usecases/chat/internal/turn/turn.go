@@ -2,10 +2,13 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
+
+	asynxModels "github.com/char2cs/asynx/models"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -28,6 +31,9 @@ func (t *Turns) openAssistantTurn(
 	chat domain.Chat,
 	runner engineagents.Runner,
 ) {
+	// A new turn is starting, so any "the provider says it is idle" report left
+	// over from the previous one is stale — see idle.go.
+	t.idle.clear(chat.ID)
 	if err := t.activity.OpenTurn(ctx, agentactivity.TurnInput{
 		ChatID:     chat.ID,
 		TurnID:     openTurnID(chat.ID, runner.ID),
@@ -190,6 +196,16 @@ func (t *Turns) closeTurnFromStop(
 	agent engineagents.Agent,
 	ev engineagents.CanonicalEvent,
 ) error {
+	// A turn_stop whose turn id is the one compact_pre armed is codex's own
+	// compact_start wrapper closing, not an assistant reply — see
+	// compaction.go. Nothing below has anything to do: closeAssistantTurn
+	// would find an empty message and no stream to close, but StopTurn would
+	// still append a real (if inert) turn_stopped event and reset
+	// CurrentTurnStarted on a chat that was never marked working for this,
+	// on every compaction, forever.
+	if t.compacting.consume(chat.ID, ev.TurnID) {
+		return nil
+	}
 	// THE ANSWER IS DURABLE BEFORE ANYBODY IS TOLD THE TURN ENDED. StopTurn's
 	// projection broadcasts Working=false, and the React chat treats that edge as
 	// its cue to do ONE ledger read and then stop polling (spec §6). Publishing the
@@ -258,15 +274,19 @@ func (t *Turns) fallbackAsyncWork(ctx context.Context, chatID string, reported i
 // happened to start and stop. It is a no-op while a turn is genuinely open (that turn's
 // own eventual turn_stop is what restates it) and a no-op when the level hasn't actually
 // changed, so this never appends a redundant event on the hot path (every tool_pre/post).
+// Both of this function's preconditions — that no turn is currently open, and that
+// the level actually changed — used to be decided HERE, off domain.Chat read back
+// through GetChat. That read model is folded by an ASYNCHRONOUS projection, so a
+// turn_stop already durable in the log could still read as open: this took the
+// early return, no recount was ever appended, and for codex — which reports no
+// async-work level of its own — nothing else would ever darken the spinner. The
+// chat stayed lit until the next turn happened to start and stop.
+//
+// Both now live in the StopTurn command's Validate, where asynx evaluates them
+// against the authoritative fold and appends at that same version. ErrValidation
+// is therefore the ORDINARY no-op answer here, not a failure: a turn is open, or
+// the level already stands.
 func (t *Turns) restateAsyncWork(ctx context.Context, chatID string) {
-	chat, err := t.chats.GetChat(ctx, chatID)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: restate async work: get chat", "chat_id", chatID, "err", err)
-		return
-	}
-	if chat.CurrentTurnStarted != nil {
-		return
-	}
 	open, err := t.OpenWork(ctx, chatID)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: restate async work: open work", "chat_id", chatID, "err", err)
@@ -276,12 +296,11 @@ func (t *Turns) restateAsyncWork(ctx context.Context, chatID string) {
 	if open {
 		level = 1
 	}
-	if level == chat.AsyncWork {
-		return
-	}
-	stopped, err := t.chats.StopTurn(ctx, chatID, time.Now(), level)
+	stopped, err := t.chats.RestateAsyncWork(ctx, chatID, time.Now(), level)
 	if err != nil {
-		slog.WarnContext(ctx, "agent: restate async work: stop turn", "chat_id", chatID, "err", err)
+		if !errors.Is(err, asynxModels.ErrValidation) {
+			slog.WarnContext(ctx, "agent: restate async work: stop turn", "chat_id", chatID, "err", err)
+		}
 		return
 	}
 	t.work.Set(chatID, stopped.Working)

@@ -16,6 +16,7 @@ import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
@@ -84,6 +85,28 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
 //   BELOW the side-by-side threshold there is no ratio that leaves the TUI usable,
 //     so the split STACKS instead of shrinking — a short terminal at the FULL pane
 //     width still wraps the way the CLI intended, where a tall narrow one does not.
+
+// How long the pane will wait for a resume before calling it refused.
+//
+// Matched to the daemon's own worst-case honest wait for a switch/resume to become
+// possible (awaitTurnOrForce's bound, termwait.DefaultStallQuiet), so a resume that
+// is genuinely still working is never cut off — only one that was never going to
+// answer at all. See revive for why the request is bounded rather than the UI.
+const REVIVE_REQUEST_BOUND_MS = 120_000
+
+// Shared across every mounted AgentChatPane, keyed by chatId — NOT per-component,
+// because the race this closes is exactly two components. Splitting a chat pane
+// (Cmd+\) mounts a second AgentChatPane pointed at the SAME chatId; its attach
+// effect runs in the same tick as the original pane's, both read the chat as
+// dormant before either has adopted, and each pane's own per-component
+// `attemptedRef` budget let both call revive(). The daemon's per-chat spawn gate
+// (gate.go) then serialises the two resumeChat requests — the second either
+// queues behind the first's full DefaultStallQuiet wait or answers stale — and
+// toastSpawnFailure's "Couldn't resume — the daemon did not answer the resume"
+// is what the split's second pane showed for a chat the first pane was reviving
+// perfectly fine. See the attach effect and revive() for where this is read
+// and written.
+const reviveInFlightByChatId = new Map<string, Promise<void>>()
 
 // The pane's attach outcome.
 //
@@ -181,6 +204,9 @@ export function AgentChatPane({
   // Does the store KNOW this chat at all? "Not in the store yet" (the seed is in flight)
   // is not "dormant", and must not render the Resume button — see `pending` above.
   const known = useStore(store, (s) => s.agentChats.chats.some((c) => c.id === shownChatId))
+  // Has an authoritative list ever landed? That is what turns `!known` from
+  // "not yet" into "not in it" — see the resolve effect below.
+  const listSeeded = useStore(store, (s) => s.agentChats.listSeeded)
   // The runner on the shown chat — mine, or whoever replaced it. '' = dormant.
   const liveRunnerId = useStore(
     store,
@@ -250,6 +276,11 @@ export function AgentChatPane({
   // upsert writes byte-identical text, e.g. a resent frame), and narrowed to
   // this ONE chat's slot so another chat's streaming update never reaches it.
   const streamingMessages = useStore(store, (s) => s.agentChats.streamingMessages[shownChatId])
+  // The agent's in-flight thinking. Live-only and never recorded, which is why it
+  // is its own slot and not part of streamingMessages — see the slice's own doc.
+  const reasoning = useStore(store, (s) => s.agentChats.streamingReasoning[shownChatId]?.text)
+  const toolOutput = useStore(store, (s) => s.agentChats.streamingToolOutput[shownChatId])
+  const plan = useStore(store, (s) => s.agentChats.streamingPlan[shownChatId])
 
   const [attachedState, setAttachment] = useState<Attachment>({ state: 'pending' })
   const columnRef = useRef<HTMLDivElement>(null)
@@ -278,6 +309,10 @@ export function AgentChatPane({
   // to close, silently, on a brand-new chat.
   const [chatBlank, setChatBlank] = useState(true)
   const chatViewRef = useRef<AgentChatViewHandle>(null)
+  // CSS `zoom`, not transform: scale — it relayouts the surface instead of just
+  // repainting it, and it's scoped to the chat surface only (the terminal has
+  // its own font-size-based terminalZoomLevel).
+  const chatZoom = useZoomStore.use.zoom()
   // `pending` while the chat list is still in flight is DERIVED, not written by
   // the attach effect below. Dormancy is unknowable until the list lands, so
   // there is nothing for the machine to record — the pane simply has nothing to
@@ -408,23 +443,26 @@ export function AgentChatPane({
   // way the pane settles on the ACT rather than whenever a frame happens to arrive — and,
   // crucially, it settles AT ALL: a CLI that died on startup leaves the chat dormant, and
   // this read says so, where waiting for a frame that is never coming would spin forever.
-  const adopt = useCallback(async (): Promise<boolean> => {
-    const chat = await getChat(wsId, shownChatId)
-    const s = store.getState()
-    s.upsertAgentChat(chat)
-    s.setAgentChatWorking(chat.id, chat.working === true)
-    // liveRunnerId ALONE is liveness — terminalSessionId is not a second vote on it.
-    // A non-hotswap api-transport runner (codex) is legitimately live with nothing
-    // attached: empty here means "no terminal to show right now", not "no runner".
-    if (!chat.liveRunnerId) return false
-    s.bufferActions.repointAgentChatBuffer(bufferId, {
-      chatId: chat.id,
-      runnerId: chat.liveRunnerId,
-    })
-    if (chat.terminalSessionId) seedAttach(wsId, chat.terminalSessionId)
-    setAttachment({ state: 'attached', sessionId: chat.terminalSessionId || null })
-    return true
-  }, [store, wsId, bufferId, shownChatId])
+  const adopt = useCallback(
+    async (signal?: AbortSignal): Promise<boolean> => {
+      const chat = await getChat(wsId, shownChatId, signal)
+      const s = store.getState()
+      s.upsertAgentChat(chat)
+      s.setAgentChatWorking(chat.id, chat.working === true)
+      // liveRunnerId ALONE is liveness — terminalSessionId is not a second vote on it.
+      // A non-hotswap api-transport runner (codex) is legitimately live with nothing
+      // attached: empty here means "no terminal to show right now", not "no runner".
+      if (!chat.liveRunnerId) return false
+      s.bufferActions.repointAgentChatBuffer(bufferId, {
+        chatId: chat.id,
+        runnerId: chat.liveRunnerId,
+      })
+      if (chat.terminalSessionId) seedAttach(wsId, chat.terminalSessionId)
+      setAttachment({ state: 'attached', sessionId: chat.terminalSessionId || null })
+      return true
+    },
+    [store, wsId, bufferId, shownChatId],
+  )
 
   // Re-check the aggregate after a prompt race. The prompt queue consumes only
   // this server-folded value; it never guesses busy state from a lifecycle kind.
@@ -470,6 +508,20 @@ export function AgentChatPane({
     setAttachment({ state: 'idle', reason: 'failed' })
   }, [shownChatId])
 
+  // HOW MANY REVIVES THIS PANE ACTUALLY HAS OUT — the fact, where the attach effect
+  // below used to infer it from the spinner being on screen.
+  //
+  // The two are only the same thing while every revive ends, and one does not have to.
+  // `reviving` is the single state in this machine with NO CONTROL ON IT (see
+  // ComposerSignpost: a spinner, and nothing to click), and the effect deliberately
+  // refuses to overwrite it — so a revive that never comes back is a chat the user can
+  // only abandon. That is the wedge this pair closes, and it was reachable both ends:
+  // the daemon serialises a chat's spawn paths behind a plain per-chat mutex with no
+  // context on it, and `apiFetch` sets no deadline on the request, so `resumeChat` could
+  // sit there forever and the `catch` holding `fail()` — the one line that puts the
+  // Resume button on screen — was simply never reached.
+  const revivesInFlight = useRef(0)
+
   // revive brings the chat's last provider back into its own native session — the CLI
   // resumes exactly where the user left it. Fired automatically when the pane finds its
   // chat dormant (see the attach effect), and by the Resume button when that failed.
@@ -479,18 +531,150 @@ export function AgentChatPane({
   // before its session-start hook ever fired leaves one), and the CLI itself may be gone
   // from the PATH. Both land in `idle: failed`, which is the one place the Resume button
   // still appears. It never retries by itself.
-  const revive = useCallback(async () => {
-    attemptedRef.current.add(shownChatId) // spend the budget BEFORE awaiting anything
-    setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
-    try {
-      await resumeChat(wsId, shownChatId)
-      if (!(await adopt())) fail()
-    } catch (err: unknown) {
-      fail()
-      const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
-      toastSpawnFailure(err, name, 'resume')
-    }
-  }, [wsId, shownChatId, adopt, fail, providers, chatProviderId])
+  // `externalSignal` lets a CALLER's own cleanup (the auto-revive effect below)
+  // cancel a revive still in flight when it unmounts or re-runs — without it,
+  // an effect firing this and unmounting moments later (the pane's buffer/tab
+  // closing mid-resume) left the request running for up to the FULL bound,
+  // still holding the daemon's per-chat spawn-gate mutex, with nothing on
+  // screen left to show for it. Merged into the internal bound, not a
+  // replacement for it: the timeout still fires even for a caller (the Resume
+  // button) that passes none.
+  const revive = useCallback(
+    async (externalSignal?: AbortSignal) => {
+      attemptedRef.current.add(shownChatId) // spend the budget BEFORE awaiting anything
+      setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
+      revivesInFlight.current += 1
+      // BOUND THE REQUEST, not the UI. The pane still moves on this request's own
+      // outcome — an abort IS an outcome, and it lands in the same `fail()` every other
+      // refused resume does, which is the state that carries the Resume button. Giving
+      // up early costs nothing and cannot strand anybody: the resume is a no-op on a
+      // chat that is already live, and if the daemon does come back to life afterwards
+      // the chat goes live in the store and the attach effect below picks it straight
+      // up. The bound is the daemon's OWN worst-case honest wait (awaitTurnOrForce),
+      // so it can only fire on a resume that was never going to answer.
+      const abort = new AbortController()
+      // Set ONLY here — the one signal that this request genuinely, on its own
+      // terms, was never going to answer. Distinguishing this from the abort
+      // below matters: both trip the SAME abort.signal, but only this one is
+      // actually news to the user.
+      let boundFired = false
+      const bound = setTimeout(() => {
+        boundFired = true
+        abort.abort()
+      }, REVIVE_REQUEST_BOUND_MS)
+      // externalSignal fires this on a real unmount (the pane's buffer/tab
+      // closing mid-resume — see this function's own doc comment) — but ALSO
+      // on every other reason the CALLER's effect re-runs, including a
+      // dependency the request's own success is what just changed: adopt()
+      // (below) writes liveRunnerId into the store the instant resumeChat
+      // answers, the attach effect below watches liveRunnerId, and its
+      // cleanup — this forwarder — fires before the next render can prove
+      // the request actually worked. React 18 StrictMode's dev-only
+      // mount→cleanup→mount double-invoke exercises the identical path on
+      // literally the first mount of every pane, live-reproduced against a
+      // real claude chat: "Couldn't resume — the daemon did not answer the
+      // resume" for a resume the daemon's own access log recorded answering
+      // in under 60ms. None of those callers are actually reporting a dead
+      // daemon, so none of them earn the toast or the `failed` state below —
+      // either nobody is left to read it (a real unmount), or a fresher
+      // attempt (this same one succeeding, or a StrictMode-surviving second
+      // invocation) already owns the pane's outcome.
+      const forwardExternalAbort = () => abort.abort()
+      externalSignal?.addEventListener('abort', forwardExternalAbort)
+      // Own this chat's revive for every OTHER pane too — see
+      // reviveInFlightByChatId's doc comment. Registered before the request goes
+      // out and cleared in the same finally that releases everything else, so a
+      // sibling pane's attach effect can find it for exactly as long as this
+      // request is actually outstanding.
+      const run = (async () => {
+        try {
+          await resumeChat(wsId, shownChatId, abort.signal)
+          // SAME signal, not a second, unbounded request — adopt()'s own
+          // getChat read sits right after resumeChat's, and without a signal
+          // of its own it could hang forever with the bound above having
+          // already fired on the (by-then-irrelevant) resumeChat request:
+          // reproducing the exact "Resuming this chat…" wedge this pair of
+          // requests exists to eliminate, one call later, inside its own fix.
+          if (!(await adopt(abort.signal))) fail()
+        } catch (err: unknown) {
+          // An external teardown (real unmount, StrictMode's throwaway pass,
+          // or this same call's own success) is not a failure to report —
+          // see boundFired's own doc comment above. `finally` below still
+          // runs either way.
+          if (abort.signal.aborted && !boundFired) return
+          fail()
+          const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
+          // An abort reads as a DOMException about a cancelled fetch, which tells the user
+          // nothing about their chat. Say what actually happened instead.
+          toastSpawnFailure(
+            abort.signal.aborted ? new Error('The daemon did not answer the resume.') : err,
+            name,
+            'resume',
+          )
+        } finally {
+          clearTimeout(bound)
+          externalSignal?.removeEventListener('abort', forwardExternalAbort)
+          revivesInFlight.current -= 1
+        }
+      })()
+      reviveInFlightByChatId.set(shownChatId, run)
+      try {
+        await run
+      } finally {
+        // Only clear OUR OWN entry — a sibling pane's later revive() (this
+        // chat went dormant again after we finished) may already have
+        // replaced it, and that is the one still running.
+        if (reviveInFlightByChatId.get(shownChatId) === run) {
+          reviveInFlightByChatId.delete(shownChatId)
+        }
+      }
+    },
+    [wsId, shownChatId, adopt, fail, providers, chatProviderId],
+  )
+
+  // A CHAT THE LIST NEVER MENTIONS.
+  //
+  // `known` is this pane's entire basis for "do we know what this chat is", and
+  // while it is false `attachment` reads `pending` — which renders nothing,
+  // spawns nothing and asks nothing. That is exactly right for the moment before
+  // the list lands, and exactly wrong once it has: a pane pointed at a chat the
+  // list does not carry is then waiting on a fact that is never coming. A
+  // restored layout, a chat opened from another scope, or a list that raced the
+  // pane all land here.
+  //
+  // And the wait is SELF-SEALING, which is what makes it permanent rather than
+  // merely wrong. Every path that could teach the store this chat exists —
+  // adopt(), refreshChatWorking() — is reachable only through code gated on
+  // `live`, and `live` is gated on this. Nothing breaks the cycle from inside
+  // it. The visible cost is the prompt queue: its dispatcher bails on `!live`
+  // every pass, so the composer holds the user's message on "queued" forever and
+  // never attempts the POST — no error, no retry, no request at all.
+  //
+  // So ask the daemon, ONCE per chat per mount. Same budget shape as the revive
+  // budget above and for the same reason — a chat that is genuinely gone must
+  // not become a retry storm — and like adopt() this only ever READS. Spawning
+  // and attaching stay the attach effect's job, which takes over the moment the
+  // row lands in the store.
+  const resolvedRef = useRef(new Set<string>())
+  useEffect(() => {
+    if (!listSeeded || known || !shownChatId) return
+    if (resolvedRef.current.has(shownChatId)) return
+    resolvedRef.current.add(shownChatId)
+    void getChat(wsId, shownChatId)
+      .then((chat) => {
+        const s = store.getState()
+        s.upsertAgentChat(chat)
+        // The server-folded answer, exactly as adopt() writes it. There is no
+        // newer frame truth to clobber here: the store had never heard of this
+        // chat at all.
+        s.setAgentChatWorking(chat.id, chat.working === true)
+      })
+      .catch(() => {
+        // Genuinely gone, or the read failed. The pane has asked its one
+        // question; `pending` is now an honest "nothing to show" instead of a
+        // wait, and the user drives from the sidebar.
+      })
+  }, [store, wsId, listSeeded, known, shownChatId])
 
   // Attach to the runner's PTY, revive the chat if nobody is on it, or settle. The seeding
   // must happen BEFORE XtermTerminal mounts (React runs child effects first, so a terminal
@@ -536,20 +720,61 @@ export function AgentChatPane({
       // already-attached chat has a liveRunnerId and never reaches here, so it keeps
       // its live PTY while hidden.
       if (isVisible && !attemptedRef.current.has(shownChatId)) {
-        void revive()
-        return
+        attemptedRef.current.add(shownChatId) // spend the budget on EITHER path below
+        // Another pane already owns this exact chat's resume — see
+        // reviveInFlightByChatId. Piggyback on its outcome instead of firing a
+        // second resumeChat the daemon's spawn gate would only queue behind:
+        // that race is exactly what turned "split this chat pane, Cmd+\" into
+        // a "Couldn't resume — the daemon did not answer the resume" toast on
+        // the new pane, for a chat the original pane was reviving just fine.
+        const owned = reviveInFlightByChatId.get(shownChatId)
+        if (owned) {
+          setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
+          revivesInFlight.current += 1
+          void owned.finally(() => {
+            revivesInFlight.current -= 1
+            // The owner's own adopt() already wrote a live runner into the
+            // store if it found one — liveRunnerId picks that up and this
+            // effect re-runs on its own (it's a dependency below). Only the
+            // failure case needs help: nothing else will ever move a pane
+            // sitting on a `reviving` spinner with no runner behind it.
+            if (
+              !store.getState().agentChats.chats.find((c) => c.id === shownChatId)?.liveRunnerId
+            ) {
+              fail()
+            }
+          })
+          return
+        }
+        // Own controller, not a bare fire-and-forget: this effect has no way
+        // to reach into revive()'s OWN internal abort otherwise, so a pane
+        // that genuinely unmounts mid-resume (its buffer/tab closing) left
+        // the request running for up to the full REVIVE_REQUEST_BOUND_MS,
+        // still holding the daemon's per-chat spawn-gate mutex, with
+        // nothing left on screen to show for it.
+        const controller = new AbortController()
+        void revive(controller.signal)
+        return () => controller.abort()
       }
       // Budget spent, or hidden and waiting to become visible. Don't stomp a revive
       // still in flight, and don't overwrite a `failed` we have already earned with the
       // vaguer `exited`.
+      //
+      // "Still in flight" is ASKED, not assumed. Reading `a.state === 'reviving'` as
+      // the answer is what made this state a dead end: the spinner carries no button,
+      // so a `reviving` with nothing behind it any more was a chat that could never be
+      // recovered from here, however many times the daemon restated it as dormant.
+      // Settling it to `idle` is what puts Resume back on screen.
       setAttachment((a) =>
-        a.state === 'reviving' || a.state === 'idle' ? a : { state: 'idle', reason: 'exited' },
+        (a.state === 'reviving' && revivesInFlight.current > 0) || a.state === 'idle'
+          ? a
+          : { state: 'idle', reason: 'exited' },
       )
       return
     }
     if (sessionId) seedAttach(wsId, sessionId)
     setAttachment({ state: 'attached', sessionId: sessionId || null })
-  }, [wsId, known, liveRunnerId, sessionId, shownChatId, revive, isVisible])
+  }, [wsId, known, liveRunnerId, sessionId, shownChatId, revive, isVisible, store, fail])
 
   // The attach above proves the PTY was alive when the store last spoke. The CLI can die
   // at any moment while the pane sits here — daemon restart, /exit, crash — and the
@@ -621,9 +846,14 @@ export function AgentChatPane({
     // must mistake for a chat needing revival.
     switchingRef.current = true
     setAttachment({ state: 'reviving', message: `Starting ${name}…` })
+    // Same bound as revive() and for the identical reason: switchProvider
+    // drives the SAME daemon-side per-chat spawn mutex a stuck resume does,
+    // behind the same buttonless "Starting {provider}…" spinner.
+    const abort = new AbortController()
+    const bound = setTimeout(() => abort.abort(), REVIVE_REQUEST_BOUND_MS)
     try {
-      await switchProvider(wsId, shownChatId, providerId)
-      if (!(await adopt())) {
+      await switchProvider(wsId, shownChatId, providerId, abort.signal)
+      if (!(await adopt(abort.signal))) {
         fail()
         return false
       }
@@ -639,9 +869,17 @@ export function AgentChatPane({
       fail()
       // Status-aware: only a 424 actually means "that CLI is not installed". Blaming the
       // PATH for every failure sends the user hunting for a problem they do not have.
-      toastSpawnFailure(err, name, 'switch to')
+      // An abort itself reads as a DOMException about a cancelled fetch, which is
+      // status-less and tells the user nothing about their chat — say what actually
+      // happened instead, same as revive()'s own catch.
+      toastSpawnFailure(
+        abort.signal.aborted ? new Error('The daemon did not answer the switch.') : err,
+        name,
+        'switch to',
+      )
       return false
     } finally {
+      clearTimeout(bound)
       switchingRef.current = false
     }
   }
@@ -1069,7 +1307,10 @@ export function AgentChatPane({
                   'relative min-h-0 min-w-0 shrink grow-0'
                 : cn('h-full', presentation === 'chat' ? '' : 'hidden'),
             )}
-            style={splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined}
+            style={{
+              zoom: chatZoom,
+              ...(splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined),
+            }}
           >
             <AgentChatView
               key={`${wsId}:${shownChatId}`}
@@ -1110,6 +1351,9 @@ export function AgentChatPane({
               onSelectPresentation={chooseSurface}
               settledPrompts={settledPrompts}
               streamingMessages={streamingMessages}
+              reasoning={reasoning}
+              toolOutput={toolOutput}
+              plan={plan}
               onStreamingSettled={handleStreamingSettled}
               onPromptDispatchStart={() => {
                 switchingRef.current = true

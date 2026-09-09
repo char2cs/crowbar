@@ -1151,7 +1151,17 @@ describe('AgentChatsPanel', () => {
     expect(rowFor('c1').className).toContain('bg-background')
 
     const c1Buffer = agentBuffers().find((b) => b.chatId === 'c1')!
-    act(() => state().bufferActions.closeBuffer(c1Buffer.id))
+    // closeBuffer only tears a buffer down once no pane references its id any
+    // more — a remaining reference reads as a SIBLING pane still showing it
+    // live (see buffer-slice.ts's own doc comment) — so, same as every real
+    // caller (terminal-tab.tsx, chat-removal.ts, use-pane-keyboard.ts), this
+    // pane's own reference has to be stripped first for a raw closeBuffer
+    // call to actually close it rather than no-op.
+    act(() => {
+      const s = state()
+      s.paneActions.removeBufferFromPane(s.activePaneId, c1Buffer.id)
+      s.bufferActions.closeBuffer(c1Buffer.id)
+    })
 
     expect(rowFor('c1').className).toContain('hover:bg-accent')
   })

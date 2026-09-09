@@ -133,6 +133,27 @@ func TestCompleteTool_TruncatesAnEnormousErrorToACaption(t *testing.T) {
 		"a multi-byte character straddling the cut is dropped whole, never left broken")
 }
 
+// A resolved choice that only says "answered" and never which option is
+// indistinguishable, in the transcript, from a choice that was denied — the
+// whole point of showing it at all. AnswerChoice is the one path that knows
+// what was actually picked, so it must survive the round trip through
+// storage the same way Options and Question already do.
+func TestRegression_AnswerChoicePersistsWhichOptionWasPicked(t *testing.T) {
+	f := newFixture(t)
+	f.openReply(t)
+	f.permission(t, "c1", "Bash")
+	f.wait()
+
+	require.NoError(t, f.repo.AnswerChoice(f.ctx, chat, "c1", []string{"allow"}, false, t0))
+	f.wait()
+
+	all, err := f.repo.Choices(f.ctx, chat)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.Equal(t, domain.ChoiceResolutionAnswered, all[0].Resolution)
+	assert.Equal(t, []string{"allow"}, all[0].AnsweredOptionIDs)
+}
+
 func TestForget_DropsAChatsPrompts(t *testing.T) {
 	f := newFixture(t)
 	f.openReply(t)

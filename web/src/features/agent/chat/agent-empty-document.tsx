@@ -27,8 +27,8 @@ import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { cn } from '@/lib/utils'
 
 /** The handle's own position on an empty document: the doc's top padding plus
- *  one line, matching `.doc`'s 48px / 16px × 1.7. */
-const FIRST_LINE_TOP = 48 + 27.2
+ *  one line, matching `.doc`'s 48px / 14px × 1.7. */
+const FIRST_LINE_TOP = 48 + 23.8
 /** The gap between the last line and the handle riding under it. */
 const HANDLE_LEAD = 4
 

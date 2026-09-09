@@ -43,18 +43,26 @@ func (s stubTurnsForAttach) ChatWorking(context.Context, string) (bool, error) {
 	return s.working, nil
 }
 
-// stubActivityForAttach answers only LastTurnForSession — the one call
-// SwitchToTerminal's new guard makes. The embedded nil interface panics on
-// anything else.
+// stubActivityForAttach answers LastTurnForSession and CountTurns — the calls
+// SwitchToTerminal's guard and resumableConversation's legacy-vs-crash check
+// make. The embedded nil interface panics on anything else. turnCount
+// defaults to zero, which is what every pre-existing test wants (a chat with
+// no other recorded activity), so callers that don't care about it need no
+// changes.
 type stubActivityForAttach struct {
 	agentactivity.EventStore
-	found bool
+	found     bool
+	turnCount int64
 }
 
 func (s stubActivityForAttach) LastTurnForSession(
 	context.Context, string, string, string,
 ) (time.Time, bool, error) {
 	return time.Time{}, s.found, nil
+}
+
+func (s stubActivityForAttach) CountTurns(context.Context, string) (int64, error) {
+	return s.turnCount, nil
 }
 
 // stubActivityBySession answers LastTurnForSession by exact sessionID match

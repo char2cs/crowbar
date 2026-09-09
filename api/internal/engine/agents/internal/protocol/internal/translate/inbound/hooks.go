@@ -54,7 +54,7 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEv
 	if !declared {
 		return models.CanonicalEvent{}, fmt.Errorf("%w: %q on %q", ErrUndeclaredEvent, canonical, d.ID)
 	}
-	return build(canonical, fields, decoded), nil
+	return build(canonical, fields, d.EventSteps(canonical), decoded), nil
 }
 
 func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
@@ -83,6 +83,7 @@ func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool)
 func build(
 	canonical string,
 	fields map[string]string,
+	steps *spec.StepsSpec,
 	decoded map[string]any,
 ) models.CanonicalEvent {
 	get := func(name string) string { return firstNonEmpty(decoded, fields[name]) }
@@ -91,6 +92,7 @@ func build(
 		Kind:      canonical,
 		SessionID: get("session_id"),
 		Message:   get("message"),
+		TurnID:    get("turn_id"),
 		AsyncWork: mapping.Count(decoded, fields["async_work"]),
 		Model:     get("model"),
 		Effort:    get("effort"),
@@ -113,8 +115,13 @@ func build(
 	case spec.HookElicitation:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptElicitation, Detail: ev.Message}
 		ev.Choice = elicitationChoice(fields, decoded, ev.Message)
-	case spec.HookMessageDelta:
+	case spec.HookMessageDelta, spec.HookReasoningDelta, spec.HookToolOutputDelta:
+		// Same payload shape, deliberately: a thought and an answer are both
+		// streamed text belonging to one item. Only ev.Kind tells them apart, and
+		// only the consumer acts on that difference.
 		ev.Delta = buildDelta(fields, decoded)
+	case spec.HookPlanUpdate:
+		ev.Plan = buildPlan(steps, decoded)
 	case spec.HookTurnFailed:
 		ev.Failure = &models.TurnFailure{Reason: get("reason"), Detail: get("detail")}
 	case spec.HookCompactPre:
@@ -138,6 +145,37 @@ func buildDelta(fields map[string]string, decoded map[string]any) *models.Messag
 		Final:     final,
 		Text:      firstNonEmpty(decoded, fields["text"]),
 	}
+}
+
+// buildPlan reads the whole plan array, WHOLESALE: the newest list is the entire
+// truth, so there is nothing to merge and nothing that can drift — the same
+// anti-drift rule turn_stop's async-work LEVEL follows.
+//
+// A step with no text is skipped (a plan entry with nothing to say is not a step),
+// but an unknown status passes through UNCHANGED rather than being dropped: a
+// status the descriptor's map does not name is still a step worth showing, and
+// silently shortening the plan would be worse than an unstyled row.
+func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep {
+	if steps == nil || steps.Items == "" {
+		return nil
+	}
+	rows := mapping.Objects(decoded, steps.Items)
+	out := make([]models.PlanStep, 0, len(rows))
+	for _, row := range rows {
+		text := mapping.String(row, steps.Text)
+		if text == "" {
+			continue
+		}
+		status := mapping.String(row, steps.Status)
+		if mapped, ok := steps.StatusMap[status]; ok {
+			status = mapped
+		}
+		out = append(out, models.PlanStep{Text: text, Status: status})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEvent {

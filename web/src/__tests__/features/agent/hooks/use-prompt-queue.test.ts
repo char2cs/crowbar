@@ -1,5 +1,16 @@
-import { describe, expect, it } from 'vitest'
-import { hasPendingImageUpload } from '@/features/agent/hooks/use-prompt-queue'
+import { act, renderHook } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  hasPendingImageUpload,
+  usePromptQueue,
+  type PromptQueueOptions,
+} from '@/features/agent/hooks/use-prompt-queue'
+
+const submitAgentPrompt = vi.fn()
+
+vi.mock('@/features/agent/api/agent-api', () => ({
+  submitAgentPrompt: (...args: unknown[]) => submitAgentPrompt(...args),
+}))
 
 // REGRESSION, reported live: "photos attachments are not loaded instantly...
 // let's not wait for them." Once a photo shows an instant local preview
@@ -35,5 +46,140 @@ describe('hasPendingImageUpload', () => {
   it('is true for multiple images even when only one is still pending', () => {
     const draft = '![done](chats/c1/attachments/a.png) and ![pending](blob:local-preview-id)'
     expect(hasPendingImageUpload(draft)).toBe(true)
+  })
+})
+
+/** A promise whose settlement THIS test decides, so a dispatch can be observed
+ *  in flight without a single timer. */
+function deferred<T>() {
+  let settle!: (value: T) => void
+  const promise = new Promise<T>((resolve) => {
+    settle = resolve
+  })
+  return { promise, settle }
+}
+
+function options(overrides: Partial<PromptQueueOptions> = {}): PromptQueueOptions {
+  return {
+    wsId: 'ws1',
+    chatId: 'c1',
+    working: false,
+    compacting: false,
+    live: true,
+    active: true,
+    visible: true,
+    turnRevision: 0,
+    terminalWaiting: false,
+    getBaseline: () => 0,
+    refreshMessages: () => {},
+    onPromptSpawned: () => {},
+    onRefreshChat: () => Promise.resolve(false),
+    onSubmitUnavailable: () => {},
+    ...overrides,
+  }
+}
+
+function mount(initialProps: PromptQueueOptions) {
+  return renderHook((props: PromptQueueOptions) => usePromptQueue(props), { initialProps })
+}
+
+// REGRESSION, reported live: "when compacting, a queued message gets sent right
+// away, which stops the compacting action."
+//
+// The composer promises this in so many words — resolveComposerState's kind 7 is
+// "compacting — busy; prompts queue", and the placeholder reads "Compacting…
+// your message will be queued". The FIFO dispatcher did not honour it, because
+// it was never told: `usePromptQueue` was handed `working` alone, and a bare
+// /compact opens no tracked turn (see AgentChatsState.compacting), so the
+// aggregate folds the entire compaction as IDLE. The head passed the busy guard
+// on the very next render and went to the CLI mid-compaction, aborting it.
+//
+// Nothing here is timing-based: the dispatch promise is settled by hand, and
+// every busy edge is an explicit rerender.
+describe('usePromptQueue during a compaction', () => {
+  beforeEach(() => {
+    submitAgentPrompt.mockReset()
+    submitAgentPrompt.mockResolvedValue({ runnerId: 'r1' })
+    localStorage.clear()
+  })
+
+  it('holds a prompt typed mid-compaction instead of sending it', async () => {
+    const { result } = mount(options({ compacting: true }))
+
+    await act(async () => {
+      result.current.enqueue('summarise the plan')
+    })
+
+    expect(submitAgentPrompt).not.toHaveBeenCalled()
+    expect(result.current.queue.map((item) => item.state)).toEqual(['queued'])
+  })
+
+  // The flush-time half of the same check. This prompt was queued legitimately
+  // (the chat was working), so the fix cannot be "refuse at enqueue": the busy
+  // edge that normally releases it lands while a compaction is running, and the
+  // dispatcher has to re-read BOTH busy signals at that moment.
+  it('keeps holding when the working edge lands during a compaction', async () => {
+    const { result, rerender } = mount(options({ working: true }))
+
+    await act(async () => {
+      result.current.enqueue('summarise the plan')
+    })
+    expect(submitAgentPrompt).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rerender(options({ working: false, compacting: true }))
+    })
+
+    expect(submitAgentPrompt).not.toHaveBeenCalled()
+    expect(result.current.queue.map((item) => item.state)).toEqual(['queued'])
+  })
+
+  it('dispatches the held prompt once the compaction clears', async () => {
+    const delivery = deferred<{ runnerId: string }>()
+    submitAgentPrompt.mockReturnValue(delivery.promise)
+    const { result, rerender } = mount(options({ compacting: true }))
+
+    await act(async () => {
+      result.current.enqueue('summarise the plan')
+    })
+    expect(submitAgentPrompt).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rerender(options({ compacting: false }))
+    })
+
+    expect(submitAgentPrompt).toHaveBeenCalledTimes(1)
+    expect(submitAgentPrompt.mock.calls[0]?.[2]).toBe('summarise the plan')
+    // In flight, and provably so: this test still owns the promise.
+    expect(result.current.queue[0]?.state).toBe('submitting')
+
+    await act(async () => {
+      delivery.settle({ runnerId: 'r1' })
+      await delivery.promise
+    })
+
+    expect(result.current.queue[0]?.state).toBe('awaiting_turn')
+  })
+
+  // Holding must not reorder the conversation, and must not release the whole
+  // queue at once when it lifts — only the head can ever move.
+  it('releases the held prompts in order, head first', async () => {
+    const delivery = deferred<{ runnerId: string }>()
+    submitAgentPrompt.mockReturnValue(delivery.promise)
+    const { result, rerender } = mount(options({ compacting: true }))
+
+    await act(async () => {
+      result.current.enqueue('first')
+      result.current.enqueue('second')
+    })
+    expect(submitAgentPrompt).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rerender(options({ compacting: false }))
+    })
+
+    expect(submitAgentPrompt).toHaveBeenCalledTimes(1)
+    expect(submitAgentPrompt.mock.calls[0]?.[2]).toBe('first')
+    expect(result.current.queue.map((item) => item.state)).toEqual(['submitting', 'queued'])
   })
 })

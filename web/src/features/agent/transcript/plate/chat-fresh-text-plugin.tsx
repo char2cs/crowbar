@@ -1,46 +1,57 @@
-import type { TText } from 'platejs'
-import type { PlateEditor, PlateLeafProps } from 'platejs/react'
+import type { PlateLeafProps } from 'platejs/react'
 import { createPlatePlugin, PlateLeaf } from 'platejs/react'
 import {
-  CHAT_FRESH_DELAY_MARK,
   CHAT_FRESH_MARK,
+  CHAT_FRESH_WORD_INDEX_MARK,
+  CHAT_FRESH_WORD_TOTAL_MARK,
+  freshDecorations,
+  freshLeafDelay,
+  settleFreshGeneration,
+  settleFreshWord,
 } from '@/features/agent/transcript/plate/streaming-value-patch'
 
 /**
- * Retires one faded-in leaf: unsets both its marks, which is all "done
- * fading" means here. Slate's own "merge adjacent leaves with identical
- * marks" normalization rule folds it back into plain text on its own —
- * nothing else has to track that the fade finished, or undo the split by
- * hand. Both marks, not just the fade flag: a leaf that kept its stagger
- * delay after settling would never look identical to an adjacent plain one
- * again, and never merge.
+ * Renders `CHAT_FRESH_MARK` — produced only by `streaming-value-patch.ts`, as
+ * a DECORATION over text a full markdown parse already produced — as a fade
+ * from invisible to full opacity (transcript.css), delayed by
+ * `CHAT_FRESH_DELAY_MARK` so a whole chunk's words cascade in instead of
+ * popping in together.
  *
- * Split out from the leaf component so it is callable (and testable)
- * without a real `animationend`, which jsdom cannot produce — it ships no
- * CSS engine, so no animation ever actually runs there to end.
- */
-export function settleChatFreshText(editor: PlateEditor, text: TText): void {
-  const path = editor.api.findPath(text)
-  if (path) editor.tf.unsetNodes([CHAT_FRESH_MARK, CHAT_FRESH_DELAY_MARK], { at: path })
-}
-
-/**
- * Renders `CHAT_FRESH_MARK` — set only by streaming-value-patch.ts, on text a
- * full markdown parse already produced — as a fade from dim to full opacity
- * (transcript.css), delayed by `CHAT_FRESH_DELAY_MARK` so a whole chunk's
- * words cascade in instead of popping in together.
+ * Reads the delay off `props.leaf`, not `props.text`: `leaf` is the text node
+ * WITH decorations applied, and the document's own text node never carries
+ * these marks at all — that is the whole point of the decoration (see
+ * `freshRuns` for the measured cost of having written them into the
+ * document instead).
  *
- * Settles itself on the animation's real `animationend`, never a timer.
+ * Settles on the animation's real `animationend`, never a timer — and
+ * settling is bookkeeping only (`settleFreshGeneration`), not an edit.
  */
 function ChatFreshTextLeaf(props: PlateLeafProps) {
-  const { editor, text, children } = props
-  const delayMs = typeof text[CHAT_FRESH_DELAY_MARK] === 'number' ? text[CHAT_FRESH_DELAY_MARK] : 0
+  const { editor, leaf, children } = props
+  const delayMs = freshLeafDelay(leaf) ?? 0
+  const record = leaf as unknown as Record<string, unknown>
+  const generation = record[CHAT_FRESH_MARK]
+  const wordIndex = record[CHAT_FRESH_WORD_INDEX_MARK]
+  const totalWords = record[CHAT_FRESH_WORD_TOTAL_MARK]
   return (
     <PlateLeaf {...props}>
       <span
         className="chat-fresh-text"
         style={{ animationDelay: `${delayMs}ms` }}
-        onAnimationEnd={() => settleChatFreshText(editor, text)}
+        onAnimationEnd={() => {
+          if (typeof generation !== 'number') return
+          // Present only on a per-word split (see CHAT_FRESH_WORD_INDEX_MARK)
+          // — this word's own end, not the whole chunk's, is what just
+          // happened, so the generation only retires once every word sharing
+          // it has reported. A capped run's single, unsplit span carries
+          // neither field and settles the old way, directly: one span, one
+          // fade, nothing to wait on.
+          if (typeof wordIndex === 'number' && typeof totalWords === 'number') {
+            settleFreshWord(editor, generation, wordIndex, totalWords)
+          } else {
+            settleFreshGeneration(editor, generation)
+          }
+        }}
       >
         {children}
       </span>
@@ -51,4 +62,5 @@ function ChatFreshTextLeaf(props: PlateLeafProps) {
 export const ChatFreshTextPlugin = createPlatePlugin({
   key: CHAT_FRESH_MARK,
   node: { isLeaf: true },
+  decorate: ({ editor, entry }) => freshDecorations(editor, entry),
 }).withComponent(ChatFreshTextLeaf)

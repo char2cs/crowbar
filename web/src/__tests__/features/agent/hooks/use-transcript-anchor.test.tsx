@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  tailRoom,
   useTranscriptAnchor,
   type TranscriptAnchor,
   type UseTranscriptAnchorOptions,
@@ -14,6 +15,20 @@ import {
  * live by the mounted element's getters, stand in for both — same pattern
  * use-preserved-scroll.test.tsx uses for the same reason.
  */
+/**
+ * A scroll the READER caused. A browser never delivers a bare scroll event
+ * for a gesture — it always emits the input that caused it first (`wheel`
+ * here), and `useTranscriptAnchor` relies on exactly that to tell a real
+ * gesture apart from the browser moving the view by itself (scroll
+ * anchoring, which a streaming transcript triggers constantly). Setting
+ * `scrollTop` and firing `scroll` alone simulates the browser, not a person.
+ */
+function readerScrollsTo(scroller: HTMLElement, top: number) {
+  fireEvent.wheel(scroller)
+  scroller.scrollTop = top
+  fireEvent.scroll(scroller)
+}
+
 describe('useTranscriptAnchor', () => {
   let scrollHeight = 0
   let clientHeight = 400
@@ -164,8 +179,7 @@ describe('useTranscriptAnchor', () => {
     expect(scroller.scrollTop).toBeLessThan(1000)
 
     // The reader scrolls up, mid-animation — theirs wins at once.
-    scroller.scrollTop = 200
-    fireEvent.scroll(scroller)
+    readerScrollsTo(scroller, 200)
 
     vi.advanceTimersByTime(1500) // the animation would otherwise have finished by now
     expect(scroller.scrollTop).toBe(200)
@@ -199,13 +213,11 @@ describe('useTranscriptAnchor', () => {
 
     grow(1400)
     vi.advanceTimersByTime(50)
-    scroller.scrollTop = 200
-    fireEvent.scroll(scroller)
+    readerScrollsTo(scroller, 200)
     vi.advanceTimersByTime(1500) // several time constants — fully settled
 
     // Back at the bottom (scrollHeight 1400 - clientHeight 400 = 1000).
-    scroller.scrollTop = 1000
-    fireEvent.scroll(scroller)
+    readerScrollsTo(scroller, 1000)
 
     grow(1800) // ceiling: 1800 - 400 = 1400
     vi.advanceTimersByTime(50)
@@ -395,8 +407,7 @@ describe('useTranscriptAnchor', () => {
 
     grow(1400) // ceiling: 1400 - 400 = 1000
     vi.advanceTimersByTime(1500)
-    scroller.scrollTop = 200
-    fireEvent.scroll(scroller) // a real gesture — following stops
+    readerScrollsTo(scroller, 200) // a real gesture — following stops
 
     scrollHeight = 1800 // the dock grows again while scrolled away
     act(() => anchor?.notifyReflow())
@@ -496,8 +507,7 @@ describe('useTranscriptAnchor', () => {
       const onPositionChange = vi.fn()
       const { getByTestId, unmount } = render(<Host anchorOptions={{ onPositionChange }} />)
       const scroller = getByTestId('scroller')
-      scroller.scrollTop = 250 // well short of the 600 ceiling — not stuck
-      fireEvent.scroll(scroller)
+      readerScrollsTo(scroller, 250) // well short of the 600 ceiling — not stuck
 
       expect(onPositionChange).not.toHaveBeenCalled()
       unmount()
@@ -519,5 +529,689 @@ describe('useTranscriptAnchor', () => {
       // fully-stuck reader's own distance-from-bottom ever gets to zero.
       expect(onPositionChange).toHaveBeenCalledWith({ stuck: true, distanceFromBottom: 400 })
     })
+  })
+})
+
+/**
+ * Turn-start pinning — see `tailRoom`'s own doc comment.
+ *
+ * Measured against Claude Code Desktop frame-by-frame: it lifts the prompt
+ * you just sent to the TOP of the transcript the instant the turn starts, and
+ * the reply fills the space underneath. Crowbar left the new turn wherever
+ * bottom-following had parked the previous one — roughly mid-viewport, with
+ * the whole previous exchange still stacked above it — so a reply had far
+ * less room to grow into before the view had to scroll again, and every one
+ * of those extra scrolls was another chance to visibly lag and then snap.
+ */
+describe('tailRoom', () => {
+  it('reserves exactly the shortfall while the reply is shorter than the viewport', () => {
+    // The prompt starts 900px down a 1000px-tall content, viewport 400px:
+    // only 100px sits below it, so 300px more is needed to lift it to the top.
+    expect(tailRoom(900, 1000, 400)).toBe(300)
+  })
+
+  it('reserves nothing — releasing the pin — once the reply fills the viewport', () => {
+    // 500px of reply below the prompt already exceeds the 400px viewport.
+    expect(tailRoom(500, 1000, 400)).toBe(0)
+  })
+
+  it('is exactly zero at the handover point, so the two phases meet with no jump', () => {
+    // The instant the content below the pin equals the viewport, the
+    // reservation reaches zero — the pinned position and the true bottom are
+    // then the same pixel, which is what makes the handoff invisible.
+    expect(tailRoom(600, 1000, 400)).toBe(0)
+    expect(tailRoom(601, 1000, 400)).toBe(1)
+  })
+
+  it('never reserves negative room for a reply far past the viewport', () => {
+    expect(tailRoom(0, 5000, 400)).toBe(0)
+  })
+})
+
+describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
+  let scrollHeight = 0
+  let clientHeight = 400
+  let pinTop = 0
+  let observerCallbacks: Array<() => void> = []
+  const RealResizeObserver = globalThis.ResizeObserver
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance'] })
+    scrollHeight = 1000
+    clientHeight = 400
+    pinTop = 900
+    observerCallbacks = []
+    class ControllableResizeObserver {
+      callback: () => void
+      constructor(callback: () => void) {
+        this.callback = callback
+      }
+      observe() {
+        if (!observerCallbacks.includes(this.callback)) observerCallbacks.push(this.callback)
+      }
+      unobserve() {}
+      disconnect() {
+        observerCallbacks = observerCallbacks.filter((c) => c !== this.callback)
+      }
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: ControllableResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: RealResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+    vi.useRealTimers()
+  })
+
+  const fire = () =>
+    act(() => {
+      for (const cb of [...observerCallbacks]) cb()
+    })
+
+  function PinHost({ onReady }: { onReady: (anchor: TranscriptAnchor) => void }) {
+    const anchor = useTranscriptAnchor()
+    useEffect(() => {
+      onReady(anchor)
+    }, [anchor, onReady])
+    // `scrollHeight` (the describe block's own state) doubles as `.stream`'s
+    // NATURAL height here — i.e. everything real, before any reservation —
+    // so `el`'s total can model `.scroll-spacer` (transcript.css) actually
+    // collapsing as reserved padding grows `.stream`, the way a real
+    // browser's flex layout does: `.scroll`'s own scrollHeight is never less
+    // than `clientHeight` (the spacer fills the gap up to it) and never more
+    // than `.stream`'s own total once that alone exceeds it (the spacer is
+    // fully collapsed by then).
+    let scrollerNode: HTMLElement | null = null
+    const reserved = () => {
+      const content = scrollerNode?.lastElementChild as HTMLElement | null
+      return parseFloat(content?.style.paddingBottom || '0') || 0
+    }
+    const streamTotal = () => scrollHeight + reserved()
+    const spacerHeight = () => Math.max(0, clientHeight - streamTotal())
+    const elTotal = () => Math.max(clientHeight, streamTotal())
+    return (
+      <div
+        data-testid="scroller"
+        ref={(node) => {
+          anchor.scrollRef.current = node
+          scrollerNode = node
+          if (!node || Object.hasOwn(node, 'scrollHeight')) return
+          let top = 0
+          Object.defineProperty(node, 'scrollTop', {
+            configurable: true,
+            get: () => top,
+            set: (v: number) => {
+              top = Math.max(0, Math.min(v, Math.max(0, elTotal() - clientHeight)))
+            },
+          })
+          Object.defineProperty(node, 'scrollHeight', {
+            configurable: true,
+            get: () => elTotal(),
+          })
+          Object.defineProperty(node, 'clientHeight', {
+            configurable: true,
+            get: () => clientHeight,
+          })
+          node.getBoundingClientRect = () => ({ top: 0 }) as DOMRect
+        }}
+        onScroll={anchor.onScroll}
+      >
+        <div
+          data-testid="content"
+          ref={(node) => {
+            if (!node) return
+            // `.stream`'s own top follows the spacer ABOVE it collapsing —
+            // unlike `.scroll`'s, this position is never disturbed by
+            // `.stream`'s own padding-bottom growing, which is the whole
+            // point of measuring `pinTurnToTop` against it instead.
+            node.getBoundingClientRect = () =>
+              ({ top: spacerHeight() - (scrollerNode?.scrollTop ?? 0) }) as DOMRect
+            if (!Object.hasOwn(node, 'scrollHeight')) {
+              // `applyTailRoom` reads THIS element's own scrollHeight now,
+              // not `.scroll`'s — see the hook's own comment for why.
+              Object.defineProperty(node, 'scrollHeight', {
+                configurable: true,
+                get: () => streamTotal(),
+              })
+            }
+          }}
+        >
+          <div
+            data-testid="pin"
+            ref={(node) => {
+              if (!node) return
+              // The prompt sits `pinTop` down the FULL scrollable area
+              // (spacer included); its on-screen top is that minus however
+              // far the container is scrolled — independent of how that
+              // `pinTop` happens to split between spacer and real content.
+              node.getBoundingClientRect = () =>
+                ({ top: pinTop - (scrollerNode?.scrollTop ?? 0) }) as DOMRect
+            }}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  it('lifts the just-sent prompt to the top instead of leaving it mid-viewport', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+
+    // Before pinning there is nowhere further to scroll: the ceiling is 600,
+    // which leaves the prompt (900 down) 300px BELOW the top of the viewport —
+    // exactly the "sits in the lower-middle with old context still above it"
+    // the recordings showed.
+    expect(scroller.scrollTop).toBe(600)
+    expect(pinTop - scroller.scrollTop).toBe(300)
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+
+    // Now the prompt's top edge IS the top of the viewport.
+    expect(scroller.scrollTop).toBe(900)
+    expect(pinTop - scroller.scrollTop).toBe(0)
+  })
+
+  // Regression, reported live: a brand-new chat's first prompt is short
+  // enough that `.scroll-spacer` (transcript.css) is still most of the
+  // viewport at the instant `pinTurnToTop` measures it. Reserving room on
+  // `.stream` grows it, which shrinks that spacer by the exact same amount —
+  // `.scroll-spacer` is deliberately pinned to 0 the moment there is real
+  // content to make room for instead — which silently moves anything
+  // measured relative to `.scroll` (which contains both). The next resync
+  // read that shift as the content having SHRUNK and reserved even more to
+  // compensate, which shrank the spacer further still: a feedback loop that
+  // does not appear at all once a conversation is already taller than the
+  // pane (every other test in this file), only on the very first turn of a
+  // new one. Landed live as an almost entirely blank transcript — the
+  // reserved gap ballooned to roughly double the viewport, with the actual
+  // (tiny) prompt scrolled off above the visible area entirely.
+  it('does not runaway-reserve blank space when the first turn in a chat is short', () => {
+    scrollHeight = 100 // `.stream`'s natural height — a short first prompt
+    pinTop = clientHeight - scrollHeight // 300: where it sits before any reservation exists, with `.scroll-spacer` filling the rest of the empty pane above it
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const content = getByTestId('content')
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    // The padding just written resizes `.stream` — exactly what a real
+    // ResizeObserver watching it would report next.
+    fire()
+    vi.advanceTimersByTime(1500)
+
+    // Exactly enough room for the prompt to reach the top of the viewport —
+    // clientHeight (400) minus its own height (100) — not double that.
+    expect(content.style.paddingBottom).toBe('300px')
+  })
+
+  // Regression: chasing this bug through the input-recency heuristic (the
+  // composer's Enter keydown, then the Send button's pointerdown/up) fixed
+  // two live-reported causes one at a time, with no reason to believe those
+  // were the last of them — the send gesture is ALWAYS one of wheel/touch/
+  // key/pointer, by definition, so it always sits inside READER_INPUT_MS
+  // regardless of which of those it happens to be. `pinTurnToTop` protects
+  // its own `stuck = true` directly instead: for PIN_SETTLE_GRACE_MS after a
+  // turn starts, NOTHING reads a scroll as the reader's, whatever kind of
+  // input just happened — proven here with a plain `wheel`, an event this
+  // file has always correctly tracked, to show the grace window is what is
+  // actually holding `stuck` here, not the type of the event.
+  it('a real, ordinary input event landing right after pinning does not un-stick the pin', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+
+    // A real, unrelated wheel-driven scroll event lands moments later — the
+    // same shape as the browser's own resize-driven adjustment landing near
+    // any ordinary input, not specifically Enter or Send.
+    act(() => {
+      fireEvent.wheel(scroller)
+      scroller.scrollTop = 500
+      fireEvent.scroll(scroller)
+    })
+
+    vi.advanceTimersByTime(1500)
+
+    // Still lands the pin — the wheel event did not un-stick it.
+    expect(scroller.scrollTop).toBe(900)
+  })
+
+  it('holds the prompt at the top while a short reply grows underneath it', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+
+    // 200px of reply lands — still short of the 400px viewport, so the prompt
+    // must not move at all: the reply fills the reserved space instead.
+    scrollHeight = 1200
+    fire()
+    vi.advanceTimersByTime(1500)
+    expect(scroller.scrollTop).toBe(900)
+  })
+
+  it('hands over to ordinary bottom-following once the reply outgrows the space', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+    const content = getByTestId('content')
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+    expect(content.style.paddingBottom).toBe('300px')
+
+    // The reply grows past the viewport: 700px now sits below the prompt.
+    scrollHeight = 1600
+    fire()
+    vi.advanceTimersByTime(1500)
+
+    // Nothing is reserved any more, and the transcript is following the true
+    // bottom again — 1600 - 400.
+    expect(content.style.paddingBottom).toBe('')
+    expect(scroller.scrollTop).toBe(1200)
+  })
+
+  it('reserves nothing at all when the reply already fills the viewport', () => {
+    let anchor!: TranscriptAnchor
+    pinTop = 200
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const content = getByTestId('content')
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+
+    expect(content.style.paddingBottom).toBe('')
+  })
+})
+
+/**
+ * Who moved the scrollbar?
+ *
+ * Following stops the moment the reader scrolls up — that is this hook's whole
+ * contract, and it is the right one. But `scrollTop` changing is NOT evidence
+ * that the reader did anything: the browser moves it too, on its own, to keep
+ * the view stable when content around it changes size (scroll anchoring). A
+ * transcript is content changing size continuously, so this is not an edge
+ * case.
+ *
+ * Measured live during a 35-item numbered list, sampled every 200ms: the view
+ * sat correctly 20-80px from the bottom for 15 seconds, then jumped BACKWARD
+ * 213px in a single sample while `scrollHeight` moved by only 3px — far too
+ * small a content change to have clamped it, and no gesture anywhere near it.
+ * Following then stopped dead for 15.6 seconds, the gap frozen at 242px, and
+ * only recovered when something unrelated forced a resync. Read as "scroll
+ * bouncing, not stable".
+ *
+ * Real input is the discriminator, and the browser hands it to us: a gesture
+ * arrives as `wheel`, `touchmove`, `keydown` or a scrollbar `pointerdown`
+ * moments before the scroll event it causes. An anchoring adjustment arrives
+ * with none of them.
+ */
+describe('useTranscriptAnchor: telling the reader apart from the browser', () => {
+  let scrollHeight = 0
+  let clientHeight = 400
+  let observerCallbacks: Array<() => void> = []
+  const RealResizeObserver = globalThis.ResizeObserver
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance'] })
+    scrollHeight = 1000
+    clientHeight = 400
+    observerCallbacks = []
+    class ControllableResizeObserver {
+      callback: () => void
+      constructor(callback: () => void) {
+        this.callback = callback
+      }
+      observe() {
+        if (!observerCallbacks.includes(this.callback)) observerCallbacks.push(this.callback)
+      }
+      unobserve() {}
+      disconnect() {
+        observerCallbacks = observerCallbacks.filter((c) => c !== this.callback)
+      }
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: ControllableResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: RealResizeObserver,
+      configurable: true,
+      writable: true,
+    })
+    vi.useRealTimers()
+  })
+
+  const grow = (next: number) => {
+    scrollHeight = next
+    act(() => {
+      for (const cb of [...observerCallbacks]) cb()
+    })
+  }
+
+  function Host() {
+    const anchor = useTranscriptAnchor()
+    return (
+      <div
+        data-testid="scroller"
+        ref={(node) => {
+          anchor.scrollRef.current = node
+          if (!node || Object.hasOwn(node, 'scrollHeight')) return
+          let top = 0
+          Object.defineProperty(node, 'scrollTop', {
+            configurable: true,
+            get: () => top,
+            set: (v: number) => {
+              top = Math.max(0, Math.min(v, Math.max(0, scrollHeight - clientHeight)))
+            },
+          })
+          Object.defineProperty(node, 'scrollHeight', {
+            configurable: true,
+            get: () => scrollHeight,
+          })
+          Object.defineProperty(node, 'clientHeight', {
+            configurable: true,
+            get: () => clientHeight,
+          })
+        }}
+        onScroll={anchor.onScroll}
+      >
+        <div data-testid="content" />
+      </div>
+    )
+  }
+
+  it('keeps following when the browser moves the view with no input from the reader', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+    expect(scroller.scrollTop).toBe(600) // pinned to the bottom
+
+    // Scroll anchoring pulls the view up as content around it resizes. No
+    // wheel, no key, no pointer — nobody touched anything.
+    act(() => {
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // It has to recover on its own. Before this, following stopped here for
+    // the rest of the turn.
+    expect(scroller.scrollTop).toBe(1000)
+  })
+
+  it('still stops following the moment the reader really does scroll up', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+
+    // The same movement, this time caused by a real gesture.
+    act(() => {
+      fireEvent.wheel(scroller)
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // Left exactly where they put it — yanking a reader back to the bottom is
+    // worse than never following at all.
+    expect(scroller.scrollTop).toBe(350)
+  })
+
+  it('treats a keyboard scroll as the reader too', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+
+    act(() => {
+      fireEvent.keyDown(scroller, { key: 'PageUp' })
+      scroller.scrollTop = 200
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    expect(scroller.scrollTop).toBe(200)
+  })
+
+  // Regression: the live bug reported as "the space is there, the
+  // auto-scroll didn't work" right after sending a message. Pressing Enter
+  // to SEND is a keydown too, and it fires on the composer — a
+  // contenteditable, nowhere near the transcript — but the window-level
+  // listener could not tell that apart from PageUp/PageDown scrolling the
+  // transcript itself, so the send keystroke armed `reader` for a full
+  // second afterward. Any resize-driven scroll adjustment landing in that
+  // window (the browser's own clamp when content shrinks while a queued
+  // prompt settles into the ledger, say) then read as the reader grabbing
+  // the scrollbar, latched `stuck` false, and following never resumed for
+  // the rest of the turn — visible live as the transcript freezing exactly
+  // where that one adjustment left it, while the tail-room reservation kept
+  // adjusting around it with nothing to show for it.
+  it('does not treat a keydown that fires while typing/sending in the composer as the reader scrolling', () => {
+    function HostWithComposer() {
+      const anchor = useTranscriptAnchor()
+      return (
+        <div>
+          <div data-testid="composer" contentEditable suppressContentEditableWarning />
+          <div
+            data-testid="scroller"
+            ref={(node) => {
+              anchor.scrollRef.current = node
+              if (!node || Object.hasOwn(node, 'scrollHeight')) return
+              let top = 0
+              Object.defineProperty(node, 'scrollTop', {
+                configurable: true,
+                get: () => top,
+                set: (v: number) => {
+                  top = Math.max(0, Math.min(v, Math.max(0, scrollHeight - clientHeight)))
+                },
+              })
+              Object.defineProperty(node, 'scrollHeight', {
+                configurable: true,
+                get: () => scrollHeight,
+              })
+              Object.defineProperty(node, 'clientHeight', {
+                configurable: true,
+                get: () => clientHeight,
+              })
+            }}
+            onScroll={anchor.onScroll}
+          >
+            <div data-testid="content" />
+          </div>
+        </div>
+      )
+    }
+
+    const { getByTestId } = render(<HostWithComposer />)
+    const scroller = getByTestId('scroller')
+    const composer = getByTestId('composer')
+    expect(scroller.scrollTop).toBe(600) // pinned to the bottom
+
+    act(() => {
+      // Pressing Enter to send.
+      fireEvent.keyDown(composer, { key: 'Enter' })
+      // A resize-driven scroll adjustment (the browser's own clamp) lands
+      // moments later, well within READER_INPUT_MS of that keystroke — with
+      // no wheel, touch, or pointer gesture anywhere.
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // Recovers and keeps following — the send keystroke must never have
+    // been read as the reader scrolling away.
+    expect(scroller.scrollTop).toBe(1000)
+  })
+
+  // Regression, same bug as the keydown one above, different event: a
+  // pointerdown/pointerup pair is exactly what clicking the SEND BUTTON
+  // fires too, and pointerdown/up were tracked window-wide with no target
+  // check at all — so clicking Send (as opposed to pressing Enter, the
+  // other regression here) reproduced the identical freeze through a
+  // completely different, still-unfixed path.
+  it('does not treat a click on something outside the transcript (e.g. Send) as the reader touching the scrollbar', () => {
+    function HostWithButton() {
+      const anchor = useTranscriptAnchor()
+      return (
+        <div>
+          <button data-testid="send-button" type="button" />
+          <div
+            data-testid="scroller"
+            ref={(node) => {
+              anchor.scrollRef.current = node
+              if (!node || Object.hasOwn(node, 'scrollHeight')) return
+              let top = 0
+              Object.defineProperty(node, 'scrollTop', {
+                configurable: true,
+                get: () => top,
+                set: (v: number) => {
+                  top = Math.max(0, Math.min(v, Math.max(0, scrollHeight - clientHeight)))
+                },
+              })
+              Object.defineProperty(node, 'scrollHeight', {
+                configurable: true,
+                get: () => scrollHeight,
+              })
+              Object.defineProperty(node, 'clientHeight', {
+                configurable: true,
+                get: () => clientHeight,
+              })
+            }}
+            onScroll={anchor.onScroll}
+          >
+            <div data-testid="content" />
+          </div>
+        </div>
+      )
+    }
+
+    const { getByTestId } = render(<HostWithButton />)
+    const scroller = getByTestId('scroller')
+    const sendButton = getByTestId('send-button')
+    expect(scroller.scrollTop).toBe(600)
+
+    act(() => {
+      fireEvent.pointerDown(sendButton)
+      fireEvent.pointerUp(sendButton)
+      // A resize-driven scroll adjustment lands moments later — same shape
+      // as the keydown regression above.
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    expect(scroller.scrollTop).toBe(1000)
+  })
+
+  // The behaviour the scoping above must NOT break: a real scrollbar drag
+  // starts with pointerdown ON the scroller itself and can end anywhere —
+  // the cursor routinely outruns the scrollbar during a fast drag — so
+  // pointerup/pointercancel stay unscoped, gated on `pointerHeld` instead.
+  it('still treats a real scrollbar drag as the reader, even when it ends outside the scroller', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+
+    act(() => {
+      fireEvent.pointerDown(scroller)
+      scroller.scrollTop = 200
+      fireEvent.scroll(scroller)
+      // Released off the scroller — document, not the scroller itself.
+      fireEvent.pointerUp(document.body)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // Left exactly where the drag put it.
+    expect(scroller.scrollTop).toBe(200)
+  })
+
+  // REGRESSION: wheel/touchstart/touchmove were captured on `window` with NO
+  // scoping check at all — unlike onPointerDown a few lines above it, which
+  // is explicitly scoped to this container. With two chat panes open (split
+  // view) or any other on-screen scrollable region, scrolling ELSEWHERE set
+  // `lastInputAt` for every mounted instance of this hook. If the browser's
+  // own scroll anchoring then adjusted a DIFFERENT, actively-streaming
+  // pane's transcript within READER_INPUT_MS, that pane's own `onScroll`
+  // misread it as ITS reader grabbing the scrollbar and stopped following
+  // for the rest of the turn — with nobody having touched that pane at all.
+  it('does not treat a wheel event over a DIFFERENT scrollable region (e.g. a sibling pane) as this transcript being scrolled', () => {
+    function HostWithSibling() {
+      const anchor = useTranscriptAnchor()
+      return (
+        <div>
+          <div data-testid="other-pane" />
+          <div
+            data-testid="scroller"
+            ref={(node) => {
+              anchor.scrollRef.current = node
+              if (!node || Object.hasOwn(node, 'scrollHeight')) return
+              let top = 0
+              Object.defineProperty(node, 'scrollTop', {
+                configurable: true,
+                get: () => top,
+                set: (v: number) => {
+                  top = Math.max(0, Math.min(v, Math.max(0, scrollHeight - clientHeight)))
+                },
+              })
+              Object.defineProperty(node, 'scrollHeight', {
+                configurable: true,
+                get: () => scrollHeight,
+              })
+              Object.defineProperty(node, 'clientHeight', {
+                configurable: true,
+                get: () => clientHeight,
+              })
+            }}
+            onScroll={anchor.onScroll}
+          >
+            <div data-testid="content" />
+          </div>
+        </div>
+      )
+    }
+
+    const { getByTestId } = render(<HostWithSibling />)
+    const scroller = getByTestId('scroller')
+    const otherPane = getByTestId('other-pane')
+    expect(scroller.scrollTop).toBe(600)
+
+    act(() => {
+      // A real wheel gesture, but over the OTHER pane entirely.
+      fireEvent.wheel(otherPane)
+      // A resize-driven scroll adjustment lands moments later on THIS
+      // transcript — same shape as the keydown/pointerdown regressions
+      // above.
+      scroller.scrollTop = 350
+      fireEvent.scroll(scroller)
+    })
+
+    grow(1400)
+    vi.advanceTimersByTime(1500)
+
+    // It has to recover on its own — the wheel event over the sibling pane
+    // must never have counted as this transcript's own reader gesture.
+    expect(scroller.scrollTop).toBe(1000)
   })
 })

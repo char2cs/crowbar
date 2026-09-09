@@ -10,6 +10,7 @@ import {
 import type { KeyboardEvent, Ref } from 'react'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import {
+  compactChat,
   stopChat,
   type AgentChatMessage,
   type AgentInterruption,
@@ -101,6 +102,13 @@ export interface AgentChatViewProps {
   settledPrompts?: string[]
   /** The message(s) the agent is mid-way through saying — see useChatMessages. */
   streamingMessages?: { id: string; text: string }[]
+  /** The agent's in-flight thinking — live-only, never in the ledger.
+   *  See AgentChatsState.streamingReasoning. */
+  reasoning?: string
+  /** The running tool's live output — see WorkingLine's own prop doc. */
+  toolOutput?: { id: string; text: string }
+  /** The agent's own to-do list — see WorkingLine's own prop doc. */
+  plan?: { text: string; status: string }[]
   /** Prune confirmed ids out of the store's own streamingMessages[chatId] —
    *  see useChatMessages' onStreamingSettled for why this is safe where a
    *  turn-boundary clear was not. */
@@ -214,6 +222,9 @@ export function AgentChatView({
   terminalWaitKind,
   settledPrompts,
   streamingMessages,
+  reasoning,
+  toolOutput,
+  plan,
   onStreamingSettled,
   onPromptSpawned,
   onPromptDispatchStart,
@@ -337,6 +348,7 @@ export function AgentChatView({
     wsId,
     chatId,
     working,
+    compacting,
     live,
     active,
     visible,
@@ -536,6 +548,14 @@ export function AgentChatView({
     void stopChat(wsId, chatId)
   }
 
+  // Fire-and-forget, same as handleStop above: compactChat's own doc is the
+  // provider's declared gesture, not a durable write Crowbar makes itself,
+  // and the ledger's compact_pre/compact_post pair (already live-pushed as
+  // `compacting`) is what actually reflects whether it happened.
+  const handleCompact = () => {
+    void compactChat(wsId, chatId)
+  }
+
   const selectSlashItem = (item: SlashCatalogItem) => {
     seedDraft(slash.accept(item))
   }
@@ -697,6 +717,8 @@ export function AgentChatView({
 
   const transcript = (
     <AgentTranscript
+      wsId={wsId}
+      chatId={chatId}
       messages={ledger.messages}
       streamingBubbles={ledger.streamingBubbles}
       queue={queue}
@@ -707,6 +729,9 @@ export function AgentChatView({
       // silencing it, and would make that carve-out unreachable.
       working={working}
       compacting={compacting}
+      reasoning={reasoning}
+      toolOutput={toolOutput}
+      plan={plan}
       loading={ledger.loading}
       error={ledger.error}
       hasOlder={ledger.hasOlder}
@@ -849,6 +874,7 @@ export function AgentChatView({
               presentation={presentation}
               splitEnabled={splitEnabled && provider?.hotswap === true}
               queued={queue.length}
+              onCompact={provider?.compaction && live && !compacting ? handleCompact : undefined}
               onSelectionChange={onSelectionChange}
               onSelectPresentation={onSelectPresentation}
               showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}

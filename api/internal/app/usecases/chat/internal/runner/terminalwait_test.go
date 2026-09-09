@@ -61,7 +61,9 @@ func (stubTurns) RecordStop(context.Context, string) error { return nil }
 
 func (stubTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 
-func (stubTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
+func (stubTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text, kind string)) {}
+func (stubTurns) SetPlanUpdate(func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
+}
 
 func (stubTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
 
@@ -79,7 +81,8 @@ func (stubTurns) MatchTerminalNotice(
 
 func (stubTurns) OpenWork(context.Context, string) (bool, error) { return false, nil }
 
-func (stubTurns) UnfinishedSince(string) (time.Time, bool) { return time.Time{}, false }
+func (stubTurns) UnfinishedSince(string) (time.Time, bool)   { return time.Time{}, false }
+func (stubTurns) ProviderIdleSince(string) (time.Time, bool) { return time.Time{}, false }
 
 func (stubTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
 
@@ -102,7 +105,7 @@ func TestTerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
 	assert.False(t, rs.TerminalWait("any-chat").Waiting)
 
 	// And the sweep is a no-op rather than a nil dereference.
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, nil)
+	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, nil, nil)
 }
 
 // A terminal that CAN render a screen gets a detector, built by SetTurns because
@@ -128,7 +131,7 @@ func TestStartTerminalWaitSweep_WiresMessageDeltaEvenWithNoDetector(t *testing.T
 	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
 	rs.SetTurns(turns)
 
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, func(_, _, _, _ string) {}, nil)
+	rs.StartTerminalWaitSweep(t.Context(), nil, nil, func(_, _, _, _, _ string) {}, nil, nil)
 
 	require.True(t, turns.wired, "a daemon with no detector still has messages to stream")
 }
@@ -138,7 +141,7 @@ type deltaRecordingTurns struct {
 	wired bool
 }
 
-func (d *deltaRecordingTurns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text string)) {
+func (d *deltaRecordingTurns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text, kind string)) {
 	d.wired = fn != nil
 }
 
@@ -154,7 +157,7 @@ func TestStartTerminalWaitSweep_WiresCompactionStatusEvenWithNoDetector(t *testi
 	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
 	rs.SetTurns(turns)
 
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, func(_, _ string, _ bool) {})
+	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, func(_, _ string, _ bool) {}, nil)
 
 	require.True(t, turns.wired, "a daemon with no detector still has compaction status to publish")
 }

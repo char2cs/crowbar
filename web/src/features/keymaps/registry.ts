@@ -28,6 +28,10 @@ export const AGENT_TOGGLE_VIEW_MODE = 'agent.toggleViewMode'
 export const TAB_REOPEN_CLOSED = 'tabs.reopenClosed'
 export const TAB_CLOSE = 'tabs.closeActive'
 
+export const AGENT_ZOOM_IN = 'agent.zoomIn'
+export const AGENT_ZOOM_OUT = 'agent.zoomOut'
+export const AGENT_ZOOM_RESET = 'agent.zoomReset'
+
 export const EDITOR_SAVE = 'editor.save'
 export const EDITOR_SAVE_ALL = 'editor.saveAll'
 
@@ -168,6 +172,27 @@ export const COMMANDS: Command[] = [
     label: 'Close active tab',
     category: 'Tabs',
     defaultChord: 'mod+w',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_ZOOM_IN,
+    label: 'Zoom chat in',
+    category: 'Chats',
+    defaultChord: 'mod+=',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_ZOOM_OUT,
+    label: 'Zoom chat out',
+    category: 'Chats',
+    defaultChord: 'mod+-',
+    liveEditable: true,
+  },
+  {
+    id: AGENT_ZOOM_RESET,
+    label: 'Reset chat zoom',
+    category: 'Chats',
+    defaultChord: 'mod+0',
     liveEditable: true,
   },
   // --- Editor (display-only: still hardcoded in use-save-keyboard.ts) ---

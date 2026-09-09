@@ -168,7 +168,9 @@ func (t *Turns) ingestResolvedHook(
 		return t.runners.HandleSessionStart(ctx, runner, ev)
 	case engineagents.HookUserPrompt, engineagents.HookTurnStop, engineagents.HookTurnFailed:
 		return t.handleTurn(ctx, runner, descriptor, ev)
-	case engineagents.HookMessageDelta,
+	case engineagents.HookMessageDelta, engineagents.HookReasoningDelta,
+		engineagents.HookIdle, engineagents.HookToolOutputDelta,
+		engineagents.HookPlanUpdate,
 		engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail,
 		engineagents.HookSubagentPre, engineagents.HookSubagentPost,
 		engineagents.HookNotification, engineagents.HookPermission,
@@ -217,11 +219,25 @@ func (t *Turns) ReplayStartupHook(
 // as well; only the ORIGIN of this specific delivery tells the two apart. See
 // the call site's own comment for the full mechanism and the bug an unmarked
 // check caused.
+//
+// HasDispatchedOverAPI, not just HasLiveAPIConnection: a connection can be
+// live yet have carried NOTHING of this runner's own doing — the spawn that
+// created it may have handed its opening prompt to the companion PTY's own
+// argv instead (submitPromptOverAPI's replacement-spawn fallback, prompts.go).
+// A connection nothing has been dispatched to has nothing of its own to echo,
+// so treating its mere existence as proof the api side already reports this
+// turn was dropping the companion PTY's hooks — the turn's ONLY record — as a
+// presumed duplicate of a report that was never actually made. Confirmed
+// live: a message answered normally by the CLI never appeared in the ledger
+// at all, api transport dutifully "covering" a turn it was never asked to
+// carry.
 func (t *Turns) apiOwnsThisEvent(ctx context.Context, runnerID string, descriptor engineagents.Agent, canonical string) bool {
 	if inflight.FromAPITransport(ctx) {
 		return false
 	}
-	return descriptor.TransportFor(canonical) == "api" && t.runners.HasLiveAPIConnection(runnerID)
+	return descriptor.TransportFor(canonical) == "api" &&
+		t.runners.HasLiveAPIConnection(runnerID) &&
+		t.runners.HasDispatchedOverAPI(runnerID)
 }
 
 func (t *Turns) ingestHookNow(

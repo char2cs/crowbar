@@ -1,6 +1,14 @@
 'use client'
 
-import { useCallback, useContext, useEffect, useState } from 'react'
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import DOMPurify from 'dompurify'
 import { PencilIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,7 +18,13 @@ import { isDarkMode, useThemeVersion } from '@/features/editor/theme/use-theme-v
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { ATTACHMENT_BUTTON_OPAQUE_BG } from '@/features/agent/composer/plate/attachment-drag-handle'
 import { useChatId } from './chat-id-context'
-import type { ParsedExcalidrawScene } from './excalidraw-scene'
+import { computeSceneAspectRatio, type ParsedExcalidrawScene } from './excalidraw-scene'
+
+/** Matches `max-h-80` (Tailwind: 20rem, 320px) on both the placeholder's
+ *  reserved footprint and the loaded content below — the same cap either
+ *  side of the swap, so a very tall/thin scene never reserves more than the
+ *  loaded render could ever actually use. */
+const MAX_PREVIEW_HEIGHT_PX = 320
 
 interface ExcalidrawPreviewProps {
   scene: ParsedExcalidrawScene
@@ -58,6 +72,41 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
   const asset = useMarkdownAsset()
   const [src, setSrc] = useState<string | null>(null)
   const [svgMarkup, setSvgMarkup] = useState<string | null>(null)
+  const loaded = pngRef ? src !== null : svgMarkup !== null
+  // Reserves the loaded render's real footprint before `@excalidraw/
+  // excalidraw` has even started loading, let alone exported anything — so
+  // nothing here changes height once it does. Read only while nothing has
+  // loaded yet (see the `loaded` guard below): once the real content is on
+  // screen it drives its own height, and holding this reservation past that
+  // point would just be a second, now-wrong guess fighting the real
+  // content's natural size.
+  const aspectRatio = useMemo(() => computeSceneAspectRatio(scene.elements), [scene.elements])
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [reservedHeight, setReservedHeight] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    if (aspectRatio === null || loaded) return
+    const node = containerRef.current
+    if (!node) return
+    // A ResizeObserver, not a one-shot read of clientWidth: a flat read at
+    // mount alone misses two real cases — the container resizing (a pane
+    // width change, a sidebar toggling) BEFORE the async render below ever
+    // resolves, which leaves the reservation computed from a stale width;
+    // and the chat surface mounting `display:none` (a background tab), whose
+    // clientWidth reads 0 and skipped the reservation entirely, forever,
+    // even once the surface actually became visible. Either path reproduces
+    // the exact height-jump this reservation exists to prevent. Stops
+    // observing the instant `loaded` flips true — the dependency array
+    // re-runs this effect, whose cleanup disconnects, and the new run bails
+    // immediately on the `loaded` check above.
+    const measure = () => {
+      const width = node.clientWidth
+      if (width) setReservedHeight(Math.min(MAX_PREVIEW_HEIGHT_PX, width * aspectRatio))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [aspectRatio, loaded])
   // Reactive: the dark-mode filter below must follow the app's theme toggle,
   // not just whatever was active the first time this mounted.
   useThemeVersion()
@@ -142,7 +191,14 @@ export function ExcalidrawPreview({ scene, pngRef }: ExcalidrawPreviewProps) {
   const count = scene.elements.length
 
   return (
-    <div className="excalidraw-preview relative">
+    <div
+      ref={containerRef}
+      className="excalidraw-preview relative"
+      // Only while the real content hasn't landed yet — see the effect
+      // above. A loaded render sizes this box itself; holding the
+      // reservation past that point would fight it instead of matching it.
+      style={!loaded && reservedHeight !== null ? { minHeight: reservedHeight } : undefined}
+    >
       {workspaceStore && chatId && (
         <Button
           variant="outline"

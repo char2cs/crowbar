@@ -72,6 +72,10 @@ var constructorUnsetFields = map[string]string{
 	"turns.compactionStatus": "wired by StartTerminalWaitSweep beside messageDelta, " +
 		"for the same reason: a daemon with nobody to publish to just skips the " +
 		"call (internal/turn/turns.go).",
+	"turns.planUpdate": "wired by StartTerminalWaitSweep beside messageDelta, for " +
+		"the same reason: the agent's to-do list is a LIVE view with nothing " +
+		"durable behind it, so a daemon with nobody to publish to simply does " +
+		"not send it (internal/turn/turns.go).",
 }
 
 // sharedInstances are the pieces of in-flight state that MUST be one instance

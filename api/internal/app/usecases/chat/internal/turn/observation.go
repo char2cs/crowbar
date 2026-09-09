@@ -31,6 +31,22 @@ func (t *Turns) handleObservation(
 	case engineagents.HookMessageDelta:
 
 		t.recordMessageDelta(ctx, chat, runner, ev)
+	case engineagents.HookPlanUpdate:
+		// Live only, restated wholesale — see turns.planUpdate. Nothing durable is
+		// written, so a provider mapping this cannot corrupt a transcript either.
+		if t.planUpdate != nil && len(ev.Plan) > 0 {
+			t.planUpdate(chat.ID, chat.WorkspaceID, ev.Plan)
+		}
+	case engineagents.HookIdle:
+		// ARMS a reconcile; closes nothing. This routinely arrives microseconds
+		// BEFORE the turn's own close — see idle.go.
+		t.recordIdle(chat)
+	case engineagents.HookReasoningDelta:
+		// Live only — see recordLiveText. Nothing durable is written, so a provider
+		// that maps either of these can never corrupt a transcript with them.
+		t.recordLiveText(chat, ev, DeltaKindReasoning)
+	case engineagents.HookToolOutputDelta:
+		t.recordLiveText(chat, ev, DeltaKindToolOutput)
 	case engineagents.HookToolPre:
 		note(ctx, "tool invoked", t.activity.InvokeTool(ctx, agentactivity.ToolInput{
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,
@@ -63,11 +79,11 @@ func (t *Turns) handleObservation(
 		// TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption.
 		cid := ""
 		if ev.Choice != nil {
-			cid = choiceID(chat.ID, ev.Choice)
+			cid = choiceID(ctx, chat.ID, ev.Choice)
 		}
 		iid := answerdesk.PermissionInterruptionID(cid)
 		if iid == "" {
-			iid = interruptionID(chat.ID, ev)
+			iid = interruptionID(ctx, chat.ID, ev)
 		}
 		note(ctx, "interrupted", t.activity.Interrupt(
 			ctx, chat.ID, iid, ev.Interrupt.Kind, ev.Interrupt.Detail, now,
@@ -75,17 +91,29 @@ func (t *Turns) handleObservation(
 
 		t.openChoice(ctx, chat, runner, agent, ev, cid, raw, now)
 	case engineagents.HookCompactPre:
+		// Arm BEFORE anything else below: codex's own compact_start round trip
+		// (api transport) wraps its contextCompaction item/started..completed in
+		// a turn/started..completed pair too, riding the exact wire event
+		// turn_stop/turn_failed already consume unconditionally — see
+		// compaction.go. A hooks-transport compact_pre (claude has none today;
+		// codex's own disconnected companion PTY does) maps no turn_id, so this
+		// is a no-op for it.
+		t.compacting.arm(chat.ID, ev.TurnID)
 		note(ctx, "interrupted", t.activity.Interrupt(
-			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
+			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
-		// /compact is delivered as an ordinary prompt (compact.go) that never
-		// confirms via a user_prompt hook, so no turn is ever open when this
-		// fires — which means Interrupt's own idle-chat handling
-		// (commands/interrupt.go) has ALREADY marked it resolved, instantly,
-		// regardless of whether compact_post goes on to arrive at all (it does
-		// not reliably: confirmed live, most compactions on a small chat never
-		// produce one). Settle the pending delivery on this same signal rather
-		// than waiting on compact_post or termwait's unrelated 30s timeout.
+		// /compact is delivered either as an ordinary prompt (claude, over
+		// compact.go's prompt path) or as a direct api-transport call (codex:
+		// thread/compact/start) — neither ever confirms via a user_prompt hook,
+		// so no turn is ever open when this fires — which means Interrupt's own
+		// idle-chat handling (commands/interrupt.go) has ALREADY marked it
+		// resolved, instantly, regardless of whether compact_post goes on to
+		// arrive at all (it does not reliably: confirmed live, most compactions
+		// on a small chat never produce one over the hooks-transport path — the
+		// api-transport path now does, every time, since it is the same
+		// contextCompaction item this now maps compact_post from). Settle the
+		// pending delivery on this same signal rather than waiting on
+		// compact_post or termwait's unrelated 30s timeout.
 		note(ctx, "settle delivery after compaction", t.runners.SettleDeliveryFor(ctx, chat.ID, runner.ID))
 		// The ledger record above is already resolved by the time any reader
 		// sees it (same idle-chat shortcut), so it can never drive a LIVE
@@ -98,7 +126,7 @@ func (t *Turns) handleObservation(
 		}
 	case engineagents.HookCompactPost:
 		note(ctx, "interruption resolved", t.activity.ResolveInterruption(
-			ctx, chat.ID, interruptionID(chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
+			ctx, chat.ID, interruptionID(ctx, chat.ID, ev), ev.Interrupt.Kind, ev.Interrupt.Detail, now,
 		))
 		// Settled already by compact_pre in the ordinary (idle-chat) case —
 		// this is the defensive twin for the day compaction happens mid-turn
@@ -155,11 +183,20 @@ func (t *Turns) openChoice(
 	t.holdForAnswer(ctx, chat, runner, agent, ev, id, raw)
 }
 
-func choiceID(chatID string, prompt *engineagents.ChoicePrompt) string {
+// choiceID falls back to inflight.RecordID, not fallbackID, when the
+// provider gives no PromptID to build promptCorrelationKey from (codex's own
+// permission payload never does — see vocabulary.yaml's `permission` entry).
+// RecordID keys on the SAME hook delivery id the answer-relay itself
+// correlates by, so a redelivered ask (a dropped connection retried, a
+// buffered hook replayed) mints the identical choiceID both times instead of
+// a fresh one nobody can ever resolve against — the same idempotency
+// RecordID already gives every durable turn/message record for the same
+// reason (see inflight.RecordID's own doc).
+func choiceID(ctx context.Context, chatID string, prompt *engineagents.ChoicePrompt) string {
 	if key := promptCorrelationKey(chatID, prompt); key != "" {
 		return "choice-" + key
 	}
-	return "choice-" + fallbackID()
+	return "choice-" + inflight.RecordID(ctx)
 }
 
 // promptCorrelationKey is the "chatID-promptID-toolName" suffix choiceID and
@@ -238,7 +275,9 @@ func subagentID(ev engineagents.CanonicalEvent) string {
 	return "subagent-" + fallbackID()
 }
 
-func interruptionID(chatID string, ev engineagents.CanonicalEvent) string {
+// interruptionID falls back to inflight.RecordID for the same redelivery
+// reason choiceID does — see that function's own doc.
+func interruptionID(ctx context.Context, chatID string, ev engineagents.CanonicalEvent) string {
 	kind := ""
 	if ev.Interrupt != nil {
 		kind = ev.Interrupt.Kind
@@ -251,7 +290,7 @@ func interruptionID(chatID string, ev engineagents.CanonicalEvent) string {
 			return "interrupt-" + key
 		}
 	}
-	return "interrupt-" + fallbackID()
+	return "interrupt-" + inflight.RecordID(ctx)
 }
 
 var (

@@ -245,23 +245,48 @@ func (r *eventSourced) Abandon(ctx context.Context, chatID string, now time.Time
 	return r.sendWait(ctx, commands.Abandon{ChatID: chatID, Now: now})
 }
 
+// The four tool/subagent lifecycle commands all use sendWait for the same reason
+// OpenChoice does (see its own comment below): every one of them is immediately
+// followed by a read of the state it just wrote.
+//
+// That reader is OpenWork — "is any tool call or subagent still open?" — which
+// turn.go consults on the very next line, from restateAsyncWork after a close and
+// from fallbackAsyncWork on a turn_stop. It answers off the activity READ MODEL, so
+// on the async path it saw the state from BEFORE the write it is meant to observe,
+// and both directions of that are a wrong spinner:
+//
+//   - a close not yet folded reads as still-open, so the recount that would have
+//     darkened the spinner never happens — and for codex, which reports no
+//     async-work level of its own, nothing else ever will;
+//   - an open not yet folded reads as idle at turn_stop, which darkens the spinner
+//     under a tool call that is genuinely still running.
+//
+// Measured at roughly one in two on the subagent-drain path before this changed.
 func (r *eventSourced) InvokeTool(ctx context.Context, in ToolInput) error {
 	ref, err := r.store.Content().Put(in.Request)
 	if err != nil {
 		ref = ""
 	}
-	return r.send(ctx, commands.InvokeTool{
+	return r.sendWait(ctx, commands.InvokeTool{
 		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Target: in.Target,
 		RequestRef: ref, Now: in.Now,
 	})
 }
 
+// CompleteTool uses sendWait, not send, for the same reason StopSubagent
+// does (see that method's own comment): observation.go's HookToolPost/
+// HookToolFail case calls this and then immediately restateAsyncWork,
+// whose OpenWork is a SQL read of the very row this closes. Under send the
+// read can land before the write projects, still see the tool running, and
+// restateAsyncWork returns early without the turn_stopped that clears
+// Working — the exact same stuck-spinner shape, now for tool calls instead
+// of subagents.
 func (r *eventSourced) CompleteTool(ctx context.Context, in ToolResultInput) error {
 	ref, err := r.store.Content().Put(in.Result)
 	if err != nil {
 		ref = ""
 	}
-	return r.send(ctx, commands.CompleteTool{
+	return r.sendWait(ctx, commands.CompleteTool{
 		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Target: in.Target,
 		ResultRef: ref, Status: in.Status, Error: truncate(in.Error, maxToolErrorBytes),
 		DurationMS: in.DurationMS, Now: in.Now,
@@ -311,15 +336,22 @@ func (r *eventSourced) AnswerChoice(
 func (r *eventSourced) StartSubagent(
 	ctx context.Context, chatID, subagentID, agentType string, now time.Time,
 ) error {
-	return r.send(ctx, commands.StartSubagent{
+	return r.sendWait(ctx, commands.StartSubagent{
 		ChatID: chatID, SubagentID: subagentID, AgentType: agentType, Now: now,
 	})
 }
 
+// StopSubagent uses sendWait, not send, for the same reason OpenChoice does: its
+// caller reads back the projection it just wrote. observation.go's subagent_post
+// case follows this with restateAsyncWork, whose OpenWork is a SQL read of the
+// very row this closes — under send it still saw the subagent running, so the
+// level matched, restateAsyncWork returned early without the turn_stopped that
+// clears Working, and nothing re-runs it: the spinner stayed lit forever. Only
+// codex shows it; a provider that restates its own async_work level masks it.
 func (r *eventSourced) StopSubagent(
 	ctx context.Context, chatID, subagentID, agentType string, now time.Time,
 ) error {
-	return r.send(ctx, commands.StopSubagent{
+	return r.sendWait(ctx, commands.StopSubagent{
 		ChatID: chatID, SubagentID: subagentID, AgentType: agentType, Now: now,
 	})
 }

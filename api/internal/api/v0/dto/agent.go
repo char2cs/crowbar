@@ -344,6 +344,10 @@ type AgentChoiceDTO struct {
 	// domain.ActivityChoice.AutoApproved). Never omitted — false is a real
 	// answer here, not an absence.
 	AutoApproved bool `json:"autoApproved"`
+	// AnsweredOptionIDs is which of Options/Questions was actually picked, set
+	// only when Resolution is "answered" through Crowbar — see
+	// domain.ActivityChoice.AnsweredOptionIDs.
+	AnsweredOptionIDs []string `json:"answeredOptionIds,omitempty"`
 }
 
 // AgentHookAckDTO is the daemon's reply to a relay that has just delivered a
@@ -655,6 +659,17 @@ type AgentChatEvent struct {
 	// to persist text that is replaced a moment later. So the partial travels on
 	// the live feed only, and the ledger gets the message once, when it is done.
 	Message *AgentStreamingMessageDTO `json:"message,omitempty"`
+	// Plan is the agent's running to-do list, on the `plan` kind.
+	Plan []AgentPlanStepDTO `json:"plan,omitempty"`
+}
+
+// AgentPlanStepDTO is one entry of the agent's running plan.
+type AgentPlanStepDTO struct {
+	Text string `json:"text"`
+	// Status is CROWBAR'S word — pending, active or done — translated from the
+	// provider's own vocabulary by its descriptor, never by a client. An unknown
+	// value is still a step and must render unstyled rather than be dropped.
+	Status string `json:"status"`
 }
 
 // AgentStreamingMessageDTO is one assistant message as far as it has been said.
@@ -666,6 +681,15 @@ type AgentStreamingMessageDTO struct {
 	// missed a frame is therefore correct again on the next one, with no
 	// reassembly and no gap detection of its own.
 	Text string `json:"text"`
+	// Kind names WHICH stream this text belongs to. Absent (the default) is the
+	// agent's answer — the stream that existed before there was more than one, and
+	// the only one that is ever recorded in the ledger. "reasoning" is the agent
+	// thinking on the way there: live-only, dropped when the turn ends, and
+	// rendered as a thought rather than as the reply.
+	//
+	// Omitempty deliberately: an answer frame is byte-identical to what every
+	// client already parses.
+	Kind string `json:"kind,omitempty"`
 }
 
 // AgentChatKindPromptSettled announces that a prompt Crowbar delivered is OVER
@@ -682,6 +706,12 @@ const AgentChatKindPromptSettled = "prompt_settled"
 // self-heals on the next one. It stops when the message is complete: the message
 // then exists in the ledger, and the ledger is what the chat reads.
 const AgentChatKindMessageDelta = "message_delta"
+
+// AgentChatKindPlan announces that the agent restated its own to-do list for the
+// turn. The list arrives WHOLESALE — the newest one is the entire truth, so a
+// client that missed a frame is correct again on the next one, and there is
+// nothing to merge. Never stored: a plan for a turn in progress is a view of it.
+const AgentChatKindPlan = "plan"
 
 // AgentChatKindTerminalWait is the lifecycle kind that announces a change in
 // whether a chat's CLI is blocked behind a terminal-only prompt.

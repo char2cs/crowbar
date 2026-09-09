@@ -211,16 +211,19 @@ func (codexRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, 
 	}, nil
 }
 
-// liveAPIRunners answers only HasLiveAPIConnection — every other Runners
-// method embeds turn.Runners and panics if reached, which is deliberate: this
-// test's whole point is that a redundant hooks delivery must return before
-// touching any of them.
+// liveAPIRunners answers only HasLiveAPIConnection/HasDispatchedOverAPI —
+// every other Runners method embeds turn.Runners and panics if reached, which
+// is deliberate: this test's whole point is that a redundant hooks delivery
+// must return before touching any of them. HasDispatchedOverAPI mirrors live:
+// this fixture's "live" connection is the one that already reported the SAME
+// turn_stop, so it has genuinely dispatched something to be redundant with.
 type liveAPIRunners struct {
 	turn.Runners
 	live bool
 }
 
 func (r liveAPIRunners) HasLiveAPIConnection(string) bool { return r.live }
+func (r liveAPIRunners) HasDispatchedOverAPI(string) bool { return r.live }
 
 // TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent guards the bug
 // reported live 2026-08-28: while working with codex, some turns went missing

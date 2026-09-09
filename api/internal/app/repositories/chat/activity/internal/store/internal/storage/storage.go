@@ -76,6 +76,10 @@ func (s *Store) SaveChoice(ctx context.Context, c domain.ActivityChoice) error {
 	if err != nil {
 		return fmt.Errorf("agentactivity storage: encode choice questions: %w", err)
 	}
+	answeredOptionIDs, err := encodeList(c.AnsweredOptionIDs)
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: encode choice answered option ids: %w", err)
+	}
 	return upsert(ctx, s.db, ChoiceRow{
 		Key: rowKey(c.ChatID, c.ID), ID: c.ID, TurnID: c.TurnID, ChatID: c.ChatID,
 		Seq: c.Seq, Kind: c.Kind, PromptID: c.PromptID,
@@ -83,7 +87,7 @@ func (s *Store) SaveChoice(ctx context.Context, c domain.ActivityChoice) error {
 		Title: c.Title, Question: c.Question, Mode: c.Mode, Multi: c.Multi,
 		Options: options, Questions: questions, Schema: c.Schema,
 		At: c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
-		AutoApproved: c.AutoApproved,
+		AutoApproved: c.AutoApproved, AnsweredOptionIDs: answeredOptionIDs,
 	})
 }
 

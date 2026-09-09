@@ -337,6 +337,7 @@ type rig struct {
 	work     *fakeWork
 	deliv    *fakeDeliveries
 	msgs     *fakeMessages
+	idle     *fakeIdle
 	clock    *clock
 	rec      *recorder
 	stalls   *stalls
@@ -380,6 +381,7 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		rec: &recorder{}, stalls: &stalls{},
 		deliv: &fakeDeliveries{pending: map[string]termwait.Delivery{}},
 		msgs:  &fakeMessages{closed: true},
+		idle:  &fakeIdle{},
 	}
 	r.detector = termwait.New(termwait.Deps{
 		Runners:    runners,
@@ -392,6 +394,7 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		OnStall:    r.stalls.onStall,
 		Deliveries: r.deliv,
 		Messages:   r.msgs,
+		Idle:       r.idle,
 		Interval:   interval,
 		Now:        r.clock.Now,
 	})
@@ -1181,4 +1184,71 @@ func TestDetector_Sweep_AbandonsNothingWithoutTheMessagesPort(t *testing.T) {
 	noMessages.Sweep(context.Background(), r.rec.publish)
 
 	assert.Zero(t, r.msgs.count())
+}
+
+// fakeIdle stands in for the provider's own "I am doing nothing" latch.
+type fakeIdle struct {
+	mu    sync.Mutex
+	since time.Time
+	armed bool
+}
+
+func (f *fakeIdle) ProviderIdleSince(string) (time.Time, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.since, f.armed
+}
+
+func (f *fakeIdle) arm(at time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.since, f.armed = at, true
+}
+
+// A turn whose close never arrives is the case NOTHING else here can reach: the
+// stall detector needs a declared notice sitting on a PTY for two minutes, and
+// the abandoned-message detector needs a half-written message that went quiet.
+// A turn that only reasoned produces neither — and codex.yaml records live that
+// codex can end a turn with no close event at all.
+func TestProviderIdle_ClosesATurnWhoseCloseNeverCame(t *testing.T) {
+	r := newRig(t)
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.idle.arm(r.clock.Now())
+
+	// Before the quiet period the report is indistinguishable from the one that
+	// lands microseconds ahead of an ordinary close.
+	r.detector.Sweep(t.Context(), r.rec.publish)
+	require.Equal(t, 0, r.msgs.count(), "must not pre-empt a normal turn close")
+
+	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
+	r.detector.Sweep(t.Context(), r.rec.publish)
+
+	assert.Equal(t, 1, r.msgs.count(),
+		"a latch still armed after the wait is a turn nothing is going to close")
+}
+
+// The latch is disarmed by the turn's own close, so a healthy turn never reaches
+// the detector at all. Proven here by the latch simply not being armed.
+func TestProviderIdle_LeavesAHealthyTurnAlone(t *testing.T) {
+	r := newRig(t)
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+
+	r.clock.advance(termwait.DefaultIdleQuiet + time.Minute)
+	r.detector.Sweep(t.Context(), r.rec.publish)
+
+	assert.Equal(t, 0, r.msgs.count())
+}
+
+// A chat holding a prompt for a person is not stranded, whatever the provider
+// says about its own idleness — the human is the one being waited on.
+func TestProviderIdle_WaitsForAPersonBeforeItselves(t *testing.T) {
+	r := newRig(t)
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.idle.arm(r.clock.Now())
+	r.choices.pending[chatID] = []domain.ActivityChoice{{ID: "choice-1", ChatID: chatID}}
+
+	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
+	r.detector.Sweep(t.Context(), r.rec.publish)
+
+	assert.Equal(t, 0, r.msgs.count())
 }

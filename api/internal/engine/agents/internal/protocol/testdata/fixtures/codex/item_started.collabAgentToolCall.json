@@ -1,0 +1,21 @@
+{
+  "method": "item/started",
+  "params": {
+    "item": {
+      "type": "collabAgentToolCall",
+      "id": "call_WSQynhbVsek0cseiUcfpCdIY",
+      "tool": "spawnAgent",
+      "status": "inProgress",
+      "senderThreadId": "01a0822b-76e6-7ef2-939b-4c50ef4b2046",
+      "receiverThreadIds": [],
+      "prompt": "reply with the word done",
+      "model": "",
+      "reasoningEffort": "medium",
+      "agentsStates": {}
+    },
+    "threadId": "01a0822b-76e6-7ef2-939b-4c50ef4b2046",
+    "turnId": "01a0822b-7723-7103-bd5b-a52fee26fa2b",
+    "startedAtMs": 1788890293370
+  },
+  "emittedAtMs": 1788890293371
+}

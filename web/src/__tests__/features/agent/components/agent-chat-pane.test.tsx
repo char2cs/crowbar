@@ -176,6 +176,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useSettingsStore } from '@/features/settings/store'
 
 /**
@@ -304,6 +305,14 @@ function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
   return store
 }
 
+/** A workspace whose chat list has NOT arrived yet — no seed has run. Distinct
+ *  from seeding an empty list, which is the daemon answering "there are none". */
+function unseededWorkspace(wsId = 'w1') {
+  const store = createWorkspaceStore(wsId)
+  store.getState().setAgentProviders(providers)
+  return store
+}
+
 type Store = ReturnType<typeof seedWorkspace>
 
 function openBuffer(store: Store, chatId: string, runnerId: string, name = 'Chat', wsId = 'w1') {
@@ -396,6 +405,9 @@ beforeEach(() => {
     ),
   )
   useTerminalStore.setState({ sessions: new Map() })
+  // Global singleton, same as the settings store above — reset so a zoom test
+  // never leaks its level into the next test.
+  useZoomStore.setState({ zoom: 1, editorZoomLevel: 1, terminalZoomLevel: 1 })
   // The settings store is a GLOBAL singleton, so a test that lands the pane on
   // the terminal leaks that choice into every test after it. Reset to the
   // shipped default — Chat — before each one.
@@ -518,7 +530,7 @@ describe('AgentChatPane', () => {
 
       // Mid-flight: the EXISTING spinner, and not a trace of the button the user
       // complained about.
-      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1', expect.any(AbortSignal))
       expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
       expect(screen.queryByTestId('pane-resume')).not.toBeInTheDocument()
       expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
@@ -937,7 +949,12 @@ describe('AgentChatPane', () => {
     // The seed is in flight: the store does not know this chat yet. "Not known" is
     // not "dormant" — flashing Resume here would offer a button that spawns a
     // second CLI onto a chat that may well be live.
-    const store = seedWorkspace([])
+    //
+    // NO SEED HAS RUN, which is the actual condition being described. Seeding an
+    // empty list is a different fact — the daemon answering "there are none" —
+    // and a pane pointed at a chat that answer does not carry resolves it rather
+    // than waiting (see agent-chat-pane-unknown-chat-wedge.test.tsx).
+    const store = unseededWorkspace()
     const bufferId = openBuffer(store, 'c1', 'r1')
     await renderPane(store, bufferId)
 
@@ -1016,7 +1033,7 @@ describe('AgentChatPane', () => {
 
     // The buffer must never go on pointing at a runner that no longer exists — it lets r1
     // go, and takes up the one the revive put there.
-    expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1')
+    expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1', expect.any(AbortSignal))
     expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r-revived' })
     expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty-revived')
   })
@@ -1041,7 +1058,7 @@ describe('AgentChatPane', () => {
         fireEvent.click(screen.getByTestId('pane-resume'))
       })
 
-      expect(resumeChatFn).toHaveBeenNthCalledWith(2, 'w1', 'c1')
+      expect(resumeChatFn).toHaveBeenNthCalledWith(2, 'w1', 'c1', expect.any(AbortSignal))
       const xterm = await screen.findByTestId('xterm')
       expect(xterm).toHaveAttribute('data-session-id', 'pty9')
       expect(buffer(store, bufferId)).toMatchObject({ chatId: 'c1', runnerId: 'r9' })
@@ -1202,7 +1219,7 @@ describe('AgentChatPane', () => {
 
       // The switch must target c2. Targeting c1 would hand a CLI the conversation
       // the user has already left, and leave the live one running unattended.
-      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c2', 'codex')
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c2', 'codex', expect.any(AbortSignal))
     })
 
     // A SWITCH IS NOT A CHAT THAT NEEDS REVIVING. The backend kills the outgoing CLI
@@ -1297,7 +1314,7 @@ describe('AgentChatPane', () => {
         fireEvent.click(screen.getByTestId('provider-switch'))
       })
 
-      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex')
+      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'codex', expect.any(AbortSignal))
       expect(toastErrorFn).not.toHaveBeenCalled()
     })
 
@@ -1494,6 +1511,31 @@ describe('AgentChatPane', () => {
       await pressToggle()
 
       expect(switchToTerminalFn).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('chat zoom', () => {
+    it('applies the zoom-store level as CSS zoom on the chat surface', async () => {
+      useZoomStore.setState({ zoom: 1.4 })
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      expect(screen.getByTestId('agent-chat-surface')).toHaveStyle({ zoom: '1.4' })
+    })
+
+    it('follows the store live as it changes', async () => {
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      const bufferId = openBuffer(store, 'c1', 'r1')
+      await renderPane(store, bufferId)
+
+      expect(screen.getByTestId('agent-chat-surface')).toHaveStyle({ zoom: '1' })
+
+      await act(async () => {
+        useZoomStore.getState().actions.zoomIn()
+      })
+
+      expect(screen.getByTestId('agent-chat-surface')).toHaveStyle({ zoom: '1.1' })
     })
   })
 

@@ -755,3 +755,40 @@ describe('ComposerChoice permission-level switcher', () => {
     )
   })
 })
+
+// resolveComposerState always shows the OLDEST pending choice; a second one
+// (a parallel subagent's own ask, most measured) used to vanish with no sign
+// it existed at all.
+describe('ComposerChoice with more than one choice pending', () => {
+  it('says a second one is waiting, without drawing a second card', () => {
+    const shown = choice({ id: 'k1', seq: 1 })
+    const other = choice({ id: 'k2', seq: 2, toolName: 'Write' })
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="c1"
+        activity={activity({ choices: [shown, other] })}
+        choice={shown}
+        providerLabel="Claude"
+      />,
+    )
+
+    expect(screen.getByTestId('agent-choice-queue-depth')).toHaveTextContent('+1 more waiting')
+    // Still exactly one prompt card — the composer stays one occupant.
+    expect(screen.getAllByTestId('agent-choice-prompt')).toHaveLength(1)
+  })
+
+  it('says nothing when it is the only one', () => {
+    render(
+      <ComposerChoice
+        wsId="w1"
+        chatId="c1"
+        activity={activity({ choices: [choice()] })}
+        choice={choice()}
+        providerLabel="Claude"
+      />,
+    )
+
+    expect(screen.queryByTestId('agent-choice-queue-depth')).not.toBeInTheDocument()
+  })
+})

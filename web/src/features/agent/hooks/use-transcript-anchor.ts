@@ -8,6 +8,42 @@ import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/li
    grew faster than the scroll did. */
 const STICK_SLACK = 96
 
+/**
+ * How recently a real input must have happened for a scroll to be read as the
+ * READER's rather than the browser's.
+ *
+ * `scrollTop` changing is not evidence that anybody scrolled. The browser
+ * moves it on its own — scroll anchoring, keeping the view stable when
+ * content around it resizes — and a streaming transcript is content resizing
+ * continuously, so this is the common case rather than an edge one. Measured
+ * live on a 35-item numbered list: the view jumped 213px backward in one
+ * sample while `scrollHeight` moved 3px (far too small to have clamped it),
+ * with no gesture anywhere near, and following then stopped dead for 15.6
+ * seconds because that jump was indistinguishable from the reader scrolling
+ * up.
+ *
+ * A real gesture always announces itself first — `wheel`, `touchmove`,
+ * `keydown`, or a scrollbar drag — a frame or two before the scroll event it
+ * causes. Generous on purpose: erring toward "the reader did it" only ever
+ * reproduces the old behaviour of pausing, which is safe, while erring the
+ * other way would yank a reader back to the bottom mid-sentence.
+ */
+const READER_INPUT_MS = 1000
+
+/**
+ * How long after a turn starts (`pinTurnToTop`) a scroll cannot be read as
+ * the reader's, full stop — see `pinGraceUntil`.
+ *
+ * Sized to the pin's OWN settle sequence, not to any input's recency: the
+ * just-sent prompt swaps from a queued row to its ledger row, the working
+ * indicator mounts, tail-room finds its real reservation — measured live,
+ * that cascade runs for up to ~1.3s. Shorter than that would let the last
+ * of it slip back through the generic heuristic; there is no cost to
+ * generosity here the way there is with `READER_INPUT_MS`, since this
+ * window opens at a moment this file chose, not one it is guessing about.
+ */
+const PIN_SETTLE_GRACE_MS = 1500
+
 /** Where the reader was, captured on unmount so the NEXT time this exact
  *  chat mounts (a switch back, this session) it can pick up from here
  *  instead of defaulting to the bottom — see UseTranscriptAnchorOptions. */
@@ -78,6 +114,43 @@ export interface TranscriptAnchor {
    * until more text pushes past it" was reported as live.
    */
   notifyReflow: () => void
+  /**
+   * Call as a turn STARTS, with the just-sent user message's element: the
+   * transcript brings that message's top edge up to the top of the viewport
+   * and leaves the reply room to grow downward into, instead of starting the
+   * reply wherever bottom-following happened to leave the previous turn.
+   *
+   * Pass null to give up the pin early (the chat closed, the turn never
+   * produced anything). It releases itself as soon as the reply outgrows the
+   * space below it — see `tailRoom`.
+   */
+  pinTurnToTop: (element: HTMLElement | null) => void
+}
+
+/**
+ * How much empty room the content needs BELOW `pin` for that pin to be able
+ * to sit at the top of the viewport — the whole of this behaviour, in one
+ * number.
+ *
+ * A scroll container cannot scroll past its own end, so "put this element at
+ * the top" is not a scroll instruction at all when there is nothing below it:
+ * it is a request for somewhere to scroll TO. Reserving exactly the shortfall
+ * is what makes it reachable, and it is deliberately the ONLY thing this
+ * behaviour does — with the room reserved, the ordinary bottom-follow below
+ * already lands in the right place in both phases, and the handoff between
+ * them needs no mode of its own:
+ *
+ *   - while the reply is shorter than the viewport, the true bottom IS the
+ *     pinned position, so following the bottom holds the prompt at the top
+ *     and the reply fills the space underneath;
+ *   - once the reply outgrows that space the shortfall reaches zero, this
+ *     stops reserving anything, and following the bottom is once again
+ *     following the bottom.
+ *
+ * Returns 0 (and so releases the pin) the moment it is no longer needed.
+ */
+export function tailRoom(pinTop: number, contentHeight: number, viewportHeight: number): number {
+  return Math.max(0, viewportHeight - (contentHeight - pinTop))
 }
 
 /**
@@ -131,6 +204,59 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // behaviour exactly when `loadingHistory` is never mentioned.
   const easedArmed = useRef(!(options.loadingHistory ?? false))
   const armFrame = useRef(0)
+  // How far down the content the turn currently held at the top begins, or
+  // null when none is — see `pinTurnToTop`. Cleared by `applyTailRoom` itself
+  // once the reply has grown past the space below it.
+  //
+  // An OFFSET, not the element it was measured from, for two reasons. The
+  // element does not survive the turn: a just-sent prompt starts life as a
+  // queued row and is swapped — in a single commit — for a virtualized
+  // message row the moment the ledger confirms it, so anything holding the
+  // node would lose the pin mid-reply. And nothing above the pin moves while
+  // a turn runs (it is settled history), so the offset stays true without
+  // being re-measured, which also keeps this off the layout-reading path of
+  // every ResizeObserver callback.
+  //
+  // Measured relative to `.stream` (the content element `applyTailRoom`
+  // reserves padding on), NOT `.scroll` (the scrollable container) — the
+  // latter also contains `.scroll-spacer`, a flex-grow sibling ABOVE
+  // `.stream` that bottom-anchors a short conversation and collapses toward
+  // 0 the instant real content needs the room instead (transcript.css). The
+  // very first reservation this pin ever triggers does exactly that: it
+  // grows `.stream`, which shrinks the spacer by the same amount, which
+  // silently moves anything measured relative to `.scroll` out from under
+  // whatever offset was captured here — a turn no longer settled history.
+  // Reported live as a nearly blank transcript after a short first prompt:
+  // the spacer being large (little content yet) is precisely what made the
+  // shift big enough to notice. `.stream`'s own top is never affected by its
+  // sibling's height, so an offset measured against it stays true for the
+  // same reason the original comment already gives for the rest of this
+  // value.
+  const pinnedTop = useRef<number | null>(null)
+  // When the reader last actually did something — see READER_INPUT_MS.
+  const lastInputAt = useRef(Number.NEGATIVE_INFINITY)
+  // A scrollbar drag only announces itself once, at `pointerdown`, and can
+  // then run for as long as the reader holds the button; the timestamp alone
+  // would go stale under them mid-drag.
+  const pointerHeld = useRef(false)
+  // Until this timestamp, `onScroll` cannot read a scroll as the reader's,
+  // no matter what `lastInputAt`/`pointerHeld` say. Set only by
+  // `pinTurnToTop`, which already knows — explicitly, synchronously, with
+  // no inference involved — that a turn just started and `stuck` needs to
+  // survive whatever resizes that turn's own settling produces (a queued
+  // row swapping for its ledger row, tail-room finding its footing).
+  //
+  // `READER_INPUT_MS` above exists to solve a DIFFERENT, harder problem —
+  // telling a real gesture apart from the browser's own scroll anchoring,
+  // which fires with NO programmatic signal at all, so recency is the only
+  // evidence available. Sending a prompt is not that problem: submitting IS
+  // a keydown (Enter) or a pointerdown/up (Send), so it always sits inside
+  // that same recency window, and the reader-heuristic could only ever be
+  // taught to carve THIS keystroke or THAT click out one at a time. Asserting
+  // the known window directly, from the one call site that actually knows it
+  // exists, closes the whole class at once instead of chasing each new event
+  // source into it.
+  const pinGraceUntil = useRef(0)
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -143,6 +269,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     }
   }, [])
 
+  // The return far below removes every one of this effect's listeners
+  // (`focus`, the three `INPUT_EVENTS`, `keydown`, `pointerdown/up/cancel`)
+  // and disconnects the observer; the analyzer likely can't tie a
+  // loop-registered listener (`INPUT_EVENTS`) to its loop-based removal.
+  // react-doctor-disable-next-line effect-needs-cleanup -- see comment above, cleanup exists at the end of this effect
   useEffect(() => {
     const el = scrollRef.current
     // The LAST child, not the first: `.scroll`'s first child is now
@@ -174,7 +305,39 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       })
     }
     scheduleArmRef.current = scheduleArm
+    // Reserves (and keeps re-measuring) the room the pinned turn needs below
+    // it — see `tailRoom`. Written as padding on the content element rather
+    // than as a spacer sibling because `.scroll`'s LAST child is what the
+    // observer below treats as the content: a new element there would
+    // silently become the thing being watched, and the real content's growth
+    // would stop being seen at all.
+    const applyTailRoom = () => {
+      const pinTop = pinnedTop.current
+      const box = content as HTMLElement
+      if (pinTop === null) {
+        if (box.style.paddingBottom) box.style.paddingBottom = ''
+        return
+      }
+      const reserved = parseFloat(box.style.paddingBottom || '0') || 0
+      // `box.scrollHeight`, not `el.scrollHeight` — see `pinnedTop`'s own doc
+      // for why measuring against `.scroll` itself (which also contains
+      // `.scroll-spacer`) is exactly the bug this replaced.
+      const room = tailRoom(pinTop, box.scrollHeight - reserved, el.clientHeight)
+      // Released for good once the reply has outgrown the space: re-measuring
+      // a pin nobody can see any more would keep this running for the rest of
+      // the turn, and re-reserving room mid-reply would yank the reader.
+      if (room <= 0) {
+        pinnedTop.current = null
+        if (box.style.paddingBottom) box.style.paddingBottom = ''
+        return
+      }
+      // Sub-pixel churn here feeds straight back into the ResizeObserver that
+      // called this, so only a real change is written.
+      if (Math.abs(room - reserved) > 1) box.style.paddingBottom = `${room}px`
+    }
+
     const resync = () => {
+      applyTailRoom()
       const keep = restoreFromBottom.current
       if (keep !== null) {
         // Older messages just landed above the fold. Holding the distance from
@@ -246,13 +409,88 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       resync()
     }
     window.addEventListener('focus', onWindowFocus)
+    // Captured on the window, not the container: a keypress scrolls the
+    // transcript while focus sits anywhere in the chat, and capture phase
+    // means nothing downstream can swallow the signal before it is recorded.
+    const noteInput = () => {
+      lastInputAt.current = performance.now()
+    }
+    // A keydown ONLY: typing, or pressing Enter to send, in the composer is
+    // never "the reader scrolling the transcript" — it just happens to be a
+    // keydown, the same event type PageDown/Space/arrow keys use to
+    // legitimately scroll the transcript when IT has focus. Without this,
+    // the send keystroke itself armed `reader` for a full READER_INPUT_MS
+    // afterward, and any resize-driven scroll adjustment in that window (the
+    // browser's own clamp when content shrinks, say) got misread as the
+    // reader grabbing the scrollbar. Observed live: `stuck` latched false
+    // right after send, the pin-to-top reservation kept adjusting
+    // (`applyTailRoom` runs unconditionally) while `scrollTop` itself never
+    // moved again — "the space is there, the auto-scroll didn't work."
+    const noteKeydownUnlessEditing = (event: Event) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('[contenteditable], input, textarea')) return
+      noteInput()
+    }
+    // Scoped to a wheel/touch event that actually targets THIS container —
+    // unscoped, this was the wheel/touch twin of the keydown and pointerdown
+    // bugs just above/below: scrolling a DIFFERENT pane entirely (split
+    // view) or any other on-screen scrollable region set `lastInputAt` for
+    // every mounted instance of this hook, and if the browser's own scroll
+    // anchoring then adjusted a DIFFERENT, actively-streaming pane within
+    // READER_INPUT_MS, `onScroll` misread it as that pane's own reader
+    // grabbing the scrollbar and stopped following for the rest of the turn.
+    const noteWheelOrTouchWithinContainer = (event: Event) => {
+      const target = event.target
+      if (!(target instanceof Element) || !el.contains(target)) return
+      noteInput()
+    }
+    // Scoped to a pointerdown that actually STARTS on this container (its
+    // scrollbar, its rows) — the scrollbar-drag `pointerHeld` above exists
+    // for. Unscoped, this was the pointer-event twin of the keydown bug just
+    // above: clicking Send, or literally anything else anywhere in the app,
+    // fired a pointerdown/pointerup pair on `window` and got read as the
+    // reader grabbing the scrollbar. `pointerup`/`pointercancel` stay
+    // UNSCOPED on purpose — a real drag can end with the cursor anywhere
+    // once it outruns the scrollbar's bounds — but only ever DO anything
+    // when `pointerHeld` says a drag we actually started tracking is the
+    // one ending.
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element) || !el.contains(target)) return
+      pointerHeld.current = true
+      noteInput()
+    }
+    const onPointerUp = () => {
+      if (!pointerHeld.current) return
+      pointerHeld.current = false
+      noteInput()
+    }
+    const INPUT_EVENTS = ['wheel', 'touchstart', 'touchmove'] as const
+    for (const type of INPUT_EVENTS) {
+      window.addEventListener(type, noteWheelOrTouchWithinContainer, {
+        capture: true,
+        passive: true,
+      })
+    }
+    window.addEventListener('keydown', noteKeydownUnlessEditing, { capture: true, passive: true })
+    window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true })
+    window.addEventListener('pointerup', onPointerUp, { capture: true, passive: true })
+    window.addEventListener('pointercancel', onPointerUp, { capture: true, passive: true })
     return () => {
       observer.disconnect()
       window.removeEventListener('focus', onWindowFocus)
+      for (const type of INPUT_EVENTS) {
+        window.removeEventListener(type, noteWheelOrTouchWithinContainer, { capture: true })
+      }
+      window.removeEventListener('keydown', noteKeydownUnlessEditing, { capture: true })
+      window.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      window.removeEventListener('pointerup', onPointerUp, { capture: true })
+      window.removeEventListener('pointercancel', onPointerUp, { capture: true })
       follow.current?.stop()
       follow.current = null
       resyncRef.current = () => {}
       scheduleArmRef.current = () => {}
+      pinnedTop.current = null
       cancelAnimationFrame(armFrame.current)
       // Wherever the reader ends up, for this exact chat's next mount this
       // session (a switch back) to restore — see
@@ -278,6 +516,33 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     resyncRef.current()
   }, [])
 
+  const pinTurnToTop = useCallback((element: HTMLElement | null) => {
+    const el = scrollRef.current
+    if (!el || !element) {
+      pinnedTop.current = null
+      resyncRef.current()
+      return
+    }
+    // Measured once, here, against `.stream` (`el`'s last child — see the
+    // mount effect above) rather than `el` itself — see `pinnedTop`'s own
+    // doc for why. Both elements are fixed for the element's lifetime; no
+    // scrollTop term is needed the way `el`-relative measurement required,
+    // since a descendant's rect and its ancestor CONTENT element's rect move
+    // together by the same amount as `el` scrolls.
+    const base = el.lastElementChild as HTMLElement | null
+    pinnedTop.current =
+      element.getBoundingClientRect().top - (base ?? el).getBoundingClientRect().top
+    // A turn starting is also the reader rejoining the live end — it is their
+    // own prompt that just landed. Without this, a prompt sent after reading
+    // back through history would reserve the room and then not move.
+    stuck.current = true
+    // Protects the assertion just above for as long as this pin's own
+    // settling can plausibly still be resizing things — see
+    // `pinGraceUntil`/`PIN_SETTLE_GRACE_MS`.
+    pinGraceUntil.current = performance.now() + PIN_SETTLE_GRACE_MS
+    resyncRef.current()
+  }, [])
+
   const onScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
@@ -291,10 +556,24 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     ) {
       return
     }
-    // Real input: the reader's own scroll wins immediately, even mid-glide —
-    // the loop's own drift check would catch this too on its next frame, but
-    // clearing the expected value here means the NEXT tick doesn't have to.
+    // Not one of our own writes. The loop's own drift check would catch this
+    // too on its next frame, but clearing the expected value here means the
+    // NEXT tick doesn't have to.
     expectedScrollTop.current = null
+    // ...but "not ours" is still not "the reader's". The browser moves
+    // scrollTop by itself to keep the view stable when content around it
+    // resizes, which a streaming transcript does constantly — see
+    // READER_INPUT_MS. Treating that as a gesture is what left a reply
+    // stranded mid-generation with the transcript refusing to follow it any
+    // further. Nobody having touched anything means the view is still where
+    // the reader left it: keep following, from wherever it now sits.
+    const reader =
+      performance.now() >= pinGraceUntil.current &&
+      (pointerHeld.current || performance.now() - lastInputAt.current < READER_INPUT_MS)
+    if (!reader) {
+      resyncRef.current()
+      return
+    }
     // Re-armed as soon as the reader comes back to the bottom, so following
     // resumes without them having to do anything but scroll down.
     stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
@@ -305,5 +584,5 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     if (el) restoreFromBottom.current = el.scrollHeight - el.scrollTop
   }, [])
 
-  return { scrollRef, onScroll, preservePosition, notifyReflow }
+  return { scrollRef, onScroll, preservePosition, notifyReflow, pinTurnToTop }
 }

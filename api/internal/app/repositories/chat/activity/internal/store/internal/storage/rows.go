@@ -103,6 +103,8 @@ type ChoiceRow struct {
 	ResolvedAt   *time.Time `gorm:"column:resolved_at;index"`
 	Resolution   string     `gorm:"column:resolution"`
 	AutoApproved bool       `gorm:"column:auto_approved"`
+	// AnsweredOptionIDs is a JSON-encoded []string, same convention as Options.
+	AnsweredOptionIDs string `gorm:"column:answered_option_ids"`
 }
 
 func (ChoiceRow) TableName() string { return "agent_choices" }

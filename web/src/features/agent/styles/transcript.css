@@ -74,7 +74,18 @@
      The second gradient is solid across exactly --agent-scrollbar-w at the
      right edge; `mask-composite`'s default (`add`, i.e. union) between mask
      layers means that strip stays fully opaque no matter what the first
-     gradient says at that height. */
+     gradient says at that height.
+
+     TRIED moving this to a non-scrolling wrapper ancestor instead (masking
+     the actual `overflow-y: auto` element is a documented WebKit
+     slow-scrolling-region reason) — reverted: it broke `pinTurnToTop`
+     bringing a just-sent prompt to the top of the viewport, reported live,
+     and this repo's own live-verification tooling could not confirm the
+     mask was even the dominant cost of the reported scroll-fps drop before
+     that regression was found, so the risk wasn't worth carrying. If this
+     is revisited, the fix needs to keep `.scroll` itself as the thing
+     `pinTurnToTop`'s caller measures and reserves padding on — not move it
+     behind a second flex layer. */
   mask-image:
     linear-gradient(to top, transparent 0, black calc(var(--agent-dock-h, 92px) + 88px)),
     linear-gradient(
@@ -526,6 +537,9 @@
 .agent-chat .turnbar > button:first-child {
   margin-left: -8px;
 }
+.agent-chat .turn-effort {
+  font-size: var(--ui-text-xs);
+}
 
 /* When it flags an assistant turn it lives INSIDE `.turnbar`, inheriting
    that row's own layout and muted colour for free. As a user row's own
@@ -562,10 +576,87 @@
   margin: 0;
   line-height: 1.5;
 }
-.agent-chat .tools li > span:first-child {
+/* A row's own SUMMARY (its name, error caption, duration) lays out the same
+   whether or not it is wrapped in a <details> — `<details>` opens the payload
+   below it, `<summary>` here is where the ROW's own flex layout actually
+   lives once one is present. */
+.agent-chat .tools li > details {
+  width: 100%;
+}
+.agent-chat .tools li > details > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.agent-chat .tools li > details > summary::-webkit-details-marker {
+  display: none;
+}
+.agent-chat .tools li > span:first-child,
+.agent-chat .tools li > details > summary > span:first-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.agent-chat .tools li > details[open] > summary > span:first-child {
+  overflow: visible;
+  white-space: normal;
+}
+/* `AgentToolCall.error` (turn-tools.tsx) — a short caption for a failed call,
+   shown next to its name rather than only inferred from the row's colour. */
+.agent-chat .tools .err {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chat .tools .payload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin: 6px 0 4px;
+}
+.agent-chat .tools .payload-label {
+  margin: 0;
+  font-weight: 500;
+}
+.agent-chat .tools .payload-status {
+  margin: 0;
+  font-style: italic;
+}
+.agent-chat .tools .payload pre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--muted);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+}
+/* `AgentToolCall.status` (turn-tools.tsx) is `ok`, `error` or `abandoned` —
+   without this, all three rendered pixel-identical, so a failed tool call
+   read as a successful one with nothing on screen to say otherwise. */
+.agent-chat .tools li[data-status='error'] {
+  color: var(--destructive);
+}
+.agent-chat .tools li[data-status='error']::before {
+  content: '✕';
+  flex: none;
+}
+.agent-chat .tools li[data-status='abandoned'] {
+  opacity: 0.6;
+}
+.agent-chat .tools li[data-status='abandoned']::before {
+  content: '–';
+  flex: none;
+}
+/* A resolved choice (AgentTurnChoices) that was never actually answered
+   through Crowbar reads the same muted way an abandoned tool call does. */
+.agent-chat .tools li[data-resolution='abandoned'] {
+  opacity: 0.6;
 }
 
 /* The compaction boundary. Everything above it is out of the model's context and
@@ -621,6 +712,26 @@
   opacity: 1;
   animation: chat-token-fade 260ms ease-out;
   animation-fill-mode: both;
+  /* PERFORMANCE, and this one line is the whole of it — WebKit only. Without
+     it these spans are ordinary inline boxes, which cannot be composited, so
+     the engine recalculates style and repaints every fading word on every
+     frame. A fast list burst has dozens fading at once and the app dropped to
+     20fps, with 21% of sampled frames under 60. The hint promotes each fading
+     word to a layer, and opacity then animates on the compositor instead.
+     Measured live in the app's WKWebView on a 35-item streamed list: 20fps ->
+     45fps, 21% -> 4% of samples under 60 — matching, and slightly beating,
+     the ceiling measured with the animation disabled outright (40fps / 4%).
+
+     None of this reproduces in Blink, which is why it went unnoticed for so
+     long: profiled in Chrome and in Safari against an isolated bubble, the
+     animation costs nothing measurable either way. Only the real embedding
+     shows it.
+
+     Scoped to exactly the elements that are animating, and they are removed
+     as soon as their fade settles (streaming-value-patch.ts), so the hint
+     never outlives the animation it exists for — which is the one thing that
+     makes `will-change` safe to apply this broadly. */
+  will-change: opacity;
 }
 @keyframes chat-token-fade {
   /* Fully invisible, not merely dim: a chunk lands with its final layout
@@ -665,5 +776,8 @@
     animation-duration: 0s;
     animation-delay: 0s;
     opacity: 1;
+    /* Nothing animates here, so the compositor hint above is pure cost — a
+       layer per word, promoted for a fade that never runs. */
+    will-change: auto;
   }
 }

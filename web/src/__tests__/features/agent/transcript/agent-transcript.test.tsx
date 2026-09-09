@@ -1,12 +1,64 @@
 import { render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import {
   AgentTranscript,
   ESTIMATED_ROW_HEIGHT,
   estimateRowHeight,
 } from '@/features/agent/transcript/agent-transcript'
 import type { TranscriptRow } from '@/features/agent/transcript/lib/flatten-transcript-rows'
+
+// Spies on every `resizeItem` call the real virtualizer makes, across the
+// whole file — a passthrough wrapper, not a stub, so every other test in
+// this file gets the real virtualizer unchanged. ESM named exports are not
+// configurable (vitest can't `vi.spyOn` one directly), so this is done via
+// `vi.mock` instead; `vi.hoisted` is what lets the array below be visible
+// both inside the (hoisted) mock factory and inside a normal test body.
+const { resizeItemCalls } = vi.hoisted(() => ({
+  resizeItemCalls: [] as Array<{ index: number; size: number }>,
+}))
+vi.mock('@tanstack/react-virtual', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-virtual')>()
+  return {
+    ...actual,
+    useVirtualizer: (options: Parameters<typeof actual.useVirtualizer>[0]) => {
+      const instance = actual.useVirtualizer(options)
+      const originalResizeItem = instance.resizeItem.bind(instance)
+      instance.resizeItem = (index: number, size: number) => {
+        resizeItemCalls.push({ index, size })
+        originalResizeItem(index, size)
+      }
+      return instance
+    },
+  }
+})
+
+// Spies on every `pinTurnToTop` call the real anchor hook's wiring effect
+// makes — a passthrough, not a stub, so every other test in this file still
+// gets the real hook, real scroll math and all, unchanged. This is what lets
+// a test assert WHETHER agent-transcript.tsx's own queue-watching effect
+// decided to pin at all, independent of jsdom having no real layout engine
+// to observe the resulting padding-bottom through.
+const { pinTurnToTopCalls } = vi.hoisted(() => ({
+  pinTurnToTopCalls: [] as Array<HTMLElement | null>,
+}))
+vi.mock('@/features/agent/hooks/use-transcript-anchor', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/agent/hooks/use-transcript-anchor')>()
+  return {
+    ...actual,
+    useTranscriptAnchor: (...args: Parameters<typeof actual.useTranscriptAnchor>) => {
+      const instance = actual.useTranscriptAnchor(...args)
+      const originalPinTurnToTop = instance.pinTurnToTop
+      instance.pinTurnToTop = (element: HTMLElement | null) => {
+        pinTurnToTopCalls.push(element)
+        originalPinTurnToTop(element)
+      }
+      return instance
+    },
+  }
+})
 
 // The historical rows are windowed (`@tanstack/react-virtual`), and jsdom has no
 // layout engine: every element measures 0×0, and a virtualiser told its viewport
@@ -20,6 +72,8 @@ const VIEWPORT_HEIGHT = 800
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
 
 beforeEach(() => {
+  resizeItemCalls.length = 0
+  pinTurnToTopCalls.length = 0
   const rect = {
     top: 0,
     left: 0,
@@ -534,6 +588,181 @@ describe('AgentTranscript queued first turn', () => {
   })
 })
 
+describe('AgentTranscript: pinning the turn a prompt actually started', () => {
+  let nextId = 0
+  function queueItem(text: string) {
+    nextId += 1
+    return {
+      clientRequestId: `pin-r${nextId}`,
+      text,
+      state: 'queued' as const,
+      createdAt: '2026-08-24T00:00:00Z',
+      baselineSequence: 0,
+    }
+  }
+
+  // REGRESSION: the wiring effect's very first run, on a freshly-mounted
+  // pane, sees an EMPTY queue — `newest` (null) already equals
+  // `pinnedRequestId.current`'s own initial value (also null) — so an
+  // equality check placed before the "have I run before" bookkeeping
+  // returned early without ever recording that the first run happened. The
+  // user's actual first send then read its own run as "inherited" (a
+  // restore, not a send) and never pinned — silently losing pin-to-top for
+  // the single most common case, the first prompt in a chat's lifetime.
+  it('pins the very first prompt sent in a freshly-mounted pane', () => {
+    const { rerender } = draw([], { queue: [] })
+    expect(pinTurnToTopCalls).toEqual([])
+
+    const item = queueItem('the first thing I ever said')
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls).toHaveLength(1)
+    expect(pinTurnToTopCalls[0]).not.toBeNull()
+    expect(pinTurnToTopCalls[0]).toHaveAttribute('data-client-request-id', item.clientRequestId)
+  })
+
+  // The existing, already-correct behavior this fix must not disturb: a
+  // chat REOPENED with a prompt still queued from before inherits it — that
+  // is a restore, not a send, and must never pin.
+  it('does not pin an inherited queue found already waiting on mount', () => {
+    draw([], { queue: [queueItem('left over from before')] })
+
+    expect(pinTurnToTopCalls).toEqual([])
+  })
+
+  // REGRESSION: `pinTurnToTop(null)` — the documented release path — was
+  // never called anywhere. A prompt canceled via "Cancel unsent prompts"
+  // before it ever dispatched drains the queue back to empty with nothing
+  // to replace it; without an explicit release, tailRoom's own shortfall
+  // math reads the now-shrunken content as needing MORE reserved space, not
+  // less, and grows a permanent, ever-widening blank gap instead.
+  it('releases the pin when the pinned prompt is canceled before it ever settles into a message', () => {
+    const item = queueItem('never actually sent')
+    const { rerender } = draw([], { queue: [] })
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(pinTurnToTopCalls).toHaveLength(1)
+    expect(pinTurnToTopCalls[0]).not.toBeNull()
+
+    // Canceled: the queue drains back to empty, and no message with this
+    // text ever appears — nothing replaced it.
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls.at(-1)).toBeNull()
+  })
+
+  // The ordinary case this fix must not disturb: a prompt that DISPATCHES
+  // (settles into a real ledger message) also drains the queue back to
+  // empty, but the pin is still exactly right — it keeps an offset, not the
+  // element, and releases itself naturally once the reply grows past the
+  // reserved room. This must NOT call pinTurnToTop(null).
+  it('does not release the pin when the pinned prompt settles into a real message instead', () => {
+    const item = queueItem('this one actually sent')
+    const { rerender } = draw([], { queue: [] })
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(pinTurnToTopCalls).toHaveLength(1)
+
+    // Settled: the queue drains to empty, but a matching user message (same
+    // text, a real sequence past the prompt's baseline) is now present.
+    rerender(
+      <AgentTranscript
+        messages={[
+          {
+            turnId: 't1',
+            sequence: 1,
+            role: 'user',
+            providerId: '',
+            text: item.text,
+            at: '',
+          },
+        ]}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls).toHaveLength(1) // still just the original pin — no release call
+  })
+})
+
 describe('AgentTranscript interrupted marker', () => {
   const oneFrozenTurn = [
     { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
@@ -740,5 +969,204 @@ describe('estimateRowHeight', () => {
         tags: [{ kind: 'interrupted' }, { kind: 'compaction', trigger: 'manual' }],
       }),
     ).toBe(ESTIMATED_ROW_HEIGHT)
+  })
+})
+
+// Regression: the live bug behind "the transcript bounces at turn end", root
+// -caused and measured directly in a real WKWebView (jsdom's zero-layout
+// engine can't reproduce the browser's own hard scrollTop clamp, so this
+// tests the MECHANISM — the settling row is primed ahead of its first paint —
+// not the visible motion itself). A short "typing…" bubble's TEXT is short,
+// but the reply had already grown tall on screen by the time it settles;
+// estimateRowHeight only ever sees the text, never what was actually
+// rendered, so it floors at ESTIMATED_ROW_HEIGHT regardless. Without the fix,
+// the settling row starts there and waits for measureElement's async
+// correction — the exact one-tick window the real clamp fires in. With it,
+// resizeItem is called with the streaming bubble's own last measured height
+// before that row ever paints as an estimate.
+describe('AgentTranscript: priming a settling row from its streaming height', () => {
+  it('primes the virtualizer with the streaming bubble’s real height the instant the same message settles, before any re-measurement', () => {
+    resizeItemCalls.length = 0
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.tagName === 'ARTICLE' && this.getAttribute('data-sequence') === '1') {
+        return {
+          top: 0,
+          left: 0,
+          right: VIEWPORT_WIDTH,
+          bottom: 400,
+          width: VIEWPORT_WIDTH,
+          height: 400,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect
+      }
+      return originalRect.call(this)
+    }
+
+    try {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'typing…',
+        at: '',
+      }
+      const { rerender } = draw([], { streamingBubbles: [message] })
+
+      rerender(
+        <AgentTranscript
+          messages={[message]}
+          queue={[]}
+          providers={[]}
+          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+          working={false}
+          loading={false}
+          error={null}
+          hasOlder={false}
+          onLoadOlder={() => {}}
+          onRetryLoad={() => {}}
+          onOpenTerminal={() => {}}
+          onEditPrompt={() => {}}
+          onCancelPrompt={() => {}}
+          onRetryPrompt={() => {}}
+        />,
+      )
+
+      expect(resizeItemCalls).toContainEqual({ index: 0, size: 400 })
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect
+    }
+  })
+})
+
+// Regression: the live bug reported as "bouncing... once the provider
+// approved and confirmed the message has been submitted" — dispatch removes
+// a prompt's QueuedRow the instant the daemon confirms it, well before the
+// corresponding message is necessarily back in `rows`, so the real height
+// that row's own text was occupying vanishes outright until
+// estimateRowHeight's guess is corrected a beat later. Measured live: a
+// 245px hard drop right at that swap, then a climb back — the same shape as
+// the streaming-bubble case above, one step earlier in a message's life.
+describe('AgentTranscript: priming a settling row from its queued height', () => {
+  it('primes the virtualizer with the queued row’s real height the instant the matching message settles', () => {
+    resizeItemCalls.length = 0
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.getAttribute('data-client-request-id') === 'req-1') {
+        return {
+          top: 0,
+          left: 0,
+          right: VIEWPORT_WIDTH,
+          bottom: 245,
+          width: VIEWPORT_WIDTH,
+          height: 245,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect
+      }
+      return originalRect.call(this)
+    }
+
+    try {
+      const item: PromptQueueItem = {
+        clientRequestId: 'req-1',
+        text: 'draw me a flowchart',
+        state: 'submitting',
+        createdAt: '',
+        baselineSequence: 0,
+      }
+      const { rerender } = draw([], { queue: [item] })
+
+      // The daemon confirms delivery: the queued row is gone, and the
+      // matching user message has landed in the ledger.
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: '',
+        text: 'draw me a flowchart',
+        at: '',
+      }
+      rerender(
+        <AgentTranscript
+          messages={[message]}
+          queue={[]}
+          providers={[]}
+          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+          working={true}
+          loading={false}
+          error={null}
+          hasOlder={false}
+          onLoadOlder={() => {}}
+          onRetryLoad={() => {}}
+          onOpenTerminal={() => {}}
+          onEditPrompt={() => {}}
+          onCancelPrompt={() => {}}
+          onRetryPrompt={() => {}}
+        />,
+      )
+
+      expect(resizeItemCalls).toContainEqual({ index: 0, size: 245 })
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect
+    }
+  })
+
+  it('does not prime a row for an unrelated message — only a real samePrompt match', () => {
+    resizeItemCalls.length = 0
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.getAttribute('data-client-request-id') === 'req-1') {
+        return { ...originalRect.call(this), height: 245 } as DOMRect
+      }
+      return originalRect.call(this)
+    }
+
+    try {
+      const item: PromptQueueItem = {
+        clientRequestId: 'req-1',
+        text: 'draw me a flowchart',
+        state: 'submitting',
+        createdAt: '',
+        baselineSequence: 0,
+      }
+      const { rerender } = draw([], { queue: [item] })
+
+      // A DIFFERENT user message lands — same role, unrelated text.
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: '',
+        text: 'something else entirely',
+        at: '',
+      }
+      rerender(
+        <AgentTranscript
+          messages={[message]}
+          queue={[]}
+          providers={[]}
+          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+          working={true}
+          loading={false}
+          error={null}
+          hasOlder={false}
+          onLoadOlder={() => {}}
+          onRetryLoad={() => {}}
+          onOpenTerminal={() => {}}
+          onEditPrompt={() => {}}
+          onCancelPrompt={() => {}}
+          onRetryPrompt={() => {}}
+        />,
+      )
+
+      expect(resizeItemCalls).not.toContainEqual({ index: 0, size: 245 })
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect
+    }
   })
 })

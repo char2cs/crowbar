@@ -184,7 +184,33 @@ func (rs *Runners) displaceForSwitch(
 		// A turn_stop may have handed work to the background after the first await
 		// released its runner-scoped turn. Keep the outgoing TUI alive until a later
 		// hook authoritatively restates the async-work level as zero.
-		return true, nil
+		//
+		// ONLY WHILE THERE IS ONE TO KEEP ALIVE. On a DORMANT chat this wait is
+		// unsatisfiable by construction: there is no CLI left to finish the work and
+		// none to send the hook that would restate it, so the caller's `continue`
+		// spins forever — roughly one lap per awaitTurnOrForce deadline, holding this
+		// chat's spawn gate the entire time. That gate is a plain mutex with no
+		// context on it, so every later resume, prompt and switch on the chat queues
+		// behind the loop and never answers at all: no response, and no access-log
+		// line either, because the log is written on completion.
+		//
+		// ResumeChat enters here for exactly this shape — a dormant chat whose
+		// durable `working` outlived the CLI that set it (a SIGKILL mid-background
+		// work sends no final stop; see closeAbandonedTurn). So the stale flag
+		// stranded the one call whose whole job is to bring that chat back, and the
+		// pane that called it sat on its "Resuming this chat…" spinner until the user
+		// abandoned the chat. A dormant chat's stale flag is not a reason to wait; it
+		// is the thing the resume is here to clear.
+		_, liveErr := rs.runnerStore.LiveRunnerForChat(ctx, chat.ID)
+		switch {
+		case liveErr == nil:
+			return true, nil
+		case !errors.Is(liveErr, agentrunner.ErrNotFound):
+			return false, fmt.Errorf("agent: switch provider: work-check live runner: %w", liveErr)
+		}
+		slog.WarnContext(ctx,
+			"agent: switch provider: dormant chat still flagged working; proceeding rather than waiting for a hook that cannot arrive",
+			"chat_id", chat.ID)
 	}
 	if err := rs.quitOutgoingCLI(ctx, chat.ID); err != nil {
 		return false, err
@@ -211,6 +237,26 @@ func (rs *Runners) quitOutgoingCLI(
 		}
 		slog.WarnContext(ctx, "agent: switch provider: outgoing terminal session already gone before terminate; continuing switch",
 			"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
+	}
+	// live.TerminalSession above is the ORIGINAL companion PTY every api-transport
+	// spawn forks alongside its connection — never reassigned, so it names a
+	// different, LEAKED process once SwitchToTerminal has run: that call forks a
+	// THIRD, separate PTY for the native view and tracks it only in rs.attached,
+	// exactly the one the user is actually looking at. Switching provider away
+	// from a chat mid-attach must take that one down too, and forget it here —
+	// the same gap retire() had (lifecycle.go) before its own fix, for the
+	// identical reason: SwitchToNative is otherwise the only place that ever
+	// clears rs.attached, and a chat switched away from while attached never
+	// reaches it. Best-effort, like retire()'s own: the outgoing CLI is already
+	// being torn down regardless, so a stuck attached view must not abort a
+	// switch that has already committed to happening.
+	if view, ok := rs.attached.get(live.ID); ok {
+		rs.attached.drop(live.ID)
+		if err := rs.term.TerminateGraceful(ctx, view.termSessID); err != nil &&
+			!errors.Is(err, engineterminal.ErrSessionNotFound) {
+			slog.WarnContext(ctx, "agent: switch provider: terminate attached native view (best-effort, continuing)",
+				"runner_id", live.ID, "terminal_session_id", view.termSessID, "err", err)
+		}
 	}
 	// An api-transport runner's serve process is NOT the terminal session above —
 	// it is a separate background process (apiconn.go's forkServeProcess), never a
@@ -285,7 +331,36 @@ func (rs *Runners) resumableConversation(
 	// every conversation from before the activity table existed looks like,
 	// forever, no matter how much real history it has on the provider's own side
 	// (see this function's package-level doc references for the migration this
-	// guards against). Age is what tells the two apart.
+	// guards against). Age is what tells the two apart — UNLESS this SAME
+	// provider already has a recorded turn on THIS chat, under a different
+	// session, which age cannot overrule: proof the activity table was live for
+	// this exact (chat, provider) pair rules out "predates the table" no matter
+	// how old the current session's own first announcement is. Without this, a
+	// session that crashed on its first turn and was not retried within the
+	// window became permanently unresumable — every later attempt found the same
+	// zero rows, aged past the window, and kept re-resuming a corpse that dies
+	// again in a second or two.
+	//
+	// Scoped to THIS provider's own sessions, not a chat-wide turn count: a chat
+	// that switched providers has real, table-live history for the OTHER
+	// provider long before this one ever ran, and counting turns chat-wide would
+	// misread that as proof about a provider it says nothing about — discarding
+	// a genuinely resumable, pre-migration session for the provider actually
+	// being resumed.
+	for _, c := range convs {
+		if c.ProviderID != targetProviderID || c.SessionID == sessionID {
+			continue
+		}
+		_, siblingFound, err := rs.activity.LastTurnForSession(ctx, chat.ID, targetProviderID, c.SessionID)
+		if err != nil {
+			return "", time.Time{}, fmt.Errorf("last turn for sibling session: %w", err)
+		}
+		if siblingFound {
+			slog.InfoContext(ctx, "agent: prior conversation has no recorded turns but this provider has others on this chat; spawning fresh instead of resuming a corpse",
+				"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID)
+			return "", time.Time{}, nil
+		}
+	}
 	if time.Since(firstSeenAt) < sessionAnnounceCrashWindow {
 		// Recent enough to be the genuine crash race: the CLI reported this
 		// conversation id but never recorded a turn under it, so there is no

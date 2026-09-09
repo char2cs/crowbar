@@ -365,8 +365,14 @@ export async function listChats(wsId: string): Promise<AgentChat[]> {
   return (raw ?? []).map(mapChat)
 }
 
-export async function getChat(wsId: string, id: string): Promise<AgentChatDetail> {
-  const raw = await apiFetch<AgentChatDetail>(`${chatBase(wsId)}/${encodeURIComponent(id)}`)
+export async function getChat(
+  wsId: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<AgentChatDetail> {
+  const raw = await apiFetch<AgentChatDetail>(`${chatBase(wsId)}/${encodeURIComponent(id)}`, {
+    signal,
+  })
   return { ...mapChat(raw), conversations: raw.conversations ?? [] }
 }
 
@@ -415,6 +421,10 @@ export interface AgentToolCall {
    *  Absent is legible; a guess would be wrong. */
   target?: string
   status: ToolCallStatus
+  /** A short caption for a FAILED call — absent on every other status. The full
+   *  failure text is the result payload, fetched on demand like any other side
+   *  (see `getToolPayload`); this is the one line worth showing without asking. */
+  error?: string
   durationMs?: number
   hasRequest: boolean
   hasResult: boolean
@@ -537,6 +547,11 @@ export interface AgentChoice {
   /** Who answered it when `resolution` is `answered`: policy (`true`) or a
    *  human's own click (`false`). */
   autoApproved?: boolean
+  /** Which of `options` (or a question's own options) was actually picked, when
+   *  `resolution` is `answered` through Crowbar. Absent for one that proceeded
+   *  at the provider's own terminal or was abandoned with its turn — those
+   *  genuinely have no such answer to report, not merely an unrecorded one. */
+  answeredOptionIds?: string[]
 }
 
 export interface AgentActivity {
@@ -862,11 +877,23 @@ export async function createChat(wsId: string, provider: string, parentId = ''):
 // switchProvider quits the chat's current vendor CLI, hands off the accumulated
 // context, and starts `provider` as a NEW RUNNER on the same chat. Returns that
 // runner's id — the chat is unchanged, the process is not.
-export async function switchProvider(wsId: string, id: string, provider: string): Promise<string> {
+//
+// `signal` for the identical reason resumeChat takes one (see that function's
+// own comment): this drives the SAME daemon-side per-chat spawn mutex
+// (switchProviderLocked), and the caller renders the same buttonless
+// "Starting {provider}…" spinner while this is out — a switch that never
+// answers is a pane the user can only abandon just like an unbounded resume.
+export async function switchProvider(
+  wsId: string,
+  id: string,
+  provider: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider }),
+    signal,
   })
   return res.id
 }
@@ -879,9 +906,17 @@ export async function switchProvider(wsId: string, id: string, provider: string)
 // Returns the id of the RUNNER now on the chat. A chat that is still live is a
 // no-op that hands back the runner already there, so this can never end up with
 // two CLIs on one conversation.
-export async function resumeChat(wsId: string, id: string): Promise<string> {
+// `signal` is not optional politeness: the caller renders a SPINNER WITH NO
+// BUTTON ON IT while this is out, so a resume that never answers is a chat the
+// user can only abandon. The daemon serialises every spawn path of one chat
+// behind a plain per-chat mutex with no context on it (inflight's Gate), so this
+// request can queue behind another spawn indefinitely and produce no response and
+// no access-log line at all. Whoever draws that spinner has to be able to stop
+// waiting — see AgentChatPane.revive.
+export async function resumeChat(wsId: string, id: string, signal?: AbortSignal): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/resume`, {
     method: 'POST',
+    signal,
   })
   return res.id
 }
