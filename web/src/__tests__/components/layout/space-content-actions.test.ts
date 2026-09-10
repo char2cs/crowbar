@@ -1027,9 +1027,11 @@ describe('handleTrash', () => {
   // repo-scoped walk found this FALSE match, and the removal tray then
   // committed a real DELETE against a repo that had no business resolving
   // it at all — silently destroying a home folder dragged onto the trash
-  // target. Home rows must be refused here before that walk ever runs,
-  // regardless of what a repo's own (bled-into) folders array claims.
-  it('refuses a home folder even when a repo’s (backend-leniency-bled) folders array also claims its id', () => {
+  // target. `resolveHomeRowScope` must resolve a home row BEFORE that walk
+  // ever runs, regardless of what a repo's own (bled-into) folders array
+  // claims — proven here by the held draft's OWN `repoId`: '' (home), never
+  // 'r1' (the bled repo the walk would have found instead).
+  it('holds a home folder through the HOME path even when a repo’s (backend-leniency-bled) folders array also claims its id', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
     useHomeTreeStore.setState({
       trees: {
@@ -1040,9 +1042,16 @@ describe('handleTrash', () => {
       repos: [repo({ folders: [{ id: 'home-folder-1', repoId: 'r1', name: 'x', order: 0 }] })],
     })
 
-    expect(handleTrash('home-folder-1')).toBe(false)
+    expect(handleTrash('home-folder-1')).toBe(true)
 
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    const entries = useRemovalTrayStore.getState().entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      kind: 'folder',
+      id: 'home-folder-1',
+      projectId: 'p1',
+      repoId: '',
+    })
   })
 
   // Task 25 review round 1, Important: a user-locked, non-home workspace

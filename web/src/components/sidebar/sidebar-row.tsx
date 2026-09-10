@@ -137,7 +137,15 @@ export function SidebarRow({
   // row does not move (§4.3), and the backend's own promote.go respawns the
   // chat's CLI regardless of whether it is mid-turn, so refusing here up
   // front is what keeps a click from round-tripping into a confusing error.
-  const promotable = row.kind === 'chat' && !row.ownsWorktree && !row.working
+  // `canFork !== false` too: a bubble's cwd walk "always terminates at a real
+  // worktree ancestor" above is exactly untrue for a project-home chat — home
+  // rides no repo at all, so there is no worktree for a promote to attach to
+  // either (same reason Fork hides for one, canFork's own doc). Without this,
+  // "Make workspace" on a home bubble was offered and silently did nothing —
+  // `performPromoteChat` finds no owning repo for a chat id no repo's `chats`
+  // ever lists, and returns before the request even goes out.
+  const promotable =
+    row.kind === 'chat' && !row.ownsWorktree && !row.working && row.canFork !== false
   // Double-click-to-rename (sidebar-tree-chrome.tsx's delegated `dblclick`
   // listener) starts this row's turn in `sidebar-inline-rename.ts`'s store —
   // real inline editing in place, matching `develop`, not the modal Task 4

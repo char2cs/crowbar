@@ -11,6 +11,7 @@ import type { RemovalDraft } from '@/lib/store/sidebar-removal'
 import type { DragSubjectBase } from '@/components/tree-dnd/drop-core'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
+import { resolveHomeRowScope, getHomeTree } from '@/lib/store/home-tree'
 
 /** The little a removal needs to know about a project: which one, and its label. */
 export interface ProjectRow {
@@ -157,6 +158,52 @@ function draftFor(
       hiddenIds: [repo.id],
       extra: repo.workspaces.length,
       fallbackWsId: null,
+    }
+  }
+
+  // A project-home chat or folder rides no repo at all (`resolveHomeRowScope`'s
+  // own doc) — checked BEFORE the repo lookup below, which would otherwise just
+  // find nothing for `subject.repoId` (never set for a home row) and return
+  // null, reported live as "Can't delete X yet" rather than an actual removal.
+  if (subject.kind === 'chat' || subject.kind === 'folder') {
+    const homeRow = resolveHomeRowScope(subject.id)
+    if (homeRow) {
+      const tree = getHomeTree(homeRow.projectId)
+      if (subject.kind === 'chat') {
+        const chat = tree.chats.find((c) => c.id === subject.id)
+        if (!chat) return null
+        // Same subtree rule as a repo chat's own branch below: reparenting
+        // and deleting both take every thread hanging off this one with it.
+        const descendants = chatDescendantsOf(tree.chats, chat.id)
+        return {
+          kind: 'chat',
+          id: chat.id,
+          label: chat.title || UNTITLED_CHAT_LABEL,
+          projectId: homeRow.projectId,
+          // '' — no owning repo; `wsId` (the DELETE route's own scope, see
+          // `deleteChat`'s contract) is the project's home workspace instead.
+          repoId: '',
+          wsId: homeRow.homeWorkspaceId,
+          providerIcon: '',
+          hiddenIds: [chat.id, ...descendants],
+          extra: descendants.length,
+          fallbackWsId: null,
+        }
+      }
+      const folder = tree.folders.find((f) => f.id === subject.id)
+      if (!folder) return null
+      return {
+        kind: 'folder',
+        id: folder.id,
+        label: folder.name,
+        projectId: homeRow.projectId,
+        repoId: '',
+        wsId: '',
+        providerIcon: '',
+        hiddenIds: [folder.id],
+        extra: 0,
+        fallbackWsId: null,
+      }
     }
   }
 

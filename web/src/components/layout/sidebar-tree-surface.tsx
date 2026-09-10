@@ -95,9 +95,18 @@ export function SidebarTreeSurface({
         // degrades gracefully (never throws) while its owning chat has not
         // resolved yet, so this only needs the tree itself to have seeded.
         if (!homeWorkspaceId || !homeTree) return []
-        return rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders)
+        // A held home chat/folder (removal-plan.ts's own home branch) must
+        // disappear the same way a held repo row does via
+        // `applyPendingRemovals` above — filtered here rather than there,
+        // since a home tree is never part of `repos` for that projection to
+        // reach at all.
+        return rowsFromHome(
+          homeWorkspaceId,
+          homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
+          homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
+        )
       }),
-    [projects, homeTrees],
+    [projects, homeTrees, hiddenIds],
   )
   // Every create in flight, drawn as a real row at the exact slot the
   // finished create lands in (pending-creates.ts) — merged in here, the one

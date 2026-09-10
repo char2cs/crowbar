@@ -1,10 +1,12 @@
 import { deleteProject, deleteRepo } from '@/lib/api'
-import { deleteFolder } from '@/lib/api/sidebar-placement'
+import { deleteFolder, deleteHomeFolder } from '@/lib/api/sidebar-placement'
 import { deleteChat } from '@/features/agent/api/agent-api'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { owningChatIdOfWorkspace } from '@/components/sidebar/lib/branch-row-id'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useHomeTreeStore, removeHomeFolder, applyHomeFolders } from '@/lib/store/home-tree'
+import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
 import { toast } from '@/features/window/stores/toast-store'
 
@@ -45,7 +47,16 @@ function stillPresent(repos: Repo[], ids: readonly string[]): boolean {
       // Chats: same reseed channel workspaces/repos ride, checked so a
       // drag-to-trashed chat's row stays hidden across the round trip
       // instead of flashing back the instant the DELETE resolves.
-      repos.some((r) => r.chats?.some((c) => c.id === id)),
+      repos.some((r) => r.chats?.some((c) => c.id === id)) ||
+      // A project-home chat rides the identical live reseed a repo chat
+      // does (`performRenameHomeChat`'s own doc: its own `/home/chats/ws`
+      // feed is what settles a write) — checked across every visible
+      // project's home tree, not just `repos`, or a held home chat would
+      // release the instant its own DELETE resolved, well before the tree
+      // that actually draws it had caught up.
+      Object.values(useHomeTreeStore.getState().trees).some((t) =>
+        t.chats.some((c) => c.id === id),
+      ),
   )
 }
 
@@ -104,6 +115,21 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
       })
     }
     case 'folder':
+      // A project-home folder rides no repo at all (`repoId` is '' — see
+      // `removal-plan.ts`'s own home branch) and has its own DELETE route
+      // (`deleteHomeFolder`, scoped by project rather than repo): the repo
+      // route below would either 404 or, worse, land on the WRONG repo,
+      // since a home folder is exactly the row `fetchFolders`'s bleed
+      // (`handleTrash`'s own doc) can make a repo falsely claim.
+      if (!entry.repoId) {
+        return deleteHomeFolder(entry.projectId, entry.id, ...opts).then((shifted) => {
+          // No live channel for a home folder either (same Task 34 reason
+          // the repo branch below has none) — apply the tombstone directly
+          // rather than wait for a reseed nothing will ever send.
+          removeHomeFolder(entry.projectId, entry.id)
+          shifted.forEach((f) => applyHomeFolders(entry.projectId, [toSidebarFolder(f)]))
+        })
+      }
       // Folders carry no dedicated push channel any more (Task 34). `stillPresent`
       // above never checks `r.folders` at all, so `releaseWhenGone` below always
       // finds a folder id already absent and releases the tray row IMMEDIATELY —

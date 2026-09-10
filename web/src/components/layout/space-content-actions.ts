@@ -348,26 +348,32 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
  * accept one and promise otherwise), and — checked FIRST, below — a
  * project-home row.
  *
- * A home row is refused here rather than routed through the removal tray:
- * `resolveRow`'s repo-scoped walk can find a FALSE match for one. The
- * daemon's `ListInRepo` never actually filters by the repo id in its own
- * URL (`fetchFolders`'s own doc — a known, unfixed backend leniency), so a
- * home folder bleeds into every REPO's own folder list too, stamped with
- * THAT repo's id. Trusting that match here is what silently deleted a home
- * folder through a repo-scoped DELETE that had no business resolving it at
- * all — caught live, dragging a home folder onto the trash target. Home
- * rows get their own removal-tray wiring in a follow-up; until then this
- * says so rather than repeating the same mis-resolution.
+ * A home row is resolved FIRST, against every visible project's home tree,
+ * for the same reason `handleOpen`/`handleCreate` already check
+ * `resolveHomeRowScope` before anything repo-scoped: `resolveRow`'s
+ * repo-scoped walk can find a FALSE match for one. The daemon's `ListInRepo`
+ * never actually filters by the repo id in its own URL (`fetchFolders`'s own
+ * doc — a known, unfixed backend leniency), so a home folder bleeds into
+ * every REPO's own folder list too, stamped with THAT repo's id. Trusting
+ * that match here is what silently deleted a home folder through a
+ * repo-scoped DELETE that had no business resolving it at all — caught
+ * live, dragging a home folder onto the trash target. `planRemoval`'s
+ * `draftFor` now builds a real removal draft for a home chat/folder once
+ * `resolveHomeRowScope` names it; the subject built below never falls
+ * through to `resolveRow`'s repo-scoped (and bleed-prone) folder lookup for
+ * one.
  */
 export function handleTrash(id: string): boolean {
-  if (resolveHomeRowScope(id)) return false
   const currentRepos = useSidebarStore.getState().repos
-  // Checked BEFORE resolveRow, which cannot see a chat at all
-  // (`resolveChatRow`'s own doc: "callers must consult THIS FIRST").
-  const chatRow = resolveChatRow(currentRepos, id)
-  const subject: DragSubject | null = chatRow
-    ? { kind: 'chat', id, repoId: chatRow.repo.id }
-    : (resolveRow(currentRepos, id)?.subject ?? null)
+  const homeRow = resolveHomeRowScope(id)
+  // Checked BEFORE resolveChatRow/resolveRow, which cannot see a home row at
+  // all (and, for a folder, would risk the bleed-prone false match above).
+  const chatRow = homeRow ? null : resolveChatRow(currentRepos, id)
+  const subject: DragSubject | null = homeRow
+    ? { kind: homeRow.kind, id }
+    : chatRow
+      ? { kind: 'chat', id, repoId: chatRow.repo.id }
+      : (resolveRow(currentRepos, id)?.subject ?? null)
   if (!subject) return false
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
   const drafts = planRemoval([subject], currentRepos, projects)

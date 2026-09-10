@@ -18,6 +18,7 @@ import {
 import { handleCreateHomeThread } from '@/components/layout/space-content-actions'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   getAllActiveWorkspaceIds,
@@ -225,6 +226,12 @@ function SpacePanel({
   // used to make that resolution a real (if narrow) race — the owning chat
   // is minted chat-first, atomically, at this workspace's own creation.
   const homeSeeded = homeWorkspaceId !== null && homeTree !== undefined
+  // A held home chat/folder (removal-plan.ts's own home branch) must
+  // disappear the same way a held repo row does — `repoRows` above comes in
+  // already filtered (`SidebarTreeSurface`'s `applyPendingRemovals`), but a
+  // home tree is never part of `repos` for that projection to reach, so it
+  // is filtered here instead.
+  const hiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
   // A repo header row already in `repoRows` (rowsFromRepo's own push) carries
   // its own real `parentId`/`order` straight off the wire — Task 3 put a
   // repo's position on its own `Node` row, computed server-side against
@@ -233,7 +240,13 @@ function SpacePanel({
   // `rowsFromHome`'s rows just by sitting in the same flat list, exactly the
   // way a chat or folder row already does.
   const homeRows =
-    homeSeeded && homeTree ? rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders) : []
+    homeSeeded && homeTree
+      ? rowsFromHome(
+          homeWorkspaceId,
+          homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
+          homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
+        )
+      : []
   const rows = [...homeRows, ...repoRows]
   const navigate = useNavigate()
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both

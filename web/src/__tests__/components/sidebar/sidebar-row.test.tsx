@@ -522,6 +522,15 @@ describe('SidebarRow', () => {
       expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
     })
 
+    // Regression, reported live: "Make workspace" was offered on a
+    // project-home bubble with no repo behind it at all — `performPromoteChat`
+    // finds no owning repo for one and silently does nothing. Same `canFork`
+    // signal Fork already hides on for exactly this row shape.
+    it('does not render on a chat row whose canFork is explicitly false', () => {
+      render(<SidebarRow row={{ ...baseRow, canFork: false }} depth={0} onOpen={vi.fn()} />)
+      expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
+    })
+
     it('opens to a single "Make workspace" item', async () => {
       const user = userEvent.setup()
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)

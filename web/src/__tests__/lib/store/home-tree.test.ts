@@ -27,7 +27,7 @@ vi.mock('@/lib/api', () => ({
   fetchHomeFolders: (projectId: string) => fetchHomeFoldersSpy(projectId) as unknown,
 }))
 
-const { useHomeTreeStore, getHomeTree, subscribeHomeTree, applyHomeFolders } =
+const { useHomeTreeStore, getHomeTree, subscribeHomeTree, applyHomeFolders, removeHomeFolder } =
   await import('@/lib/store/home-tree')
 
 function emit(data: unknown): void {
@@ -255,6 +255,46 @@ describe('applyHomeFolders', () => {
 
     expect(getHomeTree('p1').chats).toHaveLength(1)
     expect(getHomeTree('p1').folders).toHaveLength(1)
+    dispose()
+  })
+})
+
+// Regression: `applyHomeFolders` only ever upserts (a plain `Folder` carries
+// no `status` field to branch a delete on, unlike the wire `FolderDTO`
+// `useSidebarStore.applyFolderDTO` reads) — a deleted home folder needs its
+// own removal, or a removal-tray commit has nothing that ever takes it back
+// out of the tree.
+describe('removeHomeFolder', () => {
+  it('removes the folder by id, leaving an unrelated sibling untouched', () => {
+    applyHomeFolders('p1', [
+      { id: 'f1', repoId: '', name: 'Notes', order: 0 },
+      { id: 'f2', repoId: '', name: 'Other', order: 1 },
+    ])
+
+    removeHomeFolder('p1', 'f1')
+
+    expect(getHomeTree('p1').folders).toEqual([{ id: 'f2', repoId: '', name: 'Other', order: 1 }])
+  })
+
+  it('is a no-op for a folder id this project’s tree does not hold', () => {
+    applyHomeFolders('p1', [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }])
+
+    removeHomeFolder('p1', 'no-such-id')
+
+    expect(getHomeTree('p1').folders).toHaveLength(1)
+  })
+
+  it('does not disturb the project’s chats', async () => {
+    fetchHomeChatsSpy.mockResolvedValue([chatDTO({ id: 'c1', title: 'Existing' })])
+    fetchHomeFoldersSpy.mockResolvedValue([])
+    const dispose = subscribeHomeTree('p1')
+    await whenChatsLength('p1', 1)
+    applyHomeFolders('p1', [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }])
+
+    removeHomeFolder('p1', 'f1')
+
+    expect(getHomeTree('p1').chats).toHaveLength(1)
+    expect(getHomeTree('p1').folders).toEqual([])
     dispose()
   })
 })

@@ -7,13 +7,18 @@
  * removes different amounts — a workspace cascades, a folder reparents its
  * children, and a repo takes every worktree under it.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({ getHomeWorkspaceId }))
+
 import {
   applyPendingRemovals,
   planRemoval,
   type DragSubject,
 } from '@/components/layout/removal-plan'
 import type { Repo } from '@/lib/store/sidebar'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -34,6 +39,11 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
 })
 
 const WS = (id: string): DragSubject => ({ kind: 'workspace', id, repoId: 'r1' })
+
+beforeEach(() => {
+  getHomeWorkspaceId.mockReset()
+  useHomeTreeStore.setState({ trees: {} })
+})
 
 describe('what a removal takes with it', () => {
   it('takes a workspace and its whole subtree — the delete cascades', () => {
@@ -133,5 +143,66 @@ describe('the sidebar as it reads with rows held', () => {
 
     expect(out[0].folders).toEqual([])
     expect(out[0].workspaces[0].folderId).toBe('')
+  })
+})
+
+// Regression: a project-home chat/folder rides no repo at all, so the repo
+// lookup every OTHER chat/folder draft needs found nothing for one and
+// `handleTrash` refused it outright (reported live as "Can't delete X
+// yet"). `draftFor` now resolves a home row FIRST, via the same
+// `resolveHomeRowScope` `handleOpen`/`handleCreate` already check before
+// anything repo-scoped.
+describe('a project-home chat or folder', () => {
+  it('drafts a chat removal scoped to the home workspace, taking its threads with it', () => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [
+            { id: 'c1', repoId: '', title: 'Parent', order: 0 },
+            { id: 'c2', repoId: '', title: 'Thread', order: 0, parentId: 'c1' },
+          ],
+          folders: [],
+        },
+      },
+    })
+
+    const [draft] = planRemoval([{ kind: 'chat', id: 'c1' }], [repo()])
+
+    expect(draft.kind).toBe('chat')
+    expect(draft.projectId).toBe('p1')
+    expect(draft.repoId).toBe('')
+    expect(draft.wsId).toBe('home-ws-1')
+    expect([...draft.hiddenIds].sort()).toEqual(['c1', 'c2'])
+    expect(draft.extra).toBe(1)
+  })
+
+  it('drafts a folder removal scoped to no repo at all, alone', () => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: { p1: { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] } },
+    })
+
+    const [draft] = planRemoval([{ kind: 'folder', id: 'f1' }], [repo()])
+
+    expect(draft.kind).toBe('folder')
+    expect(draft.projectId).toBe('p1')
+    expect(draft.repoId).toBe('')
+    expect(draft.hiddenIds).toEqual(['f1'])
+    expect(draft.extra).toBe(0)
+  })
+
+  it('is never confused by a repo whose OWN folders array also claims the same id', () => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: { p1: { chats: [], folders: [{ id: 'home-folder-1', repoId: '', name: 'x', order: 0 }] } },
+    })
+    const bled = repo({ folders: [{ id: 'home-folder-1', repoId: 'r1', name: 'x', order: 0 }] })
+
+    const [draft] = planRemoval([{ kind: 'folder', id: 'home-folder-1' }], [bled])
+
+    // '' (home), never 'r1' — the repo-scoped branch below would have
+    // resolved this against the bled-into repo instead.
+    expect(draft.repoId).toBe('')
   })
 })
