@@ -23,6 +23,13 @@ runtime:
     # SwitchToTerminal forks this, and only once idle.
     attach: [codex, resume, "{session_id}"]
     handshake: { call: initialize }
+    # Captured live (0.149.1) from BOTH calls that name a thread id, against a
+    # thread the server no longer has: thread/resume answers "no rollout found
+    # for thread id X" and turn/start answers "thread not found: X" — same code
+    # each time. codex writes no rollout until a turn COMPLETES, so any thread
+    # that never finished one is unresumable the moment its app-server is
+    # replaced, which is why this is reached routinely, not exceptionally.
+    session_lost_codes: [-32600]
   hooks:
     format: json
     delivery: http
