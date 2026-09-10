@@ -33,6 +33,25 @@ export interface PendingCreateEntry {
    *  which has no name of its own. */
   label: string
   error?: string
+  /**
+   * The REAL row's id, attached the moment the create's own request resolves
+   * — before its placement is confirmed correct, not after.
+   *
+   * A create's mint (the `Chat`/`Workspace` aggregate) and its placement (a
+   * separate `Node` write, `CreateChat`/`placeChat`, chats.go) are two
+   * sequential backend writes, not one — so the real row can exist in the
+   * client's own store for a beat with its OLD/default placement (root)
+   * before the correction lands. This id is how a caller tells a row-list
+   * builder "hide the real row at this id until you see me clear" (see
+   * `space-scroller.tsx`'s `unconfirmedRealIds` filter) — the correctly
+   * PLACED pending row above stays the only visible stand-in the whole time,
+   * so there is nothing to visually correct once this entry finally clears:
+   * `waitForHomeChat`/`chatHasLanded`/`forkHasLanded` (space-content-
+   * actions.ts) already gate that clear on the real row's placement actually
+   * matching, this just keeps that real row invisible in the meantime rather
+   * than rendering it wrong first and fixing it a moment later.
+   */
+  realId?: string
 }
 
 interface PendingCreatesState {
@@ -49,6 +68,10 @@ interface PendingCreatesState {
   confirmNaming: (tempId: string, label: string) => void
   /** Adds a thread create straight into 'creating' — no naming step. */
   addCreating: (entry: Omit<PendingCreateEntry, 'status' | 'label' | 'error'>) => void
+  /** Attaches the real row's id once the create's own request resolves — see
+   *  `PendingCreateEntry.realId`'s own doc. A no-op if the entry already left
+   *  (cleared or errored while the request was still in flight). */
+  attachRealId: (tempId: string, realId: string) => void
   setError: (tempId: string, error: string) => void
   /** Drops an entry outright — a naming input the user cancelled (never
    *  reached the network, nothing to roll back), or an error the user
@@ -70,6 +93,10 @@ export const usePendingCreatesStore = create<PendingCreatesState>()((set) => ({
     })),
   addCreating: (entry) =>
     set((s) => ({ entries: [...s.entries, { ...entry, status: 'creating', label: '' }] })),
+  attachRealId: (tempId, realId) =>
+    set((s) => ({
+      entries: s.entries.map((e) => (e.tempId === tempId ? { ...e, realId } : e)),
+    })),
   setError: (tempId, error) =>
     set((s) => ({
       entries: s.entries.map((e) => (e.tempId === tempId ? { ...e, status: 'error', error } : e)),

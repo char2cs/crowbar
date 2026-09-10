@@ -69,7 +69,12 @@ export function rowsFromHome(
 
   // `false`: project home has no repo, so there is no worktree for any of
   // its folders to fork — see `foldersCanFork`'s own doc on `walkTreeIntoRows`.
-  walkTreeIntoRows(rows, folded, null, ownerOfChat, chatTitleById, false)
+  // `homeWorkspaceId` as the ancestor workspace: project home has no
+  // `Workspace[]` of its own (this tree never contains a `workspace` node),
+  // so every home folder — nested or not — resolves to this one constant,
+  // which is exactly right: there is only ever the one home worktree-less
+  // space for a home folder's Thread button to run in.
+  walkTreeIntoRows(rows, folded, null, ownerOfChat, chatTitleById, false, homeWorkspaceId)
 
   return rows
 }

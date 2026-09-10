@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { handleCreateHomeThread } from '@/components/layout/space-content-actions'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { getWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import type { Project } from '@/lib/types'
@@ -16,10 +17,26 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 // The real resolver hits the network (fetchHomeWorkspace); every test here
-// gets a pre-resolved home workspace id so the thread-button test below
-// doesn't need to wait on an effect/fetch to land.
+// gets a pre-resolved home workspace id by default so the thread-button test
+// below doesn't need to wait on an effect/fetch to land. A `vi.fn()`, not a
+// bare arrow, so the not-yet-resolved regression test can override its
+// return value for one call — `vi.hoisted`, since `vi.mock`'s own factory is
+// hoisted above ordinary top-level `const`s and would otherwise close over
+// this before it exists.
+interface HomeWorkspaceStateMockResult {
+  wsId: string | null
+  owningChatId: string | null
+  error: boolean
+}
+const useHomeWorkspaceStateMock = vi.hoisted(() =>
+  vi.fn<(projectId: string | null) => HomeWorkspaceStateMockResult>(() => ({
+    wsId: 'home-ws-1',
+    owningChatId: null,
+    error: false,
+  })),
+)
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
-  useHomeWorkspaceState: () => ({ wsId: 'home-ws-1', owningChatId: null, error: false }),
+  useHomeWorkspaceState: (projectId: string | null) => useHomeWorkspaceStateMock(projectId),
   ensureHomeWorkspaceResolved: vi.fn(),
 }))
 
@@ -27,6 +44,10 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
 // thread-button test can assert the call instead of exercising createChat.
 vi.mock('@/components/layout/space-content-actions', () => ({
   handleCreateHomeThread: vi.fn(),
+}))
+
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }))
 
 // SpacePanel's only import from this module too — the rest of row-actions.ts
@@ -94,7 +115,9 @@ describe('SpaceScroller', () => {
     // jsdom does not implement scrollTo
     HTMLElement.prototype.scrollTo = vi.fn()
     useHomeTreeStore.setState({ trees: {} })
+    usePendingCreatesStore.setState(getInitialPendingCreatesState())
     __resetWorkspaceScopesForTest()
+    useHomeWorkspaceStateMock.mockReturnValue({ wsId: 'home-ws-1', owningChatId: null, error: false })
   })
 
   it('renders one panel per project, min-width 100%', () => {
@@ -480,6 +503,47 @@ describe('SpaceScroller', () => {
       expect(onCreate).not.toHaveBeenCalled()
     })
 
+    // Reported live as "can't create a thread from the project home": a
+    // freshly-opened (or just-created) project's home workspace resolves
+    // asynchronously, and clicking the thread button during that window used
+    // to silently do nothing — no error, no visible reason, `handleCreateHomeThread`
+    // never even called. A row's own refusals all surface a toast instead of
+    // a dead click; this pins the header's thread button doing the same.
+    it('clicking the thread button before the home workspace has resolved refuses with a toast, not silently', async () => {
+      useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, owningChatId: null, error: false })
+      const { toast } = await import('@/features/window/stores/toast-store')
+      const projects = [makeProject('p1')]
+      render(
+        <SpaceScroller
+          projects={projects}
+          activeProjectId="p1"
+          onActiveProjectChange={vi.fn()}
+          rowsForProject={() => []}
+          recentsForProject={noRecents}
+          onOpen={vi.fn()}
+          onTrash={vi.fn()}
+          onCreate={vi.fn()}
+          onFocusRecent={vi.fn()}
+          onCloseRecent={vi.fn()}
+          onDrop={onDrop}
+          onPaneDrop={onPaneDrop}
+          onTrashProject={vi.fn()}
+        />,
+      )
+      const header = screen.getAllByTestId('space-header-row')[0]
+      // This file's mocks are never cleared between tests (an earlier test
+      // above already calls `handleCreateHomeThread` once for real) — a call
+      // COUNT taken right before the click, not `.not.toHaveBeenCalled()`,
+      // is what actually proves THIS click added no new call.
+      const callsBefore = vi.mocked(handleCreateHomeThread).mock.calls.length
+
+      fireEvent.mouseEnter(header)
+      fireEvent.click(screen.getByTestId('new-thread'))
+
+      expect(handleCreateHomeThread).toHaveBeenCalledTimes(callsBefore)
+      expect(toast.error).toHaveBeenCalledWith("Can't start a new thread yet")
+    })
+
     // "Create a folder" used to target the FIRST repo's own home row — folders
     // were once thought repo-internal only. The backend's `/home/chats/folders`
     // mount says otherwise, so the project-level add-menu item has to reach it.
@@ -558,6 +622,86 @@ describe('SpaceScroller', () => {
       expect(screen.getByText('Fix the thing')).toBeInTheDocument()
       expect(screen.getByText('Notes')).toBeInTheDocument()
       expect(screen.getByText('Repo thread')).toBeInTheDocument()
+    })
+
+    // Regression, reported live: a create's mint and its placement are two
+    // sequential backend writes (space-content-actions.ts's `waitForHomeChat`
+    // own doc), so the REAL row can land in the home tree store — via a
+    // reseed racing ahead of the placement write — before its placement is
+    // actually correct. Rendering it the instant it merely EXISTS put a
+    // second, wrongly-placed row on screen alongside the already-correctly-
+    // placed pending placeholder, which is what still read as "a child
+    // appears in the wrong place" even after the pending row's OWN clearing
+    // was fixed to wait for the right parentId. The real row must stay
+    // completely invisible — not just uncleared-pending — until its own
+    // pending entry (linked by `realId`) is gone.
+    it('hides the real row while its create is still unconfirmed, showing only the pending placeholder', () => {
+      useHomeTreeStore.setState({
+        trees: {
+          p1: {
+            chats: [
+              {
+                id: 'real-1',
+                repoId: '',
+                workspaceId: 'home-ws-1',
+                title: 'New thread',
+                order: 0,
+                // Still parented at root — its placement write has not
+                // landed yet, exactly the frame that must never reach the
+                // screen as its own visible row.
+              },
+            ],
+            folders: [],
+          },
+        },
+      })
+      usePendingCreatesStore.setState({
+        entries: [
+          {
+            tempId: 'pending-1',
+            kind: 'chat',
+            projectId: 'p1',
+            parentId: '',
+            order: 0,
+            workspaceId: 'home-ws-1',
+            ownsWorktree: false,
+            status: 'creating',
+            label: '',
+            realId: 'real-1',
+          },
+        ],
+      })
+      const projects = [makeProject('p1')]
+      render(
+        <SpaceScroller
+          projects={projects}
+          activeProjectId="p1"
+          onActiveProjectChange={vi.fn()}
+          rowsForProject={() => []}
+          recentsForProject={noRecents}
+          onOpen={vi.fn()}
+          onTrash={vi.fn()}
+          onCreate={vi.fn()}
+          onFocusRecent={vi.fn()}
+          onCloseRecent={vi.fn()}
+          onDrop={onDrop}
+          onPaneDrop={onPaneDrop}
+          onTrashProject={vi.fn()}
+        />,
+      )
+
+      // The real row is hidden — its title never reaches the screen while
+      // unconfirmed, even though it already exists in the store.
+      expect(screen.queryByText('New thread')).not.toBeInTheDocument()
+
+      // The create confirms (waitForHomeChat's own clear, elsewhere) — the
+      // pending entry is gone, and the (now definitely correctly placed)
+      // real row appears for the first time.
+      act(() => {
+        usePendingCreatesStore.setState({ entries: [] })
+      })
+
+      expect(screen.getByText('New thread')).toBeInTheDocument()
     })
 
     // Caught live: a repo's own row kept its raw backend `order` while a home

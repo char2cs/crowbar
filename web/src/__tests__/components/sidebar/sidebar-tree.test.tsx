@@ -115,7 +115,7 @@ describe('SidebarTree', () => {
   // own row now carries its own Fork button directly (sidebar-row.tsx), the
   // same place every other kind's already lived; there is nothing left to
   // render beneath an empty folder at all.
-  it('an empty folder renders nothing beneath it — its own row carries Fork directly', () => {
+  it('an empty folder renders nothing beneath it — its own row carries Thread and Fork directly', () => {
     const onCreate = vi.fn()
     const repoFolder: SidebarRow = { ...rows[0], ownsWorktree: true }
     render(
@@ -130,17 +130,40 @@ describe('SidebarTree', () => {
     expect(screen.queryByTestId('affordance-dropdown')).not.toBeInTheDocument()
     expect(screen.queryByTestId('affordance-thread')).not.toBeInTheDocument()
     expect(screen.queryByTestId('affordance-workspace')).not.toBeInTheDocument()
-    // Never Thread — a folder has no owning chat for one to run in, whether
-    // or not it owns a worktree (`handleCreate` refuses this outright).
-    expect(screen.queryByRole('button', { name: /^thread bugs$/i })).not.toBeInTheDocument()
+    // A folder applies the same logic as its parent: under a real repo it
+    // gets BOTH Thread and Fork on its own row, same as a `branch` row does.
+    screen.getByRole('button', { name: /^thread bugs$/i }).click()
+    expect(onCreate).toHaveBeenCalledWith('folder-1', 'thread')
     screen.getByRole('button', { name: /^fork bugs$/i }).click()
     expect(onCreate).toHaveBeenCalledWith('folder-1', 'workspace')
   })
 
   // A project-home folder (rows-from-home.ts) owns no worktree at all — no
-  // repo means no worktree to fork — so it gets neither button, and still
-  // renders nothing beneath it when empty.
-  it('an empty folder with no worktree to fork gets no create affordance at all', () => {
+  // repo means no worktree to fork — so it gets no Fork button, and still
+  // renders nothing beneath it when empty. It DOES still get Thread: project
+  // home applies the same logic to a folder it applies to a chat, and a home
+  // chat has always gotten Thread with no repo required.
+  it('an empty folder with no worktree to fork gets Thread but no Fork', () => {
+    const onCreate = vi.fn()
+    render(
+      <SidebarTree
+        rows={[rows[0]]}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={onCreate}
+        {...DRAG_PROPS}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /^fork bugs$/i })).not.toBeInTheDocument()
+    screen.getByRole('button', { name: /^thread bugs$/i }).click()
+    expect(onCreate).toHaveBeenCalledWith('folder-1', 'thread')
+  })
+
+  // Explicit product request: the fold chevron must not render at all on a
+  // row with no children — toggling it already had zero visible effect (there
+  // was nothing to fold), so leaving the button there was an affordance for
+  // nothing. `onToggleFold` is passed only when `hasChildren` is true.
+  it('a childless row renders no fold/chevron control at all', () => {
     render(
       <SidebarTree
         rows={[rows[0]]}
@@ -150,8 +173,9 @@ describe('SidebarTree', () => {
         {...DRAG_PROPS}
       />,
     )
-    expect(screen.queryByRole('button', { name: /^fork bugs$/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^thread bugs$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /collapse bugs/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /expand bugs/i })).not.toBeInTheDocument()
+    expect(document.querySelector('[data-control="fold"]')).not.toBeInTheDocument()
   })
 
   // Addendum §5: revises the old expectation above (a nested split-control

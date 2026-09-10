@@ -69,11 +69,11 @@ describe('SidebarRow', () => {
   })
 
   // Addendum §1: the single contextual "+" is gone — Fork and Thread are two
-  // separate, always-rendered buttons, and the trash button that used to lead
-  // this cluster is gone entirely (deleting moved to drag-to-trash,
-  // addendum §2). `onTrash` is still passed here (sidebar-tree.tsx still
-  // threads it to every row) to prove it renders nothing on its own.
-  it('trailing controls are fork, thread, chevron in that order, revealed on hover', () => {
+  // separate, always-rendered buttons. Spec §9 gives an ordinary (unlocked,
+  // non-home) branch row a trash too, same as a chat or folder — see
+  // sidebar-row.test.tsx's own remove-control coverage below for the two
+  // rows it's withheld from (a locked branch, the project home).
+  it('trailing controls on a branch row are thread, fork, remove, chevron', () => {
     render(
       <SidebarRow
         row={deletableRow}
@@ -85,7 +85,12 @@ describe('SidebarRow', () => {
       />,
     )
     const controls = screen.getAllByRole('button')
-    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['fork', 'thread', 'fold'])
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual([
+      'thread',
+      'fork',
+      'remove',
+      'fold',
+    ])
   })
 
   it('no HANDLER-driven trailing controls render when no handler is passed for them', () => {
@@ -110,11 +115,27 @@ describe('SidebarRow', () => {
     expect(onCreate).toHaveBeenCalledWith('row-1', 'thread')
   })
 
-  it('the fork control always mints a workspace, regardless of ownsWorktree', () => {
+  it('the fork control mints a workspace on a branch row', () => {
     const onCreate = vi.fn()
-    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onCreate={onCreate} />)
+    render(
+      <SidebarRow
+        row={{ ...baseRow, kind: 'branch', ownsWorktree: true }}
+        depth={0}
+        onOpen={vi.fn()}
+        onCreate={onCreate}
+      />,
+    )
     screen.getByRole('button', { name: /fork/i }).click()
     expect(onCreate).toHaveBeenCalledWith('row-1', 'workspace')
+  })
+
+  // Explicit product correction: a thread is not itself a branch, so it must
+  // not be allowed to mint one as a child — Fork never renders on a `chat`
+  // row, full stop (not conditioned on `canFork`/`ownsWorktree` any more).
+  it('never renders Fork on a chat row — a thread cannot have a branch child', () => {
+    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onCreate={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /fork/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
   })
 
   // Regression: `ROW_SUB_ACTION_HOVER` shows this whole cluster on
@@ -126,7 +147,7 @@ describe('SidebarRow', () => {
   it('the fork/thread/fold buttons blur themselves after firing, so the cluster does not stay stuck open', () => {
     render(
       <SidebarRow
-        row={baseRow}
+        row={deletableRow}
         depth={0}
         onOpen={vi.fn()}
         onCreate={vi.fn()}
@@ -158,12 +179,7 @@ describe('SidebarRow', () => {
   it('both Fork and Thread render on a row that owns a worktree too', () => {
     const onCreate = vi.fn()
     render(
-      <SidebarRow
-        row={{ ...baseRow, ownsWorktree: true }}
-        depth={0}
-        onOpen={vi.fn()}
-        onCreate={onCreate}
-      />,
+      <SidebarRow row={deletableRow} depth={0} onOpen={vi.fn()} onCreate={onCreate} />,
     )
     expect(screen.getByRole('button', { name: /fork/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
@@ -415,14 +431,19 @@ describe('SidebarRow', () => {
     expect(screen.getByText('Fix the thing')).toHaveAttribute('data-sidebar-row-label')
   })
 
-  // Addendum §1/§2: the trash button is gone from every row kind, not just
-  // the protected-branch one — deleting is now a drag-to-trash gesture built
-  // elsewhere. `onTrash` is still accepted (see the prop's own doc) purely
-  // for type-compat with `sidebar-tree.tsx`, which still threads a handler
-  // down to every row; it must render nothing regardless.
-  it('no row kind renders a trash control, even though onTrash is supplied', () => {
-    const rows: SidebarRowType[] = [
+  // Spec §9: "every row that owns something carries a trash: chats,
+  // workspaces, folders, repos, and the space header for the project." The
+  // X/"remove" control follows that — chat, folder, and an ordinary
+  // (unlocked, non-home) branch all get it. Reported live: a LOCKED branch
+  // showed the X too, which read as "this row can be one-click removed" when
+  // it plainly cannot (`handleTrash` refuses it with a toast) — same for the
+  // repo's own project-home row, which `handleTrash` also refuses. Those two
+  // are the only rows the control is withheld from, not offered as a dead
+  // click.
+  it('the remove control renders on chat, folder, and an ordinary branch — never a locked branch or the project home', () => {
+    const shown: SidebarRowType[] = [
       baseRow,
+      { ...baseRow, kind: 'folder', ownsWorktree: true },
       {
         ...baseRow,
         kind: 'branch',
@@ -430,20 +451,29 @@ describe('SidebarRow', () => {
         branchName: 'my-feature',
         ownsWorktree: true,
       },
-      { ...baseRow, kind: 'branch', parentId: null, branchName: 'develop', ownsWorktree: true },
-      { ...baseRow, kind: 'folder', ownsWorktree: true },
     ]
-    for (const row of rows) {
+    for (const row of shown) {
       const { unmount } = render(
         <SidebarRow row={row} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />,
       )
-      expect(screen.queryByTestId('trash-control')).not.toBeInTheDocument()
-      expect(document.querySelector('[data-control="trash"]')).not.toBeInTheDocument()
+      expect(document.querySelector('[data-control="remove"]')).toBeInTheDocument()
+      unmount()
+    }
+
+    const hidden: SidebarRowType[] = [
+      { ...baseRow, kind: 'branch', parentId: 'parent-1', branchName: 'my-feature', locked: true },
+      { ...baseRow, kind: 'branch', parentId: null, branchName: 'develop', ownsWorktree: true },
+    ]
+    for (const row of hidden) {
+      const { unmount } = render(
+        <SidebarRow row={row} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />,
+      )
+      expect(document.querySelector('[data-control="remove"]')).not.toBeInTheDocument()
       unmount()
     }
   })
 
-  it('a chat row shows both HANDLER-driven trailing controls plus fold, trash never among them', () => {
+  it('a chat row shows thread, remove, and fold — never fork', () => {
     render(
       <SidebarRow
         row={baseRow}
@@ -455,14 +485,23 @@ describe('SidebarRow', () => {
       />,
     )
     const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
-    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['fork', 'thread', 'fold'])
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual([
+      'thread',
+      'remove',
+      'fold',
+    ])
   })
 
   // The ghost/bootstrap row a childless folder used to render underneath
   // itself (sidebar-tree.tsx, now removed) existed only to hold these two
   // buttons — a folder's own row carries them directly now, same place
   // every other kind's Fork/Thread already lived.
-  it('a folder that owns a worktree shows Fork (never Thread) directly on its own row', () => {
+  //
+  // A folder applies "the same logic as its parent" (product rule): under a
+  // real repo it gets BOTH Fork (gated by `ownsWorktree`, same as a `branch`
+  // row) and Thread (ungated, same as every other row kind) — never Fork
+  // alone, the way a locked branch's own folder used to.
+  it('a folder that owns a worktree shows Thread AND Fork on its own row', () => {
     render(
       <SidebarRow
         row={{ ...baseRow, kind: 'folder', ownsWorktree: true }}
@@ -473,12 +512,18 @@ describe('SidebarRow', () => {
       />,
     )
     const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
-    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['fork', 'fold'])
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual([
+      'thread',
+      'fork',
+      'fold',
+    ])
   })
 
   // A project-home folder (rows-from-home.ts) never owns a worktree — no
-  // repo, nothing to fork — so it gets neither create button, only fold.
-  it('a folder that owns no worktree shows neither Fork nor Thread', () => {
+  // repo, nothing to fork — so it gets no Fork button. It DOES still get
+  // Thread: project home applies the same logic to a folder it applies to a
+  // chat, and a home chat has always gotten Thread with no repo required.
+  it('a folder that owns no worktree shows Thread but not Fork', () => {
     render(
       <SidebarRow
         row={{ ...baseRow, kind: 'folder', ownsWorktree: false }}
@@ -489,7 +534,7 @@ describe('SidebarRow', () => {
       />,
     )
     const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
-    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['fold'])
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['thread', 'fold'])
   })
 
   // §3.5/§4.2: a bubble chat's glyph is itself a promotion dropdown — gated
@@ -661,5 +706,25 @@ describe('SidebarRow', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
       expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
     })
+  })
+})
+
+// Regression, reported live: an unlabeled, empty naming input read as a chat
+// box to type INTO rather than a name to give the new branch — what got
+// typed there became the fork's own branch name (a nonsense one, since the
+// user thought they were asking a question). `CREATE_ROW_PLACEHOLDER`
+// restores the wording `develop`'s own create-row input showed, minus the
+// "or name/ for a folder" half — this input only ever forks a branch now.
+describe('a pending row awaiting its branch name', () => {
+  const namingRow: SidebarRowType = {
+    ...baseRow,
+    kind: 'branch',
+    ownsWorktree: true,
+    pending: { tempId: 'pending-1', status: 'naming' },
+  }
+
+  it('shows the branch-name placeholder on the naming input', () => {
+    render(<SidebarRow row={namingRow} depth={0} onOpen={vi.fn()} />)
+    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'branch-name')
   })
 })

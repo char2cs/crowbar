@@ -443,21 +443,81 @@ function waitForRow(predicate: (repos: readonly Repo[]) => boolean): Promise<voi
   })
 }
 
-/** Whether some repo's chat list now carries `chatId` — true once the create
- *  that minted it has actually reseeded, not merely once its POST resolved.
- *  A forked branch's own chat lands here too (rows-from-repo.ts draws it
- *  from the same `repo.chats`), so one check covers both create kinds. */
-function chatHasLanded(chatId: string): (repos: readonly Repo[]) => boolean {
-  return (repos) => repos.some((r) => r.chats?.some((c) => c.id === chatId))
+/** Whether some repo's chat list now carries `chatId`, ALREADY placed under
+ *  `parentId` — true only once the create that minted it has both reseeded
+ *  AND its placement write has landed, never merely once its POST resolved
+ *  or the chat merely exists.
+ *
+ *  `parentId`, and checking it, is load-bearing — this is `forkHasLanded`'s
+ *  own shape, not the bare existence check this function used to be.
+ *  Sidebar-placement-unification Task 8 moved a repo-scoped chat's placement
+ *  onto a separate `Node` write (`CreateChat`'s own `MintChat` then
+ *  `placeChat`, chats.go) — the SAME two-aggregate split Task 5 gave home
+ *  rows — so `chat.parentId` no longer reliably reflects where the create
+ *  actually landed the instant the chat itself is merely observed to exist:
+ *  the chat lifecycle hub broadcasts on `MintChat`'s own commit alone, with
+ *  no idea the placement write is still in flight, so a reseed can land here
+ *  showing the chat already existing but still parented at root. See
+ *  `waitForHomeChat`'s own doc, which pins the identical race for home. */
+function chatHasLanded(chatId: string, parentId: string): (repos: readonly Repo[]) => boolean {
+  return (repos) =>
+    repos.some((r) => r.chats?.some((c) => c.id === chatId && c.parentId === parentId))
+}
+
+/** `chatHasLanded`'s own twin for a FORK: true only once BOTH halves have
+ *  arrived, correctly placed — the chat (under `parentId`) AND the workspace
+ *  it owns.
+ *
+ *  A workspace mints its owning chat chat-first (rows-from-repo.ts's own
+ *  doc), so the two land as separate reseed frames, never atomically. Until
+ *  the workspace frame catches up, `rows-from-repo.ts` has no WORKSPACE
+ *  NODE to fold this chat onto — its render position falls through to the
+ *  chat's OWN placement rules (parentId, then workspaceId-as-ground, which
+ *  fails since that workspace isn't in the tree yet), landing it at the
+ *  REPO ROOT rather than nested under the branch it was actually forked
+ *  from. Clearing the pending spinner on existence alone revealed exactly
+ *  that frame — caught live: a fresh fork appeared outside its parent for a
+ *  beat, shoving every row below it down, before snapping into its real
+ *  nested position the instant the workspace frame landed.
+ *
+ *  The chat's OWN `parentId` match is required on top of that, for the same
+ *  reason `chatHasLanded` now checks it: a fork's placement is ALSO a
+ *  separate Node write from its mint (`createOwnWorktreeChat` calls the same
+ *  `MintChat`-then-`placeChat` sequence), so the workspace-owner half landing
+ *  does not by itself guarantee the CHAT half's placement has too. */
+function forkHasLanded(chatId: string, parentId: string): (repos: readonly Repo[]) => boolean {
+  return (repos) =>
+    repos.some(
+      (r) =>
+        r.chats?.some((c) => c.id === chatId && c.parentId === parentId) &&
+        r.workspaces.some((w) => w.owningChatId === chatId),
+    )
 }
 
 /** `waitForRow`'s own twin for a PROJECT-HOME thread: home rides no repo at
  *  all (`resolveHomeRowScope`'s own doc), so its chats live in
  *  `useHomeTreeStore`, not `useSidebarStore` — a create there is never
  *  observed by `waitForRow`'s subscription, which only ever fires on the
- *  repo-scoped store. */
-function waitForHomeChat(projectId: string, chatId: string): Promise<void> {
-  const landed = (): boolean => getHomeTree(projectId).chats.some((c) => c.id === chatId)
+ *  repo-scoped store.
+ *
+ *  `parentId` is required, and checked — this is `forkHasLanded`'s own shape,
+ *  not `chatHasLanded`'s. A home chat's placement is NOT on the `Chat`
+ *  aggregate `MintChat` commits (its `ParentID` defaults to the Go zero value
+ *  `""`, i.e. root) — for a home row it lives on a SEPARATE `Node` aggregate,
+ *  written by a second, later call in the same backend request
+ *  (`CreateChat`'s own `MintChat` then `placeChat`, chats.go). The chat
+ *  lifecycle hub broadcasts on the FIRST commit alone, with no idea the
+ *  second is still in flight, so a reseed can land here showing the chat
+ *  already existing but still parented at root — landing this promise (and
+ *  clearing the pending placeholder) on existence alone hands rendering to a
+ *  REAL row that is itself still momentarily wrong. Caught live: a fresh home
+ *  thread inside a folder appeared at the top of the list for a beat before
+ *  snapping into the folder — the exact shape `forkHasLanded`'s own doc
+ *  describes for a fork's two-aggregate mint, fixed here the same way rather
+ *  than a new one invented for it. */
+function waitForHomeChat(projectId: string, chatId: string, parentId: string): Promise<void> {
+  const landed = (): boolean =>
+    getHomeTree(projectId).chats.some((c) => c.id === chatId && c.parentId === parentId)
   return new Promise((resolve) => {
     if (landed()) {
       resolve()
@@ -495,7 +555,7 @@ const armedBranchCreates = new Map<
  *  confirmed via `confirmPendingCreateName`); a thread has nothing to name
  *  and fires immediately. */
 export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): void {
-  // A project-home row (chat or folder) is resolved FIRST, against every
+  // A project-home row (chat OR folder) is resolved FIRST, against every
   // visible project's home tree rather than `repos` — same rule `handleOpen`
   // already follows via the identical `resolveHomeRowScope` call. Project
   // home rides no repo at all, so there is no worktree to fork from: a
@@ -503,11 +563,16 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
   // (`rows-from-home.ts`'s `foldersCanFork: false`), and a chat row's Fork
   // button now does too (see sidebar-row.tsx's `canFork` check) — reached
   // here only via a stale click racing that, so it stays a silent no-op
-  // rather than a request with nothing to act on. A folder has no Thread
-  // button at all (sidebar-row.tsx never renders one for `kind: 'folder'`).
+  // rather than a request with nothing to act on.
+  //
+  // Thread, unlike Fork, is NOT refused for a folder — home applies the same
+  // logic to a folder it applies to a chat: the folder names no workspace of
+  // its own (home has none to name), but `homeRow.homeWorkspaceId` already IS
+  // the one workspace every home row — chat or folder, nested or not — runs
+  // in, so there is nothing folder-specific left to resolve below.
   const homeRow = resolveHomeRowScope(parentId)
   if (homeRow) {
-    if (kind === 'workspace' || homeRow.kind !== 'chat') return
+    if (kind === 'workspace' || (homeRow.kind !== 'chat' && homeRow.kind !== 'folder')) return
     const provider = enabledProvider()
     if (!provider) return
     const inFlightKey = `${kind}:${parentId}`
@@ -540,7 +605,11 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     createChat(homeRow.homeWorkspaceId, provider.id, parentId)
       .then((chatId) => {
         release()
-        return waitForHomeChat(homeRow.projectId, chatId).then(() =>
+        // Hides the real row (space-scroller.tsx's `unconfirmedRealIds`)
+        // from first paint, rather than letting it render wrong once and
+        // correct itself a moment later — see PendingCreateEntry.realId.
+        usePendingCreatesStore.getState().attachRealId(tempId, chatId)
+        return waitForHomeChat(homeRow.projectId, chatId, parentId).then(() =>
           usePendingCreatesStore.getState().clear(tempId),
         )
       })
@@ -663,20 +732,34 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     return
   }
 
-  // A thread needs a real workspace to run in — a folder names none. Reachable
-  // only from an empty folder's affordance dropdown (its own "+" always makes
-  // a workspace, see above); the dropdown itself has no folder-vs-workspace
-  // split to hide this option behind, so say why instead of swallowing the
-  // click.
-  if (subject.kind !== 'workspace') {
+  // The new thread's OWN tree position, once real: nested under the clicked
+  // row's own chat id (`parentId`, the original argument — a thread's
+  // placement lives in CHAT-id space, unlike a fork's, which lives in
+  // WORKSPACE-id space above), after every thread already there. Computed
+  // once, up front, and reused below for the `wsId` lookup too.
+  const siblingRows = rowsFromRepo(repo)
+
+  // A thread needs a real workspace to run in. A `workspace` subject IS one
+  // (`subject.id`, not the clicked row's — this one posts to that workspace's
+  // chats mount, and a branch row's own id is the chat that owns it). A
+  // `folder` subject names none of its own, but a folder applies "the same
+  // logic as its parent" (product rule) rather than refusing outright: its
+  // nearest owning workspace is already resolved and stamped onto its own
+  // `SidebarRow.workspaceId` at row-build time (`walkTreeIntoRows`'s
+  // `ancestorWorkspaceId` — a locked branch, an ordinary fork, or (with no
+  // ancestor branch at all) the repo's own home), so this reads that back
+  // rather than re-walking the tree itself. Still null only for a subject
+  // this repo's own rows never actually rendered (a stale click racing a
+  // repo swap) — genuinely nothing to act on, same as before.
+  const wsId =
+    subject.kind === 'workspace'
+      ? subject.id
+      : (siblingRows.find((r) => r.id === subject.id)?.workspaceId ?? null)
+  if (!wsId) {
     toast.error('Start a thread from a workspace row — a folder has none to run it in')
     release()
     return
   }
-  // `subject.id`, not the clicked row's — this one needs the WORKSPACE (it
-  // posts to that workspace's chats mount), and a branch row's own id is the
-  // chat that owns it.
-  const wsId = subject.id
   // THE GLOBAL PROVIDER LIST, not `getOrCreateWorkspaceStore(wsId)`'s.
   //
   // Providers are machine-level — `use-workspace-agent-chats-stream.ts` says so
@@ -694,11 +777,6 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     release()
     return
   }
-  // The new thread's OWN tree position, once real: nested under the clicked
-  // row's own chat id (`parentId`, the original argument — a thread's
-  // placement lives in CHAT-id space, unlike a fork's, which lives in
-  // WORKSPACE-id space above), after every thread already there.
-  const siblingRows = rowsFromRepo(repo)
   const order = siblingRows.filter((r) => r.parentId === parentId && r.kind === 'chat').length
   const tempId = `pending-${crypto.randomUUID()}`
   usePendingCreatesStore.getState().addCreating({
@@ -730,7 +808,11 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     .then((chatId) => {
       release()
       announceTreeChange(repo.id)
-      return waitForRow(chatHasLanded(chatId)).then(() =>
+      // Hides the real row (space-scroller.tsx's `unconfirmedRealIds`) from
+      // first paint — see PendingCreateEntry.realId, and chatHasLanded's own
+      // doc for the placement race this closes for repo-scoped threads too.
+      usePendingCreatesStore.getState().attachRealId(tempId, chatId)
+      return waitForRow(chatHasLanded(chatId, parentId)).then(() =>
         usePendingCreatesStore.getState().clear(tempId),
       )
     })
@@ -762,7 +844,11 @@ export function confirmPendingCreateName(tempId: string, name: string): void {
     .then((chatId) => {
       armed.release()
       announceTreeChange(armed.repoId)
-      return waitForRow(chatHasLanded(chatId)).then(() =>
+      // Hides the real row (space-scroller.tsx's `unconfirmedRealIds`) from
+      // first paint — see PendingCreateEntry.realId, and forkHasLanded's own
+      // doc for the placement race this closes.
+      usePendingCreatesStore.getState().attachRealId(tempId, chatId)
+      return waitForRow(forkHasLanded(chatId, armed.placementParentId)).then(() =>
         usePendingCreatesStore.getState().clear(tempId),
       )
     })

@@ -5,9 +5,11 @@ import {
   FolderOpen,
   GitBranch,
   Lock,
+  X,
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -15,6 +17,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import {
+  CREATE_ROW_PLACEHOLDER,
   DISCLOSURE_GLYPH_PATH,
   ROW_BASE,
   ROW_GLYPH_BOX,
@@ -22,6 +25,7 @@ import {
   ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
   ROW_NEST_TARGET,
+  ROW_SUB_ACTION,
   ROW_SUB_ACTION_HOVER,
   ROW_SUBLABEL,
   ROW_SUBLABEL_ADD,
@@ -43,11 +47,12 @@ interface SidebarRowProps {
   /** Tree depth for the indent step. 0 for a Recents entry — no indent there (spec §5.1). */
   depth: number
   onOpen: (id: string) => void
-  /** Addendum §1/§4: the row no longer carries a trash button — deleting moved
-   *  to the drag-to-trash gesture on the file explorer card. Kept only in the
-   *  prop type (never read below) because `sidebar-tree.tsx` still threads a
-   *  handler down to every row it renders; dropping the field here would be a
-   *  type error at that call site, which is outside this fix's file list. */
+  /** Explicit product request: an X close button (Recents' own — same
+   *  `ROW_SUB_ACTION_HOVER` token and `X` glyph, see the trailing cluster's
+   *  own comment) instead of the drag-to-trash gesture being the ONLY way
+   *  to remove a row. Calls the exact same `handleTrash` the drag gesture
+   *  already did (`sidebar-tree-surface.tsx`'s `onTrash`) — a refusal (a
+   *  locked branch, a repo home) surfaces the same toast either way. */
   onTrash?: (id: string) => void
   onCreate?: (id: string, kind: 'workspace' | 'thread') => void
   onToggleFold?: (id: string) => void
@@ -102,6 +107,7 @@ export function SidebarRow({
   row,
   depth,
   onOpen,
+  onTrash,
   onCreate,
   onToggleFold,
   folded,
@@ -111,6 +117,15 @@ export function SidebarRow({
   onPointerDownDrag,
   inlineRenameDisabled,
 }: SidebarRowProps) {
+  // Read UNCONDITIONALLY, before either early return below — rules of hooks:
+  // a row's `pending`/`removal` state can flip between renders of the SAME
+  // component instance (a real row enters the removal tray and later leaves
+  // it, without remounting — its id, and so its key, never changes), so a
+  // hook called only on the branch that falls through past both checks would
+  // vary the hook count render to render for that one instance. Harmless to
+  // run early: the two returns below render an entirely different component,
+  // which never reads this value at all.
+  const isThisRowRenaming = useSidebarInlineRenameStore((s) => s.renamingRowId === row.id)
   // A create still in flight (pending-creates.ts) draws through this SAME row
   // shape rather than a separate placeholder component, at the exact slot
   // the finished create lands in — none of the interactive state below (open,
@@ -119,6 +134,15 @@ export function SidebarRow({
   // of it.
   if (row.pending) {
     return <PendingSidebarRow row={row} depth={depth} pending={row.pending} />
+  }
+  // A REAL row currently held in the removal tray (`removal-plan.ts`'s
+  // `attachRemovalState`) draws its countdown/undo IN PLACE instead of the
+  // row hiding while a separate tray shows the same thing elsewhere —
+  // explicit product request. Same early-return shape as `row.pending`
+  // above; the two never coexist (a pending row's id is a synthetic tempId
+  // no removal entry could ever name).
+  if (row.removal) {
+    return <RemovingSidebarRow row={row} depth={depth} removal={row.removal} />
   }
   // The project-home row is `branch` with no parent — the sidebar's one 20px
   // glyph exception outside the project header itself (spec §3.1), and also
@@ -150,10 +174,11 @@ export function SidebarRow({
   // listener) starts this row's turn in `sidebar-inline-rename.ts`'s store —
   // real inline editing in place, matching `develop`, not the modal Task 4
   // wrongly opened. A narrow selector: this row only cares whether IT is the
-  // one renaming, not who else might be. `inlineRenameDisabled` (see its own
-  // doc above) keeps a second same-id instance — Recents mirroring a live
-  // pane — from ALSO answering yes and fighting the tree row for focus.
-  const isThisRowRenaming = useSidebarInlineRenameStore((s) => s.renamingRowId === row.id)
+  // one renaming, not who else might be (`isThisRowRenaming` itself, read
+  // unconditionally at the top of this function — see that hook call's own
+  // doc). `inlineRenameDisabled` (see its own doc above) keeps a second
+  // same-id instance — Recents mirroring a live pane — from ALSO answering
+  // yes and fighting the tree row for focus.
   const renaming = !inlineRenameDisabled && isThisRowRenaming
   // Rule 6: a `branch` row that owns a real, unlocked workspace draws its
   // OWNING CHAT's title on the label line now (`rows-from-repo.ts`'s own
@@ -301,51 +326,36 @@ export function SidebarRow({
           </span>
         )}
 
-        {/* Addendum §1 (revises spec §3.1): Fork and Thread are two separate,
-            always-rendered buttons now, not one contextual "+" that picked
-            between them off `row.ownsWorktree`. Both stay unconditional for
-            a `branch`/`chat` row exactly as before (a bubble's are
-            deliberately dead for now — see the "silent > wrong" note on
-            `handleCreate`'s own resolveChatRow guard — not this fix's
-            business to touch). A FOLDER is the one addition: it gets Fork
-            too, but only `row.ownsWorktree` (`rows-from-repo.ts`: true under
-            a real repo; `rows-from-home.ts`: always false, no repo means no
-            worktree to clone) — never Thread, which `handleCreate` refuses
-            outright for any folder regardless of worktree ownership ("a
-            folder has none to run it in").
+        {/* Trailing cluster order, explicit product spec: Thread, Branch
+            (Fork), remove (X), Dropdown (fold) — left to right.
 
-            A folder's Fork used to live on a SEPARATE placeholder row
-            rendered under it when childless (sidebar-tree.tsx) instead of
-            here, on its own row — an empty, unlabeled row for a button every
-            other kind already carries inline, and one a project-home folder
-            drew even though clicking its OWN Fork there could never work.
-            Removed; this is that button, correctly gated per-tree now. The
-            trash button that used to lead this cluster is gone entirely
-            (addendum §1/§2): deleting is now a drag-to-trash gesture onto
-            the file explorer card, built elsewhere.
+            Addendum §1 (revises spec §3.1): Fork and Thread are two separate
+            buttons, not one contextual "+" that picked between them off
+            `row.ownsWorktree`. A FOLDER gets BOTH now, each gated exactly the
+            way its parent context already gates it for every other row kind
+            — a folder applies "the same logic as its parent," not a rule of
+            its own:
 
-            Rule 8: the fork control mints a CHILD chat session with its OWN
-            workspace forked from this row's branch — a git operation, not a
-            generic "+" — so it draws the same `GitBranch` mark `RowGlyph`
-            already uses for a row that owns a worktree (`weight="bold"`,
-            matching the thread button's own weight, rather than `"fill"`,
-            which reads too heavy at this size next to it). The thread button
-            beside it is unchanged.
+              - Fork: `row.ownsWorktree` (`rows-from-repo.ts`: true under a
+                real repo; `rows-from-home.ts`: always false — no repo means
+                no worktree to clone), identical to a `branch` row's own gate.
+              - Thread: no extra gate at all, identical to every OTHER row
+                kind here (a `branch` row gets Thread even when `locked`) —
+                `handleCreate` resolves the folder's nearest owning workspace
+                itself (repo-scoped: the closest ancestor branch, or the
+                repo's own home; project-home: the project's home workspace,
+                always) rather than the folder needing to know which.
 
-            A `chat` row's own eligibility is `row.canFork` (rows-from-repo.ts) —
-            a project-home bubble sets it `false` for the same reason a
-            project-home folder's own `ownsWorktree` already does: no repo
-            means no worktree for either to clone. Reported live: Fork was
-            offered on a home-scoped chat with no git anything behind it. */}
-        {onCreate &&
-          (row.kind === 'folder'
-            ? row.ownsWorktree
-            : row.kind !== 'chat' || row.canFork !== false) && (
+            A `chat` row (a thread/bubble) never gets Fork at all — explicit
+            product correction: a thread is not itself a branch, so it must
+            not be allowed to mint one as a child. Only `branch` (always) and
+            `folder` (when `ownsWorktree`) can fork. */}
+        {onCreate && (
           <button
             type="button"
-            data-control="fork"
+            data-control="thread"
             className={ROW_SUB_ACTION_HOVER}
-            aria-label={`Fork ${row.label}`}
+            aria-label={`Thread ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
               // `ROW_SUB_ACTION_HOVER` shows this cluster on `group-focus-within`
@@ -355,29 +365,66 @@ export function SidebarRow({
               // `:focus-within` still matches plain `:focus`), so without this
               // the whole cluster stayed lit long after the pointer moved on.
               e.currentTarget.blur()
-              onCreate(row.id, 'workspace')
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <GitBranch aria-hidden="true" className="size-3" weight="bold" />
-          </button>
-        )}
-
-        {onCreate && row.kind !== 'folder' && (
-          <button
-            type="button"
-            data-control="thread"
-            className={ROW_SUB_ACTION_HOVER}
-            aria-label={`Thread ${row.label}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              // See the Fork button's own comment above — same stuck-focus fix.
-              e.currentTarget.blur()
               onCreate(row.id, 'thread')
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
             <ArrowElbowDownRight aria-hidden="true" className="size-3" weight="bold" />
+          </button>
+        )}
+
+        {onCreate &&
+          (row.kind === 'folder' ? row.ownsWorktree : row.kind === 'branch') && (
+          <button
+            type="button"
+            data-control="fork"
+            className={ROW_SUB_ACTION_HOVER}
+            aria-label={`Fork ${row.label}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              // See the Thread button's own comment above — same stuck-focus fix.
+              e.currentTarget.blur()
+              onCreate(row.id, 'workspace')
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {/* Rule 8: mints a CHILD chat session with its OWN workspace
+                forked from this row's branch — a git operation, not a generic
+                "+" — so it draws the same `GitBranch` mark `RowGlyph` already
+                uses for a row that owns a worktree (`weight="bold"`, matching
+                the thread button's own weight rather than `"fill"`, which
+                reads too heavy at this size next to it). */}
+            <GitBranch aria-hidden="true" className="size-3" weight="bold" />
+          </button>
+        )}
+
+        {/* Spec §9: "every row that owns something carries a trash: chats,
+            workspaces, folders, repos, and the space header for the
+            project." A locked branch and the repo's own project-home row
+            are the two `handleTrash` itself refuses (space-content-actions.ts's
+            own doc) — surfacing a toast rather than pretending to succeed —
+            so those are excluded here rather than offered a dead click. Same
+            token+glyph Recents' own close button uses (recents-band.tsx),
+            not a hard-coded destructive-red trash icon. Calls the identical
+            `handleTrash` the (removed) drag-to-trash gesture used to. */}
+        {onTrash &&
+          !isProjectHome &&
+          (row.kind === 'chat' ||
+            row.kind === 'folder' ||
+            (row.kind === 'branch' && !row.locked)) && (
+          <button
+            type="button"
+            data-control="remove"
+            className={ROW_SUB_ACTION_HOVER}
+            aria-label={`Remove ${row.label}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              e.currentTarget.blur()
+              onTrash(row.id)
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <X aria-hidden="true" className="size-3" weight="bold" />
           </button>
         )}
 
@@ -456,6 +503,12 @@ function PendingSidebarRow({
           <InlineRenameInput
             defaultValue=""
             mono={row.kind === 'branch'}
+            // Naming is reached ONLY for a fork (pending-creates.ts's own
+            // doc: a thread has nothing to name, so it skips straight to
+            // 'creating') — an unlabeled empty input read as a chat box to
+            // type INTO rather than a name to give something, so what was
+            // typed there became the branch's name — caught live.
+            placeholder={CREATE_ROW_PLACEHOLDER}
             onConfirm={(name) => confirmPendingCreateName(pending.tempId, name)}
             onCancel={() => cancelPendingCreate(pending.tempId)}
           />
@@ -478,6 +531,103 @@ function PendingSidebarRow({
             </button>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+/** Whole seconds left on a deadline, never below zero — same formula
+ *  `removal-tray.tsx` draws its own figures from. */
+function secondsLeft(deadlineAt: number | null): number {
+  if (deadlineAt === null) return 0
+  return Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000))
+}
+
+/**
+ * A REAL row currently held in the removal tray, transformed in place —
+ * explicit product request: an X on the row starts this instead of hiding
+ * the row while a separate `RemovalTray` shows the same thing elsewhere.
+ *
+ * Same glyph and label the row wears at rest (a held row has not become a
+ * different kind of thing — `removal-tray.tsx`'s own module doc, still true
+ * here), with the trailing cluster replaced by the countdown, an undo
+ * ("Keep") control, and the "+N" count of what goes with it. The seconds
+ * figure and the drain hairline are the exact same DOM contract
+ * `removal-tray.tsx` already draws from (`data-removal-secs`,
+ * `data-removal-drain`) — that file's own shared clock ticks BOTH, now
+ * scoped to the whole document rather than one tray, so N rows scattered
+ * across the tree still cost exactly one timer.
+ */
+function RemovingSidebarRow({
+  row,
+  depth,
+  removal,
+}: {
+  row: SidebarRowType
+  depth: number
+  removal: NonNullable<SidebarRowType['removal']>
+}) {
+  return (
+    <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
+      <div className={cn(ROW_BASE, ROW_INACTIVE, 'relative')}>
+        <span className={ROW_GLYPH_BOX}>
+          <RowGlyph row={row} large={false} expanded={false} />
+        </span>
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate',
+            row.kind === 'branch' && 'font-mono',
+            row.labelProvisional && 'italic',
+          )}
+        >
+          {row.label}
+        </span>
+        {removal.extra > 0 && (
+          <span className="shrink-0 rounded-full bg-sidebar-element-idle px-1.5 py-px text-[11px] tabular-nums text-muted-foreground">
+            +{removal.extra}
+          </span>
+        )}
+        {/* Rendered from the deadline, not from a tick — a row that
+            re-renders for some other reason still shows the truth; the
+            counting itself happens in `removal-tray.tsx`'s shared clock and
+            never comes back through React (see this function's own doc). */}
+        <span
+          data-removal-secs={removal.entryId}
+          className="shrink-0 text-[11px] tabular-nums text-muted-foreground"
+        >
+          {secondsLeft(removal.deadlineAt)}
+        </span>
+        <button
+          type="button"
+          className={ROW_SUB_ACTION}
+          aria-label={`Keep ${row.label}`}
+          title="Keep"
+          onClick={(e) => {
+            e.stopPropagation()
+            useRemovalTrayStore.getState().cancel(removal.entryId)
+          }}
+        >
+          <svg
+            aria-hidden="true"
+            className="size-3"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M6 3L2.5 6.5 6 10M2.5 6.5H10a3.5 3.5 0 0 1 0 7H7" />
+          </svg>
+        </button>
+        {/* `data-essential-motion` keeps this under prefers-reduced-motion:
+            not decoration, it is how long is left before something is
+            deleted — same reasoning as `removal-tray.tsx`'s own hairline. */}
+        <span
+          data-removal-drain=""
+          data-essential-motion=""
+          className="pointer-events-none absolute inset-x-2 bottom-[3px] h-0.5 origin-left rounded-full bg-destructive animate-tray-drain"
+        />
       </div>
     </div>
   )

@@ -288,7 +288,7 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
   )
   const folded = foldWorkspaceOwners(roots, ownerChats)
 
-  walkTreeIntoRows(rows, folded, homeRowId, ownerOfChat, chatTitleById, true)
+  walkTreeIntoRows(rows, folded, homeRowId, ownerOfChat, chatTitleById, true, homeId)
 
   return rows
 }
@@ -327,6 +327,18 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
  * index compacted from whatever subset of siblings happened to reach this
  * one `buildSidebarTree` call (which, at the home root, never includes a
  * repo — see `rows-from-home.ts`'s own doc).
+ *
+ * `ancestorWorkspaceId` is the OTHER thing a folder's own row can't tell
+ * about itself: which real workspace it actually sits inside, for a Thread
+ * button to run in (`space-content-actions.ts`'s `handleCreate` reads a
+ * folder row's own `workspaceId` for exactly this — see that field's stamp
+ * below). Starts as each caller's tree root (`rowsFromRepo`: the repo's real
+ * default workspace id; `rows-from-home.ts`: the project's home workspace
+ * id) and is updated only when the walk descends into a row that owns a
+ * REAL workspace of its own (a `branch` row, folded owner included) — a
+ * `chat` bubble or a `folder` passes it through unchanged, exactly like
+ * `foldersCanFork`, since neither introduces a worktree of its own for a
+ * nested folder to belong to instead.
  */
 export function walkTreeIntoRows(
   rows: SidebarRow[],
@@ -335,6 +347,7 @@ export function walkTreeIntoRows(
   ownerOfChat: ReadonlyMap<string, string>,
   chatTitleById: ReadonlyMap<string, string>,
   foldersCanFork: boolean,
+  ancestorWorkspaceId: string | null,
 ): void {
   nodes.forEach((node, index) => {
     if (node.kind === 'chat') {
@@ -371,7 +384,15 @@ export function walkTreeIntoRows(
           // claiming `locked: false` for a branch that is actually locked
           // would offer verbs the daemon then refuses.
         })
-        walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork)
+        walkTreeIntoRows(
+          rows,
+          node.children,
+          node.id,
+          ownerOfChat,
+          chatTitleById,
+          foldersCanFork,
+          ownedWorkspaceId,
+        )
         return
       }
       rows.push({
@@ -420,7 +441,15 @@ export function walkTreeIntoRows(
         working: false,
         hasView: false,
       })
-      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork)
+      walkTreeIntoRows(
+        rows,
+        node.children,
+        node.id,
+        ownerOfChat,
+        chatTitleById,
+        foldersCanFork,
+        ancestorWorkspaceId,
+      )
       return
     }
     if (node.kind === 'folder') {
@@ -435,7 +464,13 @@ export function walkTreeIntoRows(
         // (see `foldersCanFork`'s own doc), so its "+" would otherwise offer
         // a verb the daemon has nothing to do with.
         ownsWorktree: foldersCanFork,
-        workspaceId: null,
+        // The real workspace this folder sits inside — `handleCreate`'s
+        // Thread branch reads this straight off the row rather than
+        // re-walking the tree itself. Always resolvable: even a root-level
+        // folder inherits its tree's own root (the repo's default workspace,
+        // or the project's home workspace), never null in practice for a
+        // folder that reaches here at all.
+        workspaceId: ancestorWorkspaceId,
         working: false,
         hasView: false,
       })
@@ -489,9 +524,29 @@ export function walkTreeIntoRows(
       // Children hang off the row's OWN id, which is now the owning chat's
       // (when one was resolved) — a thread the daemon filed under the
       // workspace still has to arrive at the row the user can see.
-      walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork)
+      //
+      // `node.workspace.id` (the RAW workspace id), not `node.id` — a
+      // folder nested under a locked/folded branch still has to resolve to
+      // the real workspace `createChat` posts to, not the owning chat's id.
+      walkTreeIntoRows(
+        rows,
+        node.children,
+        node.id,
+        ownerOfChat,
+        chatTitleById,
+        foldersCanFork,
+        node.workspace.id,
+      )
       return
     }
-    walkTreeIntoRows(rows, node.children, node.id, ownerOfChat, chatTitleById, foldersCanFork)
+    walkTreeIntoRows(
+      rows,
+      node.children,
+      node.id,
+      ownerOfChat,
+      chatTitleById,
+      foldersCanFork,
+      ancestorWorkspaceId,
+    )
   })
 }
