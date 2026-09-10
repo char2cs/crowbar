@@ -107,6 +107,17 @@ func (h *Handlers) Create(
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
+	// Same reasoning as PlaceChat's own call to this (folders.go): the new
+	// chat's placement is written via CreateChat's own placeChat step, which
+	// for a home-scoped or otherwise Node-backed row lands on the Node
+	// aggregate, not Chat — a separate write from MintChat's, whose own
+	// lifecycle-hub broadcast fires first and carries no idea the placement
+	// hasn't landed yet. Without this, a creating client's own optimistic row
+	// resolves fine (it waits for the real placement client-side), but every
+	// OTHER already-open viewer never learns the placement happened at all:
+	// caught live, a thread created inside a project-home folder rendered at
+	// the top of the list in a second open window and never corrected.
+	h.broadcastFolder(chatID, wsID, "placement_set")
 
 	libs.WriteMutationOK(ctx, http.StatusCreated, chatID)
 }

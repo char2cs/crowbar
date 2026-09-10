@@ -79,6 +79,34 @@ func TestCreate_ForwardsTheParentTheChatIsBornUnder(
 		tree.gotCreate2)
 }
 
+// TestRegression_Create_AnnouncesTheNewChatsPlacement pins the exact live bug:
+// CreateChat's own placement write (for a home-scoped or otherwise Node-backed
+// row) lands on the Node aggregate, a SEPARATE write from MintChat's — whose
+// own chat-lifecycle-hub broadcast fires first, with no idea the placement
+// hasn't landed yet. PlaceChat's handler already announces the row it moves
+// (folders.go's own "placement_set" broadcast, TestRegression_PlaceChat_...
+// above) — Create never got the same treatment, so every ALREADY-OPEN viewer
+// besides the one creating it never learned the real placement happened at
+// all: caught live, a thread created inside a project-home folder rendered at
+// the top of the list in a second open window and never corrected.
+func TestRegression_Create_AnnouncesTheNewChatsPlacement(t *testing.T) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	var frames []folderFrame
+	h := newFolderHandlersWith(&fakeAgentUsecase{}, tree, &frames)
+
+	body := []byte(`{"provider":"vendor-a","parentId":"folder-1"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+
+	h.Create(ctx)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Len(t, frames, 1, "the new chat's own placement must be announced")
+	assert.Equal(t, "chat-1", frames[0].folderID)
+	assert.Equal(t, "ws-1", frames[0].workspaceID)
+	assert.Equal(t, "placement_set", frames[0].kind)
+}
+
 // TestCreate_BadJSON proves a malformed body is rejected 400 without reaching
 // the usecase.
 func TestCreate_BadJSON(

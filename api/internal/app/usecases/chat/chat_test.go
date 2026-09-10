@@ -420,6 +420,24 @@ func TestPurgeChat_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "purge chat: get")
 }
 
+// TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound is the regression for a
+// live bug: tree.Agent's contract (Usecase is one of its implementations) is
+// apperr.ErrNotFound for "nothing to purge" — that's what purgeAll's cascade
+// tolerance checks for — but this method used to hand back only the
+// conversations package's own agentchat.ErrNotFound, wrapped. purgeAll's
+// errors.Is(err, apperr.ErrNotFound) never matched a real not-found, so
+// deleting a parent with one never-minted descendant, or a chat whose
+// aggregate never got created, failed the whole delete with the raw
+// "agentchat: not found" chain surfaced straight to the user.
+func TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound(t *testing.T) {
+	f := newFixture(t)
+
+	err := f.usecase.PurgeChat(f.ctx, "does-not-exist")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, agentchat.ErrNotFound, "the original cause stays inspectable too")
+}
+
 // ─── from chatlog_test.go ─────────────────────────────────────────────
 
 // TestReadChatLog_RendersTheLedger guards agent.ChatUsecase.ReadChatLog — the

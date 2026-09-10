@@ -273,7 +273,7 @@ func (u *chatFolderUsecase) Move(
 	if wErr := guardNotWorking(subtreeIDsOf(f.ID, snapshot.rows), u.work); wErr != nil {
 		return domain.Chat{}, nil, wErr
 	}
-	u.replace(snapshot, f.ID, current.ParentID, destination, in.Order)
+	u.replace(snapshot, f.ID, current.ParentID, destination, in.Order, false)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Chat{}, nil, err

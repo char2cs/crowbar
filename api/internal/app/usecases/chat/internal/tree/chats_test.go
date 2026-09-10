@@ -140,6 +140,47 @@ func TestCreateChat_LandsAtTheEndOfItsParentsSiblingSpace(t *testing.T) {
 	assert.Equal(t, 1, nodeRowFor(t, nodes, "c-new").Order)
 }
 
+// TestCreateChat_DoesNotReorderUnrelatedRootSiblings is the regression for a
+// live bug: a freshly minted chat's ParentID defaults to "" before PlaceChat
+// moves it under its real parent, and replace() treated that as a real move
+// FROM the root level — densifying "" (renumbering every OTHER row sitting
+// there) on every single thread create, whether or not the parent being
+// threaded on had anything to do with them. Reported live as "creating a
+// child on a thread reorders the parent to a different place" — a chat that
+// was never actually a rendered member of root (nothing ever read it there)
+// has no real gap to close, so the level it "left" must never be touched.
+func TestCreateChat_DoesNotReorderUnrelatedRootSiblings(t *testing.T) {
+	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
+	seedChat(chats, "c1", 1)
+	seedChat(chats, "bystander", 2)
+	// Pre-seed both rows' own Node rows with a deliberate GAP (0, 5) instead
+	// of the dense (0, 1) a same-second walk would otherwise hand them —
+	// densifying "" is a genuine no-op against already-dense orders either
+	// way, so a real gap is what makes this test able to tell the fixed
+	// behaviour (bystander's 5 survives, untouched) apart from the bug
+	// (bystander's 5 gets "corrected" to 1 as a side effect of c1's own
+	// create, even though nothing was ever actually removed from "").
+	nodes.Rows = append(nodes.Rows,
+		domain.Node{ID: "c1", Kind: domain.NodeKindChat, ParentID: "", Order: 0},
+		domain.Node{ID: "bystander", Kind: domain.NodeKindChat, ParentID: "", Order: 5},
+	)
+	chats.NextID = "c-new"
+
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "c1", tree.WorktreeSpec{Mode: tree.WorktreeNone})
+	require.NoError(t, err)
+
+	assert.Equal(t, 5, nodeRowFor(t, nodes, "bystander").Order,
+		"an unrelated root sibling's order must survive a thread create on c1 untouched")
+	for _, w := range nodes.Ordered {
+		assert.NotEqual(t, "bystander", w.ID,
+			"threading off c1 rewrote an unrelated root sibling's order via SetOrder")
+	}
+	for _, w := range nodes.Placed {
+		assert.NotEqual(t, "bystander", w.ID,
+			"threading off c1 rewrote an unrelated root sibling's placement via SetPlacement")
+	}
+}
+
 // A chat BORN under a parent gets no "this chat was moved" note: it was not
 // moved, and it has nothing above the line for such a note to date. The note is
 // suppressed by the ledger being empty, which is the agent usecase's call — here

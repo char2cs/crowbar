@@ -826,6 +826,33 @@ func TestDeleteChat_SurfacesAPurgeFailure(t *testing.T) {
 	assert.ErrorContains(t, err, "cli wedged")
 }
 
+// Regression, reported live as "Couldn't remove Untitled chat: agent chat
+// folder: purge chat ...: agentchat: not found" while removing a parent
+// that had children. Root cause: a child can be real at the TREE level (it
+// has a parent, an order, it renders) while never having minted a
+// conversation aggregate at all — a thread whose create never got past
+// placement — so purging it answers apperr.ErrNotFound. purgeAll used to
+// fail the WHOLE cascade on that single not-found, deleting nothing at all,
+// parent included. It must tolerate a not-found the same way the sibling
+// worktree-reaping walk already tolerates one on DiscardChildWorkspace, and
+// keep going.
+func TestDeleteChat_ToleratesAnAlreadyGoneDescendantAndStillDeletesTheRest(t *testing.T) {
+	chats, uc := newUsecase(t)
+	ctx := context.Background()
+	seedChat(chats, "root", 1)
+	seedThread(chats, "ghost", "root", 2)
+	seedThread(chats, "grandchild", "ghost", 3)
+	chats.PurgeNotFoundID = "ghost"
+
+	removed, err := uc.DeleteChat(ctx, "root")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"grandchild", "ghost", "root"}, chats.Purged,
+		"the not-found descendant does not stop the cascade around it")
+	assert.Equal(t, []string{"grandchild", "ghost", "root"}, removed.Chats)
+	assert.Empty(t, chats.Rows, "every row in the subtree is gone, ghost included")
+}
+
 // A folder caught in the cascade is erased through Folders now (2026-09-08
 // sidebar-placement-unification Task 5 for home-scoped, Task 8 for
 // repo-scoped too), so the failure this test injects is folders.DeleteErr,

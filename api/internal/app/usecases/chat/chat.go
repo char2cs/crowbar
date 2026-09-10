@@ -2,11 +2,14 @@ package chat
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
@@ -245,11 +248,21 @@ func (u *Usecase) RenameByRunner(
 }
 
 // PurgeChat hard-deletes a chat and retires every CLI still on it.
+//
+// tree.Agent's contract (this is one of its implementations) is apperr.ErrNotFound
+// for "nothing to purge" — conversations.PurgeChat answers not-found in its own
+// repository-local sentinel instead, since it has never had a reason to know about
+// apperr. This is the seam where that gets translated, so purgeAll's tolerance for
+// a chat that never minted an aggregate actually has something to match against.
 func (u *Usecase) PurgeChat(
 	ctx context.Context,
 	chatID string,
 ) error {
-	return u.conversations.PurgeChat(ctx, chatID)
+	err := u.conversations.PurgeChat(ctx, chatID)
+	if errors.Is(err, agentchat.ErrNotFound) {
+		return fmt.Errorf("%w: %w", err, apperr.ErrNotFound)
+	}
+	return err
 }
 
 // ListChats returns every chat in the daemon.

@@ -1428,6 +1428,13 @@ type AgentChatPlacements struct {
 	SetErr             error
 	OrderErr           error
 	PurgeErr           error
+	// PurgeNotFoundID makes PurgeChat answer apperr.ErrNotFound for this one
+	// id specifically (still recorded into Purged, same as a real not-found
+	// still marks the row as gone) — a chat that exists at the TREE level
+	// but never minted a conversation aggregate, the case purgeAll's own
+	// not-found tolerance exists for. Independent of PurgeErr, which fails
+	// every call unconditionally with whatever error it holds.
+	PurgeNotFoundID string
 	ForgetErr          error
 	CreateErr          error
 	TitleErr           error
@@ -1739,6 +1746,9 @@ func (s *AgentChatPlacements) PurgeChat(
 		}
 	}
 	s.Rows = kept
+	if chatID == s.PurgeNotFoundID {
+		return apperr.ErrNotFound
+	}
 	return nil
 }
 
