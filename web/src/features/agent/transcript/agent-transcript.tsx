@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
@@ -216,6 +216,41 @@ export function measureRowHeightOrCached(
   return instance.itemSizeCache.get(key) ?? height
 }
 
+/**
+ * How many consecutive animation frames the virtualized list's TOTAL HEIGHT has
+ * to hold still before a chat that has just opened is shown — see `settled` in
+ * `AgentTranscript`.
+ *
+ * Opening a chat is not one layout, it is a convergence loop. A row's height
+ * starts as `estimateRowHeight`'s guess; `measureElement` corrects it; the
+ * correction changes the total; the total change reaches
+ * `use-transcript-anchor`'s ResizeObserver, which moves `scrollTop`; the scroll
+ * event reaches the virtualizer A FRAME LATER and changes which rows are in
+ * range; and those newly-ranged rows arrive as guesses again. Every lap of that
+ * loop paints. Measured live on a 30-turn chat opened from the sidebar, at
+ * ordinary speed, with no artificial load:
+ *
+ *   t+0ms    rows still ranged for the previous offset — viewport blank
+ *   t+63ms   top row #85 at y=-46
+ *   t+82ms   top row #83 at y=-26   total 9569 -> 9167: content moves 402px
+ *   t+105ms  total 9129             another 38px
+ *
+ * Four painted positions in ~105ms. `scrollTop` is the true bottom in every one
+ * of them — this is not a scroll bug and no scroll-position fix removes it; the
+ * CONTENT is changing height under a correctly anchored viewport because the
+ * rows in view were over-estimated. Reported as "opening an OLD chat makes it
+ * so that the scroll starts at the top, and THEN scrolls to the bottom", and
+ * measured identically on all three ways in: opening the workspace, opening the
+ * chat into a new tab, and closing and reopening an already-visited one.
+ *
+ * Counting FRAMES rather than waiting a duration is what keeps this honest: the
+ * count restarts on every real change, so this waits exactly as long as the
+ * cascade actually runs and no longer. Three because the cascade's own laps are
+ * one frame apart and it plateaus for a frame mid-way (9569 twice above) — two
+ * would release inside its own pause.
+ */
+const SETTLE_QUIET_FRAMES = 3
+
 /** An unmeasured row's opening guess FLOOR — a short assistant reply's real
  *  shape (padding + one prose line + turnbar + its own group gap), not 64,
  *  because a cold open's `scrollTop = scrollHeight` runs against this before
@@ -408,6 +443,10 @@ function TranscriptRowView({
 // react-doctor-disable-next-line no-giant-component -- see comment above, splitting this is a separate architectural pass
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { messages, queue, dockHeight } = props
+  // Whether this chat's OPENING measurement cascade is over — see
+  // `SETTLE_QUIET_FRAMES`. Until it is, the virtualized rows are laid out and
+  // measured but not shown.
+  const [settled, setSettled] = useState(false)
   const anchor = useTranscriptAnchor({
     loadingHistory: props.loading,
     initialPosition: props.initialScrollPosition,
@@ -616,6 +655,49 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     useFlushSync: false,
   })
 
+  // Watches the virtualized list's total height until it stops moving, then
+  // shows it — see `SETTLE_QUIET_FRAMES` for what is moving and why. Runs only
+  // while a chat is opening: `settled` latches true and this stops for good.
+  useEffect(() => {
+    if (settled || rows.length === 0) return
+    let quiet = 0
+    let last = -1
+    let frame = 0
+    const step = () => {
+      const el = anchor.scrollRef.current
+      // NOTHING IS LAID OUT YET, so nothing is converging yet. A chat mounts
+      // well before its pane has a box — a second tab opens hidden, a workspace
+      // slot is `display:none` until it is switched to — and with no viewport to
+      // range against, the virtualizer renders no rows and the total sits
+      // perfectly still at its opening estimate. Counting those frames as quiet
+      // latched this open before the first row had ever rendered, and the whole
+      // cascade then played out in full view.
+      if (!el || el.clientHeight === 0 || rowVirtualizer.getVirtualItems().length === 0) {
+        quiet = 0
+        last = -1
+        frame = requestAnimationFrame(step)
+        return
+      }
+      const total = rowVirtualizer.getTotalSize()
+      if (total !== last) {
+        last = total
+        quiet = 0
+      } else {
+        quiet += 1
+      }
+      if (quiet >= SETTLE_QUIET_FRAMES) {
+        setSettled(true)
+        return
+      }
+      frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+    // `anchor.scrollRef` is a ref: `.current` is read fresh inside the frame
+    // callback regardless of this list — React's own documented exemption.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
+  }, [settled, rows.length, rowVirtualizer])
+
   // The streaming bubble's own LAST REAL height, by message sequence — kept
   // only as long as that message is actually streaming. Read once, in the
   // settle effect below, the moment that same sequence reappears as a
@@ -730,6 +812,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         anchor.onScroll()
         scrollFrame.onScrollEvent()
       }}
+      // A REAL gesture at the transcript outranks the opening gate above,
+      // whatever is still resizing behind it: a reader reaching for a chat is
+      // owed the chat. Deliberately not `onScroll`, which fires for this
+      // component's own programmatic writes (the anchor's mount landing among
+      // them) and would release the gate before the first row had rendered.
+      onWheel={() => setSettled(true)}
+      onPointerDown={() => setSettled(true)}
     >
       {/* Bottom-anchor for a SHORT conversation — see transcript.css's own
           comment on `.scroll-spacer` for why this is a separate flex-grow
@@ -772,7 +861,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             between a zero-height box and whatever follows it — the old
             `messages.map` over an empty array emitted no element at all. */}
         {rows.length > 0 && (
-          <div className="virtual-rows" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+          <div
+            className="virtual-rows"
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              ...(settled ? null : { visibility: 'hidden' }),
+            }}
+          >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const row = rows[virtualRow.index]
               if (!row) return null
