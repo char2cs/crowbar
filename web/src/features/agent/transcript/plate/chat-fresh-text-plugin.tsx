@@ -1,11 +1,13 @@
+import { useMemo } from 'react'
 import type { PlateLeafProps } from 'platejs/react'
 import { createPlatePlugin, PlateLeaf } from 'platejs/react'
 import {
+  CHAT_FRESH_BORN_MARK,
   CHAT_FRESH_MARK,
   CHAT_FRESH_WORD_INDEX_MARK,
   CHAT_FRESH_WORD_TOTAL_MARK,
   freshDecorations,
-  freshLeafDelay,
+  resumedFadeDelay,
   settleFreshGeneration,
   settleFreshWord,
 } from '@/features/agent/transcript/plate/streaming-value-patch'
@@ -28,11 +30,22 @@ import {
  */
 function ChatFreshTextLeaf(props: PlateLeafProps) {
   const { editor, leaf, children } = props
-  const delayMs = freshLeafDelay(leaf) ?? 0
   const record = leaf as unknown as Record<string, unknown>
   const generation = record[CHAT_FRESH_MARK]
   const wordIndex = record[CHAT_FRESH_WORD_INDEX_MARK]
   const totalWords = record[CHAT_FRESH_WORD_TOTAL_MARK]
+  const bornAt = record[CHAT_FRESH_BORN_MARK]
+  // ONCE per (span, run) — deps are all constants of the run, so a re-render
+  // reuses the delay this span mounted with and only a genuine remount, or
+  // this span being reused for a DIFFERENT run, recomputes it.
+  //
+  // Reading the clock on every render instead is what made settled text
+  // repaint mid-sentence: `animation-delay` is relative to when the animation
+  // started on the element, so rewriting it under a running animation jumps
+  // that animation's current time. It also double-counts — the animation is
+  // already advancing on its own — so the fade ran at roughly twice speed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const delayMs = useMemo(() => resumedFadeDelay(leaf) ?? 0, [generation, wordIndex, bornAt])
   return (
     <PlateLeaf {...props}>
       <span
