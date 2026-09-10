@@ -79,7 +79,10 @@ describe('chat image attachment resolution', () => {
 })
 
 const TWO_ATTACHMENTS = [
-  { type: 'p', children: [{ type: 'a', url: 'chats/c1/attachments/a.pdf', children: [{ text: 'a.pdf' }] }] },
+  {
+    type: 'p',
+    children: [{ type: 'a', url: 'chats/c1/attachments/a.pdf', children: [{ text: 'a.pdf' }] }],
+  },
   {
     type: 'img',
     url: 'chats/c1/attachments/b.png',

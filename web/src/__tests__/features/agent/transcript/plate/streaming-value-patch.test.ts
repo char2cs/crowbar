@@ -717,8 +717,7 @@ describe('applyStreamedValue: a resolving mark patches in place, not a block rep
   it('keeps a preceding, untouched list item stable across a LATER item resolving its own mark', () => {
     // The scenario a real reply hits: item 3 already settled; item 4's own
     // bold title is what's resolving now. Item 3 must not remount either.
-    const markdown = (fourthTitle: string) =>
-      `3. **Classification rule**\n\n4. ${fourthTitle}`
+    const markdown = (fourthTitle: string) => `3. **Classification rule**\n\n4. ${fourthTitle}`
 
     const editor = createPlateEditor({
       plugins: chatComposerPlugins,

@@ -458,7 +458,10 @@ function patchLeavesInPlace(editor: PlateEditor, diffs: LeafDiff[]): void {
     if (toUnset.length) editor.tf.unsetNodes(toUnset, { at: path })
     const toSet: Record<string, unknown> = {}
     for (const k of nextKeys) {
-      if (!(k in prev) || !nodesEqual((prev as Record<string, unknown>)[k], (next as Record<string, unknown>)[k])) {
+      if (
+        !(k in prev) ||
+        !nodesEqual((prev as Record<string, unknown>)[k], (next as Record<string, unknown>)[k])
+      ) {
         toSet[k] = (next as Record<string, unknown>)[k]
       }
     }

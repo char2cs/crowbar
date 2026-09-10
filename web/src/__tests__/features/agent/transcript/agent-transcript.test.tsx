@@ -816,7 +816,10 @@ describe('AgentTranscript interrupted marker', () => {
   // instant — never both on screen, and the spinner's own disappearance is
   // what hands off to it, not a separate timer.
   it('does not draw the trailing marker while the turn still reads as working', () => {
-    draw(oneFrozenTurn, { trailingInterruption: [{ kind: 'interrupted', id: 'e1' }], working: true })
+    draw(oneFrozenTurn, {
+      trailingInterruption: [{ kind: 'interrupted', id: 'e1' }],
+      working: true,
+    })
 
     expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
