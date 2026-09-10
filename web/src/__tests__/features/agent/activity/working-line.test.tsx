@@ -87,7 +87,10 @@ describe('WorkingLine', () => {
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 
-  it('names the tools that are running right now', () => {
+  // The tool calls left this component: they are transcript rows now
+  // (AgentLiveTurnTools), so a call outlives the moment it happened to be
+  // running. Naming them HERE as well would draw every one of them twice.
+  it('names no tool calls — the transcript keeps them now', () => {
     render(
       <WorkingLine
         working
@@ -99,32 +102,8 @@ describe('WorkingLine', () => {
         })}
       />,
     )
-    expect(screen.getByText('Grep · engine/**/*.yaml')).toBeInTheDocument()
-    expect(screen.getByText('Read · protocol.go')).toBeInTheDocument()
-  })
-
-  it('counts the overflow rather than listing an unscannable wall', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({
-          toolCalls: Array.from({ length: 6 }, (_, index) =>
-            tool({ id: `t${index}`, seq: index, name: `Tool${index}` }),
-          ),
-        })}
-      />,
-    )
-    expect(screen.getByText('+3 more')).toBeInTheDocument()
-  })
-
-  it('omits a finished call — the working line is what is happening NOW', () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({ toolCalls: [tool({ status: 'ok', name: 'Done' })] })}
-      />,
-    )
-    expect(screen.queryByText(/Done/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Grep · engine/**/*.yaml')).not.toBeInTheDocument()
+    expect(screen.queryByText('Read · protocol.go')).not.toBeInTheDocument()
   })
 
   // A chat waiting on a person is not working, and the two used to look the same.
@@ -294,32 +273,6 @@ describe('WorkingLine', () => {
     expect(screen.queryByTestId('agent-reasoning')).not.toBeInTheDocument()
   })
 
-  // A long build emits nothing but this for its whole duration, so without it the
-  // tool row sat static with no sign of progress.
-  it("shows a running tool's output on that tool's own row", () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({ toolCalls: [tool({ id: 'c1', name: 'commandExecution' })] })}
-        toolOutput={{ id: 'c1', text: 'line 1\nline 2\nline 3' }}
-      />,
-    )
-    expect(screen.getByTestId('agent-tool-output')).toHaveTextContent('line 3')
-  })
-
-  // Output belongs under the command that produced it, never under whatever else
-  // happens to be running.
-  it("does not put one tool's output under a different tool", () => {
-    render(
-      <WorkingLine
-        working
-        activity={activity({ toolCalls: [tool({ id: 'c1' })] })}
-        toolOutput={{ id: 'SOMETHING-ELSE', text: 'line 1' }}
-      />,
-    )
-    expect(screen.queryByTestId('agent-tool-output')).not.toBeInTheDocument()
-  })
-
   // Statuses reaching the component are CROWBAR'S words, already translated from
   // the provider's own by its descriptor.
   it("shows the agent's own to-do list with the active step marked", () => {
@@ -362,7 +315,7 @@ describe('WorkingLine', () => {
     expect(screen.queryByTestId('agent-plan')).not.toBeInTheDocument()
   })
 
-  it('names no tools while compacting — there is nothing to enumerate', () => {
+  it('lists nothing while compacting — there is nothing to enumerate', () => {
     render(<WorkingLine working activity={activity({ toolCalls: [tool()] })} compactingLive />)
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })

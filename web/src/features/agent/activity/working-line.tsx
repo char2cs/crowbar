@@ -5,15 +5,11 @@ import {
   blockedOn,
   blocksOnAPerson,
   describeInterruption,
-  describeTool,
   pendingChoices,
-  runningTools,
+  tailOf,
 } from '@/features/agent/lib/agent-activity'
 import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import { VERB_ROTATION_MS, verbAt } from '@/features/agent/activity/lib/verbs'
-
-/** Tool rows shown before the rest collapse into a count. */
-const TOOL_LIMIT = 3
 
 interface WorkingLineProps {
   activity: AgentActivity
@@ -46,12 +42,6 @@ interface WorkingLineProps {
    */
   reasoning?: string
   /**
-   * The output of the tool that is running right now, and which tool it belongs
-   * to. A long build or test run emits nothing else for its whole duration, so
-   * without it the tool row sits static with no sign of progress.
-   */
-  toolOutput?: { id: string; text: string }
-  /**
    * The agent's own to-do list for this turn, newest state wholesale.
    *
    * Statuses are CROWBAR'S words — pending / active / done — already translated
@@ -67,32 +57,17 @@ interface WorkingLineProps {
  *  on, and an unbounded block would push the transcript around on every token. */
 const REASONING_LIMIT = 240
 
-/** Tool output is a progress signal, not a log — one line's worth. The full
- *  output is on the completed tool call. */
-const TOOL_OUTPUT_LIMIT = 120
-
-function tailOf(text: string, limit: number): string {
-  // Providers head each thinking block with a markdown-bold title (codex emits
-  // `**Clarifying ambiguous wording**`). This is one muted italic line, not a
-  // rendered document — the markers would read as literal asterisks, and running
-  // a markdown pipeline over text that is replaced on every token is not worth
-  // the cost. Strip the emphasis runs and collapse the whitespace.
-  const flat = text
-    .replace(/\*{1,3}/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (flat.length <= limit) return flat
-  // The TAIL, not the head: the newest thought is the one that says what it is
-  // doing now.
-  return `…${flat.slice(flat.length - limit)}`
-}
-
 /**
  * What the agent is doing, while it is doing it.
  *
  * The verb is CROWBAR'S — no provider reports one, so it is flavour, and it must
- * never wear a provider's name. What is real beside it is the elapsed clock and
- * the running tool calls, both of which come straight off the activity feed.
+ * never wear a provider's name. What is real beside it is the elapsed clock,
+ * straight off the turn's own start.
+ *
+ * The tool calls are NOT here. They used to be, and being here was the whole of
+ * their life on screen: a call showed for as long as it ran and then vanished,
+ * with nothing left behind until the turn ended. They are transcript rows now
+ * (AgentLiveTurnTools), which is the same place they end up once the turn closes.
  *
  * It goes quiet the moment the chat is blocked on a person: a chat waiting for
  * an answer is not working, and saying otherwise is how a blocked agent came to
@@ -104,7 +79,6 @@ export function WorkingLine({
   since,
   compactingLive,
   reasoning,
-  toolOutput,
   plan,
 }: WorkingLineProps) {
   const [tick, setTick] = useState(0)
@@ -178,9 +152,6 @@ export function WorkingLine({
     )
   }
 
-  // Compaction isn't a tool call — nothing to enumerate under it.
-  const tools = compacting ? [] : runningTools(activity)
-
   return (
     <div className="activity" data-testid="agent-activity-strip">
       <div className="hd">
@@ -211,23 +182,6 @@ export function WorkingLine({
             </li>
           ))}
         </ol>
-      )}
-      {tools.length > 0 && (
-        <ul>
-          {tools.slice(0, TOOL_LIMIT).map((call) => (
-            <li key={call.id}>
-              {describeTool(call)}
-              {/* Only under the row it belongs to: a build's output under the
-                  build, never under whatever else happens to be running. */}
-              {toolOutput?.id === call.id && toolOutput.text && (
-                <span className="out" data-testid="agent-tool-output">
-                  {tailOf(toolOutput.text, TOOL_OUTPUT_LIMIT)}
-                </span>
-              )}
-            </li>
-          ))}
-          {tools.length > TOOL_LIMIT && <li>+{tools.length - TOOL_LIMIT} more</li>}
-        </ul>
       )}
     </div>
   )
