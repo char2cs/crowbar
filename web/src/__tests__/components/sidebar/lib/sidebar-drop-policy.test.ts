@@ -536,6 +536,28 @@ describe('SIDEBAR_DROP_POLICY', () => {
         ),
       ).toEqual(NO_MODES)
     })
+
+    // Reported live: dragging a plain home chat/thread onto a home folder
+    // never nests it — it lands as a sibling reorder instead, every time.
+    // Every other case in this block drags the FOLDER; this is the one
+    // direction nothing here actually pins: a home CHAT as the SUBJECT, a
+    // home folder as the TARGET.
+    it('allows filing a home CHAT into a home folder in the SAME project', () => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [{ id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+            folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 }],
+          },
+        },
+      })
+      const homeChatRow = makeRow({ id: 'home-chat-1', kind: 'chat', workspaceId: null })
+
+      expect(
+        SIDEBAR_DROP_POLICY.allowedModes([homeChatRow], homeFolderRow('home-folder-1')),
+      ).toEqual(ALL_MODES)
+    })
   })
 
   // Caught live: dragging a repo's own header row did nothing at all —

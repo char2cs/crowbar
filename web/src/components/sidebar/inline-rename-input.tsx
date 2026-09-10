@@ -6,6 +6,11 @@ interface InlineRenameInputProps {
   /** Branch rows draw their label monospace (sidebar-row.tsx); match it so
    *  the editor doesn't change typeface under the cursor. */
   mono?: boolean
+  /** Shown only while `defaultValue` is empty (the browser's own rule) — a
+   *  rename always seeds a real current name, so this is effectively a
+   *  create-only affordance: what an unlabeled, empty row would otherwise
+   *  give no hint it even wants (see `CREATE_ROW_PLACEHOLDER`'s own doc). */
+  placeholder?: string
   onConfirm: (value: string) => void
   onCancel: () => void
 }
@@ -21,6 +26,7 @@ interface InlineRenameInputProps {
 export function InlineRenameInput({
   defaultValue,
   mono,
+  placeholder,
   onConfirm,
   onCancel,
 }: InlineRenameInputProps) {
@@ -60,6 +66,7 @@ export function InlineRenameInput({
       ref={ref}
       type="text"
       defaultValue={defaultValue}
+      placeholder={placeholder}
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
       className={cn(

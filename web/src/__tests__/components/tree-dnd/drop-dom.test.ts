@@ -272,6 +272,29 @@ describe('the hit test, bound to a table and a policy', () => {
     expect(findNote(0, 0, [dragged])).toBeNull()
   })
 
+  // Reported live: dragging a chat onto a folder consistently resolved as a
+  // sibling reorder rather than nesting into it. `drag-ghost.tsx`'s
+  // `cloneGhostRows` deep-clones the DRAGGED row's own DOM — drop attributes
+  // and all — onto a floating overlay (`data-drag-ghost`) that tracks the
+  // cursor, so it sits exactly where a drop is being aimed; a clone carrying
+  // the dragged row's own kind+id is exactly the shape of thing that could
+  // turn a hit-testing quirk into a silently wrong target. This pins the hit
+  // test refusing to treat anything inside that overlay as a row, ghost
+  // clone or not, and falling through to whatever real row is underneath —
+  // never stopping (see "stops at a refusing row" above) on the ghost the
+  // way it correctly stops on a real refusing row.
+  it('never resolves to the drag ghost, and falls through to the real row underneath it', () => {
+    const ghostWrap = document.createElement('div')
+    ghostWrap.setAttribute('data-drag-ghost', '')
+    const ghostClone = mount(notes.props({ kind: 'note', id: 'dragged' }))
+    ghostWrap.appendChild(ghostClone)
+    document.body.appendChild(ghostWrap)
+    const real = mount(notes.props({ kind: 'group', id: 'g1' }))
+    stackAt(ghostClone, real)
+
+    expect(findNote(0, at(0.5), [dragged])).toMatchObject({ row: { id: 'g1', mode: 'into' } })
+  })
+
   it('draws nothing when the position lands on a mode the matrix refused', () => {
     const beforeOnly = createDropHitTest(notes, {
       allowedModes: () => REORDER_MODES,

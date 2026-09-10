@@ -643,11 +643,45 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       applyHomeFolders(call.projectId, [folder, ...shifted].map(toSidebarFolder))
       return
     }
-    case 'chat':
-      return setChatPlacement(call.workspaceId, call.chatId, {
+    case 'chat': {
+      // Reported live as "can't parent a chat into a folder": the request
+      // succeeded every time (confirmed live — the daemon had the chat under
+      // its new parent, survived a reload), but nothing on screen ever
+      // moved. `setChatPlacement`'s own response used to be discarded here,
+      // same shape the folder case above already fixed for exactly this
+      // reason (Task 34: no dedicated push channel) — a chat reparent turns
+      // out to be the same story: whatever broadcast this was meant to ride
+      // does not confirm a folder-nested move in practice, so the row just
+      // sat wherever it started until an unrelated full reseed happened to
+      // catch it up. Applied directly now, the same "already the daemon's
+      // own committed state, arriving over the request instead of a
+      // stream" reasoning `performRenameFolder` documents for its own case.
+      const { chat } = await setChatPlacement(call.workspaceId, call.chatId, {
         parentId: call.parentId,
         order: call.order,
-      }).then(() => undefined)
+      })
+      let movedRepoId: string | null = null
+      useSidebarStore.setState((s) => {
+        const repos = s.repos.map((repo) => {
+          if (!repo.chats?.some((c) => c.id === chat.id)) return repo
+          movedRepoId = repo.id
+          return {
+            ...repo,
+            chats: repo.chats.map((c) =>
+              c.id === chat.id ? { ...c, parentId: chat.parentId, order: chat.order } : c,
+            ),
+          }
+        })
+        return { repos }
+      })
+      // `folder-signal.ts`'s own doc: "ONE signal for folders and chats, not
+      // two... the meaning is the repo's tree" — the same bump the folder
+      // case above uses, so the next unrelated reseed (any repo's
+      // `defaultWorking` flipping, say) reads this move back rather than
+      // silently reverting it the way an un-bumped direct-apply would.
+      if (movedRepoId) useFolderSignalStore.getState().bump(movedRepoId)
+      return
+    }
     case 'repoHome':
       // No direct-apply here, unlike the folder cases above: a repo's DTO
       // rides the same `repos` broadcast channel every OTHER repo write

@@ -63,7 +63,17 @@ vi.mock('@/lib/api/workspace', () => ({
   reparentWorkspace: vi.fn(),
 }))
 vi.mock('@/features/agent/api/agent-api', () => ({
-  setChatPlacement: vi.fn().mockResolvedValue({ chat: {}, shifted: [] }),
+  // Echoes the call's own args back as `{chat, shifted}` the same way
+  // `placeFolder`'s mock above does — `fireRowPlacementCall`'s 'chat' case
+  // applies `chat.parentId`/`chat.order` straight to the sidebar store now
+  // (the response used to be discarded entirely), so a mock returning `{}`
+  // for `chat` would make every one of those tests pass by accident.
+  setChatPlacement: vi.fn(
+    async (workspaceId: string, chatId: string, patch: { parentId?: string; order?: number }) => ({
+      chat: { id: chatId, workspaceId, parentId: patch.parentId ?? '', order: patch.order ?? 0 },
+      shifted: [],
+    }),
+  ),
 }))
 // `resolveHomeRowScope` (home-tree.ts) reads this to name the project a
 // resolved home row belongs to — a real async fetch+cache round trip these
@@ -95,6 +105,7 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import {
   windowPaneStore,
@@ -682,6 +693,54 @@ describe('performSidebarDrop — chats', () => {
       parentId: 'chat-a',
       order: 0,
     })
+  })
+
+  // Reported live as "can't parent a chat into a folder": the PATCH always
+  // succeeded (confirmed live — the daemon had the chat under its new
+  // parent, survived a reload) but nothing on screen ever moved, because
+  // `setChatPlacement`'s own response used to be discarded here entirely —
+  // the sidebar tree's own `repos` (what `rowsFromRepo` actually reads,
+  // separate from the per-workspace agent-chats store the other tests in
+  // this block seed) was never told. Pins the fix: the response is now
+  // applied straight to `useSidebarStore`, and the SAME repo/workspace
+  // `folder-signal.ts` bump the folder case already gets, so a later
+  // unrelated reseed reads this move back instead of reverting it.
+  it('applies its own setChatPlacement response directly to the sidebar tree store', async () => {
+    useSidebarStore.setState((s) => ({
+      repos: [
+        ...s.repos,
+        {
+          id: 'repo-chat-x',
+          projectId: 'proj-1',
+          name: 'repo-chat-x',
+          avatarLabel: 'X',
+          avatarColor: 'bg-indigo-700',
+          defaultWorkspaceId: 'ws-x',
+          workspaces: [],
+          chats: [
+            { id: 'chat-c', repoId: 'repo-chat-x', workspaceId: 'ws-x', title: 'c', order: 2 },
+          ],
+        },
+      ],
+    }))
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store
+      .getState()
+      .seedAgentChats([
+        chat('chat-a', 'ws-x', { order: 0 }),
+        chat('chat-b', 'ws-x', { order: 1 }),
+        chat('chat-c', 'ws-x', { order: 2 }),
+      ])
+    const bumpSpy = vi.spyOn(useFolderSignalStore.getState(), 'bump')
+
+    await performSidebarDrop([chatRow('chat-c', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into')
+
+    const patched = useSidebarStore
+      .getState()
+      .repos.find((r) => r.id === 'repo-chat-x')
+      ?.chats?.find((c) => c.id === 'chat-c')
+    expect(patched).toMatchObject({ parentId: 'chat-a', order: 0 })
+    expect(bumpSpy).toHaveBeenCalledWith('repo-chat-x')
   })
 
   it('computes the insert index against the REAL sibling order, not a raw [...chats, ...folders] concat', async () => {

@@ -615,6 +615,42 @@ describe('SidebarCarousel', () => {
       expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
     })
 
+    // Reported live as "can't parent a chat into a folder": a folder near
+    // the bottom of a long tree can be scrolled into the space the card's
+    // own open footprint occupies — the tree's own ScrollArea box stays
+    // correctly clear of the card, but nothing was there FOR the tree to
+    // grow into during a drag, so the target just never scrolled into
+    // clipped view. Confirmed live: the SAME drop nests correctly the
+    // instant the card gives its space back. This is that fold, driven by
+    // `data-row-dragging` (set by use-sidebar-drag.ts for the life of any
+    // row drag) instead of the user's own click — same card, same "keeps
+    // its head, drops everything under it" collapse the manual toggle
+    // already does.
+    it('folds the card the moment a row drag starts, and restores it the moment the drag ends', async () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />)
+      expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
+
+      try {
+        // The fold rides a MutationObserver on `data-row-dragging`, which
+        // fires as a microtask — `act`'s async form flushes it before the
+        // assertion, the sync form would not.
+        await act(async () => {
+          document.documentElement.setAttribute('data-row-dragging', '')
+        })
+        expect(screen.getByTestId('carousel-card').style.height).toBe('')
+        // The manual toggle stays untouched by a drag-driven fold — a drag
+        // is not a click and must never be recorded as one.
+        expect(foldToggle()).toHaveAttribute('aria-pressed', 'false')
+
+        await act(async () => {
+          document.documentElement.removeAttribute('data-row-dragging')
+        })
+        expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
+      } finally {
+        document.documentElement.removeAttribute('data-row-dragging')
+      }
+    })
+
     it('hides the resize handle while folded — there is nothing to drag', () => {
       render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
       expect(screen.getByTestId('carousel-resize-handle')).toBeInTheDocument()

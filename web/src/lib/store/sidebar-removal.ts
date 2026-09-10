@@ -62,6 +62,17 @@ export interface RemovalDraft {
   providerIcon: string
   /** Every row hidden while this waits — the row and whatever it takes with it. */
   hiddenIds: readonly string[]
+  /**
+   * The id of the RENDERED row this entry's primary corresponds to, when it
+   * differs from `id` — only a 'workspace' entry needs this: `id` is the raw
+   * Workspace id, but the row itself renders under its OWNING CHAT's id
+   * (`rows-from-repo.ts`'s fold), which `hiddenIds` also lists (to hide the
+   * chat along with the workspace once committed). `descendantHiddenIds`
+   * (removal-plan.ts) must keep THIS id un-hidden too, or the fold has
+   * nothing to fold onto and the row re-keys mid-hold. Absent for every
+   * other kind, where `id` already IS the rendered row's own id.
+   */
+  primaryRowId?: string
   /** How many rows go with it beyond itself; 0 draws no count. */
   extra: number
   /**

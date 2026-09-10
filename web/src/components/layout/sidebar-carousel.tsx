@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useEffect, useRef, useState, Suspense } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import { useMatch } from '@tanstack/react-router'
-import { CaretDown, FolderOpen, GitBranch, Trash } from '@phosphor-icons/react'
+import { CaretDown, FolderOpen, GitBranch } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
 import { Button } from '@/components/ui/button'
@@ -15,7 +15,6 @@ import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
-import { CARD_TRASH_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 import {
   CARD_BOTTOM_INSET_VAR,
   DEFAULT_CARD_HEIGHT_FRACTION,
@@ -122,25 +121,35 @@ export function SidebarCarousel({
   // `folded` state, same reasoning, a different surface).
   const [folded, setFolded] = useState(false)
 
-  // Addendum §2 step 2: a live row drag folds the card too, but this is NOT
-  // the user's own toggle — `folded`/`setFolded` above stay completely
-  // untouched, so the card returns to exactly what it was once the drag
-  // ends (step 5) with nothing left to restore by hand. Driven off the
-  // SAME `data-row-dragging` attribute `use-sidebar-drag.ts` already sets
-  // at drag start and clears at drag end (on both drop and cancel) —
-  // observed here rather than threaded through as a prop, since nothing
-  // else in this component's own tree originates a drag.
-  const [dragFolding, setDragFolding] = useState(false)
+  // Reported live as "can't parent a chat into a folder": a row/folder near
+  // the bottom of a long tree can be scrolled into the space the card's own
+  // floating footprint occupies — the tree's ScrollArea box IS correctly
+  // shrunk clear of the card (the spacer above), but a card sitting open at
+  // its default third-of-the-rail height still claims a lot of vertical
+  // room, and a drag's natural approach to a target near the bottom of the
+  // list puts the pointer over the card's own surface (Files/Git), not the
+  // row underneath — there IS no row underneath; the tree never renders
+  // there. `elementsFromPoint` correctly lands on the card and the hit test
+  // correctly refuses it — confirmed live, the row nests exactly as it
+  // should the moment it is scrolled clear of the card. The fix is not the
+  // hit test; it is giving a live row drag the card's own space back, the
+  // same "keeps its head, drops everything under it" fold spec §6.4 already
+  // defines for the user's own toggle — just driven by `data-row-dragging`
+  // (set by use-sidebar-drag.ts for the life of any row drag) instead of a
+  // click. Not persisted, same reasoning as `folded` above; restores itself
+  // the instant the drag ends.
+  const [rowDragging, setRowDragging] = useState(false)
   useEffect(() => {
     const read = () => document.documentElement.hasAttribute('data-row-dragging')
-    setDragFolding(read())
-    const observer = new MutationObserver(() => setDragFolding(read()))
+    setRowDragging(read())
+    const observer = new MutationObserver(() => setRowDragging(read()))
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['data-row-dragging'],
     })
     return () => observer.disconnect()
   }, [])
+  const cardFolded = folded || rowDragging
 
   // The RESTING value (mount, sidebarHeight resize, or the recompute a
   // completed drag's committed `heightFraction` triggers) — never fired
@@ -163,7 +172,7 @@ export function SidebarCarousel({
   useLayoutEffect(() => {
     const height = cardRef.current?.getBoundingClientRect().height ?? 0
     railRef?.current?.style.setProperty(CARD_BOTTOM_INSET_VAR, `${height}px`)
-  }, [cardHeightPx, folded, railRef])
+  }, [cardHeightPx, cardFolded, railRef])
 
   // Pointer-drag resize from the top 6px hot zone (spec §6). Mirrors
   // pane-sash.tsx's/sidebar-split-pane.tsx's own pattern — track window
@@ -339,22 +348,18 @@ export function SidebarCarousel({
     <div
       ref={cardRef}
       data-testid="carousel-card"
-      // This box's own `absolute` already makes it a positioning ancestor,
-      // so the drag-to-trash overlay below (`absolute inset-0`) covers
-      // exactly this box without needing a separate `relative`.
       className="absolute inset-x-2 bottom-0 z-10 flex flex-col overflow-hidden rounded-lg border bg-pane-background shadow-[0_3px_8px_rgba(0,0,0,0.24)]"
-      style={cardHeightPx != null && !folded ? { height: `${cardHeightPx}px` } : undefined}
+      style={cardHeightPx != null && !cardFolded ? { height: `${cardHeightPx}px` } : undefined}
     >
       {/* Top 6px hot zone (spec §6) — matches pane-sash.tsx's own
           `h-1.5`/`w-1.5` literally rather than a new value. Lands on the
           card's own top edge (already drawn by its rounded corners/border),
-          not a separate visible sash. Hidden while folded: there is no
-          dragged height to adjust when the body isn't showing, and the
-          card's own height then collapses to the head's (point 4, spec
-          §6.4) rather than reserving the last-dragged height. Hidden during
-          a drag-fold too — resizing mid-drag is not a thing, and the trash
-          overlay below sits on top of it anyway. */}
-      {!folded && !dragFolding && (
+          not a separate visible sash. Hidden while folded (manually or by a
+          live row drag): there is no dragged height to adjust when the body
+          isn't showing, and the card's own height then collapses to the
+          head's (point 4, spec §6.4) rather than reserving the
+          last-dragged height. */}
+      {!cardFolded && (
         <div
           data-testid="carousel-resize-handle"
           onPointerDown={handleResizePointerDown}
@@ -413,10 +418,10 @@ export function SidebarCarousel({
             <CaretDown
               aria-hidden="true"
               data-testid="carousel-fold-caret"
-              // The VISUAL follows whichever fold is actually showing —
-              // point 2's "existing §6.4 fold treatment" applies to a
-              // drag-fold too, this control included.
-              className={cn('transition-transform', (folded || dragFolding) && 'rotate-180')}
+              // The VISUAL follows whichever fold is actually showing — a
+              // live row drag reads the same as the user's own toggle here,
+              // this control included.
+              className={cn('transition-transform', cardFolded && 'rotate-180')}
             />
           </Button>
         </div>
@@ -433,10 +438,10 @@ export function SidebarCarousel({
             fold (spec §6.2), the same dormancy the pane's own chat/terminal
             surfaces use (agent-chat-pane.tsx) — unmounting here would lose
             each panel's scroll position and re-trigger FileExplorerTree's/
-            GitPanel's measured init logic on every unfold. Also hidden
-            during a drag-fold (`dragFolding`) — the trash overlay below
-            covers the same area, but the underlying scroller staying
-            interactive while covered is one hazard fewer to reason about. */}
+            GitPanel's measured init logic on every unfold. Hidden during a
+            live row drag too (`cardFolded`), same as everything else the
+            fold touches — the card giving its space back is the whole
+            point (see `rowDragging`'s own doc above). */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
@@ -445,7 +450,7 @@ export function SidebarCarousel({
           data-sidebar-carousel=""
           className={cn(
             'flex-1 overflow-x-scroll overflow-y-hidden [scroll-snap-type:x_mandatory] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-            folded || dragFolding ? 'hidden' : 'flex',
+            cardFolded ? 'hidden' : 'flex',
           )}
         >
           {/* Files panel */}
@@ -495,26 +500,6 @@ export function SidebarCarousel({
           </div>
         </div>
       </NavStack>
-      {/* Addendum §2 step 3: "once folded... the card's surface becomes a
-          trash-can drop target." Reuses `DropZone` (`drop-dom.ts`), the same
-          whole-region hit-test abstraction the (now-deleted) editor-pane
-          removal zone used — `CARD_TRASH_DROP_ATTR` is the attribute
-          `use-sidebar-drag.ts`'s own card-trash zone reads. Sits on top of
-          everything else in the card (`z-20`, last in DOM order) so it is
-          what the hit test — and a real pointer release — actually lands
-          on. The exact visual (icon + destructive tint + short label) is
-          this session's own read of "match what develop already ships" —
-          verify against a live `develop` build before shipping. */}
-      {dragFolding && (
-        <div
-          {...{ [CARD_TRASH_DROP_ATTR]: '' }}
-          data-testid="carousel-trash-zone"
-          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-destructive bg-destructive/15 text-destructive"
-        >
-          <Trash aria-hidden="true" className="size-5" weight="fill" />
-          <span className="text-[11px] font-medium">Drop to delete</span>
-        </div>
-      )}
     </div>
   )
 }

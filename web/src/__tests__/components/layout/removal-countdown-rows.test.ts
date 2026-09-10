@@ -6,7 +6,7 @@ vi.mock('@/lib/persistence/sidebar-ui', () => ({
 }))
 
 import { handleTrash } from '@/components/layout/space-content-actions'
-import { applyPendingRemovals } from '@/components/layout/removal-plan'
+import { applyPendingRemovals, attachRemovalState, descendantHiddenIds } from '@/components/layout/removal-plan'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, getInitialRemovalState } from '@/lib/store/sidebar-removal'
@@ -97,13 +97,16 @@ function repo(): Repo {
   }
 }
 
-/** The rows on screen right now, exactly as `SidebarTreeSurface` derives them. */
+/** The rows on screen right now, exactly as `SidebarTreeSurface` derives them:
+ *  descendants strip out, the held row's own primary id stays so it has a
+ *  row left to transform in place (`removal-plan.ts`'s `descendantHiddenIds`
+ *  / `attachRemovalState`), never the store's raw `hiddenIds` (which still
+ *  lists the primary too — that field backs this file's own hiddenIds
+ *  assertions, not what the tree actually draws). */
 function rowsOnScreen() {
-  const repos = applyPendingRemovals(
-    useSidebarStore.getState().repos,
-    useRemovalTrayStore.getState().hiddenIds,
-  )
-  return repos.flatMap(rowsFromRepo)
+  const entries = useRemovalTrayStore.getState().entries
+  const repos = applyPendingRemovals(useSidebarStore.getState().repos, descendantHiddenIds(entries))
+  return attachRemovalState(repos.flatMap(rowsFromRepo), entries)
 }
 
 beforeEach(() => {
@@ -121,15 +124,17 @@ describe('a held workspace row during its countdown', () => {
     expect(rowsOnScreen().filter((r) => r.workspaceId === 'ws-fork')).toHaveLength(1)
   })
 
-  it('DISAPPEARS while held — it does not turn into a chat bubble', () => {
+  it('stays on screen, transformed into its countdown state — it does not turn into a chat bubble', () => {
     expect(handleTrash('chat-fork')).toBe(true)
 
     const rows = rowsOnScreen()
-    // The regression, stated the way the user reported it: "the branch row
-    // transformed into a conversation one". Both halves of the row go, so
-    // neither the workspace nor its owning chat is left to draw anything.
-    expect(rows.some((r) => r.id === 'chat-fork')).toBe(false)
-    expect(rows.some((r) => r.workspaceId === 'ws-fork')).toBe(false)
+    const row = rows.find((r) => r.id === 'chat-fork')
+    // The row itself stays, transformed in place (explicit product request)
+    // — but the regression this file is named for, stated the way the user
+    // reported it, is "the branch row transformed into a conversation one":
+    // it must stay the BRANCH row it always was, never a chat bubble.
+    expect(row).toMatchObject({ kind: 'branch', workspaceId: 'ws-fork' })
+    expect(row?.removal?.deadlineAt).not.toBeNull()
     expect(rows.some((r) => r.kind === 'chat' && r.label === 'One')).toBe(false)
   })
 

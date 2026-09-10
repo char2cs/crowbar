@@ -187,6 +187,18 @@ export function createDropHitTest<
     zone === undefined ? [] : Array.isArray(zone) ? zone : [zone]
   return (x, y, subjects) => {
     for (const el of document.elementsFromPoint(x, y)) {
+      // The drag ghost (`drag-ghost.tsx`'s `DragGhost`, `data-drag-ghost`) is
+      // a DEEP CLONE of the row(s) actually being dragged — cloneGhostRows
+      // (drag-ghost.tsx) copies the whole element, drop attributes and all,
+      // onto a floating overlay that tracks the cursor and therefore sits
+      // exactly where a drop is being aimed. `pointer-events: none` on that
+      // overlay is supposed to keep `elementsFromPoint` from ever reporting
+      // it as a hit, but a clone carrying a REAL row's own kind+id attribute
+      // is exactly the shape of thing that turns a hit-testing quirk into a
+      // silently wrong target — this is a maybe-redundant, zero-cost second
+      // line of defence: something this hit test may never legitimately
+      // resolve to, ghost clone or not.
+      if (el.closest('[data-drag-ghost]')) continue
       for (const z of zones) {
         if (el.hasAttribute(z.attr)) return z.hit(subjects, el, { x, y })
       }
