@@ -332,17 +332,16 @@ export function SidebarCarousel({
     // above the footer AND, since the tree's own bottom-inset spacer
     // (`--card-bottom-inset`, measured off this card's real height) never
     // accounted for that extra 8px, let the tree's last row peek out from
-    // under the card by that same amount. `bg-pane-background`/the
-    // pane-content shadow are the SAME ground and elevation
-    // `pane-container.tsx` casts onto the sidebar from a docked pane;
-    // `rounded-lg` is `--radius`, not a hand-rolled value.
+    // under the card by that same amount. `bg-pane-background` is the same
+    // ground `pane-container.tsx` uses; `rounded-lg` is `--radius`, not a
+    // hand-rolled value.
     <div
       ref={cardRef}
       data-testid="carousel-card"
       // This box's own `absolute` already makes it a positioning ancestor,
       // so the drag-to-trash overlay below (`absolute inset-0`) covers
       // exactly this box without needing a separate `relative`.
-      className="absolute inset-x-2 bottom-0 z-10 flex flex-col overflow-hidden rounded-lg border bg-pane-background shadow-[0_3px_8px_rgba(0,0,0,0.24)]"
+      className="absolute inset-x-2 bottom-0 z-10 flex flex-col overflow-hidden rounded-lg border bg-pane-background"
       style={cardHeightPx != null && !folded ? { height: `${cardHeightPx}px` } : undefined}
     >
       {/* Top 6px hot zone (spec §6) — matches pane-sash.tsx's own

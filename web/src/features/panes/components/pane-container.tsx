@@ -733,14 +733,7 @@ export function PaneContainer({
         // two-tone "header band over rounded content" look, not the design's
         // single `.pane` surface.
         data-pane-content=""
-        className={cn(
-          'relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-background',
-          // Casts onto the sidebar, so it only makes sense while there is a
-          // sidebar there to catch it.
-          sidebarOpen &&
-            (sidebarPosition === 'left' ? position.atLeft : position.atRight) &&
-            'shadow-[0_3px_8px_rgba(0,0,0,0.24)]',
-        )}
+        className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-background"
         style={paneContentStyle}
       >
         {/* Spec §7.2: in every presentation except 'stacked', the row stays

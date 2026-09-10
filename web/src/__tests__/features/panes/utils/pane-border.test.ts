@@ -5,8 +5,8 @@ import type { PanePosition } from '@/features/panes/types/pane'
 const full: PanePosition = { atLeft: true, atTop: true, atRight: true, atBottom: true }
 const notAtEdge: PanePosition = { atLeft: false, atTop: false, atRight: false, atBottom: false }
 
-const INACTIVE = '2px solid transparent'
-const ACTIVE = '2px solid var(--secondary)'
+const INACTIVE = '1px solid var(--border)'
+const ACTIVE = '1px solid var(--secondary)'
 
 describe('isWindowEdge', () => {
   it('top is never a window edge', () => {
@@ -80,7 +80,7 @@ describe('buildPaneContentStyle — left sidebar', () => {
     expect(s.borderTopRightRadius).toBe('0')
     expect(s.borderBottomLeftRadius).toBe('0')
     expect(s.borderBottomRightRadius).toBe('0')
-    // Internal edges reserve a constant 1px border (transparent when
+    // Internal edges reserve a constant 1px border (neutral --border when
     // inactive) so activating a pane never shifts layout; window edges none.
     expect(s.borderTop).toBe(INACTIVE)
     expect(s.borderLeft).toBe(INACTIVE) // chrome side

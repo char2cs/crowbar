@@ -42,9 +42,10 @@ export function buildPaneContentStyle(
   sidebarOpen: boolean = true,
 ): CSSProperties {
   const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide, sidebarOpen)
-  // Constant width (transparent when not drawn) so toggling never shifts layout;
-  // 2px matches the tab-drag ring (ring-2 ring-secondary).
-  const BORDER = showActiveBorder ? '2px solid var(--secondary)' : '2px solid transparent'
+  // Constant width so toggling never shifts layout. Neutral --border at rest
+  // (Athas's glass-island keeps the same border/70 whether or not it's the
+  // focused pane), --secondary only for the active-pane accent.
+  const BORDER = showActiveBorder ? '1px solid var(--secondary)' : '1px solid var(--border)'
   const NONE = 'none'
   const R = 'var(--radius-lg)'
   const ZERO = '0'

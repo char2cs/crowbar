@@ -1,4 +1,3 @@
-/* Cal Sans UI — body/UI font (variable, wght 300–700) */
 @font-face {
   font-family: 'CalSansUI';
   src: url('/fonts/CalSansUI.woff2') format('woff2');
@@ -6,7 +5,6 @@
   font-display: swap;
 }
 
-/* Cal Sans — heading font */
 @font-face {
   font-family: 'CalSans';
   src: url('/fonts/CalSans-Regular.woff2') format('woff2');
@@ -14,17 +12,6 @@
   font-display: swap;
 }
 
-/*
- * Symbols Nerd Font Mono — icon-glyph fallback for the terminal.
- *
- * TUIs like Claude Code render Nerd Font / Powerline icon glyphs (private-use
- * codepoints). Those are NOT in JetBrains Mono or any system mono font, so
- * without this they fall through the whole chain to a missing-glyph box (tofu).
- * The terminal font chain (terminal-fonts.ts) already lists "Symbols Nerd Font
- * Mono"/"Symbols Nerd Font" as the first fallbacks; bundling the symbols-only
- * font under those exact family names lights that chain up. Single-cell ("Mono")
- * width keeps icons aligned to the terminal grid. One file backs both names.
- */
 @font-face {
   font-family: 'Symbols Nerd Font Mono';
   src: url('/fonts/SymbolsNerdFontMono-Regular.woff2') format('woff2');
@@ -42,13 +29,10 @@
 }
 
 @theme inline {
-  /* Single source of truth: the UI font picked in Settings (--app-font-family,
-     written to :root by the bootstrap + FontStyleInjector). 'CalSansUI' is the
-     bundled default and the fallback if the runtime var is ever unset. */
   --font-sans: var(--app-font-family, 'CalSansUI', sans-serif);
-  /* Headings share the UI font; CalSans remains only as a load-bearing fallback. */
+
   --font-heading: var(--app-font-family, 'CalSans', sans-serif);
-  /* Mono follows the Editor Font Family from Settings (--editor-font-family). */
+
   --font-mono: var(--editor-font-family, 'JetBrains Mono Variable', ui-monospace, monospace);
   --color-background: var(--background);
   --color-pane-background: var(--pane-background);
@@ -123,18 +107,9 @@
   --animate-toast-error-odd: toast-error-odd 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-toast-error-even: toast-error-even 0.28s cubic-bezier(0.5, 1, 0.89, 1);
   --animate-label-in: label-in 140ms cubic-bezier(0, 0, 0.2, 1) both;
-  /* A row action that is out of the flow at rest and appears on hover/focus.
-     `display` is what gives the branch name back the button's 24px box and the
-     row's 6px gap, and `display` cannot transition — so the fade rides a
-     keyframe, which starts the moment the element becomes displayed. Short
-     enough to read as the row responding rather than as a thing arriving. */
+
   --animate-row-action-in: row-action-in 120ms ease;
-  /* The hairline draining along a held row in the removal tray. ONE animation
-     for the whole eight seconds — the alternative is a timer re-rendering a
-     countdown thirty times a second to move a bar the compositor can move on
-     its own. `forwards` so the drained state survives the last frame; `linear`
-     because the bar IS the clock and an eased one would misreport how much of
-     it is left. */
+
   --animate-tray-drain: tray-drain 8s linear forwards;
   @keyframes skeleton {
     to {
@@ -243,7 +218,6 @@
 }
 
 :root {
-  /* ── Cross/UI light-mode tokens ── */
   --radius: 0.625rem;
   --background: oklch(0.994 0.001 106.4);
   --pane-background: oklch(0.994 0.001 106.4);
@@ -252,38 +226,20 @@
   --card-foreground: var(--color-neutral-800);
   --popover: var(--color-white);
   --popover-foreground: var(--color-neutral-800);
-  --primary: oklch(0.49 0.082 130);
-  --primary-foreground: oklch(0.98 0.027 98);
-  /* Crowbar brand accent — LIGHT theme (hex AFB38C). Secondary is shadcn's second
-     brand colour; primary stays the brand green. Emphasis usages (pins, active
-     states, drop zones, links) pull this via text-/border-/ring-secondary.
-     The dark theme carries its own value (hex 283618) — see .dark below. */
-  --secondary: oklch(0.753 0.054 112.4);
-  --secondary-foreground: oklch(0.98 0.027 98);
+  --primary: oklch(0.509 0.121 253.7);
+  --primary-foreground: oklch(1 0 0);
+
+  --secondary: var(--primary);
+  --secondary-foreground: oklch(1 0 0);
   --muted: oklch(0 0 0 / 4%);
-  /* Was 0.52 — rgb(105), which measured 2.82:1 against the sidebar's vibrancy
-     glass and failed WCAG 1.4.11's 3:1 floor for non-text UI. Sub-action icons
-     (settings, add, expand) read as barely-there smudges. Native vibrancy
-     lightens whatever sits on it, so a value picked against --background is
-     optimistic; this is scored against the composited glass instead.
-     0.40 -> rgb(72), 4.69:1, and still clearly below --foreground so "muted"
-     keeps meaning muted. */
+
   --muted-foreground: oklch(0.4 0 0);
   --accent: oklch(0 0 0 / 4%);
   --accent-foreground: var(--color-neutral-800);
-  /* Editor text-selection wash (needs real opacity, unlike the 4% --accent) */
+
   --editor-selection: oklch(0.62 0.13 235 / 0.3);
-  /* Selection/emphasis accent for the Plate registry components copied from
-     platejs.org — block selection, table cell selection, the table drop line,
-     a selected equation. Those files ship `bg-brand/…` utilities against a
-     token Plate's own theme declares and ours did not, so every one of them
-     compiled to nothing and the affordance was invisible; Cmd+A in the rich
-     markdown editor block-selected the whole document and painted no pixel.
-     Same hue as --editor-selection (Monaco's selection wash) so a selection
-     reads the same in Rich and Source view. Deliberately OPAQUE: every
-     consumer supplies its own alpha (/[.13], /5, /15, /50), and baking one in
-     here would multiply the two. */
-  --brand: oklch(0.62 0.13 235);
+
+  --brand: oklch(0.509 0.121 253.7);
   --destructive: var(--color-red-500);
   --destructive-foreground: var(--color-red-700);
   --info: var(--color-blue-500);
@@ -317,11 +273,6 @@
   --code-foreground: var(--foreground);
   --code-highlight: oklch(0 0 0 / 4%);
 
-  /* ── Git status decorations — light (file tree + changes) ──
-     The @theme block maps --color-git-* → these base tokens; without values
-     here every text-git-* utility resolved to empty and inherited foreground. */
-  /* Derive from the semantic tokens where the hue matches (the house pattern,
-     e.g. --syntax-error: var(--destructive)) so git status tracks the theme. */
   --git-modified: var(--warning);
   --git-modified-staged: var(--success);
   --git-added: var(--success);
@@ -329,38 +280,13 @@
   --git-deleted: var(--destructive);
   --git-renamed: var(--color-sky-600);
 
-  /* The +/- figures on a sidebar row's second line. NOT --git-added/--git-deleted:
-     those resolve to emerald-500/red-500, which lose contrast against the raised
-     active surface the second line only ever appears on. The pale pair reads
-     there; on the light theme it is taken down to 60% so it reads against a light
-     surface for the same reason. */
   --sidebar-count-added: color-mix(in srgb, var(--color-green-300) 60%, black);
   --sidebar-count-deleted: color-mix(in srgb, var(--color-red-300) 60%, black);
 
-  /* The two drag-and-drop marks on a sidebar row: the hairline that says
-     "between these rows" and the fill that says "inside this one".
-
-     Built on --secondary rather than --primary. --primary is the app's most
-     emphatic surface (the active pane ring, the count badge); a drop mark is a
-     transient hint that has to read over a row already wearing its own hover or
-     active treatment without competing with either. The line takes a share of
-     --foreground on top so it stays legible where --secondary and the sidebar
-     glass are close in lightness.
-
-     Declared ONCE. Every theme class lands on the same <html> element as :root,
-     so the mix resolves against whichever --secondary/--foreground won the
-     cascade — unlike --sidebar-count-* above, which needs a per-theme value
-     because its formula differs between light and dark. */
   --sidebar-drop-line: color-mix(in oklch, var(--secondary) 55%, var(--foreground));
   --sidebar-drop-nest: color-mix(in oklch, var(--secondary) 30%, transparent);
   --sidebar-drop-nest-edge: color-mix(in oklch, var(--secondary) 65%, transparent);
 
-  /* ── Crowbar UI-layer tokens (not in Cross/UI) ── */
-  /* Window backdrop tint (on <body>, over the native window vibrancy). A light
-     frost — neutral-50 at 65% — so the blurred desktop reads through as light
-     glass rather than raw blur. Mirrors the dark theme's neutral-800 tint but in
-     the light direction; a dark tint here would muddy the light surfaces. Zen
-     keeps its own transparent value (see zen.css). */
   --chrome-bg: color-mix(in oklch, var(--color-neutral-50) 45%, transparent);
 
   --app-ui-scale: 1;
@@ -376,15 +302,12 @@
   --app-scrollbar-track: transparent;
   --app-scrollbar-radius: 999px;
 
-  /* ── Syntax tokens — light mode ───────────────────────────────── */
-  /* Bound to shadcn semantics (auto-track the UI theme) */
   --syntax-comment: var(--muted-foreground);
   --syntax-variable: var(--foreground);
   --syntax-punctuation: var(--muted-foreground);
   --syntax-operator: var(--muted-foreground);
   --syntax-error: var(--destructive);
 
-  /* Dedicated hues — Palette A "Refined Anthropic" (light) */
   --syntax-keyword: #b26045;
   --syntax-string: #578141;
   --syntax-number: #976f30;
@@ -409,8 +332,6 @@
   --syntax-markdown-list: #b26045;
   --syntax-markdown-quote: var(--muted-foreground);
 
-  /* ── Terminal ANSI-16 — pure aliases onto the unified layer ───── */
-  /* magenta/cyan have no shadcn equivalent → reuse coordinated syntax hues */
   --terminal-black: oklch(0.27 0 0);
   --terminal-red: var(--destructive);
   --terminal-green: var(--success);
@@ -430,46 +351,36 @@
 }
 
 .dark {
-  /* ── Cross/UI dark-mode tokens ── */
-  --background: oklch(0.239 0.002 106.5);
-  --pane-background: oklch(0.239 0.002 106.5);
-  --foreground: var(--color-neutral-100);
+  --background: oklch(0.2 0.006 271.1);
+  --pane-background: oklch(0.2 0.006 271.1);
+  --foreground: oklch(0.967 0.003 264.5);
   --card: var(--background);
-  --card-foreground: var(--color-neutral-100);
+  --card-foreground: oklch(0.967 0.003 264.5);
   --popover: var(--background);
-  --popover-foreground: var(--color-neutral-100);
-  --primary: oklch(0.49 0.082 130);
-  --primary-foreground: oklch(0.98 0.027 98);
-  /* Crowbar brand accent — DARK theme. Deliberately its own value, not the light
-     theme's (see the :root note above): #283618 sat only 0.12 lightness from the
-     background and the emphasis states it drives — the active-pane ring, drop zones —
-     all but vanished. Tracks --primary (#516A36) so the two brand greens cannot drift
-     apart, and so the accent is legible on a dark surface. */
+  --popover-foreground: oklch(0.967 0.003 264.5);
+  --primary: oklch(0.616 0.114 252.3);
+  --primary-foreground: oklch(1 0 0);
+
   --secondary: var(--primary);
-  --secondary-foreground: oklch(0.98 0.027 98);
-  --muted: oklch(1 0 0 / 4%);
-  /* Was 0.6 — rgb(128), 2.65:1 against the dark sidebar, failing the same 3:1
-     floor as the light theme did. Raised to keep both themes above it.
-     0.72 -> rgb(164), ~4.2:1, still well short of --foreground. */
-  --muted-foreground: oklch(0.72 0 0);
-  --accent: oklch(1 0 0 / 4%);
-  --accent-foreground: var(--color-neutral-100);
-  --editor-selection: oklch(0.7 0.13 235 / 0.32);
-  /* Lighter than the light theme's (see :root): a 13% wash of the L 0.62 blue
-     over an L 0.239 background lifts it by ~0.03, which is under the 4%-white
-     --muted chips already on that surface — the selection would read as less
-     than an inline code span. L 0.7 doubles the lift. */
-  --brand: oklch(0.7 0.13 235);
-  --destructive: oklch(0.65 0.22 24);
+  --secondary-foreground: oklch(1 0 0);
+  --muted: oklch(0.252 0.012 270.9);
+
+  --muted-foreground: oklch(0.834 0.008 278.6);
+  --accent: oklch(0.222 0.008 264.4);
+  --accent-foreground: var(--foreground);
+  --editor-selection: oklch(0.612 0.104 251.9 / 32%);
+
+  --brand: oklch(0.616 0.114 252.3);
+  --destructive: oklch(0.686 0.134 35.2);
   --destructive-foreground: var(--color-red-400);
-  --info: var(--color-blue-500);
+  --info: oklch(0.713 0.088 252.2);
   --info-foreground: var(--color-blue-400);
-  --success: var(--color-emerald-500);
+  --success: oklch(0.676 0.083 135.7);
   --success-foreground: var(--color-emerald-400);
-  --warning: var(--color-amber-500);
+  --warning: oklch(0.743 0.121 78.6);
   --warning-foreground: var(--color-amber-400);
-  --border: oklch(1 0 0 / 6%);
-  --input: oklch(1 0 0 / 8%);
+  --border: oklch(0.269 0.01 268.3);
+  --input: var(--border);
   --ring: var(--color-neutral-500);
   --chart-1: var(--color-blue-700);
   --chart-2: var(--color-emerald-500);
@@ -477,12 +388,12 @@
   --chart-4: var(--color-purple-500);
   --chart-5: var(--color-rose-500);
   --sidebar: oklch(0 0 0 / 18%);
-  --sidebar-foreground: var(--color-neutral-100);
-  --sidebar-primary: var(--color-neutral-100);
-  --sidebar-primary-foreground: var(--color-neutral-800);
-  --sidebar-accent: oklch(1 0 0 / 4%);
-  --sidebar-accent-foreground: var(--color-neutral-100);
-  --sidebar-border: oklch(1 0 0 / 5%);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--foreground);
+  --sidebar-primary-foreground: var(--background);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
   --sidebar-ring: var(--color-neutral-400);
   --sidebar-element-idle: color-mix(in oklch, var(--foreground) 11%, transparent);
   --sidebar-element-hover: oklch(1 0 0 / 10%);
@@ -491,70 +402,69 @@
   --code-foreground: var(--foreground);
   --code-highlight: oklch(1 0 0 / 4%);
 
-  /* ── Git status decorations — dark (file tree + changes) ── */
-  --git-modified: var(--warning);
-  --git-modified-staged: var(--success);
-  --git-added: var(--success);
-  --git-untracked: var(--color-lime-400);
-  --git-deleted: var(--destructive);
-  --git-renamed: var(--color-sky-400);
+  --git-modified: oklch(0.743 0.121 78.6);
+  --git-modified-staged: oklch(0.784 0.115 81.4);
+  --git-added: oklch(0.676 0.083 135.7);
+  --git-untracked: oklch(0.713 0.088 252.2);
+  --git-deleted: oklch(0.686 0.134 35.2);
+  --git-renamed: oklch(0.716 0.092 311.1);
 
-  /* Full strength here — see the light-theme note. */
   --sidebar-count-added: var(--color-green-300);
   --sidebar-count-deleted: var(--color-red-300);
 
-  /* ── Crowbar UI-layer dark overrides ── */
-  /* Window backdrop tint (applied to <body>, behind every pane). Was a 40% black
-     wash over the native window vibrancy (the blurred desktop). Recoloured to a
-     neutral-800 (#262626) tint at 65% strength: mostly solid, with the vibrancy
-     still reading through a neutral wash rather than pure black. color-mix keeps
-     it token-driven (same pattern as --sidebar-element-*). Light carries its own
-     neutral-50 frost; Zen keeps its own 40% black wash (see zen.css). */
-  --chrome-bg: color-mix(in oklch, var(--color-neutral-800) 65%, transparent);
+  --chrome-bg: color-mix(in oklch, oklch(0.173 0.004 264.5) 65%, transparent);
 
-  /* ── Syntax dedicated hues — Palette A (dark) ─────────────────── */
-  --syntax-keyword: #d97757;
-  --syntax-string: #a3c585;
-  --syntax-number: #d6a95c;
-  --syntax-constant: #5fbcc4;
-  --syntax-function: #6fb0e0;
-  --syntax-type: #c4a6dd;
-  --syntax-property: #cfc9bd;
-  --syntax-tag: #6fb0e0;
-  --syntax-attribute: #d6a95c;
-  --syntax-boolean: #5fbcc4;
-  --syntax-null: #c4a6dd;
-  --syntax-regex: #7ec0cf;
-  --syntax-jsx: #6fb0e0;
-  --syntax-jsx-attribute: #d6a95c;
-  --syntax-markdown-heading: #6fb0e0;
-  --syntax-markdown-bold: #d6a95c;
-  --syntax-markdown-italic: #d97757;
-  --syntax-markdown-link: #6fb0e0;
-  --syntax-markdown-link-text: #a3c585;
-  --syntax-markdown-code: #a3c585;
-  --syntax-markdown-list: #d97757;
+  --syntax-punctuation: oklch(0.712 0.012 269.5);
+  --syntax-operator: oklch(0.712 0.012 269.5);
+  --syntax-error: var(--destructive);
+
+  --syntax-comment: oklch(0.583 0.015 266.6);
+  --syntax-variable: oklch(0.775 0.081 313);
+  --syntax-keyword: oklch(0.686 0.134 35.2);
+  --syntax-string: oklch(0.713 0.088 252.2);
+  --syntax-number: oklch(0.743 0.121 78.6);
+  --syntax-constant: oklch(0.686 0.134 35.2);
+  --syntax-function: oklch(0.735 0.078 136.3);
+  --syntax-type: oklch(0.793 0.064 133.7);
+  --syntax-property: oklch(0.784 0.078 250);
+  --syntax-tag: oklch(0.676 0.083 135.7);
+  --syntax-attribute: oklch(0.686 0.134 35.2);
+  --syntax-boolean: oklch(0.686 0.134 35.2);
+  --syntax-null: oklch(0.716 0.092 311.1);
+  --syntax-regex: oklch(0.747 0.054 223.2);
+  --syntax-jsx: oklch(0.713 0.088 252.2);
+  --syntax-jsx-attribute: oklch(0.686 0.134 35.2);
+  --syntax-markdown-heading: var(--syntax-function);
+  --syntax-markdown-bold: var(--syntax-number);
+  --syntax-markdown-italic: var(--syntax-keyword);
+  --syntax-markdown-link: var(--syntax-function);
+  --syntax-markdown-link-text: var(--syntax-string);
+  --syntax-markdown-code: var(--syntax-string);
+  --syntax-markdown-list: var(--syntax-keyword);
+
+  --terminal-black: oklch(0.135 0.002 286.1);
+  --terminal-red: oklch(0.686 0.134 35.2);
+  --terminal-green: oklch(0.676 0.083 135.7);
+  --terminal-yellow: oklch(0.743 0.121 78.6);
+  --terminal-blue: oklch(0.713 0.088 252.2);
+  --terminal-magenta: oklch(0.716 0.092 311.1);
+  --terminal-cyan: oklch(0.747 0.054 223.2);
+  --terminal-white: oklch(0.834 0.008 278.6);
+  --terminal-bright-black: oklch(0.576 0.015 266.6);
+  --terminal-bright-red: oklch(0.743 0.115 37.1);
+  --terminal-bright-green: oklch(0.735 0.078 136.3);
+  --terminal-bright-yellow: oklch(0.796 0.116 83.8);
+  --terminal-bright-blue: oklch(0.784 0.078 250);
+  --terminal-bright-magenta: oklch(0.775 0.081 313);
+  --terminal-bright-cyan: oklch(0.81 0.049 220.2);
+  --terminal-bright-white: oklch(0.967 0.003 264.5);
 }
 
-/* The New Tab surface keys off the PANE's box, not the window: a pane's size has
-   nothing to do with the viewport, so a media query is wrong in every split.
-   `size` (not `inline-size`) because the height queries below are load-bearing. */
 .pane-cq {
   container-type: size;
   container-name: pane;
 }
 
-/* The surface is a SINGLE column at every pane size — actions, a rule, then
-   history. It used to go side-by-side above 700px, which reserved a fixed
-   second column for a history that usually holds one item, leaving a third of
-   the composition as dead air. One column cannot have that failure: there is no
-   second column left to be empty.
-
-   That collapses three rules to one. Stacked, history genuinely costs vertical
-   space, so a pane too short for both drops it and keeps the create actions —
-   they are what the surface is for. (The old pair split this by width because
-   the side-by-side case had a much lower floor; with one column there is only
-   this threshold.) */
 @container pane (max-height: 380px) {
   .nt-history {
     display: none;
