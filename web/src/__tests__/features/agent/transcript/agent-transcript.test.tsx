@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
@@ -1485,5 +1485,108 @@ describe('AgentTranscript: settle-priming heights are rounded, not raw floats', 
     } finally {
       HTMLElement.prototype.getBoundingClientRect = originalRect
     }
+  })
+})
+
+// A chat OPENING is a convergence loop, not one layout: an estimated row height
+// is corrected by `measureElement`, the correction moves the total, the total
+// reaches the anchor's ResizeObserver, that moves `scrollTop`, the scroll event
+// reaches the virtualizer a frame later and re-ranges the rows, and the newly
+// ranged rows arrive as estimates again. Measured live on a 30-turn chat opened
+// from the sidebar, at ordinary speed: FOUR painted positions in ~105ms, the
+// middle two moving the content 402px and then 38px — with `scrollTop` at the
+// true bottom in every one of them. That is what was reported as "opening an
+// OLD chat makes it so that the scroll starts at the top, and THEN scrolls to
+// the bottom", and no scroll-position fix reaches it: the content is changing
+// height under an already-correct viewport. These pin the only thing that does
+// — the laps are laid out and measured, but not shown.
+describe('AgentTranscript opening settle gate', () => {
+  const originalClientHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    'clientHeight',
+  )
+  // Deterministic frames, not real ones: the gate counts ANIMATION FRAMES with
+  // the total height unchanged, so a test that waited on a clock would be
+  // asserting the scheduler rather than the behaviour.
+  let frames: Array<() => void> = []
+  let originalRaf: typeof requestAnimationFrame
+  let originalCancelRaf: typeof cancelAnimationFrame
+
+  function conversation(turns: number): AgentChatMessage[] {
+    return Array.from({ length: turns }, (_, i) => ({
+      turnId: `t${i}`,
+      sequence: i,
+      role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      providerId: i % 2 === 0 ? '' : 'claude',
+      text: `turn ${i}`,
+      at: '',
+    }))
+  }
+
+  beforeEach(() => {
+    frames = []
+    originalRaf = globalThis.requestAnimationFrame
+    originalCancelRaf = globalThis.cancelAnimationFrame
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+      frames.push(() => cb(0))) as unknown as typeof requestAnimationFrame
+    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame
+    // jsdom has no layout engine, and the gate refuses to count a container
+    // with no box at all — which in the real app is a chat mounted into a tab
+    // or a workspace slot that is not on screen yet.
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get: () => VIEWPORT_HEIGHT,
+    })
+  })
+
+  afterEach(() => {
+    globalThis.requestAnimationFrame = originalRaf
+    globalThis.cancelAnimationFrame = originalCancelRaf
+    if (originalClientHeight) {
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', originalClientHeight)
+    }
+  })
+
+  const runFrames = (count: number) => {
+    for (let i = 0; i < count; i++) {
+      const pending = frames
+      frames = []
+      act(() => {
+        for (const frame of pending) frame()
+      })
+    }
+  }
+
+  const virtualRows = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('.virtual-rows')
+
+  it('does not show the virtualized rows on the frame they first render', () => {
+    const { container } = draw(conversation(12))
+
+    expect(virtualRows(container)).not.toBeNull()
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+  })
+
+  it('shows them once the total height has held still, and not before', () => {
+    const { container } = draw(conversation(12))
+
+    // One quiet frame is not a settled chat: the cascade's laps are a frame
+    // apart and it plateaus mid-way, which is exactly why this waits for more
+    // than one — see SETTLE_QUIET_FRAMES.
+    runFrames(2)
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+
+    runFrames(4)
+    expect(virtualRows(container)?.style.visibility).toBe('')
+  })
+
+  it('gives up the gate the moment the reader actually touches the transcript', () => {
+    const { container } = draw(conversation(12))
+    const scroll = container.querySelector<HTMLElement>('.scroll')
+
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+    fireEvent.wheel(scroll as HTMLElement)
+
+    expect(virtualRows(container)?.style.visibility).toBe('')
   })
 })
