@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChoice, AgentSubagent, AgentToolCall } from '@/features/agent/api/agent-api'
 import * as agentApi from '@/features/agent/api/agent-api'
 import {
+  AgentLiveTurnTools,
   AgentTurnChoices,
   AgentTurnSubagents,
   AgentTurnTools,
@@ -279,5 +280,55 @@ describe('AgentTurnChoices', () => {
   it('renders nothing for a turn with no resolved choices', () => {
     const { container } = render(<AgentTurnChoices choicesByTurn={new Map()} turnId="turn-1" />)
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+// A tool call was durable in the ledger and invisible on screen for the whole
+// rest of its turn: it is filed under the OPEN turn, no message carries that
+// turn id yet, and nothing else drew it — so every call of a turn appeared at
+// once, when the turn ended. Measured live before this existed: five calls, the
+// first known to the backend at t=13.8s, all five first painted at t=39.4s.
+describe('AgentLiveTurnTools', () => {
+  it('draws a call that has no reply to sit under yet', () => {
+    render(
+      <AgentLiveTurnTools
+        calls={[tool({ name: 'commandExecution', target: 'ls -la', durationMs: 17 })]}
+      />,
+    )
+    expect(screen.getByText('commandExecution · ls -la')).toBeInTheDocument()
+    expect(screen.getByText('17ms')).toBeInTheDocument()
+  })
+
+  // The one thing a live list has to say that a finished one does not.
+  it('keeps a still-running call, marked as running', () => {
+    render(<AgentLiveTurnTools calls={[tool({ status: 'running', name: 'Bash' })]} />)
+    expect(screen.getByText('Bash').closest('li')).toHaveAttribute('data-status', 'running')
+  })
+
+  it('renders nothing when no turn is in flight', () => {
+    const { container } = render(<AgentLiveTurnTools calls={[]} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  // A long build emits nothing but this for its whole duration, so without it
+  // the row sits static with no sign of progress.
+  it("shows a running call's output on that call's own row", () => {
+    render(
+      <AgentLiveTurnTools
+        calls={[tool({ id: 'c1', status: 'running', name: 'commandExecution' })]}
+        toolOutput={{ id: 'c1', text: 'line 1\nline 2\nline 3' }}
+      />,
+    )
+    expect(screen.getByTestId('agent-tool-output')).toHaveTextContent('line 3')
+  })
+
+  it("does not put one call's output under a different call", () => {
+    render(
+      <AgentLiveTurnTools
+        calls={[tool({ id: 'c1', status: 'running' })]}
+        toolOutput={{ id: 'SOMETHING-ELSE', text: 'line 1' }}
+      />,
+    )
+    expect(screen.queryByTestId('agent-tool-output')).not.toBeInTheDocument()
   })
 })

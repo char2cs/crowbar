@@ -16,6 +16,7 @@ import {
   describeResolvedChoice,
   describeTool,
   formatDuration,
+  liveTurnToolCalls,
   NO_ACTIVITY,
   optionLabel,
   pendingChoices,
@@ -115,6 +116,59 @@ describe('runningTools', () => {
     ]
 
     expect(runningTools(activity({ toolCalls: calls })).map((c) => c.id)).toEqual(['a', 'b'])
+  })
+})
+
+// A call is filed against whichever turn was OPEN when it ran; only when that
+// turn closes does the ledger repoint it onto the reply's own turn id. Between
+// those two moments it matched no message on screen and nothing drew it, so a
+// turn's whole body of work first appeared when the turn had already ended.
+describe('liveTurnToolCalls', () => {
+  it("returns the open turn's calls, running ones included, in seq order", () => {
+    const calls = [
+      tool({ id: 'b', turnId: 'open-1', seq: 5, status: 'running' }),
+      tool({ id: 'a', turnId: 'open-1', seq: 3, status: 'ok' }),
+    ]
+
+    expect(liveTurnToolCalls(activity({ toolCalls: calls }), new Set()).map((c) => c.id)).toEqual([
+      'a',
+      'b',
+    ])
+  })
+
+  // The instant the reply exists, the reply draws them (AgentTurnTools). Two
+  // lists over one set of calls would draw every row twice.
+  it('goes quiet once a message anchors the turn', () => {
+    const calls = [tool({ id: 'a', turnId: 'msg-9', seq: 3, status: 'ok' })]
+
+    expect(liveTurnToolCalls(activity({ toolCalls: calls }), new Set(['msg-9']))).toEqual([])
+  })
+
+  // The transcript pages: a chat past its first page has anchoring messages
+  // that are simply not loaded. Treating "no loaded message claims it" as "it
+  // is live" piled every older call up at the bottom of an idle chat.
+  it('ignores older turns no loaded message happens to anchor', () => {
+    const calls = [
+      tool({ id: 'paged-out', turnId: 'msg-1', seq: 2, status: 'ok' }),
+      tool({ id: 'newest', turnId: 'msg-9', seq: 7, status: 'ok' }),
+    ]
+
+    expect(liveTurnToolCalls(activity({ toolCalls: calls }), new Set(['msg-9']))).toEqual([])
+  })
+
+  it('keeps only the newest turn when an older one is also unanchored', () => {
+    const calls = [
+      tool({ id: 'old', turnId: 'msg-1', seq: 2, status: 'ok' }),
+      tool({ id: 'live', turnId: 'open-2', seq: 7, status: 'running' }),
+    ]
+
+    expect(liveTurnToolCalls(activity({ toolCalls: calls }), new Set()).map((c) => c.id)).toEqual([
+      'live',
+    ])
+  })
+
+  it('answers empty for a chat with no tool calls at all', () => {
+    expect(liveTurnToolCalls(NO_ACTIVITY, new Set())).toEqual([])
   })
 })
 

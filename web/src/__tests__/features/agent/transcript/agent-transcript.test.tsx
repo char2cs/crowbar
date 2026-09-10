@@ -271,7 +271,7 @@ describe('AgentTranscript turnbar wiring', () => {
     ).not.toBeNull()
   })
 
-  it('never gives a streaming bubble a turnbar or tool calls — the turn has not finished', () => {
+  it('never gives a streaming bubble a turnbar — the turn has not finished', () => {
     draw([], {
       streamingBubbles: [
         {
@@ -304,7 +304,77 @@ describe('AgentTranscript turnbar wiring', () => {
 
     expect(screen.getByText('typing…')).toBeInTheDocument()
     expect(screen.queryByTestId('message-turn-actions')).toBeNull()
+    // Not on the BUBBLE — the live list below it is what carries them now.
     expect(screen.queryByTestId('agent-turn-tools')).toBeNull()
+  })
+
+  // THE REGRESSION. A call is filed against the turn that was open when it ran,
+  // and only turn close repoints it onto the reply's own turn id — so mid-turn
+  // it matched no message and nothing on screen drew it. Measured live before
+  // this existed: five calls, the first known to the backend at t=13.8s, none of
+  // them painted until t=39.4s, when the turn ended.
+  it("draws the in-flight turn's calls before any reply exists to hold them", () => {
+    draw([{ turnId: 'user-1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' }], {
+      working: true,
+      activity: {
+        toolCalls: [
+          {
+            id: 'c1',
+            turnId: 'open-chat-runner',
+            seq: 4,
+            name: 'commandExecution',
+            target: 'ls -la',
+            status: 'ok',
+            durationMs: 17,
+            hasRequest: false,
+            hasResult: false,
+            startedAt: '',
+          },
+        ],
+        subagents: [],
+        interruptions: [],
+        choices: [],
+      },
+    })
+
+    expect(screen.getByTestId('agent-live-turn-tools')).toBeInTheDocument()
+    expect(screen.getByText('commandExecution · ls -la')).toBeInTheDocument()
+  })
+
+  // The same calls, once the reply lands and the ledger repoints them onto it:
+  // the reply draws them, and the live list has to go quiet or every row is
+  // drawn twice.
+  it('hands the calls over to the reply row rather than drawing them twice', () => {
+    draw(
+      [{ turnId: 'msg-7', sequence: 1, role: 'assistant', providerId: 'codex', text: 'a', at: '' }],
+      {
+        activity: {
+          toolCalls: [
+            {
+              id: 'c1',
+              turnId: 'msg-7',
+              seq: 4,
+              name: 'commandExecution',
+              target: 'ls -la',
+              status: 'ok',
+              durationMs: 17,
+              hasRequest: false,
+              hasResult: false,
+              startedAt: '',
+            },
+          ],
+          subagents: [],
+          interruptions: [],
+          choices: [],
+        },
+      },
+    )
+
+    expect(screen.queryByTestId('agent-live-turn-tools')).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-tools"]'),
+    ).not.toBeNull()
+    expect(screen.getAllByText('commandExecution · ls -la')).toHaveLength(1)
   })
 
   it("times a reply's turnbar against the user turn it answers, not against now", () => {

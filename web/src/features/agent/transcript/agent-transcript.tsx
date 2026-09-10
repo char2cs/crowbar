@@ -29,10 +29,12 @@ import {
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
 import {
+  AgentLiveTurnTools,
   groupChoicesByTurn,
   groupSubagentsByTurn,
   groupToolCallsByTurn,
 } from '@/features/agent/transcript/turn-tools'
+import { liveTurnToolCalls } from '@/features/agent/lib/agent-activity'
 
 interface AgentTranscriptProps {
   /** Needed only to fetch a finished tool call's own request/result bytes on
@@ -471,6 +473,21 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     () => groupChoicesByTurn(props.activity.choices),
     [props.activity.choices],
   )
+  // Which turns already have a reply row that can hold their tool calls. Only
+  // an assistant message anchors one — TranscriptRowView hands `callsByTurn` to
+  // nothing else — so counting any other role here would hide a live turn's
+  // work behind a row that never draws it.
+  const anchoredTurnIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const message of messages) {
+      if (message.role === 'assistant' && message.turnId) ids.add(message.turnId)
+    }
+    return ids
+  }, [messages])
+  const liveToolCalls = useMemo(
+    () => liveTurnToolCalls(props.activity, anchoredTurnIds),
+    [props.activity, anchoredTurnIds],
+  )
   const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
   // Empty while `working` — the settled reply this would otherwise mark is not
   // actually the run's last step any more the instant the agent starts on the
@@ -754,6 +771,14 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             streaming
           />
         ))}
+        {/* Directly under the reply-so-far, which is where these same rows end
+            up once the turn closes and they reparent onto its message row. */}
+        <AgentLiveTurnTools
+          calls={liveToolCalls}
+          toolOutput={props.toolOutput}
+          wsId={props.wsId}
+          chatId={props.chatId}
+        />
         {queue.map((item, index) => {
           // The ABSOLUTE first turn, exactly as firstTurnSequence reasons about
           // it above: nothing loaded yet, nothing older to page in, and this is
@@ -789,7 +814,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           since={messages.at(-1)?.at}
           compactingLive={props.compacting}
           reasoning={props.reasoning}
-          toolOutput={props.toolOutput}
           plan={props.plan}
         />
         {/* A REAL, measured spacer — not `.scroll`'s own `padding-bottom` (see

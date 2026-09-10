@@ -610,6 +610,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A running call's newest output, on the same row as the call it belongs to.
+   One line — it is a sign of progress, not a log, and the full output is on the
+   call once it finishes. */
+.agent-chat .tools .out {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
 .agent-chat .tools .payload {
   display: flex;
   flex-direction: column;
@@ -635,6 +645,12 @@
   background: var(--muted);
   padding: 6px 8px;
   font-family: var(--font-mono);
+}
+/* A call still in flight, in the live list. It carries a spinner instead of a
+   duration (turn-tools.tsx), and full-strength text is what tells it apart from
+   the finished rows above it at a glance. */
+.agent-chat .tools li[data-status='running'] {
+  color: var(--foreground);
 }
 /* `AgentToolCall.status` (turn-tools.tsx) is `ok`, `error` or `abandoned` —
    without this, all three rendered pixel-identical, so a failed tool call
