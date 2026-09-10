@@ -9,6 +9,17 @@ export interface SidebarRow {
   labelProvisional?: boolean
   ownsWorktree: boolean
   workspaceId: string | null
+  /**
+   * Whether this row's Fork control has anything to act on. Only meaningful
+   * on a `chat`-kind row (a `branch`/`folder` row already answers this via
+   * `ownsWorktree`, which a chat can never set): a project-home bubble rides
+   * no repo at all — the same reason a project-home FOLDER's Fork is already
+   * hidden (`foldersCanFork`, `walkTreeIntoRows`) — so it sets this `false`
+   * rather than offering a button with no worktree to clone. Undefined (a
+   * repo-scoped chat) means true — its ground workspace always resolves to
+   * a real repo.
+   */
+  canFork?: boolean
   working: boolean
   hasView: boolean
   branchName?: string

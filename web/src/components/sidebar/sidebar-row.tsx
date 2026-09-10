@@ -322,8 +322,17 @@ export function SidebarRow({
             already uses for a row that owns a worktree (`weight="bold"`,
             matching the thread button's own weight, rather than `"fill"`,
             which reads too heavy at this size next to it). The thread button
-            beside it is unchanged. */}
-        {onCreate && (row.kind !== 'folder' || row.ownsWorktree) && (
+            beside it is unchanged.
+
+            A `chat` row's own eligibility is `row.canFork` (rows-from-repo.ts) —
+            a project-home bubble sets it `false` for the same reason a
+            project-home folder's own `ownsWorktree` already does: no repo
+            means no worktree for either to clone. Reported live: Fork was
+            offered on a home-scoped chat with no git anything behind it. */}
+        {onCreate &&
+          (row.kind === 'folder'
+            ? row.ownsWorktree
+            : row.kind !== 'chat' || row.canFork !== false) && (
           <button
             type="button"
             data-control="fork"
@@ -331,6 +340,13 @@ export function SidebarRow({
             aria-label={`Fork ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
+              // `ROW_SUB_ACTION_HOVER` shows this cluster on `group-focus-within`
+              // too (for a keyboard user tabbing to it) — a mouse click leaves
+              // the button genuinely `:focus`ed with no visible ring
+              // (`:focus-visible` suppresses that for a pointer click, but
+              // `:focus-within` still matches plain `:focus`), so without this
+              // the whole cluster stayed lit long after the pointer moved on.
+              e.currentTarget.blur()
               onCreate(row.id, 'workspace')
             }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -347,6 +363,8 @@ export function SidebarRow({
             aria-label={`Thread ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
+              // See the Fork button's own comment above — same stuck-focus fix.
+              e.currentTarget.blur()
               onCreate(row.id, 'thread')
             }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -363,6 +381,8 @@ export function SidebarRow({
             aria-label={`${expanded ? 'Collapse' : 'Expand'} ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
+              // See the Fork button's own comment above — same stuck-focus fix.
+              e.currentTarget.blur()
               onToggleFold(row.id)
             }}
             onPointerDown={(e) => e.stopPropagation()}

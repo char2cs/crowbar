@@ -117,6 +117,44 @@ describe('SidebarRow', () => {
     expect(onCreate).toHaveBeenCalledWith('row-1', 'workspace')
   })
 
+  // Regression: `ROW_SUB_ACTION_HOVER` shows this whole cluster on
+  // `group-focus-within` too (a keyboard user tabbing to it), but a mouse
+  // click leaves the clicked button genuinely `:focus`ed — `:focus-visible`
+  // suppresses the ring for a pointer click, but `:focus-within` still
+  // matches plain `:focus` — so without an explicit blur, the fork/thread/
+  // fold cluster stayed lit long after the pointer moved off the row.
+  it('the fork/thread/fold buttons blur themselves after firing, so the cluster does not stay stuck open', () => {
+    render(
+      <SidebarRow
+        row={baseRow}
+        depth={0}
+        onOpen={vi.fn()}
+        onCreate={vi.fn()}
+        onToggleFold={vi.fn()}
+      />,
+    )
+    for (const name of [/fork/i, /thread/i, /expand|collapse/i]) {
+      const button = screen.getByRole('button', { name })
+      button.focus()
+      expect(document.activeElement).toBe(button)
+      button.click()
+      expect(document.activeElement).not.toBe(button)
+    }
+  })
+
+  // Regression, reported live: Fork was offered on a project-home chat with
+  // no git repo behind it at all. `row.canFork` is how such a row (set by
+  // rows-from-home.ts) says so — Thread stays unaffected, since threading
+  // into the project's own home workspace is real (space-content-actions.ts).
+  it('hides Fork (never Thread) on a chat row whose canFork is explicitly false', () => {
+    const onCreate = vi.fn()
+    render(
+      <SidebarRow row={{ ...baseRow, canFork: false }} depth={0} onOpen={vi.fn()} onCreate={onCreate} />,
+    )
+    expect(screen.queryByRole('button', { name: /fork/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
+  })
+
   it('both Fork and Thread render on a row that owns a worktree too', () => {
     const onCreate = vi.fn()
     render(

@@ -12,8 +12,9 @@ import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { toast } from '@/features/window/stores/toast-store'
 import { openChatInOwnPane } from '@/components/sidebar/lib/drop-actions'
-import { resolveHomeRowScope } from '@/lib/store/home-tree'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { resolveHomeRowScope, getHomeTree, useHomeTreeStore } from '@/lib/store/home-tree'
+import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { rowsFromRepo, resolveHomeOwnerId } from '@/components/sidebar/lib/rows-from-repo'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
 /** What `id` resolves to: its owning repo, and the subject a drag/removal call needs. */
@@ -444,6 +445,26 @@ function chatHasLanded(chatId: string): (repos: readonly Repo[]) => boolean {
   return (repos) => repos.some((r) => r.chats?.some((c) => c.id === chatId))
 }
 
+/** `waitForRow`'s own twin for a PROJECT-HOME thread: home rides no repo at
+ *  all (`resolveHomeRowScope`'s own doc), so its chats live in
+ *  `useHomeTreeStore`, not `useSidebarStore` — a create there is never
+ *  observed by `waitForRow`'s subscription, which only ever fires on the
+ *  repo-scoped store. */
+function waitForHomeChat(projectId: string, chatId: string): Promise<void> {
+  const landed = (): boolean => getHomeTree(projectId).chats.some((c) => c.id === chatId)
+  return new Promise((resolve) => {
+    if (landed()) {
+      resolve()
+      return
+    }
+    const unsubscribe = useHomeTreeStore.subscribe(() => {
+      if (!landed()) return
+      unsubscribe()
+      resolve()
+    })
+  })
+}
+
 /** A fork create armed by `handleCreate`'s 'workspace' branch, waiting on the
  *  name the user types into the pending row's inline input before it can
  *  actually fire — keyed by that row's `tempId`. `confirmPendingCreateName`
@@ -468,16 +489,77 @@ const armedBranchCreates = new Map<
  *  confirmed via `confirmPendingCreateName`); a thread has nothing to name
  *  and fires immediately. */
 export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): void {
+  // A project-home row (chat or folder) is resolved FIRST, against every
+  // visible project's home tree rather than `repos` — same rule `handleOpen`
+  // already follows via the identical `resolveHomeRowScope` call. Project
+  // home rides no repo at all, so there is no worktree to fork from: a
+  // folder's own "+" already hides Fork for exactly this reason
+  // (`rows-from-home.ts`'s `foldersCanFork: false`), and a chat row's Fork
+  // button now does too (see sidebar-row.tsx's `canFork` check) — reached
+  // here only via a stale click racing that, so it stays a silent no-op
+  // rather than a request with nothing to act on. A folder has no Thread
+  // button at all (sidebar-row.tsx never renders one for `kind: 'folder'`).
+  const homeRow = resolveHomeRowScope(parentId)
+  if (homeRow) {
+    if (kind === 'workspace' || homeRow.kind !== 'chat') return
+    const provider = enabledProvider()
+    if (!provider) return
+    const inFlightKey = `${kind}:${parentId}`
+    if (createInFlight.has(inFlightKey)) return
+    createInFlight.add(inFlightKey)
+    const release = (): void => {
+      createInFlight.delete(inFlightKey)
+    }
+    // The new thread's OWN tree position, once real: nested under the
+    // clicked chat's own id, after every thread already there — the same
+    // rule the repo-scoped thread branch below follows.
+    const siblingRows = rowsFromHome(homeRow.homeWorkspaceId, getHomeTree(homeRow.projectId).chats)
+    const order = siblingRows.filter((r) => r.parentId === parentId && r.kind === 'chat').length
+    const tempId = `pending-${crypto.randomUUID()}`
+    usePendingCreatesStore.getState().addCreating({
+      tempId,
+      kind: 'chat',
+      projectId: homeRow.projectId,
+      parentId,
+      order,
+      workspaceId: homeRow.homeWorkspaceId,
+      ownsWorktree: false,
+    })
+    // `parentId` (the THIRD arg — the clicked chat's own id) EXPLICITLY, not
+    // left to default to root: home has no workspace nodes at all for the
+    // fold that nests a repo-scoped thread to fall back on (see below), so
+    // an omitted parentId here roots every home thread at the top level
+    // regardless of which bubble was clicked — caught live: rooted as a
+    // sibling of "Test", never nested under it.
+    createChat(homeRow.homeWorkspaceId, provider.id, parentId)
+      .then((chatId) => {
+        release()
+        return waitForHomeChat(homeRow.projectId, chatId).then(() =>
+          usePendingCreatesStore.getState().clear(tempId),
+        )
+      })
+      .catch((err: unknown) => {
+        release()
+        usePendingCreatesStore
+          .getState()
+          .setError(tempId, err instanceof Error ? err.message : 'Failed to start chat')
+      })
+    return
+  }
+
   const currentRepos = useSidebarStore.getState().repos
-  // A chat row's "+" is inert for now, and it must be SILENTLY inert: falling
-  // through to resolveRow's miss is what it did before chat rows existed, but
-  // now that `resolveChatRow` can see one, the thread branch below would reach
-  // its "a folder has none to run it in" refusal — a sentence that is simply
-  // untrue of a chat, which is precisely the row a thread hangs off. Wiring it
-  // needs the cwd walk (§3.2) to find a bubble's ground workspace; until then
-  // an affordance that does nothing beats one that explains itself wrongly.
-  if (resolveChatRow(currentRepos, parentId)) return
-  const found = resolveRow(currentRepos, parentId)
+  // A bubble carries its GROUND workspace right on the chat record
+  // (`Chat.workspaceId` — "its own if it owns one, otherwise the one it
+  // borrows from an ancestor"), already used to open it (`openableWorkspaceOf`
+  // above) — so a chat row's Fork/Thread resolve against THAT, not against
+  // the clicked bubble itself. Previously this returned silently instead:
+  // clicking Thread on a bubble did nothing, and Fork was offered on every
+  // bubble regardless, with no target it could actually act on.
+  const chatRow = resolveChatRow(currentRepos, parentId)
+  // No ground at all (spec §9.2: a bubble's ancestry can resolve to nothing,
+  // e.g. moved across repos) — nothing to fork or thread into, silently.
+  if (chatRow && !chatRow.chat.workspaceId) return
+  const found = resolveRow(currentRepos, chatRow?.chat.workspaceId ?? parentId)
   if (!found) return
   const { repo, subject } = found
   const { projectId } = repo
@@ -514,7 +596,17 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     // name no workspace of this repo (the repo home, a folder) and for a frame
     // that carries no owner yet.
     const owningChatId = repo.workspaces.find((w) => w.id === subject.id)?.owningChatId
-    const placementParentId = owningChatId || parentId
+    // `parentId` is only a safe fallback for a DIRECT click on the row itself
+    // (its own rendered id already equals whatever this resolves to). A
+    // bubble's ground workspace can ALSO be the repo home — never in
+    // `repo.workspaces` for `owningChatId` to be read off — so a bubble
+    // forking the home workspace needs the SAME resolution the home row's
+    // own id was rendered with, not the clicked bubble's unrelated id.
+    const placementParentId =
+      owningChatId ||
+      (subject.id === repo.defaultWorkspaceId
+        ? resolveHomeOwnerId(subject.id, repo.defaultOwningChatId, repo.chats ?? [])
+        : parentId)
     // The new fork's OWN tree position, once real: nested under
     // `placementParentId`, never `subject.id`. `walkTreeIntoRows` stamps a
     // REAL child row's own `parentId` with its parent's RENDERED id —
@@ -619,7 +711,16 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
   // takes — or forever, if the row's own live-update path never fires for
   // some unrelated reason. That would block every later click on this exact
   // (kind, parentId) behind a wait nothing here can bound.
-  createChat(wsId, provider.id)
+  //
+  // `parentId` as the THIRD arg — without it the new chat's own `parentId`
+  // defaults to root, and it only LOOKED nested under the clicked row
+  // whenever that row happened to also OWN `wsId` (buildSidebarTree's
+  // workspace-ground fold nests every chat there under its owning row
+  // regardless of its real `parentId`). Threading off any OTHER bubble
+  // sharing that same workspace rooted the new chat at the top level
+  // instead — caught chasing the identical gap on the project-home path,
+  // which has no workspace-ground fold to hide it behind at all.
+  createChat(wsId, provider.id, parentId)
     .then((chatId) => {
       release()
       announceTreeChange(repo.id)

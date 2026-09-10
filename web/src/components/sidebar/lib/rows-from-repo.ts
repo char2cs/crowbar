@@ -392,6 +392,13 @@ export function walkTreeIntoRows(
         // not a workspace whose other half is late.
         ownsWorktree: false,
         workspaceId: node.chat.workspaceId ?? null,
+        // `foldersCanFork` says the SAME thing for a chat's Fork button that
+        // it already says for a folder's: whether this tree sits under a
+        // real repo at all. A repo-scoped bubble always does (`true` here);
+        // `rows-from-home.ts` passes `false` for a project-home one, which
+        // has no worktree for Fork to clone regardless of what its ground
+        // workspace resolves to.
+        canFork: foldersCanFork,
         // ALWAYS FALSE HERE, AND NOT AN OVERSIGHT — but no longer the last
         // word. Seeding a real value into the row object is the latch this
         // has always refused to build: the only live path THIS function has

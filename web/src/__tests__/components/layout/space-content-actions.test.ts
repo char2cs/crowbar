@@ -418,12 +418,166 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
     expect(entries[0].deadlineAt).not.toBeNull()
   })
 
-  it('handleCreate is SILENT — never the folder’s "has none to run it in"', () => {
+  it('handleCreate is SILENT — never the folder’s "has none to run it in" — for a bubble with no ground at all', () => {
     useSidebarStore.setState({ repos: [repoWithChat()] })
     handleCreate('c1', 'thread')
     expect(toastError).not.toHaveBeenCalled()
     expect(createChat).not.toHaveBeenCalled()
     expect(postWorkspace).not.toHaveBeenCalled()
+  })
+})
+
+// Regression: `Chat.workspaceId` already names the GROUND workspace a bubble
+// borrows from its ancestor (the same field `openableWorkspaceOf` uses to
+// open it) — so once a bubble names one, its Fork/Thread resolve through
+// THAT workspace instead of silently doing nothing. Before this, Thread on
+// any grounded bubble was a dead button, and Fork was offered on every
+// bubble with no real target at all — reported live: "why is it letting me
+// create a branch from this where there isn't a git workspace associated?"
+describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', () => {
+  const forkRepo = () =>
+    repo({
+      workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' }],
+      chats: [
+        { id: 'c-owner', repoId: 'r1', ownsWorktree: true, workspaceId: 'ws-a', title: '', order: 0 },
+        { id: 'c1', repoId: 'r1', workspaceId: 'ws-a', parentId: 'c-owner', title: 'a thread', order: 0 },
+      ],
+    })
+
+  it('Thread runs in the ground workspace, nested under the bubble itself', () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('c1', 'thread')
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'c1')
+  })
+
+  it('Fork forks the ground workspace’s OWNING BRANCH, never the bubble’s own id', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('c1', 'workspace')
+    expect(usePendingCreatesStore.getState().entries).toMatchObject([{ parentId: 'c-owner' }])
+    confirmArmedBranchName()
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'r1',
+      'claude',
+      'c-owner',
+      'typed-branch',
+    )
+  })
+
+  // The ground can ALSO be the repo's own home workspace, which — unlike an
+  // ordinary fork — is never in `repo.workspaces` for an `owningChatId` to
+  // be read off. Exercises the same `resolveHomeOwnerId` fallback a direct
+  // click on the home row itself already resolves to.
+  it('a bubble grounded in the repo HOME workspace resolves through the home row’s own id', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({
+      repos: [repo({ chats: [{ id: 'c1', repoId: 'r1', workspaceId: 'home-1', title: 't', order: 0 }] })],
+    })
+
+    handleCreate('c1', 'thread')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-1', 'claude', 'c1')
+
+    handleCreate('c1', 'workspace')
+    confirmArmedBranchName()
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'r1',
+      'claude',
+      'home-1',
+      'typed-branch',
+    )
+  })
+})
+
+// Regression, reported live: a project-home chat's Fork was offered with no
+// git repo behind it at all ("why is it letting me create a branch from
+// this where there isn't a git workspace"), and its Thread did nothing.
+// Project home rides no repo (`resolveHomeRowScope`'s own doc) — Thread now
+// resolves through the project's own home workspace (same rule
+// `handleOpen` already follows), and Fork stays a no-op, matching a home
+// FOLDER's own `ownsWorktree: false` — no worktree exists for either to
+// clone.
+describe('a project-home chat row resolves Thread through its home workspace, and refuses Fork', () => {
+  it('Thread runs in the project’s home workspace, nested under the bubble itself, and clears once it lands', async () => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+          folders: [],
+        },
+      },
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    handleCreate('c1', 'thread')
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude', 'c1')
+    expect(usePendingCreatesStore.getState().entries).toMatchObject([
+      { kind: 'chat', projectId: 'p1', parentId: 'c1' },
+    ])
+    await Promise.resolve()
+
+    // Not cleared yet — the create's own promise resolved, but the real
+    // chat has not been OBSERVED in the home tree store.
+    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [
+            { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 },
+            { id: 'chat-1', repoId: '', workspaceId: 'home-ws-1', title: '', order: 1 },
+          ],
+          folders: [],
+        },
+      },
+    })
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
+  })
+
+  it('Fork is a silent no-op — no repo, no worktree to clone', () => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+          folders: [],
+        },
+      },
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    handleCreate('c1', 'workspace')
+
+    expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
   })
 })
 
@@ -662,7 +816,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     handleCreate('ws-a', 'thread')
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
   })
 
   // The regression that made "Thread does nothing" reproducible: a workspace
@@ -678,7 +832,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     handleCreate('ws-a', 'thread')
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
   })
 
   // A precondition that stops the click has to SAY so. Silence here is
@@ -842,7 +996,7 @@ describe('starting a thread on a real workspace', () => {
 
     handleCreate('ws-a', 'thread')
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
   })
 })
 
@@ -1034,7 +1188,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
 
     handleCreate('develop-row', 'thread')
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-locked', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-locked', 'claude', 'develop-row')
   })
 
 describe('pending-create rows — placement and lifecycle', () => {
@@ -1119,7 +1273,7 @@ describe('pending-create rows — placement and lifecycle', () => {
       order: 1,
       workspaceId: 'ws-a',
     })
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
   })
 
   it('cancelling a naming entry drops the row and releases the lock — a fresh "+" click arms again', () => {
