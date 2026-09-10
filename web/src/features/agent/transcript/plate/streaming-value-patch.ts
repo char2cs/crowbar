@@ -84,6 +84,29 @@ const SCROLL_LEAD_MS = 150
 // than popping in unanimated.
 const WORD_SPLIT_CAP = 80
 
+// How long `chat-token-fade` itself runs — keep in step with transcript.css.
+const FADE_DURATION_MS = 260
+
+// The longest a word may be invisible after the text it belongs to arrived:
+// its chunk's flat lead, plus the most any word's stagger can add (staggerDelay
+// caps the whole cascade at MAX_STAGGER_MS however many words share it), plus
+// the fade. Past this a run has visually finished whether or not its
+// `animationend` was ever heard, and `freshDecorations` renders it inert.
+const FADE_WINDOW_MS = SCROLL_LEAD_MS + MAX_STAGGER_MS + FADE_DURATION_MS
+
+// Elapsed time is quantized to this before it reaches a decoration, so every
+// render inside one frame produces the IDENTICAL range objects.
+// `isTextDecorationsEqual` is what stops a block re-rendering when its
+// decorations haven't changed, and a raw `performance.now()` delta would
+// differ on every read — turning each of the several renders a streamed chunk
+// causes into a re-render of every block still fading.
+const FRAME_MS = 16
+
+function elapsedSince(bornAt: number): number {
+  const now = typeof performance === 'object' ? performance.now() : Date.now()
+  return Math.max(0, Math.floor((now - bornAt) / FRAME_MS) * FRAME_MS)
+}
+
 /** Splits text into whitespace-preserving chunks — concatenating the result
  *  reconstructs the original string exactly, including leading/repeated
  *  whitespace, unlike a plain `.split(' ')`. */
@@ -109,6 +132,23 @@ interface FreshRun {
    *  heading and its body), and the cascade has to read as one. */
   wordOffset: number
   totalWords: number
+  /** When this text landed, as a `performance.now()` reading — stamped by
+   *  `recordRun`, never by a caller.
+   *
+   *  THE FADE IS PLAYED AGAINST THIS CLOCK, NOT AGAINST THE SPAN'S OWN LIFE.
+   *  A `.chat-fresh-text` span holds `animation-fill-mode: both` over a
+   *  keyframe that starts at `opacity: 0`, so a span that is unmounted and
+   *  remounted starts its fade AGAIN from invisible — and slate-react
+   *  remounts these constantly, because it keys each rendered leaf by its
+   *  positional index into a decoration split this module rebuilds on every
+   *  delta (measured live on one streamed 16-item list: 1918 leaf mounts for
+   *  887 animation starts, 61 of them killed before `animationend`). Without a
+   *  birth time there is nothing to measure that against: every remount looks
+   *  like brand-new text, so under a fast stream the restarts outrun the
+   *  fades and already-arrived words sit at the animation's invisible start
+   *  state for as long as the stream keeps going — the list whose bullets are
+   *  on screen with nothing under them. */
+  bornAt: number
 }
 
 // PERFORMANCE, measured (Chrome 152, a 510-word reply in 64 flushes): the
@@ -150,9 +190,12 @@ function pathEquals(a: Path, b: Path): boolean {
   return a.length === b.length && a.every((step, i) => step === b[i])
 }
 
-function recordRun(editor: PlateEditor, run: FreshRun): void {
+function recordRun(editor: PlateEditor, run: Omit<FreshRun, 'bornAt'>): void {
   const runs = freshRuns.get(editor) ?? []
-  runs.push(run)
+  runs.push({
+    ...run,
+    bornAt: typeof performance === 'object' ? performance.now() : Date.now(),
+  })
   freshRuns.set(editor, runs)
 }
 
@@ -308,11 +351,22 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
     // inline mark opening mid-word splits it). Its offsets then name text
     // that is no longer there, so the run is dropped rather than guessed at.
     if (run.end > text.length || run.start >= run.end) continue
+    const age = elapsedSince(run.bornAt)
     // Still held only to keep the split stable for a fading neighbour (see
     // `pruneRuns`). It carries no mark any plugin renders, so it is plain
     // text that merely happens to be its own leaf — and, crucially, no
     // animation to be restarted if React does remount it.
-    const held = settled?.has(run.generation) || run.generation <= floor
+    //
+    // `age >= FADE_WINDOW_MS` is the term that makes stranded-invisible text
+    // impossible rather than merely unlikely. Settling used to depend
+    // ENTIRELY on hearing `animationend` from every word, and a word whose
+    // span is remounted mid-fade never fires one — so a run that lost that
+    // race stayed "live", kept re-emitting an animated range, and restarted
+    // from `opacity: 0` on every subsequent remount for the rest of the
+    // stream. Once a run is older than the longest it could ever legitimately
+    // take to reveal, it is finished by the clock whether or not the event
+    // was ever heard, and renders as plain visible text from then on.
+    const held = settled?.has(run.generation) || run.generation <= floor || age >= FADE_WINDOW_MS
     // `wordIndex` is present only on a per-word split (never the capped
     // branch below) — see CHAT_FRESH_WORD_INDEX_MARK's own doc for why that
     // distinction matters to how this word's OWN animationend settles.
@@ -324,7 +378,13 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
               anchor: { path, offset },
               focus: { path, offset: next },
               [CHAT_FRESH_MARK]: run.generation,
-              [CHAT_FRESH_DELAY_MARK]: delay,
+              // RESUMED, not restarted: the delay is what is LEFT of this
+              // word's wait, so a span remounted part-way through picks the
+              // fade up where it was instead of returning to invisible. Past
+              // the wait this goes negative, which CSS reads as "the
+              // animation already started that long ago" — the word paints
+              // mid-fade or fully opaque, never blank.
+              [CHAT_FRESH_DELAY_MARK]: Math.max(delay - age, -FADE_DURATION_MS),
               ...(wordIndex === undefined
                 ? {}
                 : {

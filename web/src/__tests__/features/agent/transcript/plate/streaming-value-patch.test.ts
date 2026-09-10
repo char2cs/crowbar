@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
@@ -494,6 +494,104 @@ function countOps(editor: ReturnType<typeof createPlateEditor>, run: () => void)
 //
 // These assert the COST, not just the output — a slow implementation produces
 // identical text. Both fail on the pre-decoration design.
+// Regression, root-caused live against a streaming Codex reply: one 16-item
+// numbered list produced 1918 `.chat-fresh-text` leaf mounts for 887 animation
+// starts, 61 of which never reached `animationend`.
+//
+// `.chat-fresh-text` animates from `opacity: 0` under `animation-fill-mode:
+// both`, and slate-react keys each rendered leaf by its positional index into
+// the decoration split this module rebuilds on every delta — so a span is
+// unmounted and remounted constantly while its block still streams, and each
+// remount used to start the fade AGAIN from invisible. Text was therefore
+// visible only if it won a race against the next delta, and retiring a run
+// depended entirely on hearing an `animationend` that a remount had already
+// cancelled: a run losing that race stayed live and restarted from zero for
+// the rest of the turn. That is the reported list whose bullets are on screen
+// with nothing underneath them until the turn ends.
+describe('freshDecorations: a fade is played against the clock, not the span', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  type FadeRange = { chatFresh?: number; chatFreshDelay?: number; chatFreshHeld?: boolean }
+
+  const streamedLeaf = (text: string) => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(''),
+    })
+    applyStreamedValue(editor, chatMarkdownToValue(text))
+    const entry = [...editor.api.nodes({ at: [] })].find(
+      ([node]) => typeof (node as { text?: string }).text === 'string',
+    )
+    if (!entry) throw new Error('no text leaf found')
+    return { editor, entry }
+  }
+
+  it('resumes a remounted fade where it was instead of restarting it from invisible', () => {
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(1_000)
+    const { editor, entry } = streamedLeaf('one two three four')
+
+    const atBirth = (freshDecorations(editor, entry) as FadeRange[]).map((r) => r.chatFreshDelay)
+    expect(atBirth.length).toBeGreaterThan(1)
+
+    // The same leaf, re-decorated 208ms later (13 whole frames) — what a
+    // remount mid-fade gets.
+    now.mockReturnValue(1_208)
+    const remounted = (freshDecorations(editor, entry) as FadeRange[]).map((r) => r.chatFreshDelay)
+
+    expect(remounted).toHaveLength(atBirth.length)
+    remounted.forEach((delay, i) => {
+      const born = atBirth[i]
+      expect(typeof born).toBe('number')
+      expect(typeof delay).toBe('number')
+      // Every word is 208ms further along than it was, never back at its
+      // original wait — which is what a restart from `opacity: 0` would be.
+      expect(delay as number).toBeCloseTo((born as number) - 208, 5)
+    })
+  })
+
+  it('renders a run inert once its whole window has passed, with no animationend', () => {
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(1_000)
+    const { editor, entry } = streamedLeaf('one two three four')
+
+    expect(
+      (freshDecorations(editor, entry) as FadeRange[]).some((r) => r.chatFresh !== undefined),
+    ).toBe(true)
+
+    // Past lead (150) + the cascade's own cap (320) + the fade (260). Nothing
+    // has settled — no `animationend` was ever delivered, exactly what a
+    // remount produces — so the clock is the only thing left to retire it.
+    now.mockReturnValue(1_000 + 736)
+    const late = freshDecorations(editor, entry) as FadeRange[]
+    expect(late.length).toBeGreaterThan(0)
+    for (const range of late) {
+      expect(range.chatFresh).toBeUndefined()
+      expect(range.chatFreshHeld).toBe(true)
+    }
+  })
+
+  it('never asks for a delay that outlives the fade, however old the run is', () => {
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(1_000)
+    const { editor, entry } = streamedLeaf('one two three four')
+    now.mockReturnValue(1_000 + 512)
+    for (const range of freshDecorations(editor, entry) as FadeRange[]) {
+      if (range.chatFreshDelay === undefined) continue
+      expect(range.chatFreshDelay).toBeGreaterThanOrEqual(-260)
+    }
+  })
+
+  it('is stable within one frame, so an unchanged block is not re-rendered', () => {
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(1_000)
+    const { editor, entry } = streamedLeaf('one two three four')
+    const first = freshDecorations(editor, entry)
+    now.mockReturnValue(1_009)
+    expect(freshDecorations(editor, entry)).toEqual(first)
+  })
+})
+
 describe('applyStreamedValue: cost does not scale with the words in a chunk', () => {
   it('spends the same handful of operations on a 2-word and a 60-word append', () => {
     const short = createPlateEditor({
