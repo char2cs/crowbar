@@ -97,7 +97,7 @@ func (s stubWork) WorkingFor(_ string) bool { return s.working }
 
 type mockNodeCreator struct{ mock.Mock }
 
-func (m *mockNodeCreator) Create(
+func (m *mockNodeCreator) CreateIdempotent(
 	ctx context.Context,
 	id string,
 	kind domain.NodeKind,
@@ -269,7 +269,7 @@ func TestGetHome_LazilyProvisions(t *testing.T) {
 		Return(&domain.Project{ID: "proj-legacy", Path: "/projects/legacy"}, nil)
 
 	nodes := &mockNodeCreator{}
-	nodes.On("Create", mock.Anything, "ws-new", domain.NodeKindWorkspace, "", 0).
+	nodes.On("CreateIdempotent", mock.Anything, "ws-new", domain.NodeKindWorkspace, "", 0).
 		Return(domain.Node{ID: "ws-new", Kind: domain.NodeKindWorkspace}, nil)
 
 	h := handlers.New(reader, projects, nil, nil, stubWork{}).WithNodes(nodes)
@@ -305,7 +305,7 @@ func TestGetHome_LazyProvisionNodeMintFails(t *testing.T) {
 		Return(&domain.Project{ID: "proj-legacy3", Path: "/projects/legacy3"}, nil)
 
 	nodes := &mockNodeCreator{}
-	nodes.On("Create", mock.Anything, "ws-new3", domain.NodeKindWorkspace, "", 0).
+	nodes.On("CreateIdempotent", mock.Anything, "ws-new3", domain.NodeKindWorkspace, "", 0).
 		Return(domain.Node{}, errors.New("node create boom"))
 
 	h := handlers.New(reader, projects, nil, nil, stubWork{}).WithNodes(nodes)
@@ -400,6 +400,20 @@ func TestGetHome_LazyProvisionProjectLookupErrors(t *testing.T) {
 	reader.AssertExpectations(t)
 	projects.AssertExpectations(t)
 }
+
+// Concurrency-safety for GET .../home's lazy provisioning is no longer a
+// property of THIS handler — resolveHome no longer serializes anything
+// itself (no mutex, no singleflight). It is now a property of
+// workspace.CreateHome and node.EventStore.CreateIdempotent, which derive a
+// deterministic id and lean on asynx's own per-aggregate command
+// serialization instead — see TestConcurrentCreateHome_OneProjectNeverGetsTwoHomeWorkspaces
+// in the workspace repository's own test suite (workspace_concurrency_test.go),
+// which proves it against the REAL asynx event store, and
+// concurrency.TestConcurrency_ParallelHomeResolvesProvisionExactlyOneWorkspace
+// in tests/integration, which proves it through the real HTTP surface. A mock
+// of HomeWorkspaces/NodeCreator has no aggregate to serialize, so a test here
+// could only ever assert on this handler's OWN sequencing — which the fix
+// deliberately removed — not on the actual guarantee.
 
 // ── RequireHomeWorkspace ───────────────────────────────────────────────────
 

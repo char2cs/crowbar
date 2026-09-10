@@ -443,9 +443,9 @@ func (w *workspace) Create(
 	if err := w.pathsStore.Put(ctx, in.ID, in.WorktreePath); err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: create: paths: %w", err)
 	}
-	committed := false
+	keepPathRow := false
 	defer func() {
-		if !committed {
+		if !keepPathRow {
 			_ = w.pathsStore.Delete(ctx, in.ID)
 		}
 	}()
@@ -465,9 +465,29 @@ func (w *workspace) Create(
 		Now:           now,
 	})
 	if err != nil {
+		// CreateWorkspace.Validate refuses "current != nil" with the SAME
+		// asynxModels.ErrValidation a genuinely malformed input would — a
+		// caller using a caller-chosen (rather than server-random) id, like
+		// CreateHome's own homeWorkspaceID, can lose that exact race: it
+		// wrote this SAME id→path pair (id and worktreePath are both
+		// deterministic from the same inputs, so the row the eventual
+		// winner needs is byte-identical to the one this call already put)
+		// before losing to a concurrent winner. Rolling it back on every
+		// ErrValidation would rather delete the winner's still-live path row
+		// out from under it. Exists asks the event store directly — not a
+		// possibly-lagging read model — whether an aggregate with this id is
+		// now real: if so, this loss is exactly that race, and the row
+		// keyed on it is correct and stays; if not, this really was a
+		// malformed create (a random id can never collide by chance), and
+		// the row is still garbage that must go.
+		if errors.Is(err, asynxModels.ErrValidation) {
+			if exists, existsErr := w.ax.Exists(ctx, in.ID); existsErr == nil && exists {
+				keepPathRow = true
+			}
+		}
 		return domain.Workspace{}, fmt.Errorf("workspace: create: %w", err)
 	}
-	committed = true
+	keepPathRow = true
 	return evt.Aggregate, nil
 }
 
@@ -820,17 +840,77 @@ func (w *workspace) GetHomeForProject(ctx context.Context, projectID string) (do
 	return domain.Workspace{}, fmt.Errorf("get home for project %q: %w", projectID, apperr.ErrNotFound)
 }
 
+// homeWorkspaceNamespace is this package's own RFC 4122 namespace for every
+// name-derived id it mints — currently just a project's home workspace, but
+// kept as its own namespace (rather than reusing uuid.NameSpaceURL or the
+// like) so a deterministic id minted here can never collide with one some
+// unrelated part of the system derives the same way from an unrelated name.
+var homeWorkspaceNamespace = uuid.MustParse("f9a1b2c3-2026-4a1a-8b1c-c70de5e8f001")
+
+// homeWorkspaceID derives a project's home workspace id deterministically
+// from its project id, in place of minting a fresh random one on every call.
+//
+// This is the actual fix for a live bug that used to duplicate a project's
+// home workspace under concurrent requests: two callers racing "create the
+// home for project P," with nothing else serializing them, both saw no home
+// workspace yet and both called Create. A RANDOM id gives asynx's own
+// per-aggregate concurrency control nothing to enforce — the two calls were
+// never contending for the same aggregate at all, so both simply succeeded,
+// leaving the project with two home workspaces and every later caller
+// racing to guess which one is "real."
+//
+// A deterministic id fixes that at the root, not around it: two concurrent
+// creates for the SAME project now target the IDENTICAL aggregate id, which
+// asynx serializes through that one aggregate's own command queue exactly
+// like every other write in this system (see occSend's own doc). The first
+// commits; CreateWorkspace's own Validate ("if current != nil, refuse")
+// rejects the second outright, deterministically, with no timing window at
+// all — the identical guarantee every other aggregate in this codebase
+// already relies on, just extended to a name-derived id instead of a
+// server-randomised one. No new locking primitive, no process-local mutex:
+// a second daemon instance, or a retried request years apart, gets the
+// exact same outcome.
+func homeWorkspaceID(projectID string) string {
+	return uuid.NewSHA1(homeWorkspaceNamespace, []byte(projectID)).String()
+}
+
 // CreateHome provisions the home workspace for a project, used for lazy
 // provisioning when GetHomeForProject returns ErrNotFound.
+//
+// Idempotent under real concurrency, not merely safe: a caller that loses
+// the race homeWorkspaceID's own doc describes does not get an error back at
+// all — it reads the winner's own committed workspace directly from the
+// event store (never the read model, which may still be catching up to that
+// commit) and returns it exactly as if it had won itself. Reading it there
+// rather than surfacing apperr.ErrConflict for a caller to recover from is
+// safe done HERE, unlike inside the shared Create/Validate this calls
+// through, because every argument on THIS call is fixed by construction (a
+// non-empty id, WorkspaceKindHome needing no RepoID): the ONLY way
+// CreateWorkspace's Validate can refuse it is "current != nil," never one of
+// its other validation branches, so an ErrValidation reaching here can only
+// ever mean one thing — mirrors node.EventStore.CreateIdempotent's own,
+// identically-scoped reasoning.
 func (w *workspace) CreateHome(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error) {
+	id := homeWorkspaceID(projectID)
 	ws, err := w.Create(ctx, CreateInput{
-		ID:           uuid.NewString(),
+		ID:           id,
 		ProjectID:    projectID,
 		WorktreePath: worktreePath,
 		Kind:         domain.WorkspaceKindHome,
 	}, now)
-	if err != nil {
+	if err == nil {
+		return ws, nil
+	}
+	if !errors.Is(err, asynxModels.ErrValidation) {
 		return domain.Workspace{}, fmt.Errorf("create home workspace: %w", err)
 	}
-	return ws, nil
+	won, getErr := w.ax.Get(ctx, id)
+	if getErr != nil {
+		// The winner's commit isn't visible yet even at the event-store layer
+		// (Get, not the read model) — genuinely unexpected for a same-process
+		// serialized aggregate, so surface the ORIGINAL refusal rather than a
+		// getErr that names no cause a caller could act on.
+		return domain.Workspace{}, fmt.Errorf("create home workspace: %w", err)
+	}
+	return won, nil
 }

@@ -55,6 +55,24 @@ type EventStore interface {
 		parentID string,
 		order int,
 	) (domain.Node, error)
+	// CreateIdempotent is Create for a CALLER-CHOSEN id a concurrent caller
+	// might legitimately choose too — never for a server-random one, where
+	// two ids can never coincide by chance and any Create failure is a real
+	// one. On the "current != nil" refusal Create's own Validate already
+	// gives a genuine collision, this reads the winner back directly from
+	// the event store (never the read model, which may still be catching up
+	// to that commit) instead of surfacing the loss as an error. See
+	// workspace.homeWorkspaceID's own doc for the id-collision design this
+	// mirrors, and CreateIdempotent's own implementation for why treating
+	// EVERY validation failure this way would be wrong for any OTHER
+	// caller's id space.
+	CreateIdempotent(
+		ctx context.Context,
+		id string,
+		kind domain.NodeKind,
+		parentID string,
+		order int,
+	) (domain.Node, error)
 	// SetOrder writes a node's index within the sibling space it is already in
 	// and leaves its parent alone — the write a DENSIFY owes, as against a move.
 	// On the ordinary async Send path: a single drag renumbers a whole level, so
@@ -196,6 +214,34 @@ func (r *eventSourced) Create(
 		return domain.Node{}, fmt.Errorf("node: create: %w", err)
 	}
 	return evt.Aggregate, nil
+}
+
+// CreateIdempotent — see the EventStore interface's own doc for the id-space
+// contract this depends on: id must be one a concurrent caller could
+// legitimately choose too, never a server-random one.
+func (r *eventSourced) CreateIdempotent(
+	ctx context.Context,
+	id string,
+	kind domain.NodeKind,
+	parentID string,
+	order int,
+) (domain.Node, error) {
+	n, err := r.Create(ctx, id, kind, parentID, order)
+	if err == nil {
+		return n, nil
+	}
+	if !errors.Is(err, asynxModels.ErrValidation) {
+		return domain.Node{}, err
+	}
+	won, getErr := r.ax.Get(ctx, id)
+	if getErr != nil {
+		// The winner's commit isn't visible yet even at the event-store
+		// layer (Get, not the read model) — genuinely unexpected for a
+		// same-process serialized aggregate, so surface the ORIGINAL refusal
+		// rather than a getErr that names no cause a caller could act on.
+		return domain.Node{}, err
+	}
+	return won, nil
 }
 
 func (r *eventSourced) SetOrder(
