@@ -592,6 +592,94 @@ describe('freshDecorations: a fade is played against the clock, not the span', (
   })
 })
 
+// Regression: `knownStablePrefix` used to latch every block that compared
+// equal on a call, INCLUDING the last one — the block the stream is still
+// writing into. A trailing block matching means only "unchanged so far", never
+// "finished", but latching it made the next call's `startAt` skip past it, so
+// it was never compared again and every later edit to it was dropped for the
+// life of the editor.
+//
+// Tables are where it bites: a table is ONE block for a great many deltas, and
+// a partially-arrived line often reparses to exactly what the delta before it
+// produced (landing mid-separator-row, `| --- | --- | -` parses to the same two
+// paragraphs as the tick before). One such tick was enough. Confirmed live
+// against a real Codex turn: the table froze on its header row for 6.7s while
+// every body row streamed in unseen, then all rows appeared at once the instant
+// the turn ended and the row swapped to `MarkdownMessageStatic` — which
+// reparses from scratch and so never saw the stale prefix.
+//
+// The invariant these pin down is the strong one, and it is what the whole
+// module is FOR: a patched editor must hold exactly what a fresh parse of the
+// same markdown holds, at every prefix — never merely at the end.
+describe('applyStreamedValue: the patched document matches a fresh parse at every prefix', () => {
+  /** Block types, and a table's row/cell counts — enough to catch a table that
+   *  never materialised, a row that never landed, or a stale paragraph. */
+  const shapeOf = (value: unknown[]) =>
+    value
+      .map((node) => {
+        const n = node as { type?: string; children?: unknown[] }
+        if (n.type !== 'table') return n.type ?? '?'
+        const rows = (n.children ?? []) as { children?: unknown[] }[]
+        return `table(${rows.map((r) => (r.children ?? []).length).join(',')})`
+      })
+      .join('|')
+
+  const streamCharByChar = (markdown: string) => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(''),
+    })
+    const divergences: string[] = []
+    for (let i = 1; i <= markdown.length; i++) {
+      const text = markdown.slice(0, i)
+      const fresh = chatMarkdownToValue(text)
+      applyStreamedValue(editor, fresh)
+      const got = shapeOf(editor.children as unknown[])
+      const want = shapeOf(fresh as unknown[])
+      if (got !== want) {
+        divergences.push(`at ${i} (${JSON.stringify(text.slice(-20))}): ${got} != ${want}`)
+      }
+    }
+    return { editor, divergences }
+  }
+
+  it('never falls behind while a markdown table streams in', () => {
+    const markdown = [
+      'Intro line.',
+      '',
+      '| Name | Model | Scale |',
+      '| --- | --- | --- |',
+      '| Postgres | relational | vertical |',
+      '| Cassandra | wide column | horizontal |',
+      '| Redis | key value | memory |',
+      '',
+      'Closing line.',
+      '',
+    ].join('\n')
+
+    const { editor, divergences } = streamCharByChar(markdown)
+    expect(divergences).toEqual([])
+    // Belt and braces: the table genuinely materialised rather than the whole
+    // stream having stayed paragraphs that merely agreed with each other.
+    expect(shapeOf(editor.children as unknown[])).toBe('p|table(3,3,3,3)|p')
+  })
+
+  it('never falls behind while a bold-titled list streams in', () => {
+    const markdown = [
+      'Here they are:',
+      '',
+      '1. **Slow start** — the window doubles each round trip.',
+      '2. **Congestion avoidance** — it then grows linearly.',
+      '',
+      'That is all.',
+      '',
+    ].join('\n')
+
+    const { divergences } = streamCharByChar(markdown)
+    expect(divergences).toEqual([])
+  })
+})
+
 describe('applyStreamedValue: cost does not scale with the words in a chunk', () => {
   it('spends the same handful of operations on a 2-word and a 60-word append', () => {
     const short = createPlateEditor({

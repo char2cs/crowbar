@@ -753,7 +753,28 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
   const prev = editor.children as Value
   const startAt = Math.min(knownStablePrefix.get(editor) ?? 0, prev.length, next.length)
   const stable = startAt + stableBlockCount(prev.slice(startAt), next.slice(startAt))
-  knownStablePrefix.set(editor, stable)
+  // NEVER LATCH THE LAST BLOCK. `stable` counts blocks that matched THIS call;
+  // the final one matching means only "it has not changed yet", never "it is
+  // finished" — it is the block the stream is still writing into. Latching it
+  // made `startAt` skip past it on every later call, so it was never compared
+  // again and every subsequent edit to it was dropped for the life of the
+  // editor.
+  //
+  // Tables are where this bites, because a table is ONE block for a great many
+  // deltas and a partially-arrived line frequently reparses to exactly what
+  // the previous delta produced (mid-separator-row `| --- | --- | -` parses to
+  // the same two paragraphs as the delta before it). One such tick was enough:
+  // reproduced live against a real Codex turn, the table froze on its header
+  // row for 6.7s while every body row streamed in unseen, then appeared all at
+  // once when the turn ended and the row swapped to `MarkdownMessageStatic` —
+  // which reparses from scratch and so never saw the stale prefix. Streamed
+  // character by character in a test, the editor diverged at the separator row
+  // and never recovered: it finished holding three paragraphs where a fresh
+  // parse of the same markdown holds a full table.
+  //
+  // The cost of not latching it is one `nodesEqual` on one block per delta —
+  // the same comparison the trailing fast paths below already have to make.
+  knownStablePrefix.set(editor, Math.min(stable, Math.max(next.length - 1, 0)))
   if (stable === prev.length && stable === next.length) return
 
   editor.tf.withoutNormalizing(() => {
