@@ -363,6 +363,17 @@ func (t *Turns) holdForAnswer(
 	if deliveryID == "" || choiceID == "" {
 		return
 	}
+	// Handed over to the provider's own view: the relay IS the CLI's gate, and
+	// holding it keeps the CLI from drawing the prompt on the surface the user
+	// is actually looking at. Measured live on codex — the TUI sat on "Action
+	// Required" with nothing on screen for the whole 270s budget, and the card
+	// that holds the question renders only on the chat surface, which a
+	// non-hotswap provider cannot reach mid-turn. Not parking is not refusing to
+	// answer: the relay exits with no decision, exactly as an expired budget
+	// already leaves it, and the CLI asks in its own UI.
+	if t.runners.ShowingNativeView(runner.ID) {
+		return
+	}
 	capability, answerable := agent.AnswerCapability(ev.Kind)
 	if !answerable {
 		return
