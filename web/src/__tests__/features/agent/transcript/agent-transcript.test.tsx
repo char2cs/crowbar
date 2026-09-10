@@ -807,10 +807,12 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
 
   // The ordinary case this fix must not disturb: a prompt that DISPATCHES
   // (settles into a real ledger message) also drains the queue back to
-  // empty, but the pin is still exactly right — it keeps an offset, not the
-  // element, and releases itself naturally once the reply grows past the
-  // reserved room. This must NOT call pinTurnToTop(null).
-  it('does not release the pin when the pinned prompt settles into a real message instead', () => {
+  // empty, but the turn is still running and the pin is still wanted. This
+  // must NOT call pinTurnToTop(null) — and it must hand the pin the LEDGER
+  // row that replaced the queued one, so `applyTailRoom` still has a live
+  // element to re-measure from: an offset alone assumes nothing above the pin
+  // moves, and a turn starting strips the turnbar off every reply above it.
+  it('re-anchors to the settled ledger row instead of releasing the pin', () => {
     const item = queueItem('this one actually sent')
     const { rerender } = draw([], { queue: [] })
     rerender(
@@ -863,7 +865,12 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
       />,
     )
 
-    expect(pinTurnToTopCalls).toHaveLength(1) // still just the original pin — no release call
+    // Never released, and re-anchored: the last call is the ledger row for the
+    // very prompt that was pinned, not null.
+    expect(pinTurnToTopCalls).toHaveLength(2)
+    const repinned = pinTurnToTopCalls.at(-1)
+    expect(repinned).not.toBeNull()
+    expect(repinned?.getAttribute('data-sequence')).toBe('1')
   })
 })
 

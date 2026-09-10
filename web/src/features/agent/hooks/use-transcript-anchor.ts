@@ -233,6 +233,15 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // same reason the original comment already gives for the rest of this
   // value.
   const pinnedTop = useRef<number | null>(null)
+  // The element that offset was measured from, while it lasts — what lets
+  // `applyTailRoom` re-measure rather than trust the offset for the whole
+  // turn. Not a replacement for `pinnedTop`: the row genuinely does not
+  // survive the turn (see above), so this goes null on the queued-to-ledger
+  // swap and the offset carries on from whatever it last read.
+  const pinnedRow = useRef<HTMLElement | null>(null)
+  // Set by `applyTailRoom` for the one resync that follows the pinned row
+  // moving — see there. Consumed by `resync`, which lands instead of easing.
+  const pinShifted = useRef(false)
   // When the reader last actually did something — see READER_INPUT_MS.
   const lastInputAt = useRef(Number.NEGATIVE_INFINITY)
   // A scrollbar drag only announces itself once, at `pointerdown`, and can
@@ -312,12 +321,52 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     // silently become the thing being watched, and the real content's growth
     // would stop being seen at all.
     const applyTailRoom = () => {
-      const pinTop = pinnedTop.current
       const box = content as HTMLElement
-      if (pinTop === null) {
+      if (pinnedTop.current === null) {
         if (box.style.paddingBottom) box.style.paddingBottom = ''
+        pinnedRow.current = null
         return
       }
+      // RE-MEASURED, not merely remembered, while the pinned row is still in
+      // the tree. `pinnedTop`'s own doc rests on "nothing above the pin moves
+      // while a turn runs (it is settled history)", and that stopped being
+      // true: a turn STARTING empties `lastInAgentRun` (agent-transcript.tsx),
+      // so every settled reply on screen loses its turnbar at the moment
+      // `working` goes true. Content above the pin shrinking while the offset
+      // stands still is read here as content BELOW it shrinking, so this
+      // over-reserves by exactly the height that vanished and the
+      // bottom-follow carries the prompt that far past the top of the
+      // viewport. Captured live on a fresh Codex turn:
+      //
+      //   t=9315  turnbars 5 -> 0 as `working` goes true, prompt still at y=13
+      //   t=9335  reserved 486 -> 605
+      //   t=9371+ prompt sinks past the top: -23, -44, -52 ... -139
+      //   resting pinY=-139, ALL content ending at y=22 of a 754px pane
+      //
+      // i.e. the whole viewport blank for the length of the turn.
+      const row = pinnedRow.current
+      if (row && box.contains(row)) {
+        const measured = row.getBoundingClientRect().top - box.getBoundingClientRect().top
+        // THE PIN MOVED, which only happens when content ABOVE it changed
+        // height. The follow target below moves by the same amount (the bottom
+        // is exactly the pinned position while a pin is held), so easing there
+        // is what makes the shift visible: the content lands first and the
+        // scroll catches up over the next dozen frames. Reported as "just
+        // before the turn is finishing, the whole scroll does like a bounce
+        // effect, it goes up, and then it goes down" — that is the turnbars
+        // coming BACK as `working` goes false, ~140px of content reappearing
+        // above the prompt. Measured at three consecutive turn closes:
+        //
+        //   pinY 14 -> 33 -> 154, st 5907 -> 5888 -> 5887, then eased back
+        //
+        // Landing instead of easing on exactly these frames holds the prompt
+        // still while the content changes around it, which is what a pin is.
+        if (pinnedTop.current !== null && Math.abs(measured - pinnedTop.current) > 1) {
+          pinShifted.current = true
+        }
+        pinnedTop.current = measured
+      }
+      const pinTop = pinnedTop.current
       const reserved = parseFloat(box.style.paddingBottom || '0') || 0
       // `box.scrollHeight`, not `el.scrollHeight` — see `pinnedTop`'s own doc
       // for why measuring against `.scroll` itself (which also contains
@@ -360,6 +409,13 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       // ceiling — which the native scrollTop setter then clamps to
       // instantly. The result is indistinguishable from no easing at all.
       const target = el.scrollHeight - el.clientHeight
+      // The pinned row just moved because content above it changed height.
+      // Land, do not glide — see `pinShifted`'s own note in `applyTailRoom`.
+      if (pinShifted.current) {
+        pinShifted.current = false
+        el.scrollTop = target
+        return
+      }
       if (!easedArmed.current) {
         // Still settling (see UseTranscriptAnchorOptions.loadingHistory):
         // land on the real target instantly, same as the prepend branch
@@ -491,6 +547,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       resyncRef.current = () => {}
       scheduleArmRef.current = () => {}
       pinnedTop.current = null
+      pinnedRow.current = null
       cancelAnimationFrame(armFrame.current)
       // Wherever the reader ends up, for this exact chat's next mount this
       // session (a switch back) to restore — see
@@ -520,6 +577,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     const el = scrollRef.current
     if (!el || !element) {
       pinnedTop.current = null
+      pinnedRow.current = null
       resyncRef.current()
       return
     }
@@ -532,6 +590,9 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     const base = el.lastElementChild as HTMLElement | null
     pinnedTop.current =
       element.getBoundingClientRect().top - (base ?? el).getBoundingClientRect().top
+    // Kept so `applyTailRoom` can re-measure that offset instead of trusting
+    // it for the rest of the turn — see `pinnedRow`.
+    pinnedRow.current = element
     // A turn starting is also the reader rejoining the live end — it is their
     // own prompt that just landed. Without this, a prompt sent after reading
     // back through history would reserve the room and then not move.
