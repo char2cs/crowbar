@@ -198,3 +198,56 @@ func TestCloseAssistantTurn_ATerminatingHookThatReportsMoreTextStillWins(t *test
 	require.Equal(t, complete, got.Text,
 		"a hook report that is FULLER than the stream must still win — the reconciliation's original purpose")
 }
+
+// The quiet sweep (runner/internal/termwait) abandons a live turn whose message
+// has not grown for DefaultMessageQuiet. It reads UnfinishedSince, which used to
+// see the ANSWER stream alone — so a provider that streams a paragraph and then
+// reasons for longer than that window, with no ledger-open tool call to vouch for
+// it, had its turn closed and its spinner darkened while the CLI was still
+// generating. Only codex reaches it: it marks no message final, so its messages
+// stay unterminated (and the fuse stays armed) for the whole turn.
+func TestRegression_LiveTextKeepsAnUnfinishedMessageFromReadingAsAbandoned(t *testing.T) {
+	for _, kind := range []string{DeltaKindReasoning, DeltaKindToolOutput} {
+		t.Run(kind, func(t *testing.T) {
+			turns := New(Deps{})
+			stale := time.Now().Add(-90 * time.Second)
+
+			_, ok := turns.messages.Observe(
+				"chat-1", "runner-1", "turn-1", "msg-1", 0, false, false, "Looking into it.", stale,
+			)
+			require.True(t, ok)
+
+			since, ok := turns.UnfinishedSince("chat-1")
+			require.True(t, ok)
+			require.Equal(t, stale, since,
+				"without live text the answer stream is the only clock")
+
+			beforeDelta := time.Now()
+			turns.live.observe("chat-1", kind, "block-1", 0, "still going")
+
+			since, ok = turns.UnfinishedSince("chat-1")
+			require.True(t, ok)
+			require.False(t, since.Before(beforeDelta),
+				"the CLI is still speaking, so the quiet window must restart")
+		})
+	}
+}
+
+// Live text is a view of ONE turn: the next turn's sweep must not be told the
+// chat is alive by the previous turn's thinking. closeAssistantTurn forgets it.
+func TestRegression_ForgettingLiveTextAlsoForgetsItsQuietClock(t *testing.T) {
+	turns := New(Deps{})
+	stale := time.Now().Add(-90 * time.Second)
+
+	_, ok := turns.messages.Observe(
+		"chat-1", "runner-1", "turn-1", "msg-1", 0, false, false, "Looking into it.", stale,
+	)
+	require.True(t, ok)
+	turns.live.observe("chat-1", DeltaKindReasoning, "block-1", 0, "thinking")
+	turns.live.forget("chat-1")
+
+	since, ok := turns.UnfinishedSince("chat-1")
+	require.True(t, ok)
+	require.Equal(t, stale, since,
+		"a forgotten turn's thinking must not keep the next one's sweep at bay")
+}
