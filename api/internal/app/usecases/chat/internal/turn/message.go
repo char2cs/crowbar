@@ -190,6 +190,8 @@ func (t *Turns) closeTurnFromFailure(
 	// "failed" notice row in the transcript for a turn that was never the
 	// assistant's own. See compaction.go and closeTurnFromStop's own comment.
 	if t.compacting.consume(chat.ID, ev.TurnID) {
+		// Same stale-latch trap closeTurnFromStop guards — see its own comment.
+		t.idle.clear(chat.ID)
 		return nil
 	}
 	appendErr := t.closeAssistantTurn(ctx, chat, runner, ev)

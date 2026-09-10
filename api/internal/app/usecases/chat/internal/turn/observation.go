@@ -97,7 +97,7 @@ func (t *Turns) handleObservation(
 		// compaction.go. A hooks-transport compact_pre (claude has none today;
 		// codex's own disconnected companion PTY does) maps no turn_id, so this
 		// is a no-op for it.
-		t.compacting.arm(chat.ID, ev.TurnID)
+		t.armCompaction(chat.ID, ev.TurnID)
 		// codex reports no trigger at all, so fall back to Crowbar's own
 		// record of having just asked for this — never overrides a provider
 		// (claude) that DOES report one. See manualCompact.peek's own doc.

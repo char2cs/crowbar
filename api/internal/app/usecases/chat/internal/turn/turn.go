@@ -204,6 +204,11 @@ func (t *Turns) closeTurnFromStop(
 	// CurrentTurnStarted on a chat that was never marked working for this,
 	// on every compaction, forever.
 	if t.compacting.consume(chat.ID, ev.TurnID) {
+		// The idle report riding this stop is the COMPACTION's, not the assistant
+		// turn's — codex sends one with every turn/completed, measured live. Left
+		// armed it is a 5s fuse under a turn that is still running, and this path
+		// returns before closeAssistantTurn's own clear.
+		t.idle.clear(chat.ID)
 		return nil
 	}
 	// THE ANSWER IS DURABLE BEFORE ANYBODY IS TOLD THE TURN ENDED. StopTurn's
