@@ -392,6 +392,105 @@ function ownPropsEqual(a: Node, b: Node): boolean {
   return keysA.every((k) => nodesEqual(a[k], b[k]))
 }
 
+/** One leaf whose marks and/or text differ between `prev` and `next`, at the
+ *  path it lives at in BOTH trees (identical, since `leafDivergences` only
+ *  returns any when the two share the same shape everywhere else). */
+interface LeafDiff {
+  path: Path
+  prev: Node
+  next: Node
+}
+
+/**
+ * Collects every LEAF where `prev` and `next` differ, PROVIDED the two trees
+ * share the exact same shape everywhere else (same element props at every
+ * non-leaf level, same children count at every level) — pushing to `out` and
+ * returning `true`. Returns `false` for a genuinely STRUCTURAL difference (an
+ * element's own props changed, or a children array grew/shrank/reordered)
+ * without collecting anything: the caller's cue that this pair cannot be
+ * patched leaf-by-leaf and needs the full block replaced instead.
+ *
+ * This is what tells "a markdown span's closing syntax just landed" (a plain
+ * leaf becoming a `bold`/`code` one — same leaf, same position, only its own
+ * marks and text changed) apart from "the paragraph's shape itself changed"
+ * (a code span splitting one leaf into three where there was one, a list
+ * item gaining a sibling). Only the first case can be patched leaf-by-leaf
+ * without touching any element's own identity.
+ */
+function leafDivergences(prev: Node, next: Node, path: Path, out: LeafDiff[]): boolean {
+  const prevIsText = typeof prev.text === 'string'
+  const nextIsText = typeof next.text === 'string'
+  if (prevIsText !== nextIsText) return false
+  if (prevIsText && nextIsText) {
+    if (prev.text !== next.text || !ownPropsEqual(prev, next)) out.push({ path, prev, next })
+    return true
+  }
+  if (!ownPropsEqual(prev, next)) return false
+  const prevChildren = prev.children ?? []
+  const nextChildren = next.children ?? []
+  if (prevChildren.length !== nextChildren.length) return false
+  for (let i = 0; i < prevChildren.length; i++) {
+    if (!leafDivergences(prevChildren[i]!, nextChildren[i]!, [...path, i], out)) return false
+  }
+  return true
+}
+
+/** This leaf's own mark keys — everything but `text`/`children` and the
+ *  derived props `ownPropsEqual` already ignores. */
+function markKeys(node: Node): string[] {
+  return Object.keys(node).filter((k) => !IGNORED_KEYS.has(k) && k !== 'children' && k !== 'text')
+}
+
+/**
+ * Applies one leaf's worth of `LeafDiff`s IN PLACE: `setNodes`/`unsetNodes`
+ * for whatever marks changed, `delete`+`insertText` for whatever text
+ * changed — never `removeNodes`/`insertNodes` on the leaf OR any ancestor.
+ * That is the whole point: every element above these leaves (the block
+ * itself, any wrapper) keeps the exact node reference and `id` it already
+ * had, so nothing about it is a fresh insert to `NodeIdPlugin`, and nothing
+ * about it forces the block's own render identity to change.
+ */
+function patchLeavesInPlace(editor: PlateEditor, diffs: LeafDiff[]): void {
+  for (const { path, prev, next } of diffs) {
+    const prevKeys = markKeys(prev)
+    const nextKeys = markKeys(next)
+    const toUnset = prevKeys.filter((k) => !(k in next))
+    if (toUnset.length) editor.tf.unsetNodes(toUnset, { at: path })
+    const toSet: Record<string, unknown> = {}
+    for (const k of nextKeys) {
+      if (
+        !(k in prev) ||
+        !nodesEqual((prev as Record<string, unknown>)[k], (next as Record<string, unknown>)[k])
+      ) {
+        toSet[k] = (next as Record<string, unknown>)[k]
+      }
+    }
+    if (Object.keys(toSet).length) editor.tf.setNodes(toSet, { at: path })
+
+    const prevText = (prev.text as string) ?? ''
+    const nextText = (next.text as string) ?? ''
+    if (prevText === nextText) continue
+    if (prevText.length) {
+      editor.tf.delete({ at: { path, offset: 0 }, distance: prevText.length, unit: 'character' })
+    }
+    if (nextText.length) {
+      editor.tf.insertText(nextText, { at: { path, offset: 0 } })
+      // The whole leaf, not just a suffix: unlike a pure append, there is no
+      // meaningful "already-visible prefix" here — the leaf's old text is
+      // gone the instant its marks changed (that IS the edit), so all of its
+      // new text is genuinely new to the screen.
+      recordRun(editor, {
+        generation: nextFreshGeneration(editor),
+        path,
+        start: 0,
+        end: nextText.length,
+        wordOffset: 0,
+        totalWords: splitIntoWords(nextText).length,
+      })
+    }
+  }
+}
+
 /** The rightmost text leaf of a node — where a trailing append always lands. */
 function lastLeaf(node: Node): Node {
   if (typeof node.text === 'string') return node
@@ -657,11 +756,33 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
         // real cause is a mark completing mid-paragraph (a markdown span like
         // **bold** or `code` resolving once its closing syntax arrives), which
         // changes a leaf's OWN props and so reads as structural, not a growing
-        // tail. Slate has no cheaper way to change a leaf's marks than
-        // replacing it, so the block still gets torn down and reinserted — but
-        // nothing else in the paragraph changed, so the fade stays scoped to
-        // whatever text is actually new rather than re-fading words that were
-        // already fully visible a moment ago. See recordBlockRuns' `skip`.
+        // tail.
+        //
+        // Patch the affected leaves in place when the block's SHAPE (every
+        // element's own props, every children array's length) is otherwise
+        // identical — the common case for one mark resolving. Confirmed live
+        // (instrumented `applyStreamedValue` across a realistic delta stream)
+        // that the block-replace fallback below reassigns this block's
+        // NodeIdPlugin `id` on every one of these — once per resolved mark,
+        // exactly the moment a bold list-item title or an inline code span
+        // closes. A block whose render identity is keyed by that `id` remounts
+        // on every such edit, which restarts its `.chat-fresh-text` fade
+        // (`animation-fill-mode: both`) from its own zero-opacity start —
+        // and a block busy resolving several marks in quick succession (a
+        // bold header, then an inline code span moments later) never gets an
+        // uninterrupted 260ms to finish fading in, matching a report of list
+        // items sitting visibly blank while still actively streaming.
+        const leafDiffs: LeafDiff[] = []
+        if (leafDivergences(prevBlock, nextBlock, [stable], leafDiffs) && leafDiffs.length > 0) {
+          pruneRuns(editor, stable)
+          patchLeavesInPlace(editor, leafDiffs)
+          return
+        }
+        // Shape genuinely changed (an element's own props, or a children
+        // count, differ) — no leaf-by-leaf patch can express that. Nothing
+        // else in the paragraph changed either way, so the fade stays scoped
+        // to whatever text is actually new rather than re-fading words that
+        // were already fully visible a moment ago. See recordBlockRuns' `skip`.
         pruneRuns(editor, stable)
         editor.tf.removeNodes({ at: [stable] })
         editor.tf.insertNodes([nextBlock] as Value, { at: [stable] })

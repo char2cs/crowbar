@@ -6,6 +6,7 @@ import {
   AgentTranscript,
   ESTIMATED_ROW_HEIGHT,
   estimateRowHeight,
+  measureRowHeight,
 } from '@/features/agent/transcript/agent-transcript'
 import type { TranscriptRow } from '@/features/agent/transcript/lib/flatten-transcript-rows'
 
@@ -205,6 +206,40 @@ describe('AgentTranscript turnbar wiring', () => {
     expect(
       screen.getByTestId('agent-message-5').querySelector('[data-testid="message-turn-actions"]'),
     ).not.toBeNull()
+  })
+
+  it('drops the persistent turnbar off the last settled reply while the agent is working on the next step', () => {
+    const messages: AgentChatMessage[] = [
+      { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' },
+      { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
+    ]
+
+    const { rerender } = draw(messages)
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+
+    rerender(
+      <AgentTranscript
+        messages={messages}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).toBeNull()
   })
 
   it("wires a turn's finished tool calls through to its own message row, keyed by turnId", () => {
@@ -469,7 +504,7 @@ describe('AgentTranscript windowed history', () => {
         { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
         { turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
       ],
-      { eventsBefore: { 1: [{ kind: 'compaction', trigger: 'manual' }] } },
+      { eventsBefore: { 1: [{ kind: 'compaction', id: 'e1', trigger: 'manual' }] } },
     )
 
     const rows = Array.from(container.querySelectorAll<HTMLElement>('.virtual-rows > [data-index]'))
@@ -517,7 +552,7 @@ describe('AgentTranscript windowed history', () => {
         { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
         { turnId: 't2', sequence: 1, role: 'user', providerId: '', text: 'being edited', at: '' },
       ],
-      { suppressSequence: 1, eventsBefore: { 1: [{ kind: 'interrupted' }] } },
+      { suppressSequence: 1, eventsBefore: { 1: [{ kind: 'interrupted', id: 'e1' }] } },
     )
 
     expect(screen.getByTestId('agent-message-0')).toBeInTheDocument()
@@ -769,7 +804,10 @@ describe('AgentTranscript interrupted marker', () => {
   ]
 
   it('draws the trailing marker once the turn has actually gone idle, with nothing after it yet', () => {
-    draw(oneFrozenTurn, { trailingInterruption: true, working: false })
+    draw(oneFrozenTurn, {
+      trailingInterruption: [{ kind: 'interrupted', id: 'e1' }],
+      working: false,
+    })
 
     expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
   })
@@ -778,13 +816,16 @@ describe('AgentTranscript interrupted marker', () => {
   // instant — never both on screen, and the spinner's own disappearance is
   // what hands off to it, not a separate timer.
   it('does not draw the trailing marker while the turn still reads as working', () => {
-    draw(oneFrozenTurn, { trailingInterruption: true, working: true })
+    draw(oneFrozenTurn, {
+      trailingInterruption: [{ kind: 'interrupted', id: 'e1' }],
+      working: true,
+    })
 
     expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
 
   it('draws nothing when nothing was interrupted', () => {
-    draw(oneFrozenTurn, { trailingInterruption: false, working: false })
+    draw(oneFrozenTurn, { trailingInterruption: [], working: false })
 
     expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
@@ -806,8 +847,8 @@ describe('AgentTranscript interrupted marker', () => {
       },
     ]
     draw(messages, {
-      eventsBefore: { 1: [{ kind: 'interrupted' }] },
-      trailingInterruption: false,
+      eventsBefore: { 1: [{ kind: 'interrupted', id: 'e1' }] },
+      trailingInterruption: [],
       working: false,
     })
 
@@ -824,7 +865,7 @@ describe('AgentTranscript interrupted marker', () => {
   // is part of "the record" the queue sits below, same as any confirmed message.
   it('draws the trailing marker above a prompt still waiting on hook confirmation', () => {
     draw(oneFrozenTurn, {
-      trailingInterruption: true,
+      trailingInterruption: [{ kind: 'interrupted', id: 'e1' }],
       working: false,
       queue: [
         {
@@ -851,7 +892,7 @@ describe('AgentTranscript switch marker', () => {
 
   it('draws a provider-switch pill, resolving the display name from the providers list', () => {
     draw(twoMessages, {
-      eventsBefore: { 1: [{ kind: 'provider', detail: 'codex' }] },
+      eventsBefore: { 1: [{ kind: 'provider', id: 'e1', detail: 'codex' }] },
       providers: [{ id: 'codex', displayName: 'Codex' } as never],
     })
 
@@ -861,13 +902,13 @@ describe('AgentTranscript switch marker', () => {
   })
 
   it('draws a model-changed pill with the raw model id', () => {
-    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'model', detail: 'opus' }] } })
+    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'model', id: 'e1', detail: 'opus' }] } })
 
     expect(screen.getByTestId('agent-model-switch-divider')).toHaveTextContent('Model: opus')
   })
 
   it('draws an effort-changed pill with the raw effort level', () => {
-    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'effort', detail: 'high' }] } })
+    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'effort', id: 'e1', detail: 'high' }] } })
 
     expect(screen.getByTestId('agent-effort-switch-divider')).toHaveTextContent('Effort: high')
   })
@@ -876,8 +917,8 @@ describe('AgentTranscript switch marker', () => {
     draw(twoMessages, {
       eventsBefore: {
         1: [
-          { kind: 'model', detail: 'opus' },
-          { kind: 'effort', detail: 'high' },
+          { kind: 'model', id: 'e1', detail: 'opus' },
+          { kind: 'effort', id: 'e2', detail: 'high' },
         ],
       },
     })
@@ -904,9 +945,9 @@ describe('AgentTranscript switch marker', () => {
     const { container } = draw(twoMessages, {
       eventsBefore: {
         1: [
-          { kind: 'interrupted' },
-          { kind: 'provider', detail: 'codex' },
-          { kind: 'model', detail: 'opus' },
+          { kind: 'interrupted', id: 'e1' },
+          { kind: 'provider', id: 'e2', detail: 'codex' },
+          { kind: 'model', id: 'e3', detail: 'opus' },
         ],
       },
       providers: [{ id: 'codex', displayName: 'Codex' } as never],
@@ -919,6 +960,43 @@ describe('AgentTranscript switch marker', () => {
     expect(pills?.[0]).toHaveTextContent('Interrupted')
     expect(pills?.[1]).toHaveTextContent('Switched to Codex')
     expect(pills?.[2]).toHaveTextContent('Model: opus')
+  })
+
+  // REGRESSION (live-reported): switching provider twice with nothing sent in
+  // between anchors TWO `provider` tags on the same divider — both used to be
+  // keyed by the shared literal `tag.kind` ('provider'), which is exactly the
+  // "two children with the same key, `provider`" React warning seen firing in
+  // the real app. Each tag now keys off its own interruption id, so both
+  // pills must render distinctly rather than one silently colliding with the
+  // other.
+  it('draws two provider-switch pills on the same divider when the provider was switched twice', () => {
+    // Asserting on the DOM alone isn't enough here: React still renders both
+    // siblings on a first, static mount even when their keys collide — the
+    // warning below is the only place the bug is actually observable.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const { container } = draw(twoMessages, {
+      eventsBefore: {
+        1: [
+          { kind: 'provider', id: 'e1', detail: 'claude' },
+          { kind: 'provider', id: 'e2', detail: 'codex' },
+        ],
+      },
+      providers: [
+        { id: 'claude', displayName: 'Claude' } as never,
+        { id: 'codex', displayName: 'Codex' } as never,
+      ],
+    })
+
+    expect(errorSpy.mock.calls.flat().join(' ')).not.toMatch(/same key/i)
+    errorSpy.mockRestore()
+
+    const dividers = container.querySelectorAll('[data-testid="agent-event-divider"]')
+    expect(dividers).toHaveLength(1)
+    const pills = dividers[0]?.querySelectorAll('[data-testid="agent-provider-switch-divider"]')
+    expect(pills).toHaveLength(2)
+    expect(pills?.[0]).toHaveTextContent('Switched to Claude')
+    expect(pills?.[1]).toHaveTextContent('Switched to Codex')
   })
 })
 
@@ -966,7 +1044,10 @@ describe('estimateRowHeight', () => {
         kind: 'event-divider',
         key: 'k',
         sequence: 0,
-        tags: [{ kind: 'interrupted' }, { kind: 'compaction', trigger: 'manual' }],
+        tags: [
+          { kind: 'interrupted', id: 'e1' },
+          { kind: 'compaction', id: 'e2', trigger: 'manual' },
+        ],
       }),
     ).toBe(ESTIMATED_ROW_HEIGHT)
   })
@@ -1165,6 +1246,96 @@ describe('AgentTranscript: priming a settling row from its queued height', () =>
       )
 
       expect(resizeItemCalls).not.toContainEqual({ index: 0, size: 245 })
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect
+    }
+  })
+})
+
+// Regression: `resizeItem` (virtual-core) has no epsilon —
+// `const delta = size - itemSize; if (delta !== 0) { ...; this.notify(...) }`
+// treats ANY nonzero float delta as a real resize, and `getBoundingClientRect`
+// returns sub-pixel floats that can drift between two reads of a row nobody
+// would call "changed" (fractional `translateY` offsets and fractional
+// zoom/scroll compound through layout differently each paint). An attachment
+// row is exactly where a row gets measured more than once in quick succession
+// — an image settling to its natural size, several cards finishing layout a
+// frame apart — so this is where that drift turns into extra, unnecessary
+// `resizeItem`/`notify`/re-render cycles. `measureRowHeight` rounds before
+// anything reaches `resizeItem`, so two reads that only disagree by a
+// fraction of a pixel collapse to the identical integer instead of tripping
+// virtual-core's bare `!== 0` check.
+describe('measureRowHeight', () => {
+  function rectOf(height: number): Element {
+    return {
+      getBoundingClientRect: () => ({ height }) as DOMRect,
+    } as unknown as Element
+  }
+
+  it('rounds a sub-pixel measurement to a whole pixel', () => {
+    expect(measureRowHeight(rectOf(245.4))).toBe(245)
+    expect(measureRowHeight(rectOf(245.6))).toBe(246)
+  })
+
+  it('collapses two reads of an unchanged row that drifted by under a pixel to the same value', () => {
+    // The exact shape of the drift this guards against: no real content
+    // change, just two `getBoundingClientRect` reads landing a fraction of a
+    // pixel apart.
+    expect(measureRowHeight(rectOf(245.3))).toBe(measureRowHeight(rectOf(245.4)))
+  })
+})
+
+// Regression: the streamed/queued height caches (lastStreamedHeight,
+// lastQueuedHeight above) feed `resizeItem` from the SAME
+// `getBoundingClientRect` read `measureElement` itself will make a beat
+// later for that row — if the cached value is a raw float and the later
+// natural measurement rounds, the two can disagree by a sub-pixel amount and
+// `resizeItem`'s epsilon-free check (see `measureRowHeight`'s own doc) treats
+// that disagreement as a second real resize. Both paths go through
+// `measureRowHeight` now, so they can't drift apart.
+describe('AgentTranscript: settle-priming heights are rounded, not raw floats', () => {
+  it('primes with a whole-pixel height even when the streaming bubble measured a fractional one', () => {
+    resizeItemCalls.length = 0
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.tagName === 'ARTICLE' && this.getAttribute('data-sequence') === '1') {
+        return { height: 400.4 } as DOMRect
+      }
+      return originalRect.call(this)
+    }
+
+    try {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'typing…',
+        at: '',
+      }
+      const { rerender } = draw([], { streamingBubbles: [message] })
+
+      rerender(
+        <AgentTranscript
+          messages={[message]}
+          queue={[]}
+          providers={[]}
+          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+          working={false}
+          loading={false}
+          error={null}
+          hasOlder={false}
+          onLoadOlder={() => {}}
+          onRetryLoad={() => {}}
+          onOpenTerminal={() => {}}
+          onEditPrompt={() => {}}
+          onCancelPrompt={() => {}}
+          onRetryPrompt={() => {}}
+        />,
+      )
+
+      expect(resizeItemCalls).toContainEqual({ index: 0, size: 400 })
+      expect(resizeItemCalls.some((call) => !Number.isInteger(call.size))).toBe(false)
     } finally {
       HTMLElement.prototype.getBoundingClientRect = originalRect
     }

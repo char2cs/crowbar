@@ -2,6 +2,7 @@ import { createRef, type ReactNode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { PlateEditor } from 'platejs/react'
+import type { TCodeBlockElement } from 'platejs'
 import { DndProvider } from 'react-dnd'
 import { HTML5Backend } from 'react-dnd-html5-backend'
 import { MarkdownMessage } from '@/features/agent/transcript/plate/markdown-message'
@@ -11,7 +12,10 @@ import {
   ChatMarkdownEditor,
   type ChatMarkdownEditorHandle,
 } from '@/features/agent/composer/plate/chat-markdown-editor'
-import { findFollowingImageRef } from '@/features/agent/composer/plate/attachments/chat-code-block-node'
+import {
+  excalidrawSceneFromCodeBlock,
+  findFollowingImageRef,
+} from '@/features/agent/composer/plate/attachments/chat-code-block-node'
 import * as ExcalidrawPreviewModule from '@/features/agent/composer/plate/attachments/excalidraw-preview'
 
 /**
@@ -419,6 +423,35 @@ describe('chat attachment code blocks', () => {
     const spy = vi.mocked(ExcalidrawPreviewModule.ExcalidrawPreview)
     const lastCallProps = spy.mock.calls.at(-1)?.[0]
     expect(lastCallProps).toMatchObject({ pngRef: 'chats/c1/attachments/diagram.png' })
+  })
+})
+
+function codeBlockElement(lang: string, lines: string[]): TCodeBlockElement {
+  return {
+    type: 'code_block',
+    lang,
+    children: lines.map((text) => ({ type: 'code_line', children: [{ text }] })),
+  } as unknown as TCodeBlockElement
+}
+
+// REGRESSION: React error #185 ("Maximum update depth exceeded"), reported
+// live as a pane crash on submitting a message with an attachment.
+// `excalidrawSceneFromCodeBlock` used to re-parse the fence's own JSON on
+// every call, handing back a BRAND NEW scene object each time — including
+// when the ONLY thing that changed was the `TCodeBlockElement` object
+// identity itself (exactly what happens when Slate recreates a node for a
+// reason that has nothing to do with its own text: `NodeIdPlugin`
+// reassigning ids, an unrelated edit elsewhere in the document). That fresh
+// object flowed straight into `ExcalidrawPreview`'s own `useEffect` deps
+// array (`scene`, excalidraw-preview.tsx), tearing down and restarting its
+// async export-to-svg pipeline on every one of those unrelated re-renders.
+describe('excalidrawSceneFromCodeBlock identity stability', () => {
+  it('returns the SAME scene reference for two different node objects with identical source text', () => {
+    const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
+    const a = codeBlockElement('excalidraw:AbC123xy', [scene])
+    const b = codeBlockElement('excalidraw:AbC123xy', [scene])
+    expect(a).not.toBe(b)
+    expect(excalidrawSceneFromCodeBlock(a)).toBe(excalidrawSceneFromCodeBlock(b))
   })
 })
 

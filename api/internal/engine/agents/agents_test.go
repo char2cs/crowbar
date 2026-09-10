@@ -317,6 +317,7 @@ func TestRegression_CodexTelemetryReachesTheContextGauge(t *testing.T) {
 	// modelContextWindow sits inside tokenUsage, not beside it.
 	raw := []byte(`{"threadId":"t1","turnId":"tn1","tokenUsage":{
 	  "total":{"totalTokens":16924,"inputTokens":16907,"outputTokens":17},
+	  "last":{"totalTokens":16924,"inputTokens":16907,"outputTokens":17},
 	  "modelContextWindow":258400}}`)
 
 	got, err := get(t, "codex").ParseTelemetry(raw, time.Now())
@@ -330,6 +331,32 @@ func TestRegression_CodexTelemetryReachesTheContextGauge(t *testing.T) {
 	// The gauge renders nothing at all without a percentage; it is derived here.
 	require.NotNil(t, got.Context.UsedPercent)
 	assert.InDelta(t, 6.55, *got.Context.UsedPercent, 0.1)
+}
+
+// TestRegression_CodexContextPercentUsesLastTurnNotSessionTotal: tokenUsage.total
+// is a lifetime counter that only grows turn over turn (codex's own TUI draws the
+// identical distinction against the same wire shape — codex-rs/tui/src/token_usage.rs,
+// tokens_in_context_window's doc comment). Mapping it into context.used_tokens divided
+// a number that keeps climbing forever by the fixed context window, so a chat well
+// past its first couple of turns rendered percentages over 1000% — observed live as
+// "2519% of context used" on an ordinary long-running codex chat, nothing to do with
+// a provider switch. tokenUsage.last — the current turn's own context size — is what
+// must drive the gauge instead.
+func TestRegression_CodexContextPercentUsesLastTurnNotSessionTotal(t *testing.T) {
+	raw := []byte(`{"threadId":"t1","turnId":"tn9","tokenUsage":{
+	  "total":{"totalTokens":6512000,"inputTokens":6500000,"outputTokens":12000},
+	  "last":{"totalTokens":92800,"inputTokens":92000,"outputTokens":800},
+	  "modelContextWindow":258400}}`)
+
+	got, err := get(t, "codex").ParseTelemetry(raw, time.Now())
+
+	require.NoError(t, err)
+	require.NotNil(t, got.Context)
+	require.NotNil(t, got.Context.UsedTokens)
+	assert.Equal(t, 92800, *got.Context.UsedTokens, "the gauge must track the current turn's context size, not the session-wide lifetime total")
+	require.NotNil(t, got.Context.UsedPercent)
+	assert.InDelta(t, 35.9, *got.Context.UsedPercent, 0.1)
+	assert.LessOrEqual(t, *got.Context.UsedPercent, 100.0, "a context gauge can never legitimately exceed 100%")
 }
 
 func TestAgent_SlashCatalogRefusesAnInvalidWorkdir(t *testing.T) {

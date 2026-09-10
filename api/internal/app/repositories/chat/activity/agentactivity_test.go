@@ -224,6 +224,55 @@ func TestCloseTurn_AbandonsToolsWhoseCompletionNeverArrived(t *testing.T) {
 	assert.NotNil(t, calls[0].EndedAt)
 }
 
+// TestRegression_ALateCompleteAfterAbandonPreservesTheOriginalToolRecord: a
+// user Stop closes the turn while the provider's own tool call is still
+// genuinely running (its shell command was never killed) — CloseTurn abandons
+// it correctly (the test above), but the CLI's real tool_post can still land
+// afterward. CompleteTool's aggregate has no open turn left to attribute it
+// to, so it falls back to synthesizing a bare record — which used to blindly
+// overwrite the already-correct abandoned row, erasing its turn id, its real
+// start time (replaced by the completion's own "now", making startedAt equal
+// endedAt despite a nonzero reported duration), and its request payload.
+// Confirmed live: a stopped codex chat recorded a tool row with turnId "",
+// startedAt==endedAt, and hasRequest false, ~20s after the turn had already
+// closed.
+func TestRegression_ALateCompleteAfterAbandonPreservesTheOriginalToolRecord(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Now: t0,
+	}))
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: chat, ToolID: "slow", Name: "Bash", Target: "sleep 20",
+		Request: []byte(`{"command":"sleep 20"}`), Now: t0,
+	}))
+	f.wait()
+
+	require.NoError(t, f.repo.CloseTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Text: "stopped", Now: t0.Add(3 * time.Second),
+	}))
+	f.wait()
+
+	// The real tool_post, arriving ~20s later — long after the turn closed.
+	require.NoError(t, f.repo.CompleteTool(f.ctx, activity.ToolResultInput{
+		ChatID: chat, ToolID: "slow", Result: []byte("done"),
+		Status: domain.ToolStatusOK, DurationMS: 19903, Now: t0.Add(20 * time.Second),
+	}))
+
+	calls, err := f.repo.ToolCalls(f.ctx, chat, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "t1", calls[0].TurnID, "the late completion must not erase which turn this call belonged to")
+	assert.Equal(t, t0, calls[0].StartedAt, "must keep the real start time, not the completion's own arrival time")
+	assert.Equal(t, domain.ToolStatusOK, calls[0].Status, "the real outcome still lands")
+	assert.Equal(t, 19903, calls[0].DurationMS)
+	require.NotNil(t, calls[0].EndedAt)
+	assert.True(t, calls[0].EndedAt.After(calls[0].StartedAt), "startedAt/endedAt must not collapse to the same instant")
+
+	request, err := f.repo.Payload(f.ctx, calls[0].RequestRef)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"command":"sleep 20"}`, string(request), "the original request payload must survive the late completion")
+}
+
 func TestSubagentsAndInterruptions_AreRecorded(t *testing.T) {
 	f := newFixture(t)
 

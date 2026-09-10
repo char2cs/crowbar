@@ -56,7 +56,11 @@ export function EventDivider({
     <div className="divider" role="separator" data-testid="agent-event-divider">
       <span className="ln" />
       {tags.map((tag) => (
-        <span key={tag.kind} className="tag" data-testid={tagTestId(tag)}>
+        // Keyed by the tag's own interruption id, not `tag.kind`: two
+        // provider switches (or any other same-kind pair) can land before the
+        // SAME next message and share one divider — see flatten-transcript-
+        // rows.ts's DividerTag doc — and `kind` collides for both of them.
+        <span key={tag.id} className="tag" data-testid={tagTestId(tag)}>
           {tagLabel(tag, providers)}
         </span>
       ))}

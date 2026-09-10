@@ -17,7 +17,7 @@ export interface ParsedExcalidrawScene {
  * scenes this check exists to accept. `elements` alone, a real array,
  * remains the load-bearing signal against a fenced block that merely
  * mentions the word in prose. */
-export function parseExcalidrawScene(raw: string): ParsedExcalidrawScene | null {
+function parseExcalidrawSceneUncached(raw: string): ParsedExcalidrawScene | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
@@ -32,6 +32,32 @@ export function parseExcalidrawScene(raw: string): ParsedExcalidrawScene | null 
       return null
   }
   return { elements: obj.elements, appState: (obj.appState as Record<string, unknown>) ?? {} }
+}
+
+/** Keyed by the exact fenced source text, module-level — same reasoning as
+ *  `markdown-message-static.tsx`'s own `parsedValueCache`. `excalidrawScene
+ *  FromCodeBlock` (this function's one caller) runs on EVERY render of an
+ *  interactive attachment block (`ChatCodeBlockElement`, and `ChatMarkdown
+ *  ImageElement`'s sibling check) that Slate re-renders for ANY reason —
+ *  `NodeIdPlugin` reassigning ids, a completely unrelated edit elsewhere in
+ *  the document, the block still streaming in — and an uncached call handed
+ *  back a BRAND NEW object every single time, even when the fence's own text
+ *  never changed. `ExcalidrawPreview` depends on that object directly in a
+ *  `useEffect` (`scene` in its deps array, excalidraw-preview.tsx), so a
+ *  fresh reference on every unrelated re-render tore down and restarted its
+ *  async export-to-svg pipeline from scratch — resetting `svgMarkup` to null
+ *  on the way out, which is itself a state write that can keep the cycle
+ *  going. Caching by the source string, not the node, is what keeps the
+ *  reference stable across exactly the renders that ought to be no-ops. No
+ *  clone on return: nothing downstream ever mutates a parsed scene. */
+const sceneCache = new Map<string, ParsedExcalidrawScene | null>()
+
+export function parseExcalidrawScene(raw: string): ParsedExcalidrawScene | null {
+  const cached = sceneCache.get(raw)
+  if (cached !== undefined) return cached
+  const scene = parseExcalidrawSceneUncached(raw)
+  sceneCache.set(raw, scene)
+  return scene
 }
 
 /**

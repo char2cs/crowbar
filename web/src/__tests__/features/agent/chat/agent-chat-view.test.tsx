@@ -3,6 +3,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage, AgentProvider, SlashCatalog } from '@/features/agent/api/agent-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
+import {
+  __resetScrollPositionsForTests,
+  getScrollPosition,
+  setScrollPosition,
+} from '@/features/agent/hooks/lib/transcript-scroll-positions'
 import { ApiError } from '@/lib/api'
 import { __resetPerfForTests } from '@/lib/perf/instrumentation'
 import { ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcript'
@@ -159,6 +164,7 @@ const baseProps = () => ({
   providerId: 'codex',
   providers,
   working: false,
+  compacting: false,
   turnRevision: 0,
   live: true,
   active: true,
@@ -1515,14 +1521,27 @@ describe('AgentChatView non-conversational roles', () => {
       expect(divider.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
 
-    it('draws nothing when the compaction is newer than every message', async () => {
+    // REGRESSION (live-reported): a finished compaction with nothing typed
+    // since drew NO divider at all — not late, simply absent — until the next
+    // message dragged it in as an `eventsBefore` anchor. It must draw right at
+    // the foot of the transcript instead, the same way a trailing `stopped`
+    // already did.
+    it('draws at the foot of the transcript when the compaction is newer than every message', async () => {
       initialMessages = [message(10, 'user', 'the only message')]
       activityFn.mockResolvedValue(compactionAt(99))
       setup()
 
       expect(await screen.findByText('the only message')).toBeTruthy()
-      // A rule under the newest message would put a boundary below the whole
-      // conversation and read as if the chat had ended.
+      const divider = await screen.findByTestId('agent-compaction-divider')
+      expect(divider.textContent).toMatch(/compacted/i)
+    })
+
+    it('holds off drawing the trailing divider while still compacting', async () => {
+      initialMessages = [message(10, 'user', 'the only message')]
+      activityFn.mockResolvedValue(compactionAt(99))
+      setup({ compacting: true })
+
+      expect(await screen.findByText('the only message')).toBeTruthy()
       expect(screen.queryByTestId('agent-compaction-divider')).toBeNull()
     })
 
@@ -1859,30 +1878,35 @@ describe('chat.open perf span', () => {
 // restore) is unit-tested against a real scrollHeight/clientHeight mock in
 // use-transcript-anchor.test.tsx; jsdom has no layout engine, so every
 // dimension here reads 0 regardless of what the reader "did". What matters at
-// this level is that AgentChatView is actually wired to the WORKSPACE store —
-// a future refactor dropping the prop-threading between here and
-// AgentTranscript would silently break restore without any of the anchor's
-// own unit tests noticing, since they exercise the hook in isolation.
+// this level is that AgentChatView is actually wired to
+// transcript-scroll-positions.ts — a future refactor dropping the
+// prop-threading between here and AgentTranscript would silently break
+// restore without any of the anchor's own unit tests noticing, since they
+// exercise the hook in isolation.
 describe('AgentChatView scroll position', () => {
-  it('writes the transcript scroll position to the workspace store on unmount', async () => {
+  beforeEach(() => {
+    __resetScrollPositionsForTests()
+  })
+
+  it('writes the transcript scroll position on unmount', async () => {
     initialMessages = [message(1, 'user', 'Question')]
     const view = setup()
     await screen.findByText('Question')
 
-    expect(view.store.getState().agentChats.scrollPositions['c1']).toBeUndefined()
+    expect(getScrollPosition('c1')).toBeNull()
 
     view.unmount()
 
-    expect(view.store.getState().agentChats.scrollPositions['c1']).toEqual({
+    expect(getScrollPosition('c1')).toEqual({
       stuck: expect.any(Boolean),
       distanceFromBottom: expect.any(Number),
     })
   })
 
-  it('reads a previously-saved scroll position from the workspace store without crashing', async () => {
+  it('reads a previously-saved scroll position without crashing', async () => {
     initialMessages = [message(1, 'user', 'Question')]
+    setScrollPosition('c1', { stuck: false, distanceFromBottom: 120 })
     const store = createWorkspaceStore('w1')
-    store.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 120 })
 
     render(
       <WorkspaceStoreContext.Provider value={store}>
@@ -1892,9 +1916,41 @@ describe('AgentChatView scroll position', () => {
 
     expect(await screen.findByText('Question')).toBeInTheDocument()
     // The seeded entry is left untouched until THIS mount's own unmount.
-    expect(store.getState().agentChats.scrollPositions['c1']).toEqual({
-      stuck: false,
-      distanceFromBottom: 120,
-    })
+    expect(getScrollPosition('c1')).toEqual({ stuck: false, distanceFromBottom: 120 })
+  })
+
+  // Regression: a chat's saved position used to live in the workspace store
+  // (agent-chats-slice.ts), which destroyWorkspaceStore drops wholesale on
+  // every workspace switch — so a position saved under one store instance
+  // was unreachable from whatever NEW store instance the switch-back handed
+  // AgentChatView, and the transcript defaulted to the bottom (visibly
+  // sweeping up from the top as history settled in) instead of restoring.
+  // This asserts the save/restore round-trip survives exactly that: a
+  // DIFFERENT workspace store instance across unmount and remount.
+  it('restores across a workspace switch — a scroll position saved under one workspace store instance is read back after a different one replaces it', async () => {
+    initialMessages = [message(1, 'user', 'Question')]
+    const storeBeforeSwitch = createWorkspaceStore('w1')
+    const view = render(
+      <WorkspaceStoreContext.Provider value={storeBeforeSwitch}>
+        <AgentChatView {...baseProps()} />
+      </WorkspaceStoreContext.Provider>,
+    )
+    await screen.findByText('Question')
+    view.unmount()
+    const saved = getScrollPosition('c1')
+    expect(saved).not.toBeNull()
+
+    // The workspace switch: a brand new store instance for the SAME
+    // workspace id, exactly what the registry hands back after
+    // destroyWorkspaceStore + a later re-lookup — never storeBeforeSwitch.
+    const storeAfterSwitch = createWorkspaceStore('w1')
+    render(
+      <WorkspaceStoreContext.Provider value={storeAfterSwitch}>
+        <AgentChatView {...baseProps()} />
+      </WorkspaceStoreContext.Provider>,
+    )
+
+    expect(await screen.findByText('Question')).toBeInTheDocument()
+    expect(getScrollPosition('c1')).toEqual(saved)
   })
 })

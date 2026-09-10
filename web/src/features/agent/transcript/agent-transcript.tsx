@@ -21,7 +21,6 @@ import {
 import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
 import { EventDivider } from '@/features/agent/transcript/event-divider'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
-import { InterruptedDivider } from '@/features/agent/transcript/interrupted-divider'
 import {
   flattenTranscriptRows,
   type DividerTag,
@@ -72,11 +71,12 @@ interface AgentTranscriptProps {
    *  (a stop followed by a switch, or model+effort changing together) and
    *  draw as pills on the SAME wavy line rather than one divider each. */
   eventsBefore?: Record<number, DividerTag[]>
-  /** The most recent stop with no later CONFIRMED message loaded yet — nothing
-   *  to key it before, so it draws right after the last confirmed/streaming
-   *  content instead: above any still-queued prompt too, which has no
-   *  sequence yet and so can never anchor `eventsBefore` itself. */
-  trailingInterruption?: boolean
+  /** The most recent `stopped`/`compaction` events with no later CONFIRMED
+   *  message loaded yet — nothing to key them before, so they draw right
+   *  after the last confirmed/streaming content instead: above any
+   *  still-queued prompt too, which has no sequence yet and so can never
+   *  anchor `eventsBefore` itself. */
+  trailingInterruption?: DividerTag[]
   onLoadOlder: () => void
   onRetryLoad: () => void
   onOpenTerminal: () => void
@@ -133,6 +133,8 @@ function precedingUserAtByAssistantSequence(messages: AgentChatMessage[]): Map<n
  *  not stop for one), only a real user turn does — a backward pass one
  *  cheap way to ask "is a later assistant reply still coming before the next
  *  user turn". */
+const EMPTY_SEQUENCE_SET: Set<number> = new Set()
+
 function lastInAgentRunSequences(messages: AgentChatMessage[]): Set<number> {
   const last = new Set<number>()
   let sawAssistantSinceUser = false
@@ -154,6 +156,36 @@ function lastInAgentRunSequences(messages: AgentChatMessage[]): Set<number> {
  *  `measureElement` counts it as part of the row's height and the virtualizer's
  *  offsets stay right. */
 const ROW_GAP = 18
+
+/**
+ * Every height fed into `rowVirtualizer.resizeItem` — from `measureElement`
+ * itself and from the two settle-priming effects below — funnels through
+ * this, rather than handing `getBoundingClientRect()`'s raw float straight
+ * to `resizeItem`.
+ *
+ * `resizeItem` (virtual-core) treats ANY nonzero delta as real:
+ * `const delta = size - itemSize; if (delta !== 0) { ...; this.notify(...) }`
+ * — no epsilon. `getBoundingClientRect()` returns sub-pixel floats, and nothing
+ * guarantees two reads of the SAME unchanged row return the identical float:
+ * fractional `transform: translateY(...)` offsets (this row's own positioning,
+ * line 691) and fractional scroll/zoom compound through layout differently
+ * from one paint to the next, so a row that hasn't visibly changed at all can
+ * still measure 0.2px taller the second time. Every other height constant in
+ * this file is a whole pixel (`ESTIMATED_ROW_HEIGHT`, `ROW_GAP`, the streamed/
+ * queued heights in this file's own tests) — rounding here is what keeps
+ * `itemSizeCache` speaking the same whole-pixel language `resizeItem`'s own
+ * equality check is guarding, so that language once again means "the row
+ * actually changed size" and not "read it a second time and it drifted".
+ * Cheap insurance against a resize→notify→re-render→measure cycle that never
+ * hits exact float equality on its own — attachment rows are where this
+ * actually gets exercised: an image settling to its natural size, or several
+ * cards in one row finishing layout across a couple of frames, means this
+ * ROW's own height is genuinely being re-measured more than once in quick
+ * succession, which a stable row never is.
+ */
+export function measureRowHeight(el: Element): number {
+  return Math.round(el.getBoundingClientRect().height)
+}
 
 /** An unmeasured row's opening guess FLOOR — a short assistant reply's real
  *  shape (padding + one prose line + turnbar + its own group gap), not 64,
@@ -440,7 +472,15 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     [props.activity.choices],
   )
   const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
-  const lastInAgentRun = useMemo(() => lastInAgentRunSequences(messages), [messages])
+  // Empty while `working` — the settled reply this would otherwise mark is not
+  // actually the run's last step any more the instant the agent starts on the
+  // next one (self-continued or freshly prompted; `working` covers both, see
+  // this file's own note on it above). Without this a screenshot showed the
+  // turnbar staying persistent on a reply the agent had already moved past.
+  const lastInAgentRun = useMemo(
+    () => (props.working ? EMPTY_SEQUENCE_SET : lastInAgentRunSequences(messages)),
+    [messages, props.working],
+  )
   // The ABSOLUTE first turn, never the first one merely loaded — `hasOlder`
   // paging in more history must not retroactively unfreeze a message that was
   // never actually the beginning of the conversation. Only meaningful once
@@ -481,7 +521,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     getScrollElement: () => anchor.scrollRef.current,
     estimateSize: (index) => estimateRowHeight(rows[index]),
     overscan: 12,
-    measureElement: (el) => el.getBoundingClientRect().height,
+    measureElement: measureRowHeight,
     getItemKey,
     observeElementRect: observeScrollRect,
     // Off by design, not a default left alone. `measureElement`'s ref fires
@@ -524,7 +564,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     if (!bubbles?.length || !container) return
     for (const bubble of bubbles) {
       const el = container.querySelector<HTMLElement>(`[data-sequence="${bubble.sequence}"]`)
-      if (el) lastStreamedHeight.current.set(bubble.sequence, el.getBoundingClientRect().height)
+      if (el) lastStreamedHeight.current.set(bubble.sequence, measureRowHeight(el))
     }
     // Deliberately gated on `streamingBubbles` alone, not every render: this
     // pays a querySelector + forced-synchronous getBoundingClientRect per
@@ -581,7 +621,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       if (el)
         lastQueuedHeight.current.set(item.clientRequestId, {
           item,
-          height: el.getBoundingClientRect().height,
+          height: measureRowHeight(el),
         })
     }
     // Gated on `queue` alone — see the streaming-bubble effect above's own
@@ -700,7 +740,12 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             })}
           </div>
         )}
-        {props.trailingInterruption && !props.working && <InterruptedDivider />}
+        {props.trailingInterruption &&
+          props.trailingInterruption.length > 0 &&
+          !props.working &&
+          !props.compacting && (
+            <EventDivider tags={props.trailingInterruption} providers={props.providers} />
+          )}
         {props.streamingBubbles?.map((bubble) => (
           <MessageRow
             key={bubble.sequence}

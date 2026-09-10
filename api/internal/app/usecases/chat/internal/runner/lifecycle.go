@@ -402,19 +402,12 @@ func (rs *Runners) StopChat(
 	if err != nil {
 		return fmt.Errorf("agent: stop chat: live runner: %w", err)
 	}
-	// Read BEFORE either teardown path runs, for the same reason RecordStop
-	// below is: interruptTurn's async send and retire's kill both race the
-	// CLI's own last words, and neither is a moment to still be asking "was a
-	// turn actually running" from.
+	// Read BEFORE either teardown path runs: interruptTurn's send and retire's
+	// kill both race the CLI's own last words, and neither is a moment to
+	// still be asking "was a turn actually running" from.
 	working, err := rs.turns.ChatWorking(ctx, chatID)
 	if err != nil {
 		return fmt.Errorf("agent: stop chat: chat working: %w", err)
-	}
-	// Recorded BEFORE either teardown path runs, while the turn this is about is
-	// still the one in flight. A closed chat tab also calls StopChat — RecordStop
-	// itself is the no-op guard for that case, not this call site.
-	if err := rs.turns.RecordStop(ctx, chatID); err != nil {
-		slog.WarnContext(ctx, "agent: stop chat: record interruption", "chat_id", chatID, "err", err)
 	}
 	// ONLY WHILE THERE IS A TURN TO INTERRUPT. interruptTurn asks a live api
 	// connection to cancel gracefully and leaves the CLI running — exactly what
@@ -431,10 +424,27 @@ func (rs *Runners) StopChat(
 	// "closed" chat, directly contradicting closeBuffer's own "closing stops
 	// the CLI" contract on the frontend. Gating on working restores it: an idle
 	// chat always falls through to a real retire below.
-	if working && rs.interruptTurn(ctx, live) {
-		return nil
+	//
+	// interruptTurn itself is what decides whether the CLI has actually
+	// stopped: its Send blocks on the connection's reply, and codex's own
+	// turn/interrupt DEFERS that reply until the turn genuinely ends (its
+	// app-server only answers once TurnAborted or TurnComplete fires — see
+	// codex-rs's respond_to_pending_interrupts) — so a true return here means
+	// the turn is over, not merely asked to be. retire's kill is synchronous
+	// for the same reason. RecordStop is called AFTER, never before: it used
+	// to fire the instant Stop was clicked, unconditionally, which durably
+	// marked the turn "Interrupted" while codex kept right on generating —
+	// the marker landed ahead of a full extra minute of real tool calls and
+	// assistant text that arrived after it, both because the position was
+	// wrong (stamped before the content it should have followed) and because
+	// it was a lie (nothing had actually stopped yet). Confirmed live.
+	stopped := working && rs.interruptTurn(ctx, live)
+	if !stopped {
+		rs.retire(ctx, live)
 	}
-	rs.retire(ctx, live)
+	if err := rs.turns.RecordStop(ctx, chatID); err != nil {
+		slog.WarnContext(ctx, "agent: stop chat: record interruption", "chat_id", chatID, "err", err)
+	}
 	return nil
 }
 

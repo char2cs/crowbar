@@ -148,43 +148,10 @@ describe('agent-chats-slice', () => {
     ])
   })
 
-  // ── scrollPositions: per-chat, in-memory, read once on the chat's next
-  //    mount this session — see AgentChatsState.scrollPositions' own doc.
-
-  it('setAgentChatScrollPosition writes the position for that chat only', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
-    s.getState().setAgentChatScrollPosition('c2', { stuck: true, distanceFromBottom: 0 })
-
-    expect(s.getState().agentChats.scrollPositions['c1']).toEqual({
-      stuck: false,
-      distanceFromBottom: 240,
-    })
-    expect(s.getState().agentChats.scrollPositions['c2']).toEqual({
-      stuck: true,
-      distanceFromBottom: 0,
-    })
-  })
-
-  it('setAgentChatScrollPosition replaces a chat’s previous entry, not merges it', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
-    s.getState().setAgentChatScrollPosition('c1', { stuck: true, distanceFromBottom: 400 })
-
-    expect(s.getState().agentChats.scrollPositions['c1']).toEqual({
-      stuck: true,
-      distanceFromBottom: 400,
-    })
-  })
-
-  it('removeAgentChat forgets the saved scroll position', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
-
-    s.getState().removeAgentChat('c1')
-
-    expect(s.getState().agentChats.scrollPositions['c1']).toBeUndefined()
-  })
+  // Scroll positions themselves are no longer part of this store — see
+  // transcript-scroll-positions.test.ts. removeAgentChat's own delegation to
+  // that module's clearScrollPosition is covered there, against the module
+  // directly, since this slice has no way to observe it.
 
   // ── excalidrawEditRequests: a one-shot "open the takeover with this scene"
   //    signal from an Edit button buried in a chat's transcript up to the

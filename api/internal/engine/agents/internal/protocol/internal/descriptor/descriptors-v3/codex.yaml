@@ -244,13 +244,19 @@ events:
         completed:  done
 
   # tokenUsage nests under total/ — not tokenUsage.inputTokens directly.
+  #
+  # context.used_tokens reads .last, not .total: .total is a lifetime counter
+  # that only grows turn over turn (codex's own TUI draws the same
+  # distinction — codex-rs/tui/src/token_usage.rs), so dividing it by the
+  # fixed context window produced impossible percentages (2519% observed
+  # live) past the first couple of turns. .last is the current context size.
   telemetry:
     in: thread/tokenUsage/updated
     map:
       session_id:              threadId
       input_tokens:            tokenUsage.total.inputTokens
       output_tokens:           tokenUsage.total.outputTokens
-      context.used_tokens:     tokenUsage.total.totalTokens
+      context.used_tokens:     tokenUsage.last.totalTokens
       context.capacity_tokens: tokenUsage.modelContextWindow
 
   # Same dual-shape hazard as session_start: a hooks-delivered
