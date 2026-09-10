@@ -81,6 +81,19 @@ type Messages interface {
 	AbandonMessage(ctx context.Context, chatID string) (bool, error)
 }
 
+// Liveness answers whether Crowbar still holds the live provider connection this
+// runner's turn is riding on.
+//
+// It exists to keep the message-quiet heuristic off the one transport that does
+// not need it. That heuristic infers "the CLI is gone" from an assistant message
+// going quiet — the only thing a hooks/PTY provider gives you to infer it from.
+// A connection-carried turn answers the same question directly, and its loss is
+// reconciled on its own (runner/connloss.go), so silence there is a model
+// thinking, not a death.
+type Liveness interface {
+	HasLiveAPIConnection(runnerID string) bool
+}
+
 type Deliveries interface {
 	PendingDelivery(ctx context.Context, chatID string) (Delivery, bool)
 
@@ -107,6 +120,8 @@ type Deps struct {
 	Deliveries Deliveries
 
 	Messages Messages
+
+	Liveness Liveness
 
 	Idle Idle
 

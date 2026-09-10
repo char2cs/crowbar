@@ -274,6 +274,50 @@ func (f *fakeDeliveries) allSettled() []string {
 	return append([]string(nil), f.settled...)
 }
 
+type fakeLiveness struct {
+	live bool
+}
+
+func (f *fakeLiveness) HasLiveAPIConnection(string) bool { return f.live }
+
+// THE working-status desync, reproduced live: a codex security review reasoned
+// for 31s of complete silence between two of its own tool calls, this detector
+// read that as a dead CLI and abandoned the live turn — the spinner went dark
+// while codex went on to emit 337 more events. Its shell commands finish in
+// milliseconds, so the open-tool guard above vouched for almost none of the turn
+// (148 of 149 sweeps read open_work=false).
+//
+// Silence over a connection Crowbar still holds is a model thinking. Losing that
+// connection is reconciled directly instead (runner/connloss.go). Measured after
+// the fix: the same review ran 10m18s with a 159s quiet stretch and was never
+// touched.
+func TestRegression_NeverAbandonsAQuietMessageWhileTheConnectionIsLive(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+	r.liveness.live = true
+
+	r.clock.advance(10 * termwait.DefaultMessageQuiet)
+	r.sweep()
+
+	assert.Zero(t, r.msgs.count(),
+		"a turn riding a live connection is not silent because it died")
+}
+
+// The heuristic still has to work for the transport it was built for: a
+// hooks/PTY provider gives no connection to ask, and a message that goes quiet
+// there really is the only sign the CLI is gone.
+func TestRegression_StillAbandonsAQuietMessageWithNoLiveConnection(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+	r.liveness.live = false
+
+	r.clock.advance(termwait.DefaultMessageQuiet)
+	r.sweep()
+
+	assert.Equal(t, 1, r.msgs.count(),
+		"without a connection to vouch for it, a cut-off message must still close its turn")
+}
+
 type fakeMessages struct {
 	mu         sync.Mutex
 	since      time.Time
@@ -338,6 +382,7 @@ type rig struct {
 	deliv    *fakeDeliveries
 	msgs     *fakeMessages
 	idle     *fakeIdle
+	liveness *fakeLiveness
 	clock    *clock
 	rec      *recorder
 	stalls   *stalls
@@ -379,9 +424,10 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		runners: runners, chats: chats, choices: choices, screens: screens,
 		prompts: prompts, notices: notices, work: &fakeWork{}, clock: newClock(),
 		rec: &recorder{}, stalls: &stalls{},
-		deliv: &fakeDeliveries{pending: map[string]termwait.Delivery{}},
-		msgs:  &fakeMessages{closed: true},
-		idle:  &fakeIdle{},
+		deliv:    &fakeDeliveries{pending: map[string]termwait.Delivery{}},
+		msgs:     &fakeMessages{closed: true},
+		idle:     &fakeIdle{},
+		liveness: &fakeLiveness{},
 	}
 	r.detector = termwait.New(termwait.Deps{
 		Runners:    runners,
@@ -394,6 +440,7 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		OnStall:    r.stalls.onStall,
 		Deliveries: r.deliv,
 		Messages:   r.msgs,
+		Liveness:   r.liveness,
 		Idle:       r.idle,
 		Interval:   interval,
 		Now:        r.clock.Now,
