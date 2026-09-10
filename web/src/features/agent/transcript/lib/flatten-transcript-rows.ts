@@ -8,9 +8,9 @@ import type { AgentChatMessage } from '@/features/agent/api/agent-api'
  *  the caller's job (agent-chat-view.tsx has the real timestamps) to sort
  *  before grouping, not this file's. */
 export type DividerTag =
-  | { kind: 'compaction'; trigger: 'manual' | 'auto' | string }
-  | { kind: 'interrupted' }
-  | { kind: 'provider' | 'model' | 'effort'; detail: string }
+  | { kind: 'compaction'; id: string; trigger: 'manual' | 'auto' | string }
+  | { kind: 'interrupted'; id: string }
+  | { kind: 'provider' | 'model' | 'effort'; id: string; detail: string }
 
 /** One row of the transcript's flat, virtualizable list. `trailingInterruption`,
  *  streaming bubbles, the queue and the working line are not rows here — they

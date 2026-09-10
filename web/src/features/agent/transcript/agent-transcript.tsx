@@ -157,6 +157,36 @@ function lastInAgentRunSequences(messages: AgentChatMessage[]): Set<number> {
  *  offsets stay right. */
 const ROW_GAP = 18
 
+/**
+ * Every height fed into `rowVirtualizer.resizeItem` — from `measureElement`
+ * itself and from the two settle-priming effects below — funnels through
+ * this, rather than handing `getBoundingClientRect()`'s raw float straight
+ * to `resizeItem`.
+ *
+ * `resizeItem` (virtual-core) treats ANY nonzero delta as real:
+ * `const delta = size - itemSize; if (delta !== 0) { ...; this.notify(...) }`
+ * — no epsilon. `getBoundingClientRect()` returns sub-pixel floats, and nothing
+ * guarantees two reads of the SAME unchanged row return the identical float:
+ * fractional `transform: translateY(...)` offsets (this row's own positioning,
+ * line 691) and fractional scroll/zoom compound through layout differently
+ * from one paint to the next, so a row that hasn't visibly changed at all can
+ * still measure 0.2px taller the second time. Every other height constant in
+ * this file is a whole pixel (`ESTIMATED_ROW_HEIGHT`, `ROW_GAP`, the streamed/
+ * queued heights in this file's own tests) — rounding here is what keeps
+ * `itemSizeCache` speaking the same whole-pixel language `resizeItem`'s own
+ * equality check is guarding, so that language once again means "the row
+ * actually changed size" and not "read it a second time and it drifted".
+ * Cheap insurance against a resize→notify→re-render→measure cycle that never
+ * hits exact float equality on its own — attachment rows are where this
+ * actually gets exercised: an image settling to its natural size, or several
+ * cards in one row finishing layout across a couple of frames, means this
+ * ROW's own height is genuinely being re-measured more than once in quick
+ * succession, which a stable row never is.
+ */
+export function measureRowHeight(el: Element): number {
+  return Math.round(el.getBoundingClientRect().height)
+}
+
 /** An unmeasured row's opening guess FLOOR — a short assistant reply's real
  *  shape (padding + one prose line + turnbar + its own group gap), not 64,
  *  because a cold open's `scrollTop = scrollHeight` runs against this before
@@ -491,7 +521,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     getScrollElement: () => anchor.scrollRef.current,
     estimateSize: (index) => estimateRowHeight(rows[index]),
     overscan: 12,
-    measureElement: (el) => el.getBoundingClientRect().height,
+    measureElement: measureRowHeight,
     getItemKey,
     observeElementRect: observeScrollRect,
     // Off by design, not a default left alone. `measureElement`'s ref fires
@@ -534,7 +564,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     if (!bubbles?.length || !container) return
     for (const bubble of bubbles) {
       const el = container.querySelector<HTMLElement>(`[data-sequence="${bubble.sequence}"]`)
-      if (el) lastStreamedHeight.current.set(bubble.sequence, el.getBoundingClientRect().height)
+      if (el) lastStreamedHeight.current.set(bubble.sequence, measureRowHeight(el))
     }
     // Deliberately gated on `streamingBubbles` alone, not every render: this
     // pays a querySelector + forced-synchronous getBoundingClientRect per
@@ -591,7 +621,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
       if (el)
         lastQueuedHeight.current.set(item.clientRequestId, {
           item,
-          height: el.getBoundingClientRect().height,
+          height: measureRowHeight(el),
         })
     }
     // Gated on `queue` alone — see the streaming-bubble effect above's own

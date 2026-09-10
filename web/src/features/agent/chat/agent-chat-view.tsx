@@ -165,17 +165,18 @@ function displayOrderOf(item: { sequence?: number; seq?: number; displayOrder?: 
  *  to that pill's own shape. `null` for everything else (permission,
  *  notification, elicitation) — those are answered inline, never a divider. */
 function toDividerTag(interruption: AgentInterruption): DividerTag | null {
+  const id = interruption.id
   switch (interruption.kind) {
     case 'compaction':
-      return { kind: 'compaction', trigger: interruption.detail || 'auto' }
+      return { kind: 'compaction', id, trigger: interruption.detail || 'auto' }
     case 'stopped':
-      return { kind: 'interrupted' }
+      return { kind: 'interrupted', id }
     case 'provider_switched':
-      return { kind: 'provider', detail: interruption.detail ?? '' }
+      return { kind: 'provider', id, detail: interruption.detail ?? '' }
     case 'model_changed':
-      return { kind: 'model', detail: interruption.detail ?? '' }
+      return { kind: 'model', id, detail: interruption.detail ?? '' }
     case 'effort_changed':
-      return { kind: 'effort', detail: interruption.detail ?? '' }
+      return { kind: 'effort', id, detail: interruption.detail ?? '' }
     default:
       return null
   }
