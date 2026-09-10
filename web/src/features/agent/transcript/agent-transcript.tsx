@@ -440,6 +440,27 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     if (inherited) return
     if (newest) {
       pinnedItem.current = newestItem
+      // ONLY IF THIS PROMPT IS ACTUALLY STARTING A TURN. A prompt sent while
+      // one is still running starts nothing — it QUEUES (the composer says
+      // "Queue a message…") until the current turn finishes. `pinTurnToTop`'s
+      // whole contract is "a turn is starting, give its reply room to grow
+      // into", and none of that holds here: no reply is coming yet, so the
+      // room it reserves just sits empty.
+      //
+      // And the blank is the lesser half. Lifting the queued row to the top of
+      // the viewport pushes the turn that IS running off the top, so the
+      // reader loses sight of the reply actually being written. Captured live
+      // mid-queue, in `.scroll`-relative coordinates:
+      //
+      //   row       top=-80  "Running the exact command now…"  streaming, off-screen
+      //   row       top=-32  "The command is still running"    streaming, off-screen
+      //   queued    top=16   the queued prompt, pinned
+      //   activity  top=96   "Calculating… · 1:04"
+      //   padding-bottom: 401px, real content ending at y=163 of a 754px pane
+      //
+      // Reported twice from a screenshot showing an entirely blank transcript
+      // with the composer reading "Queue a message…".
+      if (props.working) return
       const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
         `[data-client-request-id="${CSS.escape(newest)}"]`,
       )
@@ -460,6 +481,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     const settled = pinnedItem.current && messages.some((m) => samePrompt(m, pinnedItem.current!))
     if (!settled) anchor.pinTurnToTop(null)
     pinnedItem.current = null
+    // `props.working` is READ, not depended on: this effect exists to react to
+    // the QUEUE changing, and re-running it when a turn merely starts or stops
+    // would re-enter the branches above against a `newest` that has not moved.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, props.working is read not tracked
   }, [queue, messages, anchor.scrollRef, anchor.pinTurnToTop])
   const callsByTurn = useMemo(
     () => groupToolCallsByTurn(props.activity.toolCalls),
