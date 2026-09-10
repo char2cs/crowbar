@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -572,6 +572,11 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
   let scrollHeight = 0
   let clientHeight = 400
   let pinTop = 0
+  // How much content ABOVE the pin has since gone away — a settled reply
+  // losing its turnbar the moment a turn starts (`lastInAgentRun`, see
+  // agent-transcript.tsx). Both `.stream` and the pinned row inside it move up
+  // by this, exactly as they do in a browser.
+  let aboveShrink = 0
   let observerCallbacks: Array<() => void> = []
   const RealResizeObserver = globalThis.ResizeObserver
 
@@ -580,6 +585,7 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
     scrollHeight = 1000
     clientHeight = 400
     pinTop = 900
+    aboveShrink = 0
     observerCallbacks = []
     class ControllableResizeObserver {
       callback: () => void
@@ -620,6 +626,14 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
     useEffect(() => {
       onReady(anchor)
     }, [anchor, onReady])
+    // The pinned row is a CHILD of `.stream`, so what is fixed about it is its
+    // offset WITHIN that element — not its position in the scroll area, which
+    // moves whenever `.scroll-spacer` above it collapses and carries the whole
+    // of `.stream`, pin included, up with it. `pinTop` is written by these
+    // tests as that scroll-area position at rest, so the offset is it minus
+    // whatever the spacer is before anything is reserved. Captured once,
+    // because that is what "the content above this row" being settled means.
+    const pinWithinStream = useRef(pinTop - Math.max(0, clientHeight - scrollHeight))
     // `scrollHeight` (the describe block's own state) doubles as `.stream`'s
     // NATURAL height here — i.e. everything real, before any reservation —
     // so `el`'s total can model `.scroll-spacer` (transcript.css) actually
@@ -691,8 +705,18 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
               // (spacer included); its on-screen top is that minus however
               // far the container is scrolled — independent of how that
               // `pinTop` happens to split between spacer and real content.
+              // Positioned relative to `.stream`, because that is where it
+              // actually lives — see `pinWithinStream`. At rest (nothing
+              // reserved yet) this is exactly `pinTop - scrollTop`, the
+              // scroll-area position these tests are written in terms of.
               node.getBoundingClientRect = () =>
-                ({ top: pinTop - (scrollerNode?.scrollTop ?? 0) }) as DOMRect
+                ({
+                  top:
+                    spacerHeight() -
+                    (scrollerNode?.scrollTop ?? 0) +
+                    pinWithinStream.current -
+                    aboveShrink,
+                }) as DOMRect
             }}
           />
         </div>
@@ -818,6 +842,80 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
     // bottom again — 1600 - 400.
     expect(content.style.paddingBottom).toBe('')
     expect(scroller.scrollTop).toBe(1200)
+  })
+
+  /*
+   * Regression, reported live: "when the message is pending, the whole scroll
+   * overshoots, and nothing is visible. This is solved later on when the turn
+   * is closed."
+   *
+   * `pinnedTop`'s doc rests on "nothing above the pin moves while a turn runs
+   * (it is settled history)". That stopped being true: a turn STARTING empties
+   * `lastInAgentRun` (agent-transcript.tsx), so every settled reply on screen
+   * loses its turnbar at the moment `working` goes true. Content above the pin
+   * shrinking while a frozen offset says otherwise reads here as content BELOW
+   * it shrinking, and the shortfall math reserves that much again. Captured
+   * live on a fresh Codex turn:
+   *
+   *   t=9315  turnbars 5 -> 0 as `working` goes true, prompt still at y=13
+   *   t=9335  reserved 486 -> 605
+   *   t=9371+ prompt sinks past the top: -23, -44, -52 ... -139
+   *   resting pinY=-139, ALL content ending at y=22 of a 754px pane
+   */
+  it('does not reserve more room when content ABOVE the pin goes away', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+    const content = getByTestId('content')
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+    expect(content.style.paddingBottom).toBe('300px')
+    expect(scroller.scrollTop).toBe(900) // the prompt's top edge IS the viewport top
+
+    // Five turnbars, ~24px each, unmount from the replies above the pin the
+    // instant `working` goes true.
+    aboveShrink = 120
+    scrollHeight = 1000 - 120
+    fire()
+    vi.advanceTimersByTime(1500)
+
+    // Nothing below the pin changed, so nothing more is needed below it — and
+    // the prompt is still exactly at the top, not 120px above it.
+    expect(content.style.paddingBottom).toBe('300px')
+    expect(scroller.scrollTop).toBe(900 - 120)
+  })
+
+  /*
+   * Regression, reported live: "just before the turn is finishing, the whole
+   * scroll does like a bounce effect, it goes up, and then it goes down."
+   *
+   * That is the turnbars coming BACK as `working` goes false — ~140px of
+   * content reappearing ABOVE the pinned prompt, shoving it down. The follow
+   * target moves by the same amount (while a pin is held, the bottom IS the
+   * pinned position), so the destination was always right; easing there is
+   * what made the shift visible, the content landing first and the scroll
+   * catching up over the next dozen frames. Measured at three consecutive
+   * turn closes: pinY 14 -> 33 -> 154, st 5907 -> 5888 -> 5887, then eased
+   * back down.
+   */
+  it('holds the prompt still when content ABOVE the pin grows back', () => {
+    let anchor!: TranscriptAnchor
+    const { getByTestId } = render(<PinHost onReady={(a) => (anchor = a)} />)
+    const scroller = getByTestId('scroller')
+
+    act(() => anchor.pinTurnToTop(getByTestId('pin')))
+    vi.advanceTimersByTime(1500)
+    expect(scroller.scrollTop).toBe(900)
+
+    // The turn ends: five turnbars, ~24px each, come back above the pin.
+    aboveShrink = -120
+    scrollHeight = 1000 + 120
+    fire()
+
+    // Landed on the very same frame — no frames advanced — so the prompt does
+    // not visibly move at all. A glide here IS the reported bounce.
+    expect(scroller.scrollTop).toBe(900 + 120)
   })
 
   it('reserves nothing at all when the reply already fills the viewport', () => {

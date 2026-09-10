@@ -478,8 +478,26 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // gap instead of releasing it. `pinTurnToTop(null)` — the documented
     // release path — is the only way out of that once it has happened, and
     // nothing else in this file ever calls it.
-    const settled = pinnedItem.current && messages.some((m) => samePrompt(m, pinnedItem.current!))
-    if (!settled) anchor.pinTurnToTop(null)
+    const settled = pinnedItem.current
+      ? messages.find((m) => samePrompt(m, pinnedItem.current!))
+      : undefined
+    if (!settled) {
+      anchor.pinTurnToTop(null)
+    } else {
+      // Re-anchored to the LEDGER row that replaced the queued one, rather
+      // than left holding an offset with nothing to re-measure against. The
+      // pin survives the swap either way (it keeps an offset, not the
+      // element), but an offset alone assumes nothing above the pin ever
+      // moves — and `lastInAgentRun` above empties the moment `working` goes
+      // true, so every settled reply on screen loses its turnbar. Whether the
+      // turnbars go before or after this swap is a race; re-anchoring here
+      // means `applyTailRoom` has a live element to re-measure from either
+      // way.
+      const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
+        `[data-sequence="${settled.sequence}"]`,
+      )
+      if (row) anchor.pinTurnToTop(row)
+    }
     pinnedItem.current = null
     // `props.working` is READ, not depended on: this effect exists to react to
     // the QUEUE changing, and re-running it when a turn merely starts or stops
