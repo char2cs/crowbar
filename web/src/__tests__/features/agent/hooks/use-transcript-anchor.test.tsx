@@ -32,6 +32,14 @@ function readerScrollsTo(scroller: HTMLElement, top: number) {
 describe('useTranscriptAnchor', () => {
   let scrollHeight = 0
   let clientHeight = 400
+  // Whether the container has a layout box at all. A workspace switched away
+  // from is retained but `display:none` (workspace-slot-style.ts): the box is
+  // destroyed, every measurement on it reads 0, writes to `scrollTop` go
+  // nowhere, and the offset only comes back — clamped to whatever the
+  // scrollable range is at that instant — when the box does.
+  let boxed = true
+  /** Re-clamps the remembered offset the way rebuilding the box does. */
+  let clampRevealed: () => void = () => {}
   let observerCallbacks: Array<() => void> = []
   const RealResizeObserver = globalThis.ResizeObserver
 
@@ -39,6 +47,7 @@ describe('useTranscriptAnchor', () => {
     vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance'] })
     scrollHeight = 1000
     clientHeight = 400
+    boxed = true
     observerCallbacks = []
     class ControllableResizeObserver {
       callback: () => void
@@ -77,6 +86,24 @@ describe('useTranscriptAnchor', () => {
     })
   }
 
+  /** The workspace this transcript lives in is switched away from. */
+  const hide = () => {
+    boxed = false
+    act(() => {
+      for (const cb of [...observerCallbacks]) cb()
+    })
+  }
+
+  /** ...and switched back to. */
+  const reveal = (revealedHeight = scrollHeight) => {
+    scrollHeight = revealedHeight
+    boxed = true
+    clampRevealed()
+    act(() => {
+      for (const cb of [...observerCallbacks]) cb()
+    })
+  }
+
   function Host({
     onReady,
     anchorOptions,
@@ -95,9 +122,12 @@ describe('useTranscriptAnchor', () => {
           anchor.scrollRef.current = node
           if (!node || Object.hasOwn(node, 'scrollHeight')) return
           let top = 0
+          clampRevealed = () => {
+            top = Math.max(0, Math.min(top, Math.max(0, scrollHeight - clientHeight)))
+          }
           Object.defineProperty(node, 'scrollTop', {
             configurable: true,
-            get: () => top,
+            get: () => (boxed ? top : 0),
             // Real browsers clamp scrollTop to [0, scrollHeight - clientHeight].
             // This clamp is what makes the target-miscalculation regression
             // (see use-transcript-anchor.ts) observable at all — an unclamped
@@ -105,16 +135,20 @@ describe('useTranscriptAnchor', () => {
             // the bug, so a broken target and a correct one settle at the same
             // place and every assertion here still passes either way.
             set: (v: number) => {
+              // A box that does not exist takes no writes — and hands the
+              // offset it remembered back, clamped to whatever range exists,
+              // once it does. See `boxed`.
+              if (!boxed) return
               top = Math.max(0, Math.min(v, Math.max(0, scrollHeight - clientHeight)))
             },
           })
           Object.defineProperty(node, 'scrollHeight', {
             configurable: true,
-            get: () => scrollHeight,
+            get: () => (boxed ? scrollHeight : 0),
           })
           Object.defineProperty(node, 'clientHeight', {
             configurable: true,
-            get: () => clientHeight,
+            get: () => (boxed ? clientHeight : 0),
           })
         }}
         onScroll={anchor.onScroll}
@@ -319,8 +353,11 @@ describe('useTranscriptAnchor', () => {
     const scroller = getByTestId('scroller')
 
     // A normal glide starts while still focused — a real request is now
-    // pending, exactly as it would be mid-stream.
-    grow(1400) // new ceiling: 1400 - 400 = 1000
+    // pending, exactly as it would be mid-stream. Deliberately a chunk SMALLER
+    // than the viewport: a bigger one is a reposition rather than a glide and
+    // lands instantly (see resync), which would take this scenario out of the
+    // eased regime it is about.
+    grow(1200) // new ceiling: 1200 - 400 = 800, and 200 to make up
     expect(raf.pending.size).toBe(1)
     const idsBeforeFreeze = new Set(raf.pending.keys())
 
@@ -328,7 +365,7 @@ describe('useTranscriptAnchor', () => {
     // (confirmed live) — real engines do not cancel it, they just stop
     // calling it. More growth arrives while frozen; nothing can move.
     raf.freeze()
-    grow(1800) // new ceiling: 1800 - 400 = 1400 — still nothing moves
+    grow(1300) // new ceiling: 1300 - 400 = 900 — still nothing moves
     expect(scroller.scrollTop).toBe(600) // unmoved the whole time
 
     raf.unfreeze()
@@ -414,6 +451,108 @@ describe('useTranscriptAnchor', () => {
     vi.advanceTimersByTime(1500)
 
     expect(scroller.scrollTop).toBe(200)
+  })
+
+  /*
+   * Regression, THE MOST-REPORTED BUG of the night: "chats still scroll down
+   * upon first enter."
+   *
+   * Two distinct triggers, both landing here.
+   *
+   * A WORKSPACE SWITCH never unmounts the pane — WorkspaceHost retains it and
+   * hides the slot with `display:none` — so every save-on-unmount scheme is
+   * inert for it. What actually happens is that the scroll BOX is destroyed and
+   * rebuilt: the offset the browser hands back on the way in is clamped to
+   * whatever the scrollable range is on that first frame, and the gap that
+   * leaves was closed by the eased follow loop — measured live at 2400px over
+   * ~740ms, every round-trip.
+   *
+   * REOPENING A CLOSED CHAT is a real mount onto a page of history whose rows
+   * are not measured yet; each row that measures moves the bottom, and every
+   * one of those corrections was handed to the same eased loop. Measured live:
+   * scrollTop climbing 0 -> 2471 over 43 painted frames.
+   */
+  it('puts a bottom-anchored reader back on the newest end in one write when the workspace comes back', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+    expect(scroller.scrollTop).toBe(600)
+
+    hide()
+    // Turns landed while the workspace was away, so the bottom moved.
+    reveal(1400)
+
+    // Landed, not launched: this must be the true ceiling ALREADY, with no
+    // frames advanced. Easing this gap is the bug.
+    expect(scroller.scrollTop).toBe(1000)
+  })
+
+  it('holds a reader who was mid-history where they were, through a reveal that clamps them', () => {
+    const { getByTestId } = render(<Host />)
+    const scroller = getByTestId('scroller')
+    readerScrollsTo(scroller, 200) // a real gesture — following stops
+
+    hide()
+    // The transcript comes back briefly SHORTER than it left (its virtualized
+    // rows have not re-measured yet), so the offset the browser restores is
+    // clamped well above where the reader actually was...
+    reveal(500)
+    expect(scroller.scrollTop).toBeLessThan(200)
+
+    // ...and the reader is put back the moment there is room for them again.
+    // Nothing bottom-follows here — `stuck` is false — so without this the
+    // position is simply lost.
+    grow(1000)
+    expect(scroller.scrollTop).toBe(200)
+  })
+
+  it('saves the position it last had a box to measure, not the zeros an eviction reads', () => {
+    const positions: Array<{ stuck: boolean; distanceFromBottom: number }> = []
+    const { getByTestId, unmount } = render(
+      <Host anchorOptions={{ onPositionChange: (p) => positions.push(p) }} />,
+    )
+    readerScrollsTo(getByTestId('scroller'), 200)
+
+    // A retained workspace is evicted from the HIDDEN state it has been sitting
+    // in (workspace-host.tsx), so unmount is the one moment the container is
+    // reliably `display:none`.
+    hide()
+    unmount()
+
+    expect(positions.at(-1)).toEqual({ stuck: false, distanceFromBottom: 800 })
+  })
+
+  it('lands instantly rather than gliding when the gap is bigger than a viewport', () => {
+    const { getByTestId } = render(<Host anchorOptions={{ loadingHistory: false }} />)
+    const scroller = getByTestId('scroller')
+    expect(scroller.scrollTop).toBe(600)
+
+    // Let eased mode arm, the way it does a frame after a chat settles.
+    vi.advanceTimersByTime(1500)
+
+    // A page of history arrives at once — 3000px of it, far more than the 400px
+    // viewport. This is a reposition, not the newest line landing.
+    grow(4000)
+
+    // Already there, with no frames advanced. A glide here is the bug.
+    expect(scroller.scrollTop).toBe(3600)
+  })
+
+  it('still eases a chunk smaller than the viewport — ordinary streaming is untouched', () => {
+    const { getByTestId } = render(<Host anchorOptions={{ loadingHistory: false }} />)
+    const scroller = getByTestId('scroller')
+    vi.advanceTimersByTime(1500)
+
+    grow(1200) // 200px to make up, well inside the 400px viewport
+    // Nothing yet: an eased catch-up is scheduled, not written on the spot —
+    // which is exactly what distinguishes it from the instant branch above.
+    expect(scroller.scrollTop).toBe(600)
+
+    vi.advanceTimersByTime(60)
+    expect(scroller.scrollTop).toBeGreaterThan(600)
+    expect(scroller.scrollTop).toBeLessThan(800)
+
+    vi.advanceTimersByTime(1500)
+    expect(scroller.scrollTop).toBe(800)
   })
 
   // Regression: a cold/warm chat open reads as the whole transcript sweeping

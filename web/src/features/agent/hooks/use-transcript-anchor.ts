@@ -242,6 +242,23 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // Set by `applyTailRoom` for the one resync that follows the pinned row
   // moving — see there. Consumed by `resync`, which lands instead of easing.
   const pinShifted = useRef(false)
+  // Whether the container currently HAS a layout box. A workspace switched
+  // away from is retained but `display:none` (workspace-slot-style.ts), so
+  // every measurement below reads 0 until it comes back — see `resync`.
+  const boxed = useRef(true)
+  // `scrollHeight - scrollTop` the last time there was a box to read it from.
+  // The only value a reveal has to work with: once the box is gone the element
+  // reports 0 for all three, so this has to have been captured in advance.
+  const lastFromBottom = useRef<number | null>(options.initialPosition?.distanceFromBottom ?? null)
+  // Same, but re-applied on EVERY resync until the reveal's own settle is over
+  // rather than consumed once like `restoreFromBottom` — the transcript's
+  // scrollable ceiling is still climbing back over those frames, so a single
+  // landing would be against a height that is about to change.
+  const revealFromBottom = useRef<number | null>(null)
+  // Where the CURRENT continuous catch-up began — the scrollTop the eased loop
+  // started converging from — or null while it is converged. This is what makes
+  // the size test in `resync` cumulative rather than per-step.
+  const easeFrom = useRef<number | null>(null)
   // When the reader last actually did something — see READER_INPUT_MS.
   const lastInputAt = useRef(Number.NEGATIVE_INFINITY)
   // A scrollbar drag only announces itself once, at `pointerdown`, and can
@@ -311,6 +328,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       cancelAnimationFrame(armFrame.current)
       armFrame.current = requestAnimationFrame(() => {
         easedArmed.current = true
+        revealFromBottom.current = null
       })
     }
     scheduleArmRef.current = scheduleArm
@@ -386,14 +404,50 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     }
 
     const resync = () => {
+      // NO LAYOUT BOX. A retained workspace that is not the active one is
+      // `display:none` (workspace-slot-style.ts), which reaches the observer
+      // below as an ordinary resize to 0x0 — and every measurement in this
+      // function then reads 0. Two things go wrong if that is allowed through:
+      // `applyTailRoom` computes its shortfall against a zero viewport and a
+      // zero content height, which reads as needing the whole reservation over
+      // again and grows the padding without bound; and the follow target
+      // becomes `0 - 0`. Neither is a real measurement of anything, and the
+      // reader has not moved — hold everything as it is.
+      if (el.clientHeight === 0) {
+        boxed.current = false
+        return
+      }
+      if (!boxed.current) {
+        boxed.current = true
+        // BACK IN VIEW, which is mechanically a fresh open: the scroll box was
+        // destroyed and rebuilt, and the virtualized rows inside it re-measure
+        // over the next few frames (agent-transcript.tsx). Disarm eased mode
+        // for exactly that settle — the same treatment `loadingHistory` gives
+        // a cold open, and for the same reason. Without it every one of those
+        // corrections retargets the eased glide instead of landing, and the
+        // catch-up reads as the whole transcript sweeping up from wherever the
+        // reveal left it: measured live on a 30-turn chat, scrollTop climbing
+        // 5153 -> 7552 across ~60 painted frames, ~740ms, on every single
+        // workspace round-trip.
+        easedArmed.current = false
+        scheduleArm()
+        // A reader who was NOT at the bottom has no bottom-follow to put them
+        // back, so nothing below would restore them at all — and the reveal can
+        // still move them, since the offset the browser hands back is clamped
+        // to whatever the scrollable range happens to be on that first frame.
+        // Hold the distance they actually left on.
+        if (!stuck.current) revealFromBottom.current = lastFromBottom.current
+      }
+      lastFromBottom.current = el.scrollHeight - el.scrollTop
       applyTailRoom()
-      const keep = restoreFromBottom.current
+      const keep = restoreFromBottom.current ?? revealFromBottom.current
       if (keep !== null) {
-        // Older messages just landed above the fold. Holding the distance from
-        // the BOTTOM — not scrollTop — is what leaves the row the reader was
-        // looking at exactly where it was. Instant, deliberately: nothing here
-        // is "the newest line arriving", so easing it would read as the whole
-        // transcript sliding for no visible reason.
+        // Older messages just landed above the fold, or the pane just came
+        // back into view. Holding the distance from the BOTTOM — not scrollTop
+        // — is what leaves the row the reader was looking at exactly where it
+        // was. Instant, deliberately: nothing here is "the newest line
+        // arriving", so easing it would read as the whole transcript sliding
+        // for no visible reason.
         restoreFromBottom.current = null
         el.scrollTop = el.scrollHeight - keep
         return
@@ -416,14 +470,44 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
         el.scrollTop = target
         return
       }
-      if (!easedArmed.current) {
-        // Still settling (see UseTranscriptAnchorOptions.loadingHistory):
-        // land on the real target instantly, same as the prepend branch
-        // above, and push the arm-check back another frame.
+      // INSTANT while still settling (see
+      // UseTranscriptAnchorOptions.loadingHistory), and instant for any gap
+      // bigger than a viewport whether settling or not.
+      //
+      // THE SIZE TEST IS THE LOAD-BEARING HALF. Easing exists for the newest
+      // line arriving; a gap of more than a whole viewport is not content
+      // arriving, it is a REPOSITION — a chat mounting onto a page of history
+      // whose rows have not been measured yet, a saved position landing before
+      // the virtualizer has settled — and easing one of those is the entire
+      // transcript visibly sweeping from wherever it started down to the end.
+      // Measured live on a chat closed and reopened from the sidebar:
+      // `scrollTop` climbing 0 -> 2471 across 43 painted frames.
+      //
+      // `easedArmed` alone could never have caught that, and the reason is
+      // ordering: `scheduleArm` below defers by one `requestAnimationFrame`,
+      // and rAF callbacks run BEFORE the ResizeObserver notifications of the
+      // same frame — so the arm always lands before the next resync, and the
+      // "one quiet frame with nothing left to settle" it was written to wait
+      // for never actually happens. Eased mode was therefore armed while the
+      // row-measurement cascade was still running, every single time.
+      //
+      // MEASURED FROM WHERE THE CATCH-UP BEGAN, not from where it has crawled
+      // to. A settle does not arrive as one jump; it arrives as a staircase of
+      // sub-viewport growths as each row is measured, and testing every step on
+      // its own waves all of them through — measured live on a chat opening
+      // cold in another workspace, 36 rising frames climbing 848px in ~700px
+      // steps. Cumulative, this catches the whole staircase on its second step.
+      // A burst of real streamed lines is nowhere near a viewport in total, so
+      // it still glides.
+      if (target - el.scrollTop <= 1) easeFrom.current = null
+      const from = easeFrom.current ?? el.scrollTop
+      if (!easedArmed.current || target - from > el.clientHeight) {
         el.scrollTop = target
+        easeFrom.current = null
         scheduleArm()
         return
       }
+      easeFrom.current = from
       follow.current?.setTarget(target)
     }
     resyncRef.current = resync
@@ -552,9 +636,18 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       // Wherever the reader ends up, for this exact chat's next mount this
       // session (a switch back) to restore — see
       // UseTranscriptAnchorOptions.onPositionChange.
+      //
+      // Read from `lastFromBottom` when there is no box left to measure: a
+      // retained workspace is evicted (workspace-host.tsx) from the HIDDEN
+      // state it has been sitting in, so unmount is the one moment this is
+      // reliably `display:none` and every measurement here reads 0 — which
+      // saved a bottom distance of 0, i.e. "scrolled past the end".
       optionsRef.current.onPositionChange?.({
         stuck: stuck.current,
-        distanceFromBottom: el.scrollHeight - el.scrollTop,
+        distanceFromBottom:
+          el.clientHeight > 0
+            ? el.scrollHeight - el.scrollTop
+            : (lastFromBottom.current ?? el.scrollHeight - el.scrollTop),
       })
     }
   }, [])
@@ -638,6 +731,10 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     // Re-armed as soon as the reader comes back to the bottom, so following
     // resumes without them having to do anything but scroll down.
     stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
+    lastFromBottom.current = el.scrollHeight - el.scrollTop
+    // The reader scrolling during a reveal's settle outranks the restore that
+    // settle was still re-applying — they are looking at where they are now.
+    revealFromBottom.current = null
   }, [])
 
   const preservePosition = useCallback(() => {
