@@ -68,6 +68,28 @@ func (c *compactionTurns) arm(chatID, turnID string) {
 // about the same empty id" the map's own zero value would otherwise agree
 // to, which would silently swallow every one of that provider's ordinary
 // stops.
+// armCompaction records turnID as the one turn_stop that belongs to a compaction
+// and must therefore be skipped — but ONLY when this chat has no turn of its own
+// in flight.
+//
+// A STANDALONE compaction (the compact button, or codex's own disconnected
+// companion PTY) gets a turn envelope to itself, and skipping that envelope's
+// stop is the whole point of the latch.
+//
+// An AUTOMATIC one does not. It fires INSIDE the user's own turn — codex compacts
+// to make room to CARRY ON — and codex maps turn_id from the wrapping envelope,
+// which is that user turn. Arming on it therefore armed the REAL turn's id, and
+// the real turn's own turn/completed was then swallowed as if it were the
+// compaction's. Measured live: nothing closed the turn, and the 5s
+// provider-idle sweep abandoned it five seconds later instead — logged as
+// "closed a turn whose message was cut off", the reply recorded as a partial.
+func (t *Turns) armCompaction(chatID, turnID string) {
+	if len(t.turns.Inflight(chatID)) > 0 {
+		return
+	}
+	t.compacting.arm(chatID, turnID)
+}
+
 func (c *compactionTurns) consume(chatID, turnID string) bool {
 	if c == nil || turnID == "" {
 		return false

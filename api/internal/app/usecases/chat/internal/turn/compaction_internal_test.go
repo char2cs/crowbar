@@ -4,7 +4,41 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 )
+
+// An AUTOMATIC compaction fires inside the user's own turn, and codex maps
+// turn_id from the wrapping envelope — which is that user turn. Arming on it
+// armed the REAL turn's id, so the real turn's own turn/completed was swallowed
+// as a compaction's and nothing closed the turn; the 5s provider-idle sweep
+// abandoned it instead, recording the reply as a cut-off partial.
+//
+// Reproduced live against a real codex app-server with the context window
+// lowered so an auto-compaction landed mid-turn: compact_pre and the single
+// turn_stop carried the same turn id, and "closed a turn whose message was cut
+// off" followed 5.2s later.
+func TestRegression_AnAutomaticCompactionDoesNotSwallowTheRealTurnsStop(t *testing.T) {
+	turns := New(Deps{InflightTurns: inflight.NewTurns()})
+	turns.turns.Begin("runner-1", "chat-1")
+
+	turns.armCompaction("chat-1", "turn-1")
+
+	require.False(t, turns.compacting.consume("chat-1", "turn-1"),
+		"the user turn's own stop must still close it, not be skipped as a compaction's")
+}
+
+// The standalone round trip — the compact button, no turn of the chat's own in
+// flight — is what the latch exists for and must still be armed.
+func TestRegression_AStandaloneCompactionIsStillArmed(t *testing.T) {
+	turns := New(Deps{InflightTurns: inflight.NewTurns()})
+
+	turns.armCompaction("chat-1", "turn-1")
+
+	require.True(t, turns.compacting.consume("chat-1", "turn-1"),
+		"a compaction that owns its whole turn envelope must still have that envelope's stop skipped")
+}
 
 // The whole reason this exists: measured against codex-cli 0.149.1,
 // thread/compact/start's own turn/completed is byte-for-byte the same shape

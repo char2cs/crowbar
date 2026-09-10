@@ -172,6 +172,7 @@ func (rs *Runners) SetTurns(turns Turns) {
 		OnStall:    turns.CloseStalledTurn,
 		Deliveries: rs,
 		Messages:   turns,
+		Liveness:   rs,
 		Idle:       turns,
 	})
 }
