@@ -97,6 +97,10 @@ interface AgentTranscriptProps {
    * watching structurally cannot see.
    */
   dockHeight?: number
+  /** Whether this chat is the ACTIVE tab in its pane — a background tab stays
+   *  mounted behind `visibility:hidden`, which nothing here can observe on its
+   *  own. See `UseTranscriptAnchorOptions.visible`. */
+  visible?: boolean
   /** A previously-saved scroll position for this exact chat, this session —
    *  see useTranscriptAnchor's own doc. Omitted or null: land at the
    *  bottom. */
@@ -453,6 +457,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     loadingHistory: props.loading,
     initialPosition: props.initialScrollPosition,
     onPositionChange: props.onScrollPositionChange,
+    visible: props.visible,
   })
   const scrollFrame = useScrollFrameSpan()
   // The dock overlays this transcript rather than sizing it (see
@@ -676,7 +681,14 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   // shows it — see `SETTLE_QUIET_FRAMES` for what is moving and why. Runs only
   // while a chat is opening: `settled` latches true and this stops for good.
   useEffect(() => {
-    if (settled || rows.length === 0) return
+    // NOT ON SCREEN, so this has not opened yet. A background tab lays out and
+    // measures behind `visibility:hidden` — and then measures AGAIN when it is
+    // brought to the front, because its rows only get their real paint-time
+    // sizes once they are actually painted. Letting it latch while hidden spent
+    // the gate on a settle nobody saw, and the reader got the whole cascade on
+    // the first switch to that tab: measured live, three content states and a
+    // 338px shift in ~130ms.
+    if (settled || rows.length === 0 || props.visible === false) return
     let quiet = 0
     let last = -1
     let frame = 0
@@ -713,7 +725,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // `anchor.scrollRef` is a ref: `.current` is read fresh inside the frame
     // callback regardless of this list — React's own documented exemption.
     // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
-  }, [settled, rows.length, rowVirtualizer])
+  }, [settled, rows.length, rowVirtualizer, props.visible])
 
   // The streaming bubble's own LAST REAL height, by message sequence — kept
   // only as long as that message is actually streaming. Read once, in the

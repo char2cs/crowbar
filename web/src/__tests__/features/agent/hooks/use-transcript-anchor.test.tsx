@@ -590,8 +590,11 @@ describe('useTranscriptAnchor', () => {
       grow(1500)
       expect(scroller.scrollTop).toBe(1100) // still instant: 1500 - 400
 
-      // Quiet now: let the pending arm frame actually fire.
-      vi.advanceTimersByTime(16)
+      // Quiet now: let the pending arm frames actually fire. TWO frames, which
+      // is what "a full frame with nothing left to settle" costs — a rAF
+      // callback runs BEFORE the same frame's ResizeObserver notifications, so
+      // a one-frame wait arms before the resync it is waiting to not see.
+      vi.advanceTimersByTime(32)
 
       // A genuinely new message streams in — now eased, not instant.
       grow(1900) // ceiling: 1900 - 400 = 1500
@@ -608,12 +611,81 @@ describe('useTranscriptAnchor', () => {
       const scroller = getByTestId('scroller')
 
       rerender(<Host anchorOptions={{ loadingHistory: false }} />)
-      vi.advanceTimersByTime(16) // the backstop's own arm frame
+      vi.advanceTimersByTime(32) // the backstop's own arm frames — see above
 
       grow(1400) // ceiling: 1400 - 400 = 1000
       vi.advanceTimersByTime(50)
       expect(scroller.scrollTop).toBeGreaterThan(600)
       expect(scroller.scrollTop).toBeLessThan(1000)
+    })
+  })
+
+  // Regression: a background chat TAB is kept mounted behind
+  // `visibility:hidden` (pane-container.tsx), which — unlike the `display:none`
+  // a retained workspace uses — changes no geometry at all, so no
+  // ResizeObserver ever fires and `resync` has nothing to notice a reveal by.
+  // The re-measure a tab switch sets off therefore arrived looking exactly like
+  // a reply streaming in and got EASED. Measured live between two open tabs on
+  // a 30-turn chat: `st 9388 -> 9464 -> 9491 -> 9563 -> 9615 -> 9653 ...` over
+  // ~8 frames, total climbing 10142 -> 10508 — the transcript visibly gliding
+  // to the bottom on every tab switch.
+  describe('visible (a background tab coming to the front)', () => {
+    it('lands instantly, not eased, for the whole settle a tab switch sets off', () => {
+      const { getByTestId, rerender } = render(<Host anchorOptions={{ visible: false }} />)
+      const scroller = getByTestId('scroller')
+      // The box is LIVE while a tab is hidden — that is the whole problem — so
+      // mount landed at the true ceiling exactly as a visible chat would.
+      expect(scroller.scrollTop).toBe(600)
+      // Long since settled: eased follow is armed, as it would be for any chat
+      // that has been sitting still.
+      vi.advanceTimersByTime(200)
+
+      rerender(<Host anchorOptions={{ visible: true }} />)
+      // Under a viewport (400) of growth, deliberately: that is the size the
+      // reveal settle actually produces, and it is exactly what `resync`'s
+      // cumulative size test is unable to catch on its own.
+      grow(1300)
+      expect(scroller.scrollTop).toBe(900) // instant, not partway
+
+      // ONE frame is not yet a full quiet frame — a rAF callback runs before
+      // the same frame's observer delivery, so arming here would put every
+      // remaining lap of the settle back on the eased path.
+      vi.advanceTimersByTime(16)
+      grow(1360)
+      expect(scroller.scrollTop).toBe(960)
+    })
+
+    it('goes back to easing once the reveal settle is genuinely over', () => {
+      const { getByTestId, rerender } = render(<Host anchorOptions={{ visible: false }} />)
+      const scroller = getByTestId('scroller')
+      vi.advanceTimersByTime(200)
+
+      rerender(<Host anchorOptions={{ visible: true }} />)
+      grow(1300)
+      expect(scroller.scrollTop).toBe(900)
+
+      vi.advanceTimersByTime(32) // a full frame with nothing left to settle
+
+      // A genuinely new message streaming in is eased again, as always. Under
+      // a viewport of growth, so it is the ARMING being tested here and not
+      // `resync`'s size test, which snaps anything bigger either way.
+      grow(1600) // ceiling: 1600 - 400 = 1200
+      vi.advanceTimersByTime(50)
+      expect(scroller.scrollTop).toBeGreaterThan(900)
+      expect(scroller.scrollTop).toBeLessThan(1200)
+    })
+
+    it('holds a reader who was reading history where they were, not at the bottom', () => {
+      const { getByTestId, rerender } = render(<Host anchorOptions={{ visible: false }} />)
+      const scroller = getByTestId('scroller')
+      readerScrollsTo(scroller, 200) // 800 from the bottom of 1000
+      vi.advanceTimersByTime(200)
+
+      rerender(<Host anchorOptions={{ visible: true }} />)
+      grow(1300)
+
+      // Still 800 from the bottom, wherever the bottom now is.
+      expect(scroller.scrollTop).toBe(500)
     })
   })
 
