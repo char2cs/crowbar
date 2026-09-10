@@ -166,6 +166,10 @@ func TestStart_MalformedParamsAreDroppedNotFatal(t *testing.T) {
 type scriptedCall struct {
 	method string
 	result string // raw JSON to return as this call's "result"
+	// errCode/errMessage answer with a JSON-RPC ERROR instead of a result.
+	// Non-zero errCode selects that branch; result is ignored then.
+	errCode    int
+	errMessage string
 }
 
 // scriptedServer replays call/response pairs in order, verifying each
@@ -186,10 +190,13 @@ func scriptedServer(t *testing.T, script []scriptedCall) (sockPath string, seenP
 			require.NoError(t, json.Unmarshal(msg, &req))
 			require.Equal(t, step.method, req.Method, "unexpected call")
 			seen = append(seen, string(req.Params))
-			resp, _ := json.Marshal(map[string]any{
-				"id":     req.ID,
-				"result": json.RawMessage(step.result),
-			})
+			body := map[string]any{"id": req.ID, "result": json.RawMessage(step.result)}
+			if step.errCode != 0 {
+				body = map[string]any{"id": req.ID, "error": map[string]any{
+					"code": step.errCode, "message": step.errMessage,
+				}}
+			}
+			resp, _ := json.Marshal(body)
 			require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
 		}
 		_, _, _ = conn.ReadMessage() // block until the client closes
@@ -553,4 +560,126 @@ func TestInjectAt_UndeclaredMomentIsANoop(t *testing.T) {
 	err = drv.InjectAt(ctx, "resume", map[string]string{"session_id": "sid-1"})
 	require.NoError(t, err)
 	require.Empty(t, *seen, "an undeclared moment must never reach the wire")
+}
+
+// The two live-captured refusals (codex-cli 0.149.1) for a thread the server
+// no longer has. Both carry the same code, which is the ONLY part of them Go
+// is allowed to know — the wording is the provider's, and the code is what
+// codex.yaml declares under runtime.api.session_lost_codes.
+const (
+	lostSessionCode      = -32600
+	lostOnResumeMessage  = "no rollout found for thread id t-dead"
+	lostOnTurnStartError = "thread not found: t-1"
+)
+
+// TestRegression_LostSessionOnResumeRebindsToAFreshThread pins the wedge that
+// made a codex chat permanently unreachable. codex writes no rollout for a
+// thread until a turn against it COMPLETES, so a thread that was started but
+// never finished a turn cannot be resumed once its app-server is replaced —
+// which happens on every restart. Resume then failed, the whole api connection
+// was torn down, and because nothing ever cleared the dead id off the chat,
+// every later spawn re-ran the identical doomed thread/resume. Observed four
+// times against one thread id in a single evening's daemon log.
+//
+// The recovery is the Fresh path — the same thread/start a chat's first-ever
+// message runs — because the old thread is genuinely gone provider-side and no
+// retry of it can ever succeed.
+func TestRegression_LostSessionOnResumeRebindsToAFreshThread(t *testing.T) {
+	sockPath, seen := scriptedServer(t, []scriptedCall{
+		{method: "thread/resume", errCode: lostSessionCode, errMessage: lostOnResumeMessage},
+		{method: "thread/start", result: `{"thread":{"id":"t-new"}}`},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	drv, err := apidriver.Start(ctx, d, sockPath)
+	require.NoError(t, err)
+	defer drv.Close()
+
+	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{
+		"session_id": "t-dead", "cwd": "/work", "context": "what came before",
+		"permission.sandbox": "workspace-write", "permission.approvalPolicy": "on-request",
+	})
+	require.NoError(t, err, "a session the provider has forgotten must be replaced, not fatal")
+	require.Equal(t, "t-new", out["session_id"], "the caller must be handed the REPLACEMENT id")
+
+	require.Len(t, *seen, 2, "resume must be tried first, then exactly one thread/start")
+	require.Contains(t, (*seen)[1], `"sandbox":"workspace-write"`,
+		"the replacement thread must be born with the same settings as the original")
+	require.Contains(t, (*seen)[1], `"developerInstructions":"what came before"`,
+		"the replacement thread must carry the handoff, or the chat silently loses its history")
+}
+
+// TestRegression_LostSessionOnTurnStartRebindsAndDeliversThePrompt pins the
+// other half: `established` is a claim about this CONNECTION's history, set
+// once and never cleared by anything on the wire. A session that dies after it
+// was set leaves EstablishSession short-circuiting forever, so every prompt
+// went out naming a thread the server had forgotten, was refused, and was
+// recorded as an uncertain delivery — which blocks the frontend prompt queue's
+// head permanently, so nothing streams and every prompt typed afterwards piles
+// up behind it. The prompt must reach a live thread instead.
+func TestRegression_LostSessionOnTurnStartRebindsAndDeliversThePrompt(t *testing.T) {
+	sockPath, seen := scriptedServer(t, []scriptedCall{
+		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
+		{method: "turn/start", errCode: lostSessionCode, errMessage: lostOnTurnStartError},
+		{method: "thread/start", result: `{"thread":{"id":"t-2"}}`},
+		{method: "turn/start", result: `{"turn":{"id":"turn-9"}}`},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	drv, err := apidriver.Start(ctx, d, sockPath)
+	require.NoError(t, err)
+	defer drv.Close()
+
+	// Spawn-time establish: this is what latches `established` and is the only
+	// call that is ever handed the sandbox/approval/context settings.
+	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{
+		"session_id": "", "cwd": "/work", "context": "what came before",
+		"permission.sandbox": "workspace-write", "permission.approvalPolicy": "on-request",
+	})
+	require.NoError(t, err)
+
+	// A later message push: carries only the fields a prompt has, exactly as
+	// pushPromptOverAPI sends them.
+	out, err := drv.Dispatch(ctx, "prompt", map[string]string{
+		"session_id": "t-1", "cwd": "/work", "text": "are you there?",
+	})
+	require.NoError(t, err, "a prompt refused for a dead thread must be re-delivered, not wedged")
+	require.Equal(t, "t-2", out["session_id"])
+
+	require.Len(t, *seen, 4, "expected start, failed turn, rebind start, retried turn")
+	require.Contains(t, (*seen)[2], `"sandbox":"workspace-write"`,
+		"the rebind must reuse the settings the connection was born with, "+
+			"not the bare field set a message push carries")
+	require.Contains(t, (*seen)[3], `"threadId":"t-2"`, "the retry must name the NEW thread")
+	require.Contains(t, (*seen)[3], `"are you there?"`, "the user's prompt must actually be delivered")
+}
+
+// TestRegression_UndeclaredErrorCodeIsStillFatal keeps the recovery narrow: it
+// is driven by the codes codex.yaml declares and nothing else, so an ordinary
+// protocol failure still surfaces as an error instead of silently abandoning a
+// perfectly live session and starting a new one behind the user's back.
+func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
+	sockPath, seen := scriptedServer(t, []scriptedCall{
+		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
+		{method: "turn/start", errCode: -32602, errMessage: "invalid params"},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	drv, err := apidriver.Start(ctx, d, sockPath)
+	require.NoError(t, err)
+	defer drv.Close()
+
+	_, err = drv.Dispatch(ctx, "prompt", map[string]string{
+		"session_id": "", "cwd": "/work", "text": "hi",
+		"permission.sandbox": "workspace-write", "permission.approvalPolicy": "on-request",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid params")
+	require.Len(t, *seen, 2, "a code the descriptor does not declare must not mint a new session")
 }

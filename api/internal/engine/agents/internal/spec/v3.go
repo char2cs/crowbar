@@ -39,6 +39,13 @@ type APISpec struct {
 	// structured protocol and the terminal pane with no screen scraping.
 	Attach    []string          `yaml:"attach"`
 	Handshake map[string]string `yaml:"handshake"`
+	// SessionLostCodes are the protocol error codes that mean "the session you
+	// named does not exist any more" — the one failure a caller must not treat
+	// as fatal, because the session can be re-established from scratch. Which
+	// codes carry that meaning is a property of the provider's own server, so
+	// it is declared here as DATA; apidriver only ever compares numbers.
+	// Empty (any hooks-only descriptor) disables the recovery entirely.
+	SessionLostCodes []int `yaml:"session_lost_codes"`
 }
 
 type HooksWire struct {

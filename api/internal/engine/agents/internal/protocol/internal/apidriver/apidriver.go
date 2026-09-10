@@ -7,7 +7,9 @@ package apidriver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/mapping"
@@ -43,9 +45,18 @@ type Driver struct {
 	// step of its own to capture from) can still reference it. A codex
 	// interrupt needs the turn/start it never ran itself; this is how it gets
 	// it without Crowbar's code knowing turns exist.
+	//
+	// birth is the value set the FIRST establish on this connection ran with.
+	// A rebind (see establishFresh) has to re-run the Fresh steps long after
+	// that call returned, and the caller driving it by then is a plain message
+	// push carrying only session_id/cwd/text — none of the sandbox, approval
+	// policy or handoff context a fresh session's opening call must send. Kept
+	// here so the replacement session is born with the SAME settings the
+	// original was, instead of a blank-argument thread the provider refuses.
 	mu          sync.Mutex
 	established bool
 	remembered  map[string]string
+	birth       map[string]string
 }
 
 // Start dials socketPath, runs the descriptor's declared handshake call, sends
@@ -179,25 +190,103 @@ func (drv *Driver) EstablishSession(
 		return fillBlanksFromRemembered(out, remembered), nil
 	}
 
+	drv.mu.Lock()
+	if drv.birth == nil {
+		drv.birth = cloneValues(values)
+	}
+	drv.mu.Unlock()
+
+	resuming := out["session_id"] != ""
 	steps := ev.Resume
-	if out["session_id"] == "" {
+	if !resuming {
 		steps = ev.Fresh
 	}
 	if err := drv.runSteps(ctx, steps, out); err != nil {
-		return nil, err
+		// A resume that fails because the session is GONE is not a fatal error:
+		// the id came from a prior life of this chat and the provider has since
+		// forgotten it, so no amount of retrying that id can ever work. Left
+		// fatal (what this did before), the caller tears the connection down and
+		// every later spawn re-runs the same doomed resume against the same dead
+		// id forever — the chat can never speak over this transport again.
+		// Confirmed live, four times over, in one evening's daemon log.
+		if !resuming || !drv.sessionLost(err) {
+			return nil, err
+		}
+		slog.WarnContext(ctx, "apidriver: session is gone; establishing a replacement",
+			"provider", drv.d.ID, "event", canonical, "lost_session_id", out["session_id"], "err", err)
+		return drv.establishFresh(ctx, ev, values)
 	}
-	if out["session_id"] != "" {
-		drv.mu.Lock()
-		drv.established = true
-		// Resume's own steps declare no capture: (only Fresh's thread/start
-		// does) — session_id survives Resume's runSteps only because it was
-		// already non-empty going IN, from the caller's own prior-session
-		// value. Remember it explicitly here too, or a LATER call on this
-		// SAME connection with a blank caller value (see the established
-		// branch above) has nothing to fall back to.
-		drv.remembered["session_id"] = out["session_id"]
-		drv.mu.Unlock()
+	drv.markEstablished(out)
+	return out, nil
+}
+
+// markEstablished latches this connection as established and remembers the
+// session id it settled on.
+//
+// Resume's own steps declare no capture: (only Fresh's thread/start does) —
+// session_id survives Resume's runSteps only because it was already non-empty
+// going IN, from the caller's own prior-session value. Remembered explicitly
+// here too, or a LATER call on this SAME connection with a blank caller value
+// (see EstablishSession's established branch) has nothing to fall back to.
+func (drv *Driver) markEstablished(out map[string]string) {
+	if out["session_id"] == "" {
+		return
 	}
+	drv.mu.Lock()
+	defer drv.mu.Unlock()
+	drv.established = true
+	drv.remembered["session_id"] = out["session_id"]
+}
+
+// sessionLost reports whether err is the provider saying the session id we
+// named does not exist any more — matched on the numeric protocol code the
+// DESCRIPTOR declares (runtime.api.session_lost_codes), never on the message
+// text, which is the provider's own wording and has no business being known
+// here. A descriptor that declares no codes never recovers, it just fails.
+func (drv *Driver) sessionLost(err error) bool {
+	var callErr *wsrpc.CallError
+	if !errors.As(err, &callErr) {
+		return false
+	}
+	for _, code := range drv.d.Runtime.API.SessionLostCodes {
+		if code == callErr.Code {
+			return true
+		}
+	}
+	return false
+}
+
+// establishFresh abandons whatever session this connection thought it had and
+// mints a genuinely new one by running the SAME Fresh steps a chat's
+// first-ever message runs — the one path that cannot depend on the provider
+// still remembering anything.
+//
+// The value set is birth (the settings the original session was born with:
+// sandbox, approval policy, handoff context) overlaid with the caller's
+// current values (the text actually being sent), minus session_id — blanking
+// it is what makes this Fresh rather than another doomed Resume.
+//
+// remembered is cleared wholesale, not just of session_id: every other field
+// in it (turn_id, most of all) was captured from the dead session and would
+// otherwise be handed to a Send against the new one, which is a different kind
+// of wrong answer than simply not knowing it yet.
+func (drv *Driver) establishFresh(
+	ctx context.Context, ev spec.EventSpec, values map[string]string,
+) (map[string]string, error) {
+	drv.mu.Lock()
+	out := cloneValues(drv.birth)
+	drv.established = false
+	drv.remembered = map[string]string{}
+	drv.mu.Unlock()
+
+	for k, v := range values {
+		out[k] = v
+	}
+	out["session_id"] = ""
+	if err := drv.runSteps(ctx, ev.Fresh, out); err != nil {
+		return nil, fmt.Errorf("apidriver: %s: establish replacement session: %w", drv.d.ID, err)
+	}
+	drv.markEstablished(out)
 	return out, nil
 }
 
@@ -220,6 +309,15 @@ func fillBlanksFromRemembered(out, remembered map[string]string) map[string]stri
 // Dispatch establishes canonical's session if this connection has not already
 // (see EstablishSession), then runs its Action steps — the actual "do the
 // thing" call (turn/start), always last, always run.
+//
+// The established latch is a claim about THIS connection's own history, never
+// a fact about the provider: it is set once and nothing on the wire can clear
+// it. So a session that dies after it was set leaves every later Action
+// naming a thread that is gone, forever — the message is refused, the caller
+// records the delivery as uncertain, and the chat wedges with nothing
+// streaming and no way back. An Action refused for exactly that reason is
+// therefore retried ONCE against a replacement session, which is the only
+// outcome that is not either a lie or a dead end.
 func (drv *Driver) Dispatch(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {
@@ -227,10 +325,25 @@ func (drv *Driver) Dispatch(
 	if err != nil {
 		return nil, err
 	}
-	if err := drv.runSteps(ctx, drv.d.Events[canonical].Action, out); err != nil {
+	action := drv.d.Events[canonical].Action
+	err = drv.runSteps(ctx, action, out)
+	if err == nil {
+		return out, nil
+	}
+	if !drv.sessionLost(err) {
 		return nil, err
 	}
-	return out, nil
+	slog.WarnContext(ctx, "apidriver: session is gone under an established connection; rebinding",
+		"provider", drv.d.ID, "event", canonical, "lost_session_id", out["session_id"], "err", err)
+
+	rebound, rebindErr := drv.establishFresh(ctx, drv.d.Events[canonical], values)
+	if rebindErr != nil {
+		return nil, fmt.Errorf("%w (after %v)", rebindErr, err)
+	}
+	if err := drv.runSteps(ctx, action, rebound); err != nil {
+		return nil, err
+	}
+	return rebound, nil
 }
 
 // InjectAt runs the descriptor's inject step declared for lifecycle moment at
