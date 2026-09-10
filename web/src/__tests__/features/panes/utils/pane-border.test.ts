@@ -179,8 +179,15 @@ describe('buildPaneContentStyle — right sidebar (mirror)', () => {
 // one beside it and two neighbours sit 8px apart on either axis. Right and
 // bottom give it up at the window, where the pane is meant to run into the
 // frame." Task 1 measured this live as 0px everywhere — no gutter mechanism
-// existed at all. Gated by the exact same we(edge)/isWindowEdge test the
-// border/radius already use, so a window edge always reads 0 on every axis.
+// existed at all.
+//
+// Left/right depart from that "same test as border/radius" rule: the gutter
+// drops whenever `position.atLeft`/`atRight` is true — a real window edge OR
+// a side the sidebar is shielding — so the pane sits flush against the
+// sidebar with no gap, even though its rounded corner and border stay put
+// there (border/radius are still gated on the stricter we(edge)/isWindowEdge
+// test). Only an interior split neighbour, touching neither boundary, keeps
+// the 4px.
 //
 // One deliberate departure from §7.4: the pane actually touching the
 // window's top (atTop) now reserves the same inset the header row's own
@@ -193,9 +200,9 @@ describe('buildPaneContentStyle — right sidebar (mirror)', () => {
 describe('buildPaneContentStyle — gutter (§7.4)', () => {
   const sidebar = 'left' as const
 
-  it('single pane: header-icon inset above (atTop), 4px beside the (open) sidebar, 0 at the window', () => {
+  it('single pane: header-icon inset above (atTop), flush against the (open) sidebar and the window', () => {
     const s = buildPaneContentStyle(full, sidebar, false)
-    expect(s.marginLeft).toBe('4px') // chrome side — not the window frame
+    expect(s.marginLeft).toBe('0') // chrome side — sits flush against the sidebar, no gap
     expect(s.marginTop).toBe('8px') // atTop — matches the header row's icon inset (macOS: (44-28)/2)
     expect(s.marginRight).toBe('0') // window edge — gives it up
     expect(s.marginBottom).toBe('0') // window edge — gives it up
@@ -220,9 +227,9 @@ describe('buildPaneContentStyle — gutter (§7.4)', () => {
     expect(s.marginLeft).toBe('0')
   })
 
-  it('right sidebar (mirror): 4px beside it, 0 on the true left window edge', () => {
+  it('right sidebar (mirror): flush on both the chrome side and the true left window edge', () => {
     const s = buildPaneContentStyle(full, 'right', false)
-    expect(s.marginRight).toBe('4px') // chrome side
+    expect(s.marginRight).toBe('0') // chrome side — sits flush against the sidebar
     expect(s.marginLeft).toBe('0') // window edge
   })
 })

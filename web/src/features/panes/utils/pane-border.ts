@@ -49,11 +49,13 @@ export function buildPaneContentStyle(
   const NONE = 'none'
   const R = 'var(--radius-lg)'
   const ZERO = '0'
-  // §7.4: 4px inset on every edge, given up wherever the pane actually meets
-  // the window frame — the same we(edge) test the border/radius above use, so
-  // top (never a window edge) and the sidebar-shielded side always keep it,
-  // while a real window edge runs flush. Two neighbours across a split each
-  // keep their own facing edge's 4px, landing 8px apart.
+  // §7.4: 4px inset on every edge, given up wherever the pane touches the
+  // outer boundary of the layout area at all — a real window edge OR a side
+  // the sidebar is shielding (radius/border stay put there; only the gutter
+  // drops, so the sidebar and the pane sit flush with no gap between them).
+  // Top has no shielding concept, so it always keeps its own inset. Two
+  // neighbours across a split (touching neither boundary) each keep their
+  // own facing edge's 4px, landing 8px apart.
   const GUTTER = '4px'
   // The pane actually touching the window's top — not a split neighbour
   // stacked below one — matches the gap the header row's OWN icons (traffic
@@ -74,9 +76,9 @@ export function buildPaneContentStyle(
     borderTopRightRadius: we('right') ? ZERO : R,
     borderBottomLeftRadius: we('left') || we('bottom') ? ZERO : R,
     borderBottomRightRadius: we('right') || we('bottom') ? ZERO : R,
-    marginLeft: we('left') ? ZERO : GUTTER,
+    marginLeft: position.atLeft ? ZERO : GUTTER,
     marginTop: we('top') ? ZERO : TOP_GUTTER,
-    marginRight: we('right') ? ZERO : GUTTER,
+    marginRight: position.atRight ? ZERO : GUTTER,
     marginBottom: we('bottom') ? ZERO : GUTTER,
   }
 }

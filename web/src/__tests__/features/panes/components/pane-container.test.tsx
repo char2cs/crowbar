@@ -951,15 +951,17 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
 
     // Named corners, so a regression here reads as "which corner broke," not
     // just "some style string changed": left/top are shielded/never-edge and
-    // stay rounded+inset; right/bottom are real window edges and square off —
-    // and the tab bar (inside sharedBox) is enclosed by all of it.
+    // stay rounded; right/bottom are real window edges and square off — and
+    // the tab bar (inside sharedBox) is enclosed by all of it. Left sits
+    // flush against the sidebar (no gutter) even though it stays rounded —
+    // only top keeps its own inset.
     expect(sharedBox.style.borderTopLeftRadius).toBe('var(--radius-lg)')
     // jsdom's CSSOM normalizes a bare '0' length to '0px' on read-back (the
     // object buildPaneContentStyle returns, asserted unitless in
     // pane-border.test.ts, is unaffected — this is purely how the DOM
     // serializes it once assigned).
     expect(sharedBox.style.borderTopRightRadius).toBe('0px')
-    expect(sharedBox.style.marginLeft).toBe('4px')
+    expect(sharedBox.style.marginLeft).toBe('0px')
     expect(sharedBox.style.marginRight).toBe('0px')
   })
 
