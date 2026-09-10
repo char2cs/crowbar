@@ -323,7 +323,20 @@ export function AgentChatView({
     // this, so `playArrival` no-ops for every ordinary open.
     playArrival(node, arrivalOriginRef.current)
     arrivalOriginRef.current = null
-    const report = () => setDockHeight(node.getBoundingClientRect().height)
+    // A ZERO here is never the dock's height, only the absence of a box: a
+    // workspace switched away from is retained but `display:none`
+    // (workspace-slot-style.ts), which fires this observer for every element
+    // under it at once. Publishing that as `--agent-dock-h` collapsed
+    // `.scroll`'s own bottom reservation, so the transcript came back from
+    // every workspace round-trip 86px shorter than it left, the offset the
+    // browser restores got clamped to that shorter range, and the transcript
+    // then glided back up to the bottom in view. The real unmount — the blank
+    // surface dropping the dock entirely — reports 0 through the `!node` branch
+    // above, which is the only place it means anything.
+    const report = () => {
+      const height = node.getBoundingClientRect().height
+      if (height > 0) setDockHeight(height)
+    }
     report()
     const observer = new ResizeObserver(report)
     // False positive: this IS the cleanup path. dockRef is a stable ref callback

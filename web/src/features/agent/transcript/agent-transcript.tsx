@@ -189,6 +189,35 @@ export function measureRowHeight(el: Element): number {
   return Math.round(el.getBoundingClientRect().height)
 }
 
+/**
+ * The virtualizer's own `measureElement`, with the one reading that is never a
+ * row height refused.
+ *
+ * A workspace switched away from is retained but `display:none`
+ * (workspace-slot-style.ts), so every row in it loses its box at the same
+ * instant and virtual-core's per-row ResizeObserver reports 0 for all of them.
+ * `resizeItem` has no zero-guard, so that writes 0 over the real height of
+ * every row the window was holding and the transcript's total size collapses —
+ * measured live on a 30-turn chat, 8329px of content came back from one
+ * workspace round-trip as 5907. Coming back to a scrollable range far shorter
+ * than the one the reader left CLAMPS the offset the browser restores, which is
+ * what left a bottom-anchored reader 2400px short of the bottom with a ~740ms
+ * glide to climb back.
+ *
+ * A row with no box has not been re-measured at all; its last real height is
+ * the honest answer, and virtual-core exposes exactly that cache.
+ */
+export function measureRowHeightOrCached(
+  el: HTMLDivElement,
+  _entry: ResizeObserverEntry | undefined,
+  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+): number {
+  const height = measureRowHeight(el)
+  if (height > 0) return height
+  const key = instance.options.getItemKey(instance.indexFromElement(el))
+  return instance.itemSizeCache.get(key) ?? height
+}
+
 /** An unmeasured row's opening guess FLOOR — a short assistant reply's real
  *  shape (padding + one prose line + turnbar + its own group gap), not 64,
  *  because a cold open's `scrollTop = scrollHeight` runs against this before
@@ -581,7 +610,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     getScrollElement: () => anchor.scrollRef.current,
     estimateSize: (index) => estimateRowHeight(rows[index]),
     overscan: 12,
-    measureElement: measureRowHeight,
+    measureElement: measureRowHeightOrCached,
     getItemKey,
     observeElementRect: observeScrollRect,
     // Off by design, not a default left alone. `measureElement`'s ref fires
