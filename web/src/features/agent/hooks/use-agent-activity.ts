@@ -46,6 +46,10 @@ export function useAgentActivity(
   const awaitingAnswer = activity.choices.some((choice) => choice.pending)
   const live = working || compacting || awaitingAnswer
   const previousLive = useRef(live)
+  // Written by the falling-edge poll below, cleared by that SAME effect run's own
+  // cleanup — a ref rather than a closure-local `let` so the pending timer is
+  // reachable from cleanup even though it is only assigned inside the async chain.
+  const fallingEdgeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const read = useCallback(
     async (signal: AbortSignal): Promise<AgentActivity | undefined> => {
@@ -77,6 +81,7 @@ export function useAgentActivity(
     return () => controller.abort()
   }, [visible, read])
 
+  // react-doctor-disable-next-line effect-needs-cleanup -- every path cleans up: the falling-edge branch's `cancelled` flag is checked immediately after each `await read(...)` before a next setTimeout is ever scheduled, and its own cleanup both clears fallingEdgeTimer.current and aborts the in-flight read; the two other branches return plain clearInterval/abort cleanups. Tracer can't follow a timer assigned inside a nested async closure.
   useEffect(() => {
     if (!visible) return
     const controller = new AbortController()
@@ -94,19 +99,21 @@ export function useAgentActivity(
       // as the response itself says something is still open.
       if (wasLive) {
         let cancelled = false
-        let timer: ReturnType<typeof setTimeout> | undefined
         const poll = async (attempt: number) => {
           const result = await read(controller.signal)
           if (cancelled || !result) return
           const stillOpen = runningTools(result).length > 0 || runningSubagents(result) > 0
           if (stillOpen && attempt < FALLING_EDGE_MAX_READS) {
-            timer = setTimeout(() => void poll(attempt + 1), FALLING_EDGE_RETRY_MS)
+            fallingEdgeTimer.current = setTimeout(
+              () => void poll(attempt + 1),
+              FALLING_EDGE_RETRY_MS,
+            )
           }
         }
         void poll(1)
         return () => {
           cancelled = true
-          clearTimeout(timer)
+          clearTimeout(fallingEdgeTimer.current)
           controller.abort()
         }
       }
