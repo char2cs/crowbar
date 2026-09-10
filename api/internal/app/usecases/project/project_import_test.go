@@ -967,6 +967,7 @@ func TestImportRepo_AdoptsDefaultBranchWorkspace(
 func TestImportRepo_AdoptionFailure_RollsBackRepo(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
+	nodes := mocks.NewNodePlacements()
 	ws := mocks.NewWorkspaceRepo()
 	git := mocks.NewGitEngine()
 	prov := mocks.NewProviderEngine()
@@ -980,6 +981,7 @@ func TestImportRepo_AdoptionFailure_RollsBackRepo(t *testing.T) {
 	uc := newImportUsecase(project.ImportDeps{
 		Projects:   projects,
 		Repos:      repos,
+		Nodes:      nodes,
 		Workspaces: ws,
 		Git:        git,
 		Provider:   prov,
@@ -996,6 +998,12 @@ func TestImportRepo_AdoptionFailure_RollsBackRepo(t *testing.T) {
 	assert.Empty(t, repos.Saved,
 		"the repo row must be rolled back so retries cannot accumulate orphaned repos")
 	assert.Empty(t, ws.Created)
+	// The repo's own Node row was minted BEFORE the adoption failure (see
+	// importOneRepo's own doc: it shares the same rollback) — left behind, it
+	// is a permanently orphaned position row a retry cannot ever reclaim,
+	// since the retry mints a Node under a FRESH repo id.
+	assert.Empty(t, nodes.Rows,
+		"the repo's own Node row must be rolled back too, or it's a permanently orphaned position row")
 }
 
 // TestImportRepo_SetsGithubAvatarBestEffort pins that adding a repo with no

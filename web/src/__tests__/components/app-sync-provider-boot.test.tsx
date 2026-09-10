@@ -149,7 +149,14 @@ const folderDTO = (
 })
 
 /** Live frame handlers the code under test registered, by endpoint. */
-const handlers = new Map<string, (data: unknown) => void>()
+// A Set per endpoint, not one slot: the real wsManager multiplexes several
+// subscribers onto the SAME endpoint (its own `channels`/`callbacks` Set —
+// app-sync-provider.tsx's per-repo tree subscription and its "workspaces"
+// entity-stream now both subscribe the identical .../chats/ws URL). A single-
+// slot mock let the second subscriber silently REPLACE the first's handler,
+// which is exactly backward from the real fan-out contract this file exists
+// to exercise end to end.
+const handlers = new Map<string, Set<(data: unknown) => void>>()
 
 const repoIds = (): string[] =>
   useSidebarStore
@@ -171,10 +178,11 @@ const folderIdsOf = (repoId: string): string[] =>
 
 /** Deliver a live frame on an endpoint and let the resulting merge commit. */
 async function push(endpoint: string, frame: unknown): Promise<void> {
-  const handler = handlers.get(endpoint)
-  expect(handler, `no live subscription on ${endpoint}`).toBeDefined()
+  const forEndpoint = handlers.get(endpoint)
+  expect(forEndpoint, `no live subscription on ${endpoint}`).toBeDefined()
+  expect(forEndpoint!.size, `no live subscription on ${endpoint}`).toBeGreaterThan(0)
   await act(async () => {
-    handler!(frame)
+    for (const handler of forEndpoint!) handler(frame)
   })
 }
 
@@ -184,8 +192,10 @@ beforeEach(async () => {
   resetDB()
   globalThis.indexedDB = new IDBFactory()
   subscribe.mockImplementation((endpoint: string, cb: (data: unknown) => void) => {
-    handlers.set(endpoint, cb)
-    return () => handlers.delete(endpoint)
+    const forEndpoint = handlers.get(endpoint) ?? new Set<(data: unknown) => void>()
+    handlers.set(endpoint, forEndpoint)
+    forEndpoint.add(cb)
+    return () => forEndpoint.delete(cb)
   })
   fetchRepos.mockImplementation((projectId: string) =>
     Promise.resolve(projectId === 'p1' ? [repoDTO('r1', 'p1')] : [repoDTO('r2', 'p2')]),
@@ -366,6 +376,35 @@ describe('AppSyncProvider boot, end to end', () => {
     expect(workspaceIdsOf('r1')).toEqual(['w1'])
     const w1 = useSidebarStore.getState().repos[0].workspaces.find((w) => w.id === 'w1')!
     expect(w1.working).toBe(false)
+  })
+
+  // TestRegression: the tree's OWN reseed used to depend entirely on
+  // useFolderSignalStore's bump signal, which only ever fires from
+  // use-workspace-agent-chats-stream.ts — a hook mounted per OPEN WORKSPACE
+  // TAB. Dragging a row IN THE SIDEBAR needs no tab open at all, so a fork
+  // with no open tab PATCHed 200 and the sidebar never repainted without a
+  // manual reload (caught live). This boot has NO workspace-view mounted
+  // anywhere — the ONLY way this reseed can happen is app-sync-provider.tsx's
+  // own direct subscription to the repo's chats/ws feed, added alongside the
+  // bump-signal one specifically because that one is not always there.
+  it('a structural chat frame reseeds the tree with no workspace tab open at all', async () => {
+    await boot()
+    await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1']))
+
+    fetchFolders.mockResolvedValue([
+      folderDTO('f1', 'r1', 'p1', { name: 'spikes' }),
+      folderDTO('f2', 'r1', 'p1', { name: 'nested', parentId: 'f1', order: 1 }),
+    ])
+    // A plain chat placement frame — no folderId, no bump() call, no
+    // workspace-view hook anywhere in this test — is what a sidebar drag on
+    // an ordinary fork actually emits (PushAgentChatFolder's own doc: "the
+    // frame names the folder and nothing more", used for a chat's own
+    // placement too since 2026-09-09).
+    await push('/v0/projects/p1/repos/r1/chats/ws', {
+      chatId: 'fork-chat',
+      kind: 'placement_set',
+    })
+    await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1', 'f2']))
   })
 
   it('a reconnect sentinel reseeds without emptying the tree', async () => {

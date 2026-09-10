@@ -2,11 +2,14 @@ package chat
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
@@ -180,6 +183,18 @@ type Usecase struct {
 	agents      engineagents.Agents
 	ws          WorkspaceReader
 	worktree    WorktreeCreator
+	// folders/nodes are the Folder+Node ports 2026-09-08
+	// sidebar-placement-unification Task 8's own review fix round added:
+	// own_worktree.go/promote.go/repo_scope.go/cwd_resolver.go all walk the
+	// chat/folder placement tree looking for a fork parent, a cwd, or a
+	// repo-scoped chat's ground workspace, and a folder is never a Chat row
+	// any more (home-scoped since Task 5, repo-scoped too since Task 8) — a
+	// raw Chats.ListChats/ListByWorkspace read alone can no longer see past
+	// one. May be nil (a caller with neither wired, e.g. a narrow test
+	// double); every consumer degrades to the pre-Task-8 Chat-only walk
+	// rather than failing.
+	folders TreeFolders
+	nodes   TreeNodes
 	// answers is the desk of relays currently BLOCKED on a human. It is in memory
 	// because a slot describes a live hook process holding a live provider gate
 	// open; see answers.go.
@@ -233,11 +248,21 @@ func (u *Usecase) RenameByRunner(
 }
 
 // PurgeChat hard-deletes a chat and retires every CLI still on it.
+//
+// tree.Agent's contract (this is one of its implementations) is apperr.ErrNotFound
+// for "nothing to purge" — conversations.PurgeChat answers not-found in its own
+// repository-local sentinel instead, since it has never had a reason to know about
+// apperr. This is the seam where that gets translated, so purgeAll's tolerance for
+// a chat that never minted an aggregate actually has something to match against.
 func (u *Usecase) PurgeChat(
 	ctx context.Context,
 	chatID string,
 ) error {
-	return u.conversations.PurgeChat(ctx, chatID)
+	err := u.conversations.PurgeChat(ctx, chatID)
+	if errors.Is(err, agentchat.ErrNotFound) {
+		return fmt.Errorf("%w: %w", err, apperr.ErrNotFound)
+	}
+	return err
 }
 
 // ListChats returns every chat in the daemon.

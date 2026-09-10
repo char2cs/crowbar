@@ -10,7 +10,11 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   deleteChat: (...a: unknown[]) => deleteChat(...a),
 }))
 vi.mock('@/lib/api', () => ({ deleteProject: vi.fn(), deleteRepo: vi.fn() }))
-vi.mock('@/lib/api/sidebar-placement', () => ({ deleteFolder: vi.fn() }))
+const deleteHomeFolder = vi.fn().mockResolvedValue([])
+vi.mock('@/lib/api/sidebar-placement', () => ({
+  deleteFolder: vi.fn().mockResolvedValue([]),
+  deleteHomeFolder: (...a: unknown[]) => deleteHomeFolder(...a),
+}))
 
 const toastError = vi.fn()
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -26,6 +30,7 @@ import {
 } from '@/lib/store/sidebar-removal'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 
 /**
  * COMMITTING A REMOVAL — the one step that destroys anything.
@@ -89,11 +94,13 @@ const context = { activeWorkspaceId: '', navigate: vi.fn() }
 
 beforeEach(() => {
   deleteChat.mockClear().mockResolvedValue(undefined)
+  deleteHomeFolder.mockClear().mockResolvedValue([])
   toastError.mockClear()
   __resetWorkspaceScopesForTest()
   useRemovalTrayStore.setState(getInitialRemovalState())
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set<string>() } as never)
   useSidebarStore.setState({ repos: [repo()] })
+  useHomeTreeStore.setState({ trees: {} })
 })
 
 describe('committing a workspace removal', () => {
@@ -186,6 +193,91 @@ describe('committing a workspace removal', () => {
     await commitRemoval(entry(), context)
 
     expect(deleteChat).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledOnce()
+  })
+})
+
+// Regression: project-home chat/folder removal previously never reached
+// this module at all (`handleTrash` refused it outright, reported live as
+// "Can't delete X yet") — `removal-plan.ts` now builds a real draft for one
+// (`repoId: ''`), and these pin that THIS module fires the right DELETE for
+// it: `deleteChat`/`deleteHomeFolder` scoped by project/home-workspace, not
+// the repo-scoped calls a `repoId: ''` entry would otherwise 404 or (worse,
+// per handleTrash's own doc on the folder-list bleed) misresolve against.
+describe('committing a project-home removal', () => {
+  it('a home chat deletes through its own home workspace, never bumping a repo signal that has none to bump', async () => {
+    useHomeTreeStore.setState({
+      trees: { p1: { chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }], folders: [] } },
+    })
+    const before = useFolderSignalStore.getState().generations['r1'] ?? 0
+
+    await commitRemoval(
+      entry({
+        kind: 'chat',
+        id: 'c1',
+        projectId: 'p1',
+        repoId: '',
+        wsId: 'home-ws-1',
+        hiddenIds: ['c1'],
+      }),
+      context,
+    )
+
+    expect(deleteChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'c1')
+    expect(toastError).not.toHaveBeenCalled()
+    // Nothing to bump for a repo id that never existed — bumpRepoTree's own
+    // no-op guard, not a missing call.
+    expect(useFolderSignalStore.getState().generations['r1'] ?? 0).toBe(before)
+  })
+
+  it('a home folder deletes through deleteHomeFolder, and its tombstone is applied directly (no live channel to wait on)', async () => {
+    useHomeTreeStore.setState({
+      trees: { p1: { chats: [], folders: [{ id: 'f1', repoId: '', name: 'Notes', order: 0 }] } },
+    })
+
+    await commitRemoval(
+      entry({
+        kind: 'folder',
+        id: 'f1',
+        label: 'Notes',
+        projectId: 'p1',
+        repoId: '',
+        wsId: '',
+        hiddenIds: ['f1'],
+      }),
+      context,
+    )
+
+    expect(deleteHomeFolder).toHaveBeenCalledExactlyOnceWith('p1', 'f1')
+    expect(useHomeTreeStore.getState().trees.p1?.folders).toEqual([])
+  })
+
+  it('un-hides a home chat and says why when its delete is refused', async () => {
+    deleteChat.mockRejectedValueOnce(new Error('not found'))
+    useHomeTreeStore.setState({
+      trees: { p1: { chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }], folders: [] } },
+    })
+    useRemovalTrayStore.getState().hold([
+      {
+        kind: 'chat',
+        id: 'c1',
+        label: 't',
+        projectId: 'p1',
+        repoId: '',
+        wsId: 'home-ws-1',
+        providerIcon: '',
+        hiddenIds: ['c1'],
+        extra: 0,
+        fallbackWsId: null,
+      },
+    ])
+
+    await commitRemoval(
+      entry({ kind: 'chat', id: 'c1', projectId: 'p1', repoId: '', wsId: 'home-ws-1', hiddenIds: ['c1'] }),
+      context,
+    )
+
+    expect(useRemovalTrayStore.getState().hiddenIds.has('c1')).toBe(false)
     expect(toastError).toHaveBeenCalledOnce()
   })
 })

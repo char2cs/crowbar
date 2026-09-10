@@ -26,6 +26,7 @@ import (
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -69,10 +70,12 @@ func newContainerDeps(
 		newTestAsynx[domain.Chat](t, adapters.AgentChatES()),
 		newTestAsynx[domain.ChatActivity](t, adapters.AgentActivityES()),
 		newTestAsynx[agents.Runner](t, adapters.AgentRunnerES()),
+		newTestAsynx[domain.Node](t, adapters.NodeES()),
 		nil, // git conflict-checker not exercised by this test
 		nil, // terminateSession not exercised by this test
 		noChatWatch,
 		noRunnerWatch,
+		noNodeWatch,
 	)
 	require.NoError(t, err)
 
@@ -112,7 +115,7 @@ func newContainerDeps(
 func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
 
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	assert.NotNil(t, c.Project)
@@ -145,7 +148,7 @@ func TestContainer_New_BuildsEveryUsecase(t *testing.T) {
 // the token is arbitrary and the answer is exactly what the daemon advertises.
 func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	out, send, err := c.AgentProvider.DispatchMCP(context.Background(), "RUN", "any-token",
@@ -193,7 +196,7 @@ func TestContainer_ProductionMCPSurfaceAdvertisesEveryTool(t *testing.T) {
 // for each port.
 func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	minter, err := agentusecase.NewTokenMinter()
@@ -233,7 +236,7 @@ func TestContainer_AgentToolDepsWireEveryToolGroup(t *testing.T) {
 // rejected call is counted too, and it is the datum this counter most exists for.
 func TestContainer_AgentToolMetricsAreReadableFromTheContainer(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	require.Empty(t, c.AgentToolMetrics(), "a daemon that has served no tool call has nothing to report")
@@ -298,7 +301,7 @@ func TestContainer_New_SurfacesAgentWiringError(t *testing.T) {
 	_, gormStores, eng := newContainerDeps(t)
 
 	_, err := usecases.New(&repositories.Container{}, gormStores, eng,
-		func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+		func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 
 	require.Error(t, err)
 }
@@ -340,7 +343,7 @@ func (stubReviewReaderForContainer) GetOutline(
 
 func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -368,7 +371,7 @@ func TestContainer_FileTree_DelegatesToRealFsEngine(t *testing.T) {
 // its own fixture with.
 func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkParent(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	root := t.TempDir()
@@ -395,7 +398,7 @@ func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkPare
 
 	creator := usecases.NewWorktreeChildCreatorForTest(c.Workspace)
 
-	child, err := creator.CreateChildWorkspace(context.Background(), parent.ID)
+	child, err := creator.CreateChildWorkspace(context.Background(), parent.ID, "")
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, child.WorktreePath,
@@ -406,7 +409,7 @@ func TestWorktreeChildCreator_ForcesARealWorktree_EvenFromAWorkspacelessForkPare
 
 func TestContainer_Import_ResolvesDefaultBranchViaRealGit(t *testing.T) {
 	repos, gormStores, eng := newContainerDeps(t)
-	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast)
+	c, err := usecases.New(repos, gormStores, eng, func() (string, error) { return t.TempDir(), nil }, noopThreadBroadcast, nil)
 	require.NoError(t, err)
 
 	root := t.TempDir()
@@ -453,3 +456,8 @@ func (containerStatusStub) GitStatus(
 // that fails to build), so `nil` here would break every container in this file.
 func noChatWatch(_ agentchat.ChatEvent)       {}
 func noRunnerWatch(_ agentrunner.RunnerEvent) {}
+
+// noNodeWatch is node's own announcement seam, spelled out for the same
+// readability reason noChatWatch/noRunnerWatch are — node's store (mirroring
+// agentchat's) tolerates a nil watch, unlike agentrunner's.
+func noNodeWatch(_ node.NodeEvent) {}

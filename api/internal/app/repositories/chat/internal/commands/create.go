@@ -42,10 +42,17 @@ func (c Create) Validate(current *domain.Chat) error {
 	return nil
 }
 
+// validChatType no longer accepts ChatTypeFolder (2026-09-08
+// sidebar-placement-unification Task 8) or ChatTypeBranch (Task 9): a folder
+// is a domain.Folder row now, home-scoped or repo-scoped alike, and a
+// workspace's own position is its Node{Kind:workspace} row — neither is ever
+// minted or retyped as a Chat aggregate any more.
 func validChatType(t domain.ChatType) bool {
 	switch t {
-	case domain.ChatTypeChat, domain.ChatTypeBranch, domain.ChatTypeFolder, domain.ChatTypeWorkflow:
+	case domain.ChatTypeChat, domain.ChatTypeWorkflow:
 		return true
+	case domain.ChatTypeFolder, domain.ChatTypeBranch:
+		return false
 	default:
 		return false
 	}

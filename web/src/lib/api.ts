@@ -323,6 +323,8 @@ function workspaceDTOFromWorktree(
     localPath: worktree.localPath ?? '',
     heldByPath: worktree.heldByPath ?? '',
     owningChatId: worktree.owningChatId,
+    folderId: worktree.folderId ?? '',
+    order: worktree.order ?? 0,
   }
 }
 

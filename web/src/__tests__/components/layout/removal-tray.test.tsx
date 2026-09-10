@@ -137,14 +137,14 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
     { id: 'b', branch: 'beta', status: 'new', age: '', order: 1 },
   ],
   folders: [{ id: 'f1', repoId: 'r1', name: 'spikes', order: 2 }],
-  // The `branch` row the boot backfill mints for the home workspace. The tree
-  // is only built for a repo whose chat seed has landed, and by then every
-  // home owns one — see rows-from-repo.ts's `branchRowIdFor`.
+  // The chat minted chat-first for the home workspace. The tree is only
+  // built for a repo whose chat seed has landed, and by then every home
+  // owns one — see rows-from-repo.ts's `resolveHomeOwnerId`.
   chats: [
     {
       id: 'w-default-row',
       repoId: 'r1',
-      type: 'branch',
+      ownsWorktree: true,
       workspaceId: 'w-default',
       title: '',
       order: 0,
@@ -173,10 +173,22 @@ function hold(...subjects: DragSubject[]) {
   })
 }
 
-const trayRow = () => document.querySelector('[data-removal-entry]') as HTMLElement
-
 /** The seconds a held row is showing. */
 const secs = () => document.querySelector('[data-removal-secs]')?.textContent
+
+/**
+ * A row transformed IN PLACE by a hold (sidebar-row.tsx's
+ * `RemovingSidebarRow`) — found through the countdown span it renders, never
+ * `[data-removal-entry]`: only a 'repo'/'project' entry still draws a
+ * separate `TrayRow` (removal-tray.tsx's own filter), so every other kind's
+ * held row lives wherever it always did in the tree. `heldRows()` (plural)
+ * exists because more than one row can be held at once.
+ */
+const heldRows = () =>
+  Array.from(document.querySelectorAll<HTMLElement>('[data-removal-secs]')).map(
+    (el) => el.closest('div') as HTMLElement,
+  )
+const heldRow = () => heldRows()[0]
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -219,14 +231,18 @@ afterEach(() => {
 })
 
 describe('holding a row', () => {
-  it('takes the row and its subtree off screen without deleting anything', () => {
+  it('keeps the row on screen, transformed in place, and takes only its subtree off', () => {
     render(<TestSidebar />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
+    // 'kid' (the subtree) is gone; 'alpha' itself stays — it has no
+    // `data-sidebar-row-label` while held (same convention as a pending
+    // create's own row), so `rows()` no longer lists it, but it is still on
+    // screen, now transformed.
     expect(rows()).toEqual(['crowbar', 'beta', 'spikes'])
     expect(deleteChat).not.toHaveBeenCalled()
-    expect(screen.getByText('Removing')).toBeInTheDocument()
+    expect(heldRow()?.textContent).toContain('alpha')
   })
 
   it('draws the row as an ordinary row, with a hairline draining under it', () => {
@@ -234,30 +250,29 @@ describe('holding a row', () => {
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
 
-    expect(trayRow().className).toContain('h-9')
-    expect(trayRow().textContent).toContain('alpha')
+    expect(heldRow()?.className).toContain('h-9')
+    expect(heldRow()?.textContent).toContain('alpha')
     // The subtree it takes with it.
-    expect(trayRow().textContent).toContain('+1')
-    expect(trayRow().querySelector('[data-removal-drain]')?.className).toContain(
+    expect(heldRow()?.textContent).toContain('+1')
+    expect(heldRow()?.querySelector('[data-removal-drain]')?.className).toContain(
       'animate-tray-drain',
     )
   })
 
   it('keeps each row in the face it wore in the tree', () => {
     // A branch is a git ref and reads in mono; a folder name is prose and does
-    // not. Changing typeface on the way into the tray would read as a different
-    // kind of thing at the one moment the user is deciding whether to keep it.
+    // not. Changing typeface on the way into its removing state would read as
+    // a different kind of thing at the one moment the user is deciding
+    // whether to keep it.
     render(<TestSidebar />)
 
     hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
-    expect(trayRow().querySelector('span.font-mono')).not.toBeNull()
-
     hold({ kind: 'folder', id: 'f1', repoId: 'r1' })
-    const folderLabel = [...document.querySelectorAll('[data-removal-entry]')]
-      .flatMap((row) => [...row.querySelectorAll('span')])
-      .find((el) => el.textContent === 'spikes')
-    expect(folderLabel?.className).toContain('font-sans')
-    expect(folderLabel?.className.split(/\s+/)).not.toContain('font-mono')
+
+    const branchRow = heldRows().find((r) => r.textContent?.includes('alpha'))
+    const folderRow = heldRows().find((r) => r.textContent?.includes('spikes'))
+    expect(branchRow?.querySelector('span.font-mono')).not.toBeNull()
+    expect(folderRow?.querySelector('span.font-mono')).toBeNull()
   })
 })
 

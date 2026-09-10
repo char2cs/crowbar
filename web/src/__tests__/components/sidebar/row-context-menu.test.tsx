@@ -31,7 +31,13 @@ vi.mock('@/lib/api/sidebar-placement', async (importOriginal) => ({
     shifted: [],
   }),
   createHomeFolder: vi.fn().mockResolvedValue({
-    folder: { id: 'home-folder-new', repoId: '', projectId: 'proj-1', name: 'New folder', order: 0 },
+    folder: {
+      id: 'home-folder-new',
+      repoId: '',
+      projectId: 'proj-1',
+      name: 'New folder',
+      order: 0,
+    },
     shifted: [],
   }),
 }))
@@ -76,7 +82,7 @@ const REPO: Repo = {
     {
       id: 'home-row',
       repoId: 'repo-1',
-      type: 'branch',
+      ownsWorktree: true,
       workspaceId: 'ws-home',
       title: '',
       order: 0,
@@ -84,17 +90,29 @@ const REPO: Repo = {
     {
       id: 'ws-2-row',
       repoId: 'repo-1',
-      type: 'branch',
+      ownsWorktree: true,
       workspaceId: 'ws-2',
       title: '',
       order: 1,
     },
+    // A plain thread — no `ownsWorktree`, no parent, no workspace ground —
+    // exactly what a chat row with no folder yet to right-click looks like.
+    {
+      id: 'thread-1',
+      repoId: 'repo-1',
+      ownsWorktree: false,
+      title: 'A thread',
+      order: 2,
+    },
   ],
 }
+/** A plain (repo-scoped) thread's row id, addendum's own reported gap: no
+ *  right-click path to create the first folder from a bare chat row. */
+const THREAD_ROW_ID = 'thread-1'
 
-/** The repo-home row's id: the owning `branch` chat, never `defaultWorkspaceId`. */
+/** The repo-home row's id: the owning chat, never `defaultWorkspaceId`. */
 const HOME_ROW_ID = 'home-row'
-/** A LOCKED branch row's id: likewise the owning `branch` chat, never `ws-2`. */
+/** A LOCKED branch row's id: likewise the owning chat, never `ws-2`. */
 const LOCKED_ROW_ID = 'ws-2-row'
 /** A regular (unlocked) fork keeps the workspace id — the one branch row whose
  *  two id spaces still coincide, and the reason a bug here stayed invisible. */
@@ -137,6 +155,22 @@ const homeFolderRow: SidebarRow = {
   hasView: false,
 }
 
+/** A plain (home-scoped) thread, same gap as `THREAD_ROW_ID` above but for a
+ *  project's home rather than a repo — likewise synthetic, since home rows
+ *  never come out of `rowsFromRepo`. */
+const HOME_THREAD_ROW_ID = 'home-thread-1'
+const homeThreadRow: SidebarRow = {
+  id: HOME_THREAD_ROW_ID,
+  kind: 'chat',
+  parentId: null,
+  order: 1,
+  label: 'A home thread',
+  ownsWorktree: false,
+  workspaceId: null,
+  working: false,
+  hasView: false,
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ ...getInitialState(), repos: [REPO] })
@@ -147,17 +181,24 @@ beforeEach(() => {
           {
             id: 'home-branch-chat',
             repoId: '',
-            type: 'branch',
+            ownsWorktree: true,
             workspaceId: 'home-ws-1',
             title: '',
             order: 0,
+          },
+          {
+            id: HOME_THREAD_ROW_ID,
+            repoId: '',
+            ownsWorktree: false,
+            title: 'A home thread',
+            order: 1,
           },
         ],
         folders: [{ id: HOME_FOLDER_ROW_ID, repoId: '', name: 'Home Folder', order: 0 }],
       },
     },
   })
-  rows = [...rowsFromRepo(REPO), homeFolderRow]
+  rows = [...rowsFromRepo(REPO), homeFolderRow, homeThreadRow]
 })
 
 describe('SidebarRowContextMenu', () => {
@@ -166,7 +207,15 @@ describe('SidebarRowContextMenu', () => {
   // the fixture must follow it rather than the other way round.
   it('is driven by rowsFromRepo’s real output, where a locked branch is id’d by its owning chat', () => {
     expect(rows.map((r) => r.id).sort()).toEqual(
-      [HOME_ROW_ID, FORK_ROW_ID, LOCKED_ROW_ID, 'folder-1', HOME_FOLDER_ROW_ID].sort(),
+      [
+        HOME_ROW_ID,
+        FORK_ROW_ID,
+        LOCKED_ROW_ID,
+        THREAD_ROW_ID,
+        'folder-1',
+        HOME_FOLDER_ROW_ID,
+        HOME_THREAD_ROW_ID,
+      ].sort(),
     )
     expect(rows.find((r) => r.id === LOCKED_ROW_ID)?.workspaceId).toBe('ws-2')
   })
@@ -265,6 +314,29 @@ describe('SidebarRowContextMenu', () => {
     rightClick(treeRef.current, HOME_ROW_ID)
     fireEvent.click(screen.getByText('New folder'))
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
+  })
+
+  // Reported live: right-clicking a plain (repo-scoped) chat row offered no
+  // "New folder" at all — the one item that used to require a branch/folder
+  // row to already exist, so a fresh tree with none yet had no row-level
+  // path to create the first one.
+  it('a plain repo-scoped chat row offers New folder, root-normalised (a bubble has no folder-anchor of its own)', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    expect(screen.getByText('New folder')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('New folder'))
+    expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
+  })
+
+  // Same gap, project-home side: a plain home chat rides no repo at all, so
+  // it goes through `performCreateHomeFolder` instead, same root-normalised
+  // parentId a home-scoped folder click already uses.
+  it('a plain home-scoped chat row offers New folder, HOME-scoped and root-normalised', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, HOME_THREAD_ROW_ID)
+    expect(screen.getByText('New folder')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('New folder'))
+    expect(sidebarPlacement.createHomeFolder).toHaveBeenCalledWith('proj-1', 'New folder', '')
   })
 
   it('clicking Rename calls onRename with the row id and closes the menu', () => {

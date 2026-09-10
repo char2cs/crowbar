@@ -6,16 +6,19 @@ import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
+import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { focusRecent, closeRecent } from '@/components/sidebar/lib/recents-actions'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import {
   handleOpen as openSidebarRow,
+  handleTrash,
   handleTrashProject as trashProject,
   handleCreate as createSidebarRow,
 } from './space-content-actions'
-import { applyPendingRemovals } from './removal-plan'
+import { applyPendingRemovals, attachRemovalState, descendantHiddenIds } from './removal-plan'
 import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -54,7 +57,11 @@ export function SidebarTreeSurface({
   // for removal must disappear from whichever project's panel renders it,
   // exactly as it disappeared from the one flat tree before.
   const allRepos = useSidebarStore((s) => s.repos)
-  const hiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
+  const removalEntries = useRemovalTrayStore((s) => s.entries)
+  // A held row's own PRIMARY id no longer needs hiding — it stays on screen,
+  // transformed in place (sidebar-row.tsx's `RemovingSidebarRow`) — only its
+  // cascade descendants still vanish outright (removal-plan.ts's own doc).
+  const hiddenIds = useMemo(() => descendantHiddenIds(removalEntries), [removalEntries])
   const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
   // ROWS come only from repos whose tree has actually been read back.
   //
@@ -90,28 +97,50 @@ export function SidebarTreeSurface({
         const homeWorkspaceId = getHomeWorkspaceId(project.id)
         const homeTree = homeTrees[project.id]
         // Mirrors `space-scroller.tsx`'s own `homeSeeded` guard: `rowsFromHome`
-        // throws without its owning branch chat, which a project whose home
-        // tree has not seeded yet (or was never resolved) does not have.
+        // degrades gracefully (never throws) while its owning chat has not
+        // resolved yet, so this only needs the tree itself to have seeded.
         if (!homeWorkspaceId || !homeTree) return []
-        const seeded = homeTree.chats.some(
-          (c) => c.type === 'branch' && c.workspaceId === homeWorkspaceId,
+        // A held home chat/folder's cascade descendants disappear the same
+        // way a held repo row's do via `applyPendingRemovals` above —
+        // filtered here rather than there, since a home tree is never part
+        // of `repos` for that projection to reach at all. The PRIMARY id
+        // stays (same `descendantHiddenIds` rule); `attachRemovalState`
+        // below marks it for the in-place transform.
+        return attachRemovalState(
+          rowsFromHome(
+            homeWorkspaceId,
+            homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
+            homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
+          ),
+          removalEntries,
         )
-        if (!seeded) return []
-        // Chrome-lookup only (rename dialog, context menu) — id-based, never
-        // sorted, so the repo-interleaved `order`/`parentId` correction
-        // `SpacePanel` applies for RENDERING is not needed here.
-        return rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders).rows
       }),
-    [projects, homeTrees],
+    [projects, homeTrees, hiddenIds, removalEntries],
+  )
+  // Every create in flight, drawn as a real row at the exact slot the
+  // finished create lands in (pending-creates.ts) — merged in here, the one
+  // place both `allRows` (chrome) and `rowsForProjectFn` (the actual render
+  // path) already converge, so neither needs its own copy of this logic.
+  const pendingEntries = usePendingCreatesStore((s) => s.entries)
+  const pendingRows = useMemo(() => rowsFromPending(pendingEntries), [pendingEntries])
+  // Marked for the SAME in-place transform as home rows above — computed
+  // once here and reused by both `allRows` (chrome) and `rowsForProjectFn`
+  // (the actual render path) rather than redone in each.
+  const repoRows = useMemo(
+    () => attachRemovalState(treeRepos.flatMap(rowsFromRepo), removalEntries),
+    [treeRepos, removalEntries],
   )
   const allRows = useMemo(
-    () => [...homeRows, ...treeRepos.flatMap(rowsFromRepo)],
-    [homeRows, treeRepos],
+    () => [...homeRows, ...repoRows, ...pendingRows],
+    [homeRows, repoRows, pendingRows],
   )
 
   const rowsForProjectFn = useCallback(
-    (projectId: string) => rowsForProject(treeRepos, projectId),
-    [treeRepos],
+    (projectId: string) => [
+      ...attachRemovalState(rowsForProject(treeRepos, projectId), removalEntries),
+      ...rowsFromPending(pendingEntries.filter((e) => e.projectId === projectId)),
+    ],
+    [treeRepos, removalEntries, pendingEntries],
   )
   const recentsForProjectFn = useCallback(
     (projectId: string) => recentsForProject(repos, projectId),
@@ -124,6 +153,20 @@ export function SidebarTreeSurface({
   const focusRecentEntry = useCallback(
     (entry: RecentsBandEntry) => focusRecent(entry, repos, navigate),
     [repos, navigate],
+  )
+  // The row's own X control (sidebar-row.tsx) — the same `handleTrash` the
+  // drag-to-trash gesture already calls, just reachable without a drag now.
+  // Refuses (a locked branch, a repo home, a workspace the live store no
+  // longer recognises) get the identical toast the drag path already shows,
+  // read off `allRows` since `handleTrash` only answers true/false, never a
+  // reason.
+  const onTrash = useCallback(
+    (id: string) => {
+      if (handleTrash(id)) return
+      const label = allRows.find((r) => r.id === id)?.label
+      toast.error(`Can't delete ${label || 'this row'} yet`)
+    },
+    [allRows],
   )
   // Spec §9's project-level trash, reached from the space header's overflow.
   // Says so rather than doing nothing when the tray refuses to hold the
@@ -148,14 +191,7 @@ export function SidebarTreeSurface({
           rowsForProject={rowsForProjectFn}
           recentsForProject={recentsForProjectFn}
           onOpen={openRow}
-          // Addendum §1/§2: the row no longer carries a trash button, so
-          // nothing here ever names a row to delete — deleting moves to a
-          // drag-to-trash gesture built elsewhere, on top of the same
-          // removal-tray machinery `DeleteConfirmDialog` used to front for a
-          // row click. `onTrash` stays a no-op rather than an optional prop
-          // because `SpaceScroller`'s own type still requires it, and that
-          // file is outside this fix's scope.
-          onTrash={() => {}}
+          onTrash={onTrash}
           onCreate={createSidebarRow}
           onFocusRecent={focusRecentEntry}
           onCloseRecent={closeRecent}

@@ -12,6 +12,31 @@ describe('InlineRenameInput', () => {
     expect(input.selectionEnd).toBe('feature-x'.length)
   })
 
+  // Regression: an empty naming input (a fork's create row) with no
+  // placeholder read as a chat box to type INTO rather than a name to give
+  // something — what got typed there became the branch's own name.
+  it('shows the placeholder only while defaultValue is empty', () => {
+    const { rerender } = render(
+      <InlineRenameInput
+        defaultValue=""
+        placeholder="branch-name"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'branch-name')
+
+    rerender(
+      <InlineRenameInput
+        defaultValue="already-named"
+        placeholder="branch-name"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('textbox')).toHaveValue('already-named')
+  })
+
   it('Enter confirms with the trimmed value', () => {
     const onConfirm = vi.fn()
     render(<InlineRenameInput defaultValue="old" onConfirm={onConfirm} onCancel={vi.fn()} />)

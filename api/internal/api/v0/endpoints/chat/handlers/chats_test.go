@@ -79,6 +79,34 @@ func TestCreate_ForwardsTheParentTheChatIsBornUnder(
 		tree.gotCreate2)
 }
 
+// TestRegression_Create_AnnouncesTheNewChatsPlacement pins the exact live bug:
+// CreateChat's own placement write (for a home-scoped or otherwise Node-backed
+// row) lands on the Node aggregate, a SEPARATE write from MintChat's — whose
+// own chat-lifecycle-hub broadcast fires first, with no idea the placement
+// hasn't landed yet. PlaceChat's handler already announces the row it moves
+// (folders.go's own "placement_set" broadcast, TestRegression_PlaceChat_...
+// above) — Create never got the same treatment, so every ALREADY-OPEN viewer
+// besides the one creating it never learned the real placement happened at
+// all: caught live, a thread created inside a project-home folder rendered at
+// the top of the list in a second open window and never corrected.
+func TestRegression_Create_AnnouncesTheNewChatsPlacement(t *testing.T) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	var frames []folderFrame
+	h := newFolderHandlersWith(&fakeAgentUsecase{}, tree, &frames)
+
+	body := []byte(`{"provider":"vendor-a","parentId":"folder-1"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+
+	h.Create(ctx)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.Len(t, frames, 1, "the new chat's own placement must be announced")
+	assert.Equal(t, "chat-1", frames[0].folderID)
+	assert.Equal(t, "ws-1", frames[0].workspaceID)
+	assert.Equal(t, "placement_set", frames[0].kind)
+}
+
 // TestCreate_BadJSON proves a malformed body is rejected 400 without reaching
 // the usecase.
 func TestCreate_BadJSON(
@@ -171,6 +199,29 @@ func TestCreate_ForwardsOwnWorktreeAtTheRepoScopedMount(
 	assert.Equal(t,
 		createChatCall{ProviderID: "vendor-a", ParentID: "parent-chat", OwnWorktree: true},
 		tree.gotCreate2)
+}
+
+// TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate pins
+// the sidebar's "type the branch name before it forks" flow (2026-09-09): the
+// body's branch must reach WorktreeSpec.Branch, distinct from Import.Branch
+// (an EXISTING branch being adopted, not a fresh one being cut) and forwarded
+// only alongside ownWorktree.
+func TestRegression_Create_ForwardsTheTypedBranchNameOnAnOwnWorktreeCreate(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a","ownWorktree":true,"branch":"feature/typed-name"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats", body)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, agentusecase.WorktreeFork, tree.gotWorktree.Mode)
+	assert.Equal(t, "feature/typed-name", tree.gotWorktree.Branch,
+		"the typed branch name must reach WorktreeSpec, not be dropped in favour of the auto-generated one")
 }
 
 // TestCreate_OwnWorktreeIsIgnoredWhenThePathNamesAWorkspace proves the single

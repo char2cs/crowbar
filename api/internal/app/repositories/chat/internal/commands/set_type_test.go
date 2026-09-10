@@ -67,15 +67,25 @@ func TestSetType_Validate_RefusesCrossingTheFolderBoundary(t *testing.T) {
 		intoFolder.Validate(&domain.Chat{ID: "chat-1", Type: domain.ChatTypeChat}),
 		asynxModels.ErrValidation)
 
-	outOfFolder := commands.SetType{ID: "folder-1", Type: domain.ChatTypeBranch}
+	// A VALID type on the wrong side of the boundary, so this pins the
+	// folder-boundary refusal specifically rather than passing for the
+	// unrelated reason ChatTypeBranch is no longer a valid retype target at
+	// all (see TestSetType_Validate_RefusesRetypingToABranchRow).
+	outOfFolder := commands.SetType{ID: "folder-1", Type: domain.ChatTypeChat}
 	assert.ErrorIs(t,
 		outOfFolder.Validate(&domain.Chat{ID: "folder-1", Type: domain.ChatTypeFolder}),
 		asynxModels.ErrValidation)
 }
 
-func TestSetType_Validate_AcceptsAChatBecomingABranchRow(t *testing.T) {
+// TestSetType_Validate_RefusesRetypingToABranchRow is Task 9's own
+// regression: nothing retypes a row into a branch row any more — a
+// workspace's own position is carried by its Node{Kind:workspace} row, never
+// a Chat proxy retyped into standing for it.
+func TestSetType_Validate_RefusesRetypingToABranchRow(t *testing.T) {
 	cmd := commands.SetType{ID: "chat-1", Type: domain.ChatTypeBranch}
-	assert.NoError(t, cmd.Validate(&domain.Chat{ID: "chat-1", Type: domain.ChatTypeChat}))
+	assert.ErrorIs(t,
+		cmd.Validate(&domain.Chat{ID: "chat-1", Type: domain.ChatTypeChat}),
+		asynxModels.ErrValidation)
 }
 
 func TestSetType_IsRoutedAndNamedPerAggregate(t *testing.T) {

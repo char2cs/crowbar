@@ -41,8 +41,48 @@ func newProjectUsecaseWithWorkspaces(
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
 	workspaces := mocks.NewWorkspacePlacements()
-	uc := project.New(projects, repos, workspaces, mocks.NewAgentChatPlacements())
+	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
 	return projects, repos, workspaces, uc
+}
+
+// newProjectUsecaseWithNodes additionally exposes the Node fake a repo's own
+// position now lives on, for tests that seed a repo's Node row directly,
+// assert on the writes made against it, or inject a failure into one.
+func newProjectUsecaseWithNodes(
+	t *testing.T,
+) (
+	*mocks.RepositoryStore,
+	*mocks.NodePlacements,
+	project.Usecase,
+) {
+	t.Helper()
+	repos := mocks.NewRepositoryStore()
+	nodes := mocks.NewNodePlacements()
+	uc := project.New(
+		mocks.NewProjectStore(), repos, mocks.NewWorkspacePlacements(), mocks.NewFolderStore(), nodes, nil, nil,
+	)
+	return repos, nodes, uc
+}
+
+// newProjectUsecaseWithNodesAndWorkspaces is newProjectUsecaseWithNodes plus
+// the workspace relocator, for tests that need both a cross-project move and
+// Node-fake visibility.
+func newProjectUsecaseWithNodesAndWorkspaces(
+	t *testing.T,
+) (
+	*mocks.ProjectStore,
+	*mocks.RepositoryStore,
+	*mocks.WorkspacePlacements,
+	*mocks.NodePlacements,
+	project.Usecase,
+) {
+	t.Helper()
+	projects := mocks.NewProjectStore()
+	repos := mocks.NewRepositoryStore()
+	workspaces := mocks.NewWorkspacePlacements()
+	nodes := mocks.NewNodePlacements()
+	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), nodes, nil, nil)
+	return projects, repos, workspaces, nodes, uc
 }
 
 // name and index are pointer literals for the partial RepoUpdate fields.

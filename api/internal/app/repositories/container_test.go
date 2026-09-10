@@ -22,6 +22,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -127,12 +128,37 @@ func agentRunnerAx(
 	return a
 }
 
+// nodeAx builds the singleton node asynx over the adapter's per-type event
+// store, mirroring agentChatAx. It must read the SAME log repositories.New
+// hands node.NewEventSourced, or the repo's projections would be registered on
+// a different instance than the one under test.
+func nodeAx(
+	t *testing.T,
+	ad *adapter.Container,
+) asynx.Asynx[domain.Node] {
+	t.Helper()
+	a, err := asynx.New[domain.Node]().
+		WithEventStore(ad.NodeES()).
+		WithSnapshotStore(asynxstore.NewSnapshots()).
+		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
+		Build()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
+	return a
+}
+
 // noChatWatch / noRunnerWatch are the agent announcement seams for tests that assert
 // nothing about WS frames. They are non-nil on purpose: agentrunner's store REFUSES a
 // nil watch at construction (a store that silently drops every frame is worse than one
 // that fails to build), so `nil` here would break every container in this file.
 func noChatWatch(_ agentchat.ChatEvent)       {}
 func noRunnerWatch(_ agentrunner.RunnerEvent) {}
+
+// noNodeWatch is node's own announcement seam for tests that assert nothing
+// about live position updates. Unlike agentrunner's store, node's (mirroring
+// agentchat's) tolerates a nil watch — this is spelled out anyway for the same
+// readability reason noChatWatch/noRunnerWatch are.
+func noNodeWatch(_ node.NodeEvent) {}
 
 type captureHub struct {
 	hub.WebSocketHub
@@ -195,10 +221,12 @@ func newContainer(
 		agentChatAx(t, ad),
 		agentActivityAx(t, ad),
 		agentRunnerAx(t, ad),
+		nodeAx(t, ad),
 		nil,
 		nil, // terminateSession not exercised by this helper's callers
 		noChatWatch,
 		noRunnerWatch,
+		noNodeWatch,
 	)
 	require.NoError(t, err)
 	return c
@@ -210,6 +238,7 @@ func TestContainer_New_BuildsRepos(t *testing.T) {
 	assert.NotNil(t, c.ReviewThread)
 	assert.NotNil(t, c.AgentChat)
 	assert.NotNil(t, c.AgentRunner)
+	assert.NotNil(t, c.Node)
 }
 
 func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
@@ -223,10 +252,12 @@ func TestContainer_New_NilWorkspaceAxReturnsError(t *testing.T) {
 		agentChatAx(t, ad),
 		agentActivityAx(t, ad),
 		agentRunnerAx(t, ad),
+		nodeAx(t, ad),
 		nil,
 		nil,
 		noChatWatch,
 		noRunnerWatch,
+		noNodeWatch,
 	)
 	assert.Error(t, err)
 }
@@ -436,7 +467,7 @@ func TestContainer_ListWorkspaces_ListErrorPropagates(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nil, nil, noChatWatch, noRunnerWatch)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, nil, noChatWatch, noRunnerWatch, noNodeWatch)
 	require.NoError(t, err)
 
 	// A real MANAGED worktree UNDER the crowbar home: the delete reactor's rm is
@@ -501,7 +532,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nil, nil, noChatWatch, noRunnerWatch)
+	c, err := repositories.New(ctx, ad, &captureHub{}, ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, nil, noChatWatch, noRunnerWatch, noNodeWatch)
 	require.NoError(t, err)
 
 	// The user's real checkout, OUTSIDE the crowbar home (an adopted worktree).
@@ -610,7 +641,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats(t *testing.T) {
 	// hub.NewHub() (not &captureHub{}, which only overrides BroadcastWorkspace):
 	// agentchat's hub projection fires on every event, including this test's
 	// AgentChat Create/Forget, so it needs a real BroadcastAgentChat to call.
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nil, term.terminate, noChatWatch, noRunnerWatch)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, term.terminate, noChatWatch, noRunnerWatch, noNodeWatch)
 	require.NoError(t, err)
 
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
@@ -663,7 +694,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsChatConversations(t *testi
 	ctx := context.Background()
 	ad := newAdapter(t)
 	term := &fakeTerminateSession{}
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nil, term.terminate, noChatWatch, noRunnerWatch)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, term.terminate, noChatWatch, noRunnerWatch, noNodeWatch)
 	require.NoError(t, err)
 
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b"}, time.Unix(1, 0).UTC())
@@ -710,7 +741,7 @@ func mustChatForSession(
 func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats_NilTerminateSession(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nil, nil, noChatWatch, noRunnerWatch)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, nil, noChatWatch, noRunnerWatch, noNodeWatch)
 	require.NoError(t, err)
 
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
@@ -770,7 +801,7 @@ func (f *fakeReapChatFiles) reaped() []string {
 func TestContainer_WireCallbacks_DeleteCascade_ReapsAgentChatFiles(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nil, nil, noChatWatch, noRunnerWatch)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, nil, noChatWatch, noRunnerWatch, noNodeWatch)
 	require.NoError(t, err)
 
 	// Stands in for a shared <slug>/default/chats dir: chat1/chat2 belong to
@@ -823,7 +854,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ReapsAgentChatFiles(t *testing.T)
 func TestContainer_WireCallbacks_DeleteCascade_ReapFailure_IsBestEffort(t *testing.T) {
 	ctx := context.Background()
 	ad := newAdapter(t)
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nil, nil, noChatWatch, noRunnerWatch)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, nil, noChatWatch, noRunnerWatch, noNodeWatch)
 	require.NoError(t, err)
 
 	chatsDir := t.TempDir()
@@ -862,7 +893,7 @@ func TestContainer_WireCallbacks_DeleteCascade_TerminateFailure_IsBestEffort(t *
 	ctx := context.Background()
 	ad := newAdapter(t)
 	term := &fakeTerminateSession{failFor: "term-1"} // chat1's PTY terminate fails
-	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nil, term.terminate, noChatWatch, noRunnerWatch)
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, term.terminate, noChatWatch, noRunnerWatch, noNodeWatch)
 	require.NoError(t, err)
 
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{

@@ -451,6 +451,7 @@ type Handlers struct {
 	folders         ChatTreeUsecase
 	repos           Repos
 	worktrees       Worktrees
+	nodes           Nodes
 	broadcastFolder func(folderID, workspaceID, kind string)
 }
 
@@ -516,6 +517,22 @@ func (h *Handlers) WithWorktrees(
 ) *Handlers {
 	if worktrees != nil {
 		h.worktrees = worktrees
+	}
+	return h
+}
+
+// WithNodes wires the Node read a worktree-owning chat's DTO resolves its own
+// sidebar FolderID/Order from (see Nodes, placementReader). Left unwired,
+// every worktree-owning chat serializes with FolderID/Order at their zero
+// value — the same degrade dto.WorkspacePlacementReader's own doc describes
+// for a row this fix has not reached yet — which is why this is a builder
+// rather than a New parameter, the same optional-capability shape
+// WithWorktrees already has.
+func (h *Handlers) WithNodes(
+	nodes Nodes,
+) *Handlers {
+	if nodes != nil {
+		h.nodes = nodes
 	}
 	return h
 }

@@ -39,15 +39,16 @@ func (u *Usecase) SpawnChatWithOwnWorktree(
 	ctx context.Context,
 	chatID string,
 	providerID string,
+	branch string,
 ) (string, error) {
-	forkParentID, ok, err := tree.ResolveForkParent(ctx, u.chats, chatID)
+	forkParentID, ok, err := tree.ResolveForkParent(ctx, u.chats, u.folders, u.nodes, chatID)
 	if err != nil {
 		return "", fmt.Errorf("create chat: resolve fork parent: %w", err)
 	}
 	if !ok {
 		return "", fmt.Errorf("create chat %s: %w", chatID, ErrNoForkParent)
 	}
-	ws, err := u.worktree.CreateChildWorkspace(ctx, forkParentID)
+	ws, err := u.worktree.CreateChildWorkspace(ctx, forkParentID, branch)
 	if err != nil {
 		return "", fmt.Errorf("create chat: create workspace: %w", err)
 	}

@@ -434,7 +434,17 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	h.Quiesce()
 	var list []agentChatDTO
 	h.get(base+"/chats", &list)
-	require.Len(t, conversationsOnly(list), 1, "the home chat outlived the folder it was filed in")
+	// conversationsOnly cannot filter the project home's OWN owning chat out
+	// of this list any more (see TestRegression_AgentChatsWorkOnHomeWorkspace's
+	// own note, agent_home_scope_test.go) — assert the created conversation
+	// survived the folder delete directly instead of the filtered list's size.
+	var found bool
+	for _, row := range conversationsOnly(list) {
+		if row.ID == chat.ID {
+			found = true
+		}
+	}
+	assert.True(t, found, "the home chat outlived the folder it was filed in")
 }
 
 // A folder mutation has no aggregate projection to ride, so the handler

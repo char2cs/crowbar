@@ -19,11 +19,17 @@ import (
 
 // createRequest is the POST .../repos/:repoId/chats body. See Create.
 type createRequest struct {
-	Provider    string               `json:"provider"`
-	ParentID    string               `json:"parentId"`
-	WorkspaceID string               `json:"workspaceId"`
-	OwnWorktree bool                 `json:"ownWorktree"`
-	Import      *createImportRequest `json:"import"`
+	Provider    string `json:"provider"`
+	ParentID    string `json:"parentId"`
+	WorkspaceID string `json:"workspaceId"`
+	OwnWorktree bool   `json:"ownWorktree"`
+	// Branch names the fresh branch an ownWorktree create forks — read only
+	// when OwnWorktree is true. Blank keeps the server-generated name every
+	// caller before this field existed always got; distinct from Import's own
+	// Branch, which names a branch that already exists rather than one this
+	// create is about to cut.
+	Branch string               `json:"branch"`
+	Import *createImportRequest `json:"import"`
 }
 
 // createImportRequest is the import half of the create body. Its PRESENCE is
@@ -101,6 +107,17 @@ func (h *Handlers) Create(
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
+	// Same reasoning as PlaceChat's own call to this (folders.go): the new
+	// chat's placement is written via CreateChat's own placeChat step, which
+	// for a home-scoped or otherwise Node-backed row lands on the Node
+	// aggregate, not Chat — a separate write from MintChat's, whose own
+	// lifecycle-hub broadcast fires first and carries no idea the placement
+	// hasn't landed yet. Without this, a creating client's own optimistic row
+	// resolves fine (it waits for the real placement client-side), but every
+	// OTHER already-open viewer never learns the placement happened at all:
+	// caught live, a thread created inside a project-home folder rendered at
+	// the top of the list in a second open window and never corrected.
+	h.broadcastFolder(chatID, wsID, "placement_set")
 
 	libs.WriteMutationOK(ctx, http.StatusCreated, chatID)
 }
@@ -123,7 +140,7 @@ func (h *Handlers) worktreeSpec(
 	none := agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeNone}
 	if body.Import == nil {
 		if body.OwnWorktree && wsID == "" {
-			return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeFork}, true
+			return agentusecase.WorktreeSpec{Mode: agentusecase.WorktreeFork, Branch: body.Branch}, true
 		}
 		return none, true
 	}

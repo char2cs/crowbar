@@ -18,13 +18,18 @@ import (
 func newTestUsecase(t *testing.T) *chatFolderUsecase {
 	t.Helper()
 	fake := mocks.NewAgentChatPlacements()
-	return &chatFolderUsecase{chats: fake, agent: fake}
+	return &chatFolderUsecase{
+		chats: fake, agent: fake,
+		folders: mocks.NewFolderStore(), nodes: mocks.NewNodePlacements(),
+	}
 }
 
-// A folder created through the new API is a Chat row, not a row in a separate
-// table: Create mints it through the same chat repository a conversation uses,
-// and it carries no workspace — see the model spec §3.1.
-func TestTree_Create_MintsChatTypedFolder(t *testing.T) {
+// A folder created through the new API is a domain.Folder+domain.Node pair,
+// not a row in the chat repository at all (2026-09-08
+// sidebar-placement-unification Task 5 for home-scoped, Task 8 for
+// repo-scoped too) — Create mints it through the Folders/Nodes ports
+// instead, and it carries no workspace — see the model spec §3.1.
+func TestTree_Create_MintsFolderPlusNode(t *testing.T) {
 	uc := newTestUsecase(t)
 	ctx := context.Background()
 
@@ -32,15 +37,25 @@ func TestTree_Create_MintsChatTypedFolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	got, err := uc.chats.Get(ctx, folder.ID)
+	got, err := uc.folders.FindByKey(ctx, folder.ID)
 	if err != nil {
-		t.Fatalf("get: %v", err)
+		t.Fatalf("find: %v", err)
 	}
-	if got.Type != domain.ChatTypeFolder {
-		t.Fatalf("want folder type, got %s", got.Type)
+	if got == nil {
+		t.Fatalf("want a Folder row, got none")
 	}
-	if got.WorkspaceID != "" {
-		t.Fatalf("a folder must not carry a workspace, got %q", got.WorkspaceID)
+	if got.RepoID != "repo-1" {
+		t.Fatalf("want repo-1, got %q", got.RepoID)
+	}
+	if _, err := uc.chats.Get(ctx, folder.ID); err == nil {
+		t.Fatalf("a folder must never be a Chat row")
+	}
+	n, err := uc.nodes.GetNode(ctx, folder.ID)
+	if err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if n.Kind != domain.NodeKindFolder {
+		t.Fatalf("want folder-kind Node, got %s", n.Kind)
 	}
 }
 

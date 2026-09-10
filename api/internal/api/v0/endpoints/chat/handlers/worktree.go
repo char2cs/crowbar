@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -49,6 +48,70 @@ type Worktrees interface {
 		ws domain.Workspace,
 		siblings []domain.Workspace,
 	) workspace.MergeEligibility
+}
+
+// Nodes is the narrow read port a worktree-owning chat's DTO needs to carry
+// its own sidebar placement (2026-09-09 sidebar-placement-unification,
+// workspace-placement fix): the workspace's own Node{Kind:workspace} row —
+// the SAME position PlaceWorkspace writes — read back so the panel a drag
+// just wrote to actually redraws it.
+type Nodes interface {
+	GetNode(
+		ctx context.Context,
+		id string,
+	) (domain.Node, error)
+}
+
+// nodePlacementReader adapts Handlers.nodes/chats/worktrees to
+// dto.WorkspacePlacementReader. A resolution failure (no Node row yet — see
+// dto.WorkspacePlacementReader's own doc) degrades to "" / 0 rather than an
+// error: this DTO is serialized for a chat list read, not a placement write,
+// and a row this fix has not reached yet is honestly "at the repo root,
+// first slot" until something places it.
+type nodePlacementReader struct {
+	nodes Nodes
+	chats ChatUsecase
+	wt    Worktrees
+}
+
+// Placement reads the SAME Node row PlaceWorkspace itself now writes (2026-
+// 09-09, fixed same day as this route shipped) — not always workspaceID's
+// own. An ordinary fork's workspace-anchor Node is never touched by ANY
+// densify (mergeHomeNode's own doc: "already represented 1:1 by the chat
+// that owns it," so including it too would draw a duplicate row) — only a
+// LOCKED branch, whose owning chat carries no Node of its own, is genuinely
+// addressed by workspaceID. Reading workspaceID unconditionally served a
+// fork's permanently stale anchor row, caught live: the panel kept a fork
+// pinned wherever it was first minted no matter how many times it was
+// dragged, because nothing ever wrote back to the row this read.
+func (r nodePlacementReader) Placement(
+	ctx context.Context,
+	workspaceID string,
+) (folderID string, order int) {
+	nodeID := workspaceID
+	if ws, err := r.wt.Get(ctx, workspaceID); err == nil && !ws.RendersAsBranch() {
+		if rows, cErr := r.chats.ListChatsByWorkspace(ctx, workspaceID); cErr == nil {
+			if owner, ok := domain.ResolveOwningChat(rows); ok {
+				nodeID = owner.ID
+			}
+		}
+	}
+	n, err := r.nodes.GetNode(ctx, nodeID)
+	if err != nil {
+		return "", 0
+	}
+	return n.ParentID, n.Order
+}
+
+// placementReader answers this Handlers' own dto.WorkspacePlacementReader,
+// or nil when unwired (h.nodes is nil for a test Handlers built with only
+// the fields its own assertion needs, matching Worktrees' own tolerance) —
+// dto.WorkspaceDTOFrom already degrades a nil reader to "" / 0.
+func (h *Handlers) placementReader() dto.WorkspacePlacementReader {
+	if h.nodes == nil {
+		return nil
+	}
+	return nodePlacementReader{nodes: h.nodes, chats: h.chats, wt: h.worktrees}
 }
 
 // worktreeScope is ONE read's worth of the answers the enrichment needs: the
@@ -166,14 +229,15 @@ func (s *worktreeScope) project(
 	w domain.Workspace,
 ) *dto.ChatWorktreeDTO {
 	elig := s.handlers.worktrees.MergeEligibilityFor(ctx, w, s.siblings)
-	return dto.ChatWorktreeFrom(dto.WorkspaceDTOFrom(w, elig, s.owner(ctx, c)))
+	return dto.ChatWorktreeFrom(
+		dto.WorkspaceDTOFrom(ctx, w, elig, s.owner(ctx, c), s.handlers.placementReader()))
 }
 
 // owner answers which chat OWNS the worktree c is describing — c itself for the
 // ordinary case, and some OTHER row when c is a thread carrying its parent's
 // workspace id.
 //
-// It reuses agentusecase.ResolveOwningChat over the workspace's own chat rows,
+// It reuses domain.ResolveOwningChat over the workspace's own chat rows,
 // which is the same call the repositories container's own owningChatIDFor makes
 // as it enriches a workspace's WS frame, so the two surfaces name the same
 // owner for the same worktree. Re-deriving it here with a local rule ("the
@@ -194,7 +258,7 @@ func (s *worktreeScope) owner(
 	}
 	owner := c.ID
 	if rows, err := s.handlers.chats.ListChatsByWorkspace(ctx, c.WorkspaceID); err == nil {
-		if resolved, found := agentusecase.ResolveOwningChat(rows); found {
+		if resolved, found := domain.ResolveOwningChat(rows); found {
 			owner = resolved.ID
 		}
 	}

@@ -472,7 +472,10 @@ func TestPlaceChat_ForwardsTheRequestedLineage(t *testing.T) {
 }
 
 // A chat drop renumbers a level chats and folders SHARE, so the folder rows it
-// moved ride back with the answer and are announced.
+// moved ride back with the answer and are announced — and the moved chat
+// itself is announced too, not just its shifted siblings (its own write now
+// rides Node, not the Chat aggregate hub projection persist.go's stale doc
+// comment still promises — see PlaceChat's own comment on this call).
 func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 	tree := &fakeChatTree{
 		placed:  domain.Chat{ID: "c2", WorkspaceID: "ws-1"},
@@ -493,8 +496,30 @@ func TestPlaceChat_ReturnsAndAnnouncesTheShiftedFolders(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
 	require.Len(t, env.Data.Shifted, 1)
 	assert.Equal(t, "f0", env.Data.Shifted[0].ID)
-	require.Len(t, frames, 1)
+	require.Len(t, frames, 2)
+	assert.Equal(t, "f0", frames[0].folderID)
 	assert.Equal(t, "folder_updated", frames[0].kind)
+	assert.Equal(t, "c2", frames[1].folderID, "the moved chat itself must be announced too")
+	assert.Equal(t, "placement_set", frames[1].kind)
+}
+
+// TestRegression_PlaceChat_AnnouncesTheMovedChatEvenWithNoFolderSiblingsShifted
+// pins the exact live bug: a chat dragged past a branch/repo header (or past
+// another chat with no folder between them) shifts zero folder rows, so
+// before this fix announceFolders looped zero times and the write vanished
+// from every live client's view despite the PATCH returning 200.
+func TestRegression_PlaceChat_AnnouncesTheMovedChatEvenWithNoFolderSiblingsShifted(t *testing.T) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "c2", WorkspaceID: "ws-1"}}
+	var frames []folderFrame
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/c2/placement", []byte(`{"order":0}`))
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "c2"}}
+
+	newFolderHandlers(tree, &frames).PlaceChat(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, frames, 1, "the moved chat must still be announced with no shifted folders")
+	assert.Equal(t, "c2", frames[0].folderID)
+	assert.Equal(t, "placement_set", frames[0].kind)
 }
 
 // TestPlaceChat_NoPathWorkspace_ResolvesWorkspaceFromTheChatItself proves that

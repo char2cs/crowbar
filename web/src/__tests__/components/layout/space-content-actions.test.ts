@@ -50,11 +50,14 @@ import {
   handleTrash,
   handleCreate,
   handleCreateHomeThread,
+  confirmPendingCreateName,
+  cancelPendingCreate,
 } from '@/components/layout/space-content-actions'
 import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/store/sidebar'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import {
@@ -81,12 +84,23 @@ beforeEach(() => {
   useSidebarStore.setState(getInitialState())
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
+  usePendingCreatesStore.setState(getInitialPendingCreatesState())
   // Create-workspace now needs a PROVIDER (the new atomic endpoint starts a
   // CLI, unlike the old chat-less postWorkspace) — the global provider store
   // (agent-providers-store.ts), not a per-workspace one, since there is no
   // workspace yet to scope a per-workspace read through.
   useAgentProvidersStore.setState({ status: 'ready', providers: [] })
 })
+
+/** A 'workspace' create now asks for a name before it fires (the pending
+ *  row's inline input) — this drives that confirm for tests written against
+ *  the old immediate-fire behavior, finding the single 'naming' entry
+ *  `handleCreate` just armed exactly the way the real input would. */
+function confirmArmedBranchName(name = 'typed-branch'): void {
+  const armed = usePendingCreatesStore.getState().entries.find((e) => e.status === 'naming')
+  if (!armed) throw new Error('confirmArmedBranchName: no naming entry is armed')
+  confirmPendingCreateName(armed.tempId, name)
+}
 
 describe('resolveRow', () => {
   it('resolves a real workspace row', () => {
@@ -404,12 +418,200 @@ describe('a chat row does not borrow another row kind’s refusal', () => {
     expect(entries[0].deadlineAt).not.toBeNull()
   })
 
-  it('handleCreate is SILENT — never the folder’s "has none to run it in"', () => {
+  it('handleCreate is SILENT — never the folder’s "has none to run it in" — for a bubble with no ground at all', () => {
     useSidebarStore.setState({ repos: [repoWithChat()] })
     handleCreate('c1', 'thread')
     expect(toastError).not.toHaveBeenCalled()
     expect(createChat).not.toHaveBeenCalled()
     expect(postWorkspace).not.toHaveBeenCalled()
+  })
+})
+
+// Regression: `Chat.workspaceId` already names the GROUND workspace a bubble
+// borrows from its ancestor (the same field `openableWorkspaceOf` uses to
+// open it) — so once a bubble names one, its Fork/Thread resolve through
+// THAT workspace instead of silently doing nothing. Before this, Thread on
+// any grounded bubble was a dead button, and Fork was offered on every
+// bubble with no real target at all — reported live: "why is it letting me
+// create a branch from this where there isn't a git workspace associated?"
+describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', () => {
+  const forkRepo = () =>
+    repo({
+      workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0, owningChatId: 'c-owner' }],
+      chats: [
+        { id: 'c-owner', repoId: 'r1', ownsWorktree: true, workspaceId: 'ws-a', title: '', order: 0 },
+        { id: 'c1', repoId: 'r1', workspaceId: 'ws-a', parentId: 'c-owner', title: 'a thread', order: 0 },
+      ],
+    })
+
+  it('Thread runs in the ground workspace, nested under the bubble itself', () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('c1', 'thread')
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'c1')
+  })
+
+  it('Fork forks the ground workspace’s OWNING BRANCH, never the bubble’s own id', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('c1', 'workspace')
+    expect(usePendingCreatesStore.getState().entries).toMatchObject([{ parentId: 'c-owner' }])
+    confirmArmedBranchName()
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'r1',
+      'claude',
+      'c-owner',
+      'typed-branch',
+    )
+  })
+
+  // The ground can ALSO be the repo's own home workspace, which — unlike an
+  // ordinary fork — is never in `repo.workspaces` for an `owningChatId` to
+  // be read off. Exercises the same `resolveHomeOwnerId` fallback a direct
+  // click on the home row itself already resolves to.
+  it('a bubble grounded in the repo HOME workspace resolves through the home row’s own id', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({
+      repos: [repo({ chats: [{ id: 'c1', repoId: 'r1', workspaceId: 'home-1', title: 't', order: 0 }] })],
+    })
+
+    handleCreate('c1', 'thread')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-1', 'claude', 'c1')
+
+    handleCreate('c1', 'workspace')
+    confirmArmedBranchName()
+    await Promise.resolve()
+
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'r1',
+      'claude',
+      'home-1',
+      'typed-branch',
+    )
+  })
+})
+
+// Regression, reported live: a project-home chat's Fork was offered with no
+// git repo behind it at all ("why is it letting me create a branch from
+// this where there isn't a git workspace"), and its Thread did nothing.
+// Project home rides no repo (`resolveHomeRowScope`'s own doc) — Thread now
+// resolves through the project's own home workspace (same rule
+// `handleOpen` already follows), and Fork stays a no-op, matching a home
+// FOLDER's own `ownsWorktree: false` — no worktree exists for either to
+// clone.
+describe('a project-home chat row resolves Thread through its home workspace, and refuses Fork', () => {
+  it('Thread runs in the project’s home workspace, nested under the bubble itself, and clears once it lands', async () => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+          folders: [],
+        },
+      },
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    handleCreate('c1', 'thread')
+
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude', 'c1')
+    expect(usePendingCreatesStore.getState().entries).toMatchObject([
+      { kind: 'chat', projectId: 'p1', parentId: 'c1' },
+    ])
+    await Promise.resolve()
+
+    // Not cleared yet — the create's own promise resolved, but the real
+    // chat has not been OBSERVED in the home tree store.
+    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+    // Regression, reported live: a chat's MINT (the `Chat` aggregate) and its
+    // PLACEMENT (a separate `Node` aggregate, home-scoped) are two sequential
+    // backend writes, not one — the chat lifecycle hub broadcasts on the
+    // first alone, so a reseed can land here with the chat already existing
+    // but still parented at root (its `Chat.ParentID` zero value) before the
+    // Node write has caught up. Clearing the pending row on existence alone
+    // (the bug) handed rendering to this exact half-placed real row: it
+    // rendered at the top of the list for a beat before snapping into the
+    // folder — this reseed reproduces precisely that intermediate frame.
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [
+            { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 },
+            { id: 'chat-1', repoId: '', workspaceId: 'home-ws-1', title: '', order: 1 },
+          ],
+          folders: [],
+        },
+      },
+    })
+    await Promise.resolve()
+
+    // STILL not cleared — the landed chat's own `parentId` does not yet
+    // match `c1`, the row it was actually created under.
+    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+    // The SECOND, corrected reseed — the Node placement has now landed.
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [
+            { id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 },
+            {
+              id: 'chat-1',
+              repoId: '',
+              workspaceId: 'home-ws-1',
+              title: '',
+              order: 0,
+              parentId: 'c1',
+            },
+          ],
+          folders: [],
+        },
+      },
+    })
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
+  })
+
+  it('Fork is a silent no-op — no repo, no worktree to clone', () => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+          folders: [],
+        },
+      },
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    handleCreate('c1', 'workspace')
+
+    expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
   })
 })
 
@@ -428,6 +630,7 @@ describe('creating a workspace off the repo-home row', () => {
     useSidebarStore.setState({ repos: [repo()] })
 
     handleCreate('home-1', 'workspace')
+    confirmArmedBranchName()
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
@@ -435,6 +638,7 @@ describe('creating a workspace off the repo-home row', () => {
       'r1',
       'claude',
       'home-1',
+      'typed-branch',
     )
     expect(postWorkspace).not.toHaveBeenCalled()
   })
@@ -451,9 +655,16 @@ describe('creating a workspace off the repo-home row', () => {
     })
 
     handleCreate('ws-a', 'workspace')
+    confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'claude', 'ws-a')
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'r1',
+      'claude',
+      'ws-a',
+      'typed-branch',
+    )
   })
 
   it('picks the first ENABLED provider from the global provider store', async () => {
@@ -467,9 +678,16 @@ describe('creating a workspace off the repo-home row', () => {
     useSidebarStore.setState({ repos: [repo()] })
 
     handleCreate('home-1', 'workspace')
+    confirmArmedBranchName()
     await Promise.resolve()
 
-    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith('p1', 'r1', 'codex', 'home-1')
+    expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
+      'p1',
+      'r1',
+      'codex',
+      'home-1',
+      'typed-branch',
+    )
   })
 
   it('is a silent no-op with no enabled provider loaded yet', async () => {
@@ -499,6 +717,10 @@ describe('creating a workspace off the repo-home row', () => {
     handleCreate('home-1', 'workspace')
     handleCreate('home-1', 'workspace')
     handleCreate('home-1', 'workspace')
+    // The naming lock itself proves the point (only ONE naming entry armed no
+    // matter how many "+" clicks landed) — confirming it is what turns that
+    // into a network assertion.
+    confirmArmedBranchName()
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledOnce()
@@ -512,15 +734,21 @@ describe('creating a workspace off the repo-home row', () => {
     useSidebarStore.setState({ repos: [repo()] })
 
     handleCreate('home-1', 'workspace')
+    confirmArmedBranchName('first')
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
     handleCreate('home-1', 'workspace')
+    confirmArmedBranchName('second')
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledTimes(2)
   })
 
+  // Only one naming INPUT is ever open at once (the global "+"'s own single
+  // slot, matching the old tree's `creatingChildOf`) — so this proves the
+  // NETWORK half instead: once row 1's create is actually in flight (past
+  // naming), opening and confirming row 2's is never blocked by it.
   it('a different row is never blocked by another row’s in-flight create', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -531,7 +759,9 @@ describe('creating a workspace off the repo-home row', () => {
     })
 
     handleCreate('home-1', 'workspace')
+    confirmArmedBranchName('first')
     handleCreate('home-2', 'workspace')
+    confirmArmedBranchName('second')
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledTimes(2)
@@ -563,6 +793,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
     useSidebarStore.setState({ repos: [forkRepo()] })
 
     handleCreate('ws-a', 'workspace')
+    confirmArmedBranchName()
     await Promise.resolve()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
@@ -570,7 +801,35 @@ describe('creating a workspace off a REGULAR fork row', () => {
       'r1',
       'claude',
       'c-owner',
+      'typed-branch',
     )
+  })
+
+  // Regression, caught LIVE (not by any fixture here — every one above
+  // happens to give `subject.id` and the owning chat the same value once you
+  // trace through resolveRow, so this dimension went untested): the pending
+  // row's OWN `parentId` must be the OWNING CHAT too, for the identical
+  // reason the network call above already gets it right — a real sibling
+  // row's `parentId` is always the parent's RENDERED (owning-chat-folded)
+  // id, never the raw workspace id `resolveRow` translates the click into.
+  // Using the wrong one drew the naming input as a top-level row, after
+  // every other project's, instead of nested under the forked row at all.
+  it('arms the naming row at the OWNING CHAT parent too, not the raw workspace id', () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [forkRepo()] })
+
+    handleCreate('ws-a', 'workspace')
+
+    expect(usePendingCreatesStore.getState().entries).toMatchObject([{ parentId: 'c-owner' }])
+
+    // Never confirmed — cancel it so this test leaves no armed
+    // `createInFlight`/`armedBranchCreates` entry (module-level state
+    // `beforeEach` cannot see) for a LATER test's `handleCreate('ws-a', ...)`
+    // to find still locked.
+    cancelPendingCreate(usePendingCreatesStore.getState().entries[0]!.tempId)
   })
 
   // The thread half is a different question with a different answer: it posts
@@ -591,7 +850,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     handleCreate('ws-a', 'thread')
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
   })
 
   // The regression that made "Thread does nothing" reproducible: a workspace
@@ -607,7 +866,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     handleCreate('ws-a', 'thread')
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
   })
 
   // A precondition that stops the click has to SAY so. Silence here is
@@ -657,6 +916,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
     const before = useFolderSignalStore.getState().generations['r1'] ?? 0
 
     handleCreate('ws-a', 'workspace')
+    confirmArmedBranchName()
     await Promise.resolve()
     await Promise.resolve()
 
@@ -770,7 +1030,69 @@ describe('starting a thread on a real workspace', () => {
 
     handleCreate('ws-a', 'thread')
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
+  })
+
+  // Regression, reported live: a repo-scoped thread's placement is ALSO a
+  // separate Node write from its mint (sidebar-placement-unification Task 8
+  // widened this off home-only) — the chat lifecycle hub broadcasts on the
+  // mint alone, so a reseed can land here with the chat already existing but
+  // still parented at root. `chatHasLanded` used to clear the pending row on
+  // existence alone; it must now wait for the chat's own `parentId` to match
+  // too, or the real (misplaced) row renders before self-correcting a beat
+  // later — the exact shape already fixed for home threads and forks.
+  it('does not clear the pending row until the landed chat’s own placement matches — not merely once it exists', async () => {
+    useSidebarStore.setState({
+      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    handleCreate('ws-a', 'thread')
+    await Promise.resolve()
+
+    // Not cleared yet — the create's own promise resolved, but the real
+    // chat has not been OBSERVED in the store at all.
+    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+    // The chat lands, but still parented at root — its placement write has
+    // not caught up yet. Must still stay pending.
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+          chats: [{ id: 'chat-1', repoId: 'r1', workspaceId: 'ws-a', title: '', order: 0 }],
+        }),
+      ],
+    })
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+    // The placement write catches up — parentId now matches the workspace
+    // this thread was created under — and the pending row finally clears.
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+          chats: [
+            {
+              id: 'chat-1',
+              repoId: 'r1',
+              workspaceId: 'ws-a',
+              title: '',
+              order: 0,
+              parentId: 'ws-a',
+            },
+          ],
+        }),
+      ],
+    })
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
   })
 })
 
@@ -801,9 +1123,11 @@ describe('handleTrash', () => {
   // repo-scoped walk found this FALSE match, and the removal tray then
   // committed a real DELETE against a repo that had no business resolving
   // it at all — silently destroying a home folder dragged onto the trash
-  // target. Home rows must be refused here before that walk ever runs,
-  // regardless of what a repo's own (bled-into) folders array claims.
-  it('refuses a home folder even when a repo’s (backend-leniency-bled) folders array also claims its id', () => {
+  // target. `resolveHomeRowScope` must resolve a home row BEFORE that walk
+  // ever runs, regardless of what a repo's own (bled-into) folders array
+  // claims — proven here by the held draft's OWN `repoId`: '' (home), never
+  // 'r1' (the bled repo the walk would have found instead).
+  it('holds a home folder through the HOME path even when a repo’s (backend-leniency-bled) folders array also claims its id', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
     useHomeTreeStore.setState({
       trees: {
@@ -814,9 +1138,16 @@ describe('handleTrash', () => {
       repos: [repo({ folders: [{ id: 'home-folder-1', repoId: 'r1', name: 'x', order: 0 }] })],
     })
 
-    expect(handleTrash('home-folder-1')).toBe(false)
+    expect(handleTrash('home-folder-1')).toBe(true)
 
-    expect(useRemovalTrayStore.getState().entries).toEqual([])
+    const entries = useRemovalTrayStore.getState().entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      kind: 'folder',
+      id: 'home-folder-1',
+      projectId: 'p1',
+      repoId: '',
+    })
   })
 
   // Task 25 review round 1, Important: a user-locked, non-home workspace
@@ -897,7 +1228,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
   const branchRow = (id: string, workspaceId: string): Chat => ({
     id,
     repoId: 'r1',
-    type: 'branch',
+    ownsWorktree: true,
     workspaceId,
     title: '',
     order: 0,
@@ -942,12 +1273,14 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
     })
 
     handleCreate('develop-row', 'workspace')
+    confirmArmedBranchName()
 
     expect(createChatWithOwnWorktree).toHaveBeenCalledExactlyOnceWith(
       'p1',
       'r1',
       'claude',
       'develop-row',
+      'typed-branch',
     )
   })
 
@@ -960,8 +1293,161 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
 
     handleCreate('develop-row', 'thread')
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-locked', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-locked', 'claude', 'develop-row')
   })
+
+describe('pending-create rows — placement and lifecycle', () => {
+  it('arms a fork naming entry at the exact sibling slot the real row will land in, then clears once the real row lands', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          workspaces: [
+            { id: 'ws-a', branch: 'alpha', age: '', order: 0 },
+            { id: 'ws-b', branch: 'beta', age: '', order: 1 },
+          ],
+        }),
+      ],
+    })
+
+    handleCreate('home-1', 'workspace')
+
+    const armed = usePendingCreatesStore.getState().entries
+    expect(armed).toHaveLength(1)
+    expect(armed[0]).toMatchObject({
+      kind: 'branch',
+      status: 'naming',
+      projectId: 'p1',
+      parentId: 'home-1',
+      order: 2,
+    })
+
+    confirmArmedBranchName('feature/x')
+    expect(usePendingCreatesStore.getState().entries[0]).toMatchObject({
+      status: 'creating',
+      label: 'feature/x',
+    })
+    await Promise.resolve()
+
+    // Not cleared yet — the create's own promise resolved, but the real row
+    // has not been OBSERVED in the store, which is the whole point of
+    // `waitForRow`/`chatHasLanded` rather than clearing on the promise alone.
+    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+    // Regression: a fork mints its owning chat CHAT-FIRST — the two land as
+    // separate reseed frames, never atomically. The chat alone is not
+    // "landed" for a fork the way it is for a thread: without its own
+    // workspace record, rows-from-repo.ts has no fold to nest it by, so it
+    // would render at the repo root — exactly the frame that must never
+    // reach the screen. Still pending here, on purpose.
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          workspaces: [
+            { id: 'ws-a', branch: 'alpha', age: '', order: 0 },
+            { id: 'ws-b', branch: 'beta', age: '', order: 1 },
+          ],
+          chats: [{ id: 'chat-1', repoId: 'r1', title: '', order: 0 }],
+        }),
+      ],
+    })
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+    // Regression, reported live: a fork's PLACEMENT (Node, separate from its
+    // mint) is its OWN second write too — the workspace-owner half landing
+    // does not by itself prove the chat's own placement has. This reseed
+    // shows both the chat AND its owning workspace landed, but the chat is
+    // still parented at root (its own placement not yet caught up) — must
+    // still stay pending, or the real (misplaced) row renders before
+    // self-correcting a beat later.
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          workspaces: [
+            { id: 'ws-a', branch: 'alpha', age: '', order: 0 },
+            { id: 'ws-b', branch: 'beta', age: '', order: 1 },
+            { id: 'ws-c', branch: 'feature/x', age: '', order: 2, owningChatId: 'chat-1' },
+          ],
+          chats: [{ id: 'chat-1', repoId: 'r1', title: '', order: 0 }],
+        }),
+      ],
+    })
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+    // The placement write catches up too — NOW every half is landed, and
+    // clearing the pending row reveals the real one already correctly
+    // folded/nested, never a beat at the root first.
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          workspaces: [
+            { id: 'ws-a', branch: 'alpha', age: '', order: 0 },
+            { id: 'ws-b', branch: 'beta', age: '', order: 1 },
+            { id: 'ws-c', branch: 'feature/x', age: '', order: 2, owningChatId: 'chat-1' },
+          ],
+          chats: [{ id: 'chat-1', repoId: 'r1', title: '', order: 0, parentId: 'home-1' }],
+        }),
+      ],
+    })
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
+  })
+
+  it('a thread create skips naming — goes straight to a spinner row at the next sibling slot', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
+          chats: [{ id: 'c-existing', repoId: 'r1', title: 'first', order: 0, parentId: 'ws-a' }],
+        }),
+      ],
+    })
+
+    handleCreate('ws-a', 'thread')
+
+    const armed = usePendingCreatesStore.getState().entries
+    expect(armed).toHaveLength(1)
+    expect(armed[0]).toMatchObject({
+      kind: 'chat',
+      status: 'creating',
+      parentId: 'ws-a',
+      order: 1,
+      workspaceId: 'ws-a',
+    })
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
+  })
+
+  it('cancelling a naming entry drops the row and releases the lock — a fresh "+" click arms again', () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useSidebarStore.setState({ repos: [repo()] })
+
+    handleCreate('home-1', 'workspace')
+    const firstTempId = usePendingCreatesStore.getState().entries[0]?.tempId
+    expect(firstTempId).toBeDefined()
+
+    cancelPendingCreate(firstTempId as string)
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
+
+    handleCreate('home-1', 'workspace')
+    expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+    expect(createChatWithOwnWorktree).not.toHaveBeenCalled()
+  })
+})
 
   it('its trash takes the WORKSPACE path — refused as locked, never deleteChat', () => {
     useSidebarStore.setState({ repos: [lockedRepo()] })

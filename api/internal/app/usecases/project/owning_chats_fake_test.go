@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -98,9 +99,19 @@ func (f *fakeOwningChats) discards() []string {
 // fake, which every construction in these tests needs now that no workspace can
 // be created without one. A test that wants to assert on the chat side builds
 // its own fake and calls SetOwningChats itself.
+//
+// deps.Nodes is defaulted to a fresh mocks.NewNodePlacements() when the caller
+// left it nil, so every ImportRepo/importOneRepo call in these tests can mint
+// a repo's own position row without every one of the dozens of ImportDeps{...}
+// literals in this package needing to carry it explicitly. A test that wants
+// to assert on the Node side (or inject a Create failure) sets deps.Nodes
+// itself before calling this.
 func newImportUsecase(
 	deps project.ImportDeps,
 ) project.ImportUsecase {
+	if deps.Nodes == nil {
+		deps.Nodes = mocks.NewNodePlacements()
+	}
 	uc := project.NewImport(deps)
 	uc.SetOwningChats(newFakeOwningChats())
 	return uc

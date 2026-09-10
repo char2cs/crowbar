@@ -8,7 +8,7 @@
  * excluding the other's rows.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 
 const navigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
@@ -64,6 +64,7 @@ import { getInitialState, useSidebarStore, type Chat, type Repo } from '@/lib/st
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { planRemoval } from '@/components/layout/removal-plan'
 import type { Project } from '@/lib/types'
 
 const projectA: Project = { id: 'p1', name: 'proj-a', path: '/p1', lastActivity: new Date(0) }
@@ -89,12 +90,16 @@ const repo = (over: Partial<Repo> = {}): Repo => {
   const home: Chat = {
     id: `${base.id}-home-row`,
     repoId: base.id,
-    type: 'branch',
+    ownsWorktree: true,
     workspaceId: base.defaultWorkspaceId,
     title: '',
     order: 0,
   }
-  return { ...base, chats: [home, ...(base.chats ?? [])] }
+  return {
+    ...base,
+    defaultOwningChatId: base.defaultOwningChatId ?? home.id,
+    chats: [home, ...(base.chats ?? [])],
+  }
 }
 
 /** Put repos in the store AND declare their trees read, which is the only state
@@ -143,7 +148,14 @@ describe('SidebarTreeSurface', () => {
   // "Mounts once, not once per project" is now covered there
   // (sidebar-carousel.test.tsx), not at this component's level.
 
-  it('a row held in the removal tray disappears from its own project panel', () => {
+  // Explicit product request: an X on a row transforms it IN PLACE (its
+  // countdown + Keep/undo control) instead of hiding it while a separate
+  // tray shows the same thing elsewhere — so a held leaf row (no subtree of
+  // its own) stays on screen, not gone. `descendantHiddenIds` is what
+  // computes this: it strips a workspace/chat/folder entry's cascade but
+  // keeps its own primary id visible, unlike a repo/project entry (which has
+  // no row of its own to transform — see that function's own doc).
+  it('a row held for removal stays on screen, transformed in place, rather than disappearing', () => {
     seedRepos([
       repo({
         id: 'r1',
@@ -152,7 +164,6 @@ describe('SidebarTreeSurface', () => {
         workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }],
       }),
     ])
-    useRemovalTrayStore.setState({ hiddenIds: new Set(['ws-a']) })
 
     render(
       <SidebarTreeSurface
@@ -162,7 +173,19 @@ describe('SidebarTreeSurface', () => {
       />,
     )
 
-    expect(screen.queryByText('alpha')).not.toBeInTheDocument()
+    act(() => {
+      useRemovalTrayStore
+        .getState()
+        .hold(
+          planRemoval(
+            [{ kind: 'workspace', id: 'ws-a', repoId: 'r1' }],
+            useSidebarStore.getState().repos,
+          ),
+        )
+    })
+
+    expect(screen.getByText('alpha')).toBeInTheDocument()
+    expect(document.querySelector('[data-removal-secs]')).toBeInTheDocument()
   })
 
   // Addendum §1/§2: the row no longer carries a trash button at all — a
@@ -187,7 +210,7 @@ describe('SidebarTreeSurface', () => {
           {
             id: 'locked-one-row',
             repoId: 'r1',
-            type: 'branch',
+            ownsWorktree: true,
             workspaceId: 'ws-locked',
             title: '',
             order: 0,
@@ -277,7 +300,7 @@ describe('SidebarTreeSurface — a project-home row is reachable by the context 
             {
               id: 'home-branch-chat',
               repoId: '',
-              type: 'branch',
+              ownsWorktree: true,
               workspaceId: 'home-ws-1',
               title: '',
               order: 0,

@@ -63,6 +63,11 @@ type Container struct {
 	// behind a tool-call storm.
 	axAgentActivity asynx.Asynx[domain.ChatActivity]
 	axAgentRunner   asynx.Asynx[agents.Runner]
+	// axNode is the Node position aggregate's own per-type singleton
+	// (2026-09-08 sidebar-placement-unification): the ONE entity that will own
+	// every sidebar row's ParentID/Order. This wiring is purely additive —
+	// nothing else in the codebase reads or writes it yet.
+	axNode asynx.Asynx[domain.Node]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -111,17 +116,18 @@ func New(
 		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
 	}
 
+	axNode, err := newAxNode(adapters)
+	if err != nil {
+		return nil, err
+	}
+
 	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
 		return nil, err
 	}
 
 	h := hub.NewHub()
-	// The agent aggregates announce; the fanout decides what a client is told. The hub
-	// still reaches the repository layer for workspace frames, which are outside this
-	// subsystem.
-	agentFanout := agentusecase.NewFanout(h)
-	repos, err := repositories.New(
+	repos, err := newRepositoriesContainer(
 		ctx,
 		adapters,
 		h,
@@ -130,20 +136,21 @@ func New(
 		axAgentChat,
 		axAgentActivity,
 		axAgentRunner,
-		engines.Git,
-		terminateAgentSession(engines.Terminal),
-		agentFanout.ChatWatch(),
-		agentFanout.RunnerWatch(),
+		axNode,
+		engines,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("app: repositories: %w", err)
+		return nil, err
 	}
 
 	// Path-deriving usecases must share the adapter's resolved home so git
 	// worktrees and per-entity storages land under the same root.
 	crowbarHome := adapters.CrowbarHome()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
-	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h))
+	ucs, err := usecases.New(
+		repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h),
+		h.BroadcastAgentChatFolder,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}
@@ -160,7 +167,6 @@ func New(
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	reconcileAgentRunners(ctx, ucs)
-	backfillOwningChats(ctx, ucs)
 	startTerminalWaitSweep(ctx, h, ucs)
 
 	rt := realtime.New(
@@ -188,6 +194,7 @@ func New(
 		axAgentChat:     axAgentChat,
 		axAgentActivity: axAgentActivity,
 		axAgentRunner:   axAgentRunner,
+		axNode:          axNode,
 	}, nil
 }
 
@@ -265,6 +272,7 @@ func (c *Container) Shutdown(
 		c.axAgentRunner.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
 		c.axAgentActivity.Shutdown(ctx),
+		c.axNode.Shutdown(ctx),
 	)
 }
 
@@ -417,6 +425,66 @@ type threadBroadcaster interface {
 	)
 }
 
+// newAxNode builds the Node position aggregate's per-type singleton, mirroring
+// axAgentChat's own construction. Purely additive (2026-09-08
+// sidebar-placement-unification, Task 1): nothing else sends Node commands
+// yet — later tasks migrate existing placement logic onto it one vertical
+// slice at a time. Split out of New only to keep that constructor within its
+// length budget.
+func newAxNode(
+	adapters *adapter.Container,
+) (asynx.Asynx[domain.Node], error) {
+	axNode, err := newAsynx[domain.Node](adapters.NodeES(), adapters.NodeSS())
+	if err != nil {
+		return nil, fmt.Errorf("app: asynx node: %w", err)
+	}
+	return axNode, nil
+}
+
+// newRepositoriesContainer builds the repository layer from every per-type
+// asynx singleton and the injected app-layer seams. The agent aggregates
+// announce; the fanout built here decides what a client is told — the hub
+// still reaches the repository layer for workspace frames, which are outside
+// this subsystem. No live-update consumer is wired to Node yet (Task 1 is
+// purely additive), so its watch is nil — safe, mirroring agentchat's own
+// nil-tolerant hub projection. Split out of New only to keep that constructor
+// within its length budget, mirroring newAgentWiring/newProjectImport in
+// usecases/container.go.
+func newRepositoriesContainer(
+	ctx context.Context,
+	adapters *adapter.Container,
+	h *hub.Hub,
+	axReviewThread asynx.Asynx[domain.ReviewThread],
+	axWorkspace asynx.Asynx[domain.Workspace],
+	axAgentChat asynx.Asynx[domain.Chat],
+	axAgentActivity asynx.Asynx[domain.ChatActivity],
+	axAgentRunner asynx.Asynx[agents.Runner],
+	axNode asynx.Asynx[domain.Node],
+	engines *engine.Container,
+) (*repositories.Container, error) {
+	agentFanout := agentusecase.NewFanout(h)
+	repos, err := repositories.New(
+		ctx,
+		adapters,
+		h,
+		axReviewThread,
+		axWorkspace,
+		axAgentChat,
+		axAgentActivity,
+		axAgentRunner,
+		axNode,
+		engines.Git,
+		terminateAgentSession(engines.Terminal),
+		agentFanout.ChatWatch(),
+		agentFanout.RunnerWatch(),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("app: repositories: %w", err)
+	}
+	return repos, nil
+}
+
 func toUsecaseStores(
 	gormStores *GORMStores,
 ) usecases.GORMStores {
@@ -427,6 +495,7 @@ func toUsecaseStores(
 		TerminalSessions:         gormStores.TerminalSessions,
 		AgentProviderPreferences: gormStores.AgentProviderPreferences,
 		AgentPermissionDefault:   gormStores.AgentPermissionDefault,
+		Folders:                  gormStores.Folders,
 	}
 }
 
@@ -662,33 +731,6 @@ func reconcileAgentRunners(
 	}
 }
 
-// backfillOwningChats gives every workspace that has no chat row the one that
-// owns it. Every workspace made before a workspace and its chat were minted in
-// one breath is in that state, and the sidebar addresses a workspace's
-// placement BY that row — so until this runs those workspaces exist on disk and
-// nowhere in the tree, and every placement against one is answered not-found.
-//
-// It runs SYNCHRONOUSLY, here, for the same reason the boot sweep and the
-// runner reconcile above do: app.New returns before internal.Run serves, so a
-// live create-chat request cannot arrive mid-backfill and race it into minting
-// a second row for the same workspace. It is also placed AFTER the boot sweep,
-// which purges the workspaces a crashed delete left tombstoned — reconciling
-// against the census that sweep leaves behind rather than the one it found.
-//
-// Best-effort: a failure is logged and the daemon still boots. It is idempotent
-// and runs on every boot, so whatever it could not write this time is planned
-// again on the next one, and refusing to start over it would be strictly worse.
-func backfillOwningChats(
-	ctx context.Context,
-	ucs *usecases.Container,
-) {
-	if ucs.AgentChatFolder == nil {
-		return
-	}
-	if err := ucs.AgentChatFolder.BackfillOwningChats(context.WithoutCancel(ctx)); err != nil {
-		slog.WarnContext(ctx, "app: backfill owning chats on boot", "err", err)
-	}
-}
 
 // shutdownAgentRunners kills every live api-transport connection before the
 // daemon exits. It is the shutdown-time mirror of reconcileAgentRunners:

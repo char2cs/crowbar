@@ -58,13 +58,34 @@ func repoSnapshot(
 	appContainer *app.Container,
 ) func(scope string) []dto.RepoDTO {
 	return func(scope string) []dto.RepoDTO {
+		ctx := context.Background()
 		projectID, _ := parseRepoScope(scope)
-		rows, err := appContainer.GORM.Repositories.FindAll(context.Background())
+		rows, err := appContainer.GORM.Repositories.FindAll(ctx)
 		if err != nil {
 			return nil
 		}
-		return dto.RepoDTOList(scopeReposToProject(rows, projectID))
+		rows = scopeReposToProject(rows, projectID)
+		return dto.RepoDTOList(rows, repoPlacements(ctx, appContainer, rows))
 	}
+}
+
+// repoPlacements resolves every repo's own sidebar position from its Node row
+// (see dto.RepoPlacement), degrading a repo with no row yet (or any read
+// failure) to the zero value rather than dropping it from the snapshot.
+func repoPlacements(
+	ctx context.Context,
+	appContainer *app.Container,
+	rows []domain.Repository,
+) map[string]dto.RepoPlacement {
+	placements := make(map[string]dto.RepoPlacement, len(rows))
+	for _, r := range rows {
+		n, err := appContainer.Repositories.Node.GetNode(ctx, r.ID)
+		if err != nil {
+			continue
+		}
+		placements[r.ID] = dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}
+	}
+	return placements
 }
 
 // scopeReposToProject filters rows to those under the given projectID. An empty

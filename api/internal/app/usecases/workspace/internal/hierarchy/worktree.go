@@ -182,6 +182,10 @@ type hierarchyUsecase struct {
 	terminals    TerminalReaper
 	chatObserver ChatWorkObserver
 	owningChats  OwningChats
+	// nodes mints a workspace's own Node position row at creation. Never nil
+	// (New defaults it to noOpNodeCreator); WithNodes overrides it with a real
+	// one. A mint failure rolls the whole create back — see mintWorkspaceNode.
+	nodes NodeCreator
 }
 
 // Option configures optional hierarchyUsecase dependencies without widening the
@@ -213,6 +217,9 @@ func New(
 		repos:       repos,
 		now:         now,
 		crowbarHome: crowbarHome,
+		// Defaulted so u.nodes is NEVER nil; WithNodes overrides it. See
+		// noOpNodeCreator's own doc (node.go).
+		nodes: noOpNodeCreator{},
 	}
 	for _, o := range opts {
 		o(u)
@@ -243,14 +250,7 @@ func (u *hierarchyUsecase) CreateChild(
 	// does not own a worktree (explicitly, or defaulted off a workspace-less
 	// parent), skip all git operations and create a workspace row directly.
 	if in.RepoPath == "" || !ownWorktree {
-		return u.workspaces.Create(ctx, workspace.CreateInput{
-			ID:        uuid.NewString(),
-			RepoID:    in.RepoID,
-			ProjectID: in.ProjectID,
-			Branch:    in.Branch,
-			ParentID:  in.ParentID,
-			Protected: in.ForceLocked,
-		}, u.now())
+		return u.createDirectRow(ctx, in)
 	}
 	// A spontaneous create (Promote is the first caller) leaves Branch blank: it
 	// has nothing of its own to name the branch, and the model spec puts naming
@@ -332,25 +332,76 @@ func (u *hierarchyUsecase) CreateChild(
 		ParentID:     in.ParentID,
 		Protected:    locked || in.ForceLocked,
 	}, u.now())
-	if err != nil { //nolint:nestif // orphan worktree+branch cleanup after a failed row create; flattening risks the rollback ordering
+	if err != nil {
 		// The worktree + branch are on disk but the workspace row never landed.
 		// Clean them up best-effort so a fresh-wsID retry isn't blocked by the
 		// orphaned branch and the worktree dir doesn't dangle forever.
-		if rmErr := u.git.WorktreeRemove(ctx, in.RepoPath, path); rmErr != nil {
-			slog.WarnContext(ctx, "create child: cleanup worktree after failed create",
-				"worktree", path, "err", rmErr)
-		}
-		// Re-attach the main folder FIRST (if we detached it): this restores the
-		// folder AND re-checks-out the branch, so the force-delete below cannot
-		// destroy an adopted (pre-existing) branch like the default branch.
-		u.reattachMain(ctx, detached, in.RepoPath, in.Branch)
-		if delErr := u.git.ForceDeleteBranch(ctx, in.RepoPath, in.Branch); delErr != nil {
-			slog.WarnContext(ctx, "create child: cleanup branch after failed create",
-				"branch", in.Branch, "err", delErr)
-		}
+		u.cleanupFailedWorktree(ctx, in.RepoPath, path, in.Branch, detached)
 		return domain.Workspace{}, err
 	}
+	if nErr := u.mintWorkspaceNode(ctx, ws.ID); nErr != nil {
+		// The worktree, branch AND workspace row all landed, but the row's own
+		// position could not be minted — roll every bit of it back the same way
+		// a failed Create above does, plus the row itself: a Workspace must
+		// never survive with no Node row of its own (2026-09-08
+		// sidebar-placement-unification Task 7 review fix).
+		u.cleanupFailedWorktree(ctx, in.RepoPath, path, in.Branch, detached)
+		u.discardWorkspaceRow(ctx, ws.ID, "create child")
+		return domain.Workspace{}, nErr
+	}
 	return ws, nil
+}
+
+// createDirectRow is CreateChild's no-worktree branch: a virtual/test repo
+// (no on-disk path), or a create that does not own a worktree (explicitly, or
+// defaulted off a workspace-less parent), skips all git operations and
+// creates the workspace row directly. A failed Node mint rolls the row back —
+// there is no worktree/branch of its own to unwind.
+func (u *hierarchyUsecase) createDirectRow(
+	ctx context.Context,
+	in CreateChildInput,
+) (domain.Workspace, error) {
+	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
+		ID:        uuid.NewString(),
+		RepoID:    in.RepoID,
+		ProjectID: in.ProjectID,
+		Branch:    in.Branch,
+		ParentID:  in.ParentID,
+		Protected: in.ForceLocked,
+	}, u.now())
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	if nErr := u.mintWorkspaceNode(ctx, ws.ID); nErr != nil {
+		u.discardWorkspaceRow(ctx, ws.ID, "create child")
+		return domain.Workspace{}, nErr
+	}
+	return ws, nil
+}
+
+// cleanupFailedWorktree removes a worktree + branch created for a workspace
+// row that then failed to fully land — either the row create itself, or a
+// later Node mint — reattaching the main folder FIRST when it was detached to
+// free the branch (this restores the folder AND re-checks-out the branch, so
+// the force-delete cannot destroy an adopted (pre-existing) branch like the
+// default branch). Best-effort: every failure here is logged, never returned
+// — the ORIGINAL failure this cleanup runs for is what the caller reports.
+func (u *hierarchyUsecase) cleanupFailedWorktree(
+	ctx context.Context,
+	repoPath string,
+	path string,
+	branch string,
+	detached bool,
+) {
+	if rmErr := u.git.WorktreeRemove(ctx, repoPath, path); rmErr != nil {
+		slog.WarnContext(ctx, "create child: cleanup worktree after failed create",
+			"worktree", path, "err", rmErr)
+	}
+	u.reattachMain(ctx, detached, repoPath, branch)
+	if delErr := u.git.ForceDeleteBranch(ctx, repoPath, branch); delErr != nil {
+		slog.WarnContext(ctx, "create child: cleanup branch after failed create",
+			"branch", branch, "err", delErr)
+	}
 }
 
 // resolveInherited fills a blank RepoID/ProjectID/RepoPath/RemoteURL/ParentBranch
@@ -720,7 +771,7 @@ func (u *hierarchyUsecase) adoptMainWorktree(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("create child: adopt main worktree: locked: %w", err)
 	}
-	return u.workspaces.Create(ctx, workspace.CreateInput{
+	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
 		ID:           uuid.NewString(),
 		RepoID:       in.RepoID,
 		ProjectID:    in.ProjectID,
@@ -734,6 +785,14 @@ func (u *hierarchyUsecase) adoptMainWorktree(
 		// which must never count the default.
 		IsDefault: true,
 	}, u.now())
+	if err != nil {
+		return domain.Workspace{}, err
+	}
+	if nErr := u.mintWorkspaceNode(ctx, ws.ID); nErr != nil {
+		u.discardWorkspaceRow(ctx, ws.ID, "adopt main worktree")
+		return domain.Workspace{}, nErr
+	}
+	return ws, nil
 }
 
 // branchWorkspaceExists reports whether a non-deleted workspace already holds

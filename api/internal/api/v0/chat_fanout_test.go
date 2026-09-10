@@ -90,7 +90,7 @@ func serveSharedWorktreeStream(
 // into each client's own buffered channel — and fail the assertion.
 func TestSharedWorktreeFanout_OnePushReachesEverySiblingChatAndNoOther(t *testing.T) {
 	rows := batchImportedChats()
-	shared, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", rows)
+	shared, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", rows, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"chat-a", "chat-b", "chat-c"}, shared)
 
@@ -103,7 +103,7 @@ func TestSharedWorktreeFanout_OnePushReachesEverySiblingChatAndNoOther(t *testin
 
 	b.Push(sharedWorktreeEvent{WsID: "ws-a", ChatIDs: shared, Branch: "feature/a"})
 
-	elsewhere, err := worktree.ChatsForWorkspace(context.Background(), "ws-z", rows)
+	elsewhere, err := worktree.ChatsForWorkspace(context.Background(), "ws-z", rows, nil, nil)
 	require.NoError(t, err)
 	b.Push(sharedWorktreeEvent{WsID: "ws-z", ChatIDs: elsewhere, Branch: "feature/z"})
 
@@ -133,13 +133,13 @@ func TestSharedWorktreeFanout_AChatCreatedAfterAClientConnectedStillReceives(t *
 	newcomer := dialWSAt(t, srv, "/v0/chats/chat-new/git/status")
 	b.WaitNRegistered(1)
 
-	before, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", rows)
+	before, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", rows, nil, nil)
 	require.NoError(t, err)
 	require.NotContains(t, before, "chat-new")
 	b.Push(sharedWorktreeEvent{WsID: "ws-a", ChatIDs: before, Branch: "before-the-fork"})
 
 	rows = append(rows, domain.Chat{ID: "chat-new", Type: domain.ChatTypeChat, ParentID: "chat-a"})
-	after, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", rows)
+	after, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", rows, nil, nil)
 	require.NoError(t, err)
 	require.Contains(t, after, "chat-new")
 	b.Push(sharedWorktreeEvent{WsID: "ws-a", ChatIDs: after, Branch: "after-the-fork"})

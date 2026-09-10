@@ -21,9 +21,13 @@ import (
 // change what Promote passes, and this package never has to import the
 // worktree usecase's wide surface to reach it.
 type WorktreeCreator interface {
+	// branch names the fresh branch explicitly; blank keeps the
+	// server-generated name Promote's own call (always "") relied on before
+	// this parameter existed.
 	CreateChildWorkspace(
 		ctx context.Context,
 		forkParentID string,
+		branch string,
 	) (domain.Workspace, error)
 	// CreateImportedWorkspace is CreateChildWorkspace's import counterpart: the
 	// workspace for a branch that already exists, named outright by spec rather
@@ -83,7 +87,7 @@ func (u *Usecase) Promote(
 	if chat.WorkspaceID != "" {
 		return domain.Chat{}, fmt.Errorf("promote %s: %w", chatID, ErrAlreadyPromoted)
 	}
-	forkParentID, ok, err := tree.ResolveForkParent(ctx, u.chats, chatID)
+	forkParentID, ok, err := tree.ResolveForkParent(ctx, u.chats, u.folders, u.nodes, chatID)
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("promote: resolve fork parent: %w", err)
 	}
@@ -94,7 +98,7 @@ func (u *Usecase) Promote(
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("promote: %w", err)
 	}
-	ws, err := u.worktree.CreateChildWorkspace(ctx, forkParentID)
+	ws, err := u.worktree.CreateChildWorkspace(ctx, forkParentID, "")
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("promote: create workspace: %w", err)
 	}

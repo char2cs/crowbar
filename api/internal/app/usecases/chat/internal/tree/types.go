@@ -134,10 +134,14 @@ type Agent interface {
 	//
 	// It refuses with ErrNoForkParent (see promote.go) when chatID's own walk
 	// resolves no ancestor carrying a workspace — there is nothing to fork from.
+	//
+	// branch names the fresh branch explicitly; blank keeps the server-generated
+	// name every caller before this one always got.
 	SpawnChatWithOwnWorktree(
 		ctx context.Context,
 		chatID string,
 		providerID string,
+		branch string,
 	) (runnerID string, err error)
 	// SpawnChatWithImportedWorktree is SpawnChatWithOwnWorktree's IMPORT
 	// counterpart, with the identical contract: chatID has already been minted
@@ -202,43 +206,11 @@ type Agent interface {
 	) error
 }
 
-// WorkspaceGitStatus is the narrow read port DeletePreview needs off the
-// workspace usecase: each workspace's own already-synced Added/Deleted
-// working-tree counts (00 §5.3) — the same numbers the sidebar itself
-// renders, never a live git call. A preview runs before every idle delete
-// confirm, so it has to stay as cheap as the read model it draws from.
-type WorkspaceGitStatus interface {
-	WorkingTreeSummary(
-		ctx context.Context,
-		workspaceID string,
-	) (added, deleted int, err error)
-	// RepoOf answers the repo a workspace belongs to — "" for the project-home
-	// workspace, a real repo id otherwise (domain.Workspace.RepoID, straight
-	// off the same Get the adapter already makes for WorkingTreeSummary, no
-	// new dependency). checkFolderContainer's golden rule uses it to resolve
-	// the scope on the OTHER side of a folder-under-workspace-owning-row
-	// containment check: a folder's own scope is its stored RepoID (or, for a
-	// folder-under-folder check, the parent folder's own RepoID — no lookup
-	// needed there at all), but a folder filed under a BRANCH or forked CHAT
-	// row has to resolve that row's WorkspaceID back to a repo id to compare
-	// against.
-	RepoOf(
-		ctx context.Context,
-		workspaceID string,
-	) (repoID string, err error)
-}
-
-// WorkspaceRoster is the boot backfill's census: every workspace the daemon
-// knows, across every repo, tombstones included (they are filtered here — see
-// liveWorkspaces). It is a second port rather than a method on
-// WorkspaceGitStatus because the two are asked at opposite moments for
-// opposite reasons: one answers a per-row question on a hot user path, this
-// one is read exactly once, at startup.
-type WorkspaceRoster interface {
-	List(
-		ctx context.Context,
-	) ([]domain.Workspace, error)
-}
+// WorkspaceGitStatus is defined in home_ports.go, moved there to keep this
+// file under the package's own 500-line layering ceiling — it is not a
+// home-only port (DeletePreview needs it for every scope), but RepoIDsForHome
+// (SDD review fix round 3) is, and the two ports sit together for the same
+// reason Folders/Nodes already do.
 
 // WorkspaceReaper is the narrow write port DeleteChat needs: tearing down the
 // worktree a chat OWNED, in the same breath the chat is erased.
@@ -464,26 +436,17 @@ type Usecase interface {
 		ctx context.Context,
 		chatID string,
 	) (ChatDeletion, error)
-	// BackfillOwningChats gives every workspace the owning chat row it is owed,
-	// once, at startup — minting one where there is none, and adopting the row a
-	// workspace already has where that workspace has since become something
-	// else. It is the migration for every workspace made before a workspace and
-	// the chat that owns it were minted in one breath: the sidebar addresses a
-	// workspace's placement BY that row, so a workspace without one exists on
-	// disk and nowhere in the tree. See backfill.go.
-	BackfillOwningChats(
+	// PlaceWorkspace moves a workspace's own row within its repo's tree — a
+	// locked branch and an ordinary fork alike, see checkWorkspaceMove and
+	// PlaceWorkspace's own doc for why this is not gated on
+	// domain.Workspace.RendersAsBranch. It refuses with apperr.ErrNotFound
+	// only for a workspaceID with no real repo scope (a nonexistent id, or
+	// the project's own home workspace).
+	PlaceWorkspace(
 		ctx context.Context,
-	) error
-	// EnsureOwningChat is BackfillOwningChats narrowed to ONE workspace, for the
-	// moment a workspace changes character while the daemon is RUNNING rather
-	// than between boots — a branch the user locks, or one a provider poll
-	// reports protected, is branch-destined from that instant and everything
-	// downstream expects its branch row to be there already. It takes the same
-	// decision by the same code; see backfill.go.
-	EnsureOwningChat(
-		ctx context.Context,
-		ws domain.Workspace,
-	) error
+		workspaceID string,
+		in PlaceInput,
+	) (domain.Chat, []domain.Chat, error)
 	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
 	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
 	// row in the subtree, and the working-tree file count summed across every

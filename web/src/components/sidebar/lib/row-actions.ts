@@ -540,6 +540,36 @@ export async function performCreateFolder(rowId: string): Promise<void> {
 }
 
 /**
+ * {@link performCreateFolder}'s sibling for a plain CHAT row (a bubble/
+ * thread) — reported live: right-clicking one offered no "New folder" at
+ * all, and a fresh project (or repo) with zero folders yet has no OTHER row
+ * to right-click for one, leaving only the project header's hover-revealed
+ * "+" as a path nobody found.
+ *
+ * `performCreateFolder`'s own `rowId` -> workspace-id translation
+ * (`workspaceIdOfBranchRow`) only recognises a BRANCH row's id; handing it a
+ * bubble's id returns `null` and falls through to the raw id unchanged,
+ * which then matches no repo's workspaces/folders at all and silently
+ * no-ops. A bubble carries no folder-anchor of its own either way — its
+ * "New folder" always root-normalises, the same as clicking the repo's own
+ * home row already does for `performCreateFolder`.
+ */
+export async function performCreateFolderFromChat(chatId: string): Promise<void> {
+  const repo = useSidebarStore.getState().repos.find((r) => r.chats?.some((c) => c.id === chatId))
+  const projectId = repo?.projectId
+  if (!repo || !projectId) return
+  try {
+    const { folder, shifted } = await createFolder(projectId, repo.id, NEW_FOLDER_NAME, '')
+    const apply = useSidebarStore.getState().applyFolderDTO
+    apply(folder)
+    shifted.forEach(apply)
+    useFolderSignalStore.getState().bump(repo.id)
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to create folder')
+  }
+}
+
+/**
  * {@link performCreateFolder}'s sibling for the project-home workspace.
  *
  * No `rowId` translation to do — the caller (the project header's add-menu,

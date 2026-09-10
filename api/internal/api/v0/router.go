@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/system"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/workspace"
 	worktreePkg "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 )
@@ -44,8 +45,12 @@ import (
 // and so is every other group's legacy "/workspaces/:wsId/..." twin (git,
 // files, review, search, editor, identity, provider) — each had a chat-keyed
 // replacement live and in use before its old mount went. What still builds a
-// "/workspaces/:wsId/..." path off repoScoped is threads alone, which is
-// repo-level review commentary and never moved (§4.4).
+// "/workspaces/:wsId/..." path off repoScoped is threads (repo-level review
+// commentary, never moved, §4.4) and, since 2026-09-09, workspace (a LOCKED
+// branch's own sidebar placement — a fact about the workspace itself, not
+// about any conversation inside it, so it is deliberately NOT reached through
+// the chat-addressed surface every other verb uses; see
+// endpoints/workspace/handlers' own doc).
 //
 //nolint:funlen // Flat route-wiring table: one Register call per endpoint group. Splitting it would scatter the mount order across helpers and obscure the nesting the doc comment describes.
 func (c *Container) Register(
@@ -121,6 +126,7 @@ func (c *Container) Register(
 		c.app.Repositories.Workspace,
 		c.app.Usecases.ProjectImport,
 		c.app.Usecases.Project,
+		c.app.Repositories.Node,
 		c.eng.Git,
 		c.app.Usecases.Workspace,
 		c.app.Repositories.Workspace,
@@ -140,6 +146,9 @@ func (c *Container) Register(
 		// workspace's only REST read, so it stamps Working from here to agree with
 		// the frames the container broadcasts for that same workspace.
 		c.app.Repositories,
+		// Mints a lazily-provisioned legacy project's home workspace its own
+		// Node row (2026-09-08 sidebar-placement-unification Task 7).
+		c.app.Repositories.Node,
 		// Reused from the workspace-scoped surface: the file-change WS handler and
 		// the review-thread store/broadcaster/WS, dual-served via the same wrapper.
 		// home.Register injects the resolved home :wsId so these scope correctly.
@@ -251,6 +260,10 @@ func (c *Container) Register(
 		// project home is a bare project-level row with no repo and no git surface
 		// at all, so there is no worktree there to describe.
 		chatWorktrees{app: c.app},
+		// A worktree-owning chat's own sidebar FolderID/Order (2026-09-09
+		// sidebar-placement-unification, workspace-placement fix) — the SAME
+		// Node store PlaceWorkspace (endpoints/workspace, below) writes.
+		c.app.Repositories.Node,
 		c.app.Hub.BroadcastAgentChatFolder,
 		c.agentChats.Handle,
 	)
@@ -286,6 +299,19 @@ func (c *Container) Register(
 		c.threads,
 		c.threads.Handle,
 		ws.DualServe,
+	)
+	// workspace.Register is the SECOND member of the repoScoped
+	// "/workspaces/:wsId" mount, for the same reason threads is the first: a
+	// LOCKED branch's own sidebar position is a fact about the workspace
+	// itself, not about any conversation living inside it, so it is
+	// addressed by the workspace's own id rather than through the chat that
+	// owns its worktree (2026-09-09 sidebar-placement-unification,
+	// workspace-placement fix). c.app.Usecases.AgentChatFolder is the SAME
+	// tree usecase value chat.Register above hands its own PlaceChat route.
+	workspace.Register(
+		repoScoped,
+		c.app.Usecases.AgentChatFolder,
+		c.app.Hub.BroadcastAgentChatFolder,
 	)
 	// Editor/LSP completes spec §4.2's OWNED bucket (§8 step 5): the resolver
 	// still runs, for a CWD, but the LSP session itself is never shared with a

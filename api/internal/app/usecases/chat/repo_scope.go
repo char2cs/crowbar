@@ -33,7 +33,7 @@ func (u *Usecase) ListChatsInRepo(
 	if err != nil {
 		return nil, fmt.Errorf("agent: list chats in repo %s: %w", repoID, err)
 	}
-	cwds := tree.CwdWorkspaceIDs(rows)
+	cwds := tree.CwdWorkspaceIDs(ctx, u.folders, u.nodes, rows)
 	resolved := map[string]string{}
 	out := make([]domain.Chat, 0, len(rows))
 	for _, row := range rows {
@@ -96,5 +96,5 @@ func (u *Usecase) CwdWorkspaceID(
 	ctx context.Context,
 	chatID string,
 ) (string, bool, error) {
-	return tree.ResolveCwdWorkspaceID(ctx, u.chats, chatID)
+	return tree.ResolveCwdWorkspaceID(ctx, u.chats, u.folders, u.nodes, chatID)
 }

@@ -190,6 +190,13 @@ export function worktreeVerbBaseForWorkspace(wsId: string): string {
 // resolved from the route-recorded scope (see workspace-store-registry). Throws
 // when the scope is unknown so a stale/mis-ordered call fails loudly instead of
 // hitting a missing-segment 404.
+//
+// Also the base a locked branch's own SIDEBAR PLACEMENT is addressed through
+// (sidebar-placement.ts's placeWorkspace, 2026-09-09
+// sidebar-placement-unification) — unlike the seven lifecycle verbs above,
+// which stay on worktreeVerbBaseForWorkspace's chat-addressed route: a
+// branch's own position is a fact about the workspace itself, not about any
+// conversation living inside it.
 export function workspaceBase(wsId: string): string {
   const scope = getWorkspaceScope(wsId)
   if (!scope) throw new Error(`no project/repo scope recorded for workspace ${wsId}`)

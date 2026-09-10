@@ -162,6 +162,68 @@ func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroa
 	wg.Wait()
 }
 
+// TestConcurrency_ParallelHomeResolvesProvisionExactlyOneWorkspace is the
+// regression for a live bug: GET .../home lazily provisions a project's home
+// workspace the first time anything asks for it, and nothing serialized two
+// callers landing before that first write was visible — both read
+// ErrNotFound and both minted a fresh home workspace, leaving the project
+// with two. Only one is ever "the" answer a later caller gets back; the
+// frontend resolver that asked first, though, caches WHICHEVER one it
+// personally received — "a lookup, not a mint," per its own doc, a
+// guarantee this exact race broke — and never asks again for the life of
+// the session. Every later action against that now-orphaned id then fails
+// downstream: "asynx: aggregate not found" spawning a runner, or "no
+// project/repo scope recorded" reordering a row, depending which surface
+// hits it first. Caught live TWICE in one session, from two different
+// surfaces, before a fix (handlers.go's singleflight-guarded resolveHome)
+// landed — this is the integration-level trap for the whole class: it goes
+// straight at the daemon's real HTTP surface and real storage, the two
+// layers a usecase-level unit test (mocked repositories) cannot see race at
+// all.
+func (s *ConcurrencySuite) TestConcurrency_ParallelHomeResolvesProvisionExactlyOneWorkspace() {
+	t := s.T()
+	projectID := s.Env.RegisterProject(t, "home-race", t.TempDir())
+	const n = 20
+
+	// A start barrier, not just a tight dispatch loop: launching N goroutines
+	// one after another leaves the FIRST one free to run (and finish its
+	// read-then-write) well before the LAST one even starts, which can hide
+	// the race behind ordinary scheduling rather than true overlap. Blocking
+	// every goroutine on the same channel close lines them all up to fire
+	// their GET at once, which is what actually exercises the window
+	// GetHomeForProject/CreateHome leaves open.
+	ready := make(chan struct{})
+	ids := make([]string, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-ready
+			resp := s.Env.GET(t, "/v0/projects/"+projectID+"/home")
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+			var ws struct {
+				ID string `json:"id"`
+			}
+			kit.DecodeEnvData(t, resp, &ws)
+			ids[idx] = ws.ID
+		}(i)
+	}
+	close(ready)
+	wg.Wait()
+
+	first := ids[0]
+	s.Require().NotEmpty(first, "call 0 must have resolved a home workspace")
+	for i, id := range ids {
+		s.Assert().Equal(first, id,
+			"every concurrent GET .../home for the same project must agree on ONE workspace id (call %d got %q, call 0 got %q)",
+			i, id, first)
+	}
+}
+
 // TestConcurrency_ParallelWsBroadcastsDoNotPanic ensures concurrent broadcasts
 // with registered WS clients on the repo-scoped chat prefix do not race the
 // broadcaster's subscriber slice.

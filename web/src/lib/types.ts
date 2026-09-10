@@ -126,6 +126,12 @@ export interface ChatWorktreeDTO {
   parentId?: string
   /** Which chat owns this worktree. Always sent, on every row carrying it. */
   owningChatId: string
+  /** Sidebar grouping folder this workspace belongs to, or absent for the
+   *  repo root. A SEPARATE field from parentId, which stays the fork parent. */
+  folderId?: string
+  /** Dense sibling sort key within its level. Absent on frames from a daemon
+   *  that predates ordering. */
+  order?: number
 }
 
 export interface RepoDTO {
@@ -164,12 +170,18 @@ export interface FolderDTO {
 }
 
 /**
- * A row's own kind in the sidebar forest (Go's `domain.ChatType`). One aggregate
- * carries all four: `folder` rows are what `.../chats/folders` serves, `branch`
- * rows ARE the workspaces they own (a locked branch, a repo home, a project
- * home), and `chat` is an ordinary conversation.
+ * A `Chat` row's own kind (Go's `domain.ChatType`, narrowed by 2026-09-08
+ * sidebar-placement-unification Task 9's `validChatType` to the two values a
+ * write path can still mint). `branch` and `folder` are gone: a locked
+ * branch, a repo home and a project home are `Node{Kind:workspace}` rows
+ * read straight off `Workspace`/`Repository` now (rows-from-repo.ts), never
+ * a `Chat` retyped to stand in for one, and a folder is `domain.Folder` (see
+ * `FolderDTO`), never `ChatTypeFolder`. Both old values may still arrive on
+ * a legacy row this migration never touched — `type` stays optional on
+ * `ChatDTO` for exactly that reason — but nothing mints either going
+ * forward, so no live code path should compare against them.
  */
-export type ChatType = 'chat' | 'branch' | 'folder' | 'workflow'
+export type ChatType = 'chat' | 'workflow'
 
 /**
  * A conversation row of the sidebar forest — design spec §3.1's `chat` kind,
@@ -189,11 +201,10 @@ export interface ChatDTO {
   id: string
   repoId: string
   projectId: string
-  /** This row's own kind in the sidebar forest (domain.ChatType). A `branch`
-   *  row IS the workspace it owns — a locked branch, a repo home, a project
-   *  home — which is what lets a client tell one apart from an ordinary chat
-   *  inside the same repo-scoped list. Optional only because a row cached
-   *  before the daemon emitted it carries none. */
+  /** This row's own kind (domain.ChatType) — `'chat'` or `'workflow'` for
+   *  every row minted going forward; see {@link ChatType}'s own doc for the
+   *  two retired legacy values. Optional only because a row cached before
+   *  the daemon emitted it carries none. */
   type?: ChatType
   /** The workspace this chat runs in. NOT proof of ownership — a thread carries
    *  its parent's — see {@link ChatDTO.ownsWorktree}. '' for a row that has no

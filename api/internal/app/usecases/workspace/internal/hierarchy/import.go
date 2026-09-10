@@ -306,6 +306,10 @@ func (u *hierarchyUsecase) importPlaceholder(
 		return domain.Workspace{}, u.discardOwningChat(ctx, chatID,
 			fmt.Errorf("import: create placeholder for %q: %w", branch, err))
 	}
+	if nErr := u.mintWorkspaceNode(ctx, ws.ID); nErr != nil {
+		return domain.Workspace{}, u.discardUnownedWorkspace(ctx, chatID, ws,
+			fmt.Errorf("import: mint placeholder node for %q: %w", branch, nErr))
+	}
 	if aErr := u.owningChats.AttachOwningWorkspace(ctx, chatID, ws); aErr != nil {
 		return domain.Workspace{}, u.discardUnownedWorkspace(ctx, chatID, ws,
 			fmt.Errorf("import: attach placeholder for %q: %w", branch, aErr))

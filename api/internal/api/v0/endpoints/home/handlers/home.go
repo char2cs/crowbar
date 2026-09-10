@@ -8,8 +8,8 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // Get handles GET /v0/projects/:projectId/home.
@@ -26,16 +26,20 @@ func (h *Handlers) Get(c *gin.Context) {
 	// home workspace's icon keeps its spinner across a refetch.
 	ws.Working = h.working.WorkingFor(ws.ID)
 	owningChatID := h.resolveOwningChatID(c.Request.Context(), ws.ID)
-	// Home workspaces carry no git-merge-eligibility context.
-	libs.WriteQueryWithStatus(c, http.StatusOK, dto.WorkspaceDTOFrom(ws, wsrepo.MergeEligibility{}, owningChatID))
+	// Home workspaces carry no git-merge-eligibility context, and no sidebar
+	// FolderID/Order either: PlaceWorkspace itself refuses this row (RepoOf
+	// answers "" for it — see PlaceWorkspace's own doc), so there is nothing
+	// for a Node reader to answer here beyond the "" / 0 default nil already
+	// gives.
+	libs.WriteQueryWithStatus(c, http.StatusOK,
+		dto.WorkspaceDTOFrom(c.Request.Context(), ws, wsrepo.MergeEligibility{}, owningChatID, nil))
 }
 
 // resolveOwningChatID answers wsID's real owning chat id for the wire DTO,
-// mirroring the workspaces handlers' own resolveOwningChatID: it reuses Task
-// 3's branch-preferring resolution (agentusecase.ResolveOwningChat) over this
-// handler's own read of the workspace's chat rows, never a second,
-// independently derived answer. An unwired chats seam or an empty read
-// degrades to "".
+// mirroring the workspaces handlers' own resolveOwningChatID: it reuses
+// domain.ResolveOwningChat over this handler's own read of the workspace's
+// chat rows, never a second, independently derived answer. An unwired chats
+// seam or an empty read degrades to "".
 func (h *Handlers) resolveOwningChatID(
 	ctx context.Context,
 	wsID string,
@@ -47,7 +51,7 @@ func (h *Handlers) resolveOwningChatID(
 	if err != nil {
 		return ""
 	}
-	owner, ok := agentusecase.ResolveOwningChat(rows)
+	owner, ok := domain.ResolveOwningChat(rows)
 	if !ok {
 		return ""
 	}

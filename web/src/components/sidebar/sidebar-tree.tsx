@@ -174,7 +174,15 @@ export function SidebarTree({
           onOpen={onOpen}
           onTrash={onTrash}
           onCreate={onCreate}
-          onToggleFold={(id) => useSidebarStore.getState().toggleChatRow(id)}
+          // Childless only ever renders nothing below itself regardless of
+          // fold state (see the comment just below — the ghost ISN'T there
+          // to expand into any more), so the chevron offered a toggle with
+          // no visible effect — explicit product correction from the old
+          // "every row is a container" stance (spec §3.1) this used to
+          // follow unconditionally.
+          onToggleFold={
+            hasChildren ? (id) => useSidebarStore.getState().toggleChatRow(id) : undefined
+          }
           folded={folded}
           dragProps={drag.dragProps(row, { path: childPath, expanded: !folded, hasChildren })}
           isDragging={drag.draggingIds.has(row.id)}

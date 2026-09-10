@@ -14,27 +14,28 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// TestRegression_RepoChatsListCarriesBranchRowType pins the two facts Task 1
+// TestRegression_RepoChatsListCarriesNonChatRowType pins the two facts Task 1
 // of the 2026-09-01 owning-chat-backfill plan exists to close: ListChatsInRepo
-// already includes ChatTypeBranch rows in what it returns to
-// GET /repos/:rid/chats (its only type-based exclusion is ChatTypeFolder), and
-// AgentChatDTO now actually carries the row's own Type onto the wire — so a
-// client can finally tell a locked-branch/repo-home row apart from an ordinary
-// chat within the same list response.
+// does not exclude a row by its Type (its only type-based exclusion is
+// ChatTypeFolder), and AgentChatDTO carries the row's own Type onto the wire —
+// so a client can tell a non-default-typed row apart from an ordinary chat
+// within the same list response.
 //
-// A ChatTypeBranch row cannot yet be minted over the HTTP surface (that is
-// Task 3's backfill), so this seeds one directly against the AgentChat
-// aggregate, owning the workspace the import just created — exactly the shape
-// a backfilled row will have.
-func TestRegression_RepoChatsListCarriesBranchRowType(t *testing.T) {
+// ChatTypeWorkflow stands in for the non-default type under test — a
+// forward-compat marker with no v0 writer, but still one of the two types
+// validChatType accepts (2026-09-08 sidebar-placement-unification Task 9
+// narrowed that set to exclude ChatTypeBranch, this test's original stand-in:
+// a workspace's own position is a Node{Kind:workspace} row now, never a
+// retyped Chat, so nothing can mint one to seed here any more).
+func TestRegression_RepoChatsListCarriesNonChatRowType(t *testing.T) {
 	h := newHarness(t)
 	imported := importWritableWorkspace(t, h)
 
-	branchID := "branch-" + imported.workspaceID
+	workflowID := "workflow-" + imported.workspaceID
 	_, err := h.app.Repositories.AgentChat.Create(context.Background(), agentchat.CreateInput{
-		ID:          branchID,
+		ID:          workflowID,
 		WorkspaceID: imported.workspaceID,
-		Type:        domain.ChatTypeBranch,
+		Type:        domain.ChatTypeWorkflow,
 		Now:         time.Now(),
 	})
 	require.NoError(t, err)
@@ -44,11 +45,11 @@ func TestRegression_RepoChatsListCarriesBranchRowType(t *testing.T) {
 
 	var found map[string]any
 	for _, row := range rows {
-		if row["id"] == branchID {
+		if row["id"] == workflowID {
 			found = row
 			break
 		}
 	}
-	require.NotNil(t, found, "the branch row must be listed under its repo, not dropped like a folder")
-	assert.Equal(t, "branch", found["type"], "the wire row must carry the row's own Type")
+	require.NotNil(t, found, "the workflow row must be listed under its repo, not dropped like a folder")
+	assert.Equal(t, "workflow", found["type"], "the wire row must carry the row's own Type")
 }

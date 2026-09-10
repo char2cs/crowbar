@@ -100,14 +100,35 @@ func TestPatchRepo_BroadcastsRenamedDTO(t *testing.T) {
 	assert.Equal(t, "R", frames[0].AvatarLabel)
 }
 
+// fakeNodeReader is a trivial repohandlers.NodeReader: a fixed map of id ->
+// domain.Node, so a test can pin the Order/FolderID a RepoDTO broadcast reads
+// off the repo's own Node row without standing up the real repository.
+type fakeNodeReader map[string]domain.Node
+
+func (f fakeNodeReader) GetNode(_ context.Context, id string) (domain.Node, error) {
+	n, ok := f[id]
+	if !ok {
+		return domain.Node{}, apperr.ErrNotFound
+	}
+	return n, nil
+}
+
 // TestPatchRepo_OrderOnlyNeedsNoName pins that the PATCH is genuinely partial: a
 // reorder carries no name, and the old name-is-required rule would have 400'd
-// every drag.
+// every drag. Order now reaches the broadcast via the repo's own Node row (not
+// domain.Repository), so this wires a fakeNodeReader to pin it.
 func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
-	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1", Order: 2}}
+	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1"}}
 	var frames []dto.RepoDTO
-	rec := doPatch(patchRouter(t, upd, &frames), "/v0/projects/p1/repos/r1",
-		map[string]any{"order": 2})
+	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(d dto.RepoDTO) {
+		frames = append(frames, d)
+	}).WithUpdater(upd).
+		WithNodes(fakeNodeReader{"r1": domain.Node{ID: "r1", Order: 2}}).
+		WithIconStorage(func() (string, error) { return t.TempDir(), nil }, nil)
+	r := gin.New()
+	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
+
+	rec := doPatch(r, "/v0/projects/p1/repos/r1", map[string]any{"order": 2})
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Nil(t, upd.got.Name, "an order-only PATCH must not synthesise a rename")

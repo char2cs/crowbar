@@ -22,7 +22,7 @@ func (u *chatFolderUsecase) CreateChat(
 	worktree WorktreeSpec,
 ) (string, string, error) {
 	if worktree.Mode == WorktreeFork {
-		return u.createOwnWorktreeChat(ctx, providerID, parentID)
+		return u.createOwnWorktreeChat(ctx, providerID, parentID, worktree.Branch)
 	}
 	if worktree.Mode == WorktreeImport {
 		chatID, _, runnerID, err := u.createImportedWorktreeChat(ctx, providerID, parentID, worktree.Import)
@@ -38,7 +38,9 @@ func (u *chatFolderUsecase) CreateChat(
 	if err != nil {
 		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
 	}
-	if _, _, pErr := u.PlaceChat(ctx, workspaceID, chatID, PlaceInput{ParentID: &parentID}); pErr != nil {
+	if _, _, pErr := u.placeChat(
+		ctx, workspaceID, chatID, PlaceInput{ParentID: &parentID}, false, true,
+	); pErr != nil {
 		return "", "", u.discard(ctx, chatID, pErr)
 	}
 	runnerID, err := u.agent.StartRunner(ctx, chatID, providerID)
@@ -71,6 +73,7 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 	ctx context.Context,
 	providerID string,
 	parentID string,
+	branch string,
 ) (string, string, error) {
 	if parentID != "" {
 		if err := u.checkNewChatParent(ctx, "", parentID, true); err != nil {
@@ -82,11 +85,13 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
 	}
 	if parentID != "" {
-		if _, _, pErr := u.placeChat(ctx, "", chatID, PlaceInput{ParentID: &parentID}, true); pErr != nil {
+		if _, _, pErr := u.placeChat(
+			ctx, "", chatID, PlaceInput{ParentID: &parentID}, true, true,
+		); pErr != nil {
 			return "", "", u.discard(ctx, chatID, pErr)
 		}
 	}
-	runnerID, err := u.agent.SpawnChatWithOwnWorktree(ctx, chatID, providerID)
+	runnerID, err := u.agent.SpawnChatWithOwnWorktree(ctx, chatID, providerID, branch)
 	if err != nil {
 		return "", "", u.discard(ctx, chatID, err)
 	}
@@ -146,27 +151,38 @@ func (u *chatFolderUsecase) PlaceChat(
 	chatID string,
 	in PlaceInput,
 ) (domain.Chat, []domain.Chat, error) {
-	return u.placeChat(ctx, workspaceID, chatID, in, false)
+	return u.placeChat(ctx, workspaceID, chatID, in, false, false)
 }
 
-// placeChat is PlaceChat's body, taking one extra argument PlaceChat's own
-// exported signature does not carry: ownWorktree, true only for
-// createOwnWorktreeChat's own call. That caller's placement is a second
-// destination check on the SAME parentID checkNewChatParent already cleared
-// (loadChat/workspaceSnapshotAround resolve a fresh snapshot, so the check is
-// re-run rather than trusted), and it has to see the same ownWorktree signal
-// checkNewChatParent did or it refuses the exact case Task 7 exists to allow.
+// placeChat is PlaceChat's body, taking two extra arguments PlaceChat's own
+// exported signature does not carry:
+//
+//   - ownWorktree, true only for createOwnWorktreeChat's own call. That
+//     caller's placement is a second destination check on the SAME parentID
+//     checkNewChatParent already cleared (loadChat/workspaceSnapshotAround
+//     resolve a fresh snapshot, so the check is re-run rather than trusted),
+//     and it has to see the same ownWorktree signal checkNewChatParent did or
+//     it refuses the exact case Task 7 exists to allow.
+//   - firstPlacement, true for CreateChat/createOwnWorktreeChat's own calls —
+//     see replace's own doc for why a fresh mint's placement must not
+//     densify the root level it was never really a member of.
 func (u *chatFolderUsecase) placeChat(
 	ctx context.Context,
 	workspaceID string,
 	chatID string,
 	in PlaceInput,
 	ownWorktree bool,
+	firstPlacement bool,
 ) (domain.Chat, []domain.Chat, error) {
 	current, err := u.loadChat(ctx, workspaceID, chatID)
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
+	// A home-scoped chat's placement write goes through Node, not
+	// Chat.SetOrder/.SetPlacement (2026-09-08 sidebar-placement-unification
+	// Task 5) -- workspaceSnapshotAround marks chatID in snapshot.homeIDs
+	// (and, for its very first placement right after MintChat, snapshot.
+	// freshIDs) whenever workspaceID resolves home-scoped; see its own doc.
 	snapshot, err := u.workspaceSnapshotAround(ctx, workspaceID, current)
 	if err != nil {
 		return domain.Chat{}, nil, err
@@ -185,7 +201,7 @@ func (u *chatFolderUsecase) placeChat(
 	// chat has been living under is still recoverable, and the comparison against
 	// what it lands on is what decides whether anything happened worth recording.
 	inherited := snapshot.chatLineage(chatID)
-	u.replace(snapshot, chatID, current.ParentID, destination, in.Order)
+	u.replace(snapshot, chatID, current.ParentID, destination, in.Order, firstPlacement)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Chat{}, nil, err
@@ -364,13 +380,23 @@ func (u *chatFolderUsecase) reapWorktrees(
 
 // purgeAll erases each chat in order and takes it out of the plan as it goes, so
 // the densify that follows counts only the rows that survived.
+//
+// A not-found from PurgeChat is tolerated, same reasoning as reapWorktrees'
+// own tolerance above: a row can be real at the TREE level (it has a parent,
+// an order, it renders) while never having minted a conversation aggregate
+// at all — a thread whose create never got past placement, say. Failing the
+// whole cascade on one such id turned "delete a parent with children" into
+// deleting nothing at all, parent included, the moment any one descendant
+// happened to be one of these; purging is idempotent from the caller's
+// side either way, so "already gone" is success here, not an error.
 func (u *chatFolderUsecase) purgeAll(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	ids []string,
 ) error {
 	for _, id := range ids {
-		if err := u.agent.PurgeChat(ctx, id); err != nil {
+		err := u.agent.PurgeChat(ctx, id)
+		if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 			return fmt.Errorf("agent chat folder: purge chat %s: %w", id, err)
 		}
 		snapshot.drop(id)
@@ -382,14 +408,22 @@ func (u *chatFolderUsecase) purgeAll(
 // PurgeChat: they are removed rather than promoted because the level that would
 // have held them is gone, and a folder never had a runner or a ledger for the
 // agent usecase to tear down in the first place.
+//
+// A folder is a domain.Folder+domain.Node pair now (2026-09-08
+// sidebar-placement-unification Task 5 for home-scoped, Task 8 for
+// repo-scoped too), never a Chats.Forget-able row — both halves are erased
+// here, mirroring Delete's own home/repo-scoped folder erasure (tree.go).
 func (u *chatFolderUsecase) removeAll(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	ids []string,
 ) error {
 	for _, id := range ids {
-		if err := u.chats.Forget(ctx, id); err != nil {
+		if err := u.folders.Delete(ctx, id); err != nil {
 			return fmt.Errorf("agent chat folder: delete %s: %w", id, err)
+		}
+		if err := u.nodes.Forget(ctx, id); err != nil {
+			return fmt.Errorf("agent chat folder: delete %s: node: %w", id, err)
 		}
 		snapshot.drop(id)
 	}
@@ -400,17 +434,28 @@ func (u *chatFolderUsecase) removeAll(
 // dense: the one it joined, and — only when it actually changed level — the one
 // it left. Leaving every level dense after every move is what makes the next
 // drop index mean what it says.
+//
+// firstPlacement skips the "level it left" densify — true only for a chat's
+// very first placement, right after MintChat (CreateChat/createOwnWorktreeChat's
+// own calls). A freshly minted chat's ParentID defaults to "", but it was never
+// actually a RENDERED member of that root level — nothing ever read it there,
+// so there is no real gap to close. Densifying anyway renumbers every OTHER
+// row already sitting at root, on every single new-thread create, whether or
+// not the row being created has anything to do with them — caught live:
+// threading off an ordinary row silently reordered unrelated top-level rows
+// elsewhere in the same project.
 func (u *chatFolderUsecase) replace(
 	snapshot *treeSnapshot,
 	id string,
 	origin string,
 	destination string,
 	requested *int,
+	firstPlacement bool,
 ) {
 	target := placementTarget(requested, snapshot, origin, destination, id)
 	snapshot.plan.SetParent(id, destination)
 	snapshot.plan.Reorder(destination, id, target)
-	if destination != origin {
+	if destination != origin && !firstPlacement {
 		snapshot.plan.Reorder(origin, "", -1)
 	}
 }

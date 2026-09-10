@@ -2,6 +2,20 @@ import { indexFromParents, type TreeIndex } from './keep-set'
 import type { Workspace } from '@/lib/store/sidebar'
 import type { ChatType } from '@/lib/types'
 
+// 2026-09-08 sidebar-placement-unification Task 10: this file needed no
+// change. There is no wire-level `Node` shape to cut over to — verified
+// against the current backend DTOs (api/internal/api/v0/dto): ChatDTO and
+// FolderDTO still carry flat `parentId`/`order`, just Node-sourced
+// server-side now (Tasks 5/8's mergeForest/correctHomePlacement), so
+// `SidebarChat`/`SidebarFolder` below already read exactly what's on the
+// wire. WorkspaceDTO never carried a placement field to begin with — its
+// `parentId` is fork lineage (git ancestry), a different edge — a
+// workspace-owning row's RENDERED position has always come from folding its
+// owning chat's placement into it (rows-from-repo.ts's foldWorkspaceOwners),
+// unchanged by this plan. `PlacedWorkspace.folderId`/`.order` below are
+// consumed exactly as before Task 10; nothing here needed a Node-specific
+// read path of its own.
+
 /**
  * A folder as the sidebar needs it. Organisation only — no branch, no git
  * status, no worktree. Structurally compatible with the store's folder type;

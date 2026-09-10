@@ -106,37 +106,34 @@ describe('deleteFolder', () => {
   })
 })
 
-// Spec §7.5: the retired `PATCH .../workspaces/:wsId` did nothing for placement
-// but resolve this same owning chat and call the same command, so filing a
-// worktree-owning row now goes straight to the chat's own placement route.
+// 2026-09-09 sidebar-placement-unification, workspace-placement fix: a
+// locked branch's own row is addressed by the WORKSPACE itself now —
+// `PATCH .../workspaces/:wsId/placement` — never by the chat that owns its
+// worktree. No owningChatId needs recording for this call at all any more;
+// workspaceBase resolves straight off the project/repo scope every
+// workspace already gets recorded with (recordWorkspaceScope, sidebar
+// store), locked branch or not.
 describe('placeWorkspace', () => {
   beforeEach(() => {
     __resetWorkspaceScopesForTest()
-    recordWorkspaceScope({
-      projectId: 'p1',
-      repoId: 'r1',
-      wsId: 'ws-1',
-      owningChatId: 'chat-ws-1',
-    })
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
   })
 
-  it("PATCHes the owning chat's placement route, never the workspace one", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ chat: {}, shifted: [] }))
+  it('PATCHes the workspace-addressed placement route, never a chat one', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ workspace: {}, shifted: [] }))
 
     await placeWorkspace('ws-1', { folderId: 'f-rev', order: 2 })
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('/v0/projects/p1/repos/r1/chats/chat-ws-1/placement')
-    expect(url).not.toContain('/workspaces/')
+    expect(url).toBe('/v0/projects/p1/repos/r1/workspaces/ws-1/placement')
+    expect(url).not.toContain('/chats/')
     expect(init.method).toBe('PATCH')
   })
 
-  // A chat, a folder and a worktree-owning row share ONE sibling space, so the
-  // route names the destination `parentId`. Sending `folderId` — the field the
-  // retired workspace PATCH took — would bind nothing and silently leave the
-  // row where it was.
+  // A folder and a locked branch's own row share ONE sibling space within
+  // the branch's own repo, so the route names the destination `parentId`.
   it('sends the folder as parentId, the field the placement route reads', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ chat: {}, shifted: [] }))
+    fetchMock.mockResolvedValue(jsonResponse({ workspace: {}, shifted: [] }))
 
     await placeWorkspace('ws-1', { folderId: 'f-rev', order: 2 })
 
@@ -144,10 +141,10 @@ describe('placeWorkspace', () => {
     expect(JSON.parse(init.body as string)).toEqual({ parentId: 'f-rev', order: 2 })
   })
 
-  // Both fields are "leave it as it is" when omitted, on this route as on the
-  // one it replaced. Sending an explicit null/undefined would re-root the row.
+  // Both fields are "leave it as it is" when omitted. Sending an explicit
+  // null/undefined would re-root the row.
   it('omits a field the caller did not set rather than sending an empty one', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ chat: {}, shifted: [] }))
+    fetchMock.mockResolvedValue(jsonResponse({ workspace: {}, shifted: [] }))
 
     await placeWorkspace('ws-1', { order: 0 })
 
@@ -157,7 +154,7 @@ describe('placeWorkspace', () => {
 
   // The repo ROOT is a real destination, spelled '' — distinct from "unset".
   it('sends the repo root as an empty parentId, not as an omission', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ chat: {}, shifted: [] }))
+    fetchMock.mockResolvedValue(jsonResponse({ workspace: {}, shifted: [] }))
 
     await placeWorkspace('ws-1', { folderId: '', order: 1 })
 

@@ -75,7 +75,7 @@ const chatRow = (over: Partial<RepoChatWireDTO> = {}): RepoChatWireDTO => ({
   parentId: '',
   title: 'alpha',
   order: 0,
-  type: 'branch',
+  type: 'chat',
   ...over,
 })
 
@@ -101,6 +101,8 @@ describe('workspaceDTOFromChat', () => {
         heldByPath: '/held/here',
         forkPointSha: 'abc123',
         parentId: 'ws-parent',
+        folderId: 'folder-1',
+        order: 4,
       }),
     })
 
@@ -127,6 +129,8 @@ describe('workspaceDTOFromChat', () => {
       localPath: '/x/y',
       heldByPath: '/held/here',
       owningChatId: 'c1',
+      folderId: 'folder-1',
+      order: 4,
     } satisfies WorkspaceDTO)
   })
 
@@ -146,6 +150,8 @@ describe('workspaceDTOFromChat', () => {
       prTargetBranch: '',
       localPath: '',
       heldByPath: '',
+      folderId: '',
+      order: 0,
     })
   })
 
@@ -200,6 +206,8 @@ describe('fetchWorkspaces', () => {
         localPath: '',
         heldByPath: '',
         owningChatId: 'c1',
+        folderId: '',
+        order: 0,
       } satisfies WorkspaceDTO,
     ])
   })
@@ -218,7 +226,7 @@ describe('fetchWorkspaces', () => {
         chatRow({
           id: 'c5',
           workspaceId: 'w2',
-          type: 'branch',
+          type: 'chat',
           worktree: worktree({ branch: 'feature/y', owningChatId: 'c5' }),
         }),
       ]),

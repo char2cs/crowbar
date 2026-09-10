@@ -19,27 +19,32 @@ function makeTestChat(over: Partial<Chat> & { id: string; title: string }): Chat
  * The id of the `branch` row every fixture's repo home owns.
  *
  * Every repo with a home workspace has one by the time `rowsFromRepo` is
- * called: the daemon's boot backfill mints it, and `SidebarTreeSurface` does
- * not build rows for a repo until its chat seed has landed. So the fixtures
- * carry it too — a repo without one is not a state this function is ever
- * handed, and modelling it would be modelling the loading state the caller
- * already excludes.
+ * called (2026-09-08 sidebar-placement-unification Task 9: chat-first, at
+ * creation — `MintOwningChat`/`AttachOwningWorkspace`, never a boot
+ * backfill), and `SidebarTreeSurface` does not build rows for a repo until
+ * its chat seed has landed. So the fixtures carry it too — a repo without
+ * one is not a state this function is ever handed, and modelling it would be
+ * modelling the loading state the caller already excludes. Its OWN `type` is
+ * deliberately `'chat'`, not `'branch'` — Task 9 retires the retype, so
+ * `makeTestRepo` also stamps `defaultOwningChatId`, the direct field
+ * `rowsFromRepo` reads instead.
  */
 const HOME_ROW_ID = 'home-branch-row'
 
 /**
  * A workspace wired to the chat that owns it, `Workspace.owningChatId` ->
- * `Chat.id`, the way `rows-from-repo.ts`'s `ownerChatIds` reads it for every
- * fold — a locked branch and an ordinary fork alike. Neither half is useful
- * alone once a test cares about folding: a workspace with no `owningChatId`
- * (or a chat this repo hasn't seeded) is the "genuinely chat-less" state
- * `rowsFromRepo` deliberately leaves unfolded, covered on its own below.
+ * `Chat.id`, the way `rows-from-repo.ts`'s `resolveOwnerChats` reads it for
+ * every fold — a locked branch and an ordinary fork alike. Neither half is
+ * useful alone once a test cares about folding: a workspace with no
+ * `owningChatId` (or a chat this repo hasn't seeded) is the "genuinely
+ * chat-less" state `rowsFromRepo` deliberately leaves unfolded, covered on
+ * its own below.
  */
 function makeOwnedWorkspace(
   wsOver: Partial<Workspace> & { id: string; branch: string },
   chatOver: Partial<Chat> & { id: string },
 ): { workspace: Workspace; chat: Chat } {
-  const chat = makeTestChat({ title: '', ...chatOver, workspaceId: wsOver.id })
+  const chat = makeTestChat({ title: '', ...chatOver, workspaceId: wsOver.id, ownsWorktree: true })
   const workspace = makeTestWorkspace({ ...wsOver, owningChatId: chat.id })
   return { workspace, chat }
 }
@@ -57,18 +62,22 @@ function makeTestRepo(over: Partial<Repo> = {}): Repo {
   const home = makeTestChat({
     id: HOME_ROW_ID,
     title: '',
-    type: 'branch',
     workspaceId: repo.defaultWorkspaceId,
     repoId: repo.id,
+    ownsWorktree: true,
   })
-  return { ...repo, chats: [home, ...(repo.chats ?? [])] }
+  return {
+    ...repo,
+    defaultOwningChatId: repo.defaultOwningChatId ?? HOME_ROW_ID,
+    chats: [home, ...(repo.chats ?? [])],
+  }
 }
 
 describe('rowsFromRepo', () => {
   it('a locked branch becomes a branch-kind row', () => {
     const { workspace, chat } = makeOwnedWorkspace(
       { id: 'ws-1', branch: 'develop', status: 'locked' },
-      { id: 'branch-chat-1', type: 'branch' },
+      { id: 'branch-chat-1' },
     )
     const repo = makeTestRepo({ workspaces: [workspace], chats: [chat] })
     const rows = rowsFromRepo(repo)
@@ -394,14 +403,16 @@ describe('rowsFromRepo — chat rows', () => {
  * the backend's placement validation resolves a create's parent id as a CHAT
  * row — so "+" on a locked branch, the repo home or an existing workspace named
  * a row the daemon has never heard of. Every such workspace now owns a real
- * `type: 'branch'` chat (the boot backfill mints one before any request is
- * served), and THAT row's id is the branch row's identity.
+ * chat, minted chat-first at creation (`MintOwningChat`/`AttachOwningWorkspace`,
+ * 2026-09-08 sidebar-placement-unification Task 9 — never a boot backfill, and
+ * never retyped to `'branch'`), and THAT row's id — read off
+ * `Workspace.owningChatId` directly — is the branch row's identity.
  */
 describe('rowsFromRepo — a branch row is identified by its owning chat', () => {
   it('a locked branch row carries its owning branch-chat id, not the workspace id', () => {
     const { workspace, chat } = makeOwnedWorkspace(
       { id: 'ws-locked', branch: 'develop', status: 'locked' },
-      { id: 'branch-chat-1', type: 'branch' },
+      { id: 'branch-chat-1' },
     )
     const repo = makeTestRepo({
       defaultWorkspaceId: 'ws-home',
@@ -415,7 +426,7 @@ describe('rowsFromRepo — a branch row is identified by its owning chat', () =>
   it('a thread under that branch hangs off the owning chat id, not the workspace id', () => {
     const { workspace, chat } = makeOwnedWorkspace(
       { id: 'ws-locked', branch: 'develop', status: 'locked' },
-      { id: 'branch-chat-1', type: 'branch' },
+      { id: 'branch-chat-1' },
     )
     const repo = makeTestRepo({
       defaultWorkspaceId: 'ws-home',
@@ -439,7 +450,7 @@ describe('rowsFromRepo — a branch row is identified by its owning chat', () =>
   it('an owning branch chat is the branch row itself, never a second row beside it', () => {
     const { workspace, chat } = makeOwnedWorkspace(
       { id: 'ws-locked', branch: 'develop', status: 'locked' },
-      { id: 'branch-chat-1', type: 'branch' },
+      { id: 'branch-chat-1' },
     )
     const repo = makeTestRepo({
       defaultWorkspaceId: 'ws-home',
@@ -517,7 +528,7 @@ describe('rowsFromRepo — protected branches stay chat-less branch rows', () =>
   it('a locked branch (develop) stays chat-less and branch-kind, even with other chats in the repo', () => {
     const { workspace, chat } = makeOwnedWorkspace(
       { id: 'develop', branch: 'develop', status: 'locked' },
-      { id: 'develop-branch-row', type: 'branch' },
+      { id: 'develop-branch-row' },
     )
     const repo = makeTestRepo({
       defaultWorkspaceId: 'ws-home',
@@ -604,7 +615,7 @@ describe('rowsFromRepo — an ordinary fork folds into its owning chat', () => {
     // Rule 8's git-branch-icon case: a genuine child chat (real `parentId`)
     // that ALSO owns a brand-new workspace forked from its parent's branch.
     // `ws-2`'s OWN fork lineage (`parentId: 'ws-1'`) is what actually places
-    // it — see `foldOwningChats`'s own doc on why an owning chat's `parentId`
+    // it — see `foldWorkspaceOwners`'s own doc on why an owning chat's `parentId`
     // is used only to find what hangs off it, never to decide where the
     // folded row itself renders — so `c-2.parentId` here is deliberately left
     // unset, matching a state the wire does not guarantee agrees with it.
@@ -728,5 +739,107 @@ describe('rowsFromRepo — provisional branch naming', () => {
     })
     const row = rowsFromRepo(repo).find((r) => r.id === 'c-1')
     expect(row?.labelProvisional).toBeFalsy()
+  })
+})
+
+/**
+ * 2026-09-08 sidebar-placement-unification Task 10: Task 9 deleted the
+ * boot backfill that used to retype a workspace's owning chat to
+ * `type: 'branch'` and stop maintaining it thereafter — a fresh workspace's
+ * owning chat is minted (and stays) `type: 'chat'`. `rowsFromRepo` must
+ * therefore resolve a workspace-owning row WITHOUT ever comparing
+ * `Chat.type`, straight off `Workspace.owningChatId` (and, for the repo-home
+ * row specifically — never a member of `repo.workspaces` — off the
+ * equivalent `Repo.defaultOwningChatId` Task 10 lifts for it).
+ */
+describe('rowsFromRepo — resolves the owning chat without ever reading Chat.type', () => {
+  it('a locked branch folds by Workspace.owningChatId alone, even when no chat claims ownsWorktree', () => {
+    const workspace = makeTestWorkspace({
+      id: 'ws-locked',
+      branch: 'develop',
+      status: 'locked',
+      owningChatId: 'branch-chat-1',
+    })
+    // Deliberately no `ownsWorktree` and no `type` on the candidate chat — the
+    // direct `Workspace.owningChatId` field is the whole resolution.
+    const chat = makeTestChat({ id: 'branch-chat-1', title: '', workspaceId: 'ws-locked' })
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [workspace],
+      chats: [chat],
+    })
+    const row = rowsFromRepo(repo).find((r) => r.workspaceId === 'ws-locked')
+    expect(row?.id).toBe('branch-chat-1')
+    expect(row?.kind).toBe('branch')
+    expect(row?.locked).toBe(true)
+  })
+
+  it('the repo-home row folds by Repo.defaultOwningChatId directly, with no chats array at all', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      defaultBranch: 'main',
+      defaultOwningChatId: 'home-owner',
+      chats: [],
+    })
+    const home = rowsFromRepo(repo).find((r) => r.parentId === null)
+    expect(home?.id).toBe('home-owner')
+    expect(home?.kind).toBe('branch')
+    expect(home?.branchName).toBe('main')
+  })
+
+  it('the repo-home row degrades gracefully (never throws) when no owner has resolved yet', () => {
+    const repo: Repo = {
+      id: 'r1',
+      name: 'crowbar',
+      avatarLabel: 'C',
+      avatarColor: 'bg-indigo-700',
+      workspaces: [],
+      defaultWorkspaceId: 'ws-home',
+      defaultBranch: 'main',
+      // No `defaultOwningChatId`, no `chats` at all — the daemon's chat-first
+      // create is racing this repo's own seed, a real (if narrow) window
+      // since the two ride separate streams.
+    }
+    expect(() => rowsFromRepo(repo)).not.toThrow()
+    const home = rowsFromRepo(repo).find((r) => r.parentId === null)
+    // Degrades exactly like every other unresolved workspace-owning row:
+    // left as its own raw workspace id rather than dropped.
+    expect(home?.id).toBe('ws-home')
+    expect(home?.kind).toBe('branch')
+  })
+})
+
+/**
+ * Task 9's `owningChatOf` (owning_chat.go) files a NEW child directly under
+ * its parent workspace's own id — no owning-chat lookup — the instant that
+ * parent's `Node{Kind:workspace}` row exists, which is now unconditionally
+ * true the moment ANY workspace (locked, home, or an ordinary fork) is
+ * created. `rowsFromRepo` has to resolve such a child (`Chat.parentId` ===
+ * the literal `Workspace.id`, never the owning chat's own id) as a child of
+ * the FOLDED row, for both a regular tree workspace and the repo-home
+ * workspace — the repo-home case is the one this file's own tree builder
+ * excludes from `workspaces` today, so it needs its own coverage.
+ */
+describe('rowsFromRepo — a fresh child parents directly onto the workspace id (Task 9)', () => {
+  it('a chat parented onto a locked branch’s raw workspace id resolves under its folded row', () => {
+    const { workspace, chat } = makeOwnedWorkspace(
+      { id: 'ws-locked', branch: 'develop', status: 'locked' },
+      { id: 'branch-chat-1' },
+    )
+    const child = makeTestChat({ id: 'c-1', title: 'New-style child', parentId: 'ws-locked' })
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [workspace],
+      chats: [chat, child],
+    })
+    expect(rowsFromRepo(repo).find((r) => r.id === 'c-1')?.parentId).toBe('branch-chat-1')
+  })
+
+  it('a chat parented onto the repo-home’s raw workspace id resolves under the home row', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      chats: [makeTestChat({ id: 'c-1', title: 'New-style home child', parentId: 'ws-home' })],
+    })
+    expect(rowsFromRepo(repo).find((r) => r.id === 'c-1')?.parentId).toBe(HOME_ROW_ID)
   })
 })

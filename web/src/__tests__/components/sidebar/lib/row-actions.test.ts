@@ -473,7 +473,7 @@ describe('performRenameRow — a branch row is not a chat', () => {
             {
               id: 'home-row',
               repoId: 'repo-1',
-              type: 'branch',
+              ownsWorktree: true,
               workspaceId: 'ws-home',
               title: '',
               order: 0,
@@ -481,7 +481,7 @@ describe('performRenameRow — a branch row is not a chat', () => {
             {
               id: 'locked-row',
               repoId: 'repo-1',
-              type: 'branch',
+              ownsWorktree: true,
               workspaceId: 'ws-locked',
               title: '',
               order: 1,
@@ -558,7 +558,7 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
             {
               id: 'home-row',
               repoId: 'repo-1',
-              type: 'branch',
+              ownsWorktree: true,
               workspaceId: 'ws-home',
               title: '',
               order: 0,
@@ -566,7 +566,7 @@ describe('a branch row addressed by its owning chat id — lock and create-folde
             {
               id: 'ws-1-row',
               repoId: 'repo-1',
-              type: 'branch',
+              ownsWorktree: true,
               workspaceId: 'ws-1',
               title: '',
               order: 1,
@@ -631,7 +631,7 @@ describe('performRenameRow — a project-home row', () => {
             {
               id: 'home-branch-chat',
               repoId: '',
-              type: 'branch',
+              ownsWorktree: true,
               workspaceId: 'home-ws-1',
               title: '',
               order: 0,

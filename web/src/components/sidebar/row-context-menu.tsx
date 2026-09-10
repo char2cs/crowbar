@@ -4,6 +4,7 @@ import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/
 import { useSidebarStore } from '@/lib/store/sidebar'
 import {
   performCreateFolder,
+  performCreateFolderFromChat,
   performCreateHomeFolder,
   performSetWorkspaceLock,
 } from '@/components/sidebar/lib/row-actions'
@@ -126,21 +127,30 @@ export function SidebarRowContextMenu({
     })
   }
 
-  if (row.kind === 'branch' || row.kind === 'folder') {
+  if (row.kind === 'branch' || row.kind === 'folder' || row.kind === 'chat') {
     // A home row is never in `useSidebarStore`'s `repos` at all (home rides
     // no repo), so `performCreateFolder`'s repo lookup finds nothing for one
-    // and silently no-ops — a home FOLDER (the only home row this item ever
-    // reaches; a home chat is never `kind: 'branch'`, home has no worktree to
-    // fork) needs the home-scoped create instead, nested under itself.
+    // and silently no-ops — needs the home-scoped create instead.
+    //
+    // Reported live: right-clicking a plain CHAT row (repo-scoped or home)
+    // offered no "New folder" at all — the ONE item that used to require a
+    // branch/folder row to already exist, so a fresh tree with none yet had
+    // no row-level path to create the first one. A bubble carries no
+    // folder-anchor of its own, so its "New folder" always root-normalises
+    // (`''`) rather than nesting under the bubble — same as clicking a
+    // repo's own home row already does for `performCreateFolder`.
     const homeScope = resolveHomeRowScope(row.id)
+    const isChat = row.kind === 'chat'
     items.push({
       id: 'new-folder',
       label: 'New folder',
       icon: <Folder />,
       onClick: () =>
         void (homeScope
-          ? performCreateHomeFolder(homeScope.projectId, row.id)
-          : performCreateFolder(row.id)),
+          ? performCreateHomeFolder(homeScope.projectId, isChat ? '' : row.id)
+          : isChat
+            ? performCreateFolderFromChat(row.id)
+            : performCreateFolder(row.id)),
     })
   }
 

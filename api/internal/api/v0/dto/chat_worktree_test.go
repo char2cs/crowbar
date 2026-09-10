@@ -24,6 +24,7 @@ import (
 // would never see.
 func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) {
 	source := dto.WorkspaceDTOFrom(
+		ctx,
 		domain.Workspace{
 			ID:             "ws-1",
 			RepoID:         "r1",
@@ -46,6 +47,7 @@ func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) 
 		},
 		workspace.MergeEligibility{CanMergeLocally: true, ParentBranch: "main"},
 		"chat-owner",
+		fakePlacement{"ws-1": {folderID: "docs", order: 6}},
 	)
 
 	got := dto.ChatWorktreeFrom(source)
@@ -71,6 +73,8 @@ func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) 
 	assert.Equal(t, source.ParentID, got.ParentID)
 	assert.Equal(t, source.OwningChatID, got.OwningChatID,
 		"which chat owns the worktree is the daemon's answer, never the client's to derive")
+	assert.Equal(t, source.FolderID, got.FolderID)
+	assert.Equal(t, source.Order, got.Order)
 }
 
 // TestChatWorktreeFrom_TakesTheConflictOverlaidStatus proves the projection
@@ -80,9 +84,11 @@ func TestChatWorktreeFrom_CarriesEveryFieldTheWorkspaceDTOCarries(t *testing.T) 
 // the workspace describing the very same branch.
 func TestChatWorktreeFrom_TakesTheConflictOverlaidStatus(t *testing.T) {
 	source := dto.WorkspaceDTOFrom(
+		ctx,
 		domain.Workspace{ID: "ws-1", Status: domain.WorkspaceStatusNew},
 		workspace.MergeEligibility{MergeConflicts: true},
 		"chat-owner",
+		nil,
 	)
 
 	got := dto.ChatWorktreeFrom(source)

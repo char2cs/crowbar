@@ -75,6 +75,55 @@ func newWorktreeHandlers(
 	return handlers.New(uc, uc, uc, uc, uc, &fakeChatTree{}, nil).WithWorktrees(worktrees)
 }
 
+// fakeNodeReads is the Nodes port: one Node row keyed by id.
+type fakeNodeReads struct {
+	rows map[string]domain.Node
+}
+
+func (f *fakeNodeReads) GetNode(
+	_ context.Context,
+	id string,
+) (domain.Node, error) {
+	n, ok := f.rows[id]
+	if !ok {
+		return domain.Node{}, errors.New("no such node")
+	}
+	return n, nil
+}
+
+// TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsNode pins
+// the live bug behind a fork that never visibly moved: its workspace-anchor
+// Node (keyed by ws.ID, minted unconditionally at creation, RendersAsBranch
+// false) is never touched by ANY densify — mergeHomeNode's own doc says an
+// ordinary fork is "already represented 1:1 by the chat that owns it" and
+// excludes its anchor row from every walk. PlaceWorkspace itself now writes
+// through the owning chat's OWN Node instead (2026-09-09) for exactly that
+// reason; this pins that the WS/REST read this DTO field rides agrees,
+// rather than reading ws.ID's permanently stale anchor forever.
+func TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsNode(t *testing.T) {
+	uc := &configurableListGetUsecase{chats: []domain.Chat{{ID: "fork-chat", WorkspaceID: "ws-fork"}}}
+	worktrees := &fakeWorktreeReads{rows: []domain.Workspace{
+		{ID: "ws-fork", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", Status: domain.WorkspaceStatusNew},
+	}}
+	nodes := &fakeNodeReads{rows: map[string]domain.Node{
+		// The fork's OWN chat-keyed Node -- the row a real drag actually
+		// writes (PlaceWorkspace) and the row the sidebar tree actually
+		// reads for sort order.
+		"fork-chat": {ID: "fork-chat", ParentID: "branch-1", Order: 3},
+		// Its abandoned workspace-anchor Node, minted at creation and never
+		// touched since -- reading THIS is the bug.
+		"ws-fork": {ID: "ws-fork", ParentID: "", Order: 0},
+	}}
+	h := newWorktreeHandlers(uc, worktrees).WithNodes(nodes)
+
+	rows := listChats(t, h)
+
+	require.Len(t, rows, 1)
+	require.NotNil(t, rows[0].Worktree)
+	assert.Equal(t, "branch-1", rows[0].Worktree.FolderID, "must read the row a drag actually wrote")
+	assert.Equal(t, 3, rows[0].Worktree.Order)
+}
+
 func listChats(
 	t *testing.T,
 	h *handlers.Handlers,

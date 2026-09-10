@@ -32,19 +32,20 @@ import (
 // discarded with it.
 
 // MintOwningChat mints the chat that is about to own a workspace and places it
-// under the chat that owns parentWorkspaceID.
+// under parentWorkspaceID's own Node row.
 //
 // parentWorkspaceID is a WORKSPACE id — the git-lineage parent the caller
-// already resolved — and the placement it produces is a CHAT id, resolved here
-// through the same owning-row tiebreak the backfill applies (ResolveOwningChat,
-// owning_rows.go). The two are deliberately not the same edge: a workspace's
-// ParentID is fork/PR lineage written once at creation, a chat's is where the
-// user dragged the row, and this is the one place that translates between them
-// so no caller has to learn the join.
+// already resolved — and it is ALSO the placement id: every workspace mints
+// its own Node{Kind:workspace} row, keyed by its own id, the instant it is
+// created (2026-09-08 sidebar-placement-unification Task 7), so the new chat
+// simply hangs its ParentID off that same id (see owningChatOf) — no
+// proxy-chat lookup to resolve, and no separate join to keep in sync with a
+// workspace's own git lineage.
 //
-// An empty parentWorkspaceID, or one whose workspace owns no row yet, places
-// the new chat at the panel root — the same answer forkParentOf gives a
-// workspace whose recorded parent is no longer there.
+// An empty parentWorkspaceID, or one whose Node row does not exist (an id no
+// live workspace answers to), places the new chat at the panel root — the
+// same answer forkParentOf gives a workspace whose recorded parent is no
+// longer there.
 func (u *chatFolderUsecase) MintOwningChat(
 	ctx context.Context,
 	parentWorkspaceID string,
@@ -64,8 +65,7 @@ func (u *chatFolderUsecase) MintOwningChat(
 }
 
 // placeOwningRow files a freshly minted owning row at the end of its level,
-// taking the index from a GLOBAL read of the forest — exactly as the boot
-// backfill does (mintOwningChat, backfill.go), and deliberately not through
+// taking the index from a GLOBAL read of the forest, deliberately not through
 // placeChat.
 //
 // placeChat plans against workspaceSnapshot, which for the workspace-less scope
@@ -76,8 +76,8 @@ func (u *chatFolderUsecase) MintOwningChat(
 // can only partly see. The result is a panel root where two rows hold order 0
 // and the next drop index means nothing.
 //
-// Counting the whole level instead is what the backfill already relies on, and
-// it is the same answer: the first free index in that sibling space.
+// Counting the whole level instead is the same answer: the first free index in
+// that sibling space.
 func (u *chatFolderUsecase) placeOwningRow(
 	ctx context.Context,
 	chatID string,
@@ -100,8 +100,7 @@ func (u *chatFolderUsecase) placeOwningRow(
 }
 
 // AttachOwningWorkspace points a minted owning chat at the workspace it was
-// minted for, and retypes it as a branch row when that is what the workspace
-// turns out to be.
+// minted for.
 func (u *chatFolderUsecase) AttachOwningWorkspace(
 	ctx context.Context,
 	chatID string,
@@ -110,7 +109,6 @@ func (u *chatFolderUsecase) AttachOwningWorkspace(
 	if err := u.agent.AttachWorkspace(ctx, chatID, ws.ID); err != nil {
 		return fmt.Errorf("agent chat folder: attach workspace %s to %s: %w", ws.ID, chatID, err)
 	}
-	u.retypeOwningRow(ctx, chatID, ws)
 	return nil
 }
 
@@ -129,8 +127,16 @@ func (u *chatFolderUsecase) DiscardOwningChat(
 	return nil
 }
 
-// owningChatOf resolves the chat that owns a workspace, or "" when the
-// workspace is unknown, unnamed, or owns no row yet.
+// owningChatOf resolves the placement id a new row filed under workspaceID
+// hangs off, or "" when workspaceID is empty or unknown.
+//
+// It answers directly off workspaceID's own Node row (2026-09-08
+// sidebar-placement-unification Task 9): every workspace mints one,
+// keyed by its own id, unconditionally at creation, so that id IS the
+// answer — there is no proxy chat left to resolve through. The GetNode call
+// is only an EXISTENCE check (a garbage or since-deleted workspace id must
+// still degrade to the panel root rather than file a row under an id
+// nothing answers to), not a lookup of anything besides workspaceID itself.
 func (u *chatFolderUsecase) owningChatOf(
 	ctx context.Context,
 	workspaceID string,
@@ -138,13 +144,8 @@ func (u *chatFolderUsecase) owningChatOf(
 	if workspaceID == "" {
 		return "", nil
 	}
-	rows, err := u.chats.ListByWorkspace(ctx, workspaceID)
-	if err != nil {
-		return "", fmt.Errorf("agent chat folder: owning chat of %s: %w", workspaceID, err)
-	}
-	owner, ok := ResolveOwningChat(rows)
-	if !ok {
+	if _, err := u.nodes.GetNode(ctx, workspaceID); err != nil {
 		return "", nil
 	}
-	return owner.ID, nil
+	return workspaceID, nil
 }

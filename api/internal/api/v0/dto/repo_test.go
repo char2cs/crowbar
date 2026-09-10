@@ -21,7 +21,7 @@ func TestRepoDTOFrom(
 		DefaultBranch: "main",
 		AvatarLabel:   "AL",
 		AvatarColor:   "#fff",
-	})
+	}, dto.RepoPlacement{})
 	assert.Equal(t, "r1", got.ID)
 	assert.Equal(t, "p1", got.ProjectID)
 	assert.Equal(t, "alpha", got.Name)
@@ -38,7 +38,7 @@ func TestRepoDTOFrom_ProxyURLHierarchical(
 		ID:            "r1",
 		ProjectID:     "p1",
 		AvatarHasIcon: true,
-	})
+	}, dto.RepoPlacement{})
 	assert.Equal(t, "/v0/projects/p1/repos/r1/icon?v=0", got.AvatarURL)
 	assert.Empty(t, got.AvatarEmoji)
 }
@@ -54,7 +54,7 @@ func TestRepoDTOFrom_ProxyURLCarriesAvatarVersion(
 		ProjectID:     "p1",
 		AvatarHasIcon: true,
 		AvatarVersion: 3,
-	})
+	}, dto.RepoPlacement{})
 	assert.Equal(t, "/v0/projects/p1/repos/r1/icon?v=3", got.AvatarURL)
 }
 
@@ -65,7 +65,7 @@ func TestRepoDTOFrom_EmojiPassthrough(
 		ID:          "r1",
 		ProjectID:   "p1",
 		AvatarEmoji: "🦊",
-	})
+	}, dto.RepoPlacement{})
 	assert.Equal(t, "🦊", got.AvatarEmoji)
 	assert.Empty(t, got.AvatarURL, "emoji-only repo has no proxy URL")
 }
@@ -76,15 +76,29 @@ func TestRepoDTOFrom_NoIconEmptyAvatarURL(
 	got := dto.RepoDTOFrom(domain.Repository{
 		ID:        "r1",
 		ProjectID: "p1",
-	})
+	}, dto.RepoPlacement{})
 	assert.Empty(t, got.AvatarURL)
 	assert.Empty(t, got.AvatarEmoji)
+}
+
+// TestRepoDTOFrom_PlacementPopulatesOrderAndFolderID pins that Order/FolderID
+// now come from the repo's own Node-sourced placement, not the domain.Repository
+// row itself — see RepoPlacement.
+func TestRepoDTOFrom_PlacementPopulatesOrderAndFolderID(
+	t *testing.T,
+) {
+	got := dto.RepoDTOFrom(domain.Repository{
+		ID:        "r1",
+		ProjectID: "p1",
+	}, dto.RepoPlacement{FolderID: "folder-1", Order: 4})
+	assert.Equal(t, 4, got.Order)
+	assert.Equal(t, "folder-1", got.FolderID)
 }
 
 func TestRepoDTOListEmptyNonNil(
 	t *testing.T,
 ) {
-	got := dto.RepoDTOList(nil)
+	got := dto.RepoDTOList(nil, nil)
 	require.NotNil(t, got)
 	assert.Len(t, got, 0)
 }
@@ -95,7 +109,7 @@ func TestRepoDTOList(
 	got := dto.RepoDTOList([]domain.Repository{
 		{ID: "r1"},
 		{ID: "r2"},
-	})
+	}, nil)
 	require.Len(t, got, 2)
 	assert.Equal(t, "r1", got[0].ID)
 	assert.Equal(t, "r2", got[1].ID)
@@ -108,9 +122,11 @@ func TestRepoDTOList_OrdersByIndexThenID(
 	t *testing.T,
 ) {
 	got := dto.RepoDTOList([]domain.Repository{
-		{ID: "c", Order: 2},
+		{ID: "c"},
 		{ID: "b"},
 		{ID: "a"},
+	}, map[string]dto.RepoPlacement{
+		"c": {Order: 2},
 	})
 	require.Len(t, got, 3)
 	assert.Equal(t, []string{"a", "b", "c"}, []string{got[0].ID, got[1].ID, got[2].ID})

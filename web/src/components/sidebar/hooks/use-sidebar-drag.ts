@@ -27,7 +27,6 @@ import {
   setInternalTabDragHoverTarget,
 } from '@/features/tabs/utils/internal-tab-drag'
 import { SIDEBAR_DROP_POLICY } from '@/components/sidebar/lib/sidebar-drop-policy'
-import { handleTrash } from '@/components/layout/space-content-actions'
 import { toast } from '@/features/window/stores/toast-store'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
@@ -188,36 +187,15 @@ const paneZone: DropZone<DragRow, ResolvedPaneHit> = {
   },
 }
 
-/**
- * Addendum §2: the file explorer card's own surface, once folded for a live
- * drag, standing in for removal — the same shape `drop-dom.ts`'s own doc
- * comment on `DropZone` names as its original reason to exist ("the editor
- * pane, standing for removal" — deleted with the old Chats panel in Task
- * 22, and reused here rather than a second whole-region hit-test built from
- * scratch). `SidebarCarousel` spreads this attribute onto its trash-target
- * surface only while that surface is actually showing one (see its own
- * `data-sidebar-trash-drop` usage) — the hit test itself does no further
- * validation, since REFUSING a specific subject (a locked branch, a working
- * chat already refused at pickup) is `planRemoval`/`handleTrash`'s job, not
- * a drop zone's; a card that IS the trash target accepts anything dragged
- * to it and lets the removal plan decide what actually happens.
- */
-export const CARD_TRASH_DROP_ATTR = 'data-sidebar-trash-drop'
-
-interface CardTrashHit {
-  kind: 'card-trash'
-}
-
-const cardTrashZone: DropZone<DragRow, CardTrashHit> = {
-  attr: CARD_TRASH_DROP_ATTR,
-  hit: (subjects) => (subjects.length > 0 ? { kind: 'card-trash' } : null),
-}
-
-const hitTest = createDropHitTest<DragRow, DragRow, ResolvedPaneHit | CardTrashHit>(
-  rowDom,
-  SIDEBAR_DRAG_POLICY,
-  [paneZone, cardTrashZone],
-)
+// Addendum §2 removed the drag-to-trash gesture (`cardTrashZone`, the file
+// explorer card's fold-into-a-trash-target surface, and the `card-trash` hit
+// kind below) — explicit product correction: removal now happens ONLY
+// through a row's own X button (sidebar-row.tsx), never by dragging a row
+// somewhere and dropping it. `onTrash`/`handleTrash` themselves are
+// unrelated plumbing the X button still uses and stay untouched.
+const hitTest = createDropHitTest<DragRow, DragRow, ResolvedPaneHit>(rowDom, SIDEBAR_DRAG_POLICY, [
+  paneZone,
+])
 
 type Hit = ReturnType<typeof hitTest>
 
@@ -723,27 +701,6 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       const hit = hitTest(e.clientX, e.clientY, drag.subjects)
       if (hit?.kind === 'pane') {
         optionsRef.current.onPaneDrop([...drag.subjects], hit.paneId, hit.zone)
-      } else if (hit?.kind === 'card-trash') {
-        // Addendum §2 — the same removal tray every trash-button delete
-        // already used, one hold per dragged row (in practice always
-        // exactly one: neither tree nor Recents drags carry more than the
-        // grabbed row today). `handleTrash` re-resolves each id against the
-        // live store itself; a row that turns out not to be deletable (a
-        // locked branch, a repo home, or — caught live — a project-home row,
-        // not wired into this tray at all yet) gets a toast rather than a
-        // drop that visibly landed and did nothing. The message names no
-        // specific reason: "it may be locked" was flatly wrong for a FOLDER
-        // (folders have no lock state at all — a git concept, not one
-        // `handleTrash`'s other refusal reasons share either), caught live
-        // the same session a home row's refusal started routing through
-        // here. A working chat never reaches this at all: `1a`'s pickup-time
-        // refusal (`onPointerDownDrag`) already stops the drag before it
-        // starts.
-        for (const subject of drag.subjects) {
-          if (!handleTrash(subject.id)) {
-            toast.error(`Can't delete ${subject.label || 'this row'} yet`)
-          }
-        }
       } else if (hit?.kind === 'row') {
         // `hit.row` is what `rowDom.read()` reconstructed off the DOM —
         // {kind, id, parentId, path, expanded, hasChildren} and NOT a real

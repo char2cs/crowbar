@@ -50,6 +50,12 @@ vi.mock('@/lib/store/sidebar', () => {
   return {
     useSidebarStore: (selector?: (s: typeof state) => unknown) =>
       selector ? selector(state) : state,
+    // Module-level sentinels home-tree.ts needs at import time (transitively
+    // reached via use-workspace-provider-stream -> sidebar-sync ->
+    // project-visibility -> home-tree) — not read by anything this test
+    // exercises, but a mocked module without them throws on load.
+    EMPTY_CHATS: [],
+    EMPTY_FOLDERS: [],
   }
 })
 vi.mock('@tanstack/react-router', () => ({

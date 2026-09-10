@@ -420,6 +420,24 @@ func TestPurgeChat_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	assert.Contains(t, err.Error(), "purge chat: get")
 }
 
+// TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound is the regression for a
+// live bug: tree.Agent's contract (Usecase is one of its implementations) is
+// apperr.ErrNotFound for "nothing to purge" — that's what purgeAll's cascade
+// tolerance checks for — but this method used to hand back only the
+// conversations package's own agentchat.ErrNotFound, wrapped. purgeAll's
+// errors.Is(err, apperr.ErrNotFound) never matched a real not-found, so
+// deleting a parent with one never-minted descendant, or a chat whose
+// aggregate never got created, failed the whole delete with the raw
+// "agentchat: not found" chain surfaced straight to the user.
+func TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound(t *testing.T) {
+	f := newFixture(t)
+
+	err := f.usecase.PurgeChat(f.ctx, "does-not-exist")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, agentchat.ErrNotFound, "the original cause stays inspectable too")
+}
+
 // ─── from chatlog_test.go ─────────────────────────────────────────────
 
 // TestReadChatLog_RendersTheLedger guards agent.ChatUsecase.ReadChatLog — the
@@ -506,10 +524,13 @@ func thread(
 	f.wait()
 }
 
-// file puts a folder row in the tree: a Chat row of Type folder, minted then
-// placed exactly like the tree usecase's own Create does. It carries a
-// workspace only because the aggregate's Create command still requires one
-// (Stage 2 removes that); the lineage walk itself never looks at it.
+// file puts a folder row in the tree: a domain.Folder+domain.Node pair,
+// exactly like the tree usecase's own Create does (2026-09-08
+// sidebar-placement-unification Task 8 — a folder is never a Chat row any
+// more, home-scoped or repo-scoped alike). The lineage walk reads it back
+// through f.usecase's own wrapped ChatLineage (harness_test.go's
+// NewHomeCorrectedTreeChats wiring), the same door production reads it
+// through.
 func file(
 	t *testing.T,
 	f testFixture,
@@ -517,13 +538,9 @@ func file(
 	parentID string,
 ) {
 	t.Helper()
-	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
-		ID: id, WorkspaceID: "ws1", Type: domain.ChatTypeFolder, Now: time.Now(),
-	})
+	f.folders.Saved = append(f.folders.Saved, domain.Folder{ID: id, Name: id})
+	_, err := f.nodes.Create(f.ctx, id, domain.NodeKindFolder, parentID, 0)
 	require.NoError(t, err)
-	_, err = f.chats.SetPlacement(f.ctx, id, parentID, 0)
-	require.NoError(t, err)
-	f.wait()
 }
 
 // lineageBlock returns the configured thread_lineage prompt with the ids filled

@@ -91,6 +91,22 @@ export function applyHomeFolders(projectId: string, folders: readonly Folder[]):
 }
 
 /**
+ * The tombstone half `applyHomeFolders` has no room for: that function only
+ * ever upserts (a plain `Folder` carries no `status` field to branch on, the
+ * way the wire `FolderDTO` `useSidebarStore.applyFolderDTO` reads does), so a
+ * deleted home folder needs its own direct removal rather than a merge that
+ * can only ever add it back. Mirrors `applyFolderDTO`'s own tombstone branch
+ * for a repo folder — the folder's own DELETE response is the only
+ * confirmation either caller gets (see `applyHomeFolders`'s own doc on why).
+ */
+export function removeHomeFolder(projectId: string, folderId: string): void {
+  const store = useHomeTreeStore.getState()
+  const current = store.trees[projectId] ?? EMPTY_HOME_TREE
+  if (!current.folders.some((f) => f.id === folderId)) return
+  store.setTree(projectId, { ...current, folders: current.folders.filter((f) => f.id !== folderId) })
+}
+
+/**
  * Keep `projectId`'s home tree seeded: a GET on open, then a reseed on every
  * STRUCTURAL frame the home chat lifecycle feed carries — mirroring
  * `app-sync-provider.tsx`'s `openRepoTreeSubscription`, and for the identical

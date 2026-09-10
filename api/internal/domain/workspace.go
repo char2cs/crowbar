@@ -88,3 +88,25 @@ type Workspace struct {
 	// unlocked main must not find it locked again a minute later.
 	LockOverride *bool `json:"lockOverride,omitempty"`
 }
+
+// RendersAsBranch reports whether w should draw its OWN sidebar row — a
+// locked branch, referenced directly by its own Node{Kind:workspace} row, no
+// chat proxy (2026-09-08 sidebar-placement-unification spec §2.4) — as
+// opposed to an ordinary, unlocked, ad-hoc-forked workspace, which is
+// represented 1:1 by the chat that owns it and draws no row of its own.
+//
+// Deliberately narrower than the old (now-deleted) owningChatType's
+// Locked||IsDefault||Kind==Home rule: IsDefault's own doc says the frontend
+// already opens a repo's default workspace "from the repo header by its real
+// id," not from a separate row of its own, and Kind==WorkspaceKindHome names
+// a workspace with "no branch and no git operations" at all — neither is a
+// row a live drag has ever been reported against. Locked is the one case
+// this method exists to fix (caught live: a locked branch's own placement
+// silently wrote to its owning chat's Node row instead of its own). Widening
+// this to also cover an unlocked default workspace is a real, open decision
+// — not made here, since getting it wrong risks a duplicate/ghost row
+// against that workspace's own owning chat, worse than the gap it would
+// close.
+func (w Workspace) RendersAsBranch() bool {
+	return w.Status == WorkspaceStatusLocked
+}

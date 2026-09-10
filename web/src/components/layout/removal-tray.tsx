@@ -195,14 +195,18 @@ function TrayRow({ entry, onCancel, onCommit }: TrayRowProps) {
 }
 
 export function RemovalTray() {
-  // The store's own array, held once — there is only the one tray now (see the
-  // module comment above), so there is nothing left to filter it down to.
+  // The store's own array — but ONLY a 'repo'/'project' entry (`deadlineAt
+  // === null`) still renders as a TRAY row now: those two ask before doing
+  // anything (Cancel/Remove, then a confirm dialog for the cascade) and
+  // have no single row of their own in the tree to ask from. Every
+  // draining kind (chat/workspace/folder) transforms IN PLACE instead
+  // (sidebar-row.tsx's `RemovingSidebarRow`) — this component keeps
+  // running their clock/auto-commit/pagehide-flush regardless (below), it
+  // just no longer draws a second copy of the row elsewhere on screen.
   const entries = useRemovalTrayStore((s) => s.entries)
+  const trayEntries = entries.filter((e) => e.deadlineAt === null)
   const navigate = useNavigate()
   const router = useRouter()
-  // The rows the clock below writes into. Scoped to the tray so the one query
-  // it makes per second cannot wander into the rest of the sidebar.
-  const listRef = useRef<HTMLDivElement | null>(null)
 
   // Kept on a ref so the scheduling effect below is driven by the entry list and
   // nothing else — a router that hands out a fresh function every render would
@@ -311,19 +315,23 @@ export function RemovalTray() {
     for (const entry of entries) {
       if (entry.deadlineAt !== null) deadlines.set(entry.entryId, entry.deadlineAt)
     }
-    const list = listRef.current
-    if (!list || deadlines.size === 0) return
+    if (deadlines.size === 0) return
 
     let timer = 0
     const tick = () => {
       const now = Date.now()
       let delay = 1000
-      for (const el of list.querySelectorAll<HTMLElement>('[data-removal-secs]')) {
+      // The whole DOCUMENT now, not a ref scoped to this tray: a draining
+      // entry's `[data-removal-secs]` span lives wherever its row actually
+      // renders — inline in the tree (sidebar-row.tsx's `RemovingSidebarRow`)
+      // for every kind that reaches this map, since only 'repo'/'project'
+      // (never draining) still render a TrayRow here at all.
+      for (const el of document.querySelectorAll<HTMLElement>('[data-removal-secs]')) {
         const deadlineAt = deadlines.get(el.dataset.removalSecs ?? '')
         if (deadlineAt === undefined) continue
         const secs = String(secondsLeft(deadlineAt, now))
-        // Written only where it differs, so a tray of rows on the same deadline
-        // is one comparison each and no DOM work at all until the digit turns.
+        // Written only where it differs, so many rows on the same deadline is
+        // one comparison each and no DOM work at all until the digit turns.
         if (el.textContent !== secs) el.textContent = secs
         const left = deadlineAt - now
         if (left > 0) delay = Math.min(delay, ((left - 1) % 1000) + 1)
@@ -337,7 +345,7 @@ export function RemovalTray() {
     return () => clearTimeout(timer)
   }, [entries])
 
-  if (entries.length === 0) return null
+  if (trayEntries.length === 0) return null
 
   return (
     // NO background of its own. Every other surface in this sidebar — the
@@ -349,10 +357,10 @@ export function RemovalTray() {
     // draws between its own sections.
     <div className="shrink-0 border-t border-border pt-1 pb-1.5">
       <div className="px-3 pt-1 pb-0.5 text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
-        {entries.some((e) => e.deadlineAt === null) ? 'Waiting on you' : 'Removing'}
+        Waiting on you
       </div>
-      <div ref={listRef}>
-        {entries.map((entry) => (
+      <div>
+        {trayEntries.map((entry) => (
           <TrayRow key={entry.entryId} entry={entry} onCancel={cancel} onCommit={askThenCommit} />
         ))}
       </div>

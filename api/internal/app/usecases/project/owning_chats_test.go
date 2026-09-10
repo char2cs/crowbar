@@ -28,8 +28,13 @@ func newOwnedImportDeps(
 		Provider:   mocks.NewProviderEngine(),
 		Discover:   func(string, int) ([]string, error) { return nil, nil },
 		RefRunner:  noRefRunner,
-		Now:        func() time.Time { return time.Unix(1000, 0).UTC() },
-		Stat:       statExists,
+		// Every workspace this usecase creates mints its own Node row now
+		// (2026-09-08 sidebar-placement-unification Task 7), so a chat-side test
+		// that never cared about Nodes still needs a working surface wired —
+		// mirrors newImportUsecase's own default.
+		Nodes: mocks.NewNodePlacements(),
+		Now:   func() time.Time { return time.Unix(1000, 0).UTC() },
+		Stat:  statExists,
 	}
 }
 

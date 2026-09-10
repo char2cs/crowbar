@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -180,7 +181,7 @@ func TestResolve_AWorktreeOwningAncestorAcrossAFolderIsFound(t *testing.T) {
 			{ID: "folder-f", Type: domain.ChatTypeFolder, ParentID: "chat-a"},
 		},
 	}
-	chats := worktree.NewChatTreeAncestryReader(lister)
+	chats := worktree.NewChatTreeAncestryReader(lister, nil, nil)
 	workspaces := &fakeWorkspaceReader{
 		byID: map[string]domain.Workspace{
 			"ws-a": {ID: "ws-a", Branch: "feature/a"},
@@ -209,7 +210,7 @@ func TestResolve_AWorktreeOwningAncestorAcrossNestedFoldersIsFound(t *testing.T)
 			{ID: "chat-b", Type: domain.ChatTypeChat, ParentID: "folder-inner"},
 		},
 	}
-	chats := worktree.NewChatTreeAncestryReader(lister)
+	chats := worktree.NewChatTreeAncestryReader(lister, nil, nil)
 	workspaces := &fakeWorkspaceReader{
 		byID: map[string]domain.Workspace{
 			"ws-a": {ID: "ws-a", Branch: "feature/a"},
@@ -225,12 +226,85 @@ func TestResolve_AWorktreeOwningAncestorAcrossNestedFoldersIsFound(t *testing.T)
 	}
 }
 
+// TestResolve_AWorktreeOwningAncestorAcrossARealFolderIsFound is the SDD
+// review's own required regression, Task 8 fix round: unlike the two tests
+// above (which bake folder-f/folder-g straight into fakeChatLister.rows,
+// proving only that the WALK can cross a folder WHEN one happens to be in
+// the raw list), this fixture matches production exactly — a folder is
+// Folder/Node-backed now (2026-09-08 sidebar-placement-unification Task 5
+// for home-scoped, Task 8 for repo-scoped too), never a Chat row, so
+// fakeChatLister (standing in for usecases/chat.Usecase.ListChats) never
+// carries it. Before this fix, chat-b's own ParentID named "folder-f", an id
+// with NO entry in rows at all — newChatForest's walk hit that gap and
+// stopped dead, exactly as if chat-b sat at the panel root, even though
+// chat-a's real worktree sits one hop further up. This is the routine,
+// expected shape a fork/promote/git/review/files/search route hits in
+// production: a bubble chat filed under a folder nested inside a branch's
+// own subtree.
+func TestResolve_AWorktreeOwningAncestorAcrossARealFolderIsFound(t *testing.T) {
+	lister := &fakeChatLister{
+		rows: []domain.Chat{
+			{ID: "chat-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"},
+			// chat-b's ParentID names folder-f, which is ENTIRELY ABSENT from
+			// rows -- it lives only in folders/nodes below.
+			{ID: "chat-b", Type: domain.ChatTypeChat, ParentID: "folder-f"},
+		},
+	}
+	folders := mocks.NewFolderStore()
+	folders.Saved = []domain.Folder{{ID: "folder-f", Name: "notes"}}
+	nodes := mocks.NewNodePlacements()
+	nodes.Rows = []domain.Node{
+		{ID: "folder-f", Kind: domain.NodeKindFolder, ParentID: "chat-a", Order: 0},
+	}
+	chats := worktree.NewChatTreeAncestryReader(lister, folders, nodes)
+	workspaces := &fakeWorkspaceReader{
+		byID: map[string]domain.Workspace{"ws-a": {ID: "ws-a", Branch: "feature/a"}},
+	}
+
+	ws, err := worktree.Resolve(context.Background(), "chat-b", chats, workspaces)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if ws.ID != "ws-a" {
+		t.Fatalf("resolved workspace = %q, want ws-a (chat-b's nearest worktree-owning ancestor across the REAL folder-f)", ws.ID)
+	}
+}
+
+// TestChatsForWorkspace_ARealFolderIsCrossedNotJustABakedInOne is
+// TestResolve_AWorktreeOwningAncestorAcrossARealFolderIsFound's counterpart
+// for the fan-out direction (ChatsForWorkspace) — the SAME production
+// mechanism (worktree.Resolve) spec §7.4's shared bucket (git, review,
+// files, search, identity) fans a push out through.
+func TestChatsForWorkspace_ARealFolderIsCrossedNotJustABakedInOne(t *testing.T) {
+	lister := &fakeChatLister{
+		rows: []domain.Chat{
+			{ID: "chat-a", Type: domain.ChatTypeChat, WorkspaceID: "ws-a"},
+			{ID: "chat-b", Type: domain.ChatTypeChat, ParentID: "folder-f"},
+		},
+	}
+	folders := mocks.NewFolderStore()
+	folders.Saved = []domain.Folder{{ID: "folder-f", Name: "notes"}}
+	nodes := mocks.NewNodePlacements()
+	nodes.Rows = []domain.Node{
+		{ID: "folder-f", Kind: domain.NodeKindFolder, ParentID: "chat-a", Order: 0},
+	}
+
+	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister, folders, nodes)
+	if err != nil {
+		t.Fatalf("ChatsForWorkspace returned error: %v", err)
+	}
+	want := []string{"chat-a", "chat-b"}
+	if !slices.Equal(chatIDs, want) {
+		t.Fatalf("chats = %v, want %v (chat-b found across the real folder-f)", chatIDs, want)
+	}
+}
+
 // TestResolve_ChatListerErrorViaTheTreeAncestryReaderIsSurfacedWithContextNotSwallowed
 // mirrors TestResolve_ChatAncestryReaderErrorIsSurfacedWithContextNotSwallowed
 // for the new adapter's own failure path.
 func TestResolve_ChatListerErrorViaTheTreeAncestryReaderIsSurfacedWithContextNotSwallowed(t *testing.T) {
 	cause := errors.New("chat lister unavailable")
-	chats := worktree.NewChatTreeAncestryReader(&fakeChatLister{err: cause})
+	chats := worktree.NewChatTreeAncestryReader(&fakeChatLister{err: cause}, nil, nil)
 	workspaces := &fakeWorkspaceReader{byID: map[string]domain.Workspace{}}
 
 	ws, err := worktree.Resolve(context.Background(), "chat-b", chats, workspaces)
@@ -271,7 +345,7 @@ func sharedWorktreeForest() []domain.Chat {
 func TestChatsForWorkspace_EverySiblingSharingOneWorktreeIsReturned(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
-	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister)
+	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister, nil, nil)
 	if err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
@@ -287,7 +361,7 @@ func TestChatsForWorkspace_EverySiblingSharingOneWorktreeIsReturned(t *testing.T
 func TestChatsForWorkspace_AFolderIsNeverReturned(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
-	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister)
+	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister, nil, nil)
 	if err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
@@ -302,7 +376,7 @@ func TestChatsForWorkspace_AFolderIsNeverReturned(t *testing.T) {
 func TestChatsForWorkspace_AnotherWorkspacesChatsAreExcluded(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
-	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-z", lister)
+	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-z", lister, nil, nil)
 	if err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
@@ -324,14 +398,14 @@ func TestChatsForWorkspace_AChildOwningItsOwnWorktreeShadowsItsParents(t *testin
 		{ID: "chat-fork-child", Type: domain.ChatTypeChat, ParentID: "chat-fork"},
 	}}
 
-	shared, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister)
+	shared, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister, nil, nil)
 	if err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
 	if !slices.Equal(shared, []string{"chat-a"}) {
 		t.Fatalf("ws-a chats = %v, want only chat-a", shared)
 	}
-	forked, err := worktree.ChatsForWorkspace(context.Background(), "ws-fork", lister)
+	forked, err := worktree.ChatsForWorkspace(context.Background(), "ws-fork", lister, nil, nil)
 	if err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
@@ -345,7 +419,7 @@ func TestChatsForWorkspace_AChildOwningItsOwnWorktreeShadowsItsParents(t *testin
 func TestChatsForWorkspace_AWorkspaceNobodyPointsAtIsEmptyNotAnError(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
-	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-nobody", lister)
+	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-nobody", lister, nil, nil)
 	if err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
@@ -361,7 +435,7 @@ func TestChatsForWorkspace_AWorkspaceNobodyPointsAtIsEmptyNotAnError(t *testing.
 func TestChatsForWorkspace_AnEmptyWorkspaceIDMatchesNothing(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
-	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "", lister)
+	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "", lister, nil, nil)
 	if err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
@@ -379,7 +453,7 @@ func TestChatsForWorkspace_AnEmptyWorkspaceIDMatchesNothing(t *testing.T) {
 func TestChatsForWorkspace_TheForestIsReadExactlyOncePerCall(t *testing.T) {
 	lister := &fakeChatLister{rows: sharedWorktreeForest()}
 
-	if _, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister); err != nil {
+	if _, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister, nil, nil); err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
 	if lister.calls != 1 {
@@ -393,13 +467,13 @@ func TestChatsForWorkspace_TheForestIsReadExactlyOncePerCall(t *testing.T) {
 func TestChatsForWorkspace_IsTheExactInverseOfResolve(t *testing.T) {
 	rows := sharedWorktreeForest()
 	lister := &fakeChatLister{rows: rows}
-	chats := worktree.NewChatTreeAncestryReader(lister)
+	chats := worktree.NewChatTreeAncestryReader(lister, nil, nil)
 	workspaces := &fakeWorkspaceReader{byID: map[string]domain.Workspace{
 		"ws-a": {ID: "ws-a"},
 		"ws-z": {ID: "ws-z"},
 	}}
 
-	fanout, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister)
+	fanout, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister, nil, nil)
 	if err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
@@ -427,7 +501,7 @@ func TestChatsForWorkspace_AParentCycleTerminates(t *testing.T) {
 		{ID: "chat-y", Type: domain.ChatTypeChat, ParentID: "chat-x"},
 	}}
 
-	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister)
+	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister, nil, nil)
 	if err != nil {
 		t.Fatalf("ChatsForWorkspace returned error: %v", err)
 	}
@@ -443,7 +517,7 @@ func TestChatsForWorkspace_ChatListerErrorIsSurfacedWithContextNotSwallowed(t *t
 	cause := errors.New("chat lister unavailable")
 	lister := &fakeChatLister{err: cause}
 
-	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister)
+	chatIDs, err := worktree.ChatsForWorkspace(context.Background(), "ws-a", lister, nil, nil)
 	if err == nil {
 		t.Fatalf("ChatsForWorkspace returned nil error, want the ChatLister failure wrapped")
 	}

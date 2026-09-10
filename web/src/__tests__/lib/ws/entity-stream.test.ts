@@ -366,6 +366,31 @@ describe('subscribeEntityStream', () => {
       expect(onChange).not.toHaveBeenCalled()
     })
 
+    // TestRegression: a `placement_set` frame off PlaceWorkspace (Node-backed
+    // fork/branch placement) carries no `chatId` at all — mapFrame's own
+    // `worktree_state`-only check drops it, same as any other kind it does
+    // not understand, so nothing told this cache its `WorkspaceDTO.order`
+    // (what the sidebar sorts branch rows by) was now stale. Caught live: a
+    // fork dragged past a sibling PATCHed 200, the Node genuinely moved, and
+    // the panel stayed exactly where it started until a manual reload.
+    it('shouldReseed forces a full GET on a frame mapFrame would otherwise drop', async () => {
+      const seed = vi.fn(async () => [makeWorkspace({ id: 'w1' })])
+      subscribeEntityStream<WorkspaceDTO>({
+        endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+        store: 'crowbar_workspaces',
+        seed,
+        mapFrame,
+        shouldReseed: (raw) => {
+          const ev = raw as { folderId?: string }
+          return Boolean(ev?.folderId)
+        },
+      })
+      await vi.waitFor(() => expect(seed).toHaveBeenCalledTimes(1))
+
+      emit({ folderId: 'fork-a', workspaceId: 'ws-fork-a', kind: 'placement_set' })
+      await vi.waitFor(() => expect(seed).toHaveBeenCalledTimes(2))
+    })
+
     it('reads the tombstone off the MAPPED value', async () => {
       subscribeEntityStream<WorkspaceDTO>({
         endpoint: '/v0/projects/p1/repos/r1/chats/ws',

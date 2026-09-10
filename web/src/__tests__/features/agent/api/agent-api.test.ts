@@ -314,6 +314,24 @@ describe('agent-api', () => {
     })
   })
 
+  // TestRegression: the sidebar's inline create input (2026-09-09) types a
+  // branch name before the fork happens — it has to reach the wire, not be
+  // silently dropped in favour of the server-generated name every caller
+  // before this got.
+  it('createChatWithOwnWorktree sends the caller-supplied branch name', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChatWithOwnWorktree('p1', 'r1', 'codex', 'home-1', 'feature/typed-name')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect(body).toMatchObject({ branch: 'feature/typed-name' })
+  })
+
+  it('createChatWithOwnWorktree omits branch entirely when not given', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChatWithOwnWorktree('p1', 'r1', 'codex', 'home-1')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect(body).not.toHaveProperty('branch')
+  })
+
   it('switchProvider POSTs to /switch and returns the NEW RUNNER id', async () => {
     apiFetch.mockResolvedValue({ id: 'r2' })
     const runnerId = await api.switchProvider('w1', 'c1', 'claude')

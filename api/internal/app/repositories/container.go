@@ -22,9 +22,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/hub"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
-	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	wsusecase "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -50,8 +50,15 @@ type Container struct {
 	// runner command through it. The workspace-delete cascade reads it too, to find
 	// the CLI pointed at a chat it is about to Forget.
 	AgentRunner agentrunner.EventStore
-	hub         hub.WebSocketHub
-	git         wsusecase.MergeConflictChecker
+	// Node is the asynx-backed EventStore for the position aggregate
+	// (2026-09-08 sidebar-placement-unification): the ONE entity that owns
+	// every sidebar row's ParentID/Order, at every tree level. Wired here
+	// purely additively (Task 1) — nothing else in the codebase reads or
+	// writes it yet; later tasks migrate existing placement logic onto it one
+	// vertical slice at a time.
+	Node node.EventStore
+	hub  hub.WebSocketHub
+	git  wsusecase.MergeConflictChecker
 	// terminateSession is the terminal-engine seam the workspace-delete cascade
 	// (forgetAgentChats, Task 12) uses to kill a chat's live vendor-CLI PTY
 	// before Forgetting it. It is injected from the app layer (which owns the
@@ -89,6 +96,7 @@ type Container struct {
 	axAgentChat     asynx.Asynx[domain.Chat]
 	axAgentActivity asynx.Asynx[domain.ChatActivity]
 	axAgentRunner   asynx.Asynx[agents.Runner]
+	axNode          asynx.Asynx[domain.Node]
 	// inflight counts the background mutations currently running per workspace
 	// id (00 §4 fail-fast/good-path-async). It backs the derived Working overlay:
 	// the API layer brackets each async op with BeginWork/EndWork, and every
@@ -150,10 +158,12 @@ func New(
 	axAgentChat asynx.Asynx[domain.Chat],
 	axAgentActivity asynx.Asynx[domain.ChatActivity],
 	axAgentRunner asynx.Asynx[agents.Runner],
+	axNode asynx.Asynx[domain.Node],
 	git wsusecase.MergeConflictChecker,
 	terminateSession func(ctx context.Context, sessionID string) error,
 	chatWatch agentchat.WatchFunc,
 	runnerWatch agentrunner.WatchFunc,
+	nodeWatch node.WatchFunc,
 ) (*Container, error) {
 	c := &Container{
 		hub: h, git: git, inflight: map[string]int{},
@@ -161,6 +171,7 @@ func New(
 		axWorkspace:  axWorkspace, axReviewThread: axReviewThread, axAgentChat: axAgentChat,
 		axAgentRunner:    axAgentRunner,
 		axAgentActivity:  axAgentActivity,
+		axNode:           axNode,
 		terminateSession: terminateSession,
 	}
 	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
@@ -238,6 +249,21 @@ func New(
 	}
 	c.AgentRunner = agentRunner
 
+	// node: build the asynx-backed EventStore over the singleton axNode,
+	// registering its store + hub projections (store.New, invoked by
+	// NewEventSourced) exactly once, over its OWN per-type planes
+	// (state/events/node.db and state/store/node.db) — 2026-09-08
+	// sidebar-placement-unification, Task 1. Purely additive: nodeWatch is nil
+	// in production until a live-update consumer is wired, and nothing else in
+	// the codebase sends Node commands yet.
+	nodeStore, err := node.NewEventSourced(
+		axNode, adapters.NodeES(), adapters.NodeReadDB(), nodeWatch,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("repositories: node event store: %w", err)
+	}
+	c.Node = nodeStore
+
 	// Wire the post-commit cross-aggregate reactions (spec §3.6): the workspace
 	// delete reactor + its review-thread AND agent-chat forget cascades, all
 	// joined to the shared drain WaitGroup so graceful shutdown can quiesce them
@@ -262,6 +288,7 @@ func (c *Container) WaitQuiescent() {
 	c.axAgentChat.WaitPublish()
 	c.axAgentActivity.WaitPublish()
 	c.axAgentRunner.WaitPublish()
+	c.axNode.WaitPublish()
 }
 
 // wireCallbacks registers the app-level cross-aggregate reactions on the singleton
@@ -491,16 +518,77 @@ func (c *Container) enrichFrame(
 ) dto.WorkspaceDTO {
 	ws.Working = c.WorkingFor(ws.ID)
 	elig := c.eligibilityFor(ctx, ws)
-	return dto.WorkspaceDTOFrom(ws, elig, c.owningChatIDFor(ctx, ws.ID))
+	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws.ID), c.nodePlacement(ctx, ws))
+}
+
+// nodePlacement adapts this container's own Node store to
+// dto.WorkspacePlacementReader, reading the SAME Node row PlaceWorkspace
+// itself now writes (2026-09-09, fixed same day as this route shipped) —
+// not always ws.ID's own. An ordinary fork's workspace-anchor Node is never
+// touched by any densify (mergeHomeNode's own doc: "already represented 1:1
+// by the chat that owns it," so a second row would duplicate it) — only a
+// LOCKED branch, whose owning chat carries no Node of its own, is genuinely
+// addressed by ws.ID. Reading ws.ID unconditionally served a fork's
+// permanently stale anchor row on every WS frame, caught live: the panel
+// kept a dragged fork pinned wherever it was first minted, because nothing
+// this broadcast reads was the row anything ever wrote back to.
+//
+// Resolved onto nodeID once here, eagerly, rather than inside Placement:
+// enrichFrame already holds ws and calls this exactly once per frame, and
+// owningChatIDFor's own resolution is the identical one this needs — no
+// second, independently-drifting copy. Nil-safe: an unwired Node store (a
+// test Container built with only the fields its own assertion needs,
+// matching owningChatIDFor's own zero-value tolerance) degrades to
+// WorkspaceDTOFrom's own "" / 0 default rather than a nil-pointer panic.
+func (c *Container) nodePlacement(
+	ctx context.Context,
+	ws domain.Workspace,
+) dto.WorkspacePlacementReader {
+	if c.Node == nil {
+		return nil
+	}
+	nodeID := ws.ID
+	if !ws.RendersAsBranch() {
+		if owner := c.owningChatIDFor(ctx, ws.ID); owner != "" {
+			nodeID = owner
+		}
+	}
+	return nodePlacementReader{nodes: c.Node, nodeID: nodeID}
+}
+
+type nodePlacementReader struct {
+	nodes  node.EventStore
+	nodeID string
+}
+
+func (r nodePlacementReader) Placement(
+	ctx context.Context,
+	_ string,
+) (folderID string, order int) {
+	n, err := r.nodes.GetNode(ctx, r.nodeID)
+	if err != nil {
+		return "", 0
+	}
+	return n.ParentID, n.Order
 }
 
 // owningChatIDFor resolves wsID's real owning chat id for the wire DTO,
-// reusing Task 3's own branch-preferring resolution
-// (agentusecase.ResolveOwningChat) over this container's own AgentChat read —
+// reusing domain.ResolveOwningChat over this container's own AgentChat read —
 // never a second, independently derived answer. An unwired AgentChat (a test
 // Container built with only the fields its own assertion needs, matching
-// eligibilityFor's own zero-value tolerance below), an unresolvable read, or
-// a workspace this backfill has not reached yet all degrade to "".
+// eligibilityFor's own zero-value tolerance below) or an unresolvable read
+// degrades to "".
+//
+// Deliberately left resolving through the CHAT side, unchanged, by 2026-09-08
+// sidebar-placement-unification Task 7: every workspace now also mints its own
+// Node row (ID == ws.ID), but dozens of live frontend call sites still address
+// a workspace's sidebar position through THIS chat id (see
+// web/src/components/sidebar/lib/branch-row-id.ts), not ws.ID — repointing it
+// here with no frontend migration would break them. Task 9 deleted the
+// backfill machinery that used to MAINTAIN this chat id (a fresh workspace's
+// owning chat is minted chat-first at creation regardless, independent of
+// that machinery); the frontend migration, and retiring this field, is still
+// pending.
 func (c *Container) owningChatIDFor(
 	ctx context.Context,
 	wsID string,
@@ -512,7 +600,7 @@ func (c *Container) owningChatIDFor(
 	if err != nil {
 		return ""
 	}
-	owner, ok := agentusecase.ResolveOwningChat(rows)
+	owner, ok := domain.ResolveOwningChat(rows)
 	if !ok {
 		return ""
 	}

@@ -9,6 +9,17 @@ export interface SidebarRow {
   labelProvisional?: boolean
   ownsWorktree: boolean
   workspaceId: string | null
+  /**
+   * Whether this row's Fork control has anything to act on. Only meaningful
+   * on a `chat`-kind row (a `branch`/`folder` row already answers this via
+   * `ownsWorktree`, which a chat can never set): a project-home bubble rides
+   * no repo at all — the same reason a project-home FOLDER's Fork is already
+   * hidden (`foldersCanFork`, `walkTreeIntoRows`) — so it sets this `false`
+   * rather than offering a button with no worktree to clone. Undefined (a
+   * repo-scoped chat) means true — its ground workspace always resolves to
+   * a real repo.
+   */
+  canFork?: boolean
   working: boolean
   hasView: boolean
   branchName?: string
@@ -47,5 +58,38 @@ export interface SidebarRow {
     avatarLabel: string
     avatarColor: string
     avatarURL?: string
+  }
+  /**
+   * Present only on a synthetic row standing in for a create still in
+   * flight (pending-creates.ts) — no real chat/workspace exists at `id` yet.
+   * `sidebar-row.tsx` renders it non-interactive: a naming input, a spinner,
+   * or an inline error, at the exact slot the real row lands in once
+   * created.
+   */
+  pending?: {
+    tempId: string
+    status: 'naming' | 'creating' | 'error'
+    error?: string
+  }
+  /**
+   * Present on a REAL, already-existing row that is currently held in the
+   * removal tray (`useRemovalTrayStore`) — attached by
+   * `removal-plan.ts`'s `attachRemovalState`, cross-referencing the store's
+   * `entries` against this row (a `branch` row matches by `workspaceId`,
+   * since a 'workspace'-kind entry's own `id` is the raw workspace id, never
+   * the owning-chat id the row is actually rendered/looked-up by — see that
+   * function's own doc). `sidebar-row.tsx` renders this row transformed IN
+   * PLACE — the countdown, the "goes with" count, the Keep/undo control —
+   * rather than hiding it while a separate tray shows the same thing
+   * elsewhere. Never present alongside `pending`: a pending row's id is a
+   * synthetic tempId no removal entry could ever name.
+   */
+  removal?: {
+    entryId: string
+    /** Null only for a 'repo'/'project' kind entry, which `attachRemovalState`
+     *  never attaches to a row (those removals have no single row of their
+     *  own in this tree) — so this is always a real deadline in practice. */
+    deadlineAt: number | null
+    extra: number
   }
 }

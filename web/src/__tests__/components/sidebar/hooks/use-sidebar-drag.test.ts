@@ -17,24 +17,14 @@ import {
   SIDEBAR_DRAG_THRESHOLD_PX,
   PANE_DROP_ATTR,
   PANE_HIT_ATTR,
-  CARD_TRASH_DROP_ATTR,
   type SidebarPaneZone,
 } from '@/components/sidebar/hooks/use-sidebar-drag'
 import { getInternalTabDragHover } from '@/features/tabs/utils/internal-tab-drag'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
-import { handleTrash } from '@/components/layout/space-content-actions'
 import { toast } from '@/features/window/stores/toast-store'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
-// Addendum §2's drag-to-trash commits through the SAME `handleTrash`
-// `space-content-actions.test.ts` already exercises in full (resolve →
-// planRemoval → hold) — mocked here so this suite can assert the HOOK calls
-// it with the right id(s) without also standing up a real sidebar/removal
-// store fixture for every other test in this file.
-vi.mock('@/components/layout/space-content-actions', () => ({
-  handleTrash: vi.fn(() => true),
-}))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }))
@@ -98,23 +88,13 @@ function makePane(paneId: string, rect: Partial<DOMRect>) {
   return el
 }
 
-/** The file explorer card's trash-target surface (addendum §2) — a bare
- *  presence flag, same shape as `makePane` but with no id to carry. */
-function makeTrashZone(rect: Partial<DOMRect>) {
-  const el = document.createElement('div')
-  el.setAttribute(CARD_TRASH_DROP_ATTR, '')
-  stubRect(el, rect)
-  document.body.appendChild(el)
-  return el
-}
-
 /** Answer the shared hit test from whatever is actually in the document,
  *  topmost (last-appended) first — mirrors real `elementsFromPoint` order. */
 function stubHitTest() {
   document.elementsFromPoint = ((x: number, y: number) => {
     const hits: Element[] = []
     for (const el of document.querySelectorAll<HTMLElement>(
-      `[${Object.values(ROW_KIND_ATTR).join('],[')}],[${PANE_DROP_ATTR}],[${CARD_TRASH_DROP_ATTR}]`,
+      `[${Object.values(ROW_KIND_ATTR).join('],[')}],[${PANE_DROP_ATTR}]`,
     )) {
       const r = el.getBoundingClientRect()
       if (r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y < r.bottom) hits.push(el)
@@ -200,8 +180,6 @@ function release(x: number, y: number) {
 
 beforeEach(() => {
   rowRegistry.clear()
-  vi.mocked(handleTrash).mockClear()
-  vi.mocked(handleTrash).mockReturnValue(true)
   vi.mocked(toast.error).mockClear()
   Element.prototype.setPointerCapture = () => {}
   vi.stubGlobal('requestAnimationFrame', () => 0)
@@ -307,6 +285,53 @@ describe('useSidebarDrag', () => {
     expect(hitTarget).toEqual(target)
     expect(mode).toBe('before')
     expect(result.current.dragging).toBe(false)
+  })
+
+  // Reported live: dragging a chat onto a folder never nests it — it lands
+  // as a sibling reorder instead, every time, no matter where on the row it
+  // is released. `sidebar-drop-policy.ts`'s own matrix says this IS allowed
+  // (ALL_MODES for a chat subject on any folder target — see
+  // sidebar-drop-policy.test.ts's own coverage), so if this fails, the
+  // defect is in THIS geometry/hit-test layer, not the policy.
+  it('drops a chat dead-centre on a folder row: the resolved mode is "into", not a reorder', () => {
+    const chatSubject: SidebarRow = {
+      id: 'chat-a',
+      kind: 'chat',
+      parentId: null,
+      order: 0,
+      label: 'chat a',
+      ownsWorktree: false,
+      workspaceId: 'ws-1',
+      working: false,
+      hasView: false,
+    }
+    const folderTarget: SidebarRow = {
+      id: 'folder-1',
+      kind: 'folder',
+      parentId: null,
+      order: 1,
+      label: 'Notes',
+      ownsWorktree: false,
+      workspaceId: null,
+      working: false,
+      hasView: false,
+    }
+    const rowA = makeRow(chatSubject, 0)
+    makeRow(folderTarget, 1)
+    const { result, onDrop } = renderDrag()
+
+    press(result, chatSubject, rowA)
+    // Row 1 (the folder) spans [ROW_H, 2*ROW_H) — its dead centre, ratio
+    // 0.5, sits well inside the folder's 60%-wide "into" band
+    // (EDGE_BAND_CONTAINER = 0.2 on each edge).
+    move(10, ROW_H + ROW_H / 2)
+    release(10, ROW_H + ROW_H / 2)
+
+    expect(onDrop).toHaveBeenCalledTimes(1)
+    const [subjects, hitTarget, mode] = onDrop.mock.calls[0]
+    expect(subjects).toEqual([chatSubject])
+    expect(hitTarget).toEqual(folderTarget)
+    expect(mode).toBe('into')
   })
 
   it('refuses the drop rather than hand the caller a target it can no longer resolve', () => {
@@ -857,102 +882,27 @@ describe('useSidebarDrag', () => {
     expect(props['data-sidebar-children']).toBeUndefined()
   })
 
-  // Addendum §2: dropping a row on the file explorer card's trash surface
-  // feeds `handleTrash` — the same removal-tray path a row's own trash
-  // button (now gone, per addendum §1) used to call directly.
-  describe('drag-to-trash (addendum §2)', () => {
-    it('dropping a row on the trash zone calls handleTrash with its id', () => {
-      const rowA = makeRow(baseRow, 0)
-      makeTrashZone({ top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
-      const { result, onDrop, onPaneDrop } = renderDrag()
+  // Addendum §2 removed the drag-to-trash gesture entirely — explicit
+  // product correction: removal now happens ONLY through a row's own X
+  // button (sidebar-row.tsx), never by dragging a row onto some target.
+  // Regression: a hit test that still recognised a trash-target element
+  // (the gesture's old `data-sidebar-trash-drop` attribute) would silently
+  // resurrect it even with no caller left to render one — this pins the hit
+  // test itself refusing to special-case that attribute at all, not just
+  // "no UI renders it."
+  it('a stray element carrying the old trash-drop attribute is not treated as a drop target', () => {
+    const rowA = makeRow(baseRow, 0)
+    const stray = document.createElement('div')
+    stray.setAttribute('data-sidebar-trash-drop', '')
+    stubRect(stray, { top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
+    document.body.appendChild(stray)
+    const { result, onDrop, onPaneDrop } = renderDrag()
 
-      press(result, baseRow, rowA)
-      move(10, 550)
-      release(10, 550)
+    press(result, baseRow, rowA)
+    move(10, 550)
+    release(10, 550)
 
-      expect(handleTrash).toHaveBeenCalledExactlyOnceWith('a')
-      // Never ALSO treated as a row or pane drop.
-      expect(onDrop).not.toHaveBeenCalled()
-      expect(onPaneDrop).not.toHaveBeenCalled()
-    })
-
-    it('the trash zone wins over a pane sitting behind it, and a pane wins when the trash zone is not there', () => {
-      const rowA = makeRow(baseRow, 0)
-      // Same screen region, both present — the trash zone is appended AFTER
-      // the pane, so it paints on top and must be the one that wins.
-      makePane('pane-1', { top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
-      const trash = makeTrashZone({
-        top: 500,
-        bottom: 600,
-        left: 0,
-        right: 300,
-        width: 300,
-        height: 100,
-      })
-      const { result, onPaneDrop } = renderDrag()
-
-      press(result, baseRow, rowA)
-      move(150, 550) // dead centre of the shared rect
-      release(150, 550)
-
-      expect(handleTrash).toHaveBeenCalledExactlyOnceWith('a')
-      expect(onPaneDrop).not.toHaveBeenCalled()
-
-      // Remove the trash zone — now the SAME pane underneath it is reachable.
-      trash.remove()
-      vi.mocked(handleTrash).mockClear()
-      press(result, baseRow, rowA)
-      move(150, 550)
-      release(150, 550)
-
-      expect(onPaneDrop).toHaveBeenCalledWith([baseRow], 'pane-1', 'center')
-      expect(handleTrash).not.toHaveBeenCalled()
-    })
-
-    it('a working row never reaches the trash zone either — refused at pickup', () => {
-      const workingRow: SidebarRow = { ...baseRow, working: true }
-      const rowA = makeRow(workingRow, 0)
-      makeTrashZone({ top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
-      const { result } = renderDrag({ subjectsFor: () => [workingRow] })
-
-      press(result, workingRow, rowA)
-      move(10, 550)
-      release(10, 550)
-
-      expect(handleTrash).not.toHaveBeenCalled()
-    })
-
-    it('a refused drop (locked branch, repo home, home row — handleTrash returns false) surfaces a toast, not a silent no-op', () => {
-      // The message names no specific reason: "it may be locked" was flatly
-      // wrong once a project-home row (which has no lock concept at all)
-      // started refusing here too — caught live.
-      vi.mocked(handleTrash).mockReturnValue(false)
-      const row: SidebarRow = { ...baseRow, label: 'develop' }
-      const rowA = makeRow(row, 0)
-      makeTrashZone({ top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
-      const { result } = renderDrag({ subjectsFor: () => [row] })
-
-      press(result, row, rowA)
-      move(10, 550)
-      release(10, 550)
-
-      expect(toast.error).toHaveBeenCalledWith("Can't delete develop yet")
-    })
-
-    it('drops every dragged subject, not just the first', () => {
-      const rowA = makeRow(baseRow, 0)
-      const rowB: SidebarRow = { ...baseRow, id: 'b', label: 'b' }
-      makeRow(rowB, 1)
-      makeTrashZone({ top: 500, bottom: 600, left: 0, right: 300, width: 300, height: 100 })
-      const { result } = renderDrag({ subjectsFor: () => [baseRow, rowB] })
-
-      press(result, baseRow, rowA)
-      move(10, 550)
-      release(10, 550)
-
-      expect(handleTrash).toHaveBeenCalledTimes(2)
-      expect(handleTrash).toHaveBeenCalledWith('a')
-      expect(handleTrash).toHaveBeenCalledWith('b')
-    })
+    expect(onDrop).not.toHaveBeenCalled()
+    expect(onPaneDrop).not.toHaveBeenCalled()
   })
 })

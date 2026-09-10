@@ -1,5 +1,5 @@
 import { apiFetch, folderDTOFromWire, type ChatsFolderWireDTO } from '@/lib/api'
-import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { workspaceBase } from '@/lib/workspace-scope-url'
 import type { FolderDTO } from '@/lib/types'
 
 /**
@@ -35,22 +35,27 @@ export interface WorkspacePlacement {
 }
 
 /**
- * File a worktree-owning row into a folder, at an index.
+ * File a LOCKED branch's own row into a folder, at an index.
  *
- * Addressed to the CHAT that owns the worktree, on the placement route the
- * chats and folders beside it already use. That is not a re-implementation:
- * the retired `PATCH .../workspaces/:wsId` did nothing here but resolve this
- * same owning chat and call the same command (backend spec §7.5), so the two
- * were one write reached two ways and this is the surviving way.
+ * Addressed to the WORKSPACE itself — `PATCH .../workspaces/:wsId/placement`
+ * (2026-09-09 sidebar-placement-unification, workspace-placement fix) — never
+ * to the chat that owns its worktree. That chat still exists and still owns
+ * every OTHER worktree verb (lock, sync, merge, reparent, ...), but a locked
+ * branch's own sidebar position is a fact about the branch, not about any
+ * conversation living inside it, and locked workspaces are not chats: routing
+ * this through the chat-addressed placement route was tried and rejected
+ * during this fix's own design (it would have meant "position" was the one
+ * thing this whole migration extracted from Chat that stayed reachable only
+ * through one).
  *
- * `folderId` is sent as the route's `parentId` — one field, because a chat, a
- * folder and a worktree-owning row all hang off the same sibling space. It
- * stays named `folderId` on this side to keep the caller's guarantee that a
- * folder can never be mistaken for a fork parent, which is a different edge
- * written by `reparentWorkspace` next door.
+ * `folderId` is sent as the route's `parentId` — one field, because a
+ * folder and a locked branch's own row hang off the same sibling space
+ * within the branch's own repo. It stays named `folderId` on this side to
+ * keep the caller's guarantee that a folder can never be mistaken for a fork
+ * parent, which is a different edge written by `reparentWorkspace` next door.
  */
 export function placeWorkspace(wsId: string, placement: WorkspacePlacement): Promise<void> {
-  return apiFetch(`${worktreeVerbBaseForWorkspace(wsId)}/placement`, {
+  return apiFetch(`${workspaceBase(wsId)}/placement`, {
     method: 'PATCH',
     headers: JSON_HEADERS,
     body: JSON.stringify({

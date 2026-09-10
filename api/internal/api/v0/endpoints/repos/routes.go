@@ -21,6 +21,7 @@ func Register(
 	wsReader repohandlers.WorkspaceReader,
 	importer repohandlers.RepoImporter,
 	updater repohandlers.RepoUpdater,
+	nodes repohandlers.NodeReader,
 	remote repohandlers.RemoteRefresher,
 	wsRemover repohandlers.WorkspaceRemover,
 	wsPurger repohandlers.WorkspacePurger,
@@ -31,6 +32,7 @@ func Register(
 	h := repohandlers.NewWithDeps(store, prov, wsReader, broadcast).
 		WithImporter(importer).
 		WithUpdater(updater).
+		WithNodes(nodes).
 		WithRemoteRefresher(remote).
 		WithWorkspaceRemover(wsRemover, wsPurger)
 	rg.POST("/repos", h.Create)

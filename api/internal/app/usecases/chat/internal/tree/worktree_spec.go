@@ -35,7 +35,13 @@ const (
 // the zero value is exactly "a plain chat" — the same default the removed bool
 // gave.
 type WorktreeSpec struct {
-	Mode   WorktreeMode
+	Mode WorktreeMode
+	// Branch is read only when Mode is WorktreeFork. Blank keeps today's
+	// server-generated name (CreateChildInput's own "spontaneous create leaves
+	// Branch blank" convention — the same collision-checked generator Promote's
+	// own fork already relies on); a caller-supplied name is used, and
+	// collision-checked, exactly like an explicit-create's already is.
+	Branch string
 	Import ImportSpec
 }
 

@@ -9,7 +9,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -85,9 +84,6 @@ type (
 	// TreeWorkspaceGitStatus is DeletePreview's read onto each workspace-owning
 	// row's already-synced uncommitted file counts.
 	TreeWorkspaceGitStatus = tree.WorkspaceGitStatus
-	// TreeWorkspaceRoster is the boot backfill's census of every workspace the
-	// daemon knows.
-	TreeWorkspaceRoster = tree.WorkspaceRoster
 	// TreeWorkspaceReaper is the teardown a cascading chat delete puts each
 	// worktree in its subtree through, so a workspace never outlives the chat
 	// that owned it.
@@ -96,6 +92,12 @@ type (
 	// run: every chat currently resolving to a workspace, so a worktree
 	// surviving siblings still hold is never cascaded out from under them.
 	TreeWorkspaceHolders = tree.WorkspaceHolders
+	// TreeFolders is the plain-GORM identity surface a home-scoped folder's
+	// name lives on (2026-09-08 sidebar-placement-unification Task 5).
+	TreeFolders = tree.Folders
+	// TreeNodes is the position surface a home-scoped chat or folder's
+	// placement goes through instead of Chat.SetOrder/.SetPlacement.
+	TreeNodes = tree.Nodes
 
 	// CreateInput, MoveInput and PlaceInput are the three writes the panel makes.
 	CreateInput = tree.CreateInput
@@ -149,31 +151,22 @@ func NewToolIdempotency() *ToolIdempotency { return tools.NewIdempotency() }
 // NewToolMetrics returns an empty per-tool call counter.
 func NewToolMetrics() *ToolMetrics { return tools.NewMetrics() }
 
-// ResolveOwningChat picks the chat that owns a workspace from its candidate
-// rows — typically ListChatsByWorkspace's result — applying the tree
-// package's own branch-preference tiebreak (see tree.ResolveOwningChat).
-// Re-exported through this door so a caller with no other business in this
-// feature (the workspace wire DTO, wiring owningChatId) can answer "which
-// chat owns this workspace" without re-deriving that rule a second time.
-func ResolveOwningChat(rows []domain.Chat) (domain.Chat, bool) {
-	return tree.ResolveOwningChat(rows)
-}
-
 // NewTree builds the sidebar forest's tree usecase. work is the chat
 // usecase's own in-flight tracker (see Usecase.Work) — the tree's move and
 // delete verbs refuse over a subtree that is still working, and there is
 // exactly one tracker to ask. workspaces is DeletePreview's seam onto the
-// workspace layer; roster is the boot backfill's.
+// workspace layer.
 func NewTree(
 	chats TreeChats,
 	agent TreeAgent,
 	work *inflight.Work,
 	workspaces TreeWorkspaceGitStatus,
-	roster TreeWorkspaceRoster,
 	reaper TreeWorkspaceReaper,
 	holders TreeWorkspaceHolders,
+	folders TreeFolders,
+	nodes TreeNodes,
 ) TreeUsecase {
-	return tree.New(chats, agent, work, workspaces, roster, reaper, holders)
+	return tree.New(chats, agent, work, workspaces, reaper, holders, folders, nodes)
 }
 
 // Work exposes the in-flight turn tracker this usecase's own components

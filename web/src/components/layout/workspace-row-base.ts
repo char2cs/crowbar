@@ -85,11 +85,17 @@ export const ROW_INDENT_STEP = 14
 // motion is opt-out, and this is the variant that already means that.
 export const ROW_INDENT_TRANSITION = 'motion-safe:[transition:margin-inline-start_0.1s_ease-in-out]'
 
-// One inline input covers both kinds of new row. A trailing slash means folder —
-// the same thing it means everywhere else a path is typed — which keeps a second
-// button and a right-click-only path off the row. The placeholder is the only
-// affordance the rule has, so it says it outright.
-export const CREATE_ROW_PLACEHOLDER = 'branch-name, or name/ for a folder'
+// Fork's naming input (sidebar-row.tsx's `PendingSidebarRow`) has no label of
+// its own — an unlabeled empty input reads as a chat box to type INTO, not a
+// name to give something, which is exactly how a typed message became a
+// branch named after it (caught live). The placeholder is the only
+// affordance saying what this input is for, so it says it outright.
+//
+// Used to also say "or name/ for a folder" — retired with the OLD tree's own
+// input, which created a folder for a trailing-slash name. This input only
+// ever forks a branch; a slash in what's typed here just means a slash in
+// the branch name, same as `feature/foo`.
+export const CREATE_ROW_PLACEHOLDER = 'branch-name'
 
 // ── Glyph weight: never pass strokeWidth to a Lucide row glyph ────────────────
 // Measured across the live sidebar, every Lucide icon renders at Lucide's DEFAULT
