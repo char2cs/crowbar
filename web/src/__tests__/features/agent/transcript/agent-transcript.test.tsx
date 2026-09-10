@@ -673,6 +673,75 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
     expect(pinTurnToTopCalls[0]).toHaveAttribute('data-client-request-id', item.clientRequestId)
   })
 
+  /*
+   * REGRESSION, reported twice from a screenshot of an entirely blank
+   * transcript with the composer reading "Queue a message…".
+   *
+   * A prompt sent while a turn is still running starts nothing — it QUEUES
+   * until that turn finishes. Pinning it anyway reserved a viewport of room
+   * for a reply that was not coming yet, AND lifted the queued row to the top
+   * of the viewport, which pushed the turn that IS running off the top.
+   * Captured live mid-queue, `.scroll`-relative: the two streaming reply rows
+   * at top=-80 and top=-32, the queued prompt pinned at top=16, and 401px of
+   * reserved blank under content ending at y=163 of a 754px pane.
+   */
+  it('does not pin a prompt that is only queued behind a turn already running', () => {
+    const item = queueItem('sent while the agent is still busy')
+    const { rerender } = draw([], { queue: [], working: true })
+    expect(pinTurnToTopCalls).toEqual([])
+
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    // Nothing pinned: the turn that is actually running keeps the viewport.
+    expect(pinTurnToTopCalls).toEqual([])
+  })
+
+  // The other half of the same rule, and the case this must not break: a
+  // prompt sent while the chat is IDLE does start a turn, and still pins.
+  it('still pins a prompt sent while nothing is running', () => {
+    const item = queueItem('sent to an idle chat')
+    const { rerender } = draw([], { queue: [], working: false })
+
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls).toHaveLength(1)
+    expect(pinTurnToTopCalls[0]).toHaveAttribute('data-client-request-id', item.clientRequestId)
+  })
+
   // The existing, already-correct behavior this fix must not disturb: a
   // chat REOPENED with a prompt still queued from before inherits it — that
   // is a restore, not a send, and must never pin.
