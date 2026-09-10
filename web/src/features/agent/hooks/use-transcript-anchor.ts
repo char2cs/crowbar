@@ -86,6 +86,30 @@ export interface UseTranscriptAnchorOptions {
    *  of this same chat, so there is nothing to keep current in the
    *  meantime. */
   onPositionChange?: (position: TranscriptScrollPosition) => void
+  /**
+   * Whether this chat is the one actually on screen in its pane.
+   *
+   * A chat tab that is NOT the active one is kept mounted behind
+   * `visibility: hidden` (pane-container.tsx) — a live layout box, not a
+   * destroyed one, which is exactly what makes it invisible to everything
+   * `resync` uses to notice a reveal. `display: none` reaches it as a resize to
+   * 0x0 (see `boxed` there); `visibility` changes NO geometry, so the
+   * ResizeObserver never fires at all, and the settle that follows a tab switch
+   * — rows re-measuring now that the pane is in front — arrives looking exactly
+   * like a reply streaming in. It gets EASED. Measured live switching between
+   * two open tabs on a 30-turn chat:
+   *
+   *   st 9388 -> 9464 -> 9491 -> 9563 -> 9615 -> 9653 ... over ~8 frames,
+   *   total climbing 10142 -> 10508
+   *
+   * i.e. the transcript visibly gliding to the bottom every single time the
+   * reader switches tabs. Nothing observable can be derived here; the pane
+   * already knows which tab it is showing, so it says so.
+   *
+   * Defaults to true — a caller that never mentions visibility is a chat that
+   * is always on screen, and nothing below changes for it.
+   */
+  visible?: boolean
 }
 
 export interface TranscriptAnchor {
@@ -191,6 +215,9 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // pending arm request at a time, always through `armFrame`, however it
   // gets triggered.
   const scheduleArmRef = useRef<() => void>(() => {})
+  // How the tab-reveal effect below reaches the live `beginReveal` — the same
+  // pattern, and for the same reason, as `resyncRef`/`scheduleArmRef`.
+  const beginRevealRef = useRef<() => void>(() => {})
   // Read only inside the two mount-only (`[]` deps) effects below, so they
   // see the LATEST callbacks/values without re-running on every render —
   // this hook's caller remounts wholesale on every chat switch anyway, so
@@ -246,6 +273,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // away from is retained but `display:none` (workspace-slot-style.ts), so
   // every measurement below reads 0 until it comes back — see `resync`.
   const boxed = useRef(true)
+  // The `visibility:hidden` twin of `boxed` — see the `visible` option. Kept
+  // separate from `boxed` on purpose: the two hidings are independent (a hidden
+  // TAB inside a retained, `display:none` WORKSPACE is both at once) and each
+  // has to be able to reveal on its own without clearing the other's state.
+  const tabHidden = useRef(!(options.visible ?? true))
   // `scrollHeight - scrollTop` the last time there was a box to read it from.
   // The only value a reveal has to work with: once the box is gone the element
   // reports 0 for all three, so this has to have been captured in advance.
@@ -326,11 +358,40 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     const scheduleArm = () => {
       if (easedArmed.current) return
       cancelAnimationFrame(armFrame.current)
+      // TWO frames, not one, and the second one is the whole point. A rAF
+      // callback runs BEFORE the same frame's ResizeObserver notifications, so
+      // a one-frame wait always lands before the resync it is supposed to be
+      // waiting to NOT see: this armed itself while the settle it exists for
+      // was still running, every time — `resync` below already says so in its
+      // own comment, and the cumulative size test there was what compensated.
+      // A size test cannot compensate for a REVEAL settle, though: the growth a
+      // tab switch produces is a few hundred pixels, well under a viewport, so
+      // with the arm landing a frame early every lap after the first got eased.
+      // Waiting a second frame puts the arm after frame N+1's observer
+      // delivery, so reaching it really does mean a whole frame passed with
+      // nothing left to settle — which is what this flag has always claimed.
       armFrame.current = requestAnimationFrame(() => {
-        easedArmed.current = true
-        revealFromBottom.current = null
+        armFrame.current = requestAnimationFrame(() => {
+          easedArmed.current = true
+          revealFromBottom.current = null
+        })
       })
     }
+    // The two hidings a chat can come back from — `display:none` (a retained
+    // workspace, seen by `resync` as a resize to 0x0) and `visibility:hidden`
+    // (a background tab, seen by nothing at all) — need the same treatment, so
+    // they share it.
+    const beginReveal = () => {
+      easedArmed.current = false
+      scheduleArm()
+      // A reader who was NOT at the bottom has no bottom-follow to put them
+      // back, so nothing below would restore them at all — and the reveal can
+      // still move them, since the offset the browser hands back is clamped to
+      // whatever the scrollable range happens to be on that first frame. Hold
+      // the distance they actually left on.
+      if (!stuck.current) revealFromBottom.current = lastFromBottom.current
+    }
+    beginRevealRef.current = beginReveal
     scheduleArmRef.current = scheduleArm
     // Reserves (and keeps re-measuring) the room the pinned turn needs below
     // it — see `tailRoom`. Written as padding on the content element rather
@@ -429,14 +490,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
         // reveal left it: measured live on a 30-turn chat, scrollTop climbing
         // 5153 -> 7552 across ~60 painted frames, ~740ms, on every single
         // workspace round-trip.
-        easedArmed.current = false
-        scheduleArm()
-        // A reader who was NOT at the bottom has no bottom-follow to put them
-        // back, so nothing below would restore them at all — and the reveal can
-        // still move them, since the offset the browser hands back is clamped
-        // to whatever the scrollable range happens to be on that first frame.
-        // Hold the distance they actually left on.
-        if (!stuck.current) revealFromBottom.current = lastFromBottom.current
+        beginReveal()
       }
       lastFromBottom.current = el.scrollHeight - el.scrollTop
       applyTailRoom()
@@ -629,6 +683,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       follow.current?.stop()
       follow.current = null
       resyncRef.current = () => {}
+      beginRevealRef.current = () => {}
       scheduleArmRef.current = () => {}
       pinnedTop.current = null
       pinnedRow.current = null
@@ -661,6 +716,21 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     if (options.loadingHistory) return
     scheduleArmRef.current()
   }, [options.loadingHistory])
+
+  // THE TAB CAME BACK TO THE FRONT — the one reveal nothing in this hook can
+  // observe for itself, see the `visible` option. A LAYOUT effect, not an
+  // ordinary one: `visibility` flips in the same commit, and the settle it
+  // starts is already underway by the time a passive effect would run.
+  useLayoutEffect(() => {
+    if (options.visible === false) {
+      tabHidden.current = true
+      return
+    }
+    if (!tabHidden.current) return
+    tabHidden.current = false
+    beginRevealRef.current()
+    resyncRef.current()
+  }, [options.visible])
 
   const notifyReflow = useCallback(() => {
     resyncRef.current()

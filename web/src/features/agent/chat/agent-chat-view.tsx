@@ -764,6 +764,7 @@ export function AgentChatView({
       suppressSequence={halted?.sequence}
       trailingInterruption={trailingTags}
       dockHeight={dockHeight}
+      visible={visible}
       initialScrollPosition={initialScrollPosition}
       onScrollPositionChange={(position) => setScrollPosition(chatId, position)}
     />
