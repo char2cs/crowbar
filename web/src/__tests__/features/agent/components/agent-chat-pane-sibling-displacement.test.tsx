@@ -75,6 +75,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   getSlashCatalog: (...a: unknown[]) => slashCatalogFn(...a),
   switchToTerminal: vi.fn(),
   switchToNative: vi.fn(),
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
