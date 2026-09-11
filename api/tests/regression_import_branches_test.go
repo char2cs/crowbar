@@ -62,6 +62,10 @@ func newImportFixture(
 
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
+	// "main" was provisioned and published before the RepoDTO frame that got us
+	// here, so it reaches this connection through snapshot-on-subscribe rather than
+	// live — the barrier is what makes that snapshot carry it (see importProject).
+	h.Quiesce()
 	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
 	mainWS := readUntil(t, workspacesWS, func(m map[string]any) bool {
 		return m["branch"] == "main"
@@ -147,6 +151,8 @@ func TestRegression_ImportBranchTakesRemoteContentNotDivergedLocal(t *testing.T)
 	wsID, _ := imported["id"].(string)
 	require.NotEmpty(t, wsID, "import must broadcast a workspace for the branch")
 
+	// The hub frame above can outrun the durable read model Get reads.
+	h.Quiesce()
 	ws, err := h.app.Repositories.Workspace.Get(t.Context(), wsID)
 	require.NoError(t, err)
 	require.NotEmpty(t, ws.WorktreePath,
@@ -272,6 +278,9 @@ func TestRegression_RetryProvisionTakesRemoteContentNotDivergedLocal(t *testing.
 	wsID, _ := placeholder["id"].(string)
 	require.NotEmpty(t, wsID, "a branch held elsewhere must still produce a row")
 
+	// The hub frame above can outrun the durable read model Get reads — and the
+	// retry-provision POST further down addresses this same id over REST.
+	h.Quiesce()
 	ws, err := h.app.Repositories.Workspace.Get(t.Context(), wsID)
 	require.NoError(t, err)
 	require.Empty(t, ws.WorktreePath, "a held branch must arrive as a placeholder")

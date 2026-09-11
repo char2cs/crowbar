@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
@@ -54,13 +55,42 @@ func (b *Broadcaster[T]) WaitNRegistered(
 	}
 }
 
-// Handle upgrades the request to a WebSocket, registers the client, computes its
-// snapshot OUTSIDE the broadcaster lock, then streams live events. The snapshot
-// is delivered ahead of live frames via a non-dropping path so it is never
-// truncated, and no live event is ever missed (see register/snapshotFor).
+// Handle registers the client BEFORE completing the WebSocket handshake, then
+// computes its snapshot OUTSIDE the broadcaster lock and streams live events.
+// The snapshot is delivered ahead of live frames via a non-dropping path so it
+// is never truncated, and no live event is ever missed (see register/snapshotFor).
+//
+// Registering ahead of the upgrade is what makes the handshake MEAN something to
+// the caller. The 101 is the only edge a client can observe, so it has to be the
+// server's statement that this connection is ALREADY in the fan-out set — the
+// subscribe-then-mutate flow every caller uses (awaitEntity in the web client,
+// dial-then-POST in api/tests) is correct only if it is. Registering after the
+// upgrade left a window one goroutine deschedule wide in which an event pushed
+// between the 101 hitting the wire and register reaching the map went to a
+// subscriber list this connection was not yet in, and no amount of further
+// blocking recovers it: the caller waits forever for a frame it already missed.
+// On Linux that window cost roughly one flake in five full runs of api/tests,
+// always as a 30s stall in whichever test happened to lose the schedule.
 func (b *Broadcaster[T]) Handle(
 	c *gin.Context,
 ) {
+	// Upgrade would refuse a non-handshake request anyway; refusing it up front
+	// keeps a plain GET on a raw .Handle route (files/ws, lsp/ws, chats/ws) from
+	// entering the clients map at all.
+	if !websocket.IsWebSocketUpgrade(c.Request) {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	predicate := BuildPredicate(c, b.def)
+	cl := &filteredClient[T]{client: newClient(), predicate: predicate}
+
+	scope := b.scopeKey(c)
+	snapScope := clientScope(c)
+
+	b.register(cl)
+	defer b.remove(cl)
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		c.AbortWithStatus(http.StatusBadRequest)
@@ -72,15 +102,6 @@ func (b *Broadcaster[T]) Handle(
 	// future Push iterates, and a watcher/LSP refcount). Defers make cleanup
 	// unconditional; double-close of conn is harmless (the err is ignored).
 	defer func() { _ = conn.Close() }()
-
-	predicate := BuildPredicate(c, b.def)
-	cl := &filteredClient[T]{client: newClient(), predicate: predicate}
-
-	scope := b.scopeKey(c)
-	snapScope := clientScope(c)
-
-	b.register(cl)
-	defer b.remove(cl)
 
 	snapshot := b.snapshotFor(cl, snapScope)
 	b.onSubscribe(scope)

@@ -57,6 +57,19 @@ func importProject(
 	// the repo-scoped stream rather than racing a GET against the async adoption.
 	// With the home detached, "main" is now unambiguously that single managed
 	// worktree (the home carries branch=="").
+	//
+	// The Quiesce is what makes that wait a barrier instead of a coin flip, and it
+	// is NOT interchangeable with dialling first. The repo handler broadcasts its
+	// RepoDTO only AFTER ImportRepo returns, and ImportRepo provisions every
+	// protected worktree synchronously before it does — so by the time
+	// createProjectAndRepo's RepoDTO frame lands above, "main"'s workspace event has
+	// ALREADY been published and this dial can never precede it. What the connection
+	// gets instead is snapshot-on-subscribe, and the snapshot reads the durable read
+	// model, which is an INDEPENDENT asynx subscriber racing the hub projection that
+	// emitted the frame (see repositories.Container.WaitQuiescent). Lose that race
+	// and the snapshot is empty, the frame is history, and the read below stalls for
+	// the full 30s bound — the single flakiest site in this suite on Linux.
+	h.Quiesce()
 	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
 	adopted := readUntil(t, workspacesWS, func(m map[string]any) bool {
 		return m["branch"] == "main"
@@ -89,6 +102,10 @@ func importProjectHomeHoldsDefault(
 
 	projectID, repoID := createProjectAndRepo(t, h, repoPath)
 
+	// Same barrier, same reason as importProject: both rows this fixture waits for
+	// were published before the RepoDTO frame that got us here, so they reach this
+	// connection through snapshot-on-subscribe, not live.
+	h.Quiesce()
 	workspacesWS := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
 	var homeID string
 	sawPlaceholder := false
