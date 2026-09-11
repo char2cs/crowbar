@@ -133,6 +133,7 @@ func registerAgent(
 	home.PUT("/chats/:id/permission-level", h.RequireHomeWorkspace, ah.SetChatPermissionLevel)
 	home.GET("/chats/:id/telemetry", h.RequireHomeWorkspace, ah.Telemetry)
 	home.GET("/chats/:id/slash-catalog", h.RequireHomeWorkspace, ah.SlashCatalog)
+	home.GET("/chats/:id/pending-prompt", h.RequireHomeWorkspace, ah.PendingPrompt)
 	home.POST("/chats/:id/switch", h.RequireHomeWorkspace, ah.Switch)
 	home.POST("/chats/:id/resume", h.RequireHomeWorkspace, ah.Resume)
 	home.POST("/chats/:id/compact", h.RequireHomeWorkspace, ah.Compact)
