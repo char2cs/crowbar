@@ -239,6 +239,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
         attachOnly,
       })
+      if ('unknown' in result) {
+        // The daemon could not be asked whether this PTY is live. That is NOT a
+        // death — saying so latches the owner's "this agent has exited" over a CLI
+        // that is still running, and nothing re-reads it afterwards. Stay
+        // uninitialized and let the next reconnect ask again.
+        return
+      }
       if ('gone' in result) {
         // Attach-only and the PTY is gone: the owner renders its ended state.
         onSessionGoneRef.current?.(sessionId)
@@ -739,6 +746,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         createTerminal: () => terminalCreate(wsId, existingSession?.profileId),
         attachOnly,
       })
+      if ('unknown' in result) {
+        // Could not ask the daemon — see the mount path's note. A failed question
+        // is not a dead PTY, and this is the RECONNECT path, where a momentarily
+        // unreachable daemon is exactly the expected condition.
+        releaseInitLock()
+        return
+      }
       if ('gone' in result) {
         // Attach-only and the PTY is gone. Leave the terminal uninitialized (no
         // connection, nothing to write to) and let the owner render its ended
