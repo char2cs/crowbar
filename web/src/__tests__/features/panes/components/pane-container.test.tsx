@@ -1076,12 +1076,14 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
     const sharedBox = document.querySelector('[data-pane-content]')!
     const row = screen.getByTestId('tab-bar-marker')
     expect(sharedBox.contains(row)).toBe(true)
-    // Chats/pane redesign: the shared box no longer paints the fill itself
-    // (the chat view needs real --chrome-bg vibrancy behind it, which an
-    // opaque ancestor fill would block) — each region paints its own
-    // instead. TabBar's real row carries `bg-pane-background`
-    // (tab-bar.test.tsx covers that directly; it's mocked away here).
-    expect(sharedBox.className).not.toMatch(/\bbg-/)
+    // Chats/pane redesign feedback: the shared box paints the chat's own
+    // translucent `bg-chrome-bg` — giving each non-opaque region (the chat
+    // view, the sash) its own copy of that fill left visible seams at every
+    // boundary a caller forgot to cover explicitly. The IDE sector still
+    // reads fully opaque: TabBar's real row paints `bg-pane-background`
+    // OVER this fill within its own bounds (tab-bar.test.tsx covers that
+    // directly; it's mocked away here).
+    expect(sharedBox).toHaveClass('bg-chrome-bg')
 
     // The outer shell (drag/drop mechanics, the pane-hit ring, PANE_DROP_ATTR)
     // paints no background of its own either — same reasoning as above, one

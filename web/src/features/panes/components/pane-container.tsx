@@ -788,16 +788,21 @@ export function PaneContainer({
         // two-tone "header band over rounded content" look, not the design's
         // single `.pane` surface.
         //
-        // Paints NO background of its own any more (chats/pane redesign):
-        // the chat view wants real --chrome-bg vibrancy showing through to
-        // the transparent window behind it, which an opaque fill on this
-        // shared ancestor would block. Each region now paints its own fill
-        // instead — TabBar's own row and the editor view both carry
-        // `bg-pane-background` (see their own files), keeping the IDE
-        // sector exactly as opaque as it was; only the chat view's box
-        // (`bg-chrome-bg`) is translucent. Rounding/clipping still lives
-        // here regardless — `overflow-hidden` clips to the radius no matter
-        // what (or whether) anything paints a fill.
+        // Paints the chat's own translucent `bg-chrome-bg` fill — chats/pane
+        // redesign feedback: the fill needs to live HERE, on the box that
+        // actually encloses both the chat and the IDE sector, not
+        // separately on each region that happens not to be opaque (the chat
+        // view, the chat/editor sash) — that patchwork left visible seams
+        // at every boundary a caller forgot to cover explicitly (reported
+        // live: a border-coloured gap at the sash, and again at this box's
+        // own rounded corner). The IDE sector still reads fully opaque: its
+        // own box (TabBar's row, the editor view) paints `bg-pane-background`
+        // OVER this fill within its own bounds — see those files' own docs.
+        // Only the chat's own area, and any uncovered sliver of this shared
+        // box (the sash, a rounded corner), shows this translucency, real
+        // --chrome-bg vibrancy reaching the transparent window behind it.
+        // Rounding/clipping still lives here regardless of what paints a
+        // fill — `overflow-hidden` clips to the radius either way.
         data-pane-content=""
         // `paneContentStyle`'s border swaps between --border and --secondary
         // (buildPaneContentStyle) whenever the active pane changes — an
@@ -809,7 +814,7 @@ export function PaneContainer({
         // ever changes between active/inactive — width and style stay
         // 'solid'/1px — so transitioning just that is enough to turn the
         // snap into a fade.
-        className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden transition-colors duration-150"
+        className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-chrome-bg transition-colors duration-150"
         style={paneContentStyle}
       >
         {/* Spans the WHOLE pane only when a single surface fills 100% of it
@@ -892,7 +897,11 @@ export function PaneContainer({
               data-chat-view=""
               hidden={chatViewHidden}
               className={cn(
-                'relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-chrome-bg',
+                // No fill of its own — the shared `data-pane-content` box
+                // (above) already paints `bg-chrome-bg`; painting it AGAIN
+                // here would stack two translucent layers and read visibly
+                // more opaque than either alone.
+                'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
                 // Tabs, or no tabs at all: this box IS the pane's content
                 // area (the editor sits behind it, `hidden`). Side by
                 // side/stacked: it is one half of a real split, sized by
@@ -999,6 +1008,10 @@ export function PaneContainer({
               secondPaneRef={editorViewRef}
               onResizeCommit={setSplitSizes}
               minPx={presentation === 'stacked' ? SPLIT_MIN_STACKED_PX : SPLIT_MIN_HALF_PX}
+              // No fill of its own needed — the shared `data-pane-content`
+              // box's own `bg-chrome-bg` already shows through here (this
+              // sash paints nothing at rest), so it reads as a continuation
+              // of the chat's own tint rather than a seam of nothing.
             />
           )}
 
