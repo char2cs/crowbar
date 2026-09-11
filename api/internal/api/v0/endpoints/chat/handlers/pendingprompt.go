@@ -24,5 +24,9 @@ func (h *Handlers) PendingPrompt(ctx *gin.Context) {
 		ctx.Status(http.StatusNoContent)
 		return
 	}
-	libs.WriteQueryOK(ctx, dto.PendingPromptDTO{Text: pending.Text, State: pending.State})
+	libs.WriteQueryOK(ctx, dto.PendingPromptDTO{
+		Text:      pending.Text,
+		State:     pending.State,
+		RequestID: pending.RequestID,
+	})
 }

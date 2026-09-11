@@ -30,10 +30,12 @@ func (rs *Runners) PendingDelivery(ctx context.Context, chatID string) (termwait
 // and has no evidence of any kind that the provider took the prompt.
 //
 // consumed=false on the broadcast is therefore load-bearing, not a detail: the
-// client's pending queue item is the ONLY place the user's typed text still
-// exists at this point (this journal stores a hash of it, never the text, and
-// nothing reached the ledger), so a client told merely "this is over" deletes
-// the words for good. See settleDelivery.
+// client's pending queue item is the only place the user's typed text is still
+// RECOVERABLE at this point. This journal stores the literal text too, but
+// Settle retires the record into PromptStateSettled — a proven-over outcome
+// PendingPrompt deliberately never surfaces back to a client (pendingprompt.go)
+// — and nothing reached the ledger, so a client told merely "this is over"
+// deletes the words for good. See settleDelivery.
 func (rs *Runners) SettleDelivery(ctx context.Context, chatID, requestID string) (bool, error) {
 	return rs.settleDelivery(ctx, chatID, requestID, false)
 }

@@ -471,6 +471,10 @@ type PromptSubmissionDTO struct {
 type PendingPromptDTO struct {
 	Text  string `json:"text"`
 	State string `json:"state"`
+	// RequestID is the original client request id, carried through so the
+	// recovered row rejoins this chat's own dedup and settlement broadcasts
+	// instead of a freshly minted id nothing will ever match.
+	RequestID string `json:"requestId"`
 }
 
 // SlashCatalogDTO is one ephemeral deterministic provider capability response.

@@ -7,4 +7,9 @@ package domain
 type PendingPrompt struct {
 	Text  string
 	State string
+	// RequestID is the original client request id this submission was journalled
+	// under (agentjournal.PromptRequest.RequestID) — not freshly minted, so a
+	// recovered row stays inside this subsystem's own at-most-once dedup and
+	// matches the broadcasts that settle or abandon it.
+	RequestID string
 }
