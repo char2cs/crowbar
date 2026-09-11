@@ -1845,7 +1845,9 @@ func TestRegression_StopChatSalvagesTheAlreadyStreamedText(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "s1")
+	// Named to match deltaHook's own session: a delta that names a conversation the
+	// runner is not on is another one's, and ingest drops it.
+	f.announce(t, runnerID, "sess-1")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "write a long essay about the transistor"})))
 
@@ -1882,7 +1884,9 @@ func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 	f := newFixture(t)
 
 	chatA, runnerID := f.spawn(t, "claude")
-	f.announce(t, runnerID, "sA")
+	// Named to match deltaHook's own session, so the stream below really does land
+	// on chat A — the turn moveToNewChat then has to salvage.
+	f.announce(t, runnerID, "sess-1")
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "claude", "user_prompt",
 		mustJSON(t, map[string]any{"prompt": "write a long essay about the telegraph"})))
 
@@ -1915,6 +1919,16 @@ func TestRegression_ClearMidStreamSalvagesTheAlreadyStreamedText(t *testing.T) {
 // many entries claude reports STILL OUTSTANDING as it goes quiet.
 func stopPayload(t *testing.T, message string, tasks int) []byte {
 	t.Helper()
+	return stopPayloadFor(t, "s1", message, tasks)
+}
+
+// stopPayloadFor names the session the turn belongs to, for the tests whose
+// fixture announces something other than "s1". A turn_stop that names a session
+// the runner is not on is another conversation's, and ingest drops it — see
+// namesAnotherConversation — so a payload's session has to match the announce
+// that set the scene, exactly as a real CLI's would.
+func stopPayloadFor(t *testing.T, session, message string, tasks int) []byte {
+	t.Helper()
 	bg := make([]any, 0, tasks)
 	for range tasks {
 		bg = append(bg, map[string]any{
@@ -1925,7 +1939,7 @@ func stopPayload(t *testing.T, message string, tasks int) []byte {
 		})
 	}
 	return mustJSON(t, map[string]any{
-		"session_id":             "s1",
+		"session_id":             session,
 		"last_assistant_message": message,
 		"background_tasks":       bg,
 		"session_crons":          []any{},
@@ -2141,7 +2155,7 @@ func TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking(t *testing.T)
 
 	// codex's own top-level turn ends — with the subagent it just spawned still running.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
-		stopPayload(t, "I'll delegate this to a subagent.", 0)))
+		stopPayloadFor(t, "sess-1", "I'll delegate this to a subagent.", 0)))
 	f.wait()
 
 	chat := f.chat(t, chatID)
@@ -2195,7 +2209,7 @@ func TestRegression_CodexSubagentsDrainOneAtATime_SpinnerFollowsTheLastOne(t *te
 
 	// codex's own top-level turn ends with both subagents still running.
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
-		stopPayload(t, "Delegated to two subagents.", 0)))
+		stopPayloadFor(t, "sess-1", "Delegated to two subagents.", 0)))
 	f.wait()
 	require.True(t, f.chat(t, chatID).Working,
 		"precondition: codex's turn ended but both its subagents are still working")

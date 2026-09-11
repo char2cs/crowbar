@@ -256,3 +256,100 @@ func TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+// boundCodexRunnerStore is a codex runner that is ON a conversation, which is
+// what the two regression tests below turn on: the child-thread bug is invisible
+// unless the runner actually holds a session to compare an event against.
+type boundCodexRunnerStore struct {
+	agentrunner.EventStore
+	session string
+}
+
+func (s boundCodexRunnerStore) Get(_ context.Context, id string) (engineagents.Runner, error) {
+	return engineagents.Runner{
+		ID:             id,
+		ProviderID:     "codex",
+		WorkspaceID:    "ws-1",
+		CurrentChatID:  "chat-1",
+		CurrentSession: s.session,
+	}, nil
+}
+
+// TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn guards the bug
+// reported live 2026-09-11 ("we're still missing that the agent is working...
+// it always happens during a security review"). codex pushes a child thread's
+// COMPLETE, independent turn cycle down the SAME websocket the runner's own
+// thread uses — a collab agent, or the review/compaction/memory threads it
+// spawns unbidden. Captured live on a security review that delegated to a
+// sub-agent: the child's turn/completed arrived 83 SECONDS before the user's own
+// turn ended, and ingest filed it against the user's chat, closing the turn and
+// darkening the spinner while codex was still writing the answer.
+//
+// Written in TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent's shape
+// and for its reason: this fixture wires NO Chats/Activity/Conversations port at
+// all, so a turn_stop that is not recognised as another conversation's reaches
+// closeTurnFromStop and panics on a nil port instead of returning cleanly.
+// HasLiveAPIConnection is false so the redundant-echo guard cannot be what drops
+// it — the session identity has to be.
+func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	turns := turn.New(turn.Deps{
+		Runners:      boundCodexRunnerStore{session: "thread-main"},
+		Agents:       engineagents.New(),
+		Workspace:    stubWorkspace{home: home},
+		Home:         func() (string, error) { return home, nil },
+		PendingHooks: inflight.NewHooks(),
+		Telemetry:    telemetry.New(),
+		Work:         inflight.NewWork(),
+	})
+	turns.SetRunners(liveAPIRunners{live: false})
+
+	err := turns.IngestHook(t.Context(), "runner-1", "codex", "turn_stop",
+		[]byte(`{"threadId":"thread-child","last_assistant_message":"the sub-agent's answer"}`))
+
+	require.NoError(t, err,
+		"a child thread's turn/completed says nothing about the turn running on the runner's own thread")
+}
+
+// TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse is the
+// other half of the same live capture. The child thread reports
+// thread/status/changed(idle) when ITS turn ends, and recordIdle arms a latch
+// the terminal-wait sweep treats as "the provider says it is done and nothing
+// has closed the turn" — a 5s fuse (termwait.DefaultIdleQuiet) under the user's
+// still-running turn, deliberately gated on neither OpenWork nor the live
+// connection. Only the runner's own thread going idle may arm it.
+func TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	newTurns := func() *turn.Turns {
+		turns := turn.New(turn.Deps{
+			Chats:        stubChats{working: true},
+			Runners:      boundCodexRunnerStore{session: "thread-main"},
+			Agents:       engineagents.New(),
+			Workspace:    stubWorkspace{home: home},
+			Home:         func() (string, error) { return home, nil },
+			PendingHooks: inflight.NewHooks(),
+			Telemetry:    telemetry.New(),
+			Work:         inflight.NewWork(),
+		})
+		turns.SetRunners(liveAPIRunners{live: false})
+		return turns
+	}
+
+	foreign := newTurns()
+	require.NoError(t, foreign.IngestHook(t.Context(), "runner-1", "codex", "idle",
+		[]byte(`{"threadId":"thread-child"}`)))
+	_, armed := foreign.ProviderIdleSince("chat-1")
+	require.False(t, armed,
+		"a child thread finishing says nothing about the runner's own turn; arming here lets the 5s sweep abandon a live one")
+
+	own := newTurns()
+	require.NoError(t, own.IngestHook(t.Context(), "runner-1", "codex", "idle",
+		[]byte(`{"threadId":"thread-main"}`)))
+	_, armed = own.ProviderIdleSince("chat-1")
+	require.True(t, armed,
+		"the runner's OWN thread going idle must still arm the latch, or the turn nothing ever closes is unreachable again")
+}
