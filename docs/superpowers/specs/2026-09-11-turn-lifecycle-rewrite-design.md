@@ -1,6 +1,7 @@
-# Turn Lifecycle Rewrite: Liveness, Scroll Anchor, Prompt Durability
+# Scroll Anchor Rewrite and Prompt Durability
 
-Status: Approved for implementation, revised after code verification (§1)
+Status: Approved for implementation, revised twice after code verification
+(§1, §4)
 Date: 2026-09-11
 
 ## 1. Problem
@@ -13,35 +14,39 @@ working-status bug's actual root cause, found on the fourth round, was that
 Codex pushes a sub-agent's entire independent turn lifecycle
 (`turn/started`..`item/*`..`turn/completed`, `thread/status/changed(idle)`)
 down the *same* websocket as the parent thread, and Crowbar's event ingestion
-had no concept of a nested turn — it attributed everything on that connection
-to the one open conversation. The round-4 fix (`namesAnotherConversation`) is
-a same-ID filter over a flat model, not a structural fix.
+had no way to tell the two apart. The round-4 fix
+(`namesAnotherConversation`) is a same-session-ID filter — and, as §4 traces
+in detail, it turns out to already be the complete, correct fix, not a
+stopgap for something bigger.
 
-**Revision note:** an earlier draft of this section characterized Crowbar's
-existing idle-detection machinery (`turn/idle.go`, `turn/stall.go`,
-`termwait`'s detector triad, the `inflight` package) as four redundant,
-scattered guesses at liveness, on the strength of a first-pass research
-summary and the pre-compaction session history. Reading the actual
-implementations (see §3) showed that characterization was wrong: those are
-four narrow, already-layered, incident-informed mechanisms solving four
-different problems, not one problem four times. They are kept. The one
-validated structural gap is nested/sub-turn scoping (§4); the frontend
-scroll anchor (§5) and the prompt journal's content gap (§6) stand as
-originally scoped. This is a smaller rewrite than first proposed to the
-user, corrected before implementation began.
+**Revision history, both made before any implementation began:**
 
+1. An earlier draft characterized Crowbar's existing idle-detection machinery
+   (`turn/idle.go`, `turn/stall.go`, `termwait`'s detector triad, the
+   `inflight` package) as four redundant, scattered guesses at liveness, on
+   the strength of a first-pass research summary and the pre-compaction
+   session history. Reading the actual implementations (§3) showed that was
+   wrong: those are four narrow, already-layered, incident-informed
+   mechanisms solving four different problems. Kept as-is.
+2. A second draft then proposed replacing `namesAnotherConversation` (the
+   round-4 sub-agent fix) with a structural nested-turn model. Tracing
+   Codex's actual wire mechanism through the descriptor (§4) showed the
+   round-4 fix is already the complete, correct fix for the reported bug, and
+   that a structural model would be unrequested new scope carrying
+   acknowledged correlation risk. Not built.
+
+What remains, validated against the actual code rather than a summary of it:
 `use-transcript-anchor.ts` has grown to ~20 independent ref-based state
-variables across 816 lines, the direct result of seven rounds of point patches
-to the same underlying jump/bounce/overshoot symptom — this part of the
-diagnosis holds up and is unrelated to the backend liveness code. And
-`agentjournal.PromptRequest` durably records only a `TextHash` — the one piece
-of information needed to actually recover a lost prompt was never the one
-being stored, even though the write is already correctly timed.
+variables across 816 lines, the direct result of seven rounds of point
+patches to the same jump/bounce/overshoot symptom — this diagnosis holds up
+and is unrelated to any backend liveness code. And `agentjournal.PromptRequest`
+durably records only a `TextHash` — the one piece of information needed to
+actually recover a lost prompt was never the one being stored, even though
+the write is already correctly timed.
 
-This spec makes the nested-turn model structural, replaces the scroll anchor
-hook, and closes the prompt journal's content gap. Nothing here is kept
-alongside a legacy fallback: the filter-based sub-turn guard and the old
-scroll anchor hook are fully replaced, not shimmed.
+This spec replaces the scroll anchor hook and closes the prompt journal's
+content gap. Everything else that was in scope in an earlier draft is kept
+as-is, verified correct rather than rewritten.
 
 ## 2. Reference research
 
@@ -73,15 +78,16 @@ before committing to it:
   request ever completes.
 
 Both systems independently converge on three ideas: one authoritative
-terminal signal, explicit (not filtered) scoping for nested activity, and
-durable text written before the outcome is known. Reading Crowbar's own code
-against that (§3) showed the first idea is already substantially in place —
+terminal signal, explicit scoping for nested activity, and durable text
+written before the outcome is known. Reading Crowbar's own code against that
+(§3, §4) showed the first two are already substantially in place —
 `domain.Chat`'s asynx-sourced `StartTurn`/`StopTurn` commands are the single
-writer, and the existing idle/stall detectors are already narrow, ordered,
-corroborated fallbacks rather than independent guesses. The second idea
-(explicit nested scoping) is the genuine, validated gap this spec closes.
-The third (durable text) was already correctly timed and just needed its
-content gap closed.
+writer, the existing idle/stall detectors are narrow corroborated fallbacks
+rather than independent guesses, and the sub-agent scoping bug already has a
+correct, complete fix. The third idea (durable text) was already correctly
+timed and just needed its content gap closed. The genuine remaining gap this
+spec closes is narrower: the scroll anchor hook (§5) and the prompt journal's
+content (§6).
 
 ## 3. What the backend liveness code actually is (kept, not rewritten)
 
@@ -130,38 +136,51 @@ Verified in this codebase (not assumed):
 None of the above is where the bug lived. It lived in ingestion having no
 model of a nested turn at all (§4).
 
-## 4. Design: nested/sub-turn scoping
+## 4. Sub-agent bleed-through: already fixed, not rebuilt
 
-Today, `turn/ingest.go`'s `namesAnotherConversation` filters out a child
-thread's events by comparing IDs — a guard on a flat model, not a structural
-fix (its own doc comment already names the real problem: "a connection is not
-a conversation"). `descriptors-v3/codex.yaml` independently documents this
-exact gap: sub-agent events need "a nested-thread model `StartSubagent`/
-`StopSubagent` do not have," and ship as unwired dead weight today.
+**Second revision.** The original diagnosis (round-4 bug: a Codex sub-agent's
+own turn lifecycle corrupting the parent chat's spinner) named
+`namesAnotherConversation` — a same-session-ID filter in `turn/ingest.go` —
+as a stopgap needing a "real" structural nested-turn model. Tracing Codex's
+actual collab-agent wire mechanism through `descriptors-v3/codex.yaml:422-464`
+(itself the record of two independent live captures) shows this is wrong:
 
-This spec adds that model, mirroring Zeron's explicit-wrapper approach:
+- The model's `spawnAgent`/`wait`/`closeAgent`/`sendInput`/`resumeAgent` calls
+  are its OWN tool, `collabAgentToolCall` — already mapped as ordinary tool
+  rows via the existing `tool_pre`/`tool_post`/`tool_fail` events
+  (`codex.yaml:130-184`), targets and all (`spawnAgent`'s target is the prompt
+  it hands the sub-agent; `wait`/`closeAgent`'s target is
+  `receiverThreadIds[0]`, the child's own thread id).
+- The `wait` call's tool row stays `Running` for the *entire* duration the
+  child thread works, and only completes once the child finishes — which is
+  exactly what `turn/stall.go`'s `OpenWork` already reads (open tool calls)
+  to keep the parent's spinner correctly lit for the whole delegation, via
+  machinery `namesAnotherConversation` doesn't touch at all.
+- `namesAnotherConversation` prevents exactly one thing: the child thread's
+  *own* `turn/started`..`item/*`..`turn/completed`..`thread/status/changed`
+  cycle, pushed down the same websocket, from being misattributed to the
+  parent's `StopTurn`/idle state. That is the entire bug that was reported
+  live (spinner dark, "This agent has exited", while the child was still
+  working) — and it is what this filter already, correctly, fully prevents.
 
-- Every `Turn` gains `ParentTurnID *TurnID` (nil for a top-level turn).
-- The descriptor's event mapping gains a `turn_scope` field naming which wire
-  field carries thread/session identity (extending the existing `WireRef`
-  pattern, not a new bespoke mechanism). The runner keeps a
-  `ThreadID → TurnID` map; an inbound event resolves to the specific `Turn`
-  its thread ID names, creating a new child `Turn` on first sight if needed,
-  rather than being matched-or-dropped against the parent.
-- A child turn's `StopTurn` closes only that child. The parent's liveness is
-  never touched by a child's lifecycle — this is what makes cross-attribution
-  structurally impossible instead of filtered-after-the-fact.
-- `namesAnotherConversation` is deleted; its job is now handled by turn
-  resolution being correct by construction.
-- A child turn closes the same way a parent does today: an explicit wire
-  close event (`turn_stop`/`turn_failed`), now routed to the child's own
-  `Turn` via `turn_scope` resolution instead of being filtered out or
-  misapplied to the parent. The §3 idle-latch/stall fallback stays keyed by
-  chat for the top-level turn it protects today; nothing in this session's
-  bug history shows a child turn that silently never closes, so extending
-  that fallback to be per-`Turn` (chat *or* nested) is a narrow, optional
-  generalization of the existing keying, not a new mechanism — implement it
-  only if live testing (§9) surfaces a stuck child turn.
+So the round-4 fix is not a partial patch standing in for a missing
+structural model — it is the complete, correct fix for the bug that was
+reported. What a "real" nested-turn model would add on top is *richness*
+(rendering the child's own live messages/tool calls, not just a running
+`wait` row and a final opaque `agentsStates` JSON blob) — a new capability,
+never reported as broken, and one the descriptor's own author explicitly
+flagged as carrying real risk: correlating `receiverThreadIds[0]` against
+`agentsStates`, keyed by an arbitrary runtime thread ID the mapping grammar
+cannot address today, is called out by name as work where "a broken or
+unverified nested-subagent mapping would be worse than none."
+
+**Decision: do not build it.** It is unrequested scope, on a system already
+behaving correctly, carrying acknowledged correlation risk, for a feature no
+live bug report has asked for. `namesAnotherConversation` is kept exactly
+as-is. This section's job in the plan is verification, not construction: a
+regression test that drives a real Codex sub-agent delegation live and
+confirms the parent's turn stays open and correctly attributed throughout
+(§9) — proving the existing fix, not replacing it.
 
 ## 5. Design: scroll anchor
 
@@ -212,9 +231,9 @@ gap, not a timing gap.
 ## 7. Explicitly out of scope (kept as-is)
 
 - `turn/idle.go`, `turn/stall.go`, `termwait`'s detector triad and settle
-  logic, `inflight.Work`/`inflight.Turns`, `use-agent-activity.ts` — all
-  verified correct and load-bearing in §3. Not touched.
-- `spec/wire_ref.go` — extended (new `turn_scope` field), not replaced.
+  logic, `inflight.Work`/`inflight.Turns`, `use-agent-activity.ts`,
+  `namesAnotherConversation` and its call site in `turn/ingest.go` — all
+  verified correct and load-bearing in §3–§4. Not touched.
 - `pane-container.tsx` permanently-mounted-pane fix — depended on, unchanged.
 - The WS broadcaster registration-before-handshake fix already shipped this
   session — unrelated, unmodified.
@@ -222,45 +241,37 @@ gap, not a timing gap.
   resolver's null-vs-unknown fix — unrelated subsystems. `fix-composer-bugs`
   and `fix-claude-pane-desync` ship independently of this rewrite.
 - `fix-codex-turn-tracking`'s `WireRef`-based approval-vocabulary fix
-  (real `ask:` methods, `accept`/`decline` vocabulary) is orthogonal to
-  liveness and is folded into this work as-is. That branch's
-  `namesAnotherConversation` guard is superseded by §4's structural fix; its
-  `termwait` `promptConsumed` split is already-correct and kept per §3/§6 —
-  neither needs to land separately.
+  (real `ask:` methods, `accept`/`decline` vocabulary) and its `termwait`
+  `promptConsumed` split are both already-correct and kept as-is — this
+  branch is built directly on top of `fix-codex-turn-tracking` (rebased),
+  so they're simply present, not re-implemented.
 
 ## 8. Deletions and additions (exact)
 
-Deleted:
-- `namesAnotherConversation` and its call site in `turn/ingest.go` —
-  superseded by structural `turn_scope` resolution (§4).
-- Entire prior contents of `use-transcript-anchor.ts` (replaced in place,
-  same file path) — superseded by the single-`pinned`-boolean model (§5).
+Deleted: nothing. Every mechanism examined in §3–§4 is correct and stays.
 
 Added:
-- `Turn.ParentTurnID`, the `ThreadID → TurnID` resolution map, and the
-  descriptor `turn_scope` field (§4).
+- `use-transcript-anchor.ts`'s entire implementation is replaced in place
+  (same file path, same external interface) with the single-`pinned`-boolean
+  model (§5) — this is a rewrite of one file's contents, not a deletion of a
+  mechanism.
 - `agentjournal.PromptRequest.Text` (§6).
-
-Nothing else is deleted. §7 is the explicit, verified list of what stays.
 
 ## 9. Testing and verification plan
 
 - One `TestRegression_*` per historically reported bug, named for its source
-  per project convention: sub-agent bleed-through (parent turn must stay open
-  and correctly attributed through a real nested sub-agent turn), idle-loss
-  (prompt text recoverable from the journal, not just React state), scroll
-  bounce near turn completion, scroll overshoot while a message is pending,
-  first-open top-then-jump, tab-switch reveal.
+  per project convention: sub-agent bleed-through (a real Codex sub-agent
+  delegation must leave the parent turn open, correctly attributed, spinner
+  lit, throughout — proving §4's existing fix rather than building anything
+  new), idle-loss (prompt text recoverable from the journal, not just React
+  state), scroll bounce near turn completion, scroll overshoot while a
+  message is pending, first-open top-then-jump, tab-switch reveal.
 - Live verification via Tauri MCP against a real spawned `codex` process
-  exercising an actual sub-agent delegation (or the security-review-hook path
-  the original bug report narrowed this to) — no screen recording, driven the
-  same way as the rest of this session's live verification.
-- Confirm §3's kept detectors (idle latch, `OpenWork`'s tool/subagent scan,
-  `termwait`'s triad) still behave correctly once nested turns are structural
-  — in particular, that `OpenWork`'s subagent-open check still reflects a
-  live child turn under the new model, since a false read there would
-  darken the parent's spinner under a live subagent (the exact historical
-  bug, via a different path).
+  exercising an actual `collabAgentToolCall` delegation (`-c
+  features.collab_agents=true`, matching the descriptor's own capture setup)
+  or the security-review-hook path the original bug report narrowed this
+  to — no screen recording, driven the same way as the rest of this
+  session's live verification.
 - Docker-based Linux CI reproduction for anything touching the WS broadcast
   path, per existing project convention, before considering it settled.
 - No incremental merge to `develop` mid-rewrite; the branch lands as one
@@ -268,10 +279,10 @@ Nothing else is deleted. §7 is the explicit, verified list of what stays.
 
 ## 10. Rollout
 
-Single branch off `origin/develop` (suggested name: `rework/turn-lifecycle`).
-Not pushed or reported as done until every item in section 9 is live-verified
-and green. The three already-fixed, unpushed branches from the prior session
-(`fix-claude-pane-desync`, `fix-composer-bugs`, `fix-codex-turn-tracking`) are
-otherwise unaffected; whether to push `fix-codex-turn-tracking`'s
-already-orthogonal pieces separately is a decision deferred until after this
-rewrite lands.
+Branch `rework/turn-lifecycle`, built on top of `fix-codex-turn-tracking`
+(rebased onto it rather than bare `origin/develop`), since §7 keeps that
+branch's approval-vocabulary and `promptConsumed` work as-is — they arrive
+by being on the same branch, not by re-implementation. `fix-claude-pane-desync`
+and `fix-composer-bugs` are unrelated subsystems and stay independent, free
+to ship on their own regardless of this work. Not pushed or reported as done
+until every item in §9 is live-verified and green.
