@@ -51,11 +51,11 @@ describe('ChatColumnHeader', () => {
     expect(screen.getByTestId('chat-branch-header')).toHaveTextContent('My Chat')
   })
 
-  it('takes the translucent chat background, not the opaque IDE-sector one', () => {
+  it('takes the chat’s own glass — the progressive-blur dissolve, not the opaque IDE-sector fill', () => {
     renderHeader()
     const row = screen.getByTestId('pane-top-row')
-    expect(row).toHaveClass('bg-chrome-bg')
     expect(row).not.toHaveClass('bg-pane-background')
+    expect(screen.getByTestId('edge-dissolve')).toBeInTheDocument()
   })
 
   it('renders no branch-review shortcut or close-view control of its own', () => {

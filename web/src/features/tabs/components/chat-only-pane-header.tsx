@@ -34,11 +34,15 @@ export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
       isBottomPane={isBottomPane}
       isAtLeftEdge={isAtLeftEdge}
       isAtTopEdge={isAtTopEdge}
-      // bg-chrome-bg, not bg-pane-background: there is no IDE sector in this
-      // state at all (chatFillsPane) — this row IS the chat's own toolbar,
-      // so it takes the chat's translucent tone rather than the opaque one
-      // TabBar's row (the IDE sector's own header) carries.
-      className="bg-chrome-bg"
+      // chat-blur, not opaque: there is no IDE sector in this state at all
+      // (chatFillsPane) — this row IS the chat's own toolbar, so it takes
+      // the chat's own glass (steals the composer's progressive-blur
+      // dissolve) rather than the flat fill TabBar's row (the IDE sector's
+      // own header) carries. `overlay` floats this out of flex flow, which
+      // is what lets the chat surface below render full-height, right up
+      // behind it.
+      variant="chat-blur"
+      overlay
     >
       <ChatBranchHeader
         chatId={pane.chatId ?? ''}

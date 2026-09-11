@@ -684,6 +684,13 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     // And the chat gets ITS OWN header, confined to its own column, in the
     // same box as the chat surface — not the editor's.
     expect(chatView.contains(screen.getByTestId('chat-branch-header'))).toBe(true)
+
+    // The IDE sector reads as its own card next to the chat's: a border and
+    // rounded corner on the edge that actually touches the chat (left, in
+    // side-by-side) — never all four, which would double up with the shared
+    // pane box's own border/radius.
+    expect(editorView).toHaveClass('border-l', 'border-border', 'rounded-l-lg')
+    expect(editorView).not.toHaveClass('border-t', 'rounded-t-lg')
   })
 
   it('with the split off, there is no divider — tabs, not a cramped split', async () => {
@@ -762,6 +769,11 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       expect(chatView.contains(tabBar)).toBe(false)
       expect(editorView.contains(chat)).toBe(false)
       expect(chatView.contains(screen.getByTestId('chat-branch-header'))).toBe(true)
+
+      // Stacked: the chat sits ABOVE the editor, so the border/rounding
+      // belongs on the TOP edge here, not the left.
+      expect(editorView).toHaveClass('border-t', 'border-border', 'rounded-t-lg')
+      expect(editorView).not.toHaveClass('border-l', 'rounded-l-lg')
     })
   })
 

@@ -1036,6 +1036,16 @@ export function PaneContainer({
             className={cn(
               'relative flex min-h-0 flex-col overflow-hidden bg-pane-background',
               Boolean(pane.chatId) && presentation !== 'tabs' ? 'shrink grow-0' : 'w-full flex-1',
+              // The IDE sector reads as its OWN card next to the chat's —
+              // a border and rounded corners on whichever edge actually
+              // touches the chat (left in side-by-side, top in stacked),
+              // never the other three: those edges already meet the
+              // shared pane box's own border/radius (buildPaneContentStyle),
+              // a second one there would double up.
+              chatVisibleAlongsideEditor &&
+                (presentation === 'stacked'
+                  ? 'rounded-t-lg border-t border-border'
+                  : 'rounded-l-lg border-l border-border'),
             )}
             style={
               Boolean(pane.chatId) && presentation !== 'tabs'

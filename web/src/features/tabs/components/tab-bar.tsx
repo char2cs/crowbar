@@ -579,7 +579,14 @@ const TabBar = ({
           isBottomPane={isBottomPane}
           isAtLeftEdge={isAtLeftEdge}
           isAtTopEdge={isAtTopEdge}
-          className="bg-pane-background"
+          // Chats/pane redesign: only meaningfully dynamic in the collapsed
+          // ('tabs') presentation, where this row can show either the chat
+          // or a real tab — chat-blur when the chat is the one selected,
+          // the IDE sector's usual opaque fill otherwise. `chatIsSelected`
+          // is already `false` outside 'tabs' presentation (showChatTab's
+          // own gate), so this row stays opaque there unconditionally, same
+          // as before.
+          variant={chatIsSelected ? 'chat-blur' : 'opaque'}
         >
           {/* Spec §7.1 (chats/pane redesign revision): the split toggle leads
               the whole row, outside the tab scroller. The chat is no longer

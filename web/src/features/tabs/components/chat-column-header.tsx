@@ -32,7 +32,8 @@ export function ChatColumnHeader({ chatId, wsId, isBottomPane }: ChatColumnHeade
       isBottomPane={isBottomPane}
       isAtLeftEdge={isAtLeftEdge}
       isAtTopEdge={isAtTopEdge}
-      className="bg-chrome-bg"
+      variant="chat-blur"
+      overlay
     >
       <ChatBranchHeader chatId={chatId} wsId={wsId} className="h-full min-w-0 flex-1" />
     </PaneTopRow>

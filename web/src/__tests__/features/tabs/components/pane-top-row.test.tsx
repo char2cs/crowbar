@@ -45,8 +45,69 @@ describe('PaneTopRow', () => {
     expect(screen.getByText('hello')).toBeInTheDocument()
   })
 
-  it('merges a caller-supplied className (e.g. the background token)', () => {
-    renderRow({ className: 'bg-chrome-bg' })
-    expect(screen.getByTestId('pane-top-row')).toHaveClass('bg-chrome-bg')
+  it('merges a caller-supplied className', () => {
+    renderRow({ className: 'shrink-0' })
+    expect(screen.getByTestId('pane-top-row')).toHaveClass('shrink-0')
+  })
+
+  // variant="opaque" (default) — the IDE sector's own look: a flat,
+  // fully-opaque fill, sitting normally in flex flow above whatever it
+  // heads (nothing needs to render "behind" it).
+  describe('variant="opaque" (default)', () => {
+    it('paints the opaque pane-background fill', () => {
+      renderRow()
+      expect(screen.getByTestId('pane-top-row')).toHaveClass('bg-pane-background')
+    })
+
+    it('renders no dissolve overlay', () => {
+      renderRow()
+      expect(screen.queryByTestId('edge-dissolve')).not.toBeInTheDocument()
+    })
+
+    it('stays in normal flex flow — not positioned as a floating overlay', () => {
+      renderRow()
+      expect(screen.getByTestId('pane-top-row')).not.toHaveClass('absolute')
+    })
+  })
+
+  // variant="chat-blur" — the chat's own glass: no fill of its own, steals
+  // the composer's own progressive-blur "dissolve" so scrolled-behind text
+  // blurs and fades instead of being clipped by a hard edge.
+  describe('variant="chat-blur"', () => {
+    it('paints no opaque fill of its own', () => {
+      renderRow({ variant: 'chat-blur' })
+      expect(screen.getByTestId('pane-top-row')).not.toHaveClass('bg-pane-background')
+    })
+
+    it('renders the dissolve UNDER its own content, both anchored to the top edge', () => {
+      renderRow({ variant: 'chat-blur' })
+      expect(screen.getByTestId('edge-dissolve')).toHaveAttribute('data-edge', 'top')
+      expect(screen.getByText('content')).toBeInTheDocument()
+    })
+
+    // TabBar's own row uses chat-blur's LOOK without `overlay` — it sits
+    // outside the chat/editor split entirely, so floating it would resize
+    // that split's container out from under it, not just change its look.
+    it('stays in normal flex flow by default — overlay is a SEPARATE, opt-in prop', () => {
+      renderRow({ variant: 'chat-blur' })
+      expect(screen.getByTestId('pane-top-row')).not.toHaveClass('absolute')
+    })
+  })
+
+  // overlay — floats the row free of flex flow so a caller that lives
+  // INSIDE the box whose content should show through (ChatColumnHeader,
+  // ChatOnlyPaneHeader) can let that content fill the full box behind it.
+  describe('overlay', () => {
+    it('floats as an absolute overlay pinned to the top edge', () => {
+      renderRow({ overlay: true })
+      const row = screen.getByTestId('pane-top-row')
+      expect(row).toHaveClass('absolute', 'top-0')
+    })
+
+    it('works independently of variant — an opaque row can overlay too', () => {
+      renderRow({ overlay: true, variant: 'opaque' })
+      const row = screen.getByTestId('pane-top-row')
+      expect(row).toHaveClass('absolute', 'bg-pane-background')
+    })
   })
 })
