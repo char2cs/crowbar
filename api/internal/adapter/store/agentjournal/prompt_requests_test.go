@@ -421,3 +421,32 @@ func TestJournal_SettleOnlyRetiresASpawnedRecord(t *testing.T) {
 		})
 	}
 }
+
+func TestJournal_LatestRequestReturnsTheMostRecentlyUpdatedRecord(t *testing.T) {
+	j, dir := journal(t)
+
+	_, _, err := j.Begin(dir, "req-1", "first", "hash-1", "claude", "out", "new-1", jnow)
+	require.NoError(t, err)
+	_, err = j.MarkAccepted(dir, "req-1", jnow)
+	require.NoError(t, err)
+
+	later := jnow.Add(time.Second)
+	_, _, err = j.Begin(dir, "req-2", "second", "hash-2", "claude", "out", "new-2", later)
+	require.NoError(t, err)
+
+	latest, found, err := j.LatestRequest(dir)
+
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "req-2", latest.RequestID)
+	assert.Equal(t, "second", latest.Text)
+}
+
+func TestJournal_LatestRequestFindsNothingInAnEmptyJournal(t *testing.T) {
+	j, dir := journal(t)
+
+	_, found, err := j.LatestRequest(dir)
+
+	require.NoError(t, err)
+	assert.False(t, found)
+}

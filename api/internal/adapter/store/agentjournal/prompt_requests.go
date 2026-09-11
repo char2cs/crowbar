@@ -153,6 +153,13 @@ type PromptRequests interface {
 	ActiveDelivery(
 		dir string,
 	) (PromptRequest, bool, error)
+	// LatestRequest returns the journal's most recently updated record, if
+	// any, regardless of its state — unlike ActiveDelivery, which only
+	// surfaces a record still genuinely in flight. Its caller decides what a
+	// given state means for their own purpose (see Runners.PendingPrompt).
+	LatestRequest(
+		dir string,
+	) (PromptRequest, bool, error)
 	// HasPendingDelivery reports whether anything is genuinely in flight, first
 	// downgrading orphaned dispatches: an unknown outcome blocks a RETRY, but it
 	// is not a delivery still on its way.
@@ -543,6 +550,27 @@ func (s *promptRequests) ActiveDelivery(dir string) (PromptRequest, bool, error)
 		return PromptRequest{}, false, err
 	}
 	return record, record.RequestID != "", nil
+}
+
+func (s *promptRequests) LatestRequest(dir string) (PromptRequest, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	records, err := readPromptRequests(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return PromptRequest{}, false, nil
+		}
+		return PromptRequest{}, false, err
+	}
+	var latest PromptRequest
+	found := false
+	for _, record := range records {
+		if !found || record.UpdatedAt.After(latest.UpdatedAt) {
+			latest = record
+			found = true
+		}
+	}
+	return latest, found, nil
 }
 
 func (s *promptRequests) RecoverOrphanedDispatches(dir string, now time.Time) error {
