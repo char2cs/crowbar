@@ -1142,4 +1142,18 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
       'w-onscreen',
     )
   })
+
+  // ChatBranchHeader (the chat's own identity header, mounted alongside
+  // AgentChatPane) reads off the exact same resolved `chatStore` — this is
+  // the same cross-workspace-title bug class, now checked at its new home.
+  it("shows the chat's own title in its header even while a DIFFERENT workspace is ambient", async () => {
+    getOrCreateWorkspaceStore('w-owner')
+      .getState()
+      .seedAgentChats([chatRecord('chat-1', 'w-owner')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    await renderPane(createWorkspaceStore('w-onscreen'))
+
+    expect(await screen.findByTestId('chat-branch-header')).toHaveTextContent('chat-1')
+  })
 })

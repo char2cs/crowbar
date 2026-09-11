@@ -9,15 +9,9 @@ import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/u
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import {
-  useChatWorkspaceId,
-  useChatWorkspaceHint,
-} from '@/features/panes/hooks/use-chat-workspace-id'
-import {
-  WorkspaceStoreContext,
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
-import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import { splitEditorGroup } from '@/features/panes/utils/pane-command-actions'
+  splitEditorGroup,
+  openBranchReviewForActiveWorkspace,
+} from '@/features/panes/utils/pane-command-actions'
 import { panesInView, viewIdOf } from '@/features/panes/lib/pane-views'
 import { useAnyChatWorking } from '@/features/panes/hooks/use-any-chat-working'
 import { useSettingsStore } from '@/features/settings/store'
@@ -36,8 +30,8 @@ import TabNavigationButtons from './tab-navigation-buttons'
 import TabAddButton from './tab-add-button'
 import CloseViewButton from './close-view-button'
 import SortableEditorTab from './sortable-editor-tab'
-import { ChatHead } from './chat-head'
 import { SplitToggleButton } from './split-toggle-button'
+import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
 import { useTabDrag } from '../hooks/use-tab-drag'
@@ -109,23 +103,6 @@ const TabBar = ({
   )
   const pendingClose = useStore(windowPaneStore, (s) => s.pendingClose)
   const pane = usePaneById(paneId ?? '')
-  // THE CHAT'S OWN WORKSPACE, not the one whose WorkspaceView happens to be
-  // rendering this pane — same fact `pane-container.tsx` already resolves
-  // for the chat's own CONTENT view, needed again here for `ChatHead`
-  // (below), which read the ambient store directly and nothing else: a
-  // split holding chats from two different workspaces left only whichever
-  // one was ambient showing its real title, and the OTHER pane's `ChatHead`
-  // fell through to `UNTITLED_CHAT_LABEL` — caught live, its title
-  // appearing to "switch" to "Untitled chat" the instant the OTHER pane
-  // became active and flipped which workspace was ambient. `useChatWorkspaceHint`
-  // is what makes this resolve on the SAME render the click that flips the
-  // active pane causes, rather than one or more renders later once
-  // WorkspaceHost's reconcile effect has caught up — without it the title
-  // still flashed wrong-then-correct on every such click.
-  const ambientStore = useWorkspaceStore()
-  const chatWsHint = useChatWorkspaceHint(pane?.chatId ?? null)
-  const chatWsId = useChatWorkspaceId(pane?.chatId ?? null, chatWsHint)
-  const chatHeadStore = (chatWsId && getWorkspaceStore(chatWsId)) || ambientStore
   const {
     closeView,
     setActivePane,
@@ -618,24 +595,15 @@ const TabBar = ({
           )}
           data-tauri-drag-region
         >
-          {/* Spec §7.1: the split toggle leads the whole row, before the
-              chat name, outside the tab scroller. Absent on an empty pane —
-              there is no chat for a second view to sit beside. */}
+          {/* Spec §7.1 (chats/pane redesign revision): the split toggle leads
+              the whole row, outside the tab scroller. The chat is no longer
+              part of this row at all — it moved to its own header
+              (`ChatBranchHeader`, pane-container.tsx) at the top of the chat
+              view now that the chat interface and the IDE sector are two
+              separate boxes. Absent on an empty pane — there is no chat for
+              a second view to sit beside. */}
           {paneId && !isEmptyPane && (
             <SplitToggleButton active={pane?.editorOpen ?? false} onToggle={handleToggleSplit} />
-          )}
-
-          {/* The chat is not a tab: no close, no reordering, outside the
-              scroller — it is the head of the row (spec §7.1). Absent
-              entirely for a pane holding no chat. */}
-          {paneId && pane?.chatId && (
-            <WorkspaceStoreContext.Provider value={chatHeadStore}>
-              <ChatHead
-                chatId={pane.chatId}
-                isActive={!activeBufferId}
-                onSelect={() => setActivePane(paneId)}
-              />
-            </WorkspaceStoreContext.Provider>
           )}
 
           {showReopenToggleLeft && (
@@ -701,6 +669,18 @@ const TabBar = ({
                 )}
               </div>
             </SortableContext>
+          )}
+
+          {/* Shortcut into GitPanel's own "Review this branch" action
+              (git-panel.tsx) — branch review's real home stays the git
+              file-explorer card; this is just a faster way to reach it from
+              the IDE sector's own row. Pinned at the right edge, before the
+              close-view control. */}
+          {paneId && pane && !isEmptyPane && (
+            <BranchReviewShortcutButton
+              isBottomPane={isBottomPane}
+              onOpen={() => openBranchReviewForActiveWorkspace()}
+            />
           )}
 
           {/* A VIEW action (spec §5.4), not a tab action — stays pinned at the

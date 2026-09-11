@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
@@ -6,11 +6,6 @@ import type { EditorContent } from '@/features/panes/types/pane-content'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import {
-  getOrCreateWorkspaceStore,
-  destroyWorkspaceStore,
-  getAllActiveWorkspaceIds,
-} from '@/features/workspace/stores/workspace-store-registry'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -26,19 +21,6 @@ vi.mock('@/components/ui/sidebar', async (importOriginal) => {
     useSidebar: () => ({ open: true, toggleSidebar: () => {} }),
   }
 })
-
-// Only exercised by the "chat head resolves its own workspace" describe
-// block below, which registers real stores via getOrCreateWorkspaceStore —
-// destroying one dynamically imports window-pane-store.ts for its
-// buffer-scoped teardown, which otherwise wants a real IndexedDB write path
-// (same mock workspace-store-registry.test.ts already uses for this).
-vi.mock('@/lib/persistence/workspace-layout', () => ({
-  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
-}))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 
 vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: () => createElement('span', { 'data-testid': 'file-icon' }),
@@ -82,8 +64,7 @@ function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
 }
 
 /** Seeds a single pane (ROOT_PANE_ID) with the given editor tabs and, when
- *  `chatId` is set, a matching `agentChats.chats` fixture so ChatHead's title
- *  lookup resolves — mirrors how `recents-band.tsx` reads a chat's title. */
+ *  `chatId` is set, a matching `agentChats.chats` fixture. */
 // Task 26: panes/buffers moved off the per-workspace store onto the
 // window-level singleton — seed `windowPaneStore` for those; `agentChats`
 // stays on the workspace store returned here.
@@ -230,15 +211,18 @@ describe('TabBar "+" click behaviour', () => {
   })
 })
 
-// Spec §7.1 / task 17: tab-bar.tsx becomes the WHOLE pane-top row — split
-// toggle, then the chat head (outside the tab scroller, no close, no
-// reordering), then the editor tab strip in its own scroller.
+// Spec §7.1 (revised by the chats/pane redesign): tab-bar.tsx is now the
+// IDE SECTOR's own row only — split toggle, the editor tab strip in its own
+// scroller, the branch-review shortcut, then close-view. The chat is no
+// longer part of this row at all: it draws its own identity header
+// (`ChatBranchHeader`) at the top of the chat view instead
+// (pane-container.test.tsx / chat-branch-header.test.tsx cover that).
 describe('TabBar pane-top-row anatomy', () => {
   afterEach(() => {
     vi.clearAllMocks()
   })
 
-  it('the split toggle leads, before the chat name, outside the tab scroller', () => {
+  it('the split toggle leads the row, outside the tab scroller', () => {
     const store = setupPaneStore({
       chatId: 'chat-1',
       buffers: [makeEditorBuffer(0)],
@@ -250,44 +234,18 @@ describe('TabBar pane-top-row anatomy', () => {
     const row = screen.getByTestId('pane-top-row')
     const children = Array.from(row.children).map((c) => c.getAttribute('data-role'))
     expect(children[0]).toBe('split-toggle')
-    expect(children[1]).toBe('chat-head')
   })
 
-  it('a pane with only its chat draws no tab-strip scroller at all', () => {
+  it('draws no chat head of its own for a pane with only its chat', () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
     act(() => {
       renderTabBar(store)
     })
     expect(screen.queryByTestId('editor-tab-scroller')).not.toBeInTheDocument()
-    // The row itself — split toggle and chat head — still draws.
-    expect(screen.getByTestId('pane-top-row')).toBeInTheDocument()
-    expect(screen.getByTestId('chat-head')).toBeInTheDocument()
-  })
-
-  it('the chat head has no close affordance', () => {
-    const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
-    act(() => {
-      renderTabBar(store)
-    })
-    expect(
-      within(screen.getByTestId('chat-head')).queryByRole('button', { name: /close/i }),
-    ).not.toBeInTheDocument()
-  })
-
-  it("the chat head shows the chat's own title", () => {
-    const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
-    act(() => {
-      renderTabBar(store)
-    })
-    expect(within(screen.getByTestId('chat-head')).getByText('My Chat')).toBeInTheDocument()
-  })
-
-  it('a pane holding no chat draws no chat head', () => {
-    const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
-    act(() => {
-      renderTabBar(store)
-    })
     expect(screen.queryByTestId('chat-head')).not.toBeInTheDocument()
+    // The row itself — split toggle — still draws.
+    expect(screen.getByTestId('pane-top-row')).toBeInTheDocument()
+    expect(screen.getByTestId('split-toggle')).toBeInTheDocument()
   })
 
   it('the split toggle flips PaneGroup.editorOpen', () => {
@@ -390,14 +348,13 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
     vi.clearAllMocks()
   })
 
-  it('draws no split toggle, no chat head, no tab strip and no close control', () => {
+  it('draws no split toggle, no tab strip and no close control', () => {
     const store = setupPaneStore({ chatId: null, buffers: [] })
     act(() => {
       renderTabBar(store)
     })
 
     expect(screen.queryByTestId('split-toggle')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('chat-head')).not.toBeInTheDocument()
     expect(screen.queryByTestId('editor-tab-scroller')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /close view/i })).not.toBeInTheDocument()
   })
@@ -421,55 +378,5 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
     })
 
     expect(screen.getByTestId('split-toggle')).toBeInTheDocument()
-    expect(screen.getByTestId('chat-head')).toBeInTheDocument()
-  })
-})
-
-// Regression: a split can hold panes from TWO different workspaces at once
-// (spec §8.2's drag-to-merge). ChatHead used to read the chat's title
-// straight off ambient WorkspaceStoreContext — the workspace whose
-// WorkspaceView happens to be rendering THIS COPY of the pane tree — with no
-// resolution of its own. Whichever workspace was ambient showed real titles;
-// every OTHER pane's chat wasn't in that store's `agentChats.chats` at all,
-// so its title silently fell through to UNTITLED_CHAT_LABEL — and appeared
-// to "switch" to "Untitled chat" the instant some OTHER pane's click flipped
-// which workspace was ambient. Caught live, alternating clicks between two
-// panes on different repos.
-describe('TabBar — the chat head resolves its OWN chat\'s workspace, not the ambient one', () => {
-  afterEach(() => {
-    getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
-    vi.clearAllMocks()
-  })
-
-  it("shows the pane's own chat title even while a DIFFERENT workspace is ambient", () => {
-    // The pane's real workspace, registered for real (so useChatWorkspaceId
-    // can resolve it via the registry) and carrying the chat's real title —
-    // never handed to TabBar as its own context.
-    getOrCreateWorkspaceStore('w1').setState((s) => ({
-      ...s,
-      agentChats: { ...s.agentChats, chats: [makeChat({ id: 'chat-1', title: 'Athas test' })] },
-    }))
-    // The AMBIENT store TabBar is actually rendered under — a different
-    // workspace entirely, with no knowledge of 'chat-1'. This is the wrong
-    // fallback ChatHead used to trust blindly.
-    const ambientStore = createWorkspaceStore('w2')
-
-    resetWindowPaneStoreForTests()
-    windowPaneStore.setState((s) => {
-      s.panes[ROOT_PANE_ID] = {
-        ...s.panes[ROOT_PANE_ID],
-        chatId: 'chat-1',
-        editorTabIds: [],
-        activeEditorTabId: null,
-      }
-      return s
-    })
-
-    act(() => {
-      renderTabBar(ambientStore)
-    })
-
-    expect(screen.getByTestId('chat-head')).toHaveTextContent('Athas test')
-    expect(screen.queryByText('Untitled chat')).not.toBeInTheDocument()
   })
 })

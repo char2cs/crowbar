@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
 import { viewIdOf } from '../lib/pane-views'
 import TabBar from '@/features/tabs/components/tab-bar'
+import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
 import {
   clearInternalTabDragData,
@@ -812,7 +813,7 @@ export function PaneContainer({
               key="chat-view"
               ref={chatViewRef}
               className={cn(
-                'relative min-h-0 min-w-0 overflow-hidden',
+                'relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-chrome-bg',
                 // Tabs: this box IS the pane's content area (the editor sits
                 // behind it, `hidden`). Side by side/stacked: it is one half
                 // of a real split, sized by splitSizes and left free for the
@@ -828,39 +829,47 @@ export function PaneContainer({
                   store too, or a chat from another repo is simply never found.
                   Re-provided here, around the chat view alone: everything else
                   in this pane (editor tabs, terminals) genuinely belongs to
-                  the workspace whose view is on screen, and must keep it. */}
+                  the workspace whose view is on screen, and must keep it.
+                  ChatBranchHeader (the chat's own identity header, replacing
+                  ChatHead's old spot in tab-bar.tsx) sits inside the SAME
+                  provider so it resolves the chat's title off its OWN
+                  workspace too, not whichever one is ambient. */}
               <WorkspaceStoreContext.Provider value={chatStore}>
-                <Suspense fallback={null}>
-                  {/* `paneId` was `bufferId` and a known, disclosed gap until the
-                    final fix wave: AgentChatPane wrote runner-follow repoints
-                    and title renames through `bufferActions
-                    .repointAgentChatBuffer`/`.renameBuffer`, both of which look
-                    an id up in `state.buffers` — and a chat has not been a
-                    buffer since Task 1 removed 'agentChat' from PaneContent, so
-                    every one of those writes safely no-op'd and runner-follow
-                    silently never happened (`/clear` left ChatHead on the old
-                    name, and `closePane`'s dormantArrangements push remembered
-                    the wrong chat). AgentChatPane now writes
-                    `paneActions.setPaneChat(paneId, ...)` — the real write path
-                    for what chat a pane holds — and the relabel is gone
-                    entirely, since ChatHead reads the live title by chat id. */}
-                  <AgentChatPane
-                    chatId={pane.chatId}
-                    runnerId={pane.runnerId ?? ''}
-                    wsId={wsId}
-                    paneId={pane.id}
-                    isActivePane={isActivePane}
-                    // Was hard-coded true: a pane holds at most one chat, so
-                    // within the pane the chat view is always the one showing.
-                    // With views that is no longer the whole question — the
-                    // pane itself can be in an arrangement that is off screen.
-                    // It matters beyond appearances: the dormant-chat revive
-                    // fires on `isVisible`, so a parked view left claiming to
-                    // be visible would spawn a vendor CLI for a chat nobody is
-                    // looking at, once per remount.
-                    isVisible={showing}
-                  />
-                </Suspense>
+                <ChatBranchHeader chatId={pane.chatId} wsId={wsId} />
+                <div className="relative min-h-0 flex-1 overflow-hidden">
+                  <Suspense fallback={null}>
+                    {/* `paneId` was `bufferId` and a known, disclosed gap until the
+                      final fix wave: AgentChatPane wrote runner-follow repoints
+                      and title renames through `bufferActions
+                      .repointAgentChatBuffer`/`.renameBuffer`, both of which look
+                      an id up in `state.buffers` — and a chat has not been a
+                      buffer since Task 1 removed 'agentChat' from PaneContent, so
+                      every one of those writes safely no-op'd and runner-follow
+                      silently never happened (`/clear` left the chat header on the
+                      old name, and `closePane`'s dormantArrangements push
+                      remembered the wrong chat). AgentChatPane now writes
+                      `paneActions.setPaneChat(paneId, ...)` — the real write path
+                      for what chat a pane holds — and the relabel is gone
+                      entirely, since ChatBranchHeader reads the live title by
+                      chat id. */}
+                    <AgentChatPane
+                      chatId={pane.chatId}
+                      runnerId={pane.runnerId ?? ''}
+                      wsId={wsId}
+                      paneId={pane.id}
+                      isActivePane={isActivePane}
+                      // Was hard-coded true: a pane holds at most one chat, so
+                      // within the pane the chat view is always the one showing.
+                      // With views that is no longer the whole question — the
+                      // pane itself can be in an arrangement that is off screen.
+                      // It matters beyond appearances: the dormant-chat revive
+                      // fires on `isVisible`, so a parked view left claiming to
+                      // be visible would spawn a vendor CLI for a chat nobody is
+                      // looking at, once per remount.
+                      isVisible={showing}
+                    />
+                  </Suspense>
+                </div>
               </WorkspaceStoreContext.Provider>
             </div>
           )}
