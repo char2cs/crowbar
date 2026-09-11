@@ -465,6 +465,14 @@ type PromptSubmissionDTO struct {
 	TerminalSessionID string `json:"terminalSessionId"`
 }
 
+// PendingPromptDTO is the wire shape of domain.PendingPrompt — a prompt
+// submission the journal has not yet confirmed the provider accepted, sent
+// so a client whose own local copy was lost can recover the literal text.
+type PendingPromptDTO struct {
+	Text  string `json:"text"`
+	State string `json:"state"`
+}
+
 // SlashCatalogDTO is one ephemeral deterministic provider capability response.
 // Completeness is never inferred by Crowbar; it is declared by the provider
 // descriptor so partial inventories remain visibly partial.

@@ -170,6 +170,13 @@ func (stubUsecase) SlashCatalog(
 	return engineagents.SlashCatalog{Items: []engineagents.SlashCatalogItem{}}, nil
 }
 
+func (stubUsecase) PendingPrompt(
+	ctx context.Context,
+	chatID string,
+) (domain.PendingPrompt, bool, error) {
+	return domain.PendingPrompt{}, false, nil
+}
+
 // LiveRunnerForChat answers agentrunner.ErrNotFound — "this chat is DORMANT", the
 // honest answer for a stub that starts no process, and not a failure: a live-runner row
 // exists exactly while a PTY does, so its absence IS the liveness verdict. The read
@@ -333,6 +340,7 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/chats/c1/messages"},
 		{http.MethodPost, base + "/chats/c1/prompts"},
 		{http.MethodGet, base + "/chats/c1/slash-catalog"},
+		{http.MethodGet, base + "/chats/c1/pending-prompt"},
 		{http.MethodPost, base + "/chats/c1/attachments"},
 		{http.MethodGet, base + "/chats/c1/attachments/f1.png"},
 		{http.MethodPost, base + "/chats/c1/switch"},

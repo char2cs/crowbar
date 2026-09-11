@@ -74,6 +74,14 @@ type RunnerUsecase interface {
 		chatID string,
 	) (engineagents.SlashCatalog, error)
 
+	// PendingPrompt returns the chat's most recent prompt submission the
+	// journal has not yet confirmed the provider accepted, so a client whose
+	// own local copy of the text was lost can recover it.
+	PendingPrompt(
+		ctx context.Context,
+		chatID string,
+	) (domain.PendingPrompt, bool, error)
+
 	// SwitchToTerminal hands the chat's live turn over to its provider's own
 	// native view — idle-only, for a provider whose descriptor declares attach
 	// without hotswap. Returns the new terminal session id.
@@ -310,6 +318,15 @@ func (u *Usecase) SlashCatalog(
 	chatID string,
 ) (engineagents.SlashCatalog, error) {
 	return u.runners.SlashCatalog(ctx, chatID)
+}
+
+// PendingPrompt returns the chat's most recent prompt submission the journal
+// has not yet confirmed the provider accepted.
+func (u *Usecase) PendingPrompt(
+	ctx context.Context,
+	chatID string,
+) (domain.PendingPrompt, bool, error) {
+	return u.runners.PendingPrompt(ctx, chatID)
 }
 
 // LiveRunnerForChat returns the CLI currently placed on the chat.
