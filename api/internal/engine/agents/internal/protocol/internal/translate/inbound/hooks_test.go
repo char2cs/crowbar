@@ -16,7 +16,7 @@ func descriptor(events map[string]map[string]string, require_ ...string) *spec.D
 	d.Runtime.Hooks.Format = "json"
 	d.Runtime.Hooks.RequirePayloadFields = require_
 	for canonical, fields := range events {
-		d.Events[canonical] = spec.EventSpec{In: canonical, Map: fields}
+		d.Events[canonical] = spec.EventSpec{In: spec.WireRef(canonical), Map: fields}
 	}
 	return d
 }

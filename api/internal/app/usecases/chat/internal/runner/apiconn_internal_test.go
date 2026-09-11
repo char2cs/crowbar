@@ -223,7 +223,7 @@ events:
       session_id: threadId
       message: "turn.items[type=agentMessage].text"
   permission:
-    ask: item/permissions/requestApproval
+    ask: acme/tool/requestApproval
     timeout_seconds: 270
     map: { tool_name: tool, tool_input: params }
     reply:
@@ -340,7 +340,7 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 	replySeen := make(chan string, 1)
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		ask, _ := json.Marshal(map[string]any{
-			"id": 7, "method": "item/permissions/requestApproval",
+			"id": 7, "method": "acme/tool/requestApproval",
 			"params": map[string]string{"tool": "shell"},
 		})
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
@@ -390,7 +390,7 @@ func TestPumpAPIConn_UnansweredAskWritesNoReply(t *testing.T) {
 	wroteReply := make(chan struct{}, 1)
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		ask, _ := json.Marshal(map[string]any{
-			"id": 9, "method": "item/permissions/requestApproval",
+			"id": 9, "method": "acme/tool/requestApproval",
 			"params": map[string]string{"tool": "shell"},
 		})
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))

@@ -821,7 +821,7 @@ func TestAgent_CodexDeclaresAnAnswerChannelForPermission(t *testing.T) {
 
 	stdout, err := a.RenderAnswer(agents.HookPermission, nil, agents.AnswerDecision{Key: agents.ChoiceOptionAllow})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"decision":"approved"}`, string(stdout))
+	assert.JSONEq(t, `{"decision":"accept"}`, string(stdout))
 }
 
 func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {

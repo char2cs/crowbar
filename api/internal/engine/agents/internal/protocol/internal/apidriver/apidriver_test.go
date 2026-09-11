@@ -104,8 +104,8 @@ func TestStart_HandshakeThenDeliversCanonicalEvents(t *testing.T) {
 func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 	sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
 		ask, _ := json.Marshal(map[string]any{
-			"id": 7, "method": "item/permissions/requestApproval",
-			"params": map[string]string{"tool": "shell"},
+			"id": 7, "method": "item/commandExecution/requestApproval",
+			"params": map[string]string{"command": "curl https://example.com"},
 		})
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
 		_, msg, err := conn.ReadMessage()
@@ -116,7 +116,7 @@ func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(msg, &reply))
 		require.Equal(t, 7, reply.ID)
-		require.JSONEq(t, `{"decision":"approved"}`, string(reply.Result))
+		require.JSONEq(t, `{"decision":"accept"}`, string(reply.Result))
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -129,7 +129,7 @@ func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 	ev := <-drv.Events()
 	require.Equal(t, "permission", ev.Canonical)
 	require.NotNil(t, ev.AskID)
-	require.NoError(t, drv.Reply(ev.AskID, []byte(`{"decision":"approved"}`)))
+	require.NoError(t, drv.Reply(ev.AskID, []byte(`{"decision":"accept"}`)))
 }
 
 func TestStart_MalformedParamsAreDroppedNotFatal(t *testing.T) {
