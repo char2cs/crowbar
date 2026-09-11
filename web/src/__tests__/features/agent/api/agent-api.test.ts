@@ -210,6 +210,35 @@ describe('agent-api', () => {
     )
   })
 
+  // getPendingPrompt: recovers a prompt submission the backend has not yet
+  // confirmed the provider accepted. 204 (no body) means nothing to recover,
+  // not an error — the same "no body" convention as listChats/listProviders
+  // above, and the same cancellable single-attempt read as getSlashCatalog.
+  describe('getPendingPrompt', () => {
+    it('returns null when the backend has nothing pending (204)', async () => {
+      apiFetch.mockResolvedValueOnce(undefined)
+      const result = await api.getPendingPrompt('w1', 'c1')
+      expect(result).toBeNull()
+    })
+
+    it('returns the recovered text and state when something is pending', async () => {
+      apiFetch.mockResolvedValueOnce({ text: 'please rename this function', state: 'dispatching' })
+      const result = await api.getPendingPrompt('w1', 'c1')
+      expect(result).toEqual({ text: 'please rename this function', state: 'dispatching' })
+    })
+
+    it('GETs the cancellable pending-prompt route with no read retry/cache layer', async () => {
+      const controller = new AbortController()
+      apiFetch.mockResolvedValueOnce(undefined)
+      await api.getPendingPrompt('w1', 'c1', controller.signal)
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/v0/ws/w1/chats/c1/pending-prompt',
+        { signal: controller.signal },
+        { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+      )
+    })
+  })
+
   it('createChat POSTs the provider and returns the new id', async () => {
     apiFetch.mockResolvedValue({ id: 'c9' })
     const id = await api.createChat('w1', 'codex')

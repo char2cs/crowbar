@@ -715,6 +715,28 @@ export async function getChatTelemetry(
   return raw ?? null
 }
 
+export interface PendingPrompt {
+  text: string
+  state: string
+}
+
+/** Recover a chat's most recent prompt submission the backend has not yet
+ *  confirmed the provider accepted — used to rehydrate a queued prompt whose
+ *  local copy was lost (an idle tab, a crash, cleared storage). Null means
+ *  nothing to recover, not an error. */
+export async function getPendingPrompt(
+  wsId: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<PendingPrompt | null> {
+  const raw = await apiFetch<PendingPrompt | null>(
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/pending-prompt`,
+    { signal },
+    { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+  )
+  return raw ?? null
+}
+
 /** Ask Crowbar to restart the same interactive provider TUI with a completed
  *  prompt. `clientRequestId` is stable across retries. */
 export async function submitAgentPrompt(
