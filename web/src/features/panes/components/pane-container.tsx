@@ -24,6 +24,7 @@ import { viewIdOf } from '../lib/pane-views'
 import TabBar from '@/features/tabs/components/tab-bar'
 import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { ChatOnlyPaneHeader } from '@/features/tabs/components/chat-only-pane-header'
+import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
 import {
   clearInternalTabDragData,
@@ -280,6 +281,15 @@ export function PaneContainer({
   // before this field existed (PaneGroup.chatSelected's own doc).
   const chatSelectedInTabsMode = pane.chatSelected !== false
   const showChatTab = Boolean(pane.chatId) && hasEditorTabs && presentation === 'tabs'
+  // Chats/pane redesign bug fix: side by side and stacked both show the chat
+  // and the editor SIMULTANEOUSLY, as two separate boxes — the IDE sector's
+  // own tab strip belongs confined to the editor's own column/row, never
+  // spanning over the chat's too. `showTopLevelHeader` below is the ONLY
+  // state where one header legitimately spans the whole pane: a single
+  // surface (chat OR one editor tab) filling 100% of it.
+  const chatVisibleAlongsideEditor = Boolean(pane.chatId) && !chatFillsPane && presentation !== 'tabs'
+  const showTopLevelHeader = !pane.chatId || chatFillsPane || presentation === 'tabs'
+  const isBottomPane = pane.id === BOTTOM_PANE_ID
 
   // `presentation === 'tabs'` subsumes the old `!pane.editorOpen` check: tabs
   // is reached either because the toggle is off, OR because it is on but the
@@ -802,12 +812,17 @@ export function PaneContainer({
         className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden transition-colors duration-150"
         style={paneContentStyle}
       >
-        {/* Spec §7.2: in every presentation except 'stacked', the row stays
-            put at the top of the pane — see the repositioned copy inside
-            viewsContainerRef below for 'stacked'. `chatFillsPane` replaces
-            TabBar entirely with ChatOnlyPaneHeader here — safe to swap
-            (unlike the chat-view/editor-view divs below), since neither
-            component holds any live state a remount would lose. */}
+        {/* Spans the WHOLE pane only when a single surface fills 100% of it
+            (no chat at all, chatFillsPane, or the collapsed 'tabs'
+            presentation) — never in side by side/stacked, where the redesign
+            draws chat and IDE sector as two SEPARATE boxes side by side, and
+            a header spanning both was the actual bug (tabs visibly sitting
+            over the chat's own column too). See ChatColumnHeader/TabBar's
+            OWN copy further down for the side-by-side/stacked case, each
+            confined to its own column. `chatFillsPane` replaces TabBar
+            entirely with ChatOnlyPaneHeader here — safe to swap (unlike the
+            chat-view/editor-view divs below), since neither component holds
+            any live state a remount would lose. */}
         {/* Wrapped in the chat's own resolved workspace context whether or
             not chatFillsPane — ChatOnlyPaneHeader and TabBar's own
             ChatTabItem (showChatTab) both need the chat's OWN workspace, not
@@ -815,7 +830,7 @@ export function PaneContainer({
             below). For a chatless pane `chatStore` falls back to
             `ambientStore` (see its own derivation above), so this is a
             no-op wrap in that case — identical to not wrapping at all. */}
-        {!isStacked && (
+        {showTopLevelHeader && (
           <WorkspaceStoreContext.Provider value={chatStore}>
             {chatFillsPane ? (
               <ChatOnlyPaneHeader pane={pane} wsId={wsId} />
@@ -823,7 +838,7 @@ export function PaneContainer({
               <TabBar
                 paneId={pane.id}
                 onTabClick={handleTabClick}
-                disablePaneActions={pane.id === BOTTOM_PANE_ID}
+                disablePaneActions={isBottomPane}
                 showChatTab={showChatTab}
               />
             )}
@@ -874,6 +889,7 @@ export function PaneContainer({
             <div
               key="chat-view"
               ref={chatViewRef}
+              data-chat-view=""
               hidden={chatViewHidden}
               className={cn(
                 'relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-chrome-bg',
@@ -901,17 +917,31 @@ export function PaneContainer({
                   ChatBranchHeader (the chat's own identity header, replacing
                   ChatHead's old spot in tab-bar.tsx) sits inside the SAME
                   provider so it resolves the chat's title off its OWN
-                  workspace too, not whichever one is ambient. Absent here
-                  when `chatFillsPane`: ChatOnlyPaneHeader (above, in
-                  TabBar's own spot) already shows it, at the top of the
-                  whole pane rather than just this box. */}
+                  workspace too, not whichever one is ambient.
+
+                  Three ways this box's own header renders, matching
+                  `showTopLevelHeader`/`chatVisibleAlongsideEditor` above:
+                    - chatFillsPane: absent — ChatOnlyPaneHeader (top of the
+                      whole pane) already shows it.
+                    - side by side/stacked: ChatColumnHeader — this box IS a
+                      real column/row next to the editor's, so it gets the
+                      full window-chrome treatment (drag region, traffic
+                      lights) — it may be the pane's actual top-left corner.
+                    - collapsed ('tabs'), chat currently selected: the small,
+                      chrome-less ChatBranchHeader — TabBar's OWN full-pane
+                      row (above, outside this box) already owns the window
+                      chrome in this state. */}
               <WorkspaceStoreContext.Provider value={chatStore}>
-                {!chatFillsPane && (
-                  <ChatBranchHeader
-                    chatId={pane.chatId}
-                    wsId={wsId}
-                    className="h-8 shrink-0 px-2.5"
-                  />
+                {chatVisibleAlongsideEditor ? (
+                  <ChatColumnHeader chatId={pane.chatId} wsId={wsId} isBottomPane={isBottomPane} />
+                ) : (
+                  !chatFillsPane && (
+                    <ChatBranchHeader
+                      chatId={pane.chatId}
+                      wsId={wsId}
+                      className="h-8 shrink-0 px-2.5"
+                    />
+                  )
                 )}
                 <div className="relative min-h-0 flex-1 overflow-hidden">
                   <Suspense fallback={null}>
@@ -988,34 +1018,23 @@ export function PaneContainer({
               only its `hidden` attribute and its sizing change, and nothing
               inside it ever unmounts/remounts. See the block comment at the
               top of this section for the bug this fixes. */}
-          {/* Spec §7.2: "the tab strip moves down between the chat and the
-              editor" in 'stacked' presentation — the repositioned copy of
-              the row that renders at the top of the pane in every other
-              presentation (see the `!isStacked` guard above). `TabBar`
-              fuses the split toggle, the chat head, AND the tab strip into
-              one row (spec §7.1) with no internal seam to split just the
-              strip out of — so this moves the WHOLE row down, split toggle
-              and chat name included, rather than leaving the tab strip
-              pinned at the top on its own. Splitting TabBar into separable
-              head/strip pieces so the chat name can stay fixed in the head
-              while only the strip travels is a distinct change with its own
-              blast radius (`tab-bar.tsx`), out of this task's declared file
-              scope — flagged here rather than silently left as the prior
-              gap was. */}
-          {isStacked && (
-            <TabBar
-              key="tab-bar-stacked"
-              paneId={pane.id}
-              onTabClick={handleTabClick}
-              disablePaneActions={pane.id === BOTTOM_PANE_ID}
-            />
-          )}
+          {/* Chats/pane redesign bug fix: TabBar is the IDE SECTOR's own
+              header, so whenever the chat is ALSO visible at the same time
+              (side by side or stacked — `chatVisibleAlongsideEditor`), it
+              belongs confined to the editor view's own box, not spanning
+              over the chat's column/row too (that was the actual bug: tabs
+              visibly sitting above the chat). One placement covers both
+              side-by-side and stacked now — in stacked, editor-view is
+              already full pane width, so TabBar being its own first child
+              reads identically to the old dedicated "moves down between
+              chat and editor" copy this replaces. */}
           <div
             key="editor-view"
             ref={editorViewRef}
+            data-editor-view=""
             hidden={editorViewHidden}
             className={cn(
-              'relative min-h-0 overflow-hidden bg-pane-background',
+              'relative flex min-h-0 flex-col overflow-hidden bg-pane-background',
               Boolean(pane.chatId) && presentation !== 'tabs' ? 'shrink grow-0' : 'w-full flex-1',
             )}
             style={
@@ -1024,7 +1043,10 @@ export function PaneContainer({
                 : undefined
             }
           >
-            {editorViewInner}
+            {chatVisibleAlongsideEditor && (
+              <TabBar paneId={pane.id} onTabClick={handleTabClick} disablePaneActions={isBottomPane} />
+            )}
+            <div className="relative min-h-0 flex-1 overflow-hidden">{editorViewInner}</div>
           </div>
         </div>
       </div>

@@ -662,6 +662,30 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'vertical')
   })
 
+  // The actual bug this locks in: TabBar is the IDE SECTOR's own header —
+  // in side by side (and stacked), it must be confined to the editor's own
+  // box, never spanning over the chat's column/row too.
+  it('confines TabBar to the editor’s own box in side-by-side — never spanning over the chat column too', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+    await renderPane(store)
+
+    const chat = await screen.findByTestId('chat-chat-1')
+    const tabBar = screen.getByTestId('tab-bar-marker')
+    const editorView = document.querySelector('[data-editor-view]')!
+    const chatView = document.querySelector('[data-chat-view]')!
+
+    expect(editorView.contains(tabBar)).toBe(true)
+    expect(chatView.contains(tabBar)).toBe(false)
+    expect(editorView.contains(chat)).toBe(false)
+
+    // And the chat gets ITS OWN header, confined to its own column, in the
+    // same box as the chat surface — not the editor's.
+    expect(chatView.contains(screen.getByTestId('chat-branch-header'))).toBe(true)
+  })
+
   it('with the split off, there is no divider — tabs, not a cramped split', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
@@ -718,6 +742,26 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       // terminal split) — 'horizontal' here means the sash itself divides
       // top from bottom, i.e. the views are stacked in a column.
       expect(screen.getByRole('separator')).toHaveAttribute('aria-orientation', 'horizontal')
+    })
+  })
+
+  it('confines TabBar to the editor’s own box in stacked too, not spanning the chat above it', async () => {
+    await withPaneBox(500, 1200, async () => {
+      const store = createWorkspaceStore('w1')
+      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+      await renderPane(store)
+
+      const chat = await screen.findByTestId('chat-chat-1')
+      const tabBar = screen.getByTestId('tab-bar-marker')
+      const editorView = document.querySelector('[data-editor-view]')!
+      const chatView = document.querySelector('[data-chat-view]')!
+
+      expect(editorView.contains(tabBar)).toBe(true)
+      expect(chatView.contains(tabBar)).toBe(false)
+      expect(editorView.contains(chat)).toBe(false)
+      expect(chatView.contains(screen.getByTestId('chat-branch-header'))).toBe(true)
     })
   })
 

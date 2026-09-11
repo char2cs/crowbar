@@ -19,8 +19,6 @@ import { useSidebarStore } from '@/features/layout/stores/sidebar-store'
 import UnsavedChangesDialog from '@/features/window/components/unsaved-changes-dialog'
 import { useSidebar } from '@/components/ui/sidebar'
 import { getRelativePath } from '@/utils/path-helpers'
-import { cn } from '@/utils/cn'
-import { IS_MAC } from '@/utils/platform'
 import TabBarItem from './tab-bar-item'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
 import TabContextMenu from './tab-context-menu'
@@ -31,6 +29,7 @@ import SortableEditorTab from './sortable-editor-tab'
 import { SplitToggleButton } from './split-toggle-button'
 import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
 import { ChatTabItem } from './chat-tab-item'
+import { PaneTopRow } from './pane-top-row'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
 import { useTabDrag } from '../hooks/use-tab-drag'
@@ -574,20 +573,13 @@ const TabBar = ({
         onDragEnd={handleDragEnd}
         onDragCancel={resetDrag}
       >
-        <div
-          ref={tabBarRef}
-          data-testid="pane-top-row"
-          data-tab-bar-pane-id={paneId ?? ''}
-          className={cn(
-            'relative flex shrink-0 items-center gap-1.5 overflow-hidden bg-pane-background px-2 py-1',
-            IS_MAC ? 'h-[44px]' : 'h-[34px]',
-            // Traffic-light inset: only the tab bar that actually sits under
-            // the macOS window controls (window top-left) reserves the space —
-            // in a vertical split the lower pane is at the left edge too but
-            // nowhere near the traffic lights.
-            IS_MAC && !isBottomPane && isAtLeftEdge && isAtTopEdge && 'pl-[88px]',
-          )}
-          data-tauri-drag-region
+        <PaneTopRow
+          rowRef={tabBarRef}
+          paneId={paneId ?? ''}
+          isBottomPane={isBottomPane}
+          isAtLeftEdge={isAtLeftEdge}
+          isAtTopEdge={isAtTopEdge}
+          className="bg-pane-background"
         >
           {/* Spec §7.1 (chats/pane redesign revision): the split toggle leads
               the whole row, outside the tab scroller. The chat is no longer
@@ -708,7 +700,7 @@ const TabBar = ({
               onToggleSidebar={toggleSidebar}
             />
           )}
-        </div>
+        </PaneTopRow>
 
         <DragOverlay dropAnimation={null}>
           {draggedBuffer ? (
