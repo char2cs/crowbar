@@ -1,5 +1,6 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useRef } from 'react'
 import type { RefObject } from 'react'
+import { usePaneTopRowEdges } from './use-pane-top-row-edges'
 
 interface UseTabBarScrollOptions {
   sidebarPosition: string
@@ -22,33 +23,13 @@ export function useTabBarScroll({
   sidebarPosition,
   draggedBufferId,
 }: UseTabBarScrollOptions): UseTabBarScrollResult {
-  const tabBarRef = useRef<HTMLDivElement>(null)
+  const {
+    rowRef: tabBarRef,
+    isAtLeftEdge,
+    isAtRightEdge,
+    isAtTopEdge,
+  } = usePaneTopRowEdges([sidebarPosition])
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [isAtLeftEdge, setIsAtLeftEdge] = useState(false)
-  const [isAtRightEdge, setIsAtRightEdge] = useState(false)
-  const [isAtTopEdge, setIsAtTopEdge] = useState(false)
-
-  useLayoutEffect(() => {
-    const el = tabBarRef.current
-    if (!el) return
-    function check() {
-      const rect = el?.getBoundingClientRect()
-      setIsAtLeftEdge((rect?.left ?? 1) < 10)
-      setIsAtRightEdge((rect?.right ?? 0) > window.innerWidth - 10)
-      // Top edge matters for the macOS traffic-light inset: in a vertical
-      // split every pane's tab bar is at the window's LEFT edge, but only the
-      // one at the window's TOP overlaps the window controls.
-      setIsAtTopEdge((rect?.top ?? 1) < 10)
-    }
-    check()
-    const ro = new ResizeObserver(check)
-    ro.observe(el)
-    window.addEventListener('resize', check)
-    return () => {
-      ro.disconnect()
-      window.removeEventListener('resize', check)
-    }
-  }, [sidebarPosition])
 
   const canScrollTabsHorizontally = useCallback(() => {
     const container = scrollRef.current

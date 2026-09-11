@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -12,8 +11,7 @@ import {
   splitEditorGroup,
   openBranchReviewForActiveWorkspace,
 } from '@/features/panes/utils/pane-command-actions'
-import { panesInView, viewIdOf } from '@/features/panes/lib/pane-views'
-import { useAnyChatWorking } from '@/features/panes/hooks/use-any-chat-working'
+import { usePaneViewCloseControl } from '@/features/panes/hooks/use-pane-view-close-control'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
@@ -104,7 +102,6 @@ const TabBar = ({
   const pendingClose = useStore(windowPaneStore, (s) => s.pendingClose)
   const pane = usePaneById(paneId ?? '')
   const {
-    closeView,
     setActivePane,
     activateEditorTabInPane,
     removeEditorTabFromPane,
@@ -230,29 +227,7 @@ const TabBar = ({
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined
-  // The VIEW's whole chat set, not just this pane's own — closing from here ends
-  // every pane in the view (`closeView`), so "is there anything left running to
-  // interrupt" has to ask all of them, the same way Recents' own × does for a SET
-  // entry (`recents-entries.ts`'s `resolveState`: `chatIds.some(working)`).
-  //
-  // Selected as a stable joined-id STRING, not the array `panesInView` returns —
-  // that call mints a fresh array every read, which would re-render this on every
-  // unrelated pane-store write; a string is referentially comparable the way
-  // `mainPaneCount`'s plain number used to be for the split-only version of this
-  // gate.
-  const viewChatIdsKey = useStore(windowPaneStore, (s) => {
-    if (!paneId) return ''
-    return panesInView(s.panes, paneId)
-      .map((p) => p.chatId)
-      .filter(Boolean)
-      .join(',')
-  })
-  const viewChatIds = useMemo(
-    () => (viewChatIdsKey ? viewChatIdsKey.split(',') : []),
-    [viewChatIdsKey],
-  )
-  const isViewWorking = useAnyChatWorking(viewChatIds)
-  const isBottomPane = paneId === BOTTOM_PANE_ID
+  const { isBottomPane, canClose: canCloseView, onCloseView } = usePaneViewCloseControl(pane)
   // A pane holding NOTHING — no chat, no editor tabs — is a fallback screen,
   // not a view: "it should only appear when NO VIEW is opened." An emptied
   // pane in a split now collapses out of the layout entirely
@@ -690,8 +665,8 @@ const TabBar = ({
             <CloseViewButton
               isBottomPane={isBottomPane}
               disablePaneActions={disablePaneActions}
-              canClose={!isViewWorking}
-              onCloseView={() => closeView(viewIdOf(pane))}
+              canClose={canCloseView}
+              onCloseView={onCloseView}
             />
           )}
 
