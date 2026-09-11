@@ -1013,18 +1013,23 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
     setActiveWorkspaceStoreRef(null)
   })
 
-  it('nests the tab-bar row inside the same painted box as the content — not an unstyled sibling of it', async () => {
+  it('nests the tab-bar row inside the same rounded/clipped box as the content — not an unstyled sibling of it', async () => {
     const store = createWorkspaceStore('w1')
     await renderPane(store)
 
     const sharedBox = document.querySelector('[data-pane-content]')!
     const row = screen.getByTestId('tab-bar-marker')
     expect(sharedBox.contains(row)).toBe(true)
-    expect(sharedBox).toHaveClass('bg-pane-background')
+    // Chats/pane redesign: the shared box no longer paints the fill itself
+    // (the chat view needs real --chrome-bg vibrancy behind it, which an
+    // opaque ancestor fill would block) — each region paints its own
+    // instead. TabBar's real row carries `bg-pane-background`
+    // (tab-bar.test.tsx covers that directly; it's mocked away here).
+    expect(sharedBox.className).not.toMatch(/\bbg-/)
 
     // The outer shell (drag/drop mechanics, the pane-hit ring, PANE_DROP_ATTR)
-    // paints no background of its own — before this fix this is exactly where
-    // the page body's translucent --chrome-bg tint bled through behind the row.
+    // paints no background of its own either — same reasoning as above, one
+    // level further out.
     const outer = document.querySelector('[data-pane-container]')!
     expect(outer.className).not.toMatch(/\bbg-/)
   })

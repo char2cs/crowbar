@@ -579,7 +579,7 @@ const TabBar = ({
           data-testid="pane-top-row"
           data-tab-bar-pane-id={paneId ?? ''}
           className={cn(
-            'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
+            'relative flex shrink-0 items-center gap-1.5 overflow-hidden bg-pane-background px-2 py-1',
             IS_MAC ? 'h-[44px]' : 'h-[34px]',
             // Traffic-light inset: only the tab bar that actually sits under
             // the macOS window controls (window top-left) reserves the space —

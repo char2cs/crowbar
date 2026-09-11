@@ -35,7 +35,11 @@ export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
       data-testid="pane-top-row"
       data-tab-bar-pane-id={pane.id}
       className={cn(
-        'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
+        // bg-chrome-bg, not bg-pane-background: there is no IDE sector in
+        // this state at all (chatFillsPane) — this row IS the chat's own
+        // toolbar, so it takes the chat's translucent tone rather than the
+        // opaque one TabBar's row (the IDE sector's own header) carries.
+        'relative flex shrink-0 items-center gap-1.5 overflow-hidden bg-chrome-bg px-2 py-1',
         IS_MAC ? 'h-[44px]' : 'h-[34px]',
         IS_MAC && !isBottomPane && isAtLeftEdge && isAtTopEdge && 'pl-[88px]',
       )}

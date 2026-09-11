@@ -236,6 +236,18 @@ describe('TabBar pane-top-row anatomy', () => {
     expect(children[0]).toBe('split-toggle')
   })
 
+  // Chats/pane redesign: the shared pane box no longer paints a background
+  // of its own (it can't, without blocking the chat view's real vibrancy),
+  // so the IDE sector's own opacity now rides on TabBar's row directly.
+  it('paints its own opaque pane-background — the shared box no longer does', () => {
+    const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
+    act(() => {
+      renderTabBar(store)
+    })
+
+    expect(screen.getByTestId('pane-top-row')).toHaveClass('bg-pane-background')
+  })
+
   it('draws no chat head of its own for a pane with only its chat', () => {
     const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
     act(() => {

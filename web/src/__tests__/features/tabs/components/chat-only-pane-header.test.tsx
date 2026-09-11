@@ -78,6 +78,16 @@ describe('ChatOnlyPaneHeader', () => {
     expect(row).toHaveAttribute('data-tauri-drag-region')
   })
 
+  // There is no IDE sector at all in this state — this row IS the chat's
+  // own toolbar, so it takes the chat's translucent tone, not TabBar's
+  // opaque bg-pane-background.
+  it('takes the chat’s translucent background, not the IDE sector’s opaque one', () => {
+    renderHeader(makePane())
+    const row = screen.getByTestId('pane-top-row')
+    expect(row).toHaveClass('bg-chrome-bg')
+    expect(row).not.toHaveClass('bg-pane-background')
+  })
+
   it("renders the chat's own identity header", () => {
     renderHeader(makePane())
     expect(screen.getByTestId('chat-branch-header')).toHaveTextContent('My Chat')

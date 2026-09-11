@@ -770,12 +770,24 @@ export function PaneContainer({
         // Hook for the drag-time flattening rule in index.css — a rounded,
         // shadowed surface re-rasterised every frame is what makes dragging
         // crawl. Wraps the identity row (TabBar) AND the content below it —
-        // ONE shared box, painted, rounded, bordered and shadowed together —
+        // ONE shared box, ROUNDED, bordered and shadowed together (via
+        // `overflow-hidden` + `paneContentStyle`'s radius/border/margin) —
         // not just the content alone. Before this, TabBar sat outside this
         // div, against the unstyled `data-pane-container` shell, and showed
         // the page body's translucent --chrome-bg tint through it: a
         // two-tone "header band over rounded content" look, not the design's
         // single `.pane` surface.
+        //
+        // Paints NO background of its own any more (chats/pane redesign):
+        // the chat view wants real --chrome-bg vibrancy showing through to
+        // the transparent window behind it, which an opaque fill on this
+        // shared ancestor would block. Each region now paints its own fill
+        // instead — TabBar's own row and the editor view both carry
+        // `bg-pane-background` (see their own files), keeping the IDE
+        // sector exactly as opaque as it was; only the chat view's box
+        // (`bg-chrome-bg`) is translucent. Rounding/clipping still lives
+        // here regardless — `overflow-hidden` clips to the radius no matter
+        // what (or whether) anything paints a fill.
         data-pane-content=""
         // `paneContentStyle`'s border swaps between --border and --secondary
         // (buildPaneContentStyle) whenever the active pane changes — an
@@ -787,7 +799,7 @@ export function PaneContainer({
         // ever changes between active/inactive — width and style stay
         // 'solid'/1px — so transitioning just that is enough to turn the
         // snap into a fade.
-        className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-background transition-colors duration-150"
+        className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden transition-colors duration-150"
         style={paneContentStyle}
       >
         {/* Spec §7.2: in every presentation except 'stacked', the row stays
@@ -1003,7 +1015,7 @@ export function PaneContainer({
             ref={editorViewRef}
             hidden={editorViewHidden}
             className={cn(
-              'relative min-h-0 overflow-hidden',
+              'relative min-h-0 overflow-hidden bg-pane-background',
               Boolean(pane.chatId) && presentation !== 'tabs' ? 'shrink grow-0' : 'w-full flex-1',
             )}
             style={
