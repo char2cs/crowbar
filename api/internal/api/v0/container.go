@@ -343,12 +343,14 @@ func (c *Container) PushAgentChatPromptSettled(
 	chatID string,
 	workspaceID string,
 	requestID string,
+	consumed bool,
 ) {
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:          chatID,
 		WorkspaceID:     workspaceID,
 		Kind:            dto.AgentChatKindPromptSettled,
 		ClientRequestID: requestID,
+		PromptConsumed:  consumed,
 	})
 }
 

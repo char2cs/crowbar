@@ -103,6 +103,9 @@ export interface AgentChatViewProps {
   terminalWaitKind?: string
   /** Client request ids the daemon has reported as delivered-and-over. */
   settledPrompts?: string[]
+  /** Retired with no proof the provider took them — the queue keeps their text.
+   *  See AgentChatsState.abandonedPrompts. */
+  abandonedPrompts?: string[]
   /** The message(s) the agent is mid-way through saying — see useChatMessages. */
   streamingMessages?: { id: string; text: string }[]
   /** The agent's in-flight thinking — live-only, never in the ledger.
@@ -235,6 +238,7 @@ export function AgentChatView({
   terminalWaiting = false,
   terminalWaitKind,
   settledPrompts,
+  abandonedPrompts,
   streamingMessages,
   reasoning,
   toolOutput,
@@ -384,6 +388,7 @@ export function AgentChatView({
     turnRevision,
     terminalWaiting,
     settledPrompts,
+    abandonedPrompts,
     getBaseline,
     refreshMessages,
     onPromptSpawned,

@@ -456,7 +456,12 @@ func (r *rig) wedged() {
 
 func (r *rig) delivering() {
 	r.screens.set(session, idleScreen)
-	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-1"}
+	// Stamped with the clock the way the journal stamps a real delivery: the
+	// timeout is measured against THIS, not only against the screen's own quiet
+	// window — see settleDelivery.
+	r.deliv.pending[chatID] = termwait.Delivery{
+		RequestID: "req-1", RunnerID: "runner-1", CreatedAt: r.clock.Now(),
+	}
 }
 
 func (r *rig) cutOff() {
@@ -1032,6 +1037,55 @@ func TestDetector_Sweep_SettlesADeliveryThatProducedNoTurn(t *testing.T) {
 	r.sweep()
 
 	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
+}
+
+// TestRegression_Sweep_GivesAPromptOnAnIdleChatItsFullGracePeriod is the
+// data-loss bug reported live against codex: "User's turns after some time of
+// idle is lost, and does not record anywhere."
+//
+// An api-transport chat's PTY is a disconnected companion driving an unrelated
+// conversation, so it draws NOTHING for as long as the chat sits idle. The
+// screen's quiet window is therefore already hours old when the user finally
+// types, and gating the delivery timeout on that alone retired the prompt on the
+// very next sweep — the thirty-second grace this timeout exists to give was
+// zero, measured live at under one second on a real codex chat.
+//
+// That retirement is broadcast to the browser, whose pending queue item is the
+// only copy of the user's text in the system (the journal stores a hash of it,
+// and nothing reached the ledger). A prompt still on its way — which is exactly
+// what the FIRST prompt after an idle gap is, with a session to resume and a
+// cold model — therefore had its text deleted out from under it.
+//
+// The delivery's own age is the clock that has to run out, whatever the screen
+// has been doing.
+func TestRegression_Sweep_GivesAPromptOnAnIdleChatItsFullGracePeriod(t *testing.T) {
+	r := newRig(t)
+
+	// The chat has sat idle for an hour: the companion PTY last changed then, so
+	// the screen's quiet window is long past DefaultDeliveryQuiet before the user
+	// has typed a single character.
+	r.screens.set(session, idleScreen)
+	r.sweep()
+	r.clock.advance(time.Hour)
+	r.sweep()
+
+	// Now the prompt is submitted, and the provider has not answered yet.
+	r.deliv.pending[chatID] = termwait.Delivery{
+		RequestID: "req-1", RunnerID: "runner-1", CreatedAt: r.clock.Now(),
+	}
+
+	r.sweep()
+	assert.Empty(t, r.deliv.allSettled(),
+		"a prompt submitted a moment ago must not be retired because the PTY beside it is idle")
+
+	r.clock.advance(termwait.DefaultDeliveryQuiet - time.Second)
+	r.sweep()
+	assert.Empty(t, r.deliv.allSettled(), "the delivery's own grace period has not run out yet")
+
+	r.clock.advance(2 * time.Second)
+	r.sweep()
+	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled(),
+		"once the delivery itself has gone quiet for the full window it is still retired")
 }
 
 func TestDetector_Sweep_LeavesADeliveryAloneUntilTheScreenHasBeenStillLongEnough(t *testing.T) {

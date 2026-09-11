@@ -57,11 +57,14 @@ type Subscriber interface {
 	)
 	// PushAgentChatPromptSettled receives the frame that says one delivered prompt
 	// is over without having produced a turn, so a client holding it as pending can
-	// let it go. It names the client's own request id and nothing else.
+	// let it go. It names the client's own request id, and whether anything proved
+	// the provider actually took the prompt — a client may discard the user's text
+	// only on consumed, never on the bare timeout that leaves it the last copy.
 	PushAgentChatPromptSettled(
 		chatID string,
 		workspaceID string,
 		requestID string,
+		consumed bool,
 	)
 	// PushAgentChatMessageDelta receives one streamed text block as far as it has
 	// been said, so a client can render it growing. Carries the text so far rather

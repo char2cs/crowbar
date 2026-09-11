@@ -666,6 +666,25 @@ type AgentChatEvent struct {
 	// forever on evidence that is not coming.
 	ClientRequestID string `json:"clientRequestId,omitempty"`
 
+	// PromptConsumed rides the prompt_settled kind beside ClientRequestID and says
+	// whether anything actually proved the provider took that prompt.
+	//
+	// True is a provider built-in that demonstrably ran — a `/compact` the CLI
+	// handled itself, announcing nothing. False is the terminal-wait sweep's bare
+	// thirty-second timeout: nothing was proved, and the prompt may never have been
+	// seen at all.
+	//
+	// The distinction is not cosmetic, and a client cannot derive it: the two cases
+	// are identical in the ledger (neither produced a turn) and identical in the
+	// delivery journal, which records a HASH of the prompt and never its text. So a
+	// client's own pending-queue item holds the only surviving copy of what the user
+	// typed, and discarding it on the timeout case destroys their words outright.
+	// Discard on true; keep the text and surface a failure on false.
+	//
+	// Omitempty makes the SAFE reading the default: a frame with the field absent
+	// preserves the text rather than dropping it.
+	PromptConsumed bool `json:"promptConsumed,omitempty"`
+
 	// Message is an assistant message still being produced, on the message_delta
 	// kind and nowhere else.
 	//

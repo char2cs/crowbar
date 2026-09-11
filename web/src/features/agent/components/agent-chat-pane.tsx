@@ -268,6 +268,11 @@ export function AgentChatPane({
   // a provider built-in it never does — see AgentChatsState.settledPrompts.
   const settledPrompts = useStore(store, (s) => s.agentChats.settledPrompts[shownChatId])
 
+  // And the ones it retired with no proof of anything. Kept apart because the
+  // composer must NOT discard these — their text is the last copy of what the
+  // user typed. See AgentChatsState.abandonedPrompts.
+  const abandonedPrompts = useStore(store, (s) => s.agentChats.abandonedPrompts[shownChatId])
+
   // The message(s) the agent is mid-way through saying — an array because a
   // turn can have more than one open item (Codex; Claude is always 0-or-1).
   // One selector, not per-field primitives: this is an Immer store, so the
@@ -1350,6 +1355,7 @@ export function AgentChatPane({
               splitEnabled={splitEnabled}
               onSelectPresentation={chooseSurface}
               settledPrompts={settledPrompts}
+              abandonedPrompts={abandonedPrompts}
               streamingMessages={streamingMessages}
               reasoning={reasoning}
               toolOutput={toolOutput}
