@@ -323,6 +323,70 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(chat).toBeVisible()
   })
 
+  // Chats/pane redesign: with zero editor tabs, there is no IDE sector at
+  // all — TabBar is replaced outright by ChatOnlyPaneHeader, which takes
+  // over its window-chrome (drag region) and right-pinned actions.
+  it('replaces TabBar with ChatOnlyPaneHeader when the pane has a chat and zero editor tabs', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    await renderPane(store)
+
+    await screen.findByTestId('chat-chat-1')
+    expect(screen.queryByTestId('tab-bar-marker')).not.toBeInTheDocument()
+    const row = screen.getByTestId('pane-top-row')
+    expect(row).toHaveAttribute('data-tauri-drag-region')
+    expect(screen.getByTestId('chat-branch-header')).toBeInTheDocument()
+  })
+
+  // A user CAN toggle the split on with zero editor tabs (nothing gates
+  // `editorOpen` on tab count) — this must not resurrect a side-by-side
+  // split against an empty NewTabView. `chatFillsPane` overrides
+  // `presentation` for exactly this case.
+  it('still hides the editor view when editorOpen is on but there are zero editor tabs', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.setState((state) => {
+      const pane = state.panes[ROOT_PANE_ID]
+      if (pane) pane.editorOpen = true
+      return state
+    })
+
+    await renderPane(store)
+
+    const chat = await screen.findByTestId('chat-chat-1')
+    expect(screen.getByTestId('new-tab-marker').closest('[hidden]')).not.toBeNull()
+    expect(chat.closest('[hidden]')).toBeNull()
+    expect(screen.queryByTestId('tab-bar-marker')).not.toBeInTheDocument()
+  })
+
+  // The exact regression class this file's own render-tree comments obsess
+  // over (see pane-container.tsx's "ONE STABLE PARENT" note): swapping
+  // TabBar for ChatOnlyPaneHeader as tabs come and go must never touch the
+  // chat view's own position/identity — only the chrome around it.
+  it('never remounts the chat when its pane crosses zero editor tabs in either direction', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    await renderPane(store)
+    const chatWithZeroTabs = await screen.findByTestId('chat-chat-1')
+
+    await act(async () => {
+      seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+    })
+    const chatWithOneTab = screen.getByTestId('chat-chat-1')
+    expect(chatWithOneTab).toBe(chatWithZeroTabs)
+    // TabBar is back now that there's a tab to show.
+    expect(screen.getByTestId('tab-bar-marker')).toBeInTheDocument()
+
+    await act(async () => {
+      windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-a')
+    })
+    const chatBackToZeroTabs = screen.getByTestId('chat-chat-1')
+    expect(chatBackToZeroTabs).toBe(chatWithZeroTabs)
+    expect(screen.queryByTestId('tab-bar-marker')).not.toBeInTheDocument()
+  })
+
   it('renders the active tab content and no chat surface when the pane has editor tabs and no chat', async () => {
     const store = createWorkspaceStore('w1')
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')

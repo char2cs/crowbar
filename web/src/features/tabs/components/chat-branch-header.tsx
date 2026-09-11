@@ -13,12 +13,18 @@ import {
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { cn } from '@/lib/utils'
 
 interface ChatBranchHeaderProps {
   chatId: string
   /** The chat's own workspace (see pane-container.tsx's `wsId` resolution) —
    *  `null` when it hasn't resolved yet, in which case only the title shows. */
   wsId: string | null
+  /** No fixed height/padding of its own — this renders in two different
+   *  contexts (its own row atop the chat view, or nested inside
+   *  ChatOnlyPaneHeader's row alongside other buttons) that size it
+   *  differently. The caller owns sizing entirely. */
+  className?: string
 }
 
 /**
@@ -34,7 +40,7 @@ interface ChatBranchHeaderProps {
  * (`sidebar-row.tsx`), routed through the same `performRenameChat` action —
  * a chat's name has one write path regardless of which surface edits it.
  */
-export function ChatBranchHeader({ chatId, wsId }: ChatBranchHeaderProps) {
+export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderProps) {
   const title = useWorkspaceStoreContext(
     (s) => s.agentChats.chats.find((c) => c.id === chatId)?.title || UNTITLED_CHAT_LABEL,
   )
@@ -55,7 +61,7 @@ export function ChatBranchHeader({ chatId, wsId }: ChatBranchHeaderProps) {
   return (
     <div
       data-testid="chat-branch-header"
-      className="flex h-8 shrink-0 items-center gap-1.5 px-2.5 text-[13px]"
+      className={cn('flex items-center gap-1.5 text-[13px]', className)}
       onDoubleClick={() => setRenaming(true)}
     >
       <span data-testid="chat-branch-header-glyph" className={ROW_GLYPH_BOX}>

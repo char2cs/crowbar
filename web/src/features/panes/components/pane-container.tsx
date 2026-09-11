@@ -23,6 +23,7 @@ import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
 import { viewIdOf } from '../lib/pane-views'
 import TabBar from '@/features/tabs/components/tab-bar'
 import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
+import { ChatOnlyPaneHeader } from '@/features/tabs/components/chat-only-pane-header'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
 import {
   clearInternalTabDragData,
@@ -261,14 +262,27 @@ export function PaneContainer({
   // is "chat-only vs. chat+editor," not "chat vs. editor" — the chat shows in
   // both states.
   //
+  // Chats/pane redesign: a pane with a chat and NO editor tabs at all has no
+  // IDE sector to speak of — "if the user has no tabs opened, then just the
+  // chat view should be shown," full stop, regardless of the split toggle or
+  // available room. This overrides `presentation` below rather than feeding
+  // into `usePaneViewPresentation` itself: that hook answers a pure geometry
+  // question ("does this pane have room for a split"), and tab COUNT is a
+  // separate, independent reason to collapse to chat-only.
+  const hasEditorTabs = pane.editorTabIds.length > 0
+  const chatFillsPane = Boolean(pane.chatId) && !hasEditorTabs
+
   // `presentation === 'tabs'` subsumes the old `!pane.editorOpen` check: tabs
   // is reached either because the toggle is off, OR because it is on but the
   // pane is too small to honour it — same downgrade shape as
   // useChatPresentation's own `splitEnabled` gate, just driven by size.
-  const editorViewHidden = Boolean(pane.chatId) && presentation === 'tabs'
+  // `chatFillsPane` is a THIRD reason, driven by tab count instead of size or
+  // preference — see its own doc above.
+  const editorViewHidden = Boolean(pane.chatId) && (presentation === 'tabs' || chatFillsPane)
   // Spec §7.2: "the tab strip moves down between the chat and the editor" in
-  // portrait — only when there is a chat to stack the editor view against.
-  const isStacked = Boolean(pane.chatId) && presentation === 'stacked'
+  // portrait — only when there is a chat to stack the editor view against,
+  // and only when there IS an editor view worth stacking against at all.
+  const isStacked = Boolean(pane.chatId) && presentation === 'stacked' && !chatFillsPane
 
   const handlePaneClick = useCallback(() => {
     if (!isActivePane) {
@@ -759,14 +773,25 @@ export function PaneContainer({
       >
         {/* Spec §7.2: in every presentation except 'stacked', the row stays
             put at the top of the pane — see the repositioned copy inside
-            viewsContainerRef below for 'stacked'. */}
-        {!isStacked && (
-          <TabBar
-            paneId={pane.id}
-            onTabClick={handleTabClick}
-            disablePaneActions={pane.id === BOTTOM_PANE_ID}
-          />
-        )}
+            viewsContainerRef below for 'stacked'. `chatFillsPane` replaces
+            TabBar entirely with ChatOnlyPaneHeader here — safe to swap
+            (unlike the chat-view/editor-view divs below), since neither
+            component holds any live state a remount would lose. */}
+        {!isStacked &&
+          (chatFillsPane ? (
+            // Same resolved chatStore as the chat view below — the chat's
+            // own workspace, not whichever one is ambient (see the same
+            // note on the chat-view provider further down).
+            <WorkspaceStoreContext.Provider value={chatStore}>
+              <ChatOnlyPaneHeader pane={pane} wsId={wsId} />
+            </WorkspaceStoreContext.Provider>
+          ) : (
+            <TabBar
+              paneId={pane.id}
+              onTabClick={handleTabClick}
+              disablePaneActions={pane.id === BOTTOM_PANE_ID}
+            />
+          ))}
         {/* Spec §7.2's "two views": the chat view and the editor view, and how
             they're arranged.
 
@@ -814,14 +839,19 @@ export function PaneContainer({
               ref={chatViewRef}
               className={cn(
                 'relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-chrome-bg',
-                // Tabs: this box IS the pane's content area (the editor sits
-                // behind it, `hidden`). Side by side/stacked: it is one half
-                // of a real split, sized by splitSizes and left free for the
-                // sash to resize (shrink, no grow — same convention
-                // agent-chat-pane's own split uses).
-                presentation === 'tabs' ? 'h-full w-full flex-1' : 'shrink grow-0',
+                // Tabs, or no tabs at all: this box IS the pane's content
+                // area (the editor sits behind it, `hidden`). Side by
+                // side/stacked: it is one half of a real split, sized by
+                // splitSizes and left free for the sash to resize (shrink,
+                // no grow — same convention agent-chat-pane's own split
+                // uses).
+                presentation === 'tabs' || chatFillsPane ? 'h-full w-full flex-1' : 'shrink grow-0',
               )}
-              style={presentation === 'tabs' ? undefined : { flexBasis: `${splitSizes[0]}%` }}
+              style={
+                presentation === 'tabs' || chatFillsPane
+                  ? undefined
+                  : { flexBasis: `${splitSizes[0]}%` }
+              }
             >
               {/* The chat surface reads its workspace store off CONTEXT
                   (`useWorkspaceStore`), so handing it the right `wsId` is only
@@ -833,9 +863,18 @@ export function PaneContainer({
                   ChatBranchHeader (the chat's own identity header, replacing
                   ChatHead's old spot in tab-bar.tsx) sits inside the SAME
                   provider so it resolves the chat's title off its OWN
-                  workspace too, not whichever one is ambient. */}
+                  workspace too, not whichever one is ambient. Absent here
+                  when `chatFillsPane`: ChatOnlyPaneHeader (above, in
+                  TabBar's own spot) already shows it, at the top of the
+                  whole pane rather than just this box. */}
               <WorkspaceStoreContext.Provider value={chatStore}>
-                <ChatBranchHeader chatId={pane.chatId} wsId={wsId} />
+                {!chatFillsPane && (
+                  <ChatBranchHeader
+                    chatId={pane.chatId}
+                    wsId={wsId}
+                    className="h-8 shrink-0 px-2.5"
+                  />
+                )}
                 <div className="relative min-h-0 flex-1 overflow-hidden">
                   <Suspense fallback={null}>
                     {/* `paneId` was `bufferId` and a known, disclosed gap until the
@@ -880,7 +919,7 @@ export function PaneContainer({
               uses for its own split, with the identical floor convention:
               the narrower axis (a half's own width side by side, a half's
               own height stacked) gets the smaller floor. */}
-          {pane.chatId && presentation !== 'tabs' && (
+          {pane.chatId && presentation !== 'tabs' && !chatFillsPane && (
             <PaneSash
               key="chat-editor-sash"
               direction={presentation === 'stacked' ? 'vertical' : 'horizontal'}

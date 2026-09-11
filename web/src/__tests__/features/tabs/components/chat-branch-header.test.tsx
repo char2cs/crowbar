@@ -132,6 +132,34 @@ describe('ChatBranchHeader', () => {
     expect(header.className).not.toMatch(/hover:bg-sidebar-element-hover/)
   })
 
+  it('has no fixed height/padding of its own — the caller controls sizing via className', () => {
+    renderHeader()
+    const header = screen.getByTestId('chat-branch-header')
+    expect(header.className).not.toMatch(/\bh-8\b/)
+    expect(header.className).not.toMatch(/\bpx-2\.5\b/)
+  })
+
+  it('merges a caller-supplied className onto its own root element', () => {
+    const store = createWorkspaceStore('w1')
+    store.setState((s) => ({
+      ...s,
+      agentChats: { ...s.agentChats, chats: [makeChat()] },
+    }))
+    render(
+      createElement(
+        WorkspaceStoreContext.Provider,
+        { value: store },
+        createElement(ChatBranchHeader, {
+          chatId: 'chat-1',
+          wsId: null,
+          className: 'h-full min-w-0 flex-1',
+        }),
+      ),
+    )
+    const header = screen.getByTestId('chat-branch-header')
+    expect(header).toHaveClass('h-full', 'min-w-0', 'flex-1')
+  })
+
   it('double-click enters rename mode with the current title pre-filled', () => {
     renderHeader()
     fireEvent.doubleClick(screen.getByTestId('chat-branch-header'))
