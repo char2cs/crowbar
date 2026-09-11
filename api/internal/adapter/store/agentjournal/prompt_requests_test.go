@@ -32,7 +32,7 @@ func journal(t *testing.T) (agentjournal.PromptRequests, string) {
 func TestJournal_BeginRecordsADispatchingIntent(t *testing.T) {
 	j, dir := journal(t)
 
-	record, existing, err := j.Begin(dir, "req-1", "hash", "claude", "runner-out", "runner-new", jnow)
+	record, existing, err := j.Begin(dir, "req-1", "", "hash", "claude", "runner-out", "runner-new", jnow)
 
 	require.NoError(t, err)
 	assert.False(t, existing)
@@ -41,10 +41,19 @@ func TestJournal_BeginRecordsADispatchingIntent(t *testing.T) {
 	assert.Equal(t, "runner-out", record.OutgoingRunnerID)
 }
 
+func TestJournal_BeginStoresTheLiteralPromptText(t *testing.T) {
+	j, dir := journal(t)
+
+	record, _, err := j.Begin(dir, "req-1", "please rename this function", "hash", "claude", "runner-out", "runner-new", jnow)
+
+	require.NoError(t, err)
+	assert.Equal(t, "please rename this function", record.Text)
+}
+
 func TestJournal_BeginIsDurableBeforeItReturns(t *testing.T) {
 	j, dir := journal(t)
 
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	found, ok, err := agentjournal.ReadPromptRequest(dir, "req-1")
@@ -55,10 +64,10 @@ func TestJournal_BeginIsDurableBeforeItReturns(t *testing.T) {
 
 func TestJournal_RejectsAReusedRequestIDWithDifferentText(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash-a", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash-a", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
-	_, _, err = j.Begin(dir, "req-1", "hash-b", "claude", "out", "new2", jnow)
+	_, _, err = j.Begin(dir, "req-1", "", "hash-b", "claude", "out", "new2", jnow)
 
 	assert.ErrorIs(t, err, agentjournal.ErrPromptRequestIDConflict)
 }
@@ -83,7 +92,7 @@ func TestJournal_OnlyAFailedRecordFallsThroughToARetry(t *testing.T) {
 				ProviderID: "claude", CreatedAt: jnow, UpdatedAt: jnow,
 			}))
 
-			_, existing, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+			_, existing, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.existing, existing)
@@ -97,26 +106,26 @@ func TestJournal_RejectsAnUnknownStoredState(t *testing.T) {
 		RequestID: "req-1", TextHash: "hash", State: "teleported", CreatedAt: jnow,
 	}))
 
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 
 	assert.Error(t, err)
 }
 
 func TestJournal_RefusesASecondRequestWhileOneIsSpawned(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash-a", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash-a", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "req-1", "hash-a", "runner", "session", jnow)
 	require.NoError(t, err)
 
-	_, _, err = j.Begin(dir, "req-2", "hash-b", "claude", "out", "new2", jnow)
+	_, _, err = j.Begin(dir, "req-2", "", "hash-b", "claude", "out", "new2", jnow)
 
 	assert.ErrorIs(t, err, agentjournal.ErrPromptBusy)
 }
 
 func TestJournal_ADispatchingRecordIsOrphanedByDefinition(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash-a", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash-a", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	require.Equal(t, agentjournal.PromptStateDispatching, mustRecord(t, dir, "req-1").State)
 
@@ -129,7 +138,7 @@ func TestJournal_ADispatchingRecordIsOrphanedByDefinition(t *testing.T) {
 
 func TestJournal_LookupReturnsTheOriginalResultForARetry(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "req-1", "hash", "runner-1", "session-1", jnow)
 	require.NoError(t, err)
@@ -154,7 +163,7 @@ func TestJournal_LookupOfAnUnknownRequestIsAbsentNotAnError(t *testing.T) {
 
 func TestJournal_LookupRejectsAReusedIDWithDifferentText(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash-a", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash-a", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	_, _, err = j.Lookup(dir, "req-1", "hash-b")
@@ -164,7 +173,7 @@ func TestJournal_LookupRejectsAReusedIDWithDifferentText(t *testing.T) {
 
 func TestJournal_StateTransitionsAreRecorded(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "req-1", "hash", "runner-1", "session-1", jnow)
 	require.NoError(t, err)
@@ -178,19 +187,19 @@ func TestJournal_StateTransitionsAreRecorded(t *testing.T) {
 
 func TestJournal_MarkFailedDispatchAllowsASameIDRetry(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	require.NoError(t, j.MarkFailedDispatch(dir, "req-1", jnow))
 
-	_, existing, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new2", jnow)
+	_, existing, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new2", jnow)
 	require.NoError(t, err)
 	assert.False(t, existing, "a proven pre-spawn failure is safe to retry")
 }
 
 func TestJournal_MarkUncertainLeavesTheOutcomeUnknown(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	require.NoError(t, j.MarkUncertain(dir, "req-1", jnow))
@@ -203,7 +212,7 @@ func TestJournal_MarkUncertainLeavesTheOutcomeUnknown(t *testing.T) {
 
 func TestJournal_MarkAcceptedByRequestIsIdempotent(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	_, err = j.MarkAccepted(dir, "req-1", jnow)
@@ -230,7 +239,7 @@ func TestJournal_ReportsWhetherADeliveryIsPending(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, pending, "an empty journal has nothing in flight")
 
-	_, _, err = j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err = j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "req-1", "hash", "runner", "session", jnow)
 	require.NoError(t, err)
@@ -242,7 +251,7 @@ func TestJournal_ReportsWhetherADeliveryIsPending(t *testing.T) {
 
 func TestJournal_ActiveForRunnerFindsTheRequestARunnerIsDelivering(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "runner-new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "runner-new", jnow)
 	require.NoError(t, err)
 
 	found, ok, err := j.ActiveForRunner(dir, "runner-new", "claude")
@@ -257,7 +266,7 @@ func TestJournal_ActiveForRunnerFindsTheRequestARunnerIsDelivering(t *testing.T)
 
 func TestJournal_RecoversOrphanedDispatchesToUncertain(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	require.NoError(t, j.RecoverOrphanedDispatches(dir, jnow.Add(time.Hour)))
@@ -282,7 +291,7 @@ func TestJournal_RefusesToAnswerFromAJournalItCannotFullyRead(t *testing.T) {
 	j, dir := journal(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "corrupt.json"), []byte("{not json"), 0o600))
 
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 
 	assert.Error(t, err)
 }
@@ -324,7 +333,7 @@ func mustRecord(t *testing.T, dir, id string) agentjournal.PromptRequest {
 
 func TestRegression_SettledDeliveryStopsBlockingTheChat(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "req-1", "hash", "new", "pty", jnow)
 	require.NoError(t, err)
@@ -332,7 +341,7 @@ func TestRegression_SettledDeliveryStopsBlockingTheChat(t *testing.T) {
 	pending, err := j.HasPendingDelivery(dir)
 	require.NoError(t, err)
 	require.True(t, pending, "a spawned delivery blocks, which is the point of it")
-	_, _, err = j.Begin(dir, "req-2", "other", "claude", "out", "new2", jnow)
+	_, _, err = j.Begin(dir, "req-2", "", "other", "claude", "out", "new2", jnow)
 	require.ErrorIs(t, err, agentjournal.ErrPromptBusy)
 
 	requireSettled(t, j, dir, "req-1")
@@ -340,19 +349,19 @@ func TestRegression_SettledDeliveryStopsBlockingTheChat(t *testing.T) {
 	pending, err = j.HasPendingDelivery(dir)
 	require.NoError(t, err)
 	assert.False(t, pending)
-	_, _, err = j.Begin(dir, "req-2", "other", "claude", "out", "new2", jnow)
+	_, _, err = j.Begin(dir, "req-2", "", "other", "claude", "out", "new2", jnow)
 	assert.NoError(t, err, "the next prompt must be accepted once nothing is owed")
 }
 
 func TestJournal_ASettledRequestIsNeverDeliveredTwice(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "req-1", "hash", "new", "pty", jnow)
 	require.NoError(t, err)
 	requireSettled(t, j, dir, "req-1")
 
-	record, existing, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	record, existing, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 
 	require.NoError(t, err)
 	assert.True(t, existing)
@@ -361,7 +370,7 @@ func TestJournal_ASettledRequestIsNeverDeliveredTwice(t *testing.T) {
 
 func TestJournal_AnAcknowledgementUpgradesASettledRecord(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "req-1", "hash", "new", "pty", jnow)
 	require.NoError(t, err)
@@ -397,7 +406,7 @@ func TestJournal_SettleOnlyRetiresASpawnedRecord(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			j, dir := journal(t)
-			_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+			_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 			require.NoError(t, err)
 			tc.set(j, dir)
 

@@ -73,7 +73,7 @@ func (rs *Runners) SubmitPrompt(
 
 	replacementRunnerID := uuid.NewString()
 	prior, existingAttempt, err := rs.prompts.Begin(
-		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, replacementRunnerID, time.Now(),
+		journalDir, clientRequestID, text, textHash, live.ProviderID, live.ID, replacementRunnerID, time.Now(),
 	)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, fmt.Errorf(
@@ -173,7 +173,7 @@ func (rs *Runners) submitPromptOverAPI(
 	}
 
 	prior, existingAttempt, err := rs.prompts.Begin(
-		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, live.ID, time.Now(),
+		journalDir, clientRequestID, text, textHash, live.ProviderID, live.ID, live.ID, time.Now(),
 	)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf(

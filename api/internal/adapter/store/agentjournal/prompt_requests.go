@@ -45,6 +45,7 @@ const (
 // are the on-disk format; a rename orphans every record already written.
 type PromptRequest struct {
 	RequestID         string    `json:"requestId"`
+	Text              string    `json:"text"`
 	TextHash          string    `json:"textHash"`
 	State             string    `json:"state"`
 	ProviderID        string    `json:"providerId"`
@@ -68,13 +69,17 @@ type PromptRequests interface {
 		chatID string,
 	) string
 	// Begin records a dispatching intent for requestID, creating the journal
-	// directory if needed. It reports whether an ATTEMPT for this id already
-	// existed (in which case the caller must classify it rather than dispatch),
-	// and refuses with ErrPromptBusy, ErrPromptOutcomeUnknown or
-	// ErrPromptRequestIDConflict when the journal already owes an answer.
+	// directory if needed. text is the literal prompt, stored so a lost
+	// frontend copy can be recovered later (see LatestRequest) — it is never
+	// used for matching, only textHash is. It reports whether an ATTEMPT for
+	// this id already existed (in which case the caller must classify it
+	// rather than dispatch), and refuses with ErrPromptBusy,
+	// ErrPromptOutcomeUnknown or ErrPromptRequestIDConflict when the journal
+	// already owes an answer.
 	Begin(
 		dir string,
 		requestID string,
+		text string,
 		textHash string,
 		providerID string,
 		outgoingRunnerID string,
@@ -227,6 +232,7 @@ func (s *promptRequests) Lookup(
 func (s *promptRequests) Begin(
 	dir string,
 	requestID string,
+	text string,
 	textHash string,
 	providerID string,
 	outgoingRunnerID string,
@@ -258,6 +264,7 @@ func (s *promptRequests) Begin(
 	}
 	record := PromptRequest{
 		RequestID:        requestID,
+		Text:             text,
 		TextHash:         textHash,
 		State:            PromptStateDispatching,
 		ProviderID:       providerID,

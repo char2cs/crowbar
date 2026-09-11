@@ -62,7 +62,7 @@ func settleFixture(t *testing.T) (*Runners, *[]settledCall) {
 	dir := rs.prompts.Dir(chatsDir, "chat-1")
 	now := time.Now()
 	_, existing, err := rs.prompts.Begin(
-		dir, "req-1", "hash-1", "codex", "runner-1", "runner-1", now,
+		dir, "req-1", "", "hash-1", "codex", "runner-1", "runner-1", now,
 	)
 	require.NoError(t, err)
 	require.False(t, existing)
