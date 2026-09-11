@@ -14,6 +14,7 @@ import type { PlateEditor } from 'platejs/react'
 import { createPlatePlugin, Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { CodeBlockPlugin } from '@platejs/code-block/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
+import { chatComposerStructurePlugin } from '@/features/agent/composer/plate/chat-composer-structure'
 import {
   chatMarkdownToValue,
   chatValueToMarkdown,
@@ -398,8 +399,14 @@ export function ChatMarkdownEditor({
 
   const editor = usePlateEditor({
     plugins: pastePlugin
-      ? [...chatComposerPlugins, keyPlugin, dropGuardPlugin, pastePlugin]
-      : [...chatComposerPlugins, keyPlugin, dropGuardPlugin],
+      ? [
+          ...chatComposerPlugins,
+          chatComposerStructurePlugin,
+          keyPlugin,
+          dropGuardPlugin,
+          pastePlugin,
+        ]
+      : [...chatComposerPlugins, chatComposerStructurePlugin, keyPlugin, dropGuardPlugin],
     value: initial,
     autoSelect: 'end',
   })
