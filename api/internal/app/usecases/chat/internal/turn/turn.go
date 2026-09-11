@@ -11,6 +11,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -149,6 +150,12 @@ func (t *Turns) openTurnFromPrompt(
 	} else {
 		userText = worktreepath.RestoreDurableAttachmentRefs(ev.Message, chatsDir, chat.ID)
 	}
+	// And the other thing dispatch may have added in front of it: the escape
+	// that stops Crowbar's own `![alt](…)` from reading as this CLI's shell-mode
+	// sigil (promptsigil.Guard, spawn.go). The person did not type it, so it has
+	// no business in the turn this stores forever.
+	sigils, escape := agent.PromptLeadingSigils()
+	userText = promptsigil.Strip(sigils, escape, chat.ID, userText)
 	if err := t.conversations.RenameChat(ctx, chat.ID, deriveTitle(userText), "derived"); err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 	}

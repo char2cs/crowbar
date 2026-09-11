@@ -72,6 +72,26 @@ func TestResolve_FallsBackToTheEmbeddedDefault(t *testing.T) {
 	assert.Equal(t, "claude", d.Spawn.Cmd)
 }
 
+// REGRESSION. Both shipped CLIs open a shell mode on a message whose FIRST
+// character is `!` — and Crowbar's own image-attachment encoding, `![alt](…)`,
+// puts one there whenever something is attached before anything is typed.
+// Measured on codex-cli 0.149.1: the message was RUN instead of sent. The
+// dispatch-time guard is driven entirely off this declaration, so a descriptor
+// that stops declaring it silently re-opens the hole.
+func TestRegression_ShippedDescriptorsDeclareTheirShellModeSigil(t *testing.T) {
+	for _, id := range []string{"claude", "codex"} {
+		t.Run(id, func(t *testing.T) {
+			d, err := descriptor.Resolve(context.Background(), t.TempDir(), id)
+
+			require.NoError(t, err)
+			require.NotNil(t, d.Presentation.PromptSubmit)
+			require.NotNil(t, d.Presentation.PromptSubmit.LeadingSigils)
+			assert.Equal(t, []string{"!"}, d.Presentation.PromptSubmit.LeadingSigils.Chars)
+			assert.NotEmpty(t, d.Presentation.PromptSubmit.LeadingSigils.Escape)
+		})
+	}
+}
+
 func TestResolve_UnknownIDIsNotFound(t *testing.T) {
 	_, err := descriptor.Resolve(context.Background(), "", "no-such-provider")
 
