@@ -106,12 +106,47 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
       labelPosition: _labelPosition,
       maxWidth: _maxWidth,
       children,
+      onMouseDown,
+      onClick,
       ...props
     },
     ref,
   ) => (
     <button
       ref={ref}
+      // A click activates the tab; it should not ALSO leave it visibly
+      // focused. `:focus-visible` is meant to tell a mouse click and a
+      // keyboard Tab-press apart on its own, but WebKit shows the ring for
+      // both (Chromium doesn't) — caught live: every pane click left its
+      // tab wearing the ring for as long as focus sat there, flashing on
+      // every switch. `preventDefault()` on mousedown SHOULD be enough on
+      // its own (it stops a click from moving focus at all; keyboard
+      // navigation never goes through mousedown, so it loses nothing) — but
+      // this WebKit build kept showing the ring even with it in place, on a
+      // REAL trackpad click specifically (every synthetic click this was
+      // tested against — WebDriver-dispatched, `element.click()` — never
+      // reproduced it, confirmed with a 90-frame :focus-visible/:focus
+      // logger across a fresh reload). `onClick`'s own blur below is the
+      // belt-and-suspenders fix: it does not depend on WHICH heuristic this
+      // engine actually used to decide the ring was earned, it just refuses
+      // to let one survive a mouse click, full stop. Runs after a caller's
+      // own handler and only if that handler left the event alone, so
+      // dnd-kit's own drag-activation mousedown (the editor tab strip's
+      // reordering) is untouched.
+      onMouseDown={(e) => {
+        onMouseDown?.(e)
+        if (!e.defaultPrevented) e.preventDefault()
+      }}
+      // `e.detail` is the spec's own way to tell a mouse click from a
+      // keyboard-activated one (Enter/Space on a focused button): a real
+      // click reports the number of times the button was pressed at that
+      // point (>= 1), a keyboard activation reports 0. Blurring only the
+      // mouse case is what keeps this from also undoing REAL keyboard
+      // focus — the one case `:focus-visible` exists to show a ring for.
+      onClick={(e) => {
+        onClick?.(e)
+        if (e.detail !== 0) e.currentTarget.blur()
+      }}
       className={cn(
         'relative inline-flex shrink-0 cursor-pointer items-center whitespace-nowrap border font-medium text-sm outline-none transition-colors',
         'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
