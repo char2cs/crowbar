@@ -49,7 +49,7 @@ func TestV3Descriptors_ResolveAgainstRecordedTraffic(t *testing.T) {
 				if direction == "out" {
 					continue // an outbound call has no inbound payload to replay
 				}
-				docs := loadFixtures(t, d.ID, wire)
+				docs := loadFixtures(t, d.ID, wire.Names()...)
 				if len(docs) == 0 {
 					// An ask: event only appears when the CLI actually asks. Recording
 					// one needs a permission prompt mid-turn; until that capture exists
@@ -153,7 +153,16 @@ type fixtureDoc struct {
 // One wire method routinely serves several canonical events (codex's item/started
 // and item/completed are both ThreadItem sum types), so a single fixture per
 // method can only ever verify one of them.
-func loadFixtures(t *testing.T, provider, wire string) []fixtureDoc {
+func loadFixtures(t *testing.T, provider string, wires ...string) []fixtureDoc {
+	t.Helper()
+	var out []fixtureDoc
+	for _, wire := range wires {
+		out = append(out, loadFixturesFor(t, provider, wire)...)
+	}
+	return out
+}
+
+func loadFixturesFor(t *testing.T, provider, wire string) []fixtureDoc {
 	t.Helper()
 	base := strings.ReplaceAll(wire, "/", "_")
 	matches, err := filepath.Glob(filepath.Join(fixtureRoot, provider, base+"*.json"))
