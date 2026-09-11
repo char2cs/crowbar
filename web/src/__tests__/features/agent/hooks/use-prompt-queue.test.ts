@@ -7,9 +7,11 @@ import {
 } from '@/features/agent/hooks/use-prompt-queue'
 
 const submitAgentPrompt = vi.fn()
+const getPendingPrompt = vi.fn()
 
 vi.mock('@/features/agent/api/agent-api', () => ({
   submitAgentPrompt: (...args: unknown[]) => submitAgentPrompt(...args),
+  getPendingPrompt: (...args: unknown[]) => getPendingPrompt(...args),
 }))
 
 // REGRESSION, reported live: "photos attachments are not loaded instantly...
@@ -100,6 +102,8 @@ describe('usePromptQueue during a compaction', () => {
   beforeEach(() => {
     submitAgentPrompt.mockReset()
     submitAgentPrompt.mockResolvedValue({ runnerId: 'r1' })
+    getPendingPrompt.mockReset()
+    getPendingPrompt.mockResolvedValue(null)
     localStorage.clear()
   })
 
@@ -200,6 +204,8 @@ describe('usePromptQueue when the daemon retires a delivery', () => {
   beforeEach(() => {
     submitAgentPrompt.mockReset()
     submitAgentPrompt.mockResolvedValue({ runnerId: 'r1' })
+    getPendingPrompt.mockReset()
+    getPendingPrompt.mockResolvedValue(null)
     localStorage.clear()
   })
 
@@ -256,5 +262,73 @@ describe('usePromptQueue when the daemon retires a delivery', () => {
     })
 
     expect(result.current.queue).toHaveLength(0)
+  })
+})
+
+// REGRESSION, reported live against codex: "User's turns after some time of idle
+// is lost, and does not record anywhere." A crashed tab, a cleared localStorage or
+// an idle reload can wipe this queue's own record of a prompt that the backend
+// still has outstanding. On becoming visible the queue asks the backend directly
+// and recovers anything it has no record of, as an ordinary outcome_uncertain row
+// with the same retry/edit affordances any other unconfirmed prompt gets.
+describe('usePromptQueue recovering a lost prompt from the backend', () => {
+  beforeEach(() => {
+    submitAgentPrompt.mockReset()
+    submitAgentPrompt.mockResolvedValue({ runnerId: 'r1' })
+    getPendingPrompt.mockReset()
+    getPendingPrompt.mockResolvedValue(null)
+    localStorage.clear()
+  })
+
+  it('recovers a lost queued prompt from the backend when the chat becomes visible', async () => {
+    getPendingPrompt.mockResolvedValueOnce({
+      text: 'please rename this function',
+      state: 'dispatching',
+    })
+
+    const { result } = mount(options({ visible: true }))
+    await act(async () => {})
+
+    expect(result.current.queue).toContainEqual(
+      expect.objectContaining({
+        text: 'please rename this function',
+        state: 'outcome_uncertain',
+      }),
+    )
+  })
+
+  it('does not recover anything when the backend has nothing pending', async () => {
+    getPendingPrompt.mockResolvedValueOnce(null)
+
+    const { result } = mount(options({ visible: true }))
+    await act(async () => {})
+
+    expect(getPendingPrompt).toHaveBeenCalled()
+    expect(result.current.queue).toEqual([])
+  })
+
+  // The dedup check must hold for a chat that already has its own record of the
+  // same prompt — not just on the very first read. A second mount (a fresh tab,
+  // or the same tab after a reload) re-reads the backend and must not duplicate
+  // a row this tab's own persisted queue already carries.
+  it('does not duplicate a prompt this tab already has a queued record of', async () => {
+    const seeded = mount(options({ visible: true }))
+    await act(async () => {
+      seeded.result.current.enqueue('already tracked prompt')
+    })
+    await act(async () => {})
+    seeded.unmount()
+
+    getPendingPrompt.mockResolvedValueOnce({
+      text: 'already tracked prompt',
+      state: 'dispatching',
+    })
+
+    const { result } = mount(options({ visible: true }))
+    await act(async () => {})
+
+    expect(
+      result.current.queue.filter((item) => item.text === 'already tracked prompt'),
+    ).toHaveLength(1)
   })
 })

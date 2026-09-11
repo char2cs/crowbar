@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  getPendingPrompt,
   submitAgentPrompt,
   type AgentChatMessage,
   type AgentPromptResult,
@@ -344,6 +345,31 @@ export function usePromptQueue(options: PromptQueueOptions) {
       return changed ? next : items
     })
   }, [abandonedPrompts, updateQueue])
+
+  // Recovers a prompt this tab's local queue lost entirely (idle reload,
+  // crash, cleared storage) from the backend's own pending-prompt record.
+  // Runs once per chat becoming visible; only ever appends — never touches
+  // an existing item, never the busy barrier above.
+  useEffect(() => {
+    if (!visible) return
+    const controller = new AbortController()
+    void (async () => {
+      const pending = await getPendingPrompt(wsId, chatId, controller.signal).catch(() => null)
+      if (!pending || controller.signal.aborted) return
+      updateQueue((current) => {
+        if (current.some((item) => item.text.trim() === pending.text.trim())) return current
+        const recovered: PromptQueueItem = {
+          clientRequestId: requestId(),
+          text: pending.text,
+          state: 'outcome_uncertain',
+          createdAt: new Date().toISOString(),
+          baselineSequence: getBaseline(),
+        }
+        return [...current, recovered]
+      })
+    })()
+    return () => controller.abort()
+  }, [visible, wsId, chatId, getBaseline, updateQueue])
 
   /** Evidence still outstanding, for the ledger's recovery walk. */
   const pendingEvidence = useCallback(() => queueRef.current.some(awaitingEvidence), [])
