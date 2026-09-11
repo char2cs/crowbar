@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Upload, Smile, Star, Trash2, Pencil } from 'lucide-react'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -10,14 +11,28 @@ import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
 import { isTauri } from '@/lib/crowbar-bridge'
 
+/**
+ * A pick made in `onStage` mode (create-space-panel.tsx) — nothing hits the
+ * network yet, since there is no entity id to hang `base` off until the
+ * space itself exists. `previewUrl` is always a URL the popover's own
+ * `<img>` can load immediately (a `blob:` object URL for a browser File, an
+ * `asset://` one via `convertFileSrc` for a Tauri-picked path); the raw
+ * `file`/`path` is what the caller actually persists once a real id exists.
+ */
+export type StagedIcon =
+  | { kind: 'emoji'; emoji: string }
+  | { kind: 'path'; path: string; previewUrl: string }
+  | { kind: 'file'; file: File; previewUrl: string }
+  | { kind: 'reset' }
+
 interface IconPopoverProps {
   /**
    * The entity's REST base — `/v0/projects/<id>` or
    * `/v0/projects/<id>/repos/<id>`. Every mutation below hangs off it, which is
    * the whole reason one component can serve both: the daemon exposes the same
-   * four routes under each.
+   * four routes under each. Unused when `onStage` is provided.
    */
-  base: string
+  base?: string
   /** Names the trigger and the preview image, for screen readers. */
   name: string
   /** The emoji currently set, if any. Wins over `iconUrl`. */
@@ -43,6 +58,14 @@ interface IconPopoverProps {
    * `origin` remote, and a project has none of its own.
    */
   github?: boolean
+  /**
+   * Stage a pick locally instead of mutating `base` over the network — the
+   * caller owns `emoji`/`iconUrl` as controlled props and feeds the staged
+   * choice straight back in, the same round trip a real mutation's refetch
+   * would otherwise do. `base`/`github` are ignored in this mode: GitHub's
+   * avatar fetch needs a real repo origin, which nothing has before it exists.
+   */
+  onStage?: (change: StagedIcon) => void
 }
 
 /**
@@ -67,6 +90,7 @@ export function IconPopover({
   fallbackLarge,
   trigger: triggerOverride,
   github = false,
+  onStage,
 }: IconPopoverProps) {
   const [emojiInput, setEmojiInput] = useState('')
   const [showEmojiInput, setShowEmojiInput] = useState(false)
@@ -74,11 +98,17 @@ export function IconPopover({
   // The icon proxy URL is stable, so the browser caches the image and will not
   // refetch after an upload/github/reset changes the bytes in place. Bump this
   // on every successful mutation and append it as a cache-busting query param so
-  // both the popover preview and the row mark refresh.
+  // both the popover preview and the row mark refresh. Meaningless in `onStage`
+  // mode — a staged preview URL (blob:/asset://) is already fresh per pick, and
+  // appending a query param to one would break it outright.
   const [version, setVersion] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const src = iconUrl ? `${iconUrl}${iconUrl.includes('?') ? '&' : '?'}v=${version}` : undefined
+  const src = iconUrl
+    ? onStage
+      ? iconUrl
+      : `${iconUrl}${iconUrl.includes('?') ? '&' : '?'}v=${version}`
+    : undefined
 
   /** Run a mutation, surface any failure, and refresh the cached image. */
   async function mutate(run: () => Promise<unknown>, failure: string) {
@@ -107,6 +137,10 @@ export function IconPopover({
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
     })
     if (typeof selected !== 'string') return
+    if (onStage) {
+      onStage({ kind: 'path', path: selected, previewUrl: convertFileSrc(selected) })
+      return
+    }
     await mutate(
       () =>
         apiFetch(`${base}/icon`, {
@@ -121,6 +155,11 @@ export function IconPopover({
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    if (onStage) {
+      onStage({ kind: 'file', file, previewUrl: URL.createObjectURL(file) })
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
     const form = new FormData()
     form.append('icon', file)
     await mutate(
@@ -133,15 +172,19 @@ export function IconPopover({
   async function handleEmojiSubmit() {
     const value = emojiInput.trim()
     if (!value) return
-    await mutate(
-      () =>
-        apiFetch(`${base}/icon/emoji`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ emoji: value }),
-        }),
-      'Failed to set emoji',
-    )
+    if (onStage) {
+      onStage({ kind: 'emoji', emoji: value })
+    } else {
+      await mutate(
+        () =>
+          apiFetch(`${base}/icon/emoji`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emoji: value }),
+          }),
+        'Failed to set emoji',
+      )
+    }
     setEmojiInput('')
     setShowEmojiInput(false)
   }
@@ -161,8 +204,13 @@ export function IconPopover({
     }
   }
 
-  const handleReset = () =>
-    mutate(() => apiFetch(`${base}/icon`, { method: 'DELETE' }), 'Failed to reset icon')
+  const handleReset = () => {
+    if (onStage) {
+      onStage({ kind: 'reset' })
+      return
+    }
+    return mutate(() => apiFetch(`${base}/icon`, { method: 'DELETE' }), 'Failed to reset icon')
+  }
 
   // The 20px trigger mark, matching the row's own glyph sizing.
   const trigger = triggerOverride ? (
@@ -215,12 +263,19 @@ export function IconPopover({
                 <AvatarFallback className="rounded-xl bg-transparent text-2xl">
                   {emoji}
                 </AvatarFallback>
-              ) : src ? (
-                <AvatarImage src={src} alt={name} />
               ) : (
-                <AvatarFallback className="rounded-xl bg-transparent">
-                  {fallbackLarge}
-                </AvatarFallback>
+                // Always both, Base UI's own intended pairing — not an
+                // either/or ternary: Image tracks its own load/error status
+                // on the Root's context, and Fallback reads that to decide
+                // whether IT shows, so a `src` that fails to load (a staged
+                // preview URL the webview can't fetch, a stale proxy path)
+                // still lands on `fallbackLarge` instead of an empty square.
+                <>
+                  {src && <AvatarImage src={src} alt={name} />}
+                  <AvatarFallback className="rounded-xl bg-transparent">
+                    {fallbackLarge}
+                  </AvatarFallback>
+                </>
               )}
             </Avatar>
           </div>

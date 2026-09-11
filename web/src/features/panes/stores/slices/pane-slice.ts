@@ -380,6 +380,18 @@ export function isPaneEmpty(pane: Pick<PaneGroup, 'chatId' | 'editorTabIds'> | u
 }
 
 /**
+ * Whether the SHOWING tree (`rootLayout`) is nothing but the empty-stage
+ * fallback pane — spec §5.4's "no view is open" screen, the tumbling
+ * wordmark, not a view. The same fact `isEmptyStage`'s root case computes
+ * internally for parking, exposed here for chrome that only makes sense
+ * alongside a real view (the sidebar's file-explorer card) to subscribe to.
+ */
+export function selectIsShowingEmptyStage(state: Pick<PaneSlice, 'rootLayout' | 'panes'>): boolean {
+  const leaves = getAllLeafIds(state.rootLayout)
+  return leaves.length === 1 && isPaneEmpty(state.panes[leaves[0]])
+}
+
+/**
  * An emptied pane leaves the layout, collapsing into its sibling exactly as
  * closing it would.
  *

@@ -1,3 +1,5 @@
+import type { WorkspaceStatus } from '@/lib/store/sidebar'
+
 export type SidebarRowKind = 'chat' | 'branch' | 'folder' | 'workflow'
 
 export interface SidebarRow {
@@ -36,6 +38,28 @@ export interface SidebarRow {
    *  locked or not, is id'd from its owning chat (`rows-from-repo.ts`) rather
    *  than only a locked one. */
   locked?: boolean
+  /**
+   * The daemon's real status for the workspace this row owns — 'new',
+   * 'locked', or the GitHub/GitLab PR states ('pr-open', 'pr-merged',
+   * 'pr-closed', 'pr-conflicts') `use-workspace-provider-stream.ts`'s poll
+   * keeps live. `RowGlyph` (sidebar-row.tsx) reads it to draw the same
+   * icon `WorkspaceBranchIcon` already draws for the workspace switcher —
+   * present only on a `branch` row that owns a real workspace, same
+   * condition as `locked` (both come off the identical
+   * `Workspace.status` read in `rows-from-repo.ts`'s `walk()`).
+   */
+  status?: WorkspaceStatus
+  /**
+   * Whether the workspace this row owns has no on-disk worktree at all —
+   * `lib/workspace/placeholder.ts`'s `isPlaceholderWorkspace`, the same test
+   * `placeholder-toast-watcher.tsx` uses to fire the "Couldn't set up ..."
+   * toast. `RowGlyph` renders the warning glyph ahead of the `status` switch
+   * for this — a placeholder is locked, but it needs the user's attention,
+   * not the "protected, immutable" lock. Present under the same condition as
+   * `status`; absent means either "known not to be one" or "not a real
+   * workspace-owning row" — never treated as true.
+   */
+  isPlaceholder?: boolean
   /**
    * The repo's own identity, present only on the repo's own home row (the
    * repo's default-workspace row, `rows-from-repo.ts`'s one root push — its

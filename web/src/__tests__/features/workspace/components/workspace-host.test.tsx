@@ -271,6 +271,36 @@ describe('WorkspaceHost', () => {
     expect(slot('home-ws')).toBeNull()
   })
 
+  // Regression: a split can hold panes from workspaces this host never
+  // otherwise mounts (never routed to, never clicked into) — without a real
+  // store, PaneContainer/ChatHead fell back to whichever workspace happened
+  // to be AMBIENT, rendering wrong/blank until the OTHER pane's own click
+  // happened to flip which workspace was active. `paneWsIds` force-mounts
+  // every one of them, the same blank-frame guard `activeWsId` already gets.
+  it("force-mounts every paneWsIds entry, even one that's neither active nor previously retained", () => {
+    render(<WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} />)
+
+    expect(slot('a')).not.toBeNull()
+    expect(slot('a')!.style.display).toBe('contents')
+    expect(slot('b')).not.toBeNull()
+    expect(slot('b')!.style.display).toBe('none')
+  })
+
+  it('keeps refreshing a paneWsIds entry — unlike homeWsIds, it never reaches the ordinary keep-alive TTL while still pane-referenced', () => {
+    render(<WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} />)
+    expect(slot('b')).not.toBeNull()
+
+    act(() => {
+      vi.advanceTimersByTime(10 * MIN + 1000)
+    })
+
+    // Still here: `paneWsIds` is stamped fresh on every reconcile (the same
+    // treatment `active` gets), so the timer that fires at its OWN expiry
+    // just re-stamps it and re-arms rather than evicting it.
+    expect(destroySpy).not.toHaveBeenCalledWith('b')
+    expect(slot('b')).not.toBeNull()
+  })
+
   it('retains the DEFAULT (main-worktree) workspace when hidden — it lives in repo.defaultWorkspaceId, not the workspaces array', () => {
     // The default workspace is not a tree row: it exists only as
     // repo.defaultWorkspaceId. Pruning against repo.workspaces alone would

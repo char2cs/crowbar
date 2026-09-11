@@ -1015,6 +1015,23 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
     const row = screen.getByTestId('tab-bar-marker')
     expect(sharedBox.contains(row)).toBe(true)
   })
+
+  // Reported live as "the tabs at the top flash with something for a
+  // moment" on every pane click: buildPaneContentStyle swaps this box's
+  // border between --border and --secondary as the active pane changes
+  // (the ring answering "which of these has focus"), written straight into
+  // `style`, and nothing gave that swap a transition — a same-frame color
+  // snap right around the tab row it encloses. `sharedBox` is the exact box
+  // the two `buildPaneContentStyle` DOM tests above prove carries that
+  // border, so this only needs to prove IT also carries the class that
+  // turns the snap into a fade.
+  it("the shared box's active/inactive border swap is transitioned, not a same-frame snap", async () => {
+    const store = createWorkspaceStore('w1')
+    await renderPane(store)
+
+    const sharedBox = document.querySelector('[data-pane-content]')!
+    expect(sharedBox).toHaveClass('transition-colors')
+  })
 })
 
 /**

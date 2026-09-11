@@ -7,6 +7,7 @@ import {
 } from '@/lib/store/sidebar'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { isPlaceholderWorkspace } from '@/lib/workspace/placeholder'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -255,6 +256,7 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
       hasView: false,
       branchName: repo.defaultBranch,
       locked: repo.defaultWorkspaceStatus === 'locked',
+      status: repo.defaultWorkspaceStatus,
       // Only once the repo's owning project has seeded — see the field's own
       // doc on SidebarRow. Its icon route needs both ids.
       repoIcon: repo.projectId
@@ -520,6 +522,8 @@ export function walkTreeIntoRows(
         added: node.workspace.added,
         deleted: node.workspace.deleted,
         locked,
+        status: node.workspace.status,
+        isPlaceholder: isPlaceholderWorkspace(node.workspace),
       })
       // Children hang off the row's OWN id, which is now the owning chat's
       // (when one was resolved) — a thread the daemon filed under the

@@ -181,11 +181,7 @@ function SpacePanel({
   onCloseRecent,
   onDrop,
   onPaneDrop,
-  // Not read here any more — addendum §4 removed the project overflow's
-  // Delete item, and deletion's only path is drag-to-trash now. Kept in
-  // `SpacePanelProps` (and threaded through by `SpaceScroller` below) since
-  // `SidebarTreeSurface` still supplies it and a future overflow verb may
-  // want the same anchor this component already owns.
+  onTrashProject,
 }: SpacePanelProps) {
   const projectId = project.id
   const repoRows = rowsForProject(projectId)
@@ -386,14 +382,15 @@ function SpacePanel({
             const rect = headerRef.current?.getBoundingClientRect()
             menu.openAt({ x: rect ? rect.right - 8 : 0, y: rect ? rect.bottom : 0 })
           }}
+          onDeleteSpace={() => onTrashProject(project.id)}
         />
       </div>
-      {/* Addendum §4's "the dropdown never carries a Delete item" still holds
-          — deletion is reachable only through drag-to-trash (addendum §2).
-          This is the verb that empty menu was left wired for: import another
-          repo into this project, or start a folder on the project's OWN home
-          workspace (the backend's `/home/chats/folders` mount — folders were
-          once thought repo-internal only; they are not). */}
+      {/* The Add menu stays import/create-only — deletion has its own
+          separate entry point now (SpaceHeader's own overflow). This one
+          imports another repo into this project, or starts a folder on the
+          project's OWN home workspace (the backend's `/home/chats/folders`
+          mount — folders were once thought repo-internal only; they are
+          not). */}
       {menu.isOpen && (
         <ContextMenu
           isOpen

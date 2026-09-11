@@ -90,6 +90,35 @@ describe('rowsFromRepo', () => {
     expect(rows).toHaveLength(1)
   })
 
+  // `RowGlyph` (sidebar-row.tsx) delegates to `WorkspaceBranchIcon` off
+  // exactly these two fields — a row that dropped either would silently fall
+  // back to the plain GitBranch/Lock guess, which is the bug this pins: a
+  // workspace stuck as a placeholder (no on-disk worktree) or carrying a PR
+  // status never showed its warning/PR glyph because the row never carried
+  // the fact at all.
+  it('carries the workspace status and placeholder fact onto the row', () => {
+    const { workspace, chat } = makeOwnedWorkspace(
+      { id: 'ws-1', branch: 'feature/x', status: 'pr-conflicts' },
+      { id: 'branch-chat-1' },
+    )
+    const repo = makeTestRepo({ workspaces: [workspace], chats: [chat] })
+    const row = rowsFromRepo(repo).find((r) => r.workspaceId === 'ws-1')
+    expect(row?.status).toBe('pr-conflicts')
+    // No `localPath` on the fixture — a real placeholder (isPlaceholderWorkspace's
+    // own test), same as a workspace whose worktree is held elsewhere.
+    expect(row?.isPlaceholder).toBe(true)
+  })
+
+  it('is not a placeholder once the workspace has a real on-disk worktree', () => {
+    const { workspace, chat } = makeOwnedWorkspace(
+      { id: 'ws-1', branch: 'feature/x', status: 'new', localPath: '/repo/feature-x' },
+      { id: 'branch-chat-1' },
+    )
+    const repo = makeTestRepo({ workspaces: [workspace], chats: [chat] })
+    const row = rowsFromRepo(repo).find((r) => r.workspaceId === 'ws-1')
+    expect(row?.isPlaceholder).toBe(false)
+  })
+
   it('a chat folder becomes a folder-kind row', () => {
     const repo = makeTestRepo({
       folders: [makeTestFolder({ id: 'f-1', name: 'Bugs' })],

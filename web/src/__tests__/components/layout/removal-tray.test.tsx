@@ -3,8 +3,9 @@
  *
  * What this covers that the planner cannot: that holding a row actually takes
  * it off screen, that Cancel puts the row, its subtree and a repo's contents
- * back with nothing sent, and that the delete fires exactly once the hairline
- * has drained.
+ * back with nothing sent, that the delete fires exactly once the hairline
+ * has drained, and that a repo/project hold opens `RemovalConfirmDialog`
+ * immediately — no tray row, no Remove button, nothing held in between.
  *
  * The eight seconds are fake timers — the drain is a CSS animation and the
  * commit is one `setTimeout`, so there is nothing here that needs real time to
@@ -178,11 +179,11 @@ const secs = () => document.querySelector('[data-removal-secs]')?.textContent
 
 /**
  * A row transformed IN PLACE by a hold (sidebar-row.tsx's
- * `RemovingSidebarRow`) — found through the countdown span it renders, never
- * `[data-removal-entry]`: only a 'repo'/'project' entry still draws a
- * separate `TrayRow` (removal-tray.tsx's own filter), so every other kind's
- * held row lives wherever it always did in the tree. `heldRows()` (plural)
- * exists because more than one row can be held at once.
+ * `RemovingSidebarRow`) — found through the countdown span it renders. Only
+ * a draining kind (workspace/folder/chat) ever draws one: a 'repo'/'project'
+ * hold runs no clock and opens `RemovalConfirmDialog` instead (removal-tray.tsx),
+ * so it never has a countdown span to find here. `heldRows()` (plural) exists
+ * because more than one row can be held at once.
  */
 const heldRows = () =>
   Array.from(document.querySelectorAll<HTMLElement>('[data-removal-secs]')).map(
@@ -358,13 +359,13 @@ describe('the seconds, in figures', () => {
     expect(secs()).toBeUndefined()
   })
 
-  it('shows no clock on a repo, which waits on an answer instead', () => {
+  it('shows no clock on a repo — it opens the confirm dialog immediately instead', () => {
     render(<TestSidebar />)
 
     hold({ kind: 'repo', id: 'r1' })
 
     expect(secs()).toBeUndefined()
-    expect(screen.getByText('Remove')).toBeInTheDocument()
+    expect(screen.getByText(/All workspaces in this repository will be deleted/)).toBeVisible()
   })
 })
 
@@ -428,12 +429,12 @@ describe('cancelling', () => {
 })
 
 describe('a repo, which takes every worktree under it', () => {
-  it('waits on an answer instead of running a clock', async () => {
+  it('opens the confirm dialog instead of running a clock', async () => {
     render(<TestSidebar />)
     hold({ kind: 'repo', id: 'r1' })
 
     expect(rows()).toEqual([])
-    expect(screen.getByText('Waiting on you')).toBeInTheDocument()
+    expect(screen.getByText(/All workspaces in this repository will be deleted/)).toBeVisible()
 
     await act(async () => {
       vi.advanceTimersByTime(60000)
@@ -451,56 +452,15 @@ describe('a repo, which takes every worktree under it', () => {
     expect(deleteRepo).not.toHaveBeenCalled()
   })
 
-  it('asks once more before removing, and does not delete on Remove alone', async () => {
-    // Eight seconds of undo is not a proportionate safety net for every worktree
-    // in a repo, so this row never ran a clock — and pressing Remove opens a
-    // dialog that spells the cascade out rather than sending the delete.
-    render(<TestSidebar />)
-    hold({ kind: 'repo', id: 'r1' })
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Remove'))
-    })
-
-    expect(deleteRepo).not.toHaveBeenCalled()
-    expect(screen.getByText(/All workspaces in this repository will be deleted/)).toBeVisible()
-  })
-
   it('removes it once the confirmation is accepted', async () => {
     render(<TestSidebar />)
     hold({ kind: 'repo', id: 'r1' })
 
     await act(async () => {
-      fireEvent.click(screen.getByText('Remove'))
-    })
-    await act(async () => {
       fireEvent.click(screen.getByText('Delete repository'))
     })
 
     expect(deleteRepo).toHaveBeenCalledExactlyOnceWith('p1', 'r1')
-  })
-
-  it('deletes nothing when the confirmation is dismissed, and keeps the row held', async () => {
-    render(<TestSidebar />)
-    hold({ kind: 'repo', id: 'r1' })
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Remove'))
-    })
-    // Scoped to the dialog: the tray row has a Cancel of its own, and the two
-    // mean different things — this one backs out of the confirmation, that one
-    // keeps the row.
-    const dialog = document.querySelector('[data-slot="alert-dialog-popup"]')!
-    await act(async () => {
-      fireEvent.click(
-        [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!,
-      )
-    })
-
-    expect(deleteRepo).not.toHaveBeenCalled()
-    // Backing out of the dialog is not the same as keeping the row: the tray row
-    // is still there, still offering both answers.
-    expect(screen.getByText('Remove')).toBeVisible()
   })
 })
 

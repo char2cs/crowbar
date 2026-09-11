@@ -1,6 +1,7 @@
 import {
   ArrowElbowDownRight,
   ChatsCircle,
+  DotsThree,
   Folder,
   FolderOpen,
   GitBranch,
@@ -37,10 +38,13 @@ import { performPromoteChat, performRenameRow } from '@/components/sidebar/lib/r
 import {
   confirmPendingCreateName,
   cancelPendingCreate,
+  handleTrashRepo,
 } from '@/components/layout/space-content-actions'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
+import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
+import { toast } from '@/features/window/stores/toast-store'
 
 interface SidebarRowProps {
   row: SidebarRowType
@@ -324,6 +328,42 @@ export function SidebarRow({
           >
             {row.label}
           </span>
+        )}
+
+        {/* The repo-home row's own overflow, first in the cluster (the fold
+            button is last — everything else sits between the two). Spec §9
+            wants a repo trashable like everything else, but `handleTrash`
+            below deliberately refuses this ONE row (it resolves to just its
+            own default-branch workspace, not the whole repo) — so this is
+            the repo's real delete entry point, not the row's. `row.repoIcon`
+            gates it the same way the icon swap above does: absent until the
+            repo's project has seeded. */}
+        {isProjectHome && row.repoIcon && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              data-control="repo-menu"
+              className={ROW_SUB_ACTION_HOVER}
+              aria-label={`More actions for ${row.label}`}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <DotsThree aria-hidden="true" className="size-3.5" weight="bold" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const repoId = row.repoIcon?.repoId
+                  if (!repoId || !handleTrashRepo(repoId)) {
+                    toast.error(`Can't delete ${row.label} yet`)
+                  }
+                }}
+              >
+                Delete Repo
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
 
         {/* Trailing cluster order, explicit product spec: Thread, Branch
@@ -670,15 +710,28 @@ function RowGlyph({
       <Folder aria-hidden="true" className={size} weight="duotone" />
     )
   }
+  // A branch row with a real `Workspace` record behind it (`row.status` —
+  // stamped under the identical condition as `locked`, rows-from-repo.ts)
+  // draws the SAME icon the workspace switcher already does: locked, a PR
+  // state (open/merged/closed/conflicts), deleted — or, ahead of all of
+  // those, the amber warning glyph for a placeholder that could not be
+  // provisioned at all (`isPlaceholder`, the identical test
+  // `placeholder-toast-watcher.tsx` fires its "Couldn't set up ..." toast
+  // from). A row whose Workspace half has not landed yet (`walkTreeIntoRows`'s
+  // "no Workspace record" push — see that push's own comment) carries no
+  // `status` and falls through to the locked/plain-branch guess below,
+  // exactly as every row did before this delegated anywhere.
+  if (row.kind === 'branch' && row.status) {
+    return <WorkspaceBranchIcon status={row.status} isPlaceholder={row.isPlaceholder} size={size} />
+  }
   // A locked/protected branch (the repo/project home, or any other locked
   // branch `rows-from-repo.ts`'s `walk()` mints) draws the Lock mark instead
-  // of the plain GitBranch every other worktree-owning row gets.
+  // of the plain GitBranch every other worktree-owning row gets, for the rare
+  // row above that reached here with no `status` to delegate on.
   // `row.locked` is `rows-from-repo.ts`'s own `Workspace.status === 'locked'`
   // read straight onto the row — every workspace-owning row is now id'd from
   // its owning chat, locked or not, so the id/workspaceId mismatch this used
   // to read off is no longer a signal unique to the locked case.
-  // `workspace-branch-icon.tsx`'s own `status === 'locked'` case renders the
-  // same glyph for the same fact.
   if (row.kind === 'branch' && row.locked) {
     return <Lock aria-hidden="true" className={size} weight="fill" />
   }

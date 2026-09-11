@@ -8,6 +8,15 @@ import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import {
+  useChatWorkspaceId,
+  useChatWorkspaceHint,
+} from '@/features/panes/hooks/use-chat-workspace-id'
+import {
+  WorkspaceStoreContext,
+  useWorkspaceStore,
+} from '@/features/workspace/stores/workspace-context'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { splitEditorGroup } from '@/features/panes/utils/pane-command-actions'
 import { panesInView, viewIdOf } from '@/features/panes/lib/pane-views'
 import { useAnyChatWorking } from '@/features/panes/hooks/use-any-chat-working'
@@ -100,6 +109,23 @@ const TabBar = ({
   )
   const pendingClose = useStore(windowPaneStore, (s) => s.pendingClose)
   const pane = usePaneById(paneId ?? '')
+  // THE CHAT'S OWN WORKSPACE, not the one whose WorkspaceView happens to be
+  // rendering this pane — same fact `pane-container.tsx` already resolves
+  // for the chat's own CONTENT view, needed again here for `ChatHead`
+  // (below), which read the ambient store directly and nothing else: a
+  // split holding chats from two different workspaces left only whichever
+  // one was ambient showing its real title, and the OTHER pane's `ChatHead`
+  // fell through to `UNTITLED_CHAT_LABEL` — caught live, its title
+  // appearing to "switch" to "Untitled chat" the instant the OTHER pane
+  // became active and flipped which workspace was ambient. `useChatWorkspaceHint`
+  // is what makes this resolve on the SAME render the click that flips the
+  // active pane causes, rather than one or more renders later once
+  // WorkspaceHost's reconcile effect has caught up — without it the title
+  // still flashed wrong-then-correct on every such click.
+  const ambientStore = useWorkspaceStore()
+  const chatWsHint = useChatWorkspaceHint(pane?.chatId ?? null)
+  const chatWsId = useChatWorkspaceId(pane?.chatId ?? null, chatWsHint)
+  const chatHeadStore = (chatWsId && getWorkspaceStore(chatWsId)) || ambientStore
   const {
     closeView,
     setActivePane,
@@ -603,11 +629,13 @@ const TabBar = ({
               scroller — it is the head of the row (spec §7.1). Absent
               entirely for a pane holding no chat. */}
           {paneId && pane?.chatId && (
-            <ChatHead
-              chatId={pane.chatId}
-              isActive={!activeBufferId}
-              onSelect={() => setActivePane(paneId)}
-            />
+            <WorkspaceStoreContext.Provider value={chatHeadStore}>
+              <ChatHead
+                chatId={pane.chatId}
+                isActive={!activeBufferId}
+                onSelect={() => setActivePane(paneId)}
+              />
+            </WorkspaceStoreContext.Provider>
           )}
 
           {showReopenToggleLeft && (

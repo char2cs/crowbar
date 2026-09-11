@@ -9,7 +9,10 @@ import {
   WorkspaceStoreContext,
 } from '@/features/workspace/stores/workspace-context'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import { useChatWorkspaceId } from '@/features/panes/hooks/use-chat-workspace-id'
+import {
+  useChatWorkspaceId,
+  useChatWorkspaceHint,
+} from '@/features/panes/hooks/use-chat-workspace-id'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSettingsStore } from '@/features/settings/store'
@@ -142,10 +145,17 @@ export function PaneContainer({
   // and is the gap `openChatIntoPane`'s active-workspace refusal stood in for.
   // `useChatWorkspaceId` resolves the real owner (features/panes/lib/
   // pane-chat-workspace.ts); the ambient id remains the fallback for a chat
-  // nothing can name a workspace for yet.
+  // nothing can name a workspace for yet. `useChatWorkspaceHint` is what
+  // makes that resolution work on the FIRST render a pane holds a chat
+  // nothing has mounted yet — without it, resolution could only come from
+  // the registry, populated by WorkspaceHost's reconcile effect AFTER the
+  // click that made this pane active, not synchronously with it: a flash of
+  // the wrong ambient content on every such click, self-correcting a frame
+  // or two later — caught live.
   const ambientWsId = useWorkspaceStoreContext((s) => s.workspaceId)
   const ambientStore = useWorkspaceStore()
-  const chatWsId = useChatWorkspaceId(pane.chatId)
+  const chatWsHint = useChatWorkspaceHint(pane.chatId)
+  const chatWsId = useChatWorkspaceId(pane.chatId, chatWsHint)
   const wsId = chatWsId ?? ambientWsId
   // The STORE half of the same answer. `getWorkspaceStore` never mints one —
   // a workspace `WorkspaceHost` did not mount has no store to read and would
@@ -733,7 +743,17 @@ export function PaneContainer({
         // two-tone "header band over rounded content" look, not the design's
         // single `.pane` surface.
         data-pane-content=""
-        className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-background"
+        // `paneContentStyle`'s border swaps between --border and --secondary
+        // (buildPaneContentStyle) whenever the active pane changes — an
+        // untransitioned inline-style border is a hard, same-frame color
+        // snap right around the tab row, which read as "the tabs flash with
+        // something" on every pane click (reported live, confirmed by
+        // reading buildPaneContentStyle: no transition was defined anywhere
+        // for it). border-color is the only piece of the inline style that
+        // ever changes between active/inactive — width and style stay
+        // 'solid'/1px — so transitioning just that is enough to turn the
+        // snap into a fade.
+        className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-background transition-colors duration-150"
         style={paneContentStyle}
       >
         {/* Spec §7.2: in every presentation except 'stacked', the row stays

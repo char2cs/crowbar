@@ -46,7 +46,7 @@ export function RemovalConfirmDialog({
       <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
           <AlertDialogTitle>
-            Delete {isProject ? 'project' : 'repository'} “{entry.label}”?
+            Delete {isProject ? 'space' : 'repository'} “{entry.label}”?
           </AlertDialogTitle>
           <AlertDialogDescription>
             {isProject ? (
@@ -76,7 +76,7 @@ export function RemovalConfirmDialog({
             Cancel
           </Button>
           <Button variant="destructive" onClick={() => onConfirm(entry)}>
-            Delete {isProject ? 'project' : 'repository'}
+            Delete {isProject ? 'space' : 'repository'}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

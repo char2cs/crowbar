@@ -47,6 +47,13 @@ describe('SidebarFooter', () => {
     expect(marks[1]).toHaveClass('opacity-60')
   })
 
+  it('a muted mark previews full color on hover, before it becomes current', () => {
+    const projects = [makeProject('p1'), makeProject('p2')]
+    render(<SidebarFooter projects={projects} activeProjectId="p1" onSelectProject={vi.fn()} />)
+    const marks = screen.getAllByTestId('space-mark')
+    expect(marks[1]).toHaveClass('hover:opacity-100')
+  })
+
   it('clicking a mark calls onSelectProject with that project id', async () => {
     const projects = [makeProject('p1'), makeProject('p2')]
     const onSelectProject = vi.fn()
@@ -116,15 +123,27 @@ describe('SidebarFooter', () => {
     expect(openSettingsDialog).toHaveBeenCalledOnce()
   })
 
-  it('pins settings to the content-facing edge: right when the sidebar is left', () => {
+  it('pins settings to the outer window edge: left when the sidebar is left', () => {
     sidebarPosition = 'left'
+    render(<SidebarFooter onAddProject={vi.fn()} />)
+    expect(screen.getByTestId('settings-button')).toHaveClass('left-2')
+  })
+
+  it('pins settings to the outer window edge: right when the sidebar is right', () => {
+    sidebarPosition = 'right'
     render(<SidebarFooter onAddProject={vi.fn()} />)
     expect(screen.getByTestId('settings-button')).toHaveClass('right-2')
   })
 
-  it('pins settings to the content-facing edge: left when the sidebar is right', () => {
+  it('pins + to the content-facing edge, opposite settings: right when the sidebar is left', () => {
+    sidebarPosition = 'left'
+    render(<SidebarFooter onAddProject={vi.fn()} />)
+    expect(screen.getByTestId('add-project-mark')).toHaveClass('right-2')
+  })
+
+  it('pins + to the content-facing edge, opposite settings: left when the sidebar is right', () => {
     sidebarPosition = 'right'
     render(<SidebarFooter onAddProject={vi.fn()} />)
-    expect(screen.getByTestId('settings-button')).toHaveClass('left-2')
+    expect(screen.getByTestId('add-project-mark')).toHaveClass('left-2')
   })
 })

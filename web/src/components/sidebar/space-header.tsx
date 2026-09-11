@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowElbowDownRight, CaretDown, Plus } from '@phosphor-icons/react'
+import { ArrowElbowDownRight, CaretDown, DotsThree, Plus } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import {
   ROW_BASE,
@@ -7,6 +7,12 @@ import {
   ROW_INACTIVE,
   ROW_SUB_ACTION,
 } from '@/components/layout/workspace-row-base'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 import { EditableProjectIcon } from '@/components/layout/project-icon-mark'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
@@ -21,6 +27,10 @@ interface SpaceHeaderProps {
   onCreateThread: () => void
   /** Opens the "Import a repo" / "Create a folder" menu. */
   onOpenAddMenu: () => void
+  /** Trashes the whole space — `SpacePanel`'s own `onTrashProject`, already
+   *  threaded down from `sidebar-tree-surface.tsx` (spec §9: "the space
+   *  header for the project" carries a trash too). */
+  onDeleteSpace: () => void
 }
 
 /**
@@ -42,8 +52,18 @@ export function SpaceHeader({
   onToggleFold,
   onCreateThread,
   onOpenAddMenu,
+  onDeleteSpace,
 }: SpaceHeaderProps) {
   const [active, setActive] = useState(false)
+  // The delete menu's own open state, ORed into the cluster's mount
+  // condition below (`active || menuOpen`) — its content renders in a
+  // portal outside this row's DOM subtree, so moving the pointer onto it to
+  // click an item fires a real `mouseleave` on the row, and without this
+  // `active` alone would unmount the whole menu (trigger included) mid-
+  // click: the item's text stayed findable a beat longer than its React
+  // fiber did, so the click landed on a detached node and silently did
+  // nothing — caught live.
+  const [menuOpen, setMenuOpen] = useState(false)
   // Whether the pointer is directly over the glyph's OWN hit-target (the
   // size-5 box below), not the row generally — see `showChevron`.
   const [glyphHovered, setGlyphHovered] = useState(false)
@@ -163,8 +183,37 @@ export function SpaceHeader({
         </span>
       )}
 
-      {active && (
+      {(active || menuOpen) && (
         <>
+          {/* First in the cluster — the fold toggle is the row's own leading
+              glyph, so nothing else here competes for "last." Spec §9: "the
+              space header for the project" carries a trash too, same as
+              every other row. Controlled `open` (rather than leaving it
+              uncontrolled) is what lets `menuOpen` keep this whole block
+              mounted once opened — see that state's own doc above. */}
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger
+              data-testid="delete-menu"
+              data-control="delete-menu"
+              className={ROW_SUB_ACTION}
+              aria-label={`More actions for ${project.name}`}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <DotsThree aria-hidden="true" className="size-3.5" weight="bold" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDeleteSpace()
+                }}
+              >
+                Delete Space
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           {/* Starts a thread on the project's home workspace — same
               mechanism and icon as a row's own Thread button
               (sidebar-row.tsx), just anchored at the project level instead

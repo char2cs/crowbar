@@ -407,6 +407,25 @@ export function handleTrashProject(projectId: string): boolean {
   return true
 }
 
+/**
+ * Trashes a whole REPO — spec §9's "repos" clause, the one `handleTrash`
+ * itself deliberately can't reach: the repo's own home row resolves to a
+ * `workspace` subject (its default branch), which `handleTrash` refuses
+ * (sidebar-row.tsx's own doc on why that row excludes the X control) rather
+ * than silently deleting just that one branch out from under the repo it
+ * belongs to. `kind: 'repo'` is the real subject. Mirrors
+ * `handleTrashProject` exactly, one kind over — `RemovalConfirmDialog`
+ * already has its own cascading-confirm copy for `repo`, same as `project`.
+ */
+export function handleTrashRepo(repoId: string): boolean {
+  const currentRepos = useSidebarStore.getState().repos
+  const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
+  const drafts = planRemoval([{ kind: 'repo', id: repoId }], currentRepos, projects)
+  if (drafts.length === 0) return false
+  useRemovalTrayStore.getState().hold(drafts)
+  return true
+}
+
 // Keys currently mid-request, so a rapid-fire burst of clicks on one row's "+" mints
 // AT MOST ONE chat instead of one per click. This used to be reachable for real: with
 // no visible feedback between click and the row appearing (the bug `announceTreeChange`

@@ -1,5 +1,6 @@
 import { GitBranch, GitFork, GitMerge, GitPullRequest, Lock, Warning } from '@phosphor-icons/react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { cn } from '@/lib/utils'
 import type { WorkspaceStatus } from '@/lib/store/sidebar'
 
 interface WorkspaceBranchIconProps {
@@ -9,9 +10,20 @@ interface WorkspaceBranchIconProps {
   /** True for a placeholder (locked + no localPath) — renders the warning glyph
    *  ahead of the locked→Lock case (spec §3.3). */
   isPlaceholder?: boolean
+  /** Glyph box size, matching `sidebar-row.tsx`'s own `RowGlyph` sizing
+   *  (`size-4` ordinarily, `size-5` for the project-home row's large glyph).
+   *  Every icon below used to hardcode `size-4`, which was exactly right for
+   *  this component's one prior caller (workspace-switcher.tsx) but wrong the
+   *  moment `RowGlyph` started delegating here too. */
+  size?: string
 }
 
-export function WorkspaceBranchIcon({ status, working, isPlaceholder }: WorkspaceBranchIconProps) {
+export function WorkspaceBranchIcon({
+  status,
+  working,
+  isPlaceholder,
+  size = 'size-4',
+}: WorkspaceBranchIconProps) {
   // `working` is the §5 in-flight flag that replaced the old 'agent-running'
   // status overlay; it shows the spinner regardless of the underlying status.
   if (working) return <WorkspaceAgentSpinner />
@@ -23,7 +35,7 @@ export function WorkspaceBranchIcon({ status, working, isPlaceholder }: Workspac
       <Warning
         role="img"
         aria-label="Branch needs provisioning"
-        className="size-4 shrink-0 text-amber-500"
+        className={cn(size, 'shrink-0 text-amber-500')}
         weight="fill"
       />
     )
@@ -31,28 +43,44 @@ export function WorkspaceBranchIcon({ status, working, isPlaceholder }: Workspac
 
   switch (status) {
     case 'locked':
-      return <Lock aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
+      return (
+        <Lock aria-hidden="true" className={cn(size, 'shrink-0 text-foreground')} weight="fill" />
+      )
     case 'new':
       return (
-        <GitBranch aria-hidden="true" className="size-4 shrink-0 text-foreground" weight="fill" />
+        <GitBranch
+          aria-hidden="true"
+          className={cn(size, 'shrink-0 text-foreground')}
+          weight="fill"
+        />
       )
     case 'pr-conflicts':
-      return <Warning aria-hidden="true" className="size-4 shrink-0 text-amber-500" weight="fill" />
+      return (
+        <Warning aria-hidden="true" className={cn(size, 'shrink-0 text-amber-500')} weight="fill" />
+      )
     case 'deleted':
-      return <GitFork aria-hidden="true" className="size-4 shrink-0 text-red-500" weight="fill" />
+      return (
+        <GitFork aria-hidden="true" className={cn(size, 'shrink-0 text-red-500')} weight="fill" />
+      )
     case 'pr-open':
       return (
         <GitPullRequest
           aria-hidden="true"
-          className="size-4 shrink-0 text-green-500"
+          className={cn(size, 'shrink-0 text-green-500')}
           weight="fill"
         />
       )
     case 'pr-closed':
-      return <GitFork aria-hidden="true" className="size-4 shrink-0 text-red-500" weight="fill" />
+      return (
+        <GitFork aria-hidden="true" className={cn(size, 'shrink-0 text-red-500')} weight="fill" />
+      )
     case 'pr-merged':
       return (
-        <GitMerge aria-hidden="true" className="size-4 shrink-0 text-violet-500" weight="fill" />
+        <GitMerge
+          aria-hidden="true"
+          className={cn(size, 'shrink-0 text-violet-500')}
+          weight="fill"
+        />
       )
     default: {
       const _exhaustive: never = status

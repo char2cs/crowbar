@@ -8,9 +8,9 @@ import { planRetention, RETENTION_CAP } from '../lib/keep-alive-policy'
 import { workspaceSlotStyling } from '../lib/workspace-slot-style'
 import { WorkspaceView } from './workspace-view'
 
-// Stable default so omitting `homeWsIds` never produces a new array identity
-// per render (avoids a spurious homeWsIdsKey recompute).
-const EMPTY_HOME_WS_IDS: string[] = []
+// Stable default so omitting `homeWsIds`/`paneWsIds` never produces a new
+// array identity per render (avoids a spurious *WsIdsKey recompute).
+const EMPTY_WS_IDS: string[] = []
 
 // Membership-key delimiter: workspace ids can never contain NUL, so ids with
 // spaces (or any other printable character) can't split the key wrongly.
@@ -35,9 +35,24 @@ const ID_DELIM = '\u0000'
  */
 export function WorkspaceHost({
   activeWsId,
-  homeWsIds = EMPTY_HOME_WS_IDS,
+  homeWsIds = EMPTY_WS_IDS,
+  paneWsIds = EMPTY_WS_IDS,
 }: {
   activeWsId: string | null
+  /**
+   * Every workspace id some PANE currently holds a chat for (see
+   * `use-chat-workspace-id.ts`'s `usePaneWorkspaceIds`) — not just the active
+   * one. A split can show chats from workspaces this host never mounted
+   * (never routed to, never clicked into): with no real store to read,
+   * `PaneContainer`'s `chatStore` fell back to whichever workspace happened
+   * to be AMBIENT, so an unclicked pane rendered blank/wrong and then
+   * appeared to "switch chat" the instant some OTHER pane's click changed
+   * what the fallback resolved to — caught live, a two-repo split. Force-
+   * mounting every one of these (below, alongside `activeWsId`'s own
+   * blank-frame guard) gives every visible pane a real store from the start,
+   * so the ambient fallback is never reached for one that actually exists.
+   */
+  paneWsIds?: string[]
   /**
    * Home-workspace ids (any project) resolved so far this session — see
    * home-workspace-resolver.ts. Home is a project-level concept, not a repo
@@ -70,6 +85,10 @@ export function WorkspaceHost({
   // known home ids changes, not on every render `homeWsIds` is passed a fresh
   // array literal.
   const homeWsIdsKey = homeWsIds.length ? [...homeWsIds].sort().join(ID_DELIM) : ''
+  // Same trick again for the pane ids — stable across renders that pass a
+  // fresh array literal with the same membership, so it only ever changes
+  // identity when a pane actually starts or stops naming a NEW workspace.
+  const paneWsIdsKey = paneWsIds.length ? [...paneWsIds].sort().join(ID_DELIM) : ''
   const existingIds = useMemo(() => {
     const ids = new Set(existingIdsKey ? existingIdsKey.split(ID_DELIM) : [])
     if (homeWsIdsKey) {
@@ -82,12 +101,14 @@ export function WorkspaceHost({
   // measured off `lastActiveAt`, kept in a ref (never read during render).
   // activeWsId is null on the project-home route (no workspace in view); the
   // host still stays mounted so its retention survives the home transit.
-  const [mountedIds, setMountedIds] = useState<string[]>(activeWsId ? [activeWsId] : [])
+  const initialIds = activeWsId ? [...new Set([activeWsId, ...paneWsIds])] : [...new Set(paneWsIds)]
+  const [mountedIds, setMountedIds] = useState<string[]>(initialIds)
   // Lazy ref init (null-guarded): the Map only needs to be built once, at
   // mount, not as a throwaway useRef() arg re-evaluated on every render.
   const lastActiveRef = useRef<Map<string, number> | null>(null)
   if (lastActiveRef.current === null) {
-    lastActiveRef.current = new Map(activeWsId ? [[activeWsId, Date.now()]] : [])
+    const now = Date.now()
+    lastActiveRef.current = new Map(initialIds.map((id) => [id, now]))
   }
   const timerRef = useRef<number | null>(null)
   // Stores awaiting destruction: removed from the mounted set by a reconcile,
@@ -102,6 +123,8 @@ export function WorkspaceHost({
   keepAliveRef.current = keepAliveMinutes
   const existingIdsRef = useRef(existingIds)
   existingIdsRef.current = existingIds
+  const paneWsIdsRef = useRef(paneWsIds)
+  paneWsIdsRef.current = paneWsIds
 
   // "Latest callback in a ref" so `reconcile` can re-arm a timer that calls
   // itself without a stale closure or a circular useCallback dependency.
@@ -128,6 +151,19 @@ export function WorkspaceHost({
         if (value >= stamp) stamp = value + 1
       }
       map.set(active, stamp)
+    }
+
+    // Refresh every workspace a PANE currently holds a chat for, the same
+    // way `active` is refreshed above — so a pane sitting in a background
+    // split (never clicked, never routed to) still gets a real, retained
+    // store, and keeps it for as long as some pane still names it (this
+    // runs on every reconcile, including the timer's own re-arm below, so
+    // it never actually reaches its keep-alive expiry while still
+    // referenced). Plain `now`, not the strictly-greater-than-everything
+    // nudge `active` needs: these only have to outlast the window, not win
+    // a tie against it.
+    for (const id of paneWsIdsRef.current) {
+      if (id !== active) map.set(id, now)
     }
 
     // Prune workspaces that no longer exist (closed / deleted). Never the
@@ -175,11 +211,11 @@ export function WorkspaceHost({
     }
   }
 
-  // Re-plan whenever the active workspace, the keep-alive window, or the set of
-  // existing workspaces changes.
+  // Re-plan whenever the active workspace, the keep-alive window, the set of
+  // existing workspaces, or the set of pane-referenced workspaces changes.
   useEffect(() => {
     reconcileRef.current()
-  }, [activeWsId, keepAliveMinutes, existingIds])
+  }, [activeWsId, keepAliveMinutes, existingIds, paneWsIdsKey])
 
   // FORCED EVICTION — the close path asking for a workspace to go NOW,
   // outside the retention window entirely (see workspace-eviction-request.ts).
@@ -267,12 +303,17 @@ export function WorkspaceHost({
     [],
   )
 
-  // Always render the active workspace even before the reconcile effect commits
-  // the mounted set for a brand-new active id, so there is never a blank frame.
-  // On the home route activeWsId is null — nothing is force-appended, and every
-  // retained slot renders hidden while home (rendered by the Outlet) is in view.
-  const renderIds =
-    activeWsId && !mountedIds.includes(activeWsId) ? [...mountedIds, activeWsId] : mountedIds
+  // Always render the active workspace AND every pane-referenced one even
+  // before the reconcile effect commits the mounted set for a brand-new id,
+  // so there is never a blank frame — same guard as `activeWsId`'s own,
+  // extended to the whole set a split can name at once. On the home route
+  // activeWsId is null — nothing is force-appended for it, and every
+  // retained slot renders hidden while home (rendered by the Outlet) is in
+  // view; a pane can still be showing there (spec: panes are window-level),
+  // so `paneWsIds` force-appends regardless of the route.
+  const forced = activeWsId ? [activeWsId, ...paneWsIds] : paneWsIds
+  const missing = forced.filter((id) => !mountedIds.includes(id))
+  const renderIds = missing.length ? [...mountedIds, ...new Set(missing)] : mountedIds
 
   return (
     <>

@@ -38,11 +38,13 @@ describe('SpaceHeader', () => {
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
         onOpenAddMenu={vi.fn()}
+        onDeleteSpace={vi.fn()}
       />,
     )
     expect(screen.queryByTestId('chevron')).not.toBeInTheDocument()
     expect(screen.queryByTestId('new-thread')).not.toBeInTheDocument()
     expect(screen.queryByTestId('add-menu')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('delete-menu')).not.toBeInTheDocument()
     expect(screen.getByText('p1')).toBeInTheDocument()
   })
 
@@ -63,12 +65,14 @@ describe('SpaceHeader', () => {
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
         onOpenAddMenu={vi.fn()}
+        onDeleteSpace={vi.fn()}
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
     expect(screen.getByTestId('new-thread')).toBeInTheDocument()
     expect(screen.getByTestId('add-menu')).toBeInTheDocument()
+    expect(screen.getByTestId('delete-menu')).toBeInTheDocument()
   })
 
   // The narrower half of the fix above: a pointer sitting exactly on the
@@ -83,6 +87,7 @@ describe('SpaceHeader', () => {
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
         onOpenAddMenu={vi.fn()}
+        onDeleteSpace={vi.fn()}
       />,
     )
     const row = screen.getByTestId('space-header-row')
@@ -104,6 +109,7 @@ describe('SpaceHeader', () => {
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
         onOpenAddMenu={vi.fn()}
+        onDeleteSpace={vi.fn()}
       />,
     )
     const row = screen.getByTestId('space-header-row')
@@ -124,6 +130,7 @@ describe('SpaceHeader', () => {
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
         onOpenAddMenu={vi.fn()}
+        onDeleteSpace={vi.fn()}
       />,
     )
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
@@ -140,6 +147,7 @@ describe('SpaceHeader', () => {
         onToggleFold={onToggle}
         onCreateThread={vi.fn()}
         onOpenAddMenu={vi.fn()}
+        onDeleteSpace={vi.fn()}
       />,
     )
     expect(screen.getByTestId('chevron')).toHaveClass('rotate-180')
@@ -154,6 +162,7 @@ describe('SpaceHeader', () => {
         onToggleFold={onToggle}
         onCreateThread={vi.fn()}
         onOpenAddMenu={vi.fn()}
+        onDeleteSpace={vi.fn()}
       />,
     )
     fireEvent.click(screen.getByTestId('space-header-row'))
@@ -170,6 +179,7 @@ describe('SpaceHeader', () => {
         onToggleFold={onToggle}
         onCreateThread={onCreateThread}
         onOpenAddMenu={vi.fn()}
+        onDeleteSpace={vi.fn()}
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
@@ -188,11 +198,40 @@ describe('SpaceHeader', () => {
         onToggleFold={onToggle}
         onCreateThread={vi.fn()}
         onOpenAddMenu={onOpenAddMenu}
+        onDeleteSpace={vi.fn()}
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     fireEvent.click(screen.getByTestId('add-menu'))
     expect(onOpenAddMenu).toHaveBeenCalledTimes(1)
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  // Spec §9's "the space header for the project" clause: the FIRST item in
+  // the trailing cluster (the row's own fold toggle is its leading glyph, so
+  // nothing else here competes for "last"), a plain overflow — no anchored
+  // position math, unlike the Add menu — opening straight onto "Delete
+  // Space", which calls the already-threaded `onTrashProject` pipe
+  // (space-scroller.tsx), not `onToggleFold`.
+  it('clicking Delete Space in the overflow calls onDeleteSpace, not onToggleFold', async () => {
+    const user = userEvent.setup()
+    const onToggle = vi.fn()
+    const onDeleteSpace = vi.fn()
+    render(
+      <SpaceHeader
+        project={makeProject('p1')}
+        folded={false}
+        onToggleFold={onToggle}
+        onCreateThread={vi.fn()}
+        onOpenAddMenu={vi.fn()}
+        onDeleteSpace={onDeleteSpace}
+      />,
+    )
+    fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+    await user.click(screen.getByTestId('delete-menu'))
+    await user.click(await screen.findByText('Delete Space'))
+
+    expect(onDeleteSpace).toHaveBeenCalledTimes(1)
     expect(onToggle).not.toHaveBeenCalled()
   })
 
@@ -214,6 +253,7 @@ describe('SpaceHeader', () => {
         onToggleFold={onToggle}
         onCreateThread={onCreateThread}
         onOpenAddMenu={onOpenAddMenu}
+        onDeleteSpace={vi.fn()}
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
@@ -235,6 +275,7 @@ describe('SpaceHeader', () => {
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
         onOpenAddMenu={vi.fn()}
+        onDeleteSpace={vi.fn()}
       />,
     )
     const row = screen.getByTestId('space-header-row')
@@ -262,6 +303,7 @@ describe('SpaceHeader', () => {
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
           onOpenAddMenu={vi.fn()}
+          onDeleteSpace={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -279,6 +321,7 @@ describe('SpaceHeader', () => {
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
           onOpenAddMenu={vi.fn()}
+          onDeleteSpace={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -303,6 +346,7 @@ describe('SpaceHeader', () => {
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
           onOpenAddMenu={vi.fn()}
+          onDeleteSpace={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -321,6 +365,7 @@ describe('SpaceHeader', () => {
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
           onOpenAddMenu={vi.fn()}
+          onDeleteSpace={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -339,6 +384,7 @@ describe('SpaceHeader', () => {
           onToggleFold={onToggle}
           onCreateThread={vi.fn()}
           onOpenAddMenu={vi.fn()}
+          onDeleteSpace={vi.fn()}
         />,
       )
       fireEvent.click(screen.getByText('p1'))
@@ -354,6 +400,7 @@ describe('SpaceHeader', () => {
           onToggleFold={onToggle}
           onCreateThread={vi.fn()}
           onOpenAddMenu={vi.fn()}
+          onDeleteSpace={vi.fn()}
         />,
       )
       fireEvent.doubleClick(screen.getByText('p1'))
@@ -382,6 +429,7 @@ describe('SpaceHeader', () => {
           onToggleFold={onToggle}
           onCreateThread={vi.fn()}
           onOpenAddMenu={vi.fn()}
+          onDeleteSpace={vi.fn()}
         />,
       )
       await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
@@ -398,6 +446,7 @@ describe('SpaceHeader', () => {
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
           onOpenAddMenu={vi.fn()}
+          onDeleteSpace={vi.fn()}
         />,
       )
       await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))

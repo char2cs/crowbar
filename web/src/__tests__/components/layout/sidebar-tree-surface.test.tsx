@@ -16,11 +16,6 @@ vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ state: { location: { pathname: '/' } } }),
   useRouterState: () => '/',
 }))
-// The real modal drives a Tauri native-dialog / postProject flow this file
-// has no business exercising.
-vi.mock('@/components/projects/import-project-modal', () => ({
-  ImportProjectModal: () => null,
-}))
 // SpaceScroller's/RecentsBand's cross-store reads — no pane/chat fixtures are
 // exercised here, so the registry can safely report nothing active.
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
@@ -230,6 +225,54 @@ describe('SidebarTreeSurface', () => {
     expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument()
     expect(document.querySelector('[data-control="trash"]')).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+// The `+` mark's own panel replaces SpaceScroller in place — not a panel
+// inside its scroll-snap track — so the touchpad swipe between real spaces
+// can never land on it by accident.
+describe('SidebarTreeSurface — creatingSpace swaps SpaceScroller for CreateSpacePanel', () => {
+  it('renders SpaceScroller when not creating a space', () => {
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('space-scroll-region')).toBeInTheDocument()
+    expect(screen.queryByTestId('create-space-panel')).not.toBeInTheDocument()
+  })
+
+  it('renders CreateSpacePanel instead of SpaceScroller while creating a space', () => {
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+        creatingSpace
+        onCreateSpace={vi.fn()}
+        onCancelCreateSpace={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('create-space-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('space-scroll-region')).not.toBeInTheDocument()
+  })
+
+  it('Cancel calls onCancelCreateSpace', () => {
+    const onCancelCreateSpace = vi.fn()
+    render(
+      <SidebarTreeSurface
+        projects={[projectA]}
+        activeProjectId="p1"
+        onActiveProjectChange={vi.fn()}
+        creatingSpace
+        onCreateSpace={vi.fn()}
+        onCancelCreateSpace={onCancelCreateSpace}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onCancelCreateSpace).toHaveBeenCalledOnce()
   })
 })
 

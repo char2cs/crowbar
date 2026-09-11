@@ -17,8 +17,8 @@ interface SidebarFooterProps {
    *  out) so wiring this to that scroller later is a rename, not a rewrite. */
   onSelectProject?: (id: string) => void
   /** The tree's only entry point for a SECOND project (spec §3 ruling): a
-   *  trailing `+` mark after the last project's own mark. Omitted entirely,
-   *  the trailing mark just doesn't render — mirrors every other optional
+   *  `+` mark pinned to the content-facing edge, opposite Settings. Omitted
+   *  entirely, the mark just doesn't render — mirrors every other optional
    *  control here. */
   onAddProject?: () => void
 }
@@ -46,10 +46,11 @@ interface SidebarFooterProps {
  *
  * Settings also lives here now, out of `SidebarProjectHeader`'s trailing
  * cluster. Unlike the marks it does not join the centered group — it is
- * absolutely pinned to whichever edge faces the main content (right when
- * the sidebar is docked left, left when docked right), so it reads as
- * "the sidebar's own settings, at the boundary with the content" rather
- * than one more centered mark.
+ * absolutely pinned to the OUTER edge, flush against the window frame
+ * (left when the sidebar is docked left, right when docked right), so it
+ * reads as "the sidebar's own settings, at the edge of the window" rather
+ * than one more centered mark. `+` mirrors it on the opposite (content-
+ * facing) edge for the same reason.
  */
 export function SidebarFooter({
   projects = [],
@@ -77,7 +78,13 @@ export function SidebarFooter({
             size="icon-sm"
             data-testid="space-mark"
             aria-current={isActive || undefined}
-            className={cn('shrink-0 rounded-sm', !isActive && 'opacity-60')}
+            className={cn(
+              'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
+              // Full color while hovered — a preview of "go here" — even
+              // though the space isn't current yet; only truly idle marks
+              // stay dimmed.
+              !isActive && 'opacity-60 hover:opacity-100',
+            )}
             tooltip={project.name}
             tooltipSide="top"
             aria-label={project.name}
@@ -92,10 +99,13 @@ export function SidebarFooter({
           variant="ghost"
           size="icon-sm"
           data-testid="add-project-mark"
-          className="shrink-0 rounded-sm"
-          tooltip="Add project"
+          className={cn(
+            'absolute top-1.5 shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
+            isRight ? 'left-2' : 'right-2',
+          )}
+          tooltip="Add space"
           tooltipSide="top"
-          aria-label="Add project"
+          aria-label="Add space"
         >
           <Plus size={16} />
         </Button>
@@ -107,7 +117,7 @@ export function SidebarFooter({
         data-testid="settings-button"
         className={cn(
           'absolute top-1.5 shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
-          isRight ? 'left-2' : 'right-2',
+          isRight ? 'right-2' : 'left-2',
         )}
         tooltip="Settings"
         tooltipSide="top"

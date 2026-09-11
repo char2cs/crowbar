@@ -61,79 +61,6 @@ vi.mock('@phosphor-icons/react', () => ({
     React.createElement('svg', { 'data-icon': 'caret-down', className, ...rest }),
 }))
 
-// @base-ui/react ships pure ESM (.mjs) and pnpm gives it its own React copy
-// that diverges from react-dom's singleton in the vitest/jsdom process,
-// causing the same "useRef" crash. Mock ui/tabs to plain markup that still
-// forwards every prop a real caller cares about (value/onValueChange/variant/
-// data-testid/className/aria-label), so the underline head's own props are
-// exercised for real rather than by the mock's own tabs-list default.
-interface TabsInjectedProps {
-  _value?: string
-  _onValueChange?: (value: string) => void
-}
-vi.mock('@/components/ui/tabs', () => ({
-  Tabs: ({
-    children,
-    value,
-    onValueChange,
-  }: {
-    children?: React.ReactNode
-    value?: string
-    onValueChange?: (value: string) => void
-  }) => {
-    const injected = React.Children.map(children, (child) =>
-      React.isValidElement<TabsInjectedProps>(child)
-        ? React.cloneElement(child, { _value: value, _onValueChange: onValueChange })
-        : child,
-    )
-    return React.createElement('div', {}, injected)
-  },
-  TabsList: ({
-    children,
-    className,
-    variant,
-    _value,
-    _onValueChange,
-    ...rest
-  }: {
-    children?: React.ReactNode
-    className?: string
-    variant?: string
-  } & TabsInjectedProps &
-    Record<string, unknown>) => {
-    const injected = React.Children.map(children, (child) =>
-      React.isValidElement<TabsInjectedProps>(child)
-        ? React.cloneElement(child, { _value, _onValueChange })
-        : child,
-    )
-    return React.createElement('div', { className, 'data-variant': variant, ...rest }, injected)
-  },
-  TabsTab: ({
-    children,
-    value,
-    className,
-    _value,
-    _onValueChange,
-    ...rest
-  }: {
-    children?: React.ReactNode
-    value?: string
-    className?: string
-  } & TabsInjectedProps &
-    Record<string, unknown>) =>
-    React.createElement(
-      'button',
-      {
-        role: 'tab',
-        'aria-selected': value === _value ? 'true' : 'false',
-        className,
-        onClick: () => _onValueChange?.(value ?? ''),
-        ...rest,
-      },
-      children,
-    ),
-}))
-
 describe('SidebarCarousel', () => {
   beforeEach(() => {
     useSidebarStore.setState(getInitialState())
@@ -185,35 +112,47 @@ describe('SidebarCarousel', () => {
   })
 
   describe('the head', () => {
-    it('uses the underline tabs variant, icon only', () => {
+    // Files/Git are plain ghost Buttons now, not the Tabs primitive — the
+    // exact same component/tokens as the fold toggle, Settings, and the
+    // space marks (icon-sm, rounded-sm, text-muted-foreground,
+    // hover:bg-sidebar-element-hover). No border, no shadow, no track: the
+    // only "selected" affordance is full opacity, the space mark's own idiom
+    // (`!isActive && 'opacity-60'`), reused here for consistency.
+    it('renders the head tabs, icon only, using the same ghost Button recipe as the rest of the footer', () => {
       render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
       expect(screen.queryByText('Files')).not.toBeInTheDocument()
       expect(screen.queryByText('Git')).not.toBeInTheDocument()
-      expect(screen.getByTestId('tabs-underline')).toBeInTheDocument()
+      const filesTab = screen.getByRole('button', { name: 'Files' })
+      expect(filesTab).toHaveClass('rounded-sm')
+      expect(filesTab).toHaveClass('text-muted-foreground')
+      expect(filesTab).toHaveClass('hover:bg-sidebar-element-hover')
+    })
+
+    it('the active tab is full opacity, the inactive one dimmed — same idiom as the space marks', () => {
+      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      expect(screen.getByRole('button', { name: 'Files' })).not.toHaveClass('opacity-60')
+      expect(screen.getByRole('button', { name: 'Git' })).toHaveClass('opacity-60')
     })
 
     // Regression: getInitialState() used to default activeTab to 'workspaces',
-    // a value TABS no longer contains post-narrowing — the Tabs `value` then
-    // matched neither glyph and NEITHER tab underlined on a cold load, until
-    // the user clicked one or the home-route effect below fired. This test
-    // renders under the store's real, un-overridden default (beforeEach only
-    // calls getInitialState(), no activeTab override) to catch that gap.
+    // a value TABS no longer contains post-narrowing. This test renders under
+    // the store's real, un-overridden default (beforeEach only calls
+    // getInitialState(), no activeTab override) to catch that gap.
     it('the Files tab is active by default, before any click or route effect', () => {
       render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
-      expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'true')
-      expect(screen.getByRole('tab', { name: 'Git' })).toHaveAttribute('aria-selected', 'false')
+      expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: 'Git' })).toHaveAttribute('aria-pressed', 'false')
     })
 
     it('holds exactly two glyphs — Files and Git — off the home route', () => {
       render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
-      expect(screen.getAllByRole('tab')).toHaveLength(2)
-      expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: 'Git' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Git' })).toBeInTheDocument()
     })
 
     it('clicking the Git glyph switches activeTab', () => {
       render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
-      fireEvent.click(screen.getByRole('tab', { name: 'Git' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Git' }))
       expect(useSidebarStore.getState().activeTab).toBe('git')
     })
 
@@ -222,8 +161,8 @@ describe('SidebarCarousel', () => {
     it('hides the Git glyph on the home route', () => {
       mockMatch = { params: { projectId: 'p1' } }
       render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
-      expect(screen.getAllByRole('tab')).toHaveLength(1)
-      expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Git' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument()
     })
 
     it('resets activeTab to files when navigating to the home route with git active', () => {
@@ -233,33 +172,31 @@ describe('SidebarCarousel', () => {
       expect(useSidebarStore.getState().activeTab).toBe('files')
     })
 
-    // Regression: a prior live-verification pass measured this head at 48px
-    // (tab buttons at 32px) against the design spec's flat 28px (§6.1/§11:
-    // "28px against the segmented bar's 36"). Root cause was two stacked
-    // bugs — TabsTab's own `sm:h-8` beating a local `h-7` override in the
-    // cascade, and TabsList's own underline-variant `py-1` doubling up with
-    // this row's own vertical padding (32 + 8 + 8 = 48). Each assertion
-    // below targets one of the three contributors so the whole head, not
-    // just the buttons, lands at 28px.
-    describe('the head is 28px flat, not 48px (spec §6.1/§11)', () => {
-      it('the head row carries no vertical padding of its own', () => {
+    // The head now matches every other sidebar row's height (ROW_BASE's
+    // `h-9`, workspace-row-base.ts) instead of its own flat 28px — a Cursor-
+    // style activity bar, not a compact tab strip.
+    describe('the head matches the standard row height (h-9)', () => {
+      it('the head row is locked to h-9', () => {
+        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+        expect(screen.getByTestId('carousel-head')).toHaveClass('h-9')
+      })
+
+      it('the tabs track spans the row so the icons center in the leftover space, not against the fold toggle', () => {
+        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+        const list = screen.getByTestId('tabs-list')
+        expect(list).toHaveClass('flex-1')
+        expect(list).toHaveClass('justify-center')
+      })
+
+      // Without this the tabs track only centers in the space left of the
+      // fold toggle, which reads as shifted left of the row's true middle —
+      // a phantom spacer matching the toggle's own icon-sm width balances it.
+      it('a phantom spacer on the left matches the fold toggle icon-sm width, centering the icons on the row', () => {
         render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
         const head = screen.getByTestId('carousel-head')
-        expect(head).not.toHaveClass('py-1')
-        expect(head).not.toHaveClass('py-0.5')
-      })
-
-      it("cancels the underline TabsList's own py-1 so it does not double the row's padding", () => {
-        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
-        const list = screen.getByTestId('tabs-underline')
-        expect(list).toHaveClass('data-[orientation=horizontal]:py-0')
-      })
-
-      it('locks each tab button at h-7 on every breakpoint, defeating sm:h-8', () => {
-        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
-        const tab = screen.getByRole('tab', { name: 'Files' })
-        expect(tab).toHaveClass('h-7')
-        expect(tab).toHaveClass('sm:h-7')
+        const spacer = head.querySelector('[aria-hidden="true"].size-8')
+        expect(spacer).not.toBeNull()
+        expect(spacer).toHaveClass('sm:size-7')
       })
     })
   })
@@ -562,7 +499,7 @@ describe('SidebarCarousel', () => {
 
     it('clicking the caret folds the card: hides the body, keeps the head and its tab selection', () => {
       render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
-      fireEvent.click(screen.getByRole('tab', { name: 'Git' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Git' }))
       expect(useSidebarStore.getState().activeTab).toBe('git')
 
       fireEvent.click(foldToggle())
@@ -571,8 +508,8 @@ describe('SidebarCarousel', () => {
       expect(carousel()).not.toHaveClass('flex')
       // The head survives folding: both glyphs stay, and the tab you were on
       // is still the one showing as selected — folding doesn't lose it.
-      expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument()
-      expect(screen.getByRole('tab', { name: 'Git' })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Git' })).toHaveAttribute('aria-pressed', 'true')
       expect(caret()).toHaveClass('rotate-180')
     })
 

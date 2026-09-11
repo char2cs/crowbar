@@ -5,7 +5,6 @@ import { CaretDown, FolderOpen, GitBranch } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTab } from '@/components/ui/tabs'
 import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import { GitPanel } from '@/features/git/components/git-panel'
 import { ErrorBoundary } from '@/components/error-boundary'
@@ -373,37 +372,49 @@ export function SidebarCarousel({
             divider. justify-start overrides the base tabs list's w-fit
             justify-center; the fold caret sits after the tabs at `ml-auto`,
             on the same head row. */}
-        <div data-testid="carousel-head" className="flex shrink-0 items-center px-2">
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SidebarTab)}>
-            {/* 28px flat, not 48px: TabsTab's own `sm:h-8` and TabsList's own
-                underline-variant `py-1` (ui/tabs.tsx) both win the cascade at
-                desktop widths, stacking with this row's padding to 48px.
-                `sm:h-7` and the `py-0` override defeat them locally — the
-                shared component keeps its defaults since this is the only
-                `variant="underline"` call site. */}
-            <TabsList
-              variant="underline"
-              data-testid="tabs-underline"
-              className="justify-start data-[orientation=horizontal]:py-0"
-            >
-              {visibleHeadTabs.map(({ tab, label, Icon }) => {
-                const isActive = activeTab === tab
-                return (
-                  <TabsTab
-                    key={tab}
-                    value={tab}
-                    aria-label={label}
-                    className={cn(
-                      'h-7 sm:h-7 flex-none justify-center px-2.5',
-                      isActive ? 'text-foreground' : 'text-foreground/62',
-                    )}
-                  >
-                    <Icon size={16} weight={isActive ? 'fill' : 'regular'} />
-                  </TabsTab>
-                )
-              })}
-            </TabsList>
-          </Tabs>
+        {/* px-1 (4px), not px-2: the row's own height (h-9) already leaves
+            exactly 4px of vertical clearance around a size-7 icon-sm control
+            (36 - 28 = 8, halved) — px-2 (8px) horizontally doubled that,
+            reading as lopsided once this row is the WHOLE visible thing (a
+            folded card, not one row among many). Matched, not guessed. */}
+        <div data-testid="carousel-head" className="flex h-9 shrink-0 items-center px-1">
+          {/* Balances the fold toggle's own width on the right, so the
+              Files/Git group below centers on the ROW's true middle rather
+              than on the leftover space next to the toggle — without it the
+              icons read as shifted left, the toggle "stealing" the room it
+              occupies. `size-8 sm:size-7` matches icon-sm exactly (button-
+              variants.ts) so it tracks the toggle at every breakpoint. */}
+          <div aria-hidden="true" className="size-8 shrink-0 sm:size-7" />
+          {/* Files/Git are plain ghost Buttons, not the Tabs primitive — the
+              exact same component/tokens as the fold toggle, Settings, and
+              the space marks below (icon-sm, rounded-sm, text-muted-foreground,
+              hover:bg-sidebar-element-hover). "Selected" reuses the space
+              mark's own idiom (opacity-60 when not current) instead of a
+              border/shadow/underline of its own. */}
+          <div data-testid="tabs-list" className="flex flex-1 items-center justify-center gap-1">
+            {visibleHeadTabs.map(({ tab, label, Icon }) => {
+              const isActive = activeTab === tab
+              return (
+                <Button
+                  key={tab}
+                  variant="ghost"
+                  size="icon-sm"
+                  data-testid={`carousel-head-tab-${tab}`}
+                  aria-label={label}
+                  aria-pressed={isActive}
+                  onClick={() => setActiveTab(tab)}
+                  tooltip={label}
+                  tooltipSide="bottom"
+                  className={cn(
+                    'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
+                    !isActive && 'opacity-60',
+                  )}
+                >
+                  <Icon size={16} weight="regular" />
+                </Button>
+              )
+            })}
+          </div>
           <Button
             variant="ghost"
             size="icon-sm"

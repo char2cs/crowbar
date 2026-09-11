@@ -25,12 +25,21 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { toast } from '@/features/window/stores/toast-store'
 import { SidebarTreeChrome } from './sidebar-tree-chrome'
+import { CreateSpacePanel } from './create-space-panel'
 import type { Project } from '@/lib/types'
 
 interface SidebarTreeSurfaceProps {
   projects: Project[]
   activeProjectId: string | undefined
   onActiveProjectChange: (id: string) => void
+  /** The `+` mark's own panel (create-space-panel.tsx) replaces SpaceScroller
+   *  entirely while true — not a panel inside its scroll-snap track — so the
+   *  touchpad swipe between real spaces can never land on it. Optional,
+   *  default false: only `ide-shell.tsx`'s real mount cares, every other
+   *  caller (tests) just wants the ordinary scroller. */
+  creatingSpace?: boolean
+  onCreateSpace?: (project: Project) => void
+  onCancelCreateSpace?: () => void
 }
 
 /**
@@ -50,6 +59,9 @@ export function SidebarTreeSurface({
   projects,
   activeProjectId,
   onActiveProjectChange,
+  creatingSpace = false,
+  onCreateSpace = () => {},
+  onCancelCreateSpace = () => {},
 }: SidebarTreeSurfaceProps) {
   const navigate = useNavigate()
   // Every project's rows come off the SAME removal-tray-filtered `repos` the
@@ -174,7 +186,7 @@ export function SidebarTreeSurface({
   // row trash's own confirm takes.
   const handleTrashProject = useCallback((projectId: string) => {
     if (trashProject(projectId)) return
-    toast.error("Can't delete this project — it may already be gone")
+    toast.error("Can't delete this space — it may already be gone")
   }, [])
   // The right-click menu listens on an ancestor of every project's panel DOM
   // (via native `contextmenu` bubbling), not on any one panel — a single
@@ -184,21 +196,25 @@ export function SidebarTreeSurface({
   return (
     <div ref={treeRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <ErrorBoundary>
-        <SpaceScroller
-          projects={projects}
-          activeProjectId={activeProjectId}
-          onActiveProjectChange={onActiveProjectChange}
-          rowsForProject={rowsForProjectFn}
-          recentsForProject={recentsForProjectFn}
-          onOpen={openRow}
-          onTrash={onTrash}
-          onCreate={createSidebarRow}
-          onFocusRecent={focusRecentEntry}
-          onCloseRecent={closeRecent}
-          onDrop={performSidebarDrop}
-          onPaneDrop={performSidebarPaneDrop}
-          onTrashProject={handleTrashProject}
-        />
+        {creatingSpace ? (
+          <CreateSpacePanel onCreate={onCreateSpace} onCancel={onCancelCreateSpace} />
+        ) : (
+          <SpaceScroller
+            projects={projects}
+            activeProjectId={activeProjectId}
+            onActiveProjectChange={onActiveProjectChange}
+            rowsForProject={rowsForProjectFn}
+            recentsForProject={recentsForProjectFn}
+            onOpen={openRow}
+            onTrash={onTrash}
+            onCreate={createSidebarRow}
+            onFocusRecent={focusRecentEntry}
+            onCloseRecent={closeRecent}
+            onDrop={performSidebarDrop}
+            onPaneDrop={performSidebarPaneDrop}
+            onTrashProject={handleTrashProject}
+          />
+        )}
       </ErrorBoundary>
       <SidebarTreeChrome treeRef={treeRef} rows={allRows} repos={repos} />
     </div>

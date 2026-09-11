@@ -78,4 +78,29 @@ describe('useChatWorkspaceId', () => {
 
     expect(result.current).toBeNull()
   })
+
+  // The hint is what answers BEFORE any store has mounted at all — the gap
+  // that left the file explorer stuck on the wrong repo in a merged split
+  // (ide-shell.tsx's own doc on `activePaneWorkspaceHint`).
+  it('answers from the hint while no store knows the chat yet', () => {
+    const { result } = renderHook(() => useChatWorkspaceId('c1', 'ws-hinted'))
+    expect(result.current).toBe('ws-hinted')
+  })
+
+  it('prefers a seeded store over the hint once one exists', () => {
+    const { result, rerender } = renderHook(
+      ({ hint }: { hint: string | null }) => useChatWorkspaceId('c1', hint),
+      { initialProps: { hint: 'ws-hinted' } },
+    )
+    expect(result.current).toBe('ws-hinted')
+
+    act(() => {
+      getOrCreateWorkspaceStore('ws-real')
+        .getState()
+        .seedAgentChats([chat('c1', 'ws-real')])
+    })
+    rerender({ hint: 'ws-hinted' })
+
+    expect(result.current).toBe('ws-real')
+  })
 })

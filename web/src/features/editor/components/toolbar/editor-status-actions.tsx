@@ -129,7 +129,7 @@ export function EditorStatusActions({ bufferId, editorViewKey }: EditorStatusAct
   const config = getStatusConfig(lspStatus.status)
   const activeServers = lspStatus.supportedLanguages || []
   const hasActiveServers = lspStatus.status === 'connected' && activeServers.length > 0
-  const projectName = rootFolderPath ? getFilenameFromPath(rootFolderPath) : 'No Project'
+  const projectName = rootFolderPath ? getFilenameFromPath(rootFolderPath) : 'No Space'
   const activeBuffer = useStore(
     windowPaneStore,
     useShallow((state) => {

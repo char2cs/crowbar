@@ -1,10 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Folder, FolderOpen, GitBranch, Lock } from '@phosphor-icons/react'
+import { Folder, FolderOpen, GitBranch, GitPullRequest, Lock, Warning } from '@phosphor-icons/react'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
+import * as spaceContentActions from '@/components/layout/space-content-actions'
+import { toast } from '@/features/window/stores/toast-store'
 import {
   getInitialInlineRenameState,
   useSidebarInlineRenameStore,
@@ -14,6 +16,15 @@ vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof rowActions>()),
   performPromoteChat: vi.fn().mockResolvedValue(undefined),
   performRenameRow: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('@/components/layout/space-content-actions', async (importOriginal) => ({
+  ...(await importOriginal<typeof spaceContentActions>()),
+  handleTrashRepo: vi.fn(),
+}))
+
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }))
 
 beforeEach(() => {
@@ -312,6 +323,104 @@ describe('SidebarRow', () => {
     })
   })
 
+  // Caught live: a workspace stuck as a placeholder (checked out at another
+  // worktree — `placeholder-toast-watcher.tsx`'s own "Couldn't set up ..."
+  // toast) drew the plain GitBranch/Lock glyph like any other row, because
+  // `RowGlyph` never read `status`/`isPlaceholder` at all — the toast fired
+  // with nothing on the row itself to explain why. Delegating to
+  // `WorkspaceBranchIcon` (workspace-branch-icon.tsx) off those two fields is
+  // the fix; these pin that it actually reaches the row, PR states included.
+  describe('workspace status glyph', () => {
+    function iconMarkup(el: React.ReactElement): string {
+      const { container, unmount } = render(el)
+      const html = container.querySelector('svg')?.outerHTML ?? ''
+      unmount()
+      return html
+    }
+
+    it('renders the warning glyph for a placeholder, even though it is also locked', () => {
+      const placeholderRow: SidebarRowType = {
+        ...baseRow,
+        kind: 'branch',
+        id: 'branch-chat-1',
+        parentId: 'parent-1',
+        workspaceId: 'ws-placeholder',
+        ownsWorktree: true,
+        branchName: 'main',
+        locked: true,
+        status: 'locked',
+        isPlaceholder: true,
+      }
+      const html = iconMarkup(<SidebarRow row={placeholderRow} depth={0} onOpen={vi.fn()} />)
+      const expected = iconMarkup(
+        <Warning
+          role="img"
+          aria-label="Branch needs provisioning"
+          className="size-4 shrink-0 text-amber-500"
+          weight="fill"
+        />,
+      )
+      expect(html).toBe(expected)
+    })
+
+    it('renders the PR-conflicts warning glyph for an ordinary (unlocked) fork', () => {
+      const conflictedRow: SidebarRowType = {
+        ...baseRow,
+        kind: 'branch',
+        id: 'chat-owning-ws-1',
+        parentId: 'parent-1',
+        workspaceId: 'ws-1',
+        ownsWorktree: true,
+        branchName: 'feature/x',
+        locked: false,
+        status: 'pr-conflicts',
+      }
+      const html = iconMarkup(<SidebarRow row={conflictedRow} depth={0} onOpen={vi.fn()} />)
+      const expected = iconMarkup(
+        <Warning aria-hidden="true" className="size-4 shrink-0 text-amber-500" weight="fill" />,
+      )
+      expect(html).toBe(expected)
+    })
+
+    it('renders the open-PR glyph for a fork with an open pull request', () => {
+      const prOpenRow: SidebarRowType = {
+        ...baseRow,
+        kind: 'branch',
+        id: 'chat-owning-ws-2',
+        parentId: 'parent-1',
+        workspaceId: 'ws-2',
+        ownsWorktree: true,
+        branchName: 'feature/y',
+        locked: false,
+        status: 'pr-open',
+      }
+      const html = iconMarkup(<SidebarRow row={prOpenRow} depth={0} onOpen={vi.fn()} />)
+      const expected = iconMarkup(
+        <GitPullRequest aria-hidden="true" className="size-4 shrink-0 text-green-500" weight="fill" />,
+      )
+      expect(html).toBe(expected)
+    })
+
+    // A row whose Workspace half has not landed yet (walkTreeIntoRows's
+    // "no Workspace record" push) carries no `status` at all — this must
+    // still fall back to the plain locked/GitBranch guess, not blow up.
+    it('falls back to the plain GitBranch glyph with no status to delegate on', () => {
+      const noStatusRow: SidebarRowType = {
+        ...baseRow,
+        kind: 'branch',
+        id: 'chat-owning-ws-3',
+        parentId: 'parent-1',
+        workspaceId: 'ws-3',
+        ownsWorktree: true,
+        branchName: 'feature/z',
+        locked: false,
+      }
+      const html = iconMarkup(<SidebarRow row={noStatusRow} depth={0} onOpen={vi.fn()} />)
+      const expected = iconMarkup(<GitBranch aria-hidden="true" className="size-4" weight="fill" />)
+      expect(html).toBe(expected)
+    })
+  })
+
   // Caught live: `RowGlyph` drew the same closed `Folder` glyph regardless of
   // fold state — `expanded` was computed (line 110-ish, `!folded`) but never
   // threaded through to it, so a folder never visually distinguished open
@@ -436,10 +545,11 @@ describe('SidebarRow', () => {
   // X/"remove" control follows that — chat, folder, and an ordinary
   // (unlocked, non-home) branch all get it. Reported live: a LOCKED branch
   // showed the X too, which read as "this row can be one-click removed" when
-  // it plainly cannot (`handleTrash` refuses it with a toast) — same for the
-  // repo's own project-home row, which `handleTrash` also refuses. Those two
-  // are the only rows the control is withheld from, not offered as a dead
-  // click.
+  // it plainly cannot (`handleTrash` refuses it with a toast). The repo's
+  // own project-home row is the other exclusion here, for the same reason —
+  // but unlike a locked branch, it isn't a dead end: it gets its own
+  // overflow menu instead (below), which deletes the whole REPO rather than
+  // just this one branch.
   it('the remove control renders on chat, folder, and an ordinary branch — never a locked branch or the project home', () => {
     const shown: SidebarRowType[] = [
       baseRow,
@@ -471,6 +581,75 @@ describe('SidebarRow', () => {
       expect(document.querySelector('[data-control="remove"]')).not.toBeInTheDocument()
       unmount()
     }
+  })
+
+  describe('the repo-home row\'s own overflow (repo delete)', () => {
+    const repoIcon = {
+      repoId: 'r1',
+      projectId: 'p1',
+      name: 'crowbar',
+      avatarLabel: 'C',
+      avatarColor: 'bg-indigo-700',
+    }
+    const homeRow: SidebarRowType = {
+      ...baseRow,
+      kind: 'branch',
+      parentId: null,
+      ownsWorktree: true,
+      repoIcon,
+    }
+
+    it('renders only on the repo-home row, first in the trailing cluster — not on an ordinary branch', () => {
+      render(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
+      expect(document.querySelector('[data-control="repo-menu"]')).toBeInTheDocument()
+
+      const ordinary: SidebarRowType = {
+        ...baseRow,
+        kind: 'branch',
+        parentId: 'parent-1',
+        branchName: 'my-feature',
+        ownsWorktree: true,
+      }
+      const { container } = render(
+        <SidebarRow row={ordinary} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />,
+      )
+      expect(container.querySelector('[data-control="repo-menu"]')).not.toBeInTheDocument()
+    })
+
+    it('is absent until repoIcon has seeded', () => {
+      render(
+        <SidebarRow
+          row={{ ...homeRow, repoIcon: undefined }}
+          depth={0}
+          onOpen={vi.fn()}
+          onTrash={vi.fn()}
+        />,
+      )
+      expect(document.querySelector('[data-control="repo-menu"]')).not.toBeInTheDocument()
+    })
+
+    it('clicking "Delete Repo" calls handleTrashRepo with the REPO id, not the row id', async () => {
+      const user = userEvent.setup()
+      vi.mocked(spaceContentActions.handleTrashRepo).mockReturnValue(true)
+      render(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
+
+      await user.click(screen.getByRole('button', { name: /more actions for/i }))
+      await user.click(await screen.findByText('Delete Repo'))
+
+      expect(spaceContentActions.handleTrashRepo).toHaveBeenCalledExactlyOnceWith('r1')
+      expect(toast.error).not.toHaveBeenCalled()
+    })
+
+    it('a refusal (nothing held) surfaces a toast instead of pretending to succeed', async () => {
+      const user = userEvent.setup()
+      vi.mocked(spaceContentActions.handleTrashRepo).mockReturnValue(false)
+      render(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
+
+      await user.click(screen.getByRole('button', { name: /more actions for/i }))
+      await user.click(await screen.findByText('Delete Repo'))
+
+      expect(toast.error).toHaveBeenCalledExactlyOnceWith("Can't delete Fix the thing yet")
+    })
   })
 
   it('a chat row shows thread, remove, and fold — never fork', () => {

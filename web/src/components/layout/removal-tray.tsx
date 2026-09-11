@@ -1,210 +1,42 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Folder } from '@phosphor-icons/react'
-import { Library } from 'lucide-react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
-import { cn } from '@/lib/utils'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
-import { ROW_BASE, ROW_GLYPH_BOX, ROW_INACTIVE, ROW_SUB_ACTION } from './workspace-row-base'
-import { WorkspaceBranchIcon } from './workspace-branch-icon'
-import { RepoIconMark } from './repo-icon-mark'
 import { commitRemoval, flushDrainingRemovals, type RemovalNavigate } from './removal-commit'
 import { RemovalConfirmDialog } from './removal-confirm-dialog'
-
-/**
- * The removal tray at the sidebar's foot: rows on their way out, held where you
- * can still change your mind.
- *
- * The rows are ORDINARY rows — the same 36px box, the same glyph, the same mono
- * label as the row that was dragged. That is the point: a held row has not
- * become a different kind of thing, it is the same row waiting somewhere else.
- * The only additions are a hairline draining along the bottom edge and the
- * seconds it has left, in figures.
- *
- * This replaces the drop-to-delete zone that used to live here. That zone
- * deleted on release with nothing to undo; a tray is what makes the gesture
- * safe enough to be the only removal path in the sidebar.
- *
- * It used to also draw at the foot of a separate Chats panel — a second
- * instance sharing this same store, the store's clock and commit path, so the
- * one row you had just dragged away had one place to look for it regardless of
- * which panel you dragged it from. That panel and its own drag-to-remove
- * gesture are gone (Task 22: the unified sidebar's tree and Recents are one
- * scroller now, not a carousel of panels), so this is the only instance left.
- */
-
-/**
- * The face a held row's label wears — the same one it wore in the tree it came
- * from, because a row that changed typeface on its way into the tray would read
- * as a different kind of thing at the one moment the user is deciding whether to
- * keep it.
- *
- * A branch is a git ref and reads in mono; a folder name is prose someone typed.
- */
-function labelFace(kind: RemovalEntry['kind']): string {
-  if (kind === 'folder') return 'font-sans font-semibold tracking-[0.005em]'
-  return 'font-mono'
-}
 
 /** Whole seconds left on a deadline, never below zero. */
 function secondsLeft(deadlineAt: number, now: number): number {
   return Math.max(0, Math.ceil((deadlineAt - now) / 1000))
 }
 
-/** The count beside a held row: how much else goes with it. */
-function GoesWith({ n }: { n: number }) {
-  return (
-    <span className="shrink-0 rounded-full bg-sidebar-element-idle px-1.5 py-px text-[11px] tabular-nums text-muted-foreground">
-      +{n}
-    </span>
-  )
-}
-
-function TrayGlyph({ entry }: { entry: RemovalEntry }) {
-  const repo = useSidebarStore((s) => s.repos.find((r) => r.id === entry.repoId))
-
-  if (entry.kind === 'repo') {
-    return (
-      <RepoIconMark
-        repo={{
-          name: entry.label,
-          avatarURL: repo?.avatarURL,
-          avatarLabel: repo?.avatarLabel ?? entry.label.slice(0, 1).toUpperCase(),
-          avatarColor: repo?.avatarColor ?? 'bg-neutral-500',
-        }}
-        size="sm"
-      />
-    )
-  }
-
-  if (entry.kind === 'project') {
-    // The project row's own default mark. A held row must look like the row it
-    // was, and a project's is the Library glyph — see project-icon-popover.tsx.
-    return (
-      <span className={ROW_GLYPH_BOX}>
-        <Library aria-hidden="true" className="size-4" />
-      </span>
-    )
-  }
-
-  if (entry.kind === 'folder') {
-    return (
-      // Same glyph, same weight, as the folder row in the tree (folder-row.tsx):
-      // a row held for removal must look like the row it was.
-      <span className={ROW_GLYPH_BOX}>
-        <Folder aria-hidden="true" className="size-4" weight="duotone" />
-      </span>
-    )
-  }
-
-  const workspace = repo?.workspaces.find((w) => w.id === entry.id)
-  return (
-    <span className={ROW_GLYPH_BOX}>
-      <WorkspaceBranchIcon status={workspace?.status ?? 'new'} />
-    </span>
-  )
-}
-
-interface TrayRowProps {
-  entry: RemovalEntry
-  onCancel: (entryId: string) => void
-  onCommit: (entry: RemovalEntry) => void
-}
-
-function TrayRow({ entry, onCancel, onCommit }: TrayRowProps) {
-  const { deadlineAt } = entry
-
-  return (
-    <div
-      data-removal-entry={entry.entryId}
-      className={cn(ROW_BASE, ROW_INACTIVE, 'relative cursor-default')}
-    >
-      <TrayGlyph entry={entry} />
-      <span className={cn('min-w-0 flex-1 truncate text-left', labelFace(entry.kind))}>
-        {entry.label}
-      </span>
-      {entry.extra > 0 && <GoesWith n={entry.extra} />}
-
-      {deadlineAt === null ? (
-        // A repo takes every worktree under it and a project takes every repo,
-        // so both ask rather than count down: two real controls, and nothing
-        // happens until one is pressed — and Remove then asks once more, in a
-        // dialog that spells the cascade out (removal-confirm-dialog.tsx).
-        <>
-          <button
-            type="button"
-            className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-sidebar-element-hover hover:text-foreground"
-            onClick={() => onCancel(entry.entryId)}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="shrink-0 rounded-md px-2 py-1 text-[11px] font-semibold text-destructive hover:bg-destructive/10"
-            onClick={() => onCommit(entry)}
-          >
-            Remove
-          </button>
-        </>
-      ) : (
-        <>
-          {/* The same clock the hairline draws, said in figures. The bar answers
-              "roughly how long"; a row that is about to take a worktree with it
-              deserves to answer "how long" exactly. Rendered from the deadline
-              rather than from a tick, so a row that re-renders for some other
-              reason still shows the truth; the counting itself happens in the
-              tray's clock below and never comes back through React. */}
-          <span
-            data-removal-secs={entry.entryId}
-            className="shrink-0 text-[11px] tabular-nums text-muted-foreground"
-          >
-            {secondsLeft(deadlineAt, Date.now())}
-          </span>
-          <button
-            type="button"
-            className={ROW_SUB_ACTION}
-            aria-label={`Keep ${entry.label}`}
-            title="Keep"
-            onClick={() => onCancel(entry.entryId)}
-          >
-            <svg
-              aria-hidden="true"
-              className="size-3"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M6 3L2.5 6.5 6 10M2.5 6.5H10a3.5 3.5 0 0 1 0 7H7" />
-            </svg>
-          </button>
-          {/* The hairline, drawn once. `data-essential-motion` keeps its eight
-              seconds under prefers-reduced-motion: this bar is not decoration,
-              it is how long is left before something is deleted. */}
-          <span
-            data-removal-drain=""
-            data-essential-motion=""
-            className="pointer-events-none absolute inset-x-2 bottom-[3px] h-0.5 origin-left rounded-full bg-destructive animate-tray-drain"
-          />
-        </>
-      )}
-    </div>
-  )
-}
-
+/**
+ * The background service behind every removal, plus the one piece of chrome
+ * it still draws: the confirmation for a repo or a project.
+ *
+ * Every OTHER held kind (workspace, folder, chat) drains in place, drawn by
+ * the row itself (sidebar-row.tsx's `RemovingSidebarRow`) — this component
+ * never renders a copy of them. It only runs their shared clock: the
+ * soonest-deadline timer that commits a row once its hairline empties, the
+ * once-a-second DOM write that keeps every drain's figures honest, and the
+ * pagehide flush that sends a removal still draining when the page ends.
+ *
+ * A repo or a project never drains (sidebar-removal.ts's own note: eight
+ * seconds of undo is not a proportionate safety net for either), so the
+ * moment one is held, this asks instead — `RemovalConfirmDialog`, straight
+ * off the hold, nothing held in between. There used to be a step before the
+ * dialog: a row in a tray docked at the sidebar's foot, offering its own
+ * Cancel/Remove before the dialog ever opened. That dock is gone; holding a
+ * repo or a project now goes straight to the one question that matters.
+ */
 export function RemovalTray() {
-  // The store's own array — but ONLY a 'repo'/'project' entry (`deadlineAt
-  // === null`) still renders as a TRAY row now: those two ask before doing
-  // anything (Cancel/Remove, then a confirm dialog for the cascade) and
-  // have no single row of their own in the tree to ask from. Every
-  // draining kind (chat/workspace/folder) transforms IN PLACE instead
-  // (sidebar-row.tsx's `RemovingSidebarRow`) — this component keeps
-  // running their clock/auto-commit/pagehide-flush regardless (below), it
-  // just no longer draws a second copy of the row elsewhere on screen.
   const entries = useRemovalTrayStore((s) => s.entries)
-  const trayEntries = entries.filter((e) => e.deadlineAt === null)
+  // A repo/project entry never drains (`deadlineAt === null` — hold()'s own
+  // rule), and it is the only kind that ever needs an answer before
+  // anything commits — so the first one in the list is exactly what to ask
+  // about. Cancelling or confirming removes it from `entries`, surfacing
+  // whichever (rare) second one was queued behind it.
+  const pending = entries.find((e) => e.deadlineAt === null) ?? null
+
   const navigate = useNavigate()
   const router = useRouter()
 
@@ -225,36 +57,6 @@ export function RemovalTray() {
   }
 
   const commit = useCallback((entry: RemovalEntry) => commitRef.current(entry), [])
-
-  // The entry whose Remove has been pressed and which is now waiting on the
-  // confirmation dialog. Held here rather than per row so only one can be open,
-  // and so a row that leaves the tray under it (a Cancel from elsewhere) takes
-  // the dialog with it — see the guard on `pending` below.
-  const [pendingId, setPendingId] = useState<string | null>(null)
-  const pending = entries.find((e) => e.entryId === pendingId) ?? null
-
-  const cancel = useCallback((entryId: string) => {
-    useRemovalTrayStore.getState().cancel(entryId)
-  }, [])
-
-  /**
-   * Press Remove on a held row.
-   *
-   * Only the rows that never ran a clock reach this — a draining row commits
-   * itself when the clock runs out, and its one control is Keep. Those are
-   * exactly the rows whose removal cascades (a repo, a project), so this asks
-   * once more before anything is sent. Everything else goes straight through.
-   */
-  const askThenCommit = useCallback(
-    (entry: RemovalEntry) => {
-      if (entry.kind === 'repo' || entry.kind === 'project') {
-        setPendingId(entry.entryId)
-        return
-      }
-      commit(entry)
-    },
-    [commit],
-  )
 
   // The page can end mid-drain, and the intent must not end with it.
   //
@@ -321,11 +123,10 @@ export function RemovalTray() {
     const tick = () => {
       const now = Date.now()
       let delay = 1000
-      // The whole DOCUMENT now, not a ref scoped to this tray: a draining
+      // The whole DOCUMENT, not a ref scoped to this component: a draining
       // entry's `[data-removal-secs]` span lives wherever its row actually
-      // renders — inline in the tree (sidebar-row.tsx's `RemovingSidebarRow`)
-      // for every kind that reaches this map, since only 'repo'/'project'
-      // (never draining) still render a TrayRow here at all.
+      // renders inline in the tree (sidebar-row.tsx's `RemovingSidebarRow`) —
+      // this component never draws a copy of a draining row.
       for (const el of document.querySelectorAll<HTMLElement>('[data-removal-secs]')) {
         const deadlineAt = deadlines.get(el.dataset.removalSecs ?? '')
         if (deadlineAt === undefined) continue
@@ -345,33 +146,13 @@ export function RemovalTray() {
     return () => clearTimeout(timer)
   }, [entries])
 
-  if (trayEntries.length === 0) return null
-
   return (
-    // NO background of its own. Every other surface in this sidebar — the
-    // panels, the tree, the rows at rest — paints nothing and lets the window's
-    // translucent chrome show through; a fill here made the tray the one opaque
-    // slab in a glass sidebar, and it read as a panel bolted on rather than as
-    // the foot of the list. The `border-t` stays: separating the held rows from
-    // the live ones is the job, and that is the same hairline the tree already
-    // draws between its own sections.
-    <div className="shrink-0 border-t border-border pt-1 pb-1.5">
-      <div className="px-3 pt-1 pb-0.5 text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
-        Waiting on you
-      </div>
-      <div>
-        {trayEntries.map((entry) => (
-          <TrayRow key={entry.entryId} entry={entry} onCancel={cancel} onCommit={askThenCommit} />
-        ))}
-      </div>
-      <RemovalConfirmDialog
-        entry={pending}
-        onCancel={() => setPendingId(null)}
-        onConfirm={(entry) => {
-          setPendingId(null)
-          commit(entry)
-        }}
-      />
-    </div>
+    <RemovalConfirmDialog
+      entry={pending}
+      onCancel={() => {
+        if (pending) useRemovalTrayStore.getState().cancel(pending.entryId)
+      }}
+      onConfirm={(entry) => commit(entry)}
+    />
   )
 }
