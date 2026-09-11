@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
@@ -271,7 +271,7 @@ describe('AgentTranscript turnbar wiring', () => {
     ).not.toBeNull()
   })
 
-  it('never gives a streaming bubble a turnbar or tool calls — the turn has not finished', () => {
+  it('never gives a streaming bubble a turnbar — the turn has not finished', () => {
     draw([], {
       streamingBubbles: [
         {
@@ -304,7 +304,77 @@ describe('AgentTranscript turnbar wiring', () => {
 
     expect(screen.getByText('typing…')).toBeInTheDocument()
     expect(screen.queryByTestId('message-turn-actions')).toBeNull()
+    // Not on the BUBBLE — the live list below it is what carries them now.
     expect(screen.queryByTestId('agent-turn-tools')).toBeNull()
+  })
+
+  // THE REGRESSION. A call is filed against the turn that was open when it ran,
+  // and only turn close repoints it onto the reply's own turn id — so mid-turn
+  // it matched no message and nothing on screen drew it. Measured live before
+  // this existed: five calls, the first known to the backend at t=13.8s, none of
+  // them painted until t=39.4s, when the turn ended.
+  it("draws the in-flight turn's calls before any reply exists to hold them", () => {
+    draw([{ turnId: 'user-1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' }], {
+      working: true,
+      activity: {
+        toolCalls: [
+          {
+            id: 'c1',
+            turnId: 'open-chat-runner',
+            seq: 4,
+            name: 'commandExecution',
+            target: 'ls -la',
+            status: 'ok',
+            durationMs: 17,
+            hasRequest: false,
+            hasResult: false,
+            startedAt: '',
+          },
+        ],
+        subagents: [],
+        interruptions: [],
+        choices: [],
+      },
+    })
+
+    expect(screen.getByTestId('agent-live-turn-tools')).toBeInTheDocument()
+    expect(screen.getByText('commandExecution · ls -la')).toBeInTheDocument()
+  })
+
+  // The same calls, once the reply lands and the ledger repoints them onto it:
+  // the reply draws them, and the live list has to go quiet or every row is
+  // drawn twice.
+  it('hands the calls over to the reply row rather than drawing them twice', () => {
+    draw(
+      [{ turnId: 'msg-7', sequence: 1, role: 'assistant', providerId: 'codex', text: 'a', at: '' }],
+      {
+        activity: {
+          toolCalls: [
+            {
+              id: 'c1',
+              turnId: 'msg-7',
+              seq: 4,
+              name: 'commandExecution',
+              target: 'ls -la',
+              status: 'ok',
+              durationMs: 17,
+              hasRequest: false,
+              hasResult: false,
+              startedAt: '',
+            },
+          ],
+          subagents: [],
+          interruptions: [],
+          choices: [],
+        },
+      },
+    )
+
+    expect(screen.queryByTestId('agent-live-turn-tools')).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-tools"]'),
+    ).not.toBeNull()
+    expect(screen.getAllByText('commandExecution · ls -la')).toHaveLength(1)
   })
 
   it("times a reply's turnbar against the user turn it answers, not against now", () => {
@@ -673,6 +743,75 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
     expect(pinTurnToTopCalls[0]).toHaveAttribute('data-client-request-id', item.clientRequestId)
   })
 
+  /*
+   * REGRESSION, reported twice from a screenshot of an entirely blank
+   * transcript with the composer reading "Queue a message…".
+   *
+   * A prompt sent while a turn is still running starts nothing — it QUEUES
+   * until that turn finishes. Pinning it anyway reserved a viewport of room
+   * for a reply that was not coming yet, AND lifted the queued row to the top
+   * of the viewport, which pushed the turn that IS running off the top.
+   * Captured live mid-queue, `.scroll`-relative: the two streaming reply rows
+   * at top=-80 and top=-32, the queued prompt pinned at top=16, and 401px of
+   * reserved blank under content ending at y=163 of a 754px pane.
+   */
+  it('does not pin a prompt that is only queued behind a turn already running', () => {
+    const item = queueItem('sent while the agent is still busy')
+    const { rerender } = draw([], { queue: [], working: true })
+    expect(pinTurnToTopCalls).toEqual([])
+
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    // Nothing pinned: the turn that is actually running keeps the viewport.
+    expect(pinTurnToTopCalls).toEqual([])
+  })
+
+  // The other half of the same rule, and the case this must not break: a
+  // prompt sent while the chat is IDLE does start a turn, and still pins.
+  it('still pins a prompt sent while nothing is running', () => {
+    const item = queueItem('sent to an idle chat')
+    const { rerender } = draw([], { queue: [], working: false })
+
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls).toHaveLength(1)
+    expect(pinTurnToTopCalls[0]).toHaveAttribute('data-client-request-id', item.clientRequestId)
+  })
+
   // The existing, already-correct behavior this fix must not disturb: a
   // chat REOPENED with a prompt still queued from before inherits it — that
   // is a restore, not a send, and must never pin.
@@ -738,10 +877,12 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
 
   // The ordinary case this fix must not disturb: a prompt that DISPATCHES
   // (settles into a real ledger message) also drains the queue back to
-  // empty, but the pin is still exactly right — it keeps an offset, not the
-  // element, and releases itself naturally once the reply grows past the
-  // reserved room. This must NOT call pinTurnToTop(null).
-  it('does not release the pin when the pinned prompt settles into a real message instead', () => {
+  // empty, but the turn is still running and the pin is still wanted. This
+  // must NOT call pinTurnToTop(null) — and it must hand the pin the LEDGER
+  // row that replaced the queued one, so `applyTailRoom` still has a live
+  // element to re-measure from: an offset alone assumes nothing above the pin
+  // moves, and a turn starting strips the turnbar off every reply above it.
+  it('re-anchors to the settled ledger row instead of releasing the pin', () => {
     const item = queueItem('this one actually sent')
     const { rerender } = draw([], { queue: [] })
     rerender(
@@ -794,7 +935,12 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
       />,
     )
 
-    expect(pinTurnToTopCalls).toHaveLength(1) // still just the original pin — no release call
+    // Never released, and re-anchored: the last call is the ledger row for the
+    // very prompt that was pinned, not null.
+    expect(pinTurnToTopCalls).toHaveLength(2)
+    const repinned = pinTurnToTopCalls.at(-1)
+    expect(repinned).not.toBeNull()
+    expect(repinned?.getAttribute('data-sequence')).toBe('1')
   })
 })
 
@@ -1339,5 +1485,108 @@ describe('AgentTranscript: settle-priming heights are rounded, not raw floats', 
     } finally {
       HTMLElement.prototype.getBoundingClientRect = originalRect
     }
+  })
+})
+
+// A chat OPENING is a convergence loop, not one layout: an estimated row height
+// is corrected by `measureElement`, the correction moves the total, the total
+// reaches the anchor's ResizeObserver, that moves `scrollTop`, the scroll event
+// reaches the virtualizer a frame later and re-ranges the rows, and the newly
+// ranged rows arrive as estimates again. Measured live on a 30-turn chat opened
+// from the sidebar, at ordinary speed: FOUR painted positions in ~105ms, the
+// middle two moving the content 402px and then 38px — with `scrollTop` at the
+// true bottom in every one of them. That is what was reported as "opening an
+// OLD chat makes it so that the scroll starts at the top, and THEN scrolls to
+// the bottom", and no scroll-position fix reaches it: the content is changing
+// height under an already-correct viewport. These pin the only thing that does
+// — the laps are laid out and measured, but not shown.
+describe('AgentTranscript opening settle gate', () => {
+  const originalClientHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    'clientHeight',
+  )
+  // Deterministic frames, not real ones: the gate counts ANIMATION FRAMES with
+  // the total height unchanged, so a test that waited on a clock would be
+  // asserting the scheduler rather than the behaviour.
+  let frames: Array<() => void> = []
+  let originalRaf: typeof requestAnimationFrame
+  let originalCancelRaf: typeof cancelAnimationFrame
+
+  function conversation(turns: number): AgentChatMessage[] {
+    return Array.from({ length: turns }, (_, i) => ({
+      turnId: `t${i}`,
+      sequence: i,
+      role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      providerId: i % 2 === 0 ? '' : 'claude',
+      text: `turn ${i}`,
+      at: '',
+    }))
+  }
+
+  beforeEach(() => {
+    frames = []
+    originalRaf = globalThis.requestAnimationFrame
+    originalCancelRaf = globalThis.cancelAnimationFrame
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+      frames.push(() => cb(0))) as unknown as typeof requestAnimationFrame
+    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame
+    // jsdom has no layout engine, and the gate refuses to count a container
+    // with no box at all — which in the real app is a chat mounted into a tab
+    // or a workspace slot that is not on screen yet.
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get: () => VIEWPORT_HEIGHT,
+    })
+  })
+
+  afterEach(() => {
+    globalThis.requestAnimationFrame = originalRaf
+    globalThis.cancelAnimationFrame = originalCancelRaf
+    if (originalClientHeight) {
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', originalClientHeight)
+    }
+  })
+
+  const runFrames = (count: number) => {
+    for (let i = 0; i < count; i++) {
+      const pending = frames
+      frames = []
+      act(() => {
+        for (const frame of pending) frame()
+      })
+    }
+  }
+
+  const virtualRows = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('.virtual-rows')
+
+  it('does not show the virtualized rows on the frame they first render', () => {
+    const { container } = draw(conversation(12))
+
+    expect(virtualRows(container)).not.toBeNull()
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+  })
+
+  it('shows them once the total height has held still, and not before', () => {
+    const { container } = draw(conversation(12))
+
+    // One quiet frame is not a settled chat: the cascade's laps are a frame
+    // apart and it plateaus mid-way, which is exactly why this waits for more
+    // than one — see SETTLE_QUIET_FRAMES.
+    runFrames(2)
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+
+    runFrames(4)
+    expect(virtualRows(container)?.style.visibility).toBe('')
+  })
+
+  it('gives up the gate the moment the reader actually touches the transcript', () => {
+    const { container } = draw(conversation(12))
+    const scroll = container.querySelector<HTMLElement>('.scroll')
+
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+    fireEvent.wheel(scroll as HTMLElement)
+
+    expect(virtualRows(container)?.style.visibility).toBe('')
   })
 })

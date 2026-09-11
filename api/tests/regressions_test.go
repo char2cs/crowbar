@@ -1172,6 +1172,12 @@ func createChildWorkspace(
 	})
 	id, _ := created["id"].(string)
 	require.NotEmpty(t, id, "child create must broadcast an id for %q", branch)
+	// The frame came off the HUB projection; the store/list read model is an
+	// INDEPENDENT projection that settles out of band, so the id above can be one
+	// the read model does not know yet — and every caller immediately addresses a
+	// REST route by it (a 404 instead of the behaviour under test). Same barrier,
+	// same reason as importWritableWorkspace's.
+	h.Quiesce()
 	return id
 }
 
@@ -1189,6 +1195,12 @@ func syncBaseline(
 	acc := h.raw(http.MethodPost, repoBase+"/workspaces/"+wsID+"/sync", nil, http.StatusAccepted)
 	_ = acc.Body.Close()
 	waitForWorkComplete(t, syncWS, wsID)
+	// The work-complete edge is EndWork's own rebroadcast — it fires when the work
+	// function returns, which is not the same instant the summary it committed
+	// becomes listable: the read model is an independent async projection (see
+	// harness.Quiesce). Callers read the pre-condition back over plain REST, so
+	// without this barrier the baseline assertion reads the PREVIOUS summary.
+	h.Quiesce()
 }
 
 // childDiff returns the workspace DTO for wsID from the repo's workspace list.
@@ -1362,6 +1374,9 @@ func TestRegression_CreateChildForksFromOriginTipNotStaleLocal(t *testing.T) {
 	require.NotEmpty(t, childID, "child workspace create must broadcast an id")
 
 	// Read the child worktree the provisioner recorded and check its fork point.
+	// Get reads the durable read model, an independent projection the hub frame
+	// above can outrun, so the barrier is what makes the row resolvable.
+	h.Quiesce()
 	childWS, err := h.app.Repositories.Workspace.Get(t.Context(), childID)
 	require.NoError(t, err, "read back the provisioned child worktree path")
 	require.NotEmpty(t, childWS.WorktreePath, "child must carry a worktree path")

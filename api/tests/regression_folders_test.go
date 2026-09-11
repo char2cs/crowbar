@@ -236,6 +236,10 @@ func TestRegression_WorkspaceMoveRefusedWhenItWouldSplitAForkChain(t *testing.T)
 	require.NotEmpty(t, childID)
 	require.Equal(t, imported.workspaceID, created["parentId"],
 		"precondition: the child carries a fork parent")
+	// The id came off the HUB projection, which the store/list read model trails as
+	// an independent projection — so without this barrier the PATCH below addresses
+	// a row the handler cannot resolve yet and answers 404, not the 409 under test.
+	h.Quiesce()
 
 	folderID := createFolder(t, h, imported, "spikes", "")
 

@@ -95,17 +95,19 @@ type fakeTermCall struct {
 	workspaceID string
 	cwd         string
 	argv        []string
+	env         []string
 	termSessID  string
 }
 
 func (f *fakeTermForAttach) CreateCommand(
-	_ context.Context, workspaceID, cwd string, argv, _ []string, onExit func(),
+	_ context.Context, workspaceID, cwd string, argv, env []string, onExit func(),
 ) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.nextID++
 	id := fmt.Sprintf("attach-term-%d", f.nextID)
-	f.created = append(f.created, fakeTermCall{workspaceID: workspaceID, cwd: cwd, argv: argv, termSessID: id})
+	f.created = append(f.created,
+		fakeTermCall{workspaceID: workspaceID, cwd: cwd, argv: argv, env: env, termSessID: id})
 	if f.onExit == nil {
 		f.onExit = map[string]func(){}
 	}
@@ -286,6 +288,51 @@ func TestSwitchToTerminal_ForksTheAttachProcessAndDropsTheAPIConnection(t *testi
 	view, ok := rs.attached.get("runner-1")
 	require.True(t, ok)
 	require.Equal(t, termSessID, view.termSessID)
+
+	// TestRegression_SwitchToTerminalForksWithTheProcessEnvironment's fact, asserted
+	// on the happy path it belongs to: see that test's own comment.
+	require.Contains(t, call.env, "PATH="+os.Getenv("PATH"),
+		"the native view must inherit the daemon's environment, or its hooks cannot run")
+}
+
+// TestRegression_SwitchToTerminalForksWithTheProcessEnvironment pins a bug
+// measured live: CreateCommand takes its env VERBATIM, and this path passed
+// nil, so the native view ran with only the terminal defaults — no PATH, no
+// HOME. Every hook APIAttachArgv wires then died with exit 127 and `crowbar
+// mcp` never started, so a chat handed to its provider's own view recorded
+// nothing at all: the exact failure APIAttachArgv's doc says it exists to
+// prevent.
+func TestRegression_SwitchToTerminalForksWithTheProcessEnvironment(t *testing.T) {
+	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
+		_, _, _ = conn.ReadMessage()
+	})
+	agent := attachTestAgent(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	apiConn, err := agent.StartAPIConn(ctx, sockPath)
+	require.NoError(t, err)
+	defer apiConn.Close()
+
+	term := &fakeTermForAttach{}
+	rs := &Runners{
+		apiConns: newAPIConnRegistry(), attached: newAttachRegistry(), spawns: inflight.NewGate(),
+		runnerStore: stubRunnerStoreForAttach{
+			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "attach-test"},
+		},
+		turns:    stubTurnsForAttach{working: false},
+		activity: stubActivityForAttach{found: true},
+		term:     term,
+	}
+	rs.apiConns.set("runner-1", &apiconn{
+		driver: apiConn, ctx: ctx, agent: agent,
+		tctx: engineagents.TemplateCtx{Socket: sockPath, Session: "sess-1", Cwd: "/work", Segid: "seg-1", CrowbarHook: "/bin/crowbar"},
+	})
+
+	_, err = rs.SwitchToTerminal(context.Background(), "chat-1")
+	require.NoError(t, err)
+
+	require.NotEmpty(t, term.lastCall().env, "a nil env is what left the native view without a PATH")
+	require.Subset(t, term.lastCall().env, os.Environ())
 }
 
 // TestSwitchToTerminal_ReturnsErrNativeViewNotYetAvailable_WhenSessionNeverCompletedATurn

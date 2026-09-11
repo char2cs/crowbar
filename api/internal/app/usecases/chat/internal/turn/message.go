@@ -190,6 +190,8 @@ func (t *Turns) closeTurnFromFailure(
 	// "failed" notice row in the transcript for a turn that was never the
 	// assistant's own. See compaction.go and closeTurnFromStop's own comment.
 	if t.compacting.consume(chat.ID, ev.TurnID) {
+		// Same stale-latch trap closeTurnFromStop guards — see its own comment.
+		t.idle.clear(chat.ID)
 		return nil
 	}
 	appendErr := t.closeAssistantTurn(ctx, chat, runner, ev)
@@ -224,6 +226,14 @@ func failureNotice(ev engineagents.CanonicalEvent) string {
 // message is still unterminated. It answers with the NEWEST increment across every
 // unfinished message, not the oldest: one message still advancing means the CLI is
 // alive, so the quiet period the sweep measures must restart on any of them.
+//
+// Thinking and tool output count as growth too. They are never recorded, so they
+// move no message's LastAt — but they are the CLI speaking, and the sweep that
+// consumes this closes turns it believes have gone silent. A provider whose
+// messages are never marked final (codex maps no `final`, so every one of its
+// messages stays unterminated for the whole turn) therefore had a live turn
+// abandoned mid-answer whenever it wrote a paragraph and then reasoned for more
+// than the quiet window with no ledger-open tool call to vouch for it.
 func (t *Turns) UnfinishedSince(chatID string) (time.Time, bool) {
 	unfinished := t.messages.UnfinishedAcrossRunners(chatID)
 	if len(unfinished) == 0 {
@@ -234,6 +244,9 @@ func (t *Turns) UnfinishedSince(chatID string) (time.Time, bool) {
 		if message.LastAt.After(newest) {
 			newest = message.LastAt
 		}
+	}
+	if live, ok := t.live.sinceLastDelta(chatID); ok && live.After(newest) {
+		newest = live
 	}
 	return newest, true
 }

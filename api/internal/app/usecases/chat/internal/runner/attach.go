@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -78,6 +79,20 @@ func (rs *Runners) AttachedTerminalSession(runnerID string) (string, bool) {
 		return "", false
 	}
 	return view.termSessID, true
+}
+
+// ShowingNativeView reports whether runnerID is handed over to its provider's
+// OWN view right now — the same fact as AttachedTerminalSession, asked by a
+// caller that does not care which session it is.
+//
+// Only a non-hotswap provider can ever be in this state: a hotswap provider's
+// terminal is a second window onto a session Crowbar is still driving, so it
+// never calls SwitchToTerminal at all. That is what makes this the generic
+// signal for "the CLI's own UI is the one in front of the user", rather than a
+// provider name.
+func (rs *Runners) ShowingNativeView(runnerID string) bool {
+	_, ok := rs.attached.get(runnerID)
+	return ok
 }
 
 // ErrNoNativeTerminal is SwitchToTerminal's refusal for a provider with
@@ -167,7 +182,13 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	rs.apiConns.drop(live.ID)
 
 	argv := append([]string{binpath.Resolve(attachArgv[0])}, attachArgv[1:]...)
-	termSessID, err := rs.term.CreateCommand(ctx, live.WorkspaceID, tctx.Cwd, argv, nil,
+	// os.Environ(), the same base every ordinary spawn plans from — NOT nil.
+	// CreateCommand takes the env verbatim, so nil left the native view with
+	// three variables and no PATH or HOME: measured live, every hook
+	// APIAttachArgv wires died with exit 127 and `crowbar mcp` never started,
+	// which is the exact "reports NOTHING back to Crowbar's ledger" that
+	// method's own doc says this path exists to prevent.
+	termSessID, err := rs.term.CreateCommand(ctx, live.WorkspaceID, tctx.Cwd, argv, os.Environ(),
 		rs.onAttachExit(chatID, live.ID))
 	if err != nil {
 		// The api connection is already gone; degrade to dormant rather than leave

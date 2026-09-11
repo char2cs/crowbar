@@ -9,8 +9,24 @@ type Node = { text?: string; children?: Node[] } & Record<string, unknown>
  *  DECORATION over text a full markdown parse already produced. See that
  *  function for why the split lives in the render layer and not the document. */
 export const CHAT_FRESH_MARK = 'chatFresh'
-/** This leaf's `animation-delay`, in ms — see `staggerDelay` below. */
+/** This leaf's `animation-delay`, in ms — see `staggerDelay` below.
+ *
+ *  CONSTANT for the life of the run that produced it. It is tempting to bake
+ *  "how much of the wait is left" into this instead, since that is what a
+ *  remounted span needs; doing so makes the value change on every recompute,
+ *  and a decoration whose content changes is a decoration `isTextDecorationsEqual`
+ *  can never match — so every block holding a fading word re-renders on every
+ *  delta, and a word already on screen has the `animation-delay` of its RUNNING
+ *  animation rewritten underneath it, which jumps that animation's current time
+ *  and repaints settled text. That is the "text renders again when the sentence
+ *  finishes" report, and the `chat-fresh-text-plugin` test that pins a fading
+ *  word's delay across a neighbour's settle catches it. The elapsed part is
+ *  applied ONCE, at mount, by the leaf — see `resumedFadeDelay`. */
 export const CHAT_FRESH_DELAY_MARK = 'chatFreshDelay'
+/** When the run this leaf belongs to landed (`performance.now()`). Constant,
+ *  and the only time-derived thing a decoration carries — the leaf turns it
+ *  into "how much of the wait is left" once, at mount. */
+export const CHAT_FRESH_BORN_MARK = 'chatFreshBornAt'
 /** A finished fade still holding its place in the leaf split so the words
  *  after it keep their identity — see `pruneRuns`. Deliberately matches NO
  *  plugin: it splits the leaf (which is its whole job) and renders as the
@@ -84,6 +100,12 @@ const SCROLL_LEAD_MS = 150
 // than popping in unanimated.
 const WORD_SPLIT_CAP = 80
 
+// How long `chat-token-fade` itself runs — keep in step with transcript.css.
+const FADE_DURATION_MS = 260
+
+// One frame, the resolution `resumedFadeDelay` measures a run's age in.
+const FRAME_MS = 16
+
 /** Splits text into whitespace-preserving chunks — concatenating the result
  *  reconstructs the original string exactly, including leading/repeated
  *  whitespace, unlike a plain `.split(' ')`. */
@@ -109,6 +131,23 @@ interface FreshRun {
    *  heading and its body), and the cascade has to read as one. */
   wordOffset: number
   totalWords: number
+  /** When this text landed, as a `performance.now()` reading — stamped by
+   *  `recordRun`, never by a caller.
+   *
+   *  THE FADE IS PLAYED AGAINST THIS CLOCK, NOT AGAINST THE SPAN'S OWN LIFE.
+   *  A `.chat-fresh-text` span holds `animation-fill-mode: both` over a
+   *  keyframe that starts at `opacity: 0`, so a span that is unmounted and
+   *  remounted starts its fade AGAIN from invisible — and slate-react
+   *  remounts these constantly, because it keys each rendered leaf by its
+   *  positional index into a decoration split this module rebuilds on every
+   *  delta (measured live on one streamed 16-item list: 1918 leaf mounts for
+   *  887 animation starts, 61 of them killed before `animationend`). Without a
+   *  birth time there is nothing to measure that against: every remount looks
+   *  like brand-new text, so under a fast stream the restarts outrun the
+   *  fades and already-arrived words sit at the animation's invisible start
+   *  state for as long as the stream keeps going — the list whose bullets are
+   *  on screen with nothing under them. */
+  bornAt: number
 }
 
 // PERFORMANCE, measured (Chrome 152, a 510-word reply in 64 flushes): the
@@ -150,9 +189,12 @@ function pathEquals(a: Path, b: Path): boolean {
   return a.length === b.length && a.every((step, i) => step === b[i])
 }
 
-function recordRun(editor: PlateEditor, run: FreshRun): void {
+function recordRun(editor: PlateEditor, run: Omit<FreshRun, 'bornAt'>): void {
   const runs = freshRuns.get(editor) ?? []
-  runs.push(run)
+  runs.push({
+    ...run,
+    bornAt: typeof performance === 'object' ? performance.now() : Date.now(),
+  })
   freshRuns.set(editor, runs)
 }
 
@@ -312,6 +354,14 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
     // `pruneRuns`). It carries no mark any plugin renders, so it is plain
     // text that merely happens to be its own leaf — and, crucially, no
     // animation to be restarted if React does remount it.
+    //
+    // Deliberately NOT time-based. Retiring a run on a clock here reads as a
+    // second render of text that was already on screen: the leaf stops being
+    // the fade plugin's element and becomes a plain one, so React tears the
+    // span (and its compositor layer) down and rebuilds the text mid-sentence.
+    // The stranded-invisible case that motivated a clock is handled where it
+    // belongs instead — at mount, by `resumedFadeDelay`, which can never leave
+    // a word waiting longer than its own window however often it remounts.
     const held = settled?.has(run.generation) || run.generation <= floor
     // `wordIndex` is present only on a per-word split (never the capped
     // branch below) — see CHAT_FRESH_WORD_INDEX_MARK's own doc for why that
@@ -325,6 +375,7 @@ export function freshDecorations(editor: PlateEditor, [node, path]: NodeEntry): 
               focus: { path, offset: next },
               [CHAT_FRESH_MARK]: run.generation,
               [CHAT_FRESH_DELAY_MARK]: delay,
+              [CHAT_FRESH_BORN_MARK]: run.bornAt,
               ...(wordIndex === undefined
                 ? {}
                 : {
@@ -496,15 +547,6 @@ function lastLeaf(node: Node): Node {
   if (typeof node.text === 'string') return node
   const children = node.children ?? []
   return lastLeaf(children[children.length - 1] ?? {})
-}
-
-/** How many word-chunks a node's text spans — needed BEFORE recording runs,
- *  since every word in one insertion shares a stagger step sized off the
- *  total (see `staggerDelay`). */
-function countWords(node: Node): number {
-  if (typeof node.text === 'string') return splitIntoWords(node.text).length
-  if (!node.children) return 0
-  return node.children.reduce((sum, child) => sum + countWords(child), 0)
 }
 
 /** Records a fade over every text leaf of a newly-inserted block, threading
@@ -693,7 +735,28 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
   const prev = editor.children as Value
   const startAt = Math.min(knownStablePrefix.get(editor) ?? 0, prev.length, next.length)
   const stable = startAt + stableBlockCount(prev.slice(startAt), next.slice(startAt))
-  knownStablePrefix.set(editor, stable)
+  // NEVER LATCH THE LAST BLOCK. `stable` counts blocks that matched THIS call;
+  // the final one matching means only "it has not changed yet", never "it is
+  // finished" — it is the block the stream is still writing into. Latching it
+  // made `startAt` skip past it on every later call, so it was never compared
+  // again and every subsequent edit to it was dropped for the life of the
+  // editor.
+  //
+  // Tables are where this bites, because a table is ONE block for a great many
+  // deltas and a partially-arrived line frequently reparses to exactly what
+  // the previous delta produced (mid-separator-row `| --- | --- | -` parses to
+  // the same two paragraphs as the delta before it). One such tick was enough:
+  // reproduced live against a real Codex turn, the table froze on its header
+  // row for 6.7s while every body row streamed in unseen, then appeared all at
+  // once when the turn ended and the row swapped to `MarkdownMessageStatic` —
+  // which reparses from scratch and so never saw the stale prefix. Streamed
+  // character by character in a test, the editor diverged at the separator row
+  // and never recovered: it finished holding three paragraphs where a fresh
+  // parse of the same markdown holds a full table.
+  //
+  // The cost of not latching it is one `nodesEqual` on one block per delta —
+  // the same comparison the trailing fast paths below already have to make.
+  knownStablePrefix.set(editor, Math.min(stable, Math.max(next.length - 1, 0)))
   if (stable === prev.length && stable === next.length) return
 
   editor.tf.withoutNormalizing(() => {
@@ -812,18 +875,51 @@ export function applyStreamedValue(editor: PlateEditor, next: Value): void {
       }
     }
     pruneRuns(editor, stable)
+    // What this rebuild is about to tear down and put back, as flat text. The
+    // part of it that is CHARACTER FOR CHARACTER what was already there is
+    // already on the reader's screen, and re-marking it fresh would fade it in
+    // a second time.
+    //
+    // This is the ordinary case, not a corner: the batcher hands over one
+    // flush per frame (streaming-message-batcher.ts), so a single delta
+    // routinely both extends the open paragraph AND starts the next one. That
+    // makes `stable` land BEFORE the open paragraph while the block count also
+    // grows, which is exactly the shape that reaches this path — and without a
+    // skip the whole finished paragraph was removed, reinserted and re-faded
+    // from `opacity: 0` the moment the paragraph after it began. That is the
+    // "the sentence renders again once it finishes" report, and it is why
+    // `recordBlockRuns` grew a `skip` in the first place; only the
+    // mark-completing caller above was ever passing one.
+    const carriedOver = commonPrefixLength(
+      prev
+        .slice(stable)
+        .map((n) => flattenText(n as Node))
+        .join(''),
+      next
+        .slice(stable)
+        .map((n) => flattenText(n as Node))
+        .join(''),
+    )
     let removing = prev.length - stable
     while (removing-- > 0) editor.tf.removeNodes({ at: [stable] })
     if (stable < next.length) {
       const newNodes = next.slice(stable)
       const generation = nextFreshGeneration(editor)
       const wordIndex = { current: 0 }
-      const total = newNodes.reduce((sum, node) => sum + countWords(node as Node), 0)
+      const freshText = next
+        .slice(stable)
+        .map((n) => flattenText(n as Node))
+        .join('')
+        .slice(carriedOver)
+      const total = splitIntoWords(freshText).length
       // One `insert_node` per BLOCK — a block's whole subtree rides along
       // inside that single operation, so this stays O(blocks), never O(words).
       editor.tf.insertNodes(newNodes as Value, { at: [stable] })
+      // ONE counter threaded through every block, so the skip is consumed
+      // across the block boundary rather than restarting per block.
+      const skip = { remaining: carriedOver }
       newNodes.forEach((node, i) => {
-        recordBlockRuns(editor, node as Node, [stable + i], generation, wordIndex, total)
+        recordBlockRuns(editor, node as Node, [stable + i], generation, wordIndex, total, skip)
       })
     }
   })
@@ -837,4 +933,70 @@ export function freshLeafDelay(leaf: TText): number | null {
   if (typeof record[CHAT_FRESH_MARK] !== 'number') return null
   const delay = record[CHAT_FRESH_DELAY_MARK]
   return typeof delay === 'number' ? delay : 0
+}
+
+/**
+ * The `animation-delay` a span should MOUNT with: this word's own wait, less
+ * however much of it already went by while the run was on screen under some
+ * earlier span.
+ *
+ * Call it once per mount and never again — `chat-fresh-text-plugin.tsx` holds
+ * it in a memo keyed by the run, which is what keeps a running animation's
+ * delay from being rewritten underneath it (see CHAT_FRESH_DELAY_MARK).
+ *
+ * This is where "already-arrived text is never left invisible" is enforced,
+ * and it holds by arithmetic rather than by an event arriving. slate-react
+ * keys each rendered leaf by its positional index into a decoration split
+ * that is rebuilt on every delta, so these spans are remounted constantly
+ * while their block streams (measured live on one 16-item list: 1918 mounts
+ * for 887 animation starts). A remount used to restart the fade from
+ * `opacity: 0`, so under a fast stream the restarts outran the fades and
+ * words sat invisible for the rest of the turn. Subtracting the run's real
+ * age makes a remount RESUME: past the wait the result is negative, which CSS
+ * reads as "this animation started that long ago", and the word paints
+ * mid-fade or already opaque. Clamped at the fade's own length, so the
+ * furthest behind a remount can ever land is "finished".
+ */
+// When each run was FIRST asked for a delay — i.e. when it first reached the
+// screen. Keyed by the run's `bornAt`, which is a float timestamp and so
+// unique per run across every editor on the page.
+//
+// The origin has to be first paint rather than `bornAt` itself: the words of
+// one chunk all resolve their delay inside a single React commit, and a commit
+// that straddles a frame would otherwise hand each of them a DIFFERENT
+// elapsed, shortening every delay but the first and collapsing the cascade
+// this module exists to stage. Measuring from first paint makes the whole
+// chunk share one origin however long that commit takes.
+const firstPaintedAt = new Map<number, number>()
+// Runs retire in tens of milliseconds; this only has to not grow without
+// bound across a long session.
+const MAX_TRACKED_PAINTS = 512
+
+function paintOriginFor(bornAt: number, now: number): number {
+  const seen = firstPaintedAt.get(bornAt)
+  if (seen !== undefined) return seen
+  if (firstPaintedAt.size >= MAX_TRACKED_PAINTS) {
+    // Insertion-ordered, so the oldest half goes first.
+    let drop = MAX_TRACKED_PAINTS / 2
+    for (const key of firstPaintedAt.keys()) {
+      if (drop-- <= 0) break
+      firstPaintedAt.delete(key)
+    }
+  }
+  firstPaintedAt.set(bornAt, now)
+  return now
+}
+
+export function resumedFadeDelay(leaf: TText): number | null {
+  const base = freshLeafDelay(leaf)
+  if (base === null) return null
+  const bornAt = (leaf as unknown as Record<string, unknown>)[CHAT_FRESH_BORN_MARK]
+  if (typeof bornAt !== 'number') return base
+  const now = typeof performance === 'object' ? performance.now() : Date.now()
+  // Floored to whole frames: within the frame a run first painted in there is
+  // nothing to resume, so the word gets its nominal delay exactly — which
+  // keeps the staggered cascade the round numbers it is specified in rather
+  // than a sliver less on every mount.
+  const elapsed = Math.max(0, Math.floor((now - paintOriginFor(bornAt, now)) / FRAME_MS) * FRAME_MS)
+  return Math.max(base - elapsed, -FADE_DURATION_MS)
 }

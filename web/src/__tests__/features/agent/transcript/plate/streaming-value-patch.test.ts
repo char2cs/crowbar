@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPlateEditor } from 'platejs/react'
 import { chatComposerPlugins } from '@/features/agent/composer/plate/chat-composer-plugins'
 import { chatMarkdownToValue } from '@/features/agent/composer/plate/chat-composer-serialization'
 import {
   applyStreamedValue,
   freshDecorations,
+  resumedFadeDelay,
+  settleFreshGeneration,
   settleFreshWord,
   splitIntoWords,
   stableBlockCount,
@@ -494,6 +496,266 @@ function countOps(editor: ReturnType<typeof createPlateEditor>, run: () => void)
 //
 // These assert the COST, not just the output — a slow implementation produces
 // identical text. Both fail on the pre-decoration design.
+// Regression, root-caused live against a streaming Codex reply: one 16-item
+// numbered list produced 1918 `.chat-fresh-text` leaf mounts for 887 animation
+// starts, 61 of which never reached `animationend`.
+//
+// `.chat-fresh-text` animates from `opacity: 0` under `animation-fill-mode:
+// both`, and slate-react keys each rendered leaf by its positional index into
+// the decoration split this module rebuilds on every delta — so a span is
+// unmounted and remounted constantly while its block still streams, and each
+// remount used to start the fade AGAIN from invisible. Text was therefore
+// visible only if it won a race against the next delta, and retiring a run
+// depended entirely on hearing an `animationend` that a remount had already
+// cancelled: a run losing that race stayed live and restarted from zero for
+// the rest of the turn. That is the reported list whose bullets are on screen
+// with nothing underneath them until the turn ends.
+// The elapsed part is applied at MOUNT, by `resumedFadeDelay`, and never in
+// the decoration — see the second describe below for why.
+describe('resumedFadeDelay: a remount resumes the fade rather than restarting it', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  const animatedRangesFor = (markdown: string) => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(''),
+    })
+    applyStreamedValue(editor, chatMarkdownToValue(markdown))
+    const entry = [...editor.api.nodes({ at: [] })].find(
+      ([node]) => typeof (node as { text?: string }).text === 'string',
+    )
+    if (!entry) throw new Error('no text leaf found')
+    const ranges = freshDecorations(editor, entry) as unknown as Record<string, unknown>[]
+    return ranges.filter((r) => r.chatFresh !== undefined)
+  }
+
+  it('hands a span mounting mid-fade the remainder of its own wait', () => {
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(1_000)
+    const animated = animatedRangesFor('one two three four')
+    expect(animated.length).toBeGreaterThan(1)
+
+    const atBirth = animated.map((r) => resumedFadeDelay(r as never) as number)
+    now.mockReturnValue(1_208)
+    const remounted = animated.map((r) => resumedFadeDelay(r as never) as number)
+
+    remounted.forEach((delay, i) => {
+      // 208ms further along than it was — never back at the original wait,
+      // which is what a restart from `opacity: 0` would be.
+      expect(delay).toBeCloseTo(Math.max(atBirth[i]! - 208, -260), 5)
+    })
+  })
+
+  it('mounts a run older than its whole window already finished, never blank', () => {
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(1_000)
+    const animated = animatedRangesFor('one two three four')
+
+    // Past lead (150) + the cascade's own cap (320) + the fade (260), with no
+    // `animationend` ever delivered — exactly what a remount produces. A delay
+    // at minus the fade's own length means the animation is already over, so
+    // the word paints opaque on its very first frame instead of blank.
+    now.mockReturnValue(1_000 + 736)
+    for (const range of animated) {
+      expect(resumedFadeDelay(range as never)).toBe(-260)
+    }
+  })
+
+  it('never asks for a delay that outlives the fade, however old the run is', () => {
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(1_000)
+    const animated = animatedRangesFor('one two three four')
+    now.mockReturnValue(1_000 + 60_000)
+    for (const range of animated) {
+      expect(resumedFadeDelay(range as never)).toBeGreaterThanOrEqual(-260)
+    }
+  })
+})
+
+// Regression, caught by CI on `chat-fresh-text-plugin.test.tsx` and reported
+// live as "text renders again when the sentence finishes": the elapsed part of
+// the fade was briefly baked into the DECORATION. A decoration whose content
+// moves with the clock can never satisfy `isTextDecorationsEqual`, so every
+// block holding a fading word re-rendered on every delta — and a word already
+// on screen had the `animation-delay` of its RUNNING animation rewritten
+// underneath it, which jumps that animation's current time and repaints text
+// that had already settled.
+describe('freshDecorations: what a decoration carries does not move with the clock', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('emits identical ranges however much time has passed', () => {
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(1_000)
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(''),
+    })
+    applyStreamedValue(editor, chatMarkdownToValue('one two three four'))
+    const entry = [...editor.api.nodes({ at: [] })].find(
+      ([node]) => typeof (node as { text?: string }).text === 'string',
+    )
+    if (!entry) throw new Error('no text leaf found')
+
+    const first = freshDecorations(editor, entry)
+    for (const t of [1_001, 1_017, 1_400, 9_999, 60_000]) {
+      now.mockReturnValue(t)
+      expect(freshDecorations(editor, entry)).toEqual(first)
+    }
+  })
+})
+
+// Regression: `knownStablePrefix` used to latch every block that compared
+// equal on a call, INCLUDING the last one — the block the stream is still
+// writing into. A trailing block matching means only "unchanged so far", never
+// "finished", but latching it made the next call's `startAt` skip past it, so
+// it was never compared again and every later edit to it was dropped for the
+// life of the editor.
+//
+// Tables are where it bites: a table is ONE block for a great many deltas, and
+// a partially-arrived line often reparses to exactly what the delta before it
+// produced (landing mid-separator-row, `| --- | --- | -` parses to the same two
+// paragraphs as the tick before). One such tick was enough. Confirmed live
+// against a real Codex turn: the table froze on its header row for 6.7s while
+// every body row streamed in unseen, then all rows appeared at once the instant
+// the turn ended and the row swapped to `MarkdownMessageStatic` — which
+// reparses from scratch and so never saw the stale prefix.
+//
+// The invariant these pin down is the strong one, and it is what the whole
+// module is FOR: a patched editor must hold exactly what a fresh parse of the
+// same markdown holds, at every prefix — never merely at the end.
+describe('applyStreamedValue: the patched document matches a fresh parse at every prefix', () => {
+  /** Block types, and a table's row/cell counts — enough to catch a table that
+   *  never materialised, a row that never landed, or a stale paragraph. */
+  const shapeOf = (value: unknown[]) =>
+    value
+      .map((node) => {
+        const n = node as { type?: string; children?: unknown[] }
+        if (n.type !== 'table') return n.type ?? '?'
+        const rows = (n.children ?? []) as { children?: unknown[] }[]
+        return `table(${rows.map((r) => (r.children ?? []).length).join(',')})`
+      })
+      .join('|')
+
+  const streamCharByChar = (markdown: string) => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(''),
+    })
+    const divergences: string[] = []
+    for (let i = 1; i <= markdown.length; i++) {
+      const text = markdown.slice(0, i)
+      const fresh = chatMarkdownToValue(text)
+      applyStreamedValue(editor, fresh)
+      const got = shapeOf(editor.children as unknown[])
+      const want = shapeOf(fresh as unknown[])
+      if (got !== want) {
+        divergences.push(`at ${i} (${JSON.stringify(text.slice(-20))}): ${got} != ${want}`)
+      }
+    }
+    return { editor, divergences }
+  }
+
+  it('never falls behind while a markdown table streams in', () => {
+    const markdown = [
+      'Intro line.',
+      '',
+      '| Name | Model | Scale |',
+      '| --- | --- | --- |',
+      '| Postgres | relational | vertical |',
+      '| Cassandra | wide column | horizontal |',
+      '| Redis | key value | memory |',
+      '',
+      'Closing line.',
+      '',
+    ].join('\n')
+
+    const { editor, divergences } = streamCharByChar(markdown)
+    expect(divergences).toEqual([])
+    // Belt and braces: the table genuinely materialised rather than the whole
+    // stream having stayed paragraphs that merely agreed with each other.
+    expect(shapeOf(editor.children as unknown[])).toBe('p|table(3,3,3,3)|p')
+  })
+
+  it('never falls behind while a bold-titled list streams in', () => {
+    const markdown = [
+      'Here they are:',
+      '',
+      '1. **Slow start** — the window doubles each round trip.',
+      '2. **Congestion avoidance** — it then grows linearly.',
+      '',
+      'That is all.',
+      '',
+    ].join('\n')
+
+    const { divergences } = streamCharByChar(markdown)
+    expect(divergences).toEqual([])
+  })
+})
+
+// Regression, reported live as "text renders once while streaming and then
+// AGAIN when the sentence finishes", and measured by sampling the rendered
+// per-character opacity of a real streamed Codex reply every frame: 773 of
+// 1631 characters went fully opaque and then back to `opacity: 0` at least
+// once. Zero after this.
+//
+// The batcher hands over one flush per frame, so a single delta routinely both
+// extends the open paragraph AND starts the next one. That makes `stable` land
+// BEFORE the open paragraph while the block count also grows — the one shape
+// that reaches the tail-rebuild path, which removes those blocks and reinserts
+// them. It recorded a fresh run over EVERYTHING it reinserted, so the finished
+// paragraph faded in a second time from invisible, at exactly the moment the
+// paragraph after it began.
+describe('applyStreamedValue: a rebuild does not re-fade text already on screen', () => {
+  /** Every generation currently fading, retired as a real `animationend`
+   *  would — so what `fadeWords` reports afterwards is only what the NEXT
+   *  delta marked fresh, never a leftover from setting the scene. */
+  const settleEverything = (editor: ReturnType<typeof createPlateEditor>) => {
+    for (const entry of editor.api.nodes({ at: [] })) {
+      const [node] = entry
+      if (typeof (node as { text?: string }).text !== 'string') continue
+      for (const range of freshDecorations(editor, entry) as { chatFresh?: number }[]) {
+        if (typeof range.chatFresh === 'number') settleFreshGeneration(editor, range.chatFresh)
+      }
+    }
+  }
+
+  it('leaves the finished paragraph alone when the next one starts in the same delta', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(''),
+    })
+    const seen = 'The first paragraph is complete.'
+    applyStreamedValue(editor, chatMarkdownToValue(seen))
+    settleEverything(editor)
+    expect(fadeWords(editor).join('')).toBe('')
+
+    // ONE delta that extends the open paragraph and opens the next — what a
+    // frame's worth of coalesced deltas routinely looks like.
+    applyStreamedValue(editor, chatMarkdownToValue(`${seen} It gained a tail.\n\nSecond`))
+
+    const fresh = fadeWords(editor).join('')
+    // Text the reader has already been shown is not marked fresh again...
+    expect(fresh).not.toContain(seen)
+    // ...while everything genuinely new still fades in.
+    expect(fresh).toContain('It gained a tail.')
+    expect(fresh).toContain('Second')
+  })
+
+  it('re-fades nothing at all when the delta only opens a new block', () => {
+    const editor = createPlateEditor({
+      plugins: chatComposerPlugins,
+      value: chatMarkdownToValue(''),
+    })
+    applyStreamedValue(editor, chatMarkdownToValue('Only paragraph.'))
+    settleEverything(editor)
+    applyStreamedValue(editor, chatMarkdownToValue('Only paragraph.\n\nNext'))
+
+    const fresh = fadeWords(editor).join('')
+    expect(fresh).not.toContain('Only paragraph.')
+    expect(fresh).toContain('Next')
+  })
+})
+
 describe('applyStreamedValue: cost does not scale with the words in a chunk', () => {
   it('spends the same handful of operations on a 2-word and a 60-word append', () => {
     const short = createPlateEditor({

@@ -179,6 +179,35 @@ export function runningTools(activity: AgentActivity): AgentToolCall[] {
   return activity.toolCalls.filter((c) => c.status === 'running').sort((a, b) => a.seq - b.seq)
 }
 
+/**
+ * The turn in flight's tool calls, for as long as it has no reply to sit under.
+ *
+ * A call is filed against whichever turn was OPEN when it ran, and only once that
+ * turn closes does the ledger repoint it onto the assistant reply's own turn id.
+ * Between those two moments the calls are recorded and polled, but match no
+ * message on screen — which is why a turn's work used to become visible only
+ * after the turn had already ended.
+ *
+ * Scoped to the NEWEST turn, not to every call no loaded message claims: the
+ * transcript pages, so a chat past its first page has anchoring messages that
+ * simply are not loaded, and every one of their calls would otherwise read as
+ * live work and pile up at the bottom of an idle chat. Only the newest turn can
+ * be the open one, and for an idle chat it is always anchored — so this answers
+ * empty exactly when nothing is in flight.
+ */
+export function liveTurnToolCalls(
+  activity: AgentActivity,
+  anchoredTurnIds: ReadonlySet<string>,
+): AgentToolCall[] {
+  let newest: AgentToolCall | undefined
+  for (const call of activity.toolCalls) {
+    if (!newest || call.seq > newest.seq) newest = call
+  }
+  if (!newest || anchoredTurnIds.has(newest.turnId)) return []
+  const turnId = newest.turnId
+  return activity.toolCalls.filter((c) => c.turnId === turnId).sort((a, b) => a.seq - b.seq)
+}
+
 /** Subagents still working. Starts and stops do NOT balance on either provider —
  *  a stop also fires for anonymous internal subagents — so this counts what has
  *  a start and no end, and never tries to reconcile the two populations. */
@@ -191,6 +220,24 @@ export function runningSubagents(activity: AgentActivity): number {
 export function describeTool(call: AgentToolCall): string {
   if (!call.target) return call.name
   return `${call.name} · ${call.target}`
+}
+
+/**
+ * The last `limit` characters of live text, flattened to one line.
+ *
+ * The TAIL, not the head: on a thought and on a running tool's output alike, the
+ * newest words are the ones that say what is happening now. Providers head each
+ * thinking block with a markdown-bold title, and this renders as one plain line —
+ * running a markdown pipeline over text replaced on every token is not worth the
+ * cost — so the emphasis runs are stripped rather than shown as literal asterisks.
+ */
+export function tailOf(text: string, limit: number): string {
+  const flat = text
+    .replace(/\*{1,3}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (flat.length <= limit) return flat
+  return `…${flat.slice(flat.length - limit)}`
 }
 
 /**

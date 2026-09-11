@@ -159,6 +159,18 @@ func (d *detector) abandonedMessage(ctx context.Context, runner agents.Runner) b
 	if d.deps.Messages == nil {
 		return false
 	}
+	// A turn riding a connection Crowbar still holds is not silent because it
+	// died. Codex reasons for well over this window between tool calls on a
+	// long task — measured live at 31s of complete quiet in the middle of a
+	// security review, with 337 more events still to come — and its shell
+	// commands finish in milliseconds, so OpenWork vouches for almost none of
+	// it (148 of 149 sweeps read open_work=false). This detector fired, the
+	// turn was abandoned mid-answer and the spinner went dark while the CLI
+	// carried on. Losing the connection is reconciled directly instead — see
+	// runner/connloss.go.
+	if d.deps.Liveness != nil && d.deps.Liveness.HasLiveAPIConnection(runner.ID) {
+		return false
+	}
 	since, ok := d.deps.Messages.UnfinishedSince(runner.CurrentChatID)
 	if !ok || since.IsZero() {
 		return false

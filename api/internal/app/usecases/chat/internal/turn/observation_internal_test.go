@@ -2,9 +2,13 @@ package turn
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -55,4 +59,64 @@ func TestInterruptionID_CompactionWithNoTurnIDFallsBackToTheFixedShape(t *testin
 	id := interruptionID(t.Context(), "chat1", compactionEvent(""))
 
 	assert.Equal(t, "interrupt-chat1-compaction", id)
+}
+
+// surfaceRunners answers only the one question holdForAnswer asks of the runner
+// lifecycle: is this chat looking at its provider's own view right now.
+type surfaceRunners struct {
+	Runners
+
+	native bool
+}
+
+func (r surfaceRunners) ShowingNativeView(string) bool { return r.native }
+
+// answerableAgent declares every prompt answerable from Crowbar, which is what
+// leaves "did the desk park this relay" as the only variable below.
+type answerableAgent struct {
+	engineagents.Agent
+}
+
+func (answerableAgent) AnswerCapability(string) (engineagents.AnswerCapability, bool) {
+	return engineagents.AnswerCapability{Wait: time.Minute, Keys: []string{"allow", "deny"}}, true
+}
+
+func heldForAnswer(t *testing.T, native bool) bool {
+	t.Helper()
+
+	desk := answerdesk.New(answerdesk.DefaultRetention, nil)
+	turns := New(Deps{Answers: desk})
+	turns.SetRunners(surfaceRunners{native: native})
+
+	const deliveryID = "delivery-1"
+	turns.holdForAnswer(
+		inflight.WithDeliveryID(t.Context(), deliveryID),
+		domain.Chat{ID: "chat-1"},
+		engineagents.Runner{ID: "runner-1"},
+		answerableAgent{},
+		engineagents.CanonicalEvent{Kind: engineagents.HookPermission},
+		"choice-1",
+		[]byte(`{"tool_name":"shell"}`),
+	)
+
+	_, held := desk.Pending(deliveryID)
+	return held
+}
+
+// TestRegression_NativeViewLeavesThePromptToTheCLI pins the bug reported live
+// against codex: with the chat handed over to the provider's own TUI, a
+// permission still parked its hook relay on the answer desk. That relay IS the
+// CLI's gate — codex sat on "Action Required" drawing nothing for the whole
+// 270s budget, while the card holding the question renders only on the chat
+// surface, which a non-hotswap provider cannot reach mid-turn.
+func TestRegression_NativeViewLeavesThePromptToTheCLI(t *testing.T) {
+	assert.False(t, heldForAnswer(t, true),
+		"a chat showing its provider's own view must not have its CLI's gate held by Crowbar")
+}
+
+// The other half: with Crowbar's own chat in front of the user there is no
+// other UI to defer to, so the relay is parked exactly as it always was.
+func TestHoldForAnswer_ParksTheRelayWhenCrowbarIsTheSurface(t *testing.T) {
+	assert.True(t, heldForAnswer(t, false),
+		"a chat Crowbar is driving must still park the relay so its card can answer")
 }

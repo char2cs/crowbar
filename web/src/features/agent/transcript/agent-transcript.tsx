@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
@@ -29,10 +29,12 @@ import {
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
 import {
+  AgentLiveTurnTools,
   groupChoicesByTurn,
   groupSubagentsByTurn,
   groupToolCallsByTurn,
 } from '@/features/agent/transcript/turn-tools'
+import { liveTurnToolCalls } from '@/features/agent/lib/agent-activity'
 
 interface AgentTranscriptProps {
   /** Needed only to fetch a finished tool call's own request/result bytes on
@@ -95,6 +97,10 @@ interface AgentTranscriptProps {
    * watching structurally cannot see.
    */
   dockHeight?: number
+  /** Whether this chat is the ACTIVE tab in its pane — a background tab stays
+   *  mounted behind `visibility:hidden`, which nothing here can observe on its
+   *  own. See `UseTranscriptAnchorOptions.visible`. */
+  visible?: boolean
   /** A previously-saved scroll position for this exact chat, this session —
    *  see useTranscriptAnchor's own doc. Omitted or null: land at the
    *  bottom. */
@@ -186,6 +192,70 @@ const ROW_GAP = 18
 export function measureRowHeight(el: Element): number {
   return Math.round(el.getBoundingClientRect().height)
 }
+
+/**
+ * The virtualizer's own `measureElement`, with the one reading that is never a
+ * row height refused.
+ *
+ * A workspace switched away from is retained but `display:none`
+ * (workspace-slot-style.ts), so every row in it loses its box at the same
+ * instant and virtual-core's per-row ResizeObserver reports 0 for all of them.
+ * `resizeItem` has no zero-guard, so that writes 0 over the real height of
+ * every row the window was holding and the transcript's total size collapses —
+ * measured live on a 30-turn chat, 8329px of content came back from one
+ * workspace round-trip as 5907. Coming back to a scrollable range far shorter
+ * than the one the reader left CLAMPS the offset the browser restores, which is
+ * what left a bottom-anchored reader 2400px short of the bottom with a ~740ms
+ * glide to climb back.
+ *
+ * A row with no box has not been re-measured at all; its last real height is
+ * the honest answer, and virtual-core exposes exactly that cache.
+ */
+export function measureRowHeightOrCached(
+  el: HTMLDivElement,
+  _entry: ResizeObserverEntry | undefined,
+  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+): number {
+  const height = measureRowHeight(el)
+  if (height > 0) return height
+  const key = instance.options.getItemKey(instance.indexFromElement(el))
+  return instance.itemSizeCache.get(key) ?? height
+}
+
+/**
+ * How many consecutive animation frames the virtualized list's TOTAL HEIGHT has
+ * to hold still before a chat that has just opened is shown — see `settled` in
+ * `AgentTranscript`.
+ *
+ * Opening a chat is not one layout, it is a convergence loop. A row's height
+ * starts as `estimateRowHeight`'s guess; `measureElement` corrects it; the
+ * correction changes the total; the total change reaches
+ * `use-transcript-anchor`'s ResizeObserver, which moves `scrollTop`; the scroll
+ * event reaches the virtualizer A FRAME LATER and changes which rows are in
+ * range; and those newly-ranged rows arrive as guesses again. Every lap of that
+ * loop paints. Measured live on a 30-turn chat opened from the sidebar, at
+ * ordinary speed, with no artificial load:
+ *
+ *   t+0ms    rows still ranged for the previous offset — viewport blank
+ *   t+63ms   top row #85 at y=-46
+ *   t+82ms   top row #83 at y=-26   total 9569 -> 9167: content moves 402px
+ *   t+105ms  total 9129             another 38px
+ *
+ * Four painted positions in ~105ms. `scrollTop` is the true bottom in every one
+ * of them — this is not a scroll bug and no scroll-position fix removes it; the
+ * CONTENT is changing height under a correctly anchored viewport because the
+ * rows in view were over-estimated. Reported as "opening an OLD chat makes it
+ * so that the scroll starts at the top, and THEN scrolls to the bottom", and
+ * measured identically on all three ways in: opening the workspace, opening the
+ * chat into a new tab, and closing and reopening an already-visited one.
+ *
+ * Counting FRAMES rather than waiting a duration is what keeps this honest: the
+ * count restarts on every real change, so this waits exactly as long as the
+ * cascade actually runs and no longer. Three because the cascade's own laps are
+ * one frame apart and it plateaus for a frame mid-way (9569 twice above) — two
+ * would release inside its own pause.
+ */
+const SETTLE_QUIET_FRAMES = 3
 
 /** An unmeasured row's opening guess FLOOR — a short assistant reply's real
  *  shape (padding + one prose line + turnbar + its own group gap), not 64,
@@ -379,10 +449,15 @@ function TranscriptRowView({
 // react-doctor-disable-next-line no-giant-component -- see comment above, splitting this is a separate architectural pass
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { messages, queue, dockHeight } = props
+  // Whether this chat's OPENING measurement cascade is over — see
+  // `SETTLE_QUIET_FRAMES`. Until it is, the virtualized rows are laid out and
+  // measured but not shown.
+  const [settled, setSettled] = useState(false)
   const anchor = useTranscriptAnchor({
     loadingHistory: props.loading,
     initialPosition: props.initialScrollPosition,
     onPositionChange: props.onScrollPositionChange,
+    visible: props.visible,
   })
   const scrollFrame = useScrollFrameSpan()
   // The dock overlays this transcript rather than sizing it (see
@@ -438,6 +513,27 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     if (inherited) return
     if (newest) {
       pinnedItem.current = newestItem
+      // ONLY IF THIS PROMPT IS ACTUALLY STARTING A TURN. A prompt sent while
+      // one is still running starts nothing — it QUEUES (the composer says
+      // "Queue a message…") until the current turn finishes. `pinTurnToTop`'s
+      // whole contract is "a turn is starting, give its reply room to grow
+      // into", and none of that holds here: no reply is coming yet, so the
+      // room it reserves just sits empty.
+      //
+      // And the blank is the lesser half. Lifting the queued row to the top of
+      // the viewport pushes the turn that IS running off the top, so the
+      // reader loses sight of the reply actually being written. Captured live
+      // mid-queue, in `.scroll`-relative coordinates:
+      //
+      //   row       top=-80  "Running the exact command now…"  streaming, off-screen
+      //   row       top=-32  "The command is still running"    streaming, off-screen
+      //   queued    top=16   the queued prompt, pinned
+      //   activity  top=96   "Calculating… · 1:04"
+      //   padding-bottom: 401px, real content ending at y=163 of a 754px pane
+      //
+      // Reported twice from a screenshot showing an entirely blank transcript
+      // with the composer reading "Queue a message…".
+      if (props.working) return
       const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
         `[data-client-request-id="${CSS.escape(newest)}"]`,
       )
@@ -455,9 +551,31 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // gap instead of releasing it. `pinTurnToTop(null)` — the documented
     // release path — is the only way out of that once it has happened, and
     // nothing else in this file ever calls it.
-    const settled = pinnedItem.current && messages.some((m) => samePrompt(m, pinnedItem.current!))
-    if (!settled) anchor.pinTurnToTop(null)
+    const settled = pinnedItem.current
+      ? messages.find((m) => samePrompt(m, pinnedItem.current!))
+      : undefined
+    if (!settled) {
+      anchor.pinTurnToTop(null)
+    } else {
+      // Re-anchored to the LEDGER row that replaced the queued one, rather
+      // than left holding an offset with nothing to re-measure against. The
+      // pin survives the swap either way (it keeps an offset, not the
+      // element), but an offset alone assumes nothing above the pin ever
+      // moves — and `lastInAgentRun` above empties the moment `working` goes
+      // true, so every settled reply on screen loses its turnbar. Whether the
+      // turnbars go before or after this swap is a race; re-anchoring here
+      // means `applyTailRoom` has a live element to re-measure from either
+      // way.
+      const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
+        `[data-sequence="${settled.sequence}"]`,
+      )
+      if (row) anchor.pinTurnToTop(row)
+    }
     pinnedItem.current = null
+    // `props.working` is READ, not depended on: this effect exists to react to
+    // the QUEUE changing, and re-running it when a turn merely starts or stops
+    // would re-enter the branches above against a `newest` that has not moved.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, props.working is read not tracked
   }, [queue, messages, anchor.scrollRef, anchor.pinTurnToTop])
   const callsByTurn = useMemo(
     () => groupToolCallsByTurn(props.activity.toolCalls),
@@ -470,6 +588,21 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   const choicesByTurn = useMemo(
     () => groupChoicesByTurn(props.activity.choices),
     [props.activity.choices],
+  )
+  // Which turns already have a reply row that can hold their tool calls. Only
+  // an assistant message anchors one — TranscriptRowView hands `callsByTurn` to
+  // nothing else — so counting any other role here would hide a live turn's
+  // work behind a row that never draws it.
+  const anchoredTurnIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const message of messages) {
+      if (message.role === 'assistant' && message.turnId) ids.add(message.turnId)
+    }
+    return ids
+  }, [messages])
+  const liveToolCalls = useMemo(
+    () => liveTurnToolCalls(props.activity, anchoredTurnIds),
+    [props.activity, anchoredTurnIds],
   )
   const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
   // Empty while `working` — the settled reply this would otherwise mark is not
@@ -521,7 +654,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     getScrollElement: () => anchor.scrollRef.current,
     estimateSize: (index) => estimateRowHeight(rows[index]),
     overscan: 12,
-    measureElement: measureRowHeight,
+    measureElement: measureRowHeightOrCached,
     getItemKey,
     observeElementRect: observeScrollRect,
     // Off by design, not a default left alone. `measureElement`'s ref fires
@@ -543,6 +676,56 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     // what removes the conflict rather than papering over its symptom.
     useFlushSync: false,
   })
+
+  // Watches the virtualized list's total height until it stops moving, then
+  // shows it — see `SETTLE_QUIET_FRAMES` for what is moving and why. Runs only
+  // while a chat is opening: `settled` latches true and this stops for good.
+  useEffect(() => {
+    // NOT ON SCREEN, so this has not opened yet. A background tab lays out and
+    // measures behind `visibility:hidden` — and then measures AGAIN when it is
+    // brought to the front, because its rows only get their real paint-time
+    // sizes once they are actually painted. Letting it latch while hidden spent
+    // the gate on a settle nobody saw, and the reader got the whole cascade on
+    // the first switch to that tab: measured live, three content states and a
+    // 338px shift in ~130ms.
+    if (settled || rows.length === 0 || props.visible === false) return
+    let quiet = 0
+    let last = -1
+    let frame = 0
+    const step = () => {
+      const el = anchor.scrollRef.current
+      // NOTHING IS LAID OUT YET, so nothing is converging yet. A chat mounts
+      // well before its pane has a box — a second tab opens hidden, a workspace
+      // slot is `display:none` until it is switched to — and with no viewport to
+      // range against, the virtualizer renders no rows and the total sits
+      // perfectly still at its opening estimate. Counting those frames as quiet
+      // latched this open before the first row had ever rendered, and the whole
+      // cascade then played out in full view.
+      if (!el || el.clientHeight === 0 || rowVirtualizer.getVirtualItems().length === 0) {
+        quiet = 0
+        last = -1
+        frame = requestAnimationFrame(step)
+        return
+      }
+      const total = rowVirtualizer.getTotalSize()
+      if (total !== last) {
+        last = total
+        quiet = 0
+      } else {
+        quiet += 1
+      }
+      if (quiet >= SETTLE_QUIET_FRAMES) {
+        setSettled(true)
+        return
+      }
+      frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+    // `anchor.scrollRef` is a ref: `.current` is read fresh inside the frame
+    // callback regardless of this list — React's own documented exemption.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
+  }, [settled, rows.length, rowVirtualizer, props.visible])
 
   // The streaming bubble's own LAST REAL height, by message sequence — kept
   // only as long as that message is actually streaming. Read once, in the
@@ -658,6 +841,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         anchor.onScroll()
         scrollFrame.onScrollEvent()
       }}
+      // A REAL gesture at the transcript outranks the opening gate above,
+      // whatever is still resizing behind it: a reader reaching for a chat is
+      // owed the chat. Deliberately not `onScroll`, which fires for this
+      // component's own programmatic writes (the anchor's mount landing among
+      // them) and would release the gate before the first row had rendered.
+      onWheel={() => setSettled(true)}
+      onPointerDown={() => setSettled(true)}
     >
       {/* Bottom-anchor for a SHORT conversation — see transcript.css's own
           comment on `.scroll-spacer` for why this is a separate flex-grow
@@ -700,7 +890,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             between a zero-height box and whatever follows it — the old
             `messages.map` over an empty array emitted no element at all. */}
         {rows.length > 0 && (
-          <div className="virtual-rows" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+          <div
+            className="virtual-rows"
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              ...(settled ? null : { visibility: 'hidden' }),
+            }}
+          >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const row = rows[virtualRow.index]
               if (!row) return null
@@ -754,6 +950,14 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             streaming
           />
         ))}
+        {/* Directly under the reply-so-far, which is where these same rows end
+            up once the turn closes and they reparent onto its message row. */}
+        <AgentLiveTurnTools
+          calls={liveToolCalls}
+          toolOutput={props.toolOutput}
+          wsId={props.wsId}
+          chatId={props.chatId}
+        />
         {queue.map((item, index) => {
           // The ABSOLUTE first turn, exactly as firstTurnSequence reasons about
           // it above: nothing loaded yet, nothing older to page in, and this is
@@ -789,7 +993,6 @@ export function AgentTranscript(props: AgentTranscriptProps) {
           since={messages.at(-1)?.at}
           compactingLive={props.compacting}
           reasoning={props.reasoning}
-          toolOutput={props.toolOutput}
           plan={props.plan}
         />
         {/* A REAL, measured spacer — not `.scroll`'s own `padding-bottom` (see
