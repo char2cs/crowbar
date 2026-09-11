@@ -93,15 +93,16 @@ export function useTabDrag({
 
       dragPointRef.current = point
 
-      // Update cross-pane hover state whenever the pointer is over a different pane
-      // or a split zone of any pane. The old isPointOutsideTabBar gate broke horizontal
-      // splits: both tab bars sit at the same Y, so verticalSlop=64 never triggered.
+      // Update cross-pane hover state whenever the pointer is over a different
+      // pane. Law 3 — "a pane group is a group of chats, never of tabs" — a
+      // tab can never split a pane, so the zone is always normalized to
+      // 'center' here: publishing the raw edge zone would light up
+      // SplitDropOverlay's directional "this will create a new pane" quadrant,
+      // the same affordance a chat drag gets, even though dropping a tab on
+      // any edge just moves it into the existing pane (see handleDragEnd).
       const dropTarget = resolveDropTarget(point)
-      if (
-        dropTarget.paneId !== null &&
-        (dropTarget.paneId !== paneId || dropTarget.zone !== 'center')
-      ) {
-        setInternalTabDragHoverTarget(dropTarget)
+      if (dropTarget.paneId !== null && dropTarget.paneId !== paneId) {
+        setInternalTabDragHoverTarget({ paneId: dropTarget.paneId, zone: 'center' })
       } else {
         // Hovering over the source tab bar (reorder mode) — clear any stale indicator
         setInternalTabDragHoverTarget({ paneId: null, zone: null })

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
+import type { DragEndEvent, DragMoveEvent, DragStartEvent } from '@dnd-kit/core'
 import { useTabDrag } from '@/features/tabs/hooks/use-tab-drag'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import {
@@ -8,6 +8,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import type { EditorContent, PaneContent } from '@/features/panes/types/pane-content'
+import { getInternalTabDragHover } from '@/features/tabs/utils/internal-tab-drag'
 
 /**
  * Dropping a tab on another pane runs two store calls back to back:
@@ -159,4 +160,67 @@ describe('useTabDrag — dropping a tab on another pane', () => {
   // that already had one deleted the dragged buffer. The placeholder type no
   // longer exists (Task 1), so there is no duplicate to drop and no buffer a
   // move is allowed to delete — `moveEditorTabToPane` only ever moves.
+})
+
+/** A `[data-pane-id]` element sized/positioned so a point can be aimed at a
+ *  specific normalized zone within it via `getPaneDropZoneFromRect`. */
+function paneBodyElement(
+  paneId: string,
+  rect: { left: number; top: number; width: number; height: number },
+): HTMLElement {
+  const el = document.createElement('div')
+  el.setAttribute('data-pane-id', paneId)
+  Object.defineProperty(el, 'getBoundingClientRect', {
+    value: () => ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height }),
+  })
+  document.body.appendChild(el)
+  return el
+}
+
+describe('useTabDrag — hover zone published during a drag', () => {
+  // Spec §7.3 (Law 3): "a pane group is a group of chats, never of tabs" — a
+  // dragged tab can only ever land inside a pane's existing tab group, never
+  // split it. Publishing the RAW edge zone here would light up
+  // SplitDropOverlay's directional "this will create a new pane" quadrant —
+  // the same affordance a chat drag gets — even though dropping a tab there
+  // silently just moves it in. The published zone must always read 'center'
+  // for a tab drag, whatever edge the pointer is actually over.
+  it('normalizes an edge hover over another pane to "center" — tabs never publish a split zone', () => {
+    const leftTab = openTab(ROOT_PANE_ID, 'left-tab')
+    const rightPaneId = windowPaneStore.getState().paneActions.splitPane(
+      ROOT_PANE_ID,
+      'horizontal',
+    )!
+
+    // Point at x=5 within a 200-wide pane rect starting at x=0: nx = 0.025,
+    // well inside the 0.25 threshold for the 'left' edge zone.
+    stubElementsFromPoint([paneBodyElement(rightPaneId, { left: 0, top: 0, width: 200, height: 100 })])
+
+    const hook = renderHook(() =>
+      useTabDrag({
+        paneId: ROOT_PANE_ID,
+        sortedBuffers: [leftTab],
+        onTabSelect: () => {},
+        onTabClick: () => {},
+        onReorderBuffers: () => {},
+        onMoveBufferToPane: () => {},
+        onActivatePaneBuffer: () => {},
+        onSplitPane: () => undefined,
+      }),
+    )
+
+    act(() => {
+      hook.result.current.handleDragStart({
+        active: { id: leftTab.id },
+        activatorEvent: { clientX: 5, clientY: 50 },
+      } as unknown as DragStartEvent)
+    })
+    act(() => {
+      hook.result.current.handleDragMove({
+        active: { id: leftTab.id, rect: { current: { initial: null, translated: null } } },
+      } as unknown as DragMoveEvent)
+    })
+
+    expect(getInternalTabDragHover()).toEqual({ paneId: rightPaneId, zone: 'center' })
+  })
 })
