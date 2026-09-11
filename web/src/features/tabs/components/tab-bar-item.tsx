@@ -107,7 +107,7 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
-        variant="underline"
+        variant="ghost"
         className={cn(
           'h-8',
           'gap-1.5 pl-2.5 pr-8',

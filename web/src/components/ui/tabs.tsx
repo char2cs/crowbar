@@ -87,8 +87,14 @@ export interface TabProps extends React.ButtonHTMLAttributes<HTMLButtonElement> 
    * children, which doesn't fit a dnd-kit-sortable, dynamically-mutating tab
    * strip) — it's the same visual tokens (bg-primary, 2px), applied
    * per-button so any standalone `Tab` can carry it.
+   * 'ghost': the IDE sector's own tab strip — the same toolbar-button recipe
+   * as its row neighbours (`SplitToggleButton`/`CloseViewButton`/
+   * `TabAddButton`: transparent at rest, `sidebar-element-hover` on
+   * hover/active, rounded-sm, no underline bar) so a tab reads as the same
+   * chrome family as the buttons beside it rather than a distinct pill or
+   * underline treatment.
    */
-  variant?: 'pill' | 'underline'
+  variant?: 'pill' | 'underline' | 'ghost'
   size?: 'xs' | 'sm' | 'md' | 'lg'
   labelPosition?: 'start' | 'center' | 'end'
   maxWidth?: number
@@ -156,12 +162,19 @@ const Tab = React.forwardRef<HTMLButtonElement, TabProps>(
               'border-transparent hover:bg-accent',
               isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
             )
-          : cn(
-              'rounded-full',
-              isActive
-                ? 'rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
-                : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
-            ),
+          : variant === 'ghost'
+            ? cn(
+                'rounded-sm border-transparent hover:bg-sidebar-element-hover',
+                isActive
+                  ? 'bg-sidebar-element-hover text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )
+            : cn(
+                'rounded-full',
+                isActive
+                  ? 'rounded-full border-background bg-background text-foreground shadow-xs shadow-black/10 not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
+                  : 'border-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
+              ),
         className,
       )}
       {...props}

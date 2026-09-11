@@ -55,3 +55,54 @@ describe('Tab — a mouse click never leaves it visibly focused', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 })
+
+// The IDE sector's tab strip (tab-bar-item.tsx) and the chat identity header
+// (chat-branch-header.tsx) both need the "ghost toolbar button" treatment
+// SplitToggleButton/CloseViewButton already use — transparent at rest,
+// sidebar-element-hover on hover/active, rounded-sm, no underline bar — so a
+// tab reads as part of the same chrome family as its neighbours in the row
+// rather than the filled-pill/underline treatments the other two variants use.
+describe('Tab ghost variant', () => {
+  it('is transparent with muted text at rest', () => {
+    render(
+      <Tab variant="ghost" isActive={false}>
+        File.ts
+      </Tab>,
+    )
+    const tab = screen.getByRole('button', { name: 'File.ts' })
+    expect(tab).toHaveClass('border-transparent')
+    expect(tab).toHaveClass('text-muted-foreground')
+    expect(tab).not.toHaveClass('bg-sidebar-element-hover')
+  })
+
+  it('shows a persistent sidebar-element-hover fill and foreground text when active', () => {
+    render(
+      <Tab variant="ghost" isActive>
+        File.ts
+      </Tab>,
+    )
+    const tab = screen.getByRole('button', { name: 'File.ts' })
+    expect(tab).toHaveClass('bg-sidebar-element-hover')
+    expect(tab).toHaveClass('text-foreground')
+  })
+
+  it('never renders the underline-variant bar, even when active', () => {
+    render(
+      <Tab variant="ghost" isActive>
+        File.ts
+      </Tab>,
+    )
+    expect(screen.queryByTestId('tab-underline')).not.toBeInTheDocument()
+  })
+
+  it('never renders the pill variant fill/rounding', () => {
+    render(
+      <Tab variant="ghost" isActive>
+        File.ts
+      </Tab>,
+    )
+    const tab = screen.getByRole('button', { name: 'File.ts' })
+    expect(tab).not.toHaveClass('rounded-full')
+    expect(tab).not.toHaveClass('bg-background')
+  })
+})

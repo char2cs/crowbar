@@ -33,7 +33,7 @@ const shared = {
   handleTabPin: () => {},
 }
 
-describe('TabBarItem underline restyle', () => {
+describe('TabBarItem ghost restyle', () => {
   it('active tab is flat, not a filled rounded pill', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     const tab = screen.getByRole('tab')
@@ -50,15 +50,21 @@ describe('TabBarItem underline restyle', () => {
     expect(tab).toHaveClass('text-muted-foreground')
   })
 
-  it('active tab carries the same 2px primary underline bar as the pane-head design (Main.dc.html .hitem.is-on::after)', () => {
+  // The IDE sector's tab strip reads as the same ghost-toolbar-button family
+  // as the split-toggle/close-view/add-tab buttons in the same row — no
+  // underline bar, a persistent sidebar-element-hover fill on the active tab.
+  it('active tab carries a persistent sidebar-element-hover fill, not an underline bar', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
-    const bar = screen.getByTestId('tab-underline')
-    expect(bar).toHaveClass('bg-primary')
-    expect(bar).toHaveClass('h-0.5')
+    const tab = screen.getByRole('tab')
+    expect(tab).toHaveClass('bg-sidebar-element-hover')
+    expect(tab).toHaveClass('text-foreground')
+    expect(screen.queryByTestId('tab-underline')).not.toBeInTheDocument()
   })
 
-  it('inactive tab has no underline bar', () => {
+  it('inactive tab has no fill and no underline bar', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={false} {...shared} />)
+    const tab = screen.getByRole('tab')
+    expect(tab).not.toHaveClass('bg-sidebar-element-hover')
     expect(screen.queryByTestId('tab-underline')).not.toBeInTheDocument()
   })
 
