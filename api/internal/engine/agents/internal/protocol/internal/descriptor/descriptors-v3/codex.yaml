@@ -571,6 +571,14 @@ presentation:
     resume:
       - pass_arg: { positional: "--" }
       - pass_arg: { positional: "{message}" }
+    # Measured on 0.149.1, argv prompt: a message opening with `!` is RUN as a
+    # shell command, never sent to the model — `![shot.png](/…/shot.png)` (an
+    # image attached before anything was typed) executed as
+    # `[shot.png](/…/shot.png)`. A leading SPACE is enough, also measured; do
+    # not "simplify" it to a newline without re-measuring.
+    leading_sigils:
+      chars: ["!"]
+      escape: " "
   # `debug prompt-input` renders model-visible instructions without
   # starting a turn; the native /skills menu may hold more.
   slash_catalog:

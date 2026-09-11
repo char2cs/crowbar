@@ -13,6 +13,7 @@ import (
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -90,6 +91,11 @@ func (rs *Runners) spawnRunner(
 	crowbarHome, projectID, repoID := paths.crowbarHome, paths.projectID, paths.repoID
 	worktree, tmpDir := paths.worktree, paths.tmpDir
 
+	descriptor, err := rs.agents.Get(ctx, crowbarHome, providerID)
+	if err != nil {
+		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
+	}
+
 	// Copies of promptMessage and conversation for dispatch — the durable ledger
 	// text is never mutated. conversation (AssembleConversation's rendering of
 	// the prior exchange, handed to a freshly spawned CLI on a restart or a
@@ -98,13 +104,15 @@ func (rs *Runners) spawnRunner(
 	// this, only the CURRENT prompt's attachments resolved to real paths, and
 	// every earlier attachment a resumed/switched-to CLI was handed the
 	// literal logical reference for a file it therefore could not read.
-	dispatchMessage := materializeAttachmentsForDispatch(paths.chatsDir, chatID, promptMessage)
+	//
+	// The sigil guard runs BEFORE materialization, while the attachment is still
+	// the logical `chats/<id>/attachments/<file>` reference its pattern is
+	// written against; the escape it may prepend does not disturb the rewrite.
+	sigils, escape := descriptor.PromptLeadingSigils()
+	guardedMessage := promptsigil.Guard(sigils, escape, chatID, promptMessage)
+	dispatchMessage := materializeAttachmentsForDispatch(paths.chatsDir, chatID, guardedMessage)
 	dispatchConversation := materializeAttachmentsForDispatch(paths.chatsDir, chatID, conversation)
 
-	descriptor, err := rs.agents.Get(ctx, crowbarHome, providerID)
-	if err != nil {
-		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
-	}
 	// The tool surface is switched off by rendering a descriptor that does not
 	// declare one, rather than by filtering steps at the injection site: WHERE those
 	// steps land is the descriptor's business (claude's --mcp-config is variadic and
