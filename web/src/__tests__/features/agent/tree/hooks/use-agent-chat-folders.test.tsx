@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { listChatFolders } = vi.hoisted(() => ({ listChatFolders: vi.fn() }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({ listChatFolders }))
+vi.mock('@/features/agent/api/agent-api', () => ({ getPendingPrompt: vi.fn().mockResolvedValue(null), listChatFolders }))
 
 // The registry's own persistence subscriptions, stubbed the same way
 // workspace-store-registry.test.ts does — nothing here exercises layout or

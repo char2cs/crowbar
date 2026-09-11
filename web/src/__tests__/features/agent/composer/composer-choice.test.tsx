@@ -13,6 +13,7 @@ const { answerChoiceFn, setChatPermissionLevelFn } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   answerChoice: (...args: unknown[]) => answerChoiceFn(...args),
   setChatPermissionLevel: (...args: unknown[]) => setChatPermissionLevelFn(...args),
   PERMISSION_LEVEL_OPTIONS: [

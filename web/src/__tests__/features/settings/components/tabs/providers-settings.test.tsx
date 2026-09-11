@@ -31,6 +31,7 @@ const {
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   updateProviderPreferences: (...a: unknown[]) => updateProviderPreferencesFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
   getDefaultPermissionLevel: (...a: unknown[]) => getDefaultPermissionLevelFn(...a),

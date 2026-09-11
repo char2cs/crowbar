@@ -25,7 +25,7 @@ const { deleteChat, deleteChatFolder } = vi.hoisted(() => ({
   deleteChatFolder: vi.fn(),
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({ deleteChat, deleteChatFolder }))
+vi.mock('@/features/agent/api/agent-api', () => ({ getPendingPrompt: vi.fn().mockResolvedValue(null), deleteChat, deleteChatFolder }))
 
 // The store's own persistence subscriptions, stubbed: a removal must not try to
 // write a layout or an IndexedDB session in a jsdom test.

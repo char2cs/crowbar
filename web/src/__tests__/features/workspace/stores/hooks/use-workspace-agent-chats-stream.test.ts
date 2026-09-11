@@ -93,6 +93,7 @@ vi.mock('@/lib/workspace-scope-url', () => ({
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   listChats: (...a: unknown[]) => listChatsFn(...a),
   getChat: (...a: unknown[]) => getChatFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),

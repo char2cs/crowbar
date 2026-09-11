@@ -15,6 +15,7 @@ vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
   loadReconnect: vi.fn(() => null),
 }))
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   stopChat: vi.fn(async () => {}),
   deleteChat: vi.fn(async () => {}),
 }))

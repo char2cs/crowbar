@@ -31,7 +31,7 @@ const { createChat, toastSpawnFailure } = vi.hoisted(() => ({
   createChat: vi.fn(),
   toastSpawnFailure: vi.fn(),
 }))
-vi.mock('@/features/agent/api/agent-api', () => ({ createChat }))
+vi.mock('@/features/agent/api/agent-api', () => ({ getPendingPrompt: vi.fn().mockResolvedValue(null), createChat }))
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 
 type FakePane = { activeBufferId: string | null; bufferIds: string[] }

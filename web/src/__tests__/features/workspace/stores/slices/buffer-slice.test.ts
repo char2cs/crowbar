@@ -32,6 +32,7 @@ const { stopChat, deleteChat } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   stopChat,
   deleteChat,
 }))

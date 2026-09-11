@@ -26,6 +26,7 @@ const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn, stopChat
 )
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   listChatMessages: (...args: unknown[]) => listMessagesFn(...args),
   submitAgentPrompt: (...args: unknown[]) => submitPromptFn(...args),
   getSlashCatalog: (...args: unknown[]) => slashCatalogFn(...args),

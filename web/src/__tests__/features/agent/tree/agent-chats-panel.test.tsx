@@ -53,6 +53,7 @@ const {
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   createChat: (...a: unknown[]) => createChatFn(...a),
   deleteChat: (...a: unknown[]) => deleteChatFn(...a),
   renameChat: (...a: unknown[]) => renameChatFn(...a),
