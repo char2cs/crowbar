@@ -317,10 +317,12 @@ export function usePromptQueue(options: PromptQueueOptions) {
   // idle is lost, and does not record anywhere." This case used to be
   // indistinguishable from the vouched-for one above, so the item was filtered
   // out — erasing it from this queue and, on the same tick, from localStorage.
-  // At that moment the queued text is the ONLY copy in the entire system: the
-  // daemon's delivery journal records a HASH of the prompt and never the text,
-  // and by definition nothing reached the ledger. The user's words were gone for
-  // good, with no error and no trace.
+  // At that moment the queued text is the ONLY copy left: the journal itself
+  // now stores the literal text too, but a settled record is a PROVEN-OVER
+  // outcome PendingPrompt deliberately never recovers (runner/pendingprompt.go)
+  // — the backend will not hand this text back again — and by definition
+  // nothing reached the ledger. The user's words were gone for good, with no
+  // error and no trace.
   //
   // So the row stays, carrying its text and the Retry/Edit affordances a failed
   // row already renders. `failed` rather than `outcome_uncertain` deliberately:
@@ -359,7 +361,10 @@ export function usePromptQueue(options: PromptQueueOptions) {
       updateQueue((current) => {
         if (current.some((item) => item.text.trim() === pending.text.trim())) return current
         const recovered: PromptQueueItem = {
-          clientRequestId: requestId(),
+          // The journal's own request id, NOT a freshly minted one: it is what
+          // keeps this row inside the at-most-once retry dedup and lets the
+          // daemon's settled/abandoned broadcasts ever match it.
+          clientRequestId: pending.requestId,
           text: pending.text,
           state: 'outcome_uncertain',
           createdAt: new Date().toISOString(),

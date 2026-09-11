@@ -718,6 +718,10 @@ export async function getChatTelemetry(
 export interface PendingPrompt {
   text: string
   state: string
+  /** The original client request id this submission was journalled under —
+   *  not freshly minted, so a recovered row stays deduped against a retry and
+   *  matches the settled/abandoned broadcasts that resolve it. */
+  requestId: string
 }
 
 /** Recover a chat's most recent prompt submission the backend has not yet

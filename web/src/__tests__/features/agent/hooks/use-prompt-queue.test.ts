@@ -284,15 +284,21 @@ describe('usePromptQueue recovering a lost prompt from the backend', () => {
     getPendingPrompt.mockResolvedValueOnce({
       text: 'please rename this function',
       state: 'dispatching',
+      requestId: '5c1b1c8a-2f3e-4a9b-9d1e-6a2b3c4d5e6f',
     })
 
     const { result } = mount(options({ visible: true }))
     await act(async () => {})
 
+    // The recovered row carries the JOURNAL's own request id, not a freshly
+    // minted one — that is what keeps it inside the at-most-once retry dedup
+    // and lets a settled/abandoned broadcast for it ever match (see
+    // use-prompt-queue.ts's own recovery effect).
     expect(result.current.queue).toContainEqual(
       expect.objectContaining({
         text: 'please rename this function',
         state: 'outcome_uncertain',
+        clientRequestId: '5c1b1c8a-2f3e-4a9b-9d1e-6a2b3c4d5e6f',
       }),
     )
   })
@@ -322,6 +328,7 @@ describe('usePromptQueue recovering a lost prompt from the backend', () => {
     getPendingPrompt.mockResolvedValueOnce({
       text: 'already tracked prompt',
       state: 'dispatching',
+      requestId: '5c1b1c8a-2f3e-4a9b-9d1e-6a2b3c4d5e6f',
     })
 
     const { result } = mount(options({ visible: true }))

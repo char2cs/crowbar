@@ -221,10 +221,18 @@ describe('agent-api', () => {
       expect(result).toBeNull()
     })
 
-    it('returns the recovered text and state when something is pending', async () => {
-      apiFetch.mockResolvedValueOnce({ text: 'please rename this function', state: 'dispatching' })
+    it('returns the recovered text, state and request id when something is pending', async () => {
+      apiFetch.mockResolvedValueOnce({
+        text: 'please rename this function',
+        state: 'dispatching',
+        requestId: '5c1b1c8a-2f3e-4a9b-9d1e-6a2b3c4d5e6f',
+      })
       const result = await api.getPendingPrompt('w1', 'c1')
-      expect(result).toEqual({ text: 'please rename this function', state: 'dispatching' })
+      expect(result).toEqual({
+        text: 'please rename this function',
+        state: 'dispatching',
+        requestId: '5c1b1c8a-2f3e-4a9b-9d1e-6a2b3c4d5e6f',
+      })
     })
 
     it('GETs the cancellable pending-prompt route with no read retry/cache layer', async () => {
