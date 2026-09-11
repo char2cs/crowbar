@@ -183,3 +183,78 @@ describe('usePromptQueue during a compaction', () => {
     expect(result.current.queue.map((item) => item.state)).toEqual(['submitting', 'queued'])
   })
 })
+
+// REGRESSION, reported live against codex: "User's turns after some time of idle
+// is lost, and does not record anywhere."
+//
+// The daemon retires a delivery that produced no turn and announces it. That
+// announcement used to say only "this is over", and the queue answered by
+// deleting the item — which deletes the user's TEXT, from this queue and, on the
+// same tick, from localStorage. At that moment the queued item is the only copy
+// of what the user typed anywhere in the system: the daemon's delivery journal
+// records a hash of the prompt and never the text, and by definition nothing
+// reached the ledger. The words were unrecoverable, and no error was shown.
+//
+// The frame now distinguishes the two cases. Nothing here is timing-based.
+describe('usePromptQueue when the daemon retires a delivery', () => {
+  beforeEach(() => {
+    submitAgentPrompt.mockReset()
+    submitAgentPrompt.mockResolvedValue({ runnerId: 'r1' })
+    localStorage.clear()
+  })
+
+  /** Drives one prompt to `awaiting_turn` — the state a delivered prompt sits in
+   *  while it waits for its user message to appear in the ledger. */
+  async function awaitingPrompt() {
+    const mounted = mount(options())
+    await act(async () => {
+      mounted.result.current.enqueue('the precious words the user typed')
+    })
+    await act(async () => {})
+    expect(mounted.result.current.queue[0]?.state).toBe('awaiting_turn')
+    return mounted
+  }
+
+  it('keeps the text when nothing proved the provider took the prompt', async () => {
+    const { result, rerender } = await awaitingPrompt()
+    const settledId = result.current.queue[0]?.clientRequestId ?? ''
+
+    await act(async () => {
+      rerender(options({ abandonedPrompts: [settledId] }))
+    })
+
+    expect(result.current.queue).toHaveLength(1)
+    expect(result.current.queue[0]?.text).toBe('the precious words the user typed')
+    expect(result.current.queue[0]?.state).toBe('failed')
+    expect(result.current.queue[0]?.error).toBeTruthy()
+  })
+
+  // The words must survive a remount too: the queue is rewritten to localStorage
+  // on the same tick it changes, so dropping the item there is exactly as
+  // destructive as dropping it from React state.
+  it('leaves the abandoned prompt on disk for a later mount to restore', async () => {
+    const { result, rerender } = await awaitingPrompt()
+    const settledId = result.current.queue[0]?.clientRequestId ?? ''
+
+    await act(async () => {
+      rerender(options({ abandonedPrompts: [settledId] }))
+    })
+
+    const persisted = localStorage.getItem('crowbar:agent-prompt-queue:v1:ws1:c1')
+    expect(persisted).toContain('the precious words the user typed')
+  })
+
+  // The other half, and the reason the queue drops anything at all: a provider
+  // built-in the CLI demonstrably ran announces no turn by design, so its text is
+  // genuinely spent and a kept row would block the composer for good.
+  it('drops the item when the daemon vouches that the provider consumed it', async () => {
+    const { result, rerender } = await awaitingPrompt()
+    const settledId = result.current.queue[0]?.clientRequestId ?? ''
+
+    await act(async () => {
+      rerender(options({ settledPrompts: [settledId] }))
+    })
+
+    expect(result.current.queue).toHaveLength(0)
+  })
+})

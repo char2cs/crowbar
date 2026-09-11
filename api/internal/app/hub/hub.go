@@ -177,15 +177,21 @@ func (h *Hub) BroadcastAgentChatTerminalWait(
 // Fed by the terminal-wait detector, like the wait edge and for the same reason:
 // the fact is derived from a live PTY's screen joined against the chat's busy
 // state and its delivery journal, so no aggregate's event log can emit it.
+//
+// consumed says whether anything proved the provider took the prompt, and rides
+// the frame because a client cannot derive it: both cases look identical in the
+// ledger (neither produced a turn). A client holding the user's typed text may
+// discard it only when consumed is true.
 func (h *Hub) BroadcastAgentChatPromptSettled(
 	chatID string,
 	workspaceID string,
 	requestID string,
+	consumed bool,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushAgentChatPromptSettled(chatID, workspaceID, requestID)
+		s.PushAgentChatPromptSettled(chatID, workspaceID, requestID, consumed)
 	}
 }
 

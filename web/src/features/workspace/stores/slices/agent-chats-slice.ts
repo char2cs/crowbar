@@ -148,6 +148,21 @@ export interface AgentChatsState {
    */
   settledPrompts: Record<string, string[]>
   /**
+   * Client request ids the daemon has reported as over WITHOUT any proof the
+   * provider ever took them — its delivery timeout expiring, and nothing else.
+   *
+   * Kept apart from settledPrompts because the two call for opposite treatment.
+   * A settled prompt is spent and its queue item can go; an abandoned one is a
+   * prompt that may never have been seen at all, and its queue item holds the
+   * only surviving copy of what the user typed — the daemon's journal records a
+   * hash of the text and never the text itself, and nothing reached the ledger.
+   * Dropping those ids the way settled ones are dropped is what silently erased
+   * a user's message after an idle gap.
+   *
+   * Bounded per chat exactly like settledPrompts, and for the same reason.
+   */
+  abandonedPrompts: Record<string, string[]>
+  /**
    * The assistant message(s) each chat is CURRENTLY producing, if any.
    *
    * An ARRAY, not a single slot: a turn can have more than one message item
@@ -253,6 +268,9 @@ export interface AgentChatsSlice {
   setAgentChatCompacting: (chatId: string, active: boolean) => void
   /** Record that one delivered prompt is over without having produced a turn. */
   setAgentChatPromptSettled: (chatId: string, clientRequestId: string) => void
+  /** Record one prompt the daemon retired with no proof the provider took it.
+   *  The queue KEEPS its text and surfaces a failure — see abandonedPrompts. */
+  setAgentChatPromptAbandoned: (chatId: string, clientRequestId: string) => void
   /** Upsert (by id) one message a chat is mid-way through saying, or clear
    *  ALL of a chat's in-flight messages with null (a new turn starting). */
   setAgentChatStreamingMessage: (
@@ -335,6 +353,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   terminalWaits: {},
   compacting: {},
   settledPrompts: {},
+  abandonedPrompts: {},
   streamingMessages: {},
   streamingReasoning: {},
   streamingToolOutput: {},
@@ -533,6 +552,7 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.terminalWaits[chatId]
       delete s.agentChats.compacting[chatId]
       delete s.agentChats.settledPrompts[chatId]
+      delete s.agentChats.abandonedPrompts[chatId]
       delete s.agentChats.streamingMessages[chatId]
       delete s.agentChats.streamingReasoning[chatId]
       delete s.agentChats.streamingToolOutput[chatId]
@@ -570,6 +590,15 @@ export const createAgentChatsSlice: StateCreator<
       const seen = s.agentChats.settledPrompts[chatId] ?? []
       if (seen.includes(clientRequestId)) return
       s.agentChats.settledPrompts[chatId] = [...seen, clientRequestId].slice(
+        -SETTLED_PROMPTS_PER_CHAT,
+      )
+    }),
+
+  setAgentChatPromptAbandoned: (chatId, clientRequestId) =>
+    set((s) => {
+      const seen = s.agentChats.abandonedPrompts[chatId] ?? []
+      if (seen.includes(clientRequestId)) return
+      s.agentChats.abandonedPrompts[chatId] = [...seen, clientRequestId].slice(
         -SETTLED_PROMPTS_PER_CHAT,
       )
     }),

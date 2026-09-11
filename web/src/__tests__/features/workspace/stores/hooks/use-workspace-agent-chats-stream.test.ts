@@ -16,6 +16,8 @@ const {
   setAgentChatWorking,
   setAgentChatTerminalWait,
   setAgentChatCompacting,
+  setAgentChatPromptSettled,
+  setAgentChatPromptAbandoned,
   setAgentChatStreamingMessage,
   setAgentChatStreamingReasoning,
   setAgentChatStreamingToolOutput,
@@ -40,6 +42,8 @@ const {
   setAgentChatWorking: vi.fn(),
   setAgentChatTerminalWait: vi.fn(),
   setAgentChatCompacting: vi.fn(),
+  setAgentChatPromptSettled: vi.fn(),
+  setAgentChatPromptAbandoned: vi.fn(),
   setAgentChatStreamingMessage: vi.fn(),
   setAgentChatStreamingReasoning: vi.fn(),
   setAgentChatStreamingToolOutput: vi.fn(),
@@ -114,6 +118,8 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       setAgentChatWorking,
       setAgentChatTerminalWait,
       setAgentChatCompacting,
+      setAgentChatPromptSettled,
+      setAgentChatPromptAbandoned,
       setAgentChatStreamingMessage,
       setAgentChatStreamingReasoning,
       setAgentChatStreamingToolOutput,
@@ -149,6 +155,11 @@ type Frame = {
   /** An assistant message still being produced. Present on `message_delta` only. */
   message?: { id: string; text: string; kind?: string }
   plan?: { text: string; status: string }[]
+  /** The pending prompt one `prompt_settled` frame is about. */
+  clientRequestId?: string
+  /** Whether anything proved the provider took that prompt. Absent reads as
+   *  false — the answer that preserves the user's text. */
+  promptConsumed?: boolean
 }
 
 const chat = (id: string) => ({
@@ -1651,4 +1662,46 @@ it('cancels the timeout once compaction_stopped arrives in time', () => {
   vi.advanceTimersByTime(120_000)
 
   expect(setAgentChatCompacting).not.toHaveBeenCalled()
+})
+
+// ── prompt_settled: which way a retired delivery is released ──
+//
+// REGRESSION, reported live against codex: "User's turns after some time of
+// idle is lost, and does not record anywhere." A retired delivery used to be
+// announced as a bare "this is over", and the composer's queue answered by
+// deleting the item — along with the user's text, which at that moment exists
+// nowhere else in the system (the daemon's journal keeps a hash of the prompt,
+// never the text, and by definition nothing reached the ledger).
+//
+// `promptConsumed` is what separates a built-in the CLI demonstrably ran from
+// the daemon's delivery timeout simply expiring. This is the frame-to-store
+// mapping that has to carry it.
+
+it('records a consumed prompt as settled, which lets the queue drop it', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+
+  captureCb()({
+    chatId: 'c1',
+    workspaceId: 'w1',
+    kind: 'prompt_settled',
+    clientRequestId: 'req-1',
+    promptConsumed: true,
+  })
+
+  expect(setAgentChatPromptSettled).toHaveBeenCalledWith('c1', 'req-1')
+  expect(setAgentChatPromptAbandoned).not.toHaveBeenCalled()
+})
+
+it('records an unproven prompt as abandoned, so the queue keeps the text', () => {
+  renderHook(() => useWorkspaceAgentChatsStream('w1'))
+
+  captureCb()({
+    chatId: 'c1',
+    workspaceId: 'w1',
+    kind: 'prompt_settled',
+    clientRequestId: 'req-1',
+  })
+
+  expect(setAgentChatPromptAbandoned).toHaveBeenCalledWith('c1', 'req-1')
+  expect(setAgentChatPromptSettled).not.toHaveBeenCalled()
 })

@@ -104,6 +104,11 @@ type Delivery struct {
 	RequestID string
 
 	RunnerID string
+
+	// CreatedAt is when this delivery was journalled, and is what the delivery
+	// timeout is actually measured against — see settleDelivery for why the
+	// screen's own quiet clock cannot stand in for it.
+	CreatedAt time.Time
 }
 
 type Deps struct {
