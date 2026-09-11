@@ -116,6 +116,10 @@ export interface PaneActions {
   closePane(paneId: string): void
   setActivePane(paneId: string): void
   activateEditorTabInPane(paneId: string, tabId: string): void
+  /** The collapsed ('tabs') presentation's counterpart to
+   *  activateEditorTabInPane — selects the chat instead of any editor tab,
+   *  for the synthetic "Chat" entry in the tab strip. */
+  activateChatInPane(paneId: string): void
   addEditorTabToPane(paneId: string, tab: EditorTabBase): void
   removeEditorTabFromPane(paneId: string, tabId: string): void
   moveEditorTabToPane(tabId: string, fromPaneId: string, toPaneId: string): void
@@ -247,6 +251,7 @@ function makeRootLeaf(): PaneGroup {
     editorTabIds: [],
     activeEditorTabId: null,
     editorOpen: false,
+    chatSelected: true,
     viewId: ROOT_PANE_ID,
   }
 }
@@ -260,6 +265,7 @@ function makeBottomLeaf(): PaneGroup {
     editorTabIds: [],
     activeEditorTabId: null,
     editorOpen: false,
+    chatSelected: true,
     viewId: BOTTOM_PANE_ID,
   }
 }
@@ -546,6 +552,7 @@ export const createPaneSlice: StateCreator<
             editorTabIds: bufferId ? [bufferId] : [],
             activeEditorTabId: bufferId ?? null,
             editorOpen: Boolean(bufferId),
+            chatSelected: !bufferId,
             // A split lands INSIDE the view it was carved from — that is what
             // makes a merge a merge rather than a second view that happens to
             // sit next door. The source pane's view, not a new one.
@@ -581,6 +588,7 @@ export const createPaneSlice: StateCreator<
             editorTabIds: [],
             activeEditorTabId: null,
             editorOpen: false,
+            chatSelected: true,
             // A BRAND-NEW view. The pane's own id serves as the view id — it
             // was just minted, so nothing else can carry it, and it makes the
             // common "one pane, its own view" case readable in a dump of the
@@ -912,6 +920,27 @@ export const createPaneSlice: StateCreator<
           // rendered. Same class of defence the old buffer-slice era needed.
           if (!pane.editorTabIds.includes(tabId)) return
           pane.activeEditorTabId = tabId
+          // The collapsed presentation's chat/tab choice — a real tab was
+          // just picked, so it's no longer the chat. Harmless to write
+          // unconditionally on a chatless pane; nothing reads it there.
+          pane.chatSelected = false
+          state.activePaneId = paneId
+          state.mostRecentActivePaneIds = [
+            paneId,
+            ...state.mostRecentActivePaneIds.filter((id) => id !== paneId),
+          ]
+        })
+      },
+
+      activateChatInPane(paneId) {
+        set((state) => {
+          const pane = state.panes[paneId]
+          if (!pane || !pane.chatId) return
+          // Deliberately does NOT touch `activeEditorTabId` — that field
+          // must keep naming whatever tab the editor view would render if
+          // it were showing, so switching to the chat and back never
+          // unmounts it (see PaneGroup.chatSelected's own doc).
+          pane.chatSelected = true
           state.activePaneId = paneId
           state.mostRecentActivePaneIds = [
             paneId,
@@ -927,6 +956,8 @@ export const createPaneSlice: StateCreator<
           if (!pane.editorTabIds.includes(tab.id)) pane.editorTabIds.push(tab.id)
           pane.activeEditorTabId = tab.id
           pane.editorOpen = true
+          // Opening a tab shows it — same reasoning as activateEditorTabInPane.
+          pane.chatSelected = false
           // Sync isUncloseable: the sole editor tab in a pane is uncloseable.
           syncSoleEditorTabCloseability(state, paneId)
         })

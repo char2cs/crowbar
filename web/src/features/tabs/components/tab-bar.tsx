@@ -30,6 +30,7 @@ import CloseViewButton from './close-view-button'
 import SortableEditorTab from './sortable-editor-tab'
 import { SplitToggleButton } from './split-toggle-button'
 import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
+import { ChatTabItem } from './chat-tab-item'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
 import { useTabDrag } from '../hooks/use-tab-drag'
@@ -86,6 +87,13 @@ interface TabBarProps {
    * to the tab strip itself.
    */
   onAddTab?: (paneId: string) => void
+  /**
+   * Chats/pane redesign: draw the chat as the FIRST entry in the tab strip
+   * (`ChatTabItem`) — the collapsed presentation's "chat is just another
+   * tab." Set by pane-container.tsx, which owns `presentation`; TabBar
+   * itself has no opinion on when this is true, only on how to draw it.
+   */
+  showChatTab?: boolean
 }
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive tab strip — drag/reorder, overflow scroll and active-tab tracking share one dnd context and scroll ref.
@@ -94,6 +102,7 @@ const TabBar = ({
   onTabClick: externalTabClick,
   disablePaneActions = false,
   onAddTab,
+  showChatTab = false,
 }: TabBarProps) => {
   const globalActiveBufferId = useStore(
     windowPaneStore,
@@ -104,6 +113,7 @@ const TabBar = ({
   const {
     setActivePane,
     activateEditorTabInPane,
+    activateChatInPane,
     removeEditorTabFromPane,
     splitPane,
     moveEditorTabToPane,
@@ -128,6 +138,9 @@ const TabBar = ({
     activeBufferCandidate && buffers.some((buffer) => buffer.id === activeBufferCandidate)
       ? activeBufferCandidate
       : null
+  // Read defensively (`!== false`) — see PaneGroup.chatSelected's own doc on
+  // why a pane restored from an old layout may not have this field at all.
+  const chatIsSelected = showChatTab && pane?.chatSelected !== false
 
   const handleTabPin = useCallback(
     (bufferId: string) => {
@@ -201,6 +214,12 @@ const TabBar = ({
     },
     [activateEditorTabInPane, externalTabClick, paneId, setActivePane],
   )
+
+  const handleChatTabSelect = useCallback(() => {
+    if (!paneId) return
+    activateChatInPane(paneId)
+    setActivePane(paneId)
+  }, [activateChatInPane, paneId, setActivePane])
 
   const handleTabClose = useCallback(
     (bufferId: string) => {
@@ -607,6 +626,17 @@ const TabBar = ({
                 onWheel={handleWheel}
                 className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]"
               >
+                {/* The chat as "just another tab" (spec redesign) — first in
+                    the strip, outside the sortable list: never draggable,
+                    never closable, no reason to reorder the one entry that
+                    isn't an editor tab at all. */}
+                {showChatTab && pane?.chatId && (
+                  <ChatTabItem
+                    chatId={pane.chatId}
+                    isActive={chatIsSelected}
+                    onSelect={handleChatTabSelect}
+                  />
+                )}
                 {sortedBuffers.map((buffer, index) => (
                   <SortableEditorTab
                     key={buffer.id}
@@ -617,7 +647,7 @@ const TabBar = ({
                       buffer={buffer}
                       displayName={getBufferDisplayName(buffer)}
                       index={index}
-                      isActive={buffer.id === activeBufferId}
+                      isActive={buffer.id === activeBufferId && !chatIsSelected}
                       isDraggedTab={buffer.id === draggedBufferId}
                       onSelect={handleTabSelect}
                       onDoubleClick={handleDoubleClick}

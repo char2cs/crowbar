@@ -117,6 +117,49 @@ describe('pane-slice', () => {
     expect(rootGroup?.editorOpen).toBe(true)
   })
 
+  // Chats/pane redesign: in the collapsed ('tabs') presentation, the chat
+  // becomes a real selectable entry alongside the pane's editor tabs — this
+  // is the action the synthetic "Chat" tab in the strip calls to switch
+  // back, the counterpart to activateEditorTabInPane selecting an editor tab.
+  it('activateChatInPane selects the chat WITHOUT clearing activeEditorTabId — unmounting the editor surface on switch would lose its live state', () => {
+    const actions = store.getState().paneActions
+    actions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    actions.addEditorTabToPane(ROOT_PANE_ID, {
+      id: 'tab-1',
+      type: 'editor',
+      name: 'a.ts',
+      workspaceId: 'ws-test',
+    })
+    expect(store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.chatSelected).toBe(false)
+
+    actions.activateChatInPane(ROOT_PANE_ID)
+
+    const pane = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
+    expect(pane?.chatSelected).toBe(true)
+    // Untouched — still names the tab the editor view would render.
+    expect(pane?.activeEditorTabId).toBe('tab-1')
+    expect(pane?.editorTabIds).toEqual(['tab-1'])
+    expect(pane?.editorOpen).toBe(true)
+    expect(store.getState().activePaneId).toBe(ROOT_PANE_ID)
+  })
+
+  it('activateEditorTabInPane clears chatSelected — picking a real tab means the chat is no longer selected', () => {
+    const actions = store.getState().paneActions
+    actions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
+    actions.addEditorTabToPane(ROOT_PANE_ID, {
+      id: 'tab-1',
+      type: 'editor',
+      name: 'a.ts',
+      workspaceId: 'ws-test',
+    })
+    actions.activateChatInPane(ROOT_PANE_ID)
+    expect(store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.chatSelected).toBe(true)
+
+    actions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-1')
+
+    expect(store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.chatSelected).toBe(false)
+  })
+
   it('removeEditorTabFromPane removes the tab from the group', () => {
     const actions = store.getState().paneActions
     actions.addEditorTabToPane(ROOT_PANE_ID, {

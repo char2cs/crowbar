@@ -272,13 +272,32 @@ export function PaneContainer({
   const hasEditorTabs = pane.editorTabIds.length > 0
   const chatFillsPane = Boolean(pane.chatId) && !hasEditorTabs
 
+  // Chats/pane redesign: in the collapsed ('tabs') presentation WITH real
+  // editor tabs, the chat is a real, selectable surface — "just another tab"
+  // — rather than the fixed winner it is everywhere else. `pane.chatSelected`
+  // is the SAME fact TabBar's own ChatTabItem reads (see showChatTab below);
+  // read defensively (`!== false`) for a pane restored from a layout saved
+  // before this field existed (PaneGroup.chatSelected's own doc).
+  const chatSelectedInTabsMode = pane.chatSelected !== false
+  const showChatTab = Boolean(pane.chatId) && hasEditorTabs && presentation === 'tabs'
+
   // `presentation === 'tabs'` subsumes the old `!pane.editorOpen` check: tabs
   // is reached either because the toggle is off, OR because it is on but the
   // pane is too small to honour it — same downgrade shape as
   // useChatPresentation's own `splitEnabled` gate, just driven by size.
   // `chatFillsPane` is a THIRD reason, driven by tab count instead of size or
-  // preference — see its own doc above.
-  const editorViewHidden = Boolean(pane.chatId) && (presentation === 'tabs' || chatFillsPane)
+  // preference — see its own doc above. Editor view hides in EITHER tabs
+  // case UNLESS a real tab is the one selected (`showChatTab &&
+  // !chatSelectedInTabsMode`), in which case it's the chat that hides
+  // instead (`chatViewHidden` below).
+  const editorViewHidden =
+    Boolean(pane.chatId) &&
+    (chatFillsPane || (presentation === 'tabs' && (!showChatTab || chatSelectedInTabsMode)))
+  // The chat is "NEVER hidden" everywhere else in this file (side by side,
+  // stacked, chatFillsPane) — per spec §7.2, `editorOpen` alone never hides
+  // it. This is the one exception: collapsed presentation, real tabs to
+  // switch to, and a real tab (not the chat) currently selected.
+  const chatViewHidden = showChatTab && !chatSelectedInTabsMode
   // Spec §7.2: "the tab strip moves down between the chat and the editor" in
   // portrait — only when there is a chat to stack the editor view against,
   // and only when there IS an editor view worth stacking against at all.
@@ -777,21 +796,27 @@ export function PaneContainer({
             TabBar entirely with ChatOnlyPaneHeader here — safe to swap
             (unlike the chat-view/editor-view divs below), since neither
             component holds any live state a remount would lose. */}
-        {!isStacked &&
-          (chatFillsPane ? (
-            // Same resolved chatStore as the chat view below — the chat's
-            // own workspace, not whichever one is ambient (see the same
-            // note on the chat-view provider further down).
-            <WorkspaceStoreContext.Provider value={chatStore}>
+        {/* Wrapped in the chat's own resolved workspace context whether or
+            not chatFillsPane — ChatOnlyPaneHeader and TabBar's own
+            ChatTabItem (showChatTab) both need the chat's OWN workspace, not
+            whichever one is ambient (same note as the chat-view provider
+            below). For a chatless pane `chatStore` falls back to
+            `ambientStore` (see its own derivation above), so this is a
+            no-op wrap in that case — identical to not wrapping at all. */}
+        {!isStacked && (
+          <WorkspaceStoreContext.Provider value={chatStore}>
+            {chatFillsPane ? (
               <ChatOnlyPaneHeader pane={pane} wsId={wsId} />
-            </WorkspaceStoreContext.Provider>
-          ) : (
-            <TabBar
-              paneId={pane.id}
-              onTabClick={handleTabClick}
-              disablePaneActions={pane.id === BOTTOM_PANE_ID}
-            />
-          ))}
+            ) : (
+              <TabBar
+                paneId={pane.id}
+                onTabClick={handleTabClick}
+                disablePaneActions={pane.id === BOTTOM_PANE_ID}
+                showChatTab={showChatTab}
+              />
+            )}
+          </WorkspaceStoreContext.Provider>
+        )}
         {/* Spec §7.2's "two views": the chat view and the editor view, and how
             they're arranged.
 
@@ -837,6 +862,7 @@ export function PaneContainer({
             <div
               key="chat-view"
               ref={chatViewRef}
+              hidden={chatViewHidden}
               className={cn(
                 'relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-chrome-bg',
                 // Tabs, or no tabs at all: this box IS the pane's content
@@ -900,12 +926,14 @@ export function PaneContainer({
                       // Was hard-coded true: a pane holds at most one chat, so
                       // within the pane the chat view is always the one showing.
                       // With views that is no longer the whole question — the
-                      // pane itself can be in an arrangement that is off screen.
-                      // It matters beyond appearances: the dormant-chat revive
-                      // fires on `isVisible`, so a parked view left claiming to
-                      // be visible would spawn a vendor CLI for a chat nobody is
-                      // looking at, once per remount.
-                      isVisible={showing}
+                      // pane itself can be in an arrangement that is off screen,
+                      // and now (chats/pane redesign) a selected EDITOR tab can
+                      // cover the chat within an otherwise-visible pane too
+                      // (`chatViewHidden`). It matters beyond appearances: the
+                      // dormant-chat revive fires on `isVisible`, so a parked or
+                      // covered chat left claiming to be visible would spawn a
+                      // vendor CLI for a chat nobody is looking at.
+                      isVisible={showing && !chatViewHidden}
                     />
                   </Suspense>
                 </div>

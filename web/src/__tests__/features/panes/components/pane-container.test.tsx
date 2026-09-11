@@ -422,13 +422,15 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(await screen.findByTestId('editor-marker-tab-a')).toBeInTheDocument()
   })
 
-  it('a pane with both a chat and editor tabs, split toggled off, keeps both mounted and only hides the editor view', async () => {
+  it('a pane with both a chat and editor tabs, split toggled off, keeps both mounted — the just-activated tab shows, the chat hides', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    // addEditorTabToPane activates the new tab as a side effect — in the
+    // collapsed presentation that means the TAB is what's selected (chats/
+    // pane redesign: the chat is "just another tab" here), not the chat.
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
-    // addEditorTabToPane sets editorOpen = true as a side effect (see the test
-    // above) — force the split back off so this test can assert the "chat-only"
-    // state without losing the editor tab.
+    // addEditorTabToPane also sets editorOpen = true — force the split back
+    // off so this test exercises the collapsed ('tabs') presentation.
     windowPaneStore.setState((state) => {
       const pane = state.panes[ROOT_PANE_ID]
       if (pane) pane.editorOpen = false
@@ -442,10 +444,30 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     // Both are MOUNTED regardless of which is showing (spec §7.2: "Both
     // surfaces stay mounted"). The editor's marker is present in the DOM...
     expect(editorMarker).toBeInTheDocument()
-    // ...but its content-area ancestor carries the native `hidden` attribute
-    // (display:none via the UA stylesheet — not a Tailwind class, so this
-    // assertion needs no compiled CSS to be meaningful), while the chat's does
-    // not.
+    // ...and, since a real tab is the one selected, IT shows — the chat's
+    // content-area ancestor is the one carrying the native `hidden`
+    // attribute (display:none via the UA stylesheet — not a Tailwind class,
+    // so this assertion needs no compiled CSS to be meaningful) instead.
+    expect(editorMarker.closest('[hidden]')).toBeNull()
+    expect(chat.closest('[hidden]')).not.toBeNull()
+  })
+
+  it('selecting the chat in the collapsed presentation hides the editor view instead, still mounted', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+    windowPaneStore.setState((state) => {
+      const pane = state.panes[ROOT_PANE_ID]
+      if (pane) pane.editorOpen = false
+      return state
+    })
+    windowPaneStore.getState().paneActions.activateChatInPane(ROOT_PANE_ID)
+
+    await renderPane(store)
+
+    const chat = await screen.findByTestId('chat-chat-1')
+    const editorMarker = await screen.findByTestId('editor-marker-tab-a')
+    expect(editorMarker).toBeInTheDocument()
     expect(editorMarker.closest('[hidden]')).not.toBeNull()
     expect(chat.closest('[hidden]')).toBeNull()
   })
@@ -716,12 +738,19 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     await withPaneBox(300, 200, async () => {
       const store = createWorkspaceStore('w1')
       windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      // addEditorTabToPane activates the new tab — in the collapsed
+      // ('tabs') presentation this falls back to, that means the TAB is
+      // what's selected (chats/pane redesign), so the chat is the one that
+      // hides, not the editor — see the same shift documented on the
+      // "split toggled off" test above.
       seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
       await renderPane(store)
 
+      const chat = await screen.findByTestId('chat-chat-1')
       const editorMarker = await screen.findByTestId('editor-marker-tab-a')
-      expect(editorMarker.closest('[hidden]')).not.toBeNull()
+      expect(editorMarker.closest('[hidden]')).toBeNull()
+      expect(chat.closest('[hidden]')).not.toBeNull()
       expect(screen.queryByRole('separator')).not.toBeInTheDocument()
     })
   })

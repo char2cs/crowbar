@@ -380,3 +380,96 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
     expect(screen.getByTestId('split-toggle')).toBeInTheDocument()
   })
 })
+
+// Chats/pane redesign: in the collapsed presentation, the chat is "just
+// another tab" in the strip — `showChatTab` is pane-container.tsx's own
+// signal for exactly that state (chat + real editor tabs + narrow/toggled
+// off). TabBar itself doesn't know about `presentation`; it only draws
+// what it's told to.
+describe('TabBar — chat as a tab (showChatTab)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders the chat as the FIRST entry in the scroller, before real tabs, when showChatTab is set', () => {
+    const store = setupPaneStore({
+      chatId: 'chat-1',
+      buffers: [makeEditorBuffer(0)],
+      activeEditorTabId: null,
+    })
+    act(() => {
+      renderTabBar(store, { showChatTab: true })
+    })
+
+    const scroller = screen.getByTestId('editor-tab-scroller')
+    const chatTab = screen.getByTestId('chat-tab-item')
+    expect(scroller.contains(chatTab)).toBe(true)
+    expect(scroller.firstElementChild).toBe(chatTab)
+  })
+
+  it('never renders the chat tab when showChatTab is not set (default)', () => {
+    const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
+    act(() => {
+      renderTabBar(store)
+    })
+
+    expect(screen.queryByTestId('chat-tab-item')).not.toBeInTheDocument()
+  })
+
+  it('is active exactly when the pane has chatSelected (defaults true — unset reads as selected)', () => {
+    const store = setupPaneStore({
+      chatId: 'chat-1',
+      buffers: [makeEditorBuffer(0)],
+    })
+    act(() => {
+      renderTabBar(store, { showChatTab: true })
+    })
+
+    expect(screen.getByTestId('chat-tab-item')).toHaveAttribute('aria-selected', 'true')
+    const fileTab = screen.getByRole('tab', { name: /file-0\.ts/ })
+    expect(fileTab).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('clicking it selects the chat and activates this pane', () => {
+    const store = setupPaneStore({
+      chatId: 'chat-1',
+      buffers: [makeEditorBuffer(0)],
+      activeEditorTabId: 'buf-0',
+    })
+    act(() => {
+      renderTabBar(store, { showChatTab: true })
+    })
+
+    act(() => {
+      windowPaneStore.getState().paneActions.setActivePane('some-other-pane-first')
+    })
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('chat-tab-item'))
+    })
+
+    // Selects the chat WITHOUT clearing activeEditorTabId — that field must
+    // keep naming buf-0 so the editor view doesn't unmount it on switch
+    // (PaneGroup.chatSelected's own doc).
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatSelected).toBe(true)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-0')
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+  })
+
+  it('clicking a real tab while the chat is selected switches away from the chat', () => {
+    const store = setupPaneStore({
+      chatId: 'chat-1',
+      buffers: [makeEditorBuffer(0)],
+      activeEditorTabId: null,
+    })
+    act(() => {
+      renderTabBar(store, { showChatTab: true })
+    })
+
+    act(() => {
+      fireEvent.click(screen.getByRole('tab', { name: /file-0\.ts/ }))
+    })
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.activeEditorTabId).toBe('buf-0')
+  })
+})

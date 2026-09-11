@@ -10,6 +10,19 @@ export interface PaneGroup {
   activeEditorTabId: string | null
   /** Split toggle state — chat-only vs. chat+editor. */
   editorOpen: boolean
+  /**
+   * In the collapsed ('tabs') presentation only: is the CHAT the selected
+   * surface, or a real editor tab? Deliberately separate from
+   * `activeEditorTabId` — that field must keep naming the tab editor-view
+   * content actually renders (Monaco/terminal/etc.) even while the chat is
+   * selected, or switching to chat and back would unmount and remount
+   * whatever editor surface was showing, losing its live state (scroll,
+   * undo history, a terminal's PTY). Optional (not every constructed/
+   * persisted PaneGroup sets it, including a layout saved before this field
+   * existed) — always read as `!== false` so a missing value defaults to
+   * showing the chat, same as a fresh pane.
+   */
+  chatSelected?: boolean
   locked?: boolean
   /**
    * The VIEW this pane belongs to — a real, tagged grouping fact, never
