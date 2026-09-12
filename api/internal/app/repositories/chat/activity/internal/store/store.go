@@ -235,3 +235,13 @@ func (s *Store) RecentToolCalls(
 func (s *Store) DeleteChat(ctx context.Context, chatID string) error {
 	return s.storage.DeleteChat(ctx, chatID)
 }
+
+func (s *Store) ToolCallRefs(ctx context.Context, chatID string) ([]string, error) {
+	s.heal(ctx)
+	return s.storage.ToolCallRefs(ctx, chatID)
+}
+
+func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
+	s.heal(ctx)
+	return s.storage.RefInUse(ctx, ref)
+}
