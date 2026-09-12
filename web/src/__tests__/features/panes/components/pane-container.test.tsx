@@ -19,6 +19,8 @@ import { ROOT_PANE_POSITION, type PanePosition } from '@/features/panes/types/pa
 import { buildPaneContentStyle } from '@/features/panes/utils/pane-border'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import type { InternalDropZone } from '@/features/tabs/utils/internal-tab-drag'
+import { useSettingsStore } from '@/features/settings/store'
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 
 // Task F: lets a test stand in an edge zone (left/right/top/bottom) for a
 // file-tree drop's resolved target without faking `document.elementsFromPoint`
@@ -774,6 +776,82 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       // belongs on the TOP edge here, not the left.
       expect(editorView).toHaveClass('border-t', 'border-border', 'rounded-t-lg')
       expect(editorView).not.toHaveClass('border-l', 'rounded-l-lg')
+    })
+  })
+
+  // The chat sits next to wherever the sidebar is — a sidebar on the right
+  // means the chat renders on the right too, so the two never end up on
+  // opposite edges of the window. The rounded, bordered edge of the IDE
+  // sector always faces the chat, whichever side that ends up being.
+  describe('the chat follows the sidebar side (side by side)', () => {
+    afterEach(() => {
+      useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
+    })
+
+    it('sidebar on the right: the chat renders AFTER the editor, and the editor rounds/borders its RIGHT edge', async () => {
+      useSettingsStore.setState((s) => ({
+        settings: { ...s.settings, sidebarPosition: 'right' },
+      }))
+      const store = createWorkspaceStore('w1')
+      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+      await renderPane(store)
+
+      await screen.findByTestId('chat-chat-1')
+      const chatView = document.querySelector('[data-chat-view]')!
+      const editorView = document.querySelector('[data-editor-view]')!
+
+      // DOCUMENT_POSITION_FOLLOWING on chatView (from editorView's
+      // perspective) means editorView comes first in the DOM.
+      expect(
+        Boolean(
+          editorView.compareDocumentPosition(chatView) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      ).toBe(true)
+      expect(editorView).toHaveClass('border-r', 'border-border', 'rounded-r-lg')
+      expect(editorView).not.toHaveClass('border-l', 'rounded-l-lg')
+    })
+
+    it('sidebar on the left (default): unchanged — the chat renders BEFORE the editor, rounding faces left', async () => {
+      const store = createWorkspaceStore('w1')
+      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+      await renderPane(store)
+
+      await screen.findByTestId('chat-chat-1')
+      const chatView = document.querySelector('[data-chat-view]')!
+      const editorView = document.querySelector('[data-editor-view]')!
+
+      expect(
+        Boolean(chatView.compareDocumentPosition(editorView) & Node.DOCUMENT_POSITION_FOLLOWING),
+      ).toBe(true)
+      expect(editorView).toHaveClass('border-l', 'border-border', 'rounded-l-lg')
+    })
+
+    it('stacked keeps the chat on TOP regardless of sidebar side — there is no left/right there', async () => {
+      useSettingsStore.setState((s) => ({
+        settings: { ...s.settings, sidebarPosition: 'right' },
+      }))
+      await withPaneBox(500, 1200, async () => {
+        const store = createWorkspaceStore('w1')
+        windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+        seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+
+        await renderPane(store)
+
+        await screen.findByTestId('chat-chat-1')
+        const chatView = document.querySelector('[data-chat-view]')!
+        const editorView = document.querySelector('[data-editor-view]')!
+
+        expect(
+          Boolean(
+            chatView.compareDocumentPosition(editorView) & Node.DOCUMENT_POSITION_FOLLOWING,
+          ),
+        ).toBe(true)
+        expect(editorView).toHaveClass('border-t', 'border-border', 'rounded-t-lg')
+      })
     })
   })
 

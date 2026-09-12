@@ -22,7 +22,6 @@ import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
 import { viewIdOf } from '../lib/pane-views'
 import TabBar from '@/features/tabs/components/tab-bar'
-import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { ChatOnlyPaneHeader } from '@/features/tabs/components/chat-only-pane-header'
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
@@ -312,6 +311,12 @@ export function PaneContainer({
   // portrait — only when there is a chat to stack the editor view against,
   // and only when there IS an editor view worth stacking against at all.
   const isStacked = Boolean(pane.chatId) && presentation === 'stacked' && !chatFillsPane
+
+  // The chat sits next to wherever the sidebar is: a sidebar on the right
+  // means the chat renders on the right too, so the two never end up on
+  // opposite edges of the window. Stacked has no left/right sidebar concept
+  // at all, so it always keeps the chat on top regardless of sidebar side.
+  const chatIsFirst = presentation === 'stacked' || sidebarPosition !== 'right'
 
   const handlePaneClick = useCallback(() => {
     if (!isActivePane) {
@@ -719,6 +724,201 @@ export function PaneContainer({
     </>
   )
 
+  // Chat view. Mounted whenever pane.chatId is set — it does not compete
+  // with editorTabIds/activeEditorTabId for "which one is active" (a pane
+  // holds at most one chat), so isVisible is always true here. NEVER
+  // hidden — `editorOpen` means "chat-only vs. chat+editor," not "chat vs.
+  // editor": the chat shows in every presentation, including 'tabs'.
+  //
+  // Computed here (rather than inline in the return below) so the chat
+  // view, the sash and the editor view can be placed in either DOM order —
+  // chat first (sidebar on the left, or stacked) or editor first (sidebar
+  // on the right) — from a single ternary, instead of duplicating each
+  // block. Each still carries its own stable key, so reordering them is
+  // not a remount: React's reconciler matches by key, not by position.
+  const chatViewNode = pane.chatId && (
+    <div
+      key="chat-view"
+      ref={chatViewRef}
+      data-chat-view=""
+      hidden={chatViewHidden}
+      className={cn(
+        // No fill of its own — the shared `data-pane-content` box (above)
+        // already paints `bg-chrome-bg`; painting it AGAIN here would
+        // stack two translucent layers and read visibly more opaque than
+        // either alone.
+        'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
+        // Tabs, or no tabs at all: this box IS the pane's content area
+        // (the editor sits behind it, `hidden`). Side by side/stacked: it
+        // is one half of a real split, sized by splitSizes and left free
+        // for the sash to resize (shrink, no grow — same convention
+        // agent-chat-pane's own split uses).
+        presentation === 'tabs' || chatFillsPane ? 'h-full w-full flex-1' : 'shrink grow-0',
+      )}
+      style={
+        presentation === 'tabs' || chatFillsPane
+          ? undefined
+          : // splitSizes is always [chatPct, editorPct] regardless of which
+            // side the chat visually renders on — the SASH (below) is what
+            // maps that fixed pair onto whichever pane is visually first.
+            { flexBasis: `${splitSizes[0]}%` }
+      }
+    >
+      {/* The chat surface reads its workspace store off CONTEXT
+          (`useWorkspaceStore`), so handing it the right `wsId` is only
+          half the answer — it has to READ from that workspace's own
+          store too, or a chat from another repo is simply never found.
+          Re-provided here, around the chat view alone: everything else
+          in this pane (editor tabs, terminals) genuinely belongs to
+          the workspace whose view is on screen, and must keep it.
+          ChatBranchHeader (the chat's own identity header, replacing
+          ChatHead's old spot in tab-bar.tsx) sits inside the SAME
+          provider so it resolves the chat's title off its OWN
+          workspace too, not whichever one is ambient.
+
+          Three ways this box's own header renders, matching
+          `showTopLevelHeader`/`chatVisibleAlongsideEditor` above:
+            - chatFillsPane: absent — ChatOnlyPaneHeader (top of the
+              whole pane) already shows it.
+            - side by side/stacked: ChatColumnHeader — this box IS a
+              real column/row next to the editor's, so it gets the
+              full window-chrome treatment (drag region, traffic
+              lights) — it may be the pane's actual top-left corner.
+            - collapsed ('tabs'), chat currently selected: the small,
+              chrome-less ChatBranchHeader — TabBar's OWN full-pane
+              row (above, outside this box) already owns the window
+              chrome in this state. */}
+      <WorkspaceStoreContext.Provider value={chatStore}>
+        {chatVisibleAlongsideEditor && (
+          <ChatColumnHeader chatId={pane.chatId} wsId={wsId} isBottomPane={isBottomPane} />
+        )}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <Suspense fallback={null}>
+            {/* `paneId` was `bufferId` and a known, disclosed gap until the
+              final fix wave: AgentChatPane wrote runner-follow repoints
+              and title renames through `bufferActions
+              .repointAgentChatBuffer`/`.renameBuffer`, both of which look
+              an id up in `state.buffers` — and a chat has not been a
+              buffer since Task 1 removed 'agentChat' from PaneContent, so
+              every one of those writes safely no-op'd and runner-follow
+              silently never happened (`/clear` left the chat header on the
+              old name, and `closePane`'s dormantArrangements push
+              remembered the wrong chat). AgentChatPane now writes
+              `paneActions.setPaneChat(paneId, ...)` — the real write path
+              for what chat a pane holds — and the relabel is gone
+              entirely, since ChatBranchHeader reads the live title by
+              chat id. */}
+            <AgentChatPane
+              chatId={pane.chatId}
+              runnerId={pane.runnerId ?? ''}
+              wsId={wsId}
+              paneId={pane.id}
+              isActivePane={isActivePane}
+              // Was hard-coded true: a pane holds at most one chat, so
+              // within the pane the chat view is always the one showing.
+              // With views that is no longer the whole question — the
+              // pane itself can be in an arrangement that is off screen,
+              // and now (chats/pane redesign) a selected EDITOR tab can
+              // cover the chat within an otherwise-visible pane too
+              // (`chatViewHidden`). It matters beyond appearances: the
+              // dormant-chat revive fires on `isVisible`, so a parked or
+              // covered chat left claiming to be visible would spawn a
+              // vendor CLI for a chat nobody is looking at.
+              isVisible={showing && !chatViewHidden}
+            />
+          </Suspense>
+        </div>
+      </WorkspaceStoreContext.Provider>
+    </div>
+  )
+
+  // The draggable divider between the two views — side by side or stacked
+  // only; tabs shows one view at a time, so there is nothing to divide.
+  // Same imperative pixel sash agent-chat-pane uses for its own split,
+  // with the identical floor convention: the narrower axis (a half's own
+  // width side by side, a half's own height stacked) gets the smaller
+  // floor. `firstPaneRef`/`secondPaneRef` follow `chatIsFirst` — the sash's
+  // own pixel math assumes "first" means "visually first" (left/top),
+  // whichever pane that actually is.
+  const sashNode = pane.chatId && presentation !== 'tabs' && !chatFillsPane && (
+    <PaneSash
+      key="chat-editor-sash"
+      direction={presentation === 'stacked' ? 'vertical' : 'horizontal'}
+      sizes={chatIsFirst ? splitSizes : [splitSizes[1], splitSizes[0]]}
+      containerRef={viewsContainerRef}
+      firstPaneRef={chatIsFirst ? chatViewRef : editorViewRef}
+      secondPaneRef={chatIsFirst ? editorViewRef : chatViewRef}
+      onResizeCommit={(sizes) => setSplitSizes(chatIsFirst ? sizes : [sizes[1], sizes[0]])}
+      minPx={presentation === 'stacked' ? SPLIT_MIN_STACKED_PX : SPLIT_MIN_HALF_PX}
+      // No fill of its own needed — the shared `data-pane-content`
+      // box's own `bg-chrome-bg` already shows through here (this
+      // sash paints nothing at rest), so it reads as a continuation
+      // of the chat's own tint rather than a seam of nothing.
+    />
+  )
+
+  // Editor view: everything pane.editorTabIds holds — files, terminals,
+  // branch review, never the chat. ALWAYS RENDERED (never conditionally
+  // mounted) — `hidden` only applies the native `hidden` attribute
+  // (display:none via the UA stylesheet, not a Tailwind class, so it needs
+  // no compiled CSS to take effect) in 'tabs' presentation (spec §7.1/
+  // §7.2: the split is off, or the pane is too small to honour it, or
+  // there is no chat at all). Everything inside — including the terminal
+  // keep-alive block — stays mounted across every presentation change AND
+  // across pane.chatId itself changing: this node keeps the same key
+  // ("editor-view") regardless of whether the chat-view/sash siblings
+  // exist OR which side of them it renders on, so React never sees it as
+  // a different element — only its `hidden` attribute and its sizing
+  // change, and nothing inside it ever unmounts/remounts. See the chat
+  // view's own block comment above for the bug this fixes.
+  //
+  // Chats/pane redesign bug fix: TabBar is the IDE SECTOR's own header, so
+  // whenever the chat is ALSO visible at the same time (side by side or
+  // stacked — `chatVisibleAlongsideEditor`), it belongs confined to the
+  // editor view's own box, not spanning over the chat's column/row too
+  // (that was the actual bug: tabs visibly sitting above the chat). One
+  // placement covers both side-by-side and stacked now — in stacked,
+  // editor-view is already full pane width, so TabBar being its own first
+  // child reads identically to the old dedicated "moves down between chat
+  // and editor" copy this replaces.
+  const editorViewNode = (
+    <div
+      key="editor-view"
+      ref={editorViewRef}
+      data-editor-view=""
+      hidden={editorViewHidden}
+      className={cn(
+        'relative flex min-h-0 flex-col overflow-hidden bg-pane-background',
+        Boolean(pane.chatId) && presentation !== 'tabs' ? 'shrink grow-0' : 'w-full flex-1',
+        // The IDE sector reads as its OWN card next to the chat's — a
+        // border and rounded corners on whichever edge actually touches
+        // the chat (left or right in side-by-side, depending on which
+        // side the chat itself is on; top in stacked), never the other
+        // three: those edges already meet the shared pane box's own
+        // border/radius (buildPaneContentStyle), a second one there would
+        // double up.
+        chatVisibleAlongsideEditor &&
+          (presentation === 'stacked'
+            ? 'rounded-t-lg border-t border-border'
+            : chatIsFirst
+              ? 'rounded-l-lg border-l border-border'
+              : 'rounded-r-lg border-r border-border'),
+      )}
+      style={
+        Boolean(pane.chatId) && presentation !== 'tabs'
+          ? // splitSizes is always [chatPct, editorPct] — see the chat
+            // view's own note above.
+            { flexBasis: `${splitSizes[1]}%` }
+          : undefined
+      }
+    >
+      {chatVisibleAlongsideEditor && (
+        <TabBar paneId={pane.id} onTabClick={handleTabClick} disablePaneActions={isBottomPane} />
+      )}
+      <div className="relative min-h-0 flex-1 overflow-hidden">{editorViewInner}</div>
+    </div>
+  )
+
   return (
     <div
       ref={containerRef}
@@ -884,193 +1084,23 @@ export function PaneContainer({
           ref={viewsContainerRef}
           className={cn('relative flex min-h-0 flex-1 overflow-hidden', isStacked && 'flex-col')}
         >
-          {pane.chatId && (
-            // Chat view. Mounted whenever pane.chatId is set — it does not
-            // compete with editorTabIds/activeEditorTabId for "which one is
-            // active" (a pane holds at most one chat), so isVisible is
-            // always true here. NEVER hidden — `editorOpen` means
-            // "chat-only vs. chat+editor," not "chat vs. editor": the chat
-            // shows in every presentation, including 'tabs'.
-            <div
-              key="chat-view"
-              ref={chatViewRef}
-              data-chat-view=""
-              hidden={chatViewHidden}
-              className={cn(
-                // No fill of its own — the shared `data-pane-content` box
-                // (above) already paints `bg-chrome-bg`; painting it AGAIN
-                // here would stack two translucent layers and read visibly
-                // more opaque than either alone.
-                'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
-                // Tabs, or no tabs at all: this box IS the pane's content
-                // area (the editor sits behind it, `hidden`). Side by
-                // side/stacked: it is one half of a real split, sized by
-                // splitSizes and left free for the sash to resize (shrink,
-                // no grow — same convention agent-chat-pane's own split
-                // uses).
-                presentation === 'tabs' || chatFillsPane ? 'h-full w-full flex-1' : 'shrink grow-0',
-              )}
-              style={
-                presentation === 'tabs' || chatFillsPane
-                  ? undefined
-                  : { flexBasis: `${splitSizes[0]}%` }
-              }
-            >
-              {/* The chat surface reads its workspace store off CONTEXT
-                  (`useWorkspaceStore`), so handing it the right `wsId` is only
-                  half the answer — it has to READ from that workspace's own
-                  store too, or a chat from another repo is simply never found.
-                  Re-provided here, around the chat view alone: everything else
-                  in this pane (editor tabs, terminals) genuinely belongs to
-                  the workspace whose view is on screen, and must keep it.
-                  ChatBranchHeader (the chat's own identity header, replacing
-                  ChatHead's old spot in tab-bar.tsx) sits inside the SAME
-                  provider so it resolves the chat's title off its OWN
-                  workspace too, not whichever one is ambient.
-
-                  Three ways this box's own header renders, matching
-                  `showTopLevelHeader`/`chatVisibleAlongsideEditor` above:
-                    - chatFillsPane: absent — ChatOnlyPaneHeader (top of the
-                      whole pane) already shows it.
-                    - side by side/stacked: ChatColumnHeader — this box IS a
-                      real column/row next to the editor's, so it gets the
-                      full window-chrome treatment (drag region, traffic
-                      lights) — it may be the pane's actual top-left corner.
-                    - collapsed ('tabs'), chat currently selected: the small,
-                      chrome-less ChatBranchHeader — TabBar's OWN full-pane
-                      row (above, outside this box) already owns the window
-                      chrome in this state. */}
-              <WorkspaceStoreContext.Provider value={chatStore}>
-                {chatVisibleAlongsideEditor ? (
-                  <ChatColumnHeader chatId={pane.chatId} wsId={wsId} isBottomPane={isBottomPane} />
-                ) : (
-                  !chatFillsPane && (
-                    <ChatBranchHeader
-                      chatId={pane.chatId}
-                      wsId={wsId}
-                      className="h-8 shrink-0 px-2.5"
-                    />
-                  )
-                )}
-                <div className="relative min-h-0 flex-1 overflow-hidden">
-                  <Suspense fallback={null}>
-                    {/* `paneId` was `bufferId` and a known, disclosed gap until the
-                      final fix wave: AgentChatPane wrote runner-follow repoints
-                      and title renames through `bufferActions
-                      .repointAgentChatBuffer`/`.renameBuffer`, both of which look
-                      an id up in `state.buffers` — and a chat has not been a
-                      buffer since Task 1 removed 'agentChat' from PaneContent, so
-                      every one of those writes safely no-op'd and runner-follow
-                      silently never happened (`/clear` left the chat header on the
-                      old name, and `closePane`'s dormantArrangements push
-                      remembered the wrong chat). AgentChatPane now writes
-                      `paneActions.setPaneChat(paneId, ...)` — the real write path
-                      for what chat a pane holds — and the relabel is gone
-                      entirely, since ChatBranchHeader reads the live title by
-                      chat id. */}
-                    <AgentChatPane
-                      chatId={pane.chatId}
-                      runnerId={pane.runnerId ?? ''}
-                      wsId={wsId}
-                      paneId={pane.id}
-                      isActivePane={isActivePane}
-                      // Was hard-coded true: a pane holds at most one chat, so
-                      // within the pane the chat view is always the one showing.
-                      // With views that is no longer the whole question — the
-                      // pane itself can be in an arrangement that is off screen,
-                      // and now (chats/pane redesign) a selected EDITOR tab can
-                      // cover the chat within an otherwise-visible pane too
-                      // (`chatViewHidden`). It matters beyond appearances: the
-                      // dormant-chat revive fires on `isVisible`, so a parked or
-                      // covered chat left claiming to be visible would spawn a
-                      // vendor CLI for a chat nobody is looking at.
-                      isVisible={showing && !chatViewHidden}
-                    />
-                  </Suspense>
-                </div>
-              </WorkspaceStoreContext.Provider>
-            </div>
+          {/* chatIsFirst decides visual order (sidebar on the right puts the
+              chat second, next to it) — each node keeps its own stable key
+              regardless of which slot it renders in, so this is never a
+              remount. */}
+          {chatIsFirst ? (
+            <>
+              {chatViewNode}
+              {sashNode}
+              {editorViewNode}
+            </>
+          ) : (
+            <>
+              {editorViewNode}
+              {sashNode}
+              {chatViewNode}
+            </>
           )}
-
-          {/* The draggable divider between the two views — side by side or
-              stacked only; tabs shows one view at a time, so there is
-              nothing to divide. Same imperative pixel sash agent-chat-pane
-              uses for its own split, with the identical floor convention:
-              the narrower axis (a half's own width side by side, a half's
-              own height stacked) gets the smaller floor. */}
-          {pane.chatId && presentation !== 'tabs' && !chatFillsPane && (
-            <PaneSash
-              key="chat-editor-sash"
-              direction={presentation === 'stacked' ? 'vertical' : 'horizontal'}
-              sizes={splitSizes}
-              containerRef={viewsContainerRef}
-              firstPaneRef={chatViewRef}
-              secondPaneRef={editorViewRef}
-              onResizeCommit={setSplitSizes}
-              minPx={presentation === 'stacked' ? SPLIT_MIN_STACKED_PX : SPLIT_MIN_HALF_PX}
-              // No fill of its own needed — the shared `data-pane-content`
-              // box's own `bg-chrome-bg` already shows through here (this
-              // sash paints nothing at rest), so it reads as a continuation
-              // of the chat's own tint rather than a seam of nothing.
-            />
-          )}
-
-          {/* Editor view: everything pane.editorTabIds holds — files,
-              terminals, branch review, never the chat. ALWAYS RENDERED
-              (never conditionally mounted) — `hidden` only applies the
-              native `hidden` attribute (display:none via the UA
-              stylesheet, not a Tailwind class, so it needs no compiled CSS
-              to take effect) in 'tabs' presentation (spec §7.1/§7.2: the
-              split is off, or the pane is too small to honour it, or there
-              is no chat at all). Everything inside — including the terminal
-              keep-alive block — stays mounted across every presentation
-              change AND across pane.chatId itself changing: this div keeps
-              the same key ("editor-view") and the same position among its
-              siblings regardless of whether the chat-view/sash siblings
-              above exist, so React never sees it as a different element —
-              only its `hidden` attribute and its sizing change, and nothing
-              inside it ever unmounts/remounts. See the block comment at the
-              top of this section for the bug this fixes. */}
-          {/* Chats/pane redesign bug fix: TabBar is the IDE SECTOR's own
-              header, so whenever the chat is ALSO visible at the same time
-              (side by side or stacked — `chatVisibleAlongsideEditor`), it
-              belongs confined to the editor view's own box, not spanning
-              over the chat's column/row too (that was the actual bug: tabs
-              visibly sitting above the chat). One placement covers both
-              side-by-side and stacked now — in stacked, editor-view is
-              already full pane width, so TabBar being its own first child
-              reads identically to the old dedicated "moves down between
-              chat and editor" copy this replaces. */}
-          <div
-            key="editor-view"
-            ref={editorViewRef}
-            data-editor-view=""
-            hidden={editorViewHidden}
-            className={cn(
-              'relative flex min-h-0 flex-col overflow-hidden bg-pane-background',
-              Boolean(pane.chatId) && presentation !== 'tabs' ? 'shrink grow-0' : 'w-full flex-1',
-              // The IDE sector reads as its OWN card next to the chat's —
-              // a border and rounded corners on whichever edge actually
-              // touches the chat (left in side-by-side, top in stacked),
-              // never the other three: those edges already meet the
-              // shared pane box's own border/radius (buildPaneContentStyle),
-              // a second one there would double up.
-              chatVisibleAlongsideEditor &&
-                (presentation === 'stacked'
-                  ? 'rounded-t-lg border-t border-border'
-                  : 'rounded-l-lg border-l border-border'),
-            )}
-            style={
-              Boolean(pane.chatId) && presentation !== 'tabs'
-                ? { flexBasis: `${splitSizes[1]}%` }
-                : undefined
-            }
-          >
-            {chatVisibleAlongsideEditor && (
-              <TabBar paneId={pane.id} onTabClick={handleTabClick} disablePaneActions={isBottomPane} />
-            )}
-            <div className="relative min-h-0 flex-1 overflow-hidden">{editorViewInner}</div>
-          </div>
         </div>
       </div>
     </div>
