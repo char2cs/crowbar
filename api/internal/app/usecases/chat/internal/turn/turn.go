@@ -387,7 +387,19 @@ func (t *Turns) ChatWorking(ctx context.Context, chatID string) (bool, error) {
 //
 // A no-op when the chat is idle: StopChat is also what closing a chat TAB
 // calls, and quitting an already-quiet CLI is not an interruption of anything.
-func (t *Turns) RecordStop(ctx context.Context, chatID string) error {
+//
+// Takes runnerID's own hook gate — the SAME one IngestHookDelivery holds
+// across its whole ingest — before touching the activity ledger. Without it,
+// this could commit its Interrupt in the gap between a hook for this exact
+// runner being admitted and its effects landing: interruptTurn's Send only
+// waits for the API connection to say the turn is over, which says nothing
+// about whether that turn's OWN closing/reopening hook deliveries have
+// finished being ingested yet. Confirmed live: an Interrupted divider
+// anchored to a message's turn that a self-continuation hook had already
+// superseded milliseconds earlier, landing ahead of replies the CLI had
+// already produced by the time Stop was clicked.
+func (t *Turns) RecordStop(ctx context.Context, chatID, runnerID string) error {
+	defer t.hookGates.Lock(runnerID)()
 	if len(t.turns.Inflight(chatID)) == 0 {
 		return nil
 	}
