@@ -101,6 +101,22 @@ html[data-pane-resizing] [data-pane-content] {
   box-shadow: none !important;
 }
 
+/* The chat header's progressive-blur "dissolve" (EdgeDissolve, chat-blur
+   variant — pane-top-row.tsx) lives inside the chat/editor split's own box,
+   whose flex-basis PaneSash rewrites on every raw pointermove during a drag.
+   Each of its 7 stacked backdrop-filter layers has to resample the pixels
+   behind it at the new width on every one of those writes. Measured live
+   (Tauri MCP + a rAF frame-time probe) during a chat/editor sash drag: up to
+   103ms/frame against a 31ms idle ceiling, with the fix below it dropped to a
+   17ms ceiling. Paused (not removed) for the exact span `data-pane-resizing`
+   already exists for — same mechanism `.monaco-editor`'s GPU-layer promotion
+   below uses for the identical reason — and restored the instant the drag
+   ends, so the glass looks the same at rest either way. */
+html[data-pane-resizing] [data-testid='edge-dissolve'] > div {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
 /* Nothing is selectable while a row is in the air.
    The `selectstart` listener (armed on pointerdown, workspace-tree-context.tsx)
    is the primary guard and cancels the selection at its source; this is the
