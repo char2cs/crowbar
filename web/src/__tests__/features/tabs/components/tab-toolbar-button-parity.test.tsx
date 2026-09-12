@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import CloseViewButton from '@/features/tabs/components/close-view-button'
-import TabAddButton from '@/features/tabs/components/tab-add-button'
+import { BranchReviewShortcutButton } from '@/features/tabs/components/branch-review-shortcut-button'
 import TabNavigationButtons from '@/features/tabs/components/tab-navigation-buttons'
 import { SidebarProjectHeader } from '@/components/layout/sidebar-project-header'
 
@@ -38,6 +37,11 @@ const diff = (a: Set<string>, b: Set<string>) => [
 ]
 
 describe('tab bar toolbar button parity', () => {
+  // TabAddButton is a DropdownMenu trigger now (it offers New File/New
+  // Terminal, not one default action) and is styled to LOOK like this same
+  // recipe rather than rendering through the shared Button component that
+  // produces it — see tab-add-button.tsx's own doc. It's covered separately;
+  // this comparison stays with two peers that both genuinely are Buttons.
   it('renders the sidebar toggle with the same recipe as its tab-bar peers', () => {
     render(
       <>
@@ -47,22 +51,14 @@ describe('tab bar toolbar button parity', () => {
           sidebarPosition="left"
           onToggleSidebar={() => {}}
         />
-        <TabAddButton isBottomPane={false} onNewTab={() => {}} />
-        <CloseViewButton
-          isBottomPane={false}
-          disablePaneActions={false}
-          canClose
-          onCloseView={() => {}}
-        />
+        <BranchReviewShortcutButton isBottomPane={false} onOpen={() => {}} />
       </>,
     )
 
     const toggle = withoutMirror(screen.getByRole('button', { name: 'Show sidebar' }))
-    const addTab = classesOf(screen.getByRole('button', { name: 'New tab' }))
-    const closeView = classesOf(screen.getByRole('button', { name: 'Close view' }))
+    const branchReview = classesOf(screen.getByRole('button', { name: 'Review this branch' }))
 
-    expect(diff(toggle, addTab)).toEqual([[], []])
-    expect(diff(toggle, closeView)).toEqual([[], []])
+    expect(diff(toggle, branchReview)).toEqual([[], []])
   })
 
   it('renders the same toggle whether the sidebar is hidden or shown', () => {

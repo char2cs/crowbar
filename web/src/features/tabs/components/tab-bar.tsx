@@ -7,11 +7,12 @@ import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import {
   splitEditorGroup,
-  openBranchReviewForActiveWorkspace,
+  openBranchReviewForWorkspace,
+  ensurePaneChatThenOpen,
 } from '@/features/panes/utils/pane-command-actions'
-import { usePaneViewCloseControl } from '@/features/panes/hooks/use-pane-view-close-control'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
@@ -24,7 +25,6 @@ import { sameRenderedBuffer } from './tab-bar-item-utils'
 import TabContextMenu from './tab-context-menu'
 import TabNavigationButtons from './tab-navigation-buttons'
 import TabAddButton from './tab-add-button'
-import CloseViewButton from './close-view-button'
 import SortableEditorTab from './sortable-editor-tab'
 import { SplitToggleButton } from './split-toggle-button'
 import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
@@ -77,15 +77,11 @@ function useRenderedPaneBuffers(paneBufferIds: string[]): PaneContent[] {
 
 interface TabBarProps {
   paneId?: string
+  /** THIS pane's own workspace (see pane-container.tsx's `wsId` resolution)
+   *  — needed to open branch review, or a new file/terminal, for the right
+   *  workspace rather than whichever one happens to be globally active. */
+  wsId?: string | null
   onTabClick?: (bufferId: string) => void
-  disablePaneActions?: boolean
-  /**
-   * "+" — the last child inside the editor-tab scroller (spec §7.1). No
-   * default: minting a real editor tab is a file-open decision (a picker, a
-   * blank buffer, …) that belongs to whichever surface hosts this pane, not
-   * to the tab strip itself.
-   */
-  onAddTab?: (paneId: string) => void
   /**
    * Chats/pane redesign: draw the chat as the FIRST entry in the tab strip
    * (`ChatTabItem`) — the collapsed presentation's "chat is just another
@@ -98,9 +94,8 @@ interface TabBarProps {
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive tab strip — drag/reorder, overflow scroll and active-tab tracking share one dnd context and scroll ref.
 const TabBar = ({
   paneId,
+  wsId,
   onTabClick: externalTabClick,
-  disablePaneActions = false,
-  onAddTab,
   showChatTab = false,
 }: TabBarProps) => {
   const globalActiveBufferId = useStore(
@@ -245,7 +240,7 @@ const TabBar = ({
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined
-  const { isBottomPane, canClose: canCloseView, onCloseView } = usePaneViewCloseControl(pane)
+  const isBottomPane = paneId === BOTTOM_PANE_ID
   // A pane holding NOTHING — no chat, no editor tabs — is a fallback screen,
   // not a view: "it should only appear when NO VIEW is opened." An emptied
   // pane in a split now collapses out of the layout entirely
@@ -661,13 +656,32 @@ const TabBar = ({
                 {/* Flows immediately after the last tab and shifts as tabs
                     open/close — NOT a SortableEditorTab, so it never joins
                     sortedBufferIds and is never draggable. Last child inside
-                    the scroller (spec §7.1). */}
+                    the scroller (spec §7.1). A dropdown, not a single default
+                    action: the two things that can actually land in this
+                    pane's editor view are a blank file or a terminal, so
+                    both are offered rather than picking one silently. */}
                 {paneId && (
                   <TabAddButton
                     isBottomPane={isBottomPane}
-                    onNewTab={() => {
+                    onNewFile={() => {
+                      if (!wsId) return
                       setActivePane(paneId)
-                      onAddTab?.(paneId)
+                      ensurePaneChatThenOpen(wsId, paneId, () => {
+                        openContent({
+                          type: 'editor',
+                          path: 'untitled:Untitled',
+                          name: 'Untitled',
+                          content: '',
+                          isVirtual: true,
+                        })
+                      })
+                    }}
+                    onNewTerminal={() => {
+                      if (!wsId) return
+                      setActivePane(paneId)
+                      ensurePaneChatThenOpen(wsId, paneId, () => {
+                        openContent({ type: 'terminal' })
+                      })
                     }}
                   />
                 )}
@@ -678,24 +692,14 @@ const TabBar = ({
           {/* Shortcut into GitPanel's own "Review this branch" action
               (git-panel.tsx) — branch review's real home stays the git
               file-explorer card; this is just a faster way to reach it from
-              the IDE sector's own row. Pinned at the right edge, before the
-              close-view control. */}
+              the IDE sector's own row. Pinned at the right edge. */}
           {paneId && pane && !isEmptyPane && (
             <BranchReviewShortcutButton
               isBottomPane={isBottomPane}
-              onOpen={() => openBranchReviewForActiveWorkspace()}
-            />
-          )}
-
-          {/* A VIEW action (spec §5.4), not a tab action — stays pinned at the
-              right edge, outside the scrolling tab container. Absent on an
-              empty pane: there is nothing in it to close. */}
-          {paneId && pane && !isEmptyPane && (
-            <CloseViewButton
-              isBottomPane={isBottomPane}
-              disablePaneActions={disablePaneActions}
-              canClose={canCloseView}
-              onCloseView={onCloseView}
+              // THIS pane's own workspace — not whichever one happens to be
+              // globally active, which is a different pane in a split
+              // showing a different chat/branch entirely.
+              onOpen={() => openBranchReviewForWorkspace(wsId)}
             />
           )}
 

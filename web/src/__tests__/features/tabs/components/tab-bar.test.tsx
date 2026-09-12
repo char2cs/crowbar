@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
@@ -175,45 +176,62 @@ describe('TabBar "+" click behaviour', () => {
     vi.clearAllMocks()
   })
 
-  it('calls onAddTab with this pane and focuses it (no built-in New Tab placeholder any more)', () => {
+  it('opens a dropdown offering New File and New Terminal', async () => {
+    const user = userEvent.setup()
     const buffers = [makeEditorBuffer(0)]
     const store = setupStore(buffers)
-    const onAddTab = vi.fn()
     act(() => {
-      renderTabBar(store, { onAddTab })
+      renderTabBar(store, { wsId: 'w1' })
     })
 
+    await user.click(screen.getByRole('button', { name: 'New tab' }))
+
+    expect(await screen.findByRole('menuitem', { name: /New File/ })).toBeDefined()
+    expect(screen.getByRole('menuitem', { name: /New Terminal/ })).toBeDefined()
+  })
+
+  it('"New File" focuses this pane and opens a new blank editor tab in it', async () => {
+    const user = userEvent.setup()
+    const buffers = [makeEditorBuffer(0)]
+    const store = setupPaneStore({ buffers, chatId: 'chat-1' })
+    act(() => {
+      renderTabBar(store, { wsId: 'w1' })
+    })
     act(() => {
       windowPaneStore.getState().paneActions.setActivePane('some-other-pane-first')
     })
 
-    act(() => {
-      fireEvent.click(screen.getByRole('button', { name: 'New tab' }))
-    })
+    await user.click(screen.getByRole('button', { name: 'New tab' }))
+    await user.click(await screen.findByRole('menuitem', { name: /New File/ }))
 
-    expect(onAddTab).toHaveBeenCalledWith(ROOT_PANE_ID)
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+    const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
+    expect(editorTabIds).toHaveLength(2)
+    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
+    expect(newBuf?.type).toBe('editor')
+    expect((newBuf as EditorContent)?.isVirtual).toBe(true)
   })
 
-  it('does not render a dropdown menu on click', () => {
+  it('"New Terminal" opens a new terminal tab in this pane', async () => {
+    const user = userEvent.setup()
     const buffers = [makeEditorBuffer(0)]
-    const store = setupStore(buffers)
+    const store = setupPaneStore({ buffers, chatId: 'chat-1' })
     act(() => {
-      renderTabBar(store, { onAddTab: vi.fn() })
+      renderTabBar(store, { wsId: 'w1' })
     })
 
-    act(() => {
-      fireEvent.click(screen.getByRole('button', { name: 'New tab' }))
-    })
+    await user.click(screen.getByRole('button', { name: 'New tab' }))
+    await user.click(await screen.findByRole('menuitem', { name: /New Terminal/ }))
 
-    expect(screen.queryByRole('menu')).toBeNull()
-    expect(screen.queryByText('New Terminal')).toBeNull()
+    const editorTabIds = windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []
+    const newBuf = windowPaneStore.getState().buffers.find((b) => b.id === editorTabIds[1])
+    expect(newBuf?.type).toBe('terminal')
   })
 })
 
 // Spec §7.1 (revised by the chats/pane redesign): tab-bar.tsx is now the
 // IDE SECTOR's own row only — split toggle, the editor tab strip in its own
-// scroller, the branch-review shortcut, then close-view. The chat is no
+// scroller, then the branch-review shortcut. The chat is no
 // longer part of this row at all: it draws its own identity header
 // (`ChatBranchHeader`) at the top of the chat view instead
 // (pane-container.test.tsx / chat-branch-header.test.tsx cover that).
@@ -274,77 +292,6 @@ describe('TabBar pane-top-row anatomy', () => {
 })
 
 /**
- * "Closing a View should terminate it. Now its just closing it, and I have
- * to press it again to then close it." — the pane-chrome × used to close only
- * the ONE pane clicked (`closePane`), surviving a multi-pane split; once that
- * left the survivor solo, `isInSplit` gated the control off entirely, so
- * there was nothing left in the pane chrome to finish the job with — the
- * user had to go find Recents' × instead, a different control in a different
- * place. A view is the close unit; this pins the fix at the surface the bug
- * actually reached.
- */
-describe('TabBar close control — closes the whole VIEW, in one click', () => {
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
-  /** A real split via the real action (spec §8.1), tagged with ONE shared
-   *  viewId, rather than two hand-built independent panes. */
-  function setupSplitView() {
-    const store = createWorkspaceStore('w1')
-    store.setState((s) => ({
-      ...s,
-      agentChats: {
-        ...s.agentChats,
-        chats: [makeChat({ id: 'chat-1' }), makeChat({ id: 'chat-2' })],
-      },
-    }))
-    resetWindowPaneStoreForTests()
-    windowPaneStore.setState((s) => {
-      s.panes[ROOT_PANE_ID] = { ...s.panes[ROOT_PANE_ID], chatId: 'chat-1' }
-      return s
-    })
-    const paneB = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
-    windowPaneStore.getState().paneActions.setPaneChat(paneB, 'chat-2', null)
-    return { store, paneA: ROOT_PANE_ID, paneB }
-  }
-
-  it('closing from either pane of a split ends the WHOLE view, not just the one clicked', () => {
-    const { store, paneA, paneB } = setupSplitView()
-    act(() => {
-      renderTabBar(store, { paneId: paneA })
-    })
-
-    act(() => {
-      fireEvent.click(screen.getByRole('button', { name: 'Close view' }))
-    })
-
-    // Both members gone in the ONE click — not "closing" one half and
-    // leaving the survivor with no control left to finish the job. paneB
-    // collapses out of the layout entirely (dropEmptiedPanes); paneA (the
-    // window's permanent last-pane slot) survives but empty — the "nothing
-    // is open" fallback, not a still-live half of the view.
-    expect(windowPaneStore.getState().panes[paneB]).toBeUndefined()
-    expect(windowPaneStore.getState().panes[paneA]?.chatId).toBeNull()
-    const remainingChatIds = Object.values(windowPaneStore.getState().panes).map((p) => p.chatId)
-    expect(remainingChatIds).not.toContain('chat-1')
-    expect(remainingChatIds).not.toContain('chat-2')
-  })
-
-  it('a SOLO (non-split) view shows the same close control a split one does', () => {
-    const store = setupPaneStore({ chatId: 'chat-1', buffers: [] })
-    act(() => {
-      renderTabBar(store)
-    })
-
-    // Regression: this control used to be gated on split MEMBERSHIP
-    // (isInSplit), so a lone pane — the exact shape every closed split
-    // dissolves into — drew no close control at all.
-    expect(screen.getByRole('button', { name: 'Close view' })).toBeInTheDocument()
-  })
-})
-
-/**
  * "The empty case is treated as a normal view. It shouldn't be treated like
  * that — it should only appear when NO VIEW is opened. It's just a fallback
  * when nothing is found, not a normal view."
@@ -360,7 +307,7 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
     vi.clearAllMocks()
   })
 
-  it('draws no split toggle, no tab strip and no close control', () => {
+  it('draws no split toggle and no tab strip', () => {
     const store = setupPaneStore({ chatId: null, buffers: [] })
     act(() => {
       renderTabBar(store)
@@ -368,7 +315,6 @@ describe('TabBar — a pane holding nothing draws no chrome for it', () => {
 
     expect(screen.queryByTestId('split-toggle')).not.toBeInTheDocument()
     expect(screen.queryByTestId('editor-tab-scroller')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /close view/i })).not.toBeInTheDocument()
   })
 
   it('keeps the row itself — it carries the window drag region and the traffic-light inset', () => {

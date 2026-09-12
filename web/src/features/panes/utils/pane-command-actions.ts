@@ -46,10 +46,14 @@ export function toggleActiveEditorGroupLock(): boolean {
   return true
 }
 
-// Opens the Branch Review surface for the active workspace as a pane tab.
-// Returns the opened buffer id, or null when there is no active workspace.
-export function openBranchReviewForActiveWorkspace(): string | null {
-  const wsId = getActiveWorkspaceId()
+// Opens the Branch Review surface for the given workspace as a pane tab.
+// Returns the opened buffer id, or null when there is no workspace to open
+// one for. The caller supplies the workspace: a button living inside a
+// SPECIFIC pane (TabBar, ChatOnlyPaneHeader) must open review for THAT
+// pane's own chat/workspace, never whichever one happens to be globally
+// active — a different pane in the same split can easily be showing a
+// different chat and workspace entirely.
+export function openBranchReviewForWorkspace(wsId: string | null | undefined): string | null {
   if (!wsId) {
     return null
   }
@@ -57,6 +61,14 @@ export function openBranchReviewForActiveWorkspace(): string | null {
   return windowPaneStore
     .getState()
     .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' })
+}
+
+// Opens the Branch Review surface for the globally active workspace — for
+// callers with no pane/chat context of their own (GitPanel, a keyboard
+// shortcut), where "active workspace" is genuinely the only meaningful
+// answer.
+export function openBranchReviewForActiveWorkspace(): string | null {
+  return openBranchReviewForWorkspace(getActiveWorkspaceId())
 }
 
 // Law 3 (spec §7.2): "nothing lands in a pane of its own; everything lands in

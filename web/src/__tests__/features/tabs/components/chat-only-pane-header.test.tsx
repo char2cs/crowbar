@@ -14,7 +14,7 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 
 const { openBranchReviewMock } = vi.hoisted(() => ({ openBranchReviewMock: vi.fn() }))
 vi.mock('@/features/panes/utils/pane-command-actions', () => ({
-  openBranchReviewForActiveWorkspace: openBranchReviewMock,
+  openBranchReviewForWorkspace: openBranchReviewMock,
 }))
 
 function makeChat(overrides: Partial<AgentChat> = {}): AgentChat {
@@ -93,24 +93,23 @@ describe('ChatOnlyPaneHeader', () => {
     expect(screen.getByTestId('chat-branch-header')).toHaveTextContent('My Chat')
   })
 
-  it('the branch-review shortcut opens branch review for the active workspace', () => {
-    renderHeader(makePane())
+  it("the branch-review shortcut opens branch review for THIS pane's own workspace", () => {
+    renderHeader(makePane(), 'w1')
     fireEvent.click(screen.getByRole('button', { name: /review this branch/i }))
     expect(openBranchReviewMock).toHaveBeenCalledTimes(1)
+    expect(openBranchReviewMock).toHaveBeenCalledWith('w1')
   })
 
-  it('the close-view button closes this pane’s view', () => {
+  // Closing a chat/view is a sidebar operation only (Recents' own ×, or a
+  // row's own close) — this row offers no close control of its own.
+  it('renders no close control', () => {
     renderHeader(makePane())
-    fireEvent.click(screen.getByRole('button', { name: 'Close view' }))
-    // A solo pane's view collapsing empties its own chat — the same
-    // observable effect TabBar's own close-view control produces.
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+    expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument()
   })
 
-  it('hides the branch-review shortcut and close-view button on the bottom pane', () => {
+  it('hides the branch-review shortcut on the bottom pane', () => {
     renderHeader(makePane({ id: BOTTOM_PANE_ID }))
     expect(screen.queryByRole('button', { name: /review this branch/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
     // The identity header still shows — it isn't a pane-action.
     expect(screen.getByTestId('chat-branch-header')).toBeInTheDocument()
   })

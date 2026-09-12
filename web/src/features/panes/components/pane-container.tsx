@@ -913,7 +913,7 @@ export function PaneContainer({
       }
     >
       {chatVisibleAlongsideEditor && (
-        <TabBar paneId={pane.id} onTabClick={handleTabClick} disablePaneActions={isBottomPane} />
+        <TabBar paneId={pane.id} wsId={wsId} onTabClick={handleTabClick} />
       )}
       <div className="relative min-h-0 flex-1 overflow-hidden">{editorViewInner}</div>
     </div>
@@ -1042,8 +1042,8 @@ export function PaneContainer({
             ) : (
               <TabBar
                 paneId={pane.id}
+                wsId={wsId}
                 onTabClick={handleTabClick}
-                disablePaneActions={isBottomPane}
                 showChatTab={showChatTab}
               />
             )}

@@ -1,11 +1,10 @@
+import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { usePaneTopRowEdges } from '../hooks/use-pane-top-row-edges'
-import { usePaneViewCloseControl } from '@/features/panes/hooks/use-pane-view-close-control'
-import { openBranchReviewForActiveWorkspace } from '@/features/panes/utils/pane-command-actions'
+import { openBranchReviewForWorkspace } from '@/features/panes/utils/pane-command-actions'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneGroup } from '@/features/panes/types/pane'
 import { ChatBranchHeader } from './chat-branch-header'
 import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
-import CloseViewButton from './close-view-button'
 import { PaneTopRow } from './pane-top-row'
 
 interface ChatOnlyPaneHeaderProps {
@@ -19,13 +18,15 @@ interface ChatOnlyPaneHeaderProps {
  * this replaces TabBar's whole row rather than leaving it to draw an empty
  * tab strip. Renders through the same `PaneTopRow` shell TabBar's own row
  * does (drag region, macOS traffic-light inset), plus the same right-pinned
- * branch-review shortcut and close-view control — only the middle (the tab
- * strip) is gone, replaced by the chat's own identity header.
+ * branch-review shortcut — only the middle (the tab strip) is gone, replaced
+ * by the chat's own identity header. Closing a chat/view is a SIDEBAR
+ * operation only (Recents' own ×, or a row's own close) — this row offers no
+ * close control of its own.
  */
 export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { rowRef, isAtLeftEdge, isAtTopEdge } = usePaneTopRowEdges([sidebarPosition])
-  const { isBottomPane, canClose, onCloseView } = usePaneViewCloseControl(pane)
+  const isBottomPane = pane.id === BOTTOM_PANE_ID
 
   return (
     <PaneTopRow
@@ -51,13 +52,10 @@ export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
       />
       <BranchReviewShortcutButton
         isBottomPane={isBottomPane}
-        onOpen={() => openBranchReviewForActiveWorkspace()}
-      />
-      <CloseViewButton
-        isBottomPane={isBottomPane}
-        disablePaneActions={isBottomPane}
-        canClose={canClose}
-        onCloseView={onCloseView}
+        // THIS pane's own workspace — not whichever one happens to be
+        // globally active, which is a different pane in a split showing a
+        // different chat/branch entirely.
+        onOpen={() => openBranchReviewForWorkspace(wsId)}
       />
     </PaneTopRow>
   )
