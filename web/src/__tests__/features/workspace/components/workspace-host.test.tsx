@@ -38,6 +38,14 @@ vi.mock('@/features/workspace/components/workspace-view', async () => {
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   destroyWorkspaceStore: (wsId: string) => destroySpy(wsId),
+  // WindowPaneSurface (the window's ONE pane tree, a sibling of the slots)
+  // resolves the active workspace's store to publish as the ambient context.
+  getOrCreateWorkspaceStore: () => null,
+}))
+
+// The pane tree itself is another suite's subject; this one is about retention.
+vi.mock('@/features/workspace/components/workspace-layout-root', () => ({
+  WorkspaceLayoutRoot: () => null,
 }))
 
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'

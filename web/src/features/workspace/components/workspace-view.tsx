@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
 import { getOrCreateWorkspaceStore, setActiveWorkspaceId } from '../stores/workspace-store-registry'
 import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
@@ -6,7 +6,6 @@ import { hydrateWorkspace, reconcileWorkspaceBuffersWithDisk } from '@/lib/persi
 import { markStart, markEnd } from '@/lib/perf/instrumentation'
 import { resetWorkspaceScopedStores } from '../lib/reset-workspace-scoped-stores'
 import { markWorkspaceDeactivated } from '../lib/activation-freshness'
-import { WorkspaceLayoutRoot } from './workspace-layout-root'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
 import { useWorkspaceAgentChatsStream } from '../stores/hooks/use-workspace-agent-chats-stream'
 import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
@@ -24,7 +23,18 @@ interface WorkspaceViewProps {
   active: boolean
 }
 
-export function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
+/**
+ * A workspace's LIFECYCLE — its store, its hydration, its streams and its
+ * active-only watchers. It renders no surface of its own: the pane tree it used
+ * to host is window-level (Task 26) and now lives once, in `WorkspaceHost`.
+ *
+ * MEMOIZED because `WorkspaceHost`'s parent (`IDEShell`) re-renders on plenty
+ * that has nothing to do with any workspace, and both props here are primitives
+ * — `wsId` is fixed for the life of the instance, so this bails out on exactly
+ * the renders that change nothing and still runs the two slots whose `active`
+ * actually flips on a workspace switch.
+ */
+export const WorkspaceView = memo(function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
   const store = getOrCreateWorkspaceStore(wsId)
   // wsId is stable for a given WorkspaceView instance — WorkspaceHost keys each
   // retained workspace by id — so this hydrates exactly once per mount and never
@@ -148,7 +158,6 @@ export function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
 
   return (
     <WorkspaceStoreContext.Provider value={store}>
-      <WorkspaceLayoutRoot />
       {/* Watchers + keyboard run ONLY while active: use-workspace-effects writes
           the GLOBAL file-system / git stores (keyed to the single visible
           workspace), so a hidden workspace's WebSocket frames would clobber the
@@ -158,7 +167,7 @@ export function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
       {active && <WorkspaceActiveEffects wsId={wsId} />}
     </WorkspaceStoreContext.Provider>
   )
-}
+})
 
 function WorkspaceActiveEffects({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
   useWorkspaceEffects(wsId)

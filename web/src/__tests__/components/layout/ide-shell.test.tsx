@@ -64,9 +64,20 @@ const { sidebarState } = vi.hoisted(() => ({
   },
 }))
 vi.mock('@/lib/store/sidebar', () => {
-  return {
-    useSidebarStore: (selector?: (s: typeof sidebarState) => unknown) =>
+  // `useActivePaneWorkspaceId` reads the tree imperatively (one
+  // useSyncExternalStore over the pane store, the sidebar tree and the
+  // workspace registry at once), so the stand-in needs zustand's own
+  // getState/subscribe surface, not just the selector call.
+  const useSidebarStore = Object.assign(
+    (selector?: (s: typeof sidebarState) => unknown) =>
       selector ? selector(sidebarState) : sidebarState,
+    {
+      getState: () => sidebarState,
+      subscribe: () => () => {},
+    },
+  )
+  return {
+    useSidebarStore,
     // Module-level sentinels home-tree.ts needs at import time (transitively
     // reached via use-workspace-provider-stream -> sidebar-sync ->
     // project-visibility -> home-tree) — not read by anything this test

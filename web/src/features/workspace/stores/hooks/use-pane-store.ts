@@ -31,6 +31,16 @@ export const useFullscreenPaneId = (): string | null => usePaneStore((s) => s.fu
 
 export const useActivePaneId = (): string => usePaneStore((s) => s.activePaneId)
 
+/**
+ * Is THIS pane the active one? A boolean, deliberately — a component that only
+ * needs its own answer must not subscribe to `useActivePaneId`, whose value
+ * changes for everybody every time focus moves anywhere, re-rendering every
+ * pane in the window (and, with nothing memoized between a pane and its chat
+ * surface, every chat on screen) instead of just the two that swapped.
+ */
+export const useIsActivePane = (paneId: string): boolean =>
+  usePaneStore((s) => s.activePaneId === paneId)
+
 export const usePaneActions = (): PaneActions => usePaneStore((s) => s.paneActions)
 
 export const usePaneById = (paneId: string): PaneGroup | null =>

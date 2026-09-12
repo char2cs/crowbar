@@ -2,7 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useSettingsStore } from '@/features/settings/store'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
-import { destroyWorkspaceStore } from '../stores/workspace-store-registry'
+import {
+  destroyWorkspaceStore,
+  getOrCreateWorkspaceStore,
+} from '../stores/workspace-store-registry'
+import { WorkspaceStoreContext } from '../stores/workspace-context'
+import { WorkspaceLayoutRoot } from './workspace-layout-root'
 import { subscribeWorkspaceEviction } from '../lib/workspace-eviction-request'
 import { planRetention, RETENTION_CAP } from '../lib/keep-alive-policy'
 import { workspaceSlotStyling } from '../lib/workspace-slot-style'
@@ -335,6 +340,46 @@ export function WorkspaceHost({
           </div>
         )
       })}
+      <WindowPaneSurface activeWsId={activeWsId} />
     </>
+  )
+}
+
+/**
+ * THE WINDOW'S PANE TREE — one of it, for the whole window.
+ *
+ * Panes became window-level in Task 26 (`windowPaneStore`: one pane map, one
+ * layout, shared by every workspace), but the tree that RENDERS them stayed
+ * inside `WorkspaceView` — so every retained workspace drew its own complete
+ * copy of it, all but one of them inside a `display: none` slot. With four
+ * workspaces warm and a three-pane split that is twelve `PaneContainer`s, twelve
+ * chat surfaces and sixteen Plate editors live at once, eleven-twelfths of them
+ * invisible, and each one a real subscriber to the shared pane store: marking a
+ * chat active re-rendered all of them. It was also the visible flash. A chat's
+ * workspace is the active one, so clicking between two chats switches slots,
+ * and the incoming slot's copy had never been laid out — revealing it forced a
+ * full layout and paint of every chat, editor and terminal in it, refired every
+ * ResizeObserver inside (xterm refit, `usePaneViewPresentation` snapping from
+ * "unmeasured" to its real arrangement) and cost 150-400ms on a click that
+ * should cost nothing. Rendered once, a workspace switch moves no pane DOM at
+ * all.
+ *
+ * It sits OUTSIDE the slots, as their sibling — layout-identical, because an
+ * active slot is `display: contents` and so contributes no box of its own — and
+ * carries the ACTIVE workspace's store as the ambient `WorkspaceStoreContext`,
+ * which is exactly what the active slot used to give it. A pane holding another
+ * workspace's chat re-provides its own store anyway (pane-container.tsx), so
+ * the ambient one is only ever the documented fallback.
+ */
+function WindowPaneSurface({ activeWsId }: { activeWsId: string | null }) {
+  // Never creates a store the host hasn't agreed to mount: `activeWsId` is
+  // force-appended to `renderIds` above, so its own WorkspaceView creates the
+  // very same store in the very same render pass.
+  const store = activeWsId ? getOrCreateWorkspaceStore(activeWsId) : null
+  if (!store) return null
+  return (
+    <WorkspaceStoreContext.Provider value={store}>
+      <WorkspaceLayoutRoot />
+    </WorkspaceStoreContext.Provider>
   )
 }
