@@ -1,6 +1,25 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
+
+func TestApplyHomeOverride_SetsEnvWhenNonEmpty(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", "")
+	applyHomeOverride("/tmp/x")
+	if got := os.Getenv("CROWBAR_HOME"); got != "/tmp/x" {
+		t.Fatalf("CROWBAR_HOME = %q, want %q", got, "/tmp/x")
+	}
+}
+
+func TestApplyHomeOverride_LeavesEnvAloneWhenEmpty(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", "/already/set")
+	applyHomeOverride("")
+	if got := os.Getenv("CROWBAR_HOME"); got != "/already/set" {
+		t.Fatalf("CROWBAR_HOME = %q, want unchanged %q", got, "/already/set")
+	}
+}
 
 func TestScopedAgentPath(t *testing.T) {
 	got := scopedAgentPath("p1", "r1", "w1", "/c1/rename?source=agent")
