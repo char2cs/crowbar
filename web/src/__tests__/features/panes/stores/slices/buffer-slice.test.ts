@@ -6,7 +6,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 
 const { killTerminalSession } = vi.hoisted(() => ({
@@ -464,8 +464,11 @@ describe('buffer-slice', () => {
     it('moveEditorTabToPane syncs isUncloseable on both source and destination panes', () => {
       const store = windowPaneStore
       const paneActions = store.getState().paneActions
-      // Create pane B (destination)
-      const paneBId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+      // ROOT_PANE_ID and BOTTOM_PANE_ID: two panes that are each alone in
+      // their OWN tree (not a split — see the dedicated split test below for
+      // that case), so a sole tab in either one is still the "nowhere to
+      // fall back to" case and stays protected.
+      const paneBId = BOTTOM_PANE_ID
       // Create four buffers: one staying in pane A, one to move from A to B, one already in B
       const tabAStay = 'tab-a-stay'
       const tabToMove = 'tab-to-move'
@@ -557,6 +560,44 @@ describe('buffer-slice', () => {
       const tabMovedAfter = store.getState().bufferActions.getBufferById(tabToMove)
       expect(tabBAfter?.isUncloseable).toBe(false)
       expect(tabMovedAfter?.isUncloseable).toBe(false)
+    })
+
+    // Closing a split pane's last editor tab is safe: `dropEmptiedPanes`
+    // collapses the split into its sibling, so there is no "stranded, no way
+    // back in" case here the way there is for a pane that is genuinely alone.
+    // A sole tab in a SPLIT pane must therefore stay closeable, unlike the
+    // solo-pane case the very first test in this describe block covers.
+    it('a sole editor tab in a pane that is part of a split stays closeable', () => {
+      const store = windowPaneStore
+      const paneActions = store.getState().paneActions
+      const paneBId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+      const tabId = 'tab-in-split'
+      store.setState((state) => {
+        state.buffers.push({
+          id: tabId,
+          type: 'editor',
+          path: '/test/split-tab.ts',
+          name: 'split-tab.ts',
+          content: '',
+          savedContent: '',
+          isDirty: false,
+          isVirtual: false,
+          tokens: [],
+          isPinned: false,
+          isPreview: false,
+          workspaceId: 'ws-test',
+        })
+        return state
+      })
+      paneActions.addEditorTabToPane(paneBId, {
+        id: tabId,
+        type: 'editor',
+        name: 'split-tab.ts',
+        workspaceId: 'ws-test',
+      })
+
+      expect(store.getState().paneActions.getPaneById(paneBId)?.editorTabIds).toHaveLength(1)
+      expect(store.getState().bufferActions.getBufferById(tabId)?.isUncloseable).toBe(false)
     })
   })
 })

@@ -55,15 +55,24 @@ export interface BufferActions {
 }
 
 /** Sync the isUncloseable flag on editor tabs in a pane: the sole editor tab
- *  becomes uncloseable; all others are closeable. Called whenever a pane's
- *  editorTabIds change (add/remove/move operations). */
+ *  becomes uncloseable UNLESS the pane can safely lose it — either it also
+ *  holds a chat (closing its last tab just collapses it to chat-only,
+ *  `chatFillsPane` in pane-container.tsx) or it is one of several panes in a
+ *  split (closing its last tab drops the whole pane from the layout,
+ *  `dropEmptiedPanes` in pane-slice.ts). Only a chatless pane that is truly
+ *  alone — nothing to collapse into, nothing to fall back to — still protects
+ *  its last tab, since THAT pane has nowhere left to go but the bare "nothing
+ *  is open" fallback screen forever. `canSafelyEmpty` is resolved by the
+ *  caller (pane-slice.ts), which alone has the full layout tree this needs.
+ *  Called whenever a pane's editorTabIds change (add/remove/move operations). */
 export function syncSoleEditorTabCloseability(
   state: { buffers?: PaneContent[]; panes?: Record<string, { editorTabIds: string[] }> },
   paneId: string,
+  canSafelyEmpty: boolean,
 ): void {
   const pane = state.panes?.[paneId]
   if (!pane || !Array.isArray(state.buffers)) return
-  const sole = pane.editorTabIds.length === 1
+  const sole = pane.editorTabIds.length === 1 && !canSafelyEmpty
   // Index once: these are immer drafts, so the map holds the same draft
   // objects and mutating through it still records the change.
   const byId = new Map(state.buffers.map((b) => [b.id, b]))

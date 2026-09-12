@@ -293,6 +293,27 @@ function allTreeSlots(state: TreeHolder): TreeSlot[] {
   ]
 }
 
+/**
+ * Whether closing `paneId`'s last editor tab is safe to let happen — i.e.
+ * whether `syncSoleEditorTabCloseability` should leave that tab closeable.
+ * Safe means the pane has somewhere to go once it empties: a chat to
+ * collapse to (`chatFillsPane`, pane-container.tsx) or a sibling pane to
+ * collapse the split into (`dropEmptiedPanes` below). Only a chatless pane
+ * that is genuinely alone in its own tree — the "nothing is open" fallback
+ * screen itself — has nowhere left to fall back to, so that one still keeps
+ * its last tab protected.
+ */
+function paneCanSafelyLoseLastTab(state: WindowPaneState, paneId: string): boolean {
+  if (state.panes[paneId]?.chatId) return true
+  for (const slot of allTreeSlots(state)) {
+    const tree = readTree(state, slot)
+    if (!tree) continue
+    const leaves = getAllLeafIds(tree)
+    if (leaves.includes(paneId)) return leaves.length > 1
+  }
+  return false
+}
+
 function readTree(state: TreeHolder, slot: TreeSlot): LayoutNode | null {
   if (slot.kind === 'root') return state.rootLayout
   if (slot.kind === 'bottom') return state.bottomLayout
@@ -958,8 +979,9 @@ export const createPaneSlice: StateCreator<
           pane.editorOpen = true
           // Opening a tab shows it — same reasoning as activateEditorTabInPane.
           pane.chatSelected = false
-          // Sync isUncloseable: the sole editor tab in a pane is uncloseable.
-          syncSoleEditorTabCloseability(state, paneId)
+          // Sync isUncloseable: the sole editor tab in a pane is uncloseable,
+          // unless the pane can safely lose it (see the function's own doc).
+          syncSoleEditorTabCloseability(state, paneId, paneCanSafelyLoseLastTab(state, paneId))
         })
       },
 
@@ -993,8 +1015,9 @@ export const createPaneSlice: StateCreator<
             pane.activeEditorTabId = rightNeighbor ?? alive[alive.length - 1] ?? null
           }
           if (pane.editorTabIds.length === 0) pane.editorOpen = false
-          // Sync isUncloseable: the sole editor tab in a pane is uncloseable.
-          syncSoleEditorTabCloseability(state, paneId)
+          // Sync isUncloseable: the sole editor tab in a pane is uncloseable,
+          // unless the pane can safely lose it (see the function's own doc).
+          syncSoleEditorTabCloseability(state, paneId, paneCanSafelyLoseLastTab(state, paneId))
           // Took the last thing this pane held — an empty pane is a fallback,
           // never a view, so it goes with it unless it is the last one left.
           dropEmptiedPanes(state)
@@ -1021,9 +1044,10 @@ export const createPaneSlice: StateCreator<
             toPaneId,
             ...state.mostRecentActivePaneIds.filter((id) => id !== toPaneId),
           ]
-          // Sync isUncloseable for both panes: the sole editor tab in each pane is uncloseable.
-          syncSoleEditorTabCloseability(state, fromPaneId)
-          syncSoleEditorTabCloseability(state, toPaneId)
+          // Sync isUncloseable for both panes (see the function's own doc for
+          // when a sole tab is left closeable instead).
+          syncSoleEditorTabCloseability(state, fromPaneId, paneCanSafelyLoseLastTab(state, fromPaneId))
+          syncSoleEditorTabCloseability(state, toPaneId, paneCanSafelyLoseLastTab(state, toPaneId))
         })
       },
 
