@@ -206,6 +206,41 @@ func (s *Store) DeleteChat(ctx context.Context, chatID string) error {
 	return nil
 }
 
+// ToolCallRefs returns every non-empty RequestRef/ResultRef chatID's tool
+// calls carry. Forget calls this BEFORE DeleteChat erases those rows, so it
+// knows what to check for continued use afterward.
+func (s *Store) ToolCallRefs(ctx context.Context, chatID string) ([]string, error) {
+	var rows []ToolCallRow
+	if err := s.db.WithContext(ctx).Where("chat_id = ?", chatID).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("agentactivity storage: tool call refs: %w", err)
+	}
+	refs := make([]string, 0, len(rows)*2)
+	for _, r := range rows {
+		if r.RequestRef != "" {
+			refs = append(refs, r.RequestRef)
+		}
+		if r.ResultRef != "" {
+			refs = append(refs, r.ResultRef)
+		}
+	}
+	return refs, nil
+}
+
+// RefInUse reports whether any tool call row anywhere still references ref —
+// the liveness check Forget runs, per ref, AFTER deleting the forgotten
+// chat's own rows, so a shared (deduplicated) blob is never deleted out from
+// under a chat that still legitimately points at it.
+func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&ToolCallRow{}).
+		Where("request_ref = ? OR result_ref = ?", ref, ref).
+		Limit(1).Count(&count).Error
+	if err != nil {
+		return false, fmt.Errorf("agentactivity storage: ref in use: %w", err)
+	}
+	return count > 0, nil
+}
+
 func (s *Store) Empty(ctx context.Context) (bool, error) {
 	var count int64
 	if err := s.db.WithContext(ctx).Model(&TurnRow{}).Limit(1).Count(&count).Error; err != nil {

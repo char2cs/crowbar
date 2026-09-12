@@ -74,6 +74,55 @@ func TestToolCallsBefore_FiltersToCallsBeforeTheGivenSeq(t *testing.T) {
 	assert.Equal(t, []string{"a", "b"}, names, "seq 3 sits AT the before boundary and must be excluded")
 }
 
+func TestToolCallRefs_ReturnsRequestAndResultRefsForOneChat(t *testing.T) {
+	ctx, st := newStore(t)
+	require.NoError(t, st.SaveToolCall(ctx, domain.ActivityToolCall{
+		ID: "t1", ChatID: "c1", TurnID: "tu1", Seq: 1, StartedAt: now,
+		RequestRef: "sha256:aaa", ResultRef: "sha256:bbb",
+	}))
+	require.NoError(t, st.SaveToolCall(ctx, domain.ActivityToolCall{
+		ID: "t2", ChatID: "c1", TurnID: "tu1", Seq: 2, StartedAt: now,
+		RequestRef: "sha256:ccc",
+	}))
+
+	refs, err := st.ToolCallRefs(ctx, "c1")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"sha256:aaa", "sha256:bbb", "sha256:ccc"}, refs)
+}
+
+func TestToolCallRefs_EmptyForAChatWithNoRefs(t *testing.T) {
+	ctx, st := newStore(t)
+	require.NoError(t, st.SaveToolCall(ctx, domain.ActivityToolCall{
+		ID: "t1", ChatID: "c1", TurnID: "tu1", Seq: 1, StartedAt: now,
+	}))
+
+	refs, err := st.ToolCallRefs(ctx, "c1")
+	require.NoError(t, err)
+	assert.Empty(t, refs)
+}
+
+func TestRefInUse_TrueWhenAnotherChatStillReferencesIt(t *testing.T) {
+	ctx, st := newStore(t)
+	require.NoError(t, st.SaveToolCall(ctx, domain.ActivityToolCall{
+		ID: "t1", ChatID: "c1", TurnID: "tu1", Seq: 1, StartedAt: now, RequestRef: "sha256:shared",
+	}))
+	require.NoError(t, st.SaveToolCall(ctx, domain.ActivityToolCall{
+		ID: "t2", ChatID: "c2", TurnID: "tu2", Seq: 1, StartedAt: now, RequestRef: "sha256:shared",
+	}))
+
+	inUse, err := st.RefInUse(ctx, "sha256:shared")
+	require.NoError(t, err)
+	assert.True(t, inUse)
+}
+
+func TestRefInUse_FalseWhenNothingReferencesIt(t *testing.T) {
+	ctx, st := newStore(t)
+
+	inUse, err := st.RefInUse(ctx, "sha256:nobody-points-here")
+	require.NoError(t, err)
+	assert.False(t, inUse)
+}
+
 func TestToolCallsBefore_ClosedDatabaseReturnsError(t *testing.T) {
 	ctx, st, db := newStoreWithDB(t)
 	sqlDB, err := db.DB()
