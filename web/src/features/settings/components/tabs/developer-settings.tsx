@@ -1,12 +1,15 @@
 import { useRef, useState } from 'react'
+import { ArrowClockwise } from '@phosphor-icons/react'
 import { useChaosStore, FAULT_KEYS, FAULT_LABELS } from '@/lib/store/chaos'
 import type { Scenario } from '@/lib/store/chaos'
+import { getBuildInfo } from '@/lib/build-info'
 import Section, { SettingRow } from '../settings-section'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
 import NumberInput from '@/components/ui/number-input'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { useSettingsStore, getDefaultSetting } from '@/features/settings/store'
+import type { Settings } from '@/features/settings/types/settings'
 import { downloadSettingsFile } from '@/features/settings/lib/settings-download'
 import { exportDiagnostics } from '@/features/settings/lib/diagnostics-export'
 import { isTauri } from '@/lib/crowbar-bridge'
@@ -103,6 +106,69 @@ function PerformanceSection() {
   )
 }
 
+const BUILD_BADGE_OPTIONS: { value: Settings['buildBadgeOverride']; label: string }[] = [
+  { value: 'auto', label: `Auto (detected: ${getBuildInfo().channel})` },
+  { value: 'dev', label: 'Force: Development' },
+  { value: 'nightly', label: 'Force: Nightly' },
+  { value: 'beta', label: 'Force: Beta' },
+  { value: 'release', label: 'Force: Release' },
+  { value: 'off', label: 'Off' },
+]
+
+export function BuildBadgeSection() {
+  const buildBadgeOverride = useSettingsStore((s) => s.settings.buildBadgeOverride)
+  const updateSetting = useSettingsStore((s) => s.updateSetting)
+
+  function cycle() {
+    const i = BUILD_BADGE_OPTIONS.findIndex((opt) => opt.value === buildBadgeOverride)
+    const next = BUILD_BADGE_OPTIONS[(i + 1) % BUILD_BADGE_OPTIONS.length]!.value
+    updateSetting('buildBadgeOverride', next)
+  }
+
+  return (
+    <Section
+      title="Build Badge"
+      description="The build-state indicator in the sidebar header's dead space, next to the traffic lights."
+    >
+      <SettingRow
+        label="Mode"
+        description="Auto detects the channel from the running build. Force a state to preview it regardless of the actual build, or cycle through every state."
+        onReset={() => updateSetting('buildBadgeOverride', getDefaultSetting('buildBadgeOverride'))}
+        canReset={buildBadgeOverride !== getDefaultSetting('buildBadgeOverride')}
+      >
+        <div className="flex items-center gap-1">
+          <Select
+            value={buildBadgeOverride}
+            onValueChange={(v) => updateSetting('buildBadgeOverride', v as Settings['buildBadgeOverride'])}
+          >
+            <SelectTrigger className={SETTINGS_CONTROL_WIDTHS.wide} size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BUILD_BADGE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            onClick={cycle}
+            tooltip="Cycle to the next mode"
+            tooltipSide="bottom"
+            aria-label="Cycle build badge mode"
+          >
+            <ArrowClockwise />
+          </Button>
+        </div>
+      </SettingRow>
+    </Section>
+  )
+}
+
 export function DeveloperSettings() {
   const latency = useChaosStore((s) => s.latency)
   const errorRate = useChaosStore((s) => s.errorRate)
@@ -145,6 +211,8 @@ export function DeveloperSettings() {
   return (
     <div className="space-y-4">
       <PerformanceSection />
+
+      <BuildBadgeSection />
 
       <ChatSplitViewSetting />
 

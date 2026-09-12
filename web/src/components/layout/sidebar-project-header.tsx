@@ -2,6 +2,7 @@
 // panel glyph — the toolbar language this app is aiming at.
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
+import { SidebarBuildBadgeBand, SidebarBuildBadgeLabel } from '@/components/layout/sidebar-build-badge'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
 import { useSettingsStore } from '@/features/settings/store'
@@ -25,7 +26,7 @@ export function SidebarProjectHeader() {
   const { canGoBack, canGoForward, handleJumpBack, handleJumpForward } = useJumpNavigation()
 
   const cluster = (
-    <div className="flex shrink-0 items-center gap-0.5">
+    <div className="relative z-10 flex shrink-0 items-center gap-0.5">
       <Button
         onClick={() => void handleJumpBack()}
         disabled={!canGoBack}
@@ -70,7 +71,7 @@ export function SidebarProjectHeader() {
   return (
     <div
       className={cn(
-        'flex w-full flex-shrink-0 items-center gap-1',
+        'relative flex w-full flex-shrink-0 items-center gap-1 overflow-hidden',
         // The 12px breathing room hugs the outer (screen-edge) side the sidebar
         // is docked against; the inner side uses the same 8px inset as the
         // context pill and tab bar so the buttons line up with the column.
@@ -80,10 +81,19 @@ export function SidebarProjectHeader() {
       )}
       data-tauri-drag-region
     >
+      {/* Build-state band paints behind the traffic lights, dead space, and
+          cluster below — it never affects their layout. */}
+      <SidebarBuildBadgeBand className="absolute inset-0 z-0" />
       {/* Reserve space for the macOS traffic lights on whichever side is
           top-left (only when the sidebar is on the left). */}
-      {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
-      <div className="min-w-0 flex-1" />
+      {IS_MAC && !isRight && <div className="relative z-10 w-[72px] shrink-0" />}
+      {/* Text sits on the true outer edge of this bar, away from the
+          cluster — `justify-start` already lands there when the cluster is
+          on the right; flip to `justify-end` when the parent's row-reverse
+          has flipped the cluster to the left. */}
+      <div className={cn('relative z-10 flex min-w-0 flex-1 items-center', isRight && 'justify-end')}>
+        <SidebarBuildBadgeLabel align={isRight ? 'end' : 'start'} />
+      </div>
       {cluster}
     </div>
   )

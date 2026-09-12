@@ -1,4 +1,5 @@
 import type { CoreFeaturesState } from './feature'
+import type { BuildChannel } from '@/lib/build-info'
 
 export type Theme = string
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -74,6 +75,8 @@ export interface Settings {
   coreFeatures: CoreFeaturesState
   // Advanced
   showFpsOverlay: boolean
+  /** Sidebar-header build indicator. 'auto' detects dev/nightly/beta/release from the build; any other value forces that state for QA, and 'off' hides it. */
+  buildBadgeOverride: 'auto' | 'off' | BuildChannel
   /**
    * How long (minutes) a workspace stays mounted in memory after you switch
    * away, so switching back is instant. 0 destroys it on switch (the old

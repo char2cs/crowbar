@@ -71,6 +71,7 @@ export const defaultSettings: Settings = {
   },
   // Advanced
   showFpsOverlay: false,
+  buildBadgeOverride: 'auto',
   workspaceKeepAliveMinutes: 10,
   // Other
   maxOpenTabs: 100,
