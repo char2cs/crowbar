@@ -29,6 +29,7 @@ import {
 } from '@/features/agent/hooks/use-chat-presentation'
 import { PaneSash } from '@/features/panes/components/pane-sash'
 import { cn } from '@/lib/utils'
+import { IS_MAC } from '@/utils/platform'
 import {
   AgentReturnToChatNotice,
   AgentTerminalWaitBanner,
@@ -135,7 +136,29 @@ interface AgentChatPaneProps {
    * becomes visible. An already-attached chat stays attached while hidden.
    */
   isVisible: boolean
+  /**
+   * Does an overlay chat header (ChatColumnHeader / ChatOnlyPaneHeader,
+   * pane-top-row.tsx's `variant="chat-blur" overlay`) float above this pane
+   * right now? That header paints no fill of its own and reserves no flex
+   * space — it is `position: absolute; top: 0`, so nothing about this pane's
+   * own layout otherwise knows it is there. It still owns a REAL, clickable
+   * row (44px Mac / 34px elsewhere — PaneTopRow.ROW_HEIGHT_PX), so every
+   * pinned-near-top surface here (the reviving/idle banners below, the
+   * terminal-wait banner) has to clear THAT, or its own controls render
+   * underneath the header's hit-box instead of in front of it. Pane-
+   * container's own answer: true for chatFillsPane/chatVisibleAlongsideEditor,
+   * false for the collapsed 'tabs' presentation's small in-flow
+   * ChatBranchHeader, which already reserves its own space.
+   */
+  belowOverlayHeader?: boolean
 }
+
+// PaneTopRow's own real, clickable row height (see that file's ROW_HEIGHT_PX
+// and its own doc) — this pane has no import of that component to share a
+// constant with (features/panes/utils/pane-border.ts and
+// components/layout/sidebar-peek.tsx each keep their own copy of the same
+// platform fact rather than reach across features for it).
+const HEADER_ROW_HEIGHT_PX = IS_MAC ? 44 : 34
 
 // A flat, opaque pane: one centred column holding the live agent terminal, with the
 // provider-switch dropdown beneath it on the same column. See the render for why this
@@ -168,8 +191,13 @@ export function AgentChatPane({
   paneId,
   isActivePane,
   isVisible,
+  belowOverlayHeader = false,
 }: AgentChatPaneProps) {
   const store = useWorkspaceStore()
+  // Extra top clearance every pinned-near-top surface below needs to clear the
+  // overlay header's own real click target, plus that surface's original
+  // breathing room (8px — the `top-2`/`mt-2` each one used to carry on its own).
+  const headerClearancePx = belowOverlayHeader ? HEADER_ROW_HEIGHT_PX + 8 : 8
 
   // Where is MY runner? '' when it is nowhere — it exited, or a switch replaced it. A
   // chat is live exactly while a runner is placed on it, so this lookup is also what
@@ -1139,7 +1167,10 @@ export function AgentChatPane({
                 AgentChatView, in normal flow, so the chat surface is pushed
                 down by however tall the banner actually is. */}
             {waiting && chatBlank && (
-              <div className="mx-4 mt-2 mb-2 shrink-0 rounded-lg bg-popover shadow-sm">
+              <div
+                className="mx-4 mb-2 shrink-0 rounded-lg bg-popover shadow-sm"
+                style={{ marginTop: headerClearancePx }}
+              >
                 <AgentTerminalWaitBanner
                   kind={waitKind ?? ''}
                   providerLabel={
@@ -1268,13 +1299,21 @@ export function AgentChatPane({
                 whenever `chatBlank` would make this render, because
                 `AgentChatView` never got far enough to read it. */}
             {presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && (
-              <div className="absolute inset-x-4 top-2 flex items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm">
+              <div
+                data-testid="agent-reviving-banner"
+                className="absolute inset-x-4 flex items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm"
+                style={{ top: headerClearancePx }}
+              >
                 <FlickerSpinner className="size-4 text-foreground" />
                 {attachment.message}
               </div>
             )}
             {presentation !== 'terminal' && chatBlank && attachment.state === 'idle' && (
-              <div className="absolute inset-x-4 top-2 flex items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm">
+              <div
+                data-testid="agent-idle-banner"
+                className="absolute inset-x-4 flex items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm"
+                style={{ top: headerClearancePx }}
+              >
                 <p className="min-w-0 text-muted-foreground">
                   {attachment.reason === 'failed'
                     ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'

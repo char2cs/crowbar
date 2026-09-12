@@ -957,6 +957,83 @@ describe('AgentChatPane', () => {
     })
   })
 
+  // ── Header clearance: the chat's own overlay header must never cover pinned UI ──
+  // ChatColumnHeader/ChatOnlyPaneHeader (pane-top-row.tsx) float as an absolute,
+  // z-10 overlay with NO fill of their own — the chat surface behind is meant to
+  // show through and blur/fade under it. But that overlay still owns a REAL,
+  // clickable 44px (Mac) hit-box, and nothing about "no fill" makes it click-
+  // through: a blank chat's pinned reviving/idle/trust banners used to render at
+  // the very top of this same box (top-2 / mt-2), squarely inside that hit-box —
+  // visually AND functionally underneath the header, so their own Resume/dismiss
+  // controls could never be clicked. `belowOverlayHeader` is pane-container's own
+  // answer to "does an overlay header actually sit above me right now" (true for
+  // ChatOnlyPaneHeader's chatFillsPane and ChatColumnHeader's side-by-side/stacked
+  // case; false for the small in-flow ChatBranchHeader the collapsed 'tabs'
+  // presentation uses, which already reserves its own real space).
+  describe('header clearance (overlay chat-blur header)', () => {
+    function renderBelowOverlayHeader(store: Store, chatId: string, runnerId: string) {
+      const paneId = openChatPane(store, chatId, runnerId)
+      return act(() =>
+        render(
+          createElement(
+            WorkspaceStoreContext.Provider,
+            { value: store },
+            createElement(AgentChatPane, {
+              chatId,
+              runnerId,
+              wsId: 'w1',
+              paneId,
+              isActivePane: true,
+              isVisible: true,
+              belowOverlayHeader: true,
+            }),
+          ),
+        ),
+      )
+    }
+
+    it('clears the header row for the idle/exited banner when an overlay header sits above', async () => {
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderBelowOverlayHeader(store, 'c1', '')
+
+      const banner = await screen.findByTestId('agent-idle-banner')
+      // IS_MAC is hard-coded true off-webview (utils/platform.ts) — 44px is the
+      // real row height a caller in this repo can rely on in tests everywhere
+      // else (pane-top-row.test.tsx and friends assume the same).
+      expect(banner.style.top).toBe('52px') // 44px header + the original 8px (top-2) breathing room
+    })
+
+    it('leaves the idle/exited banner at its old offset with no overlay header above', async () => {
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      const banner = await screen.findByTestId('agent-idle-banner')
+      expect(banner.style.top).toBe('8px')
+    })
+
+    it('clears the header row for the reviving banner when an overlay header sits above', async () => {
+      const resumed = deferred<string>()
+      resumeChatFn.mockReturnValue(resumed.promise)
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderBelowOverlayHeader(store, 'c1', '')
+
+      const banner = await screen.findByTestId('agent-reviving-banner')
+      expect(banner.style.top).toBe('52px')
+
+      await act(async () => {
+        resumed.resolve('r9')
+      })
+    })
+  })
+
   // ── Keep-alive: the hidden-tab revive gate ─────────────────────────
   // The pane now keeps every chat MOUNTED (visibility:hidden) so a tab switch never
   // remounts a live PTY. That makes a chat MOUNTED-BUT-HIDDEN a real state — and a

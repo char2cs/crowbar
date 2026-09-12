@@ -138,7 +138,7 @@ function seedNonHotswap(wait?: { kind: string }) {
  *  props under test — so they have to be settable one at a time. */
 async function renderPane(
   store: Store,
-  opts: { isActivePane?: boolean; isVisible?: boolean } = {},
+  opts: { isActivePane?: boolean; isVisible?: boolean; belowOverlayHeader?: boolean } = {},
 ) {
   const result = await act(async () =>
     render(
@@ -152,6 +152,7 @@ async function renderPane(
           paneId: 'b1',
           isActivePane: opts.isActivePane ?? true,
           isVisible: opts.isVisible ?? true,
+          belowOverlayHeader: opts.belowOverlayHeader ?? false,
         }),
       ),
     ),
@@ -426,6 +427,41 @@ describe('AgentChatPane — waiting in the terminal', () => {
       (wrapper as Node).compareDocumentPosition(chatSection as Node) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+  })
+
+  // ── Doesn't render under the chat's own overlay header ──────────────
+  //
+  // Reserving space (the test above) is only half the fix: the space it
+  // reserves has to start BELOW the overlay chat header's own real, clickable
+  // 44px (Mac) hit-box, not at the pane's bare top edge — ChatColumnHeader and
+  // ChatOnlyPaneHeader (pane-top-row.tsx) float `position: absolute; top: 0`
+  // with no fill of their own, so nothing about the pane's DOM stops this
+  // banner's normal-flow position from landing at that exact same y=0 and
+  // sitting underneath the header's own real click target.
+  // `belowOverlayHeader` is pane-container's own answer to "is an overlay
+  // header actually floating above me" — passed false by default (the
+  // collapsed 'tabs' presentation's small in-flow ChatBranchHeader already
+  // reserves its own space, so there is nothing to clear there).
+  it('clears the overlay header row when one floats above this pane', async () => {
+    const store = seed()
+    await renderPane(store, { belowOverlayHeader: true })
+    await setWait(store, { kind: 'workspace_trust' })
+
+    const banner = screen.getByTestId('agent-terminal-wait')
+    const wrapper = banner.parentElement as HTMLElement
+    // 44px header (IS_MAC is hard-coded true off-webview, utils/platform.ts)
+    // plus the banner's own original 8px (mt-2) breathing room.
+    expect(wrapper.style.marginTop).toBe('52px')
+  })
+
+  it('keeps its original offset with no overlay header above (default)', async () => {
+    const store = seed()
+    await renderPane(store)
+    await setWait(store, { kind: 'workspace_trust' })
+
+    const banner = screen.getByTestId('agent-terminal-wait')
+    const wrapper = banner.parentElement as HTMLElement
+    expect(wrapper.style.marginTop).toBe('8px')
   })
 
   // `cn()` is `twMerge(clsx(...))`: `hidden` and `flex`/`flex-col` are

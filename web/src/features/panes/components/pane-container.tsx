@@ -814,6 +814,14 @@ export function PaneContainer({
               wsId={wsId}
               paneId={pane.id}
               isActivePane={isActivePane}
+              // ChatOnlyPaneHeader (chatFillsPane) and ChatColumnHeader
+              // (chatVisibleAlongsideEditor) both render as an overlay
+              // chat-blur PaneTopRow — a REAL, clickable row floating
+              // above this pane with no flex space of its own. The
+              // collapsed 'tabs' presentation's small in-flow
+              // ChatBranchHeader already reserves its own space, so
+              // there is nothing for this pane to additionally clear.
+              belowOverlayHeader={chatFillsPane || chatVisibleAlongsideEditor}
               // Was hard-coded true: a pane holds at most one chat, so
               // within the pane the chat view is always the one showing.
               // With views that is no longer the whole question — the
