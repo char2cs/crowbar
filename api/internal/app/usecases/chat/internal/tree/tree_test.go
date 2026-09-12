@@ -896,7 +896,7 @@ func TestDeleteChat_SurfacesADensifyWriteFailure(t *testing.T) {
 // exists, so that write must be skipped, not surfaced as a failure of a delete
 // that changed exactly what it meant to.
 func TestRegression_DeleteChat_ToleratesASiblingPurgedByAConcurrentDelete(t *testing.T) {
-	_, chats, uc := newUsecase(t)
+	chats, uc := newUsecase(t)
 	ctx := context.Background()
 	seedChat(chats, "root", 1)
 	seedThread(chats, "a", "root", 2)
