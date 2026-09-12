@@ -98,7 +98,7 @@ async function seedDB(workspaceId: string) {
   const prefs: UIPreferences = {
     theme: 'dark',
     fontSize: 14,
-    fontFamily: 'JetBrains Mono',
+    fontFamily: 'Geist Mono',
     tabSize: 2,
     wordWrap: false,
     minimap: true,

@@ -20,7 +20,7 @@ const FONT_CACHE_KEY = 'crowbar_font_cache:v1'
 const FONT_CACHE_EXPIRY = 24 * 60 * 60 * 1000 // 24 hours in milliseconds
 // Fonts that ship with the app and are therefore always selectable, regardless
 // of OS-level font enumeration (which is unavailable in the WKWebView).
-// "JetBrains Mono Variable" is the default for both the editor and the terminal
+// "Geist Mono Variable" is the default for both the editor and the terminal
 // (see typography-defaults.ts); the static cut stays selectable alongside it.
 const BUNDLED_FONTS: FontInfo[] = [
   {
@@ -30,14 +30,14 @@ const BUNDLED_FONTS: FontInfo[] = [
     is_monospace: false,
   },
   {
-    name: 'JetBrains Mono',
-    family: 'JetBrains Mono',
+    name: 'Geist Mono',
+    family: 'Geist Mono',
     style: 'Regular',
     is_monospace: true,
   },
   {
-    name: 'JetBrains Mono Variable',
-    family: 'JetBrains Mono Variable',
+    name: 'Geist Mono Variable',
+    family: 'Geist Mono Variable',
     style: 'Regular',
     is_monospace: true,
   },

@@ -34,7 +34,7 @@
   background: color-mix(in srgb, var(--card) 92%, transparent);
   color: var(--foreground);
   display: none !important;
-  font: 12px/1.45 var(--font-mono, 'JetBrains Mono Variable', monospace);
+  font: 12px/1.45 var(--font-mono, 'Geist Mono Variable', monospace);
   pointer-events: none;
 }
 

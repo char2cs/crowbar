@@ -283,7 +283,7 @@ const prewarmCharCache = (fontSize: number, fontFamily: string) => {
 export const getCharWidthCached = (
   char: string,
   fontSize: number,
-  fontFamily: string = 'JetBrains Mono, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+  fontFamily: string = 'Geist Mono, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
 ): number => {
   const font = buildCanvasFont(fontSize, fontFamily)
   const fontReady = isCanvasFontReady(font)
@@ -337,7 +337,7 @@ export const getAccurateCursorX = (
   line: string,
   column: number,
   fontSize: number,
-  fontFamily: string = 'JetBrains Mono, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+  fontFamily: string = 'Geist Mono, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
   tabSize: number = 2,
 ): number => {
   let x = 0

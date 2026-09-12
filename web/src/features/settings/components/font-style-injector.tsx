@@ -11,11 +11,11 @@ import { getUiFontScale, normalizeUiFontSize } from '../lib/ui-font-size'
 
 // Cross-platform monospace fallback stack
 const DEFAULT_MONO_FALLBACK =
-  '"JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
+  '"Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
 
 // Windows-optimized monospace fallback stack (WebView2 renders these more consistently)
 const WINDOWS_MONO_FALLBACK =
-  '"JetBrains Mono Variable", Consolas, "Cascadia Mono", "Cascadia Code", "Courier New", ui-monospace, monospace'
+  '"Geist Mono Variable", Consolas, "Cascadia Mono", "Cascadia Code", "Courier New", ui-monospace, monospace'
 
 // Cross-platform sans fallback stack
 const DEFAULT_SANS_FALLBACK =

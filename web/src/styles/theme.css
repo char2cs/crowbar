@@ -33,7 +33,7 @@
 
   --font-heading: var(--app-font-family, 'CalSans', sans-serif);
 
-  --font-mono: var(--editor-font-family, 'JetBrains Mono Variable', ui-monospace, monospace);
+  --font-mono: var(--editor-font-family, 'Geist Mono Variable', ui-monospace, monospace);
   --color-background: var(--background);
   --color-pane-background: var(--pane-background);
   --color-foreground: var(--foreground);

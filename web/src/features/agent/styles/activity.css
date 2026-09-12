@@ -107,7 +107,7 @@
 }
 .agent-chat .tok b {
   font-weight: 400;
-  font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+  font-family: 'Geist Mono Variable', ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
   color: color-mix(in oklch, var(--foreground) 72%, transparent);
 }
