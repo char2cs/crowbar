@@ -551,6 +551,38 @@ export function AgentChatPane({
     return chat.working === true
   }, [store, wsId, shownChatId])
 
+  // THE REGRESSION, reported live and repeatedly: `working` is otherwise
+  // written ONLY by the turn_started/turn_stopped WS frame (see
+  // agent-chats-slice.ts's own doc on that map) — there is no other path.
+  // A single dropped frame — one lost mid a socket hiccup, or the daemon
+  // process itself restarting out from under an open turn — leaves this
+  // chat's spinner wrong FOREVER in either direction: dark under a CLI
+  // that is still visibly working, or lit long after everything actually
+  // settled, since nothing else ever asks again. Confirmed live: a chat
+  // stuck reporting `working:true` for 50+ minutes after its own turn had
+  // long since closed, self-corrected only by a full page reload — the one
+  // path that re-seeds `working` from the server's own list response
+  // (seedAgentChats) rather than trusting the frame feed alone.
+  //
+  // This is that self-heal without a reload: the same periodic reconcile
+  // pattern this codebase already uses for exactly this class of problem
+  // (the provider-idle sweep, termwait's own doc). Bounded and cheap — one
+  // GET, only for a chat this pane is actually showing — and it corrects
+  // the store rather than trusting whatever the WS feed last said.
+  //
+  // Gated on `attached`: a pane that is reviving/idle is mid its OWN
+  // adopt/resume orchestration, which already owns every read of this
+  // chat for the runner it is about to attach — an uncoordinated read
+  // racing in here would upsert a runner that orchestration has not
+  // decided to accept yet. `working` only means something once a pane is
+  // normally attached, which is exactly where this belongs.
+  const attached = attachment.state === 'attached'
+  useEffect(() => {
+    if (!attached) return
+    const timer = window.setInterval(() => void refreshChatWorking(), 5_000)
+    return () => window.clearInterval(timer)
+  }, [attached, refreshChatWorking])
+
   // A selection the SERVER accepted. It is written here rather than inside the
   // picker because the store is the chat's owner, and the 202 carries no body and
   // no lifecycle frame — nothing else would bring the new pair back.
