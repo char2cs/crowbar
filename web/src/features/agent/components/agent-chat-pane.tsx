@@ -543,8 +543,17 @@ export function AgentChatPane({
 
   // Re-check the aggregate after a prompt race. The prompt queue consumes only
   // this server-folded value; it never guesses busy state from a lifecycle kind.
+  //
+  // Generation-guarded like useChatMessages' own loadGeneration: this GET has
+  // no bound on how long it takes (daemon load from a subagent-heavy turn
+  // measured over 11s live), and the 5s poll below can have several of these
+  // in flight at once. An older one resolving after a newer one must not
+  // overwrite the fresher answer with a stale one.
+  const refreshGeneration = useRef(0)
   const refreshChatWorking = useCallback(async (): Promise<boolean> => {
+    const generation = ++refreshGeneration.current
     const chat = await getChat(wsId, shownChatId)
+    if (generation !== refreshGeneration.current) return chat.working === true
     const s = store.getState()
     s.upsertAgentChat(chat)
     s.setAgentChatWorking(chat.id, chat.working === true)

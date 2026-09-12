@@ -1679,6 +1679,49 @@ describe('AgentChatPane', () => {
 
       expect(store.getState().agentChats.working.c1).toBe(true)
     })
+
+    // THE REGRESSION, reported live 2026-09-12: a queued prompt re-submitted
+    // itself into a turn that was still genuinely generating, corrupting its
+    // output mid-stream. Root cause traced to this exact poll: the daemon can
+    // take over 11s to answer under subagent-heavy load (measured live), so
+    // two ticks of this 5s poll can have requests in flight at once, and an
+    // OLDER one carrying a stale answer from before the turn started must not
+    // overwrite a NEWER one that already recorded the current truth.
+    it('an older in-flight refresh does not overwrite a newer one that already resolved', async () => {
+      vi.useFakeTimers()
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      const stale = deferred<Awaited<ReturnType<typeof getChatFn>>>()
+      const fresh = deferred<Awaited<ReturnType<typeof getChatFn>>>()
+      getChatFn.mockImplementationOnce(() => stale.promise)
+      getChatFn.mockImplementationOnce(() => fresh.promise)
+
+      // Two poll ticks fire back-to-back — neither request has resolved yet.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+
+      // The NEWER request settles first with the current, correct answer.
+      fresh.resolve({ ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })), working: true })
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(store.getState().agentChats.working.c1).toBe(true)
+
+      // The OLDER request finally arrives, carrying a stale `false` from
+      // before the turn started. It must not win just by arriving later.
+      stale.resolve({
+        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
+        working: false,
+      })
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(store.getState().agentChats.working.c1).toBe(true)
+    })
   })
 
   // Regression: `AgentTerminalWaitBanner` (a pane-level overlay) and the

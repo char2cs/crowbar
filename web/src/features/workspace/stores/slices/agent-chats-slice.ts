@@ -567,8 +567,20 @@ export const createAgentChatsSlice: StateCreator<
     clearScrollPosition(chatId)
   },
 
+  // THE REGRESSION. turnRevision is a signal a change actually happened —
+  // use-prompt-queue.ts treats every advance while `working` reads false as
+  // an authoritative idle edge and releases a queued prompt's busy barrier,
+  // retrying its submission. A caller re-announcing the SAME value (a
+  // periodic reconcile poll re-confirming `working:true` while a turn is
+  // still genuinely running, landing between two rapid-fire assistant
+  // messages) bumped the revision anyway, and a poll tick landing on a
+  // legitimately transient `false` reading between those messages fired the
+  // release WHILE the CLI was still generating — re-submitting the prompt
+  // into a live turn corrupted its output mid-stream. No-op on an unchanged
+  // value: only a REAL transition is a real edge.
   setAgentChatWorking: (chatId, working) =>
     set((s) => {
+      if (s.agentChats.working[chatId] === working) return
       s.agentChats.working[chatId] = working
       s.agentChats.turnRevision[chatId] = (s.agentChats.turnRevision[chatId] ?? 0) + 1
     }),
