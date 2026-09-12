@@ -458,6 +458,54 @@ func TestCloseTurn_ConsumesAndRemovesItsReservation(t *testing.T) {
 	assert.NotContains(t, closed.OpenTurnOrders, "runner-a", "consumed, not left to leak forever")
 }
 
+// THE REGRESSION. Live symptom: a pile of an unrelated turn's tool calls —
+// sometimes hundreds — landing under the NEXT reply. Turn is a single
+// pointer, and runner-b's OpenTurn winning that slot before runner-a's own
+// turn ever got to close used to make runner-a's close SUPERSEDE and REPOINT
+// (see projections.go's RepointActivity) runner-b's still-live tools onto
+// runner-a's own message, and delete runner-b's live turn state outright.
+func TestRegression_CloseTurnDoesNotStealAnotherRunnersStillOpenActivity(t *testing.T) {
+	openedA := commands.OpenTurn{ChatID: chat, TurnID: "open-a", RunnerID: "runner-a", Now: now}.
+		EmitEvent(nil)
+
+	// runner-b's OpenTurn wins the shared slot before runner-a's own turn
+	// ever gets a chance to close.
+	openedB := commands.OpenTurn{ChatID: chat, TurnID: "open-b", RunnerID: "runner-b", Now: now}.
+		EmitEvent(&openedA)
+	withToolB := commands.InvokeTool{ChatID: chat, ToolID: "tool-b1", Name: "Read", Now: now}.
+		EmitEvent(&openedB)
+
+	// runner-a's own (now-stale) close arrives late.
+	closedA := commands.CloseTurn{
+		ChatID: chat, TurnID: "t1", RunnerID: "runner-a", Text: "runner-a's reply", Now: now,
+	}.EmitEvent(&withToolB)
+
+	assert.Empty(t, closedA.Last.SupersededTurnID,
+		"runner-a's close must not claim runner-b's currently open turn")
+	require.NotNil(t, closedA.Turn,
+		"runner-b's own still-open turn must survive runner-a's unrelated close")
+	assert.Equal(t, "open-b", closedA.Turn.ID)
+	assert.Contains(t, closedA.Tools, "tool-b1",
+		"runner-b's own live tool call must survive runner-a's unrelated close")
+}
+
+// The other half: a turn nobody has claimed yet (InvokeTool's own no-open-
+// fallback, ensureTurn, mints one with no RunnerID at all) must still be
+// closeable and repointable by whichever runner's reply actually closes it —
+// an empty RunnerID is "unclaimed", never "foreign".
+func TestCloseTurn_StillClaimsAnUnclaimedFallbackTurn(t *testing.T) {
+	withTool := commands.InvokeTool{ChatID: chat, ToolID: "tool-1", Name: "Bash", Now: now}.
+		EmitEvent(nil)
+	fallbackTurnID := withTool.Turn.ID
+
+	closed := commands.CloseTurn{
+		ChatID: chat, TurnID: "t1", RunnerID: "runner-a", Text: "done", Now: now,
+	}.EmitEvent(&withTool)
+
+	assert.Equal(t, fallbackTurnID, closed.Last.SupersededTurnID)
+	assert.Nil(t, closed.Turn)
+}
+
 // TestRegression_AnInterruptionRecordedLateStillDisplaysAtItsTurnsOwnPosition is
 // ActivityInterruption's own version of the turn-DisplayOrder regression above:
 // RecordStop (the "Interrupted" divider's source, turn.go) can now fire well
