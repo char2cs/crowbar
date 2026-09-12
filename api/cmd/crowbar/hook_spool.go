@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -175,15 +176,73 @@ func drainHookSpoolFor(
 		if err := os.Chtimes(filepath.Join(dir, hookDrainLockName), time.Now(), time.Now()); err != nil {
 			return mine, fmt.Errorf("hook spool: renew drain lease: %w", err)
 		}
-		envelope, body, err := deliverSpooled(ctx, host, dir, name)
-		if err != nil {
-			return mine, err
+		envelope, body, deliverErr := deliverSpooled(ctx, host, dir, name)
+		if deliverErr != nil {
+			movedTo, moveErr := recordFailedAttempt(dir, name)
+			if moveErr != nil {
+				slog.WarnContext(ctx, "hook spool: record failed attempt", "name", name, "err", moveErr)
+			}
+			slog.WarnContext(ctx, "hook spool: delivery deferred", "name", movedTo, "err", deliverErr)
+			// The one-shot caller (a hook CLI invocation checking on its OWN
+			// just-persisted delivery) must still learn that ITS delivery
+			// failed, so it can hold the vendor CLI's permission gate open
+			// rather than silently exiting as if all were well. An UNRELATED
+			// envelope's failure — anything queued earlier, for a different
+			// delivery id — must not abort the whole pass: that early return
+			// is exactly what let one permanently-undeliverable envelope (a
+			// project deleted mid-flight, say) block every envelope queued
+			// behind it forever.
+			if deliveryID != "" && envelope.DeliveryID == deliveryID {
+				return mine, deliverErr
+			}
+			continue
 		}
 		if deliveryID != "" && envelope.DeliveryID == deliveryID {
 			mine = body
 		}
 	}
 	return mine, nil
+}
+
+// maxDeliveryAttempts bounds how many times a single envelope is retried
+// before it is moved to dead-letter instead of being retried forever. The
+// persistent drain loop (drainHookSpoolLoop, run for the whole life of the
+// daemon) ticks every second; without this bound, one envelope that can never
+// be delivered (its project has since been deleted, say) blocked every OTHER
+// envelope queued behind it indefinitely — the exact shape that let a hook
+// backlog grow to tens of thousands of files.
+const maxDeliveryAttempts = 5
+
+// recordFailedAttempt bumps name's durable attempt count — encoded in the
+// filename itself as ".attemptN" before ".json", so it survives a daemon
+// restart — and, once it reaches maxDeliveryAttempts, moves the envelope to
+// dir/dead-letter instead of retrying it forever. It returns the name (or
+// full dead-letter path) the envelope now lives at, for logging.
+func recordFailedAttempt(dir, name string) (string, error) {
+	base := strings.TrimSuffix(name, ".json")
+	attempts := 1
+	if idx := strings.LastIndex(base, ".attempt"); idx >= 0 {
+		if n, err := strconv.Atoi(base[idx+len(".attempt"):]); err == nil {
+			attempts = n + 1
+			base = base[:idx]
+		}
+	}
+	if attempts >= maxDeliveryAttempts {
+		deadDir := filepath.Join(dir, "dead-letter")
+		if err := os.MkdirAll(deadDir, 0o700); err != nil {
+			return name, fmt.Errorf("hook spool: mkdir dead-letter: %w", err)
+		}
+		dest := filepath.Join(deadDir, base+".json")
+		if err := os.Rename(filepath.Join(dir, name), dest); err != nil {
+			return name, fmt.Errorf("hook spool: move to dead-letter: %w", err)
+		}
+		return dest, nil
+	}
+	newName := fmt.Sprintf("%s.attempt%d.json", base, attempts)
+	if err := os.Rename(filepath.Join(dir, name), filepath.Join(dir, newName)); err != nil {
+		return name, fmt.Errorf("hook spool: rename attempt: %w", err)
+	}
+	return newName, nil
 }
 
 func spooledNames(entries []os.DirEntry) []string {
@@ -214,7 +273,12 @@ func deliverSpooled(
 	}
 	body, err = deliverHookEnvelope(ctx, host, envelope)
 	if err != nil {
-		return hookEnvelope{}, nil, err
+		// The envelope (not a zero value) travels back on failure too: the
+		// caller needs its DeliveryID to tell "my own delivery just failed"
+		// apart from "some unrelated, earlier-queued envelope failed" — the
+		// distinction that lets an undeliverable envelope from someone else
+		// get skipped instead of aborting this caller's own ack wait.
+		return envelope, nil, err
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return envelope, body, fmt.Errorf("hook spool: remove acknowledged %s: %w", name, err)
