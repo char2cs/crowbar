@@ -494,23 +494,63 @@ func TestProjectDelete_CrowbarHomeError_SkipsDiskTeardown(t *testing.T) {
 
 // TestProjectDelete_RemoveProjectDirFailure_IsLoggedNotFatal covers RemoveAll
 // itself failing: the records are already gone by the time disk teardown
-// runs, so a stale directory must not surface as a Delete error.
+// runs, so a stale directory must not surface as a Delete error. It also
+// proves the retry budget is actually spent before giving up — a single
+// failed attempt must not be the end of the story, since that is exactly
+// what let a transient failure orphan a directory in production.
 func TestProjectDelete_RemoveProjectDirFailure_IsLoggedNotFatal(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
+	var attempts int
 	f.uc = project.NewDelete(project.DeleteDeps{
 		Projects:    f.projects,
 		Repos:       f.repos,
 		Workspaces:  f.workspaces,
 		Git:         f.git,
 		CrowbarHome: func() (string, error) { return "/home/u/.crowbar", nil },
-		RemoveAll:   func(string) error { return errors.New("disk gremlin") },
+		RemoveAll: func(string) error {
+			attempts++
+			return errors.New("disk gremlin")
+		},
+		RemoveAllRetries: 3,
 	})
 
 	err := f.uc.Delete(context.Background(), "p1")
 
 	require.NoError(t, err, "a failed directory removal must not fail the whole delete")
 	assert.Equal(t, []string{"p1"}, f.projects.deleted)
+	assert.Equal(t, 3, attempts, "a persistently failing removal must be retried, not given up on after one try")
+}
+
+// TestProjectDelete_RemoveProjectDirFailure_ClearsOnRetry is the actual bug
+// fix, proven directly: a transient failure (the shape a filesystem indexer
+// or sync client briefly touching the directory produces) must not become a
+// permanent orphan just because the FIRST attempt lost a race.
+func TestProjectDelete_RemoveProjectDirFailure_ClearsOnRetry(t *testing.T) {
+	f := newDeleteFixture(t)
+	f.seedProject()
+	var attempts int
+	var removed []string
+	f.uc = project.NewDelete(project.DeleteDeps{
+		Projects:    f.projects,
+		Repos:       f.repos,
+		Workspaces:  f.workspaces,
+		Git:         f.git,
+		CrowbarHome: func() (string, error) { return "/home/u/.crowbar", nil },
+		RemoveAll: func(path string) error {
+			attempts++
+			if attempts < 3 {
+				return errors.New("transient: ENOTEMPTY")
+			}
+			removed = append(removed, path)
+			return nil
+		},
+	})
+
+	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
+
+	assert.Equal(t, 3, attempts)
+	assert.Equal(t, []string{"/home/u/.crowbar/projects/p1"}, removed)
 }
 
 // TestRegression_ProjectDelete_RemoveProjectDir_RefusesPathTraversalEscape
