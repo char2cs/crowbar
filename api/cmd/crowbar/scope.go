@@ -1,6 +1,10 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"os"
+
+	"github.com/spf13/cobra"
+)
 
 // scopedAgentPath builds the agent API path for the given project/repo/workspace
 // ids, appending suffix (which may carry its own path segments and query string)
@@ -39,9 +43,29 @@ func scopedAgentPath(
 // See scope_roundtrip_test.go, which drives the real shell → real cobra path.
 func bindScopeFlags(
 	cmd *cobra.Command,
-	project, repo, workspace *string,
+	project, repo, workspace, home *string,
 ) {
 	cmd.Flags().StringVar(project, "project", "", "project id")
 	cmd.Flags().StringVar(repo, "repo", "", "repo id")
 	cmd.Flags().StringVar(workspace, "workspace", "", "workspace id")
+	cmd.Flags().StringVar(home, "home", "", "crowbar home this callback must operate against")
+}
+
+// applyHomeOverride sets CROWBAR_HOME for this process when home is non-empty.
+// Every in-PTY callback (hook, mcp, handoff dump) is a fresh, short-lived
+// process invoked once per event/session, so mutating process-global state
+// here at startup is race-free — there is no concurrent second invocation in
+// the same process to race against.
+//
+// Without this, a callback resolves its home from whatever CROWBAR_HOME the
+// vendor CLI's own hook/subprocess mechanism forwards, which is not
+// guaranteed, and silently falls back to the real ~/.crowbar when absent —
+// the exact mechanism that let an isolated dev instance's hook events land in
+// production. home is now baked into the command line at spawn time
+// (TemplateCtx.CrowbarHome / ScopeFlags, see spawnplan.go), so this override
+// always wins over ambient environment.
+func applyHomeOverride(home string) {
+	if home != "" {
+		_ = os.Setenv("CROWBAR_HOME", home)
+	}
 }

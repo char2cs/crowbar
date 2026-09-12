@@ -86,6 +86,32 @@ func TestPut_TruncatesBeyondTheCeilingAndSaysSo(t *testing.T) {
 	assert.Contains(t, string(got), "truncated")
 }
 
+func TestDelete_RemovesTheBlob(t *testing.T) {
+	s := newStore(t)
+	ref, err := s.Put([]byte("tool output"))
+	require.NoError(t, err)
+
+	require.NoError(t, s.Delete(ref))
+
+	_, err = s.Get(ref)
+	assert.ErrorIs(t, err, content.ErrNotFound)
+}
+
+func TestDelete_IsANoOpOnAnAlreadyMissingRef(t *testing.T) {
+	s := newStore(t)
+	ref, err := s.Put([]byte("tool output"))
+	require.NoError(t, err)
+	require.NoError(t, s.Delete(ref))
+
+	assert.NoError(t, s.Delete(ref)) // second delete of the same ref
+}
+
+func TestDelete_IsANoOpOnAnEmptyOrMalformedRef(t *testing.T) {
+	s := newStore(t)
+	assert.NoError(t, s.Delete(""))
+	assert.NoError(t, s.Delete("not-a-ref"))
+}
+
 func TestGet_MissingOrMalformedRefIsNotFound(t *testing.T) {
 	s := newStore(t)
 

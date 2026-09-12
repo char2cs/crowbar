@@ -68,6 +68,18 @@ func TestRunHook_ForwardsSegmentProviderAndRawPayload(t *testing.T) {
 	}
 }
 
+func TestNewHookCmd_HomeFlagOverridesEnv(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", "/wrong/home")
+	cmd := newHookCmd()
+	cmd.SetArgs([]string{"session_start", "--home", "/tmp/right-home", "--payload", "{}"})
+	// The command swallows all errors (must never break the vendor CLI), so
+	// Execute always returns nil; what we assert is the env var it left behind.
+	_ = cmd.Execute()
+	if got := os.Getenv("CROWBAR_HOME"); got != "/tmp/right-home" {
+		t.Fatalf("CROWBAR_HOME = %q, want %q", got, "/tmp/right-home")
+	}
+}
+
 func TestRunHook_Non2xxRemainsSpooledAndRetriesSameDeliveryID(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
 	sock := filepath.Join(shortSocketDir(t), "h.sock")

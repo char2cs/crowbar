@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
@@ -76,6 +77,18 @@ type DeleteDeps struct {
 	// storages, icon) under ~/.crowbar/projects/<P>. Defaults to os.RemoveAll
 	// when nil; tests stub it to assert the exact path removed.
 	RemoveAll func(path string) error
+	// RemoveAllRetries bounds how many times a failing RemoveAll is retried
+	// before the failure is logged and swallowed. Defaults to 3: enough to
+	// clear the transient case (a filesystem indexer or sync client briefly
+	// touching the directory between "remove children" and "remove the now-
+	// empty parent") without turning a genuinely stuck removal into a long
+	// stall on the delete path.
+	RemoveAllRetries int
+	// RemoveAllRetryDelay is the pause between retries, applied whenever it
+	// is left at its zero value (so a caller cannot ask for a zero delay —
+	// every retry always waits at least briefly for the transient condition
+	// to clear). Defaults to a small real duration.
+	RemoveAllRetryDelay time.Duration
 }
 
 // DeleteUsecase removes a project and cascades over its records: every
@@ -109,6 +122,12 @@ func NewDelete(
 ) DeleteUsecase {
 	if deps.RemoveAll == nil {
 		deps.RemoveAll = os.RemoveAll
+	}
+	if deps.RemoveAllRetries <= 0 {
+		deps.RemoveAllRetries = 3
+	}
+	if deps.RemoveAllRetryDelay == 0 {
+		deps.RemoveAllRetryDelay = 20 * time.Millisecond
 	}
 	return &projectDelete{deps: deps}
 }
@@ -145,8 +164,16 @@ func (u *projectDelete) Delete(
 // (~/.crowbar/projects/<P> — worktrees, storages, icon) once the GORM rows are
 // gone. It is guarded by the crowbarHome prefix so it can NEVER touch a user's
 // real repo Path or an adopted main worktree (both live outside ~/.crowbar).
-// Best-effort: a removal failure is logged, not fatal, so a stale on-disk tree
-// never blocks the record cascade.
+//
+// A single failed RemoveAll is retried up to RemoveAllRetries times: the
+// common real-world failure here is transient (a filesystem indexer or sync
+// client briefly touching the directory between removing its children and
+// removing the now-empty directory itself), and a bare, unretried attempt is
+// exactly what left an empty, permanently orphaned, DB-row-less directory
+// behind in production. Only once every attempt has failed is it logged — at
+// ERROR, not WARN, so it is operationally visible — and swallowed: the DB
+// rows are already gone by this point, so failing Delete() itself would
+// report an operation that in every way the user can observe DID succeed.
 func (u *projectDelete) removeProjectDir(
 	ctx context.Context,
 	projectID string,
@@ -162,10 +189,17 @@ func (u *projectDelete) removeProjectDir(
 	if !strings.HasPrefix(dir, home) {
 		return
 	}
-	if err := u.deps.RemoveAll(dir); err != nil {
-		slog.WarnContext(ctx, "project delete: remove project dir failed; records already gone",
-			"project_id", projectID, "dir", dir, "err", err)
+	var lastErr error
+	for attempt := 0; attempt < u.deps.RemoveAllRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(u.deps.RemoveAllRetryDelay)
+		}
+		if lastErr = u.deps.RemoveAll(dir); lastErr == nil {
+			return
+		}
 	}
+	slog.ErrorContext(ctx, "project delete: remove project dir failed after retries; records already gone, directory left on disk",
+		"project_id", projectID, "dir", dir, "attempts", u.deps.RemoveAllRetries, "err", lastErr)
 }
 
 func (u *projectDelete) projectRepos(

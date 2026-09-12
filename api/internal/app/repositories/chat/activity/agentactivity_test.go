@@ -494,6 +494,52 @@ func TestForget_DropsTheRecordAndItsRows(t *testing.T) {
 	assert.Empty(t, ints)
 }
 
+func TestForget_DeletesABlobNothingElseReferences(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: chat, ToolID: "tool-1", Name: "Read", Request: []byte("only chat-1 uses this"), Now: t0,
+	}))
+	f.wait()
+
+	calls, err := f.repo.ToolCalls(f.ctx, chat, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	ref := calls[0].RequestRef
+	require.NotEmpty(t, ref)
+
+	require.NoError(t, f.repo.Forget(f.ctx, chat))
+	f.wait()
+
+	_, err = f.repo.Payload(f.ctx, ref)
+	assert.ErrorIs(t, err, activity.ErrNotFound)
+}
+
+func TestForget_KeepsABlobAnotherChatStillReferences(t *testing.T) {
+	const otherChat = "chat-2"
+	f := newFixture(t)
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: chat, ToolID: "tool-1", Name: "Read", Request: []byte("shared payload"), Now: t0,
+	}))
+	f.wait()
+	calls, err := f.repo.ToolCalls(f.ctx, chat, 0, 10)
+	require.NoError(t, err)
+	ref := calls[0].RequestRef
+
+	// A second chat's tool call happens to produce the identical payload, so
+	// content-store dedup gives it the SAME ref.
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: otherChat, ToolID: "tool-2", Name: "Read", Request: []byte("shared payload"), Now: t0,
+	}))
+	f.wait()
+
+	require.NoError(t, f.repo.Forget(f.ctx, chat))
+	f.wait()
+
+	got, err := f.repo.Payload(f.ctx, ref)
+	require.NoError(t, err, "chat-2 still references this ref; Forget(chat-1) must not have deleted it")
+	assert.Equal(t, "shared payload", string(got))
+}
+
 func TestValidation_IsSurfacedAndNeverRetried(t *testing.T) {
 	f := newFixture(t)
 
