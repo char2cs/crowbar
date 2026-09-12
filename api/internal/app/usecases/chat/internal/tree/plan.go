@@ -2,6 +2,7 @@ package tree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -282,7 +283,14 @@ func (u *chatFolderUsecase) writeRow(
 	if !snapshot.plan.Reparented(id) {
 		updated, err := u.chats.SetOrder(ctx, id, row.Order)
 		if err != nil {
-			return nil, fmt.Errorf("agent chat folder: order %s: %w", id, err)
+			// A densify plans from one snapshot, but SetOrder lands on the live
+			// aggregate: a concurrent delete can purge this very row between the
+			// two. It needs no order because it no longer exists, so that race is
+			// not this write's failure to report.
+			if errors.Is(err, apperr.ErrNotFound) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("agent chat folder: order chat %s: %w", id, err)
 		}
 		return &updated, nil
 	}

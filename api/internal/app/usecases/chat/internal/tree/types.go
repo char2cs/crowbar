@@ -62,6 +62,10 @@ type Chats interface {
 		parentID string,
 		order int,
 	) (domain.Chat, error)
+	// SetOrder reports a chatID a concurrent delete has already purged as
+	// apperr.ErrNotFound: a densify plans a whole level from one snapshot, and a
+	// row that vanished before the write reached it needs no order any more, so
+	// writeRow treats this sentinel as nothing to do rather than a failure.
 	SetOrder(
 		ctx context.Context,
 		chatID string,

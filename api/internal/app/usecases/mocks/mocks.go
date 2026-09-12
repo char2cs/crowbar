@@ -1475,6 +1475,11 @@ type AgentChatPlacements struct {
 	// returns as soon as the aggregate has it, so this is the daemon's ordinary
 	// state for the microseconds after every one, not an exotic interleaving.
 	Stale map[string]domain.Chat
+	// OrderNotFoundIDs simulates a SetOrder call landing on a chat whose
+	// aggregate a CONCURRENT request has already purged — the densify read it as
+	// a sibling still needing an index, but by the time the write reaches it the
+	// row is gone. Real SetOrder reports this as apperr.ErrNotFound.
+	OrderNotFoundIDs map[string]bool
 	// NextID is the id the next MintChat hands back, so a test can name the chat a
 	// create is about to make instead of discovering it from the return value.
 	NextID string
@@ -1645,6 +1650,9 @@ func (s *AgentChatPlacements) SetOrder(
 ) (domain.Chat, error) {
 	if s.OrderErr != nil {
 		return domain.Chat{}, s.OrderErr
+	}
+	if s.OrderNotFoundIDs[chatID] {
+		return domain.Chat{}, fmt.Errorf("set order: %w", apperr.ErrNotFound)
 	}
 	s.Ordered = append(s.Ordered, OrderWrite{ChatID: chatID, Order: order})
 	for i := range s.Rows {

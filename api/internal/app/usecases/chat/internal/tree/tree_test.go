@@ -886,6 +886,36 @@ func TestDeleteChat_SurfacesADensifyWriteFailure(t *testing.T) {
 	assert.ErrorContains(t, err, "disk full")
 }
 
+// TestRegression_DeleteChat_ToleratesASiblingPurgedByAConcurrentDelete pins the
+// bug where removing a chat surfaced "agentchat: set order: ... no chat" to the
+// user. Two DELETES racing on SIBLING threads both plan their densify from a
+// snapshot taken before either write lands: this one reads "a" and "b" as
+// root's children, purges "a", and goes to renumber "b" into the gap — but a
+// second, concurrent delete of "b" has already purged ITS aggregate by the
+// time this write reaches it. The row needs no order because it no longer
+// exists, so that write must be skipped, not surfaced as a failure of a delete
+// that changed exactly what it meant to.
+func TestRegression_DeleteChat_ToleratesASiblingPurgedByAConcurrentDelete(t *testing.T) {
+	_, chats, uc := newUsecase(t)
+	ctx := context.Background()
+	seedChat(chats, "root", 1)
+	seedThread(chats, "a", "root", 2)
+	seedThread(chats, "b", "root", 3)
+	// b is densely indexed one slot AFTER a, so dropping a genuinely renumbers
+	// it — not merely a tiebreak sort that leaves its stored Order untouched.
+	for i := range chats.Rows {
+		if chats.Rows[i].ID == "b" {
+			chats.Rows[i].Order = 1
+		}
+	}
+	chats.OrderNotFoundIDs = map[string]bool{"b": true}
+
+	removed, err := uc.DeleteChat(ctx, "a")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a"}, removed.Chats)
+}
+
 // A chat the snapshot's list did not carry is still deleted: the keyed read is
 // the authority, and the densify simply counts the rows that were there.
 func TestDeleteChat_ProceedsWhenTheListLagsTheAggregate(t *testing.T) {

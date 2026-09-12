@@ -463,6 +463,11 @@ func (r *eventSourced) SetPlacement(
 	return evt.Aggregate, nil
 }
 
+// SetOrder reports a target that no longer exists as apperr.ErrNotFound rather
+// than the command's raw validation failure: a densify plans a whole level from
+// one snapshot, and a chat a concurrent delete purged out from under it needs
+// no order any more, which its caller can only tell apart from a genuine
+// validation bug (a negative order) via this sentinel.
 func (r *eventSourced) SetOrder(
 	ctx context.Context,
 	chatID string,
@@ -470,6 +475,9 @@ func (r *eventSourced) SetOrder(
 ) (domain.Chat, error) {
 	evt, err := r.sendWithOCC(ctx, commands.SetOrder{ID: chatID, Order: order})
 	if err != nil {
+		if errors.Is(err, commands.ErrNoSuchChat) {
+			return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", apperr.ErrNotFound)
+		}
 		return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", err)
 	}
 	return evt.Aggregate, nil
