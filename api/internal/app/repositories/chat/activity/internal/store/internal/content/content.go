@@ -73,6 +73,22 @@ func (s *Store) Get(ref string) ([]byte, error) {
 	return data, nil
 }
 
+// Delete removes the blob behind ref, if any. A ref that is empty,
+// malformed, or already gone is a no-op — Forget calls this after confirming
+// no other chat's tool call still references it, and must not fail merely
+// because two chats happened to race to delete the same already-shared,
+// already-cleaned-up blob.
+func (s *Store) Delete(ref string) error {
+	path, _ := s.pathFor(ref)
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("agentactivity content: delete: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) pathFor(ref string) (path, dir string) {
 	digest, ok := strings.CutPrefix(ref, RefPrefix)
 	if !ok || len(digest) != sha256.Size*2 || !isHex(digest) {
