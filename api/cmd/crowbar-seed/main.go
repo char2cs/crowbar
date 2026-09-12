@@ -120,17 +120,25 @@ func finish(
 	return rep.write()
 }
 
-// seedRoot puts the throwaway repo under the crowbar home. It is disposable
-// state that already lives outside the source tree, and under a dev CROWBAR_HOME
-// it is thrown away with the rest of the dev instance.
+// seedRoot puts the throwaway repo under the crowbar home CROWBAR_HOME names.
+// It is disposable state that already lives outside the source tree, and
+// under a dev CROWBAR_HOME it is thrown away with the rest of the dev
+// instance.
+//
+// CROWBAR_HOME is REQUIRED, not defaulted: this is dev/test tooling that
+// mints throwaway projects and repos, and a silent fallback to the user's
+// real ~/.crowbar (formerly via os.UserHomeDir()) is exactly how a stray
+// "Crowbar Seed" project ends up seeded into production the one time someone
+// runs this binary directly instead of through `make seed`, which is the
+// only thing that reliably exports CROWBAR_HOME (Makefile:11).
 func seedRoot() (string, error) {
 	home := os.Getenv(metadata.HomeEnvVar)
 	if home == "" {
-		userHome, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("seed: resolve home: %w", err)
-		}
-		home = filepath.Join(userHome, ".crowbar")
+		return "", fmt.Errorf(
+			"seed: CROWBAR_HOME is not set — run this through `make seed` " +
+				"(or export CROWBAR_HOME yourself); crowbar-seed refuses to guess " +
+				"and never writes to a real ~/.crowbar",
+		)
 	}
 	return filepath.Join(home, "seed"), nil
 }
