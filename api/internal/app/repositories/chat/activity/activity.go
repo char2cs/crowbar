@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
@@ -463,11 +464,39 @@ func (r *eventSourced) Payload(_ context.Context, ref string) ([]byte, error) {
 }
 
 func (r *eventSourced) Forget(ctx context.Context, chatID string) error {
+	refs, err := r.store.ToolCallRefs(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agentactivity: forget: collect refs: %w", err)
+	}
 	if err := r.store.DeleteChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agentactivity: forget rows: %w", err)
 	}
+	r.deleteOrphanedRefs(ctx, refs)
 	if err := r.ax.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agentactivity: forget: %w", err)
 	}
 	return nil
+}
+
+// deleteOrphanedRefs removes each of chatID's former blobs that no OTHER
+// chat's tool call still references. Called after DeleteChat, so chatID's
+// own rows are already gone and RefInUse only sees rows that belong to
+// somebody else — content is deduplicated by hash, so two unrelated chats
+// can legitimately share one blob. Best-effort: a check or delete failure is
+// logged, never fatal — Forget must still complete the row/event erasure the
+// caller is waiting on.
+func (r *eventSourced) deleteOrphanedRefs(ctx context.Context, refs []string) {
+	for _, ref := range refs {
+		inUse, err := r.store.RefInUse(ctx, ref)
+		if err != nil {
+			slog.WarnContext(ctx, "agentactivity: forget: ref liveness check failed; leaving blob", "ref", ref, "err", err)
+			continue
+		}
+		if inUse {
+			continue
+		}
+		if err := r.store.Content().Delete(ref); err != nil {
+			slog.WarnContext(ctx, "agentactivity: forget: delete blob failed", "ref", ref, "err", err)
+		}
+	}
 }
