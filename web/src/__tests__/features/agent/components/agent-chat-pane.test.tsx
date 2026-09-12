@@ -1002,8 +1002,13 @@ describe('AgentChatPane', () => {
       const banner = await screen.findByTestId('agent-idle-banner')
       // IS_MAC is hard-coded true off-webview (utils/platform.ts) — 44px is the
       // real row height a caller in this repo can rely on in tests everywhere
-      // else (pane-top-row.test.tsx and friends assume the same).
-      expect(banner.style.top).toBe('52px') // 44px header + the original 8px (top-2) breathing room
+      // else (pane-top-row.test.tsx and friends assume the same). Normal
+      // flow now (marginTop, not an absolute `top`) — see the component's
+      // own doc for why: an absolutely-positioned box reserves no space for
+      // its own height, so a banner that wraps to more lines in a narrow
+      // split column grew INTO whatever sat below it instead of pushing it
+      // down.
+      expect(banner.style.marginTop).toBe('52px') // 44px header + the original 8px (top-2) breathing room
     })
 
     it('leaves the idle/exited banner at its old offset with no overlay header above', async () => {
@@ -1014,7 +1019,7 @@ describe('AgentChatPane', () => {
       await renderPane(store, openChatPane(store, 'c1', ''))
 
       const banner = await screen.findByTestId('agent-idle-banner')
-      expect(banner.style.top).toBe('8px')
+      expect(banner.style.marginTop).toBe('8px')
     })
 
     it('clears the header row for the reviving banner when an overlay header sits above', async () => {
@@ -1026,11 +1031,30 @@ describe('AgentChatPane', () => {
       await renderBelowOverlayHeader(store, 'c1', '')
 
       const banner = await screen.findByTestId('agent-reviving-banner')
-      expect(banner.style.top).toBe('52px')
+      expect(banner.style.marginTop).toBe('52px')
 
       await act(async () => {
         resumed.resolve('r9')
       })
+    })
+
+    // Regression: the banner used to be `position: absolute`, which reserves
+    // no space for its own height — in a narrow split column the exited/idle
+    // text wraps to more lines than in a wide pane, so its TOP edge cleared
+    // the header fine but its BOTTOM edge grew into AgentEmptyDocument's own
+    // composer handle underneath it. Normal flow (no `position: absolute`)
+    // means whatever renders after it is always pushed down by its real,
+    // current height, however many lines that takes.
+    it('renders the idle/exited banner in normal flow, not as an absolute overlay', async () => {
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      const banner = await screen.findByTestId('agent-idle-banner')
+      expect(banner).not.toHaveClass('absolute')
+      expect(banner.style.top).toBe('')
     })
   })
 

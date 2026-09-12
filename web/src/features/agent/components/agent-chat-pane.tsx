@@ -1180,6 +1180,52 @@ export function AgentChatPane({
                 />
               </div>
             )}
+            {/* The reviving/idle signpost is ALSO pane-level only while the
+                chat is blank (same reasoning as the trust banner above), and
+                for the same reason MUST NOT be an absolute overlay: measured
+                overlapping AgentEmptyDocument's own composer handle in a
+                narrow split column, because "This agent has exited. Resume
+                it…" wraps to more lines as the pane narrows while an
+                absolutely-positioned box (its previous shape) reserves no
+                space for its own height — the header-clearance fix moved its
+                TOP edge below the overlay header, but its BOTTOM edge still
+                grew into whatever sat below it. Normal flow, rendered BEFORE
+                AgentChatView exactly like the trust banner, so the chat
+                surface is pushed down by however tall the banner actually
+                renders, however many lines that takes. */}
+            {presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && (
+              <div
+                data-testid="agent-reviving-banner"
+                className="mx-4 mb-2 flex shrink-0 items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm"
+                style={{ marginTop: headerClearancePx }}
+              >
+                <FlickerSpinner className="size-4 text-foreground" />
+                {attachment.message}
+              </div>
+            )}
+            {presentation !== 'terminal' && chatBlank && attachment.state === 'idle' && (
+              <div
+                data-testid="agent-idle-banner"
+                className="mx-4 mb-2 flex shrink-0 items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm"
+                style={{ marginTop: headerClearancePx }}
+              >
+                <p className="min-w-0 text-muted-foreground">
+                  {attachment.reason === 'failed'
+                    ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
+                    : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
+                </p>
+                <Button
+                  className="shrink-0"
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  data-testid="pane-resume"
+                  onClick={() => void revive()}
+                >
+                  Resume
+                </Button>
+              </div>
+            )}
             <AgentChatView
               key={`${wsId}:${shownChatId}`}
               ref={chatViewRef}
@@ -1282,55 +1328,6 @@ export function AgentChatPane({
               onDeliveryPendingChange={setDeliveryPending}
               onBlankChange={setChatBlank}
             />
-
-            {/* The composer's OWN reviving/idle signpost (`revival`, above) is
-                the normal home for these now — but it lives inside the dock,
-                and the dock does not exist on a blank chat (AgentEmptyDocument
-                stands in for it there). A CLI dying before its first turn ever
-                lands is not a rare edge of that: it is the ordinary shape of
-                "opened a chat, picked a provider, the provider never came up."
-                Proven wrong once already for terminal_wait above (dropping it
-                outright broke `agent-chat-pane-terminal-wait.test.tsx`), and
-                the same test-first check for reviving/idle
-                (agent-chat-pane.test.tsx, "…for a chat with no messages yet")
-                found the identical gap — so this is the fallback for exactly
-                the window `chatBlank` covers, not a second copy of the
-                composer's own signpost: `revival` above is already `undefined`
-                whenever `chatBlank` would make this render, because
-                `AgentChatView` never got far enough to read it. */}
-            {presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && (
-              <div
-                data-testid="agent-reviving-banner"
-                className="absolute inset-x-4 flex items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm"
-                style={{ top: headerClearancePx }}
-              >
-                <FlickerSpinner className="size-4 text-foreground" />
-                {attachment.message}
-              </div>
-            )}
-            {presentation !== 'terminal' && chatBlank && attachment.state === 'idle' && (
-              <div
-                data-testid="agent-idle-banner"
-                className="absolute inset-x-4 flex items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm"
-                style={{ top: headerClearancePx }}
-              >
-                <p className="min-w-0 text-muted-foreground">
-                  {attachment.reason === 'failed'
-                    ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-                    : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
-                </p>
-                <Button
-                  className="shrink-0"
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  data-testid="pane-resume"
-                  onClick={() => void revive()}
-                >
-                  Resume
-                </Button>
-              </div>
-            )}
           </div>
 
           {splitting && (
