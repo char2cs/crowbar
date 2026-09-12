@@ -1045,6 +1045,55 @@ describe('AgentChatPane', () => {
     // composer handle underneath it. Normal flow (no `position: absolute`)
     // means whatever renders after it is always pushed down by its real,
     // current height, however many lines that takes.
+    // REGRESSION: AgentChatView used to add its OWN headerClearancePx-derived
+    // top padding (`.doc`'s padding-top, via `--agent-header-clearance`)
+    // UNCONDITIONALLY — even while a banner directly above it had ALREADY
+    // carried that same clearance as its own marginTop, in normal flow. The
+    // two stacked instead of composing: live-measured, ~164px of dead air
+    // between the idle banner and the blank document's placeholder text, not
+    // the ~56px either alone produces.
+    it('does not ALSO clear the header inside AgentChatView while the idle banner is already doing it', async () => {
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderBelowOverlayHeader(store, 'c1', '')
+
+      await screen.findByTestId('agent-idle-banner')
+      const section = document.querySelector('.agent-chat.chat') as HTMLElement
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('0px')
+    })
+
+    it('does not ALSO clear the header inside AgentChatView while the reviving banner is already doing it', async () => {
+      const resumed = deferred<string>()
+      resumeChatFn.mockReturnValue(resumed.promise)
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderBelowOverlayHeader(store, 'c1', '')
+
+      await screen.findByTestId('agent-reviving-banner')
+      const section = document.querySelector('.agent-chat.chat') as HTMLElement
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('0px')
+
+      await act(async () => {
+        resumed.resolve('r9')
+      })
+    })
+
+    it('still clears the header inside AgentChatView once the chat is attached and no banner covers it', async () => {
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderBelowOverlayHeader(store, 'c1', 'r1')
+
+      await screen.findByTestId('agent-empty-document')
+      expect(screen.queryByTestId('agent-idle-banner')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('agent-reviving-banner')).not.toBeInTheDocument()
+      const section = document.querySelector('.agent-chat.chat') as HTMLElement
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+    })
+
     it('renders the idle/exited banner in normal flow, not as an absolute overlay', async () => {
       resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
       listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })

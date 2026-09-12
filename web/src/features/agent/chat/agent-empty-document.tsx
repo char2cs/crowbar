@@ -9,8 +9,15 @@ import { StopIcon, UpIcon } from '@/features/agent/shared/agent-icons'
 import { cn } from '@/lib/utils'
 
 /** The handle's own position on an empty document: the doc's top padding plus
- *  one line, matching `.doc`'s 48px / 16px × 1.7. */
-const FIRST_LINE_TOP = 48 + 27.2
+ *  one line, matching `.doc`'s 48px / 16px × 1.7. `headerClearancePx` is
+ *  `.doc`'s OWN extra top padding (composer.css's `--agent-header-clearance`,
+ *  the same value agent-chat-pane.tsx computes for its overlay header) —
+ *  when the document is genuinely empty this fallback has no rendered first
+ *  line to measure, so it has to add that same clearance itself or it would
+ *  place the handle above where the (padded-down) caret actually sits. */
+function firstLineTop(headerClearancePx: number): number {
+  return 48 + headerClearancePx + 27.2
+}
 /** The gap between the last line and the handle riding under it. */
 const HANDLE_LEAD = 4
 
@@ -20,10 +27,10 @@ const HANDLE_LEAD = 4
  * middle of a paragraph to fix a word does not walk the controls up the page
  * with it — they stay put, because the box under them is still what sends.
  */
-export function lastLineTop(doc: HTMLElement): number {
+export function lastLineTop(doc: HTMLElement, headerClearancePx = 0): number {
   const editable = doc.querySelector<HTMLElement>('[data-slate-editor]')
   const last = editable?.lastElementChild
-  if (!last || !editable?.textContent) return FIRST_LINE_TOP
+  if (!last || !editable?.textContent) return firstLineTop(headerClearancePx)
   return last.getBoundingClientRect().bottom - doc.getBoundingClientRect().top
 }
 
@@ -60,6 +67,13 @@ export interface AgentEmptyDocumentProps {
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
   sending: boolean
   onStop: () => void
+  /** `.doc`'s own extra top padding (composer.css's `--agent-header-clearance`,
+   *  inherited from the `.agent-chat` ancestor AgentChatView sets it on) — the
+   *  overlay chat header's real height, so a truly empty document's fallback
+   *  handle position (`lastLineTop`'s only caller with nothing to measure)
+   *  agrees with where the padded-down first line actually renders. Defaults
+   *  to 0 for callers with no overlay header to clear. */
+  headerClearancePx?: number
   ref?: Ref<AgentEmptyDocumentHandle>
 }
 
@@ -93,6 +107,7 @@ export function AgentEmptyDocument({
   canStop,
   sending,
   onStop,
+  headerClearancePx = 0,
   ref,
 }: AgentEmptyDocumentProps) {
   const docRef = useRef<HTMLDivElement>(null)
@@ -110,9 +125,9 @@ export function AgentEmptyDocument({
     const doc = docRef.current
     const handle = handleRef.current
     if (!doc || !handle) return
-    const top = lastLineTop(doc)
+    const top = lastLineTop(doc, headerClearancePx)
     handle.style.transform = `translateY(${Math.round(top + HANDLE_LEAD)}px)`
-  }, [])
+  }, [headerClearancePx])
 
   // Same frame as the text that moved it. An effect would paint the handle at the
   // previous line for one frame, which reads as the bar lagging the content.

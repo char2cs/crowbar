@@ -96,6 +96,20 @@ export interface AgentChatViewProps {
    *  blocked on a prompt Crowbar cannot answer. */
   terminalWaiting?: boolean
   terminalWaitKind?: string
+  /** How far pinned-near-top content in this view must clear the pane's
+   *  floating overlay header (PaneTopRow's `chat-blur overlay` variant,
+   *  ChatOnlyPaneHeader/ChatColumnHeader) — the SAME value
+   *  agent-chat-pane.tsx already computes for its own reviving/idle/wait
+   *  banners (`headerClearancePx` there), reused rather than re-derived so
+   *  there is one number for "how tall is the thing floating over me" in
+   *  this pane. That header paints no fill and reserves no flex space of
+   *  its own (`position: absolute; top: 0`), so nothing below it knows the
+   *  header is there unless told — the transcript's scroll container and
+   *  the blank chat's document both need this to keep their own
+   *  pinned/unscrolled content from rendering underneath it. Defaults to 0
+   *  (no overlay header) for callers — tests, mostly — that don't thread a
+   *  real pane geometry through. */
+  headerClearancePx?: number
   /** Client request ids the daemon has reported as delivered-and-over. */
   settledPrompts?: string[]
   /** The message(s) the agent is mid-way through saying — see useChatMessages. */
@@ -201,6 +215,7 @@ export function AgentChatView({
   onOpenTerminal,
   terminalWaiting = false,
   terminalWaitKind,
+  headerClearancePx = 0,
   settledPrompts,
   streamingMessages,
   onStreamingSettled,
@@ -720,9 +735,19 @@ export function AgentChatView({
     />
   )
 
+  // Published as a CSS var on every `.agent-chat` root below rather than a
+  // prop threaded through AgentTranscript/AgentEmptyDocument's own CSS: both
+  // their top-clearing rules (transcript.css's `.scroll`, composer.css's
+  // `.doc`) live under `.agent-chat` and pick it up by inheritance for free.
+  // AgentEmptyDocument still needs the raw NUMBER too, for the JS layout math
+  // `lastLineTop` falls back to on a truly empty document — see its own prop.
+  const headerClearanceStyle = {
+    '--agent-header-clearance': `${headerClearancePx}px`,
+  } as React.CSSProperties
+
   if (settling) {
     return (
-      <section className="agent-chat chat" aria-label="Agent chat">
+      <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
         {transcript}
       </section>
     )
@@ -730,7 +755,7 @@ export function AgentChatView({
 
   if (blank) {
     return (
-      <section className="agent-chat chat" aria-label="Agent chat">
+      <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
         <AgentEmptyDocument
           ref={emptyDocRef}
           draft={seed.text}
@@ -744,6 +769,7 @@ export function AgentChatView({
           canStop={live}
           sending={prompts.deliveryPending}
           onStop={handleStop}
+          headerClearancePx={headerClearancePx}
         />
         {composerError && (
           <p className="meta" role="alert">
@@ -760,6 +786,7 @@ export function AgentChatView({
       aria-label="Agent chat"
       style={
         {
+          ...headerClearanceStyle,
           '--agent-dock-h': `${Math.round(dockHeight)}px`,
           '--agent-scrollbar-w': `${scrollbarWidth}px`,
         } as React.CSSProperties

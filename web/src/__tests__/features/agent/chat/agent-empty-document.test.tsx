@@ -102,6 +102,19 @@ describe('lastLineTop', () => {
     expect(lastLineTop(doc)).toBeCloseTo(48 + 27.2)
   })
 
+  // REGRESSION: the pane's overlay chat header floats over this document
+  // with no flex space of its own, so a genuinely empty document's fallback
+  // position has to add the SAME clearance `.doc`'s own top padding gets
+  // (composer.css's `--agent-header-clearance`) or the handle renders above
+  // where the (padded-down) first line actually sits.
+  it('adds headerClearancePx to the fallback position on a genuinely empty document', () => {
+    expect(lastLineTop(docWithParagraphs([]), 52)).toBeCloseTo(48 + 52 + 27.2)
+  })
+
+  it('ignores headerClearancePx once there is a real last line to measure', () => {
+    expect(lastLineTop(docWithParagraphs([100, 250]), 52)).toBe(250)
+  })
+
   it('ignores where the caret actually is — a selection anchored in an earlier line does not move it', () => {
     const doc = docWithParagraphs([100, 250])
     document.body.appendChild(doc)
@@ -118,6 +131,28 @@ describe('lastLineTop', () => {
     } finally {
       document.body.removeChild(doc)
     }
+  })
+})
+
+describe('AgentEmptyDocument header clearance', () => {
+  // REGRESSION: the mocked editor stub carries no `[data-slate-editor]` node,
+  // so `place()` always takes the same empty-document fallback a real fresh
+  // chat does — this exercises `headerClearancePx` through the component's
+  // own effect, not just the standalone `lastLineTop` helper above.
+  it('positions the handle below the overlay header when headerClearancePx is set', () => {
+    const { container } = draw({ headerClearancePx: 52 })
+
+    const handle = container.querySelector('.dochandle') as HTMLElement
+    // 48 (doc's own top padding) + 52 (header clearance) + 27.2 (one line) + 4
+    // (HANDLE_LEAD), rounded — see firstLineTop/HANDLE_LEAD.
+    expect(handle.style.transform).toBe('translateY(131px)')
+  })
+
+  it('matches the pre-existing placement when no overlay header is present', () => {
+    const { container } = draw()
+
+    const handle = container.querySelector('.dochandle') as HTMLElement
+    expect(handle.style.transform).toBe('translateY(79px)')
   })
 })
 

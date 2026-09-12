@@ -622,6 +622,17 @@
 .agent-chat .doc {
   --pad: max(40px, calc((100% - 720px) / 2));
   padding: 48px var(--pad) 96px;
+  /* Overrides just the top value above. The blank document is TOP-anchored
+     (unlike the transcript's bottom-anchored `.scroll`), so its first line
+     always renders at this fixed offset — no scrolling makes it visible
+     later, it is obstructed the instant the overlay chat header floats over
+     it. `--agent-header-clearance` is the same value agent-chat-pane.tsx
+     already computes for its own pinned banners, set on the `.agent-chat`
+     ancestor and inherited here. agent-empty-document.tsx's `lastLineTop`
+     fallback (`firstLineTop`) has to agree with this exact offset for a
+     genuinely empty document, where there is no rendered line to measure
+     instead. */
+  padding-top: calc(48px + var(--agent-header-clearance, 0px));
   font-size: 16px;
   line-height: 1.7;
   outline: none;
@@ -875,7 +886,7 @@
   flex: none;
   font-size: 13px;
   font-weight: 400;
-  font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+  font-family: 'Geist Mono Variable', ui-monospace, monospace;
 }
 .agent-chat .slash .opt .d {
   flex: 1;

@@ -173,6 +173,10 @@ const baseProps = () => ({
   // these for a delivery that produced no turn, so the default is none.
   settledPrompts: undefined as string[] | undefined,
   streamingMessages: undefined as { id: string; text: string }[] | undefined,
+  // Declared so `setup` accepts it, same reason as above — most suites here
+  // have no overlay header to clear, so the component's own default (0) is
+  // fine left unset.
+  headerClearancePx: undefined as number | undefined,
   // No sticky selection: these fixtures' providers declare no catalogue, so the
   // picker renders nothing at all here (see agent-model-picker.test.tsx).
   model: '',
@@ -1896,5 +1900,40 @@ describe('AgentChatView scroll position', () => {
       stuck: false,
       distanceFromBottom: 120,
     })
+  })
+})
+
+// REGRESSION: the pane's overlay chat header (PaneTopRow's `chat-blur
+// overlay` variant) paints no fill and reserves no flex space of its own, so
+// nothing below it knew it was there — a short/blank chat's document and a
+// long chat scrolled to its top both rendered their first line UNDER the
+// header's real hit-box instead of clearing it, in both solo and split
+// presentations (neither ever received this value before). `headerClearancePx`
+// is agent-chat-pane.tsx's own already-computed clearance, threaded straight
+// through as a `--agent-header-clearance` CSS var rather than re-derived here.
+describe('AgentChatView header clearance', () => {
+  it('publishes headerClearancePx as a CSS var on the blank document surface', async () => {
+    const { container } = setup({ headerClearancePx: 52 })
+    await composer()
+
+    const root = container.querySelector('.agent-chat.chat') as HTMLElement
+    expect(root.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+  })
+
+  it('publishes headerClearancePx as a CSS var on the populated transcript surface', async () => {
+    initialMessages = [message(1, 'user', 'Question')]
+    const { container } = setup({ headerClearancePx: 52 })
+    await screen.findByText('Question')
+
+    const root = container.querySelector('.agent-chat.chat') as HTMLElement
+    expect(root.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+  })
+
+  it('defaults to no extra clearance when the pane has no overlay header', async () => {
+    const { container } = setup()
+    await composer()
+
+    const root = container.querySelector('.agent-chat.chat') as HTMLElement
+    expect(root.style.getPropertyValue('--agent-header-clearance')).toBe('0px')
   })
 })

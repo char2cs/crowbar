@@ -318,6 +318,27 @@ export function AgentChatPane({
   // render to undo a value the effect had just written.
   const attachment: Attachment = known ? attachedState : { state: 'pending' }
 
+  // Whether each pane-level banner below is ABOUT to render this pass — named
+  // here, once, rather than re-testing the same conditions inline at both the
+  // JSX below AND wherever else needs to know "is something already sitting
+  // between the overlay header and AgentChatView". `waitingBannerShown` mirrors
+  // `waiting && chatBlank`; the other two also gate on `presentation !==
+  // 'terminal'`, same as their own JSX below.
+  const waitingBannerShown = waiting && chatBlank
+  const revivingBannerShown =
+    presentation !== 'terminal' && chatBlank && attachment.state === 'reviving'
+  const idleBannerShown = presentation !== 'terminal' && chatBlank && attachment.state === 'idle'
+  // Exactly one of the three above renders at most (waiting requires a live
+  // runner; reviving/idle both require none — never true together). Whichever
+  // it is already carries `headerClearancePx` as its OWN marginTop (below), in
+  // normal flow, ahead of AgentChatView — so AgentChatView must NOT ALSO add
+  // header clearance on top of that, or the two stack into a gap far bigger
+  // than the header actually is (confirmed live: banner + blank doc measured
+  // ~164px of dead air between them, not the ~56px either alone produces).
+  // AgentChatView gets 0 instead, exactly its own no-overlay-header default —
+  // from where IT sits, the banner already did the header's job.
+  const bannerClearsHeader = waitingBannerShown || revivingBannerShown || idleBannerShown
+
   // The composer's own words for `attachment`, refined past the plain `live`
   // boolean it gets alongside this — but only on the chat side of the gate.
   // Both surfaces stay mounted (see the dormancy note by the split container
@@ -1166,7 +1187,7 @@ export function AgentChatPane({
                 height, so whatever sat under it never moved. Rendered BEFORE
                 AgentChatView, in normal flow, so the chat surface is pushed
                 down by however tall the banner actually is. */}
-            {waiting && chatBlank && (
+            {waitingBannerShown && (
               <div
                 className="mx-4 mb-2 shrink-0 rounded-lg bg-popover shadow-sm"
                 style={{ marginTop: headerClearancePx }}
@@ -1193,7 +1214,7 @@ export function AgentChatPane({
                 AgentChatView exactly like the trust banner, so the chat
                 surface is pushed down by however tall the banner actually
                 renders, however many lines that takes. */}
-            {presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && (
+            {revivingBannerShown && (
               <div
                 data-testid="agent-reviving-banner"
                 className="mx-4 mb-2 flex shrink-0 items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm"
@@ -1203,7 +1224,7 @@ export function AgentChatPane({
                 {attachment.message}
               </div>
             )}
-            {presentation !== 'terminal' && chatBlank && attachment.state === 'idle' && (
+            {idleBannerShown && (
               <div
                 data-testid="agent-idle-banner"
                 className="mx-4 mb-2 flex shrink-0 items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm"
@@ -1292,6 +1313,13 @@ export function AgentChatPane({
               }}
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
+              // 0, not headerClearancePx, whenever one of the three banners
+              // above is already rendered: that banner already carries this
+              // pane's full header clearance as its own marginTop, in normal
+              // flow, ahead of this view — AgentChatView adding its own on
+              // top would double the gap rather than close it. See
+              // `bannerClearsHeader`'s own comment above.
+              headerClearancePx={bannerClearsHeader ? 0 : headerClearancePx}
               presentation={presentation}
               splitEnabled={splitEnabled}
               onSelectPresentation={chooseSurface}

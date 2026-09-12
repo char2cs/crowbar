@@ -454,6 +454,21 @@ describe('AgentChatPane — waiting in the terminal', () => {
     expect(wrapper.style.marginTop).toBe('52px')
   })
 
+  // REGRESSION: AgentChatView used to add its OWN header-clearance-derived
+  // top padding (`.doc`'s padding-top) UNCONDITIONALLY, even while THIS
+  // banner — rendered in normal flow directly above it — had already carried
+  // the same clearance as its own marginTop. The two stacked instead of
+  // composing into one sensible gap.
+  it('does not ALSO clear the header inside AgentChatView while the trust banner is already doing it', async () => {
+    const store = seed()
+    await renderPane(store, { belowOverlayHeader: true })
+    await setWait(store, { kind: 'workspace_trust' })
+
+    screen.getByTestId('agent-terminal-wait')
+    const section = document.querySelector('.agent-chat.chat') as HTMLElement
+    expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('0px')
+  })
+
   it('keeps its original offset with no overlay header above (default)', async () => {
     const store = seed()
     await renderPane(store)

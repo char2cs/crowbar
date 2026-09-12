@@ -29,7 +29,16 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding-top: 20px;
+  /* The 20px is this column's own top breathing room, unconditional. The
+     overlay chat header (PaneTopRow's `chat-blur overlay` variant) paints no
+     fill and reserves no flex space of its own, so `--agent-header-clearance`
+     (set on `.agent-chat` by AgentChatView — the SAME value
+     agent-chat-pane.tsx computes for its own pinned banners) is on top of
+     that, not instead of it: it only becomes visible once a conversation
+     genuinely overflows and is scrolled to its top, since a short one sits
+     bottom-anchored (`.scroll-spacer`) below all of this regardless. */
+  padding-top: calc(20px + var(--agent-header-clearance, 0px));
+  scroll-padding-top: calc(20px + var(--agent-header-clearance, 0px));
   /* Fades in on its own first paint — every mount of this element IS a chat
      becoming visible, whether that's opening one or (the case this exists
      for) the empty document handing off to it on a first send. Without this,
