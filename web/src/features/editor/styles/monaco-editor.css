@@ -1,18 +1,23 @@
-.monaco-editor-shell {
+.editor-container {
   --vscode-editor-background: var(--background);
 }
 
-.monaco-editor-shell .monaco-editor,
-.monaco-editor-shell .monaco-editor-background,
-.monaco-editor-shell .monaco-editor .margin {
-  background-color: var(--background);
+/* Monaco's rounded-selection corner connectors (`.cslr.monaco-editor-background`)
+   erase a square corner into a curve by painting over it with `editor.background`,
+   which this theme sets transparent (define-theme.ts) — so the corner never gets
+   erased and shows as a sharp notch. Force it opaque here, scoped to just the
+   connector (not the main surface, which must stay transparent for zen's glass
+   pane background). `!important`: Monaco's generated theme stylesheet sets this
+   element's color inline-equivalent and loads after this file. */
+.editor-container .monaco-editor .cslr.monaco-editor-background {
+  background-color: var(--background) !important;
 }
 
-.monaco-editor-shell .monaco-search-match {
+.editor-container .monaco-search-match {
   background-color: color-mix(in srgb, var(--accent) 26%, transparent);
 }
 
-.monaco-editor-shell .monaco-search-match-current {
+.editor-container .monaco-search-match-current {
   outline: 1px solid color-mix(in srgb, var(--accent) 72%, white 8%);
 }
 
