@@ -526,7 +526,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     ).toBe(undefined)
   })
 
-  it('a split-zone drop of an existing tab calls the renamed editor-tab actions, not the removed buffer actions', async () => {
+  it('a split-zone drop of a tab from a DIFFERENT pane is rejected — a tab may never cross a pane boundary via drag', async () => {
     const store = createWorkspaceStore('w1')
     await renderPane(store)
 
@@ -562,12 +562,11 @@ describe('PaneContainer — chat/editor-view hosting', () => {
       trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(moveCalls).toHaveLength(1)
-    expect(moveCalls[0][0]).toBe('existing-tab')
-    expect(moveCalls[0][1]).toBe('phantom-source-pane')
-    expect(typeof moveCalls[0][2]).toBe('string')
-    expect(activateCalls).toHaveLength(1)
-    expect(activateCalls[0][1]).toBe('existing-tab')
+    // The dropped payload names 'phantom-source-pane' as its origin — a pane
+    // other than the one rendered here — so this drop must be rejected
+    // outright: never moved, never activated into this pane.
+    expect(moveCalls).toHaveLength(0)
+    expect(activateCalls).toHaveLength(0)
     // The old buffer-vocabulary actions this migration retired do not exist
     // on the actions object at all — a regression reintroducing them (or
     // pane-container calling them) would fail loudly, not silently no-op.
@@ -577,13 +576,13 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(actions.addBufferToPane).toBeUndefined()
   })
 
-  it('a center-zone drop of an existing tab from another pane moves it in via the migrated pane-drop-actions helpers', async () => {
+  it('a center-zone drop of a tab from a DIFFERENT pane is rejected — the tab stays exactly where it was', async () => {
     const store = createWorkspaceStore('w1')
     // The center zone routes through pane-drop-actions.ts's
-    // moveBufferToPaneDropTarget/ensureBufferInPaneDropTarget, which read the
-    // GLOBAL active-workspace-store ref (a separate registry from the
+    // ensureBufferInPaneDropTarget, which reads the GLOBAL
+    // active-workspace-store ref (a separate registry from the
     // WorkspaceStoreContext.Provider renderPane uses below) — the same setup
-    // pane-drop-actions.test.ts already needs for these same two helpers.
+    // pane-drop-actions.test.ts already needs for that helper.
     setActiveWorkspaceStoreRef(store)
 
     const sourcePaneId = windowPaneStore
@@ -622,14 +621,12 @@ describe('PaneContainer — chat/editor-view hosting', () => {
       trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    // Before this fix round, pane-drop-actions.ts's own helpers still called
-    // the removed moveBufferToPane/addBufferToPane/activatePaneBuffer — this
-    // proves the tab actually lands in ROOT_PANE_ID, not just that clicking
-    // through didn't throw.
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain('moved-tab')
-    expect(windowPaneStore.getState().panes[sourcePaneId]?.editorTabIds ?? []).not.toContain(
+    // A cross-pane tab drop is not a supported gesture: the tab must never
+    // land in ROOT_PANE_ID, and must still be exactly where it started.
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds ?? []).not.toContain(
       'moved-tab',
     )
+    expect(windowPaneStore.getState().panes[sourcePaneId]?.editorTabIds).toContain('moved-tab')
   })
 })
 
@@ -676,7 +673,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
     const chat = await screen.findByTestId('chat-chat-1')
     const tabBar = screen.getByTestId('tab-bar-marker')
-    const editorView = document.querySelector('[data-editor-view]')!
+    const editorView = document.querySelector('[data-editor-view]')! as HTMLElement
     const chatView = document.querySelector('[data-chat-view]')!
 
     expect(editorView.contains(tabBar)).toBe(true)
@@ -689,10 +686,17 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
     // The IDE sector reads as its own card next to the chat's: a border and
     // rounded corner on the edge that actually touches the chat (left, in
-    // side-by-side) — never all four, which would double up with the shared
-    // pane box's own border/radius.
-    expect(editorView).toHaveClass('border-l', 'border-border', 'rounded-l-lg')
-    expect(editorView).not.toHaveClass('border-t', 'rounded-t-lg')
+    // side-by-side) — reusing the SAME per-corner values the shared pane
+    // box computed for the OTHER three edges (buildInnerViewStyle), so a
+    // real window edge or an interior corner there reads the same on both
+    // boxes, never a second independent border/radius decision.
+    const outerRef = document.createElement('div')
+    Object.assign(outerRef.style, buildPaneContentStyle(ROOT_PANE_POSITION, 'left', false, true))
+    expect(editorView.style.borderLeft).toBe('2px solid var(--border)')
+    expect(editorView.style.borderTopLeftRadius).toBe('var(--radius-lg)')
+    expect(editorView.style.borderBottomLeftRadius).toBe('var(--radius-lg)')
+    expect(editorView.style.borderTopRightRadius).toBe(outerRef.style.borderTopRightRadius)
+    expect(editorView.style.borderBottomRightRadius).toBe(outerRef.style.borderBottomRightRadius)
   })
 
   it('with the split off, there is no divider — tabs, not a cramped split', async () => {
@@ -764,7 +768,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
       const chat = await screen.findByTestId('chat-chat-1')
       const tabBar = screen.getByTestId('tab-bar-marker')
-      const editorView = document.querySelector('[data-editor-view]')!
+      const editorView = document.querySelector('[data-editor-view]')! as HTMLElement
       const chatView = document.querySelector('[data-chat-view]')!
 
       expect(editorView.contains(tabBar)).toBe(true)
@@ -774,8 +778,13 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
       // Stacked: the chat sits ABOVE the editor, so the border/rounding
       // belongs on the TOP edge here, not the left.
-      expect(editorView).toHaveClass('border-t', 'border-border', 'rounded-t-lg')
-      expect(editorView).not.toHaveClass('border-l', 'rounded-l-lg')
+      const outerRef = document.createElement('div')
+      Object.assign(outerRef.style, buildPaneContentStyle(ROOT_PANE_POSITION, 'left', false, true))
+      expect(editorView.style.borderTop).toBe('2px solid var(--border)')
+      expect(editorView.style.borderTopLeftRadius).toBe('var(--radius-lg)')
+      expect(editorView.style.borderTopRightRadius).toBe('var(--radius-lg)')
+      expect(editorView.style.borderBottomLeftRadius).toBe(outerRef.style.borderBottomLeftRadius)
+      expect(editorView.style.borderBottomRightRadius).toBe(outerRef.style.borderBottomRightRadius)
     })
   })
 
@@ -800,7 +809,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
       await screen.findByTestId('chat-chat-1')
       const chatView = document.querySelector('[data-chat-view]')!
-      const editorView = document.querySelector('[data-editor-view]')!
+      const editorView = document.querySelector('[data-editor-view]')! as HTMLElement
 
       // DOCUMENT_POSITION_FOLLOWING on chatView (from editorView's
       // perspective) means editorView comes first in the DOM.
@@ -809,8 +818,13 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
           editorView.compareDocumentPosition(chatView) & Node.DOCUMENT_POSITION_FOLLOWING,
         ),
       ).toBe(true)
-      expect(editorView).toHaveClass('border-r', 'border-border', 'rounded-r-lg')
-      expect(editorView).not.toHaveClass('border-l', 'rounded-l-lg')
+      const outerRef = document.createElement('div')
+      Object.assign(outerRef.style, buildPaneContentStyle(ROOT_PANE_POSITION, 'right', false, true))
+      expect(editorView.style.borderRight).toBe('2px solid var(--border)')
+      expect(editorView.style.borderTopRightRadius).toBe('var(--radius-lg)')
+      expect(editorView.style.borderBottomRightRadius).toBe('var(--radius-lg)')
+      expect(editorView.style.borderTopLeftRadius).toBe(outerRef.style.borderTopLeftRadius)
+      expect(editorView.style.borderBottomLeftRadius).toBe(outerRef.style.borderBottomLeftRadius)
     })
 
     it('sidebar on the left (default): unchanged — the chat renders BEFORE the editor, rounding faces left', async () => {
@@ -822,12 +836,14 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
       await screen.findByTestId('chat-chat-1')
       const chatView = document.querySelector('[data-chat-view]')!
-      const editorView = document.querySelector('[data-editor-view]')!
+      const editorView = document.querySelector('[data-editor-view]')! as HTMLElement
 
       expect(
         Boolean(chatView.compareDocumentPosition(editorView) & Node.DOCUMENT_POSITION_FOLLOWING),
       ).toBe(true)
-      expect(editorView).toHaveClass('border-l', 'border-border', 'rounded-l-lg')
+      expect(editorView.style.borderLeft).toBe('2px solid var(--border)')
+      expect(editorView.style.borderTopLeftRadius).toBe('var(--radius-lg)')
+      expect(editorView.style.borderBottomLeftRadius).toBe('var(--radius-lg)')
     })
 
     it('stacked keeps the chat on TOP regardless of sidebar side — there is no left/right there', async () => {
@@ -843,14 +859,25 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
         await screen.findByTestId('chat-chat-1')
         const chatView = document.querySelector('[data-chat-view]')!
-        const editorView = document.querySelector('[data-editor-view]')!
+        const editorView = document.querySelector('[data-editor-view]')! as HTMLElement
 
         expect(
           Boolean(
             chatView.compareDocumentPosition(editorView) & Node.DOCUMENT_POSITION_FOLLOWING,
           ),
         ).toBe(true)
-        expect(editorView).toHaveClass('border-t', 'border-border', 'rounded-t-lg')
+        const outerRef = document.createElement('div')
+        Object.assign(
+          outerRef.style,
+          buildPaneContentStyle(ROOT_PANE_POSITION, 'right', false, true),
+        )
+        expect(editorView.style.borderTop).toBe('2px solid var(--border)')
+        expect(editorView.style.borderTopLeftRadius).toBe('var(--radius-lg)')
+        expect(editorView.style.borderTopRightRadius).toBe('var(--radius-lg)')
+        expect(editorView.style.borderBottomLeftRadius).toBe(outerRef.style.borderBottomLeftRadius)
+        expect(editorView.style.borderBottomRightRadius).toBe(
+          outerRef.style.borderBottomRightRadius,
+        )
       })
     })
   })
@@ -1211,8 +1238,8 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
     expect(sharedBox.getAttribute('style')).toBe(reference.getAttribute('style'))
     expect(sharedBox.style.borderTopLeftRadius).toBe('var(--radius-lg)')
     expect(sharedBox.style.borderBottomRightRadius).toBe('var(--radius-lg)')
-    expect(sharedBox.style.marginLeft).toBe('4px')
-    expect(sharedBox.style.marginBottom).toBe('4px')
+    expect(sharedBox.style.marginLeft).toBe('1px')
+    expect(sharedBox.style.marginBottom).toBe('1px')
   })
 
   // The regression this whole style object exists to prevent: a rounded,

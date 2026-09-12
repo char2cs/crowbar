@@ -110,7 +110,6 @@ const TabBar = ({
     activateChatInPane,
     removeEditorTabFromPane,
     splitPane,
-    moveEditorTabToPane,
     reorderEditorTabs,
   } = usePaneActions()
   const {
@@ -311,21 +310,11 @@ const TabBar = ({
     [externalTabClick, handleTabClick, updateActivePath],
   )
 
-  const {
-    draggedBufferId,
-    draggedBuffer,
-    handleDragStart,
-    handleDragMove,
-    handleDragEnd,
-    resetDrag,
-  } = useTabDrag({
-    paneId,
+  const { draggedBufferId, draggedBuffer, handleDragStart, handleDragEnd, resetDrag } = useTabDrag({
     sortedBuffers,
     onTabSelect: handleTabSelect,
     onTabClick: handleTabClick,
     onReorderBuffers: reorderBuffers,
-    onMoveBufferToPane: moveEditorTabToPane,
-    onActivatePaneBuffer: activateEditorTabInPane,
     onSplitPane: (targetPaneId, direction, bufferId, placement) =>
       splitPane(targetPaneId, direction, bufferId, placement) ?? undefined,
   })
@@ -564,7 +553,6 @@ const TabBar = ({
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
-        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onDragCancel={resetDrag}
       >

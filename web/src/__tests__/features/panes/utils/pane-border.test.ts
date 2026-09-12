@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { buildPaneContentStyle, isWindowEdge } from '@/features/panes/utils/pane-border'
+import {
+  buildInnerViewStyle,
+  buildPaneContentStyle,
+  isWindowEdge,
+} from '@/features/panes/utils/pane-border'
 import type { PanePosition } from '@/features/panes/types/pane'
 
 const full: PanePosition = { atLeft: true, atTop: true, atRight: true, atBottom: true }
 const notAtEdge: PanePosition = { atLeft: false, atTop: false, atRight: false, atBottom: false }
 
-const INACTIVE = '1px solid var(--border)'
-const ACTIVE = '1px solid var(--secondary)'
+const INACTIVE = '2px solid var(--border)'
+const ACTIVE = '2px solid var(--secondary)'
 
 describe('isWindowEdge', () => {
   it('top is never a window edge', () => {
@@ -174,12 +178,10 @@ describe('buildPaneContentStyle — right sidebar (mirror)', () => {
   })
 })
 
-// Spec §7.4: "Percent of the content box, inset by a constant 4px. Left and
-// top always take it, so the gutter above the first pane is the same as the
-// one beside it and two neighbours sit 8px apart on either axis. Right and
-// bottom give it up at the window, where the pane is meant to run into the
-// frame." Task 1 measured this live as 0px everywhere — no gutter mechanism
-// existed at all.
+// Spec §7.4: "Percent of the content box, inset by a constant gutter. Left
+// and top always take it, so the gutter above the first pane is the same as
+// the one beside it. Right and bottom give it up at the window, where the
+// pane is meant to run into the frame."
 //
 // Left/right depart from that "same test as border/radius" rule: the gutter
 // drops whenever `position.atLeft`/`atRight` is true — a real window edge OR
@@ -187,16 +189,22 @@ describe('buildPaneContentStyle — right sidebar (mirror)', () => {
 // sidebar with no gap, even though its rounded corner and border stay put
 // there (border/radius are still gated on the stricter we(edge)/isWindowEdge
 // test). Only an interior split neighbour, touching neither boundary, keeps
-// the 4px.
+// the gutter.
 //
-// One deliberate departure from §7.4: the pane actually touching the
-// window's top (atTop) now reserves the same inset the header row's own
-// icons (traffic lights, back/forward, sidebar toggle) sit at above the
-// window's top edge — 8px on macOS (44px row, 28px icon-sm buttons,
-// centered) — instead of the plain 4px, so the rounded tile's top edge
-// lines up with where those icons start. A split neighbour merely stacked
-// below another pane (atTop: false) still gets the plain 4px, so two split
-// neighbours keep sitting 8px apart — only the true window-top edge changed.
+// The interior gutter is 1px, not 4px: two split neighbours are ALSO
+// separated by their own resize sash (`PaneSash`, 6px wide) sitting between
+// them as its own flex sibling — reported live as "huge" next to the crisp
+// 8px inset the real window top gets, because 4px margin + 6px sash + 4px
+// margin came to 14px, nearly double. 1px margin + 6px sash + 1px margin
+// lands on the SAME 8px the true window-top edge already reserves (see
+// below) — one gutter value, used consistently everywhere a pane isn't
+// flush against the literal window frame.
+//
+// The pane actually touching the window's top (atTop) reserves the header
+// row's own icon inset instead — 8px on macOS (44px row, 28px icon-sm
+// buttons, centered) — so the rounded tile's top edge lines up with where
+// those icons start. That value is untouched; it's the interior gutter that
+// was brought in line with it, not the other way around.
 describe('buildPaneContentStyle — gutter (§7.4)', () => {
   const sidebar = 'left' as const
 
@@ -208,18 +216,18 @@ describe('buildPaneContentStyle — gutter (§7.4)', () => {
     expect(s.marginBottom).toBe('0') // window edge — gives it up
   })
 
-  it('interior pane (not at any edge): 4px on every side, so two neighbours sit 8px apart', () => {
+  it('interior pane (not at any edge): 1px on every side — combined with the 6px sash between two neighbours, that lands on the same 8px the window top reserves', () => {
     const s = buildPaneContentStyle(notAtEdge, sidebar, false)
-    expect(s.marginLeft).toBe('4px')
-    expect(s.marginTop).toBe('4px') // not atTop — a split neighbour, not the window's top
-    expect(s.marginRight).toBe('4px')
-    expect(s.marginBottom).toBe('4px')
+    expect(s.marginLeft).toBe('1px')
+    expect(s.marginTop).toBe('1px') // not atTop — a split neighbour, not the window's top
+    expect(s.marginRight).toBe('1px')
+    expect(s.marginBottom).toBe('1px')
   })
 
-  it('V-split bottom pane (atTop: false): keeps the plain 4px top gutter', () => {
+  it('V-split bottom pane (atTop: false): keeps the plain 1px top gutter', () => {
     const pos: PanePosition = { atLeft: true, atTop: false, atRight: true, atBottom: true }
     const s = buildPaneContentStyle(pos, sidebar, false)
-    expect(s.marginTop).toBe('4px')
+    expect(s.marginTop).toBe('1px')
   })
 
   it('collapsed sidebar: the side it was shielding becomes a window edge and gives up its gutter', () => {
@@ -231,5 +239,95 @@ describe('buildPaneContentStyle — gutter (§7.4)', () => {
     const s = buildPaneContentStyle(full, 'right', false)
     expect(s.marginRight).toBe('0') // chrome side — sits flush against the sidebar
     expect(s.marginLeft).toBe('0') // window edge
+  })
+})
+
+// The IDE shell reuses the shared box's OWN computed corners for the three
+// edges it isn't internally facing the chat on, rather than re-deriving its
+// own square-or-rounded call — a rounded interior pane was leaving a sharp,
+// un-rounded IDE-shell corner sitting inside it, since the old logic only
+// ever reasoned about the chat-facing edge.
+describe('buildInnerViewStyle', () => {
+  const sidebar = 'left' as const
+
+  it('the chat-facing edge is always rounded and bordered, whatever the outer box says', () => {
+    // A real window edge on ALL sides (nothing rounded in the outer box at
+    // all) — the chat-facing edge must still round and border itself; it is
+    // never a window edge, regardless of what the outer box computed.
+    const outer = buildPaneContentStyle(full, sidebar, false)
+    const s = buildInnerViewStyle(outer, 'left')
+    expect(s.borderLeft).toBe('2px solid var(--border)')
+    expect(s.borderTopLeftRadius).toBe('var(--radius-lg)')
+    expect(s.borderBottomLeftRadius).toBe('var(--radius-lg)')
+  })
+
+  it('the other three edges copy the outer box verbatim — square outer corner stays square', () => {
+    const outer = buildPaneContentStyle(full, sidebar, false) // window edges on right/bottom: square there
+    const s = buildInnerViewStyle(outer, 'left')
+    expect(s.borderTopRightRadius).toBe(outer.borderTopRightRadius)
+    expect(s.borderBottomRightRadius).toBe(outer.borderBottomRightRadius)
+    expect(s.borderTop).toBe(outer.borderTop)
+    expect(s.borderRight).toBe(outer.borderRight)
+    expect(s.borderBottom).toBe(outer.borderBottom)
+    // This is the actual bug: a real window edge means these corners are
+    // SQUARE in the outer box — the IDE shell must match, not default to
+    // rounded (its old, edge-blind behavior happened to agree here only
+    // because a fully-square outer box has nothing to disagree about).
+    expect(s.borderTopRightRadius).toBe('0')
+    expect(s.borderBottomRightRadius).toBe('0')
+  })
+
+  it('an interior pane (no real window edges at all): the non-facing corners are ALSO rounded, matching the outer box', () => {
+    const outer = buildPaneContentStyle(notAtEdge, sidebar, false)
+    const s = buildInnerViewStyle(outer, 'left')
+    // The bug this locks in: the old hard-coded "square unless it's the
+    // facing edge" behavior would have left these at '0' even though the
+    // outer box itself is rounded on every corner here.
+    expect(s.borderTopRightRadius).toBe('var(--radius-lg)')
+    expect(s.borderBottomRightRadius).toBe('var(--radius-lg)')
+  })
+
+  it('facingChatEdge "top" (stacked): rounds/borders the top edge, copies the rest', () => {
+    const outer = buildPaneContentStyle(full, sidebar, false)
+    const s = buildInnerViewStyle(outer, 'top')
+    expect(s.borderTop).toBe('2px solid var(--border)')
+    expect(s.borderTopLeftRadius).toBe('var(--radius-lg)')
+    expect(s.borderTopRightRadius).toBe('var(--radius-lg)')
+    expect(s.borderBottomLeftRadius).toBe(outer.borderBottomLeftRadius)
+    expect(s.borderBottomRightRadius).toBe(outer.borderBottomRightRadius)
+    expect(s.borderBottom).toBe(outer.borderBottom)
+  })
+
+  it('facingChatEdge "right": rounds/borders the right edge, copies the rest', () => {
+    const outer = buildPaneContentStyle(full, sidebar, false)
+    const s = buildInnerViewStyle(outer, 'right')
+    expect(s.borderRight).toBe('2px solid var(--border)')
+    expect(s.borderTopRightRadius).toBe('var(--radius-lg)')
+    expect(s.borderBottomRightRadius).toBe('var(--radius-lg)')
+    expect(s.borderTopLeftRadius).toBe(outer.borderTopLeftRadius)
+    expect(s.borderBottomLeftRadius).toBe(outer.borderBottomLeftRadius)
+    expect(s.borderLeft).toBe(outer.borderLeft)
+  })
+
+  it('every edge stays neutral even when the outer box carries the active-pane accent — the IDE shell never marks focus, only the chat does', () => {
+    const outer = buildPaneContentStyle(full, sidebar, true)
+    // Sanity: outer really is showing the accent, on both the facing edge's
+    // position (left) and a non-facing one (top).
+    expect(outer.borderLeft).toBe('2px solid var(--secondary)')
+    expect(outer.borderTop).toBe('2px solid var(--secondary)')
+
+    const s = buildInnerViewStyle(outer, 'left')
+    // The facing seam (forced) and the copied edge (renormalized) are both
+    // neutral — neither ever echoes outer's accent.
+    expect(s.borderLeft).toBe('2px solid var(--border)')
+    expect(s.borderTop).toBe('2px solid var(--border)')
+    // A real window edge (outer's borderRight/borderBottom are 'none' here —
+    // right/bottom are square for this `full` position) still shows no
+    // border at all — renormalizing color must not turn an absent border
+    // into a visible one.
+    expect(outer.borderRight).toBe('none')
+    expect(outer.borderBottom).toBe('none')
+    expect(s.borderRight).toBe('none')
+    expect(s.borderBottom).toBe('none')
   })
 })

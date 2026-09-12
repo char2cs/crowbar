@@ -1,6 +1,9 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 
+// See the `isAtTopEdge` check's own doc below for why this isn't 10.
+const EDGE_THRESHOLD = 20
+
 interface UsePaneTopRowEdgesResult {
   rowRef: RefObject<HTMLDivElement | null>
   isAtLeftEdge: boolean
@@ -31,12 +34,21 @@ export function usePaneTopRowEdges(deps: unknown[] = []): UsePaneTopRowEdgesResu
     if (!el) return
     function check() {
       const rect = el?.getBoundingClientRect()
-      setIsAtLeftEdge((rect?.left ?? 1) < 10)
-      setIsAtRightEdge((rect?.right ?? 0) > window.innerWidth - 10)
+      setIsAtLeftEdge((rect?.left ?? 1) < EDGE_THRESHOLD)
+      setIsAtRightEdge((rect?.right ?? 0) > window.innerWidth - EDGE_THRESHOLD)
       // Top edge matters for the macOS traffic-light inset: in a vertical
       // split every pane's top row is at the window's LEFT edge, but only
       // the one at the window's TOP overlaps the window controls.
-      setIsAtTopEdge((rect?.top ?? 1) < 10)
+      //
+      // EDGE_THRESHOLD, not 10: the pane actually touching the window's top
+      // still carries its own TOP_GUTTER inset (8px) PLUS the pane box's own
+      // border-top width on top of that (pane-border.ts's BORDER) — a real,
+      // measured rect.top of exactly 10 with a 2px border. A `< 10` cutoff
+      // missed that by a hair and silently dropped the traffic-light inset
+      // (reported live: "Untitled chat" tab rendering flush under the
+      // window controls). 20 leaves headroom for the border to grow again
+      // without this snapping back.
+      setIsAtTopEdge((rect?.top ?? 1) < EDGE_THRESHOLD)
     }
     check()
     const ro = new ResizeObserver(check)

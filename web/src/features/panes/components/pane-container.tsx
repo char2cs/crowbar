@@ -16,7 +16,7 @@ import {
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSettingsStore } from '@/features/settings/store'
-import { buildPaneContentStyle } from '../utils/pane-border'
+import { buildInnerViewStyle, buildPaneContentStyle } from '../utils/pane-border'
 import { useSidebarOptional } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
@@ -35,7 +35,7 @@ import {
 import { NewTabView } from './new-tab-view'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import {
-  useActivePaneId,
+  useIsActivePane,
   usePaneActions,
   useVisiblePaneCount,
 } from '@/features/workspace/stores/hooks/use-pane-store'
@@ -47,10 +47,7 @@ import type {
   PaneContent,
   TerminalContent,
 } from '../types/pane-content'
-import {
-  ensureBufferInPaneDropTarget,
-  moveBufferToPaneDropTarget,
-} from '../utils/pane-drop-actions'
+import { ensureBufferInPaneDropTarget } from '../utils/pane-drop-actions'
 import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 
 // Painted straight onto the DOM by `useSidebarDrag`'s own `paintPaneHit` —
@@ -125,7 +122,11 @@ export function PaneContainer({
   position = ROOT_PANE_POSITION,
   showing = true,
 }: PaneContainerProps) {
-  const activePaneId = useActivePaneId()
+  // A BOOLEAN, not the id: subscribing to `activePaneId` itself re-rendered
+  // EVERY pane in the window (and its whole chat/editor subtree) whenever focus
+  // moved between any two of them, where only the two that actually changed
+  // have anything to redraw.
+  const isActiveInStore = useIsActivePane(pane.id)
   const { activateEditorTabInPane, setActivePane } = usePaneActions()
   const bufferActions = useBufferActions()
   const { closeBuffer: closeBufferForce } = bufferActions
@@ -193,7 +194,7 @@ export function PaneContainer({
   // is off screen has no claim on it. Folded in here rather than at each of
   // the six surfaces below so no surface can be given a live `isActive` for a
   // view nobody is looking at.
-  const isActivePane = showing && pane.id === activePaneId
+  const isActivePane = showing && isActiveInStore
 
   // The active-pane ring answers "which of these has focus" — a question that only
   // exists when there is more than one pane on screen. With a single pane it marks the
@@ -317,6 +318,19 @@ export function PaneContainer({
   // opposite edges of the window. Stacked has no left/right sidebar concept
   // at all, so it always keeps the chat on top regardless of sidebar side.
   const chatIsFirst = presentation === 'stacked' || sidebarPosition !== 'right'
+
+  // Which of the editor-view's own edges is genuinely internal — facing the
+  // chat's own box, never a window edge whatever `paneContentStyle` says
+  // about it. Only meaningful while chatVisibleAlongsideEditor (side by
+  // side/stacked with both boxes on screen); unused otherwise.
+  const editorFacingChatEdge = presentation === 'stacked' ? 'top' : chatIsFirst ? 'left' : 'right'
+  const editorInnerViewStyle = useMemo(
+    () =>
+      chatVisibleAlongsideEditor
+        ? buildInnerViewStyle(paneContentStyle, editorFacingChatEdge)
+        : undefined,
+    [chatVisibleAlongsideEditor, paneContentStyle, editorFacingChatEdge],
+  )
 
   const handlePaneClick = useCallback(() => {
     if (!isActivePane) {
@@ -491,6 +505,16 @@ export function PaneContainer({
         clearInternalTabDragData()
       }
 
+      // A tab may never cross a pane boundary via drag — it is only ever
+      // reorderable within its own pane's own tab bar (see use-tab-drag.ts's
+      // own doc). `sourcePaneId` naming a DIFFERENT pane than this one is
+      // exactly that forbidden gesture, so it is rejected outright below in
+      // both zones — never moved, never opened here — regardless of what a
+      // payload happens to carry.
+      const isCrossPaneTabDrop = Boolean(
+        sourcePaneId && sourcePaneId !== pane.id && bufferId && source !== 'terminal-panel',
+      )
+
       if (zone === 'center') {
         if (source === 'terminal-panel' && terminalId) {
           const newBufferId = openTerminalBuffer({
@@ -506,10 +530,7 @@ export function PaneContainer({
               detail: { terminalId },
             }),
           )
-        } else if (sourcePaneId && sourcePaneId !== pane.id && bufferId) {
-          moveBufferToPaneDropTarget(bufferId, sourcePaneId, { paneId: pane.id, zone: 'center' })
-          addExistingTabToPane(pane.id, bufferId)
-        } else if (!sourcePaneId && bufferId) {
+        } else if (!isCrossPaneTabDrop && bufferId) {
           ensureBufferInPaneDropTarget(bufferId, { paneId: pane.id, zone: 'center' })
           addExistingTabToPane(pane.id, bufferId)
         }
@@ -537,11 +558,7 @@ export function PaneContainer({
             detail: { terminalId },
           }),
         )
-      } else if (sourcePaneId && sourcePaneId !== pane.id && bufferId) {
-        // Move from a different source pane into this pane.
-        windowPaneStore.getState().paneActions.moveEditorTabToPane(bufferId, sourcePaneId, pane.id)
-        windowPaneStore.getState().paneActions.activateEditorTabInPane(pane.id, bufferId)
-      } else if (bufferId) {
+      } else if (!isCrossPaneTabDrop && bufferId) {
         // Already this pane's own tab (or no source recorded) — nothing to move.
         windowPaneStore.getState().paneActions.activateEditorTabInPane(pane.id, bufferId)
       }
@@ -898,27 +915,22 @@ export function PaneContainer({
       className={cn(
         'relative flex min-h-0 flex-col overflow-hidden bg-pane-background',
         Boolean(pane.chatId) && presentation !== 'tabs' ? 'shrink grow-0' : 'w-full flex-1',
-        // The IDE sector reads as its OWN card next to the chat's — a
-        // border and rounded corners on whichever edge actually touches
-        // the chat (left or right in side-by-side, depending on which
-        // side the chat itself is on; top in stacked), never the other
-        // three: those edges already meet the shared pane box's own
-        // border/radius (buildPaneContentStyle), a second one there would
-        // double up.
-        chatVisibleAlongsideEditor &&
-          (presentation === 'stacked'
-            ? 'rounded-t-lg border-t border-border'
-            : chatIsFirst
-              ? 'rounded-l-lg border-l border-border'
-              : 'rounded-r-lg border-r border-border'),
       )}
-      style={
-        Boolean(pane.chatId) && presentation !== 'tabs'
+      style={{
+        ...(Boolean(pane.chatId) && presentation !== 'tabs'
           ? // splitSizes is always [chatPct, editorPct] — see the chat
             // view's own note above.
             { flexBasis: `${splitSizes[1]}%` }
-          : undefined
-      }
+          : undefined),
+        // The IDE sector reads as its OWN card next to the chat's — a
+        // border and rounded corners on whichever edge actually touches
+        // the chat (left or right in side-by-side, depending on which
+        // side the chat itself is on; top in stacked), reusing the SAME
+        // per-corner values `paneContentStyle` computed for the other
+        // three edges — see buildInnerViewStyle's own doc for the corner
+        // bug this fixes.
+        ...editorInnerViewStyle,
+      }}
     >
       {chatVisibleAlongsideEditor && (
         <TabBar paneId={pane.id} wsId={wsId} onTabClick={handleTabClick} />
