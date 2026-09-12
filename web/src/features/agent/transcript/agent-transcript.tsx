@@ -989,7 +989,17 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         })}
         <WorkingLine
           activity={props.activity}
-          working={props.working}
+          // `working` is folded from the daemon's event-sourced turn state,
+          // dispatched over the ASYNC command path on purpose (StartTurn and
+          // StopTurn fire on every hook, and a sync wait here would put a
+          // git-mutex-prone projection back on the hook's critical path — see
+          // event_store.go's own comment on that history). It can therefore
+          // still read false for a moment after a new turn's first tokens are
+          // already arriving. `streamingBubbles` comes off that same delta
+          // feed the text itself renders from, so a live bubble is proof the
+          // chat is working regardless of whether the fold has caught up —
+          // observed live as a reply filling in with no spinner above it.
+          working={props.working || (props.streamingBubbles?.length ?? 0) > 0}
           since={messages.at(-1)?.at}
           compactingLive={props.compacting}
           reasoning={props.reasoning}
