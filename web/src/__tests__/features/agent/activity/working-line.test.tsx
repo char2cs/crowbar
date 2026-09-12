@@ -143,6 +143,27 @@ describe('WorkingLine', () => {
     expect(screen.getByTestId('agent-activity-strip')).toHaveAttribute('data-blocked', 'true')
   })
 
+  // THE REGRESSION. `notification` is the CLI's own idle ping ("Claude is
+  // waiting for your input"), not a real block — unlike permission and
+  // elicitation, nothing is actually paused on it. The backend only leaves
+  // one open when it lands while its activity aggregate still thinks a turn
+  // is in flight, which a CLI backgrounding a subagent can race — and
+  // `working` here being true is Crowbar's own real-time word that the chat
+  // is genuinely still busy. Reported live: the spinner going dark under a
+  // background agent that was still visibly running, replaced by a stale
+  // "waiting for your input" banner.
+  it('keeps the spinner lit through a stray notification — it never blocks anything', () => {
+    render(
+      <WorkingLine
+        working
+        activity={activity({ interruptions: [interruption({ kind: 'notification' })] })}
+      />,
+    )
+
+    expect(screen.getByTestId('agent-activity-strip')).not.toHaveAttribute('data-blocked')
+    expect(screen.queryByText(/waiting for your input/i)).not.toBeInTheDocument()
+  })
+
   it('names what an elicitation is waiting for', () => {
     render(
       <WorkingLine

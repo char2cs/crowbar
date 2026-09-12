@@ -251,8 +251,21 @@ export function tailOf(text: string, limit: number): string {
  * Compaction is deliberately absent: it is the CLI's own housekeeping, and its
  * ledger record is born already resolved, so it is driven by a live push instead
  * (see WorkingLine's `compactingLive`).
+ *
+ * `notification` is deliberately absent too. Unlike a permission or an
+ * elicitation, it names nothing the agent is actually paused on — it is an
+ * idle ping ("Claude is waiting for your input"), and the backend's own
+ * Interrupt command only leaves one OPEN (unresolved) when it lands while its
+ * activity aggregate still considers a turn in flight (see interrupt.go's
+ * `idle := next.Turn == nil`). A CLI backgrounding a subagent can fire its
+ * idle notification in that exact window, while Crowbar's own chat-level
+ * `working` (folded from AsyncWork) correctly still says busy — and this set
+ * deciding the interruption wins would blank a live spinner under a
+ * genuinely still-running background agent with a stale "waiting for your
+ * input" claim. `working` is the aggregate's own real-time truth; a
+ * notification racing it is never grounds to override it.
  */
-const PERSON_BLOCKING: ReadonlySet<string> = new Set(['permission', 'notification', 'elicitation'])
+const PERSON_BLOCKING: ReadonlySet<string> = new Set(['permission', 'elicitation'])
 
 export function blocksOnAPerson(interruption: AgentInterruption | null): boolean {
   return interruption !== null && PERSON_BLOCKING.has(interruption.kind)
