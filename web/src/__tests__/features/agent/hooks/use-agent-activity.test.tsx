@@ -6,6 +6,7 @@ import { useAgentActivity } from '@/features/agent/hooks/use-agent-activity'
 const listChatActivity = vi.fn()
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   listChatActivity: (...args: unknown[]) => listChatActivity(...args),
 }))
 

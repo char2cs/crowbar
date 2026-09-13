@@ -442,7 +442,7 @@ func (rs *Runners) forceOutgoingTurn(ctx context.Context, chatID string) error {
 	// Recorded AFTER retire's kill, not before — see StopChat's own RecordStop
 	// call for why: it must not durably claim "Interrupted" until the CLI has
 	// actually stopped, and retire's kill is what makes that true here.
-	if err := rs.turns.RecordStop(ctx, chatID); err != nil {
+	if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
 		slog.WarnContext(ctx, "agent: switch provider: force outgoing turn: record interruption",
 			"chat_id", chatID, "err", err)
 	}

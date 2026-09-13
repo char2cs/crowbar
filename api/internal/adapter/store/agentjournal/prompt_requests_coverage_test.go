@@ -26,7 +26,7 @@ func asFile(t *testing.T) string {
 
 func TestJournal_LookupDowngradesADispatchingRecordAndPersistsIt(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	record, found, err := j.Lookup(dir, "req-1", "hash")
@@ -45,7 +45,7 @@ func TestJournal_LookupPropagatesADurabilityFaultDuringDowngrade(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "chat-1", "prompt-requests")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	writer := agentjournal.NewPromptRequests()
-	_, _, err := writer.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := writer.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	sentinel := errors.New("simulated fsync failure")
@@ -60,7 +60,7 @@ func TestJournal_Begin_SurfacesACorruptExistingRecord(t *testing.T) {
 	j, dir := journal(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "req-1.json"), 0o700))
 
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 
 	require.Error(t, err)
 }
@@ -71,7 +71,7 @@ func TestJournal_Begin_PropagatesADurabilityFaultOnTheNewRecord(t *testing.T) {
 	sentinel := errors.New("simulated fsync failure")
 	faulty := agentjournal.NewPromptRequests(agentjournal.WithDirSync(func(string) error { return sentinel }))
 
-	_, _, err := faulty.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := faulty.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 
 	require.ErrorIs(t, err, sentinel)
 	// The rename itself is not rolled back on a sync failure (writeRecord
@@ -92,7 +92,7 @@ func TestJournal_Begin_SurfacesAnUnstattableJournalDir(t *testing.T) {
 	j := agentjournal.NewPromptRequests()
 	dir := filepath.Join(blocker, "prompt-requests")
 
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stat dir")
@@ -106,7 +106,7 @@ func TestJournal_Begin_SurfacesAMkdirAllFailureOnAReadOnlyParent(t *testing.T) {
 	j := agentjournal.NewPromptRequests()
 	dir := filepath.Join(readOnlyParent, "prompt-requests")
 
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mkdir")
@@ -172,7 +172,7 @@ func TestJournal_ConfirmAccepted_SkipsNonMatchingRecordsAndAcceptsTheRightOne(t 
 
 func TestJournal_ConfirmAccepted_NoMatchIsNotAnError(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash-a", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash-a", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	// Different text hash: nothing in the journal is acknowledgeable.
@@ -186,7 +186,7 @@ func TestJournal_ConfirmAccepted_NoMatchIsNotAnError(t *testing.T) {
 
 func TestJournal_ConfirmAccepted_IgnoresARecordInATerminalNonAcknowledgeableState(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	require.NoError(t, j.MarkFailedDispatch(dir, "req-1", jnow))
 
@@ -206,7 +206,7 @@ func TestJournal_ConfirmAccepted_NeverLetsTheOutgoingRunnerAcknowledgeItsOwnHand
 	// acceptance — that would falsely accept a prompt the new process hasn't
 	// even spawned yet.
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "outgoing-runner", "new-runner", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "outgoing-runner", "new-runner", jnow)
 	require.NoError(t, err)
 
 	err = j.ConfirmAccepted(dir, "outgoing-runner", "claude", "hash", jnow)
@@ -230,7 +230,7 @@ func TestJournal_MarkSpawned_PropagatesADurabilityFault(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "chat-1", "prompt-requests")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	writer := agentjournal.NewPromptRequests()
-	_, _, err := writer.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := writer.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	sentinel := errors.New("simulated fsync failure")
@@ -255,7 +255,7 @@ func TestJournal_MarkFailedDispatch_LeavesASpawnedRecordAlone(t *testing.T) {
 	// past dispatching, MarkFailedDispatch must be a no-op — mislabeling a
 	// spawned delivery as "failed" would let a caller wrongly re-dispatch it.
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "req-1", "hash", "new", "term-1", jnow)
 	require.NoError(t, err)
@@ -290,7 +290,7 @@ func TestJournal_Settle_PropagatesADurabilityFault(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "chat-1", "prompt-requests")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	writer := agentjournal.NewPromptRequests()
-	_, _, err := writer.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := writer.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = writer.MarkSpawned(dir, "req-1", "hash", "new", "term-1", jnow)
 	require.NoError(t, err)
@@ -314,7 +314,7 @@ func TestJournal_ActiveForRunner_SurfacesARealReadFailure(t *testing.T) {
 
 func TestJournal_ActiveForRunner_SkipsARecordForADifferentProvider(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "other-provider", "hash", "openai", "out", "runner-1", jnow)
+	_, _, err := j.Begin(dir, "other-provider", "", "hash", "openai", "out", "runner-1", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "other-provider", "hash", "runner-1", "term", jnow)
 	require.NoError(t, err)
@@ -346,7 +346,7 @@ func TestJournal_RecoverOrphanedDispatches_PropagatesADurabilityFault(t *testing
 	dir := filepath.Join(t.TempDir(), "chat-1", "prompt-requests")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	writer := agentjournal.NewPromptRequests()
-	_, _, err := writer.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := writer.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	sentinel := errors.New("simulated fsync failure")
@@ -363,7 +363,7 @@ func TestJournal_IgnoresJunkEntriesAlongsideRealRecords(t *testing.T) {
 	// a non-json leftover (e.g. an orphaned temp file from an interrupted write)
 	// must be skipped rather than fed to the JSON decoder.
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "a-subdirectory"), 0o700))
@@ -388,13 +388,13 @@ func TestPrunePromptRequests_RemovesOnlyTerminalRecordsPastTheirAge(t *testing.T
 	old := jnow.Add(-2 * 31 * 24 * time.Hour) // well past the 30-day retention window
 
 	// A terminal (accepted) record old enough to prune...
-	_, _, err := j.Begin(dir, "old-accepted", "hash", "claude", "out", "r1", old)
+	_, _, err := j.Begin(dir, "old-accepted", "", "hash", "claude", "out", "r1", old)
 	require.NoError(t, err)
 	require.NoError(t, j.ConfirmAccepted(dir, "r1", "claude", "hash", old))
 
 	// ...alongside a SPAWNED record of the same age, which must survive pruning
 	// regardless of age: an in-flight delivery is never pruned.
-	_, _, err = j.Begin(dir, "old-spawned", "hash", "claude", "out", "r2", old)
+	_, _, err = j.Begin(dir, "old-spawned", "", "hash", "claude", "out", "r2", old)
 	require.NoError(t, err)
 	_, err = j.MarkSpawned(dir, "old-spawned", "hash", "r2", "term", old)
 	require.NoError(t, err)
@@ -426,7 +426,7 @@ func TestJournal_Begin_FirstEverDirectorySyncsItsParent(t *testing.T) {
 		return nil
 	}))
 
-	_, _, err := requests.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := requests.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	assert.Contains(t, synced, parent,
@@ -444,7 +444,7 @@ func TestJournal_MarkSpawned_ErrorsWhenRequestNeverBegan(t *testing.T) {
 
 func TestJournal_MarkSpawned_ErrorsWhenTextHashDiffersFromTheDispatch(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash-a", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash-a", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 
 	_, err = j.MarkSpawned(dir, "req-1", "hash-b", "runner-1", "term-1", jnow)
@@ -463,7 +463,7 @@ func TestJournal_MarkSpawned_ErrorsWhenTextHashDiffersFromTheDispatch(t *testing
 // for the still-unspawned replacement's acceptance.
 func TestJournal_ConfirmAccepted_RejectsTheOutgoingRunnerBeforeAnyReplacementIsSpawned(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "outgoing-runner", "", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "outgoing-runner", "", jnow)
 	require.NoError(t, err)
 
 	err = j.ConfirmAccepted(dir, "outgoing-runner", "claude", "hash", jnow)
@@ -486,7 +486,7 @@ func TestJournal_MarkUncertain_UnknownIDIsNotAnError(t *testing.T) {
 
 func TestJournal_MarkUncertain_LeavesAnAlreadyAcceptedRecordAlone(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "new", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkAccepted(dir, "req-1", jnow)
 	require.NoError(t, err)
@@ -523,7 +523,7 @@ func TestJournal_ActiveForRunner_NonExistentDirectoryIsNotAnError(t *testing.T) 
 
 func TestJournal_ActiveForRunner_SkipsATerminalRecord(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "runner-1", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "runner-1", jnow)
 	require.NoError(t, err)
 	_, err = j.MarkAccepted(dir, "req-1", jnow)
 	require.NoError(t, err)
@@ -547,7 +547,7 @@ func TestJournal_ActiveDelivery_NonExistentDirectoryIsNotAnError(t *testing.T) {
 
 func TestJournal_ActiveDelivery_ReturnsTheInFlightRecord(t *testing.T) {
 	j, dir := journal(t)
-	_, _, err := j.Begin(dir, "req-1", "hash", "claude", "out", "runner-1", jnow)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "runner-1", jnow)
 	require.NoError(t, err)
 
 	got, found, err := j.ActiveDelivery(dir)

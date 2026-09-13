@@ -446,6 +446,29 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.activeChatId).toBe('c1')
   })
 
+  // THE REGRESSION, reported live 2026-09-12: a "chat_busy" queued prompt
+  // resent itself into a still-generating turn, corrupting its output mid-
+  // stream. Root cause: use-prompt-queue.ts treats every turnRevision advance
+  // while `working` reads false as an authoritative idle edge and releases
+  // the queue's busy barrier — but a periodic reconcile poll re-announcing
+  // the SAME value it already had (working stayed true; or a stale false
+  // reading it merely re-confirmed) bumped the revision anyway, on a call
+  // that carried no real transition at all.
+  it('re-announcing the same working value is a no-op — it must not advance turnRevision', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatWorking('c1', true)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(1)
+
+    s.getState().setAgentChatWorking('c1', true)
+    expect(s.getState().agentChats.working.c1).toBe(true)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(1)
+
+    s.getState().setAgentChatWorking('c1', false)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(2)
+    s.getState().setAgentChatWorking('c1', false)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(2)
+  })
+
   it('working map defaults to idle (undefined) for chats never toggled', () => {
     const s = createWorkspaceStore('w1')
     expect(s.getState().agentChats.working['never-touched']).toBeUndefined()

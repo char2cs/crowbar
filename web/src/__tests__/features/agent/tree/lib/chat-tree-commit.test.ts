@@ -30,6 +30,7 @@ const { setChatPlacement, updateChatFolder, createChatFolder, deleteChatFolder, 
   }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   setChatPlacement,
   updateChatFolder,
   createChatFolder,

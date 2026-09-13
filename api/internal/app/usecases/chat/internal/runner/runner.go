@@ -85,7 +85,11 @@ type Runners struct {
 	// promptSettled fans out the edge where a delivery is retired without ever
 	// having produced a turn. Wired at sweep start rather than at construction,
 	// because what it publishes through is the hub — a layer above this one.
-	promptSettled func(chatID, workspaceID, requestID string)
+	//
+	// consumed says whether anything proved the provider took the prompt. It is
+	// false for the terminal-wait sweep's bare timeout, where the client's queue
+	// item holds the only surviving copy of the user's text — see settleDelivery.
+	promptSettled func(chatID, workspaceID, requestID string, consumed bool)
 
 	// switchAwaitTimeout overrides forceSwitchAfter's bound. Zero (the production
 	// default) means "use termwait.DefaultStallQuiet" — see SetSwitchAwaitTimeout.

@@ -11,6 +11,7 @@ import {
 const { setSelectionFn } = vi.hoisted(() => ({ setSelectionFn: vi.fn() }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   setChatSelection: (...args: unknown[]) => setSelectionFn(...args),
 }))
 

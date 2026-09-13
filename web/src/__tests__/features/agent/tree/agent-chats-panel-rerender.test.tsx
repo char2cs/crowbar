@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const { streamHook } = vi.hoisted(() => ({ streamHook: vi.fn() }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   createChat: vi.fn(),
   deleteChat: vi.fn(),
   renameChat: vi.fn(),

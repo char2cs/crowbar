@@ -148,6 +148,14 @@ type RunnerUsecase interface {
 		chatID, text, clientRequestID string,
 	) (domain.AgentPromptSubmission, error)
 
+	// PendingPrompt returns chatID's most recent prompt submission the
+	// journal has not yet confirmed the provider accepted, so a client whose
+	// own local copy of the text was lost can recover it.
+	PendingPrompt(
+		ctx context.Context,
+		chatID string,
+	) (domain.PendingPrompt, bool, error)
+
 	SlashCatalog(
 		ctx context.Context,
 		chatID string,

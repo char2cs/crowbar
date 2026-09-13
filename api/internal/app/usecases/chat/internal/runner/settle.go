@@ -18,10 +18,41 @@ func (rs *Runners) PendingDelivery(ctx context.Context, chatID string) (termwait
 	if err != nil || !found {
 		return termwait.Delivery{}, false
 	}
-	return termwait.Delivery{RequestID: record.RequestID, RunnerID: record.RunnerID}, true
+	return termwait.Delivery{
+		RequestID: record.RequestID,
+		RunnerID:  record.RunnerID,
+		CreatedAt: record.CreatedAt,
+	}, true
 }
 
+// SettleDelivery retires a delivery that has gone quiet without ever producing
+// a turn — the terminal-wait sweep's generic timeout, which is the ONLY caller
+// and has no evidence of any kind that the provider took the prompt.
+//
+// consumed=false on the broadcast is therefore load-bearing, not a detail: the
+// client's pending queue item is the only place the user's typed text is still
+// RECOVERABLE at this point. This journal stores the literal text too, but
+// Settle retires the record into PromptStateSettled — a proven-over outcome
+// PendingPrompt deliberately never surfaces back to a client (pendingprompt.go)
+// — and nothing reached the ledger, so a client told merely "this is over"
+// deletes the words for good. See settleDelivery.
 func (rs *Runners) SettleDelivery(ctx context.Context, chatID, requestID string) (bool, error) {
+	return rs.settleDelivery(ctx, chatID, requestID, false)
+}
+
+// settleDelivery retires requestID and announces it, saying whether anything
+// actually PROVED the provider took the prompt.
+//
+// consumed distinguishes the two callers, which the record's own state cannot:
+// by the time either runs, the ledger has been reconciled and a prompt with a
+// turn to show for it is already accepted (and so not retired here at all), so
+// every delivery that reaches the broadcast looks identically evidence-free on
+// disk. What separates them is WHO asked — a provider built-in that demonstrably
+// ran (compact_post, via SettleDeliveryFor) versus a screen that simply went
+// quiet for thirty seconds — and only the call site knows.
+func (rs *Runners) settleDelivery(
+	ctx context.Context, chatID, requestID string, consumed bool,
+) (bool, error) {
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return false, fmt.Errorf("agent: settle prompt delivery: chat: %w", err)
@@ -41,9 +72,9 @@ func (rs *Runners) SettleDelivery(ctx context.Context, chatID, requestID string)
 		return false, nil
 	}
 	slog.InfoContext(ctx, "agent: prompt delivery produced no turn and was settled",
-		"chat_id", chatID, "client_request_id", requestID)
+		"chat_id", chatID, "client_request_id", requestID, "consumed", consumed)
 	if rs.promptSettled != nil {
-		rs.promptSettled(chatID, chat.WorkspaceID, requestID)
+		rs.promptSettled(chatID, chat.WorkspaceID, requestID, consumed)
 	}
 	return true, nil
 }
@@ -65,7 +96,10 @@ func (rs *Runners) SettleDeliveryFor(ctx context.Context, chatID, runnerID strin
 	if !ok || delivery.RunnerID != runnerID {
 		return nil
 	}
-	_, err := rs.SettleDelivery(ctx, chatID, delivery.RequestID)
+	// consumed=true: this caller runs off a signal that the CLI actually ACTED on
+	// the prompt (compact_post follows the compaction the prompt asked for), so
+	// the absent ledger turn is this delivery working as designed, not lost work.
+	_, err := rs.settleDelivery(ctx, chatID, delivery.RequestID, true)
 	return err
 }
 

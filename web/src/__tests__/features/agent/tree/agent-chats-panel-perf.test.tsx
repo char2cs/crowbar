@@ -46,6 +46,7 @@ const { streamHook, listChatFoldersFn, buildSpy } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   createChat: vi.fn(),
   deleteChat: vi.fn(),
   renameChat: vi.fn(),

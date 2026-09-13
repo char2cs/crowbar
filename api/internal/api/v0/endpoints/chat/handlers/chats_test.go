@@ -220,6 +220,12 @@ func (*configurableListGetUsecase) SlashCatalog(
 	return engineagents.SlashCatalog{}, nil
 }
 
+func (*configurableListGetUsecase) PendingPrompt(
+	context.Context, string,
+) (domain.PendingPrompt, bool, error) {
+	return domain.PendingPrompt{}, false, nil
+}
+
 func (u *configurableListGetUsecase) LiveRunnerForChat(
 	_ context.Context,
 	chatID string,

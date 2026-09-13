@@ -57,7 +57,7 @@ func (stubTurns) AwaitTurnComplete(context.Context, string) error { return nil }
 
 func (stubTurns) ChatWorking(context.Context, string) (bool, error) { return false, nil }
 
-func (stubTurns) RecordStop(context.Context, string) error { return nil }
+func (stubTurns) RecordStop(context.Context, string, string) error { return nil }
 
 func (stubTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 

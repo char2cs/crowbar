@@ -319,13 +319,14 @@ func TestContainer_PushAgentChatPromptSettled_ReachesFilteredClient(t *testing.T
 	conn := dialWSAt(t, srv, "/v0/projects/p1/repos/r1/workspaces/A/chats/ws")
 	c.agentChats.WaitRegistered()
 
-	c.PushAgentChatPromptSettled("chat-in-b", "B", "req-skip")
-	c.PushAgentChatPromptSettled("chat-1", "A", "req-1")
+	c.PushAgentChatPromptSettled("chat-in-b", "B", "req-skip", true)
+	c.PushAgentChatPromptSettled("chat-1", "A", "req-1", true)
 
 	got := readJSON(t, conn)
 	assert.Equal(t, "chat-1", got["chatId"])
 	assert.Equal(t, "prompt_settled", got["kind"])
 	assert.Equal(t, "req-1", got["clientRequestId"])
+	assert.Equal(t, true, got["promptConsumed"])
 }
 
 // TestContainer_PushAgentChatMessageDelta_ReachesFilteredClient proves a

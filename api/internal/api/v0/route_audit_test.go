@@ -324,8 +324,10 @@ func extraRoutes() []string {
 		"PATCH " + ws + "/chats/:id/selection",
 		// A human deciding a question the agent put to them mid-turn.
 		"POST " + ws + "/chats/:id/choices/:choiceId/answer",
-		// Submitting the user's own text into the chat.
+		// Submitting the user's own text into the chat, and recovering it if
+		// the client's own copy was lost before the provider confirmed it.
 		"POST " + ws + "/chats/:id/prompts",
+		"GET " + ws + "/chats/:id/pending-prompt",
 		// The answer channel's other two legs (routes.go): the in-PTY relay parking
 		// alive while the provider's gate stays open, and what it reports when the
 		// provider decided at the terminal instead.
@@ -429,6 +431,7 @@ func extraRoutes() []string {
 		"PATCH " + home + "/chats/:id/selection",
 		"POST " + home + "/chats/:id/choices/:choiceId/answer",
 		"POST " + home + "/chats/:id/prompts",
+		"GET " + home + "/chats/:id/pending-prompt",
 		// And the same answer-channel pair, for the same reason.
 		"POST " + home + "/chats/hooks/await",
 		"POST " + home + "/chats/hooks/abandon",

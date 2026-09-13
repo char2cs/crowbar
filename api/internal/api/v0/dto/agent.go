@@ -465,6 +465,18 @@ type PromptSubmissionDTO struct {
 	TerminalSessionID string `json:"terminalSessionId"`
 }
 
+// PendingPromptDTO is the wire shape of domain.PendingPrompt — a prompt
+// submission the journal has not yet confirmed the provider accepted, sent
+// so a client whose own local copy was lost can recover the literal text.
+type PendingPromptDTO struct {
+	Text  string `json:"text"`
+	State string `json:"state"`
+	// RequestID is the original client request id, carried through so the
+	// recovered row rejoins this chat's own dedup and settlement broadcasts
+	// instead of a freshly minted id nothing will ever match.
+	RequestID string `json:"requestId"`
+}
+
 // SlashCatalogDTO is one ephemeral deterministic provider capability response.
 // Completeness is never inferred by Crowbar; it is declared by the provider
 // descriptor so partial inventories remain visibly partial.
@@ -665,6 +677,25 @@ type AgentChatEvent struct {
 	// CLI handles it and announces nothing — so without this frame the item waits
 	// forever on evidence that is not coming.
 	ClientRequestID string `json:"clientRequestId,omitempty"`
+
+	// PromptConsumed rides the prompt_settled kind beside ClientRequestID and says
+	// whether anything actually proved the provider took that prompt.
+	//
+	// True is a provider built-in that demonstrably ran — a `/compact` the CLI
+	// handled itself, announcing nothing. False is the terminal-wait sweep's bare
+	// thirty-second timeout: nothing was proved, and the prompt may never have been
+	// seen at all.
+	//
+	// The distinction is not cosmetic, and a client cannot derive it: the two cases
+	// are identical in the ledger (neither produced a turn) and identical in the
+	// delivery journal, which records a HASH of the prompt and never its text. So a
+	// client's own pending-queue item holds the only surviving copy of what the user
+	// typed, and discarding it on the timeout case destroys their words outright.
+	// Discard on true; keep the text and surface a failure on false.
+	//
+	// Omitempty makes the SAFE reading the default: a frame with the field absent
+	// preserves the text rather than dropping it.
+	PromptConsumed bool `json:"promptConsumed,omitempty"`
 
 	// Message is an assistant message still being produced, on the message_delta
 	// kind and nowhere else.

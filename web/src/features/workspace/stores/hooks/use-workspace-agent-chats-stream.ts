@@ -153,6 +153,18 @@ interface AgentStreamEvent {
    */
   clientRequestId?: string
   /**
+   * Whether anything actually proved the provider took that prompt, on the
+   * `prompt_settled` kind. True is a built-in the CLI demonstrably ran (a
+   * `/compact`); absent or false is the daemon's delivery timeout expiring with
+   * no evidence of any kind.
+   *
+   * The queue item is the only place the user's typed text still exists at that
+   * moment — the daemon's journal keeps a hash of it, never the text — so this
+   * is what separates "safe to drop" from "the user's words would be destroyed".
+   * Absent reads as false, which is the preserving answer.
+   */
+  promptConsumed?: boolean
+  /**
    * An assistant message still being produced, on the `message_delta` kind.
    *
    * Carries the text SO FAR rather than the newest increment, so a client that
@@ -697,11 +709,20 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           st.setAgentChatCompacting(ev.chatId, false)
           return
         case 'prompt_settled':
-          // A prompt Crowbar delivered turned out not to produce a turn — a
-          // provider built-in, handled inside the CLI, announcing nothing. The
+          // A prompt Crowbar delivered turned out not to produce a turn. The
           // composer's pending queue is waiting on a user message that is never
           // coming, and this frame is the only thing that releases it.
-          if (ev.clientRequestId) st.setAgentChatPromptSettled(ev.chatId, ev.clientRequestId)
+          //
+          // WHICH way it is released is the difference between a tidy composer
+          // and losing the user's work. `promptConsumed` says the CLI actually
+          // ran it — a built-in like `/compact`, which announces nothing by
+          // design — and only then is the queued text spent and safe to discard.
+          // Without that proof the daemon is merely reporting that its delivery
+          // timeout expired, and the queue item is the last copy of what the user
+          // typed, so it is kept and surfaced as failed instead.
+          if (!ev.clientRequestId) return
+          if (ev.promptConsumed) st.setAgentChatPromptSettled(ev.chatId, ev.clientRequestId)
+          else st.setAgentChatPromptAbandoned(ev.chatId, ev.clientRequestId)
           return
         case 'terminal_wait':
           // The frame IS the answer, both ways round: a present payload raises

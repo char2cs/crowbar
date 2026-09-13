@@ -7,6 +7,7 @@ import { limitResetsAt, useAgentTelemetry } from '@/features/agent/hooks/use-age
 const { getChatTelemetryFn } = vi.hoisted(() => ({ getChatTelemetryFn: vi.fn() }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   getChatTelemetry: (...args: unknown[]) => getChatTelemetryFn(...args),
 }))
 

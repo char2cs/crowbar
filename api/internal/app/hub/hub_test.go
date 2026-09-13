@@ -35,6 +35,7 @@ type promptSettledPush struct {
 	chatID      string
 	workspaceID string
 	requestID   string
+	consumed    bool
 }
 
 type messageDeltaPush struct {
@@ -155,9 +156,10 @@ func (f *fakeSubscriber) PushAgentChatPromptSettled(
 	chatID string,
 	workspaceID string,
 	requestID string,
+	consumed bool,
 ) {
 	f.promptSettled = append(f.promptSettled, promptSettledPush{
-		chatID: chatID, workspaceID: workspaceID, requestID: requestID,
+		chatID: chatID, workspaceID: workspaceID, requestID: requestID, consumed: consumed,
 	})
 }
 
@@ -428,9 +430,11 @@ func TestHub_BroadcastAgentChatPromptSettled_FansOut(t *testing.T) {
 	h.Register(a)
 	h.Register(b)
 
-	h.BroadcastAgentChatPromptSettled("c1", "w1", "req-1")
+	h.BroadcastAgentChatPromptSettled("c1", "w1", "req-1", true)
 
-	want := []promptSettledPush{{chatID: "c1", workspaceID: "w1", requestID: "req-1"}}
+	want := []promptSettledPush{
+		{chatID: "c1", workspaceID: "w1", requestID: "req-1", consumed: true},
+	}
 	assert.Equal(t, want, a.promptSettled)
 	assert.Equal(t, want, b.promptSettled)
 }

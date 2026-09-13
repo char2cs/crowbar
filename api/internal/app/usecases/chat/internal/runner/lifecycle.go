@@ -442,7 +442,7 @@ func (rs *Runners) StopChat(
 	if !stopped {
 		rs.retire(ctx, live)
 	}
-	if err := rs.turns.RecordStop(ctx, chatID); err != nil {
+	if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
 		slog.WarnContext(ctx, "agent: stop chat: record interruption", "chat_id", chatID, "err", err)
 	}
 	return nil

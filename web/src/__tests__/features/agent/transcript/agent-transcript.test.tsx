@@ -308,6 +308,36 @@ describe('AgentTranscript turnbar wiring', () => {
     expect(screen.queryByTestId('agent-turn-tools')).toBeNull()
   })
 
+  // THE REGRESSION. `working` folds off the daemon's event-sourced turn state,
+  // dispatched over an async command path on purpose, so it can still read
+  // false for a moment after a turn's first tokens are already streaming —
+  // reported live as a reply filling in with no spinner above it. A live
+  // streaming bubble is proof the chat is working regardless of what `working`
+  // says, and must light the spinner on its own.
+  it('shows the spinner for a streaming bubble even before `working` catches up', () => {
+    draw([], {
+      working: false,
+      streamingBubbles: [
+        {
+          turnId: '',
+          sequence: 1,
+          role: 'assistant',
+          providerId: 'codex',
+          text: 'still writing…',
+          at: '',
+        },
+      ],
+    })
+
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+  })
+
+  it('shows no spinner when idle with nothing streaming', () => {
+    draw([], { working: false })
+
+    expect(screen.queryByTestId('agent-activity-strip')).toBeNull()
+  })
+
   // THE REGRESSION. A call is filed against the turn that was open when it ran,
   // and only turn close repoints it onto the reply's own turn id — so mid-turn
   // it matched no message and nothing on screen drew it. Measured live before

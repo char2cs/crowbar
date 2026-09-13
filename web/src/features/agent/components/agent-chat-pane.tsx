@@ -108,6 +108,51 @@ const REVIVE_REQUEST_BOUND_MS = 120_000
 // and written.
 const reviveInFlightByChatId = new Map<string, Promise<void>>()
 
+// THE TRANSIENT-DORMANCY GUARD, AND IT BELONGS TO THE CHAT, NOT TO ONE PANE.
+//
+// Displacing a CLI — a provider switch, or an ordinary prompt submission, both of
+// which kill the outgoing process BEFORE the replacement exists — makes the chat
+// read dormant for the width of a spawn. The pane that ASKED for it holds
+// `switchingRef` and sits the window out. Every OTHER pane on that same chat held
+// nothing, and a split is two panes on one chat by design (Cmd+\ puts one buffer in
+// both), so the sibling read the gap as its own agent dying: with its revive budget
+// still unspent it fired a second resumeChat straight into the daemon's per-chat
+// spawn gate the switch was already holding, and with the budget spent it latched
+// `idle: 'exited'` — "This agent has exited", with a Resume button, over a CLI that
+// was alive and about to answer. That state also drops the composer's `live`, so its
+// prompt queue stops dispatching and the message the user just typed sits there as
+// "1 queued" for good.
+//
+// Measured live in a two-pane split, switching provider in the LEFT pane only:
+//   LEFT[reviving:"Starting Codex…"] || RIGHT[live]
+//   LEFT[reviving:"Starting Codex…"] || RIGHT[idle:exited]   <- the sibling, untouched
+//   LEFT[live]                       || RIGHT[live]
+//
+// Refcounted because two panes can each have a displacement of their own out at once,
+// and keyed by chatId for the same reason reviveInFlightByChatId is: the thing being
+// displaced is the chat's CLI, and every pane showing that chat is looking at it.
+const displacingByChatId = new Map<string, number>()
+
+/** Take a hold on chatId's displacement window. The returned release is idempotent,
+ *  so an unmount can call it without having to know whether the flow that took it
+ *  already finished. */
+function holdDisplacement(chatId: string): () => void {
+  displacingByChatId.set(chatId, (displacingByChatId.get(chatId) ?? 0) + 1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const left = (displacingByChatId.get(chatId) ?? 1) - 1
+    if (left > 0) displacingByChatId.set(chatId, left)
+    else displacingByChatId.delete(chatId)
+  }
+}
+
+/** Is ANY pane currently replacing this chat's CLI? */
+function isDisplacing(chatId: string): boolean {
+  return (displacingByChatId.get(chatId) ?? 0) > 0
+}
+
 // The pane's attach outcome.
 //
 // `pending` is the pre-resolution state and renders nothing. It is NOT `idle`: it means
@@ -268,6 +313,11 @@ export function AgentChatPane({
   // a provider built-in it never does — see AgentChatsState.settledPrompts.
   const settledPrompts = useStore(store, (s) => s.agentChats.settledPrompts[shownChatId])
 
+  // And the ones it retired with no proof of anything. Kept apart because the
+  // composer must NOT discard these — their text is the last copy of what the
+  // user typed. See AgentChatsState.abandonedPrompts.
+  const abandonedPrompts = useStore(store, (s) => s.agentChats.abandonedPrompts[shownChatId])
+
   // The message(s) the agent is mid-way through saying — an array because a
   // turn can have more than one open item (Codex; Claude is always 0-or-1).
   // One selector, not per-field primitives: this is an Immer store, so the
@@ -348,6 +398,16 @@ export function AgentChatPane({
   useEffect(() => {
     desiredSessionRef.current = attachedSessionId
   }, [attachedSessionId])
+
+  // The chat, and the session the SERVER currently has on it — the same two facts as
+  // `shownChatId`/`sessionId`, in refs so handleSessionGone can read them without
+  // re-identifying on every attach (see the note above it).
+  const shownChatIdRef = useRef(shownChatId)
+  const storeSessionRef = useRef(sessionId)
+  useEffect(() => {
+    shownChatIdRef.current = shownChatId
+    storeSessionRef.current = sessionId
+  }, [shownChatId, sessionId])
 
   // The two layout divs whose empty space belongs to the terminal, and the terminal's
   // own imperative handle — see focusTerminalFromEmptySpace.
@@ -435,6 +495,23 @@ export function AgentChatPane({
   // is already coming.
   const switchingRef = useRef(false)
 
+  // THIS pane's half of the chat-wide guard above: the release for the hold it is
+  // currently carrying, if any. Kept in a ref so the unmount effect can let go of a
+  // displacement whose completion callback is never going to arrive — a pane closed
+  // mid-switch would otherwise leave the count raised forever, and a raised count
+  // suppresses the dormant branch for every remaining pane on that chat, which would
+  // turn this fix into the opposite bug: a genuinely dead CLI that never offers Resume.
+  const releaseDisplacementRef = useRef<(() => void) | null>(null)
+  const beginDisplacement = useCallback((chatId: string) => {
+    releaseDisplacementRef.current?.()
+    releaseDisplacementRef.current = holdDisplacement(chatId)
+  }, [])
+  const endDisplacement = useCallback(() => {
+    releaseDisplacementRef.current?.()
+    releaseDisplacementRef.current = null
+  }, [])
+  useEffect(() => () => releaseDisplacementRef.current?.(), [])
+
   // adopt reads the chat back and settles the pane on what the SERVER says: attach to the
   // runner now on it, or report that there still is none (false). It only ever READS, so
   // it cannot spawn anything; the caller has already done the spawning.
@@ -466,13 +543,54 @@ export function AgentChatPane({
 
   // Re-check the aggregate after a prompt race. The prompt queue consumes only
   // this server-folded value; it never guesses busy state from a lifecycle kind.
+  //
+  // Generation-guarded like useChatMessages' own loadGeneration: this GET has
+  // no bound on how long it takes (daemon load from a subagent-heavy turn
+  // measured over 11s live), and the 5s poll below can have several of these
+  // in flight at once. An older one resolving after a newer one must not
+  // overwrite the fresher answer with a stale one.
+  const refreshGeneration = useRef(0)
   const refreshChatWorking = useCallback(async (): Promise<boolean> => {
+    const generation = ++refreshGeneration.current
     const chat = await getChat(wsId, shownChatId)
+    if (generation !== refreshGeneration.current) return chat.working === true
     const s = store.getState()
     s.upsertAgentChat(chat)
     s.setAgentChatWorking(chat.id, chat.working === true)
     return chat.working === true
   }, [store, wsId, shownChatId])
+
+  // THE REGRESSION, reported live and repeatedly: `working` is otherwise
+  // written ONLY by the turn_started/turn_stopped WS frame (see
+  // agent-chats-slice.ts's own doc on that map) — there is no other path.
+  // A single dropped frame — one lost mid a socket hiccup, or the daemon
+  // process itself restarting out from under an open turn — leaves this
+  // chat's spinner wrong FOREVER in either direction: dark under a CLI
+  // that is still visibly working, or lit long after everything actually
+  // settled, since nothing else ever asks again. Confirmed live: a chat
+  // stuck reporting `working:true` for 50+ minutes after its own turn had
+  // long since closed, self-corrected only by a full page reload — the one
+  // path that re-seeds `working` from the server's own list response
+  // (seedAgentChats) rather than trusting the frame feed alone.
+  //
+  // This is that self-heal without a reload: the same periodic reconcile
+  // pattern this codebase already uses for exactly this class of problem
+  // (the provider-idle sweep, termwait's own doc). Bounded and cheap — one
+  // GET, only for a chat this pane is actually showing — and it corrects
+  // the store rather than trusting whatever the WS feed last said.
+  //
+  // Gated on `attached`: a pane that is reviving/idle is mid its OWN
+  // adopt/resume orchestration, which already owns every read of this
+  // chat for the runner it is about to attach — an uncoordinated read
+  // racing in here would upsert a runner that orchestration has not
+  // decided to accept yet. `working` only means something once a pane is
+  // normally attached, which is exactly where this belongs.
+  const attached = attachment.state === 'attached'
+  useEffect(() => {
+    if (!attached) return
+    const timer = window.setInterval(() => void refreshChatWorking(), 5_000)
+    return () => window.clearInterval(timer)
+  }, [attached, refreshChatWorking])
 
   // A selection the SERVER accepted. It is written here rather than inside the
   // picker because the store is the chat's owner, and the 202 carries no body and
@@ -712,6 +830,13 @@ export function AgentChatPane({
     // that already has a perfectly healthy runner on it.
     if (!liveRunnerId) {
       if (switchingRef.current) return // the switch's own spinner stands
+      // ...and the same courtesy for a displacement a SIBLING pane asked for. This gap
+      // is that pane's replacement CLI on its way, not this pane's agent dying — see
+      // displacingByChatId. Read imperatively rather than as a dependency on purpose:
+      // nothing needs to re-run when the hold drops, because the replacement landing is
+      // itself a liveRunnerId change, and a displacement that FAILS settles the asking
+      // pane through fail() instead of leaving anyone waiting on this.
+      if (isDisplacing(shownChatId)) return
       // ONLY THE VISIBLE TAB REVIVES. A dormant chat kept alive on a hidden tab must
       // NOT spawn a CLI: opening a workspace with N dormant chat tabs would otherwise
       // fire N revives at once, one CLI per hidden tab. A hidden dormant chat waits;
@@ -798,6 +923,10 @@ export function AgentChatPane({
   // instead of our own. A CLI that dies twice in one mount stays down.
   const handleSessionGone = useCallback((goneSessionId: string) => {
     if (switchingRef.current) return // our own switch killing the outgoing CLI: expected
+    // A SIBLING pane's switch kills exactly the same PTY, and this pane is attached to
+    // it too — a split is two panes on one chat. Without this the sibling reported the
+    // death its neighbour had arranged. See displacingByChatId.
+    if (isDisplacing(shownChatIdRef.current)) return
     // A DISPLACED PTY REPORTS ITS DEATH LATE. Prompt submission replaces the CLI, so
     // the outgoing PTY dies by design — but the terminal notices the closed transport
     // whenever it notices, which can be well after adopt() has already attached the
@@ -808,6 +937,15 @@ export function AgentChatPane({
     // So the guard is IDENTITY, not timing: only the session the pane still wants can
     // report that pane's agent gone. An id we no longer hold is the outgoing corpse.
     if (goneSessionId && desiredSessionRef.current && goneSessionId !== desiredSessionRef.current) {
+      return
+    }
+    // The same identity test against the SERVER's answer, which is the one a sibling
+    // pane has. The pane that ran the switch moves `desiredSessionRef` on when adopt()
+    // attaches the replacement; a sibling never called adopt, so it can still be wanting
+    // the dead id when the late report lands and the test above waves it through. The
+    // store has already been told which session the chat has now, so a report for any
+    // OTHER session is a corpse no matter which pane is holding it.
+    if (goneSessionId && storeSessionRef.current && goneSessionId !== storeSessionRef.current) {
       return
     }
     setAttachment({ state: 'idle', reason: 'exited' })
@@ -845,6 +983,9 @@ export function AgentChatPane({
     // exactly the transient dormancy — and its dead PTY's onSessionGone — that nothing
     // must mistake for a chat needing revival.
     switchingRef.current = true
+    // ...and the same window announced to every OTHER pane on this chat, which is
+    // attached to the very PTY this is about to kill.
+    beginDisplacement(shownChatId)
     setAttachment({ state: 'reviving', message: `Starting ${name}…` })
     // Same bound as revive() and for the identical reason: switchProvider
     // drives the SAME daemon-side per-chat spawn mutex a stuck resume does,
@@ -881,6 +1022,7 @@ export function AgentChatPane({
     } finally {
       clearTimeout(bound)
       switchingRef.current = false
+      endDisplacement()
     }
   }
 
@@ -1350,6 +1492,7 @@ export function AgentChatPane({
               splitEnabled={splitEnabled}
               onSelectPresentation={chooseSurface}
               settledPrompts={settledPrompts}
+              abandonedPrompts={abandonedPrompts}
               streamingMessages={streamingMessages}
               reasoning={reasoning}
               toolOutput={toolOutput}
@@ -1357,6 +1500,10 @@ export function AgentChatPane({
               onStreamingSettled={handleStreamingSettled}
               onPromptDispatchStart={() => {
                 switchingRef.current = true
+                // Submitting a prompt replaces the CLI exactly as a switch does, so the
+                // sibling panes need telling about this window too — see
+                // displacingByChatId.
+                beginDisplacement(shownChatId)
                 setPromptReplacing(true)
               }}
               onPromptDispatchSettled={() => {
@@ -1371,6 +1518,7 @@ export function AgentChatPane({
                     fail()
                   } finally {
                     switchingRef.current = false
+                    endDisplacement()
                     setPromptReplacing(false)
                   }
                 })()

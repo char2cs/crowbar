@@ -17,6 +17,7 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   updateProviderPreferences: vi.fn(),
   listProviders: vi.fn().mockResolvedValue([]),
   getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),

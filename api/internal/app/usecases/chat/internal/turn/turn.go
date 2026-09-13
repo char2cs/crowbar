@@ -11,6 +11,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -149,6 +150,12 @@ func (t *Turns) openTurnFromPrompt(
 	} else {
 		userText = worktreepath.RestoreDurableAttachmentRefs(ev.Message, chatsDir, chat.ID)
 	}
+	// And the other thing dispatch may have added in front of it: the escape
+	// that stops Crowbar's own `![alt](…)` from reading as this CLI's shell-mode
+	// sigil (promptsigil.Guard, spawn.go). The person did not type it, so it has
+	// no business in the turn this stores forever.
+	sigils, escape := agent.PromptLeadingSigils()
+	userText = promptsigil.Strip(sigils, escape, chat.ID, userText)
 	if err := t.conversations.RenameChat(ctx, chat.ID, deriveTitle(userText), "derived"); err != nil {
 		slog.WarnContext(ctx, "agent: ingest hook: derived title", "err", err, "chat_id", chat.ID)
 	}
@@ -380,7 +387,19 @@ func (t *Turns) ChatWorking(ctx context.Context, chatID string) (bool, error) {
 //
 // A no-op when the chat is idle: StopChat is also what closing a chat TAB
 // calls, and quitting an already-quiet CLI is not an interruption of anything.
-func (t *Turns) RecordStop(ctx context.Context, chatID string) error {
+//
+// Takes runnerID's own hook gate — the SAME one IngestHookDelivery holds
+// across its whole ingest — before touching the activity ledger. Without it,
+// this could commit its Interrupt in the gap between a hook for this exact
+// runner being admitted and its effects landing: interruptTurn's Send only
+// waits for the API connection to say the turn is over, which says nothing
+// about whether that turn's OWN closing/reopening hook deliveries have
+// finished being ingested yet. Confirmed live: an Interrupted divider
+// anchored to a message's turn that a self-continuation hook had already
+// superseded milliseconds earlier, landing ahead of replies the CLI had
+// already produced by the time Stop was clicked.
+func (t *Turns) RecordStop(ctx context.Context, chatID, runnerID string) error {
+	defer t.hookGates.Lock(runnerID)()
 	if len(t.turns.Inflight(chatID)) == 0 {
 		return nil
 	}

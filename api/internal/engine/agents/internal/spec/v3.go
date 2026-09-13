@@ -58,9 +58,9 @@ type HooksWire struct {
 
 // EventSpec is one conversational fact. Exactly one of In/Out/Ask names the wire event.
 type EventSpec struct {
-	In  string `yaml:"in"`  // they tell us
-	Out string `yaml:"out"` // we tell them
-	Ask string `yaml:"ask"` // they block on our reply
+	In  WireRef `yaml:"in"`  // they tell us
+	Out WireRef `yaml:"out"` // we tell them
+	Ask WireRef `yaml:"ask"` // they block on our reply
 
 	// Transport overrides RuntimeSpec.Transport for this event alone. This is the
 	// whole mechanism behind a MIXED provider — API for turns, hooks for permissions.
@@ -175,14 +175,16 @@ func (d *Descriptor) TransportFor(event string) string {
 	return d.Runtime.Transport
 }
 
-// WireEvent returns the wire name and which direction declared it.
-func (e EventSpec) WireEvent() (name, direction string) {
+// WireEvent returns the wire name — or, for a provider that namespaces one canonical
+// fact across several methods, every name it answers to — and which direction
+// declared them.
+func (e EventSpec) WireEvent() (ref WireRef, direction string) {
 	switch {
-	case e.In != "":
+	case !e.In.Empty():
 		return e.In, "in"
-	case e.Out != "":
+	case !e.Out.Empty():
 		return e.Out, "out"
-	case e.Ask != "":
+	case !e.Ask.Empty():
 		return e.Ask, "ask"
 	}
 	return "", ""

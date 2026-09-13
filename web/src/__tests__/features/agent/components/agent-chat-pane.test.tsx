@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
 import { ApiError } from '@/lib/api'
@@ -45,6 +45,7 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
 }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   getChat: (...a: unknown[]) => getChatFn(...a),
   switchProvider: (...a: unknown[]) => switchProviderFn(...a),
   resumeChat: (...a: unknown[]) => resumeChatFn(...a),
@@ -1625,6 +1626,104 @@ describe('AgentChatPane', () => {
       expect(await screen.findByText(/could not restart this agent/i)).toBeInTheDocument()
       expect(screen.queryByTestId('xterm')).not.toBeInTheDocument()
       expect(screen.getByText(/replacement failed/i)).toBeInTheDocument()
+    })
+  })
+
+  // THE REGRESSION, reported live and repeatedly: `working` is otherwise
+  // written ONLY by the turn_started/turn_stopped WS frame. A single dropped
+  // frame — a socket hiccup, a daemon restart out from under an open turn —
+  // leaves the spinner wrong forever in either direction, since nothing else
+  // ever asks the server again. This guards the periodic self-heal: this
+  // pane must re-check and correct `working` on its own, without a reload.
+  describe('working self-heal', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('corrects a working flag stuck true after the server has already gone idle', async () => {
+      vi.useFakeTimers()
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      store.getState().setAgentChatWorking('c1', true)
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      expect(store.getState().agentChats.working.c1).toBe(true)
+
+      // The server has since settled — the frame announcing it never arrived.
+      getChatFn.mockResolvedValue({
+        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
+        working: false,
+      })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000)
+      })
+
+      expect(store.getState().agentChats.working.c1).toBeFalsy()
+    })
+
+    it('corrects a working flag stuck false while the server is genuinely still busy', async () => {
+      vi.useFakeTimers()
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+      expect(store.getState().agentChats.working.c1).toBeFalsy()
+
+      // A subagent is genuinely still running server-side (AsyncWork > 0), but
+      // the frame that would have said so never reached this client.
+      getChatFn.mockResolvedValue({
+        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
+        working: true,
+      })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000)
+      })
+
+      expect(store.getState().agentChats.working.c1).toBe(true)
+    })
+
+    // THE REGRESSION, reported live 2026-09-12: a queued prompt re-submitted
+    // itself into a turn that was still genuinely generating, corrupting its
+    // output mid-stream. Root cause traced to this exact poll: the daemon can
+    // take over 11s to answer under subagent-heavy load (measured live), so
+    // two ticks of this 5s poll can have requests in flight at once, and an
+    // OLDER one carrying a stale answer from before the turn started must not
+    // overwrite a NEWER one that already recorded the current truth.
+    it('an older in-flight refresh does not overwrite a newer one that already resolved', async () => {
+      vi.useFakeTimers()
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openBuffer(store, 'c1', 'r1'))
+
+      const stale = deferred<Awaited<ReturnType<typeof getChatFn>>>()
+      const fresh = deferred<Awaited<ReturnType<typeof getChatFn>>>()
+      getChatFn.mockImplementationOnce(() => stale.promise)
+      getChatFn.mockImplementationOnce(() => fresh.promise)
+
+      // Two poll ticks fire back-to-back — neither request has resolved yet.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+
+      // The NEWER request settles first with the current, correct answer.
+      fresh.resolve({
+        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
+        working: true,
+      })
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(store.getState().agentChats.working.c1).toBe(true)
+
+      // The OLDER request finally arrives, carrying a stale `false` from
+      // before the turn started. It must not win just by arriving later.
+      stale.resolve({
+        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
+        working: false,
+      })
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(store.getState().agentChats.working.c1).toBe(true)
     })
   })
 

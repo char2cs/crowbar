@@ -26,7 +26,7 @@ type spyStopTurns struct {
 	recorded []string
 }
 
-func (s *spyStopTurns) RecordStop(_ context.Context, chatID string) error {
+func (s *spyStopTurns) RecordStop(_ context.Context, chatID, _ string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.recorded = append(s.recorded, chatID)

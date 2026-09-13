@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const { listProvidersFn } = vi.hoisted(() => ({ listProvidersFn: vi.fn() }))
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
 }))
 

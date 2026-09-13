@@ -74,6 +74,14 @@ type RunnerUsecase interface {
 		chatID string,
 	) (engineagents.SlashCatalog, error)
 
+	// PendingPrompt returns the chat's most recent prompt submission the
+	// journal has not yet confirmed the provider accepted, so a client whose
+	// own local copy of the text was lost can recover it.
+	PendingPrompt(
+		ctx context.Context,
+		chatID string,
+	) (domain.PendingPrompt, bool, error)
+
 	// SwitchToTerminal hands the chat's live turn over to its provider's own
 	// native view — idle-only, for a provider whose descriptor declares attach
 	// without hotswap. Returns the new terminal session id.
@@ -145,7 +153,7 @@ type RunnerUsecase interface {
 	StartTerminalWaitSweep(
 		ctx context.Context,
 		publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-		promptSettled func(chatID, workspaceID, requestID string),
+		promptSettled func(chatID, workspaceID, requestID string, consumed bool),
 		messageDelta func(chatID, workspaceID, messageID, text, kind string),
 		compactionStatus func(chatID, workspaceID string, active bool),
 		planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),
@@ -312,6 +320,15 @@ func (u *Usecase) SlashCatalog(
 	return u.runners.SlashCatalog(ctx, chatID)
 }
 
+// PendingPrompt returns the chat's most recent prompt submission the journal
+// has not yet confirmed the provider accepted.
+func (u *Usecase) PendingPrompt(
+	ctx context.Context,
+	chatID string,
+) (domain.PendingPrompt, bool, error) {
+	return u.runners.PendingPrompt(ctx, chatID)
+}
+
 // LiveRunnerForChat returns the CLI currently placed on the chat.
 func (u *Usecase) LiveRunnerForChat(
 	ctx context.Context,
@@ -387,7 +404,7 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 func (u *Usecase) StartTerminalWaitSweep(
 	ctx context.Context,
 	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-	promptSettled func(chatID, workspaceID, requestID string),
+	promptSettled func(chatID, workspaceID, requestID string, consumed bool),
 	messageDelta func(chatID, workspaceID, messageID, text, kind string),
 	compactionStatus func(chatID, workspaceID string, active bool),
 	planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),

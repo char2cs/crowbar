@@ -204,6 +204,10 @@ type fakeAgentUsecase struct {
 	catalog      engineagents.SlashCatalog
 	catalogErr   error
 	catalogCalls []string
+
+	pendingPrompt      domain.PendingPrompt
+	pendingPromptFound bool
+	pendingPromptErr   error
 }
 
 type promptCall struct {
@@ -309,6 +313,13 @@ func (f *fakeAgentUsecase) SlashCatalog(
 ) (engineagents.SlashCatalog, error) {
 	f.catalogCalls = append(f.catalogCalls, chatID)
 	return f.catalog, f.catalogErr
+}
+
+func (f *fakeAgentUsecase) PendingPrompt(
+	_ context.Context,
+	_ string,
+) (domain.PendingPrompt, bool, error) {
+	return f.pendingPrompt, f.pendingPromptFound, f.pendingPromptErr
 }
 
 // LiveRunnerForChat/ConversationsForChat back the derived runner facts on the chat

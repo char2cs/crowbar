@@ -266,17 +266,45 @@ events:
       context.used_tokens:     tokenUsage.last.totalTokens
       context.capacity_tokens: tokenUsage.modelContextWindow
 
-  # Same dual-shape hazard as session_start: a hooks-delivered
-  # PermissionRequest uses tool_name/tool_input, not this event's api names.
+  # codex NAMESPACES approval per item type, so one canonical `permission` answers
+  # to two wire methods (`||`, the same alternation `when:` and `map:` use). Both
+  # confirmed live against 0.149.1 at --ask-for-approval on-request:
+  #   item/commandExecution/requestApproval — a command that steps outside the
+  #     sandbox (network, or a cwd the sandbox does not make writable)
+  #   item/fileChange/requestApproval       — an apply_patch outside the writable root
+  # item/permissions/requestApproval, which this event used to name, is neither of
+  # them: it never fires on this build (not even with --enable
+  # exec_permission_approvals) and its response carries a GrantedPermissionProfile
+  # rather than a decision at all, so the reply below could never have satisfied it.
+  # Naming it meant dispatch.Resolve matched nothing, no card was ever raised, and
+  # the turn sat waitingOnApproval until the budget expired.
+  #
+  # Same dual-shape hazard as session_start: a hooks-delivered PermissionRequest
+  # uses tool_name/tool_input, not this event's api names.
+  #
+  # decision is codex's OWN enum and `approved`/`denied` are not in it — live, both
+  # came back "unknown variant, expected one of accept, acceptForSession,
+  # acceptWithExecpolicyAmendment, applyNetworkPolicyAmendment, decline, cancel" and
+  # codex failed the tool call with Rejected("approval request failed"), so even an
+  # APPROVE broke the turn. Crowbar's allow/deny map onto the two that carry exactly
+  # those meanings and no more: `decline` (not `cancel`) because Deny must refuse
+  # this one call and let the agent carry on, where cancel kills the whole turn;
+  # `accept` (not `acceptForSession`) because a single Allow press must not silently
+  # widen to every later command in the session.
   permission:
-    ask: item/permissions/requestApproval
+    ask: item/commandExecution/requestApproval || item/fileChange/requestApproval
     timeout_seconds: 270
     map:
+      session_id: "threadId || session_id"
+      # codex's own sentence for what it wants ("Allow the exact curl command to
+      # access example.com outside the restricted sandbox?"). A fileChange approval
+      # carries none, and the card names the gated tool call instead.
+      message:    "reason || message"
       tool_name:  "tool || tool_name"
       tool_input: "params || tool_input"
     reply:
-      allow: '{"decision":"approved"}'
-      deny:  '{"decision":"denied","message":{reason_json}}'
+      allow: '{"decision":"accept"}'
+      deny:  '{"decision":"decline"}'
 
   elicitation:
     ask: mcpServer/elicitation/request
@@ -543,6 +571,14 @@ presentation:
     resume:
       - pass_arg: { positional: "--" }
       - pass_arg: { positional: "{message}" }
+    # Measured on 0.149.1, argv prompt: a message opening with `!` is RUN as a
+    # shell command, never sent to the model — `![shot.png](/…/shot.png)` (an
+    # image attached before anything was typed) executed as
+    # `[shot.png](/…/shot.png)`. A leading SPACE is enough, also measured; do
+    # not "simplify" it to a newline without re-measuring.
+    leading_sigils:
+      chars: ["!"]
+      escape: " "
   # `debug prompt-input` renders model-visible instructions without
   # starting a turn; the native /skills menu may hold more.
   slash_catalog:

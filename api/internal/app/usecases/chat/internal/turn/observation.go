@@ -51,6 +51,19 @@ func (t *Turns) handleObservation(
 			ChatID: chat.ID, ToolID: toolID(ev), Name: ev.Tool.Name, Target: ev.Tool.Target,
 			Request: ev.Tool.Input, Now: now,
 		}))
+		// THE REGRESSION. restateAsyncWork used to run only on the completion
+		// side (below, and HookSubagentPost) — reopening Working from whatever
+		// is STILL open once one thing closes. Nothing reopened it when work
+		// STARTS, so a chat closed by a provider's own premature "done" report
+		// (codex: openai/codex#27352, a still-open upstream bug — commentary
+		// like "I'll inspect X, then return Y" followed by task_complete with
+		// no follow-up) stayed dark through the ENTIRE real tool call or
+		// subagent that came after it: Post's own OpenWork check only ever
+		// asks "is anything ELSE still open", which is exactly false the
+		// moment the one thing that just finished was the only thing running.
+		// Confirmed live 2026-09-12: a real `wait` call ran end to end after
+		// the chat had already gone idle, and nothing ever relit it.
+		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookToolPost, engineagents.HookToolFail:
 
 		note(ctx, "tool completed", t.activity.CompleteTool(ctx, agentactivity.ToolResultInput{
@@ -65,6 +78,8 @@ func (t *Turns) handleObservation(
 	case engineagents.HookSubagentPre:
 		note(ctx, "subagent started",
 			t.activity.StartSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
+		// Same regression as HookToolPre, same fix — see its own comment.
+		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookSubagentPost:
 		note(ctx, "subagent stopped",
 			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))

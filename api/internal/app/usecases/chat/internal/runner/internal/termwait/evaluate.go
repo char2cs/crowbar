@@ -69,6 +69,28 @@ func (d *detector) settleDelivery(
 	if !ok || delivery.RunnerID == "" || delivery.RunnerID != runner.ID {
 		return
 	}
+	// And the DELIVERY's own age, not just the screen's.
+	//
+	// The screen clock above measures how long this PTY has drawn nothing, which
+	// for an api-transport chat (codex) is the wrong question entirely: the PTY
+	// beside that connection is a disconnected companion driving an unrelated
+	// conversation, so it draws nothing for as long as the chat sits idle. Its
+	// quiet window is therefore ALREADY hours old when a prompt arrives, and the
+	// grace period this timeout exists to give — thirty seconds for the provider
+	// to produce a turn — collapsed to zero: the next sweep, up to two seconds
+	// later, retired the delivery outright.
+	//
+	// Measured live on a fresh codex chat: a delivery journalled at 14:14:59.535Z
+	// was logged "produced no turn and was settled" inside the same second, while
+	// the provider's own turn was still on its way (it landed 910ms later). The
+	// prompt survived only because the ledger beat the client's own reaction to
+	// the retirement — a race, and one an idle chat loses more often, since the
+	// first prompt after a gap is exactly the slow one (session resume, cold
+	// model). Losing it discards the user's typed text, which at that moment
+	// exists nowhere else (see settle.go).
+	if d.now().Sub(delivery.CreatedAt) < d.deliveryQuiet() {
+		return
+	}
 	retired, err := d.deps.Deliveries.SettleDelivery(ctx, runner.CurrentChatID, delivery.RequestID)
 	if err != nil || !retired {
 		return

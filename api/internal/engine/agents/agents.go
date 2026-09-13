@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -68,6 +69,12 @@ type Agent interface {
 	SpawnPlan(ctx TemplateCtx, baseEnv []string, extra []InjectStep) (*SpawnPlan, error)
 
 	PromptSteps(resume bool) ([]InjectStep, error)
+
+	// PromptLeadingSigils is presentation.prompt_submit.leading_sigils: the
+	// characters this CLI reads as a control gesture rather than as text when
+	// one of them opens a message, and the escape that makes one text again.
+	// Empty chars for a provider that declares none.
+	PromptLeadingSigils() (chars []string, escape string)
 
 	ContextSteps(resuming bool) []InjectStep
 
@@ -299,6 +306,14 @@ func (a *agent) PromptSteps(resume bool) ([]InjectStep, error) {
 		return nil, errPromptSubmitUnsupported
 	}
 	return steps, nil
+}
+
+func (a *agent) PromptLeadingSigils() ([]string, string) {
+	ps := a.spec.Presentation.PromptSubmit
+	if ps == nil || ps.LeadingSigils == nil {
+		return nil, ""
+	}
+	return slices.Clone(ps.LeadingSigils.Chars), ps.LeadingSigils.Escape
 }
 
 func (a *agent) ContextSteps(resuming bool) []InjectStep {

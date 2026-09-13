@@ -94,6 +94,7 @@ func Register(
 	wsScoped.PUT("/chats/:id/permission-level", h.SetChatPermissionLevel)
 	wsScoped.GET("/chats/:id/telemetry", h.Telemetry)
 	wsScoped.GET("/chats/:id/slash-catalog", h.SlashCatalog)
+	wsScoped.GET("/chats/:id/pending-prompt", h.PendingPrompt)
 	wsScoped.POST("/chats/:id/switch", h.Switch)
 	wsScoped.POST("/chats/:id/resume", h.Resume)
 	wsScoped.POST("/chats/:id/compact", h.Compact)

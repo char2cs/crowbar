@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  getPendingPrompt,
   submitAgentPrompt,
   type AgentChatMessage,
   type AgentPromptResult,
@@ -89,6 +90,10 @@ export interface PromptQueueOptions {
   turnRevision: number
   terminalWaiting: boolean
   settledPrompts?: string[]
+  /** Deliveries the daemon retired with NO proof the provider took them. Unlike
+   *  `settledPrompts` these must never drop the item: its text is the last copy
+   *  of what the user typed. See the effect that consumes it. */
+  abandonedPrompts?: string[]
   /** The ledger's newest sequence, read at dispatch time to baseline evidence. */
   getBaseline: () => number
   /** Ask the ledger to re-read. Called after every dispatch outcome. */
@@ -127,6 +132,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
     turnRevision,
     terminalWaiting,
     settledPrompts,
+    abandonedPrompts,
     getBaseline,
     refreshMessages,
     onPromptSpawned,
@@ -284,11 +290,14 @@ export function usePromptQueue(options: PromptQueueOptions) {
     [updateQueue],
   )
 
-  // A delivery the daemon has RETIRED resolves its own queue item, and nothing
-  // else ever will: a provider built-in is handled inside the CLI, so no user
-  // message for it is coming to the ledger and `reconcile` can never fire on it.
-  // Without this the FIFO head sits in awaiting_turn and blocks the composer for
-  // the rest of the runner's life.
+  // A delivery the daemon has retired AND can vouch for resolves its own queue
+  // item, and nothing else ever will: a provider built-in is handled inside the
+  // CLI, so no user message for it is coming to the ledger and `reconcile` can
+  // never fire on it. Without this the FIFO head sits in awaiting_turn and
+  // blocks the composer for the rest of the runner's life.
+  //
+  // Dropping the item destroys its text, so this must stay limited to the
+  // vouched-for case — see the abandoned effect below.
   useEffect(() => {
     if (!settledPrompts?.length) return
     const settled = new Set(settledPrompts)
@@ -299,6 +308,73 @@ export function usePromptQueue(options: PromptQueueOptions) {
       return remaining.length === items.length ? items : remaining
     })
   }, [settledPrompts, updateQueue])
+
+  // A delivery the daemon retired with NOTHING to show for it — its timeout ran
+  // out and no turn ever appeared — releases the FIFO the same way, but MUST NOT
+  // take the text with it.
+  //
+  // REGRESSION, reported live against codex: "User's turns after some time of
+  // idle is lost, and does not record anywhere." This case used to be
+  // indistinguishable from the vouched-for one above, so the item was filtered
+  // out — erasing it from this queue and, on the same tick, from localStorage.
+  // At that moment the queued text is the ONLY copy left: the journal itself
+  // now stores the literal text too, but a settled record is a PROVEN-OVER
+  // outcome PendingPrompt deliberately never recovers (runner/pendingprompt.go)
+  // — the backend will not hand this text back again — and by definition
+  // nothing reached the ledger. The user's words were gone for good, with no
+  // error and no trace.
+  //
+  // So the row stays, carrying its text and the Retry/Edit affordances a failed
+  // row already renders. `failed` rather than `outcome_uncertain` deliberately:
+  // the daemon waited out its own delivery window and saw nothing, which is as
+  // close to "this did not happen" as Crowbar ever gets — and a failed row is
+  // the one the user can act on.
+  useEffect(() => {
+    if (!abandonedPrompts?.length) return
+    const abandoned = new Set(abandonedPrompts)
+    updateQueue((items) => {
+      let changed = false
+      const next = items.map((item) => {
+        if (!awaitingEvidence(item) || !abandoned.has(item.clientRequestId)) return item
+        changed = true
+        return {
+          ...item,
+          state: 'failed' as const,
+          error:
+            'The provider never picked this prompt up, and Crowbar saw no turn for it. Your text is kept here — retry or edit it.',
+        }
+      })
+      return changed ? next : items
+    })
+  }, [abandonedPrompts, updateQueue])
+
+  // Recovers a prompt this tab's local queue lost entirely (idle reload,
+  // crash, cleared storage) from the backend's own pending-prompt record.
+  // Runs once per chat becoming visible; only ever appends — never touches
+  // an existing item, never the busy barrier above.
+  useEffect(() => {
+    if (!visible) return
+    const controller = new AbortController()
+    void (async () => {
+      const pending = await getPendingPrompt(wsId, chatId, controller.signal).catch(() => null)
+      if (!pending || controller.signal.aborted) return
+      updateQueue((current) => {
+        if (current.some((item) => item.text.trim() === pending.text.trim())) return current
+        const recovered: PromptQueueItem = {
+          // The journal's own request id, NOT a freshly minted one: it is what
+          // keeps this row inside the at-most-once retry dedup and lets the
+          // daemon's settled/abandoned broadcasts ever match it.
+          clientRequestId: pending.requestId,
+          text: pending.text,
+          state: 'outcome_uncertain',
+          createdAt: new Date().toISOString(),
+          baselineSequence: getBaseline(),
+        }
+        return [...current, recovered]
+      })
+    })()
+    return () => controller.abort()
+  }, [visible, wsId, chatId, getBaseline, updateQueue])
 
   /** Evidence still outstanding, for the ledger's recovery walk. */
   const pendingEvidence = useCallback(() => queueRef.current.some(awaitingEvidence), [])
