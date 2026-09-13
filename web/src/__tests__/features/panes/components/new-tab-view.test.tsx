@@ -104,7 +104,10 @@ vi.mock('@/features/workspace/stores/workspace-context', () => ({
   useWorkspaceStore: () => fakeStore,
 }))
 
-vi.mock('@/features/agent/api/agent-api', () => ({ getPendingPrompt: vi.fn().mockResolvedValue(null), createChat }))
+vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
+  createChat,
+}))
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 
 const { setActiveTab, repos } = vi.hoisted(() => ({

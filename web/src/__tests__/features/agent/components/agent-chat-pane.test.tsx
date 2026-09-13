@@ -1703,7 +1703,10 @@ describe('AgentChatPane', () => {
       })
 
       // The NEWER request settles first with the current, correct answer.
-      fresh.resolve({ ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })), working: true })
+      fresh.resolve({
+        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
+        working: true,
+      })
       await act(async () => {
         await Promise.resolve()
         await Promise.resolve()

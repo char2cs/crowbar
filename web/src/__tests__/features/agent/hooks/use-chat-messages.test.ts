@@ -4,7 +4,10 @@ import type { AgentChatMessage } from '@/features/agent/api/agent-api'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
 
 const { listChatMessagesFn } = vi.hoisted(() => ({ listChatMessagesFn: vi.fn() }))
-vi.mock('@/features/agent/api/agent-api', () => ({ getPendingPrompt: vi.fn().mockResolvedValue(null), listChatMessages: listChatMessagesFn }))
+vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
+  listChatMessages: listChatMessagesFn,
+}))
 
 function message(sequence: number, overrides: Partial<AgentChatMessage> = {}): AgentChatMessage {
   return {
