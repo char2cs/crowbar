@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/char2cs/crowbar/api/internal"
+	"github.com/char2cs/crowbar/api/internal/core/ipc"
 	"github.com/char2cs/crowbar/api/internal/core/metadata"
 	"github.com/char2cs/crowbar/api/internal/core/shellenv"
 )
@@ -71,7 +72,11 @@ func runServe(
 	}
 	defer container.Close()
 
-	go drainHookSpoolLoop(ctx, host)
+	hookSpoolClient, err := ipc.NewClient(host)
+	if err != nil {
+		return fmt.Errorf("failed to build hook spool client: %w", err)
+	}
+	go drainHookSpoolLoop(ctx, hookSpoolClient)
 	fmt.Printf("crowbar listening on %s\n", host)
 	return container.Run(ctx)
 }

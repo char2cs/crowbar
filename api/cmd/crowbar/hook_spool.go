@@ -100,13 +100,9 @@ func syncHookSpoolDir(dir string) error {
 
 func deliverHookEnvelope(
 	ctx context.Context,
-	host string,
+	client *ipc.Client,
 	envelope hookEnvelope,
 ) ([]byte, error) {
-	client, err := ipc.NewClient(host)
-	if err != nil {
-		return nil, err
-	}
 	status, body, err := client.PostJSON(
 		ctx,
 		scopedAgentPath(envelope.Project, envelope.Repo, envelope.Workspace, "/hooks"),
@@ -148,14 +144,14 @@ func acquireHookDrain(dir string) (release func(), acquired bool, err error) {
 	return acquireHookDrain(dir)
 }
 
-func drainHookSpool(ctx context.Context, host string) error {
-	_, err := drainHookSpoolFor(ctx, host, "")
+func drainHookSpool(ctx context.Context, client *ipc.Client) error {
+	_, err := drainHookSpoolFor(ctx, client, "")
 	return err
 }
 
 func drainHookSpoolFor(
 	ctx context.Context,
-	host string,
+	client *ipc.Client,
 	deliveryID string,
 ) (mine []byte, err error) {
 	dir := hookSpoolDir()
@@ -176,7 +172,7 @@ func drainHookSpoolFor(
 		if err := os.Chtimes(filepath.Join(dir, hookDrainLockName), time.Now(), time.Now()); err != nil {
 			return mine, fmt.Errorf("hook spool: renew drain lease: %w", err)
 		}
-		envelope, body, deliverErr := deliverSpooled(ctx, host, dir, name)
+		envelope, body, deliverErr := deliverSpooled(ctx, client, dir, name)
 		if deliverErr != nil {
 			movedTo, moveErr := recordFailedAttempt(dir, name)
 			if moveErr != nil {
@@ -258,7 +254,8 @@ func spooledNames(entries []os.DirEntry) []string {
 
 func deliverSpooled(
 	ctx context.Context,
-	host, dir, name string,
+	client *ipc.Client,
+	dir, name string,
 ) (envelope hookEnvelope, body []byte, err error) {
 	path := filepath.Join(dir, name)
 	data, err := os.ReadFile(path) //nolint:gosec // listed from Crowbar-owned spool
@@ -271,7 +268,7 @@ func deliverSpooled(
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return hookEnvelope{}, nil, fmt.Errorf("hook spool: decode %s: %w", name, err)
 	}
-	body, err = deliverHookEnvelope(ctx, host, envelope)
+	body, err = deliverHookEnvelope(ctx, client, envelope)
 	if err != nil {
 		// The envelope (not a zero value) travels back on failure too: the
 		// caller needs its DeliveryID to tell "my own delivery just failed"
@@ -289,11 +286,19 @@ func deliverSpooled(
 	return envelope, body, nil
 }
 
-func drainHookSpoolLoop(ctx context.Context, host string) {
+// drainHookSpoolLoop runs for the whole life of the daemon, so client is built
+// ONCE by the caller and reused for every tick: deliverHookEnvelope used to
+// build a fresh *ipc.Client — and so a fresh, never-expiring http.Transport —
+// per delivery attempt. Ticking every second against a spool that can hold
+// thousands of entries (see maxDeliveryAttempts) leaked one goroutine and one
+// socket per attempt, forever; a live daemon was found with 2480 goroutines
+// stuck exactly this way, killed by its own watchdog. One shared client keeps
+// (and reuses) a single pooled connection for the daemon's entire lifetime.
+func drainHookSpoolLoop(ctx context.Context, client *ipc.Client) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if err := drainHookSpool(ctx, host); err != nil && ctx.Err() == nil {
+		if err := drainHookSpool(ctx, client); err != nil && ctx.Err() == nil {
 			slog.DebugContext(ctx, "crowbar hook spool: delivery deferred", "err", err)
 		}
 		select {
