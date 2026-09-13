@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
 
 // shortSocketDir keeps a test socket under the ~104-byte sun_path limit that
@@ -117,7 +119,9 @@ func TestRunHook_Non2xxRemainsSpooledAndRetriesSameDeliveryID(t *testing.T) {
 	status = http.StatusAccepted
 	firstID := deliveries[0]
 	mu.Unlock()
-	require.NoError(t, drainHookSpool(context.Background(), host))
+	client, err := ipc.NewClient(host)
+	require.NoError(t, err)
+	require.NoError(t, drainHookSpool(context.Background(), client))
 	files, err = filepath.Glob(filepath.Join(hookSpoolDir(), "*.json"))
 	require.NoError(t, err)
 	require.Empty(t, files)

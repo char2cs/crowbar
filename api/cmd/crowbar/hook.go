@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
 
 const maxHookPayloadBytes = 64 << 20
@@ -125,10 +127,14 @@ func runHook(run hookRun) error {
 	if _, err := persistHookEnvelope(envelope); err != nil {
 		return err
 	}
+	client, err := ipc.NewClient(run.Host)
+	if err != nil {
+		return err
+	}
 	// A failed or non-2xx delivery leaves the fsynced envelope in the spool.
 	// The daemon's loop and every later hook retry the same delivery id in FIFO
 	// order; nothing is discarded merely because this short-lived callback exits.
-	ack, err := drainHookSpoolFor(context.Background(), run.Host, envelope.DeliveryID)
+	ack, err := drainHookSpoolFor(context.Background(), client, envelope.DeliveryID)
 	if err != nil {
 		return err
 	}
