@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Real registry, real workspace stores — the whole point of this resolver is
 // which store actually holds a chat. Only the persistence side effects those
@@ -12,12 +12,21 @@ vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
   clearQueuedWorkspaceSessionSave: vi.fn(),
 }))
 
-import { isKnownChatId, resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
+import {
+  isKnownChatId,
+  resolveChatWorkspaceId,
+  resolveOnscreenPaneForWorkspace,
+} from '@/features/panes/lib/pane-chat-workspace'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
 const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentChat => ({
@@ -112,5 +121,65 @@ describe('isKnownChatId', () => {
     expect(isKnownChatId('c1')).toBe(true)
     expect(isKnownChatId('ws-a')).toBe(false)
     expect(isKnownChatId('never-existed')).toBe(false)
+  })
+})
+
+/**
+ * `resolveOnscreenPaneForWorkspace` — live-reported: "I open a file on a
+ * given chat, and the file gets open in another chat from the same group."
+ * Two chats sharing a workspace can sit side by side on screen while
+ * `activePaneId` (a single window-level value, only updated by a literal
+ * click INSIDE a pane) still names whichever one was last actually clicked.
+ */
+describe('resolveOnscreenPaneForWorkspace', () => {
+  const paneActions = () => windowPaneStore.getState().paneActions
+
+  beforeEach(() => {
+    resetWindowPaneStoreForTests()
+  })
+
+  it('returns null when the active pane already belongs to the target workspace', () => {
+    seed('ws-a', [chat('c1', 'ws-a')])
+    paneActions().setPaneChat(ROOT_PANE_ID, 'c1', null)
+    paneActions().setActivePane(ROOT_PANE_ID)
+
+    expect(resolveOnscreenPaneForWorkspace('ws-a')).toBeNull()
+  })
+
+  it('names the on-screen sibling pane that belongs to the target workspace', () => {
+    seed('ws-a', [chat('c1', 'ws-a')])
+    seed('ws-b', [chat('c2', 'ws-b')])
+    paneActions().setPaneChat(ROOT_PANE_ID, 'c1', null)
+    const secondPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal')
+    if (!secondPaneId) throw new Error('splitPane did not return a pane id')
+    paneActions().setPaneChat(secondPaneId, 'c2', null)
+    // The user's last literal click landed in the ws-a pane...
+    paneActions().setActivePane(ROOT_PANE_ID)
+
+    // ...but the file explorer is showing ws-b: target the OTHER on-screen pane.
+    expect(resolveOnscreenPaneForWorkspace('ws-b')).toBe(secondPaneId)
+  })
+
+  it('returns null when no on-screen pane belongs to the target workspace', () => {
+    seed('ws-a', [chat('c1', 'ws-a')])
+    paneActions().setPaneChat(ROOT_PANE_ID, 'c1', null)
+    paneActions().setActivePane(ROOT_PANE_ID)
+
+    expect(resolveOnscreenPaneForWorkspace('ws-nobody-showing')).toBeNull()
+  })
+
+  it('never targets a pane sitting in a PARKED (off-screen) view', () => {
+    seed('ws-a', [chat('c1', 'ws-a')])
+    seed('ws-b', [chat('c2', 'ws-b')])
+    paneActions().setPaneChat(ROOT_PANE_ID, 'c2', null)
+    // addPane() takes the screen with a fresh empty view, parking the ws-b
+    // pane whole — setActivePane must never be asked to reveal it just
+    // because a file click happened to match its workspace.
+    const newPaneId = paneActions().addPane()
+    if (!newPaneId) throw new Error('addPane did not return a pane id')
+    paneActions().setPaneChat(newPaneId, 'c1', null)
+    paneActions().setActivePane(newPaneId)
+
+    expect(resolveOnscreenPaneForWorkspace('ws-b')).toBeNull()
   })
 })
