@@ -279,6 +279,35 @@ func (t *Turns) AbandonMessage(ctx context.Context, chatID string) (bool, error)
 	return true, nil
 }
 
+// AbandonMessageInferredInterrupt is AbandonMessage, plus a durable record of
+// WHY: the caller is termwait's message-quiet fuse (evaluate.go's
+// abandonedMessage), the one place a hooks/PTY provider's silent, hookless
+// abort — an ESC/Ctrl+C the CLI reports to nobody — is ever caught at all.
+// Nothing on the wire announces that interruption the way a Stop click or a
+// compaction does, so without this the turn closing here would be an
+// invisible timeout rather than a fact the transcript can show.
+//
+// Interrupt/ResolveInterruption run BEFORE the abandon below, same ordering
+// RecordStop uses: the ledger's turn is still open when the fact is
+// recorded, so the interruption anchors to the turn it actually interrupted.
+// Opened and resolved in the same call, back to back, same as RecordStop —
+// there is no later event to close it on.
+func (t *Turns) AbandonMessageInferredInterrupt(ctx context.Context, chatID string) (bool, error) {
+	now := time.Now()
+	id := "interrupt-" + fallbackID()
+	if err := t.activity.Interrupt(
+		ctx, chatID, id, engineagents.InterruptInferred, "", now,
+	); err != nil {
+		return false, fmt.Errorf("agent: abandon message: interrupt: %w", err)
+	}
+	if err := t.activity.ResolveInterruption(
+		ctx, chatID, id, engineagents.InterruptInferred, "", now,
+	); err != nil {
+		return false, fmt.Errorf("agent: abandon message: resolve interruption: %w", err)
+	}
+	return t.AbandonMessage(ctx, chatID)
+}
+
 // AbandonMessageForRunner salvages runner's own already-streamed-but-not-yet-
 // final message before its turn is torn down by something other than the
 // quiet-screen sweep AbandonMessage serves — a user Stop or a provider Switch

@@ -210,7 +210,7 @@ func (d *detector) abandonedMessage(ctx context.Context, runner agents.Runner) b
 			return false
 		}
 	}
-	closed, err := d.deps.Messages.AbandonMessage(ctx, runner.CurrentChatID)
+	closed, err := d.deps.Messages.AbandonMessageInferredInterrupt(ctx, runner.CurrentChatID)
 	if err != nil {
 		return false
 	}
