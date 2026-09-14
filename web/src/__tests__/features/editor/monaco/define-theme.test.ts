@@ -56,6 +56,28 @@ describe('buildMonacoThemeData', () => {
     expect(colors['editorBracketHighlight.unexpectedBracket.foreground']).toBe(UI.error)
   })
 
+  it('makes the current-line highlight a subtle wash, not a solid block', () => {
+    // Live-reported: the selected-line background was "really weird...
+    // shouldn't be that much grey" — `ui.border` is an opaque hairline-border
+    // color, so using it at full strength painted a solid grey bar.
+    const { colors } = buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI })
+    const lineHighlight = colors['editor.lineHighlightBackground']
+    expect(lineHighlight.slice(0, 7)).toBe(UI.border.slice(0, 7))
+    expect(lineHighlight).toHaveLength(9) // #rrggbb + alpha byte
+    expect(lineHighlight.slice(7)).not.toBe('ff')
+  })
+
+  it('gives sticky scroll its own opaque background so scrolled text cannot show through it', () => {
+    // Live-reported: a function's sticky header sometimes showed the text
+    // scrolled underneath leaking through it. Root cause: Monaco defaults
+    // editorStickyScroll(Gutter).background to editor.background, which this
+    // theme deliberately sets transparent for the CSS pane background — sticky
+    // scroll floats OVER scrolled content, so it needs its own opaque color.
+    const { colors } = buildMonacoThemeData({ isDark: true, syntax: SYNTAX, ui: UI })
+    expect(colors['editorStickyScroll.background']).toBe(UI.widgetBackground)
+    expect(colors['editorStickyScrollGutter.background']).toBe(UI.widgetBackground)
+  })
+
   it('emits a rule for each semantic legend type from the syntax palette', () => {
     const syntax = {
       keyword: '#d97757',

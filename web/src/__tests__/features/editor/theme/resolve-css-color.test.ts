@@ -6,7 +6,23 @@ import {
   readSyntaxPalette,
   readTerminalPalette,
   resolveCssVar,
+  withAlpha,
 } from '@/features/editor/theme/resolve-css-color'
+
+describe('withAlpha', () => {
+  it('appends an alpha byte to an opaque hex', () => {
+    expect(withAlpha('#2a2a2a', 0.5)).toBe('#2a2a2a80')
+  })
+
+  it('replaces an existing alpha byte rather than stacking it', () => {
+    expect(withAlpha('#33445566', 0.1)).toBe('#3344551a')
+  })
+
+  it('clamps to a fully transparent or fully opaque byte at the extremes', () => {
+    expect(withAlpha('#2a2a2a', 0)).toBe('#2a2a2a00')
+    expect(withAlpha('#2a2a2a', 1)).toBe('#2a2a2aff')
+  })
+})
 
 describe('cssColorToHex', () => {
   it('passes through and expands hex', () => {
