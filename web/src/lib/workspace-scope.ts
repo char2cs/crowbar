@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react'
+
 // §3/§7: the hierarchical scope (owning project+repo) of each workspace, keyed
 // by wsId. Lives in this dependency-free module — NOT in workspace-store-registry
 // — so the lightweight files/git/lsp/terminal URL builders can resolve it without
@@ -162,4 +164,28 @@ export function getWorkspaceScope(wsId?: string): WorkspaceScope | null {
  */
 export function getOwningChatId(wsId?: string): string | null {
   return getWorkspaceScope(wsId)?.owningChatId || null
+}
+
+/**
+ * Whether `wsId`'s project/repo scope has been recorded yet — `workspaceBase`
+ * (and anything built on it, e.g. `repoChatsBaseForWorkspace`) throws without
+ * it. WorkspaceHost can force-mount a workspace's effects (a pane/Recents-
+ * retained workspace nobody has navigated to yet) before the route or the
+ * sidebar's own repo fetch has recorded its scope — most reliably right after
+ * a cold boot, when which of the two finishes first is a genuine race. This
+ * makes readiness a piece of React state a caller can wait on, and re-fire
+ * once it resolves, instead of calling straight into the throw.
+ *
+ * For a caller that only needs the OWNING CHAT specifically (chat-scoped
+ * routes — files/git/lsp/terminal), use `getOwningChatId` with this same
+ * `subscribeToWorkspaceScope` wiring instead (see `useOwningChatId`,
+ * use-workspace-effects.ts) — scope can be recorded (route-derived, no chat
+ * yet) well before an owning chat is, so the two readiness questions are
+ * genuinely different.
+ */
+export function useWorkspaceScopeReady(wsId: string): boolean {
+  return useSyncExternalStore(
+    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
+    () => getWorkspaceScope(wsId) !== null,
+  )
 }

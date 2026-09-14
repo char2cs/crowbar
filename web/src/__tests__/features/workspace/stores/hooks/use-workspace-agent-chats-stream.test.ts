@@ -293,11 +293,62 @@ describe('useWorkspaceAgentChatsStream', () => {
     )
     expect((subscribe.mock.calls[0] as unknown as [string])[0]).not.toContain('/workspaces/')
 
+    // Its own scope, not 'w1''s: the hook now waits on `useWorkspaceScopeReady`
+    // (workspace-scope.ts), which is keyed per wsId.
+    setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'ws-home' })
     renderHook(() => useWorkspaceAgentChatsStream('ws-home'))
     expect(subscribe).toHaveBeenLastCalledWith(
       '/v0/projects/p1/home/chats/ws',
       expect.any(Function),
     )
+  })
+
+  // Live-reported: WorkspaceHost force-mounts a workspace's effects the
+  // instant pane/Recents state names it — regardless of `active`, and
+  // regardless of whether the sidebar's own repo fetch has recorded that
+  // workspace's scope yet (a genuine race, most reproducible right after a
+  // cold boot). This hook used to call `chatBase(wsId)` — agent-api.ts's
+  // `repoChatsBaseForWorkspace`, which falls through to `workspaceBase` and
+  // throws for an entirely unrecorded scope — completely unguarded, tripping
+  // the ErrorBoundary with "no project/repo scope recorded for workspace …"
+  // for whichever background workspace lost that race. `chatBaseFn` stays
+  // mocked (this file's own convention — see its own doc), so these assert
+  // the hook's OWN gating rather than the real URL shape: with no scope
+  // recorded, `subscribe`/`listChatsFn`/`listProvidersFn` must never fire.
+  describe('scope readiness', () => {
+    it('does not subscribe or fetch when the workspace scope is not yet recorded', async () => {
+      __resetWorkspaceScopesForTest()
+
+      expect(() => renderHook(() => useWorkspaceAgentChatsStream('ws-unrecorded'))).not.toThrow()
+      await flush()
+
+      expect(subscribe).not.toHaveBeenCalled()
+      expect(listChatsFn).not.toHaveBeenCalled()
+      expect(listProvidersFn).not.toHaveBeenCalled()
+
+      // Restore for later tests in this file.
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1' })
+    })
+
+    it('subscribes and seeds once the scope arrives after mounting with none recorded', async () => {
+      __resetWorkspaceScopesForTest()
+
+      renderHook(() => useWorkspaceAgentChatsStream('ws-late'))
+      await flush()
+      expect(subscribe).not.toHaveBeenCalled()
+
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-late' })
+      await flush()
+
+      expect(listChatsFn).toHaveBeenCalledWith('ws-late')
+      expect(subscribe).toHaveBeenCalledWith(
+        '/v0/projects/p1/repos/r1/chats/ws',
+        expect.any(Function),
+      )
+
+      // Restore for later tests in this file.
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1' })
+    })
   })
 
   it('seeds chats + providers on mount and populates the slice', async () => {
@@ -369,6 +420,13 @@ describe('useWorkspaceAgentChatsStream', () => {
     })
 
     it('re-arms the announcement once the daemon answers again', async () => {
+      // w2/w3 stand in for "some other workspace mount" here — the toast dedup
+      // this test exercises is module-level, not scope-specific — so each just
+      // needs ITS OWN recorded scope for `useWorkspaceScopeReady` to let the
+      // effect run at all.
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w2' })
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w3' })
+
       listProvidersFn.mockRejectedValue(new Error('daemon is down'))
       const first = renderHook(() => useWorkspaceAgentChatsStream('w1'))
       await flush()
@@ -1665,9 +1723,15 @@ describe('useWorkspaceAgentChatsStream', () => {
       expect(useFolderSignalStore.getState().generations.r2).toBeUndefined()
     })
 
-    it('bumps nothing when the workspace has no recorded scope to name a repo', async () => {
-      __resetWorkspaceScopesForTest()
-      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    // A workspace whose scope is genuinely unrecorded never gets this far any
+    // more — `useWorkspaceScopeReady` (workspace-scope.ts) now defers the
+    // whole effect, subscription included, until scope exists (see the
+    // top-level 'does not subscribe...' tests below). The real case left for
+    // `bumpTreeSignal`'s own optional-chaining to guard is a scope that DOES
+    // exist but names no repo — a project-home workspace.
+    it('bumps nothing for a home workspace, whose recorded scope has no repo to name', async () => {
+      setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'ws-home' })
+      renderHook(() => useWorkspaceAgentChatsStream('ws-home'))
       await flush()
 
       captureCb()(chatFrame('created'))
@@ -1681,6 +1745,7 @@ describe('useWorkspaceAgentChatsStream', () => {
     const unsubW1 = vi.fn()
     const unsubW2 = vi.fn()
     subscribe.mockReturnValueOnce(unsubW1).mockReturnValueOnce(unsubW2)
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w2' })
 
     const { rerender } = renderHook(({ w }: { w: string }) => useWorkspaceAgentChatsStream(w), {
       initialProps: { w: 'w1' },

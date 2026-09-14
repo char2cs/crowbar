@@ -16,7 +16,7 @@ import {
   noteChatListRead,
 } from '@/features/agent/lib/chat-read-order'
 import { createStreamingMessageBatcher } from '@/features/workspace/stores/hooks/lib/streaming-message-batcher'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
+import { getWorkspaceScope, useWorkspaceScopeReady } from '@/lib/workspace-scope'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -257,7 +257,20 @@ interface AgentStreamEvent {
  *     re-resolve (a chat nobody is on renders dormant + Resume).
  */
 export function useWorkspaceAgentChatsStream(wsId: string): void {
+  // `chatBase(wsId)` below (agent-api.ts) is `repoChatsBaseForWorkspace`,
+  // which falls through to `workspaceBase` — and throws — the instant
+  // project/repo scope is missing entirely, not just an owning chat id. This
+  // hook runs for EVERY mounted workspace regardless of `active` (see its own
+  // doc above: three surfaces need a hidden workspace's chats live), so it is
+  // exactly the effect a force-mounted, never-navigated-to workspace hits
+  // first — live-reported as an ErrorBoundary trip ("no project/repo scope
+  // recorded for workspace …") right after a cold boot, whenever pane/Recents
+  // state force-mounts a workspace before the sidebar's own repo fetch has
+  // recorded its scope. Wait rather than crash; see useWorkspaceScopeReady's
+  // own doc (workspace-scope.ts).
+  const scopeReady = useWorkspaceScopeReady(wsId)
   useEffect(() => {
+    if (!scopeReady) return
     let cancelled = false
 
     const stateOf = () => getOrCreateWorkspaceStore(wsId).getState()
@@ -808,5 +821,5 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       for (const timer of compactionTimers.values()) clearTimeout(timer)
       compactionTimers.clear()
     }
-  }, [wsId])
+  }, [wsId, scopeReady])
 }
