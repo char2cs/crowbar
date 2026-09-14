@@ -107,11 +107,12 @@ type hookRun struct {
 // process STAYS ALIVE. A vendor CLI holds its permission gate open for exactly as
 // long as its hook runs, so exiting is what lets its own dialog through.
 //
-// A DAEMON THAT CANNOT BE REACHED NEVER BLOCKS. The delivery error returns
-// immediately, nothing is printed, and the exit is 0 — so the CLI's dialog
-// reaches the human in milliseconds. That is strictly better than waiting out a
-// budget on a daemon that will never answer, and its worst case is exactly the
-// behaviour of a machine with no Crowbar on it.
+// A DAEMON THAT CANNOT BE REACHED NEVER BLOCKS. A delivery error returns
+// after a few quick, bounded retries (deliverHookEnvelopeWithRetry) — nothing
+// is printed beyond stderr, and the exit is 0 — so the CLI's dialog reaches
+// the human in at most a couple of seconds. That is strictly better than
+// waiting out a budget on a daemon that will never answer, and its worst case
+// is exactly the behaviour of a machine with no Crowbar on it.
 func runHook(run hookRun) error {
 	envelope := hookEnvelope{
 		DeliveryID: uuid.NewString(),
@@ -124,17 +125,11 @@ func runHook(run hookRun) error {
 		Workspace:  run.Workspace,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	if _, err := persistHookEnvelope(envelope); err != nil {
-		return err
-	}
 	client, err := ipc.NewClient(run.Host)
 	if err != nil {
 		return err
 	}
-	// A failed or non-2xx delivery leaves the fsynced envelope in the spool.
-	// The daemon's loop and every later hook retry the same delivery id in FIFO
-	// order; nothing is discarded merely because this short-lived callback exits.
-	ack, err := drainHookSpoolFor(context.Background(), client, envelope.DeliveryID)
+	ack, err := deliverHookEnvelopeWithRetry(context.Background(), client, envelope)
 	if err != nil {
 		return err
 	}
