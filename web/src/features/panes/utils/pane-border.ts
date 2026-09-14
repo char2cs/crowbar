@@ -44,10 +44,8 @@ export function buildPaneContentStyle(
   const we = (edge: Edge) => isWindowEdge(edge, position, sidebarSide, sidebarOpen)
   // Constant width so toggling never shifts layout. Neutral --border at rest
   // (Athas's glass-island keeps the same border/70 whether or not it's the
-  // focused pane), --secondary only for the active-pane accent. 2px, not
-  // 1px — reported live as too thin to read as a real boundary between
-  // chats/panes.
-  const BORDER = showActiveBorder ? '2px solid var(--secondary)' : '2px solid var(--border)'
+  // focused pane), --secondary only for the active-pane accent.
+  const BORDER = showActiveBorder ? '1px solid var(--secondary)' : '1px solid var(--border)'
   const NONE = 'none'
   const R = 'var(--radius-lg)'
   const ZERO = '0'
@@ -92,65 +90,42 @@ export function buildPaneContentStyle(
 }
 
 /**
- * The IDE shell's own border/rounding, reusing the SAME per-corner values
- * `buildPaneContentStyle` already computed for the shared box it sits
- * inside — rather than a caller re-deriving its own square-or-rounded call
- * for the corners it shares with that box, which is how a rounded interior
- * pane ended up with a sharp, un-rounded IDE-shell corner sitting inside it
- * (the IDE shell only ever reasoned about the ONE edge facing the chat).
+ * The IDE shell's own border. Only the FACING edge — the one genuine
+ * internal seam, between this ONE pane's own chat/editor halves — ever
+ * draws one. Every other edge draws NONE: the shell extends to the pane's
+ * own full width or height on those sides (side-by-side: full height, so
+ * its top/bottom are the exact same physical line as the shared box's own
+ * top/bottom; stacked: full width, same story for left/right), so a border
+ * there is never a second, different boundary — it is the SAME line the
+ * shared box's own border already draws, just inches inside it. Drawing it
+ * twice read as a doubled/thicker line running the view's entire non-facing
+ * length, worst right at the window's own real top edge: the shared box's
+ * own top is NEVER a window edge (see `isWindowEdge`'s own `case 'top'`),
+ * so that copy was ALWAYS visible, on every pane, regardless of position.
+ * Reported live, in both orientations: a stray top border on a side-by-side
+ * shell, and a stray side border on a stacked one.
  *
- * `facingChatEdge` is the one edge that's genuinely internal to the shared
- * box (never a window edge, whatever `outer` says about it) — its own two
- * corners are always rounded and bordered, exactly as before. The other
- * three edges' ROUNDING, and the two corners that don't touch
- * `facingChatEdge`, copy `outer` verbatim: if the shared box's own corner
- * there is square (a real window edge) or rounded (interior), the IDE
- * shell's matching corner reads the same way, since visually the two are
- * the same corner.
- *
- * Border COLOR is never copied, though — the IDE shell stays neutral
- * --border on every edge, whatever `outer` says, and only whether a border
- * shows there at all (vs. `none`, a real window edge) comes from `outer`.
- * Reported live: copying `outer`'s color verbatim onto the shell's
- * non-facing edges lit its own side border up alongside the shared box's
- * real perimeter, reading as a second, illuminated line rather than one
- * clean boundary. Only the CHAT's own boundary (`outer`'s real perimeter)
- * is allowed to carry the active-pane --secondary accent — the IDE shell is
- * never the surface that marks "which pane has focus," so it stays one
- * color always.
+ * NEVER rounded, on any corner — the shell reads as a flat-edged card
+ * regardless of whether the shared box it sits inside happens to be
+ * rounded there (no `outer` param needed for that reason: nothing here
+ * depends on the shared box's own computed style any more). Squaring every
+ * one of its own corners this way also means there is never a curve to
+ * double against the shared box's own (a rounded outer corner and a square
+ * inner one just nest cleanly).
  */
-export function buildInnerViewStyle(
-  outer: CSSProperties,
-  facingChatEdge: 'left' | 'right' | 'top',
-): CSSProperties {
-  const BORDER = '2px solid var(--border)'
-  const R = 'var(--radius-lg)'
-  // Whatever `outer` drew there (any width/color, or 'none' for a real
-  // window edge) — this edge shows a border at all, or it doesn't; if it
-  // does, it's always the neutral color, never `outer`'s active accent.
-  const neutralize = (edge: CSSProperties['borderTop']) => (edge === 'none' ? 'none' : BORDER)
-  const style: CSSProperties = {
-    borderTop: neutralize(outer.borderTop),
-    borderLeft: neutralize(outer.borderLeft),
-    borderRight: neutralize(outer.borderRight),
-    borderBottom: neutralize(outer.borderBottom),
-    borderTopLeftRadius: outer.borderTopLeftRadius,
-    borderTopRightRadius: outer.borderTopRightRadius,
-    borderBottomLeftRadius: outer.borderBottomLeftRadius,
-    borderBottomRightRadius: outer.borderBottomRightRadius,
+export function buildInnerViewStyle(facingChatEdge: 'left' | 'right' | 'top'): CSSProperties {
+  const BORDER = '1px solid var(--border)'
+  const ZERO = '0'
+  const NONE = 'none'
+
+  return {
+    borderTop: facingChatEdge === 'top' ? BORDER : NONE,
+    borderLeft: facingChatEdge === 'left' ? BORDER : NONE,
+    borderRight: facingChatEdge === 'right' ? BORDER : NONE,
+    borderBottom: NONE,
+    borderTopLeftRadius: ZERO,
+    borderTopRightRadius: ZERO,
+    borderBottomLeftRadius: ZERO,
+    borderBottomRightRadius: ZERO,
   }
-  if (facingChatEdge === 'left') {
-    style.borderLeft = BORDER
-    style.borderTopLeftRadius = R
-    style.borderBottomLeftRadius = R
-  } else if (facingChatEdge === 'right') {
-    style.borderRight = BORDER
-    style.borderTopRightRadius = R
-    style.borderBottomRightRadius = R
-  } else {
-    style.borderTop = BORDER
-    style.borderTopLeftRadius = R
-    style.borderTopRightRadius = R
-  }
-  return style
 }

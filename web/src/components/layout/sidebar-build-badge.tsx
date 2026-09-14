@@ -147,25 +147,68 @@ function DaySky() {
  * Full-bleed decorative background for the build channel — absolutely
  * positioned behind the traffic-light reserve, the badge text, and the
  * back/forward/panel-toggle cluster, none of which it changes.
+ *
+ * `align` is the SAME fact `SidebarBuildBadgeLabel` already takes — which
+ * edge of the header the badge TEXT sits against, i.e. the true outer
+ * (window-border) edge of this bar. The decorative art (stars/clouds/dev
+ * traces) is authored right-biased in its own 256-wide viewBox, and the
+ * fade below is authored fading OUT to the right — both correct only for
+ * `align="end"` (sidebar on the right, text/window-edge on this bar's own
+ * right). For `align="start"` (sidebar on the left, text/window-edge on
+ * this bar's own LEFT — the traffic-light side), both are mirrored via a
+ * single `scaleX(-1)`: reported live as the graphics landing BEHIND the
+ * back/forward/panel-toggle cluster instead of hugging the window's real
+ * edge, because this band never accounted for which side that cluster
+ * actually ended up on.
  */
-export function SidebarBuildBadgeBand({ className }: { className?: string }) {
+export function SidebarBuildBadgeBand({
+  className,
+  align = 'end',
+}: {
+  className?: string
+  align?: 'start' | 'end'
+}) {
   const info = useResolvedBuildInfo()
   const isDark = useIsDarkMode()
   if (!info || info.channel === 'release') return null
 
+  // linear-gradient(to X, ...) is a PHYSICAL keyword (left/right), not a
+  // logical one — 'start'/'end' would silently fail to parse. `align="end"`
+  // is this app's own left-to-right convention for "the text/window-edge
+  // side is on the right" (see the caller, sidebar-project-header.tsx).
+  const fadeToward = align === 'end' ? 'right' : 'left'
+
   return (
-    <div
-      className={className}
-      style={{ background: bandBackground(info.channel, isDark) }}
-      aria-hidden="true"
-    >
+    <div className={className} aria-hidden="true">
+      <div
+        className="absolute inset-0"
+        style={{
+          background: bandBackground(info.channel, isDark),
+          // Fades OUT toward the button cluster's side, staying fully
+          // opaque at the badge-text/window-edge side — this is the band's
+          // own gradient/pattern fill, not just the decorative art above
+          // it. `linear-gradient(to X, ...)` anchors the LAST color (black,
+          // opaque) at edge X and the FIRST (transparent) at the opposite
+          // edge — X must be the text side (`fadeToward`), not its opposite
+          // (caught live: had these swapped, which faded out the text side
+          // and left the button side solid instead).
+          maskImage: `linear-gradient(to ${fadeToward}, transparent, black 65%)`,
+          WebkitMaskImage: `linear-gradient(to ${fadeToward}, transparent, black 65%)`,
+        }}
+      />
       {info.channel === 'dev' && (
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-0 overflow-hidden"
+          style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
+        >
           <DevTraces />
         </div>
       )}
       {info.channel === 'nightly' && (
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-0 overflow-hidden"
+          style={align === 'start' ? { transform: 'scaleX(-1)' } : undefined}
+        >
           {isDark ? <NightSky /> : <DaySky />}
         </div>
       )}

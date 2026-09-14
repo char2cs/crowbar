@@ -9,12 +9,16 @@ vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
   clearQueuedWorkspaceSessionSave: vi.fn(),
 }))
 
-import { useChatWorkspaceId } from '@/features/panes/hooks/use-chat-workspace-id'
+import { useChatWorkspaceId, useViewWorkspaceIds } from '@/features/panes/hooks/use-chat-workspace-id'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
   getOrCreateWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
 const chat = (id: string, wsId: string): AgentChat => ({
@@ -32,6 +36,7 @@ const chat = (id: string, wsId: string): AgentChat => ({
 afterEach(() => {
   cleanup()
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
+  resetWindowPaneStoreForTests()
 })
 
 /**
@@ -102,5 +107,88 @@ describe('useChatWorkspaceId', () => {
     rerender({ hint: 'ws-hinted' })
 
     expect(result.current).toBe('ws-real')
+  })
+})
+
+/**
+ * `WorkspaceHost`'s new "in a view" retention test (keep-alive-policy.ts —
+ * `workspaceKeepAliveMinutes` and its time-window policy are gone). Real
+ * workspace stores and the real `windowPaneStore`, same as
+ * `recents-for-project.test.ts` — the whole point is exercising the same
+ * `deriveRecentsEntries` derivation Recents itself renders from.
+ */
+describe('useViewWorkspaceIds', () => {
+  function seedLivePane(chatId: string): string {
+    const { paneActions, activePaneId } = windowPaneStore.getState()
+    const target = paneActions.getPaneById(activePaneId)
+    const paneId = target?.chatId == null ? activePaneId : paneActions.addPane()!
+    paneActions.setPaneChat(paneId, chatId, null)
+    return paneId
+  }
+
+  it('is empty with no active workspaces at all', () => {
+    const { result } = renderHook(() => useViewWorkspaceIds())
+    expect(result.current).toEqual([])
+  })
+
+  it("includes a chat's owning workspace once it is live in a pane", () => {
+    act(() => {
+      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
+    })
+    const { result, rerender } = renderHook(() => useViewWorkspaceIds())
+    expect(result.current).toEqual([])
+
+    act(() => {
+      seedLivePane('c1')
+    })
+    rerender()
+
+    expect(result.current).toEqual(['ws-a'])
+  })
+
+  it('includes the owner of a chat that is merely "working", with no pane', () => {
+    act(() => {
+      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
+    })
+    const { result, rerender } = renderHook(() => useViewWorkspaceIds())
+
+    act(() => {
+      getOrCreateWorkspaceStore('ws-a').getState().setAgentChatWorking('c1', true)
+    })
+    rerender()
+
+    expect(result.current).toEqual(['ws-a'])
+  })
+
+  it('drops a workspace the instant its last chat leaves every Recents entry (close, not a grace period)', () => {
+    act(() => {
+      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
+      seedLivePane('c1')
+    })
+    const { result, rerender } = renderHook(() => useViewWorkspaceIds())
+    expect(result.current).toEqual(['ws-a'])
+
+    // Close the view: the pane loses its chat and closePane strips every
+    // trace from dormantArrangements (see pane-slice.ts's closePane).
+    act(() => {
+      const { paneActions, activePaneId } = windowPaneStore.getState()
+      paneActions.closePane(activePaneId)
+    })
+    rerender()
+
+    expect(result.current).toEqual([])
+  })
+
+  it('unions owners across more than one workspace', () => {
+    act(() => {
+      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
+      getOrCreateWorkspaceStore('ws-b').getState().seedAgentChats([chat('c2', 'ws-b')])
+      seedLivePane('c1')
+      seedLivePane('c2')
+    })
+    const { result, rerender } = renderHook(() => useViewWorkspaceIds())
+    rerender()
+
+    expect([...result.current].sort()).toEqual(['ws-a', 'ws-b'])
   })
 })

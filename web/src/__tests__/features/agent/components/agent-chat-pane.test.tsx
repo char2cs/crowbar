@@ -962,11 +962,14 @@ describe('AgentChatPane', () => {
   // z-10 overlay with NO fill of their own — the chat surface behind is meant to
   // show through and blur/fade under it. But that overlay still owns a REAL,
   // clickable 44px (Mac) hit-box, and nothing about "no fill" makes it click-
-  // through: a blank chat's pinned reviving/idle/trust banners used to render at
-  // the very top of this same box (top-2 / mt-2), squarely inside that hit-box —
-  // visually AND functionally underneath the header, so their own Resume/dismiss
-  // controls could never be clicked. `belowOverlayHeader` is pane-container's own
-  // answer to "does an overlay header actually sit above me right now" (true for
+  // through. A blank chat's reviving/idle/trust signpost rides inside
+  // AgentEmptyDocument's own `.dochandle` now — the same element the ordinary
+  // model/effort/attach/send row occupies, sharing its ONE clearance source
+  // (`--agent-header-clearance` on `.agent-chat.chat`, which `place()`/
+  // `lastLineTop` also reads) — so there is nothing left to double-count and
+  // nothing left to fall out of sync between "the banner" and "the row it
+  // sits on". `belowOverlayHeader` is pane-container's own answer to "does an
+  // overlay header actually sit above me right now" (true for
   // ChatOnlyPaneHeader's chatFillsPane and ChatColumnHeader's side-by-side/stacked
   // case; false for the small in-flow ChatBranchHeader the collapsed 'tabs'
   // presentation uses, which already reserves its own real space).
@@ -992,67 +995,7 @@ describe('AgentChatPane', () => {
       )
     }
 
-    it('clears the header row for the idle/exited banner when an overlay header sits above', async () => {
-      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
-      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
-
-      const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderBelowOverlayHeader(store, 'c1', '')
-
-      const banner = await screen.findByTestId('agent-idle-banner')
-      // IS_MAC is hard-coded true off-webview (utils/platform.ts) — 44px is the
-      // real row height a caller in this repo can rely on in tests everywhere
-      // else (pane-top-row.test.tsx and friends assume the same). Normal
-      // flow now (marginTop, not an absolute `top`) — see the component's
-      // own doc for why: an absolutely-positioned box reserves no space for
-      // its own height, so a banner that wraps to more lines in a narrow
-      // split column grew INTO whatever sat below it instead of pushing it
-      // down.
-      expect(banner.style.marginTop).toBe('52px') // 44px header + the original 8px (top-2) breathing room
-    })
-
-    it('leaves the idle/exited banner at its old offset with no overlay header above', async () => {
-      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
-      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
-
-      const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderPane(store, openChatPane(store, 'c1', ''))
-
-      const banner = await screen.findByTestId('agent-idle-banner')
-      expect(banner.style.marginTop).toBe('8px')
-    })
-
-    it('clears the header row for the reviving banner when an overlay header sits above', async () => {
-      const resumed = deferred<string>()
-      resumeChatFn.mockReturnValue(resumed.promise)
-      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
-
-      const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderBelowOverlayHeader(store, 'c1', '')
-
-      const banner = await screen.findByTestId('agent-reviving-banner')
-      expect(banner.style.marginTop).toBe('52px')
-
-      await act(async () => {
-        resumed.resolve('r9')
-      })
-    })
-
-    // Regression: the banner used to be `position: absolute`, which reserves
-    // no space for its own height — in a narrow split column the exited/idle
-    // text wraps to more lines than in a wide pane, so its TOP edge cleared
-    // the header fine but its BOTTOM edge grew into AgentEmptyDocument's own
-    // composer handle underneath it. Normal flow (no `position: absolute`)
-    // means whatever renders after it is always pushed down by its real,
-    // current height, however many lines that takes.
-    // REGRESSION: AgentChatView used to add its OWN headerClearancePx-derived
-    // top padding (`.doc`'s padding-top, via `--agent-header-clearance`)
-    // UNCONDITIONALLY — even while a banner directly above it had ALREADY
-    // carried that same clearance as its own marginTop, in normal flow. The
-    // two stacked instead of composing: live-measured, ~164px of dead air
-    // between the idle banner and the blank document's placeholder text, not
-    // the ~56px either alone produces.
-    it('does not ALSO clear the header inside AgentChatView while the idle banner is already doing it', async () => {
+    it('clears the header for the idle/exited signpost when an overlay header sits above', async () => {
       resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
       listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
 
@@ -1060,11 +1003,27 @@ describe('AgentChatPane', () => {
       await renderBelowOverlayHeader(store, 'c1', '')
 
       await screen.findByTestId('agent-idle-banner')
+      // IS_MAC is hard-coded true off-webview (utils/platform.ts) — 44px is the
+      // real row height a caller in this repo can rely on in tests everywhere
+      // else (pane-top-row.test.tsx and friends assume the same), plus the
+      // pane's own original 8px breathing room.
       const section = document.querySelector('.agent-chat.chat') as HTMLElement
-      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('0px')
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
     })
 
-    it('does not ALSO clear the header inside AgentChatView while the reviving banner is already doing it', async () => {
+    it('leaves the idle/exited signpost at its old offset with no overlay header above', async () => {
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      await screen.findByTestId('agent-idle-banner')
+      const section = document.querySelector('.agent-chat.chat') as HTMLElement
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('8px')
+    })
+
+    it('clears the header for the reviving signpost when an overlay header sits above', async () => {
       const resumed = deferred<string>()
       resumeChatFn.mockReturnValue(resumed.promise)
       listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
@@ -1074,7 +1033,7 @@ describe('AgentChatPane', () => {
 
       await screen.findByTestId('agent-reviving-banner')
       const section = document.querySelector('.agent-chat.chat') as HTMLElement
-      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('0px')
+      expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
 
       await act(async () => {
         resumed.resolve('r9')
@@ -1094,7 +1053,7 @@ describe('AgentChatPane', () => {
       expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
     })
 
-    it('renders the idle/exited banner in normal flow, not as an absolute overlay', async () => {
+    it('renders the idle/exited signpost inside AgentEmptyDocument, not as an absolute overlay', async () => {
       resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
       listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
 
@@ -1102,8 +1061,48 @@ describe('AgentChatPane', () => {
       await renderPane(store, openChatPane(store, 'c1', ''))
 
       const banner = await screen.findByTestId('agent-idle-banner')
+      expect(banner.closest('.dochandle')).not.toBeNull()
       expect(banner).not.toHaveClass('absolute')
       expect(banner.style.top).toBe('')
+    })
+  })
+
+  // ── The "second input box" shape ────────────────────────────────────
+  // Regression: the reported crop — the banner's own text WRAPPED to more
+  // lines as the pane narrowed (a free-height card), which is what let it
+  // crop against AgentEmptyDocument's own handle underneath it. It is now
+  // ComposerSignpost's exact `.pill.halted` shape — the same one AgentComposer
+  // wears for this same state once the chat has messages — a single,
+  // ellipsis-truncated line with a height nothing else has to guess at.
+  describe('reviving/idle signpost shape', () => {
+    it('renders the idle banner as the composer-signpost pill, not a free-height card', async () => {
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      const banner = await screen.findByTestId('agent-idle-banner')
+      const pill = banner.querySelector('.pill.halted')
+      expect(pill).not.toBeNull()
+      expect(pill?.querySelector('.msg')).toHaveTextContent(/could not restart this agent/i)
+      expect(screen.getByTestId('pane-resume')).toBeTruthy()
+    })
+
+    it('renders the reviving banner in the same pill shape', async () => {
+      const resumed = deferred<string>()
+      resumeChatFn.mockReturnValue(resumed.promise)
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([dormantChat({ id: 'c1' })])
+      await renderPane(store, openChatPane(store, 'c1', ''))
+
+      const banner = await screen.findByTestId('agent-reviving-banner')
+      expect(banner.querySelector('.pill.halted')).not.toBeNull()
+
+      await act(async () => {
+        resumed.resolve('r9')
+      })
     })
   })
 

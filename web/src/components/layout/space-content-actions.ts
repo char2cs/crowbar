@@ -73,20 +73,27 @@ export function resolveChatRow(
 }
 
 /**
- * The workspace a chat row OPENS, or null when it opens none.
+ * Validates a resolved workspace id against THIS repo, or null when it names
+ * none. Spec §9.2 makes a repo's chats an open set (a bubble moved across
+ * repos keeps ancestors in the repo it left), so a `wsId` naming a workspace
+ * outside this repo is an ordinary state, not corruption — and routing to
+ * /ide/:p/:r/:ws with a ws that is not under :r would be a URL nothing
+ * resolves.
  *
- * A worktree chat (§3.1) names the workspace it owns and navigating to it is
- * exactly what clicking a branch row does. A bubble names none — it borrows an
- * ancestor's ground — and there is nothing to navigate to.
- *
- * The named workspace must belong to THIS repo. Spec §9.2 makes a repo's chats
- * an open set (a bubble moved across repos keeps ancestors in the repo it
- * left), so a `workspaceId` pointing outside is an ordinary state, not
- * corruption — and routing to /ide/:p/:r/:ws with a ws that is not under :r
- * would be a URL nothing resolves.
+ * Takes an already-resolved id rather than a `Chat` — see `handleOpen`'s own
+ * call site for WHERE that id comes from. It used to be `chat.workspaceId`
+ * alone, which is genuinely null for a true bubble (§3.1: it owns none), and
+ * that was read as "this row opens nothing" — clicking one just toggled its
+ * own (childless, so invisible) fold. Live-reported: "clicking on a not
+ * opened row... simply anything happens... it should create a view on its
+ * own." A bubble still opens SOMEWHERE, though: it always sits inside some
+ * real workspace's tree (worst case, the repo's own home), and that ground is
+ * exactly what `rows-from-repo.ts`'s `ancestorWorkspaceId` already resolves
+ * for it — the caller reads the row's own `workspaceId` (which now folds
+ * that fallback in) rather than the chat's, and this function's only job is
+ * left as the repo-membership check.
  */
-function openableWorkspaceOf(repo: Repo, chat: Chat): string | null {
-  const wsId = chat.workspaceId
+function isOpenableWorkspaceOfRepo(repo: Repo, wsId: string | null): string | null {
   if (!wsId) return null
   if (wsId === repo.defaultWorkspaceId) return wsId
   return repo.workspaces.some((w) => w.id === wsId) ? wsId : null
@@ -183,47 +190,30 @@ function openChatInOwnView(chatId: string, workspaceId: string): boolean {
 }
 
 /**
- * Poll until `wsId` becomes the active workspace, or give up.
- *
- * `setActiveWorkspaceId` fires from `WorkspaceView`'s own `useEffect`
- * (workspace-view.tsx) — a render-and-effect cycle that a route change's own
- * promise does not wait on, and only runs once that workspace's view has
- * actually (re)mounted as the active one. `_activeWorkspaceId` is a plain
- * module variable, not a store, so there is nothing to subscribe to; this
- * polls the one function that reads it instead. Bounded so a workspace that
- * never activates (an id the route guard redirects away from) cannot hang a
- * click forever — matches the 2s the app already gives similar
- * activation-effect races elsewhere.
- */
-function waitForActiveWorkspace(wsId: string, timeoutMs = 2000): Promise<boolean> {
-  if (getActiveWorkspaceId() === wsId) return Promise.resolve(true)
-  return new Promise((resolve) => {
-    const start = Date.now()
-    const tick = () => {
-      if (getActiveWorkspaceId() === wsId) {
-        resolve(true)
-        return
-      }
-      if (Date.now() - start >= timeoutMs) {
-        resolve(false)
-        return
-      }
-      requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
-  })
-}
-
-/**
- * Navigate to `wsId`'s own route, then open `chatId` into its own view once
- * the workspace has actually finished becoming active.
+ * Navigate to `wsId`'s own route, then open `chatId` into its own view.
  *
  * This is the sequencing `openChatInOwnView` alone cannot do: a bare
  * `navigate()` only changes the URL, and clicking a workspace that was not
  * already active used to stop there — the click looked like it did nothing,
- * because nothing ever wrote a chat into a pane. `openChatInOwnPane`'s own
- * guard against an off-screen workspace's chat is exactly right; the fix is
- * to wait until the workspace is no longer off-screen, not to bypass it.
+ * because nothing ever wrote a chat into a pane.
+ *
+ * Opens the pane RIGHT AFTER navigating, not once the workspace "becomes
+ * active" (an earlier version of this function polled
+ * `getActiveWorkspaceId()` for up to 2s and gave up silently if it never
+ * matched) — that wait can never resolve while the active PANE already holds
+ * a chat from a DIFFERENT workspace: `IDEShell`'s own
+ * `effectiveActiveWorkspaceId` resolves the active PANE's workspace before
+ * ever consulting the route (`activePaneWorkspaceId ?? activeWorkspaceId`,
+ * ide-shell.tsx), by design, for the unrelated case of clicking between two
+ * panes of an existing split. That priority does not move just because THIS
+ * navigation changed the URL, so "wait for active" deadlocked forever on
+ * anything but the very first chat opened in a session — live-reported as a
+ * bubble chat's click doing nothing at all. Panes are window-level now (Task
+ * 26): `openChatInOwnPane` writes straight into `windowPaneStore`, and
+ * `paneOpenSubject`'s own `workspaceId` is the HINT `resolveChatWorkspaceId`
+ * needs to resolve correctly before any workspace store for it even exists
+ * (see that function's own doc) — nothing here ever depended on "active"
+ * being true, only on believing it had to.
  */
 async function navigateThenOpenChat(
   navigate: NavigateFn,
@@ -231,8 +221,6 @@ async function navigateThenOpenChat(
   chatId: string,
 ): Promise<void> {
   await navigate({ to: '/ide/$projectId/$repoId/$wsId', params })
-  const becameActive = await waitForActiveWorkspace(params.wsId)
-  if (!becameActive) return
   openChatInOwnPane(paneOpenSubject(chatId, params.wsId))
 }
 
@@ -277,7 +265,16 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
 
   const chatRow = resolveChatRow(repos, id)
   if (chatRow) {
-    const wsId = openableWorkspaceOf(chatRow.repo, chatRow.chat)
+    // The row's OWN `workspaceId`, not the raw `Chat.workspaceId` — a bubble
+    // with none of its own already has this filled in with its nearest real
+    // ancestor workspace (`rows-from-repo.ts`'s own `ancestorWorkspaceId`
+    // fallback), the ground it has always conceptually belonged to. Rebuilt
+    // here rather than threaded in from a caller: `resolveChatRow` above
+    // works off the raw store, and this is the one place that needs the
+    // rendered row too — same "build this repo's rows, read the matching
+    // one" shape `handleCreate`'s own Fork/Thread resolution already uses.
+    const rowWsId = rowsFromRepo(chatRow.repo).find((r) => r.id === id)?.workspaceId ?? null
+    const wsId = isOpenableWorkspaceOfRepo(chatRow.repo, rowWsId)
     const projectId = chatRow.repo.projectId
     if (!wsId || !projectId) {
       useSidebarStore.getState().toggleChatRow(id)
@@ -930,11 +927,12 @@ export async function handleCreateHomeThread(
  * Shared by {@link handleCreateHomeThread} (a freshly-minted chat) and
  * {@link handleOpen}'s home branch (an existing row the user clicked): both
  * need the identical sequence — open in place if home is already the active
- * workspace, otherwise navigate to project home and wait for it to actually
- * become active before opening, exactly as `navigateThenOpenChat` does for a
- * repo chat. `/ide/$projectId/home` carries no `repoId`/`wsId` of its own
- * (project home rides no repo), which is the one thing that keeps this from
- * just being a call to `navigateThenOpenChat` itself.
+ * workspace, otherwise navigate to project home and open the pane right
+ * after, exactly as `navigateThenOpenChat` does for a repo chat (see that
+ * function's own doc for why this no longer waits for "active" first).
+ * `/ide/$projectId/home` carries no `repoId`/`wsId` of its own (project home
+ * rides no repo), which is the one thing that keeps this from just being a
+ * call to `navigateThenOpenChat` itself.
  */
 async function openHomeChat(
   projectId: string,
@@ -944,8 +942,6 @@ async function openHomeChat(
 ): Promise<void> {
   if (openChatInOwnView(chatId, homeWorkspaceId)) return
   await navigate({ to: '/ide/$projectId/home', params: { projectId } })
-  const becameActive = await waitForActiveWorkspace(homeWorkspaceId)
-  if (!becameActive) return
   openChatInOwnPane(paneOpenSubject(chatId, homeWorkspaceId))
 }
 

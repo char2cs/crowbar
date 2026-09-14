@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { rowsFromRepo, chatIconIndex } from '@/components/sidebar/lib/rows-from-repo'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import type { Chat, Folder, Repo, Workspace } from '@/lib/store/sidebar'
 
@@ -241,6 +241,34 @@ describe('rowsFromRepo — chat rows', () => {
     expect(row?.kind).toBe('chat')
     expect(row?.label).toBe('Fix the parser')
     expect(row?.ownsWorktree).toBe(false)
+    expect(row?.workspaceId).toBe('ws-home')
+  })
+
+  // Regression: a bubble (no `Workspace` of its own, no `chat.workspaceId`)
+  // used to get `workspaceId: null` on its own row, which is what left it
+  // with nothing to open into — `space-content-actions.ts`'s
+  // `openableWorkspaceOf` reads exactly this field, and a click on a bubble
+  // with no resolvable workspace just toggled its (childless, so invisible)
+  // fold instead of ever opening a pane. It now falls back to the nearest
+  // real ancestor workspace, the SAME value a folder row already gets.
+  it('a bubble with no workspace of its own falls back to its nearest ancestor workspace', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'feature/x' })],
+      chats: [makeTestChat({ id: 'c-1', title: 'Nested bubble', parentId: 'ws-1' })],
+    })
+    const row = rowsFromRepo(repo).find((r) => r.id === 'c-1')
+    expect(row?.kind).toBe('chat')
+    expect(row?.ownsWorktree).toBe(false)
+    expect(row?.workspaceId).toBe('ws-1')
+  })
+
+  it('a bubble at the repo root falls back to the repo home workspace', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      chats: [makeTestChat({ id: 'c-1', title: 'Root bubble' })],
+    })
+    const row = rowsFromRepo(repo).find((r) => r.id === 'c-1')
     expect(row?.workspaceId).toBe('ws-home')
   })
 
@@ -835,6 +863,62 @@ describe('rowsFromRepo — resolves the owning chat without ever reading Chat.ty
     // left as its own raw workspace id rather than dropped.
     expect(home?.id).toBe('ws-home')
     expect(home?.kind).toBe('branch')
+  })
+})
+
+/**
+ * `chatIconIndex` is what `recents-band.tsx` (via `recents-for-project.ts`)
+ * reads instead of hand-building a row with no ownership data — it must
+ * agree with `rowsFromRepo`'s own branch-row icon fields for the identical
+ * chat, since the two draw the same chat in two different places (the tree
+ * and Recents) and a divergence between them is exactly the bug this file
+ * exists to prevent.
+ */
+describe('chatIconIndex', () => {
+  it("agrees with rowsFromRepo's own icon fields for a workspace-owning chat", () => {
+    const { workspace, chat } = makeOwnedWorkspace(
+      { id: 'ws-1', branch: 'feature/x', status: 'pr-conflicts' },
+      { id: 'branch-chat-1' },
+    )
+    const repo = makeTestRepo({ workspaces: [workspace], chats: [chat] })
+
+    const treeRow = rowsFromRepo(repo).find((r) => r.id === 'branch-chat-1')
+    const icon = chatIconIndex([repo]).get('branch-chat-1')
+
+    expect(icon).toEqual({
+      kind: treeRow?.kind,
+      ownsWorktree: treeRow?.ownsWorktree,
+      branchName: treeRow?.branchName,
+      added: treeRow?.added,
+      deleted: treeRow?.deleted,
+      locked: treeRow?.locked,
+      status: treeRow?.status,
+      isPlaceholder: treeRow?.isPlaceholder,
+    })
+    expect(icon?.kind).toBe('branch')
+    expect(icon?.status).toBe('pr-conflicts')
+  })
+
+  it('a chat that owns no workspace is absent from the index', () => {
+    const repo = makeTestRepo({ chats: [makeTestChat({ id: 'bubble-1', title: 'Just a chat' })] })
+    expect(chatIconIndex([repo]).has('bubble-1')).toBe(false)
+  })
+
+  it('a fresh fork whose Workspace record has not landed yet still marks ownership, with no decoration', () => {
+    // Mirrors rowsFromRepo's own "ownedWorkspaceId resolved but no Workspace
+    // node" branch — resolveOwnerOfChat only needs Chat.ownsWorktree, not a
+    // Workspace record, to know this chat owns something.
+    const chat = makeTestChat({
+      id: 'fresh-fork-chat',
+      title: 'New fork',
+      workspaceId: 'ws-not-here-yet',
+      ownsWorktree: true,
+    })
+    const repo = makeTestRepo({ chats: [chat] })
+    expect(chatIconIndex([repo]).get('fresh-fork-chat')).toEqual({
+      kind: 'branch',
+      ownsWorktree: true,
+    })
   })
 })
 

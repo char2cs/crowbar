@@ -90,4 +90,34 @@ describe('SidebarBuildBadgeBand', () => {
       expect(container).not.toBeEmptyDOMElement()
     }
   })
+
+  // The decorative art is authored right-biased and the fade authored
+  // fading out to the right — both correct only when the badge text (the
+  // true window-border edge) is on this bar's own right, i.e. align="end".
+  // On the left (sidebar on the left), both must mirror, or the art lands
+  // behind the back/forward/panel-toggle cluster instead of the window edge.
+  it('mirrors the decorative art for align="start", leaves it unmirrored for align="end" (default)', () => {
+    buildBadgeOverride = 'nightly'
+    document.documentElement.classList.add('dark')
+    const { container, rerender } = render(<SidebarBuildBadgeBand />)
+    const artEnd = container.querySelector('svg')?.parentElement as HTMLElement
+    expect(artEnd.style.transform).toBe('')
+
+    rerender(<SidebarBuildBadgeBand align="start" />)
+    const artStart = container.querySelector('svg')?.parentElement as HTMLElement
+    expect(artStart.style.transform).toBe('scaleX(-1)')
+  })
+
+  it('stays opaque at the text/window-edge side (align) and fades toward the opposite (button) side', () => {
+    buildBadgeOverride = 'nightly'
+    // align="end": text/window-edge on the right — opaque (the gradient's
+    // LAST color) must anchor there, i.e. `to right`, not `to left`.
+    const { container, rerender } = render(<SidebarBuildBadgeBand align="end" />)
+    const fillEnd = container.querySelector('[style*="mask-image"]') as HTMLElement
+    expect(fillEnd.style.maskImage).toContain('to right')
+
+    rerender(<SidebarBuildBadgeBand align="start" />)
+    const fillStart = container.querySelector('[style*="mask-image"]') as HTMLElement
+    expect(fillStart.style.maskImage).toContain('to left')
+  })
 })

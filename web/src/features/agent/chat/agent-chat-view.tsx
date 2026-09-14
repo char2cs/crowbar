@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { KeyboardEvent, Ref } from 'react'
+import type { KeyboardEvent, ReactNode, Ref } from 'react'
 import {
   stopChat,
   type AgentChatMessage,
@@ -130,6 +130,14 @@ export interface AgentChatViewProps {
    *  standing in for the dock, so the composer (and anything that lives only
    *  inside it, like a reviving/idle signpost) does not exist to be read. */
   onBlankChange?: (blank: boolean) => void
+  /** The pane's own reviving/idle/trust-wait signpost, already resolved and
+   *  rendered — `AgentEmptyDocument` has no way to know a runner's own
+   *  attach state or a terminal wait, so the pane decides which (if any) and
+   *  hands the finished node down. Occupies `AgentEmptyDocument`'s own
+   *  control-bar slot in place of the model/effort/attach/send row; the
+   *  populated-chat surface has no use for it (that state renders as
+   *  `AgentComposer`'s own signpost instead) and never receives it. */
+  blankSignpost?: ReactNode
   /** The daemon has confirmed this chat id does not exist (404 on its own
    *  messages) — never a transient failure, so retrying can't help. */
   onChatGone?: () => void
@@ -227,6 +235,7 @@ export function AgentChatView({
   onCancelableQueueCountChange,
   onDeliveryPendingChange,
   onBlankChange,
+  blankSignpost,
   onChatGone,
   model,
   effort,
@@ -770,6 +779,7 @@ export function AgentChatView({
           sending={prompts.deliveryPending}
           onStop={handleStop}
           headerClearancePx={headerClearancePx}
+          banner={blankSignpost}
         />
         {composerError && (
           <p className="meta" role="alert">

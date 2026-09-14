@@ -31,7 +31,31 @@ import { usePaneEditorSatellites } from '../hooks/use-pane-editor-satellites'
 import { defineMonacoTheme } from '../monaco/define-theme'
 import { toEditorPosition, toEditorRange } from '../monaco/editor-conversions'
 import { createRafCoalescer } from '../lib/raf-coalesce'
+import {
+  beginSelectionDrag,
+  endSelectionDrag,
+  isSelectionDragging,
+  releaseSelectionDrag,
+} from '../lib/selection-drag'
 import type * as Monaco from 'monaco-editor'
+
+/**
+ * How often the cursor/selection store write is allowed to land WHILE a
+ * selection drag is in flight.
+ *
+ * Monaco emits one selection change per pointer move and per auto-scroll tick —
+ * ~120/s on this display — and each one used to schedule a store write that
+ * React turned into a commit through the app's whole provider chain. The only
+ * things that RENDER from it are the status bar's `line:col` chip and the
+ * completion popup (which is never open mid-drag); everything else reads the
+ * store imperatively, after the gesture. Measured live in the Tauri app on an
+ * 896-line file: 200 selection changes cost 76fps with a commit each and 83fps
+ * with none, and a real drag-select went 89 → 94 fps median (50 → 11 commits).
+ * 100ms keeps the chip visibly live at 10Hz — past what the eye resolves on a
+ * moving caret — and `flush()` on pointer-up lands the exact final position, so
+ * nothing downstream ever sees a stale value at rest.
+ */
+const SELECTION_DRAG_SYNC_MS = 100
 
 export interface EditorSurfaceProps {
   paneId: string
@@ -135,7 +159,9 @@ export function EditorSurface({
   // it survives buffer swaps. Cancel the pending frame on unmount.
   const cursorSyncerRef = useRef<ReturnType<typeof createRafCoalescer> | null>(null)
   if (!cursorSyncerRef.current) {
-    cursorSyncerRef.current = createRafCoalescer(() => flushCursorSyncRef.current())
+    cursorSyncerRef.current = createRafCoalescer(() => flushCursorSyncRef.current(), {
+      minIntervalMs: () => (isSelectionDragging() ? SELECTION_DRAG_SYNC_MS : 0),
+    })
   }
   useEffect(() => {
     const syncer = cursorSyncerRef.current
@@ -199,16 +225,26 @@ export function EditorSurface({
       }
       window.addEventListener('pane-resize-end', handlePaneResizeEnd)
 
-      // GPU-promote Monaco during pointer-down drag-selection so per-frame
+      // A selection drag is in flight: GPU-promote Monaco so per-frame
       // selection-overlay updates are compositor-composited rather than triggering
-      // WKWebView CPU tile re-rasterization across each selected line.
+      // WKWebView CPU tile re-rasterization across each selected line (the CSS
+      // half, keyed on `data-editor-selecting`), and throttle the cursor/selection
+      // store write the drag would otherwise fire at pointer-move rate (the JS
+      // half, via `isSelectionDragging` in the coalescer above).
+      let dragHeld = false
       const handlePointerDown = (e: PointerEvent) => {
-        if (e.button === 0) {
-          document.documentElement.setAttribute('data-editor-selecting', '1')
-        }
+        if (e.button !== 0 || dragHeld) return
+        dragHeld = true
+        beginSelectionDrag()
       }
       const handlePointerUp = () => {
-        document.documentElement.removeAttribute('data-editor-selecting')
+        if (!dragHeld) return
+        dragHeld = false
+        endSelectionDrag()
+        // Land the final caret/selection now rather than leaving it in a
+        // throttled timer — everything that reads the store on demand (jump
+        // navigation, rename, the per-buffer view-state cache) reads it at rest.
+        cursorSyncerRef.current?.flush()
       }
       container.addEventListener('pointerdown', handlePointerDown)
       window.addEventListener('pointerup', handlePointerUp)
@@ -221,7 +257,8 @@ export function EditorSurface({
         container.removeEventListener('pointerdown', handlePointerDown)
         window.removeEventListener('pointerup', handlePointerUp)
         window.removeEventListener('pointercancel', handlePointerUp)
-        document.documentElement.removeAttribute('data-editor-selecting')
+        releaseSelectionDrag(dragHeld)
+        dragHeld = false
         document.documentElement.removeAttribute('data-editor-layout')
       }
     },
@@ -352,7 +389,18 @@ export function EditorSurface({
 
   // Stable container mouse handlers — forward to the LSP layer's latest set so a
   // buffer switch never changes the container's handler identity.
+  //
+  // Dead while a selection drag is in flight: this handler exists for the HOVER
+  // affordances (the LSP tooltip's delay timer, the cmd-hover definition link),
+  // none of which can fire with the button held down — Monaco owns the pointer
+  // and is painting a selection. It was still running on every pointer move of
+  // the drag, arming and clearing the hover timer and pushing the event through
+  // React's synthetic dispatch each time. Measured live in the Tauri app on a
+  // 200-move drag-select: the synchronous per-frame cost inside the move
+  // dispatch fell 1.95/1.73ms → 1.63/1.45ms and the gesture ran 79.6/81.4 →
+  // 82.5/88 fps with this path cut out.
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (isSelectionDragging()) return
     mouseHandlersRef.current?.handleMouseMove(e)
   }, [])
   const handleMouseLeave = useCallback(() => {

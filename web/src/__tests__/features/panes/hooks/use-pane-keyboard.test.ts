@@ -21,6 +21,12 @@ const closePane = vi.fn()
 const setActivePane = vi.fn()
 const setPaneChat = vi.fn()
 const setActiveAgentChatId = vi.fn()
+// ⌘N opens the new chat as its OWN VIEW now (openChatIdInOwnView, run for
+// real in this suite — see the pane-command-actions mock below), which falls
+// straight to `addPane`/`detachPaneToOwnView` here: the fake ROOT_PANE_ID
+// pane already holds an editor tab, so it is never "vacant" (isPaneEmpty).
+const addPane = vi.fn(() => 'new-pane-id')
+const detachPaneToOwnView = vi.fn()
 
 // I4: the AGENT_NEW_CHAT chord (⌘N) creates a chat via the agent API — mocked
 // here the same way NewTabView's own regression tests mock it. `vi.hoisted` is
@@ -34,7 +40,7 @@ const { createChat, toastSpawnFailure } = vi.hoisted(() => ({
 vi.mock('@/features/agent/api/agent-api', () => ({ createChat }))
 vi.mock('@/features/agent/lib/spawn-error', () => ({ toastSpawnFailure }))
 
-type FakePane = { activeEditorTabId: string | null; editorTabIds: string[] }
+type FakePane = { activeEditorTabId: string | null; editorTabIds: string[]; chatId?: string | null }
 type FakeLayout =
   | { type: 'pane'; id: string }
   | {
@@ -82,7 +88,15 @@ const fakeState = {
     setPendingClose,
     openContent,
   },
-  paneActions: { navigateToPane, removeEditorTabFromPane, closePane, setActivePane, setPaneChat },
+  paneActions: {
+    navigateToPane,
+    removeEditorTabFromPane,
+    closePane,
+    setActivePane,
+    setPaneChat,
+    addPane,
+    detachPaneToOwnView,
+  },
   setActiveAgentChatId,
 }
 const fakeStore = { getState: () => fakeState }
@@ -392,7 +406,7 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
     )
   }
 
-  it('creates a chat with the first enabled provider and opens it on the active pane', async () => {
+  it('creates a chat with the first enabled provider and opens it as its own new view', async () => {
     fakeState.agentChats = {
       providers: [
         { id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true },
@@ -412,10 +426,38 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
     await Promise.resolve()
 
     expect(setActiveAgentChatId).toHaveBeenCalledWith('chat-9')
-    // Opening a chat is no longer "adding a tab" — it sets the pane's own chat
-    // slot directly, with no runner known yet.
-    expect(setPaneChat).toHaveBeenCalledWith(ROOT_PANE_ID, 'chat-9', null)
+    // Regression (the "only one view at a time" bug): ⌘N used to write
+    // straight into the ACTIVE pane via setPaneChat, which archives whatever
+    // that pane held into dormantArrangements — closing it, not parking it.
+    // The active pane here already holds an editor tab (never "vacant"), so
+    // the new chat must mint a BRAND-NEW view via addPane and land there —
+    // never overwrite the pane that was already showing.
+    expect(addPane).toHaveBeenCalled()
+    expect(detachPaneToOwnView).toHaveBeenCalledWith('new-pane-id')
+    expect(setPaneChat).toHaveBeenCalledWith('new-pane-id', 'chat-9', null)
+    expect(setPaneChat).not.toHaveBeenCalledWith(ROOT_PANE_ID, 'chat-9', null)
+    expect(setActivePane).toHaveBeenCalledWith('new-pane-id')
     expect(openContent).not.toHaveBeenCalled()
+  })
+
+  it('reuses the active pane in place when it is genuinely vacant (empty stage)', async () => {
+    fakeState.panes[ROOT_PANE_ID] = { activeEditorTabId: null, editorTabIds: [], chatId: null }
+    fakeState.agentChats = {
+      providers: [{ id: 'p1', displayName: 'Claude', icon: '', connected: true, enabled: true }],
+      chats: [],
+    }
+    createChat.mockResolvedValue('chat-9')
+    renderHook(() => usePaneKeyboard())
+
+    pressChord()
+    await createChat.mock.results[0]?.value
+    await Promise.resolve()
+
+    // A vacant active pane is the empty-stage fallback (spec §8.4), not a
+    // view — filled in place, no new view minted.
+    expect(addPane).not.toHaveBeenCalled()
+    expect(setPaneChat).toHaveBeenCalledWith(ROOT_PANE_ID, 'chat-9', null)
+    expect(setActivePane).toHaveBeenCalledWith(ROOT_PANE_ID)
   })
 
   it('does nothing when no provider is available (no CLI installed)', () => {

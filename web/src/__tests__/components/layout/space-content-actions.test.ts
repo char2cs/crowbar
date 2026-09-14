@@ -187,12 +187,66 @@ describe('handleOpen', () => {
       })
     })
 
-    it('folds a BUBBLE instead of navigating — it owns no workspace to open', () => {
+    // Regression: a real deadlock, not a guess — live-reproduced by clicking
+    // a chat whose workspace was NOT the one an already-occupied pane
+    // belonged to. `navigateThenOpenChat` used to `navigate()` then POLL
+    // `getActiveWorkspaceId()` for up to 2s before opening a pane — but that
+    // global only ever changes from INSIDE `WorkspaceView`'s own effect, which
+    // only runs once `IDEShell`'s `effectiveActiveWorkspaceId` resolves to the
+    // new workspace, and that resolution prefers `activePaneWorkspaceId` (the
+    // ALREADY-occupied pane's own workspace) over the just-changed route by
+    // design (ide-shell.tsx, for the unrelated "switch focus between two
+    // panes of an existing split" case). With any pane already holding a
+    // foreign chat, the poll could never win — the click looked like it did
+    // nothing, live-reported as "clicking on a not opened row... simply
+    // anything happens." Panes are window-level (Task 26), so nothing here
+    // ever actually needed "active" to be true — this pins that a chat now
+    // lands in a pane immediately once `navigate()` resolves, not after some
+    // global that this suite never had to move to begin with.
+    it('opens into a pane immediately after navigating, even while the active PANE already holds a chat from a DIFFERENT workspace', async () => {
+      resetWindowPaneStoreForTests()
+      setActiveWorkspaceId('ws-other') // some other workspace is "active"
+      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'already-open-chat', null)
       const navigate = vi.fn()
-      const toggle = vi.spyOn(useSidebarStore.getState(), 'toggleChatRow')
+
+      handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-a' })], navigate)
+      // navigateThenOpenChat awaits navigate() before opening the pane —
+      // flush that one microtask.
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(navigate).toHaveBeenCalledWith({
+        to: '/ide/$projectId/$repoId/$wsId',
+        params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-a' },
+      })
+      const panes = windowPaneStore.getState().panes
+      expect(Object.values(panes).some((p) => p.chatId === 'c1')).toBe(true)
+      resetWindowPaneStoreForTests()
+    })
+
+    // Regression: a bubble at the repo root used to fold instead of opening
+    // — it owns no `Workspace` of its own, so `chat.workspaceId` is null, and
+    // that null used to be read as "this row opens nothing." It now falls
+    // back to its nearest ANCESTOR workspace (rows-from-repo.ts's own
+    // `ancestorWorkspaceId`) — the repo's own home, for a bubble with no
+    // workspace/folder ancestor above it at all. Live-reported: "clicking on
+    // a not opened row... it should create a view on its own."
+    it('opens a BUBBLE into its nearest ancestor workspace (the repo home, at the root)', () => {
+      const navigate = vi.fn()
       handleOpen('c1', [withChat({ id: 'c1' })], navigate)
-      expect(toggle).toHaveBeenCalledWith('c1')
-      expect(navigate).not.toHaveBeenCalled()
+      expect(navigate).toHaveBeenCalledWith({
+        to: '/ide/$projectId/$repoId/$wsId',
+        params: { projectId: 'p1', repoId: 'r1', wsId: 'home-1' },
+      })
+    })
+
+    it('opens a BUBBLE nested under a real workspace into THAT workspace', () => {
+      const navigate = vi.fn()
+      handleOpen('c1', [withChat({ id: 'c1', parentId: 'ws-a' })], navigate)
+      expect(navigate).toHaveBeenCalledWith({
+        to: '/ide/$projectId/$repoId/$wsId',
+        params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-a' },
+      })
     })
 
     // Spec §9.2: a repo's chats are not a closed set, so a chat naming a

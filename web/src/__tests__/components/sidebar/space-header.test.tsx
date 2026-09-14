@@ -267,7 +267,7 @@ describe('SpaceHeader', () => {
     expect(onToggle).not.toHaveBeenCalled()
   })
 
-  it('no background at rest, the same --accent hover every other row takes', () => {
+  it('no background at rest, the same idle-ground hover every other row takes', () => {
     render(
       <SpaceHeader
         project={makeProject('p1')}
@@ -280,7 +280,7 @@ describe('SpaceHeader', () => {
     )
     const row = screen.getByTestId('space-header-row')
     expect(row.className).toMatch(/border-transparent/)
-    expect(row.className).toMatch(/hover:bg-accent/)
+    expect(row.className).toMatch(/hover:bg-sidebar-element-idle/)
   })
 
   // Double-click-to-rename the project itself — restored from the deleted

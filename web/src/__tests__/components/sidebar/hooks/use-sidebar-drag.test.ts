@@ -166,9 +166,15 @@ function press(
   })
 }
 
-function move(x: number, y: number) {
+// `buttons` defaults to 1 (button still down) — a real pointermove mid-press
+// always reports the button as held; tests exercising a release missed
+// outside the webview pass `buttons: 0` explicitly (see the "stale button
+// state" cases below).
+function move(x: number, y: number, buttons = 1) {
   act(() => {
-    window.dispatchEvent(new MouseEvent('pointermove', { clientX: x, clientY: y, bubbles: true }))
+    window.dispatchEvent(
+      new MouseEvent('pointermove', { clientX: x, clientY: y, bubbles: true, buttons }),
+    )
   })
 }
 
@@ -238,6 +244,24 @@ describe('useSidebarDrag', () => {
 
     expect(result.current.dragging).toBe(false)
     expect(onDrop).not.toHaveBeenCalled()
+  })
+
+  // Observed live: the browser throws NotFoundError from `setPointerCapture`
+  // for a still-connected element when this pointerId is no longer the one
+  // it has down — a real, uncaught exception that used to abort the rest of
+  // `beginDrag` (the ghost/draggingRef/data-row-dragging setup never ran).
+  it('a drag still starts even if setPointerCapture throws', () => {
+    const rowA = makeRow(baseRow, 0)
+    Element.prototype.setPointerCapture = () => {
+      throw new DOMException('no such pointer', 'NotFoundError')
+    }
+    const { result } = renderDrag()
+
+    press(result, baseRow, rowA)
+    move(10 + SIDEBAR_DRAG_THRESHOLD_PX + 1, 10)
+
+    expect(result.current.dragging).toBe(true)
+    release(10 + SIDEBAR_DRAG_THRESHOLD_PX + 1, 10)
   })
 
   it('a press past the threshold starts a drag', () => {
@@ -852,6 +876,34 @@ describe('useSidebarDrag', () => {
     expect(result.current.paneHit).toBeNull()
   })
 
+  // Live-reported regression: a chat with a live view renders through TWO
+  // `SidebarRow` instances sharing one id (its own tree row, and Recents'
+  // mirror of it). The ghost used to resolve the pressed row back through
+  // `rowDom.elementFor` — an `[attr="id"]` `querySelector` with no way to
+  // prefer one instance over the other, so it always returned whichever
+  // comes first in DOM order (the tree's copy) regardless of which one was
+  // actually pressed. Dragging the SECOND (Recents) copy then cloned and
+  // measured the FIRST (tree) one instead — same id, different styling —
+  // reported live as "when dragging that active row, the background is not
+  // active" (the tree copy carries no ROW_ACTIVE ground at all).
+  it('clones the ACTUAL pressed element, not the first DOM node sharing its id', () => {
+    const treeCopy = makeRow(baseRow, 0)
+    treeCopy.setAttribute('data-test-marker', 'tree')
+    const recentsCopy = makeRow(baseRow, 5)
+    recentsCopy.setAttribute('data-test-marker', 'recents')
+    const { result } = renderDrag()
+
+    // Press the SECOND element — the one that comes LATER in DOM order, so a
+    // naive id-based re-lookup would silently substitute the first instead.
+    press(result, baseRow, recentsCopy)
+    move(10, 5 * ROW_H + SIDEBAR_DRAG_THRESHOLD_PX + 1)
+
+    expect(result.current.ghostRows).not.toBeNull()
+    const clonedNode = result.current.ghostRows!.nodes[0]
+    expect(clonedNode.getAttribute('data-test-marker')).toBe('recents')
+    release(10, 5 * ROW_H + SIDEBAR_DRAG_THRESHOLD_PX + 1)
+  })
+
   it('a pointercancel ends the drag without committing anything', () => {
     const rowA = makeRow(baseRow, 0)
     makeRow({ ...baseRow, id: 'b', label: 'b' }, 1)
@@ -866,6 +918,89 @@ describe('useSidebarDrag', () => {
     expect(result.current.dragging).toBe(false)
     expect(onDrop).not.toHaveBeenCalled()
     expect(onPaneDrop).not.toHaveBeenCalled()
+  })
+
+  // Reported live: text selection stopped working on every Plate surface
+  // (chat composer, rendered messages, the markdown editor) and stayed
+  // broken until a full reload. Root cause: pressing a row arms a
+  // document-wide `selectstart` guard (see use-sidebar-drag.ts's own doc on
+  // it) that only comes off on a `pointerup`/`pointercancel` window sees —
+  // and a real release delivered outside the webview (past the window edge
+  // before SIDEBAR_DRAG_THRESHOLD_PX, or the window losing focus mid-press)
+  // never fires either, leaving selection blocked everywhere for the rest of
+  // the session.
+  describe('selectstart guard recovery', () => {
+    function selectstartBlocked(): boolean {
+      const ev = new Event('selectstart', { cancelable: true })
+      document.dispatchEvent(ev)
+      return ev.defaultPrevented
+    }
+
+    it('a normal press+release arms the guard and then clears it', () => {
+      const rowA = makeRow(baseRow, 0)
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      expect(selectstartBlocked()).toBe(true)
+      release(10, 10)
+      expect(selectstartBlocked()).toBe(false)
+    })
+
+    it('a pointermove reporting the button already up ends an in-flight drag and clears the guard', () => {
+      const rowA = makeRow(baseRow, 0)
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(10, ROW_H + 2) // past the threshold — dragging
+      expect(result.current.dragging).toBe(true)
+
+      // The release happened off-window; this is the next event window sees.
+      move(10, ROW_H + 2, 0)
+
+      expect(result.current.dragging).toBe(false)
+      expect(selectstartBlocked()).toBe(false)
+    })
+
+    it('a pointermove reporting the button already up before the drag threshold clears the pending press and the guard', () => {
+      const rowA = makeRow(baseRow, 0)
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      // Never crosses SIDEBAR_DRAG_THRESHOLD_PX, so this is still "pending".
+      move(10, 10, 0)
+
+      expect(result.current.dragging).toBe(false)
+      expect(selectstartBlocked()).toBe(false)
+    })
+
+    it('the window losing focus mid-drag ends it and clears the guard', () => {
+      const rowA = makeRow(baseRow, 0)
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      move(10, ROW_H + 2)
+      expect(result.current.dragging).toBe(true)
+
+      act(() => {
+        window.dispatchEvent(new Event('blur'))
+      })
+
+      expect(result.current.dragging).toBe(false)
+      expect(selectstartBlocked()).toBe(false)
+    })
+
+    it('the window losing focus while still pending (below threshold) clears the guard', () => {
+      const rowA = makeRow(baseRow, 0)
+      const { result } = renderDrag()
+
+      press(result, baseRow, rowA)
+      act(() => {
+        window.dispatchEvent(new Event('blur'))
+      })
+
+      expect(result.current.dragging).toBe(false)
+      expect(selectstartBlocked()).toBe(false)
+    })
   })
 
   it('dragProps publishes the row’s kind attribute and container', () => {

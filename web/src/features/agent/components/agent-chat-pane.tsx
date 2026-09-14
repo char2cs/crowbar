@@ -2,7 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { Trash2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import {
   getChat,
   resumeChat,
@@ -318,26 +318,18 @@ export function AgentChatPane({
   // render to undo a value the effect had just written.
   const attachment: Attachment = known ? attachedState : { state: 'pending' }
 
-  // Whether each pane-level banner below is ABOUT to render this pass — named
-  // here, once, rather than re-testing the same conditions inline at both the
-  // JSX below AND wherever else needs to know "is something already sitting
-  // between the overlay header and AgentChatView". `waitingBannerShown` mirrors
+  // Whether each blank-chat signpost below is ABOUT to occupy
+  // AgentEmptyDocument's own control-bar slot this pass — named here, once,
+  // rather than re-testing the same conditions inline at both `blankSignpost`
+  // below AND wherever else needs to know it. `waitingBannerShown` mirrors
   // `waiting && chatBlank`; the other two also gate on `presentation !==
-  // 'terminal'`, same as their own JSX below.
+  // 'terminal'`, same as `blankSignpost`'s own precedence below. Exactly one
+  // of the three renders at most (waiting requires a live runner; reviving/
+  // idle both require none — never true together).
   const waitingBannerShown = waiting && chatBlank
   const revivingBannerShown =
     presentation !== 'terminal' && chatBlank && attachment.state === 'reviving'
   const idleBannerShown = presentation !== 'terminal' && chatBlank && attachment.state === 'idle'
-  // Exactly one of the three above renders at most (waiting requires a live
-  // runner; reviving/idle both require none — never true together). Whichever
-  // it is already carries `headerClearancePx` as its OWN marginTop (below), in
-  // normal flow, ahead of AgentChatView — so AgentChatView must NOT ALSO add
-  // header clearance on top of that, or the two stack into a gap far bigger
-  // than the header actually is (confirmed live: banner + blank doc measured
-  // ~164px of dead air between them, not the ~56px either alone produces).
-  // AgentChatView gets 0 instead, exactly its own no-overlay-header default —
-  // from where IT sits, the banner already did the header's job.
-  const bannerClearsHeader = waitingBannerShown || revivingBannerShown || idleBannerShown
 
   // The composer's own words for `attachment`, refined past the plain `live`
   // boolean it gets alongside this — but only on the chat side of the gate.
@@ -1013,6 +1005,41 @@ export function AgentChatPane({
     enterTerminal()
   }
 
+  // The one reason this blank chat cannot be typed into right now, if there is
+  // one — rendered INSIDE AgentEmptyDocument's own control-bar slot (the
+  // model/effort/attach/send row), in place of it, rather than as a separate
+  // row stacked above the document the way this used to sit. That old
+  // placement free-floated above the composer's own control bar instead of
+  // riding it, and a resize could visibly separate the two; this one shares
+  // AgentEmptyDocument's single `place()` transform, so there is nothing left
+  // to separate. Same three mutually exclusive states as
+  // waitingBannerShown/revivingBannerShown/idleBannerShown above, same
+  // precedence order.
+  const blankSignpost = waitingBannerShown ? (
+    <AgentTerminalWaitBanner
+      kind={waitKind ?? ''}
+      providerLabel={providers.find((p) => p.id === activeProviderId)?.displayName ?? ''}
+      onOpenTerminal={openTerminalFromBanner}
+    />
+  ) : revivingBannerShown ? (
+    <div data-testid="agent-reviving-banner">
+      <ComposerSignpost reason="reviving" message={attachment.message} onOpenTerminal={() => {}} />
+    </div>
+  ) : idleBannerShown ? (
+    <div data-testid="agent-idle-banner">
+      <ComposerSignpost
+        reason="idle"
+        message={
+          attachment.reason === 'failed'
+            ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
+            : 'This agent has exited. Resume it to pick the conversation up where you left off.'
+        }
+        onOpenTerminal={() => {}}
+        onRevive={() => void revive()}
+      />
+    </div>
+  ) : undefined
+
   // Clicking the gutters or the column's padding focuses the terminal.
   //
   // Those regions LOOK like part of the chat — they are the same bg-background, and the
@@ -1151,102 +1178,22 @@ export function AgentChatPane({
                   // into two floating panels, and the focus ring drew a box
                   // around whichever one you were typing in. The caret already
                   // says that.
-                  //
-                  // `flex flex-col` (only while the wait banner is up — see
-                  // the banner's own block below) is safe to append here:
-                  // this branch never carries `hidden`.
-                  cn('relative min-h-0 min-w-0 shrink grow-0', waiting && 'flex flex-col')
-                : // `flex flex-col` has to live INSIDE the `presentation === 'chat'`
-                  // arm, not appended after this whole cn(...) the way the split
-                  // branch does it above: `cn` is `twMerge(clsx(...))`, and `hidden`/
-                  // `flex` are conflicting display utilities — twMerge keeps only the
-                  // LAST one in source order. A trailing `waiting && 'flex flex-col'`
-                  // would silently strip `hidden` off the CHAT surface the instant
-                  // `presentation` flips to 'terminal' while a trust prompt is still
-                  // pending (exactly what `openTerminalFromBanner` produces, since
-                  // `waiting` doesn't clear until the CLI actually answers) — un-hiding
-                  // the very surface `hidden` exists to keep dormant. See the doc
-                  // comment right above this whole div for why that's load-bearing,
+                  'relative min-h-0 min-w-0 shrink grow-0'
+                : // `hidden` IS THE DORMANCY MECHANISM — see the doc comment
+                  // right above this whole div for why that's load-bearing,
                   // not cosmetic.
-                  cn('h-full', presentation === 'chat' ? waiting && 'flex flex-col' : 'hidden'),
+                  cn('h-full', presentation !== 'chat' && 'hidden'),
             )}
             style={splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined}
           >
-            {/* The trust banner is pane-level ONLY while the chat is blank,
-                which is the one case the composer cannot carry it: with no
-                messages there is no composer to mutate, just
-                AgentEmptyDocument's handle. Once the chat has messages the
+            {/* The trust/reviving/idle signpost, when this blank chat has one,
+                rides inside AgentEmptyDocument's own control-bar slot —
+                `blankSignpost` below — rather than rendering here as a
+                sibling. With messages instead of AgentEmptyDocument, the
                 composer becomes the signpost itself (AgentChatView's
-                `terminalWait`), so rendering here too would put the same
-                question on screen twice.
-
-                It is NOT an `absolute` overlay: measured overlapping the
-                composer handle by 7px at 1280px wide, because the banner's
-                text wraps to more lines as the pane narrows while an
-                absolutely-positioned box reserves no space for its own
-                height, so whatever sat under it never moved. Rendered BEFORE
-                AgentChatView, in normal flow, so the chat surface is pushed
-                down by however tall the banner actually is. */}
-            {waitingBannerShown && (
-              <div
-                className="mx-4 mb-2 shrink-0 rounded-lg bg-popover shadow-sm"
-                style={{ marginTop: headerClearancePx }}
-              >
-                <AgentTerminalWaitBanner
-                  kind={waitKind ?? ''}
-                  providerLabel={
-                    providers.find((p) => p.id === activeProviderId)?.displayName ?? ''
-                  }
-                  onOpenTerminal={openTerminalFromBanner}
-                />
-              </div>
-            )}
-            {/* The reviving/idle signpost is ALSO pane-level only while the
-                chat is blank (same reasoning as the trust banner above), and
-                for the same reason MUST NOT be an absolute overlay: measured
-                overlapping AgentEmptyDocument's own composer handle in a
-                narrow split column, because "This agent has exited. Resume
-                it…" wraps to more lines as the pane narrows while an
-                absolutely-positioned box (its previous shape) reserves no
-                space for its own height — the header-clearance fix moved its
-                TOP edge below the overlay header, but its BOTTOM edge still
-                grew into whatever sat below it. Normal flow, rendered BEFORE
-                AgentChatView exactly like the trust banner, so the chat
-                surface is pushed down by however tall the banner actually
-                renders, however many lines that takes. */}
-            {revivingBannerShown && (
-              <div
-                data-testid="agent-reviving-banner"
-                className="mx-4 mb-2 flex shrink-0 items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm"
-                style={{ marginTop: headerClearancePx }}
-              >
-                <FlickerSpinner className="size-4 text-foreground" />
-                {attachment.message}
-              </div>
-            )}
-            {idleBannerShown && (
-              <div
-                data-testid="agent-idle-banner"
-                className="mx-4 mb-2 flex shrink-0 items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm"
-                style={{ marginTop: headerClearancePx }}
-              >
-                <p className="min-w-0 text-muted-foreground">
-                  {attachment.reason === 'failed'
-                    ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-                    : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
-                </p>
-                <Button
-                  className="shrink-0"
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  data-testid="pane-resume"
-                  onClick={() => void revive()}
-                >
-                  Resume
-                </Button>
-              </div>
-            )}
+                `terminalWait`), so passing this down too would put the same
+                question on screen twice; `blankSignpost` only ever reaches
+                the blank branch inside AgentChatView. */}
             <AgentChatView
               key={`${wsId}:${shownChatId}`}
               ref={chatViewRef}
@@ -1313,13 +1260,8 @@ export function AgentChatPane({
               }}
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
-              // 0, not headerClearancePx, whenever one of the three banners
-              // above is already rendered: that banner already carries this
-              // pane's full header clearance as its own marginTop, in normal
-              // flow, ahead of this view — AgentChatView adding its own on
-              // top would double the gap rather than close it. See
-              // `bannerClearsHeader`'s own comment above.
-              headerClearancePx={bannerClearsHeader ? 0 : headerClearancePx}
+              headerClearancePx={headerClearancePx}
+              blankSignpost={blankSignpost}
               presentation={presentation}
               splitEnabled={splitEnabled}
               onSelectPresentation={chooseSurface}

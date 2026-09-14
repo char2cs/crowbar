@@ -5,6 +5,7 @@ import {
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { deriveRecentsEntries } from './recents-entries'
+import { chatIconIndex } from './rows-from-repo'
 import type { Repo } from '@/lib/store/sidebar'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 
@@ -69,6 +70,12 @@ export function recentsForProject(repos: readonly Repo[], projectId: string): Re
   const projectWsIds = getAllActiveWorkspaceIds().filter((wsId) =>
     workspaceIdsForProject(repos, projectId).includes(wsId),
   )
+  // The tree's own icon fields (rows-from-repo.ts's `chatIconIndex`) for
+  // every workspace-owning chat in THIS project's repos — see
+  // `RecentsBandEntry.chatIcons`'s own doc on why `recents-band.tsx` needs
+  // this at all.
+  const projectRepos = repos.filter((r) => r.projectId === projectId)
+  const icons = chatIconIndex(projectRepos)
 
   // chatId -> the workspace whose store owns it (still per-workspace state —
   // AgentChatsSlice did not move in Task 26). Every RecentsBandEntry needs
@@ -114,6 +121,15 @@ export function recentsForProject(repos: readonly Repo[], projectId: string): Re
     // all of them.
     chatWorkspaces: Object.fromEntries(
       entry.chatIds.map((id) => [id, chatWorkspace.get(id) ?? '']),
+    ),
+    // Only chats worth overriding — a chat absent here owns no workspace and
+    // `recents-band.tsx` already renders it correctly as a bare bubble by
+    // default.
+    chatIcons: Object.fromEntries(
+      entry.chatIds.flatMap((id) => {
+        const icon = icons.get(id)
+        return icon ? [[id, icon] as const] : []
+      }),
     ),
   }))
 }

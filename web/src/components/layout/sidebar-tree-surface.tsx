@@ -10,7 +10,7 @@ import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
-import { focusRecent, closeRecent } from '@/components/sidebar/lib/recents-actions'
+import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import {
   handleOpen as openSidebarRow,
@@ -210,6 +210,7 @@ export function SidebarTreeSurface({
             onCreate={createSidebarRow}
             onFocusRecent={focusRecentEntry}
             onCloseRecent={closeRecent}
+            onCloseChatRecent={closeRecentChat}
             onDrop={performSidebarDrop}
             onPaneDrop={performSidebarPaneDrop}
             onTrashProject={handleTrashProject}

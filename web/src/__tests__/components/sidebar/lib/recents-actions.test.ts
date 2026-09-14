@@ -11,7 +11,7 @@ vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
   clearQueuedWorkspaceSessionSave: vi.fn(),
 }))
 
-import { focusRecent, closeRecent } from '@/components/sidebar/lib/recents-actions'
+import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
 import {
   getAllActiveWorkspaceIds,
   destroyWorkspaceStore,
@@ -267,5 +267,50 @@ describe('closeRecent — a view of any size', () => {
     expect(windowPaneStore.getState().parkedViews).toEqual({})
     expect(windowPaneStore.getState().activePaneId).toBe(showing)
     expect(windowPaneStore.getState().panes[showing]?.chatId).toBe('chat-2')
+  })
+})
+
+/**
+ * Recents' per-chat × on a multi-chat SET (feedback: "closes that chat from
+ * that group, but doesn't dissolve the group, it just removes that one chat
+ * from it") — narrower than `closeRecent` above, which always ends the WHOLE
+ * entry/view.
+ */
+describe('closeRecentChat', () => {
+  it('closes the pane when the chat is LIVE, leaving the rest of the view alone', () => {
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    const b = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    paneActions.setPaneChat(b, 'chat-2', null)
+
+    closeRecentChat(
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'live', workspaceId: 'ws-1' },
+      'chat-1',
+    )
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]).toBeUndefined()
+    expect(windowPaneStore.getState().panes[b]?.chatId).toBe('chat-2')
+  })
+
+  // The multi-survivor case (removing one id out of several, leaving the rest
+  // of the arrangement intact) is already exercised directly against the
+  // reducer in pane-slice.test.ts's own `removeChatFromDormantArrangement`
+  // suite — this only needs to confirm `closeRecentChat` reaches for that
+  // action (rather than `closePane`) once there is no live pane to close.
+  it('routes to removeChatFromDormantArrangement when the chat has no live pane', () => {
+    const { paneActions } = windowPaneStore.getState()
+    // No live pane for this chat — seed the dormant record the same way
+    // forgetDormantArrangement's own suite does (setPaneChat's hotswap-away
+    // archive).
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1
+    const entryId = windowPaneStore.getState().dormantArrangements[0]!.id
+
+    closeRecentChat(
+      { id: entryId, localId: entryId, chatIds: ['chat-1'], state: 'dormant', workspaceId: 'ws-1' },
+      'chat-1',
+    )
+
+    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
   })
 })

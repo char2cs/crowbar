@@ -82,3 +82,27 @@ export function closeRecent(entry: RecentsBandEntry): void {
   // `dormantArrangements` are keyed by.
   paneActions.forgetDormantArrangement(entry.localId)
 }
+
+/**
+ * Recents' per-chat × (feedback: "closes that chat from that group, but
+ * doesn't dissolve the group, it just removes that one chat from it") —
+ * narrower than `closeRecent` above, which always ends the WHOLE entry.
+ *
+ * - `chatId` has a live pane → `closePane` alone, never `closeView` (which
+ *   would take every member of the view down with it). `closePane` already
+ *   strips this one chat's id out of every `dormantArrangements` record on
+ *   its own (pane-slice.ts's own note by its `dormantArrangements` edit), so
+ *   there's nothing left to do once the pane itself is gone.
+ * - no live pane (a dormant/'set' entry) → nothing to close; strip it from
+ *   the one persisted arrangement this entry's `localId` names, leaving its
+ *   remaining members exactly as they were.
+ */
+export function closeRecentChat(entry: RecentsBandEntry, chatId: string): void {
+  const { paneActions } = windowPaneStore.getState()
+  const pane = paneActions.getAllPaneGroups().find((p) => p.chatId === chatId)
+  if (pane) {
+    paneActions.closePane(pane.id)
+    return
+  }
+  paneActions.removeChatFromDormantArrangement(entry.localId, chatId)
+}

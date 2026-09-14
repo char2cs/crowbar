@@ -54,6 +54,9 @@ interface SpaceScrollerProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   onFocusRecent: (entry: RecentsBandEntry) => void
   onCloseRecent: (entry: RecentsBandEntry) => void
+  /** Recents' per-chat × (see `RecentsBand`'s own `onCloseChat` doc) — removes
+   *  one chat from a multi-chat entry without dissolving the rest of it. */
+  onCloseChatRecent: (entry: RecentsBandEntry, chatId: string) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
   /** Spec §9's project-level trash, the one verb the space header's overflow
@@ -165,6 +168,7 @@ interface SpacePanelProps {
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
   onFocusRecent: (entry: RecentsBandEntry) => void
   onCloseRecent: (entry: RecentsBandEntry) => void
+  onCloseChatRecent: (entry: RecentsBandEntry, chatId: string) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
   onTrashProject: (projectId: string) => void
@@ -179,6 +183,7 @@ function SpacePanel({
   onCreate,
   onFocusRecent,
   onCloseRecent,
+  onCloseChatRecent,
   onDrop,
   onPaneDrop,
   onTrashProject,
@@ -430,6 +435,7 @@ function SpacePanel({
             entries={entries}
             onFocus={onFocusRecent}
             onClose={onCloseRecent}
+            onCloseChat={onCloseChatRecent}
             scrollRef={viewportRef}
             onDrop={onDrop}
             onPaneDrop={onPaneDrop}
@@ -483,6 +489,7 @@ export function SpaceScroller({
   onCreate,
   onFocusRecent,
   onCloseRecent,
+  onCloseChatRecent,
   onDrop,
   onPaneDrop,
   onTrashProject,
@@ -579,6 +586,7 @@ export function SpaceScroller({
           onCreate={onCreate}
           onFocusRecent={onFocusRecent}
           onCloseRecent={onCloseRecent}
+          onCloseChatRecent={onCloseChatRecent}
           onDrop={onDrop}
           onPaneDrop={onPaneDrop}
           onTrashProject={onTrashProject}

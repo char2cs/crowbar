@@ -79,9 +79,11 @@ const TabBarItem = memo(function TabBarItem({
     [handleTabClose, buffer.id],
   )
 
-  // An editor tab with unsaved edits. When it's also the active tab we render
-  // the whole pill in the primary-button style (the fill is the signal, so the
-  // dot is dropped); inactive unsaved tabs keep the pill and show a bright dot.
+  // An editor tab with unsaved edits. When it's also the active tab the
+  // signal is a blue border on top of the tab's normal muted active fill
+  // (the same `bg-sidebar-element-hover` every other active ghost tab
+  // already gets) — not a tinted fill of its own. Inactive unsaved tabs keep
+  // the plain ghost shape and show a bright dot instead.
   const isDirtyEditor = buffer.type === 'editor' && buffer.isDirty
 
   return (
@@ -111,13 +113,23 @@ const TabBarItem = memo(function TabBarItem({
         className={cn(
           'h-8',
           'gap-1.5 pl-2.5 pr-8',
-          // Unsaved+active keeps its own distinct filled-pill signal (a
-          // separate rule from the general pill->underline restyle, so it
-          // needs its own rounded-full — the underline variant's base is
-          // flat) — untouched by this task's scope.
+          // Unsaved+active keeps its own distinct signal, but ONLY via a blue
+          // border — the fill and text stay whatever the ghost variant's
+          // normal active state already renders (`bg-sidebar-element-hover`/
+          // `text-foreground`, set by `Tab` itself above via `isActive`).
+          // Every attempt to tint the FILL blue too (a translucent
+          // `bg-primary/12`, several `color-mix` blends, then a plain solid
+          // `bg-primary`) read as wrong once compared side-by-side with the
+          // rest of the tab strip — the muted active fill was correct all
+          // along. `shadow-xs`/`inset-shadow-[...]` is copied verbatim from
+          // ROW_ACTIVE (workspace-row-base.ts) — the same CossUI top-highlight
+          // every other active/hovered row gets — layered on top of the
+          // border-only blue signal, not replacing it.
           isActive &&
             isDirtyEditor &&
-            'rounded-full border-primary bg-primary text-primary-foreground shadow-primary/24',
+            'rounded-sm border-primary shadow-xs shadow-black/10 ' +
+              'not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] ' +
+              'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none',
         )}
         onClick={handleClick}
         onMouseDown={onMouseDown}
@@ -136,15 +148,7 @@ const TabBarItem = memo(function TabBarItem({
           ) : buffer.type === 'terminal' ? (
             <Terminal className="text-muted-foreground" />
           ) : (
-            <FileExplorerIcon
-              fileName={buffer.name}
-              isDir={false}
-              className={cn(
-                'text-muted-foreground',
-                isActive && isDirtyEditor && 'text-primary-foreground',
-              )}
-              size={14}
-            />
+            <FileExplorerIcon fileName={buffer.name} isDir={false} className="text-muted-foreground" size={14} />
           )}
         </div>
         <span
@@ -184,7 +188,6 @@ const TabBarItem = memo(function TabBarItem({
           className={cn(
             'absolute inset-y-0 my-auto right-1.5 !size-5 !min-h-0 !min-w-0 grid place-items-center cursor-pointer select-none !rounded-md !p-0 text-muted-foreground transition-opacity',
             buffer.isPinned || isActive ? 'opacity-60' : 'opacity-0 group-hover/tab:opacity-60',
-            isActive && isDirtyEditor && 'text-primary-foreground',
           )}
           tooltip={buffer.isPinned ? 'Unpin tab' : 'Close'}
           tooltipSide="bottom"

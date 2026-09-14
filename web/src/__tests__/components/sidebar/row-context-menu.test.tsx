@@ -281,6 +281,15 @@ describe('SidebarRowContextMenu', () => {
       expect(screen.queryByText('Lock')).not.toBeInTheDocument()
     })
 
+    // performRenameWorkspaceBranch (row-actions.ts) already refuses a locked
+    // workspace's rename write silently — the menu offering Rename here just
+    // meant the dialog opened, took a new name, and did nothing with it.
+    it('does not offer Rename', () => {
+      const { treeRef } = renderMenu()
+      rightClick(treeRef.current, LOCKED_ROW_ID)
+      expect(screen.queryByText('Rename')).not.toBeInTheDocument()
+    })
+
     it('clicking Unlock actually fires setWorkspaceLock for the WORKSPACE it owns', () => {
       const { treeRef } = renderMenu()
       rightClick(treeRef.current, LOCKED_ROW_ID)

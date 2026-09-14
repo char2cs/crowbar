@@ -63,10 +63,58 @@ describe('SidebarRow', () => {
     expect(screen.getByText('Fix the thing')).toBeInTheDocument()
   })
 
-  it('a row with a view greys its label, focused or not', () => {
+  // Default (no `hasViewIdle`) is what recents-band.tsx's own instance keeps
+  // relying on — see that file's note on why a solo "open but off screen"
+  // entry there needs the label itself to carry this signal.
+  it('a row with a view greys its label by default, focused or not', () => {
     render(<SidebarRow row={{ ...baseRow, hasView: true }} depth={0} onOpen={vi.fn()} />)
     const label = screen.getByText('Fix the thing')
     expect(label.className).toMatch(/text-muted-foreground|opacity/)
+  })
+
+  // User correction, live: a tree row with an open view read as disabled
+  // (greyed), not active — "that row is active by definition." `hasViewIdle`
+  // is what sidebar-tree.tsx's own `SidebarTreeRow` sets to swap the muted
+  // label for the row's own idle ground instead — the same treatment
+  // recents-band.tsx already gives a dormant SET member for the identical
+  // "open, not currently showing" state (ROW_HAS_VIEW_IDLE's own doc).
+  it('hasViewIdle gives a row with a view the idle ground instead of a greyed label', () => {
+    render(
+      <SidebarRow row={{ ...baseRow, hasView: true }} depth={0} onOpen={vi.fn()} hasViewIdle />,
+    )
+    const label = screen.getByText('Fix the thing')
+    expect(label.className).not.toContain('text-muted-foreground')
+    expect(screen.getByRole('treeitem').className).toContain('bg-sidebar-element-idle')
+  })
+
+  it('hasViewIdle has no effect on a row with no view at all', () => {
+    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} hasViewIdle />)
+    // The persistent, unconditional token — not `hover:bg-sidebar-element-idle`,
+    // which ROW_INACTIVE now always carries for its own plain hover (see that
+    // token's own doc: unified with ROW_HAS_VIEW_IDLE's resting ground).
+    expect(screen.getByRole('treeitem').className.split(/\s+/)).not.toContain(
+      'bg-sidebar-element-idle',
+    )
+  })
+
+  // Correction after a too-broad first pass ("apply the CossUI shadow on all
+  // the sidebar rows" was implemented literally onto the tree's own hover and
+  // has-view-idle states) — user correction: the tree never gets this glossy
+  // top-highlight, and neither does a plain hover on its own. It stays
+  // reserved for ROW_ACTIVE (Recents' showing row) and a Recents SET's own
+  // group-hover treatment (recents-band.test.tsx).
+  it('an ordinary row never carries the CossUI top-highlight, hovered or not', () => {
+    render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+    const treeitem = screen.getByRole('treeitem').className
+    expect(treeitem).not.toContain('inset-shadow-[0_1px_var(--elevated-highlight)]')
+    expect(treeitem).not.toContain('shadow-xs')
+  })
+
+  it('a has-view-idle row never carries the CossUI top-highlight either', () => {
+    render(<SidebarRow row={{ ...baseRow, hasView: true }} depth={0} onOpen={vi.fn()} hasViewIdle />)
+    const treeitem = screen.getByRole('treeitem').className
+    expect(treeitem).not.toContain('inset-shadow-[0_1px_var(--elevated-highlight)]')
+    expect(treeitem).not.toContain('shadow-xs')
   })
 
   it('a working row shows the spinner glyph, not the static mark', () => {
@@ -205,6 +253,27 @@ describe('SidebarRow', () => {
       />,
     )
     expect(container.querySelector('.size-5')).toBeInTheDocument()
+  })
+
+  // Regression, caught live: recents-band.tsx renders every row with
+  // `parentId: null` (§5.1, "no parentage") and — once a Recents row could
+  // carry `kind: 'branch'` for a workspace-owning chat's real icon — that
+  // alone satisfied the SAME `kind === 'branch' && parentId === null` check
+  // above, so an ordinary chat's Recents mirror wore the repo header's 20px
+  // glyph exception. `inlineRenameDisabled` is the one signal that already
+  // meant "this instance is Recents' mirror, not the tree's own row" (see
+  // its own doc) — it must also suppress isProjectHome.
+  it('a branch row with no parent does NOT get the project-home treatment when it is a Recents mirror (inlineRenameDisabled)', () => {
+    const { container } = render(
+      <SidebarRow
+        row={{ ...baseRow, kind: 'branch', parentId: null, ownsWorktree: true }}
+        depth={0}
+        onOpen={vi.fn()}
+        inlineRenameDisabled
+      />,
+    )
+    expect(container.querySelector('.size-5')).not.toBeInTheDocument()
+    expect(container.querySelector('.size-4')).toBeInTheDocument()
   })
 
   // Task 5 (icon personalization): the project-home row's glyph is the
@@ -581,6 +650,66 @@ describe('SidebarRow', () => {
       expect(document.querySelector('[data-control="remove"]')).not.toBeInTheDocument()
       unmount()
     }
+  })
+
+  // recents-band.tsx's own "end this view" control — never wired alongside
+  // `onTrash` (opposite semantics: this closes a VIEW, never touches the
+  // chat), and, unlike the tree's destructive Remove, it must accept a
+  // caller-supplied label so a set member reads "Close <this chat's title>"
+  // rather than a copy of the tree's own wording.
+  describe('onClose (the non-destructive "end this view" control)', () => {
+    it('renders nothing when onClose is not supplied', () => {
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      expect(document.querySelector('[data-control="close"]')).not.toBeInTheDocument()
+    })
+
+    it('renders and labels the control from the row itself, distinct from Remove', () => {
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onClose={vi.fn()} />)
+      const close = screen.getByRole('button', { name: `Close ${baseRow.label}` })
+      expect(close).toBeInTheDocument()
+      expect(close.getAttribute('aria-label')).not.toMatch(/delete|remove/i)
+    })
+
+    it('clicking it calls onClose with the row id and never opens the row', () => {
+      const onClose = vi.fn()
+      const onOpen = vi.fn()
+      render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} onClose={onClose} />)
+      screen.getByRole('button', { name: `Close ${baseRow.label}` }).click()
+      expect(onClose).toHaveBeenCalledWith(baseRow.id)
+      expect(onOpen).not.toHaveBeenCalled()
+    })
+
+    it('coexists with onTrash (never wired together by a real caller, but neither excludes the other structurally)', () => {
+      render(
+        <SidebarRow row={deletableRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} onClose={vi.fn()} />,
+      )
+      expect(document.querySelector('[data-control="remove"]')).toBeInTheDocument()
+      expect(document.querySelector('[data-control="close"]')).toBeInTheDocument()
+    })
+
+    // Regression: every trailing button used the ambient `text-muted-
+    // foreground`/`hover:bg-sidebar-element-hover` tokens unconditionally,
+    // including on a row painted on an inverted `ROW_ACTIVE` ground
+    // (Recents' own showing row) — the same low-contrast bug `activeGround`
+    // already fixes for the label/icon, just never applied to the buttons,
+    // which is what made them unreadable once every close button moved onto
+    // this inline cluster (live-reported: "any button are not noticeable").
+    it('re-keys its color onto the inverted pair when painted on an activeGround', () => {
+      render(
+        <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onClose={vi.fn()} activeGround />,
+      )
+      const close = screen.getByRole('button', { name: `Close ${baseRow.label}` })
+      expect(close.className).toContain('text-foreground-inverse/70')
+      expect(close.className).toContain('hover:text-foreground-inverse')
+      expect(close.className).not.toContain('text-muted-foreground')
+    })
+
+    it('keeps the ambient color when there is no activeGround', () => {
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onClose={vi.fn()} />)
+      const close = screen.getByRole('button', { name: `Close ${baseRow.label}` })
+      expect(close.className).toContain('text-muted-foreground')
+      expect(close.className).not.toContain('text-foreground-inverse')
+    })
   })
 
   describe('the repo-home row\'s own overflow (repo delete)', () => {

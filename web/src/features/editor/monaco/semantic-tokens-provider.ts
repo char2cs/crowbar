@@ -6,11 +6,11 @@
  *      provisioned for the language. Missing-grammar languages are permanently
  *      cached in `unsupportedLanguages` after the first failed attempt.
  *
- *   2. Heuristic fallback — grammar-free, language-agnostic coloring via
- *      `heuristicTokensInRange`. Uses only `model.getLineContent()` (O(1)
- *      cache lookup per line) so it never blocks the main thread. Covers the
- *      high-signal cases:  name( → function,  Name → type,  ALL_CAPS → constant.
- *      False-positive rate inside string literals is low and acceptable.
+ *   2. Shiki fallback — the TextMate grammars VSCode ships, via
+ *      `shikiTokensInRange`. Covers the languages with no tree-sitter parser and
+ *      the window before one lands. Reads only `model.getLineContent()` and
+ *      resumes from a cached per-row rule stack, so a viewport costs a viewport.
+ *      See `shiki-tokens.ts` for why that stays synchronous.
  *
  * Cancellation-safe design:
  *   Monaco wraps every provider call in createCancelablePromise. When _cancelAll()
@@ -20,10 +20,10 @@
  *
  *   The async tree-sitter path (100ms+ for the wasm fetch to fail in dev) was
  *   therefore never surviving cancellation. The fix: provideDocumentRangeSemanticTokens
- *   is now synchronous — it always returns heuristic tokens immediately so Monaco
- *   settles the promise before any macro-task can cancel it. Tree-sitter runs in
- *   the background; when it succeeds it populates the cache and fires providerChange,
- *   and the next Monaco request hits the cache synchronously.
+ *   is now synchronous — it always returns immediately so Monaco settles the
+ *   promise before any macro-task can cancel it. Both engines load in the
+ *   background; when either becomes ready it fires providerChange, and the next
+ *   Monaco request is served synchronously.
  *
  *   Monaco's adaptive debounce (min 100ms, max 500ms) rewards fast providers by
  *   keeping the delay at the minimum — so resize/scroll performance is better than
@@ -37,9 +37,8 @@ import { getLanguageAssetConfig } from '@/features/editor/lib/wasm-parser/extens
 import { tokenizerWorkerClient } from '@/features/editor/lib/wasm-parser/tokenizer-worker-client'
 import type { HighlightToken } from '@/features/editor/lib/wasm-parser/types'
 import { getLanguageIdFromPath } from '@/features/editor/utils/language-id'
-import { heuristicTokensInRange } from './heuristic-tokens'
-import type { LineToken } from './heuristic-tokens'
 import { SEMANTIC_TOKEN_LEGEND, encodeTokens } from './semantic-tokens-encode'
+import { shikiTokensInRange } from './shiki-tokens'
 
 const EMPTY: languages.SemanticTokens = { data: new Uint32Array(0) }
 
@@ -63,8 +62,9 @@ const fullTokenCache = new Map<string, FullTokenCache>()
 const MAX_FULL_TOKEN_CACHE = 10
 
 // Minimal event emitter for the provider's onDidChange signal.
-// Only fired when tree-sitter successfully populates a new cache entry so
-// Monaco re-requests tokens with real data. Never fired for fallback results.
+// Fired when an engine becomes able to answer something it could not answer
+// synchronously before — tree-sitter populating a cache entry, or shiki
+// finishing a grammar load / rule-stack catch-up — so Monaco re-requests.
 type ListenerFn = () => void
 const providerChangeListeners: ListenerFn[] = []
 function fireProviderChange() {
@@ -78,36 +78,22 @@ const providerOnDidChange = (listener: ListenerFn): { dispose(): void } => {
 }
 
 /**
- * Heuristic fallback for a viewport range when tree-sitter is unavailable.
+ * Shiki fallback for a viewport range when the tree-sitter cache cannot answer.
  *
- * Uses model.getLineContent() (O(1) per line from Monaco's model cache) and
- * heuristicTokensInRange() — no monaco.editor.tokenize() call, no worker
- * message, no main-thread blockage. Total cost is ~1–2ms for 80 visible lines.
- *
- * lineTokens is a sparse array indexed by absolute row: entries for rows
- * [startLine, endLine] are empty arrays (no Monarch scope data), which makes
- * the heuristic skip map all-false — every identifier is a candidate. The
- * classify() function's conservative rules limit false positives.
+ * Reads only model.getLineContent() (O(1) per line from Monaco's model cache)
+ * and resumes TextMate tokenization from a cached rule stack, so an 80-line
+ * viewport tokenizes 80 lines. Returns EMPTY — Monarch's own coloring stands —
+ * whenever shiki has nothing to add yet; it calls back through fireProviderChange
+ * once it does.
  */
-function heuristicForRange(
+function shikiForRange(
   model: editor.ITextModel,
+  languageId: string,
   startLine: number,
   endLine: number,
 ): languages.SemanticTokens {
-  const lineCount = model.getLineCount()
-  const start = Math.max(0, startLine)
-  const end = Math.min(endLine, lineCount - 1)
-
-  // Allocate a sparse lineTokens array indexed by absolute row number.
-  // Rows [0, end] are all empty arrays; heuristicTokensInRange only accesses
-  // rows in [start, end], so entries below start are never read.
-  const lineTokens: LineToken[][] = Array.from({ length: end + 1 }, () => [])
-
-  const tokens = heuristicTokensInRange(lineTokens, start, end, (row) =>
-    row < lineCount ? model.getLineContent(row + 1) : '',
-  )
-
-  if (tokens.length === 0) return EMPTY
+  const tokens = shikiTokensInRange(model, languageId, startLine, endLine, fireProviderChange)
+  if (!tokens || tokens.length === 0) return EMPTY
   const data = encodeTokens(tokens, (row) => model.getLineLength(row + 1))
   return data.length > 0 ? { data } : EMPTY
 }
@@ -138,16 +124,16 @@ export const treeSitterSemanticTokensProvider: languages.DocumentRangeSemanticTo
       return data.length > 0 ? { data } : EMPTY
     }
 
-    // Tree-sitter grammar not available — heuristic only, no background work.
+    // Tree-sitter grammar not available — shiki only, no background parse.
     if (unsupportedLanguages.has(languageId)) {
-      return heuristicForRange(model, startLine, endLine)
+      return shikiForRange(model, languageId, startLine, endLine)
     }
 
-    // Cache miss: return heuristic immediately and kick off a background parse.
+    // Cache miss: answer from shiki immediately and kick off a background parse.
     // When tree-sitter finishes it populates the cache and fires providerChange,
     // which triggers a second Monaco request that hits the cache synchronously.
     void parseInBackground(model, languageId, key, versionId)
-    return heuristicForRange(model, startLine, endLine)
+    return shikiForRange(model, languageId, startLine, endLine)
   },
 }
 
@@ -183,7 +169,7 @@ async function parseInBackground(
     fireProviderChange()
   } catch {
     unsupportedLanguages.add(languageId)
-    // No fireProviderChange — heuristic is already applied.
+    // No fireProviderChange — shiki already answered this range.
   } finally {
     pendingParse.delete(key)
   }

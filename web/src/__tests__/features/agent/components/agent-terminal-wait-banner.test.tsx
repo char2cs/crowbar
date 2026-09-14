@@ -74,6 +74,23 @@ describe('AgentTerminalWaitBanner', () => {
     fireEvent.click(buttons[0]!)
     expect(onOpenTerminal).toHaveBeenCalledTimes(1)
   })
+
+  // Regression: this message used to be free to WRAP as the pane narrowed,
+  // which is what let it grow into whatever sat below it (the crop bug
+  // reported live). `truncate` is the actual fix — a single, ellipsis-cut
+  // line has a fixed height the pane's own wrapper can reserve without
+  // measuring it.
+  it('keeps its message to one truncated line rather than letting it wrap', () => {
+    render(
+      <AgentTerminalWaitBanner
+        kind={TERMINAL_WAIT_TRUST}
+        providerLabel="Claude"
+        onOpenTerminal={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('alert').querySelector('p')).toHaveClass('truncate')
+  })
 })
 
 describe('AgentReturnToChatNotice', () => {

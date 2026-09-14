@@ -1165,6 +1165,66 @@ describe('pane-slice — forgetDormantArrangement (spec §5.4)', () => {
   })
 })
 
+// Recents' per-chat × on a dormant SET (feedback: "removes that one chat from
+// that group, but doesn't dissolve the group") — narrower than
+// forgetDormantArrangement above, which always drops the whole entry.
+describe('pane-slice — removeChatFromDormantArrangement', () => {
+  it('strips one chat id, leaving the rest of the arrangement intact', () => {
+    const store = makeStore()
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2', 'chat-3'])
+
+    store.getState().paneActions.removeChatFromDormantArrangement('set-1', 'chat-2')
+
+    expect(store.getState().dormantArrangements).toEqual([
+      { id: 'set-1', chatIds: ['chat-1', 'chat-3'], state: 'live' },
+    ])
+  })
+
+  it('drops the arrangement entirely once its last chat id is removed', () => {
+    const store = makeStore()
+    seedArrangement(store, 'set-1', ['chat-1'])
+
+    store.getState().paneActions.removeChatFromDormantArrangement('set-1', 'chat-1')
+
+    expect(store.getState().dormantArrangements).toEqual([])
+  })
+
+  it('leaves other arrangements untouched', () => {
+    const store = makeStore()
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2'])
+    seedArrangement(store, 'set-2', ['chat-3', 'chat-4'])
+
+    store.getState().paneActions.removeChatFromDormantArrangement('set-1', 'chat-1')
+
+    expect(store.getState().dormantArrangements).toEqual([
+      { id: 'set-1', chatIds: ['chat-2'], state: 'live' },
+      { id: 'set-2', chatIds: ['chat-3', 'chat-4'], state: 'live' },
+    ])
+  })
+
+  it('is a no-op for an entry id that names no arrangement', () => {
+    const store = makeStore()
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2'])
+
+    store.getState().paneActions.removeChatFromDormantArrangement('no-such-entry', 'chat-1')
+
+    expect(store.getState().dormantArrangements).toEqual([
+      { id: 'set-1', chatIds: ['chat-1', 'chat-2'], state: 'live' },
+    ])
+  })
+
+  it('is a no-op for a chat id the named arrangement does not contain', () => {
+    const store = makeStore()
+    seedArrangement(store, 'set-1', ['chat-1', 'chat-2'])
+
+    store.getState().paneActions.removeChatFromDormantArrangement('set-1', 'chat-9')
+
+    expect(store.getState().dormantArrangements).toEqual([
+      { id: 'set-1', chatIds: ['chat-1', 'chat-2'], state: 'live' },
+    ])
+  })
+})
+
 // Spec §9: deletion is the only act that removes a THING rather than a view,
 // "so it is the only one that can leave a name behind. It clears the layout of
 // any pane holding a deleted chat, plucks every arrangement in Recents that

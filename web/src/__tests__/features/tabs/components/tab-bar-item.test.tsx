@@ -106,4 +106,36 @@ describe('TabBarItem ghost restyle', () => {
     expect(screen.getByText('bar.ts')).toBeInTheDocument()
     expect(screen.queryByLabelText(/close/i)).not.toBeInTheDocument()
   })
+
+  // The active+dirty tab used to render as a `rounded-full` blue pill with an
+  // alpha shadow. It now borrows the same raised-row shape/top-shadow
+  // treatment ROW_ACTIVE gives any other active row (workspace-row-base.ts),
+  // signaling "unsaved" with ONLY a blue border — every attempt to also tint
+  // the fill blue (translucent, `color-mix`, then solid `bg-primary`) was
+  // tried and rejected: the tab strip's normal muted active fill was already
+  // correct, it just needed the border to turn blue on top of it.
+  it('active+dirty tab gets a blue border on the normal muted active fill', () => {
+    const buffer: EditorContent = { ...editorBuffer, isDirty: true }
+    render(<TabBarItem buffer={buffer} isActive {...shared} />)
+    const tab = screen.getByRole('tab')
+    expect(tab).not.toHaveClass('rounded-full')
+    expect(tab).not.toHaveClass('bg-primary')
+    expect(tab).not.toHaveClass('bg-primary/12')
+    expect(tab).not.toHaveClass('text-primary-foreground')
+    expect(tab.className).not.toContain('color-mix')
+    expect(tab.style.background).toBe('')
+    expect(tab).toHaveClass('rounded-sm')
+    expect(tab).toHaveClass('border-primary')
+    expect(tab).toHaveClass('bg-sidebar-element-hover')
+    expect(tab.className).toContain('inset-shadow-[0_1px_var(--elevated-highlight)]')
+  })
+
+  it('inactive+dirty tab keeps the plain ghost shape and shows the unsaved dot', () => {
+    const buffer: EditorContent = { ...editorBuffer, isDirty: true }
+    render(<TabBarItem buffer={buffer} isActive={false} {...shared} />)
+    const tab = screen.getByRole('tab')
+    expect(tab).not.toHaveClass('rounded-full')
+    expect(tab.className).not.toContain('color-mix')
+    expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
+  })
 })

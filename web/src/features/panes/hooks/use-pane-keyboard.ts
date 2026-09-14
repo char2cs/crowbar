@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { ensurePaneChatThenOpen } from '../utils/pane-command-actions'
+import { ensurePaneChatThenOpen, openChatIdInOwnView } from '../utils/pane-command-actions'
 import { getPaneScopeForPaneId } from '../utils/pane-routing'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -94,22 +94,24 @@ export function usePaneKeyboard() {
       if (matches(AGENT_NEW_CHAT)) {
         // ⌘N is registered in the keymap and rendered as a badge on the New
         // Tab surface's "New Chat" action, but nothing dispatched it (I4) — a
-        // rebindable command whose chord did nothing. Mirrors NewTabView's own
-        // createNewChat: pick the first ENABLED provider (selectEnabledProviders —
-        // the same rule every New-chat surface uses; a disabled provider is never
-        // offered), create the chat, then open it on the currently active pane.
+        // rebindable command whose chord did nothing. Picks the first ENABLED
+        // provider (selectEnabledProviders — the same rule every New-chat
+        // surface uses; a disabled provider is never offered), creates the
+        // chat, then opens it as its OWN VIEW (spec §8.4, same as clicking a
+        // chat in the tree) via `openChatIdInOwnView` — never straight into
+        // `activePaneId`, which used to ARCHIVE whatever that pane held
+        // (setPaneChat's dedicated close-and-replace path) instead of parking
+        // it as a still-live view. That is what made ⌘N feel like it could
+        // only ever leave one view open at a time.
         e.preventDefault()
         const state = workspaceStore.getState()
         const provider = selectEnabledProviders(state)[0]
         if (!provider) return
-        const targetPaneId = windowPaneStore.getState().activePaneId
         createChat(state.workspaceId, provider.id)
           .then((chatId) => {
             workspaceStore.getState().setActiveAgentChatId(chatId)
-            const paneActions = windowPaneStore.getState().paneActions
-            paneActions.setActivePane(targetPaneId)
             // A brand-new chat has no runner yet — null until it spawns one.
-            paneActions.setPaneChat(targetPaneId, chatId, null)
+            openChatIdInOwnView(chatId, null)
           })
           .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
         return

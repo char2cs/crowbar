@@ -26,19 +26,39 @@ export interface RafCoalescer {
   cancel: () => void
 }
 
+export interface RafCoalescerOptions {
+  /**
+   * Consulted at schedule time. While it returns a value > 0, the trailing flush
+   * runs at most once per that many milliseconds instead of once per frame — for
+   * a burst that outlives a single gesture and whose consumer does not need
+   * frame resolution. Still trailing: the task reads live state when it runs, and
+   * `flush()` forces the pending one out (call it when the gesture ends so the
+   * final state is never left sitting in a throttled timer).
+   */
+  minIntervalMs?: () => number
+}
+
 const hasRaf = () => typeof requestAnimationFrame === 'function'
+const now = () =>
+  typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now()
 
 /**
  * Wrap `task` in a once-per-frame trailing scheduler. `task` reads live state at
  * flush time, so repeated `schedule()` calls within a frame collapse to a single
  * invocation that reflects the latest state.
  */
-export function createRafCoalescer(task: () => void): RafCoalescer {
+export function createRafCoalescer(
+  task: () => void,
+  options: RafCoalescerOptions = {},
+): RafCoalescer {
   let handle: number | null = null
   // Whether the pending handle was created via rAF (vs the setTimeout fallback),
   // so it is cancelled with the matching API even if the env changes between
   // schedule and cancel.
   let usedRaf = false
+  let lastRun = Number.NEGATIVE_INFINITY
 
   const clear = () => {
     if (handle === null) return
@@ -49,19 +69,27 @@ export function createRafCoalescer(task: () => void): RafCoalescer {
 
   const run = () => {
     handle = null
+    lastRun = now()
     task()
   }
 
   return {
     schedule: () => {
       if (handle !== null) return
+      const minInterval = options.minIntervalMs?.() ?? 0
+      const wait = minInterval > 0 ? minInterval - (now() - lastRun) : 0
+      if (wait > 0) {
+        usedRaf = false
+        handle = setTimeout(run, wait) as unknown as number
+        return
+      }
       usedRaf = hasRaf()
       handle = usedRaf ? requestAnimationFrame(run) : (setTimeout(run, 0) as unknown as number)
     },
     flush: () => {
       if (handle === null) return
       clear()
-      task()
+      run()
     },
     cancel: clear,
   }

@@ -360,6 +360,69 @@ describe('IDEShell', () => {
       expect(activeCall?.wsId).toBe('ws-b')
     })
 
+    /**
+     * ...and moving focus WITHIN one workspace's view must cost nothing.
+     *
+     * `useNavigationHistory` renders nothing — it only records into the jump
+     * list — but it was called in IDEShell's own body while subscribing to
+     * `panes[activePaneId].activeEditorTabId`, which moves whenever focus
+     * crosses between a pane holding an editor tab and one that doesn't. That
+     * re-rendered the app's root, and nothing below it is memoized: measured
+     * live with three panes tiled in one workspace view, ~810 fibers per click
+     * — the whole sidebar, every row's tooltip and dropdown, the
+     * file-explorer card — for output that never changed, dropping 120fps to
+     * 78. The subscription now lives in a childless `NavigationHistoryRecorder`
+     * leaf, so the shell itself sees nothing.
+     *
+     * `SidebarProjectHeader` is the probe: it takes no props and is not
+     * memoized, so it re-renders exactly when IDEShell does.
+     */
+    it('does not re-render the shell when focus moves between panes of one workspace', () => {
+      router.pathname = '/ide/p1/r1/ws-a'
+      sidebarState.repos = [
+        {
+          id: 'r1',
+          projectId: 'p1',
+          workspaces: [{ id: 'ws-a', localPath: '/repo-a' }],
+          // BOTH chats in the SAME workspace — this is the within-one-view
+          // case, so `useActivePaneWorkspaceId` holds still throughout and the
+          // only thing that moves is which pane is focused.
+          chats: [
+            { id: 'chat-a', workspaceId: 'ws-a' },
+            { id: 'chat-b', workspaceId: 'ws-a' },
+          ],
+        },
+      ]
+      resetWindowPaneStoreForTests()
+      const paneActions = () => windowPaneStore.getState().paneActions
+      paneActions().setPaneChat(ROOT_PANE_ID, 'chat-a', null)
+      const secondPaneId = paneActions().splitPane(
+        ROOT_PANE_ID,
+        'horizontal',
+        undefined,
+        'after',
+      )!
+      paneActions().setPaneChat(secondPaneId, 'chat-b', null)
+      // The asymmetry that used to move the shell's `activeEditorTabId`: one
+      // pane holds an editor tab, the other holds only its chat.
+      paneActions().setActivePane(ROOT_PANE_ID)
+      windowPaneStore.getState().bufferActions.openContent({
+        type: 'editor',
+        path: '/repo-a/a.ts',
+        name: 'a.ts',
+        content: '',
+        workspaceId: 'ws-a',
+      })
+
+      render(<IDEShell />)
+      const rendersBefore = sidebarProjectHeaderMock.mock.calls.length
+
+      act(() => paneActions().setActivePane(secondPaneId))
+      act(() => paneActions().setActivePane(ROOT_PANE_ID))
+
+      expect(sidebarProjectHeaderMock.mock.calls.length).toBe(rendersBefore)
+    })
+
     it('falls back to the routed workspace while the active pane has no chat of its own', () => {
       router.pathname = '/ide/p1/r1/ws-a'
       sidebarState.repos = [

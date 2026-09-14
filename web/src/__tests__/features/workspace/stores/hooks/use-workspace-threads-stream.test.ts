@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 
 // Hoisted fakes — must be declared before any vi.mock calls.
 const { subscribe, listThreadsFn, upsertReviewThread, removeReviewThread } = vi.hoisted(() => ({
@@ -183,6 +183,36 @@ describe('useWorkspaceThreadsStream', () => {
     unmount()
 
     expect(unsub).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not throw and does not subscribe when the workspace scope is not yet recorded', () => {
+    __resetWorkspaceScopesForTest()
+
+    expect(() => renderHook(() => useWorkspaceThreadsStream('ws-unrecorded'))).not.toThrow()
+    expect(subscribe).not.toHaveBeenCalled()
+    expect(listThreadsFn).not.toHaveBeenCalled()
+
+    // Restore for later tests in this file.
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
+  })
+
+  it('subscribes once the scope arrives after mounting with none recorded', async () => {
+    __resetWorkspaceScopesForTest()
+
+    renderHook(() => useWorkspaceThreadsStream('ws-late'))
+    expect(subscribe).not.toHaveBeenCalled()
+
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-late' })
+
+    await waitFor(() => {
+      expect(subscribe).toHaveBeenCalledWith(
+        '/v0/projects/p1/repos/r1/workspaces/ws-late/threads',
+        expect.any(Function),
+      )
+    })
+
+    // Restore for later tests in this file.
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1' })
   })
 
   it('tears down and re-subscribes when wsId changes', () => {

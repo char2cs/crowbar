@@ -1,9 +1,26 @@
-import { useEffect } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { wsManager } from '@/lib/ws/manager'
 import { workspaceBase } from '@/lib/workspace-scope-url'
+import { getWorkspaceScope, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { listThreads, mapThread } from '@/features/git/api/review-api'
 import type { ThreadDTO } from '@/features/git/api/review-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+
+/**
+ * Whether `wsId`'s project/repo scope has been recorded yet — `workspaceBase`
+ * throws without it. Mirrors `useOwningChatId` (use-workspace-effects.ts):
+ * WorkspaceHost can mount a workspace's effects before the route or the
+ * sidebar's repo data has recorded its scope (a pane/Recents-retained
+ * workspace nobody has navigated to yet, or a cold-boot race with the repo
+ * fetch), and this makes that a piece of state the effect below can wait on
+ * — and re-fire once it resolves — instead of crashing on it.
+ */
+function useWorkspaceScopeReady(wsId: string): boolean {
+  return useSyncExternalStore(
+    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
+    () => getWorkspaceScope(wsId) !== null,
+  )
+}
 
 /**
  * Subscribe to the workspace-scoped /threads WebSocket stream while a
@@ -18,7 +35,12 @@ import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace
  *  4. Cleanup: unsubscribe (and cancel any in-flight seed) on wsId change / unmount.
  */
 export function useWorkspaceThreadsStream(wsId: string): void {
+  const scopeReady = useWorkspaceScopeReady(wsId)
   useEffect(() => {
+    // workspaceBase(wsId) throws without a recorded scope — see
+    // useWorkspaceScopeReady above. Wait rather than crash; this re-runs the
+    // instant the scope is recorded (scopeReady is a dependency below).
+    if (!scopeReady) return
     let cancelled = false
 
     const seed = async () => {
@@ -57,5 +79,5 @@ export function useWorkspaceThreadsStream(wsId: string): void {
       cancelled = true
       unsubscribe()
     }
-  }, [wsId])
+  }, [wsId, scopeReady])
 }

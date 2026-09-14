@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import {
   getDefaultChatPresentation,
   useSplitPresentationEnabled,
@@ -25,18 +25,27 @@ export const SPLIT_DEFAULT_SIZES: [number, number] = [45, 55]
  * (`usePaneViewPresentation`) size their own splits by the identical rule,
  * against the identical constant.
  */
-function useSplitDimensions(
+function useSplitMeasure<T>(
   active: boolean,
   containerRef: { current: HTMLElement | null },
-): { width: number; height: number } {
-  // Two PRIMITIVE state slots, not one `{ width, height }` object. A fresh
-  // object every `measure()` call — even reporting an unchanged size — never
-  // passes React's `Object.is` bail-out, where a repeated primitive does: an
-  // effect keyed on an unstable `containerRef` (a fresh ref-shaped literal
-  // passed inline on every render, e.g. from a test) would otherwise re-fire
-  // on every one of the re-renders its own `setState` just caused, forever.
-  const [width, setWidth] = useState(0)
-  const [height, setHeight] = useState(0)
+  derive: (width: number, height: number) => T,
+  initial: T,
+): T {
+  // ONLY THE DERIVED ANSWER IS STATE — never the raw pixel size. Every consumer
+  // of this measurement wants a DISCRETE answer (a boolean, or one of three
+  // arrangements) that changes at one threshold, but a pane sash drag rewrites
+  // the pane's flex-basis on every raw pointermove, so storing pixels re-rendered
+  // the whole pane subtree once PER PIXEL of the drag. Measured live in the dev
+  // app, a ~2s sash drag committed 88 renders of PaneContainer (and with it
+  // PlateSlate, the tab bar, every Tooltip under it) for a value that did not
+  // change once. Deriving inside `measure` lets React's `Object.is` bail-out do
+  // its job: a repeated primitive schedules nothing.
+  //
+  // `derive` is read through a ref, so an inline arrow from the caller cannot
+  // re-fire the effect (which would re-observe on every render).
+  const deriveRef = useRef(derive)
+  deriveRef.current = derive
+  const [value, setValue] = useState<T>(initial)
 
   useEffect(() => {
     const container = containerRef.current
@@ -50,8 +59,7 @@ function useSplitDimensions(
       // propagating NaN through every consumer.
       const w = el.clientWidth
       const h = el.clientHeight
-      setWidth(Number.isFinite(w) ? w : 0)
-      setHeight(Number.isFinite(h) ? h : 0)
+      setValue(deriveRef.current(Number.isFinite(w) ? w : 0, Number.isFinite(h) ? h : 0))
     }
     const observer = new ResizeObserver(measure)
     observer.observe(container)
@@ -59,7 +67,12 @@ function useSplitDimensions(
     return () => observer.disconnect()
   }, [active, containerRef])
 
-  return { width, height }
+  return value
+}
+
+/** Is a split of this measured box too narrow to sit side by side? */
+function deriveStacked(width: number): boolean {
+  return width > 0 && width < SPLIT_SIDE_BY_SIDE_MIN_PX
 }
 
 /**
@@ -121,8 +134,7 @@ export function useChatPresentation(
   // before layout — and answering it with `stacked` makes the split flash
   // vertical on the way in, then jump. Side by side is the shape this is FOR,
   // so an unknown width keeps it.
-  const { width: splitWidth } = useSplitDimensions(splitting, splitContainerRef)
-  const splitStacked = splitWidth > 0 && splitWidth < SPLIT_SIDE_BY_SIDE_MIN_PX
+  const splitStacked = useSplitMeasure(splitting, splitContainerRef, deriveStacked, false)
 
   return {
     presentation,
@@ -170,13 +182,7 @@ export type PaneViewPresentation = 'side-by-side' | 'stacked' | 'tabs'
  * room on ITS long axis (height) for the same reason side by side needs it on
  * width, and there is no second confirmed constant for that floor.
  */
-export function usePaneViewPresentation(
-  editorOpen: boolean,
-  containerRef: { current: HTMLElement | null },
-): PaneViewPresentation {
-  const { width, height } = useSplitDimensions(editorOpen, containerRef)
-
-  if (!editorOpen) return 'tabs'
+export function derivePaneViewPresentation(width: number, height: number): PaneViewPresentation {
   // Unmeasured (0x0, the frame before layout) cannot confirm either
   // arrangement is usable. Tabs is always valid regardless of size, so
   // guessing it here would be safe on its own terms — but it is also the ONE
@@ -187,6 +193,20 @@ export function usePaneViewPresentation(
   if (width === 0 && height === 0) return 'side-by-side'
   if (Math.max(width, height) < SPLIT_SIDE_BY_SIDE_MIN_PX) return 'tabs'
   return width >= height ? 'side-by-side' : 'stacked'
+}
+
+export function usePaneViewPresentation(
+  editorOpen: boolean,
+  containerRef: RefObject<HTMLElement | null> | { current: HTMLElement | null },
+): PaneViewPresentation {
+  const measured = useSplitMeasure(
+    editorOpen,
+    containerRef,
+    derivePaneViewPresentation,
+    'side-by-side',
+  )
+
+  return editorOpen ? measured : 'tabs'
 }
 
 /**

@@ -1,10 +1,9 @@
 import { useRef } from 'react'
-import { X } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { Separator } from '@/components/ui/separator'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
-import { ROW_ACTIVE, ROW_SUB_ACTION_HOVER } from '@/components/layout/workspace-row-base'
+import { ROW_ACTIVE } from '@/components/layout/workspace-row-base'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
 import {
@@ -14,6 +13,7 @@ import {
 } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import type { ChatIconFields } from '@/components/sidebar/lib/rows-from-repo'
 import type { RecentsEntry, RecentsEntryState } from '@/features/panes/types/recents-entry'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 
@@ -56,6 +56,22 @@ export interface RecentsBandEntry extends RecentsEntry {
    *  real producer (`recents-for-project.ts`) always populates it. */
   chatWorkspaces?: Record<string, string>
   /**
+   * Icon-relevant `SidebarRow` fields (see `ChatIconFields`) for any of
+   * `chatIds` that OWN a workspace — the tree's own branch/lock/PR-status
+   * glyph, resolved from the SAME repo data `rows-from-repo.ts`'s
+   * `chatIconIndex` walks. A chat absent here owns no workspace, and
+   * `RecentsMemberRow` keeps its own default (`kind: 'chat', ownsWorktree:
+   * false`, the plain bubble) for it — same optional-with-a-real-producer
+   * shape as `chatWorkspaces` above; `recents-for-project.ts` always
+   * populates every workspace-owning member.
+   *
+   * Fixes the bug where a chat that owns a workspace (and so draws the real
+   * `WorkspaceBranchIcon`/Lock/GitBranch mark in the tree) rendered as a
+   * generic `ChatsCircle` bubble here instead — `RecentsMemberRow` used to
+   * hand-build its row with no ownership data to draw on at all.
+   */
+  chatIcons?: Record<string, ChatIconFields>
+  /**
    * The entry's id exactly as `deriveRecentsEntries` produced it, before
    * `recents-for-project.ts` workspace-qualifies `.id` for cross-workspace
    * uniqueness. Pane ids (`ROOT_PANE_ID`/`BOTTOM_PANE_ID`) are module-level
@@ -81,16 +97,20 @@ interface RecentsBandProps {
   scrollRef: React.RefObject<HTMLElement | null>
   onDrop: (subjects: SidebarRowType[], target: SidebarRowType, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRowType[], paneId: string, zone: SidebarPaneZone) => void
+  /**
+   * Feedback: "each group chat row, on hover, should have its closing
+   * button [that] removes that one chat from [the group], but doesn't
+   * dissolve the group." For a SET this is now the ONLY close control there
+   * is — explicit product correction, asked repeatedly: no separate
+   * "close everything" button on the shell any more. Closing every member
+   * one at a time already gets there; the group dissolves for free once it
+   * is down to one (`viewIdOf`'s "group of one" fallback, pane-views.ts),
+   * at which point that lone row's own `onClose` (below) takes over. A solo
+   * entry's one chat goes straight to `onClose` instead — it has no group to
+   * leave a member of.
+   */
+  onCloseChat: (entry: RecentsBandEntry, chatId: string) => void
 }
-
-// The close button sits OUTSIDE SidebarRow's own layout (absolute, over the
-// row), so SidebarRow's `pr-2.5` (it has no trailing controls in this usage)
-// leaves its `truncate` label free to render right up under it. Same problem
-// `tab-bar-item.tsx` already solved for its own external close button —
-// `Tab` reserves `pr-8` against a `!size-5` button at `right-1.5` (26px right
-// extent, 6px of clearance). Ours is a 24px `ROW_SUB_ACTION_HOVER` button at
-// `right-2.5` (34px right extent); `pr-10` (40px) keeps the same 6px margin.
-const RECENTS_ROW_CLOSE_RESERVE = 'pr-10'
 
 /**
  * §5: "what is up, and what is running." Every entry renders through
@@ -102,10 +122,17 @@ const RECENTS_ROW_CLOSE_RESERVE = 'pr-10'
  * `Delete ${label}` aria-label — correct for the tree's destroy-the-chat verb,
  * but §5.4's "×" here means the opposite: end this view, never touch the
  * chat. Reusing `onTrash` would render a mislabelled delete affordance for a
- * non-destructive close. RecentsBand instead renders its own close control
- * beside the row, built from the same trailing-action tokens
- * (`ROW_SUB_ACTION_HOVER`) so it stays visually consistent without borrowing
- * the tree's destructive semantics.
+ * non-destructive close. Every row instead wires `SidebarRow`'s own `onClose`
+ * prop (its own doc, sidebar-row.tsx) — the SAME trailing-action token every
+ * other row control already uses, hidden and out of flow until hovered,
+ * costing the row a reflow on hover rather than a permanently reserved
+ * margin (the previous design's `pr-10` overlay reserved padding on BOTH the
+ * shell and every member for a button only visible on hover, which crushed a
+ * 2-up set's labels down to a couple of characters even at rest — reported
+ * four times before this unification). There is no separate shell-level
+ * "close everything" button any more either (reported three more times after
+ * that fix, against the button itself rather than its layout cost) — a SET's
+ * only close control is each member's own, same as a solo row's.
  */
 export function RecentsBand({
   entries,
@@ -114,6 +141,7 @@ export function RecentsBand({
   scrollRef,
   onDrop,
   onPaneDrop,
+  onCloseChat,
 }: RecentsBandProps) {
   // Every member row constructs its own `SidebarRow` from live chat state at
   // render time (RecentsMemberRow, below) — this is where each one lands so
@@ -144,8 +172,8 @@ export function RecentsBand({
   return (
     <div data-testid="recents-band">
       <div className="flex h-[22px] items-center gap-1.5 px-1.5">
-        <Separator className="flex-1" />
-        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Separator className="flex-1 bg-muted" />
+        <span className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           Recents
         </span>
       </div>
@@ -155,6 +183,7 @@ export function RecentsBand({
           entry={entry}
           onFocus={onFocus}
           onClose={onClose}
+          onCloseChat={onCloseChat}
           drag={drag}
           registerRow={registerRow}
         />
@@ -173,12 +202,14 @@ function RecentsEntryRow({
   entry,
   onFocus,
   onClose,
+  onCloseChat,
   drag,
   registerRow,
 }: {
   entry: RecentsBandEntry
   onFocus: (entry: RecentsBandEntry) => void
   onClose: (entry: RecentsBandEntry) => void
+  onCloseChat: (entry: RecentsBandEntry, chatId: string) => void
   drag: SidebarDrag
   registerRow: (row: SidebarRowType) => void
 }) {
@@ -216,33 +247,78 @@ function RecentsEntryRow({
       data-view-showing={isShowing || undefined}
       className={cn(
         'group relative',
-        // A SET's shell is a real container (§5.3): its own ground, radius,
-        // and 2px of padding around member rows that each keep their own
-        // margin — that's what separates one member's pill from the next.
-        // Unlike a solo-active entry (below), the shell div here IS the
-        // painted box — there's no separate unstyled wrapper the way
-        // SidebarRow's own outer div is for a solo row — so its `mx-1.5
-        // my-0.5` is its ONLY source of external gutter, not a redundant
-        // copy of anything. Vertical margins between this shell and its
-        // siblings collapse regardless of whether the shell states its own
-        // `my-0.5` (so height was never at stake either way), but horizontal
-        // margins never collapse — dropping `mx-1.5` here (an earlier,
-        // wrong pass at this fix) deleted the shell's only left/right
-        // gutter and rendered it flush against the sidebar's edges.
-        isSet && 'mx-1.5 my-0.5 rounded-xl p-0.5',
-        isSet && (isShowing ? ROW_ACTIVE : 'bg-sidebar-element-idle'),
+        // A SET's shell is a real container (§5.3): its own ground and radius
+        // around member rows that share it via a small `gap` (see below), not
+        // their own margin. Unlike a solo-active entry (below), the shell div
+        // here IS the painted box — there's no separate unstyled wrapper the
+        // way SidebarRow's own outer div is for a solo row — so its `mx-1.5
+        // my-0.5` is its ONLY source of external gutter, not a redundant copy
+        // of anything. Vertical margins between this shell and its siblings
+        // collapse regardless of whether the shell states its own `my-0.5`
+        // (so height was never at stake either way), but horizontal margins
+        // never collapse — dropping `mx-1.5` here (an earlier, wrong pass at
+        // this fix) deleted the shell's only left/right gutter and rendered
+        // it flush against the sidebar's edges.
+        //
+        // `p-0.5 gap-0.5`: the same 2px on every side AND between members —
+        // reported live as visibly mismatched when the inter-member gap came
+        // from each member's own uncancelled `mx-1.5` instead (12px between
+        // members against 2px from the shell's own edge to a member, with a
+        // THIRD value, 0, on the vertical edge). One shared value, in one
+        // place, is what makes the three actually equal. `gap-x-0.5` is the
+        // same 2px the tab strip already uses between its own pills
+        // (tabs.tsx) — small, but a real, visible seam, not zero.
+        //
+        // `rounded-lg`, matching ROW_BASE's own radius (every ordinary and
+        // member row) — `rounded-xl` here read as a visibly different corner
+        // treatment between a plain row and a grouped one, reported live.
+        //
+        // `flex` (feedback: "grouped in a single line, not in multiple rows")
+        // lays its member rows out SIDE BY SIDE instead of the vertical stack
+        // a plain block div gave them.
+        isSet && 'mx-1.5 my-0.5 flex items-center gap-0.5 rounded-lg p-0.5',
+        // A SET no longer paints a ground of its own once it stops SHOWING —
+        // reported live: an off-screen/dormant set still showed a filled
+        // background at rest, with no hover and nothing to justify it. Now it
+        // matches the solo row below exactly: bare until it's the one on
+        // screen, `hasView` alone carrying the "still open" signal via each
+        // member's own greyed label.
+        isSet && isShowing && ROW_ACTIVE,
+        // A NOT-showing SET's own hover — one shared surface across the whole
+        // shell, not each member's own box (user correction, with Zen
+        // browser's grouped-tab capsule as the explicit reference: "when
+        // hovering a group, the whole group should receive the hover
+        // signal"). `group-hover:` fires whenever the pointer is anywhere
+        // inside this shell (CSS `:hover` matches an ancestor for the whole
+        // time the pointer is over any descendant), so hovering ONE member
+        // lights the entire capsule together — each member's own local hover
+        // is silenced for exactly this reason (RecentsMemberRow's own doc).
+        // Carries the CossUI top-highlight too, by explicit request ("add the
+        // CossUI treatment and we're basically there") — the one place a
+        // Recents surface gets it besides the showing row itself (ROW_ACTIVE,
+        // above): an ordinary tree row's plain hover never does (workspace-
+        // row-base.ts's own doc on why that first, too-broad pass was wrong).
+        // Skipped while showing: ROW_ACTIVE already owns the shell's fill and
+        // its own top-highlight, and layering a second one on top of it would
+        // fight rather than add to it.
+        // `0_1px` — production's (develop) own plain `--elevated-highlight`
+        // offset, unchanged: this surface (`bg-sidebar-element-hover`) is
+        // ambient-colored, never inverted, so it never had ROW_ACTIVE's
+        // problem (see that token's own doc in theme.css) and needs no
+        // departure from the same recipe every button and tab already uses.
+        isSet &&
+          !isShowing &&
+          'group-hover:bg-sidebar-element-hover group-hover:shadow-xs ' +
+            'group-hover:shadow-black/10 group-hover:inset-shadow-[0_1px_var(--elevated-highlight)]',
         soloActive && cn('mx-1.5 my-0.5 rounded-lg', ROW_ACTIVE),
         // NOTE — a solo view that is OPEN BUT OFF SCREEN gets no ground of its
-        // own here, deliberately. Giving it one (measured: the SET shell's
-        // `bg-sidebar-element-idle` is a 11% light overlay) renders it LIGHTER
-        // than `ROW_ACTIVE`'s dark, inset-lit surface and inverts the
-        // hierarchy — every parked row shouting over the one you are actually
-        // looking at. `ROW_ACTIVE` reads as "selected" precisely because the
-        // rows around it are bare, which is the same relationship it has in
-        // the tree. What separates open-off-screen from remembered is already
-        // said on the row itself: `hasView` greys its label (§3.2, "a row with
-        // a view is grey"), and it is passed for every live entry regardless
-        // of which one is showing.
+        // own here, deliberately (and, as of the fix above, neither does an
+        // off-screen SET). `ROW_ACTIVE` reads as "selected" precisely because
+        // the rows around it are bare, which is the same relationship it has
+        // in the tree. What separates open-off-screen from remembered is
+        // already said on the row itself: `hasView` greys its label (§3.2,
+        // "a row with a view is grey"), and it is passed for every live entry
+        // regardless of which one is showing.
       )}
       data-testid={isSet ? `recents-set-${entry.id}` : undefined}
     >
@@ -255,31 +331,42 @@ function RecentsEntryRow({
           chatId={chatId}
           // Open is open: a view sitting off screen still HAS a view, and the
           // tree's grey "already open" marker must not flicker off every time
-          // the user looks at something else.
-          hasView={isLive}
-          reserveClose={canClose}
+          // the user looks at something else — EXCEPT for the one member
+          // sitting on the shell's own ROW_ACTIVE ground right now
+          // (`isShowing`): that surface already says "you are here" louder
+          // than any row in the list, and greying the label on TOP of it
+          // read as washed out/under-saturated (caught live) rather than the
+          // full-strength text every other ROW_ACTIVE surface in the app
+          // gets. Off screen (`isLive && !isShowing`) still greys, same as
+          // ever — there is no ground of its own there to conflict with.
+          hasView={isLive && !isShowing}
+          isSet={isSet}
           cancelOwnMargin={soloActive}
+          isShowingGround={soloActive}
+          // Unlike `isShowingGround` (solo-only — it neutralizes the row's
+          // OWN hover, which stays intentionally different for a set's
+          // members), the shell's fill is ROW_ACTIVE for EVERY member of a
+          // showing SET alike, not just a showing solo row — a set has no
+          // notion of "which member is on screen," the whole shell either
+          // shows or doesn't (`isSet && isShowing && ROW_ACTIVE` above).
+          // `activeGround` is exactly that broader "is this row's body
+          // painted on an inverted ROW_ACTIVE fill" fact, so it's `isShowing`
+          // unconditionally, not `soloActive`.
+          activeGround={isShowing}
+          icon={entry.chatIcons?.[chatId]}
           onOpen={() => onFocus(entry)}
+          // A SET member's own close removes just THIS chat from the group,
+          // never the whole thing — there is no separate "close everything"
+          // control any more (explicit product correction, asked repeatedly:
+          // closing every member one at a time is the whole of it, and the
+          // group dissolves for free once it is down to one — see
+          // `viewIdOf`'s own "group of one" fallback, pane-views.ts). A solo
+          // entry's one row IS the whole view, so its close still ends it.
+          onClose={canClose ? (isSet ? () => onCloseChat(entry, chatId) : () => onClose(entry)) : undefined}
           drag={drag}
           registerRow={registerRow}
         />
       ))}
-      {canClose && (
-        <button
-          type="button"
-          data-control="close"
-          data-testid={`recents-close-${entry.id}`}
-          aria-label="Close view"
-          className={cn(ROW_SUB_ACTION_HOVER, 'absolute right-2.5 top-1/2 -translate-y-1/2')}
-          onClick={(e) => {
-            e.stopPropagation()
-            onClose(entry)
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <X aria-hidden="true" className="size-3" weight="bold" />
-        </button>
-      )}
     </div>
   )
 }
@@ -288,9 +375,13 @@ function RecentsMemberRow({
   workspaceId,
   chatId,
   hasView,
-  reserveClose,
+  isSet,
   cancelOwnMargin,
+  isShowingGround,
+  activeGround,
+  icon,
   onOpen,
+  onClose,
   drag,
   registerRow,
 }: {
@@ -298,20 +389,59 @@ function RecentsMemberRow({
   workspaceId: string
   chatId: string
   hasView: boolean
-  /** Whether this entry's row(s) sit under an overlaid close control — reserve
-   *  room for it (see RECENTS_ROW_CLOSE_RESERVE) so a long title truncates
-   *  before it, not before SidebarRow's own narrower built-in inset. */
-  reserveClose: boolean
+  /** `RecentsEntryRow`'s own `isSet` — whether this member is one of 2+ chats
+   *  sharing a horizontal shell (see that shell's own `flex` doc). Shrinks
+   *  this member to share the row (`flex-1 min-w-0`) and cancels the vertical
+   *  half of its own `my-0.5` (see the className's own doc below). */
+  isSet: boolean
   /** Set only for a lone live entry (`RecentsEntryRow`'s `soloActive`), whose
    *  OWN wrapper takes over `SidebarRow`'s `mx-1.5 my-0.5` to become the row's
    *  one active surface. `SidebarRow` always carries that margin itself too
    *  (shared with the tree, can't opt out per-caller) — left uncancelled here
    *  it would stack a second copy on top of the wrapper's, rendering the row
-   *  visibly bigger/narrower than a tree row. A SET's members deliberately
-   *  keep their own margin (uncancelled) — that's what separates one
-   *  member's pill from the next inside the shell (§5.3). */
+   *  visibly bigger/narrower than a tree row. A SET's members cancel only the
+   *  VERTICAL half of that same margin instead (see `isSet` above) — the
+   *  horizontal half stays, and is what separates one member's pill from the
+   *  next along the row (§5.3). */
   cancelOwnMargin?: boolean
+  /** Same condition as `cancelOwnMargin` (`RecentsEntryRow`'s `soloActive`,
+   *  deliberately NOT `isShowing` alone — see `activeGround` below for the
+   *  broader fact). `SidebarRow`'s shared `ROW_INACTIVE` token still carries
+   *  its own `hover:bg-accent` regardless of caller, which — layered on top
+   *  of ROW_ACTIVE's own bold inverted surface — read as the row's
+   *  background visibly changing shape on hover (caught live: "we should
+   *  only display the row with no hover animation apart from showing the
+   *  close button"). Neutralised locally (below) rather than in
+   *  sidebar-row.tsx: every OTHER caller (the tree, a merely-open-off-screen
+   *  solo row, a SET's members — which keep their OWN distinct hover, see
+   *  the `isSet` hover class below) still wants a hover of their own, so
+   *  this is Recents' own, narrower override for the one case (a solo row
+   *  that IS the whole view) where hovering should reveal only the close
+   *  button and change nothing else. */
+  isShowingGround?: boolean
+  /** This member's row body sits directly on an inverted `ROW_ACTIVE` ground
+   *  — `RecentsEntryRow`'s own `isShowing`, unconditional on solo vs. set
+   *  (unlike `isShowingGround` above): a showing SET's shell is ROW_ACTIVE
+   *  for every one of its members alike, since a set has no notion of
+   *  "which member is on screen" — the whole shell either shows or doesn't.
+   *  Forwarded to `SidebarRow` so it can swap its own (and its branch
+   *  second-line's) ambient text-color tokens for the inverted pair that
+   *  actually reads against that ground — see `SidebarRowProps.activeGround`'s
+   *  own doc for the live-verified bug this fixes. */
+  activeGround?: boolean
+  /** This chat's tree-equivalent icon fields (`RecentsBandEntry.chatIcons`) —
+   *  undefined for a chat that owns no workspace, which keeps this row's
+   *  default `kind: 'chat', ownsWorktree: false` bubble below. */
+  icon?: ChatIconFields
   onOpen: () => void
+  /** This row's own close, resolved by `RecentsEntryRow` to whichever action
+   *  fits: for a SET member, removes just THIS chat from the group (never
+   *  the whole thing — the shell's own separate close does that); for a
+   *  solo entry's one row, ends the whole view. Undefined for the one
+   *  state with no close control at all (`working`). Forwarded straight to
+   *  `SidebarRow`'s own `onClose` — see that prop's doc for why this no
+   *  longer needs a reserved-padding overlay of its own. */
+  onClose?: () => void
   drag: SidebarDrag
   registerRow: (row: SidebarRowType) => void
 }) {
@@ -327,7 +457,6 @@ function RecentsMemberRow({
 
   const row: SidebarRowType = {
     id: chat.id,
-    kind: 'chat',
     parentId: null,
     order: 0,
     // Same fallback the tree's own row builder uses (rows-from-repo.ts) — the
@@ -336,10 +465,18 @@ function RecentsMemberRow({
     // showing nothing at all.
     label: chat.title || UNTITLED_CHAT_LABEL,
     labelProvisional: !chat.title,
-    ownsWorktree: false,
     workspaceId: chat.workspaceId,
     working,
     hasView,
+    // `icon` (see its own doc) carries the SAME ownership fold the tree's
+    // own row builder uses — a chat that owns a workspace draws the real
+    // branch/lock/PR-status glyph here too instead of always falling back to
+    // the generic bubble. Spread AFTER the defaults below so an owning
+    // chat's `kind`/`ownsWorktree` override them; a bubble (no `icon`) keeps
+    // exactly the old defaults.
+    kind: 'chat',
+    ownsWorktree: false,
+    ...icon,
   }
   // So `subjectsFor` can hand a real, freshly-rendered row back to a drag
   // that grabs it — see RecentsBand's own `rowsRef` note above.
@@ -349,8 +486,41 @@ function RecentsMemberRow({
     <div
       data-testid={`recents-row-${chat.id}`}
       className={cn(
-        reserveClose && RECENTS_ROW_CLOSE_RESERVE,
+        isSet && 'min-w-0 flex-1',
         cancelOwnMargin && '-mx-1.5 -my-0.5',
+        // SidebarRow's own inner div (via ROW_BASE) always carries `mx-1.5
+        // my-0.5` too — inconsequential in the TREE, where each row is its
+        // own block sibling and adjoining margins collapse/stack the usual
+        // single-row gap. A SET's members are FLEX items on one line now
+        // (feedback #2), where margins never collapse and never share space
+        // with a sibling `gap` the way padding-box sizing expects — left
+        // uncancelled, each member's own margin used to both inflate the
+        // shell taller than a single row (measured live: 44px against 40px,
+        // the vertical half) AND make the gap BETWEEN two members (two
+        // touching `mx-1.5`s) read as visibly wider than the gap from the
+        // shell's own edge to a member (live-reported: "the gap between
+        // siblings ... shouldn't be that large"). Cancelling BOTH here and
+        // letting the shell's own `gap-0.5`/`p-0.5` (RecentsEntryRow's own
+        // doc) be the ONLY source of spacing is what makes every gap —
+        // member-to-member, and shell-edge-to-member, on both axes — the
+        // same 2px instead of three different values.
+        isSet && '-mx-1.5 -my-0.5',
+        // Neutralizes this member's own individual hover — `[role="treeitem"]`
+        // (not `.group`, which several ancestors share) targets exactly
+        // SidebarRow's own inner div, the one element `ROW_INACTIVE`'s
+        // `hover:bg-accent` actually paints. Two callers, two reasons: a lone
+        // SHOWING row (`isShowingGround`) already sits on its own bold
+        // ROW_ACTIVE ground and needs nothing more from hover. A SET member
+        // (`isSet`) needs its OWN hover silenced for the opposite reason —
+        // user correction, live: "when hovering a group, the whole group
+        // should receive the hover signal, not only the item being hovered"
+        // (Zen browser's own grouped-tab capsule was named as the reference).
+        // Highlighting one member's own box while its siblings stayed bare
+        // read as "this one specific chat is special," not "this is one
+        // group." The shell's own `group-hover` (RecentsEntryRow's own doc)
+        // is what actually answers hover now — one shared surface across
+        // every member, never a per-member one.
+        (isShowingGround || isSet) && '[&_[role="treeitem"]]:hover:bg-transparent',
       )}
     >
       <SidebarRow
@@ -370,6 +540,8 @@ function RecentsMemberRow({
         // focus from the first and its unhandled blur commits the (unchanged)
         // value, cancelling the rename before it's ever visible.
         inlineRenameDisabled
+        activeGround={activeGround}
+        onClose={onClose}
       />
     </div>
   )

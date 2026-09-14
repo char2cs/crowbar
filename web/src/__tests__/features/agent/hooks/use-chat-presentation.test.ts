@@ -9,8 +9,8 @@
  * `PaneGroup.editorOpen`) — there is nothing to "choose", so unlike
  * `useChatPresentation` it has no `setPresentation`/`chosen` pair to test.
  */
-import { renderHook } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, renderHook } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import {
   SPLIT_SIDE_BY_SIDE_MIN_PX,
   usePaneViewPresentation,
@@ -66,5 +66,72 @@ describe('usePaneViewPresentation', () => {
       ),
     )
     expect(result.current).toBe('side-by-side')
+  })
+})
+
+/**
+ * The measurement must not turn a pixel-by-pixel resize back into a render per
+ * pixel. `usePaneViewPresentation` answers with one of three arrangements, but
+ * it used to hold the raw `clientWidth`/`clientHeight` in state — so a pane
+ * sash drag, which rewrites flex-basis on every raw pointermove, re-rendered
+ * the whole pane subtree (PaneContainer, the transcript's Plate editor, the tab
+ * bar, every Tooltip under it) once per pixel for an answer that never changed.
+ * Live-measured in the dev app, a ~2s drag committed 157 renders; only the
+ * handful that actually cross a threshold are legitimate.
+ */
+describe('usePaneViewPresentation — a resize that does not change the answer does not re-render', () => {
+  function withObservedResize(run: (fire: () => void) => void) {
+    const callbacks: ResizeObserverCallback[] = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: ResizeObserverCallback) {
+          callbacks.push(cb)
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
+    try {
+      run(() => {
+        act(() => {
+          for (const cb of callbacks) cb([], {} as ResizeObserver)
+        })
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  }
+
+  it('stays at one render across a whole drag inside the same bucket, and still switches at the threshold', () => {
+    withObservedResize((fire) => {
+      const box = { clientWidth: 1200, clientHeight: 900 }
+      const container = ref(box)
+      let renders = 0
+      const { result } = renderHook(() => {
+        renders++
+        return usePaneViewPresentation(true, container)
+      })
+
+      expect(result.current).toBe('side-by-side')
+      const rendersAtRest = renders
+
+      // A drag's worth of width changes, every one of them still landscape and
+      // still above the side-by-side floor.
+      for (let w = 1200; w > 900; w -= 5) {
+        box.clientWidth = w
+        fire()
+      }
+      expect(result.current).toBe('side-by-side')
+      expect(renders).toBe(rendersAtRest)
+
+      // Crossing a real threshold still lands, immediately.
+      box.clientWidth = 700
+      box.clientHeight = 500
+      fire()
+      expect(result.current).toBe('tabs')
+      expect(renders).toBeGreaterThan(rendersAtRest)
+    })
   })
 })

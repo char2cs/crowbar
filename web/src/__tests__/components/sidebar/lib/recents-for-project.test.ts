@@ -266,6 +266,68 @@ describe('recentsForProject', () => {
     expect(entries[0].chatWorkspaces).toEqual({ 'chat-1': 'ws-1', 'chat-2': 'ws-2' })
   })
 
+  // The icon-parity fix: `RecentsMemberRow` used to hand-build a row with no
+  // ownership data at all, so a chat that owns a workspace always fell back
+  // to the generic bubble glyph instead of the tree's own branch/lock/PR
+  // mark. `chatIcons` is what carries that fold over — resolved from the
+  // SAME repo data (`chatIconIndex`, rows-from-repo.ts) the tree's own row
+  // builder reads, not a second, parallel guess.
+  it("resolves a workspace-owning chat's icon fields from the SAME repo data the tree draws from", () => {
+    activeIds.current = ['ws-1']
+    storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'branch-chat-1' }], working: {} } })
+    seedLivePane('branch-chat-1')
+    const repos = [
+      makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        workspaces: [
+          makeTestWorkspace({
+            id: 'ws-1',
+            branch: 'feature/x',
+            status: 'pr-open',
+            owningChatId: 'branch-chat-1',
+          }),
+        ],
+        chats: [
+          { id: 'branch-chat-1', repoId: 'r1', title: '', order: 0, workspaceId: 'ws-1', ownsWorktree: true },
+        ],
+      }),
+    ]
+
+    const entries = recentsForProject(repos, 'p1')
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].chatIcons).toEqual({
+      'branch-chat-1': {
+        kind: 'branch',
+        ownsWorktree: true,
+        branchName: 'feature/x',
+        locked: false,
+        status: 'pr-open',
+        isPlaceholder: true, // no localPath on the fixture
+      },
+    })
+  })
+
+  it('a plain chat bubble (owns no workspace) is absent from chatIcons', () => {
+    activeIds.current = ['ws-1']
+    storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
+    seedLivePane('chat-1')
+    const repos = [
+      makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'main' })],
+        chats: [{ id: 'chat-1', repoId: 'r1', title: '', order: 0 }],
+      }),
+    ]
+
+    const entries = recentsForProject(repos, 'p1')
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].chatIcons).toEqual({})
+  })
+
   it('a workspace with no live store contributes nothing, and none is created for it', () => {
     activeIds.current = [] // nothing registered — workspace never opened this session
     vi.mocked(getOrCreateWorkspaceStore).mockClear()

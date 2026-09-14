@@ -1,4 +1,5 @@
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { isPaneEmpty } from '@/features/panes/stores/slices/pane-slice'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { BOTTOM_PANE_ID } from '../constants/pane'
@@ -6,6 +7,59 @@ import type { LayoutNode } from '../types/pane'
 import { getAllLeafIds } from './pane-layout'
 import { getPaneScopeForPaneId } from './pane-routing'
 import { createPaneBeside } from './pane-split-actions'
+
+/**
+ * Put `chatId` on screen as its OWN view — spec §8.4, "clicking a chat makes
+ * its own view" — regardless of where the chat id comes from. The one shared
+ * core behind every "open this chat, the way a click does" caller:
+ * `openChatInOwnPane` (drop-actions.ts, a sidebar row click/reveal) and the
+ * ⌘N new-chat command (use-pane-keyboard.ts), which differ only in how they
+ * got a chat id (an existing chat vs. one just minted) but must agree on what
+ * "open" means once they have one — see the fix note below for why they used
+ * to disagree.
+ *
+ *   - **already up anywhere → go TO it** (§8.2's "it never opens twice"),
+ *     checked against every pane, including one in a view currently off
+ *     screen (`setActivePane` brings that whole view over).
+ *   - **an EMPTY pane in the showing view → it fills that one** (the active
+ *     pane first, so it lands where the user is already looking).
+ *   - **otherwise → a brand-new VIEW** (`addPane`), which takes the screen
+ *     while the arrangement that was showing is PARKED whole, not lost.
+ *
+ * `detachPaneToOwnView` covers the middle case: a reused empty pane can still
+ * be tagged into a view someone merged earlier, and filling it in place would
+ * silently add this chat to that group.
+ *
+ * Before this existed, ⌘N wrote straight into `activePaneId` via
+ * `setPaneChat` — which ARCHIVES whatever that pane held into
+ * `dormantArrangements` (closed, not parked) — instead of minting a view of
+ * its own. Every chat the user had open before pressing ⌘N was one keystroke
+ * from being silently closed, which is what made the app feel like it could
+ * only ever hold one view at a time. `runnerId` defaults to null — a freshly
+ * minted chat has no runner yet; a revealed existing one ignores it entirely
+ * (the reveal branch returns before it would apply).
+ */
+export function openChatIdInOwnView(chatId: string, runnerId: string | null = null): void {
+  const { panes, activePaneId, rootLayout, paneActions } = windowPaneStore.getState()
+
+  const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
+  if (existingPane) {
+    paneActions.setActivePane(existingPane.id)
+    return
+  }
+
+  const openPaneIds = getAllLeafIds(rootLayout)
+  const vacant = (id: string) => isPaneEmpty(panes[id])
+  const targetId =
+    (openPaneIds.includes(activePaneId) && vacant(activePaneId) ? activePaneId : undefined) ??
+    openPaneIds.find(vacant) ??
+    paneActions.addPane()
+  if (!targetId) return
+
+  paneActions.detachPaneToOwnView(targetId)
+  paneActions.setPaneChat(targetId, chatId, runnerId)
+  paneActions.setActivePane(targetId)
+}
 
 export const getShareableSplitBufferId = (bufferId: string | null | undefined) => {
   if (!bufferId) return undefined

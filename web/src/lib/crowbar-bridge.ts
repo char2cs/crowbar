@@ -510,6 +510,15 @@ export async function toggleMenuBar(_toggle: boolean): Promise<void> {
   // FUTURE: invoke Tauri menu bar plugin
 }
 
+/** Move the macOS traffic lights to `(x, y)` (logical points, window-relative)
+ *  at runtime — the config-time `trafficLightPosition` in tauri.conf.json only
+ *  applies once, at window creation. No-op outside Tauri (browser dev). See
+ *  `useMacTrafficLightSync` for who calls this and why. */
+export async function setTrafficLightPosition(x: number, y: number): Promise<void> {
+  if (!isTauri()) return
+  await tauriInvoke('set_traffic_light_position', { x, y })
+}
+
 // ── Tauri Helpers ─────────────────────────────────────────────────────────────
 
 export function isTauri(): boolean {

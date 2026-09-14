@@ -2,7 +2,10 @@ import { useLayoutEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 
 // See the `isAtTopEdge` check's own doc below for why this isn't 10.
-const EDGE_THRESHOLD = 20
+// Exported: `useMacTrafficLightSync` re-runs the identical "is this row the
+// one true top-left corner" test from outside any one row's own component
+// tree, and must agree with this hook on where that line falls.
+export const EDGE_THRESHOLD = 20
 
 interface UsePaneTopRowEdgesResult {
   rowRef: RefObject<HTMLDivElement | null>

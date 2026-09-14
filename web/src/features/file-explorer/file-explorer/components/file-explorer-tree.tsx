@@ -339,12 +339,6 @@ function FileExplorerTreeComponent({
     settings.showHiddenFilesInFileTree,
   ])
 
-  useFileExplorerSync({
-    activePath,
-    updateActivePath,
-    revealPathInTree,
-  })
-
   const isTreeSearchActive = treeSearchQuery.trim().length > 0
   const isTreeSearchSettling =
     isTreeSearchActive && treeSearchQuery.trim() !== debouncedTreeSearchQuery.trim()
@@ -1135,6 +1129,11 @@ function FileExplorerTreeComponent({
       onMouseUp={handleContainerMouseUp}
       onMouseLeave={handleContainerMouseLeave}
     >
+      <FileExplorerSync
+        activePath={activePath}
+        updateActivePath={updateActivePath}
+        revealPathInTree={revealPathInTree}
+      />
       <SidebarHeader onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-stretch gap-1.5">
           <span className="relative flex min-w-0 flex-1 items-center">
@@ -1362,6 +1361,36 @@ function FileExplorerTreeComponent({
       />
     </div>
   )
+}
+
+/**
+ * `useFileExplorerSync` as a LEAF, not as a call in the tree's own body.
+ *
+ * That hook returns nothing — it is two `useEffect`s that point the explorer at
+ * whatever file the active pane is showing — but it subscribes to the WINDOW's
+ * `activeEditorTabId`, which moves every time focus crosses between a pane
+ * holding an editor tab and one that doesn't (clicking between tiled chats in a
+ * single workspace view does exactly that). Called inside
+ * `FileExplorerTreeComponent`, each of those clicks re-rendered this whole
+ * virtualized tree — ~365 fibers, every visible row, its git decorations and
+ * its dropdowns — to produce identical output, because the thing that changed
+ * was never rendered here in the first place. It is the same defect
+ * `NavigationHistoryRecorder` (ide-shell.tsx) isolates one level up, and it was
+ * hidden underneath it until that one was fixed: the tree sits inside
+ * `IDEShell`, so it was being re-rendered from above anyway.
+ *
+ * Rendering it as a childless leaf keeps both effects, their timing and their
+ * props exactly as they were while confining the re-render to one fiber. It
+ * emits no DOM, so sitting inside the `role="tree"` container changes neither
+ * layout nor the accessibility tree.
+ */
+function FileExplorerSync(props: {
+  activePath?: string
+  updateActivePath?: (path: string) => void
+  revealPathInTree: (path: string) => void | Promise<void>
+}): null {
+  useFileExplorerSync(props)
+  return null
 }
 
 export const FileExplorerTree = memo(FileExplorerTreeComponent)

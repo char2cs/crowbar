@@ -45,7 +45,9 @@ import { selectIsShowingEmptyStage } from '@/features/panes/stores/slices/pane-s
 import {
   useActivePaneWorkspaceId,
   usePaneWorkspaceIds,
+  useViewWorkspaceIds,
 } from '@/features/panes/hooks/use-chat-workspace-id'
+import { useMacTrafficLightSync } from '@/features/tabs/hooks/use-mac-traffic-light-sync'
 
 // Ids can never contain NUL/SOH (workspace-host.tsx's own NUL guarantee,
 // extended here with a second delimiter for a chatId/wsId pair within one
@@ -57,13 +59,12 @@ export function IDEShell() {
   const routerState = useRouterState()
   const pathname = routerState.location.pathname
   const navigate = useNavigate()
-  // Feeds the sidebar header's back/forward arrows. Mounted here rather than in
-  // SidebarProjectHeader so history keeps accruing while the header is hidden
-  // (nav screens) and survives the header unmounting.
-  useNavigationHistory()
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const sidebarSide = sidebarPosition === 'right' ? 'right' : 'left'
+  // macOS only, and only meaningful once the pane/sidebar chrome below is on
+  // screen to measure — see the hook's own doc for the geometry it re-derives.
+  useMacTrafficLightSync(sidebarSide)
   const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
 
   // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
@@ -178,6 +179,11 @@ export function IDEShell() {
   // own doc for the "clicking one pane switches the other's chat" bug this
   // closes).
   const paneWorkspaceIds = usePaneWorkspaceIds(paneChatEntries)
+  // Every workspace Recents currently tracks a chat for (live, working, set,
+  // or dormant) — fed into WorkspaceHost below as `viewWsIds`, its new "in a
+  // view" retention test (workspaceKeepAliveMinutes and its time-window
+  // policy are gone; see keep-alive-policy.ts).
+  const viewWorkspaceIds = useViewWorkspaceIds()
   // The workspace WorkspaceHost should treat as "active": the active pane's
   // own workspace first (see above), then the routed workspace, then — on
   // project home — the resolved home workspace once known.
@@ -411,13 +417,18 @@ export function IDEShell() {
             same for every workspace a PANE currently holds a chat for — not
             just the one that's "active" — so a split's other pane(s) always
             get a real store instead of falling back to the wrong ambient
-            one. HomeRoute itself renders null (or the error state); the
+            one. `viewWsIds` (`useViewWorkspaceIds`) is the host's actual
+            retention test now: every workspace with a chat somewhere in
+            Recents stays mounted, and dropping out of `viewWsIds` is what
+            gets a workspace evicted — no more time-based keep-alive window.
+            HomeRoute itself renders null (or the error state); the
             Outlet still stays mounted so workspace-route components'
             route-level guards keep running. */}
         <WorkspaceHost
           activeWsId={effectiveActiveWorkspaceId}
           homeWsIds={getKnownHomeWorkspaceIds()}
           paneWsIds={paneWorkspaceIds}
+          viewWsIds={viewWorkspaceIds}
         />
         <Outlet />
       </ErrorBoundary>
@@ -457,6 +468,37 @@ export function IDEShell() {
       <FpsOverlay />
       <DetachHolderModal />
       <PlaceholderToastWatcher />
+      <NavigationHistoryRecorder />
     </SidebarProvider>
   )
+}
+
+/**
+ * `useNavigationHistory` as a LEAF, not as a call in `IDEShell`'s own body.
+ *
+ * The hook returns void — it renders nothing, it only records into the jump
+ * list — but it subscribes to `panes[activePaneId].activeEditorTabId`, which
+ * moves every time focus crosses between a pane holding an editor tab and one
+ * that doesn't. Called directly in `IDEShell`, that put a WINDOW-WIDE value in
+ * the app root's render path, and nothing below `IDEShell` is memoized: each
+ * such click walked ~810 fibers — the whole sidebar, every row's Tooltip and
+ * Dropdown, the file-explorer card, the settings dialog — for a render whose
+ * output was identical. Measured live in the Tauri app, three panes tiled in
+ * ONE workspace view (so no workspace switch is involved, unlike the
+ * `useActivePaneWorkspaceId` fix this sits beside), 15 focus clicks: 9,159
+ * rendered fibers and 78fps, against 120fps idle.
+ *
+ * Isolating it here leaves the subscription — and its React-effect timing,
+ * which `navigateToJumpEntry`'s retarget handshake depends on (the marker is
+ * moved onto the reopened buffer's brand-new id AFTER the pane-store write
+ * that reveals it, so a recorder running synchronously with that write would
+ * record the jump as a fresh navigation and truncate the forward branch) —
+ * exactly as it was, while confining the re-render to this one childless
+ * fiber. Still mounted at shell level rather than in `SidebarProjectHeader`,
+ * whose back/forward arrows it feeds, so history keeps accruing while that
+ * header is hidden behind a nav screen and survives it unmounting.
+ */
+function NavigationHistoryRecorder(): null {
+  useNavigationHistory()
+  return null
 }

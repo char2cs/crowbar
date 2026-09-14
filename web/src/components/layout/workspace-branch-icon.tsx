@@ -16,6 +16,19 @@ interface WorkspaceBranchIconProps {
    *  this component's one prior caller (workspace-switcher.tsx) but wrong the
    *  moment `RowGlyph` started delegating here too. */
   size?: string
+  /** Forwarded from `sidebar-row.tsx`'s own `activeGround` (see that prop's
+   *  doc) — this row's body sits directly on an inverted `ROW_ACTIVE` ground
+   *  (Recents' solo-showing row, or every member of a showing SET). The
+   *  `locked`/`new` cases below hardcode `text-foreground` — correct for the
+   *  ordinary ambient sidebar background this component was originally built
+   *  for (workspace-switcher.tsx), but the wrong theme's color once
+   *  `RowGlyph` started delegating here too and the row can now sit on the
+   *  OTHER theme's inverted surface (live-verified: the branch icon read as
+   *  a barely-visible dark mark on the same dark ground its text was just
+   *  fixed to invert against). The status-colored cases (amber/red/green/
+   *  violet) are untouched — those are fixed brand colors, not an
+   *  ambient-theme token, so they read fine on either ground. */
+  invertedGround?: boolean
 }
 
 export function WorkspaceBranchIcon({
@@ -23,10 +36,11 @@ export function WorkspaceBranchIcon({
   working,
   isPlaceholder,
   size = 'size-4',
+  invertedGround,
 }: WorkspaceBranchIconProps) {
   // `working` is the §5 in-flight flag that replaced the old 'agent-running'
   // status overlay; it shows the spinner regardless of the underlying status.
-  if (working) return <WorkspaceAgentSpinner />
+  if (working) return <WorkspaceAgentSpinner invertedGround={invertedGround} />
 
   // A placeholder is a locked row, but it needs the user's attention rather than
   // the "protected, immutable" lock: render the warning glyph ahead of the switch.
@@ -44,13 +58,17 @@ export function WorkspaceBranchIcon({
   switch (status) {
     case 'locked':
       return (
-        <Lock aria-hidden="true" className={cn(size, 'shrink-0 text-foreground')} weight="fill" />
+        <Lock
+          aria-hidden="true"
+          className={cn(size, 'shrink-0 text-foreground', invertedGround && 'text-foreground-inverse')}
+          weight="fill"
+        />
       )
     case 'new':
       return (
         <GitBranch
           aria-hidden="true"
-          className={cn(size, 'shrink-0 text-foreground')}
+          className={cn(size, 'shrink-0 text-foreground', invertedGround && 'text-foreground-inverse')}
           weight="fill"
         />
       )
@@ -89,11 +107,16 @@ export function WorkspaceBranchIcon({
   }
 }
 
-export function WorkspaceAgentSpinner() {
+export function WorkspaceAgentSpinner({ invertedGround }: { invertedGround?: boolean } = {}) {
   // Theme-token colored, never a provider/hardcoded color; the <FlickerSpinner>
   // random-picks a flicker spinner and animates it.
   return (
-    <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
+    <span
+      className={cn(
+        'flex size-4 shrink-0 items-center justify-center text-foreground',
+        invertedGround && 'text-foreground-inverse',
+      )}
+    >
       <FlickerSpinner className="size-3.5" />
     </span>
   )

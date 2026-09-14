@@ -9,8 +9,8 @@ import type { PanePosition } from '@/features/panes/types/pane'
 const full: PanePosition = { atLeft: true, atTop: true, atRight: true, atBottom: true }
 const notAtEdge: PanePosition = { atLeft: false, atTop: false, atRight: false, atBottom: false }
 
-const INACTIVE = '2px solid var(--border)'
-const ACTIVE = '2px solid var(--secondary)'
+const INACTIVE = '1px solid var(--border)'
+const ACTIVE = '1px solid var(--secondary)'
 
 describe('isWindowEdge', () => {
   it('top is never a window edge', () => {
@@ -242,92 +242,42 @@ describe('buildPaneContentStyle — gutter (§7.4)', () => {
   })
 })
 
-// The IDE shell reuses the shared box's OWN computed corners for the three
-// edges it isn't internally facing the chat on, rather than re-deriving its
-// own square-or-rounded call — a rounded interior pane was leaving a sharp,
-// un-rounded IDE-shell corner sitting inside it, since the old logic only
-// ever reasoned about the chat-facing edge.
+// The IDE shell's own border/rounding no longer depends on the shared box
+// at all: only the facing edge (the one genuine internal seam) ever draws a
+// border, and no corner is ever rounded — reported live: "the IDE shell
+// shouldn't have rounded corners anymore."
 describe('buildInnerViewStyle', () => {
-  const sidebar = 'left' as const
-
-  it('the chat-facing edge is always rounded and bordered, whatever the outer box says', () => {
-    // A real window edge on ALL sides (nothing rounded in the outer box at
-    // all) — the chat-facing edge must still round and border itself; it is
-    // never a window edge, regardless of what the outer box computed.
-    const outer = buildPaneContentStyle(full, sidebar, false)
-    const s = buildInnerViewStyle(outer, 'left')
-    expect(s.borderLeft).toBe('2px solid var(--border)')
-    expect(s.borderTopLeftRadius).toBe('var(--radius-lg)')
-    expect(s.borderBottomLeftRadius).toBe('var(--radius-lg)')
-  })
-
-  it('the other three edges copy the outer box verbatim — square outer corner stays square', () => {
-    const outer = buildPaneContentStyle(full, sidebar, false) // window edges on right/bottom: square there
-    const s = buildInnerViewStyle(outer, 'left')
-    expect(s.borderTopRightRadius).toBe(outer.borderTopRightRadius)
-    expect(s.borderBottomRightRadius).toBe(outer.borderBottomRightRadius)
-    expect(s.borderTop).toBe(outer.borderTop)
-    expect(s.borderRight).toBe(outer.borderRight)
-    expect(s.borderBottom).toBe(outer.borderBottom)
-    // This is the actual bug: a real window edge means these corners are
-    // SQUARE in the outer box — the IDE shell must match, not default to
-    // rounded (its old, edge-blind behavior happened to agree here only
-    // because a fully-square outer box has nothing to disagree about).
-    expect(s.borderTopRightRadius).toBe('0')
-    expect(s.borderBottomRightRadius).toBe('0')
-  })
-
-  it('an interior pane (no real window edges at all): the non-facing corners are ALSO rounded, matching the outer box', () => {
-    const outer = buildPaneContentStyle(notAtEdge, sidebar, false)
-    const s = buildInnerViewStyle(outer, 'left')
-    // The bug this locks in: the old hard-coded "square unless it's the
-    // facing edge" behavior would have left these at '0' even though the
-    // outer box itself is rounded on every corner here.
-    expect(s.borderTopRightRadius).toBe('var(--radius-lg)')
-    expect(s.borderBottomRightRadius).toBe('var(--radius-lg)')
-  })
-
-  it('facingChatEdge "top" (stacked): rounds/borders the top edge, copies the rest', () => {
-    const outer = buildPaneContentStyle(full, sidebar, false)
-    const s = buildInnerViewStyle(outer, 'top')
-    expect(s.borderTop).toBe('2px solid var(--border)')
-    expect(s.borderTopLeftRadius).toBe('var(--radius-lg)')
-    expect(s.borderTopRightRadius).toBe('var(--radius-lg)')
-    expect(s.borderBottomLeftRadius).toBe(outer.borderBottomLeftRadius)
-    expect(s.borderBottomRightRadius).toBe(outer.borderBottomRightRadius)
-    expect(s.borderBottom).toBe(outer.borderBottom)
-  })
-
-  it('facingChatEdge "right": rounds/borders the right edge, copies the rest', () => {
-    const outer = buildPaneContentStyle(full, sidebar, false)
-    const s = buildInnerViewStyle(outer, 'right')
-    expect(s.borderRight).toBe('2px solid var(--border)')
-    expect(s.borderTopRightRadius).toBe('var(--radius-lg)')
-    expect(s.borderBottomRightRadius).toBe('var(--radius-lg)')
-    expect(s.borderTopLeftRadius).toBe(outer.borderTopLeftRadius)
-    expect(s.borderBottomLeftRadius).toBe(outer.borderBottomLeftRadius)
-    expect(s.borderLeft).toBe(outer.borderLeft)
-  })
-
-  it('every edge stays neutral even when the outer box carries the active-pane accent — the IDE shell never marks focus, only the chat does', () => {
-    const outer = buildPaneContentStyle(full, sidebar, true)
-    // Sanity: outer really is showing the accent, on both the facing edge's
-    // position (left) and a non-facing one (top).
-    expect(outer.borderLeft).toBe('2px solid var(--secondary)')
-    expect(outer.borderTop).toBe('2px solid var(--secondary)')
-
-    const s = buildInnerViewStyle(outer, 'left')
-    // The facing seam (forced) and the copied edge (renormalized) are both
-    // neutral — neither ever echoes outer's accent.
-    expect(s.borderLeft).toBe('2px solid var(--border)')
-    expect(s.borderTop).toBe('2px solid var(--border)')
-    // A real window edge (outer's borderRight/borderBottom are 'none' here —
-    // right/bottom are square for this `full` position) still shows no
-    // border at all — renormalizing color must not turn an absent border
-    // into a visible one.
-    expect(outer.borderRight).toBe('none')
-    expect(outer.borderBottom).toBe('none')
+  it('facingChatEdge "left": only the left edge is bordered', () => {
+    const s = buildInnerViewStyle('left')
+    expect(s.borderLeft).toBe('1px solid var(--border)')
+    expect(s.borderTop).toBe('none')
     expect(s.borderRight).toBe('none')
     expect(s.borderBottom).toBe('none')
+  })
+
+  it('facingChatEdge "right": only the right edge is bordered', () => {
+    const s = buildInnerViewStyle('right')
+    expect(s.borderRight).toBe('1px solid var(--border)')
+    expect(s.borderTop).toBe('none')
+    expect(s.borderLeft).toBe('none')
+    expect(s.borderBottom).toBe('none')
+  })
+
+  it('facingChatEdge "top" (stacked): only the top edge is bordered', () => {
+    const s = buildInnerViewStyle('top')
+    expect(s.borderTop).toBe('1px solid var(--border)')
+    expect(s.borderLeft).toBe('none')
+    expect(s.borderRight).toBe('none')
+    expect(s.borderBottom).toBe('none')
+  })
+
+  it('never rounds any corner, regardless of facingChatEdge', () => {
+    for (const facing of ['left', 'right', 'top'] as const) {
+      const s = buildInnerViewStyle(facing)
+      expect(s.borderTopLeftRadius).toBe('0')
+      expect(s.borderTopRightRadius).toBe('0')
+      expect(s.borderBottomLeftRadius).toBe('0')
+      expect(s.borderBottomRightRadius).toBe('0')
+    }
   })
 })

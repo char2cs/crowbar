@@ -76,6 +76,49 @@ import { createRafCoalescer, type RafCoalescer } from '../lib/raf-coalesce'
 
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
 
+// Same MutationObserver-on-`.dark`-class pattern as sidebar-build-badge.tsx's
+// `useIsDarkMode` and mermaid-theme.ts's `useMermaidThemeVersion` — kept as
+// its own tiny copy here (per those files' own precedent) rather than a
+// shared import, and needed for the identical reason: the app flips light/
+// dark by toggling a class on `document.documentElement`, not through any
+// store a React tree can subscribe to, so a REAL subscription is the only way
+// an effect finds out a mode change happened at all.
+let darkModeVersion = 0
+const darkModeListeners = new Set<() => void>()
+let darkModeObserver: MutationObserver | null = null
+
+function ensureDarkModeObserver(): void {
+  if (darkModeObserver || typeof document === 'undefined' || typeof MutationObserver === 'undefined') {
+    return
+  }
+  darkModeObserver = new MutationObserver(() => {
+    darkModeVersion++
+    darkModeListeners.forEach((listener) => listener())
+  })
+  darkModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+}
+
+function subscribeDarkMode(listener: () => void): () => void {
+  ensureDarkModeObserver()
+  darkModeListeners.add(listener)
+  return () => darkModeListeners.delete(listener)
+}
+
+function getDarkModeVersion(): number {
+  return darkModeVersion
+}
+
+function getDarkModeServerVersion(): number {
+  return 0
+}
+
+/** Bumps whenever the app's light/dark class flips — read purely to force a
+ *  dependent effect to re-run; the actual isDark read stays live-off-the-DOM
+ *  wherever it's consumed (`defineMonacoTheme`'s own CSS-first design). */
+function useDarkModeVersion(): number {
+  return useSyncExternalStore(subscribeDarkMode, getDarkModeVersion, getDarkModeServerVersion)
+}
+
 export interface PaneEditorSatelliteDeps {
   highlightMatches?: Array<{ start: number; end: number }>
   currentHighlightIndex?: number
@@ -567,6 +610,32 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   // only when that instance changes (editor created/replaced), so a tab switch
   // (swapTick bump with the SAME retained editor) is a cheap no-op.
   const themeBoundEditorRef = useRef<StandaloneEditor | null>(null)
+  // `settingsTheme`/`theme` name the COLOR theme (e.g. "crowbar") — a totally
+  // separate setting from Theme Mode (light/dark/system), which touches
+  // neither. Switching Theme Mode only ever calls `document.documentElement.
+  // classList.toggle('dark', ...)` (settings-effects.ts's `applyThemeMode`/
+  // `syncThemeWithSystem`, including the system-preference-change case), and
+  // `defineMonacoTheme` reads exactly that class as its OWN source of truth
+  // for isDark (this file's own top comment: "CSS-first ... always matches
+  // whatever .dark ... is currently applied"). A plain `editorRef.current`
+  // read inside this effect can't see that change on its own: the ref is set
+  // IMPERATIVELY by the editor-creation path, not through a React state
+  // update, so nothing here re-runs when it happens. `darkModeVersion` is a
+  // REACTIVE dependency for exactly that reason — the same shared
+  // MutationObserver-backed `useSyncExternalStore` seam `sidebar-build-
+  // badge.tsx`'s `useIsDarkMode` and mermaid-theme.ts's
+  // `useMermaidThemeVersion` already use for this identical problem — so a
+  // mode toggle forces a real re-run of this effect, landing on whatever
+  // `editorRef.current` holds AT THAT LATER TIME (by then, almost always
+  // populated), not the one captured at mount. Without it, toggling Theme
+  // Mode repaints every other pixel in the app but leaves an already-mounted
+  // editor's Monaco theme (and thus real, opaque colors like `editor.
+  // lineHighlightBackground`, not just the transparent `editor.background`)
+  // stuck on whatever was baked in at creation — caught live: a solid dark
+  // current-line highlight surviving a switch back to light, verified via
+  // console tracing that this effect's OWN mount-time runs all saw a null
+  // `editorRef.current` and, absent this dependency, never ran again.
+  const darkModeVersion = useDarkModeVersion()
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
@@ -585,7 +654,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     }
     // swapTick is intentionally a dep so this re-evaluates when the editor first
     // appears / is replaced, but the subscription rebind is gated by the ref.
-  }, [settingsTheme, theme, swapTick])
+  }, [settingsTheme, theme, swapTick, darkModeVersion])
 
   // ── Settings: all non-theme editor options (widget-level) ─────────────────
   // Keyed on actual settings values only — NOT swapTick — so a tab switch does

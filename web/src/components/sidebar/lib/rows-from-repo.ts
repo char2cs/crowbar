@@ -152,6 +152,73 @@ export function resolveOwnerOfChat(
  *      `branch` row (see `walkTreeIntoRows`'s workspace branch), just missing
  *      the title/decoration only the chat half carries.
  */
+/**
+ * The icon-relevant subset of `SidebarRow` — what `RowGlyph` (sidebar-row.tsx)
+ * actually reads to pick a glyph. `chatIconIndex` (below) is the one producer;
+ * named here so `recents-band.tsx` can spread it onto its own hand-built row
+ * without repeating the field list.
+ */
+export type ChatIconFields = Pick<
+  SidebarRow,
+  'kind' | 'ownsWorktree' | 'branchName' | 'added' | 'deleted' | 'locked' | 'status' | 'isPlaceholder'
+>
+
+/**
+ * The `Workspace`-derived subset of a `branch` row's icon fields — exactly
+ * the fields `walkTreeIntoRows`'s workspace-node branch stamps below,
+ * factored out so `chatIconIndex` (Recents' own icon fallback, below) can
+ * produce the identical shape without re-deriving it.
+ */
+function workspaceIconFields(
+  workspace: Workspace,
+): Omit<ChatIconFields, 'kind' | 'ownsWorktree'> {
+  return {
+    branchName: workspace.branch,
+    added: workspace.added,
+    deleted: workspace.deleted,
+    locked: workspace.status === 'locked',
+    status: workspace.status,
+    isPlaceholder: isPlaceholderWorkspace(workspace),
+  }
+}
+
+/**
+ * The icon-relevant fields `RowGlyph` (sidebar-row.tsx) needs to draw a
+ * workspace-owning chat's real branch/lock/PR-status glyph, keyed by chat id
+ * across every repo passed in — the SAME ownership fold
+ * (`resolveOwnerChats`/`resolveOwnerOfChat`) and `Workspace` fields this
+ * file's own tree walk draws its glyph from, reused rather than re-derived.
+ *
+ * `recents-band.tsx` (via `recents-for-project.ts`) reads this instead of
+ * hand-building a row that can only ever guess `kind: 'chat'` — Recents had
+ * no ownership data of its own, so a chat that owns a workspace always fell
+ * back to the generic `ChatsCircle` bubble glyph there, even though the
+ * identical chat draws the real branch/lock/PR mark in the tree.
+ *
+ * A chat id absent from the returned map owns no workspace and renders as an
+ * ordinary chat bubble — the caller's own existing default already gets that
+ * case right, so this only ever holds entries worth overriding.
+ */
+export function chatIconIndex(repos: readonly Repo[]): Map<string, ChatIconFields> {
+  const index = new Map<string, ChatIconFields>()
+  for (const repo of repos) {
+    const chats = (repo.chats ?? EMPTY_CHATS).filter((c) => c.repoId === repo.id)
+    const workspaces = repo.workspaces.filter((w) => w.status !== 'deleted')
+    const ownerChats = resolveOwnerChats(workspaces, chats)
+    const ownerOfChat = resolveOwnerOfChat(ownerChats, chats)
+    const workspaceById = new Map(workspaces.map((w) => [w.id, w]))
+    for (const [chatId, wsId] of ownerOfChat) {
+      const workspace = workspaceById.get(wsId)
+      index.set(chatId, {
+        kind: 'branch',
+        ownsWorktree: true,
+        ...(workspace ? workspaceIconFields(workspace) : {}),
+      })
+    }
+  }
+  return index
+}
+
 export function foldWorkspaceOwners(
   roots: SidebarTreeNode[],
   ownerChats: ReadonlyMap<string, string>,
@@ -414,7 +481,22 @@ export function walkTreeIntoRows(
         // no `Workspace` claimed it (see `resolveOwnerChats`) — a real bubble,
         // not a workspace whose other half is late.
         ownsWorktree: false,
-        workspaceId: node.chat.workspaceId ?? null,
+        // Falls back to the nearest real ancestor workspace (the SAME value
+        // a folder row's own `workspaceId` already gets — see
+        // `ancestorWorkspaceId`'s own doc above) when the chat carries none
+        // of its own. Without this, a bubble with no `Workspace` record of
+        // its own — the overwhelmingly common case, e.g. `foldWorkspaceOwners`
+        // resolves NO ownership for it — had a `workspaceId` of `null`, and
+        // `space-content-actions.ts`'s `openableWorkspaceOf` (which reads
+        // exactly this field) then had nothing to open it into: a click just
+        // toggled its (childless, so invisible) fold instead of ever landing
+        // in a pane. Live-reported: "clicking on a not opened row... simply
+        // anything happens... It should create a view on its own." A bubble
+        // still asserts no ownership (`ownsWorktree: false` — that fact is
+        // unchanged), it just runs the daemon's chats endpoint under the
+        // ground workspace it has always conceptually "borrowed" (§3.2),
+        // exactly as `handleCreate`'s Thread button already resolves for it.
+        workspaceId: node.chat.workspaceId ?? ancestorWorkspaceId,
         // `foldersCanFork` says the SAME thing for a chat's Fork button that
         // it already says for a folder's: whether this tree sits under a
         // real repo at all. A repo-scoped bubble always does (`true` here);
@@ -518,12 +600,7 @@ export function walkTreeIntoRows(
         workspaceId: node.workspace.id,
         working: node.workspace.working ?? false,
         hasView: false,
-        branchName: node.workspace.branch,
-        added: node.workspace.added,
-        deleted: node.workspace.deleted,
-        locked,
-        status: node.workspace.status,
-        isPlaceholder: isPlaceholderWorkspace(node.workspace),
+        ...workspaceIconFields(node.workspace),
       })
       // Children hang off the row's OWN id, which is now the owning chat's
       // (when one was resolved) — a thread the daemon filed under the

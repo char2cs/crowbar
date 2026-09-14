@@ -84,15 +84,23 @@ export function SidebarRowContextMenu({
   if (!menu.isOpen || !menu.data) return null
   const { row, locked } = menu.data
   const isProjectHome = row.kind === 'branch' && row.parentId === null
+  const isLockedBranch = row.kind === 'branch' && locked
 
-  const items: ContextMenuItem[] = [
-    {
+  const items: ContextMenuItem[] = []
+
+  // A locked branch keeps its checked-out branch name — same "must stay put"
+  // reasoning the lock itself exists for (see Lock/Unlock below); offering
+  // Rename here opened the dialog for a write `performRenameWorkspaceBranch`
+  // silently refuses once the branch is locked, so the row *looked* renamable
+  // and wasn't.
+  if (!isLockedBranch) {
+    items.push({
       id: 'rename',
       label: 'Rename',
       icon: <PencilSimpleLine />,
       onClick: () => onRename(row.id),
-    },
-  ]
+    })
+  }
 
   // Lock/Unlock only for a real workspace branch row — NOT `row.ownsWorktree`,
   // which is a "+"-button semantic (fork a workspace vs. start a thread) that

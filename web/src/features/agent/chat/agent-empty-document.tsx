@@ -74,6 +74,13 @@ export interface AgentEmptyDocumentProps {
    *  agrees with where the padded-down first line actually renders. Defaults
    *  to 0 for callers with no overlay header to clear. */
   headerClearancePx?: number
+  /** Occupies the handle's own slot INSTEAD OF the model/effort/attach/send
+   *  row below, when this chat has a reason it cannot be typed into yet — a
+   *  trust-dialog wait, a revive in flight, or one that gave up. It rides the
+   *  exact same `place()`/`lastLineTop` transform the control row does; there
+   *  is only ever one thing in this slot, never a second row stacked above
+   *  it. `undefined` renders the normal row. */
+  banner?: ReactNode
   ref?: Ref<AgentEmptyDocumentHandle>
 }
 
@@ -108,6 +115,7 @@ export function AgentEmptyDocument({
   sending,
   onStop,
   headerClearancePx = 0,
+  banner,
   ref,
 }: AgentEmptyDocumentProps) {
   const docRef = useRef<HTMLDivElement>(null)
@@ -137,8 +145,23 @@ export function AgentEmptyDocument({
   // moves with every keystroke) even though `place` itself no longer reads
   // it — cheaper than a MutationObserver, and it already covers every way
   // the last line can change: typing, deleting, pasting, undo.
+  //
+  // `selectionchange` is a DOCUMENT event, so it also fires for selections that
+  // have nothing to do with this box — and the loudest source of those is
+  // Monaco: it mirrors the editor selection into its hidden textarea, so a
+  // drag-select emits one per pointer move / auto-scroll tick (measured live in
+  // the Tauri app: 239 events fired 478 `getBoundingClientRect` reads here, two
+  // per mounted composer). `place()` is a layout READ followed by a style WRITE,
+  // so running it on that firehose thrashes layout for the whole document from
+  // every open chat pane, while the person is doing nothing in any of them.
+  // Gate on the selection actually landing inside THIS document: every case the
+  // listener exists for (typing, deleting, pasting, undo) puts the caret here.
   useEffect(() => {
-    const onSelectionChange = () => place()
+    const onSelectionChange = () => {
+      const anchor = document.getSelection()?.anchorNode ?? null
+      if (!anchor || !docRef.current?.contains(anchor)) return
+      place()
+    }
     document.addEventListener('selectionchange', onSelectionChange)
     return () => document.removeEventListener('selectionchange', onSelectionChange)
   }, [place])
@@ -172,29 +195,35 @@ export function AgentEmptyDocument({
       </div>
       <div ref={handleRef} className="dochandle">
         <div className="inner">
-          <div className="grp">
-            <span className="side">{controls}</span>
-            <span className="side">
-              <button
-                type="button"
-                className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
-                disabled={idle || sendingVisual}
-                aria-label={stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'}
-                title={
-                  stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'
-                }
-                onClick={stopping ? onStop : onSubmit}
-              >
-                {stopping ? (
-                  <StopIcon size={16} />
-                ) : sendingVisual ? (
-                  <FlickerSpinner className="size-4" />
-                ) : (
-                  <UpIcon size={16} />
-                )}
-              </button>
-            </span>
-          </div>
+          {banner ? (
+            <div className="banner">{banner}</div>
+          ) : (
+            <div className="grp">
+              <span className="side">{controls}</span>
+              <span className="side">
+                <button
+                  type="button"
+                  className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
+                  disabled={idle || sendingVisual}
+                  aria-label={
+                    stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'
+                  }
+                  title={
+                    stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'
+                  }
+                  onClick={stopping ? onStop : onSubmit}
+                >
+                  {stopping ? (
+                    <StopIcon size={16} />
+                  ) : sendingVisual ? (
+                    <FlickerSpinner className="size-4" />
+                  ) : (
+                    <UpIcon size={16} />
+                  )}
+                </button>
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

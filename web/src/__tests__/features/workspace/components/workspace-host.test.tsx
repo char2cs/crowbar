@@ -50,19 +50,8 @@ vi.mock('@/features/workspace/components/workspace-layout-root', () => ({
 
 import { WorkspaceHost } from '@/features/workspace/components/workspace-host'
 import { requestWorkspaceEviction } from '@/features/workspace/lib/workspace-eviction-request'
-import { useSettingsStore } from '@/features/settings/store'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import type { Repo } from '@/lib/store/sidebar'
-
-const MIN = 60_000
-
-function setKeepAlive(minutes: number) {
-  act(() => {
-    useSettingsStore.setState((s) => ({
-      settings: { ...s.settings, workspaceKeepAliveMinutes: minutes },
-    }))
-  })
-}
 
 function seedSidebar(ids: string[], opts: { defaultWorkspaceId?: string } = {}) {
   const repo: Repo = {
@@ -87,17 +76,14 @@ function hydrateCount(wsId: string): number {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers()
   hydrateSpy.mockClear()
   destroySpy.mockClear()
   events.length = 0
   useSidebarStore.setState(getInitialState())
-  setKeepAlive(10)
 })
 
 afterEach(() => {
   cleanup()
-  vi.useRealTimers()
 })
 
 describe('WorkspaceHost', () => {
@@ -108,13 +94,13 @@ describe('WorkspaceHost', () => {
     expect(hydrateCount('a')).toBe(1)
   })
 
-  it('keeps the previous workspace mounted and does not re-hydrate on a warm return (A→B→A)', () => {
-    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
+  it('keeps the previous workspace mounted and does not re-hydrate on a warm return (A→B→A) while both still have a view', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
     expect(hydrateCount('a')).toBe(1)
 
     // Switch A → B: A stays mounted but hidden (display:none — see
-    // workspace-slot-style.ts) + inert, B is active.
-    rerender(<WorkspaceHost activeWsId="b" />)
+    // workspace-slot-style.ts) + inert, B is active. Both have a view chat.
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a', 'b']} />)
     expect(slot('a')).not.toBeNull()
     expect(slot('a')!.style.display).toBe('none')
     expect(slot('a')!.hasAttribute('inert')).toBe(true)
@@ -123,27 +109,49 @@ describe('WorkspaceHost', () => {
     expect(destroySpy).not.toHaveBeenCalled()
 
     // Switch back B → A: A was never destroyed and is not re-hydrated.
-    rerender(<WorkspaceHost activeWsId="a" />)
+    rerender(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
     expect(slot('a')!.style.display).toBe('contents')
     expect(slot('b')!.style.display).toBe('none')
     expect(hydrateCount('a')).toBe(1) // still only the original cold hydrate
     expect(destroySpy).not.toHaveBeenCalled()
   })
 
-  it('retains workspaces across a project-home transit (activeWsId=null) and returns warm', () => {
+  it('evicts the previous workspace IMMEDIATELY on switch when it has no view chat (no grace period)', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="a" />)
+    rerender(<WorkspaceHost activeWsId="b" />)
+
+    expect(destroySpy).toHaveBeenCalledWith('a')
+    expect(slot('a')).toBeNull()
+    expect(slot('b')!.style.display).toBe('contents')
+  })
+
+  it('retains a non-active workspace only as long as viewWsIds still names it, evicting it the instant it drops out', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a']} />)
+    expect(slot('a')).not.toBeNull()
+    expect(destroySpy).not.toHaveBeenCalled()
+
+    // The view closes (its last chat leaves Recents): viewWsIds drops 'a'.
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={[]} />)
+
+    expect(destroySpy).toHaveBeenCalledWith('a')
+    expect(slot('a')).toBeNull()
+  })
+
+  it('retains workspaces across a project-home transit (activeWsId=null) and returns warm', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
     expect(hydrateCount('a')).toBe(1)
 
-    // Navigate to project home: no workspace is active. The host stays mounted
-    // (it is the IDE-session-long content host), so retention must NOT be wiped.
-    rerender(<WorkspaceHost activeWsId={null} />)
+    // Navigate to project home: no workspace is active, but A still has a
+    // view chat, so it survives the transit.
+    rerender(<WorkspaceHost activeWsId={null} viewWsIds={['a']} />)
     expect(slot('a')).not.toBeNull()
     expect(slot('a')!.style.display).toBe('none')
     expect(slot('a')!.hasAttribute('inert')).toBe(true)
     expect(destroySpy).not.toHaveBeenCalled()
 
     // Return home → A: warm (no re-hydrate), and A was never destroyed.
-    rerender(<WorkspaceHost activeWsId="a" />)
+    rerender(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
     expect(slot('a')!.style.display).toBe('contents')
     expect(hydrateCount('a')).toBe(1)
     expect(destroySpy).not.toHaveBeenCalled()
@@ -155,88 +163,49 @@ describe('WorkspaceHost', () => {
     expect(destroySpy).not.toHaveBeenCalled()
   })
 
-  it('on home, the most-recent workspace survives but older retained ones still age out', () => {
+  it('on home with no active workspace and no view chat anywhere, nothing is retained', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    act(() => {
-      vi.advanceTimersByTime(1000)
-    })
-    rerender(<WorkspaceHost activeWsId="b" />) // a hidden+retained, b active (most recent)
+    rerender(<WorkspaceHost activeWsId="b" />) // a evicted immediately (no view chat)
+    expect(destroySpy).toHaveBeenCalledWith('a')
 
-    // Go to project home — both stay retained across the transit.
+    // Go to project home with no active workspace at all: b has no view
+    // chat either, so nothing survives the transit.
     rerender(<WorkspaceHost activeWsId={null} />)
-    expect(slot('a')).not.toBeNull()
-    expect(slot('b')).not.toBeNull()
-
-    // Sit on home past the window: A ages out, but B (most-recently used) is
-    // still protected even though nothing is active.
-    act(() => {
-      vi.advanceTimersByTime(10 * MIN + 1000)
-    })
-    expect(destroySpy).toHaveBeenCalledWith('a')
-    expect(slot('a')).toBeNull()
-    expect(destroySpy).not.toHaveBeenCalledWith('b')
-    expect(slot('b')).not.toBeNull()
+    expect(destroySpy).toHaveBeenCalledWith('b')
+    expect(slot('b')).toBeNull()
   })
 
-  it('evicts (destroys) a hidden workspace after its keep-alive window elapses', () => {
-    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />)
-    expect(slot('a')).not.toBeNull()
-    expect(destroySpy).not.toHaveBeenCalled()
+  it('caps retained workspaces at 6, evicting the least-recently-active over the cap', () => {
+    vi.useFakeTimers()
+    try {
+      const ids = ['w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6']
+      // Every id has a view chat (so all 7 are candidates), only the active one
+      // changes across renders. Advance a little between activations so the
+      // cap's LRU tie-break has a strict recency order to sort by.
+      const { rerender } = render(<WorkspaceHost activeWsId={ids[0]} viewWsIds={ids} />)
+      for (let i = 1; i < ids.length; i++) {
+        act(() => {
+          vi.advanceTimersByTime(1000)
+        })
+        rerender(<WorkspaceHost activeWsId={ids[i]} viewWsIds={ids} />)
+      }
 
-    // Advance past the 10-minute window; the armed timer evicts A.
-    act(() => {
-      vi.advanceTimersByTime(10 * MIN + 1000)
-    })
-
-    expect(destroySpy).toHaveBeenCalledWith('a')
-    expect(slot('a')).toBeNull()
-    expect(slot('b')!.style.display).toBe('contents')
-  })
-
-  it('does not evict the active workspace even after it has sat idle past the window', () => {
-    render(<WorkspaceHost activeWsId="a" />)
-    act(() => {
-      vi.advanceTimersByTime(60 * MIN)
-    })
-    // No timer was ever armed for the sole active workspace; it stays mounted.
-    expect(destroySpy).not.toHaveBeenCalledWith('a')
-    expect(slot('a')).not.toBeNull()
-  })
-
-  it('caps retained workspaces at 6, evicting the oldest', () => {
-    const ids = ['w0', 'w1', 'w2', 'w3', 'w4', 'w5', 'w6']
-    const { rerender } = render(<WorkspaceHost activeWsId={ids[0]} />)
-    for (let i = 1; i < ids.length; i++) {
-      // Advance a little between activations so the recency order is strict.
-      act(() => {
-        vi.advanceTimersByTime(1000)
-      })
-      rerender(<WorkspaceHost activeWsId={ids[i]} />)
-    }
-
-    // The oldest (w0) is pushed out by the cap despite being within the window.
-    expect(destroySpy).toHaveBeenCalledWith('w0')
-    expect(slot('w0')).toBeNull()
-    for (const id of ids.slice(1)) {
-      expect(slot(id)).not.toBeNull()
+      // The least-recently-activated (w0) is pushed out by the cap despite
+      // still having a view chat.
+      expect(destroySpy).toHaveBeenCalledWith('w0')
+      expect(slot('w0')).toBeNull()
+      for (const id of ids.slice(1)) {
+        expect(slot(id)).not.toBeNull()
+      }
+    } finally {
+      vi.useRealTimers()
     }
   })
 
-  it('keepAliveMinutes=0 destroys the previous workspace on switch (A→B destroys A)', () => {
-    setKeepAlive(0)
-    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />)
-
-    expect(destroySpy).toHaveBeenCalledWith('a')
-    expect(slot('a')).toBeNull()
-    expect(slot('b')!.style.display).toBe('contents')
-  })
-
-  it('destroys a retained workspace once it no longer exists (closed / deleted)', () => {
+  it('destroys a retained workspace once it no longer exists (closed / deleted), even while it has a view chat', () => {
     seedSidebar(['a', 'b'])
-    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />)
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a']} />)
     expect(slot('a')).not.toBeNull()
     expect(destroySpy).not.toHaveBeenCalled()
 
@@ -251,29 +220,27 @@ describe('WorkspaceHost', () => {
     // Sidebar only knows about repo workspace "b" — the home id is never a
     // tree row, so without homeWsIds it would look "closed" (same shape as
     // the "destroys a retained workspace once it no longer exists" case
-    // above) the instant it goes hidden.
+    // above) the instant it goes hidden. Give it a view chat too, or the new
+    // retention rule (not the existence-prune) would evict it anyway.
     seedSidebar(['b'])
-    const { rerender } = render(<WorkspaceHost activeWsId="home-ws" homeWsIds={['home-ws']} />)
-    rerender(<WorkspaceHost activeWsId="b" homeWsIds={['home-ws']} />)
+    const { rerender } = render(
+      <WorkspaceHost activeWsId="home-ws" homeWsIds={['home-ws']} viewWsIds={['home-ws']} />,
+    )
+    rerender(<WorkspaceHost activeWsId="b" homeWsIds={['home-ws']} viewWsIds={['home-ws']} />)
 
     expect(slot('home-ws')).not.toBeNull()
     expect(slot('home-ws')!.style.display).toBe('none')
     expect(destroySpy).not.toHaveBeenCalled()
 
     // And a warm return to it needs no re-hydration.
-    rerender(<WorkspaceHost activeWsId="home-ws" homeWsIds={['home-ws']} />)
+    rerender(<WorkspaceHost activeWsId="home-ws" homeWsIds={['home-ws']} viewWsIds={['home-ws']} />)
     expect(slot('home-ws')!.style.display).toBe('contents')
     expect(hydrateCount('home-ws')).toBe(1)
   })
 
-  it('a homeWsIds entry is still evicted by the ordinary keep-alive TTL (homeWsIds only exempts it from the existence-prune)', () => {
+  it('a homeWsIds entry is still evicted once it has no view chat — homeWsIds only exempts it from the existence-prune', () => {
     const { rerender } = render(<WorkspaceHost activeWsId="home-ws" homeWsIds={['home-ws']} />)
     rerender(<WorkspaceHost activeWsId="b" homeWsIds={['home-ws']} />)
-    expect(slot('home-ws')).not.toBeNull()
-
-    act(() => {
-      vi.advanceTimersByTime(10 * MIN + 1000)
-    })
 
     expect(destroySpy).toHaveBeenCalledWith('home-ws')
     expect(slot('home-ws')).toBeNull()
@@ -294,19 +261,22 @@ describe('WorkspaceHost', () => {
     expect(slot('b')!.style.display).toBe('none')
   })
 
-  it('keeps refreshing a paneWsIds entry — unlike homeWsIds, it never reaches the ordinary keep-alive TTL while still pane-referenced', () => {
-    render(<WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} />)
+  it('keeps a paneWsIds entry retained across reconciles — a pane holding a chat is inherently "in a view"', () => {
+    render(<WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} viewWsIds={['b']} />)
     expect(slot('b')).not.toBeNull()
-
-    act(() => {
-      vi.advanceTimersByTime(10 * MIN + 1000)
-    })
-
-    // Still here: `paneWsIds` is stamped fresh on every reconcile (the same
-    // treatment `active` gets), so the timer that fires at its OWN expiry
-    // just re-stamps it and re-arms rather than evicting it.
+    expect(slot('b')!.style.display).toBe('none')
     expect(destroySpy).not.toHaveBeenCalledWith('b')
+  })
+
+  it('evicts a paneWsIds entry once it stops being pane-referenced and has no view chat', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} viewWsIds={['b']} />)
     expect(slot('b')).not.toBeNull()
+
+    // The pane closes and its chat leaves Recents entirely.
+    rerender(<WorkspaceHost activeWsId="a" paneWsIds={['a']} viewWsIds={[]} />)
+
+    expect(destroySpy).toHaveBeenCalledWith('b')
+    expect(slot('b')).toBeNull()
   })
 
   it('retains the DEFAULT (main-worktree) workspace when hidden — it lives in repo.defaultWorkspaceId, not the workspaces array', () => {
@@ -314,20 +284,19 @@ describe('WorkspaceHost', () => {
     // repo.defaultWorkspaceId. Pruning against repo.workspaces alone would
     // destroy it the moment it goes hidden while any child exists.
     seedSidebar(['child1'], { defaultWorkspaceId: 'def-ws' })
-    const { rerender } = render(<WorkspaceHost activeWsId="def-ws" />)
-    rerender(<WorkspaceHost activeWsId="child1" />)
+    const { rerender } = render(<WorkspaceHost activeWsId="def-ws" viewWsIds={['def-ws']} />)
+    rerender(<WorkspaceHost activeWsId="child1" viewWsIds={['def-ws']} />)
 
     expect(destroySpy).not.toHaveBeenCalled()
     expect(slot('def-ws')).not.toBeNull()
     expect(slot('def-ws')!.style.display).toBe('none')
 
     // And a warm return to it needs no re-hydration.
-    rerender(<WorkspaceHost activeWsId="def-ws" />)
+    rerender(<WorkspaceHost activeWsId="def-ws" viewWsIds={['def-ws']} />)
     expect(hydrateCount('def-ws')).toBe(1)
   })
 
   it('unmounts an evicted workspace BEFORE destroying its store (never a live subtree over a dead store)', () => {
-    setKeepAlive(0)
     const { rerender } = render(<WorkspaceHost activeWsId="a" />)
     events.length = 0
     rerender(<WorkspaceHost activeWsId="b" />)
@@ -339,14 +308,12 @@ describe('WorkspaceHost', () => {
     expect(events.indexOf('unmount:a')).toBeLessThan(events.indexOf('destroy:a'))
   })
 
-  it('unmount-before-destroy also holds on the TIMER eviction path', () => {
-    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />)
+  it('unmount-before-destroy also holds when a view chat drops out later', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a']} />)
     events.length = 0
 
-    act(() => {
-      vi.advanceTimersByTime(10 * MIN + 1000)
-    })
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={[]} />)
 
     expect(events.indexOf('unmount:a')).toBeGreaterThanOrEqual(0)
     expect(events.indexOf('unmount:a')).toBeLessThan(events.indexOf('destroy:a'))
@@ -354,18 +321,16 @@ describe('WorkspaceHost', () => {
 })
 
 /**
- * Forced eviction — the close path asking for a workspace to go NOW, outside
- * the keep-alive window (workspace-eviction-request.ts). A workspace whose
- * last VIEW the user just closed is not "recently visited for a fast switch
- * back", which is the only thing retention is for; it is closed, its chats'
- * CLIs have been stopped, and nothing is coming back to it.
+ * Forced eviction — the close path asking for a workspace to go NOW
+ * (workspace-eviction-request.ts). Independent of the ordinary retention
+ * test: a workspace whose last VIEW the user just closed is exactly the case
+ * the new rule already handles the instant `viewWsIds` catches up, but the
+ * close path also has this synchronous, no-wait-for-props escape hatch.
  */
 describe('WorkspaceHost — forced eviction', () => {
-  it('drops a retained workspace immediately, without waiting out keep-alive', () => {
-    // A generous window, so nothing here can be the timer path in disguise.
-    setKeepAlive(60)
-    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />)
+  it('drops a retained workspace immediately', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a']} />)
     expect(slot('a')).not.toBeNull()
     expect(destroySpy).not.toHaveBeenCalled()
 
@@ -376,9 +341,8 @@ describe('WorkspaceHost — forced eviction', () => {
   })
 
   it('still unmounts before destroying — the same rule the ordinary path keeps', () => {
-    setKeepAlive(60)
-    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />)
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a']} />)
     events.length = 0
 
     act(() => requestWorkspaceEviction('a'))
@@ -390,7 +354,6 @@ describe('WorkspaceHost — forced eviction', () => {
   // The ACTIVE workspace is the route. Its `WorkspaceView` is mounted over the
   // store and would re-create it the instant it went away.
   it('refuses to evict the workspace currently on screen', () => {
-    setKeepAlive(60)
     render(<WorkspaceHost activeWsId="a" />)
 
     act(() => requestWorkspaceEviction('a'))
@@ -400,7 +363,6 @@ describe('WorkspaceHost — forced eviction', () => {
   })
 
   it('is a no-op for a workspace this host never mounted', () => {
-    setKeepAlive(60)
     render(<WorkspaceHost activeWsId="a" />)
 
     act(() => requestWorkspaceEviction('never-seen'))
@@ -410,9 +372,8 @@ describe('WorkspaceHost — forced eviction', () => {
   })
 
   it('stops listening once the host unmounts', () => {
-    setKeepAlive(60)
-    const { rerender, unmount } = render(<WorkspaceHost activeWsId="a" />)
-    rerender(<WorkspaceHost activeWsId="b" />)
+    const { rerender, unmount } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a']} />)
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a']} />)
     unmount()
     destroySpy.mockClear()
 

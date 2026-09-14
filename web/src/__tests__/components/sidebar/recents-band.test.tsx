@@ -5,10 +5,14 @@ import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 
 // Task 21's drag wiring — a null scrollRef and no-op commit callbacks are
 // enough for every test below, none of which exercises a live drag.
+// `onCloseChat` (the per-chat close, spec below) is bundled here too as a
+// no-op default; tests that care about it override the spot after the
+// spread — see the "per-chat close" describe block.
 const DRAG_PROPS = {
   scrollRef: { current: null } as React.RefObject<HTMLElement | null>,
   onDrop: vi.fn(),
   onPaneDrop: vi.fn(),
+  onCloseChat: vi.fn(),
 }
 
 interface FakeChat {
@@ -107,7 +111,11 @@ describe('RecentsBand', () => {
       workspaceId: 'ws-1',
     }
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={onClose} {...DRAG_PROPS} />)
-    screen.getByTestId('recents-close-e1').click()
+    // A solo entry's one row carries its close via SidebarRow's own trailing
+    // cluster now (sidebar-row.tsx's `onClose` prop) — no dedicated
+    // `recents-close-{id}` testid of its own any more (that button is a SET's
+    // own "close everything" control — see the SET tests below).
+    screen.getByRole('button', { name: 'Close Chat One' }).click()
     expect(onClose).toHaveBeenCalledWith(entry)
   })
 
@@ -120,7 +128,7 @@ describe('RecentsBand', () => {
       workspaceId: 'ws-1',
     }
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
-    const close = screen.getByTestId('recents-close-e1')
+    const close = screen.getByRole('button', { name: 'Close Chat One' })
     expect(close.getAttribute('aria-label')).not.toMatch(/delete/i)
     // The tree's trash control is what this must NOT render for a Recents row.
     expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument()
@@ -144,7 +152,7 @@ describe('RecentsBand', () => {
     expect(shell.className).toMatch(/bg-background/)
   })
 
-  it('a live set that is NOT the view on screen is filled but unlit', () => {
+  it('a live set that is NOT the view on screen takes no ground of its own', () => {
     const entries: RecentsBandEntry[] = [
       {
         id: 'e1',
@@ -156,10 +164,12 @@ describe('RecentsBand', () => {
     ]
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const shell = screen.getByTestId('recents-set-e1')
-    // The set shell keeps its own unlit ground (§5.3) — but the "you are
-    // here" surface belongs to exactly one row.
+    // Live-reported: a parked/off-screen SET still showed a filled
+    // background at rest, with nothing to justify it. It now matches a solo
+    // off-screen row exactly (see that test below) — bare until it's the one
+    // showing, `hasView`'s greyed label carrying the "still open" signal.
     expect(shell.className).not.toMatch(/bg-background/)
-    expect(shell.className).toMatch(/bg-sidebar-element-idle/)
+    expect(shell.className).not.toMatch(/bg-sidebar-element-idle/)
     expect(shell.getAttribute('data-view-showing')).toBeNull()
   })
 
@@ -185,7 +195,7 @@ describe('RecentsBand', () => {
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const shell = screen.getByTestId('recents-set-e1')
     expect(shell.className).not.toMatch(/bg-background/)
-    expect(shell.className).toMatch(/bg-sidebar-element-idle/)
+    expect(shell.className).not.toMatch(/bg-sidebar-element-idle/)
   })
 
   // Regression coverage for the doubled-margin bug: `SidebarRow` (via
@@ -234,6 +244,59 @@ describe('RecentsBand', () => {
     expect(classesOf(rowWrapper)).toEqual(expect.arrayContaining(['-mx-1.5', '-my-0.5']))
   })
 
+  // Live-reported regression: a lone SHOWING entry's title and branch-name
+  // subtitle rendered as barely-legible ambient text (ROW_INACTIVE's own
+  // `text-foreground`, ROW_SUBLABEL's own `text-muted-foreground`) on top of
+  // the shell's inverted `bg-background-inverse` fill — "still using the
+  // foreground values instead of the background." Both need the inverted
+  // pair (`text-foreground-inverse`) instead, since they sit directly on
+  // that inverted ground, not the ambient sidebar background.
+  it('a lone SHOWING entry uses inverted text on its title and branch subtitle, not ambient foreground', () => {
+    const entry: RecentsBandEntry = {
+      id: 'e1',
+      localId: 'e1',
+      chatIds: ['chat-1'],
+      state: 'live',
+      showing: true,
+      workspaceId: 'ws-1',
+      chatIcons: {
+        'chat-1': { kind: 'branch', ownsWorktree: true, branchName: 'feature/x', added: 3, deleted: 1 },
+      },
+    }
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const treeitem = within(screen.getByTestId('recents-row-chat-1')).getByRole('treeitem')
+    expect(treeitem).toHaveClass('text-foreground-inverse')
+    expect(treeitem).not.toHaveClass('text-foreground')
+    const label = treeitem.querySelector('[data-sidebar-row-label]')!
+    expect(label.className).not.toContain('text-muted-foreground')
+    const subtitle = label.querySelector('span:nth-child(2)')!
+    expect(subtitle).toHaveClass('text-foreground-inverse')
+    expect(subtitle).not.toHaveClass('text-muted-foreground')
+  })
+
+  // Same bug, the SET case: a showing set's shell is ROW_ACTIVE for every
+  // member alike (there is no notion of "which member is on screen" within a
+  // set), so every member's own text needs the same inversion, not just a
+  // lone showing row.
+  it('every member of a showing SET uses inverted text, not just a lone showing row', () => {
+    const entries: RecentsBandEntry[] = [
+      {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1', 'chat-2'],
+        state: 'live',
+        showing: true,
+        workspaceId: 'ws-1',
+      },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2']) {
+      const treeitem = within(screen.getByTestId(rowId)).getByRole('treeitem')
+      expect(treeitem).toHaveClass('text-foreground-inverse')
+      expect(treeitem).not.toHaveClass('text-foreground')
+    }
+  })
+
   it('a dormant entry keeps SidebarRow’s own margin as the ONLY margin (no shell, nothing to cancel)', () => {
     const entry: RecentsBandEntry = {
       id: 'e1',
@@ -252,7 +315,28 @@ describe('RecentsBand', () => {
     expect(classesOf(rowWrapper)).not.toContain('-my-0.5')
   })
 
-  it('a set shell keeps its own external gutter (mx-1.5 my-0.5) AND its members keep their own margin (the pill separation §5.3 asks for)', () => {
+  // Explicit product correction, asked repeatedly: a SET never gets a
+  // separate "close everything" control of its own any more — only each
+  // member's own close (per-chat close describe block, below). Live-reported
+  // against the PREVIOUS design (first an absolutely-positioned overlay with
+  // a permanent `pr-10` reserve on both the shell and every member, later an
+  // in-flow flex sibling): either way, a third close affordance alongside two
+  // already-visible per-chat ones read as redundant and confusing.
+  it('a SET renders no group-close control at all, live or working', () => {
+    for (const state of ['live', 'working'] as const) {
+      const entries: RecentsBandEntry[] = [
+        { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state, workspaceId: 'ws-1' },
+      ]
+      const { unmount } = render(
+        <RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />,
+      )
+      expect(screen.queryByTestId('recents-close-e1')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Close view' })).not.toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('a set shell keeps its own external gutter and matches an ordinary row\'s radius', () => {
     const entries: RecentsBandEntry[] = [
       {
         id: 'e1',
@@ -276,23 +360,124 @@ describe('RecentsBand', () => {
     // every other row in the list.
     expect(classesOf(shell)).toEqual(expect.arrayContaining(['mx-1.5', 'my-0.5']))
     expect(classesOf(shell)).toContain('p-0.5')
-    expect(classesOf(shell)).toContain('rounded-xl')
+    // `rounded-lg`, matching ROW_BASE's own radius — `rounded-xl` here read as
+    // a visibly different corner treatment between a plain row and a grouped
+    // one (live-reported).
+    expect(classesOf(shell)).toContain('rounded-lg')
+    expect(classesOf(shell)).not.toContain('rounded-xl')
+  })
 
-    // Members are NOT solo-active — each keeps its own uncancelled margin,
-    // which is what visually separates one member's pill from the next.
+  // Live-reported: the gap between two members (their two touching, un-
+  // cancelled `mx-1.5`s: 12px) read as visibly larger than the gap from the
+  // shell's own edge to a member (its `p-0.5`: 2px), with a THIRD value (0)
+  // on the vertical edge (the member's OWN `my-0.5` was already cancelled).
+  // Fixed by cancelling BOTH margins on every member and letting the shell's
+  // own `gap-0.5`/`p-0.5` be the only source of spacing, so all three are the
+  // same 2px — the same small gap the tab strip already uses between its own
+  // pills (tabs.tsx's `gap-x-0.5`).
+  it('every gap around and between a set\'s members is the same small value, on both axes', () => {
+    const entries: RecentsBandEntry[] = [
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'live', workspaceId: 'ws-1' },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const shell = screen.getByTestId('recents-set-e1')
+    expect(classesOf(shell)).toContain('p-0.5')
+    expect(classesOf(shell)).toContain('gap-0.5')
+
     for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2']) {
       const member = screen.getByTestId(rowId)
-      expect(classesOf(member)).not.toContain('-mx-1.5')
-      expect(classesOf(member)).not.toContain('-my-0.5')
+      expect(classesOf(member)).toContain('-mx-1.5')
+      expect(classesOf(member)).toContain('-my-0.5')
     }
   })
 
-  it('reserves room for the close control so a long title truncates before it, not under it', () => {
-    // A title long enough to truncate right at the row's edge is the realistic
-    // case where an unreserved close button would draw over the last
-    // characters (tab-bar-item.tsx's own `pr-8` exists for the identical
-    // reason). We can't measure real layout in jsdom, so assert the reserved
-    // class directly, on the same element SidebarRow renders into.
+  // Regression pin for the "row is taller than any other row" bug: a set's
+  // members are flex items on ONE line now, where margins never collapse —
+  // each member's own uncancelled `my-0.5` (2px top + 2px bottom) stacked
+  // directly on top of the shell's own `p-0.5` padding, so the shell
+  // measured 44px tall instead of matching a single ordinary row's 40px.
+  it('a set shell is exactly one row tall, not inflated by its members’ own vertical margin', () => {
+    const entries: RecentsBandEntry[] = [
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2']) {
+      expect(classesOf(screen.getByTestId(rowId))).toContain('-my-0.5')
+    }
+  })
+
+  // Feedback: "On a single row interaction, we should only display the row
+  // with no hover animation apart from showing the close button" — a lone
+  // SHOWING entry already sits on its own bold ROW_ACTIVE ground, so the
+  // ordinary tree-row hover accent (ROW_INACTIVE's `hover:bg-accent`) is
+  // neutralized on it, leaving the close button as the only thing hover
+  // reveals.
+  it('a lone SHOWING entry neutralizes the ordinary tree-row hover accent on its own ground', () => {
+    const entry: RecentsBandEntry = {
+      id: 'e1',
+      localId: 'e1',
+      chatIds: ['chat-1'],
+      state: 'live',
+      showing: true,
+      workspaceId: 'ws-1',
+    }
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    expect(screen.getByTestId('recents-row-chat-1').className).toContain(
+      '[&_[role="treeitem"]]:hover:bg-transparent',
+    )
+  })
+
+  // User correction, live, with Zen browser's own grouped-tab capsule as the
+  // explicit reference: "when hovering a group, the whole group should
+  // receive the hover signal, not only the item being hovered." A SET
+  // member's own local hover is silenced entirely now — the shell's own
+  // `group-hover` (see its test below) is what answers hover, as ONE shared
+  // surface across every member.
+  it('a SET member silences its own local hover — the shell answers as one unit instead', () => {
+    const entries: RecentsBandEntry[] = [
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2']) {
+      expect(screen.getByTestId(rowId).className).toContain(
+        '[&_[role="treeitem"]]:hover:bg-transparent',
+      )
+    }
+  })
+
+  it('a NOT-showing SET shell lights as one unit on hover, with the CossUI top-highlight', () => {
+    const entries: RecentsBandEntry[] = [
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const shell = classesOf(screen.getByTestId('recents-set-e1'))
+    expect(shell).toContain('group-hover:bg-sidebar-element-hover')
+    expect(shell).toContain('group-hover:shadow-xs')
+    expect(shell).toContain('group-hover:inset-shadow-[0_1px_var(--elevated-highlight)]')
+  })
+
+  it('a SHOWING SET shell does not layer the group-hover treatment on top of ROW_ACTIVE', () => {
+    const entries: RecentsBandEntry[] = [
+      {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1', 'chat-2'],
+        state: 'live',
+        showing: true,
+        workspaceId: 'ws-1',
+      },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const shell = classesOf(screen.getByTestId('recents-set-e1'))
+    expect(shell).not.toContain('group-hover:bg-sidebar-element-hover')
+  })
+
+  it('a long title still truncates instead of forcing the row wider than the close button', () => {
+    // The close button now lives INSIDE SidebarRow's own trailing cluster (a
+    // plain flex sibling of the truncating label, same as Thread/Fork/Remove/
+    // Fold) rather than an external overlay recents-band.tsx had to reserve
+    // padding for — so this is SidebarRow's own truncation behavior, just
+    // confirmed end to end through RecentsBand's render path.
     setWs1([{ id: 'chat-1', workspaceId: 'ws-1', title: 'A'.repeat(120) }])
     const entry: RecentsBandEntry = {
       id: 'e1',
@@ -302,8 +487,11 @@ describe('RecentsBand', () => {
       workspaceId: 'ws-1',
     }
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
-    const rowWrapper = screen.getByTestId('recents-row-chat-1')
-    expect(rowWrapper.className).toMatch(/\bpr-10\b/)
+    const row = screen.getByTestId('recents-row-chat-1')
+    const label = row.querySelector('[data-sidebar-row-label]')
+    expect(label).not.toBeNull()
+    expect(label!.className).toMatch(/\btruncate\b/)
+    expect(screen.getByRole('button', { name: /^Close /i })).toBeInTheDocument()
   })
 
   it('does not reserve close-button room on a working row, which has no close control', () => {
@@ -361,5 +549,176 @@ describe('RecentsBand', () => {
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     expect(screen.getByTestId('recents-row-chat-1')).toHaveTextContent('Chat One')
     expect(screen.getByTestId('recents-row-chat-2')).toHaveTextContent('Other space chat')
+  })
+
+  // Feedback #1: "the workspace icon is not the same" — RecentsMemberRow used
+  // to hand-build its row with no ownership data at all, so a chat that owns
+  // a workspace always fell back to the generic ChatsCircle bubble instead of
+  // the tree's own branch/lock/PR-status glyph. `chatIcons` (populated by the
+  // real producer, recents-for-project.ts, from the SAME repo data the tree
+  // reads) is what fixes that — asserted here via the placeholder warning
+  // glyph's `role="img"` (WorkspaceBranchIcon), the one branch icon with a
+  // queryable accessible name.
+  it("draws a workspace-owning chat's REAL icon, not the generic bubble", () => {
+    const entry: RecentsBandEntry = {
+      id: 'e1',
+      localId: 'e1',
+      chatIds: ['chat-1'],
+      state: 'dormant',
+      workspaceId: 'ws-1',
+      chatIcons: {
+        'chat-1': { kind: 'branch', ownsWorktree: true, status: 'new', isPlaceholder: true },
+      },
+    }
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const row = screen.getByTestId('recents-row-chat-1')
+    expect(within(row).getByRole('img', { name: /branch needs provisioning/i })).toBeInTheDocument()
+  })
+
+  it('a chat with no chatIcons entry keeps the plain bubble (no branch glyph)', () => {
+    const entry: RecentsBandEntry = {
+      id: 'e1',
+      localId: 'e1',
+      chatIds: ['chat-1'],
+      state: 'dormant',
+      workspaceId: 'ws-1',
+    }
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const row = screen.getByTestId('recents-row-chat-1')
+    expect(within(row).queryByRole('img')).not.toBeInTheDocument()
+  })
+
+  // Feedback #2: a SET renders its members on ONE horizontal line.
+  it('a set shell lays its members out as a horizontal flex row', () => {
+    const entries: RecentsBandEntry[] = [
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const shell = screen.getByTestId('recents-set-e1')
+    expect(classesOf(shell)).toContain('flex')
+    // Each member shares the row's width and truncates on its own, rather
+    // than each rendering at its full natural width.
+    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2']) {
+      const member = classesOf(screen.getByTestId(rowId))
+      expect(member).toContain('flex-1')
+      expect(member).toContain('min-w-0')
+    }
+  })
+
+  it('a solo entry is NOT turned into a flex row (layout-direction change is set-only)', () => {
+    const entry: RecentsBandEntry = {
+      id: 'e1',
+      localId: 'e1',
+      chatIds: ['chat-1'],
+      state: 'dormant',
+      workspaceId: 'ws-1',
+    }
+    render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    const member = classesOf(screen.getByTestId('recents-row-chat-1'))
+    expect(member).not.toContain('flex-1')
+  })
+
+  // Feedback #3: each chat in a group gets its own hover-close, which removes
+  // just that chat without dissolving the group.
+  describe('per-chat close (a SET member’s own X)', () => {
+    it('renders one per-chat close button per member of a set', () => {
+      const entries: RecentsBandEntry[] = [
+        {
+          id: 'e1',
+          localId: 'e1',
+          chatIds: ['chat-1', 'chat-2'],
+          state: 'set',
+          workspaceId: 'ws-1',
+        },
+      ]
+      render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+      // Each member's own close now lives inside its OWN SidebarRow (the
+      // trailing-cluster `onClose` prop, sidebar-row.tsx) rather than a
+      // separate `recents-close-chat-{id}` overlay button of this file's own.
+      expect(
+        within(screen.getByTestId('recents-row-chat-1')).getByRole('button', {
+          name: 'Close Chat One',
+        }),
+      ).toBeInTheDocument()
+      expect(
+        within(screen.getByTestId('recents-row-chat-2')).getByRole('button', {
+          name: 'Close Chat Two',
+        }),
+      ).toBeInTheDocument()
+      // No separate group-wide close any more — each member's own is the
+      // whole of it (see the SET tests earlier in this file).
+      expect(screen.queryByTestId('recents-close-e1')).not.toBeInTheDocument()
+    })
+
+    it('clicking a member’s own close calls onCloseChat with the entry AND that chat id, never onClose', () => {
+      const onClose = vi.fn()
+      const onCloseChat = vi.fn()
+      const entry: RecentsBandEntry = {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1', 'chat-2'],
+        state: 'set',
+        workspaceId: 'ws-1',
+      }
+      render(
+        <RecentsBand
+          entries={[entry]}
+          onFocus={vi.fn()}
+          onClose={onClose}
+          {...DRAG_PROPS}
+          onCloseChat={onCloseChat}
+        />,
+      )
+      within(screen.getByTestId('recents-row-chat-2'))
+        .getByRole('button', { name: 'Close Chat Two' })
+        .click()
+      expect(onCloseChat).toHaveBeenCalledWith(entry, 'chat-2')
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('a SOLO (non-set) entry renders exactly its own row close — no separate group-wide control', () => {
+      const entry: RecentsBandEntry = {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1'],
+        state: 'dormant',
+        workspaceId: 'ws-1',
+      }
+      render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+      // A solo entry's one chat IS the whole view — its own SidebarRow close
+      // covers it, so there is no second, separate shell-level control (that
+      // control only exists for a SET — see RecentsEntryRow's own doc).
+      expect(screen.queryByTestId('recents-close-e1')).not.toBeInTheDocument()
+      expect(
+        within(screen.getByTestId('recents-row-chat-1')).getByRole('button', {
+          name: 'Close Chat One',
+        }),
+      ).toBeInTheDocument()
+    })
+
+    it('a working set has no per-chat close either — nothing has a close control while working', () => {
+      setWs1(DEFAULT_CHATS, { 'chat-1': true })
+      const entries: RecentsBandEntry[] = [
+        {
+          id: 'e1',
+          localId: 'e1',
+          chatIds: ['chat-1', 'chat-2'],
+          state: 'working',
+          workspaceId: 'ws-1',
+        },
+      ]
+      render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+      expect(
+        within(screen.getByTestId('recents-row-chat-1')).queryByRole('button', {
+          name: /^Close /,
+        }),
+      ).not.toBeInTheDocument()
+      expect(
+        within(screen.getByTestId('recents-row-chat-2')).queryByRole('button', {
+          name: /^Close /,
+        }),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByTestId('recents-close-e1')).not.toBeInTheDocument()
+    })
   })
 })

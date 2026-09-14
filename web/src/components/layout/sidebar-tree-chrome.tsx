@@ -71,7 +71,12 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
       if (!e.target.closest('[data-sidebar-row-label]')) return
       const el = e.target.closest<HTMLElement>('[role="treeitem"]')
       const rowId = el?.getAttribute('data-sidebar-row-id')
-      if (!rowId || !rows.some((r) => r.id === rowId)) return
+      const row = rows.find((r) => r.id === rowId)
+      if (!rowId || !row) return
+      // Same refusal as the context menu's own Rename item: a locked branch's
+      // rename write is silently dropped downstream (performRenameWorkspaceBranch),
+      // so starting the inline editor here would look like it worked and didn't.
+      if (row.kind === 'branch' && row.locked) return
       useSidebarInlineRenameStore.getState().startRenaming(rowId)
     }
     tree.addEventListener('dblclick', onDoubleClick)

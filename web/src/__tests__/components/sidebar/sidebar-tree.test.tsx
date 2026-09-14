@@ -269,12 +269,20 @@ describe('SidebarTree', () => {
     expect(hasDividerUtility).toBe(false)
   })
 
-  it('greys a chat row whose chat is live open in a pane, even though the row prop itself always arrives hasView: false', () => {
+  // User correction, live: a tree row with an open view read as DISABLED
+  // (muted-grey label) rather than active — "that row is active by
+  // definition, so it should be there." The tree now marks it the same way
+  // recents-band.tsx already marks its own dormant-SET member for the
+  // identical "open, not the one showing" state: the row's own ground
+  // (ROW_HAS_VIEW_IDLE, `bg-sidebar-element-idle`), full-strength label text.
+  // Recents' OWN muted-label mechanism is untouched — only the tree
+  // (`SidebarTreeRow`) opts into the new ground via `hasViewIdle`.
+  it('gives a chat row whose chat is live open in a pane the idle ground, not a greyed label — even though the row prop itself always arrives hasView: false', () => {
     // Every row in `rows` is seeded with `hasView: false` (rows-from-repo.ts
     // never seeds live state into the row object — see its own note). The
-    // grey has to come from a LIVE subscription to pane membership, not from
-    // the prop, so seed a pane holding chat-1's id directly on the window
-    // pane store rather than passing hasView: true into `rows`.
+    // signal has to come from a LIVE subscription to pane membership, not
+    // from the prop, so seed a pane holding chat-1's id directly on the
+    // window pane store rather than passing hasView: true into `rows`.
     windowPaneStore.setState((s) => {
       s.panes[ROOT_PANE_ID] = { ...s.panes[ROOT_PANE_ID], chatId: 'chat-1' }
       return s
@@ -290,12 +298,19 @@ describe('SidebarTree', () => {
       />,
     )
 
-    expect(screen.getByText('Fix the thing').className).toContain('text-muted-foreground')
-    // The folder row's chat never opened anywhere — no false-positive grey.
-    expect(screen.getByText('Bugs').className).not.toContain('text-muted-foreground')
+    const label = screen.getByText('Fix the thing')
+    expect(label.className).not.toContain('text-muted-foreground')
+    const row = label.closest('[role="treeitem"]')
+    expect(row?.className).toContain('bg-sidebar-element-idle')
+    // The folder row's chat never opened anywhere — no false-positive.
+    const folderLabel = screen.getByText('Bugs')
+    expect(folderLabel.className).not.toContain('text-muted-foreground')
+    expect(folderLabel.closest('[role="treeitem"]')?.className).not.toContain(
+      'bg-sidebar-element-idle',
+    )
   })
 
-  it('does not grey a chat row whose chat is not open in any pane', () => {
+  it('does not grey or ground a chat row whose chat is not open in any pane', () => {
     render(
       <SidebarTree
         rows={rows}
@@ -306,7 +321,11 @@ describe('SidebarTree', () => {
       />,
     )
 
-    expect(screen.getByText('Fix the thing').className).not.toContain('text-muted-foreground')
+    const label = screen.getByText('Fix the thing')
+    expect(label.className).not.toContain('text-muted-foreground')
+    expect(label.closest('[role="treeitem"]')?.className).not.toContain(
+      'bg-sidebar-element-idle',
+    )
   })
 })
 

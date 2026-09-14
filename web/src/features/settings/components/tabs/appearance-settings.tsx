@@ -255,32 +255,6 @@ export const AppearanceSettings = () => {
           </Select>
         </SettingRow>
       </Section>
-
-      <Section title="Performance">
-        <SettingRow
-          label="Keep Workspaces in Memory"
-          description="Minutes a workspace stays loaded after you switch away, so switching back is instant. 0 unloads it immediately. At most 6 workspaces are kept regardless."
-          onReset={() =>
-            updateSetting(
-              'workspaceKeepAliveMinutes',
-              getDefaultSetting('workspaceKeepAliveMinutes'),
-            )
-          }
-          canReset={
-            settings.workspaceKeepAliveMinutes !== getDefaultSetting('workspaceKeepAliveMinutes')
-          }
-        >
-          <NumberInput
-            min="0"
-            max="120"
-            value={settings.workspaceKeepAliveMinutes}
-            onChange={(val) => updateSetting('workspaceKeepAliveMinutes', val)}
-            className={cn(SETTINGS_CONTROL_WIDTHS.number, 'tabular-nums')}
-            size="xs"
-            aria-label={`Keep workspaces in memory: ${settings.workspaceKeepAliveMinutes} minutes`}
-          />
-        </SettingRow>
-      </Section>
     </div>
   )
 }

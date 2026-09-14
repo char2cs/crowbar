@@ -83,7 +83,7 @@ export function SidebarProjectHeader() {
     >
       {/* Build-state band paints behind the traffic lights, dead space, and
           cluster below — it never affects their layout. */}
-      <SidebarBuildBadgeBand className="absolute inset-0 z-0" />
+      <SidebarBuildBadgeBand className="absolute inset-0 z-0" align={isRight ? 'end' : 'start'} />
       {/* Reserve space for the macOS traffic lights on whichever side is
           top-left (only when the sidebar is on the left). */}
       {IS_MAC && !isRight && <div className="relative z-10 w-[72px] shrink-0" />}

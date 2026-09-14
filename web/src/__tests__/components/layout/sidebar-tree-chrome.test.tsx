@@ -135,6 +135,32 @@ describe('double-click-to-rename', () => {
     fireEvent.doubleClick(label)
     expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
   })
+
+  // performRenameWorkspaceBranch (row-actions.ts) already refuses a locked
+  // workspace's rename write silently — starting the inline editor here just
+  // meant typing a name into a box that discarded it.
+  it('double-clicking a LOCKED branch row label does not start inline rename', () => {
+    const lockedRows: SidebarRow[] = [
+      {
+        id: 'branch-1',
+        kind: 'branch',
+        parentId: null,
+        order: 0,
+        label: 'main',
+        ownsWorktree: true,
+        workspaceId: 'ws-1',
+        working: false,
+        hasView: false,
+        locked: true,
+      },
+    ]
+    const treeRef = { current: document.createElement('div') }
+    document.body.appendChild(treeRef.current)
+    render(<SidebarTreeChrome treeRef={treeRef} rows={lockedRows} repos={[]} />)
+    const label = makeRowLabel(treeRef.current, 'branch-1')
+    fireEvent.doubleClick(label)
+    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBeNull()
+  })
 })
 
 // The right-click menu's Rename item is UNTOUCHED by this task: it still

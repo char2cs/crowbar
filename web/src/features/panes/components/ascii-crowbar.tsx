@@ -306,9 +306,32 @@ export default function AsciiCrowbar({
 
     measure()
 
+    // A re-grid reallocates both buffers, rewrites `canvas.width` (dropping the
+    // backing store) and re-renders all 15000 points. The glyph cell is 5.4px,
+    // so a sash drag — which rewrites the pane's flex-basis on every raw
+    // pointermove — genuinely changes the grid on nearly every one: measured
+    // live, this observer alone burned 216ms across a ~2s drag, the largest
+    // single cost in it. It also wrote `canvas.style` INSIDE the observer
+    // callback, re-dirtying layout into another observation pass (the
+    // "ResizeObserver loop completed with undelivered notifications" storm).
+    // Hence: one re-grid per frame at most, and none for the span of a drag —
+    // the `data-pane-resizing` / `pane-resize-end` pair the Monaco and
+    // EdgeDissolve pauses already key off.
+    let measureFrame = 0
+    const scheduleMeasure = () => {
+      if (measureFrame) return
+      measureFrame = requestAnimationFrame(() => {
+        measureFrame = 0
+        if (document.documentElement.hasAttribute('data-pane-resizing')) return
+        measure()
+      })
+    }
+    const onPaneResizeEnd = () => scheduleMeasure()
+    window.addEventListener('pane-resize-end', onPaneResizeEnd)
+
     let ro: ResizeObserver | undefined
     if (typeof ResizeObserver !== 'undefined' && wrap) {
-      ro = new ResizeObserver(measure)
+      ro = new ResizeObserver(scheduleMeasure)
       ro.observe(wrap)
     }
 
@@ -332,6 +355,8 @@ export default function AsciiCrowbar({
     if (reduced) {
       // Static frame only; keep the observers so it re-grids/re-tints.
       return () => {
+        if (measureFrame) cancelAnimationFrame(measureFrame)
+        window.removeEventListener('pane-resize-end', onPaneResizeEnd)
         ro?.disconnect()
         themeObserver?.disconnect()
       }
@@ -401,6 +426,8 @@ export default function AsciiCrowbar({
       running = false
       if (rafId) cancelAnimationFrame(rafId)
       rafId = 0
+      if (measureFrame) cancelAnimationFrame(measureFrame)
+      window.removeEventListener('pane-resize-end', onPaneResizeEnd)
       io?.disconnect()
       ro?.disconnect()
       themeObserver?.disconnect()

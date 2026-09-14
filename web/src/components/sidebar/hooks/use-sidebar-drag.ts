@@ -47,8 +47,21 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
  * re-renders nothing.
  */
 
-/** Matches both predecessor hooks' confirmed value. */
-export const SIDEBAR_DRAG_THRESHOLD_PX = 5
+/**
+ * 8, not the predecessors' 5 — live-reported and reproduced: an ordinary
+ * click routinely carries 5-7px of incidental pointer movement between down
+ * and up (hand tremor, a trackpad click's own slight drag), which crossed 5
+ * and armed a real drag on a plain click. That drag's own faded source row
+ * (opacity-40, still in its list slot) and its full-opacity ghost (floating
+ * via `position: fixed`, nearly on top of that same slot for a small
+ * movement) briefly composited into what looked like one taller, doubled-up
+ * row — reported as "active rows grow in height" — self-corrected the
+ * instant `endDrag` ran on pointerup, which is why it only ever showed up
+ * for the length of a click and never in a settled `getBoundingClientRect`
+ * read. 8px is comfortably past ordinary click jitter while still short
+ * enough that an intentional drag arms immediately.
+ */
+export const SIDEBAR_DRAG_THRESHOLD_PX = 8
 
 /** How long the working-chat drag refusal (spec §8.3) stays up before it
  *  clears itself, if nothing sooner does (a fresh pointerdown anywhere). */
@@ -561,8 +574,20 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       pendingRef.current = null
       // Only if the row is still in the tree: a row deleted on the wire
       // between the press and the threshold takes its element with it, and
-      // capturing a pointer on a detached node throws.
-      if (pending.target.isConnected) pending.target.setPointerCapture(pending.pointerId)
+      // capturing a pointer on a detached node throws. Also wrapped: the
+      // browser throws the same NotFoundError for a still-connected node if
+      // this pointerId is no longer the one it has down (observed live) —
+      // losing capture here must not abort the rest of beginDrag below (the
+      // ghost/draggingRef/data-row-dragging setup), it only means a drag that
+      // exits the webview is more likely to lose its terminating pointerup,
+      // which the stale-buttons/blur recovery below now covers either way.
+      if (pending.target.isConnected) {
+        try {
+          pending.target.setPointerCapture(pending.pointerId)
+        } catch {
+          // Deliberately swallowed — see above.
+        }
+      }
 
       const subjects = optionsRef.current.subjectsFor(pending.row.id)
       const drag: ActiveDrag = { subjects, pointer: { x: e.clientX, y: e.clientY } }
@@ -570,12 +595,29 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       // Every measurement this drag needs, taken together and before the
       // first style write: interleaving reads and writes forces a layout per
       // clone on the one frame of a drag that is already doing the most work.
+      //
+      // The pressed row (`pending.row`) resolves to `pending.target` directly
+      // rather than through `rowDom.elementFor` — a chat with a live view
+      // renders through TWO `SidebarRow` instances sharing one id (its own
+      // tree row, and Recents' mirror of it — inlineRenameDisabled's own doc
+      // in sidebar-row.tsx), and `elementFor`'s `[attr="id"] `querySelector
+      // has no way to prefer one over the other: it always returns whichever
+      // comes first in DOM order, which is the TREE's copy (it renders above
+      // Recents). Dragging the Recents row then cloned and measured the
+      // TREE's instance instead — same id, different styling (`ROW_HAS_VIEW_IDLE`'s
+      // muted ground, not Recents' own ROW_ACTIVE) — live-verified as the
+      // cause of "when dragging that active row, the background is not
+      // active." `pending.target` is `e.currentTarget` from the exact
+      // `pointerdown` that started this drag (armed in `onPointerDownDrag`
+      // below), so it is never ambiguous. Every OTHER co-dragged subject in a
+      // multi-select still resolves through `elementFor` — this exact
+      // ambiguity is specific to the one row the pointer is actually on.
       const elements = subjects
-        .map((s) => rowDom.elementFor(s))
+        .map((s) => (s.id === pending.row.id ? pending.target : rowDom.elementFor(s)))
         .filter((el): el is HTMLElement => el !== null)
       const scroller = optionsRef.current.scrollRef.current
       const scrollerBox = scroller?.getBoundingClientRect()
-      const grabbed = rowDom.elementFor(pending.row) ?? pending.target
+      const grabbed = pending.target
       grabRef.current = grabOffsetFrom(
         grabbed.getBoundingClientRect(),
         pending.startX,
@@ -629,6 +671,18 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     }
 
     function onPointerMove(e: MouseEvent): void {
+      // A release delivered outside the webview (the pointer left the window
+      // before crossing SIDEBAR_DRAG_THRESHOLD_PX / before setPointerCapture)
+      // never reaches window as pointerup — this is the next event window
+      // DOES get, and `buttons` already reads 0, so treat it as the missed
+      // release rather than leave `selectstart` blocked document-wide until
+      // reload (reported live: "text selection doesn't work anywhere").
+      if ((pendingRef.current || draggingRef.current) && e.buttons === 0) {
+        pendingRef.current = null
+        if (draggingRef.current) endDrag()
+        else document.removeEventListener('selectstart', preventDefault)
+        return
+      }
       if (pendingRef.current) {
         const { startX, startY } = pendingRef.current
         if (Math.hypot(e.clientX - startX, e.clientY - startY) > SIDEBAR_DRAG_THRESHOLD_PX)
@@ -673,6 +727,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       grabRef.current = { dx: 0, dy: 0 }
       document.documentElement.removeAttribute('data-row-dragging')
       document.removeEventListener('selectstart', preventDefault)
+      pendingRef.current = null
       draggingRef.current = null
       dropTargetRef.current = null
       paintPaneHit(paneHitRef.current, null)
@@ -756,9 +811,21 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       endDrag()
     }
 
+    // The window losing focus mid-press/mid-drag (a native dialog, Cmd+Tab)
+    // with no pointermove to follow: nothing else would ever clear the
+    // pending/dragging state or the document-wide `selectstart` block.
+    function onWindowBlur(): void {
+      if (draggingRef.current) endDrag()
+      else if (pendingRef.current) {
+        pendingRef.current = null
+        document.removeEventListener('selectstart', preventDefault)
+      }
+    }
+
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointercancel', endDrag)
+    window.addEventListener('blur', onWindowBlur)
     return () => {
       edgeScrollerRef.current?.stop()
       // A teardown mid-drag would otherwise leave the document marked and the
@@ -772,6 +839,7 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       window.removeEventListener('pointercancel', endDrag)
+      window.removeEventListener('blur', onWindowBlur)
     }
   }, [])
 

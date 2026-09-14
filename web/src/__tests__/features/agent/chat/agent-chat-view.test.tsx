@@ -1,4 +1,5 @@
 import { createElement, createRef } from 'react'
+import type { ReactNode } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage, AgentProvider, SlashCatalog } from '@/features/agent/api/agent-api'
@@ -177,6 +178,10 @@ const baseProps = () => ({
   // have no overlay header to clear, so the component's own default (0) is
   // fine left unset.
   headerClearancePx: undefined as number | undefined,
+  // Declared so `setup` accepts it — most suites here have no pane-level
+  // signpost to hand down, so the component's own default (undefined,
+  // rendering the ordinary control row) is fine left unset.
+  blankSignpost: undefined as ReactNode | undefined,
   // No sticky selection: these fixtures' providers declare no catalogue, so the
   // picker renders nothing at all here (see agent-model-picker.test.tsx).
   model: '',
@@ -1935,5 +1940,41 @@ describe('AgentChatView header clearance', () => {
 
     const root = container.querySelector('.agent-chat.chat') as HTMLElement
     expect(root.style.getPropertyValue('--agent-header-clearance')).toBe('0px')
+  })
+})
+
+// The pane resolves ITS OWN reviving/idle/trust-wait signpost (it alone knows
+// runner attach state and terminal waits) and hands the finished node down —
+// AgentChatView's only job is putting it where AgentEmptyDocument's own
+// `place()` transform already lives, in place of the model/effort/attach/send
+// row, never inventing one of its own.
+describe('AgentChatView blankSignpost', () => {
+  it('renders it inside the blank document, in place of the ordinary control row', async () => {
+    const { container } = setup({
+      blankSignpost: createElement('div', { 'data-testid': 'stub-signpost' }, 'Resume it'),
+    })
+    await composer()
+
+    const handle = container.querySelector('.dochandle') as HTMLElement
+    expect(handle.querySelector('[data-testid="stub-signpost"]')).not.toBeNull()
+    expect(handle.querySelector('.grp')).toBeNull()
+  })
+
+  it('leaves the ordinary control row alone when there is none', async () => {
+    const { container } = setup()
+    await composer()
+
+    const handle = container.querySelector('.dochandle') as HTMLElement
+    expect(handle.querySelector('.grp')).not.toBeNull()
+  })
+
+  it('never reaches the populated transcript surface', async () => {
+    initialMessages = [message(1, 'user', 'Question')]
+    const { container } = setup({
+      blankSignpost: createElement('div', { 'data-testid': 'stub-signpost' }, 'Resume it'),
+    })
+    await screen.findByText('Question')
+
+    expect(container.querySelector('[data-testid="stub-signpost"]')).toBeNull()
   })
 })

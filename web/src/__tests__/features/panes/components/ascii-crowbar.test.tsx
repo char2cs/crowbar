@@ -215,3 +215,92 @@ describe('AsciiCrowbar — the rendering is untouched by the idle gate', () => {
     expect(clearRectCount).toBeLessThanOrEqual(31)
   })
 })
+
+/**
+ * Re-gridding is the expensive half of this component: two typed-array
+ * reallocations, a `canvas.width` write that drops the backing store, and a
+ * full 15000-point re-render. The ResizeObserver used to run all of it
+ * SYNCHRONOUSLY, inside the observer callback — so a pane sash drag, which
+ * rewrites the pane's flex-basis on every raw pointermove past a 5.4px glyph
+ * cell, paid it on nearly every one. Live-measured in the dev app it was
+ * 216ms of callback time across a ~2s drag, the largest single cost in it, and
+ * the `canvas.style` writes inside the callback re-dirtied layout on top
+ * ("ResizeObserver loop completed with undelivered notifications").
+ *
+ * `measure()` is observed through its FIRST read — `wrap.clientWidth` — rather
+ * than through the canvas, because jsdom reports every box as 0x0, so the
+ * grid-unchanged guard inside `measure` would swallow any canvas-side signal.
+ */
+describe('AsciiCrowbar — re-gridding is coalesced, and paused for a sash drag', () => {
+  let roCallbacks: ResizeObserverCallback[]
+  let widthReads: number
+
+  const fireResize = () => {
+    for (const cb of roCallbacks) cb([], {} as ResizeObserver)
+  }
+
+  beforeEach(() => {
+    roCallbacks = []
+    widthReads = 0
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: ResizeObserverCallback) {
+          roCallbacks.push(cb)
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => {
+      widthReads++
+      return 0
+    })
+  })
+
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-pane-resizing')
+  })
+
+  it('never measures inside the observer callback — it schedules a frame', () => {
+    render(<AsciiCrowbar />)
+    const readsAfterMount = widthReads
+
+    fireResize()
+    expect(widthReads).toBe(readsAfterMount)
+
+    flushFrame(16)
+    expect(widthReads).toBeGreaterThan(readsAfterMount)
+  })
+
+  it('coalesces a burst of observations into a single re-grid', () => {
+    render(<AsciiCrowbar />)
+    const readsAfterMount = widthReads
+
+    // A drag's worth of observations inside one frame.
+    for (let i = 0; i < 20; i++) fireResize()
+    flushFrame(16)
+
+    expect(widthReads).toBe(readsAfterMount + 1)
+  })
+
+  it('skips the re-grid for the span of a pane sash drag, then re-grids when it ends', () => {
+    render(<AsciiCrowbar />)
+    document.documentElement.setAttribute('data-pane-resizing', '1')
+    const readsAtDragStart = widthReads
+
+    for (let frame = 1; frame <= 10; frame++) {
+      fireResize()
+      flushFrame(frame * 16)
+    }
+    expect(widthReads).toBe(readsAtDragStart)
+
+    document.documentElement.removeAttribute('data-pane-resizing')
+    act(() => {
+      window.dispatchEvent(new CustomEvent('pane-resize-end'))
+    })
+    flushFrame(200)
+    expect(widthReads).toBe(readsAtDragStart + 1)
+  })
+})

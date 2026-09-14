@@ -149,6 +149,16 @@ export interface PaneActions {
    *  close. The symmetric removal to `closePane`'s own push onto
    *  `dormantArrangements`. */
   forgetDormantArrangement(entryId: string): void
+  /** Recents' per-chat × on a multi-chat SET (feedback: "removes that one
+   *  chat from that group, but doesn't dissolve the group") — strips one
+   *  chat id out of ONE persisted arrangement, leaving its remaining members
+   *  untouched. Never called for a LIVE member (that chat has a real pane —
+   *  `recents-actions.ts`'s `closeRecentChat` calls `closePane` instead,
+   *  which already strips the closed chat from every arrangement on its own,
+   *  same as the group-wide close). A no-op once the arrangement is left
+   *  with nothing (dropped, matching `forgetDormantArrangement`'s own
+   *  empty-entry cleanup elsewhere in this file). */
+  removeChatFromDormantArrangement(entryId: string, chatId: string): void
   /** Spec §9: a chat was DELETED — the one act that removes a thing rather
    *  than a view, and therefore "the only one that can leave a name behind."
    *  Clears the layout of any pane holding it and plucks it from every
@@ -1265,6 +1275,16 @@ export const createPaneSlice: StateCreator<
       forgetDormantArrangement(entryId) {
         set((state) => {
           state.dormantArrangements = state.dormantArrangements.filter((e) => e.id !== entryId)
+        })
+      },
+
+      removeChatFromDormantArrangement(entryId, chatId) {
+        set((state) => {
+          state.dormantArrangements = state.dormantArrangements
+            .map((e) =>
+              e.id === entryId ? { ...e, chatIds: e.chatIds.filter((id) => id !== chatId) } : e,
+            )
+            .filter((e) => e.chatIds.length > 0)
         })
       },
 

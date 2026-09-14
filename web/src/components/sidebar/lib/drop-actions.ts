@@ -4,8 +4,7 @@ import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-dra
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { isPaneEmpty } from '@/features/panes/stores/slices/pane-slice'
-import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { openChatIdInOwnView } from '@/features/panes/utils/pane-command-actions'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import { isKnownChatId, resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
 import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
@@ -952,28 +951,11 @@ export function performSidebarPaneDrop(
 export function openChatInOwnPane(subject: SidebarRow): void {
   const resolved = paneChatSubject(subject)
   if (!resolved) return
-  const { panes, activePaneId, rootLayout, paneActions } = windowPaneStore.getState()
-  const chatId = resolved.chatId
-
-  const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
-  if (existingPane) {
-    paneActions.setActivePane(existingPane.id)
-    return
-  }
-
-  // Root layout only: a click never opens into the bottom panel, and
-  // `activePaneId` can legitimately be it.
-  const openPaneIds = getAllLeafIds(rootLayout)
-  const vacant = (id: string) => isPaneEmpty(panes[id])
-  const targetId =
-    (openPaneIds.includes(activePaneId) && vacant(activePaneId) ? activePaneId : undefined) ??
-    openPaneIds.find(vacant) ??
-    paneActions.addPane()
-  if (!targetId) return
-
-  paneActions.detachPaneToOwnView(targetId)
-  paneActions.setPaneChat(targetId, chatId, null)
-  paneActions.setActivePane(targetId)
+  // The reveal-or-vacant-or-new-view logic itself lives in
+  // `openChatIdInOwnView` (pane-command-actions.ts) — shared with ⌘N's
+  // new-chat command, which needs the exact same "open as its own view" rule
+  // for a chat id it just minted rather than resolved from a dragged row.
+  openChatIdInOwnView(resolved.chatId)
 }
 
 /**

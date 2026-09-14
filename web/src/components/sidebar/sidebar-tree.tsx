@@ -99,7 +99,11 @@ function SidebarTreeRow({
   // arrives as a hard `false` on every `chat`-kind row by construction
   // (`rows-from-repo.ts`), so for a bubble this is purely the chat signal.
   const working = chatWorking || row.working
-  return <SidebarRow row={{ ...row, hasView, working }} {...rest} />
+  // hasViewIdle: this IS the tree's render path (SidebarRow's own doc on the
+  // prop) — a row with a view reads as active/open here, never grey. See
+  // ROW_HAS_VIEW_IDLE's doc in workspace-row-base.ts for why Recents does not
+  // set this.
+  return <SidebarRow row={{ ...row, hasView, working }} {...rest} hasViewIdle />
 }
 
 /**

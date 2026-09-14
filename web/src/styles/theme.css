@@ -35,8 +35,10 @@
 
   --font-mono: var(--editor-font-family, 'Geist Mono Variable', ui-monospace, monospace);
   --color-background: var(--background);
+  --color-background-inverse: var(--background-inverse);
   --color-pane-background: var(--pane-background);
   --color-foreground: var(--foreground);
+  --color-foreground-inverse: var(--foreground-inverse);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
@@ -222,6 +224,15 @@
   --background: oklch(0.994 0.001 106.4);
   --pane-background: oklch(0.994 0.001 106.4);
   --foreground: var(--color-neutral-800);
+  /* The other theme's own --background/--foreground, literally — never derived
+     from this theme's tokens. A deliberate "break the theme" surface (an
+     active sidebar row, see ROW_ACTIVE in workspace-row-base.ts): the row
+     that's selected reads as selected precisely because it does NOT sit in
+     the ambient palette the rest of the sidebar does. Kept in sync by hand
+     with .dark's own --background/--foreground below, the same way every
+     other per-theme pair on this page is. */
+  --background-inverse: oklch(0.2 0.006 271.1);
+  --foreground-inverse: oklch(0.967 0.003 264.5);
   --card: var(--color-white);
   --card-foreground: var(--color-neutral-800);
   --popover: var(--color-white);
@@ -268,6 +279,21 @@
   --sidebar-element-hover: oklch(0 0 0 / 8%);
   --sidebar-element-press: color-mix(in oklch, var(--foreground) 8%, transparent);
   --elevated-highlight: color-mix(in oklch, var(--foreground) 16%, transparent);
+  /* ROW_ACTIVE's OWN top-edge token (workspace-row-base.ts). Production
+     (develop) never had a separate token here at all — its own ROW_ACTIVE
+     sits on plain `bg-background`/`text-foreground` (no inversion) and just
+     reuses `--elevated-highlight` above, verbatim, the same as every button
+     and tab. Every round on THIS token before this one — before-overlay,
+     colored, card-polarity-flipped, hand-tuned alpha/blur/offset — was
+     solving a problem production's own recipe doesn't have: this branch's
+     ROW_ACTIVE deliberately inverts to `--background-inverse` (kept, by
+     explicit instruction), so the token that actually pairs with it isn't
+     `--foreground` (production's own — wrong theme's text color, once
+     inverted) but `--foreground-inverse`, the one already defined to be read
+     against `--background-inverse` for exactly this row. Same formula
+     (`color-mix`, 16%), same plain `0_1px`, zero blur, zero hand-tuning —
+     just the inverted foreground standing in for the ambient one. */
+  --row-active-highlight: color-mix(in oklch, var(--foreground-inverse) 16%, transparent);
 
   --code: var(--color-white);
   --code-foreground: var(--foreground);
@@ -354,6 +380,11 @@
   --background: oklch(0.2 0.006 271.1);
   --pane-background: oklch(0.2 0.006 271.1);
   --foreground: oklch(0.967 0.003 264.5);
+  /* :root's own comment on this pair explains why — kept as the literal
+     light-theme values, not a reference back to :root (a var() here would
+     just resolve to itself once .dark's cascade wins). */
+  --background-inverse: oklch(0.994 0.001 106.4);
+  --foreground-inverse: var(--color-neutral-800);
   --card: var(--background);
   --card-foreground: oklch(0.967 0.003 264.5);
   --popover: var(--background);
@@ -398,6 +429,14 @@
   --sidebar-element-idle: color-mix(in oklch, var(--foreground) 11%, transparent);
   --sidebar-element-hover: oklch(1 0 0 / 10%);
   --sidebar-element-press: color-mix(in oklch, var(--foreground) 7%, transparent);
+  /* See :root's own copy of this token for the full history: production
+     (develop) never needed a separate token here, it just reuses
+     `--elevated-highlight` (`color-mix` off `--foreground`) because its own
+     ROW_ACTIVE never inverts. This branch's does (kept, deliberately), so
+     this mixes `--foreground-inverse` instead — the token already meant to
+     be read against `--background-inverse` — rather than `--foreground`,
+     which would pair it with the wrong theme once inverted. */
+  --row-active-highlight: color-mix(in oklch, var(--foreground-inverse) 16%, transparent);
   --code: var(--background);
   --code-foreground: var(--foreground);
   --code-highlight: oklch(1 0 0 / 4%);

@@ -638,6 +638,93 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 // about the WIRING: does PaneContainer arrange the two real DOM regions
 // (divider or not, hidden or not, row or column) the way that presentation
 // says to, and do both regions genuinely survive every presentation change.
+/**
+ * The active-pane ring is drawn by a childless overlay that fades its OPACITY,
+ * never by animating a colour on the shared pane box itself.
+ *
+ * That box is large, rounded and painted in translucent `--chrome-bg` over the
+ * window's real vibrancy, so WebKit re-blends all of it on every frame a colour
+ * on it interpolates: with `transition-colors` fading its border, one focus
+ * click bought a ~150ms train of 17-26ms frames. Measured live in the Tauri
+ * app, three panes tiled in one workspace view, 12 focus clicks: 85fps with the
+ * border-colour fade against 116fps with it suppressed, for identical React
+ * work — and neither `contain: paint` (82.9fps) nor forcing a compositing layer
+ * (67.8fps) recovered any of it. The accent had to come off that surface; the
+ * fade itself must stay, because an untransitioned swap is the hard colour snap
+ * around the tab row that was reported live as "the tabs flash with something"
+ * on every pane click.
+ */
+describe('PaneContainer — the active-pane accent ring', () => {
+  const paneBox = () => document.querySelector('[data-pane-content]') as HTMLElement
+  const accent = () => document.querySelector('[data-pane-accent]') as HTMLElement
+
+  /** A second pane, so the ring is worth drawing at all — with one pane on
+   *  screen there is nothing to distinguish it FROM (useVisiblePaneCount). */
+  function splitSoTheRingApplies() {
+    return windowPaneStore
+      .getState()
+      .paneActions.splitPane(ROOT_PANE_ID, 'horizontal', undefined, 'after')!
+  }
+
+  it('leaves the pane box its neutral border in BOTH states — only the overlay changes', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    const other = splitSoTheRingApplies()
+    windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)
+
+    await renderPane(store)
+
+    expect(paneBox().style.borderTop).toBe('1px solid var(--border)')
+
+    await act(async () => {
+      windowPaneStore.getState().paneActions.setActivePane(other)
+    })
+
+    // The box NEVER swaps to --secondary — that swap is what repainted it.
+    expect(paneBox().style.borderTop).toBe('1px solid var(--border)')
+  })
+
+  it('fades the overlay opacity between active and inactive, on the box’s own border geometry', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    const other = splitSoTheRingApplies()
+    windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)
+
+    await renderPane(store)
+
+    expect(accent().style.borderTop).toBe('1px solid var(--secondary)')
+    expect(accent().style.opacity).toBe('1')
+    // Geometry is the SAME computation the box uses, so the ring lands exactly
+    // on the neutral border it hides rather than beside it: the box's margins
+    // are the overlay's insets, and every corner radius matches.
+    expect(accent().style.left).toBe(paneBox().style.marginLeft)
+    expect(accent().style.top).toBe(paneBox().style.marginTop)
+    expect(accent().style.right).toBe(paneBox().style.marginRight)
+    expect(accent().style.bottom).toBe(paneBox().style.marginBottom)
+    expect(accent().style.borderTopLeftRadius).toBe(paneBox().style.borderTopLeftRadius)
+    expect(accent().style.borderBottomRightRadius).toBe(paneBox().style.borderBottomRightRadius)
+    // ...and it must be a transition, not a swap: an instant flip is the snap
+    // this whole arrangement exists to keep as a fade.
+    expect(accent().className).toContain('transition-opacity')
+
+    await act(async () => {
+      windowPaneStore.getState().paneActions.setActivePane(other)
+    })
+
+    expect(accent().style.opacity).toBe('0')
+  })
+
+  it('never rings a lone pane — there is nothing to distinguish it from', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)
+
+    await renderPane(store)
+
+    expect(accent().style.opacity).toBe('0')
+  })
+})
+
 describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   afterEach(() => {
     setActiveWorkspaceStoreRef(null)
@@ -684,19 +771,14 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     // same box as the chat surface — not the editor's.
     expect(chatView.contains(screen.getByTestId('chat-branch-header'))).toBe(true)
 
-    // The IDE sector reads as its own card next to the chat's: a border and
-    // rounded corner on the edge that actually touches the chat (left, in
-    // side-by-side) — reusing the SAME per-corner values the shared pane
-    // box computed for the OTHER three edges (buildInnerViewStyle), so a
-    // real window edge or an interior corner there reads the same on both
-    // boxes, never a second independent border/radius decision.
-    const outerRef = document.createElement('div')
-    Object.assign(outerRef.style, buildPaneContentStyle(ROOT_PANE_POSITION, 'left', false, true))
-    expect(editorView.style.borderLeft).toBe('2px solid var(--border)')
-    expect(editorView.style.borderTopLeftRadius).toBe('var(--radius-lg)')
-    expect(editorView.style.borderBottomLeftRadius).toBe('var(--radius-lg)')
-    expect(editorView.style.borderTopRightRadius).toBe(outerRef.style.borderTopRightRadius)
-    expect(editorView.style.borderBottomRightRadius).toBe(outerRef.style.borderBottomRightRadius)
+    // The IDE sector reads as its own card next to the chat's: a border on
+    // the edge that actually touches the chat (left, in side-by-side), never
+    // rounded on any corner (buildInnerViewStyle).
+    expect(editorView.style.borderLeft).toBe('1px solid var(--border)')
+    expect(editorView.style.borderTopLeftRadius).toBe('0px') // jsdom normalizes '0' on read-back
+    expect(editorView.style.borderBottomLeftRadius).toBe('0px')
+    expect(editorView.style.borderTopRightRadius).toBe('0px')
+    expect(editorView.style.borderBottomRightRadius).toBe('0px')
   })
 
   it('with the split off, there is no divider — tabs, not a cramped split', async () => {
@@ -780,9 +862,17 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       // belongs on the TOP edge here, not the left.
       const outerRef = document.createElement('div')
       Object.assign(outerRef.style, buildPaneContentStyle(ROOT_PANE_POSITION, 'left', false, true))
-      expect(editorView.style.borderTop).toBe('2px solid var(--border)')
-      expect(editorView.style.borderTopLeftRadius).toBe('var(--radius-lg)')
-      expect(editorView.style.borderTopRightRadius).toBe('var(--radius-lg)')
+      expect(editorView.style.borderTop).toBe('1px solid var(--border)')
+      // TL: facing (top) + left (shielded/interior for ROOT_PANE_POSITION
+      // with a left sidebar) -> squares. Stacked's own top seam never rounds
+      // its own two corners (doubling bug fix, pane-border.ts) — its left
+      // border already runs doubled against the outer box's identical one
+      // for the whole view's height here, so rounding away would read as a
+      // second, isolated corner rather than one line.
+      expect(editorView.style.borderTopLeftRadius).toBe('0px') // jsdom normalizes '0' on read-back
+      // TR: facing (top) + right (a REAL window edge for ROOT_PANE_POSITION
+      // with a left sidebar) -> squares too, unchanged from before.
+      expect(editorView.style.borderTopRightRadius).toBe('0px') // jsdom normalizes '0' on read-back
       expect(editorView.style.borderBottomLeftRadius).toBe(outerRef.style.borderBottomLeftRadius)
       expect(editorView.style.borderBottomRightRadius).toBe(outerRef.style.borderBottomRightRadius)
     })
@@ -818,13 +908,11 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
           editorView.compareDocumentPosition(chatView) & Node.DOCUMENT_POSITION_FOLLOWING,
         ),
       ).toBe(true)
-      const outerRef = document.createElement('div')
-      Object.assign(outerRef.style, buildPaneContentStyle(ROOT_PANE_POSITION, 'right', false, true))
-      expect(editorView.style.borderRight).toBe('2px solid var(--border)')
-      expect(editorView.style.borderTopRightRadius).toBe('var(--radius-lg)')
-      expect(editorView.style.borderBottomRightRadius).toBe('var(--radius-lg)')
-      expect(editorView.style.borderTopLeftRadius).toBe(outerRef.style.borderTopLeftRadius)
-      expect(editorView.style.borderBottomLeftRadius).toBe(outerRef.style.borderBottomLeftRadius)
+      expect(editorView.style.borderRight).toBe('1px solid var(--border)')
+      expect(editorView.style.borderTopRightRadius).toBe('0px') // jsdom normalizes '0' on read-back
+      expect(editorView.style.borderBottomRightRadius).toBe('0px')
+      expect(editorView.style.borderTopLeftRadius).toBe('0px')
+      expect(editorView.style.borderBottomLeftRadius).toBe('0px')
     })
 
     it('sidebar on the left (default): unchanged — the chat renders BEFORE the editor, rounding faces left', async () => {
@@ -841,9 +929,9 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       expect(
         Boolean(chatView.compareDocumentPosition(editorView) & Node.DOCUMENT_POSITION_FOLLOWING),
       ).toBe(true)
-      expect(editorView.style.borderLeft).toBe('2px solid var(--border)')
-      expect(editorView.style.borderTopLeftRadius).toBe('var(--radius-lg)')
-      expect(editorView.style.borderBottomLeftRadius).toBe('var(--radius-lg)')
+      expect(editorView.style.borderLeft).toBe('1px solid var(--border)')
+      expect(editorView.style.borderTopLeftRadius).toBe('0px') // jsdom normalizes '0' on read-back
+      expect(editorView.style.borderBottomLeftRadius).toBe('0px')
     })
 
     it('stacked keeps the chat on TOP regardless of sidebar side — there is no left/right there', async () => {
@@ -871,9 +959,17 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
           outerRef.style,
           buildPaneContentStyle(ROOT_PANE_POSITION, 'right', false, true),
         )
-        expect(editorView.style.borderTop).toBe('2px solid var(--border)')
-        expect(editorView.style.borderTopLeftRadius).toBe('var(--radius-lg)')
-        expect(editorView.style.borderTopRightRadius).toBe('var(--radius-lg)')
+        expect(editorView.style.borderTop).toBe('1px solid var(--border)')
+        // TL: facing (top) + left (a REAL window edge here — the sidebar
+        // moved to the right, so left is no longer shielded) -> squares.
+        expect(editorView.style.borderTopLeftRadius).toBe('0px') // jsdom normalizes '0' on read-back
+        // TR: facing (top) + right (shielded/interior, sidebar now on the
+        // right) -> squares too now (doubling bug fix, pane-border.ts):
+        // stacked's own top seam never rounds its own two corners, since an
+        // interior other-edge here means this box's right border already
+        // runs doubled against the outer box's identical one for the whole
+        // view's height.
+        expect(editorView.style.borderTopRightRadius).toBe('0px') // jsdom normalizes '0' on read-back
         expect(editorView.style.borderBottomLeftRadius).toBe(outerRef.style.borderBottomLeftRadius)
         expect(editorView.style.borderBottomRightRadius).toBe(
           outerRef.style.borderBottomRightRadius,

@@ -22,12 +22,14 @@ import {
   DISCLOSURE_GLYPH_PATH,
   ROW_BASE,
   ROW_GLYPH_BOX,
+  ROW_HAS_VIEW_IDLE,
   ROW_INACTIVE,
   ROW_INDENT_STEP,
   ROW_INDENT_TRANSITION,
   ROW_NEST_TARGET,
   ROW_SUB_ACTION,
   ROW_SUB_ACTION_HOVER,
+  ROW_SUB_ACTION_INVERTED,
   ROW_SUBLABEL,
   ROW_SUBLABEL_ADD,
   ROW_SUBLABEL_DEL,
@@ -58,6 +60,17 @@ interface SidebarRowProps {
    *  already did (`sidebar-tree-surface.tsx`'s `onTrash`) — a refusal (a
    *  locked branch, a repo home) surfaces the same toast either way. */
   onTrash?: (id: string) => void
+  /** Recents' own "end this view" control (recents-band.tsx) — the opposite
+   *  of `onTrash`'s destroy-the-chat verb, so never wired alongside it on the
+   *  same row (recents-band.tsx never sets `onTrash`). Same trailing-action
+   *  token as every other control in this cluster (`ROW_SUB_ACTION_HOVER`):
+   *  hidden and out of flow until hovered, so it costs the row a reflow on
+   *  hover like Thread/Fork/Remove/Fold already do, never a permanently
+   *  reserved margin the way an externally-overlaid button would (the "text
+   *  still accounts for a button that isn't even shown" bug this replaced —
+   *  reported four times against recents-band.tsx's own bespoke absolute+
+   *  padding-reserve close button before it was unified with this cluster). */
+  onClose?: (id: string) => void
   onCreate?: (id: string, kind: 'workspace' | 'thread') => void
   onToggleFold?: (id: string) => void
   folded?: boolean
@@ -88,6 +101,32 @@ interface SidebarRowProps {
    *  which instance "wins" keeps the tree as the one place a chat's name is
    *  actually edited. */
   inlineRenameDisabled?: boolean
+  /** True only for the tree's own render path (sidebar-tree.tsx). A row with
+   *  `row.hasView` gets the idle ground (`ROW_HAS_VIEW_IDLE`) instead of a
+   *  muted label — the row IS active/open, so it should read as present, not
+   *  disabled. Recents (recents-band.tsx) leaves this unset on purpose: its
+   *  OWN doc explains why a solo "open but off screen" entry there keeps
+   *  relying on the muted label instead of a ground of its own (giving it one
+   *  would outrank the true ROW_ACTIVE entry sitting beside it in the same
+   *  list) — a distinction that doesn't exist in the tree, which never draws
+   *  ROW_ACTIVE at all. */
+  hasViewIdle?: boolean
+  /** True when this row's body is painted directly on an inverted `ROW_ACTIVE`
+   *  ground (Recents' own solo-showing row, or every member of a showing SET
+   *  — `recents-band.tsx`'s `isShowing`, unconditional on solo vs. set: a
+   *  showing SET's shell is ROW_ACTIVE for ALL its members alike, not just
+   *  one). `ROW_INACTIVE`'s own `text-foreground` (and `ROW_SUBLABEL`'s own
+   *  `text-muted-foreground`, via `BranchSecondLine` below) both track the
+   *  AMBIENT theme regardless of caller — correct for every row that sits on
+   *  the ordinary sidebar background, but on an inverted surface they land
+   *  the wrong theme's text color on top of the wrong theme's background
+   *  (live-verified: light-theme dark text on the dark inverted ground read
+   *  as barely legible, "still using the foreground values instead of the
+   *  background"). This swaps both to `text-foreground-inverse` instead —
+   *  the token that actually pairs with `ROW_ACTIVE`'s own
+   *  `bg-background-inverse` (workspace-row-base.ts). Never set by the tree,
+   *  which never draws ROW_ACTIVE at all. */
+  activeGround?: boolean
 }
 
 /**
@@ -112,6 +151,7 @@ export function SidebarRow({
   depth,
   onOpen,
   onTrash,
+  onClose,
   onCreate,
   onToggleFold,
   folded,
@@ -120,6 +160,8 @@ export function SidebarRow({
   isNestTarget,
   onPointerDownDrag,
   inlineRenameDisabled,
+  hasViewIdle,
+  activeGround,
 }: SidebarRowProps) {
   // Read UNCONDITIONALLY, before either early return below — rules of hooks:
   // a row's `pending`/`removal` state can flip between renders of the SAME
@@ -151,10 +193,20 @@ export function SidebarRow({
   // The project-home row is `branch` with no parent — the sidebar's one 20px
   // glyph exception outside the project header itself (spec §3.1), and also
   // the one row spec §9 calls a protected branch: "the repo's own ground …
-  // not workspaces you made". It's the only row this shape can occur on
-  // (rows-from-repo.ts gives exactly one row a null parentId, the repo's
-  // default worktree).
-  const isProjectHome = row.kind === 'branch' && row.parentId === null
+  // not workspaces you made". In the TREE it's the only row this shape can
+  // occur on (rows-from-repo.ts gives exactly one row a null parentId, the
+  // repo's default worktree) — but `!inlineRenameDisabled` is a REQUIRED
+  // second guard now that a chat's Recents mirror can also carry `kind:
+  // 'branch'` (a workspace-owning chat's real icon, recents-band.tsx's own
+  // `chatIcons`): Recents gives every row `parentId: null` (§5.1, "no
+  // parentage") regardless of kind, so without this a workspace-owning
+  // chat's OWN Recents row was misread as the repo's header — the 20px glyph
+  // and repo-icon click-to-edit affordances leaking onto an ordinary chat
+  // pill (caught live). `inlineRenameDisabled` is already the one signal
+  // that means "this SidebarRow instance is Recents' mirror, not the tree's
+  // own row" (see that prop's own doc) — the real project-home row is only
+  // ever drawn by the tree, so it is never also true here.
+  const isProjectHome = row.kind === 'branch' && row.parentId === null && !inlineRenameDisabled
   const expanded = !folded
   // §3.5/§4.2: any bubble (no worktree of its own) that isn't currently
   // working can promote itself into one, straight from its own glyph — a
@@ -199,6 +251,11 @@ export function SidebarRow({
     !row.locked &&
     !!row.branchName &&
     row.label !== row.branchName
+  // Every trailing-cluster button below shares this — see
+  // `ROW_SUB_ACTION_INVERTED`'s own doc for why a row painted on an inverted
+  // `ROW_ACTIVE` ground needs its buttons re-keyed the same way its label/icon
+  // already are.
+  const subActionClass = cn(ROW_SUB_ACTION_HOVER, activeGround && ROW_SUB_ACTION_INVERTED)
 
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
@@ -210,13 +267,28 @@ export function SidebarRow({
         className={cn(
           ROW_BASE,
           isNestTarget ? ROW_NEST_TARGET : ROW_INACTIVE,
+          // Swap ONLY the text-color half of ROW_INACTIVE — border-transparent
+          // and hover:bg-accent are still correct (this row draws no fill of
+          // its own either way; the fill comes from the ROW_ACTIVE ground
+          // painted on an ancestor). See `activeGround`'s own doc.
+          !isNestTarget && activeGround && 'text-foreground-inverse',
+          !isNestTarget && hasViewIdle && row.hasView && ROW_HAS_VIEW_IDLE,
           isDragging && 'opacity-40',
-          'group pr-2.5',
+          'group',
         )}
-        onClick={() => {
+        onClick={(e) => {
           // A click inside the inline editor (or on the space it just
           // vacated before React re-renders) must not open the row.
           if (renaming) return
+          // This row is `tabIndex={0}`, so a pointer click leaves it
+          // genuinely `:focus`ed with no visible ring (`:focus-visible`
+          // suppresses the ring for a pointer click, but `:focus-within`
+          // still matches plain `:focus` — see the trailing "thread" button's
+          // own identical fix, above) — without this, `group-focus-within:`
+          // consumers (ROW_SUB_ACTION_HOVER's trailing action, chiefly) stay
+          // lit on this row indefinitely, long after the pointer moved on,
+          // until some OTHER element happens to take focus.
+          e.currentTarget.blur()
           onOpen(row.id)
         }}
         onPointerDown={renaming ? undefined : onPointerDownDrag}
@@ -278,7 +350,7 @@ export function SidebarRow({
                 size="lg"
               />
             ) : (
-              <RowGlyph row={row} large={isProjectHome} expanded={expanded} />
+              <RowGlyph row={row} large={isProjectHome} expanded={expanded} activeGround={activeGround} />
             )}
           </span>
         )}
@@ -303,11 +375,21 @@ export function SidebarRow({
             data-sidebar-row-label=""
             className={cn(
               'flex min-w-0 flex-1 flex-col justify-center',
-              row.hasView && 'text-muted-foreground',
+              // Grey only where the row's own ground (ROW_HAS_VIEW_IDLE,
+              // above) isn't already saying "open" — the tree opts in via
+              // hasViewIdle, so it never greys; Recents (unset) still does,
+              // per that file's own note on why a solo entry there relies on
+              // the label alone. See ROW_HAS_VIEW_IDLE's own doc. Never on an
+              // inverted ground either (`activeGround`) — `row.hasView` is
+              // already false for the one member actually painted on that
+              // ground (recents-band.tsx sets `hasView={isLive && !isShowing}`),
+              // but this guard keeps the two signals from ever fighting if
+              // that invariant changes.
+              row.hasView && !hasViewIdle && !activeGround && 'text-muted-foreground',
             )}
           >
             <span className={cn('truncate', row.labelProvisional && 'italic')}>{row.label}</span>
-            <BranchSecondLine row={row} />
+            <BranchSecondLine row={row} activeGround={activeGround} />
           </span>
         ) : (
           <span
@@ -321,9 +403,11 @@ export function SidebarRow({
               'min-w-0 flex-1 truncate',
               row.kind === 'branch' && 'font-mono',
               row.labelProvisional && 'italic',
-              // A row with a view is grey — focused or not (§3.2). The mark above
-              // keeps full strength either way.
-              row.hasView && 'text-muted-foreground',
+              // A row with a view is grey — focused or not (§3.2) — UNLESS
+              // the row's own ground already carries that signal (see the
+              // sibling branch above and ROW_HAS_VIEW_IDLE's own doc), or is
+              // an inverted ROW_ACTIVE ground (see `activeGround`'s own doc).
+              row.hasView && !hasViewIdle && !activeGround && 'text-muted-foreground',
             )}
           >
             {row.label}
@@ -342,7 +426,7 @@ export function SidebarRow({
           <DropdownMenu>
             <DropdownMenuTrigger
               data-control="repo-menu"
-              className={ROW_SUB_ACTION_HOVER}
+              className={subActionClass}
               aria-label={`More actions for ${row.label}`}
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
@@ -394,7 +478,7 @@ export function SidebarRow({
           <button
             type="button"
             data-control="thread"
-            className={ROW_SUB_ACTION_HOVER}
+            className={subActionClass}
             aria-label={`Thread ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
@@ -418,7 +502,7 @@ export function SidebarRow({
           <button
             type="button"
             data-control="fork"
-            className={ROW_SUB_ACTION_HOVER}
+            className={subActionClass}
             aria-label={`Fork ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
@@ -455,7 +539,7 @@ export function SidebarRow({
           <button
             type="button"
             data-control="remove"
-            className={ROW_SUB_ACTION_HOVER}
+            className={subActionClass}
             aria-label={`Remove ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
@@ -468,11 +552,28 @@ export function SidebarRow({
           </button>
         )}
 
+        {onClose && (
+          <button
+            type="button"
+            data-control="close"
+            className={subActionClass}
+            aria-label={`Close ${row.label}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              e.currentTarget.blur()
+              onClose(row.id)
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <X aria-hidden="true" className="size-3" weight="bold" />
+          </button>
+        )}
+
         {onToggleFold && (
           <button
             type="button"
             data-control="fold"
-            className={ROW_SUB_ACTION_HOVER}
+            className={subActionClass}
             aria-label={`${expanded ? 'Collapse' : 'Expand'} ${row.label}`}
             onClick={(e) => {
               e.stopPropagation()
@@ -679,11 +780,20 @@ function RemovingSidebarRow({
  * green/red they've always had — see `ROW_SUBLABEL`'s own doc on why the line
  * is muted but the counts are not.
  */
-function BranchSecondLine({ row }: { row: SidebarRowType }) {
+function BranchSecondLine({
+  row,
+  activeGround,
+}: {
+  row: SidebarRowType
+  /** See `SidebarRowProps.activeGround` — `ROW_SUBLABEL`'s own hardcoded
+   *  `text-muted-foreground` tracks the ambient theme same as `ROW_INACTIVE`
+   *  does, and needs the identical swap on an inverted ground. */
+  activeGround?: boolean
+}) {
   const added = row.added ?? 0
   const deleted = row.deleted ?? 0
   return (
-    <span className={ROW_SUBLABEL}>
+    <span className={cn(ROW_SUBLABEL, activeGround && 'text-foreground-inverse')}>
       {row.branchName}
       {(added > 0 || deleted > 0) && ' -- '}
       {added > 0 && <span className={ROW_SUBLABEL_ADD}>+{formatChangeCount(added)}</span>}
@@ -697,10 +807,16 @@ function RowGlyph({
   row,
   large,
   expanded,
+  activeGround,
 }: {
   row: SidebarRowType
   large: boolean
   expanded: boolean
+  /** See `SidebarRowProps.activeGround`'s own doc — forwarded to
+   *  `WorkspaceBranchIcon`, the one glyph here with hardcoded ambient colors
+   *  (`text-foreground`) instead of inheriting from this row's own treeitem
+   *  the way every other glyph below already does. */
+  activeGround?: boolean
 }) {
   const size = large ? 'size-5' : 'size-4'
   if (row.kind === 'folder') {
@@ -722,7 +838,14 @@ function RowGlyph({
   // `status` and falls through to the locked/plain-branch guess below,
   // exactly as every row did before this delegated anywhere.
   if (row.kind === 'branch' && row.status) {
-    return <WorkspaceBranchIcon status={row.status} isPlaceholder={row.isPlaceholder} size={size} />
+    return (
+      <WorkspaceBranchIcon
+        status={row.status}
+        isPlaceholder={row.isPlaceholder}
+        size={size}
+        invertedGround={activeGround}
+      />
+    )
   }
   // A locked/protected branch (the repo/project home, or any other locked
   // branch `rows-from-repo.ts`'s `walk()` mints) draws the Lock mark instead

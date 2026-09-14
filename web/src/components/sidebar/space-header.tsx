@@ -112,7 +112,7 @@ export function SpaceHeader({
       // `my-0.5`'s 2px top margin reads as normal inter-row rhythm
       // everywhere else in the tree, but with nothing above it to justify
       // here it read as unwanted padding under the toolbar.
-      className={cn(ROW_BASE, ROW_INACTIVE, 'mt-0 pr-2.5')}
+      className={cn(ROW_BASE, ROW_INACTIVE, 'mt-0')}
       onMouseEnter={() => setActive(true)}
       onMouseLeave={() => setActive(false)}
       onFocus={() => setActive(true)}

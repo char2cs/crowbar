@@ -286,3 +286,61 @@ describe('ensurePaneChatThenOpen', () => {
     expect(openTab).toHaveBeenCalledTimes(1)
   })
 })
+
+// Regression for the "only one view at a time" bug: ⌘N (and anything else
+// opening a freshly-resolved chat id) used to write straight into the active
+// pane via setPaneChat, which ARCHIVES whatever that pane held into
+// dormantArrangements — closing it, not parking it — instead of minting a
+// view of its own (spec §8.4). These exercise the REAL store (not mocked
+// paneActions), so a regression shows up as the old chat actually landing in
+// dormantArrangements/vanishing from parkedViews, not just as a mock call.
+describe('openChatIdInOwnView', () => {
+  beforeEach(() => {
+    resetWindowPaneStoreForTests()
+  })
+
+  it('parks the showing view (keeps it LIVE) instead of archiving it, when opening a new chat', async () => {
+    const { openChatIdInOwnView } = await import('@/features/panes/utils/pane-command-actions')
+    const paneActions = windowPaneStore.getState().paneActions
+    paneActions.setPaneChat(ROOT_PANE_ID, 'old-chat', 'runner-1')
+
+    openChatIdInOwnView('new-chat')
+
+    const state = windowPaneStore.getState()
+    // The old view is not lost: it must be live in parkedViews, never
+    // archived into dormantArrangements.
+    expect(state.dormantArrangements.some((a) => a.chatIds.includes('old-chat'))).toBe(false)
+    const parkedTrees = Object.values(state.parkedViews)
+    const parkedHasOldChat = parkedTrees.some((tree) =>
+      getAllLeafIds(tree).some((paneId) => state.panes[paneId]?.chatId === 'old-chat'),
+    )
+    expect(parkedHasOldChat).toBe(true)
+    // The new chat takes the screen, as its own view.
+    const shownIds = getAllLeafIds(state.rootLayout)
+    expect(shownIds.some((id) => state.panes[id]?.chatId === 'new-chat')).toBe(true)
+  })
+
+  it('fills a genuinely vacant active pane in place — no new view for an empty stage', async () => {
+    const { openChatIdInOwnView } = await import('@/features/panes/utils/pane-command-actions')
+
+    openChatIdInOwnView('chat-1')
+
+    const state = windowPaneStore.getState()
+    expect(state.panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
+    expect(state.activePaneId).toBe(ROOT_PANE_ID)
+    expect(Object.keys(state.parkedViews)).toHaveLength(0)
+  })
+
+  it('reveals a chat already open elsewhere instead of duplicating it into a second pane', async () => {
+    const { openChatIdInOwnView } = await import('@/features/panes/utils/pane-command-actions')
+    const paneActions = windowPaneStore.getState().paneActions
+    const otherPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
+    if (!otherPaneId) throw new Error('split failed')
+    paneActions.setPaneChat(otherPaneId, 'chat-1', null)
+    paneActions.setActivePane(ROOT_PANE_ID)
+
+    openChatIdInOwnView('chat-1')
+
+    expect(windowPaneStore.getState().activePaneId).toBe(otherPaneId)
+  })
+})
