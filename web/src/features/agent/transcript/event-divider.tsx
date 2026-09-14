@@ -7,6 +7,11 @@ function tagLabel(tag: DividerTag, providers: AgentProvider[]): string {
       return tag.trigger === 'manual' ? 'Compacted' : 'Compacted automatically'
     case 'interrupted':
       return 'Interrupted'
+    // Crowbar guessed this one from silence rather than observing a Stop
+    // click or a provider report — worded so it never reads as something the
+    // user did.
+    case 'inferred-interrupt':
+      return 'Interrupted unexpectedly'
     case 'provider': {
       const name = providers.find((p) => p.id === tag.detail)?.displayName ?? tag.detail
       return `Switched to ${name || 'a different provider'}`
@@ -24,6 +29,8 @@ function tagTestId(tag: DividerTag): string {
       return 'agent-compaction-divider'
     case 'interrupted':
       return 'agent-interrupted-divider'
+    case 'inferred-interrupt':
+      return 'agent-inferred-interrupt-divider'
     case 'provider':
       return 'agent-provider-switch-divider'
     case 'model':

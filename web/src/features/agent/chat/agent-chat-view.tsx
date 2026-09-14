@@ -164,7 +164,7 @@ function displayOrderOf(item: { sequence?: number; seq?: number; displayOrder?: 
   return item.displayOrder ?? item.sequence ?? item.seq ?? 0
 }
 
-/** The five interruption kinds the transcript draws a boundary pill for, mapped
+/** The six interruption kinds the transcript draws a boundary pill for, mapped
  *  to that pill's own shape. `null` for everything else (permission,
  *  notification, elicitation) — those are answered inline, never a divider. */
 function toDividerTag(interruption: AgentInterruption): DividerTag | null {
@@ -174,6 +174,11 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
       return { kind: 'compaction', id, trigger: interruption.detail || 'auto' }
     case 'stopped':
       return { kind: 'interrupted', id }
+    // Crowbar's own GUESS, not an observed Stop click — kept as its own tag
+    // rather than folded into 'interrupted' so the pill never claims a person
+    // did something nobody actually did.
+    case 'inferred':
+      return { kind: 'inferred-interrupt', id }
     case 'provider_switched':
       return { kind: 'provider', id, detail: interruption.detail ?? '' }
     case 'model_changed':
@@ -192,8 +197,11 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
  *  already resolved (compact.go — no turn ever opens for it), so without
  *  this the pill never appeared until whatever was typed next dragged it
  *  along as an `eventsBefore` anchor instead — reported live as the divider
- *  only showing up once you sent a follow-up message. */
-const TRAILING_INTERRUPTION_KINDS = new Set(['stopped', 'compaction'])
+ *  only showing up once you sent a follow-up message. `inferred`: same
+ *  born-already-resolved shape as `stopped` (AbandonMessageInferredInterrupt
+ *  opens and resolves it in one call), and it is exactly the silently-aborted
+ *  turn with nothing typed after it that this whole kind exists to catch. */
+const TRAILING_INTERRUPTION_KINDS = new Set(['stopped', 'compaction', 'inferred'])
 
 // `DndScope` (dnd-scope.tsx) is `AgentChatView`'s one `<DndProvider>` —
 // `@platejs/dnd`'s `useDraggable`/`useDropLine` (attachment-drag-handle.tsx)
