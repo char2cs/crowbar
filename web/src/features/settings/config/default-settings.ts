@@ -84,6 +84,8 @@ export const defaultSettings: Settings = {
   hiddenDirectoryPatterns: [],
   showGitStatusInFileTree: true,
   compactGitStatusBadges: false,
+  //// Git
+  diffViewMode: 'split',
 }
 
 export const getDefaultSetting = <K extends keyof Settings>(key: K): Settings[K] =>

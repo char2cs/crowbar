@@ -89,4 +89,10 @@ export interface Settings {
   hiddenDirectoryPatterns: string[]
   showGitStatusInFileTree: boolean
   compactGitStatusBadges: boolean
+  //// Git
+  /** Branch Review's diff toolbar toggle (review-diff-tab.tsx) — 'split'
+   *  (side-by-side) or 'unified' (inline). A display preference, not
+   *  per-workspace data, so it lives here like sidebarPosition/theme rather
+   *  than in a workspace store. */
+  diffViewMode: 'split' | 'unified'
 }

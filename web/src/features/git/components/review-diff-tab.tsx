@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useReviewFilesSummary } from '@/features/git/hooks/use-review-files-summary'
 import { useReviewOutline } from '@/features/git/hooks/use-review-outline'
+import { useSettingsStore } from '@/features/settings/store'
 import type { SearchHit } from '@/features/git/api/review-window-api'
 import type { ReviewCodeViewHandle } from './diff/review-code-view'
 
@@ -75,7 +76,11 @@ export function ReviewDiffTab({
   const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId, commit)
   const { outline } = useReviewOutline(wsId, commit)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split')
+  // A display preference, not per-tab state — persisted via the settings
+  // store (features/settings/store.ts) so it survives closing and reopening
+  // the tab, same as sidebarPosition/theme.
+  const diffStyle = useSettingsStore((s) => s.settings.diffViewMode)
+  const updateSetting = useSettingsStore((s) => s.updateSetting)
   const surfaceRef = useRef<ReviewCodeViewHandle | null>(null)
   // Mirrored into state as well as a ref: the reveal below has to run WHEN the
   // handle appears, and a ref assignment does not re-render. The surface is
@@ -169,7 +174,7 @@ export function ReviewDiffTab({
           <Button
             variant={diffStyle === 'split' ? 'secondary' : 'ghost'}
             size="icon-sm"
-            onClick={() => setDiffStyle('split')}
+            onClick={() => updateSetting('diffViewMode', 'split')}
             aria-label="Side-by-side diff"
             aria-pressed={diffStyle === 'split'}
             title="Side-by-side"
@@ -179,7 +184,7 @@ export function ReviewDiffTab({
           <Button
             variant={diffStyle === 'unified' ? 'secondary' : 'ghost'}
             size="icon-sm"
-            onClick={() => setDiffStyle('unified')}
+            onClick={() => updateSetting('diffViewMode', 'unified')}
             aria-label="Inline diff"
             aria-pressed={diffStyle === 'unified'}
             title="Inline"
