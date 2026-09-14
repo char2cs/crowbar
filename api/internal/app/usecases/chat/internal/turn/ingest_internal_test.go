@@ -80,6 +80,32 @@ func TestApiOwnsThisEvent_APIOwnedEventWithNoLiveConnectionIsNotRedundant(t *tes
 		"with no live api connection there is no OTHER copy for a hooks delivery to be redundant with")
 }
 
+// TestRegression_EveryDualShapeCodexEventIsRedundantOnALiveDispatchedConnection
+// sweeps every codex.yaml event sharing turn_stop's own dual-shape hazard —
+// tool_pre, tool_post, permission, compact_pre and compact_post all inherit
+// the api transport default (no per-event override) AND are also fired
+// hooks-shaped, unconditionally, by codex's own config.toml (see codex.yaml's
+// config_injection hooks.* entries). apiOwnsThisEvent reads only
+// descriptor.TransportFor(canonical) — no event-name branching — so the
+// "drop the companion PTY's redundant echo" guard the bug reports above
+// exercised through turn_stop must hold for every one of them.
+func TestRegression_EveryDualShapeCodexEventIsRedundantOnALiveDispatchedConnection(t *testing.T) {
+	t.Parallel()
+	turns := &Turns{runners: fakeLiveConn{live: true, dispatched: true}}
+	codex := descriptorFor(t, "codex")
+
+	for _, event := range []string{
+		"session_start", "user_prompt", "turn_stop",
+		"tool_pre", "tool_post", "permission", "compact_pre", "compact_post",
+	} {
+		t.Run(event, func(t *testing.T) {
+			require.True(t, turns.apiOwnsThisEvent(t.Context(), "runner-1", codex, event),
+				"a live, dispatched api connection already reports this event; the "+
+					"companion PTY's hooks copy of it must be treated as redundant")
+		})
+	}
+}
+
 func TestApiOwnsThisEvent_AnEventExplicitlyDeclaredHooksOwnedIsNeverRedundant(t *testing.T) {
 	t.Parallel()
 	turns := &Turns{runners: fakeLiveConn{live: true}}
