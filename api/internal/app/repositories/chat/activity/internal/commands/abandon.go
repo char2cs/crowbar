@@ -33,7 +33,7 @@ func (c Abandon) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 	next.Choices = nil
 	next.Last = &domain.ActivityDelta{
 		Phase: domain.DeltaClose, Kind: domain.DeltaTurn, Turn: &turn,
-		SupersededTurnID: turn.ID,
+		SupersededTurnID: turn.ID, Abandoned: true,
 	}
 	return next
 }
