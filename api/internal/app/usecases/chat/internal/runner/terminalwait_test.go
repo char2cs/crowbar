@@ -86,6 +86,10 @@ func (stubTurns) ProviderIdleSince(string) (time.Time, bool) { return time.Time{
 
 func (stubTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
 
+func (stubTurns) AbandonMessageInferredInterrupt(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 func (stubTurns) AbandonMessageForRunner(
 	context.Context, string, engineagents.Runner,
 ) (bool, error) {

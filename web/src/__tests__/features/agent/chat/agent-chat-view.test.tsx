@@ -1855,6 +1855,54 @@ describe('AgentChatView stopped turn divider', () => {
   })
 })
 
+// The message-quiet fuse (turn.AbandonMessageInferredInterrupt, api-side)
+// opens and resolves its interruption in one call, exactly like an explicit
+// stop — born already resolved, same as `stoppedAt`/`compactionAt` above.
+// Without TRAILING_INTERRUPTION_KINDS covering it too, the exact turn this
+// kind exists to catch (a silent abort with nothing typed after it) would
+// repeat the "no divider until the next message drags it in" bug already
+// fixed for `stopped` and `compaction`.
+describe('AgentChatView inferred-interrupt divider', () => {
+  const inferredAt = (seq: number) => ({
+    ...emptyActivity,
+    interruptions: [
+      {
+        id: `inferred-${seq}`,
+        turnId: '',
+        seq,
+        kind: 'inferred' as const,
+        detail: '',
+        at: '2026-08-16T00:00:00Z',
+        resolvedAt: '2026-08-16T00:00:01Z',
+      },
+    ],
+  })
+
+  it('draws at the foot of the transcript when nothing followed the silent abort', async () => {
+    initialMessages = [message(10, 'user', 'the only message')]
+    activityFn.mockResolvedValue(inferredAt(99))
+    setup()
+
+    expect(await screen.findByText('the only message')).toBeTruthy()
+    expect(await screen.findByTestId('agent-inferred-interrupt-divider')).toHaveTextContent(
+      'Interrupted unexpectedly',
+    )
+  })
+
+  // A person's own Stop click and Crowbar's own guess must never read as the
+  // same fact — wording and test id are what tell them apart, since neither
+  // pill carries any other visual marker (this feature has none to borrow).
+  it('renders distinct wording from an explicit stopped-turn divider, never that divider itself', async () => {
+    initialMessages = [message(10, 'user', 'the only message')]
+    activityFn.mockResolvedValue(inferredAt(99))
+    setup()
+
+    const divider = await screen.findByTestId('agent-inferred-interrupt-divider')
+    expect(divider).toHaveTextContent('Interrupted unexpectedly')
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
+  })
+})
+
 describe('chat.open perf span', () => {
   beforeEach(() => {
     __resetPerfForTests()

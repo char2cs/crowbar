@@ -319,13 +319,14 @@ func TestRegression_StillAbandonsAQuietMessageWithNoLiveConnection(t *testing.T)
 }
 
 type fakeMessages struct {
-	mu         sync.Mutex
-	since      time.Time
-	unfinished bool
-	abandoned  int
-	closed     bool
-	err        error
-	asked      int
+	mu                 sync.Mutex
+	since              time.Time
+	unfinished         bool
+	abandoned          int
+	inferredInterrupts int
+	closed             bool
+	err                error
+	asked              int
 }
 
 func (f *fakeMessages) UnfinishedSince(string) (time.Time, bool) {
@@ -346,10 +347,31 @@ func (f *fakeMessages) AbandonMessage(context.Context, string) (bool, error) {
 	return f.closed, nil
 }
 
+// AbandonMessageInferredInterrupt shares AbandonMessage's own accounting — count()
+// must answer "was a turn abandoned" the same way regardless of which method did
+// it — plus its own counter, so a test can tell the two call sites apart.
+func (f *fakeMessages) AbandonMessageInferredInterrupt(context.Context, string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return false, f.err
+	}
+	f.abandoned++
+	f.inferredInterrupts++
+	f.unfinished = false
+	return f.closed, nil
+}
+
 func (f *fakeMessages) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.abandoned
+}
+
+func (f *fakeMessages) inferredCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inferredInterrupts
 }
 
 const (
@@ -1352,4 +1374,41 @@ func TestProviderIdle_WaitsForAPersonBeforeItselves(t *testing.T) {
 	r.detector.Sweep(t.Context(), r.rec.publish)
 
 	assert.Equal(t, 0, r.msgs.count())
+}
+
+// TestRegression_MessageQuietFuseRecordsAnInferredInterrupt proves the
+// message-quiet detector — the one place a hooks/PTY provider's silent,
+// hookless abort (an ESC/Ctrl+C the CLI reports to nobody) is ever caught at
+// all — routes through AbandonMessageInferredInterrupt, not the bare
+// AbandonMessage the provider-idle authority below still uses. Reuses
+// DefaultMessageQuiet, the fuse TestDetector_Sweep_ClosesATurnWhoseMessageWasCutOff
+// already exercises, rather than a new threshold.
+func TestRegression_MessageQuietFuseRecordsAnInferredInterrupt(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+
+	r.clock.advance(termwait.DefaultMessageQuiet)
+	r.sweep()
+
+	assert.Equal(t, 1, r.msgs.inferredCount(),
+		"the message-quiet fuse is Crowbar's own inference and must record itself as one")
+}
+
+// TestRegression_ProviderIdleNeverRecordsAnInferredInterrupt proves the
+// authoritative "provider says it is idle" path is left untouched: it still
+// closes the turn through the bare AbandonMessage, never the inferred-
+// interrupt sibling above. That path is a provider's OWN report of a clean
+// completion, not something Crowbar is guessing at — labelling it an
+// inferred interruption would misrepresent a normal turn end.
+func TestRegression_ProviderIdleNeverRecordsAnInferredInterrupt(t *testing.T) {
+	r := newRig(t)
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.idle.arm(r.clock.Now())
+
+	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
+	r.sweep()
+
+	require.Equal(t, 1, r.msgs.count(), "the idle report still closes the turn")
+	assert.Zero(t, r.msgs.inferredCount(),
+		"an authoritative idle report is not an interruption Crowbar inferred")
 }

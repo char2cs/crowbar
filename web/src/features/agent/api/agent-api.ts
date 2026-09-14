@@ -450,6 +450,10 @@ export type InterruptionKind =
   | 'provider_switched'
   | 'model_changed'
   | 'effort_changed'
+  /** Crowbar's own guess, not a person's Stop click or a provider report: a
+   *  turn's assistant reply went quiet with nothing open to explain it, and
+   *  the daemon closed it on a timeout. See turn.AbandonMessageInferredInterrupt. */
+  | 'inferred'
 
 /** The agent blocked on, or interrupted by, something outside the turn. These
  *  are what make an apparently frozen agent legible. */

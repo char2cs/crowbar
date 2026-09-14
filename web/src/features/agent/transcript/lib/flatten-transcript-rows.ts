@@ -10,6 +10,7 @@ import type { AgentChatMessage } from '@/features/agent/api/agent-api'
 export type DividerTag =
   | { kind: 'compaction'; id: string; trigger: 'manual' | 'auto' | string }
   | { kind: 'interrupted'; id: string }
+  | { kind: 'inferred-interrupt'; id: string }
   | { kind: 'provider' | 'model' | 'effort'; id: string; detail: string }
 
 /** One row of the transcript's flat, virtualizable list. `trailingInterruption`,
