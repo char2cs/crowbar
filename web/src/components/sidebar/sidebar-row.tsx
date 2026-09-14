@@ -135,6 +135,15 @@ interface SidebarRowProps {
    *  whatever spacing the wrapper is also trying to cancel — this removes it
    *  at the source instead. */
   suppressOwnMargin?: boolean
+  /** Shrinks `ROW_BASE`'s own `h-9` to `h-8` — for a caller whose own shell
+   *  wraps this row in real padding on top of it (Recents' multi-chat SET,
+   *  `p-0.5` top+bottom around each member; see recents-band.tsx's own
+   *  doc). Padding added around an UNCHANGED `h-9` member makes the shell
+   *  itself taller than a plain row (live-reported) — the padding is the
+   *  point (the shared "grouped" ground the members sit on), so it's the
+   *  member that gives up exactly what the padding adds back, not the
+   *  padding that gives up the visual it was tuned for. */
+  compactHeight?: boolean
 }
 
 /**
@@ -171,6 +180,7 @@ export function SidebarRow({
   hasViewIdle,
   activeGround,
   suppressOwnMargin,
+  compactHeight,
 }: SidebarRowProps) {
   // Read UNCONDITIONALLY, before either early return below — rules of hooks:
   // a row's `pending`/`removal` state can flip between renders of the SAME
@@ -285,6 +295,7 @@ export function SidebarRow({
           isDragging && 'opacity-40',
           'group',
           suppressOwnMargin && 'mx-0 my-0',
+          compactHeight && 'h-8',
         )}
         onClick={(e) => {
           // A click inside the inline editor (or on the space it just

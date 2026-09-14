@@ -47,8 +47,17 @@ export const ROW_BASE =
 // every other version tried here (a separate before-overlay, a colored
 // accent, hand-tuned alpha/blur/offset) was solving a problem production's
 // own recipe never had.
+//
+// `outline` instead of `border` for the edge: a real `border` utility adds
+// its own width to the box (border-box eats it out of content on a fixed-
+// height row, fine — but a caller with no explicit height of its own, e.g.
+// Recents' multi-chat shell, has that width added STRAIGHT to its auto
+// height instead, measurably taller than every plain row even though the
+// color always matches the fill and the edge is never visible either way).
+// `outline` paints the identical 1px edge without ever participating in
+// layout, on any caller, explicit height or not.
 export const ROW_ACTIVE =
-  'border-background-inverse bg-background-inverse text-foreground-inverse shadow-xs shadow-black/10 ' +
+  'outline outline-1 outline-background-inverse bg-background-inverse text-foreground-inverse shadow-xs shadow-black/10 ' +
   'not-disabled:inset-shadow-[0_1px_var(--row-active-highlight)] ' +
   'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
 

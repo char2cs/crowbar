@@ -277,15 +277,17 @@ function RecentsEntryRow({
         // lays its member rows out SIDE BY SIDE instead of the vertical stack
         // a plain block div gave them.
         //
-        // Deliberately no `border` width utility here, even for `ROW_ACTIVE`
-        // below: `ROW_ACTIVE`'s own `border-background-inverse` always
-        // matches its own `bg-background-inverse` exactly (see that token's
-        // own doc — same reasoning as CossUI's own button variants, e.g.
-        // `border-primary bg-primary`), so a real border-WIDTH here would be
-        // completely invisible while still adding 2px (1px top + 1px bottom)
-        // to this shell's own auto height — live-reported as the shell
-        // reading taller than an ordinary row once showing, for a border no
-        // one could ever actually see.
+        // `ROW_ACTIVE`'s own edge is an `outline`, not a `border` — it never
+        // participates in layout, so it paints the real 1px CossUI edge here
+        // without adding to this shell's own auto height the way a `border`
+        // width would (workspace-row-base.ts's own doc on `ROW_ACTIVE`). The
+        // `p-0.5` this shell wraps each `h-8` (not the usual `h-9`) member in
+        // is what actually keeps the total at a plain row's own height —
+        // each member gives up exactly what this padding adds back
+        // (SidebarRow's own `compactHeight` doc) — rather than shrinking the
+        // padding itself, which was tuned live to match on every side (see
+        // above) and would go uneven again if only its vertical half were
+        // cut to make room.
         isSet && 'mx-1.5 my-0.5 flex items-center gap-0.5 rounded-lg p-0.5',
         // A SET no longer paints a ground of its own once it stops SHOWING —
         // reported live: an off-screen/dormant set still showed a filled
@@ -505,7 +507,19 @@ function RecentsMemberRow({
     <div
       data-testid={`recents-row-${chat.id}`}
       className={cn(
-        isSet && 'min-w-0 flex-1',
+        // Unconditional, not just `isSet &&`: a no-op outside a flex parent
+        // (a resting solo row's wrapper is a plain, non-flex `group relative`
+        // div, where `flex-1`/`min-w-0` do nothing), but load-bearing the
+        // moment ONE exists — the SOLO-showing wrapper (`soloActive`,
+        // RecentsEntryRow's own doc) is ALSO `flex` now (for the margin-
+        // collapse fix below), which makes this div a flex ITEM too. A flex
+        // item's default `flex: 0 1 auto` shrink-wraps to its own content
+        // instead of filling the row's real width — SidebarRow's own
+        // trailing buttons sit on `flex-1` INSIDE this div, so a div that's
+        // itself shrunk to content leaves them nothing to push against,
+        // landing right next to the label instead of the row's far edge
+        // (live-reported, alongside the same fix's own height regression).
+        'min-w-0 flex-1',
         // SidebarRow's own inner div (via ROW_BASE) always carries `mx-1.5
         // my-0.5` too — inconsequential in the TREE, where each row is its
         // own block sibling and adjoining margins collapse/stack the usual
@@ -560,6 +574,7 @@ function RecentsMemberRow({
         inlineRenameDisabled
         activeGround={activeGround}
         suppressOwnMargin={suppressOwnMargin}
+        compactHeight={isSet}
         onClose={onClose}
       />
     </div>

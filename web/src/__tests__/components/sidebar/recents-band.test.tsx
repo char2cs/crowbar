@@ -152,6 +152,24 @@ describe('RecentsBand', () => {
     expect(shell.className).toMatch(/bg-background/)
   })
 
+  // Live-reported: a SET's shell (`p-0.5` around each member, on top of an
+  // UNCHANGED `h-9`) measured taller than a plain row. Each member gives up
+  // exactly what that padding adds back (`h-8`, via `compactHeight`) so the
+  // shell's own height lands on the same 36px as `ROW_BASE` alone — a solo
+  // row (never `compactHeight`) keeps the full `h-9`, since it has no shell
+  // padding to compensate for.
+  it('a set member gives up ROW_BASE\'s own h-9 for h-8, compensating for the shell\'s padding', () => {
+    const entries: RecentsBandEntry[] = [
+      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    for (const rowId of ['recents-row-chat-1', 'recents-row-chat-2']) {
+      const treeitem = within(screen.getByTestId(rowId)).getByRole('treeitem')
+      expect(classesOf(treeitem)).toContain('h-8')
+      expect(classesOf(treeitem)).not.toContain('h-9')
+    }
+  })
+
   it('a live set that is NOT the view on screen takes no ground of its own', () => {
     const entries: RecentsBandEntry[] = [
       {
@@ -613,7 +631,18 @@ describe('RecentsBand', () => {
     }
   })
 
-  it('a solo entry is NOT turned into a flex row (layout-direction change is set-only)', () => {
+  // `flex-1`/`min-w-0` on a solo entry's wrapper is a no-op today (its
+  // resting shell is a plain, non-flex `group relative` div — these
+  // properties do nothing outside a flex parent), but load-bearing the
+  // moment it becomes the showing view: that wrapper turns `flex` for the
+  // margin-collapse fix (RecentsEntryRow's own `soloActive` doc), which
+  // makes this div a flex ITEM whose default `flex: 0 1 auto` would
+  // otherwise shrink it to its own content width instead of the row's real
+  // width — pushing the trailing close button up against the label instead
+  // of the row's far edge (live-reported). Applying it unconditionally
+  // (never gated on `isSet`) is what keeps that working without the wrapper
+  // needing to know which of its two flex states it's currently in.
+  it('a solo entry still carries flex-1/min-w-0 for when its wrapper turns flex', () => {
     const entry: RecentsBandEntry = {
       id: 'e1',
       localId: 'e1',
@@ -623,7 +652,8 @@ describe('RecentsBand', () => {
     }
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const member = classesOf(screen.getByTestId('recents-row-chat-1'))
-    expect(member).not.toContain('flex-1')
+    expect(member).toContain('flex-1')
+    expect(member).toContain('min-w-0')
   })
 
   // Feedback #3: each chat in a group gets its own hover-close, which removes
