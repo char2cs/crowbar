@@ -295,6 +295,59 @@ func TestSubagentsAndInterruptions_AreRecorded(t *testing.T) {
 	assert.NotNil(t, ints[0].ResolvedAt)
 }
 
+// TestRegression_AbandonClosesASubagentWhosePostNeverArrived is the bug
+// reported live: a chat can spawn a subagent (subagent_pre) and then its
+// process crashes, is killed, or its subagent_post is simply dropped — nobody
+// ever tells Crowbar it finished. Abandon already force-closed a tool call
+// left running the same way (TestCloseTurn_AbandonsToolsWhoseCompletionNever
+// Arrived), but had no equivalent for subagents, so this row's EndedAt stayed
+// nil forever: OpenWork checks Subagents chat-wide with no time bound, so
+// every future turn in that chat read as "still working" too. Confirmed live
+// against a production chat's own state: 14 such rows, oldest 11 days old,
+// one chat alone holding 10 of them.
+func TestRegression_AbandonClosesASubagentWhosePostNeverArrived(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Now: t0,
+	}))
+	require.NoError(t, f.repo.StartSubagent(f.ctx, chat, "orphan", "explorer", t0))
+	f.wait()
+
+	require.NoError(t, f.repo.Abandon(f.ctx, chat, t0.Add(time.Minute)))
+
+	subs, err := f.repo.Subagents(f.ctx, chat)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	require.NotNil(t, subs[0].EndedAt, "a subagent abandoned with its turn must not stay open forever")
+	assert.Equal(t, t0.Add(time.Minute), *subs[0].EndedAt)
+}
+
+// TestCloseTurn_NeverAbandonsASubagentStillRunningPastItsOwnTurn guards the
+// invariant the fix above must not break: unlike a tool call, a subagent is
+// deliberately allowed to keep running after the turn that spawned it closes
+// — a CLI that hands work to a background task ends its own turn right there
+// and goes quiet until that work reports back (see turn.go's restateAsyncWork
+// doc, proven end to end by TestRegression_CodexTurnStopWithOpenSubagent_
+// KeepsChatWorking). An ordinary CloseTurn must never treat that as
+// abandonment; only giving up on the chat entirely (Abandon) may.
+func TestCloseTurn_NeverAbandonsASubagentStillRunningPastItsOwnTurn(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Now: t0,
+	}))
+	require.NoError(t, f.repo.StartSubagent(f.ctx, chat, "still-running", "explorer", t0))
+	f.wait()
+
+	require.NoError(t, f.repo.CloseTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Text: "I'll delegate this to a subagent.", Now: t0.Add(time.Minute),
+	}))
+
+	subs, err := f.repo.Subagents(f.ctx, chat)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	assert.Nil(t, subs[0].EndedAt, "the subagent genuinely outlives its own turn; CloseTurn must not touch it")
+}
+
 func TestAbandon_ClosesAnOpenTurnWithoutRecordingABlankReply(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{

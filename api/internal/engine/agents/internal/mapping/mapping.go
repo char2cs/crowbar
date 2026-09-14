@@ -168,6 +168,18 @@ func isEmpty(v any) bool {
 	}
 }
 
+// Present reports whether expr's path exists in doc at all — true even for a
+// JSON null, false only when the key (or an ancestor segment) is entirely
+// absent. It exists for callers that must tell "this payload's shape never
+// carries this concept" (an api-transport event, say) apart from "it carries
+// the concept and it is empty" (a hooks payload naming no conversation) —
+// String and the other scalar accessors collapse both into the same zero
+// value, which is exactly the distinction that check needs.
+func Present(doc map[string]any, expr string) bool {
+	_, ok := resolve(doc, expr)
+	return ok
+}
+
 func String(doc map[string]any, expr string) string {
 	v, ok := resolve(doc, expr)
 	if !ok {

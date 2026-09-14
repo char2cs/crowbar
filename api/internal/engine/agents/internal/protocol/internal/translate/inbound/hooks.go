@@ -37,18 +37,23 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEv
 	// The ownership guard (RequiredPayloadFields, e.g. codex's transcript_path)
 	// exists for HTTP-delivered hook payloads: any process on the machine can
 	// POST one, so Crowbar must confirm it actually names THIS CLI's own
-	// conversation before trusting it. An api-transport event carries no such
-	// ambiguity — it arrived on the one websocket connection this runner's own
-	// serve process opened, which IS the scoping — and structurally can never
-	// carry a hooks-only field like transcript_path. Applying the guard to it
-	// anyway means EVERY api-transport event fails ownsConversation and is
-	// silently dropped as "foreign", which is exactly what happened before this
-	// fix: session_start through turn_stop all reported successful ingestion
-	// while the ledger never gained a single turn.
-	if d.TransportFor(canonical) != "api" {
-		if field, ok := ownsConversation(d, decoded); !ok {
-			return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
-		}
+	// conversation before trusting it.
+	//
+	// THE TRAP: this used to be skipped whenever TransportFor(canonical) ==
+	// "api", on the reasoning that an api-transport event structurally never
+	// carries a hooks-only field. That reasoning breaks for a DUAL-SHAPE event
+	// (codex's session_start/user_prompt/turn_stop, which inherit the api
+	// default but are still ALSO fired hooks-shaped by codex's own internal
+	// memory-consolidation session) — the skip is keyed on the event's static
+	// declared transport, not on whether THIS delivery is actually hooks-
+	// shaped, so it let the memory session's payload through unchecked and
+	// reintroduced the chat-theft bug this guard exists for. ownsConversation
+	// below is presence-gated per field instead (mapping.Present), which is
+	// safe for both shapes without a transport check at all: an api payload
+	// never has the key so it's skipped; a hooks payload always does, real or
+	// foreign.
+	if field, ok := ownsConversation(d, decoded); !ok {
+		return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
 	}
 	fields, declared := d.EventFields(canonical)
 	if !declared {
@@ -73,6 +78,13 @@ func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
 
 func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool) {
 	for _, field := range d.RequiredPayloadFields() {
+		// Absent, not merely empty: a payload whose shape never carries this
+		// field at all (a genuine api-transport delivery of a dual-shape
+		// event) is not evidence of anything and must not be rejected — see
+		// Parse's own doc on why this replaced a transport-wide skip.
+		if !mapping.Present(decoded, field) {
+			continue
+		}
 		if mapping.String(decoded, field) == "" {
 			return field, false
 		}
