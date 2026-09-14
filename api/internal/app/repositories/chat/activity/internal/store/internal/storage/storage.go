@@ -48,17 +48,24 @@ func (s *Store) SaveToolCall(ctx context.Context, c domain.ActivityToolCall) err
 		Seq: c.Seq, Name: c.Name, Target: c.Target,
 		RequestRef: c.RequestRef, ResultRef: c.ResultRef,
 		Status: c.Status, Error: c.Error, DurationMS: c.DurationMS,
-		StartedAt: c.StartedAt, EndedAt: c.EndedAt,
+		SubagentID: c.SubagentID,
+		StartedAt:  c.StartedAt, EndedAt: c.EndedAt,
 	}
-	// c.TurnID is only ever empty when CompleteTool's own aggregate had no open
-	// turn left to attribute this call to — the turn already closed and cleared
-	// the in-flight map (CloseTurn), and this is a tool_post arriving late for a
-	// call the CLI kept running past the turn's own end. AbandonRunningTools
-	// already closed that row correctly, with its real turn id and start time;
-	// blindly upserting this call's own now/empty guesses over it would clobber
-	// that with a fabricated, turn-less, zero-duration-looking record — observed
-	// live on a user Stop that landed mid-tool-call. Merge in the outcome only.
-	if c.TurnID == "" {
+	// c.TurnID is empty for two different reasons, and only one wants this merge:
+	// CompleteTool's own aggregate had no open turn left to attribute this call
+	// to — the turn already closed and cleared the in-flight map (CloseTurn),
+	// and this is a tool_post arriving late for a call the CLI kept running past
+	// the turn's own end. AbandonRunningTools already closed that row correctly,
+	// with its real turn id and start time; blindly upserting this call's own
+	// now/empty guesses over it would clobber that with a fabricated, turn-less,
+	// zero-duration-looking record — observed live on a user Stop that landed
+	// mid-tool-call. Merge in the outcome only.
+	//
+	// A SUBAGENT's own tool call (c.SubagentID set) has NO TurnID by design,
+	// never as a symptom of lateness — InvokeSubagentTool/CompleteSubagentTool
+	// already carry its own name/target/start time through correctly on their
+	// own, so this merge has nothing to add and is skipped for it.
+	if c.TurnID == "" && c.SubagentID == "" {
 		var existing ToolCallRow
 		if err := s.db.WithContext(ctx).Where("key = ?", row.Key).First(&existing).Error; err == nil {
 			row.TurnID, row.StartedAt = existing.TurnID, existing.StartedAt
@@ -77,9 +84,14 @@ func (s *Store) SaveToolCall(ctx context.Context, c domain.ActivityToolCall) err
 }
 
 func (s *Store) SaveSubagent(ctx context.Context, a domain.ActivitySubagent) error {
+	messages, err := encodeList(a.Messages)
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: encode subagent messages: %w", err)
+	}
 	return upsert(ctx, s.db, SubagentRow{
 		Key: rowKey(a.ChatID, a.ID), ID: a.ID, TurnID: a.TurnID, ChatID: a.ChatID,
 		Seq: a.Seq, AgentType: a.AgentType, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
+		Messages: messages,
 	})
 }
 

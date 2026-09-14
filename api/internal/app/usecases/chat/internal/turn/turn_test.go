@@ -5,11 +5,13 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
@@ -168,6 +170,16 @@ func (s stubChats) GetChat(_ context.Context, id string) (domain.Chat, error) {
 	return domain.Chat{ID: id, WorkspaceID: "ws-1", Working: s.working}, nil
 }
 
+// RestateAsyncWork answers restateAsyncWork's own recount call the same way
+// StopTurn would in production (event_store.go: RestateAsyncWork is StopTurn
+// with Restate:true) — a fixed reply, since these tests assert on what got
+// CALLED, not on a chat's own fold across several calls.
+func (s stubChats) RestateAsyncWork(
+	_ context.Context, chatID string, _ time.Time, asyncWork int,
+) (domain.Chat, error) {
+	return domain.Chat{ID: chatID, WorkspaceID: "ws-1", Working: asyncWork > 0}, nil
+}
+
 // stubWorkspace roots every path under one temp home.
 type stubWorkspace struct{ home string }
 
@@ -275,6 +287,57 @@ func (s boundCodexRunnerStore) Get(_ context.Context, id string) (engineagents.R
 	}, nil
 }
 
+// stubSubagentActivity answers IsSubagentOpen and nothing else — every other
+// EventStore method embeds agentactivity.EventStore and panics if reached,
+// same convention as liveAPIRunners above: a test wiring this with open:false
+// is asserting a chat that never opened a subagent still safely drops (never
+// crashes on, never misroutes) a session it does not recognize.
+type stubSubagentActivity struct {
+	agentactivity.EventStore
+	open bool
+}
+
+func (s stubSubagentActivity) IsSubagentOpen(context.Context, string, string) (bool, error) {
+	return s.open, nil
+}
+
+// recordingSubagentActivity is stubSubagentActivity's twin for the POSITIVE
+// case: openSessionID IS a subagent this chat already has open, and the
+// nested-routing path's own calls (StopSubagent, and OpenWork's own
+// ToolCalls/Subagents reads) are recorded rather than left to panic on the
+// embedded nil EventStore.
+type recordingSubagentActivity struct {
+	agentactivity.EventStore
+	openSessionID string
+
+	stoppedID, stoppedAgentType, stoppedMessage string
+}
+
+func (r *recordingSubagentActivity) IsSubagentOpen(
+	_ context.Context, _ string, sessionID string,
+) (bool, error) {
+	return sessionID == r.openSessionID, nil
+}
+
+func (r *recordingSubagentActivity) StopSubagent(
+	_ context.Context, _, subagentID, agentType, message string, _ time.Time,
+) error {
+	r.stoppedID, r.stoppedAgentType, r.stoppedMessage = subagentID, agentType, message
+	return nil
+}
+
+func (r *recordingSubagentActivity) ToolCalls(
+	context.Context, string, int64, int,
+) ([]domain.ActivityToolCall, error) {
+	return nil, nil
+}
+
+func (r *recordingSubagentActivity) Subagents(
+	context.Context, string,
+) ([]domain.ActivitySubagent, error) {
+	return nil, nil
+}
+
 // TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn guards the bug
 // reported live 2026-09-11 ("we're still missing that the agent is working...
 // it always happens during a security review"). codex pushes a child thread's
@@ -285,18 +348,22 @@ func (s boundCodexRunnerStore) Get(_ context.Context, id string) (engineagents.R
 // turn ended, and ingest filed it against the user's chat, closing the turn and
 // darkening the spinner while codex was still writing the answer.
 //
-// Written in TestIngestHook_DropsAHooksDeliveredCopyOfAnAPIOwnedEvent's shape
-// and for its reason: this fixture wires NO Chats/Activity/Conversations port at
-// all, so a turn_stop that is not recognised as another conversation's reaches
-// closeTurnFromStop and panics on a nil port instead of returning cleanly.
-// HasLiveAPIConnection is false so the redundant-echo guard cannot be what drops
-// it — the session identity has to be.
+// This chat never opened a subagent (stubSubagentActivity{open: false}), so
+// the child thread's own turn_stop is genuinely foreign to it and must still
+// drop before reaching closeTurnFromStop — which is why Chats/Conversations
+// are still wired to nothing at all: routeNestedSubagentEvent's own
+// IsSubagentOpen check is now the first activity touch on this path, but
+// finding nothing open must return control to the SAME early drop this test
+// always pinned, never fall through to code that needs those ports. See
+// TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo below for
+// the OTHER half — a chat that DID open one.
 func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
 	turns := turn.New(turn.Deps{
 		Runners:      boundCodexRunnerStore{session: "thread-main"},
+		Activity:     stubSubagentActivity{open: false},
 		Agents:       engineagents.New(),
 		Workspace:    stubWorkspace{home: home},
 		Home:         func() (string, error) { return home, nil },
@@ -313,6 +380,42 @@ func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) 
 		"a child thread's turn/completed says nothing about the turn running on the runner's own thread")
 }
 
+// TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo is the
+// positive half TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn
+// above cannot cover: when the child thread's id IS a subagent this chat
+// already opened (see observation.go's openNestedSubagent, which is what
+// would have opened it for real off the parent's own spawnAgent tool call),
+// its turn_stop must not be dropped as foreign at all — it is what CLOSES
+// that subagent and records its own final reply, the durable nested
+// transcript this whole mechanism exists to build.
+func TestRegression_AChildThreadsTurnStopClosesTheSubagentItBelongsTo(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	activity := &recordingSubagentActivity{openSessionID: "thread-child"}
+	turns := turn.New(turn.Deps{
+		Runners:      boundCodexRunnerStore{session: "thread-main"},
+		Activity:     activity,
+		Chats:        stubChats{},
+		Agents:       engineagents.New(),
+		Workspace:    stubWorkspace{home: home},
+		Home:         func() (string, error) { return home, nil },
+		PendingHooks: inflight.NewHooks(),
+		Telemetry:    telemetry.New(),
+		Work:         inflight.NewWork(),
+	})
+	turns.SetRunners(liveAPIRunners{live: false})
+
+	err := turns.IngestHook(t.Context(), "runner-1", "codex", "turn_stop",
+		[]byte(`{"threadId":"thread-child","last_assistant_message":"the sub-agent's answer"}`))
+
+	require.NoError(t, err)
+	assert.Equal(t, "thread-child", activity.stoppedID,
+		"the child thread's own turn_stop must close ITS subagent by id, not be dropped as foreign")
+	assert.Equal(t, "the sub-agent's answer", activity.stoppedMessage,
+		"the subagent's own final reply must be captured, not discarded")
+}
+
 // TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse is the
 // other half of the same live capture. The child thread reports
 // thread/status/changed(idle) when ITS turn ends, and recordIdle arms a latch
@@ -320,6 +423,13 @@ func TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn(t *testing.T) 
 // has closed the turn" — a 5s fuse (termwait.DefaultIdleQuiet) under the user's
 // still-running turn, deliberately gated on neither OpenWork nor the live
 // connection. Only the runner's own thread going idle may arm it.
+//
+// idle is not one of handleNestedObservation's handled kinds even for a
+// chat's own open subagent (this pass records a subagent's tool calls and
+// final reply, not a live idle signal for it), so stubSubagentActivity{open:
+// false} here is enough either way — the point pinned is narrower than
+// "never open": it is "idle specifically must never arm this chat's own
+// fuse," true whether or not the id turns out to belong to a subagent.
 func TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse(t *testing.T) {
 	t.Parallel()
 
@@ -328,6 +438,7 @@ func TestRegression_AChildThreadsIdleNeverArmsThisChatsProviderIdleFuse(t *testi
 		turns := turn.New(turn.Deps{
 			Chats:        stubChats{working: true},
 			Runners:      boundCodexRunnerStore{session: "thread-main"},
+			Activity:     stubSubagentActivity{open: false},
 			Agents:       engineagents.New(),
 			Workspace:    stubWorkspace{home: home},
 			Home:         func() (string, error) { return home, nil },

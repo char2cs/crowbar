@@ -75,6 +75,7 @@ func (t *Turns) handleObservation(
 		// other half of closeTurnFromStop's OpenWork fallback: open work may now be
 		// zero too.
 		t.restateAsyncWork(ctx, chat.ID)
+		t.openNestedSubagent(ctx, chat.ID, ev, now)
 	case engineagents.HookSubagentPre:
 		note(ctx, "subagent started",
 			t.activity.StartSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
@@ -82,7 +83,7 @@ func (t *Turns) handleObservation(
 		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookSubagentPost:
 		note(ctx, "subagent stopped",
-			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
+			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, "", now))
 		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookNotification, engineagents.HookPermission,
 		engineagents.HookElicitation:
@@ -297,6 +298,38 @@ func subagentID(ev engineagents.CanonicalEvent) string {
 	}
 
 	return "subagent-" + fallbackID()
+}
+
+// openNestedSubagent starts tracking ev.Tool.NestedSessionID as one of chatID's
+// own subagents, the first time a tool completion names an id Go has not
+// already seen open — see the mapping's own doc on the field for what
+// populates it and why (a provider's own multi-agent tool call reporting the
+// thread id of the agent it spawned or is addressing). A no-op for every
+// ordinary tool call, which maps no such field.
+//
+// OpenNestedSubagent, not StartSubagent: Go never learns why a tool call
+// named this id, only that one did, but StartSubagent's own ensureTurn is
+// wrong here regardless of provider vocabulary — see OpenNestedSubagent's
+// own doc for why a tool-triggered open must never touch the top-level turn.
+func (t *Turns) openNestedSubagent(
+	ctx context.Context,
+	chatID string,
+	ev engineagents.CanonicalEvent,
+	now time.Time,
+) {
+	if ev.Tool == nil || ev.Tool.NestedSessionID == "" {
+		return
+	}
+	open, err := t.activity.IsSubagentOpen(ctx, chatID, ev.Tool.NestedSessionID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: nested subagent: check already open", "err", err)
+		return
+	}
+	if open {
+		return
+	}
+	note(ctx, "nested subagent opened",
+		t.activity.OpenNestedSubagent(ctx, chatID, ev.Tool.NestedSessionID, now))
 }
 
 // interruptionID falls back to inflight.RecordID for the same redelivery

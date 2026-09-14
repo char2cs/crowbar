@@ -201,6 +201,11 @@ func (s *Store) Subagents(ctx context.Context, chatID string) ([]domain.Activity
 	return s.storage.Subagents(ctx, chatID)
 }
 
+func (s *Store) IsSubagentOpen(ctx context.Context, chatID, sessionID string) (bool, error) {
+	s.heal(ctx)
+	return s.storage.IsSubagentOpen(ctx, chatID, sessionID)
+}
+
 func (s *Store) Interruptions(
 	ctx context.Context,
 	chatID string,

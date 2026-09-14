@@ -76,6 +76,15 @@ type ToolEvent struct {
 
 	Error      string
 	DurationMS int
+
+	// NestedSessionID names a SECOND conversation this tool call's own
+	// completion references — a whole other turn/item stream riding the same
+	// connection, not a flat sibling id (codex's collabAgentToolCall: the
+	// spawned agent's own thread id, present on spawnAgent/wait/closeAgent's
+	// completion once the provider has minted or is addressing it). Empty for
+	// every tool call that names no such thing. See turn/ingest.go's
+	// nested-session routing for what Go does with it.
+	NestedSessionID string
 }
 
 type SubagentEvent struct {

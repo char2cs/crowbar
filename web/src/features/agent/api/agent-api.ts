@@ -430,6 +430,16 @@ export interface AgentToolCall {
   hasResult: boolean
   startedAt: string
   endedAt?: string
+  /** Set instead of a meaningful `turnId` when this call belongs to a
+   *  SUBAGENT's own nested activity (its id) rather than the chat's own
+   *  top-level turn — see `AgentSubagent`. */
+  subagentId?: string
+}
+
+/** One closed turn of a subagent's own nested conversation. */
+export interface AgentSubagentMessage {
+  text: string
+  at: string
 }
 
 export interface AgentSubagent {
@@ -439,6 +449,11 @@ export interface AgentSubagent {
   agentType?: string
   startedAt: string
   endedAt?: string
+  /** The subagent's own reply history, in arrival order — present only for a
+   *  provider whose subagent is a whole nested conversation with its own
+   *  tool calls and turns (see `AgentToolCall.subagentId`), not the flat
+   *  marker a native subagent (Claude's Task tool) still is. */
+  messages?: AgentSubagentMessage[]
 }
 
 export type InterruptionKind =

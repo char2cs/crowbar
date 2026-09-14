@@ -2,6 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { SubagentIcon } from '@/features/agent/shared/agent-icons'
 import type { AgentActivity } from '@/features/agent/api/agent-api'
 import { fitShelf, formatElapsed, type ShelfToken } from '@/features/agent/activity/lib/shelf-fit'
+import {
+  finishedNestedSubagents,
+  NestedSubagentPanel,
+} from '@/features/agent/activity/nested-subagents'
 import { cn } from '@/lib/utils'
 
 /** Rough px per character of a token's label, for the pre-layout estimate. */
@@ -15,15 +19,15 @@ function estimate(token: ShelfToken, dense: boolean): number {
 }
 
 /**
- * How many subagents are running, and for how long.
+ * How many subagents are running, and for how long — plus, underneath, the
+ * durable record of every FINISHED subagent with a real nested transcript to
+ * show (see `NestedSubagentPanel`).
  *
- * That is the WHOLE payload — `AgentSubagent` carries an id, an optional type
- * and two timestamps, and nothing else exists to show. It is not actionable and
- * it never pretends to be: there is no way to inspect a subagent from here,
- * because Crowbar is never told what one is doing.
- *
- * It sheds detail in a fixed order as a fan-out widens (see `fitShelf`), and the
- * count and clocks are the two things that never drop.
+ * The live strip itself is still the flat count+clock it always was:
+ * `AgentSubagent` carries an id, an optional type and two timestamps while
+ * running, and a native (Claude) subagent never has more to show than that.
+ * It sheds detail in a fixed order as a fan-out widens (see `fitShelf`), and
+ * the count and clocks are the two things that never drop.
  */
 export function SubagentShelf({ activity }: { activity: AgentActivity }) {
   const lineRef = useRef<HTMLSpanElement>(null)
@@ -31,6 +35,7 @@ export function SubagentShelf({ activity }: { activity: AgentActivity }) {
   const [now, setNow] = useState(() => Date.now())
 
   const running = activity.subagents.filter((subagent) => !subagent.endedAt)
+  const finishedNested = finishedNestedSubagents(activity)
 
   useLayoutEffect(() => {
     const node = lineRef.current
@@ -50,7 +55,7 @@ export function SubagentShelf({ activity }: { activity: AgentActivity }) {
 
   const measure = useCallback(estimate, [])
 
-  if (running.length === 0) return null
+  if (running.length === 0 && finishedNested.length === 0) return null
 
   const tokens: ShelfToken[] = running.map((subagent) => ({
     id: subagent.id,
@@ -60,25 +65,30 @@ export function SubagentShelf({ activity }: { activity: AgentActivity }) {
   const layout = fitShelf(tokens, width, measure)
 
   return (
-    <div
-      className={cn('subbar', layout.dense && 'dense')}
-      data-testid="agent-subagent-shelf"
-      aria-label={`${running.length} ${running.length === 1 ? 'subagent' : 'subagents'} running`}
-    >
-      <span className="subhd">
-        <SubagentIcon size={12} />
-        <b>{running.length}</b>&nbsp;{running.length === 1 ? 'subagent' : 'subagents'}
-      </span>
-      <span className="subline" ref={lineRef}>
-        {layout.shown.map((token) => (
-          <span className="tok" key={token.id}>
-            <i />
-            {!layout.dense && token.agentType && <span className="ty">{token.agentType}</span>}
-            <b>{formatElapsed(token.elapsed)}</b>
+    <div className="substack">
+      {running.length > 0 && (
+        <div
+          className={cn('subbar', layout.dense && 'dense')}
+          data-testid="agent-subagent-shelf"
+          aria-label={`${running.length} ${running.length === 1 ? 'subagent' : 'subagents'} running`}
+        >
+          <span className="subhd">
+            <SubagentIcon size={12} />
+            <b>{running.length}</b>&nbsp;{running.length === 1 ? 'subagent' : 'subagents'}
           </span>
-        ))}
-      </span>
-      {layout.overflow > 0 && <span className="submore">+{layout.overflow}</span>}
+          <span className="subline" ref={lineRef}>
+            {layout.shown.map((token) => (
+              <span className="tok" key={token.id}>
+                <i />
+                {!layout.dense && token.agentType && <span className="ty">{token.agentType}</span>}
+                <b>{formatElapsed(token.elapsed)}</b>
+              </span>
+            ))}
+          </span>
+          {layout.overflow > 0 && <span className="submore">+{layout.overflow}</span>}
+        </div>
+      )}
+      <NestedSubagentPanel activity={activity} />
     </div>
   )
 }

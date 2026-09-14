@@ -76,8 +76,9 @@ export function groupChoicesByTurn(choices: AgentChoice[]): Map<string, AgentCho
 
 /** Duration between two timestamps, the same shape `AgentToolCall.durationMs`
  *  already reports — subagents carry only the two timestamps, not a precomputed
- *  span, since nothing else ever needed one. */
-function elapsedMs(startedAt: string, endedAt: string): number {
+ *  span, since nothing else ever needed one. Exported for NestedSubagentPanel,
+ *  which needs the identical span for a subagent with no turn to group under. */
+export function elapsedMs(startedAt: string, endedAt: string): number {
   return Date.parse(endedAt) - Date.parse(startedAt)
 }
 
@@ -152,8 +153,12 @@ export function AgentLiveTurnTools({
 }
 
 /** The list both of the above draw — one definition of the cap, the ordering and
- *  the row, so the live view and the record can never disagree about a call. */
-function ToolList({
+ *  the row, so the live view and the record can never disagree about a call.
+ *
+ *  Exported for NestedSubagentPanel (activity/nested-subagents.tsx): a
+ *  subagent's own nested tool calls are the SAME shape and want the SAME
+ *  row, not a second definition of it. */
+export function ToolList({
   calls,
   testId,
   output,
