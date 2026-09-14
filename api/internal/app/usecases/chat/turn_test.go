@@ -149,6 +149,91 @@ func TestObservation_AnonymousSubagentStopsDoNotCollide(t *testing.T) {
 	assert.Len(t, subs, 2)
 }
 
+// TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded drives the
+// FULL nested-subagent mechanism end to end, through the real descriptor
+// (codex.yaml) and the real event-sourced activity store — not a mocked
+// port. codex's own collabAgentToolCall(spawnAgent) completion is what OPENS
+// the subagent (item.receiverThreadIds[0], the mapping's dynamic-key
+// selector's own motivating field — see mapping.go and codex.yaml's
+// nested_session_id note); the spawned agent's own child thread then runs
+// its own tool calls and its own turn_stop, all carrying the CHILD's session
+// id, which routeNestedSubagentEvent must route into the subagent's own
+// nested activity rather than drop (namesAnotherConversation's own job) or
+// bleed into the chat's top-level turn (the bug
+// TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn guards).
+func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "thread-main")
+
+	// The PARENT thread's own spawnAgent tool call completes, naming the
+	// child thread it just created (item.receiverThreadIds[0]) — this is
+	// what opens the nested subagent for real.
+	hook(t, f, runnerID, "codex", "tool_post", map[string]any{
+		"session_id": "thread-main", "tool_use_id": "spawn-1", "tool_name": "spawnAgent",
+		"item": map[string]any{"receiverThreadIds": []any{"thread-child"}},
+	})
+
+	subs, err := f.activity.Subagents(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	assert.Equal(t, "thread-child", subs[0].ID)
+	assert.Nil(t, subs[0].EndedAt, "opened, not yet closed")
+
+	// The CHILD thread's own tool call — session_id names the CHILD, not the
+	// parent — must be routed into the subagent's nested activity.
+	hook(t, f, runnerID, "codex", "tool_pre", map[string]any{
+		"session_id": "thread-child", "tool_use_id": "child-tool-1", "tool_name": "Bash",
+		"tool_input": map[string]any{"command": "echo hi"},
+	})
+	hook(t, f, runnerID, "codex", "tool_post", map[string]any{
+		"session_id": "thread-child", "tool_use_id": "child-tool-1", "tool_name": "Bash",
+		"tool_response": "hi",
+	})
+
+	// The CHILD thread's own turn closing is what CLOSES the subagent and
+	// records its own final reply.
+	hook(t, f, runnerID, "codex", "turn_stop", map[string]any{
+		"session_id": "thread-child", "last_assistant_message": "done",
+	})
+
+	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
+	require.NoError(t, err)
+	// Two rows: the PARENT's own spawnAgent call (already-working, ordinary
+	// top-level visibility, unaffected by any of this — SubagentID empty)
+	// and the CHILD's own nested Bash call (SubagentID set).
+	require.Len(t, calls, 2)
+	var parent, nested *domain.ActivityToolCall
+	for i := range calls {
+		switch calls[i].SubagentID {
+		case "":
+			parent = &calls[i]
+		default:
+			nested = &calls[i]
+		}
+	}
+	require.NotNil(t, parent, "the parent's own spawnAgent tool call must still show, unaffected")
+	assert.Equal(t, "spawnAgent", parent.Name)
+	require.NotNil(t, nested, "the child's own tool call must be recorded")
+	assert.Equal(t, "thread-child", nested.SubagentID)
+	assert.Equal(t, "Bash", nested.Name)
+	assert.Equal(t, domain.ToolStatusOK, nested.Status)
+	assert.Empty(t, nested.TurnID, "a nested tool call has no top-level turn")
+
+	subs, err = f.activity.Subagents(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	require.NotNil(t, subs[0].EndedAt, "the child's own turn_stop must close it")
+	require.Len(t, subs[0].Messages, 1)
+	assert.Equal(t, "done", subs[0].Messages[0].Text)
+
+	// The chat's own top-level turn activity must stay untouched — the whole
+	// point of ROUTING instead of bleeding through.
+	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, turns, "no top-level turn was ever opened by any of this")
+}
+
 func TestObservation_InterruptionsAreRecordedForEachKind(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")

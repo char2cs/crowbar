@@ -1244,11 +1244,11 @@ func (f *faultWriteActivity) StartSubagent(ctx context.Context, chatID, id, agen
 	return f.EventStore.StartSubagent(ctx, chatID, id, agentType, now)
 }
 
-func (f *faultWriteActivity) StopSubagent(ctx context.Context, chatID, id, agentType string, now time.Time) error {
+func (f *faultWriteActivity) StopSubagent(ctx context.Context, chatID, id, agentType, message string, now time.Time) error {
 	if f.writeErr != nil {
 		return f.writeErr
 	}
-	return f.EventStore.StopSubagent(ctx, chatID, id, agentType, now)
+	return f.EventStore.StopSubagent(ctx, chatID, id, agentType, message, now)
 }
 
 func (f *faultWriteActivity) Interrupt(ctx context.Context, chatID, id, kind, detail string, now time.Time) error {

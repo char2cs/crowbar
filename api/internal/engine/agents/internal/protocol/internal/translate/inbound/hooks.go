@@ -198,10 +198,11 @@ func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEve
 		Target: firstNonEmpty(decoded, fields["tool_target"]),
 		Input:  mapping.JSON(decoded, fields["tool_input"]),
 
-		Result:     firstNonEmptyJSON(decoded, fields["tool_result"]),
-		Error:      firstNonEmpty(decoded, fields["tool_error"]),
-		Status:     firstNonEmpty(decoded, fields["tool_status"]),
-		DurationMS: duration,
+		Result:          firstNonEmptyJSON(decoded, fields["tool_result"]),
+		Error:           firstNonEmpty(decoded, fields["tool_error"]),
+		Status:          firstNonEmpty(decoded, fields["tool_status"]),
+		DurationMS:      duration,
+		NestedSessionID: firstNonEmpty(decoded, fields["nested_session_id"]),
 	}
 }
 

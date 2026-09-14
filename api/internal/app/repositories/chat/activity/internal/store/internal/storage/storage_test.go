@@ -74,6 +74,110 @@ func TestToolCallsBefore_FiltersToCallsBeforeTheGivenSeq(t *testing.T) {
 	assert.Equal(t, []string{"a", "b"}, names, "seq 3 sits AT the before boundary and must be excluded")
 }
 
+// A nested subagent tool call's SubagentID must survive the round trip
+// through SQL — this is what lets a reader group a chat's tool calls into
+// "top-level" (empty) vs. "belongs to this subagent" (set) without a
+// separate query shape.
+func TestToolCalls_SubagentIDRoundTrips(t *testing.T) {
+	ctx, st := newStore(t)
+	require.NoError(t, st.SaveToolCall(ctx, domain.ActivityToolCall{
+		ID: "t1", ChatID: "c1", Seq: 1, Name: "top-level", StartedAt: now,
+	}))
+	require.NoError(t, st.SaveToolCall(ctx, domain.ActivityToolCall{
+		ID: "t2", ChatID: "c1", Seq: 2, Name: "nested", SubagentID: "a1", StartedAt: now,
+	}))
+
+	got, err := st.ToolCalls(ctx, "c1", 0, 0)
+	require.NoError(t, err)
+	byName := map[string]string{}
+	for _, call := range got {
+		byName[call.Name] = call.SubagentID
+	}
+	assert.Empty(t, byName["top-level"])
+	assert.Equal(t, "a1", byName["nested"])
+}
+
+// A subagent's own reply history must survive the round trip too — it is
+// what makes SaveSubagent capable of holding a real nested transcript rather
+// than a flat start/end marker.
+func TestSubagents_MessagesRoundTrip(t *testing.T) {
+	ctx, st := newStore(t)
+	require.NoError(t, st.SaveSubagent(ctx, domain.ActivitySubagent{
+		ID: "a1", ChatID: "c1", Seq: 1, StartedAt: now,
+		Messages: []domain.ActivitySubagentMessage{{Text: "done", At: now}},
+	}))
+
+	got, err := st.Subagents(ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Messages, 1)
+	assert.Equal(t, "done", got[0].Messages[0].Text)
+}
+
+// A subagent saved with no messages at all (the common, ordinary case) must
+// round-trip to an empty slice, not a one-element slice holding a blank
+// entry.
+func TestSubagents_NoMessagesRoundTripsToEmpty(t *testing.T) {
+	ctx, st := newStore(t)
+	require.NoError(t, st.SaveSubagent(ctx, domain.ActivitySubagent{
+		ID: "a1", ChatID: "c1", Seq: 1, StartedAt: now,
+	}))
+
+	got, err := st.Subagents(ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Empty(t, got[0].Messages)
+}
+
+// IsSubagentOpen is the routing lookup nested-session dispatch relies on —
+// "is this id a subagent I already know is open for this chat" — so it must
+// be true only while the record is genuinely still running.
+func TestIsSubagentOpen_TrueWhileStillRunning(t *testing.T) {
+	ctx, st := newStore(t)
+	require.NoError(t, st.SaveSubagent(ctx, domain.ActivitySubagent{
+		ID: "a1", ChatID: "c1", Seq: 1, StartedAt: now,
+	}))
+
+	open, err := st.IsSubagentOpen(ctx, "c1", "a1")
+	require.NoError(t, err)
+	assert.True(t, open)
+}
+
+func TestIsSubagentOpen_FalseOnceClosed(t *testing.T) {
+	ctx, st := newStore(t)
+	ended := now.Add(time.Second)
+	require.NoError(t, st.SaveSubagent(ctx, domain.ActivitySubagent{
+		ID: "a1", ChatID: "c1", Seq: 1, StartedAt: now, EndedAt: &ended,
+	}))
+
+	open, err := st.IsSubagentOpen(ctx, "c1", "a1")
+	require.NoError(t, err)
+	assert.False(t, open)
+}
+
+func TestIsSubagentOpen_FalseWhenNeverSeen(t *testing.T) {
+	ctx, st := newStore(t)
+
+	open, err := st.IsSubagentOpen(ctx, "c1", "nope")
+	require.NoError(t, err)
+	assert.False(t, open)
+}
+
+// A subagent open for a DIFFERENT chat must never make an id look open here —
+// the same isolation every other chat-scoped query in this store already
+// gives, load-bearing the moment two chats' collab agents mint the same
+// provider-side id.
+func TestIsSubagentOpen_FalseForAnotherChatsSubagent(t *testing.T) {
+	ctx, st := newStore(t)
+	require.NoError(t, st.SaveSubagent(ctx, domain.ActivitySubagent{
+		ID: "a1", ChatID: "other-chat", Seq: 1, StartedAt: now,
+	}))
+
+	open, err := st.IsSubagentOpen(ctx, "c1", "a1")
+	require.NoError(t, err)
+	assert.False(t, open)
+}
+
 func TestToolCallRefs_ReturnsRequestAndResultRefsForOneChat(t *testing.T) {
 	ctx, st := newStore(t)
 	require.NoError(t, st.SaveToolCall(ctx, domain.ActivityToolCall{

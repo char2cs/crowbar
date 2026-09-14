@@ -127,6 +127,15 @@ events:
   # receiverThreadIds[0] is the same INDEX selector, for the same reason: the list
   # holds exactly one id in every shape captured live, and a bare field name cannot
   # select "the first element of a list" any other way this grammar offers.
+  # NO nested_session_id here, deliberately: receiverThreadIds[0] is EMPTY on
+  # spawnAgent's own item/started (confirmed live: the child does not exist
+  # yet — see testdata/fixtures/codex/item_started.collabAgentToolCall.json,
+  # and TestV3Descriptors_ResolveAgainstRecordedTraffic, which fails the
+  # build the moment a mapped field stops resolving against every recorded
+  # variant it could fire on). wait/closeAgent's own item/started PROBABLY
+  # already addresses an existing child the same way their item/completed
+  # does, but no fixture of either exists to prove it — see tool_post below,
+  # where the same field IS proven.
   tool_pre:
     in: item/started
     when: { item.type: commandExecution || fileChange || mcpToolCall || webSearch || dynamicToolCall || collabAgentToolCall }
@@ -141,20 +150,33 @@ events:
   # call completed with an empty result. The real output field differs per
   # variant: aggregatedOutput (commandExecution), result (mcpToolCall),
   # changes (fileChange), agentsStates (collabAgentToolCall — the spawned
-  # agent's own status/message map, keyed by a thread id this grammar has no
-  # way to select by since it is not a fixed field name; the whole map is
-  # still a real result, just not one this file can pick a single value out
-  # of).
+  # agent's own status/message map, keyed by the thread id nested_session_id
+  # below also names; item.agentsStates[receiverThreadIds[0]] is addressable
+  # via mapping's dynamic-key selector, but the WHOLE map is mapped here
+  # rather than one value out of it — a reader of this tool call's result
+  # wants everything the parent saw, not a value already surfaced through the
+  # nested subagent this tool call OPENS/refreshes via nested_session_id).
+  #
+  # nested_session_id — CONFIRMED LIVE against testdata/fixtures/codex/
+  # item_completed.collabAgentToolCall.json and .wait.json: receiverThreadIds[0]
+  # is the SAME id agentsStates is keyed by, on both spawnAgent's own
+  # completion (agentsStates[id].status: "pendingInit") and wait's
+  # (agentsStates[id].status: "completed"). See turn/ingest.go's nested-session
+  # routing for what opens/keeps-open a subagent from this field, and
+  # turn/observation.go for what a routed child frame does once one is open —
+  # a child's OWN turn_stop is what CLOSES it, not this field going away (it
+  # never does: closeAgent's own completion still names the same id).
   tool_post:
     in: item/completed
     when: { item.type: commandExecution || fileChange || mcpToolCall || webSearch || dynamicToolCall || collabAgentToolCall }
     map:
-      session_id:  "threadId || session_id"
-      tool_id:     "item.id || tool_use_id"
-      tool_name:   "item.tool || item.type || tool_name"
-      tool_target: "item.command || item.query || item.server || item.changes[0].path || item.prompt || item.receiverThreadIds[0] || tool_input.file_path"
-      tool_result: "item.aggregatedOutput || item.result || item.changes || item.agentsStates || tool_response"
-      duration_ms: "item.durationMs || duration_ms"
+      session_id:        "threadId || session_id"
+      tool_id:           "item.id || tool_use_id"
+      tool_name:         "item.tool || item.type || tool_name"
+      tool_target:       "item.command || item.query || item.server || item.changes[0].path || item.prompt || item.receiverThreadIds[0] || tool_input.file_path"
+      tool_result:       "item.aggregatedOutput || item.result || item.changes || item.agentsStates || tool_response"
+      duration_ms:       "item.durationMs || duration_ms"
+      nested_session_id: item.receiverThreadIds[0]
 
   # Fires on the SAME wire event as tool_post, separated only by item.status.
   # dispatch.Resolve tries candidates in sorted name order, so `tool_fail` is
@@ -172,16 +194,22 @@ events:
       item.type:   commandExecution || fileChange || mcpToolCall || dynamicToolCall || collabAgentToolCall
       item.status: failed || declined
     map:
-      session_id:  "threadId || session_id"
-      tool_id:     "item.id || tool_use_id"
-      tool_name:   "item.tool || item.type || tool_name"
-      tool_target: "item.command || item.query || item.server || item.changes[0].path || item.prompt || item.receiverThreadIds[0] || tool_input.file_path"
-      tool_result: "item.aggregatedOutput || item.result || item.changes || item.agentsStates || tool_response"
+      session_id:        "threadId || session_id"
+      tool_id:           "item.id || tool_use_id"
+      tool_name:         "item.tool || item.type || tool_name"
+      tool_target:       "item.command || item.query || item.server || item.changes[0].path || item.prompt || item.receiverThreadIds[0] || tool_input.file_path"
+      tool_result:       "item.aggregatedOutput || item.result || item.changes || item.agentsStates || tool_response"
       # collabAgentToolCall carries no .error field at all (confirmed live and
       # against the published schema) — item.status ("failed") is the only text
       # this variant has to fall back to, same as every other tool_error here.
       tool_error:  "item.error.message || item.status"
       duration_ms: "item.durationMs || duration_ms"
+      # NO nested_session_id here either, same reason as tool_pre: no
+      # recorded collabAgentToolCall failure exists to prove receiverThreadIds
+      # is still populated on this path. A subagent a failed spawnAgent opened
+      # via tool_post before failing stays open until abandonRunningSubagents'
+      # own sweep reclaims it with the rest of the turn — see StartSubagent's
+      # call site in turn/observation.go.
 
   # No index: this delta stream is already arrival-ordered.
   message_delta:
@@ -419,49 +447,76 @@ events:
       session_id: "threadId || session_id"
       turn_id:    turnId
 
-  # STILL ride transport: hooks — the disconnected-PTY gap above is real for
-  # these two, and is NOT closed by this pass. Confirmed live (codex-cli
-  # 0.149.1, `-c features.collab_agents=true`, a prompt that asks the model
-  # to spawn one): codex's real multi-agent mechanism is architecturally
-  # nothing like a StartSubagent/StopSubagent pair. What actually happens:
+  # NEVER FIRE for codex, deliberately: SubagentStart/SubagentStop are a
+  # hooks-transport pair that assumes one flat id with no nesting — codex's
+  # real multi-agent mechanism is architecturally nothing like it. Confirmed
+  # live (codex-cli 0.149.1, `-c features.collab_agents=true`, a prompt that
+  # asks the model to spawn one), and preserved as testdata/fixtures/codex/
+  # item_started.collabAgentToolCall.json, item_completed.collabAgentToolCall.json
+  # and item_completed.collabAgentToolCall.wait.json (real captures, not
+  # schema guesses — see the fixtures dir's own README):
   #
   #   1. The model calls its OWN collabAgentToolCall tool (spawnAgent), an
-  #      ORDINARY item/started..completed pair on the PARENT thread — this is
-  #      now mapped as a plain tool call (see tool_pre/tool_post/tool_fail's
+  #      ORDINARY item/started..completed pair on the PARENT thread — mapped
+  #      as a plain tool call (tool_pre/tool_post/tool_fail's
   #      collabAgentToolCall branch above), and item/completed's
   #      receiverThreadIds[0] names the spawned agent's own new thread id.
+  #      CONFIRMED LIVE (the fixture pair above): receiverThreadIds is EMPTY
+  #      on item/started and holds exactly one id on item/completed.
   #   2. That child thread runs a COMPLETE, independent turn/started ..
   #      item/* .. turn/completed cycle of its own, pushed over this SAME
   #      connection despite the client never having called thread/start or
-  #      thread/resume on it.
+  #      thread/resume on it — ordinary canonical events (turn_stop,
+  #      tool_pre/post, message_delta, idle...), just carrying the CHILD's
+  #      own threadId as their session_id instead of the parent's. This part
+  #      is confirmed live by namesAnotherConversation's own doc in
+  #      turn/ingest.go (a real bleed-through incident the fix there guards
+  #      against), not by a fixture file.
   #   3. The model calls collabAgentToolCall(tool: wait) — another ordinary
   #      tool call — whose OWN item/completed.agentsStates[childId] carries
-  #      the child's terminal status ("completed") and its result message
-  #      ("done"). This is the one place the child's outcome surfaces back
-  #      on the parent thread's own stream.
+  #      the child's terminal status and result message. CONFIRMED LIVE
+  #      (item_completed.collabAgentToolCall.wait.json): agentsStates is
+  #      keyed by EXACTLY the id receiverThreadIds[0] names on that SAME
+  #      frame — item.agentsStates[receiverThreadIds[0]] (mapping.go's
+  #      dynamic-key selector) resolves correctly against real traffic.
   #   4. The model calls collabAgentToolCall(tool: closeAgent) to tear the
-  #      child down; the child's thread/status/changed goes to "notLoaded".
+  #      child down. No live capture of this call exists; by structural
+  #      symmetry with 1 and 3 its own completion is assumed to keep naming
+  #      the same id in receiverThreadIds, but that assumption is
+  #      UNCONFIRMED — see nested_session_id's own note on tool_fail above.
   #
   # subAgentActivity — the OTHER item type the first pass's schema reading
   # guessed this would ride, with its started|interacted|interrupted kinds —
-  # NEVER appeared, across two full independent live captures of this exact
-  # sequence. It is presumably reserved for codex's OWN internally-spawned
-  # subagents (SubAgentSource's bare review|compact|memory_consolidation
-  # variants — an auto-review or auto-compaction subagent Crowbar never
-  # asked for), not for an explicit model-driven collab tool call. That
-  # remains UNCONFIRMED — no live capture of it exists yet.
+  # NEVER appeared, across every live capture taken of this sequence. It is
+  # presumably reserved for codex's OWN internally-spawned subagents
+  # (SubAgentSource's bare review|compact|memory_consolidation variants), not
+  # an explicit model-driven collab tool call. Still UNCONFIRMED.
   #
-  # Mapping a real subagent_pre/subagent_post onto this needs Crowbar's own
-  # activity ledger to grow a nested-thread model StartSubagent/StopSubagent
-  # do not have (a subagent is a whole second thread with its own turn/item
-  # stream, not a flat id), AND the mapping grammar needs a way to read
-  # agentsStates' status/message keyed by a THREAD ID it cannot know in
-  # advance (no name=value selector can address a map keyed by an arbitrary
-  # id — only receiverThreadIds[0], the list form, is addressable today).
-  # Landing the tool-call visibility above first, leaving this dedicated
-  # pair as hooks-transport dead weight until that design exists, is the
-  # honest state of things — a broken or unverified nested-subagent mapping
-  # would be worse than none.
+  # None of this is mapped onto subagent_pre/subagent_post — a
+  # StartSubagent/StopSubagent PAIR still cannot express "a whole second
+  # thread," and forcing one to would need Go to know collabAgentToolCall's
+  # own vocabulary to decide when to fire each half, which turn/ingest.go and
+  # turn/observation.go deliberately do not. Built instead, all fully
+  # generic (nested_session_id is declared on tool_post above — see its own
+  # note for why NOT tool_pre/tool_fail too — with zero codex-vocabulary
+  # knowledge in Go):
+  #
+  #   - a tool completion naming a nested_session_id Go has not already seen
+  #     open calls OpenNestedSubagent (turn/observation.go's
+  #     openNestedSubagent) — StartSubagent's OWN turn-safe twin, not
+  #     StartSubagent itself: StartSubagent's ensureTurn would silently mint
+  #     a ghost top-level turn the instant this fires after codex's own turn
+  #     has already closed, which it usually has by then;
+  #   - a frame whose session id names a chat's own currently-open subagent
+  #     is ROUTED into that subagent's nested activity instead of being
+  #     dropped as foreign (turn/ingest.go's routeNestedSubagentEvent) or
+  #     bled into the chat's own top-level turn (the bug
+  #     TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn guards);
+  #   - within that routing, the child's OWN tool_pre/tool_post/tool_fail
+  #     record its own nested tool calls (InvokeSubagentTool/
+  #     CompleteSubagentTool) and its OWN turn_stop/turn_failed closes the
+  #     subagent and records its final reply (StopSubagent) — see
+  #     turn/nested.go's handleNestedObservation.
   subagent_pre:
     transport: hooks
     in: SubagentStart

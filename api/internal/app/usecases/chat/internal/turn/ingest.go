@@ -157,6 +157,14 @@ func (t *Turns) ingestResolvedHook(
 	}
 
 	if namesAnotherConversation(runner, ev) {
+		// Not necessarily foreign: a codex-shaped provider pushes a spawned
+		// subagent's OWN complete turn/item stream over this SAME connection,
+		// carrying the CHILD's own thread id as session_id — see
+		// routeNestedSubagentEvent's own doc. Only once that returns false is
+		// this genuinely another conversation to drop.
+		if routed, err := t.routeNestedSubagentEvent(ctx, runner, ev); routed {
+			return err
+		}
 		slog.DebugContext(ctx,
 			"agent: ingest hook: dropping an event that names another conversation",
 			"event", ev.Kind, "event_session", ev.SessionID,
