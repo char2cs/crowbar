@@ -34,6 +34,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => {
       return fakeStores.get(wsId)
     },
     setActiveWorkspaceId: vi.fn(),
+    clearActiveWorkspaceId: vi.fn(),
   }
 })
 

@@ -5,6 +5,9 @@ import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
   resolveWorkspaceIdForChat,
+  setActiveWorkspaceId,
+  clearActiveWorkspaceId,
+  getActiveWorkspaceId,
 } from '@/features/workspace/stores/workspace-store-registry'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
@@ -32,6 +35,8 @@ vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
 
 afterEach(() => {
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
+  const active = getActiveWorkspaceId()
+  if (active) clearActiveWorkspaceId(active)
   vi.restoreAllMocks()
 })
 
@@ -169,6 +174,38 @@ describe('workspace-store-registry', () => {
       destroyWorkspaceStore('ws-evicted')
 
       expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
+    })
+  })
+
+  // Live-reported: file-explorer state (and anything else keyed off
+  // getWorkspaceScope()'s active id) for a chat sharing a workspace with
+  // sibling chats kept reading/writing a DIFFERENT workspace than the one
+  // actually on screen. Root cause: WorkspaceView's active-only effect
+  // called setActiveWorkspaceId(wsId) with no cleanup at all — unlike its
+  // sibling setActiveWorkspaceStoreRef effect right above it, which does
+  // null itself out on deactivation — so the id kept pointing at a
+  // workspace whose WorkspaceView had since unmounted (evicted from
+  // WorkspaceHost's retention), a dangling reference nothing ever corrected
+  // for a workspace with no dedicated route of its own to re-claim it.
+  describe('setActiveWorkspaceId / clearActiveWorkspaceId', () => {
+    it('clearActiveWorkspaceId resets the active id when it is still the one recorded', () => {
+      setActiveWorkspaceId('ws-a')
+      expect(getActiveWorkspaceId()).toBe('ws-a')
+
+      clearActiveWorkspaceId('ws-a')
+
+      expect(getActiveWorkspaceId()).toBeNull()
+    })
+
+    it('clearActiveWorkspaceId is a no-op once a different workspace has claimed the id', () => {
+      setActiveWorkspaceId('ws-a')
+      setActiveWorkspaceId('ws-b') // ws-b's WorkspaceView became active first
+
+      // ws-a's own effect cleanup fires afterward (its `active` flipped
+      // false, or it unmounted) — it must not clobber ws-b's newer claim.
+      clearActiveWorkspaceId('ws-a')
+
+      expect(getActiveWorkspaceId()).toBe('ws-b')
     })
   })
 })

@@ -1,6 +1,10 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
-import { getOrCreateWorkspaceStore, setActiveWorkspaceId } from '../stores/workspace-store-registry'
+import {
+  clearActiveWorkspaceId,
+  getOrCreateWorkspaceStore,
+  setActiveWorkspaceId,
+} from '../stores/workspace-store-registry'
 import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
 import { hydrateWorkspace, reconcileWorkspaceBuffersWithDisk } from '@/lib/persistence/hydrate'
 import { markStart, markEnd } from '@/lib/perf/instrumentation'
@@ -78,6 +82,9 @@ export const WorkspaceView = memo(function WorkspaceView({ wsId, active }: Works
   useEffect(() => {
     if (!active) return
     setActiveWorkspaceId(wsId)
+    return () => {
+      clearActiveWorkspaceId(wsId)
+    }
   }, [wsId, active])
 
   // Clear the GLOBAL file-tree / git stores the instant this workspace becomes

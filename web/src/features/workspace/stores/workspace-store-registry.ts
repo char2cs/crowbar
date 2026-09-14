@@ -28,6 +28,26 @@ export function setActiveWorkspaceId(wsId: string): void {
   setActiveScopeWorkspaceId(wsId)
 }
 
+/**
+ * Undo `setActiveWorkspaceId(wsId)` — but ONLY if `wsId` is still the one
+ * recorded, so a losing caller can never clobber a newer claim (two
+ * `WorkspaceView`s can flip `active` in the same commit: the one going
+ * inactive must not race the one becoming active). Without this,
+ * `WorkspaceView`'s own active-only effect (below) had no cleanup at all —
+ * unlike its sibling `setActiveWorkspaceStoreRef` effect right above it,
+ * which does null itself out on deactivation — so `_activeWorkspaceId` kept
+ * pointing at a workspace whose `WorkspaceView` had since unmounted (evicted
+ * from WorkspaceHost's retention) once nothing else claimed the id: a
+ * dangling reference the file explorer (getWorkspaceScope()) went on
+ * reading and writing to forever, for any chat sharing that workspace with
+ * no dedicated `/ide/:p/:r/:wsId` route of its own to re-claim it.
+ */
+export function clearActiveWorkspaceId(wsId: string): void {
+  if (_activeWorkspaceId !== wsId) return
+  _activeWorkspaceId = null
+  setActiveScopeWorkspaceId(null)
+}
+
 export function getActiveWorkspaceStore(): WorkspaceStore | null {
   if (!_activeWorkspaceId) return null
   return registry.get(_activeWorkspaceId) ?? null
