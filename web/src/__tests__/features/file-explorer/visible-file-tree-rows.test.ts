@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   buildVisibleFileTreeRows,
   filterFileTreeForFffHits,
+  findTopVisibleItemIndex,
   getGuideAncestorRows,
   getStickyAncestorRow,
   getStickyAncestorRows,
@@ -149,6 +150,48 @@ describe('buildVisibleFileTreeRows', () => {
       '/root/src/features',
       '/root/src/features/file-explorer',
     ])
+  })
+})
+
+describe('findTopVisibleItemIndex', () => {
+  // Live-reported: the sticky-ancestor header overlapped/garbled the real row
+  // scrolled underneath it. Root cause: the caller used to re-derive "which
+  // row is at the top" via `Math.floor(scrollOffset / rowHeight)`, assuming
+  // every row's real position is exactly `index * rowHeight` — an assumption
+  // that can drift from the virtualizer's own items. These pin reading the
+  // items directly instead.
+  const items = [
+    { index: 5, start: 0, size: 24 },
+    { index: 6, start: 24, size: 24 },
+    { index: 7, start: 48, size: 24 },
+  ]
+
+  test('finds the item whose range contains the scroll offset', () => {
+    expect(findTopVisibleItemIndex(items, 0)).toBe(5)
+    expect(findTopVisibleItemIndex(items, 23)).toBe(5)
+    expect(findTopVisibleItemIndex(items, 24)).toBe(6)
+    expect(findTopVisibleItemIndex(items, 47)).toBe(6)
+    expect(findTopVisibleItemIndex(items, 48)).toBe(7)
+  })
+
+  test('never assumes uniform row height — a taller row shifts every index after it', () => {
+    const uneven = [
+      { index: 0, start: 0, size: 40 }, // taller than the rest
+      { index: 1, start: 40, size: 24 },
+      { index: 2, start: 64, size: 24 },
+    ]
+    // A naive scrollOffset/24 division would land on index 1 here; the real
+    // item covering offset 30 is still index 0.
+    expect(findTopVisibleItemIndex(uneven, 30)).toBe(0)
+    expect(findTopVisibleItemIndex(uneven, 41)).toBe(1)
+  })
+
+  test('falls back to the last item when the offset is past every item (bottom of an overscanned list)', () => {
+    expect(findTopVisibleItemIndex(items, 1000)).toBe(7)
+  })
+
+  test('returns -1 for an empty item list', () => {
+    expect(findTopVisibleItemIndex([], 0)).toBe(-1)
   })
 })
 

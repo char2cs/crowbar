@@ -16,6 +16,7 @@ import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-
 import {
   computeFileTreeSearchHits,
   filterFileTreeForFffHits,
+  findTopVisibleItemIndex,
   getGuideAncestorRows,
   getStickyAncestorRows,
 } from '@/features/file-explorer/lib/visible-file-tree-rows'
@@ -1274,16 +1275,10 @@ function FileExplorerTreeComponent({
               ? rowVirtualizer.getTotalSize() - items[items.length - 1].end
               : 0
             const densityConfig = FILE_TREE_DENSITY_CONFIG[fileTreeDensity]
-            const stickyMarkerIndex =
-              items.length && visibleRows.length
-                ? Math.min(
-                    visibleRows.length - 1,
-                    Math.max(
-                      0,
-                      Math.floor((rowVirtualizer.scrollOffset ?? 0) / densityConfig.rowHeight),
-                    ),
-                  )
-                : -1
+            const stickyMarkerIndex = findTopVisibleItemIndex(
+              items,
+              rowVirtualizer.scrollOffset ?? 0,
+            )
             const stickyAncestors =
               stickyMarkerIndex >= 0 ? getStickyAncestorRows(visibleRows, stickyMarkerIndex) : []
             const stickyAncestorsStyle = {

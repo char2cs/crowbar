@@ -180,6 +180,37 @@ export function filterFileTreeForFffHits(
   }
 }
 
+/** The shape of a TanStack `VirtualItem` this needs — kept minimal so this
+ *  file doesn't have to import `@tanstack/react-virtual` just for a type. */
+export interface VirtualRowExtent {
+  index: number
+  start: number
+  size: number
+}
+
+/**
+ * Which virtualized row is genuinely at the top of the scrolled viewport,
+ * for the sticky-ancestor header to key off.
+ *
+ * Live-reported: the sticky header for a folder overlapped/garbled the real
+ * row scrolled underneath it. Root cause: the caller used to re-derive this
+ * index independently via `Math.floor(scrollOffset / rowHeight)`, assuming
+ * every row's real rendered position exactly equals `index * rowHeight`.
+ * `items` (from the virtualizer's own `getVirtualItems()`) is the single
+ * source of truth for where rows actually are — reading it directly instead
+ * can never drift from what is actually on screen. `items` includes
+ * overscanned rows above and below the visible window, so the genuinely
+ * topmost VISIBLE one is the first whose bottom edge is past `scrollOffset`.
+ */
+export function findTopVisibleItemIndex(
+  items: readonly VirtualRowExtent[],
+  scrollOffset: number,
+): number {
+  const topItem =
+    items.find((item) => item.start + item.size > scrollOffset) ?? items[items.length - 1]
+  return topItem ? topItem.index : -1
+}
+
 export function getStickyAncestorRow(
   rows: readonly VisibleFileTreeRow[],
   firstVisibleIndex: number,
