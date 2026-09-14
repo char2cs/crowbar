@@ -553,6 +553,34 @@ function FileExplorerTreeComponent({
     return () => window.removeEventListener('file-tree-open-search', handleFileTreeOpenSearch)
   }, [])
 
+  // Cmd/Ctrl+F fallback for when the tree itself doesn't have DOM focus — the
+  // container's own onKeyDown below only ever sees keys that bubble up FROM
+  // INSIDE it, so the instant a click opens a file (moving focus into Monaco,
+  // a totally separate subtree) or the user never focused the tree at all,
+  // that handler goes silent even though the tree is still the thing on
+  // screen (live-reported: "cmd/ctrl+F does nothing on the file explorer").
+  // A `document` listener sees every keydown regardless of where focus
+  // landed. Two guards keep it from overriding a more specific handler:
+  // `defaultPrevented` — the container's own onKeyDown below (or any other
+  // owner, e.g. an editor's own find) already calls preventDefault when IT
+  // handles the same chord, and it fires first in the bubble phase (document
+  // is the outermost ancestor) — and a live visibility check, since both
+  // Files and Git stay mounted at once in the sidebar carousel (see its own
+  // doc) and a folded/scrolled-away tree must not steal the shortcut from
+  // whatever IS on screen.
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (!rect || rect.width === 0 || rect.height === 0) return
+      e.preventDefault()
+      setTreeSearchOpen(true)
+    }
+    document.addEventListener('keydown', handleGlobalKeyDown)
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [])
+
   // When search is active, expand all directories so the lazy loader fetches their
   // children — otherwise files in unexpanded dirs are invisible to the search.
   // The pre-search expansion state is saved and restored when search clears.

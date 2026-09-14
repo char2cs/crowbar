@@ -276,14 +276,17 @@ function RecentsEntryRow({
         // `flex` (feedback: "grouped in a single line, not in multiple rows")
         // lays its member rows out SIDE BY SIDE instead of the vertical stack
         // a plain block div gave them.
-        // `border border-transparent` unconditionally, not just when
-        // `ROW_ACTIVE` fires below: ROW_ACTIVE's own border is color-only
-        // (`border-background-inverse`), so without a border-WIDTH utility
-        // present at every state, gaining one only while showing grows the
-        // shell's auto height by the new border box — same class of bug as
-        // ROW_BASE always carrying `border` and ROW_INACTIVE only ever
-        // swapping its color.
-        isSet && 'mx-1.5 my-0.5 flex items-center gap-0.5 rounded-lg border border-transparent p-0.5',
+        //
+        // Deliberately no `border` width utility here, even for `ROW_ACTIVE`
+        // below: `ROW_ACTIVE`'s own `border-background-inverse` always
+        // matches its own `bg-background-inverse` exactly (see that token's
+        // own doc — same reasoning as CossUI's own button variants, e.g.
+        // `border-primary bg-primary`), so a real border-WIDTH here would be
+        // completely invisible while still adding 2px (1px top + 1px bottom)
+        // to this shell's own auto height — live-reported as the shell
+        // reading taller than an ordinary row once showing, for a border no
+        // one could ever actually see.
+        isSet && 'mx-1.5 my-0.5 flex items-center gap-0.5 rounded-lg p-0.5',
         // A SET no longer paints a ground of its own once it stops SHOWING —
         // reported live: an off-screen/dormant set still showed a filled
         // background at rest, with no hover and nothing to justify it. Now it

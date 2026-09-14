@@ -48,7 +48,7 @@ export const ROW_BASE =
 // accent, hand-tuned alpha/blur/offset) was solving a problem production's
 // own recipe never had.
 export const ROW_ACTIVE =
-  'border border-background-inverse bg-background-inverse text-foreground-inverse shadow-xs shadow-black/10 ' +
+  'border-background-inverse bg-background-inverse text-foreground-inverse shadow-xs shadow-black/10 ' +
   'not-disabled:inset-shadow-[0_1px_var(--row-active-highlight)] ' +
   'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none'
 
