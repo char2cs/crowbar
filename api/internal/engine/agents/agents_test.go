@@ -301,6 +301,36 @@ func TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat(t *testin
 			"user_prompt's declared transport is api")
 }
 
+// TestRegression_EveryDualShapeCodexEventRejectsAForeignHooksPayload sweeps
+// every codex.yaml event sharing session_start/user_prompt/turn_stop's own
+// hazard: no per-event transport override (so it inherits runtime.transport:
+// api) AND a config_injection hooks.* entry that fires it, unconditionally,
+// off the disconnected companion PTY (grep -n '||' codex.yaml plus
+// config_injection's hooks.* pass_args names exactly this set).
+// ownsConversation (hooks.go) is keyed only on RequiredPayloadFields, never on
+// the canonical event name, so the fix that closed the memory-consolidation
+// chat-theft bug for user_prompt must reject a foreign hooks-shaped delivery
+// of every one of these the same way — proven here against the REAL,
+// shipped codex.yaml rather than asserted from reading the mechanism.
+func TestRegression_EveryDualShapeCodexEventRejectsAForeignHooksPayload(t *testing.T) {
+	a := get(t, "codex")
+	for _, event := range []string{
+		agents.HookSessionStart, agents.HookUserPrompt, agents.HookTurnStop,
+		agents.HookToolPre, agents.HookToolPost,
+		agents.HookPermission, agents.HookCompactPre, agents.HookCompactPost,
+	} {
+		t.Run(event, func(t *testing.T) {
+			require.Equal(t, "api", a.TransportFor(event),
+				"precondition: this event must actually inherit the api default for the "+
+					"sweep to mean anything")
+
+			_, err := a.ParseHook(event, []byte(`{"transcript_path":null}`))
+
+			assert.ErrorIs(t, err, agents.ErrForeignConversation)
+		})
+	}
+}
+
 func TestAgent_ParseHookReportsAnUndeclaredEvent(t *testing.T) {
 	_, err := get(t, "codex").ParseHook(agents.HookNotification,
 		[]byte(`{"transcript_path":"/x","message":"hi"}`))
