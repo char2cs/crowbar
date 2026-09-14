@@ -82,6 +82,21 @@ describe('useMacTrafficLightSync', () => {
     expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 33 })
   })
 
+  it('retries once a pane-top-row mounts after cold boot, with no row present yet', async () => {
+    // Cold-boot regression: sidebarPosition can rehydrate to 'right' before
+    // the pane tree has mounted anything at all.
+    renderHook(() => useMacTrafficLightSync('right'))
+    await act(async () => {})
+
+    expect(invoke).not.toHaveBeenCalled()
+
+    await act(async () => {
+      addPaneTopRow({ left: 0, top: 10, width: 400, height: 44 })
+    })
+
+    expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 33 })
+  })
+
   it('re-applies when sidebarPosition flips from right back to left', async () => {
     addPaneTopRow({ left: 0, top: 10, width: 400, height: 44 })
     const { rerender } = renderHook(({ side }) => useMacTrafficLightSync(side), {

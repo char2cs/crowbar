@@ -931,7 +931,10 @@ function FileExplorerTreeComponent({
   return (
     <div
       className={cn(
-        'file-tree-container relative flex min-w-full flex-1 select-none flex-col overflow-auto p-0',
+        // `px-1.5` matches the sidebar's own row gutter (`ROW_BASE`'s
+        // `mx-1.5`) — a tree row has no margin of its own to create it, so
+        // the container supplies the same 6px inset on both edges instead.
+        'file-tree-container relative flex min-w-full flex-1 select-none flex-col overflow-auto px-1.5',
         dragState.dragOverPath === '__ROOT__' &&
           'border-2! border-dashed! border-secondary! bg-secondary! bg-opacity-10!',
       )}
@@ -1134,65 +1137,67 @@ function FileExplorerTreeComponent({
         updateActivePath={updateActivePath}
         revealPathInTree={revealPathInTree}
       />
-      <SidebarHeader onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-stretch gap-1.5">
-          <span className="relative flex min-w-0 flex-1 items-center">
-            <Search
-              aria-hidden="true"
-              className="pointer-events-none absolute start-2.5 z-10 size-3.5 text-muted-foreground/72"
-            />
-            <Input
-              nativeInput
-              ref={searchInputRef}
-              value={treeSearchQuery}
-              onChange={(e) => setTreeSearchQuery(e.target.value)}
-              size="sm"
-              placeholder="Search"
-              className="ps-5"
-              name="file-tree-filter"
-              aria-label="Filter files in tree"
-              aria-controls="file-tree-results"
-              autoCapitalize="none"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck="false"
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  closeTreeSearch()
-                  return
-                }
+      {treeSearchOpen && (
+        <SidebarHeader onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="flex items-stretch gap-1.5">
+            <span className="relative flex min-w-0 flex-1 items-center">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute start-2.5 z-10 size-3.5 text-muted-foreground/72"
+              />
+              <Input
+                nativeInput
+                ref={searchInputRef}
+                value={treeSearchQuery}
+                onChange={(e) => setTreeSearchQuery(e.target.value)}
+                size="sm"
+                placeholder="Search"
+                className="ps-5"
+                name="file-tree-filter"
+                aria-label="Filter files in tree"
+                aria-controls="file-tree-results"
+                autoCapitalize="none"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    closeTreeSearch()
+                    return
+                  }
 
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  navigateTreeSearchMatch(e.shiftKey ? -1 : 1)
-                }
-              }}
-            />
-          </span>
-          <Button
-            ref={filterButtonRef}
-            variant="outline"
-            active={hasActiveFileTreeFilters}
-            tooltip="Filter Files"
-            tooltipSide="bottom"
-            className={cn(
-              'h-7.5 w-7.5 shrink-0 self-stretch rounded-lg p-0 sm:h-6.5 sm:w-6.5',
-              // The theme's muted/accent tokens are ~4% alpha, so the default hover
-              // just makes the button translucent over the glass sidebar. Use an
-              // opaque mix of the popover base + foreground for a real muted fill.
-              'hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)] dark:hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)]',
-              'data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)] dark:data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)]',
-              hasActiveFileTreeFilters && 'text-secondary',
-            )}
-            onClick={() => setIsFileTreeFilterMenuOpen(true)}
-          >
-            <Funnel className="size-3.5" />
-          </Button>
-        </div>
-      </SidebarHeader>
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    navigateTreeSearchMatch(e.shiftKey ? -1 : 1)
+                  }
+                }}
+              />
+            </span>
+            <Button
+              ref={filterButtonRef}
+              variant="outline"
+              active={hasActiveFileTreeFilters}
+              tooltip="Filter Files"
+              tooltipSide="bottom"
+              className={cn(
+                'h-7.5 w-7.5 shrink-0 self-stretch rounded-lg p-0 sm:h-6.5 sm:w-6.5',
+                // The theme's muted/accent tokens are ~4% alpha, so the default hover
+                // just makes the button translucent over the glass sidebar. Use an
+                // opaque mix of the popover base + foreground for a real muted fill.
+                'hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)] dark:hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)]',
+                'data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)] dark:data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)]',
+                hasActiveFileTreeFilters && 'text-secondary',
+              )}
+              onClick={() => setIsFileTreeFilterMenuOpen(true)}
+            >
+              <Funnel className="size-3.5" />
+            </Button>
+          </div>
+        </SidebarHeader>
+      )}
       {!rootFolderPath ? (
         <div className="file-tree-empty-state flex flex-1 items-center justify-center">
           <SidebarEmptyActionState
@@ -1216,7 +1221,10 @@ function FileExplorerTreeComponent({
           />
         </div>
       ) : (
-        <div id="file-tree-results" className="file-tree-scroll-body p-1">
+        // Horizontal gutter comes from the container's own `px-1.5` alone
+        // (matching the sidebar row's `mx-1.5`) — a second `px-*` here would
+        // double it, so only vertical breathing room stays local.
+        <div id="file-tree-results" className="file-tree-scroll-body py-1">
           {(() => {
             const items = rowVirtualizer.getVirtualItems()
             const paddingTop = items.length ? items[0].start : 0

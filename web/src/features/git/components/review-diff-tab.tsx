@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { FileDashed, MagnifyingGlass } from '@phosphor-icons/react'
+import { Columns, FileDashed, MagnifyingGlass, Rows } from '@phosphor-icons/react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { Button } from '@/components/ui/button'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -75,6 +75,7 @@ export function ReviewDiffTab({
   const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId, commit)
   const { outline } = useReviewOutline(wsId, commit)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [diffStyle, setDiffStyle] = useState<'split' | 'unified'>('split')
   const surfaceRef = useRef<ReviewCodeViewHandle | null>(null)
   // Mirrored into state as well as a ref: the reveal below has to run WHEN the
   // handle appears, and a ref assignment does not re-render. The surface is
@@ -143,7 +144,15 @@ export function ReviewDiffTab({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div
+      className="flex h-full min-h-0 flex-col bg-background"
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+          e.preventDefault()
+          setSearchOpen(true)
+        }
+      }}
+    >
       <div className="flex shrink-0 items-center gap-2 border-border border-b px-3 py-1.5">
         <span className="ui-text-sm min-w-0 truncate font-medium">
           {branchHeader?.title ?? 'Branch Review'}
@@ -156,6 +165,28 @@ export function ReviewDiffTab({
         <span className="ui-text-sm ml-auto shrink-0 text-muted-foreground">
           {files.length} changed {files.length === 1 ? 'file' : 'files'}
         </span>
+        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5">
+          <Button
+            variant={diffStyle === 'split' ? 'secondary' : 'ghost'}
+            size="icon-sm"
+            onClick={() => setDiffStyle('split')}
+            aria-label="Side-by-side diff"
+            aria-pressed={diffStyle === 'split'}
+            title="Side-by-side"
+          >
+            <Columns />
+          </Button>
+          <Button
+            variant={diffStyle === 'unified' ? 'secondary' : 'ghost'}
+            size="icon-sm"
+            onClick={() => setDiffStyle('unified')}
+            aria-label="Inline diff"
+            aria-pressed={diffStyle === 'unified'}
+            title="Inline"
+          >
+            <Rows />
+          </Button>
+        </div>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -189,6 +220,7 @@ export function ReviewDiffTab({
             outline={outline}
             isActivePane={isActivePane}
             surfaceRef={attachSurface}
+            diffStyle={diffStyle}
           />
         </Suspense>
       </div>

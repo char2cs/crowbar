@@ -43,18 +43,34 @@ export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right'): void 
   useEffect(() => {
     if (!IS_MAC) return
 
-    function apply() {
+    function apply(): boolean {
       if (sidebarPosition !== 'right') {
         void setTrafficLightPosition(STATIC_X, STATIC_Y)
-        return
+        return true
       }
       const rect = findTopLeftPaneTopRow()
-      if (!rect) return
+      if (!rect) return false
       void setTrafficLightPosition(rect.left + STATIC_X, rect.top + STATIC_Y)
+      return true
     }
 
-    apply()
+    let observer: MutationObserver | null = null
+    if (!apply()) {
+      // Cold boot: settings can rehydrate to 'right' and re-fire this effect
+      // before the pane tree (its own async mount) has put a pane-top-row at
+      // the top-left corner. Without a retry the window is stuck at the
+      // config-time (left) position forever — watch the DOM until one shows
+      // up instead of only reacting to resize.
+      observer = new MutationObserver(() => {
+        if (apply()) observer?.disconnect()
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    }
+
     window.addEventListener('resize', apply)
-    return () => window.removeEventListener('resize', apply)
+    return () => {
+      window.removeEventListener('resize', apply)
+      observer?.disconnect()
+    }
   }, [sidebarPosition])
 }

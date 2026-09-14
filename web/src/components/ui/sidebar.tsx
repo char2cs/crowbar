@@ -254,13 +254,12 @@ export function SidebarHeader({
   return (
     <div
       // No vertical padding — this header sits flush against its neighbours,
-      // same as any other row. Horizontal padding matches a depth-0 tree
-      // row's own inset exactly: `pl-2.5` (10px) is FILE_TREE_BASE_INDENT
-      // (file-explorer-tree-item.tsx), `pr-1.5` (6px) is a row's own
-      // untouched `px-1.5` (file-tree-density.ts) — a row's inline
-      // `paddingLeft` override only ever touches the left side, so the two
-      // sides genuinely differ by design, not by accident.
-      className={cn('flex flex-col gap-2 pl-2.5 pr-1.5 backdrop-blur-sm', className)}
+      // same as any other row. `pl-3 pr-3` (12px each) matches a depth-0 tree
+      // row's own total inset: the container's own `px-1.5` (6px, the
+      // sidebar row's `mx-1.5` gutter) plus the row's own `px-1.5`/
+      // FILE_TREE_BASE_INDENT (6px, the sidebar row's own `px-1.5` content
+      // padding) — file-explorer-tree.tsx and file-explorer-tree-item.tsx.
+      className={cn('flex flex-col gap-2 pl-3 pr-3 backdrop-blur-sm', className)}
       data-sidebar="header"
       data-slot="sidebar-header"
       {...props}

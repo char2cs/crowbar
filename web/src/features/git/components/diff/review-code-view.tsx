@@ -460,6 +460,11 @@ export interface ReviewCodeViewProps {
   commit?: string
   /** False while the pane is hidden, which suspends fetching for it. */
   isActivePane?: boolean
+  /** 'split' (default): two-column, side-by-side. 'unified': one column,
+   *  old/new lines interleaved inline. Passed straight through to
+   *  `@pierre/diffs`' own `diffStyle` option — both are already fully
+   *  implemented by DiffHunksRenderer. */
+  diffStyle?: 'split' | 'unified'
   /** Imperative handle for callers that must navigate the surface from
    *  outside it — find-in-diff resolves hits against the daemon, not the
    *  rendered window, so it cannot reach a line any other way. */
@@ -547,6 +552,7 @@ function ReviewCodeViewSurface({
   files,
   outline,
   isActivePane = true,
+  diffStyle = 'split',
   className,
   surfaceRef,
 }: ReviewCodeViewProps) {
@@ -893,8 +899,9 @@ function ReviewCodeViewSurface({
       // is how a single-line one is. Both feed the same draft.
       enableLineSelection: true,
       enableGutterUtility: true,
+      diffStyle,
     }),
-    [],
+    [diffStyle],
   )
 
   return (

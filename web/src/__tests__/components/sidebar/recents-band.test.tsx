@@ -229,9 +229,12 @@ describe('RecentsBand', () => {
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const rowWrapper = screen.getByTestId('recents-row-chat-1')
     const shellWrapper = rowWrapper.parentElement!
+    const treeitem = rowWrapper.querySelector('[role="treeitem"]')!
 
-    // The shell takes over SidebarRow's own outer margin exactly once...
-    expect(classesOf(shellWrapper)).toEqual(expect.arrayContaining(['mx-1.5', 'my-0.5']))
+    // The shell takes over SidebarRow's own outer margin exactly once, at a
+    // fixed height matching a tree row's own so ROW_ACTIVE's border sits
+    // inside it rather than growing an auto height...
+    expect(classesOf(shellWrapper)).toEqual(expect.arrayContaining(['mx-1.5', 'my-0.5', 'h-9']))
     // ...and does NOT also reach for a set's padded/larger-radius shell — a
     // lone entry has nothing to group, so it should be pixel-for-pixel a
     // tree row's own footprint (spec §5.2: "exactly as in the tree"), not a
@@ -239,9 +242,14 @@ describe('RecentsBand', () => {
     expect(classesOf(shellWrapper)).not.toContain('p-0.5')
     expect(classesOf(shellWrapper)).not.toContain('rounded-xl')
 
-    // ...and the row's own wrapper cancels SidebarRow's redundant instance
-    // of that same margin, so the net applied margin is the shell's alone.
-    expect(classesOf(rowWrapper)).toEqual(expect.arrayContaining(['-mx-1.5', '-my-0.5']))
+    // ...and SidebarRow's own inner row drops its redundant instance of that
+    // same margin at the source (`suppressOwnMargin`) rather than a wrapper
+    // cancelling it with an equal-and-opposite margin — that dueling
+    // negative margin used to COLLAPSE against the shell's own to zero
+    // instead of summing to it (CSS collapses adjoining margins to
+    // `max(positives) + min(negatives)`, not a running total), deleting the
+    // row's real gutter the moment it became the showing view.
+    expect(classesOf(treeitem)).toEqual(expect.arrayContaining(['mx-0', 'my-0']))
   })
 
   // Live-reported regression: a lone SHOWING entry's title and branch-name

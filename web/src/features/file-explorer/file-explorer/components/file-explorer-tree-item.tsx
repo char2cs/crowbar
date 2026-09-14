@@ -12,7 +12,11 @@ import { TreeRow } from '@/components/ui/tree-row'
 import { cn } from '@/utils/cn'
 import { FileExplorerIcon } from './file-explorer-icon'
 
-export const FILE_TREE_BASE_INDENT = 10
+// Matches the sidebar's own row content inset (`ROW_BASE`'s `px-1.5`) — a
+// depth-0 row's label starts exactly where a sidebar row's does, given the
+// container itself now supplies the matching `mx-1.5`-equivalent gutter
+// (file-explorer-tree.tsx's own `px-1.5`).
+export const FILE_TREE_BASE_INDENT = 6
 
 export interface FileTreeGuideTarget {
   path: string

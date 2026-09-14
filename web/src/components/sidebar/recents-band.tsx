@@ -276,7 +276,14 @@ function RecentsEntryRow({
         // `flex` (feedback: "grouped in a single line, not in multiple rows")
         // lays its member rows out SIDE BY SIDE instead of the vertical stack
         // a plain block div gave them.
-        isSet && 'mx-1.5 my-0.5 flex items-center gap-0.5 rounded-lg p-0.5',
+        // `border border-transparent` unconditionally, not just when
+        // `ROW_ACTIVE` fires below: ROW_ACTIVE's own border is color-only
+        // (`border-background-inverse`), so without a border-WIDTH utility
+        // present at every state, gaining one only while showing grows the
+        // shell's auto height by the new border box — same class of bug as
+        // ROW_BASE always carrying `border` and ROW_INACTIVE only ever
+        // swapping its color.
+        isSet && 'mx-1.5 my-0.5 flex items-center gap-0.5 rounded-lg border border-transparent p-0.5',
         // A SET no longer paints a ground of its own once it stops SHOWING —
         // reported live: an off-screen/dormant set still showed a filled
         // background at rest, with no hover and nothing to justify it. Now it
@@ -310,7 +317,19 @@ function RecentsEntryRow({
           !isShowing &&
           'group-hover:bg-sidebar-element-hover group-hover:shadow-xs ' +
             'group-hover:shadow-black/10 group-hover:inset-shadow-[0_1px_var(--elevated-highlight)]',
-        soloActive && cn('mx-1.5 my-0.5 rounded-lg', ROW_ACTIVE),
+        // `h-9`, matching `ROW_BASE` exactly, rather than an auto height: the
+        // member's own margin is suppressed at the source now
+        // (`SidebarRow`'s `suppressOwnMargin`, passed below), so this shell
+        // IS the row's one real box — sizing it explicitly is what lets
+        // `ROW_ACTIVE`'s border (added for CossUI parity, workspace-row-
+        // base.ts) sit inside the same 36px every other row has instead of
+        // adding to an auto height that only this state renders (the actual
+        // "grows in height" bug: an EARLIER version tried to zero this out
+        // with dueling +/- margins across three nested boxes instead, which
+        // silently collapsed to 0 rather than to the intended net value —
+        // CSS collapses adjoining margins to `max(positives) + min
+        // (negatives)`, not a running sum).
+        soloActive && cn('mx-1.5 my-0.5 flex h-9 items-center rounded-lg', ROW_ACTIVE),
         // NOTE — a solo view that is OPEN BUT OFF SCREEN gets no ground of its
         // own here, deliberately (and, as of the fix above, neither does an
         // off-screen SET). `ROW_ACTIVE` reads as "selected" precisely because
@@ -341,7 +360,7 @@ function RecentsEntryRow({
           // ever — there is no ground of its own there to conflict with.
           hasView={isLive && !isShowing}
           isSet={isSet}
-          cancelOwnMargin={soloActive}
+          suppressOwnMargin={soloActive}
           isShowingGround={soloActive}
           // Unlike `isShowingGround` (solo-only — it neutralizes the row's
           // OWN hover, which stays intentionally different for a set's
@@ -376,7 +395,7 @@ function RecentsMemberRow({
   chatId,
   hasView,
   isSet,
-  cancelOwnMargin,
+  suppressOwnMargin,
   isShowingGround,
   activeGround,
   icon,
@@ -396,15 +415,12 @@ function RecentsMemberRow({
   isSet: boolean
   /** Set only for a lone live entry (`RecentsEntryRow`'s `soloActive`), whose
    *  OWN wrapper takes over `SidebarRow`'s `mx-1.5 my-0.5` to become the row's
-   *  one active surface. `SidebarRow` always carries that margin itself too
-   *  (shared with the tree, can't opt out per-caller) — left uncancelled here
-   *  it would stack a second copy on top of the wrapper's, rendering the row
-   *  visibly bigger/narrower than a tree row. A SET's members cancel only the
-   *  VERTICAL half of that same margin instead (see `isSet` above) — the
-   *  horizontal half stays, and is what separates one member's pill from the
-   *  next along the row (§5.3). */
-  cancelOwnMargin?: boolean
-  /** Same condition as `cancelOwnMargin` (`RecentsEntryRow`'s `soloActive`,
+   *  one active surface. Forwarded straight to `SidebarRow`'s own
+   *  `suppressOwnMargin` — see that prop's doc for why this is dropped at the
+   *  source rather than cancelled with an equal-and-opposite margin on a
+   *  wrapper here (the margin-collapse bug that fix had). */
+  suppressOwnMargin?: boolean
+  /** Same condition as `suppressOwnMargin` (`RecentsEntryRow`'s `soloActive`,
    *  deliberately NOT `isShowing` alone — see `activeGround` below for the
    *  broader fact). `SidebarRow`'s shared `ROW_INACTIVE` token still carries
    *  its own `hover:bg-accent` regardless of caller, which — layered on top
@@ -487,7 +503,6 @@ function RecentsMemberRow({
       data-testid={`recents-row-${chat.id}`}
       className={cn(
         isSet && 'min-w-0 flex-1',
-        cancelOwnMargin && '-mx-1.5 -my-0.5',
         // SidebarRow's own inner div (via ROW_BASE) always carries `mx-1.5
         // my-0.5` too — inconsequential in the TREE, where each row is its
         // own block sibling and adjoining margins collapse/stack the usual
@@ -541,6 +556,7 @@ function RecentsMemberRow({
         // value, cancelling the rename before it's ever visible.
         inlineRenameDisabled
         activeGround={activeGround}
+        suppressOwnMargin={suppressOwnMargin}
         onClose={onClose}
       />
     </div>

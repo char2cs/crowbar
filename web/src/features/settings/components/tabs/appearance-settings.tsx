@@ -1,4 +1,3 @@
-import { Upload } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState } from 'react'
 import { iconThemeRegistry } from '@/extensions/icon-themes/icon-theme-registry'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
@@ -9,7 +8,6 @@ import {
   UI_FONT_SIZE_STEP,
 } from '@/features/settings/lib/ui-font-size'
 import { getDefaultSetting, useSettingsStore } from '@/features/settings/store'
-import { Button } from '@/components/ui/button'
 import NumberInput from '@/components/ui/number-input'
 import Section, { SettingRow } from '../settings-section'
 import { SETTINGS_CONTROL_WIDTHS } from '../settings-control-widths'
@@ -23,26 +21,6 @@ import {
 import { cn } from '@/utils/cn'
 import { FontSelector } from '../font-selector'
 import type { Theme, ThemeMode } from '@/features/settings/types/settings'
-
-const handleUploadTheme = () => {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = '.json'
-  input.style.display = 'none'
-  document.body.appendChild(input)
-  input.onchange = async (e) => {
-    const file = (e.target as HTMLInputElement).files?.[0]
-    input.remove()
-    if (file) {
-      const { uploadTheme } = await import('@/features/settings/utils/theme-upload')
-      const result = await uploadTheme(file)
-      if (!result.success) {
-        console.error('Theme upload failed:', result.error)
-      }
-    }
-  }
-  input.click()
-}
 
 const THEME_MODE_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: 'Sync with System' },
@@ -111,35 +89,23 @@ export const AppearanceSettings = () => {
           onReset={() => updateSetting('theme', getDefaultSetting('theme'))}
           canReset={settings.theme !== getDefaultSetting('theme')}
         >
-          <div className="flex items-center gap-2">
-            <Select
-              value={settings.theme}
-              onValueChange={(value) => {
-                if (value) updateSetting('theme', value as Theme)
-              }}
-            >
-              <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.wide}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {normalizedThemeOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              onClick={handleUploadTheme}
-              variant="default"
-              tooltip="Upload theme"
-              aria-label="Upload theme"
-              compact
-            >
-              <Upload />
-            </Button>
-          </div>
+          <Select
+            value={settings.theme}
+            onValueChange={(value) => {
+              if (value) updateSetting('theme', value as Theme)
+            }}
+          >
+            <SelectTrigger size="sm" className={SETTINGS_CONTROL_WIDTHS.wide}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {normalizedThemeOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </SettingRow>
 
         <SettingRow

@@ -127,6 +127,14 @@ interface SidebarRowProps {
    *  `bg-background-inverse` (workspace-row-base.ts). Never set by the tree,
    *  which never draws ROW_ACTIVE at all. */
   activeGround?: boolean
+  /** Drops `ROW_BASE`'s own `mx-1.5 my-0.5` — for a caller whose OWN wrapper
+   *  already carries that exact margin (Recents' solo-showing row, whose
+   *  outer shell IS the row's real box; see `soloActive` in recents-band.tsx).
+   *  A block child's margin collapses with a plain wrapper's, so a second
+   *  copy here isn't just redundant, it can cancel out unpredictably against
+   *  whatever spacing the wrapper is also trying to cancel — this removes it
+   *  at the source instead. */
+  suppressOwnMargin?: boolean
 }
 
 /**
@@ -162,6 +170,7 @@ export function SidebarRow({
   inlineRenameDisabled,
   hasViewIdle,
   activeGround,
+  suppressOwnMargin,
 }: SidebarRowProps) {
   // Read UNCONDITIONALLY, before either early return below — rules of hooks:
   // a row's `pending`/`removal` state can flip between renders of the SAME
@@ -275,6 +284,7 @@ export function SidebarRow({
           !isNestTarget && hasViewIdle && row.hasView && ROW_HAS_VIEW_IDLE,
           isDragging && 'opacity-40',
           'group',
+          suppressOwnMargin && 'mx-0 my-0',
         )}
         onClick={(e) => {
           // A click inside the inline editor (or on the space it just

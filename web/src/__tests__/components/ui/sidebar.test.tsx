@@ -20,14 +20,14 @@ describe('SidebarHeader', () => {
   })
 
   it("matches a depth-0 tree row's own horizontal inset exactly", () => {
-    // `pl-2.5` (10px) is FILE_TREE_BASE_INDENT (file-explorer-tree-item.tsx);
-    // `pr-1.5` (6px) is a row's own untouched `px-1.5` (file-tree-density.ts)
-    // — a row's inline `paddingLeft` override only ever touches the left
-    // side, so the two sides genuinely differ by design, not by accident.
+    // `pl-3 pr-3` (12px each) is the container's own `px-1.5` (6px, the
+    // sidebar row's `mx-1.5` gutter) plus a row's own `px-1.5`/
+    // FILE_TREE_BASE_INDENT (6px, the sidebar row's own `px-1.5` content
+    // padding) — file-explorer-tree.tsx and file-explorer-tree-item.tsx.
     const { container } = render(<SidebarHeader>test</SidebarHeader>)
     const el = container.firstChild as HTMLElement
-    expect(el.className).toContain('pl-2.5')
-    expect(el.className).toContain('pr-1.5')
+    expect(el.className).toContain('pl-3')
+    expect(el.className).toContain('pr-3')
   })
 
   it('does not set its own background (inherits from body)', () => {
