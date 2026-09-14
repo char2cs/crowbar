@@ -984,9 +984,13 @@ export const createPaneSlice: StateCreator<
         set((state) => {
           const pane = state.panes[paneId]
           if (!pane) return
+          const hadEditorTabs = pane.editorTabIds.length > 0
           if (!pane.editorTabIds.includes(tab.id)) pane.editorTabIds.push(tab.id)
           pane.activeEditorTabId = tab.id
-          pane.editorOpen = true
+          // Only force the split open for a pane that had no editor tab yet —
+          // once one exists, opening another file/terminal into the SAME pane
+          // must respect a split the user already toggled off, not reopen it.
+          if (!hadEditorTabs) pane.editorOpen = true
           // Opening a tab shows it — same reasoning as activateEditorTabInPane.
           pane.chatSelected = false
           // Sync isUncloseable: the sole editor tab in a pane is uncloseable,

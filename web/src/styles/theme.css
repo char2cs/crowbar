@@ -83,6 +83,7 @@
   --color-code-highlight: var(--code-highlight);
   --color-brand: var(--brand);
   --color-chrome-bg: var(--chrome-bg);
+  --color-pane-chrome-bg: var(--pane-chrome-bg);
   --color-git-added: var(--git-added);
   --color-git-deleted: var(--git-deleted);
   --color-git-modified: var(--git-modified);
@@ -223,7 +224,7 @@
   --radius: 0.625rem;
   --background: oklch(0.994 0.001 106.4);
   --pane-background: oklch(0.994 0.001 106.4);
-  --foreground: var(--color-neutral-800);
+  --foreground: oklch(0.205 0.004 286.0);
   /* The other theme's own --background/--foreground, literally — never derived
      from this theme's tokens. A deliberate "break the theme" surface (an
      active sidebar row, see ROW_ACTIVE in workspace-row-base.ts): the row
@@ -234,9 +235,9 @@
   --background-inverse: oklch(0.2 0.006 271.1);
   --foreground-inverse: oklch(0.967 0.003 264.5);
   --card: var(--color-white);
-  --card-foreground: var(--color-neutral-800);
+  --card-foreground: oklch(0.205 0.004 286.0);
   --popover: var(--color-white);
-  --popover-foreground: var(--color-neutral-800);
+  --popover-foreground: oklch(0.205 0.004 286.0);
   --primary: oklch(0.509 0.121 253.7);
   --primary-foreground: oklch(1 0 0);
 
@@ -246,21 +247,21 @@
 
   --muted-foreground: oklch(0.4 0 0);
   --accent: oklch(0 0 0 / 4%);
-  --accent-foreground: var(--color-neutral-800);
+  --accent-foreground: var(--foreground);
 
-  --editor-selection: oklch(0.62 0.13 235 / 0.3);
+  --editor-selection: oklch(0.625 0.103 252.2 / 20%);
 
   --brand: oklch(0.509 0.121 253.7);
-  --destructive: var(--color-red-500);
+  --destructive: oklch(0.593 0.126 34.9);
   --destructive-foreground: var(--color-red-700);
-  --info: var(--color-blue-500);
+  --info: oklch(0.574 0.083 250.5);
   --info-foreground: var(--color-blue-700);
-  --success: var(--color-emerald-500);
+  --success: oklch(0.553 0.065 139.0);
   --success-foreground: var(--color-emerald-700);
-  --warning: var(--color-amber-500);
+  --warning: oklch(0.613 0.105 77.0);
   --warning-foreground: var(--color-amber-700);
-  --border: oklch(0 0 0 / 8%);
-  --input: oklch(0 0 0 / 10%);
+  --border: oklch(0.8 0.013 244.3);
+  --input: var(--border);
   --ring: var(--color-neutral-400);
   --chart-1: var(--color-orange-600);
   --chart-2: var(--color-teal-600);
@@ -268,12 +269,12 @@
   --chart-4: var(--color-amber-400);
   --chart-5: var(--color-amber-500);
   --sidebar: oklch(0 0 0 / 0%);
-  --sidebar-foreground: var(--color-neutral-800);
-  --sidebar-primary: var(--color-neutral-800);
-  --sidebar-primary-foreground: var(--color-neutral-50);
-  --sidebar-accent: oklch(0 0 0 / 4%);
-  --sidebar-accent-foreground: var(--color-neutral-800);
-  --sidebar-border: oklch(0 0 0 / 6%);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--foreground);
+  --sidebar-primary-foreground: var(--background);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
   --sidebar-ring: var(--color-neutral-400);
   --sidebar-element-idle: color-mix(in oklch, var(--foreground) 6%, transparent);
   --sidebar-element-hover: oklch(0 0 0 / 8%);
@@ -313,7 +314,12 @@
   --sidebar-drop-nest: color-mix(in oklch, var(--secondary) 30%, transparent);
   --sidebar-drop-nest-edge: color-mix(in oklch, var(--secondary) 65%, transparent);
 
-  --chrome-bg: color-mix(in oklch, var(--color-neutral-50) 45%, transparent);
+  --chrome-bg: color-mix(in oklch, var(--color-neutral-50) 60%, transparent);
+  /* The chat/editor pane box's own fill — distinct from `--chrome-bg` above
+     (body's wash, which the sidebar shows through with no fill of its own):
+     the pane surface wants far less of the desktop showing through it than
+     the sidebar does. */
+  --pane-chrome-bg: color-mix(in oklch, var(--color-neutral-50) 90%, transparent);
 
   --app-ui-scale: 1;
   --ui-text-xs: calc(0.6875rem * var(--app-ui-scale));
@@ -334,28 +340,28 @@
   --syntax-operator: var(--muted-foreground);
   --syntax-error: var(--destructive);
 
-  --syntax-keyword: #b26045;
-  --syntax-string: #578141;
-  --syntax-number: #976f30;
-  --syntax-constant: #368189;
-  --syntax-function: #2f6fae;
-  --syntax-type: #8257a8;
-  --syntax-property: #5a564d;
-  --syntax-tag: #2f6fae;
-  --syntax-attribute: #976f30;
-  --syntax-boolean: #368189;
-  --syntax-null: #8257a8;
-  --syntax-regex: #368189;
-  --syntax-jsx: #2f6fae;
-  --syntax-jsx-attribute: #976f30;
-  --syntax-markdown-heading: #2f6fae;
-  --syntax-markdown-bold: #976f30;
-  --syntax-markdown-italic: #b26045;
+  --syntax-keyword: oklch(0.575 0.123 34.2);
+  --syntax-string: oklch(0.562 0.083 250.5);
+  --syntax-number: oklch(0.567 0.105 77);
+  --syntax-constant: oklch(0.575 0.123 34.2);
+  --syntax-function: oklch(0.53 0.1 157.8);
+  --syntax-type: oklch(0.53 0.071 133.7);
+  --syntax-property: oklch(0.509 0.121 253.7);
+  --syntax-tag: oklch(0.553 0.065 139);
+  --syntax-attribute: oklch(0.575 0.123 34.2);
+  --syntax-boolean: oklch(0.575 0.123 34.2);
+  --syntax-null: oklch(0.572 0.098 308.4);
+  --syntax-regex: oklch(0.559 0.056 225);
+  --syntax-jsx: oklch(0.562 0.083 250.5);
+  --syntax-jsx-attribute: oklch(0.575 0.123 34.2);
+  --syntax-markdown-heading: oklch(0.53 0.1 157.8);
+  --syntax-markdown-bold: oklch(0.567 0.105 77);
+  --syntax-markdown-italic: oklch(0.575 0.123 34.2);
   --syntax-markdown-strikethrough: var(--muted-foreground);
-  --syntax-markdown-link: #2f6fae;
-  --syntax-markdown-link-text: #578141;
-  --syntax-markdown-code: #578141;
-  --syntax-markdown-list: #b26045;
+  --syntax-markdown-link: oklch(0.509 0.121 253.7);
+  --syntax-markdown-link-text: oklch(0.562 0.083 250.5);
+  --syntax-markdown-code: oklch(0.562 0.083 250.5);
+  --syntax-markdown-list: oklch(0.575 0.123 34.2);
   --syntax-markdown-quote: var(--muted-foreground);
 
   --terminal-black: oklch(0.27 0 0);
@@ -452,6 +458,9 @@
   --sidebar-count-deleted: var(--color-red-300);
 
   --chrome-bg: color-mix(in oklch, oklch(0.173 0.004 264.5) 65%, transparent);
+  /* Same value as --chrome-bg above — dark's pane/sidebar split is untouched;
+     only light gets distinct opacities for the two surfaces (see :root). */
+  --pane-chrome-bg: color-mix(in oklch, oklch(0.173 0.004 264.5) 65%, transparent);
 
   --syntax-punctuation: oklch(0.712 0.012 269.5);
   --syntax-operator: oklch(0.712 0.012 269.5);

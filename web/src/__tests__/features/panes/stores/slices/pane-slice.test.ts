@@ -117,6 +117,38 @@ describe('pane-slice', () => {
     expect(rootGroup?.editorOpen).toBe(true)
   })
 
+  // Regression: addEditorTabToPane used to set editorOpen = true
+  // unconditionally, so opening a SECOND file/terminal into a pane that
+  // already held a tab silently reopened a split the user had deliberately
+  // toggled off. It must only force the split open for a pane with no
+  // editor tab yet — once one exists, later opens respect the toggle.
+  it('addEditorTabToPane does not reopen a split the user toggled off, when the pane already holds a tab', () => {
+    const actions = store.getState().paneActions
+    actions.addEditorTabToPane(ROOT_PANE_ID, {
+      id: 'tab-1',
+      type: 'editor',
+      name: 'a.ts',
+      workspaceId: 'ws-test',
+    })
+    store.setState((state) => {
+      const pane = state.panes[ROOT_PANE_ID]
+      if (pane) pane.editorOpen = false
+      return state
+    })
+
+    actions.addEditorTabToPane(ROOT_PANE_ID, {
+      id: 'tab-2',
+      type: 'editor',
+      name: 'b.ts',
+      workspaceId: 'ws-test',
+    })
+
+    const rootGroup = store.getState().paneActions.getPaneById(ROOT_PANE_ID)
+    expect(rootGroup?.editorTabIds).toEqual(['tab-1', 'tab-2'])
+    expect(rootGroup?.activeEditorTabId).toBe('tab-2')
+    expect(rootGroup?.editorOpen).toBe(false)
+  })
+
   // Chats/pane redesign: in the collapsed ('tabs') presentation, the chat
   // becomes a real selectable entry alongside the pane's editor tabs — this
   // is the action the synthetic "Chat" tab in the strip calls to switch

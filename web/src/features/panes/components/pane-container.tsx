@@ -1065,7 +1065,7 @@ export function PaneContainer({
         // background — the accent's fade moved to the overlay's opacity,
         // because fading a COLOUR on this particular surface (large, rounded,
         // translucent over window vibrancy) repaints all of it every frame.
-        className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-chrome-bg transition-colors duration-150"
+        className="relative z-[1] flex min-h-0 flex-1 flex-col overflow-hidden bg-pane-chrome-bg transition-colors duration-150"
         style={paneContentStyle}
       >
         {/* Spans the WHOLE pane only when a single surface fills 100% of it

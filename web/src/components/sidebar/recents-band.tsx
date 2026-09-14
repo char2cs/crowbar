@@ -172,7 +172,7 @@ export function RecentsBand({
   return (
     <div data-testid="recents-band">
       <div className="flex h-[22px] items-center gap-1.5 px-1.5">
-        <Separator className="flex-1 bg-muted" />
+        <Separator className="flex-1 bg-border" />
         <span className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           Recents
         </span>

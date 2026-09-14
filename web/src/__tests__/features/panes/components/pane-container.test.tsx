@@ -454,6 +454,36 @@ describe('PaneContainer — chat/editor-view hosting', () => {
     expect(chat.closest('[hidden]')).not.toBeNull()
   })
 
+  it('opening another file/terminal into a pane whose split was toggled off does not reopen the split', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+    windowPaneStore.setState((state) => {
+      const pane = state.panes[ROOT_PANE_ID]
+      if (pane) pane.editorOpen = false
+      return state
+    })
+
+    // Opening a SECOND file into the same pane, with the split still
+    // collapsed, must not force editorOpen back to true — regression for the
+    // bug where addEditorTabToPane unconditionally reopened the split on
+    // every file/terminal open, even when the pane already held a tab and
+    // the user had deliberately collapsed it.
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-b')
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(false)
+
+    await renderPane(store)
+
+    // Still the collapsed ('tabs') presentation: the newly-opened tab shows,
+    // the chat hides — same as the single-tab case, just proving a second
+    // open didn't flip editorOpen back to true and switch to a real split.
+    const chat = await screen.findByTestId('chat-chat-1')
+    const editorMarker = await screen.findByTestId('editor-marker-tab-b')
+    expect(editorMarker.closest('[hidden]')).toBeNull()
+    expect(chat.closest('[hidden]')).not.toBeNull()
+  })
+
   it('selecting the chat in the collapsed presentation hides the editor view instead, still mounted', async () => {
     const store = createWorkspaceStore('w1')
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
@@ -1278,13 +1308,15 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
     const row = screen.getByTestId('tab-bar-marker')
     expect(sharedBox.contains(row)).toBe(true)
     // Chats/pane redesign feedback: the shared box paints the chat's own
-    // translucent `bg-chrome-bg` — giving each non-opaque region (the chat
-    // view, the sash) its own copy of that fill left visible seams at every
-    // boundary a caller forgot to cover explicitly. The IDE sector still
-    // reads fully opaque: TabBar's real row paints `bg-pane-background`
+    // translucent `bg-pane-chrome-bg` — giving each non-opaque region (the
+    // chat view, the sash) its own copy of that fill left visible seams at
+    // every boundary a caller forgot to cover explicitly. The IDE sector
+    // still reads fully opaque: TabBar's real row paints `bg-pane-background`
     // OVER this fill within its own bounds (tab-bar.test.tsx covers that
-    // directly; it's mocked away here).
-    expect(sharedBox).toHaveClass('bg-chrome-bg')
+    // directly; it's mocked away here). Distinct from `bg-chrome-bg` (body's
+    // own wash, which the sidebar shows through) since the two surfaces now
+    // carry different opacities.
+    expect(sharedBox).toHaveClass('bg-pane-chrome-bg')
 
     // The outer shell (drag/drop mechanics, the pane-hit ring, PANE_DROP_ATTR)
     // paints no background of its own either — same reasoning as above, one
