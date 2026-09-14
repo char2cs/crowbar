@@ -156,3 +156,42 @@ describe('FileExplorerTreeItem git status decorations', () => {
     expect(screen.getByLabelText('Modified')).toHaveTextContent('M')
   })
 })
+
+describe('FileExplorerTreeItem disclosure chevron', () => {
+  it('reserves the chevron slot but draws no caret for a file', () => {
+    const file = makeFile('index.ts', '/repo/index.ts')
+    render(
+      <FileExplorerTreeItem {...defaultProps} file={file} getGitStatusDecoration={noDecoration} />,
+    )
+    expect(screen.getByTestId('file-tree-chevron').querySelector('svg')).toBeNull()
+  })
+
+  it('draws a collapsed caret for a closed folder', () => {
+    const folder = makeFile('src', '/repo/src', true)
+    render(
+      <FileExplorerTreeItem
+        {...defaultProps}
+        file={folder}
+        isExpanded={false}
+        getGitStatusDecoration={noDecoration}
+      />,
+    )
+    const caret = screen.getByTestId('file-tree-chevron').querySelector('svg')
+    expect(caret).not.toBeNull()
+    expect(caret?.getAttribute('class')).not.toContain('rotate-90')
+  })
+
+  it('rotates the caret open for an expanded folder', () => {
+    const folder = makeFile('src', '/repo/src', true)
+    render(
+      <FileExplorerTreeItem
+        {...defaultProps}
+        file={folder}
+        isExpanded={true}
+        getGitStatusDecoration={noDecoration}
+      />,
+    )
+    const caret = screen.getByTestId('file-tree-chevron').querySelector('svg')
+    expect(caret?.getAttribute('class')).toContain('rotate-90')
+  })
+})

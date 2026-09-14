@@ -1,5 +1,12 @@
 import ignore from 'ignore'
-import { Check, Eye, Funnel, GitBranch, MagnifyingGlass as Search } from '@phosphor-icons/react'
+import {
+  CaretRight,
+  Check,
+  Eye,
+  Funnel,
+  GitBranch,
+  MagnifyingGlass as Search,
+} from '@phosphor-icons/react'
 import type React from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDebounce } from 'use-debounce'
@@ -1309,6 +1316,17 @@ function FileExplorerTreeComponent({
                             )}
                             style={{ paddingLeft: `${stickyAncestorPaddingLeft}px` }}
                           >
+                            {/* Sticky ancestors are always expanded (that's why they're pinned
+                                while you scroll inside them), so the caret is always open. */}
+                            <span
+                              aria-hidden="true"
+                              className="flex size-3.5 shrink-0 items-center justify-center"
+                            >
+                              <CaretRight
+                                weight="bold"
+                                className="size-2.5 rotate-90 text-muted-foreground"
+                              />
+                            </span>
                             <FileExplorerIcon
                               fileName={stickyAncestor.file.name}
                               isDir={stickyAncestor.file.isDir ?? false}
