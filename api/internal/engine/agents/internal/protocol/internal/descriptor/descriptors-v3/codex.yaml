@@ -699,6 +699,14 @@ config_injection:
   # workspace-write denies network, and a unix-socket connect IS network on
   # macOS — grants network only, not the filesystem.
   - pass_arg: { arg: "-c", value: 'sandbox_workspace_write.network_access=true' }
+  # Without this, collabAgentToolCall (spawnAgent/wait/closeAgent) never
+  # appears at all — the model has no tool to spawn a subagent with, so
+  # tool_pre/tool_post's own collabAgentToolCall mapping and the
+  # nested_session_id routing it feeds (turn/nested.go) are permanently
+  # inert. Claude's subagent indicator (SubagentShelf) already works off the
+  # same generic activity.subagents feed; this is the one flag that lets
+  # codex actually produce the events that feed it too.
+  - pass_arg: { arg: "-c", value: 'features.collab_agents=true' }
   - pass_arg:
       arg: "-c"
       value: 'hooks.SessionStart=[{hooks=[{type="command",command="{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}]'
