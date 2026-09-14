@@ -454,14 +454,23 @@ events:
   # Mapping a real subagent_pre/subagent_post onto this needs Crowbar's own
   # activity ledger to grow a nested-thread model StartSubagent/StopSubagent
   # do not have (a subagent is a whole second thread with its own turn/item
-  # stream, not a flat id), AND the mapping grammar needs a way to read
-  # agentsStates' status/message keyed by a THREAD ID it cannot know in
-  # advance (no name=value selector can address a map keyed by an arbitrary
-  # id — only receiverThreadIds[0], the list form, is addressable today).
-  # Landing the tool-call visibility above first, leaving this dedicated
-  # pair as hooks-transport dead weight until that design exists, is the
-  # honest state of things — a broken or unverified nested-subagent mapping
-  # would be worse than none.
+  # stream, not a flat id) — still true, and still not built; see
+  # namesAnotherConversation in turn/ingest.go, which today DROPS a child
+  # thread's own turn/item frames outright (the bleed-through fix) rather
+  # than routing them anywhere a person could see them.
+  #
+  # The OTHER half — the mapping grammar having no way to read agentsStates'
+  # status/message keyed by a THREAD ID it cannot know in advance — is
+  # CLOSED: mapping.go's selector grammar now has a third form,
+  # `name[keypath]`, that reads a MAP entry at a key resolved from a sibling
+  # field (see selectByKey and its own tests), so
+  # `item.agentsStates[receiverThreadIds[0]].status` is expressible. Not
+  # wired in here regardless — whether a `wait` item's own item/completed
+  # actually carries receiverThreadIds alongside agentsStates (as opposed to,
+  # say, only the ORIGINAL spawnAgent item having it) is UNCONFIRMED, no live
+  # capture of that exact shape exists, and the ledger half above is still
+  # missing besides. A broken or unverified nested-subagent mapping would be
+  # worse than none.
   subagent_pre:
     transport: hooks
     in: SubagentStart

@@ -71,7 +71,7 @@ func walk(doc map[string]any, path string) (any, bool) {
 	}
 	var cur any = doc
 	for _, seg := range strings.Split(path, ".") {
-		name, field, want, isSelector := parseSelector(seg)
+		name, field, want, dynamic, isSelector := parseSelector(seg)
 
 		m, isObject := cur.(map[string]any)
 		if !isObject {
@@ -86,7 +86,7 @@ func walk(doc map[string]any, path string) (any, bool) {
 			continue
 		}
 
-		picked, ok := selectFrom(next, field, want)
+		picked, ok := selectSegment(next, m, field, want, dynamic)
 		if !ok {
 			return nil, false
 		}
@@ -95,38 +95,57 @@ func walk(doc map[string]any, path string) (any, bool) {
 	return cur, true
 }
 
+// selectSegment dispatches a selector segment's already-parsed pieces to the
+// select function that shape needs: dynamic key lookups reach into a MAP,
+// everything else reaches into a LIST.
+func selectSegment(next any, sibling map[string]any, field, want string, dynamic bool) (any, bool) {
+	if dynamic {
+		return selectByKey(next, sibling, want)
+	}
+	return selectFrom(next, field, want)
+}
+
 // indexField is the sentinel parseSelector reports for `name[N]`. It is not a
 // legal payload key — a JSON object key could be "0", but never "" — so it can
 // never collide with a real `name[field=value]` selector.
 const indexField = ""
 
-// parseSelector splits a selector segment into its parts. Two shapes:
+// parseSelector splits a selector segment into its parts. Three shapes:
 //
-//	name[field=value]  — the first element whose field equals value
-//	name[N]            — the Nth element, zero-based
+//	name[field=value]  — the first LIST element whose field equals value
+//	name[N]            — the Nth LIST element, zero-based
+//	name[keypath]      — the MAP entry at the key keypath resolves to
 //
 // The index form exists because a list's interesting element is not always
 // findable by a scalar field match: codex's fileChange.changes carries its
 // `kind` as an OBJECT ({"type":"update"}), so no field=value selector can
 // address it and the changed path would otherwise be unmappable.
 //
-// A segment matching neither shape is a plain key.
-func parseSelector(seg string) (name, field, want string, ok bool) {
+// The keypath form exists for a MAP keyed by a value only the payload itself
+// knows: codex's collabAgentToolCall(wait) result carries agentsStates, a
+// status/message map keyed by a spawned thread's id, with that same id
+// available as a sibling field on the same item
+// (item.agentsStates[receiverThreadIds[0]]). keypath is resolved with
+// selectByKey, against the object name is itself a field of — not against
+// name's own value, which is the map being indexed.
+//
+// A segment matching none of the three shapes is a plain key.
+func parseSelector(seg string) (name, field, want string, dynamic, ok bool) {
 	open := strings.IndexByte(seg, '[')
 	if open <= 0 || !strings.HasSuffix(seg, "]") {
-		return seg, "", "", false
+		return seg, "", "", false, false
 	}
 	inner := seg[open+1 : len(seg)-1]
 	if field, want, found := strings.Cut(inner, "="); found && field != "" {
-		return seg[:open], field, want, true
+		return seg[:open], field, want, false, true
 	}
-	// No `=`: an all-digit body is an index, anything else is a plain key.
-	if inner == "" || strings.IndexFunc(inner, func(r rune) bool {
-		return r < '0' || r > '9'
-	}) >= 0 {
-		return seg, "", "", false
+	if inner == "" || strings.Contains(inner, "=") {
+		return seg, "", "", false, false
 	}
-	return seg[:open], indexField, inner, true
+	if strings.IndexFunc(inner, func(r rune) bool { return r < '0' || r > '9' }) < 0 {
+		return seg[:open], indexField, inner, false, true
+	}
+	return seg[:open], indexField, inner, true, true
 }
 
 // selectFrom picks one element out of list: by zero-based index when field is
@@ -153,6 +172,28 @@ func selectFrom(list any, field, want string) (any, bool) {
 		}
 	}
 	return nil, false
+}
+
+// selectByKey resolves keyPath against sibling — the object the map-valued
+// field was itself found on, NOT the map being indexed — to a scalar, then
+// looks that scalar up as a key in target. It is how a map keyed by a value
+// only the payload itself names (never a literal a descriptor could spell
+// out) gets read: see parseSelector's own doc for the motivating shape.
+func selectByKey(target any, sibling map[string]any, keyPath string) (any, bool) {
+	obj, isObject := target.(map[string]any)
+	if !isObject {
+		return nil, false
+	}
+	resolved, ok := walk(sibling, keyPath)
+	if !ok {
+		return nil, false
+	}
+	key, ok := scalarOf(resolved)
+	if !ok {
+		return nil, false
+	}
+	v, present := obj[key]
+	return v, present
 }
 
 // isEmpty decides what alternation skips over. Only nil and "" count: a false bool and
