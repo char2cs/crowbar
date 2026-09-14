@@ -358,6 +358,60 @@ describe('useWorkspaceEffects', () => {
       const endpoints = (subscribe.mock.calls as unknown as [string][]).map(([ep]) => ep)
       expect(endpoints).toContain('/v0/chats/chat-race/git/status')
     })
+
+    // Live-reported: "some chats on the same repo show files inside src/,
+    // others don't" — the SAME race as above, but in the separate lazy
+    // per-directory fetch effect, which (unlike the seed effect the tests
+    // above cover) never waited for chatScopeReady. Its bare `.catch(() =>
+    // {})` on a synchronous filesBaseForWorkspace throw meant a folder
+    // expanded before the owning chat id arrived silently never got
+    // children, with no retry once the id showed up.
+    it('waits for the owning chat id before fetching an already-expanded folder’s children', async () => {
+      // A wsId no earlier test in this describe block has recorded a chat id
+      // for — setWorkspaceScope merges in any PREVIOUSLY recorded
+      // owningChatId (see workspace-scope.ts's mergeScope), so reusing
+      // 'ws-race' here would silently inherit the prior test's id and skip
+      // right past the race this test exists to cover.
+      const wsId = 'ws-race-children'
+      const treeWithSrc: AppFile[] = [{ name: 'src', path: 'src', isDir: true, children: undefined }]
+      const srcChildren: AppFile[] = [{ name: 'index.ts', path: 'src/index.ts', isDir: false }]
+
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId })
+      useFileTreeStore.setState({ expandedPathsByWorkspace: { [wsId]: new Set(['src']) } })
+      // The root tree already sits in the shared store (left over from a
+      // warm reactivation, or a render tick ahead of this hook instance) —
+      // the seed effect's OWN chatScopeReady guard means it never put this
+      // there in this test, but the real race is exactly that: `files` can
+      // be populated by the time this effect runs even though THIS hook's
+      // owning-chat-id lookup hasn't resolved yet.
+      useFileSystemStore.setState({
+        rootFolderPath: wsId,
+        files: treeWithSrc,
+        fileTree: treeWithSrc,
+        isFileTreeLoading: false,
+      })
+      // Warm, so the SEED effect's own (already-correct) chatScopeReady wait
+      // takes its fast path once scope arrives instead of re-fetching the
+      // root too — isolating this assertion to the lazy per-directory effect.
+      markWorkspaceDeactivated(wsId, Date.now())
+
+      renderHook(() => useWorkspaceEffects(wsId))
+
+      // No owning chat id yet: the per-directory children fetch may not fire
+      // even though `files` already names 'src' as childless.
+      expect(fetchFileTree).not.toHaveBeenCalled()
+
+      fetchFileTree.mockResolvedValueOnce(srcChildren)
+      recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: 'chat-race-children' })
+
+      await waitFor(() => {
+        expect(fetchFileTree).toHaveBeenCalledWith(wsId, 'src')
+      })
+      await waitFor(() => {
+        const node = useFileSystemStore.getState().files.find((f) => f.path === 'src')
+        expect(node?.children).toEqual(srcChildren)
+      })
+    })
   })
 
   // ── Warm reactivation fast path (Task 33 Target A) ────────────────────────

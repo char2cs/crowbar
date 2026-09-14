@@ -313,7 +313,21 @@ export function useWorkspaceEffects(wsId: string) {
   // silently drops a previously-fetched expanded directory's children — and
   // this effect had no reason to re-run and re-fetch them, since the SAME
   // `path` was already in `expandedPaths` before and after.
+  //
+  // Also live-reported: "some chats on the same repo show files inside src/,
+  // others don't" — a SECOND bug in this same effect. fetchFileTree(wsId, …)
+  // resolves filesBaseForWorkspace(wsId), which throws synchronously without
+  // a recorded owning chat id (same race useOwningChatId/chatScopeReady
+  // exists for above). This effect was the one place in the file that never
+  // waited for chatScopeReady, so a folder expanded in the window before the
+  // sidebar's chat-list fetch resolves an owning chat id threw, was silently
+  // swallowed by the bare `.catch(() => {})`, and — since chatScopeReady
+  // flipping true changes neither `expandedPaths` nor `files` — never
+  // retried: the chevron stayed open over a permanently empty directory.
+  // Which chats hit the window is a race, matching the "weird"/inconsistent
+  // per-chat pattern reported.
   useEffect(() => {
+    if (!chatScopeReady) return
     let cancelled = false
     for (const path of expandedPaths) {
       const node = findNode(files, path)
@@ -332,7 +346,7 @@ export function useWorkspaceEffects(wsId: string) {
     return () => {
       cancelled = true
     }
-  }, [wsId, expandedPaths, files])
+  }, [wsId, expandedPaths, files, chatScopeReady])
 
   // Apply live file-change events: refresh the affected directory level(s) in
   // place, preserving any expanded subtrees that still exist. Content-only
