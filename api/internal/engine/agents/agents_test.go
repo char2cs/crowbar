@@ -263,12 +263,10 @@ func TestAgent_ParseHookMapsAConversationTurn(t *testing.T) {
 	assert.Equal(t, 1, ev.AsyncWork)
 }
 
-// The foreign-conversation guard is meaningful only for a hooks-delivered
-// payload — codex's user_prompt is now api-transport (see the mixed transport
-// design spec), and an api-transport event carries no such ambiguity: it
-// arrives on the one websocket this runner's own serve process opened, which
-// IS the scoping. subagent_pre stays hooks-only, so it is what this test now
-// exercises the guard against.
+// subagent_pre stays hooks-only (no per-event transport override AND no
+// api-transport equivalent at all), so an api-transport delivery can never
+// reach it — the guard is unconditional here regardless of how it treats
+// dual-shape events.
 func TestAgent_ParseHookRefusesAnotherConversationsPayload(t *testing.T) {
 	a := get(t, "codex")
 
@@ -276,6 +274,31 @@ func TestAgent_ParseHookRefusesAnotherConversationsPayload(t *testing.T) {
 		[]byte(`{"session_id":"s1","agent_id":"a1","agent_type":"t1","transcript_path":null}`))
 
 	assert.ErrorIs(t, err, agents.ErrForeignConversation)
+}
+
+// TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat pins the
+// exact live capture from the original chat-theft bug against the REAL,
+// shipped codex.yaml (not a synthetic stand-in), through the same ParseHook
+// entry point production uses.
+//
+// user_prompt has no per-event transport override, so it inherits the
+// runtime's api default — but codex's spawn config still ALSO fires it
+// hooks-shaped for its internal memory-consolidation session, which is
+// exactly what a transport-wide skip (rather than a per-field presence
+// check) let through: the event is classified "api", so the guard was
+// skipped outright even though THIS delivery is hooks-shaped and foreign.
+func TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat(t *testing.T) {
+	a := get(t, "codex")
+
+	_, err := a.ParseHook(agents.HookUserPrompt,
+		[]byte(`{"session_id":"019fafaf-4f2c-7551-806e-eda96d1cefed","turn_id":"019fafaf-4f54",`+
+			`"transcript_path":null,"cwd":"/h/.codex/memories","hook_event_name":"UserPromptSubmit",`+
+			`"model":"gpt-5.6-terra","permission_mode":"bypassPermissions",`+
+			`"prompt":"MEMORY-WRITING-AGENT-PHASE-2-CONSOLIDATION"}`))
+
+	assert.ErrorIs(t, err, agents.ErrForeignConversation,
+		"a hooks-shaped delivery of a dual-shape event must still be checked, even though "+
+			"user_prompt's declared transport is api")
 }
 
 func TestAgent_ParseHookReportsAnUndeclaredEvent(t *testing.T) {

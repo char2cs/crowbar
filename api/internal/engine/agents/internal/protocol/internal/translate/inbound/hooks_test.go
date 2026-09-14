@@ -116,6 +116,49 @@ func TestParse_ADescriptorDeclaringNoGuardIsUnaffected(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestRegression_ADualShapeEventStillCatchesAForeignHooksPayload is the bug
+// reported live: codex's session_start/user_prompt/turn_stop declare no
+// per-event transport override, so on codex's own mixed-transport descriptor
+// they inherit the runtime default of "api" — but codex's spawn config still
+// ALSO fires them hooks-shaped for its internal memory-consolidation session
+// (transcript_path: null, byte-identical to a real /new otherwise). The guard
+// used to be skipped outright for any event whose DECLARED transport is api,
+// which let this exact payload through and re-opened the chat-theft bug
+// require_payload_fields exists to close. Confirmed live against the real
+// codex.yaml before this fix: accepted, no rejection.
+func TestRegression_ADualShapeEventStillCatchesAForeignHooksPayload(t *testing.T) {
+	d := descriptor(
+		map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}},
+		"transcript_path",
+	)
+	d.Runtime.Transport = "api"
+	// No per-event Transport override — exactly codex.yaml's own shape for
+	// session_start/user_prompt/turn_stop, inheriting the runtime default.
+
+	_, err := inbound.Parse(d, spec.HookUserPrompt,
+		[]byte(`{"prompt":"MEMORY-WRITING-AGENT-PHASE-2-CONSOLIDATION","transcript_path":null}`))
+
+	require.ErrorIs(t, err, inbound.ErrForeignConversation,
+		"a hooks-shaped delivery of a dual-shape event must still be checked, even though the "+
+			"EVENT's declared transport is api")
+}
+
+// TestParse_ADualShapeEventStillAcceptsAGenuineAPIPayload guards the failure
+// mode the old transport-wide skip existed to prevent in the first place: an
+// api-transport payload structurally never carries transcript_path at all
+// (absent, not empty), and must not be rejected for lacking it.
+func TestParse_ADualShapeEventStillAcceptsAGenuineAPIPayload(t *testing.T) {
+	d := descriptor(
+		map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}},
+		"transcript_path",
+	)
+	d.Runtime.Transport = "api"
+
+	_, err := inbound.Parse(d, spec.HookUserPrompt, []byte(`{"prompt":"hi"}`))
+
+	assert.NoError(t, err, "an api-transport payload never carries transcript_path; its absence is not foreign")
+}
+
 func TestParse_AsyncWorkIsTheLengthOfTheDeclaredArray(t *testing.T) {
 	testCases := []struct {
 		name    string

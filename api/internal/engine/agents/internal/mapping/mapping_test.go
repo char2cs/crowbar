@@ -402,3 +402,22 @@ func TestString_SelectsANestedFieldOfAnIndexedElement(t *testing.T) {
 		t.Fatalf("got %q, want update", got)
 	}
 }
+
+func TestPresent_TrueForAnExplicitNull(t *testing.T) {
+	d := map[string]any{"transcript_path": nil}
+	if !mapping.Present(d, "transcript_path") {
+		t.Fatal("a JSON null is a present key, not an absent one")
+	}
+}
+
+func TestPresent_FalseWhenTheKeyIsEntirelyAbsent(t *testing.T) {
+	if mapping.Present(map[string]any{}, "transcript_path") {
+		t.Fatal("a key the payload never carries at all must not read as present")
+	}
+}
+
+func TestPresent_TrueForAnOrdinaryValue(t *testing.T) {
+	if !mapping.Present(doc(), "session_id") {
+		t.Fatal("a present, non-empty value must read as present")
+	}
+}
