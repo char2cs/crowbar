@@ -33,6 +33,11 @@ import type { AppFile } from '@/features/file-system/types/app'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
 
+// Stable reference for a workspace with nothing expanded yet — a fresh
+// `new Set()` on every selector call would defeat the effect's own
+// `[wsId, expandedPaths]` dependency check below and re-run it every render.
+const EMPTY_EXPANDED_PATHS: ReadonlySet<string> = new Set()
+
 function parentDir(path: string): string {
   const idx = path.lastIndexOf('/')
   return idx === -1 ? '' : path.slice(0, idx)
@@ -122,7 +127,10 @@ function useOwningChatId(wsId: string): string | null {
 
 export function useWorkspaceEffects(wsId: string) {
   const bufferActions = useBufferActions()
-  const expandedPaths = useFileTreeStore((state) => state.expandedPaths)
+  const expandedPaths = useFileTreeStore(
+    (state) => state.expandedPathsByWorkspace[wsId] ?? EMPTY_EXPANDED_PATHS,
+  )
+  const files = useFileSystemStore((state) => state.files)
   const loadingDirs = useRef<Set<string>>(new Set())
   const owningChatId = useOwningChatId(wsId)
   const homeWorkspace = isHomeWorkspace(wsId)
@@ -296,11 +304,19 @@ export function useWorkspaceEffects(wsId: string) {
     }
   }, [wsId, chatScopeReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Lazily fetch a directory's children the first time it is expanded.
+  // Lazily fetch a directory's children the first time it is expanded — and
+  // re-check on every `files` change, not just when `expandedPaths` itself
+  // changes. Live-reported: returning to a workspace whose folder was left
+  // expanded showed the open chevron but no children under it. Root cause:
+  // the seed effect above resets the SHARED `files` tree to a children-less
+  // root list on anything but a still-warm return (`isWarmDataFresh`), which
+  // silently drops a previously-fetched expanded directory's children — and
+  // this effect had no reason to re-run and re-fetch them, since the SAME
+  // `path` was already in `expandedPaths` before and after.
   useEffect(() => {
     let cancelled = false
     for (const path of expandedPaths) {
-      const node = findNode(useFileSystemStore.getState().files, path)
+      const node = findNode(files, path)
       if (!node?.isDir || node.children !== undefined) continue
       if (loadingDirs.current.has(path)) continue
       loadingDirs.current.add(path)
@@ -316,7 +332,7 @@ export function useWorkspaceEffects(wsId: string) {
     return () => {
       cancelled = true
     }
-  }, [wsId, expandedPaths])
+  }, [wsId, expandedPaths, files])
 
   // Apply live file-change events: refresh the affected directory level(s) in
   // place, preserving any expanded subtrees that still exist. Content-only

@@ -12,6 +12,9 @@ import { SidebarSkeleton } from './sidebar-skeleton'
 import { RemovalTray } from './removal-tray'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { getWorkspaceScope } from '@/lib/workspace-scope'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
 import {
@@ -100,6 +103,17 @@ export function SidebarCarousel({
     (directoryPath: string) => void pickAndUploadFiles(directoryPath),
     [],
   )
+  // Live-reported: opening a file from the explorer could land it in a
+  // DIFFERENT chat than the one the user was looking at, when that chat
+  // shared its workspace ("group") with another one on screen. The explorer
+  // click never named which pane it meant — see resolveOnscreenPaneForWorkspace's
+  // own doc for the full mechanism. Reasserting the active pane here, right
+  // before the open, is the same fix the file-tree DROP path already applies
+  // for its own unambiguous drop target.
+  const ensureActivePaneForFileOpen = useCallback(() => {
+    const targetPaneId = resolveOnscreenPaneForWorkspace(getWorkspaceScope()?.wsId ?? '')
+    if (targetPaneId) windowPaneStore.getState().paneActions.setActivePane(targetPaneId)
+  }, [])
   const containerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   // The user's own committed open height, as a proportion of `sidebarHeight`
@@ -478,15 +492,19 @@ export function SidebarCarousel({
                   rootFolderPath={activeWorkspaceRepoPath}
                   onFileSelect={(path, isDir) => {
                     if (isDir) {
-                      useFileTreeStore.getState().toggleFolder(path)
+                      useFileTreeStore.getState().toggleFolder(getWorkspaceScope()?.wsId ?? '', path)
                     } else {
+                      ensureActivePaneForFileOpen()
                       handleFileSelect?.(path, false)
                     }
                   }}
                   onFileOpen={
                     handleFileOpen
                       ? (path: string, isDir: boolean) => {
-                          if (!isDir) void handleFileOpen(path, false)
+                          if (!isDir) {
+                            ensureActivePaneForFileOpen()
+                            void handleFileOpen(path, false)
+                          }
                         }
                       : undefined
                   }

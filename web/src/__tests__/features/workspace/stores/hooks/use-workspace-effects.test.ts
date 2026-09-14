@@ -5,6 +5,7 @@ import {
   useWorkspaceEffects,
 } from '@/features/workspace/stores/hooks/use-workspace-effects'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { setWorkspaceScope, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   __resetActivationFreshnessForTests,
@@ -73,6 +74,7 @@ beforeEach(() => {
   fetchAllGitData.mockResolvedValue(null)
   // Default: no prior workspace data in the global stores (cold mount seeds).
   useFileSystemStore.setState({ rootFolderPath: null, files: [], fileTree: [] })
+  useFileTreeStore.setState({ expandedPathsByWorkspace: {} })
 })
 
 describe('useWorkspaceEffects', () => {
@@ -483,6 +485,66 @@ describe('useWorkspaceEffects', () => {
         expect(fs.rootFolderPath).toBe('ws-test')
         expect(fs.files).toEqual(treeA)
         expect(fs.isFileTreeLoading).toBe(false)
+      })
+    })
+
+    // Live-reported: a folder left expanded before switching away came back
+    // with its chevron still open but no children under it. A→B→A resets the
+    // SHARED `files` tree to a childless root list on return (previous test),
+    // and `expandedPaths` for 'ws-test' never changed reference across the
+    // whole trip (nothing toggled it) — so a lazy-fetch effect keyed only on
+    // `[wsId, expandedPaths]` never re-ran to notice the children were gone.
+    it('re-fetches an expanded folder’s children after A→B→A resets the shared tree', async () => {
+      const treeAExpandable: AppFile[] = [
+        { name: 'src', path: 'src', isDir: true, children: undefined },
+      ]
+      const srcChildren: AppFile[] = [{ name: 'index.ts', path: 'src/index.ts', isDir: false }]
+
+      useFileTreeStore.setState({ expandedPathsByWorkspace: { 'ws-test': new Set(['src']) } })
+
+      // A activates cold, seeds its root, then lazily fetches 'src' since it's expanded.
+      // Both queued up front: the lazy-fetch effect can race the root seed's
+      // own resolution and call fetchFileTree again before a later
+      // mockResolvedValueOnce would be registered.
+      fetchFileTree.mockResolvedValueOnce(treeAExpandable)
+      fetchFileTree.mockResolvedValueOnce(srcChildren)
+      resetWorkspaceScopedStores('ws-test')
+      const a = renderHook(() => useWorkspaceEffects('ws-test'))
+      await waitFor(() => expect(fetchFileTree).toHaveBeenCalledWith('ws-test', 'src'))
+      await waitFor(() => {
+        const node = useFileSystemStore.getState().files.find((f) => f.path === 'src')
+        expect(node?.children).toEqual(srcChildren)
+      })
+      a.unmount()
+      markWorkspaceDeactivated('ws-test')
+
+      // B activates: reset points the global store at B, clobbering A's tree.
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-B', owningChatId: 'chat-B' })
+      fetchFileTree.mockResolvedValueOnce([{ name: 'b.ts', path: 'b.ts', isDir: false }])
+      resetWorkspaceScopedStores('ws-B')
+      const b = renderHook(() => useWorkspaceEffects('ws-B'))
+      await waitFor(() => expect(useFileSystemStore.getState().rootFolderPath).toBe('ws-B'))
+      b.unmount()
+      markWorkspaceDeactivated('ws-B')
+
+      // A returns within the window. 'src' is still recorded as expanded (same
+      // Set reference — nothing toggled it), but its children are gone again.
+      setWorkspaceScope({
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId: 'ws-test',
+        owningChatId: 'chat-test',
+      })
+      fetchFileTree.mockClear()
+      fetchFileTree.mockResolvedValueOnce(treeAExpandable)
+      fetchFileTree.mockResolvedValueOnce(srcChildren)
+      resetWorkspaceScopedStores('ws-test')
+      renderHook(() => useWorkspaceEffects('ws-test'))
+
+      await waitFor(() => expect(fetchFileTree).toHaveBeenCalledWith('ws-test', 'src'))
+      await waitFor(() => {
+        const node = useFileSystemStore.getState().files.find((f) => f.path === 'src')
+        expect(node?.children).toEqual(srcChildren)
       })
     })
 

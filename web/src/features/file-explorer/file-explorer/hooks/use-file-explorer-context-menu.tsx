@@ -30,6 +30,7 @@ import {
 } from '@/features/file-explorer/lib/env-template'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
+import { getWorkspaceScope } from '@/lib/workspace-scope'
 import type { ContextMenuState } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
@@ -291,8 +292,9 @@ export function useFileExplorerContextMenu({
             // '' doesn't match relative paths, so the root collapses everything
             // via collapseAll(); a subdir collapses just its own subtree.
             const treeStore = useFileTreeStore.getState()
-            if (isRootTarget) treeStore.collapseAll()
-            else treeStore.collapsePath(contextMenu.path)
+            const wsId = getWorkspaceScope()?.wsId ?? ''
+            if (isRootTarget) treeStore.collapseAll(wsId)
+            else treeStore.collapsePath(wsId, contextMenu.path)
           },
         },
         {

@@ -8,6 +8,8 @@ import type { FileEntry } from '@/features/file-system/types/app'
 import { useSettingsStore } from '@/features/settings/store'
 
 interface UseFileExplorerVisibleRowsOptions {
+  /** The active workspace — expanded-folder state is scoped per workspace. */
+  wsId: string
   files: FileEntry[]
   activePath?: string
   containerRef: RefObject<HTMLDivElement | null>
@@ -15,12 +17,13 @@ interface UseFileExplorerVisibleRowsOptions {
 }
 
 export function useFileExplorerVisibleRows({
+  wsId,
   files,
   activePath,
   containerRef,
   expandedPathsOverride,
 }: UseFileExplorerVisibleRowsOptions) {
-  const expandedPaths = useFileTreeStore((state) => state.expandedPaths)
+  const expandedPaths = useFileTreeStore((state) => state.getExpandedPaths(wsId))
   const compactFolders = useSettingsStore((state) => state.settings.compactFoldersInFileTree)
   const density = useSettingsStore((state) => state.settings.fileTreeDensity)
   const rowHeight = FILE_TREE_DENSITY_CONFIG[density].rowHeight

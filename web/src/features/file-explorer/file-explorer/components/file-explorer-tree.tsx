@@ -171,12 +171,18 @@ function FileExplorerTreeComponent({
   const revealPathInTree = useFileSystemStore((state) => state.revealPathInTree)
   const isFileTreeLoading = useFileSystemStore((state) => state.isFileTreeLoading)
 
+  // The file explorer always renders the active workspace (see the fuller
+  // comment further down where this also gates git-status lookup) — every
+  // file-tree-store call below is keyed by this so a workspace's own expanded
+  // folders never leak into (or get clobbered by) another workspace's.
+  const activeWorkspaceId = getWorkspaceScope()?.wsId ?? null
+
   const handleAutoExpandDirectory = useCallback(
     (path: string) => {
-      if (useFileTreeStore.getState().isExpanded(path)) return
+      if (useFileTreeStore.getState().isExpanded(activeWorkspaceId ?? '', path)) return
       void Promise.resolve(onFileSelect(path, true))
     },
-    [onFileSelect],
+    [onFileSelect, activeWorkspaceId],
   )
 
   const showAlertDialog = useCallback((title: string, message: string) => {
@@ -258,9 +264,8 @@ function FileExplorerTreeComponent({
 
   // The git store keys workspaceGitStatus by the wsId it loaded
   // (currentWorkspaceRepoPath). rootFolderPath is the synthetic `/repos/<repoId>`
-  // mock-era prefix (a different id space), so it cannot be the match key — the
-  // file explorer always renders the active workspace, so gate on its wsId.
-  const activeWorkspaceId = getWorkspaceScope()?.wsId ?? null
+  // mock-era prefix (a different id space), so it cannot be the match key —
+  // gate on activeWorkspaceId (declared above) instead.
   const gitStatus = resolveActiveWorkspaceGitStatus(
     workspaceGitStatus,
     currentWorkspaceRepoPath,
@@ -436,6 +441,7 @@ function FileExplorerTreeComponent({
   }, [filter, displayedFiles, getGitStatusDecoration])
 
   const { visibleRows, rowVirtualizer } = useFileExplorerVisibleRows({
+    wsId: activeWorkspaceId ?? '',
     files: changedFilteredFiles,
     activePath,
     containerRef,
@@ -592,18 +598,19 @@ function FileExplorerTreeComponent({
   // children — otherwise files in unexpanded dirs are invisible to the search.
   // The pre-search expansion state is saved and restored when search clears.
   useEffect(() => {
+    const wsId = activeWorkspaceId ?? ''
     if (debouncedTreeSearchQuery.trim()) {
       if (!savedExpandedPathsRef.current) {
-        savedExpandedPathsRef.current = new Set(useFileTreeStore.getState().expandedPaths)
+        savedExpandedPathsRef.current = new Set(useFileTreeStore.getState().getExpandedPaths(wsId))
       }
-      useFileTreeStore.getState().expandAll(filteredFiles)
+      useFileTreeStore.getState().expandAll(wsId, filteredFiles)
     } else {
       if (savedExpandedPathsRef.current) {
-        useFileTreeStore.getState().setExpandedPaths(savedExpandedPathsRef.current)
+        useFileTreeStore.getState().setExpandedPaths(wsId, savedExpandedPathsRef.current)
         savedExpandedPathsRef.current = null
       }
     }
-  }, [debouncedTreeSearchQuery, filteredFiles])
+  }, [debouncedTreeSearchQuery, filteredFiles, activeWorkspaceId])
 
   // No sticky overlays or global guides
 
@@ -1107,7 +1114,7 @@ function FileExplorerTreeComponent({
             if (!current) break
             e.preventDefault()
             if (isDir) {
-              const expanded = useFileTreeStore.getState().isExpanded(current.path)
+              const expanded = useFileTreeStore.getState().isExpanded(activeWorkspaceId ?? '', current.path)
               if (!expanded) {
                 void toggleDirectory(current.path)
               } else {
@@ -1123,7 +1130,7 @@ function FileExplorerTreeComponent({
           case 'ArrowLeft': {
             if (!current) break
             e.preventDefault()
-            if (isDir && useFileTreeStore.getState().isExpanded(current.path)) {
+            if (isDir && useFileTreeStore.getState().isExpanded(activeWorkspaceId ?? '', current.path)) {
               void toggleDirectory(current.path)
             } else {
               const sep = current.path.includes('\\') ? '\\' : '/'
