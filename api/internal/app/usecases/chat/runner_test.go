@@ -694,6 +694,99 @@ func TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppre
 	assert.True(t, f.chat(t, chatID).Working, "the CLI is answering the real prompt: the chat must read as working")
 }
 
+// TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDelivered
+// closes the gap between "switch alone" and "switch with a model/effort pick
+// riding the SAME send" — SetChatSelection's own restart-forcing
+// (RequirePromptRestart) is a SEPARATE decision from resolvePromptDelivery's
+// gap assembly, and this pins that the two compose correctly: the delivery
+// spawn must carry BOTH the newly staged model/effort AND the gap, not one at
+// the expense of the other.
+func TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDelivered(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude-native")
+	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	waitForClockTick(t)
+
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	f.announce(t, codexRunner, "sid-codex-native")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "turn_stop",
+		mustJSON(t, map[string]any{
+			"threadId": "sid-codex-native",
+			"turn": map[string]any{
+				"items": []any{
+					map[string]any{"type": "agentMessage", "text": "codex spoke while claude was away"},
+				},
+			},
+		})))
+	f.wait()
+
+	// Switch back to claude, stage a model/effort change, AND deliver a
+	// prompt — all in the one call a real staged-everything send makes.
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", "opus", "high")
+	require.NoError(t, err)
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", live.ProviderID)
+	assert.Equal(t, "opus", live.LaunchModel)
+	assert.Equal(t, "high", live.LaunchEffort)
+
+	call := f.term.calls[f.term.callCount()-1]
+	modelAt := indexOf(call.argv, "--model")
+	require.GreaterOrEqual(t, modelAt, 0, "the staged model must still reach argv: %v", call.argv)
+	assert.Equal(t, "opus", call.argv[modelAt+1])
+
+	last := call.argv[len(call.argv)-1]
+	assert.Contains(t, last, "codex spoke while claude was away",
+		"the gap must still be delivered alongside a staged model/effort change: %v", call.argv)
+	assert.Contains(t, last, "what did I miss?")
+}
+
+// TestRegression_SubmitPromptWithStagedProvider_DormantChatRevivesOntoTheOtherProviderWithTheGap
+// covers reopening an old chat and sending straight to a DIFFERENT provider
+// than it was last on, in one action — no explicit Resume first. There is no
+// live runner to displace at all, so switchToStagedProvider's own
+// current-vs-staged comparison, resumableConversation's age/turn checks, and
+// the delivery spawn's gap assembly all run cold, off nothing but durable
+// state. A chat with no live runner is still a chat with real history.
+func TestRegression_SubmitPromptWithStagedProvider_DormantChatRevivesOntoTheOtherProviderWithTheGap(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude-native")
+	turn(t, f, claudeRunner, "claude", "claude has real history before going dormant")
+
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	f.announce(t, codexRunner, "sid-codex-native")
+	turn(t, f, codexRunner, "codex", "codex spoke, then the chat went dormant")
+
+	f.term.exit(t, f.runner(t, codexRunner).TerminalSession)
+	f.wait()
+	_, err = f.liveRunnerFor(t, chatID)
+	require.ErrorIs(t, err, agentrunner.ErrNotFound, "precondition: the chat is dormant")
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", "", "")
+	require.NoError(t, err)
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", live.ProviderID)
+
+	call := f.term.calls[f.term.callCount()-1]
+	assert.Equal(t, "sid-claude-native", argAfter(t, call.argv, "--resume"),
+		"reviving straight onto the other provider must still resume its OWN conversation: %v", call.argv)
+	last := call.argv[len(call.argv)-1]
+	assert.Contains(t, last, "codex spoke, then the chat went dormant",
+		"the whole time claude was away — including the gap since before it went dormant — must reach it: %v", call.argv)
+	assert.Contains(t, last, "what did I miss?")
+}
+
 // TestResumeChat_LiveChat_IsNoop: reviving a chat whose CLI is alive must never tear
 // that CLI down — it hands back the runner already on it. (Dormant is a QUERY, so
 // "already live" is answerable without any flag.)
@@ -898,6 +991,84 @@ func TestRegression_SwitchProvider_AbandonedSessionInAnActiveChat_SpawnsFreshNot
 	for _, a := range argv {
 		assert.NotContains(t, a, "sid-claude-abandoned")
 	}
+}
+
+// TestRegression_SubmitPromptWithStagedProvider_AbandonedSessionSpawnsFreshNotACorpse
+// is the SAME shape as AbandonedSessionInAnActiveChat_SpawnsFreshNotACorpse above,
+// but through the actual real-world entry point: SubmitPrompt with a staged
+// provider (switch + deliver in one call), not a bare SwitchProvider. The
+// sessionLegacyMinAge fix lives entirely in resumableConversation, reached
+// only from switchProviderLocked — SubmitPrompt calls that internally via
+// switchToStagedProvider, so this pins that the fix actually reaches the path
+// a real "switch, then send" click takes, not just the standalone switch.
+func TestRegression_SubmitPromptWithStagedProvider_AbandonedSessionSpawnsFreshNotACorpse(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, codexRunner := f.spawn(t, "codex")
+	f.announce(t, codexRunner, "sid-codex-native")
+	turn(t, f, codexRunner, "codex", "codex has real, table-recorded history")
+
+	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+	_, err = f.runners.BindSession(f.ctx, claudeRunner, "sid-claude-abandoned", true, time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	f.wait()
+
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	// The combined path: switch back to claude AND deliver a prompt in one
+	// call, exactly what a real "switch, then send" click does.
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", "", "")
+	require.NoError(t, err)
+
+	require.Equal(t, 5, f.term.callCount())
+	argv := f.term.calls[4].argv
+	assert.Equal(t, -1, indexOf(argv, "--resume"),
+		"an abandoned session in a chat with real table history must NOT be resumed "+
+			"through the combined switch+send path either; argv was %v", argv)
+	for _, a := range argv {
+		assert.NotContains(t, a, "sid-claude-abandoned")
+	}
+	assert.Contains(t, argv, "what did I miss?", "the real prompt must still be delivered: %v", argv)
+}
+
+// TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge is
+// a defensive guard for mergeLeadingPositional: codex declares NO
+// resume_context_inject (its gap rides the api connection instead, never
+// argv), so ContextSteps returns nothing on resume and the merge must never
+// fire for it — the replacement PTY's argv must carry exactly the message,
+// nothing folded in ahead of it, exactly as it always has.
+func TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude-native")
+	turn(t, f, claudeRunner, "claude", "claude has real, table-recorded history")
+
+	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	codexRunner, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	f.announce(t, codexRunner.ID, "sid-codex-native")
+	turn(t, f, codexRunner.ID, "codex", "codex has its own real history now too")
+
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "back to codex now", uuid.NewString(), "codex", "", "")
+	require.NoError(t, err)
+
+	call := f.term.calls[f.term.callCount()-1]
+	assert.Equal(t, "back to codex now", call.argv[len(call.argv)-1],
+		"codex's replacement PTY must carry exactly the message, untouched by the "+
+			"positional-merge fix that exists only for claude's own shape: %v", call.argv)
+	assert.NotContains(t, call.argv, "resume",
+		"codex's redundant PTY must never carry a native resume either: %v", call.argv)
 }
 
 // TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume: same rule on the
