@@ -81,10 +81,32 @@ function mergeScope(scope: WorkspaceScope): WorkspaceScope {
   return owningChatId ? { ...scope, owningChatId } : { ...scope }
 }
 
-/** Record the hierarchical scope (project+repo) for a workspace from the route. */
+/**
+ * Record the hierarchical scope (project+repo) for a workspace from the
+ * route. Only SEEDS `_activeWorkspaceId` — never overwrites an id the
+ * registry (`workspace-store-registry.ts`'s `setActiveWorkspaceId`, driven
+ * by the pane-aware `effectiveActiveWorkspaceId`) has already claimed.
+ *
+ * This function used to set `_activeWorkspaceId` unconditionally, every
+ * call — and the IDE shell calls it SYNCHRONOUSLY on every one of its own
+ * renders (`recordWorkspaceScopeFromPath`, called from render, not an
+ * effect). A pane's chat can legitimately live in a workspace other than the
+ * routed one (a Recents click revealing a pane before the URL settles, or
+ * any split merging chats across workspaces), and the registry's own
+ * activation effect gets that answer right — but the very next render's
+ * scope recording clobbered it right back to the route's (possibly wrong,
+ * or simply different) wsId, every single time, so the correction never
+ * stuck. Live-reported: a Recents row for a thread sharing its repo with
+ * sibling workspaces focused the right pane but left the file explorer
+ * permanently scoped to whichever OTHER workspace the route happened to
+ * name. Seeding only when unset keeps this function's real job — recording
+ * scope for a route-visited workspace, including on cold boot before any
+ * `WorkspaceView` has ever activated one — without it re-litigating "which
+ * workspace is active" on every render.
+ */
 export function setWorkspaceScope(scope: WorkspaceScope): void {
   _scopes.set(scope.wsId, mergeScope(scope))
-  _activeWorkspaceId = scope.wsId
+  if (_activeWorkspaceId === null) _activeWorkspaceId = scope.wsId
   notifyScopeListeners(scope.wsId)
 }
 

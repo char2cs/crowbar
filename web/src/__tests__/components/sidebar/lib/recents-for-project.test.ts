@@ -16,7 +16,7 @@ import type { Repo, Workspace } from '@/lib/store/sidebar'
 // seeded directly per test instead. Only `agentChats` (still per-workspace —
 // AgentChatsSlice did not move) stays behind the registry mock.
 interface FakeWorkspaceStoreState {
-  agentChats: { chats: { id: string }[]; working: Record<string, boolean> }
+  agentChats: { chats: { id: string; workspaceId?: string }[]; working: Record<string, boolean> }
 }
 
 const { activeIds, storeStates, homeIds } = vi.hoisted(() => ({
@@ -264,6 +264,50 @@ describe('recentsForProject', () => {
 
     expect(entries).toHaveLength(1)
     expect(entries[0].chatWorkspaces).toEqual({ 'chat-1': 'ws-1', 'chat-2': 'ws-2' })
+  })
+
+  // Live-reported regression: `listChats` is repo-scoped, so every workspace
+  // store in a repo is seeded with a copy of that whole repo's chats, not
+  // just its own. `chat-1` here really belongs to `ws-1` (its own
+  // `workspaceId` field says so), but `ws-2`'s store ALSO carries a copy of
+  // it (the repo-wide seed) — iterating workspaces in order used to let
+  // whichever one came LAST simply stamp its own id over the correct one.
+  // A Recents click on `chat-1` then focused the right pane but navigated
+  // (and scoped the file explorer) to `ws-2`, a sibling workspace of the
+  // same repo it had nothing to do with.
+  it("resolves a chat to its OWN workspaceId, not a sibling store's repo-wide copy of it", () => {
+    activeIds.current = ['ws-1', 'ws-2']
+    storeStates.current.set('ws-1', {
+      agentChats: { chats: [{ id: 'chat-1', workspaceId: 'ws-1' }], working: {} },
+    })
+    // ws-2's own store also lists chat-1 — a repo-scoped listChats leak, not
+    // a real ownership claim.
+    storeStates.current.set('ws-2', {
+      agentChats: {
+        chats: [
+          { id: 'chat-1', workspaceId: 'ws-1' },
+          { id: 'chat-2', workspaceId: 'ws-2' },
+        ],
+        working: {},
+      },
+    })
+    seedLivePane('chat-1')
+    const repos = [
+      makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        workspaces: [
+          makeTestWorkspace({ id: 'ws-1', branch: 'a' }),
+          makeTestWorkspace({ id: 'ws-2', branch: 'b' }),
+        ],
+      }),
+    ]
+
+    const entries = recentsForProject(repos, 'p1')
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].workspaceId).toBe('ws-1')
+    expect(entries[0].chatWorkspaces).toEqual({ 'chat-1': 'ws-1' })
   })
 
   // The icon-parity fix: `RecentsMemberRow` used to hand-build a row with no

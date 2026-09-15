@@ -40,9 +40,36 @@ describe('recordWorkspaceScopeFromPath', () => {
     expect(workspaceBase('w')).toBe('/v0/projects/p/repos/r/workspaces/w')
   })
 
-  it('makes the recorded workspace the active one (workspaceBase with no arg resolves it)', () => {
+  it('seeds the active workspace on first use (workspaceBase with no arg resolves it)', () => {
     recordWorkspaceScopeFromPath('/ide/p9/r9/w9')
     expect(getWorkspaceScope()).toEqual({ projectId: 'p9', repoId: 'r9', wsId: 'w9' })
+  })
+
+  // Regression: setWorkspaceScope used to set `_activeWorkspaceId`
+  // unconditionally, every call — and the IDE shell calls
+  // recordWorkspaceScopeFromPath synchronously on every one of its own
+  // renders. A pane's chat can legitimately live in a workspace other than
+  // the routed one; the registry's own activation effect (setActiveWorkspaceId,
+  // workspace-store-registry.ts) gets that right, but the very next render's
+  // scope recording clobbered it back to the route's wsId every time, so the
+  // correction never stuck — live-reported as a Recents click that focused
+  // the right pane but left the file explorer permanently scoped to a
+  // sibling workspace of the same repo.
+  it('does not steal the active workspace once something else has claimed it', () => {
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-active')
+    expect(getWorkspaceScope()?.wsId).toBe('ws-active')
+
+    // A different (e.g. sibling) workspace's scope is recorded — but must
+    // not become "the active one" just by being recorded.
+    recordWorkspaceScopeFromPath('/ide/p1/r1/ws-sibling')
+
+    expect(getWorkspaceScope()?.wsId).toBe('ws-active')
+    // The sibling's own scope is still recorded for anyone asking by id.
+    expect(getWorkspaceScope('ws-sibling')).toEqual({
+      projectId: 'p1',
+      repoId: 'r1',
+      wsId: 'ws-sibling',
+    })
   })
 
   it('returns null and records nothing for a non-ide path', () => {

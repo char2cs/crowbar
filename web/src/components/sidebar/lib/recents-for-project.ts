@@ -80,11 +80,22 @@ export function recentsForProject(repos: readonly Repo[], projectId: string): Re
   // chatId -> the workspace whose store owns it (still per-workspace state —
   // AgentChatsSlice did not move in Task 26). Every RecentsBandEntry needs
   // this to render (recents-band.tsx resolves a chat's live data by it).
+  //
+  // `chat.workspaceId` — the chat's OWN denormalized field, same authority
+  // `resolveChatOwnerWorkspaceId` (workspace-store-registry.ts) leans on —
+  // never the iterating store's own `wsId`: `listChats` is repo-scoped, so
+  // every workspace store in a repo is seeded with that whole repo's chats,
+  // and the iterating store is just whichever one happened to carry a copy.
+  // Stamping `wsId` here made the LAST store iterated that also knew about a
+  // chat overwrite an EARLIER, correct entry with an arbitrary sibling
+  // workspace's id — live-reported as a thread's Recents row focusing the
+  // right pane but navigating (and scoping the file explorer) to a
+  // completely different workspace of the same repo.
   const chatWorkspace = new Map<string, string>()
   const working: Record<string, boolean> = {}
   for (const wsId of projectWsIds) {
     const { agentChats } = getOrCreateWorkspaceStore(wsId).getState()
-    for (const chat of agentChats.chats) chatWorkspace.set(chat.id, wsId)
+    for (const chat of agentChats.chats) chatWorkspace.set(chat.id, chat.workspaceId || wsId)
     Object.assign(working, agentChats.working)
   }
 
