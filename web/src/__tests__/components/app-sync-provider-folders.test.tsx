@@ -777,7 +777,7 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
   // The other half of the same finding: `loadable-slice`'s `latestFetch` guard
   // makes a superseded `fetch()` return EARLY without writing, so `dataOf` hands
   // back the previous snapshot — which can predate the write the queued repo was
-  // claimed for. hydration-gate and events/connect both call `fetch()`, so this
+  // claimed for. main.tsx's boot hydration and events/connect both call `fetch()`, so this
   // is a real overlap, not a contrived one.
   it('does not open the gate from a read that lost to a newer fetch', async () => {
     const r1Chats = deferred<ChatDTO[]>()

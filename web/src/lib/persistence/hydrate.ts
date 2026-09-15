@@ -46,8 +46,13 @@ export async function hydratePreferences(): Promise<UIPreferences | null> {
 
 /**
  * One-time, WINDOW-level hydration of pane/buffer layout — call once at app
- * boot (from `HydrationGate`, alongside `hydratePreferences`/`hydrateSidebar`),
- * BEFORE any `WorkspaceView` mounts. Task 26 moved panes/buffers off the
+ * boot (from `main.tsx`'s `hydrateCriticalStores`, alongside
+ * `hydratePreferences`/`hydrateSidebar`), AWAITED BEFORE `renderApp()` is
+ * ever called — not from inside a mounted component's effect. A
+ * `WorkspaceView`/`EditorSurface` that mounts first and has this replace its
+ * layout out from under it a frame later is a real crash, not just a flash
+ * (caught live as a wave of "Editor failed to load" ErrorBoundary trips).
+ * Task 26 moved panes/buffers off the
  * per-workspace store registry onto one window-level store
  * (`window-pane-store.ts`) that is never destroyed, so there is exactly one
  * persisted layout row to restore here, not one per workspace — see

@@ -162,8 +162,8 @@ export function AppSyncProvider({ children }: { children: ReactNode }) {
         // A read that BOTH settled and moved is the other half of the claim.
         //
         // `fetch` returns early whenever a newer caller supersedes it
-        // (loadable-slice's `latestFetch` guard — hydration-gate and
-        // events/connect's `workspace:updated` both call it), and it can do so
+        // (loadable-slice's `latestFetch` guard — main.tsx's boot hydration
+        // and events/connect's `workspace:updated` both call it), and it can do so
         // at two different points. Give up after its own read and it has
         // already published `loading`, whose `dataOf` is the previous snapshot.
         // But give up in the earlier check, inside `loadCache`, and it
