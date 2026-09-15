@@ -150,19 +150,36 @@ export function SpaceHeader({
         onMouseEnter={() => setGlyphHovered(true)}
         onMouseLeave={() => setGlyphHovered(false)}
       >
-        {showChevron ? (
-          // rotate-180, not SidebarRow's rotate-90+DISCLOSURE_GLYPH_PATH: that
-          // chevron toggles between two states of a row's OWN children;
-          // this one reports the whole space's fold, matching the task
-          // brief's own literal test (`toHaveClass('rotate-180')`).
+        {/* Both stay MOUNTED always — only which one is visible toggles —
+            rather than the ternary swap this replaced. `EditableProjectIcon`
+            owns the icon popover's own open state (icon-popover.tsx's
+            `Popover`, uncontrolled); the popover's trigger sits INSIDE this
+            same glyph box, so moving the mouse from the trigger toward the
+            popover's own (portaled) content always crosses this box's edge
+            first, flipping `glyphHovered` false while the row itself is
+            still `active` — `showChevron` then swapped this OUT for the
+            chevron mid-transit, unmounting `EditableProjectIcon` and
+            destroying the popover's open state with it. Live-reported as
+            the popover being impossible to move the mouse into: it was
+            never a hover/hit-test problem, the popover was closing itself.
+            `hidden`, not `invisible`: the closed one costs nothing engine-side
+            (ROW_SUB_ACTION_HOVER's own doc, same reasoning) — either way, the
+            popover's portal renders elsewhere and is untouched by this
+            trigger's own visibility either way. */}
+        <span className={cn(!showChevron && 'hidden')}>
+          {/* rotate-180, not SidebarRow's rotate-90+DISCLOSURE_GLYPH_PATH: that
+              chevron toggles between two states of a row's OWN children;
+              this one reports the whole space's fold, matching the task
+              brief's own literal test (`toHaveClass('rotate-180')`). */}
           <CaretDown
             aria-hidden="true"
             data-testid="chevron"
             className={cn('size-4 transition-transform', folded && 'rotate-180')}
           />
-        ) : (
+        </span>
+        <span className={cn(showChevron && 'hidden')}>
           <EditableProjectIcon project={project} size="lg" />
-        )}
+        </span>
       </span>
 
       {renaming ? (

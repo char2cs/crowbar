@@ -42,7 +42,10 @@ describe('SpaceHeader', () => {
         onDeleteSpace={vi.fn()}
       />,
     )
-    expect(screen.queryByTestId('chevron')).not.toBeInTheDocument()
+    // The chevron stays mounted (icon-popover.tsx's own popover state lives
+    // inside the icon it would otherwise unmount — see its own doc), so this
+    // checks it is hidden rather than absent.
+    expect(screen.getByTestId('chevron').parentElement?.className).toContain('hidden')
     expect(screen.queryByTestId('new-thread')).not.toBeInTheDocument()
     expect(screen.queryByTestId('delete-menu')).not.toBeInTheDocument()
     expect(screen.getByText('p1')).toBeInTheDocument()
@@ -94,12 +97,12 @@ describe('SpaceHeader', () => {
     const row = screen.getByTestId('space-header-row')
     fireEvent.mouseEnter(row)
     fireEvent.mouseEnter(screen.getByTestId('space-glyph'))
-    expect(screen.queryByTestId('chevron')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chevron').parentElement?.className).toContain('hidden')
     expect(screen.getByRole('button', { name: /edit p1 icon/i })).toBeInTheDocument()
     // Leaving the glyph for elsewhere on the row (still over the row overall,
     // per the `relatedTarget`) reverts it to the chevron.
     fireEvent.mouseLeave(screen.getByTestId('space-glyph'), { relatedTarget: row })
-    expect(screen.getByTestId('chevron')).toBeInTheDocument()
+    expect(screen.getByTestId('chevron').parentElement?.className).not.toContain('hidden')
   })
 
   it('mouse leave reverts the thread button and overflow menu away again', () => {
@@ -477,6 +480,41 @@ describe('SpaceHeader', () => {
       await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
       expect(await screen.findByText('Icon')).toBeInTheDocument()
       expect(onToggle).not.toHaveBeenCalled()
+    })
+
+    // Live-reported: "moving my mouse inside this icon modal, its not
+    // letting me" — the popover was closing itself. Opening it left the row
+    // hovered (mouse still down over the mark that was just clicked); moving
+    // toward the popover's own portaled content crosses the glyph's own
+    // narrow hit-target first, which used to swap `EditableProjectIcon` OUT
+    // for the chevron (`showChevron = active && !glyphHovered`) — unmounting
+    // the very popover the user was reaching for, mid-transit, before the
+    // pointer ever got there.
+    it('stays open when the mouse leaves the glyph for elsewhere on the still-hovered row', async () => {
+      const user = userEvent.setup()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onCreateThread={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteSpace={vi.fn()}
+        />,
+      )
+      const row = screen.getByTestId('space-header-row')
+      fireEvent.mouseEnter(row)
+      fireEvent.mouseEnter(screen.getByTestId('space-glyph'))
+      await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
+      expect(await screen.findByText('Icon')).toBeInTheDocument()
+
+      // The mouse's own path toward the popover: off the glyph, still over
+      // the row (the popover sits just outside it, but the row itself is
+      // wide) — exactly the transit that used to unmount it.
+      fireEvent.mouseLeave(screen.getByTestId('space-glyph'), { relatedTarget: row })
+      expect(screen.getByTestId('chevron').parentElement?.className).not.toContain('hidden')
+      expect(screen.getByText('Icon')).toBeInTheDocument()
     })
 
     it('setting an emoji persists it to this project’s own REST base', async () => {
