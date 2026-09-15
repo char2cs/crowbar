@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SpaceHeader } from '@/components/sidebar/space-header'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
@@ -511,10 +511,51 @@ describe('SpaceHeader', () => {
 
       // The mouse's own path toward the popover: off the glyph, still over
       // the row (the popover sits just outside it, but the row itself is
-      // wide) — exactly the transit that used to unmount it.
+      // wide) — exactly the transit that used to unmount it, and later
+      // (once that was fixed) flash the mark between icon and chevron on
+      // every such crossing. The mark now holds the icon for as long as the
+      // popover itself reports open, regardless of hover.
       fireEvent.mouseLeave(screen.getByTestId('space-glyph'), { relatedTarget: row })
-      expect(screen.getByTestId('chevron').parentElement?.className).not.toContain('hidden')
+      expect(screen.getByTestId('chevron').parentElement?.className).toContain('hidden')
       expect(screen.getByText('Icon')).toBeInTheDocument()
+
+      // Re-entering the glyph and leaving again must not re-flash it either
+      // — still gated on the popover's own open state, not just hover.
+      fireEvent.mouseEnter(screen.getByTestId('space-glyph'))
+      fireEvent.mouseLeave(screen.getByTestId('space-glyph'), { relatedTarget: row })
+      expect(screen.getByTestId('chevron').parentElement?.className).toContain('hidden')
+      expect(screen.getByText('Icon')).toBeInTheDocument()
+    })
+
+    // The other half of the same fix: the gate must release once the
+    // popover reports closed, not hold the icon forever. `onOpenChange`
+    // fires straight off IconPopover's own Popover, so closing it via its
+    // own imperative action (rather than simulating an outside-press, which
+    // Base UI's dismiss logic does not reliably resolve under fireEvent) is
+    // the direct way to prove the release side of the same wiring.
+    it('the chevron gate releases once the popover reports closed', async () => {
+      const user = userEvent.setup()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onCreateThread={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteSpace={vi.fn()}
+        />,
+      )
+      const row = screen.getByTestId('space-header-row')
+      fireEvent.mouseEnter(row)
+      await user.click(screen.getByRole('button', { name: /edit p1 icon/i }))
+      expect(await screen.findByText('Icon')).toBeInTheDocument()
+      fireEvent.mouseLeave(screen.getByTestId('space-glyph'), { relatedTarget: row })
+      expect(screen.getByTestId('chevron').parentElement?.className).toContain('hidden')
+
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryByText('Icon')).not.toBeInTheDocument())
+      expect(screen.getByTestId('chevron').parentElement?.className).not.toContain('hidden')
     })
 
     it('setting an emoji persists it to this project’s own REST base', async () => {

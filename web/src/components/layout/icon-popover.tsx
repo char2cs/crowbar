@@ -66,6 +66,16 @@ interface IconPopoverProps {
    * avatar fetch needs a real repo origin, which nothing has before it exists.
    */
   onStage?: (change: StagedIcon) => void
+  /**
+   * A pure observer — this stays uncontrolled (no `open` prop passed below),
+   * so this callback never has to be wired back in. `space-header.tsx`'s own
+   * caller uses it to hold its hover-driven mark/chevron swap off while this
+   * popover is open: a caller whose trigger's own visible mark can change
+   * out from under a still-open popover (a hover state fluctuating while the
+   * popover stays open) needs to know when to suspend that, or the trigger
+   * flickers between its two faces for as long as the popover stays open.
+   */
+  onOpenChange?: (open: boolean) => void
 }
 
 /**
@@ -91,6 +101,7 @@ export function IconPopover({
   trigger: triggerOverride,
   github = false,
   onStage,
+  onOpenChange,
 }: IconPopoverProps) {
   const [emojiInput, setEmojiInput] = useState('')
   const [showEmojiInput, setShowEmojiInput] = useState(false)
@@ -231,7 +242,7 @@ export function IconPopover({
   )
 
   return (
-    <Popover>
+    <Popover onOpenChange={onOpenChange}>
       <PopoverTrigger
         aria-label={`Edit ${name} icon`}
         className="group/entity-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md outline-none"

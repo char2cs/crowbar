@@ -77,6 +77,10 @@ export function SpaceHeader({
   // Whether the pointer is directly over the glyph's OWN hit-target (the
   // size-5 box below), not the row generally — see `showChevron`.
   const [glyphHovered, setGlyphHovered] = useState(false)
+  // Whether the icon's OWN popover (icon-popover.tsx) is open — see
+  // `showChevron`'s own doc for why this has to hold the swap off, not just
+  // `glyphHovered`.
+  const [iconPopoverOpen, setIconPopoverOpen] = useState(false)
   // Folded reports a state rather than offering one (spec §4): the chevron
   // stays even once the pointer, or focus, has moved on.
   //
@@ -98,7 +102,18 @@ export function SpaceHeader({
   // that one hit-target out of `active`: the row-wide hover swap now applies
   // spec's full behaviour, while a pointer sitting exactly on the mark keeps
   // it as the icon it also is.
-  const showChevron = folded || (active && !glyphHovered)
+  //
+  // `!iconPopoverOpen` on top of that: `glyphHovered` alone only covers the
+  // pointer SITTING on the glyph — reaching the popover the glyph opens
+  // means leaving that hit-target, which flips `glyphHovered` false while
+  // `active` (hovering the wider row en route) can easily still be true.
+  // Without this, `EditableProjectIcon` (and the still-open popover mounted
+  // inside it) kept getting hidden and re-shown on every such crossing —
+  // live-reported as the mark "flashing" between the icon and the chevron
+  // while the popover sat open and undisturbed the whole time. Held open for
+  // as long as the popover itself reports open, regardless of where the
+  // pointer wanders meanwhile.
+  const showChevron = folded || (active && !glyphHovered && !iconPopoverOpen)
   // Double-click-to-rename the project itself — restored from the deleted
   // tree's project-home-row.tsx, which called the same `renameProject` API
   // through `startRenaming`/`isRenaming` state it owned locally, exactly like
@@ -178,7 +193,7 @@ export function SpaceHeader({
           />
         </span>
         <span className={cn(showChevron && 'hidden')}>
-          <EditableProjectIcon project={project} size="lg" />
+          <EditableProjectIcon project={project} size="lg" onOpenChange={setIconPopoverOpen} />
         </span>
       </span>
 

@@ -87,6 +87,8 @@ export function ProjectIconMark({ project, size, version }: ProjectIconMarkProps
 interface EditableProjectIconProps {
   project: ProjectIconSource & { id: string }
   size: keyof typeof SIZES
+  /** Forwarded to IconPopover — see its own doc. */
+  onOpenChange?: (open: boolean) => void
 }
 
 /**
@@ -95,7 +97,7 @@ interface EditableProjectIconProps {
  * project, minus the GitHub owner-avatar button: a project has no origin
  * remote to read one from.
  */
-export function EditableProjectIcon({ project, size }: EditableProjectIconProps) {
+export function EditableProjectIcon({ project, size, onOpenChange }: EditableProjectIconProps) {
   return (
     <IconPopover
       base={`/v0/projects/${project.id}`}
@@ -105,6 +107,7 @@ export function EditableProjectIcon({ project, size }: EditableProjectIconProps)
       fallback={<ProjectIconMark project={project} size={size} />}
       fallbackLarge={<ProjectIconMark project={project} size="xl" />}
       trigger={(version) => <ProjectIconMark project={project} size={size} version={version} />}
+      onOpenChange={onOpenChange}
     />
   )
 }
