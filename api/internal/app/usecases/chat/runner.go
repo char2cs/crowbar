@@ -315,55 +315,31 @@ func (u *Usecase) SwitchProvider(
 // once per client request id.
 //
 // A non-empty provider that differs from the chat's CURRENT one is switched
-// to FIRST — the same SwitchProvider a standalone POST .../switch would run,
-// just run from here instead. This is what lets the composer hold a picked
-// provider (picking a model under a different section) as pure local state:
-// the picker never calls SwitchProvider itself any more, so a row click never
-// tears down the live CLI on its own — only the next actual send does, atomically
-// with delivering it. A provider equal to the chat's current one, or left
-// empty, never touches SwitchProvider at all — an idle resend must not pay for
-// a switch it never asked for.
+// to FIRST — the same switch a standalone POST .../switch would run, staged
+// here instead. This is what lets the composer hold a picked provider
+// (picking a model under a different section) as pure local state: the
+// picker never calls SwitchProvider itself any more, so a row click never
+// tears down the live CLI on its own — only the next actual send does. A
+// provider equal to the chat's current one, or left empty, never switches at
+// all — an idle resend must not pay for a switch it never asked for.
 //
 // A non-empty model/effort commits the chat's sticky selection NEXT — same
-// SetChatSelection the standalone PATCH .../selection route uses, so a bad
-// value still 400s here exactly as it would there, before anything is sent to
-// the CLI. Run after the provider switch (if any), so it validates the pick
-// against the provider it will actually run under. This is what lets the
-// composer hold a picked model/effort as pure local state and never write it
-// anywhere until the user actually sends.
+// validation the standalone PATCH .../selection route runs, so a bad value
+// still 400s here exactly as it would there, before anything is sent to the
+// CLI and, critically, before the provider switch above is even attempted —
+// see Runners.SubmitPromptWithSwitch's own doc for why validating first
+// (rather than switching, THEN discovering the pick was bad) matters. This is
+// what lets the composer hold a picked model/effort as pure local state and
+// never write it anywhere until the user actually sends.
+//
+// The whole sequence — switch, selection, delivery — runs under ONE hold of
+// the chat's spawn gate (Runners.SubmitPromptWithSwitch), not three separate
+// ones: see that method's own doc for the race a gap between them opened.
 func (u *Usecase) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID, provider, model, effort string,
 ) (domain.AgentPromptSubmission, error) {
-	if err := u.switchToStagedProvider(ctx, chatID, provider); err != nil {
-		return domain.AgentPromptSubmission{}, err
-	}
-	if model != "" || effort != "" {
-		if err := u.SetChatSelection(ctx, chatID, model, effort); err != nil {
-			return domain.AgentPromptSubmission{}, err
-		}
-	}
-	return u.runners.SubmitPrompt(ctx, chatID, text, clientRequestID)
-}
-
-// switchToStagedProvider runs SwitchProvider only when provider actually
-// differs from the chat's current one — empty (nothing staged) and "already
-// on it" both no-op. SwitchProvider kills and respawns the CLI unconditionally
-// whenever it runs, so calling it on every ordinary resend would tear the CLI
-// down on every message.
-func (u *Usecase) switchToStagedProvider(ctx context.Context, chatID, provider string) error {
-	if provider == "" {
-		return nil
-	}
-	current, err := u.conversations.ChatProviderID(ctx, chatID)
-	if err != nil {
-		return err
-	}
-	if provider == current {
-		return nil
-	}
-	_, err = u.SwitchProvider(ctx, chatID, provider)
-	return err
+	return u.runners.SubmitPromptWithSwitch(ctx, chatID, text, clientRequestID, provider, model, effort)
 }
 
 // SlashCatalog probes the chat's provider for the slash commands it offers.

@@ -694,6 +694,74 @@ func TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppre
 	assert.True(t, f.chat(t, chatID).Working, "the CLI is answering the real prompt: the chat must read as working")
 }
 
+// AUDIT FINDING (unverified-by-parent, reproduced by a fork): the RecordInjection
+// gate (spawn.go, promptMessage=="") correctly stops the WHOLE turn from being
+// suppressed when a real prompt rides the same spawn as injected context — but
+// nothing strips the injected CONTEXT back out of what the CLI's own user_prompt
+// hook reports. turn.go's handleUserPrompt-equivalent calls promptsigil.Strip on
+// ev.Message to undo dispatch's own sigil-guard escape, and Strip is anchored
+// with strings.HasPrefix(text, escape) — true only when the escaped MESSAGE is
+// the very first thing in the text. After mergeLeadingPositional, the delivered
+// text is context+"\n\n"+guardedMessage: context is first, so HasPrefix always
+// fails, Strip is a no-op, and the ENTIRE combined blob — the whole injected
+// "WHILE YOU WERE AWAY" wrapper, gap content included — is stored VERBATIM as
+// the permanent ledger row for this turn. The very comment RecordInjection's own
+// gate was built under warns about exactly this shape: "that is what made
+// handoffs nest inside themselves" — and it is happening again, one layer
+// downstream of the gate that was supposed to prevent it. A second switch away
+// and back would fold THIS turn's already-injected gap into the NEXT gap,
+// compounding without bound.
+func TestAudit_SubmitPromptWithStagedProvider_LedgerMustNotPermanentlyStoreTheInjectedContext(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude-native")
+	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	waitForClockTick(t)
+
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	f.announce(t, codexRunner, "sid-codex-native")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "turn_stop",
+		mustJSON(t, map[string]any{
+			"threadId": "sid-codex-native",
+			"turn": map[string]any{
+				"items": []any{
+					map[string]any{"type": "agentMessage", "text": "codex spoke while claude was away"},
+				},
+			},
+		})))
+	f.wait()
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", "", "")
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	argv := f.term.calls[f.term.callCount()-1].argv
+	delivered := argv[len(argv)-1]
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": delivered})))
+	f.wait()
+
+	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	require.NoError(t, err)
+	var storedUserText string
+	for _, item := range page.Items {
+		if item.Role == "user" && item.Text != "" && strings.Contains(item.Text, "what did I miss?") {
+			storedUserText = item.Text
+		}
+	}
+	require.NotEmpty(t, storedUserText, "the real prompt's own user turn must exist in the ledger")
+	assert.Equal(t, "what did I miss?", storedUserText,
+		"the permanently stored user turn must be exactly what the person typed — "+
+			"not Crowbar's own injected context riding the same spawn, which must never "+
+			"become durable ledger content: got %q", storedUserText)
+}
+
 // TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDelivered
 // closes the gap between "switch alone" and "switch with a model/effort pick
 // riding the SAME send" — SetChatSelection's own restart-forcing
@@ -749,7 +817,7 @@ func TestRegression_SubmitPromptWithStagedProviderModelAndEffort_GapStillDeliver
 // TestRegression_SubmitPromptWithStagedProvider_DormantChatRevivesOntoTheOtherProviderWithTheGap
 // covers reopening an old chat and sending straight to a DIFFERENT provider
 // than it was last on, in one action — no explicit Resume first. There is no
-// live runner to displace at all, so switchToStagedProvider's own
+// live runner to displace at all, so SubmitPromptWithSwitch's own
 // current-vs-staged comparison, resumableConversation's age/turn checks, and
 // the delivery spawn's gap assembly all run cold, off nothing but durable
 // state. A chat with no live runner is still a chat with real history.
@@ -999,7 +1067,7 @@ func TestRegression_SwitchProvider_AbandonedSessionInAnActiveChat_SpawnsFreshNot
 // provider (switch + deliver in one call), not a bare SwitchProvider. The
 // sessionLegacyMinAge fix lives entirely in resumableConversation, reached
 // only from switchProviderLocked — SubmitPrompt calls that internally via
-// switchToStagedProvider, so this pins that the fix actually reaches the path
+// SubmitPromptWithSwitch, so this pins that the fix actually reaches the path
 // a real "switch, then send" click takes, not just the standalone switch.
 func TestRegression_SubmitPromptWithStagedProvider_AbandonedSessionSpawnsFreshNotACorpse(t *testing.T) {
 	f := newFixture(t)
@@ -4389,4 +4457,82 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 	require.NoError(t, err)
 	require.Len(t, page.Items, 1)
 	assert.Equal(t, "THE MESSAGE SO FAR", page.Items[0].Text)
+}
+
+// TestRegression_SubmitPromptWithStagedProvider_ConcurrentSendsNeverCrossDeliver
+// is the live concurrency counterpart to the atomicity fix
+// (Runners.SubmitPromptWithSwitch, promptswitch.go): before it existed,
+// Usecase.SubmitPrompt ran its internal provider switch as a FULL, separately
+// unlocked SwitchProvider call, then delivered through a SECOND, later Lock —
+// a gap wide enough for a second concurrent SubmitPrompt, staging a DIFFERENT
+// provider on the same chat, to land its own switch in between and steal the
+// first caller's delivery: whichever provider happened to be live when the
+// second Lock was finally acquired got the message, not the one that call
+// had actually staged.
+//
+// Reproducing that exact interleaving deterministically in this in-memory
+// fixture turned out not to be practical — Go's mutex favours the
+// already-running goroutine over a freshly woken waiter (barging), so the
+// first caller routinely finishes both of the old code's lock phases before
+// a second goroutine even gets scheduled, whatever hook it is launched from.
+// This is the black-box property that DOES hold either way: two real,
+// concurrently racing SubmitPrompt calls, each staging its OWN provider on
+// the same chat, must never cross-deliver — every interleaving a correct
+// (single-Lock) implementation can produce still lands each message on the
+// provider IT staged. The historical race itself is verified live, under
+// real OS-process scheduling, per this repo's own live-load-test convention
+// for timing-dependent fixes.
+func TestRegression_SubmitPromptWithStagedProvider_ConcurrentSendsNeverCrossDeliver(t *testing.T) {
+	f := newFixture(t)
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude")
+
+	type outcome struct {
+		provider string
+		message  string
+		result   domain.AgentPromptSubmission
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan outcome, 2)
+	launch := func(provider, message string) {
+		go func() {
+			<-start
+			d, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), provider, "", "")
+			results <- outcome{provider: provider, message: message, result: d, err: err}
+		}()
+	}
+	launch("codex", "message meant for codex")
+	launch("claude", "message meant for claude")
+	close(start)
+	first, second := <-results, <-results
+	f.wait()
+
+	for _, o := range []outcome{first, second} {
+		if o.err != nil {
+			// A refusal is never a misdelivery — only a wrong destination is
+			// the bug this test exists to catch.
+			continue
+		}
+		live := f.runner(t, o.result.RunnerID)
+		assert.Equal(t, o.provider, live.ProviderID,
+			"a staged-provider send must land on the provider IT staged, never a "+
+				"concurrent caller's: message=%q landed on provider=%s", o.message, live.ProviderID)
+	}
+}
+
+func TestRegression_SubmitPromptWithStagedProviderAndInvalidModel_SwitchStaysCommitted(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "codex", "not-a-real-model", "")
+
+	require.Error(t, err)
+	live, liveErr := f.liveRunnerFor(t, chatID)
+	require.NoError(t, liveErr)
+	t.Logf("after invalid-model SubmitPrompt with a staged switch: err=%v liveProvider=%s working=%v",
+		err, live.ProviderID, f.chat(t, chatID).Working)
+	assert.Equal(t, "claude", live.ProviderID,
+		"a switch committed by a call whose OWN selection step then fails should not silently "+
+			"strand the chat on the new provider with no prompt delivered and no way back but another switch")
 }
