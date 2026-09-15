@@ -439,12 +439,16 @@ func TestInjectionRegistry_RecognisesAnEchoOncePerRunner(t *testing.T) {
 	e := agents.New()
 	e.RecordInjection("runner-1", "handoff blob")
 
-	assert.True(t, e.WasInjected("runner-1", "handoff blob"))
-	assert.False(t, e.WasInjected("runner-1", "handoff blob"))
+	remainder, found := e.ConsumeInjectedPrefix("runner-1", "handoff blob")
+	assert.True(t, found)
+	assert.Empty(t, remainder)
+	_, found = e.ConsumeInjectedPrefix("runner-1", "handoff blob")
+	assert.False(t, found)
 
 	e.RecordInjection("runner-2", "other")
 	e.ForgetRunner("runner-2")
-	assert.False(t, e.WasInjected("runner-2", "other"))
+	_, found = e.ConsumeInjectedPrefix("runner-2", "other")
+	assert.False(t, found)
 }
 
 func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {

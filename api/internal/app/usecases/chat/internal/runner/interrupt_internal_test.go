@@ -32,7 +32,7 @@ func (s stubWorkspaceForInterrupt) WorktreeDir(
 }
 
 // stubAgentsForInterrupt answers only Get, with whatever agent the test built —
-// interruptTurn never needs List/RecordInjection/WasInjected/ForgetRunner.
+// interruptTurn never needs List/RecordInjection/ConsumeInjectedPrefix/ForgetRunner.
 type stubAgentsForInterrupt struct {
 	engineagents.Agents
 	agent engineagents.Agent

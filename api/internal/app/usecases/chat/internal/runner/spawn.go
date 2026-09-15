@@ -157,19 +157,17 @@ func (rs *Runners) spawnRunner(
 	// spawn, registering unconditionally would leave a guard behind for text no CLI
 	// was ever given.
 	//
-	// AND only when there is no real prompt riding the same spawn. Consume's own
-	// match is containment, not equality (the descriptor's wrapping — claude's
-	// <system-reminder> tags — is unknown to Go), which is exactly right for a
-	// bare echo but wrong the moment a real message is appended: with a user's
-	// own prompt merged in ahead of it (mergeLeadingPositional), the delivered
-	// text still CONTAINS the registered document, so an unconditional register
-	// suppressed the whole turn — the real prompt vanished from the ledger even
-	// though the provider answered it, and the client's own evidence match, which
-	// waits for exactly that ledger row, eventually gave up and told the user
-	// their message was never picked up when it plainly had been. A spawn with a
-	// real prompt is never a bare echo by construction: it is the user's own
-	// turn, injected preamble and all, and belongs in the ledger like any other.
-	if inject && promptMessage == "" {
+	// Unconditional otherwise — including when promptMessage is also set: a real
+	// prompt can ride the SAME positional as the injected document
+	// (mergeLeadingPositional), and the hook side (ConsumeInjectedPrefix,
+	// turn.go) is what tells "bare echo" and "echo with a real prompt merged
+	// ahead of it" apart, returning the remainder in the second case rather
+	// than swallowing the whole turn. Registering only for the bare case (a
+	// prior version of this gate) left the merged case with nothing
+	// registered at all — the injected preamble was then recorded verbatim as
+	// what the user typed, corrupting the ledger, the derived title, and
+	// every hash-based "was this accepted" check downstream.
+	if inject {
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}
 

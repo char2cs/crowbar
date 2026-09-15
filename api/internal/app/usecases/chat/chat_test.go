@@ -1034,15 +1034,16 @@ func TestRunnerExit_ForgetsTheInjectedContext(t *testing.T) {
 	_, claudeRunner, injected := resumeClaudeWithGap(t, f)
 
 	// Precondition: the guard is armed — Crowbar's own document is recognised as an echo.
-	require.True(t, f.engine.WasInjected(claudeRunner, injected))
+	_, found := f.engine.ConsumeInjectedPrefix(claudeRunner, injected)
+	require.True(t, found)
 
 	// Re-arm it (the match above consumed it), then kill the PTY.
 	f.engine.RecordInjection(claudeRunner, injected)
 	f.term.exit(t, f.runner(t, claudeRunner).TerminalSession)
 	f.wait()
 
-	assert.False(t, f.engine.WasInjected(claudeRunner, injected),
-		"a dead runner's injected context must be forgotten")
+	_, found = f.engine.ConsumeInjectedPrefix(claudeRunner, injected)
+	assert.False(t, found, "a dead runner's injected context must be forgotten")
 }
 
 // ─── from selection_test.go ───────────────────────────────────────────

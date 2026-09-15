@@ -71,6 +71,13 @@ func mergeLeadingPositional(
 	merged[len(merged)-1] = engineagents.InjectStep{
 		Verb: last.Verb,
 		Args: map[string]any{
+			// "\n\n": kept byte-for-byte identical to
+			// registry.MergedSeparator (internal/engine/agents/internal/registry) —
+			// that package can't import this one's internal tree to share the
+			// constant directly, so ConsumeInjectedPrefix (turn.go's own use of
+			// it) locates the SAME literal to split the real prompt back out
+			// of the merged echo. Changing one without the other silently
+			// breaks that split.
 			"positional": argString(context[0].Args["positional"]) + "\n\n" + argString(last.Args["positional"]),
 		},
 	}
