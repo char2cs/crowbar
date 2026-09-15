@@ -621,6 +621,77 @@ func TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap(t 
 			"must carry the gap claude missed while away: argv was %v", argv)
 	assert.NotContains(t, joined, "claude ledger content",
 		"a provider resumed into its own conversation must not be re-fed its own earlier turns")
+
+	// Not just present SOMEWHERE in argv — in the SAME trailing positional as
+	// the gap, behind exactly one "--". Two SEPARATE positionals (gap, then
+	// its own later "-- what did I miss?") is the exact shape that reached
+	// claude's real CLI live: it attended to only the first and the second
+	// was silently dropped, never even reaching the CLI's own user_prompt
+	// hook — see mergeLeadingPositional.
+	last := argv[len(argv)-1]
+	assert.Contains(t, last, "codex spoke while claude was away")
+	assert.Contains(t, last, "what did I miss?")
+	assert.Equal(t, 2, len(argv)-indexOf(argv, "--"),
+		"exactly one argv entry must follow the final \"--\": argv was %v", argv)
+}
+
+// TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppressed
+// is the SAME shape as the DeliverySpawnCarriesTheGap test above, but proves
+// the OTHER half of the same live bug: registering the injected document for
+// echo-suppression on a spawn that ALSO carries a real prompt. Consume's own
+// match is containment, not equality (the descriptor's <system-reminder>
+// wrapping is unknown to Go), which is correct for a BARE echo — but once the
+// user's own message is folded ahead of it into one combined positional (see
+// mergeLeadingPositional), the delivered text still CONTAINS the registered
+// document, so registering unconditionally suppressed the WHOLE turn: the
+// user's real question never reached the ledger even though claude answered
+// it, and the client's own evidence match — which waits for exactly that
+// ledger row — eventually told the user their message was never picked up
+// when it plainly had been.
+func TestRegression_SubmitPromptWithStagedProvider_RealPromptIsRecordedNotSuppressed(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude-native")
+	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	waitForClockTick(t)
+
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	f.announce(t, codexRunner, "sid-codex-native")
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "turn_stop",
+		mustJSON(t, map[string]any{
+			"threadId": "sid-codex-native",
+			"turn": map[string]any{
+				"items": []any{
+					map[string]any{"type": "agentMessage", "text": "codex spoke while claude was away"},
+				},
+			},
+		})))
+	f.wait()
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", "", "")
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	argv := f.term.calls[f.term.callCount()-1].argv
+	delivered := argv[len(argv)-1]
+
+	// Exactly what the real claude CLI's own user_prompt hook fires with:
+	// the combined positional this exact spawn was handed.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": delivered})))
+	f.wait()
+
+	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Contains(t, handoff, "what did I miss?",
+		"a spawn carrying a real prompt is never a bare echo — it belongs in the ledger "+
+			"like any other user turn, injected preamble and all:\n%s", handoff)
+	assert.True(t, f.chat(t, chatID).Working, "the CLI is answering the real prompt: the chat must read as working")
 }
 
 // TestResumeChat_LiveChat_IsNoop: reviving a chat whose CLI is alive must never tear

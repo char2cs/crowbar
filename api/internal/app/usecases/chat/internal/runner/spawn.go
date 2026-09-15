@@ -156,7 +156,20 @@ func (rs *Runners) spawnRunner(
 	// echo — and since the capability preamble makes tctx.Context non-empty on every
 	// spawn, registering unconditionally would leave a guard behind for text no CLI
 	// was ever given.
-	if inject {
+	//
+	// AND only when there is no real prompt riding the same spawn. Consume's own
+	// match is containment, not equality (the descriptor's wrapping — claude's
+	// <system-reminder> tags — is unknown to Go), which is exactly right for a
+	// bare echo but wrong the moment a real message is appended: with a user's
+	// own prompt merged in ahead of it (mergeLeadingPositional), the delivered
+	// text still CONTAINS the registered document, so an unconditional register
+	// suppressed the whole turn — the real prompt vanished from the ledger even
+	// though the provider answered it, and the client's own evidence match, which
+	// waits for exactly that ledger row, eventually gave up and told the user
+	// their message was never picked up when it plainly had been. A spawn with a
+	// real prompt is never a bare echo by construction: it is the user's own
+	// turn, injected preamble and all, and belongs in the ledger like any other.
+	if inject && promptMessage == "" {
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}
 
