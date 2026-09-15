@@ -1155,6 +1155,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 
 	t.Run("model and effort both change from empty", func(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
+		f.wait()
 
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
@@ -1175,6 +1176,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 
 	t.Run("reapplying the same selection records nothing new", func(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
+		f.wait()
 
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
@@ -1183,6 +1185,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 
 	t.Run("effort-only change records only InterruptEffortChanged", func(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "low"))
+		f.wait()
 
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
