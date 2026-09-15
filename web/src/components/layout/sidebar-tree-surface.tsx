@@ -170,6 +170,10 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     (id: string) => openSidebarRow(id, repos, navigate),
     [repos, navigate],
   )
+  const createRow = useCallback(
+    (parentId: string, kind: 'workspace' | 'thread') => createSidebarRow(parentId, kind, navigate),
+    [navigate],
+  )
   const focusRecentEntry = useCallback(
     (entry: RecentsBandEntry) => focusRecent(entry, repos, navigate),
     [repos, navigate],
@@ -215,7 +219,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
             recentsForProject={recentsForProjectFn}
             onOpen={openRow}
             onTrash={onTrash}
-            onCreate={createSidebarRow}
+            onCreate={createRow}
             onFocusRecent={focusRecentEntry}
             onCloseRecent={closeRecent}
             onCloseChatRecent={closeRecentChat}

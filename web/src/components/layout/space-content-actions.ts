@@ -559,6 +559,7 @@ const armedBranchCreates = new Map<
     repoId: string
     providerId: string
     placementParentId: string
+    navigate: NavigateFn
     release: () => void
   }
 >()
@@ -568,9 +569,20 @@ const armedBranchCreates = new Map<
  *  (pending-creates.ts) the instant this is called — never after the round
  *  trip, which for a fork includes provisioning a real git worktree. A fork
  *  asks for its branch name first (the pending row becomes an inline input,
- *  confirmed via `confirmPendingCreateName`); a thread has nothing to name
- *  and fires immediately. */
-export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): void {
+ *  confirmed via `confirmPendingCreateName`, which is what actually opens
+ *  it — nothing is minted here yet); a thread has nothing to name, fires
+ *  immediately, and opens the moment it exists, the same way
+ *  `handleCreateHomeThread`/`openHomeChat` already do for a project-home
+ *  thread. Live-reported: "that new chat entity should be focused... it's
+ *  just adding the row" — a fresh thread/fork updated the tree but never
+ *  navigated anywhere, leaving whatever pane the user already had open
+ *  showing, with the new chat merely a sidebar row now waiting to be
+ *  clicked. */
+export function handleCreate(
+  parentId: string,
+  kind: 'workspace' | 'thread',
+  navigate: NavigateFn,
+): void {
   // A project-home row (chat OR folder) is resolved FIRST, against every
   // visible project's home tree rather than `repos` — same rule `handleOpen`
   // already follows via the identical `resolveHomeRowScope` call. Project
@@ -734,6 +746,7 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
       repoId: repo.id,
       providerId: provider.id,
       placementParentId,
+      navigate,
       release,
     })
     usePendingCreatesStore.getState().startNaming({
@@ -824,6 +837,15 @@ export function handleCreate(parentId: string, kind: 'workspace' | 'thread'): vo
     .then((chatId) => {
       release()
       announceTreeChange(repo.id)
+      // Opens the new thread the moment it exists — same "focus what you
+      // just created" contract `openHomeChat` already gives a project-home
+      // thread — rather than leaving it as a sidebar row the user has to
+      // click themselves. Independent of the tree reseed below: this writes
+      // straight into the pane store / route, neither of which waits on
+      // `waitForRow`.
+      if (!openChatInOwnView(chatId, wsId)) {
+        void navigateThenOpenChat(navigate, { projectId, repoId: repo.id, wsId }, chatId)
+      }
       // Hides the real row (space-scroller.tsx's `unconfirmedRealIds`) from
       // first paint — see PendingCreateEntry.realId, and chatHasLanded's own
       // doc for the placement race this closes for repo-scoped threads too.
@@ -864,9 +886,25 @@ export function confirmPendingCreateName(tempId: string, name: string): void {
       // first paint — see PendingCreateEntry.realId, and forkHasLanded's own
       // doc for the placement race this closes.
       usePendingCreatesStore.getState().attachRealId(tempId, chatId)
-      return waitForRow(forkHasLanded(chatId, armed.placementParentId)).then(() =>
-        usePendingCreatesStore.getState().clear(tempId),
-      )
+      return waitForRow(forkHasLanded(chatId, armed.placementParentId)).then(() => {
+        usePendingCreatesStore.getState().clear(tempId)
+        // Opens the new branch's own chat the moment it's real, same as the
+        // thread path above — a fork only knows its OWN workspace id once
+        // `forkHasLanded` confirms the owning-workspace half of the create
+        // has landed (the API response carries only the chat id), so this
+        // has to wait for that rather than firing right off the response.
+        const wsId = useSidebarStore
+          .getState()
+          .repos.flatMap((r) => r.workspaces)
+          .find((w) => w.owningChatId === chatId)?.id
+        if (wsId && !openChatInOwnView(chatId, wsId)) {
+          void navigateThenOpenChat(
+            armed.navigate,
+            { projectId: armed.projectId, repoId: armed.repoId, wsId },
+            chatId,
+          )
+        }
+      })
     })
     .catch((err: unknown) => {
       armed.release()
