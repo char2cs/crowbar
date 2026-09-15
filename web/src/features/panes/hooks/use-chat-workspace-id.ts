@@ -249,7 +249,7 @@ export function useViewWorkspaceIds(): string[] {
       if (!store) continue
       const { agentChats } = store.getState()
       Object.assign(working, agentChats.working)
-      for (const chat of agentChats.chats) chatOwner.set(chat.id, wsId)
+      for (const chat of agentChats.chats) chatOwner.set(chat.id, chat.workspaceId || wsId)
     }
     const owners = workspacesWithViewChat(
       Object.values(panes),

@@ -220,6 +220,33 @@ describe('useViewWorkspaceIds', () => {
 
     expect([...result.current].sort()).toEqual(['ws-a', 'ws-b'])
   })
+
+  // Live-reported regression, and the direct cause of a continuous re-render
+  // loop (measured live: IDEShell re-rendering the whole app tree every
+  // ~6ms, 0 fps drops after this fix vs. 12+ before): listChats is
+  // repo-scoped, so ws-b's own store can ALSO carry a copy of a chat that
+  // really belongs to ws-a. Attributing ownership by the ITERATING store's
+  // id (instead of the chat's own `workspaceId`) made `owners` depend on
+  // registry iteration order — stable most of the time, but the instant that
+  // order shifted (a store destroyed and recreated by WorkspaceHost's own
+  // retention reconcile, itself fed by this hook's output) the attribution
+  // flipped, producing a DIFFERENT viewWsIds string, which re-triggered the
+  // very reconcile that shifted the order — a self-sustaining feedback loop
+  // with no user interaction involved at all.
+  it("attributes a chat to its OWN workspaceId even when a sibling store's repo-wide copy also lists it", () => {
+    act(() => {
+      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
+      // ws-b's store also carries a copy of c1 — a repo-scoped listChats
+      // leak, not a real ownership claim (c1's own workspaceId still says
+      // ws-a).
+      getOrCreateWorkspaceStore('ws-b').getState().seedAgentChats([chat('c1', 'ws-a')])
+      seedLivePane('c1')
+    })
+    const { result, rerender } = renderHook(() => useViewWorkspaceIds())
+    rerender()
+
+    expect(result.current).toEqual(['ws-a'])
+  })
 })
 
 // Regression: an editor-only pane (chatId: null, real editorTabIds) names no
