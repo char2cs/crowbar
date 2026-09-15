@@ -155,12 +155,8 @@ export function AgentLiveTurnTools({
 }
 
 /** The list both of the above draw — one definition of the cap, the ordering and
- *  the row, so the live view and the record can never disagree about a call.
- *
- *  Exported for NestedSubagentPanel (activity/nested-subagents.tsx): a
- *  subagent's own nested tool calls are the SAME shape and want the SAME
- *  row, not a second definition of it. */
-export function ToolList({
+ *  the row, so the live view and the record can never disagree about a call. */
+function ToolList({
   calls,
   testId,
   output,

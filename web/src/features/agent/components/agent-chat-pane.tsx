@@ -604,26 +604,19 @@ export function AgentChatPane({
     effort: string
   } | null>(null)
 
-  // Settle the staged override the moment the store's OWN provider and
-  // sticky value catch up to it. Not "clear right after a successful send"
-  // — a moment-later store update from a DIFFERENT source (another pane on
-  // the same chat, a stale refetch) must win over a staged copy exactly as
-  // it would if nothing had ever been staged, and comparing against the live
-  // store value on every render is what keeps that true instead of trusting
-  // "our own send must have been the one that landed." Provider settles via
-  // the SAME adopt() refresh a plain prompt already triggers (handlePromptSpawned)
-  // — no separate commit call needed for it, unlike model/effort below.
-  useEffect(() => {
-    if (
-      stagedSelection &&
-      stagedSelection.providerId === activeProviderId &&
-      stagedSelection.model === chatModel &&
-      stagedSelection.effort === chatEffort
-    ) {
-      setStagedSelection(null)
-    }
-  }, [activeProviderId, chatModel, chatEffort, stagedSelection])
-
+  // The staged override settles the moment the store's OWN provider and
+  // sticky value catch up to it — derived at render time, not cleared by an
+  // effect a tick later, so there is no render where a just-landed store
+  // update is briefly masked by a stale staged copy. Once settled,
+  // stagedSelection's own fields equal the live store's, so reading through
+  // it (`stagedSelection?.x ?? live`) is indistinguishable from having
+  // cleared it; a moment-later store update from a DIFFERENT source (another
+  // pane on the same chat, a stale refetch) still wins over a staged copy
+  // exactly as it would if nothing had ever been staged, because it is
+  // compared fresh on every render rather than trusted from whenever it was
+  // set. Provider settles via the SAME adopt() refresh a plain prompt
+  // already triggers (handlePromptSpawned) — no separate commit call needed
+  // for it, unlike model/effort below.
   const effectiveProviderId = stagedSelection?.providerId ?? activeProviderId
   const effectiveModel = stagedSelection?.model ?? chatModel
   const effectiveEffort = stagedSelection?.effort ?? chatEffort

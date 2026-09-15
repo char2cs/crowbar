@@ -601,10 +601,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     const orphaned = finishedNestedSubagents(props.activity)
     if (orphaned.length === 0) return grouped
 
-    const assistantTurns = messages
-      .filter((m) => m.role === 'assistant' && m.turnId)
-      .map((m) => ({ turnId: m.turnId, at: Date.parse(m.at) }))
-      .sort((a, b) => a.at - b.at)
+    const assistantTurns: { turnId: string; at: number }[] = []
+    for (const m of messages) {
+      if (m.role === 'assistant' && m.turnId) {
+        assistantTurns.push({ turnId: m.turnId, at: Date.parse(m.at) })
+      }
+    }
+    assistantTurns.sort((a, b) => a.at - b.at)
     if (assistantTurns.length === 0) return grouped
 
     for (const subagent of orphaned) {
