@@ -177,6 +177,43 @@ export function usePaneWorkspaceIds(
 }
 
 /**
+ * Every workspace id some pane's EDITOR TABS reference — files, terminals,
+ * diffs, previews — via each open buffer's own `workspaceId`
+ * (`EditorTabBase.workspaceId`, pane-content.ts).
+ *
+ * `usePaneWorkspaceIds` above only resolves a pane's CHAT — but a pane can
+ * hold editor tabs with `chatId: null` (an editor-only split, e.g. a file
+ * opened beside a chat pane). Such a pane names no chat at all, so it was
+ * invisible to `WorkspaceHost`'s retention set (`paneWsIds`): unless its
+ * workspace also happened to be the single active one, or own a chat
+ * Recents was tracking, `planRetention` (keep-alive-policy.ts) could
+ * legitimately evict it — destroying the workspace's store, and with it
+ * `EditorSurface`'s `editorManager` — while the pane displaying its file was
+ * still on screen. Live-reported as "Editor failed to load. Try closing and
+ * reopening this file.": the split's OTHER pane (a chat) switched the
+ * active workspace elsewhere, its own workspace had no chat left in
+ * Recents, and the next render's `getWorkspaceStore(workspaceId)!.editorManager`
+ * threw on the now-destroyed store.
+ */
+export function usePaneEditorWorkspaceIds(): string[] {
+  const subscribe = useCallback((onChange: () => void) => windowPaneStore.subscribe(onChange), [])
+  const snapshot = useCallback(() => {
+    const { panes, buffers } = windowPaneStore.getState()
+    const bufferWorkspace = new Map(buffers.map((b) => [b.id, b.workspaceId]))
+    const ids = new Set<string>()
+    for (const pane of Object.values(panes)) {
+      for (const tabId of pane.editorTabIds) {
+        const wsId = bufferWorkspace.get(tabId)
+        if (wsId) ids.add(wsId)
+      }
+    }
+    return [...ids].sort().join(ID_DELIM)
+  }, [])
+  const key = useSyncExternalStore(subscribe, snapshot, snapshot)
+  return useMemo(() => (key ? key.split(ID_DELIM) : []), [key])
+}
+
+/**
  * Every workspace id that currently owns at least one chat present in some
  * Recents entry (live, working, set, or dormant) — "in a view" per
  * `keep-alive-policy.ts`'s new retention rule. Built for `WorkspaceHost`'s

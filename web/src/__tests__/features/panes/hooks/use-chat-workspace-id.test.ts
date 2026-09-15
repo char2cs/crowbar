@@ -9,7 +9,11 @@ vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
   clearQueuedWorkspaceSessionSave: vi.fn(),
 }))
 
-import { useChatWorkspaceId, useViewWorkspaceIds } from '@/features/panes/hooks/use-chat-workspace-id'
+import {
+  useChatWorkspaceId,
+  usePaneEditorWorkspaceIds,
+  useViewWorkspaceIds,
+} from '@/features/panes/hooks/use-chat-workspace-id'
 import {
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
@@ -20,6 +24,31 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import type { AgentChat } from '@/features/agent/api/agent-api'
+import type { PaneGroup } from '@/features/panes/types/pane'
+import type { EditorContent } from '@/features/panes/types/pane-content'
+
+const editorTab = (id: string, wsId: string): EditorContent => ({
+  id,
+  type: 'editor',
+  name: id,
+  path: id,
+  workspaceId: wsId,
+  content: '',
+  savedContent: '',
+  isDirty: false,
+  isVirtual: false,
+  tokens: [],
+})
+
+const editorOnlyPane = (id: string, tabId: string): PaneGroup => ({
+  id,
+  type: 'group',
+  chatId: null,
+  runnerId: null,
+  editorTabIds: [tabId],
+  activeEditorTabId: tabId,
+  editorOpen: true,
+})
 
 const chat = (id: string, wsId: string): AgentChat => ({
   id,
@@ -190,5 +219,56 @@ describe('useViewWorkspaceIds', () => {
     rerender()
 
     expect([...result.current].sort()).toEqual(['ws-a', 'ws-b'])
+  })
+})
+
+// Regression: an editor-only pane (chatId: null, real editorTabIds) names no
+// chat at all, so it was invisible to WorkspaceHost's retention set entirely
+// — planRetention (keep-alive-policy.ts) could evict a workspace still
+// displaying an open file/terminal split the moment its chat (if any)
+// dropped out of Recents, destroying the store (and EditorSurface's
+// editorManager) out from under the still-visible pane. Live-reported as
+// "Editor failed to load. Try closing and reopening this file."
+describe('usePaneEditorWorkspaceIds', () => {
+  it('names the workspace an editor-only pane (no chat) holds a file for', () => {
+    act(() => {
+      windowPaneStore.setState((state) => ({
+        panes: { ...state.panes, 'editor-pane': editorOnlyPane('editor-pane', 'tab-1') },
+        buffers: [...state.buffers, editorTab('tab-1', 'ws-a')],
+      }))
+    })
+
+    const { result } = renderHook(() => usePaneEditorWorkspaceIds())
+
+    expect(result.current).toEqual(['ws-a'])
+  })
+
+  it('unions across every pane and drops a workspace once its tab closes', () => {
+    act(() => {
+      windowPaneStore.setState((state) => ({
+        panes: {
+          ...state.panes,
+          'editor-pane-a': editorOnlyPane('editor-pane-a', 'tab-a'),
+          'editor-pane-b': editorOnlyPane('editor-pane-b', 'tab-b'),
+        },
+        buffers: [...state.buffers, editorTab('tab-a', 'ws-a'), editorTab('tab-b', 'ws-b')],
+      }))
+    })
+    const { result, rerender } = renderHook(() => usePaneEditorWorkspaceIds())
+    expect([...result.current].sort()).toEqual(['ws-a', 'ws-b'])
+
+    act(() => {
+      windowPaneStore.setState((state) => ({
+        panes: { ...state.panes, 'editor-pane-a': { ...state.panes['editor-pane-a']!, editorTabIds: [] } },
+      }))
+    })
+    rerender()
+
+    expect(result.current).toEqual(['ws-b'])
+  })
+
+  it('answers empty when no pane holds any editor tab', () => {
+    const { result } = renderHook(() => usePaneEditorWorkspaceIds())
+    expect(result.current).toEqual([])
   })
 })

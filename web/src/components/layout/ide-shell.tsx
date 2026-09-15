@@ -44,6 +44,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { selectIsShowingEmptyStage } from '@/features/panes/stores/slices/pane-slice'
 import {
   useActivePaneWorkspaceId,
+  usePaneEditorWorkspaceIds,
   usePaneWorkspaceIds,
   useViewWorkspaceIds,
 } from '@/features/panes/hooks/use-chat-workspace-id'
@@ -178,6 +179,13 @@ export function IDEShell() {
   // to whichever workspace happens to be ambient (see usePaneWorkspaceIds'
   // own doc for the "clicking one pane switches the other's chat" bug this
   // closes).
+  // Every workspace some pane's EDITOR TABS reference, via each open buffer's
+  // own workspaceId — an editor-only pane (chatId: null) names no chat, so
+  // it is invisible to paneWorkspaceIds above; without this, WorkspaceHost's
+  // retention could evict a workspace still displaying an open file/terminal
+  // split the instant its chat (if any) dropped out of Recents (see the
+  // hook's own doc — "Editor failed to load" was this).
+  const paneEditorWorkspaceIds = usePaneEditorWorkspaceIds()
   const paneWorkspaceIds = usePaneWorkspaceIds(paneChatEntries)
   // Every workspace Recents currently tracks a chat for (live, working, set,
   // or dormant) — fed into WorkspaceHost below as `viewWsIds`, its new "in a
@@ -417,17 +425,21 @@ export function IDEShell() {
             same for every workspace a PANE currently holds a chat for — not
             just the one that's "active" — so a split's other pane(s) always
             get a real store instead of falling back to the wrong ambient
-            one. `viewWsIds` (`useViewWorkspaceIds`) is the host's actual
-            retention test now: every workspace with a chat somewhere in
-            Recents stays mounted, and dropping out of `viewWsIds` is what
-            gets a workspace evicted — no more time-based keep-alive window.
-            HomeRoute itself renders null (or the error state); the
-            Outlet still stays mounted so workspace-route components'
-            route-level guards keep running. */}
+            one, UNIONED with `usePaneEditorWorkspaceIds` for panes that hold
+            editor tabs instead of (or alongside) a chat — a pane naming
+            neither was invisible to retention entirely, which is what let
+            `planRetention` destroy a workspace still displaying an open
+            file/terminal split ("Editor failed to load"). `viewWsIds`
+            (`useViewWorkspaceIds`) is the host's actual retention test now:
+            every workspace with a chat somewhere in Recents stays mounted,
+            and dropping out of `viewWsIds` is what gets a workspace evicted
+            — no more time-based keep-alive window. HomeRoute itself renders
+            null (or the error state); the Outlet still stays mounted so
+            workspace-route components' route-level guards keep running. */}
         <WorkspaceHost
           activeWsId={effectiveActiveWorkspaceId}
           homeWsIds={getKnownHomeWorkspaceIds()}
-          paneWsIds={paneWorkspaceIds}
+          paneWsIds={[...new Set([...paneWorkspaceIds, ...paneEditorWorkspaceIds])]}
           viewWsIds={viewWorkspaceIds}
         />
         <Outlet />
