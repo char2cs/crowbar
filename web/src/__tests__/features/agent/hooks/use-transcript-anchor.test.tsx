@@ -21,7 +21,7 @@ describe('useTranscriptAnchor', () => {
   const RealResizeObserver = globalThis.ResizeObserver
 
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance'] })
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance', 'setTimeout', 'clearTimeout'] })
     scrollHeight = 1000
     clientHeight = 400
     observerCallbacks = []
@@ -426,7 +426,7 @@ describe('useTranscriptAnchor', () => {
       expect(scroller.scrollTop).toBe(1400) // ceiling: 1800 - 400
     })
 
-    it('arms eased follow only once loadingHistory goes false AND a full frame passes with nothing left to settle', () => {
+    it('arms eased follow only once loadingHistory goes false AND ARM_QUIET_MS passes with nothing left to settle', () => {
       const { getByTestId, rerender } = render(<Host anchorOptions={{ loadingHistory: true }} />)
       const scroller = getByTestId('scroller')
 
@@ -440,8 +440,8 @@ describe('useTranscriptAnchor', () => {
       grow(1500)
       expect(scroller.scrollTop).toBe(1100) // still instant: 1500 - 400
 
-      // Quiet now: let the pending arm frame actually fire.
-      vi.advanceTimersByTime(16)
+      // Quiet now: let the pending arm timer actually fire.
+      vi.advanceTimersByTime(150)
 
       // A genuinely new message streams in — now eased, not instant.
       grow(1900) // ceiling: 1900 - 400 = 1500
@@ -458,12 +458,46 @@ describe('useTranscriptAnchor', () => {
       const scroller = getByTestId('scroller')
 
       rerender(<Host anchorOptions={{ loadingHistory: false }} />)
-      vi.advanceTimersByTime(16) // the backstop's own arm frame
+      vi.advanceTimersByTime(150) // the backstop's own arm timer
 
       grow(1400) // ceiling: 1400 - 400 = 1000
       vi.advanceTimersByTime(50)
       expect(scroller.scrollTop).toBeGreaterThan(600)
       expect(scroller.scrollTop).toBeLessThan(1000)
+    })
+
+    // Regression, the actual bug: a settle burst's corrections don't all land
+    // in the same animation frame — each row's real content can take React a
+    // few commits, spread across several frames, to settle. A single quiet
+    // FRAME between two corrections used to be enough to arm eased mode
+    // early, handing the REST of the burst to follow-scroll.ts's slow
+    // exponential ease (TAU_MS=100) instead of an instant snap — measured
+    // live as ~800ms / ~99 sampled scroll frames revealing one long reply.
+    // Corrections a few frames apart (well under ARM_QUIET_MS, comfortably
+    // over one frame) must all still land instantly.
+    it('does not arm eased mode between corrections that are more than one frame apart, only after a real quiet gap', () => {
+      const { getByTestId, rerender } = render(<Host anchorOptions={{ loadingHistory: true }} />)
+      const scroller = getByTestId('scroller')
+
+      rerender(<Host anchorOptions={{ loadingHistory: false }} />)
+
+      // A burst of corrections, each ~3 frames (50ms) apart — well past a
+      // single animation frame, comfortably under ARM_QUIET_MS (150ms).
+      let height = 1400
+      for (let i = 0; i < 6; i++) {
+        vi.advanceTimersByTime(50)
+        height += 40
+        grow(height)
+      }
+      // Every one of those landed instantly — none should have been eased.
+      expect(scroller.scrollTop).toBe(height - 400)
+
+      // Now genuinely quiet for the full window: the NEXT correction is eased.
+      vi.advanceTimersByTime(150)
+      grow(height + 400)
+      vi.advanceTimersByTime(50)
+      expect(scroller.scrollTop).toBeGreaterThan(height - 400)
+      expect(scroller.scrollTop).toBeLessThan(height + 400 - 400)
     })
   })
 

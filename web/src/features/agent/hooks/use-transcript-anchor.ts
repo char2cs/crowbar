@@ -8,6 +8,27 @@ import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/li
    grew faster than the scroll did. */
 const STICK_SLACK = 96
 
+/**
+ * How long a settle burst must stay QUIET before eased mode arms — a wall-clock
+ * debounce, not "one frame" (what this used to be). A virtualized list's
+ * initial estimated→measured row corrections do not all land in the same
+ * animation frame: each row's real content (a long reply going through Plate)
+ * can take React a few commits — spread across several frames — to settle
+ * into its final height, and a single quiet frame between two of those
+ * commits was enough to arm eased mode early. Every correction after that
+ * then retargeted `follow-scroll.ts`'s exponential ease instead of snapping
+ * instantly — and closing even a modest few-dozen-px gap to that loop's own
+ * SETTLE_PX under TAU_MS=100 takes several hundred ms, so a handful of
+ * late corrections firing their own glides accounted for measured live: ~800ms
+ * / ~99 sampled frames of scroll churn revealing one long assistant reply, all
+ * for the "instant landing" a reopen was already supposed to be (see
+ * UseTranscriptAnchorOptions.loadingHistory's own doc). 150ms is comfortably
+ * longer than the gap between a settle burst's own corrections (a few
+ * animation frames apart) while still short enough that a genuinely fresh,
+ * already-streaming chat arms real easing almost immediately.
+ */
+const ARM_QUIET_MS = 150
+
 /** Where the reader was, captured on unmount so the NEXT time this exact
  *  chat mounts (a switch back, this session) it can pick up from here
  *  instead of defaulting to the bottom — see UseTranscriptAnchorOptions. */
@@ -114,9 +135,8 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   const resyncRef = useRef<() => void>(() => {})
   // How the loadingHistory-transition effect below reaches the SAME
   // scheduleArm the ResizeObserver effect's own resync uses, rather than
-  // running a second, independent requestAnimationFrame of its own — one
-  // pending arm request at a time, always through `armFrame`, however it
-  // gets triggered.
+  // running a second, independent timer of its own — one pending arm
+  // request at a time, always through `armTimer`, however it gets triggered.
   const scheduleArmRef = useRef<() => void>(() => {})
   // Read only inside the two mount-only (`[]` deps) effects below, so they
   // see the LATEST callbacks/values without re-running on every render —
@@ -130,7 +150,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // caller says otherwise, reproducing this hook's original (always-eased)
   // behaviour exactly when `loadingHistory` is never mentioned.
   const easedArmed = useRef(!(options.loadingHistory ?? false))
-  const armFrame = useRef(0)
+  const armTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -163,15 +183,17 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       })
     follow.current = buildFollow()
     // Re-armed by every unarmed resync below, so eased mode only engages once
-    // a FULL frame passes with nothing left to settle — a burst of initial
+    // ARM_QUIET_MS passes with nothing left to settle — a burst of initial
     // measurement corrections keeps pushing this back, the same way a burst
     // of new lines keeps retargeting the eased loop itself (follow-scroll.ts).
+    // A wall-clock debounce, not one frame — see ARM_QUIET_MS's own doc for
+    // why a single quiet frame armed early mid-burst.
     const scheduleArm = () => {
       if (easedArmed.current) return
-      cancelAnimationFrame(armFrame.current)
-      armFrame.current = requestAnimationFrame(() => {
+      clearTimeout(armTimer.current)
+      armTimer.current = setTimeout(() => {
         easedArmed.current = true
-      })
+      }, ARM_QUIET_MS)
     }
     scheduleArmRef.current = scheduleArm
     const resync = () => {
@@ -200,8 +222,12 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       if (!easedArmed.current) {
         // Still settling (see UseTranscriptAnchorOptions.loadingHistory):
         // land on the real target instantly, same as the prepend branch
-        // above, and push the arm-check back another frame.
-        el.scrollTop = target
+        // above, and push the arm-check back another ARM_QUIET_MS. Skip the
+        // write when already there — a resize that didn't change the
+        // ceiling (width-only, say) still reaches this branch, and a no-op
+        // write is one more scroll event this settle burst's tail doesn't
+        // need.
+        if (el.scrollTop !== target) el.scrollTop = target
         scheduleArm()
         return
       }
@@ -253,7 +279,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       follow.current = null
       resyncRef.current = () => {}
       scheduleArmRef.current = () => {}
-      cancelAnimationFrame(armFrame.current)
+      clearTimeout(armTimer.current)
       // Wherever the reader ends up, for this exact chat's next mount this
       // session (a switch back) to restore — see
       // UseTranscriptAnchorOptions.onPositionChange.
