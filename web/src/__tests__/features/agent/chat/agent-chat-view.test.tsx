@@ -1169,7 +1169,15 @@ describe('AgentChatView slash catalog', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await act(async () => vi.advanceTimersByTimeAsync(0))
-    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String), '', '', '')
+    expect(submitPromptFn).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      '/compact',
+      expect.any(String),
+      '',
+      '',
+      '',
+    )
     vi.useRealTimers()
   })
 
@@ -1223,7 +1231,15 @@ describe('AgentChatView slash catalog', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await act(async () => vi.advanceTimersByTimeAsync(0))
-    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', '/clear', expect.any(String), '', '', '')
+    expect(submitPromptFn).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      '/clear',
+      expect.any(String),
+      '',
+      '',
+      '',
+    )
     vi.useRealTimers()
   })
 

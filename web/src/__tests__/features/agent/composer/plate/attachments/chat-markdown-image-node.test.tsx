@@ -95,7 +95,9 @@ describe('chat attachment images', () => {
     })
 
     it('opens the lightbox for an INTERACTIVE (composer) image too', () => {
-      renderWithDnd(<MarkdownMessage>{'![a photo](https://example.com/photo.png)'}</MarkdownMessage>)
+      renderWithDnd(
+        <MarkdownMessage>{'![a photo](https://example.com/photo.png)'}</MarkdownMessage>,
+      )
 
       fireEvent.click(screen.getByTitle('Click to expand'))
 
