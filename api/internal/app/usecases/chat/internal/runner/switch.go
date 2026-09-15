@@ -296,6 +296,16 @@ func (rs *Runners) quitOutgoingCLI(
 // rather than one that means the right thing.
 const sessionAnnounceCrashWindow = 30 * time.Second
 
+// sessionLegacyMinAge bounds how old a turnless session's first announcement
+// must be before its absence from the activity table is even ELIGIBLE to mean
+// "predates this table" — as opposed to "simply abandoned," the ordinary shape
+// of switching to a provider and back before ever sending it anything, which
+// ages past sessionAnnounceCrashWindow exactly like a genuine crash does. A
+// real migration is measured in days at the very least, so a day is a
+// deliberately generous floor: anything newer cannot plausibly be legacy data,
+// whatever else is true about it.
+const sessionLegacyMinAge = 24 * time.Hour
+
 func (rs *Runners) resumableConversation(
 	ctx context.Context,
 	chat domain.Chat,
@@ -369,12 +379,29 @@ func (rs *Runners) resumableConversation(
 			"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID)
 		return "", time.Time{}, nil
 	}
+	if time.Since(firstSeenAt) < sessionLegacyMinAge {
+		// Old enough to rule out the immediate crash race, but nowhere near old
+		// enough to plausibly predate a migration that shipped in the past — no
+		// real migration is measured in minutes. This is the ordinary shape of
+		// switching to a provider and back before ever sending it anything:
+		// the session was announced, then simply abandoned, not crashed and not
+		// legacy. sessionAnnounceCrashWindow (30s) only separates "still
+		// mid-crash" from "not"; reusing IT for the legacy question mistook
+		// every session merely switched away from for a minute or two as
+		// decades-old data, sent --resume at a session id the provider itself
+		// never wrote a conversation file for, and either failed outright or
+		// left the CLI in a broken half-started state.
+		slog.InfoContext(ctx, "agent: prior conversation has no recorded turns and is far too recent to be legacy data; spawning fresh instead of resuming an abandoned session",
+			"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID, "first_seen_at", firstSeenAt)
+		return "", time.Time{}, nil
+	}
 	// Old enough that the missing row means "predates this table", not "crashed
-	// before its first turn". The session id is still real and still resumable —
-	// refusing it here would be strictly more destructive than the race this
-	// guard exists to catch. There is no per-turn record to draw the gap cutoff
-	// from, so chat.LastActivityAt (folded from the chat's own turn events, which
-	// survive this migration untouched) stands in for it.
+	// before its first turn" and not merely abandoned. The session id is still
+	// real and still resumable — refusing it here would be strictly more
+	// destructive than the race this guard exists to catch. There is no
+	// per-turn record to draw the gap cutoff from, so chat.LastActivityAt
+	// (folded from the chat's own turn events, which survive this migration
+	// untouched) stands in for it.
 	slog.InfoContext(ctx, "agent: prior conversation predates recorded turns; resuming anyway using the chat's last activity as the gap cutoff",
 		"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID, "first_seen_at", firstSeenAt)
 	return sessionID, chat.LastActivityAt, nil

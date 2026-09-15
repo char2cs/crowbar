@@ -78,4 +78,55 @@ describe('chat attachment images', () => {
     // Only the excalidraw fence's OWN handle, none for the hidden PNG.
     expect(screen.getAllByRole('button', { name: /reorder this attachment/i })).toHaveLength(1)
   })
+
+  describe('click-to-expand lightbox', () => {
+    it('opens a full-size lightbox of a SETTLED image on click, closed by default', () => {
+      render(
+        <MarkdownMessageStatic>
+          {'![a photo](https://example.com/photo.png)'}
+        </MarkdownMessageStatic>,
+      )
+      expect(screen.getAllByAltText('a photo')).toHaveLength(1)
+
+      fireEvent.click(screen.getByTitle('Click to expand'))
+
+      // Now TWO — the inline thumbnail plus the lightbox's own full-size copy.
+      expect(screen.getAllByAltText('a photo')).toHaveLength(2)
+    })
+
+    it('opens the lightbox for an INTERACTIVE (composer) image too', () => {
+      renderWithDnd(
+        <MarkdownMessage>{'![a photo](https://example.com/photo.png)'}</MarkdownMessage>,
+      )
+
+      fireEvent.click(screen.getByTitle('Click to expand'))
+
+      expect(screen.getAllByAltText('a photo')).toHaveLength(2)
+    })
+
+    it('closes on the close button, back to just the one inline thumbnail', async () => {
+      render(
+        <MarkdownMessageStatic>
+          {'![a photo](https://example.com/photo.png)'}
+        </MarkdownMessageStatic>,
+      )
+      fireEvent.click(screen.getByTitle('Click to expand'))
+      expect(screen.getAllByAltText('a photo')).toHaveLength(2)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+
+      // Base UI unmounts the popup only after its own exit transition —
+      // asynchronous even under jsdom, so this settles rather than asserting
+      // synchronously right after the click.
+      await vi.waitFor(() => expect(screen.getAllByAltText('a photo')).toHaveLength(1))
+    })
+
+    it('never mounts a second lightbox for the excalidraw PNG sibling — it renders no img at all', () => {
+      const scene = JSON.stringify({ elements: [{ type: 'rectangle' }], appState: {} })
+      const md = `\`\`\`excalidraw:AbC123xy\n${scene}\n\`\`\`\n\n![diagram](chats/c1/attachments/diagram.png)`
+      renderWithDnd(<MarkdownMessage>{md}</MarkdownMessage>)
+
+      expect(screen.queryByTitle('Click to expand')).toBeNull()
+    })
+  })
 })

@@ -233,6 +233,37 @@ func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 	assert.Equal(t, 42, post.Tool.DurationMS)
 }
 
+// A tool call may name a whole SECOND conversation, not just its own
+// request/result — codex's collabAgentToolCall reports the thread id of the
+// agent it spawned or is addressing. NestedSessionID is generic: the
+// descriptor supplies the path, Go never learns why the field is there.
+func TestParse_ToolPostCarriesANestedSessionIDWhenTheDescriptorMapsOne(t *testing.T) {
+	d := descriptor(map[string]map[string]string{
+		spec.HookToolPost: {
+			"tool_id": "tool_use_id", "nested_session_id": "receiver_thread",
+		},
+	})
+
+	ev, err := inbound.Parse(d, spec.HookToolPost,
+		[]byte(`{"tool_use_id":"t1","receiver_thread":"child-1"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Tool)
+	assert.Equal(t, "child-1", ev.Tool.NestedSessionID)
+}
+
+func TestParse_ToolPostWithNoNestedSessionMappingLeavesItEmpty(t *testing.T) {
+	d := descriptor(map[string]map[string]string{
+		spec.HookToolPost: {"tool_id": "tool_use_id"},
+	})
+
+	ev, err := inbound.Parse(d, spec.HookToolPost, []byte(`{"tool_use_id":"t1"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Tool)
+	assert.Empty(t, ev.Tool.NestedSessionID)
+}
+
 func TestParse_ToolTargetTakesTheFirstMappedPathThatHasAValue(t *testing.T) {
 	d := descriptor(map[string]map[string]string{
 		spec.HookToolPre: {"tool_target": "tool_input.file_path,tool_input.command,tool_input.url"},

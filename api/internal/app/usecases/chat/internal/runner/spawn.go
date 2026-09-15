@@ -156,6 +156,17 @@ func (rs *Runners) spawnRunner(
 	// echo — and since the capability preamble makes tctx.Context non-empty on every
 	// spawn, registering unconditionally would leave a guard behind for text no CLI
 	// was ever given.
+	//
+	// Unconditional otherwise — including when promptMessage is also set: a real
+	// prompt can ride the SAME positional as the injected document
+	// (mergeLeadingPositional), and the hook side (ConsumeInjectedPrefix,
+	// turn.go) is what tells "bare echo" and "echo with a real prompt merged
+	// ahead of it" apart, returning the remainder in the second case rather
+	// than swallowing the whole turn. Registering only for the bare case (a
+	// prior version of this gate) left the merged case with nothing
+	// registered at all — the injected preamble was then recorded verbatim as
+	// what the user typed, corrupting the ledger, the derived title, and
+	// every hash-based "was this accepted" check downstream.
 	if inject {
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}

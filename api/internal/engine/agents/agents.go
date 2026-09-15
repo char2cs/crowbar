@@ -32,7 +32,13 @@ type Agents interface {
 
 	RecordInjection(runnerID string, docs ...string)
 
-	WasInjected(runnerID, text string) bool
+	// ConsumeInjectedPrefix reports whether text contains a document this
+	// runnerID was handed and, if so, returns text with that document (and
+	// mergeLeadingPositional's own separator) removed — see
+	// registry.ConsumePrefix's own doc for why a bare boolean isn't enough: a
+	// real prompt can ride the SAME positional as the injected document, and
+	// the remainder left after removing it is what the user actually typed.
+	ConsumeInjectedPrefix(runnerID, text string) (remainder string, found bool)
 
 	ForgetRunner(runnerID string)
 }
@@ -213,8 +219,8 @@ func (s *service) RecordInjection(runnerID string, docs ...string) {
 	s.injected.SetInjected(runnerID, docs...)
 }
 
-func (s *service) WasInjected(runnerID, text string) bool {
-	return s.injected.Consume(runnerID, text)
+func (s *service) ConsumeInjectedPrefix(runnerID, text string) (string, bool) {
+	return s.injected.ConsumePrefix(runnerID, text)
 }
 
 func (s *service) ForgetRunner(runnerID string) {

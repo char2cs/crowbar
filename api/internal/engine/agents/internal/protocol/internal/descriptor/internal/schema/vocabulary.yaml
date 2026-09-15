@@ -48,19 +48,41 @@ events:
   tool_pre:
     direction: in
     required: []
-    optional: [session_id, tool_id, tool_name, tool_target, tool_input]
+    optional: [session_id, tool_id, tool_name, tool_target, tool_input, nested_session_id]
 
   tool_post:
     direction: in
     required: []
-    optional: [session_id, tool_id, tool_name, tool_target, tool_input, tool_result, duration_ms]
+    optional:
+      - session_id
+      - tool_id
+      - tool_name
+      - tool_target
+      - tool_input
+      - tool_result
+      - duration_ms
+      # nested_session_id names a WHOLE SECOND conversation this tool call's
+      # own completion references (a provider's own multi-agent tool
+      # reporting the thread id of the agent it just spawned or is
+      # addressing) — never a provider's own vocabulary, just an id. See
+      # turn/ingest.go's nested-session routing.
+      - nested_session_id
 
   # PostToolUseFailure fires INSTEAD OF PostToolUse, not alongside it. Mapping only
   # tool_post left a failed tool in flight until the turn-close sweep abandoned it.
   tool_fail:
     direction: in
     required: []
-    optional: [session_id, tool_id, tool_name, tool_target, tool_input, tool_result, tool_error, duration_ms]
+    optional:
+      - session_id
+      - tool_id
+      - tool_name
+      - tool_target
+      - tool_input
+      - tool_result
+      - tool_error
+      - duration_ms
+      - nested_session_id
 
   subagent_pre:
     direction: in

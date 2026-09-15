@@ -65,6 +65,12 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 	var body struct {
 		Text            string `json:"text"`
 		ClientRequestID string `json:"clientRequestId"`
+		// Provider/Model/Effort are the composer's staged pick, if any —
+		// omitted or empty means "nothing staged, use the chat's current
+		// provider / sticky selection as-is."
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+		Effort   string `json:"effort"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
@@ -72,6 +78,7 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 	}
 	result, err := h.runners.SubmitPrompt(
 		ctx.Request.Context(), chat.ID, body.Text, body.ClientRequestID,
+		body.Provider, body.Model, body.Effort,
 	)
 	if err != nil {
 		writeCodedErr(ctx, err, agentusecase.PromptErrorCode(err))

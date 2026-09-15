@@ -61,9 +61,19 @@ type RunnerUsecase interface {
 	// SubmitPrompt delivers a React-authored prompt to the chat's CLI. Delivery is
 	// at-most-once against clientRequestID: a retry replays the original outcome
 	// rather than prompting twice.
+	//
+	// provider/model/effort are the STAGED selection the composer is showing
+	// right now — not necessarily what the chat already holds. Empty means
+	// "the composer has nothing staged, use the current/sticky value as-is."
+	// A non-empty provider that differs from the chat's current one is
+	// switched to via SwitchProvider BEFORE the prompt is delivered; a
+	// non-empty model/effort pair is committed via SetChatSelection next.
+	// Picking a row in the UI never mutates the chat on its own — provider
+	// included — it only takes effect bundled with the next message, one
+	// atomic call instead of two (or three).
 	SubmitPrompt(
 		ctx context.Context,
-		chatID, text, clientRequestID string,
+		chatID, text, clientRequestID, provider, model, effort string,
 	) (domain.AgentPromptSubmission, error)
 
 	// SlashCatalog probes the chat's live CLI for the slash commands it declares.
@@ -303,11 +313,33 @@ func (u *Usecase) SwitchProvider(
 
 // SubmitPrompt delivers a Crowbar-authored prompt into the chat's CLI, at most
 // once per client request id.
+//
+// A non-empty provider that differs from the chat's CURRENT one is switched
+// to FIRST — the same switch a standalone POST .../switch would run, staged
+// here instead. This is what lets the composer hold a picked provider
+// (picking a model under a different section) as pure local state: the
+// picker never calls SwitchProvider itself any more, so a row click never
+// tears down the live CLI on its own — only the next actual send does. A
+// provider equal to the chat's current one, or left empty, never switches at
+// all — an idle resend must not pay for a switch it never asked for.
+//
+// A non-empty model/effort commits the chat's sticky selection NEXT — same
+// validation the standalone PATCH .../selection route runs, so a bad value
+// still 400s here exactly as it would there, before anything is sent to the
+// CLI and, critically, before the provider switch above is even attempted —
+// see Runners.SubmitPromptWithSwitch's own doc for why validating first
+// (rather than switching, THEN discovering the pick was bad) matters. This is
+// what lets the composer hold a picked model/effort as pure local state and
+// never write it anywhere until the user actually sends.
+//
+// The whole sequence — switch, selection, delivery — runs under ONE hold of
+// the chat's spawn gate (Runners.SubmitPromptWithSwitch), not three separate
+// ones: see that method's own doc for the race a gap between them opened.
 func (u *Usecase) SubmitPrompt(
 	ctx context.Context,
-	chatID, text, clientRequestID string,
+	chatID, text, clientRequestID, provider, model, effort string,
 ) (domain.AgentPromptSubmission, error) {
-	return u.runners.SubmitPrompt(ctx, chatID, text, clientRequestID)
+	return u.runners.SubmitPromptWithSwitch(ctx, chatID, text, clientRequestID, provider, model, effort)
 }
 
 // SlashCatalog probes the chat's provider for the slash commands it offers.

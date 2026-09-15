@@ -72,10 +72,12 @@ export interface AgentChatViewHandle {
 export interface AgentChatViewProps {
   wsId: string
   chatId: string
+  /** The chat's REAL, live provider — what its CLI actually is right now.
+   *  Drives everything that can only mean something about a live process
+   *  (the slash catalog probe, submit-availability resets). Never a staged
+   *  pick — see `provider` below for that. */
   providerId: string
   providers: AgentProvider[]
-  /** Move this chat to another provider — the identity chip's other groups. */
-  onSwitchProvider?: (providerId: string) => Promise<boolean>
   /** A switch is already running, or the pane is mid-delivery. */
   switchDisabled?: boolean
   working: boolean
@@ -131,10 +133,22 @@ export interface AgentChatViewProps {
    *  standing in for the dock, so the composer (and anything that lives only
    *  inside it, like a reviving/idle signpost) does not exist to be read. */
   onBlankChange?: (blank: boolean) => void
-  /** The chat's sticky model / effort selection. '' means unset. */
+  /** The EFFECTIVE provider / model / effort right now: the chat's real
+   *  provider and sticky selection, or a staged pick on top of them if the
+   *  picker has one (the caller owns which — see AgentChatPane's
+   *  `stagedSelection`). `provider` '' means "use `providerId` as-is" — see
+   *  its own doc above for why the two are never the same prop. This is what
+   *  the trigger shows AND what travels with the next enqueue; the picker
+   *  itself never writes selection or switches provider, so
+   *  `onSelectionChange` below only ever updates local staged state, never
+   *  the server. */
+  provider: string
   model: string
   effort: string
-  onSelectionChange: (model: string, effort: string) => void
+  onSelectionChange: (provider: string, model: string, effort: string) => void
+  /** A staged pick this file just sent WAS ACCEPTED — see
+   *  usePromptQueue's `onSelectionCommitted` for the exact contract. */
+  onSelectionCommitted?: (model: string, effort: string) => void
   /** Which surface the pane is showing, and how to change it. */
   presentation: ChatPresentation
   splitEnabled: boolean
@@ -164,7 +178,7 @@ function displayOrderOf(item: { sequence?: number; seq?: number; displayOrder?: 
   return item.displayOrder ?? item.sequence ?? item.seq ?? 0
 }
 
-/** The five interruption kinds the transcript draws a boundary pill for, mapped
+/** The six interruption kinds the transcript draws a boundary pill for, mapped
  *  to that pill's own shape. `null` for everything else (permission,
  *  notification, elicitation) — those are answered inline, never a divider. */
 function toDividerTag(interruption: AgentInterruption): DividerTag | null {
@@ -174,6 +188,11 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
       return { kind: 'compaction', id, trigger: interruption.detail || 'auto' }
     case 'stopped':
       return { kind: 'interrupted', id }
+    // Crowbar's own GUESS, not an observed Stop click — kept as its own tag
+    // rather than folded into 'interrupted' so the pill never claims a person
+    // did something nobody actually did.
+    case 'inferred':
+      return { kind: 'inferred-interrupt', id }
     case 'provider_switched':
       return { kind: 'provider', id, detail: interruption.detail ?? '' }
     case 'model_changed':
@@ -192,8 +211,11 @@ function toDividerTag(interruption: AgentInterruption): DividerTag | null {
  *  already resolved (compact.go — no turn ever opens for it), so without
  *  this the pill never appeared until whatever was typed next dragged it
  *  along as an `eventsBefore` anchor instead — reported live as the divider
- *  only showing up once you sent a follow-up message. */
-const TRAILING_INTERRUPTION_KINDS = new Set(['stopped', 'compaction'])
+ *  only showing up once you sent a follow-up message. `inferred`: same
+ *  born-already-resolved shape as `stopped` (AbandonMessageInferredInterrupt
+ *  opens and resolves it in one call), and it is exactly the silently-aborted
+ *  turn with nothing typed after it that this whole kind exists to catch. */
+const TRAILING_INTERRUPTION_KINDS = new Set(['stopped', 'compaction', 'inferred'])
 
 // `DndScope` (dnd-scope.tsx) is `AgentChatView`'s one `<DndProvider>` —
 // `@platejs/dnd`'s `useDraggable`/`useDropLine` (attachment-drag-handle.tsx)
@@ -224,7 +246,6 @@ export function AgentChatView({
   chatId,
   providerId,
   providers,
-  onSwitchProvider,
   switchDisabled,
   working,
   compacting = false,
@@ -252,9 +273,11 @@ export function AgentChatView({
   onCancelableQueueCountChange,
   onDeliveryPendingChange,
   onBlankChange,
+  provider: effectiveProviderId,
   model,
   effort,
   onSelectionChange,
+  onSelectionCommitted,
   presentation,
   splitEnabled,
   onSelectPresentation,
@@ -396,6 +419,7 @@ export function AgentChatView({
     onPromptDispatchSettled,
     onRefreshChat,
     onSubmitUnavailable,
+    onSelectionCommitted,
   })
 
   const ledger = useChatMessages({
@@ -468,6 +492,12 @@ export function AgentChatView({
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
+  // The picker's OWN provider, model and effort catalogue must reflect a
+  // staged pick immediately — the whole point of staging is showing what
+  // WILL happen on the next send. Everything else above (providerLabel,
+  // slash catalog) stays on the REAL, live `provider`/`providerId`: a staged
+  // pick has not taken effect yet, so there is no live CLI to probe or label.
+  const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
   // The provider's stop reason occupies the BAR, so the transcript must not also
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
@@ -526,7 +556,17 @@ export function AgentChatView({
   // not have reached React yet — reading state there can enqueue the prompt one
   // keystroke short, or empty. The element is the authority; state is the mirror.
   const enqueueDraft = (text?: string) => {
-    const result = prompts.enqueue(text ?? draft)
+    // `model`/`effort` are whatever the picker currently shows — the chat's
+    // sticky selection, or a staged override on top of it. `provider` follows
+    // the SAME "empty means unchanged" contract, but compares against the
+    // REAL `providerId`, not just staging: nothing staged, or staged back
+    // onto the provider the chat is already on, both send '' — an ordinary
+    // resend must not carry a provider value on every single message, even
+    // one the backend would no-op on. Baking these into the queue item now
+    // (not reading them again at dispatch) is what keeps a later pick from
+    // bleeding onto this message.
+    const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
+    const result = prompts.enqueue(text ?? draft, stagedProvider, model, effort)
     if (!result.ok) {
       setComposerError(result.error ?? '')
       return
@@ -719,9 +759,7 @@ export function AgentChatView({
 
   const selectionCluster = (
     <SelectionCluster
-      wsId={wsId}
-      chatId={chatId}
-      provider={provider}
+      provider={effectiveProvider}
       providers={providers}
       model={model}
       effort={effort}
@@ -730,7 +768,6 @@ export function AgentChatView({
       showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
       handoverBlocked={!provider?.hotswap && working}
       switchDisabled={switchDisabled}
-      onSwitchProvider={onSwitchProvider}
       onSelectionChange={onSelectionChange}
       onSelectPresentation={onSelectPresentation}
     />
@@ -882,11 +919,8 @@ export function AgentChatView({
               takeoverContainer={chatSurfaceEl}
             />
             <ProviderBar
-              wsId={wsId}
-              chatId={chatId}
-              provider={provider}
+              provider={effectiveProvider}
               providers={providers}
-              onSwitchProvider={onSwitchProvider}
               switchDisabled={switchDisabled}
               model={model}
               effort={effort}

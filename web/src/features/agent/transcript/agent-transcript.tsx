@@ -13,6 +13,7 @@ import type {
 } from '@/features/agent/api/agent-api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { samePrompt } from '@/features/agent/hooks/use-prompt-queue'
+import { finishedNestedSubagents } from '@/features/agent/activity/nested-subagents'
 import { WorkingLine } from '@/features/agent/activity/working-line'
 import {
   useTranscriptAnchor,
@@ -581,10 +582,47 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     () => groupToolCallsByTurn(props.activity.toolCalls),
     [props.activity.toolCalls],
   )
-  const subagentsByTurn = useMemo(
-    () => groupSubagentsByTurn(props.activity.subagents),
-    [props.activity.subagents],
-  )
+  // A Codex-style nested subagent carries no turnId at all (see AgentSubagent's
+  // own doc) — there is no turn it actually belongs to, so once it finishes it
+  // is folded into the turn it actually ran under: the first assistant reply
+  // recorded AT OR AFTER it ended, the same way every other finished subagent
+  // is nested under the reply its work fed into.
+  //
+  // THE REGRESSION this fixed: the first cut of this attached every orphaned
+  // subagent to whichever turn was CURRENTLY last, recomputed fresh on every
+  // render — so a Codex subagent that ran minutes ago kept sliding onto
+  // whatever turn (any provider) happened most recently, including one on a
+  // DIFFERENT provider entirely after a switch. Anchoring on the subagent's
+  // own `endedAt` against each reply's `at` makes the attachment a fact about
+  // when it happened, not about what the transcript looks like right now.
+  const subagentsByTurn = useMemo(() => {
+    const grouped = groupSubagentsByTurn(props.activity.subagents)
+    grouped.delete('')
+    const orphaned = finishedNestedSubagents(props.activity)
+    if (orphaned.length === 0) return grouped
+
+    const assistantTurns: { turnId: string; at: number }[] = []
+    for (const m of messages) {
+      if (m.role === 'assistant' && m.turnId) {
+        assistantTurns.push({ turnId: m.turnId, at: Date.parse(m.at) })
+      }
+    }
+    assistantTurns.sort((a, b) => a.at - b.at)
+    if (assistantTurns.length === 0) return grouped
+
+    for (const subagent of orphaned) {
+      const endedAt = Date.parse(subagent.endedAt as string)
+      const turnId =
+        assistantTurns.find((t) => t.at >= endedAt)?.turnId ?? assistantTurns.at(-1)!.turnId
+      const existing = grouped.get(turnId)
+      if (existing) existing.push(subagent)
+      else grouped.set(turnId, [subagent])
+    }
+    for (const list of grouped.values()) {
+      list.sort((a, b) => a.seq - b.seq)
+    }
+    return grouped
+  }, [props.activity, messages])
   const choicesByTurn = useMemo(
     () => groupChoicesByTurn(props.activity.choices),
     [props.activity.choices],

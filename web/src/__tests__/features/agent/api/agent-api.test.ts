@@ -193,6 +193,47 @@ describe('agent-api', () => {
     )
   })
 
+  it('threads a staged model/effort onto the same prompt body, committed atomically', async () => {
+    apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
+    await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', '', 'opus', 'high')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/ws/w1/chats/c1/prompts',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          text: 'go',
+          clientRequestId: 'request-1',
+          provider: '',
+          model: 'opus',
+          effort: 'high',
+        }),
+      }),
+    )
+  })
+
+  // THE REGRESSION this session fixed: a staged CROSS-provider pick used to
+  // call a separate, immediate switchProvider — killing the live CLI the
+  // instant a row was clicked, before the user ever sent anything. It now
+  // travels on this SAME call, exactly like model/effort, and the backend
+  // decides whether that actually means switching anything.
+  it('threads a staged provider onto the same prompt body, committed atomically', async () => {
+    apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
+    await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', 'codex', '', '')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/ws/w1/chats/c1/prompts',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          text: 'go',
+          clientRequestId: 'request-1',
+          provider: 'codex',
+          model: '',
+          effort: '',
+        }),
+      }),
+    )
+  })
+
   it('loads a cancellable slash catalog with no read retry/cache layer', async () => {
     const controller = new AbortController()
     apiFetch.mockResolvedValue({

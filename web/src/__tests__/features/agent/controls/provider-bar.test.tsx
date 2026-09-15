@@ -21,8 +21,6 @@ const telemetry: AgentTelemetry = {
 function renderBar(onCompact?: () => void) {
   return render(
     <ProviderBar
-      wsId="w1"
-      chatId="c1"
       provider={provider}
       providers={[provider]}
       model=""

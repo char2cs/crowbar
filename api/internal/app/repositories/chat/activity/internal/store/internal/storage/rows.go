@@ -40,6 +40,10 @@ type ToolCallRow struct {
 	Status     string     `gorm:"column:status;index"`
 	Error      string     `gorm:"column:error"`
 	DurationMS int        `gorm:"column:duration_ms"`
+	// SubagentID — see domain.ActivityToolCall's own doc. Empty for every
+	// ordinary top-level call; indexed the same way TurnID is, since a
+	// client's nested-transcript read groups by it the same way.
+	SubagentID string     `gorm:"column:subagent_id;index"`
 	StartedAt  time.Time  `gorm:"column:started_at;index"`
 	EndedAt    *time.Time `gorm:"column:ended_at"`
 }
@@ -55,6 +59,9 @@ type SubagentRow struct {
 	AgentType string     `gorm:"column:agent_type"`
 	StartedAt time.Time  `gorm:"column:started_at"`
 	EndedAt   *time.Time `gorm:"column:ended_at"`
+	// Messages is domain.ActivitySubagent.Messages, JSON-encoded — same
+	// convention as ChoiceRow's Options/Questions.
+	Messages string `gorm:"column:messages"`
 }
 
 func (SubagentRow) TableName() string { return "agent_subagents" }

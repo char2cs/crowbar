@@ -79,6 +79,15 @@ type Messages interface {
 	UnfinishedSince(chatID string) (at time.Time, ok bool)
 
 	AbandonMessage(ctx context.Context, chatID string) (bool, error)
+
+	// AbandonMessageInferredInterrupt is AbandonMessage plus a durable record of
+	// why: abandonedMessage (evaluate.go) is the one place a hooks/PTY provider's
+	// silent, hookless abort — an ESC/Ctrl+C the CLI reports to nobody — is ever
+	// caught at all, so closing the turn there must also record that Crowbar
+	// INFERRED the interruption rather than observed one. providerSaysItIsIdle
+	// stays on the bare AbandonMessage above: a provider's own idle report is an
+	// authoritative completion, not something Crowbar is guessing at.
+	AbandonMessageInferredInterrupt(ctx context.Context, chatID string) (bool, error)
 }
 
 // Liveness answers whether Crowbar still holds the live provider connection this

@@ -104,6 +104,12 @@ export interface PromptQueueOptions {
   onRefreshChat: () => Promise<boolean>
   /** The provider answered 422 prompt_submit_unsupported. */
   onSubmitUnavailable: () => void
+  /** A staged model/effort this item carried was just ACCEPTED by the server
+   *  — submitAgentPrompt's 200 is the only confirmation there is (the PATCH
+   *  this used to ride has no body either). Only fires for an item that
+   *  actually staged something; the caller's job is to fold it into its own
+   *  cache of the chat's sticky selection. */
+  onSelectionCommitted?: (model: string, effort: string) => void
 }
 
 /**
@@ -140,6 +146,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
     onPromptDispatchSettled,
     onRefreshChat,
     onSubmitUnavailable,
+    onSelectionCommitted,
   } = options
 
   const initialQueue = useMemo(() => loadPromptQueue(wsId, chatId), [wsId, chatId])
@@ -418,11 +425,22 @@ export function usePromptQueue(options: PromptQueueOptions) {
         waitForIdleEpoch: undefined,
       }))
       try {
-        const result = await submitAgentPrompt(wsId, chatId, item.text, item.clientRequestId)
+        const result = await submitAgentPrompt(
+          wsId,
+          chatId,
+          item.text,
+          item.clientRequestId,
+          item.provider ?? '',
+          item.model ?? '',
+          item.effort ?? '',
+        )
         // Success means the replacement TUI exists, not that the provider has
         // accepted the message. Keep this row as the FIFO head until user_prompt
         // appears in the authoritative ledger.
         mark(item.clientRequestId, (current) => ({ ...current, state: 'awaiting_turn' }))
+        if (item.model !== undefined || item.effort !== undefined) {
+          onSelectionCommitted?.(item.model ?? '', item.effort ?? '')
+        }
         try {
           await onPromptSpawned(result)
         } catch {
@@ -505,6 +523,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
       onPromptDispatchStart,
       onPromptDispatchSettled,
       onSubmitUnavailable,
+      onSelectionCommitted,
     ],
   )
 
@@ -541,7 +560,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
   }, [live, mark, refreshMessages])
 
   const enqueue = useCallback(
-    (raw: string): EnqueueResult => {
+    (raw: string, provider?: string, model?: string, effort?: string): EnqueueResult => {
       const text = raw.trim()
       if (hasPendingImageUpload(text)) {
         return { ok: false, error: 'Wait for the attached photo to finish uploading.' }
@@ -570,6 +589,12 @@ export function usePromptQueue(options: PromptQueueOptions) {
         state: 'queued',
         createdAt: new Date().toISOString(),
         baselineSequence: getBaseline(),
+        // Baked in at enqueue time, not read fresh at dispatch: a later pick
+        // must never bleed onto an earlier queued message. See the field's
+        // own doc comment on PromptQueueItem.
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
       }
       const next = [...queueRef.current, item]
       if (!canPersistPromptQueue(wsId, chatId, next)) {

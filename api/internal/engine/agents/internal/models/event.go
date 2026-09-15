@@ -76,6 +76,15 @@ type ToolEvent struct {
 
 	Error      string
 	DurationMS int
+
+	// NestedSessionID names a SECOND conversation this tool call's own
+	// completion references — a whole other turn/item stream riding the same
+	// connection, not a flat sibling id (codex's collabAgentToolCall: the
+	// spawned agent's own thread id, present on spawnAgent/wait/closeAgent's
+	// completion once the provider has minted or is addressing it). Empty for
+	// every tool call that names no such thing. See turn/ingest.go's
+	// nested-session routing for what Go does with it.
+	NestedSessionID string
 }
 
 type SubagentEvent struct {
@@ -102,6 +111,15 @@ const (
 	InterruptProviderSwitched = "provider_switched"
 	InterruptModelChanged     = "model_changed"
 	InterruptEffortChanged    = "effort_changed"
+	// InterruptInferred is ALSO Crowbar's own doing, not a provider hook — but
+	// unlike the three above, it is not something Crowbar decided: it is
+	// Crowbar's own INFERENCE that a turn was interrupted, drawn from silence
+	// rather than observed directly. Recorded when a fuse elsewhere in the
+	// hook ingress (the message-quiet timeout an assistant reply stopped
+	// growing under, with nothing else open to explain why) decides a turn
+	// is never going to close on its own — the only trace a CLI's own
+	// hookless abort (an ESC/Ctrl+C it reports to nobody) leaves behind.
+	InterruptInferred = "inferred"
 )
 
 type InterruptEvent struct {

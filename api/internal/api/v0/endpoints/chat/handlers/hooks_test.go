@@ -211,7 +211,7 @@ type fakeAgentUsecase struct {
 }
 
 type promptCall struct {
-	chatID, text, requestID string
+	chatID, text, requestID, provider, model, effort string
 }
 
 type messageCall struct {
@@ -301,9 +301,11 @@ func (f *fakeAgentUsecase) ReadMessages(
 
 func (f *fakeAgentUsecase) SubmitPrompt(
 	_ context.Context,
-	chatID, text, requestID string,
+	chatID, text, requestID, provider, model, effort string,
 ) (domain.AgentPromptSubmission, error) {
-	f.promptCalls = append(f.promptCalls, promptCall{chatID: chatID, text: text, requestID: requestID})
+	f.promptCalls = append(f.promptCalls, promptCall{
+		chatID: chatID, text: text, requestID: requestID, provider: provider, model: model, effort: effort,
+	})
 	return f.promptResult, f.promptErr
 }
 

@@ -251,3 +251,56 @@ func TestRegression_ForgettingLiveTextAlsoForgetsItsQuietClock(t *testing.T) {
 	require.Equal(t, stale, since,
 		"a forgotten turn's thinking must not keep the next one's sweep at bay")
 }
+
+// AbandonMessageInferredInterrupt is termwait's message-quiet fuse (see
+// evaluate.go's abandonedMessage) closing a turn nothing else will — the one
+// path that catches a hooks/PTY provider's silent, hookless abort. Unlike the
+// bare AbandonMessage the provider-idle authority still uses, it must leave a
+// durable trace of WHY the turn closed, not just that it did — reusing
+// RecordStop's own Interrupt/ResolveInterruption pattern.
+func TestAbandonMessageInferredInterrupt_RecordsAnInferredInterruptionThenAbandonsTheTurn(t *testing.T) {
+	activity := &fakeStopActivity{}
+	turns := New(Deps{
+		Chats:    raceChats{},
+		Runners:  raceRunners{},
+		Activity: activity,
+		Work:     inflight.NewWork(),
+	})
+
+	abandoned, err := turns.AbandonMessageInferredInterrupt(context.Background(), "c")
+
+	require.NoError(t, err)
+	require.True(t, abandoned,
+		"a live runner with nothing left to salvage must still have its turn abandoned")
+	require.Len(t, activity.interrupts, 1)
+	require.Len(t, activity.resolves, 1)
+	opened, closed := activity.interrupts[0], activity.resolves[0]
+	require.Equal(t, "c", opened.chatID)
+	require.Equal(t, engineagents.InterruptInferred, opened.kind)
+	require.Equal(t, opened.id, closed.id,
+		"the open and the resolve must name the SAME interruption, or the read side never pairs them into one divider")
+	require.Equal(t, engineagents.InterruptInferred, closed.kind)
+}
+
+// TestAbandonMessageInferredInterrupt_UsesAFreshIDPerCall mirrors RecordStop's
+// own sibling test: each silent abort is its own interruption, never
+// compaction's single deterministic id-per-chat, or a second inferred abort
+// on the same chat would collapse into the first one's already-resolved
+// record and lose its divider entirely.
+func TestAbandonMessageInferredInterrupt_UsesAFreshIDPerCall(t *testing.T) {
+	activity := &fakeStopActivity{}
+	turns := New(Deps{
+		Chats:    raceChats{},
+		Runners:  raceRunners{},
+		Activity: activity,
+		Work:     inflight.NewWork(),
+	})
+
+	_, err := turns.AbandonMessageInferredInterrupt(context.Background(), "c")
+	require.NoError(t, err)
+	_, err = turns.AbandonMessageInferredInterrupt(context.Background(), "c")
+	require.NoError(t, err)
+
+	require.Len(t, activity.interrupts, 2)
+	require.NotEqual(t, activity.interrupts[0].id, activity.interrupts[1].id)
+}

@@ -1,12 +1,9 @@
 import type { AgentProvider } from '@/features/agent/api/agent-api'
-import { AgentModelPicker } from '@/features/agent/controls/model-picker'
-import { AgentProviderPicker } from '@/features/agent/controls/provider-picker'
+import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 
 export interface SelectionClusterProps {
-  wsId: string
-  chatId: string
   provider?: AgentProvider
   providers: AgentProvider[]
   model: string
@@ -17,8 +14,7 @@ export interface SelectionClusterProps {
   showSwitcher?: boolean
   handoverBlocked?: boolean
   switchDisabled?: boolean
-  onSwitchProvider?: (providerId: string) => Promise<boolean>
-  onSelectionChange: (model: string, effort: string) => void
+  onSelectionChange: (provider: string, model: string, effort: string) => void
   onSelectPresentation: (next: ChatPresentation) => void
 }
 
@@ -26,7 +22,7 @@ export interface SelectionClusterProps {
  * What this chat RUNS AS: which agent, which model, at what effort, on which
  * face of the provider.
  *
- * One cluster because all four answer the same question, which is why they sit
+ * One cluster because all three answer the same question, which is why they sit
  * closer to each other than to anything else on their row. It exists as its own
  * component because a chat shows it in two places that are not variants of one
  * another — the conversation's underbar, and the blank document's floating
@@ -34,8 +30,6 @@ export interface SelectionClusterProps {
  * describing two different chats.
  */
 export function SelectionCluster({
-  wsId,
-  chatId,
   provider,
   providers,
   model,
@@ -45,32 +39,20 @@ export function SelectionCluster({
   showSwitcher,
   handoverBlocked,
   switchDisabled,
-  onSwitchProvider,
   onSelectionChange,
   onSelectPresentation,
 }: SelectionClusterProps) {
   return (
     <span className="selpos">
-      {/* WHOSE CLI, then WHAT IT RUNS AS. In that order because that is the
-          order they depend on each other: the catalogue behind the model chip
-          belongs to whichever agent this one names. */}
-      {onSwitchProvider && (
-        <>
-          <AgentProviderPicker
-            provider={provider}
-            providers={providers}
-            disabled={switchDisabled}
-            onSwitch={(id) => void onSwitchProvider(id)}
-          />
-          <span className="sep" />
-        </>
-      )}
-      <AgentModelPicker
-        wsId={wsId}
-        chatId={chatId}
+      {/* Provider + model + effort as one merged control — picking a model
+          already picks its provider, so there is nothing left to split into
+          a separate provider chip ahead of it. */}
+      <AgentSelectionPicker
         provider={provider}
+        providers={providers}
         model={model}
         effort={effort}
+        disabled={switchDisabled}
         onSelectionChange={onSelectionChange}
       />
       {showSwitcher && <span className="sep" />}

@@ -277,7 +277,7 @@ func TestSubagentsAndInterruptions_AreRecorded(t *testing.T) {
 	f := newFixture(t)
 
 	require.NoError(t, f.repo.StartSubagent(f.ctx, chat, "a1", "explore", t0))
-	require.NoError(t, f.repo.StopSubagent(f.ctx, chat, "a1", "explore", t0.Add(time.Second)))
+	require.NoError(t, f.repo.StopSubagent(f.ctx, chat, "a1", "explore", "", t0.Add(time.Second)))
 	require.NoError(t, f.repo.Interrupt(f.ctx, chat, "i1", "permission", "Bash", t0))
 	require.NoError(t, f.repo.ResolveInterruption(f.ctx, chat, "i1", "permission", "Bash", t0.Add(time.Second)))
 	f.wait()

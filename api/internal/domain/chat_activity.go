@@ -138,6 +138,13 @@ type ActivityToolCall struct {
 	Error      string `json:"error,omitempty"`
 	DurationMS int    `json:"durationMs,omitempty"`
 
+	// SubagentID is non-empty when this tool call belongs to a SUBAGENT's own
+	// nested activity — a call the subagent's own child conversation made,
+	// not one the chat's top-level turn made directly — in which case TurnID
+	// is empty: a nested tool call has no top-level turn of its own to
+	// belong to. See ActivitySubagent's own doc.
+	SubagentID string `json:"subagentId,omitempty"`
+
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 }
@@ -150,6 +157,22 @@ type ActivitySubagent struct {
 	AgentType string     `json:"agentType,omitempty"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+
+	// Messages is the subagent's OWN reply history, in arrival order — a
+	// nested conversation can run more than one turn of its own (a provider
+	// whose collab-agent tool supports sendInput/resumeAgent, say), so this
+	// is a stream, not a single overwritten string. Appended to only by a
+	// ROUTED child turn closing (see turn/ingest.go's nested-session
+	// routing); never by anything at the top level, which has no way to
+	// observe a nested conversation's own replies at all otherwise.
+	Messages []ActivitySubagentMessage `json:"messages,omitempty"`
+}
+
+// ActivitySubagentMessage is one closed turn of a subagent's own nested
+// conversation.
+type ActivitySubagentMessage struct {
+	Text string    `json:"text"`
+	At   time.Time `json:"at"`
 }
 
 type ActivityInterruption struct {

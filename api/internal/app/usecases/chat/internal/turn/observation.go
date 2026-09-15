@@ -71,6 +71,16 @@ func (t *Turns) handleObservation(
 			Result: ev.Tool.Result, Status: toolStatus(ev), Error: ev.Tool.Error,
 			DurationMS: ev.Tool.DurationMS, Now: now,
 		}))
+		// BEFORE restateAsyncWork, not after: a completing spawnAgent tool call
+		// (codex's collab_agents) is exactly the moment a nested subagent opens,
+		// and restateAsyncWork's OpenWork read has to see that new row or it
+		// finds nothing else open, restates Working=false, and the live push
+		// that follows tells the frontend to stop polling — right as the
+		// subagent starts. Confirmed live: a 3-subagent codex run never showed
+		// on SubagentShelf because this ran in the other order. Same ordering
+		// HookSubagentPre/HookSubagentPost already use below for the native
+		// (non-nested) case.
+		t.openNestedSubagent(ctx, chat.ID, ev, now)
 		// Closing the last open tool call after the turn itself already closed is the
 		// other half of closeTurnFromStop's OpenWork fallback: open work may now be
 		// zero too.
@@ -82,7 +92,7 @@ func (t *Turns) handleObservation(
 		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookSubagentPost:
 		note(ctx, "subagent stopped",
-			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))
+			t.activity.StopSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, "", now))
 		t.restateAsyncWork(ctx, chat.ID)
 	case engineagents.HookNotification, engineagents.HookPermission,
 		engineagents.HookElicitation:
@@ -297,6 +307,38 @@ func subagentID(ev engineagents.CanonicalEvent) string {
 	}
 
 	return "subagent-" + fallbackID()
+}
+
+// openNestedSubagent starts tracking ev.Tool.NestedSessionID as one of chatID's
+// own subagents, the first time a tool completion names an id Go has not
+// already seen open — see the mapping's own doc on the field for what
+// populates it and why (a provider's own multi-agent tool call reporting the
+// thread id of the agent it spawned or is addressing). A no-op for every
+// ordinary tool call, which maps no such field.
+//
+// OpenNestedSubagent, not StartSubagent: Go never learns why a tool call
+// named this id, only that one did, but StartSubagent's own ensureTurn is
+// wrong here regardless of provider vocabulary — see OpenNestedSubagent's
+// own doc for why a tool-triggered open must never touch the top-level turn.
+func (t *Turns) openNestedSubagent(
+	ctx context.Context,
+	chatID string,
+	ev engineagents.CanonicalEvent,
+	now time.Time,
+) {
+	if ev.Tool == nil || ev.Tool.NestedSessionID == "" {
+		return
+	}
+	open, err := t.activity.IsSubagentOpen(ctx, chatID, ev.Tool.NestedSessionID)
+	if err != nil {
+		slog.WarnContext(ctx, "agent: nested subagent: check already open", "err", err)
+		return
+	}
+	if open {
+		return
+	}
+	note(ctx, "nested subagent opened",
+		t.activity.OpenNestedSubagent(ctx, chatID, ev.Tool.NestedSessionID, now))
 }
 
 // interruptionID falls back to inflight.RecordID for the same redelivery

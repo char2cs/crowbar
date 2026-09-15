@@ -98,6 +98,7 @@ const (
 	InterruptProviderSwitched = models.InterruptProviderSwitched
 	InterruptModelChanged     = models.InterruptModelChanged
 	InterruptEffortChanged    = models.InterruptEffortChanged
+	InterruptInferred         = models.InterruptInferred
 )
 
 const (

@@ -180,8 +180,12 @@ const baseProps = () => ({
   // these for a delivery that produced no turn, so the default is none.
   settledPrompts: undefined as string[] | undefined,
   streamingMessages: undefined as { id: string; text: string }[] | undefined,
-  // No sticky selection: these fixtures' providers declare no catalogue, so the
-  // picker renders nothing at all here (see agent-model-picker.test.tsx).
+  // Nothing staged: `provider` mirrors `providerId` exactly as
+  // AgentChatPane's own effectiveProviderId does when stagedSelection is
+  // null. No sticky model/effort: these fixtures' providers declare no
+  // catalogue, so the picker renders nothing at all here (see
+  // agent-model-picker.test.tsx).
+  provider: 'codex',
   model: '',
   effort: '',
   onSelectionChange: vi.fn(),
@@ -565,7 +569,7 @@ describe('AgentChatView durable FIFO', () => {
 
     await waitFor(() => expect(refresh).toHaveBeenCalled())
     await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
-    expect(submitPromptFn.mock.calls[0]?.slice(2)).toEqual(['survive reload', clientRequestId])
+    expect(submitPromptFn.mock.calls[0]?.slice(2, 4)).toEqual(['survive reload', clientRequestId])
   })
 
   it('bulk-cancels only safely unsent rows and preserves every in-flight identity', async () => {
@@ -907,7 +911,15 @@ describe('AgentChatView composer controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
 
     await waitFor(() =>
-      expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', 'click to send', expect.any(String)),
+      expect(submitPromptFn).toHaveBeenCalledWith(
+        'w1',
+        'c1',
+        'click to send',
+        expect.any(String),
+        '',
+        '',
+        '',
+      ),
     )
   })
 
@@ -926,6 +938,9 @@ describe('AgentChatView composer controls', () => {
         'c1',
         'first ever message',
         expect.any(String),
+        '',
+        '',
+        '',
       ),
     )
   })
@@ -1154,7 +1169,15 @@ describe('AgentChatView slash catalog', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await act(async () => vi.advanceTimersByTimeAsync(0))
-    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String))
+    expect(submitPromptFn).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      '/compact',
+      expect.any(String),
+      '',
+      '',
+      '',
+    )
     vi.useRealTimers()
   })
 
@@ -1208,7 +1231,15 @@ describe('AgentChatView slash catalog', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await act(async () => vi.advanceTimersByTimeAsync(0))
-    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', '/clear', expect.any(String))
+    expect(submitPromptFn).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      '/clear',
+      expect.any(String),
+      '',
+      '',
+      '',
+    )
     vi.useRealTimers()
   })
 
@@ -1373,27 +1404,61 @@ describe('AgentChatView model + effort selection', () => {
   it('shows no picker at all for a provider that declares no catalogue', async () => {
     setup()
     await composer()
-    expect(screen.queryByTestId('agent-model-picker')).toBeNull()
+    expect(screen.queryByTestId('agent-selection-picker')).toBeNull()
   })
 
   it('puts the picker by the composer when the provider declares one', async () => {
     setup({ providers: selectable })
     await composer()
-    expect(screen.getByTestId('agent-model-picker')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Model:/ })).toHaveTextContent('Default model')
+    expect(screen.getByTestId('agent-selection-picker')).toBeInTheDocument()
   })
 
-  it('writes a picked model and hands the accepted pair back to the chat owner', async () => {
+  // The picker never writes selection itself any more — see
+  // agent-selection-picker.test.tsx for its own local-staging behavior. This
+  // file's job is the OTHER half: proving AgentChatView never calls
+  // setChatSelection on a mere pick, and that the pick travels on the NEXT
+  // send instead (submitAgentPrompt's model/effort args), atomically.
+  it('a pick updates the chat owner locally without ever calling setChatSelection', async () => {
     const onSelectionChange = vi.fn()
     setup({ providers: selectable, model: 'gpt-5.6-sol', effort: 'ultra', onSelectionChange })
     await composer()
 
-    fireEvent.click(screen.getByRole('button', { name: /^Model:/ }))
+    fireEvent.click(screen.getByTestId('agent-selection-picker'))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'gpt-5.6-luna' }))
 
-    // `ultra` is not a gpt-5.6-luna level, so it is cleared in the same write.
-    await waitFor(() => expect(setSelectionFn).toHaveBeenCalledWith('w1', 'c1', 'gpt-5.6-luna', ''))
-    expect(onSelectionChange).toHaveBeenCalledWith('gpt-5.6-luna', '')
+    // `ultra` is not a gpt-5.6-luna level, so it lands on that model's own
+    // first declared level (`low`) — the new picker has no "provider
+    // default" row to clear back to instead. gpt-5.6-luna is still codex —
+    // the picker's OWN provider (the row's section), staged alongside it.
+    expect(onSelectionChange).toHaveBeenCalledWith('codex', 'gpt-5.6-luna', 'low')
+    expect(setSelectionFn).not.toHaveBeenCalled()
+  })
+
+  it('carries the staged model/effort onto the NEXT send, atomically with the prompt', async () => {
+    setup({ providers: selectable, model: 'gpt-5.6-luna', effort: 'high' })
+    await enterPrompt('go')
+
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    expect(submitPromptFn).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      'go',
+      expect.any(String),
+      // Provider is unstaged here — the same 'codex' as `providerId` — so it
+      // sends '' exactly like an ordinary resend, never a redundant switch.
+      '',
+      'gpt-5.6-luna',
+      'high',
+    )
+    expect(setSelectionFn).not.toHaveBeenCalled()
+  })
+
+  it('sends with no model/effort at all when the chat has no sticky selection yet', async () => {
+    setup({ providers: selectable, model: '', effort: '' })
+    await enterPrompt('go')
+
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', 'go', expect.any(String), '', '', '')
   })
 
   // The reported effort used to render here; it is gone from the transcript
@@ -1852,6 +1917,54 @@ describe('AgentChatView stopped turn divider', () => {
     expect(screen.getAllByTestId('agent-interrupted-divider')).toHaveLength(1)
     const later = screen.getByText('a second message')
     expect(divider.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// The message-quiet fuse (turn.AbandonMessageInferredInterrupt, api-side)
+// opens and resolves its interruption in one call, exactly like an explicit
+// stop — born already resolved, same as `stoppedAt`/`compactionAt` above.
+// Without TRAILING_INTERRUPTION_KINDS covering it too, the exact turn this
+// kind exists to catch (a silent abort with nothing typed after it) would
+// repeat the "no divider until the next message drags it in" bug already
+// fixed for `stopped` and `compaction`.
+describe('AgentChatView inferred-interrupt divider', () => {
+  const inferredAt = (seq: number) => ({
+    ...emptyActivity,
+    interruptions: [
+      {
+        id: `inferred-${seq}`,
+        turnId: '',
+        seq,
+        kind: 'inferred' as const,
+        detail: '',
+        at: '2026-08-16T00:00:00Z',
+        resolvedAt: '2026-08-16T00:00:01Z',
+      },
+    ],
+  })
+
+  it('draws at the foot of the transcript when nothing followed the silent abort', async () => {
+    initialMessages = [message(10, 'user', 'the only message')]
+    activityFn.mockResolvedValue(inferredAt(99))
+    setup()
+
+    expect(await screen.findByText('the only message')).toBeTruthy()
+    expect(await screen.findByTestId('agent-inferred-interrupt-divider')).toHaveTextContent(
+      'Interrupted unexpectedly',
+    )
+  })
+
+  // A person's own Stop click and Crowbar's own guess must never read as the
+  // same fact — wording and test id are what tell them apart, since neither
+  // pill carries any other visual marker (this feature has none to borrow).
+  it('renders distinct wording from an explicit stopped-turn divider, never that divider itself', async () => {
+    initialMessages = [message(10, 'user', 'the only message')]
+    activityFn.mockResolvedValue(inferredAt(99))
+    setup()
+
+    const divider = await screen.findByTestId('agent-inferred-interrupt-divider')
+    expect(divider).toHaveTextContent('Interrupted unexpectedly')
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
 })
 

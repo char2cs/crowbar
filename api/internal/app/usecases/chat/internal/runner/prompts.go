@@ -24,13 +24,23 @@ func (rs *Runners) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
 ) (domain.AgentPromptSubmission, error) {
+	defer rs.spawns.Lock(chatID)()
+	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID)
+}
+
+// submitPromptLocked is SubmitPrompt's body, split out so
+// SubmitPromptWithSwitch (promptswitch.go) can run it as the TAIL of its own
+// single gate hold — a staged provider switch and selection commit, then this,
+// never releasing the gate in between. See that file's own doc for why.
+func (rs *Runners) submitPromptLocked(
+	ctx context.Context,
+	chatID, text, clientRequestID string,
+) (domain.AgentPromptSubmission, error) {
 	clientRequestID, err := normalisePromptRequest(text, clientRequestID)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
 	textHash := agentjournal.PromptTextHash(text)
-
-	defer rs.spawns.Lock(chatID)()
 
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {

@@ -254,6 +254,10 @@ type AgentToolCallDTO struct {
 	DurationMS int        `json:"durationMs,omitempty"`
 	HasRequest bool       `json:"hasRequest"`
 	HasResult  bool       `json:"hasResult"`
+	// SubagentID — see domain.ActivityToolCall's own doc. Set instead of
+	// TurnID when this call belongs to a SUBAGENT's own nested activity, not
+	// the chat's top-level turn.
+	SubagentID string     `json:"subagentId,omitempty"`
 	StartedAt  time.Time  `json:"startedAt"`
 	EndedAt    *time.Time `json:"endedAt,omitempty"`
 }
@@ -265,6 +269,14 @@ type AgentSubagentDTO struct {
 	AgentType string     `json:"agentType,omitempty"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+	// Messages is the subagent's own nested reply history — see
+	// domain.ActivitySubagent's own doc.
+	Messages []AgentSubagentMessageDTO `json:"messages,omitempty"`
+}
+
+type AgentSubagentMessageDTO struct {
+	Text string    `json:"text"`
+	At   time.Time `json:"at"`
 }
 
 // AgentInterruptionDTO is the agent being blocked on, or interrupted by,

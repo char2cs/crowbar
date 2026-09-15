@@ -158,6 +158,12 @@
 .agent-chat .tok:nth-child(3n + 2) i {
   animation-delay: 0.4s;
 }
+/* A finished subagent's chip — same token, but the dot stops pulsing. Motion
+   there means "still working"; a done row saying that would be wrong. */
+.agent-chat .tok.done i {
+  animation: none;
+  opacity: 0.55;
+}
 .agent-chat .tok b {
   font-weight: 400;
   font-family: 'JetBrains Mono Variable', ui-monospace, monospace;

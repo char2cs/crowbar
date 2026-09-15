@@ -430,6 +430,16 @@ export interface AgentToolCall {
   hasResult: boolean
   startedAt: string
   endedAt?: string
+  /** Set instead of a meaningful `turnId` when this call belongs to a
+   *  SUBAGENT's own nested activity (its id) rather than the chat's own
+   *  top-level turn — see `AgentSubagent`. */
+  subagentId?: string
+}
+
+/** One closed turn of a subagent's own nested conversation. */
+export interface AgentSubagentMessage {
+  text: string
+  at: string
 }
 
 export interface AgentSubagent {
@@ -439,6 +449,11 @@ export interface AgentSubagent {
   agentType?: string
   startedAt: string
   endedAt?: string
+  /** The subagent's own reply history, in arrival order — present only for a
+   *  provider whose subagent is a whole nested conversation with its own
+   *  tool calls and turns (see `AgentToolCall.subagentId`), not the flat
+   *  marker a native subagent (Claude's Task tool) still is. */
+  messages?: AgentSubagentMessage[]
 }
 
 export type InterruptionKind =
@@ -450,6 +465,10 @@ export type InterruptionKind =
   | 'provider_switched'
   | 'model_changed'
   | 'effort_changed'
+  /** Crowbar's own guess, not a person's Stop click or a provider report: a
+   *  turn's assistant reply went quiet with nothing open to explain it, and
+   *  the daemon closed it on a timeout. See turn.AbandonMessageInferredInterrupt. */
+  | 'inferred'
 
 /** The agent blocked on, or interrupted by, something outside the turn. These
  *  are what make an apparently frozen agent legible. */
@@ -742,17 +761,32 @@ export async function getPendingPrompt(
 }
 
 /** Ask Crowbar to restart the same interactive provider TUI with a completed
- *  prompt. `clientRequestId` is stable across retries. */
+ *  prompt. `clientRequestId` is stable across retries.
+ *
+ *  `provider`/`model`/`effort` are the composer's STAGED pick, if the picker
+ *  has one — omit any of them (or pass '') when nothing is staged, which
+ *  leaves the chat's current provider / sticky selection exactly as it was.
+ *  A staged pick is committed on THIS call, atomically with the prompt: the
+ *  picker itself never writes selection or switches provider on its own, so
+ *  choosing a row never mutates the chat until the user actually sends. A
+ *  provider that differs from the chat's current one is switched to (killing
+ *  the outgoing CLI and spawning the new one) as part of this same request —
+ *  see the backend's Usecase.SubmitPrompt for the exact ordering. See
+ *  setChatSelection's own doc comment — the same 400/422 contract applies
+ *  here for an invalid pair. */
 export async function submitAgentPrompt(
   wsId: string,
   id: string,
   text: string,
   clientRequestId: string,
+  provider?: string,
+  model?: string,
+  effort?: string,
 ): Promise<AgentPromptResult> {
   return apiFetch<AgentPromptResult>(`${chatBase(wsId)}/${encodeURIComponent(id)}/prompts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, clientRequestId }),
+    body: JSON.stringify({ text, clientRequestId, provider, model, effort }),
   })
 }
 

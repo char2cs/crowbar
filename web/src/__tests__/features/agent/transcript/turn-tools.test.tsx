@@ -231,7 +231,11 @@ describe('AgentTurnSubagents', () => {
   // subagent-shelf.tsx deliberately shows only RUNNING subagents — it is a live
   // status strip, not a log. Without this, a subagent that finished had no
   // record anywhere: the shelf drops it, and nothing else ever showed it.
-  it('shows an ended subagent under the reply', () => {
+  //
+  // Same `.tok` chip and clock format (`formatElapsed`, "m:ss") the live shelf
+  // uses for a running one — a finished subagent is the same fact, just no
+  // longer moving, not a differently-formatted kind of row.
+  it('shows an ended subagent under the reply, as the same badge the live shelf uses', () => {
     render(
       <AgentTurnSubagents
         subagentsByTurn={groupSubagentsByTurn([
@@ -244,8 +248,10 @@ describe('AgentTurnSubagents', () => {
         turnId="turn-1"
       />,
     )
-    expect(screen.getByText('Subagent · reviewer')).toBeInTheDocument()
-    expect(screen.getByText('2.0s')).toBeInTheDocument()
+    expect(screen.getByText('1')).toBeInTheDocument()
+    expect(screen.getByText('subagent', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('reviewer')).toBeInTheDocument()
+    expect(screen.getByText('0:02')).toBeInTheDocument()
   })
 
   it('renders nothing for a turn with no ended subagents', () => {
