@@ -342,12 +342,13 @@ export function EditorSurface({
       onContentChange: onControllerContentChange,
       syncCursorAndSelection,
     },
-    // The resolved workspace id IS the manager identity (one EditorManager per
-    // workspace) — see the hook's own doc for why this must be a dependency,
-    // not just `paneId`: the ambient-workspace fallback above can resolve
-    // differently once the buffer's own workspace store exists, and the widget
-    // must follow it to the real manager, not stay mounted on the fallback one.
-    workspaceId,
+    // The manager instance itself, NOT the workspace id — see the hook's own
+    // doc for why a string proxy missed a real regression: `destroyWorkspaceStore`
+    // can dispose and recreate this same workspace's EditorManager (a fresh
+    // instance) without `workspaceId` ever changing, and only the manager
+    // reference actually distinguishes "still the one this pane is mounted on"
+    // from "was replaced out from under it."
+    editorManager,
   )
 
   // ── Retained-widget satellite concerns (settings, theme, decorations, LSP) ─

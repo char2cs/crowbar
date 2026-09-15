@@ -217,6 +217,42 @@ describe('usePaneEditorController', () => {
     expect(depsB.registry.get('p1')?.filePath).toBe('/a.ts')
   })
 
+  // Regression: `destroyWorkspaceStore` disposes a workspace's `EditorManager`
+  // and drops the store from the registry on a workspace switch; the next
+  // caller lazily creates a FRESH store (fresh `EditorManager`) for the SAME
+  // workspace id. A workspace-id STRING can't tell these two manager instances
+  // apart, so keying on it (as this hook originally did) never re-ran the
+  // mount effect — the container stayed registered on the disposed manager,
+  // which had already thrown its retained widget away, and the pane rendered
+  // a permanently empty `.editor-container` even though it was never
+  // unmounted. Keying on the manager REFERENCE itself (what callers must pass
+  // now) catches this because the two instances are never `Object.is`-equal,
+  // even when every other identifier (workspace id, paneId) is unchanged.
+  it('re-mounts when the manager instance is replaced even though no id changed', () => {
+    const store = makeStore()
+    const editorOld = makeEditor()
+    const editorNew = makeEditor()
+    const { deps: depsOld, manager: managerOld } = makeDeps(store, editorOld)
+    const { deps: depsNew, manager: managerNew } = makeDeps(store, editorNew)
+    const containerRef = createRef<HTMLElement>()
+    ;(containerRef as { current: HTMLElement }).current = document.createElement('div')
+
+    const view = renderHook(
+      ({ deps, managerKey }) => usePaneEditorController('p1', containerRef, deps, managerKey),
+      { initialProps: { deps: depsOld, managerKey: managerOld } },
+    )
+    expect(depsOld.mountPane).toHaveBeenCalledTimes(1)
+
+    // Workspace store torn down and recreated for the same workspace id —
+    // a brand new EditorManager instance, same conceptual "workspace".
+    view.rerender({ deps: depsNew, managerKey: managerNew })
+
+    expect(depsOld.unmountPane).toHaveBeenCalledTimes(1)
+    expect(depsNew.mountPane).toHaveBeenCalledTimes(1)
+    expect(managerNew.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
+    expect(depsNew.registry.get('p1')?.filePath).toBe('/a.ts')
+  })
+
   it('does NOT re-mount when managerKey stays the same across unrelated re-renders', () => {
     const store = makeStore()
     const editor = makeEditor()
