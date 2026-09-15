@@ -65,7 +65,9 @@ interface DiagnosticsEvent {
   diagnostics: LspDiagnostic[]
 }
 
-type DiagnosticsHandler = (filePath: string, diagnostics: LspDiagnostic[]) => void
+// wsId is the workspace the batch was computed FOR — see dispatch()'s own
+// doc for why a handler must check it, not just filePath.
+type DiagnosticsHandler = (filePath: string, diagnostics: LspDiagnostic[], wsId: string) => void
 
 class LspClientImpl {
   static _instance: LspClientImpl | null = null
@@ -194,8 +196,18 @@ class LspClientImpl {
       if (!byFile.has(filePath)) byFile.set(filePath, [])
     }
     this.lastByFile = byFile
+    // This singleton subscribes to ONE workspace's topic at a time, but
+    // `handlers` accumulates one per MOUNTED pane, including panes showing a
+    // DIFFERENT (non-active) workspace's file — those never unsubscribe just
+    // because their workspace isn't the currently-subscribed one. Two
+    // workspaces (two worktrees of the same repo, say) can easily share a
+    // relative path, so a bare filePath match alone hands a background pane
+    // another workspace's diagnostics for what LOOKS like its own file — same
+    // shape as the Monaco model URI collision this session already
+    // root-caused, one layer up. Handlers compare `event.wsId` against their
+    // OWN pane's resolved workspace and ignore anything else.
     for (const [filePath, diagnostics] of byFile) {
-      for (const handler of this.handlers) handler(filePath, diagnostics)
+      for (const handler of this.handlers) handler(filePath, diagnostics, event.wsId)
     }
   }
 
@@ -402,7 +414,12 @@ class LspClientImpl {
     this.ensureSubscribed()
     this.handlers.add(handler)
     // Replay current diagnostics so a late subscriber paints immediately.
-    for (const [filePath, diagnostics] of this.lastByFile) handler(filePath, diagnostics)
+    // `lastByFile` is cleared every time `this.wsId` changes (ensureSubscribed),
+    // so every entry in it is guaranteed to belong to the CURRENT this.wsId.
+    if (this.wsId) {
+      const wsId = this.wsId
+      for (const [filePath, diagnostics] of this.lastByFile) handler(filePath, diagnostics, wsId)
+    }
     return () => {
       this.handlers.delete(handler)
     }

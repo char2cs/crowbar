@@ -907,7 +907,15 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     if (!lspScopeReady) return
     const client = LspClient.getInstance()
 
-    const applyMarkers = (fp: string, diagnostics: LspDiagnostic[]) => {
+    const applyMarkers = (fp: string, diagnostics: LspDiagnostic[], diagWsId: string) => {
+      // LspClient is a single global subscription to whichever workspace is
+      // currently active — a pane showing a DIFFERENT (non-active) workspace's
+      // file stays registered as a handler the whole time, so a path match
+      // alone isn't enough: two workspaces sharing a relative path (two
+      // worktrees of the same repo) would otherwise paint one workspace's
+      // diagnostics onto the other's file. Same bleed shape as the Monaco
+      // model URI collision this session already fixed, one layer up.
+      if (diagWsId !== workspaceId) return
       if (!pathsMatch(fp, filePath)) return
       const current = modelRef.current
       if (!current) return
@@ -931,7 +939,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       const current = modelRef.current
       if (current) monacoEditor.setModelMarkers(current, 'crowbar-lsp', [])
     }
-  }, [languageId, swapTick, lspScopeReady])
+  }, [languageId, swapTick, lspScopeReady, workspaceId])
 
   // ── LSP re-analyze on edits (debounced, imperative — U5b) ─────────────────
   // Driven by the content-change signal, not a render dep. Each change (re)arms a

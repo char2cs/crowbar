@@ -91,7 +91,7 @@ describe('LspClient owning-chat-id race (cold-boot "no owning chat recorded" cra
     }
     onFrame({ wsId: 'ws-race', diagnostics: [diag] })
 
-    expect(handler).toHaveBeenCalledWith('/src/a.ts', [diag])
+    expect(handler).toHaveBeenCalledWith('/src/a.ts', [diag], 'ws-race')
   })
 
   it('documentOpen defers the didOpen POST until the owning chat id arrives, then flushes it', async () => {
