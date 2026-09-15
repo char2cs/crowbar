@@ -779,6 +779,56 @@ func TestRegression_ResumeChat_RecentSessionWithNoRecordedTurns_StillSpawnsFresh
 	}
 }
 
+// TestRegression_SwitchProvider_AbandonedSessionInAnActiveChat_SpawnsFreshNotACorpse
+// is the fix for a real bug hit live-testing switch-then-send: a chat with
+// GENUINE, table-recorded history (a real codex turn) proves the activity
+// table was live for this chat's whole lifetime — so a DIFFERENT provider's
+// session, announced and then abandoned (switched away from before it ever
+// turned) more than sessionAnnounceCrashWindow ago, cannot be "predating the
+// table" the way a genuinely old, pre-migration session does.
+// resumableConversation's only same-provider-sibling check missed exactly this
+// shape (the sibling with real history is under a DIFFERENT provider than the
+// one being resumed), so the abandoned session aged past the crash window and
+// got resumed anyway — --resume at a session id the provider itself never
+// wrote a conversation file for, which either fails outright or leaves the
+// CLI in a broken half-started state.
+//
+// The abandoned session is claude's, not codex's: codex's resume rides its own
+// persistent api connection rather than PTY argv, so an argv-only assertion on
+// a codex resume can't actually distinguish resumed from fresh either way.
+func TestRegression_SwitchProvider_AbandonedSessionInAnActiveChat_SpawnsFreshNotACorpse(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, codexRunner := f.spawn(t, "codex")
+	f.announce(t, codexRunner, "sid-codex-native")
+	turn(t, f, codexRunner, "codex", "codex has real, table-recorded history")
+
+	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+	f.wait()
+	// claude announces a session but the user switches away before it ever
+	// turns — backdated past sessionAnnounceCrashWindow, exactly like a real
+	// idle minute between switching away and switching back.
+	_, err = f.runners.BindSession(f.ctx, claudeRunner, "sid-claude-abandoned", true, time.Now().Add(-time.Minute))
+	require.NoError(t, err)
+	f.wait()
+
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	_, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
+	require.NoError(t, err)
+
+	require.Equal(t, 4, f.term.callCount())
+	argv := f.term.calls[3].argv
+	assert.Equal(t, -1, indexOf(argv, "--resume"),
+		"an abandoned session in a chat with real table history must NOT be resumed; argv was %v", argv)
+	for _, a := range argv {
+		assert.NotContains(t, a, "sid-claude-abandoned")
+	}
+}
+
 // TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume: same rule on the
 // switch-back path. A provider that ran in this chat but never said anything has no
 // conversation to return to, so it is spawned fresh — and, having no history of its
