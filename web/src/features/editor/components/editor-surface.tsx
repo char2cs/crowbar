@@ -452,6 +452,7 @@ export function EditorSurface({
         paneId={paneId}
         isActiveSurface={isActiveSurface}
         onContentChange={onContentChange}
+        registry={registry}
       />
       <div className="absolute inset-0 flex flex-col overflow-hidden">
         {showToolbar && <Breadcrumb {...breadcrumbProps} paneId={paneId} />}
@@ -467,6 +468,8 @@ export function EditorSurface({
         >
           <PaneLspLayer
             paneId={paneId}
+            registry={registry}
+            workspaceId={workspaceId}
             isActiveSurface={isActiveSurface}
             overlayContainerRef={overlayContainerRef}
             mouseHandlersRef={mouseHandlersRef}

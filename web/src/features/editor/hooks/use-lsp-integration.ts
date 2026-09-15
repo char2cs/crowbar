@@ -15,7 +15,6 @@ import { useLspStore } from '@/features/editor/lsp/lsp-store'
 import { useDefinitionLink } from '@/features/editor/lsp/use-definition-link'
 import { useGoToDefinition } from '@/features/editor/lsp/use-go-to-definition'
 import { useHover } from '@/features/editor/lsp/use-hover'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useEditorUIStore } from '@/features/editor/stores/ui-store'
@@ -41,6 +40,20 @@ interface UseLspIntegrationOptions {
   getValue?: () => string
   editorRef: RefObject<HTMLDivElement | null> | RefObject<HTMLTextAreaElement>
   resolveEditorPosition?: EditorCoordinateResolver
+  /**
+   * The workspace `filePath`'s buffer actually belongs to — used to look the
+   * buffer back up in `windowPaneStore` (open/close/completion lifecycle).
+   * Passed explicitly (the same value `EditorSurface`/`PaneLspLayer` already
+   * resolved) rather than read via ambient `useWorkspaceStore()`: that context
+   * is scoped to the PANE'S CHAT's workspace, which is not required to match
+   * the workspace the open FILE belongs to. When they didn't match, every
+   * `buffers.find(b => b.path === filePath && b.workspaceId === wsId)` lookup
+   * here missed (wrong wsId), so completions never fired and the document-close
+   * cleanup treated a still-open file as closed, tearing down its LSP session
+   * out from under the user. Same root cause as the font-size bug fixed in
+   * use-pane-editor-satellites.ts (8dcd26e8f).
+   */
+  workspaceId: string
 }
 
 /**
@@ -64,6 +77,7 @@ export const useLspIntegration = ({
   getValue,
   editorRef,
   resolveEditorPosition,
+  workspaceId,
 }: UseLspIntegrationOptions) => {
   // Resolve current content imperatively. The retained-editor path passes
   // `getValue` (no content subscription); legacy callers pass `value`.
@@ -72,9 +86,6 @@ export const useLspIntegration = ({
   const resolveValue = useCallback(() => getValueRef.current(), [])
   // Get LSP client instance (singleton)
   const lspClient = useMemo(() => LspClient.getInstance(), [])
-
-  // Get workspace store for imperative access
-  const workspaceStore = useWorkspaceStore()
 
   // Get workspace path
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath)
@@ -203,7 +214,7 @@ export const useLspIntegration = ({
     }
 
     const cleanupDocument = () => {
-      const wsId = workspaceStore.getState().workspaceId
+      const wsId = workspaceId
       const isStillOpen = windowPaneStore
         .getState()
         .buffers.some(
@@ -258,7 +269,7 @@ export const useLspIntegration = ({
     initLsp()
 
     return cleanupDocument
-  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, resolveValue, workspaceStore])
+  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, resolveValue, workspaceId])
 
   // Handle document content changes
   useEffect(() => {
@@ -355,7 +366,7 @@ export const useLspIntegration = ({
       // Debounce completion trigger with fixed delay for predictable behavior
       completionTimerRef.current = setTimeout(() => {
         // Get latest value at trigger time (not from effect deps)
-        const wsId = workspaceStore.getState().workspaceId
+        const wsId = workspaceId
         const buffer = windowPaneStore
           .getState()
           .buffers.find((b) => b.path === filePath && b.workspaceId === wsId)
@@ -382,7 +393,7 @@ export const useLspIntegration = ({
         completionTimerRef.current = undefined
       }
     }
-  }, [enabled, filePath, lspActions, isLspSupported, editorRef, workspaceStore])
+  }, [enabled, filePath, lspActions, isLspSupported, editorRef, workspaceId])
 
   useEffect(() => {
     if (!enabled) return
@@ -397,7 +408,7 @@ export const useLspIntegration = ({
         return
       }
 
-      const wsId = workspaceStore.getState().workspaceId
+      const wsId = workspaceId
       const buffer = windowPaneStore
         .getState()
         .buffers.find((b) => b.path === filePath && b.workspaceId === wsId)
@@ -417,7 +428,7 @@ export const useLspIntegration = ({
 
     window.addEventListener('editor-trigger-suggest', handleTriggerSuggest)
     return () => window.removeEventListener('editor-trigger-suggest', handleTriggerSuggest)
-  }, [enabled, filePath, lspActions, isLspSupported, editorRef, workspaceStore])
+  }, [enabled, filePath, lspActions, isLspSupported, editorRef, workspaceId])
 
   const prevInputTimestampRef = useRef<number>(0)
 
