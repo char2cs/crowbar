@@ -37,13 +37,13 @@ describe('SpaceHeader', () => {
         folded={false}
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
     expect(screen.queryByTestId('chevron')).not.toBeInTheDocument()
     expect(screen.queryByTestId('new-thread')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('add-menu')).not.toBeInTheDocument()
     expect(screen.queryByTestId('delete-menu')).not.toBeInTheDocument()
     expect(screen.getByText('p1')).toBeInTheDocument()
   })
@@ -57,21 +57,21 @@ describe('SpaceHeader', () => {
   // to drop the swap (that traded a real bug for a spec violation) but to
   // scope it: hovering the ROW swaps the mark for the chevron, per spec;
   // hovering the mark's OWN hit-target does not (see the next test).
-  it('on hover (off the glyph) the chevron, thread button and add-menu button all appear', () => {
+  it('on hover (off the glyph) the chevron, thread button and overflow menu all appear', () => {
     render(
       <SpaceHeader
         project={makeProject('p1')}
         folded={false}
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
     expect(screen.getByTestId('new-thread')).toBeInTheDocument()
-    expect(screen.getByTestId('add-menu')).toBeInTheDocument()
     expect(screen.getByTestId('delete-menu')).toBeInTheDocument()
   })
 
@@ -86,7 +86,8 @@ describe('SpaceHeader', () => {
         folded={false}
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
@@ -101,14 +102,15 @@ describe('SpaceHeader', () => {
     expect(screen.getByTestId('chevron')).toBeInTheDocument()
   })
 
-  it('mouse leave reverts the thread and add-menu buttons away again', () => {
+  it('mouse leave reverts the thread button and overflow menu away again', () => {
     render(
       <SpaceHeader
         project={makeProject('p1')}
         folded={false}
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
@@ -116,7 +118,7 @@ describe('SpaceHeader', () => {
     fireEvent.mouseEnter(row)
     fireEvent.mouseLeave(row)
     expect(screen.queryByTestId('new-thread')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('add-menu')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('delete-menu')).not.toBeInTheDocument()
   })
 
   // Folded reports a state (spec §4), so it does not depend on hover at
@@ -129,7 +131,8 @@ describe('SpaceHeader', () => {
         folded={true}
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
@@ -146,7 +149,8 @@ describe('SpaceHeader', () => {
         folded={true}
         onToggleFold={onToggle}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
@@ -161,7 +165,8 @@ describe('SpaceHeader', () => {
         folded={false}
         onToggleFold={onToggle}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
@@ -178,7 +183,8 @@ describe('SpaceHeader', () => {
         folded={false}
         onToggleFold={onToggle}
         onCreateThread={onCreateThread}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
@@ -188,31 +194,62 @@ describe('SpaceHeader', () => {
     expect(onToggle).not.toHaveBeenCalled()
   })
 
-  it('clicking the add-menu button calls onOpenAddMenu, not onToggleFold', () => {
+  // The "add repository" plus button used to live as its own row control;
+  // "Import a repo" and "Create a folder" now live as items inside the SAME
+  // overflow menu Delete Space already opens (spec: fewer controls fighting
+  // for the row's own hover cluster).
+  it('clicking Import a repo in the overflow calls onImportRepo, not onToggleFold', async () => {
+    const user = userEvent.setup()
     const onToggle = vi.fn()
-    const onOpenAddMenu = vi.fn()
+    const onImportRepo = vi.fn()
     render(
       <SpaceHeader
         project={makeProject('p1')}
         folded={false}
         onToggleFold={onToggle}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={onOpenAddMenu}
+        onImportRepo={onImportRepo}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
     fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
-    fireEvent.click(screen.getByTestId('add-menu'))
-    expect(onOpenAddMenu).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByTestId('delete-menu'))
+    await user.click(await screen.findByText('Import a repo'))
+
+    expect(onImportRepo).toHaveBeenCalledTimes(1)
+    expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  it('clicking Create a folder in the overflow calls onCreateFolder, not onToggleFold', async () => {
+    const user = userEvent.setup()
+    const onToggle = vi.fn()
+    const onCreateFolder = vi.fn()
+    render(
+      <SpaceHeader
+        project={makeProject('p1')}
+        folded={false}
+        onToggleFold={onToggle}
+        onCreateThread={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={onCreateFolder}
+        onDeleteSpace={vi.fn()}
+      />,
+    )
+    fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+    await user.click(screen.getByTestId('delete-menu'))
+    await user.click(await screen.findByText('Create a folder'))
+
+    expect(onCreateFolder).toHaveBeenCalledTimes(1)
     expect(onToggle).not.toHaveBeenCalled()
   })
 
   // Spec §9's "the space header for the project" clause: the FIRST item in
   // the trailing cluster (the row's own fold toggle is its leading glyph, so
-  // nothing else here competes for "last"), a plain overflow — no anchored
-  // position math, unlike the Add menu — opening straight onto "Delete
-  // Space", which calls the already-threaded `onTrashProject` pipe
-  // (space-scroller.tsx), not `onToggleFold`.
+  // nothing else here competes for "last"), a plain overflow opening onto
+  // Import a repo / Create a folder / Delete Space — the last of which calls
+  // the already-threaded `onTrashProject` pipe (space-scroller.tsx), not
+  // `onToggleFold`.
   it('clicking Delete Space in the overflow calls onDeleteSpace, not onToggleFold', async () => {
     const user = userEvent.setup()
     const onToggle = vi.fn()
@@ -223,7 +260,8 @@ describe('SpaceHeader', () => {
         folded={false}
         onToggleFold={onToggle}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={onDeleteSpace}
       />,
     )
@@ -235,7 +273,7 @@ describe('SpaceHeader', () => {
     expect(onToggle).not.toHaveBeenCalled()
   })
 
-  it('keyboard-activating the thread or add-menu button fires its own handler, not onToggleFold', async () => {
+  it('keyboard-activating the thread button fires its own handler, not onToggleFold', async () => {
     // Regression: a keydown on a nested button bubbles to the row's own
     // onKeyDown. Without SidebarRow's `e.target !== e.currentTarget` guard,
     // Enter/Space on the button fired onToggleFold instead of the button's
@@ -244,7 +282,6 @@ describe('SpaceHeader', () => {
     // keydown event — so this uses userEvent, which does.
     const onToggle = vi.fn()
     const onCreateThread = vi.fn()
-    const onOpenAddMenu = vi.fn()
     const user = userEvent.setup()
     render(
       <SpaceHeader
@@ -252,7 +289,8 @@ describe('SpaceHeader', () => {
         folded={false}
         onToggleFold={onToggle}
         onCreateThread={onCreateThread}
-        onOpenAddMenu={onOpenAddMenu}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
@@ -260,10 +298,6 @@ describe('SpaceHeader', () => {
     screen.getByTestId('new-thread').focus()
     await user.keyboard('{Enter}')
     expect(onCreateThread).toHaveBeenCalledTimes(1)
-
-    screen.getByTestId('add-menu').focus()
-    await user.keyboard('{Enter}')
-    expect(onOpenAddMenu).toHaveBeenCalledTimes(1)
     expect(onToggle).not.toHaveBeenCalled()
   })
 
@@ -274,7 +308,8 @@ describe('SpaceHeader', () => {
         folded={false}
         onToggleFold={vi.fn()}
         onCreateThread={vi.fn()}
-        onOpenAddMenu={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
         onDeleteSpace={vi.fn()}
       />,
     )
@@ -302,7 +337,8 @@ describe('SpaceHeader', () => {
           folded={false}
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
-          onOpenAddMenu={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
           onDeleteSpace={vi.fn()}
         />,
       )
@@ -320,7 +356,8 @@ describe('SpaceHeader', () => {
           folded={false}
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
-          onOpenAddMenu={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
           onDeleteSpace={vi.fn()}
         />,
       )
@@ -345,7 +382,8 @@ describe('SpaceHeader', () => {
           folded={false}
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
-          onOpenAddMenu={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
           onDeleteSpace={vi.fn()}
         />,
       )
@@ -364,7 +402,8 @@ describe('SpaceHeader', () => {
           folded={false}
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
-          onOpenAddMenu={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
           onDeleteSpace={vi.fn()}
         />,
       )
@@ -383,7 +422,8 @@ describe('SpaceHeader', () => {
           folded={false}
           onToggleFold={onToggle}
           onCreateThread={vi.fn()}
-          onOpenAddMenu={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
           onDeleteSpace={vi.fn()}
         />,
       )
@@ -399,7 +439,8 @@ describe('SpaceHeader', () => {
           folded={false}
           onToggleFold={onToggle}
           onCreateThread={vi.fn()}
-          onOpenAddMenu={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
           onDeleteSpace={vi.fn()}
         />,
       )
@@ -428,7 +469,8 @@ describe('SpaceHeader', () => {
           folded={false}
           onToggleFold={onToggle}
           onCreateThread={vi.fn()}
-          onOpenAddMenu={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
           onDeleteSpace={vi.fn()}
         />,
       )
@@ -445,7 +487,8 @@ describe('SpaceHeader', () => {
           folded={false}
           onToggleFold={vi.fn()}
           onCreateThread={vi.fn()}
-          onOpenAddMenu={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
           onDeleteSpace={vi.fn()}
         />,
       )

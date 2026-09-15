@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { FolderOpen, Folder as FolderIcon } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { ContextMenu, useContextMenu } from '@/components/ui/context-menu'
 import { SidebarTree } from './sidebar-tree'
 import { SpaceHeader } from './space-header'
 import { RecentsBand, type RecentsBandEntry } from './recents-band'
@@ -342,12 +340,6 @@ function SpacePanel({
   // component instance (keyed by project id), so "per space" is free.
   const [folded, setFolded] = useState(false)
 
-  // The add-menu's anchor. `SpaceHeader.onOpenAddMenu` is a bare callback
-  // with no event (its own reviewed signature), so the menu is positioned off
-  // the header's own box rather than the pointer — which is also the more
-  // correct anchor for a control that can be reached by keyboard.
-  const headerRef = useRef<HTMLDivElement>(null)
-  const menu = useContextMenu()
   const [addRepoOpen, setAddRepoOpen] = useState(false)
 
   return (
@@ -356,7 +348,7 @@ function SpacePanel({
       className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
     >
       {/* flex: none, above the scroller — spec §2's own layout diagram. */}
-      <div ref={headerRef} className="shrink-0">
+      <div className="shrink-0">
         <SpaceHeader
           project={project}
           folded={folded}
@@ -383,40 +375,16 @@ function SpacePanel({
             }
             void handleCreateHomeThread(projectId, homeWorkspaceId, navigate)
           }}
-          onOpenAddMenu={() => {
-            const rect = headerRef.current?.getBoundingClientRect()
-            menu.openAt({ x: rect ? rect.right - 8 : 0, y: rect ? rect.bottom : 0 })
-          }}
+          // Imports another repo into this project — opens the same modal
+          // the standalone Add-menu button used to.
+          onImportRepo={() => setAddRepoOpen(true)}
+          // Starts a folder on the project's OWN home workspace (the
+          // backend's `/home/chats/folders` mount — folders were once
+          // thought repo-internal only; they are not).
+          onCreateFolder={() => void performCreateHomeFolder(projectId)}
           onDeleteSpace={() => onTrashProject(project.id)}
         />
       </div>
-      {/* The Add menu stays import/create-only — deletion has its own
-          separate entry point now (SpaceHeader's own overflow). This one
-          imports another repo into this project, or starts a folder on the
-          project's OWN home workspace (the backend's `/home/chats/folders`
-          mount — folders were once thought repo-internal only; they are
-          not). */}
-      {menu.isOpen && (
-        <ContextMenu
-          isOpen
-          items={[
-            {
-              id: 'import-repo',
-              label: 'Import a repo',
-              icon: <FolderOpen />,
-              onClick: () => setAddRepoOpen(true),
-            },
-            {
-              id: 'new-folder',
-              label: 'Create a folder',
-              icon: <FolderIcon />,
-              onClick: () => void performCreateHomeFolder(projectId),
-            },
-          ]}
-          position={menu.position}
-          onClose={menu.close}
-        />
-      )}
       <AddRepositoryModal open={addRepoOpen} onOpenChange={setAddRepoOpen} projectId={project.id} />
       <ScrollArea className="flex-1">
         <div ref={contentRef} data-testid="space-scroll-content">

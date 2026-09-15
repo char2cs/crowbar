@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { ArrowElbowDownRight, CaretDown, DotsThree, Plus } from '@phosphor-icons/react'
+import {
+  ArrowElbowDownRight,
+  CaretDown,
+  DotsThree,
+  Folder as FolderIcon,
+  FolderOpen,
+} from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import {
   ROW_BASE,
@@ -12,6 +18,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { EditableProjectIcon } from '@/components/layout/project-icon-mark'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
@@ -25,8 +32,10 @@ interface SpaceHeaderProps {
   /** Starts a new thread on the project's home workspace — same mechanism
    *  a row's own Thread button uses (`onCreate(homeRowId, 'thread')`). */
   onCreateThread: () => void
-  /** Opens the "Import a repo" / "Create a folder" menu. */
-  onOpenAddMenu: () => void
+  /** Opens the "Import a repo" modal. */
+  onImportRepo: () => void
+  /** Starts a folder on the project's own home workspace. */
+  onCreateFolder: () => void
   /** Trashes the whole space — `SpacePanel`'s own `onTrashProject`, already
    *  threaded down from `sidebar-tree-surface.tsx` (spec §9: "the space
    *  header for the project" carries a trash too). */
@@ -51,7 +60,8 @@ export function SpaceHeader({
   folded,
   onToggleFold,
   onCreateThread,
-  onOpenAddMenu,
+  onImportRepo,
+  onCreateFolder,
   onDeleteSpace,
 }: SpaceHeaderProps) {
   const [active, setActive] = useState(false)
@@ -204,6 +214,25 @@ export function SpaceHeader({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
               <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onImportRepo()
+                }}
+              >
+                <FolderOpen className="size-4" />
+                Import a repo
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onCreateFolder()
+                }}
+              >
+                <FolderIcon className="size-4" />
+                Create a folder
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
                 variant="destructive"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -231,23 +260,6 @@ export function SpaceHeader({
             onPointerDown={(e) => e.stopPropagation()}
           >
             <ArrowElbowDownRight aria-hidden="true" className="size-3" weight="bold" />
-          </button>
-          {/* Replaces the old "•••" overflow, which opened a menu with
-              nothing in it (addendum §4 left it wired for "the next verb
-              this surface gets" — see space-scroller.tsx's SpacePanel). */}
-          <button
-            type="button"
-            data-testid="add-menu"
-            data-control="add-menu"
-            className={ROW_SUB_ACTION}
-            aria-label={`Add to ${project.name}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              onOpenAddMenu()
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <Plus aria-hidden="true" className="size-3" weight="bold" />
           </button>
         </>
       )}

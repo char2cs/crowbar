@@ -460,20 +460,21 @@ describe('SpaceScroller', () => {
     // only path is drag-to-trash now (addendum §2), superseding spec §9's
     // "every row that owns something carries a trash" for the project
     // header the same way it superseded it for a row's own trash button.
-    it('the add-menu opens with Import a repo / Create a folder, never a Delete item', () => {
+    it('the overflow opens with Import a repo / Create a folder / Delete Space, never a Delete "name" item', () => {
       const onTrashProject = vi.fn()
       renderScroller({ onTrashProject })
       const header = screen.getAllByTestId('space-header-row')[0]
 
-      fireEvent.mouseEnter(header) // the add-menu button only exists while active
-      fireEvent.click(screen.getByTestId('add-menu'))
+      fireEvent.mouseEnter(header) // the overflow trigger only exists while active
+      fireEvent.click(screen.getByTestId('delete-menu'))
 
       expect(screen.getByText('Import a repo')).toBeInTheDocument()
       expect(screen.getByText('Create a folder')).toBeInTheDocument()
+      expect(screen.getByText('Delete Space')).toBeInTheDocument()
 
       expect(screen.queryByText('Delete \u201Cp1\u201D')).not.toBeInTheDocument()
       expect(onTrashProject).not.toHaveBeenCalled()
-      // The add-menu click must not fold the space either way (SpaceHeader
+      // Opening the overflow must not fold the space either way (SpaceHeader
       // stops propagation; this pins that the mount relies on it).
       expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute('aria-expanded', 'true')
     })
@@ -557,13 +558,13 @@ describe('SpaceScroller', () => {
 
     // "Create a folder" used to target the FIRST repo's own home row — folders
     // were once thought repo-internal only. The backend's `/home/chats/folders`
-    // mount says otherwise, so the project-level add-menu item has to reach it.
-    it("the add-menu's Create a folder starts a folder on the project's home workspace", () => {
+    // mount says otherwise, so the project-level overflow item has to reach it.
+    it("the overflow's Create a folder starts a folder on the project's home workspace", () => {
       renderScroller()
       const header = screen.getAllByTestId('space-header-row')[0]
 
       fireEvent.mouseEnter(header)
-      fireEvent.click(screen.getByTestId('add-menu'))
+      fireEvent.click(screen.getByTestId('delete-menu'))
       fireEvent.click(screen.getByText('Create a folder'))
 
       expect(performCreateHomeFolder).toHaveBeenCalledWith('p1')
