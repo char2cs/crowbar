@@ -265,6 +265,9 @@ describe('a queued prompt for a chat missing from the seeded list', () => {
       'c-wedged',
       'does this ever reach the daemon',
       'req-wedged',
+      '',
+      '',
+      '',
     )
   })
 

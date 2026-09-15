@@ -72,10 +72,12 @@ export interface AgentChatViewHandle {
 export interface AgentChatViewProps {
   wsId: string
   chatId: string
+  /** The chat's REAL, live provider — what its CLI actually is right now.
+   *  Drives everything that can only mean something about a live process
+   *  (the slash catalog probe, submit-availability resets). Never a staged
+   *  pick — see `provider` below for that. */
   providerId: string
   providers: AgentProvider[]
-  /** Move this chat to another provider — the identity chip's other groups. */
-  onSwitchProvider?: (providerId: string) => Promise<boolean>
   /** A switch is already running, or the pane is mid-delivery. */
   switchDisabled?: boolean
   working: boolean
@@ -131,10 +133,22 @@ export interface AgentChatViewProps {
    *  standing in for the dock, so the composer (and anything that lives only
    *  inside it, like a reviving/idle signpost) does not exist to be read. */
   onBlankChange?: (blank: boolean) => void
-  /** The chat's sticky model / effort selection. '' means unset. */
+  /** The EFFECTIVE provider / model / effort right now: the chat's real
+   *  provider and sticky selection, or a staged pick on top of them if the
+   *  picker has one (the caller owns which — see AgentChatPane's
+   *  `stagedSelection`). `provider` '' means "use `providerId` as-is" — see
+   *  its own doc above for why the two are never the same prop. This is what
+   *  the trigger shows AND what travels with the next enqueue; the picker
+   *  itself never writes selection or switches provider, so
+   *  `onSelectionChange` below only ever updates local staged state, never
+   *  the server. */
+  provider: string
   model: string
   effort: string
-  onSelectionChange: (model: string, effort: string) => void
+  onSelectionChange: (provider: string, model: string, effort: string) => void
+  /** A staged pick this file just sent WAS ACCEPTED — see
+   *  usePromptQueue's `onSelectionCommitted` for the exact contract. */
+  onSelectionCommitted?: (model: string, effort: string) => void
   /** Which surface the pane is showing, and how to change it. */
   presentation: ChatPresentation
   splitEnabled: boolean
@@ -232,7 +246,6 @@ export function AgentChatView({
   chatId,
   providerId,
   providers,
-  onSwitchProvider,
   switchDisabled,
   working,
   compacting = false,
@@ -260,9 +273,11 @@ export function AgentChatView({
   onCancelableQueueCountChange,
   onDeliveryPendingChange,
   onBlankChange,
+  provider: effectiveProviderId,
   model,
   effort,
   onSelectionChange,
+  onSelectionCommitted,
   presentation,
   splitEnabled,
   onSelectPresentation,
@@ -404,6 +419,7 @@ export function AgentChatView({
     onPromptDispatchSettled,
     onRefreshChat,
     onSubmitUnavailable,
+    onSelectionCommitted,
   })
 
   const ledger = useChatMessages({
@@ -476,6 +492,12 @@ export function AgentChatView({
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
+  // The picker's OWN provider, model and effort catalogue must reflect a
+  // staged pick immediately — the whole point of staging is showing what
+  // WILL happen on the next send. Everything else above (providerLabel,
+  // slash catalog) stays on the REAL, live `provider`/`providerId`: a staged
+  // pick has not taken effect yet, so there is no live CLI to probe or label.
+  const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
   // The provider's stop reason occupies the BAR, so the transcript must not also
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
@@ -534,7 +556,17 @@ export function AgentChatView({
   // not have reached React yet — reading state there can enqueue the prompt one
   // keystroke short, or empty. The element is the authority; state is the mirror.
   const enqueueDraft = (text?: string) => {
-    const result = prompts.enqueue(text ?? draft)
+    // `model`/`effort` are whatever the picker currently shows — the chat's
+    // sticky selection, or a staged override on top of it. `provider` follows
+    // the SAME "empty means unchanged" contract, but compares against the
+    // REAL `providerId`, not just staging: nothing staged, or staged back
+    // onto the provider the chat is already on, both send '' — an ordinary
+    // resend must not carry a provider value on every single message, even
+    // one the backend would no-op on. Baking these into the queue item now
+    // (not reading them again at dispatch) is what keeps a later pick from
+    // bleeding onto this message.
+    const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
+    const result = prompts.enqueue(text ?? draft, stagedProvider, model, effort)
     if (!result.ok) {
       setComposerError(result.error ?? '')
       return
@@ -727,9 +759,7 @@ export function AgentChatView({
 
   const selectionCluster = (
     <SelectionCluster
-      wsId={wsId}
-      chatId={chatId}
-      provider={provider}
+      provider={effectiveProvider}
       providers={providers}
       model={model}
       effort={effort}
@@ -738,7 +768,6 @@ export function AgentChatView({
       showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
       handoverBlocked={!provider?.hotswap && working}
       switchDisabled={switchDisabled}
-      onSwitchProvider={onSwitchProvider}
       onSelectionChange={onSelectionChange}
       onSelectPresentation={onSelectPresentation}
     />
@@ -890,11 +919,8 @@ export function AgentChatView({
               takeoverContainer={chatSurfaceEl}
             />
             <ProviderBar
-              wsId={wsId}
-              chatId={chatId}
-              provider={provider}
+              provider={effectiveProvider}
               providers={providers}
-              onSwitchProvider={onSwitchProvider}
               switchDisabled={switchDisabled}
               model={model}
               effort={effort}

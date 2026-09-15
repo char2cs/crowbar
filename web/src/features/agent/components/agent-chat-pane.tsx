@@ -592,10 +592,52 @@ export function AgentChatPane({
     return () => window.clearInterval(timer)
   }, [attached, refreshChatWorking])
 
-  // A selection the SERVER accepted. It is written here rather than inside the
-  // picker because the store is the chat's owner, and the 202 carries no body and
-  // no lifecycle frame — nothing else would bring the new pair back.
-  const applySelection = useCallback(
+  // A pick the picker has made but NOT sent yet — provider included. The
+  // picker itself never calls the selection API or SwitchProvider any more —
+  // it only ever updates this, pure local state — so choosing a row never
+  // mutates the chat or touches its CLI until the user actually sends
+  // (submitAgentPrompt commits it atomically with the prompt). null means
+  // "nothing staged, show the chat's own current provider / sticky value."
+  const [stagedSelection, setStagedSelection] = useState<{
+    providerId: string
+    model: string
+    effort: string
+  } | null>(null)
+
+  // Settle the staged override the moment the store's OWN provider and
+  // sticky value catch up to it. Not "clear right after a successful send"
+  // — a moment-later store update from a DIFFERENT source (another pane on
+  // the same chat, a stale refetch) must win over a staged copy exactly as
+  // it would if nothing had ever been staged, and comparing against the live
+  // store value on every render is what keeps that true instead of trusting
+  // "our own send must have been the one that landed." Provider settles via
+  // the SAME adopt() refresh a plain prompt already triggers (handlePromptSpawned)
+  // — no separate commit call needed for it, unlike model/effort below.
+  useEffect(() => {
+    if (
+      stagedSelection &&
+      stagedSelection.providerId === activeProviderId &&
+      stagedSelection.model === chatModel &&
+      stagedSelection.effort === chatEffort
+    ) {
+      setStagedSelection(null)
+    }
+  }, [activeProviderId, chatModel, chatEffort, stagedSelection])
+
+  const effectiveProviderId = stagedSelection?.providerId ?? activeProviderId
+  const effectiveModel = stagedSelection?.model ?? chatModel
+  const effectiveEffort = stagedSelection?.effort ?? chatEffort
+
+  // The picker's own pick. Local only — see stagedSelection above.
+  const stageSelection = useCallback((providerId: string, model: string, effort: string) => {
+    setStagedSelection({ providerId, model, effort })
+  }, [])
+
+  // A staged pick the SERVER just accepted, via the next prompt it rode
+  // along with (usePromptQueue's onSelectionCommitted). The store is the
+  // chat's owner for the same reason it always was: nothing else brings this
+  // pair back, since submitAgentPrompt's response carries no body either.
+  const commitSelection = useCallback(
     (model: string, effort: string) => {
       store.getState().setAgentChatSelection(shownChatId, model, effort)
     },
@@ -1461,7 +1503,6 @@ export function AgentChatPane({
               chatId={shownChatId}
               providerId={activeProviderId}
               providers={providers}
-              onSwitchProvider={handleSwitch}
               switchDisabled={promptReplacing || deliveryPending || attachment.state === 'reviving'}
               working={working}
               compacting={compacting}
@@ -1525,9 +1566,11 @@ export function AgentChatPane({
               }}
               onPromptSpawned={handlePromptSpawned}
               onRefreshChat={refreshChatWorking}
-              model={chatModel}
-              effort={chatEffort}
-              onSelectionChange={applySelection}
+              provider={effectiveProviderId}
+              model={effectiveModel}
+              effort={effectiveEffort}
+              onSelectionChange={stageSelection}
+              onSelectionCommitted={commitSelection}
               onQueueCountChange={setQueuedPromptCount}
               onCancelableQueueCountChange={setCancelablePromptCount}
               onDeliveryPendingChange={setDeliveryPending}

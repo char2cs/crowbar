@@ -159,7 +159,7 @@ func (stubUsecase) ReadMessages(
 }
 
 func (stubUsecase) SubmitPrompt(
-	context.Context, string, string, string,
+	context.Context, string, string, string, string, string, string,
 ) (domain.AgentPromptSubmission, error) {
 	return domain.AgentPromptSubmission{RunnerID: "run-2", TerminalSessionID: "term-2"}, nil
 }

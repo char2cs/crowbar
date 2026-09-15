@@ -100,16 +100,42 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
   ProviderSwitchDropdown: () => createElement('button', { 'data-testid': 'provider-switch' }),
 }))
 
-// The real ProviderBar is where `onSwitchProvider` (AgentChatPane's handleSwitch)
-// reaches the user. Standing in for it with a plain button keeps the switch
-// going through the REAL handleSwitch — the thing under test — without driving a
-// popup menu.
+// ProviderBar no longer carries a switch affordance at all — picking a model
+// under a different provider's section now only STAGES it (see
+// agent-selection-picker.test.tsx), and the switch (if any) happens
+// server-side atomically with the next send. Stand in with a no-op so this
+// file's other rendering stays undisturbed.
 vi.mock('@/features/agent/controls/provider-bar', () => ({
-  ProviderBar: ({ onSwitchProvider }: { onSwitchProvider?: (id: string) => Promise<boolean> }) =>
-    createElement('button', {
-      'data-testid': 'switch-to-codex',
-      onClick: () => void onSwitchProvider?.('codex'),
-    }),
+  ProviderBar: () => createElement('div', { 'data-testid': 'provider-bar-stub' }),
+}))
+
+// The real AgentTerminalSurface is where `onSwitchProvider` (AgentChatPane's
+// handleSwitch) still reaches the user — an explicit "switch now" gesture,
+// deliberately kept live rather than staged (ProviderSwitchDropdown, its own
+// trigger, only renders outside 'chat' presentation, which this file never
+// drives). Standing in for it keeps the switch going through the REAL
+// handleSwitch — the thing under test — while still rendering the one other
+// thing this file's assertions read from it: the attached xterm, the same
+// condition the real component renders it under (agent-terminal-surface.tsx).
+vi.mock('@/features/agent/terminal/agent-terminal-surface', () => ({
+  AgentTerminalSurface: ({
+    attachment,
+    onSwitchProvider,
+  }: {
+    attachment: { state: string; sessionId?: string | null }
+    onSwitchProvider?: (id: string) => void
+  }) =>
+    createElement(
+      'div',
+      null,
+      attachment.state === 'attached' &&
+        attachment.sessionId &&
+        createElement('div', { 'data-testid': 'xterm', 'data-session-id': attachment.sessionId }),
+      createElement('button', {
+        'data-testid': 'switch-to-codex',
+        onClick: () => onSwitchProvider?.('codex'),
+      }),
+    ),
 }))
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'

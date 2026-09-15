@@ -4,13 +4,9 @@ import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 
 interface ProviderBarProps {
-  wsId: string
-  chatId: string
   provider?: AgentProvider
   /** Every provider Crowbar knows, for the identity chip's other groups. */
   providers?: AgentProvider[]
-  /** Move this chat to another provider. Absent means handover is not offered. */
-  onSwitchProvider?: (providerId: string) => Promise<boolean>
   /** A turn is in flight, or a switch is already running. */
   switchDisabled?: boolean
   model: string
@@ -19,7 +15,7 @@ interface ProviderBarProps {
   presentation: ChatPresentation
   splitEnabled: boolean
   handoverBlocked?: boolean
-  onSelectionChange: (model: string, effort: string) => void
+  onSelectionChange: (provider: string, model: string, effort: string) => void
   onSelectPresentation: (next: ChatPresentation) => void
   /**
    * Draw the surface switcher here.
@@ -53,11 +49,8 @@ interface ProviderBarProps {
  * carries a negative margin rather than the row carrying padding.
  */
 export function ProviderBar({
-  wsId,
-  chatId,
   provider,
   providers,
-  onSwitchProvider,
   switchDisabled,
   model,
   effort,
@@ -78,8 +71,6 @@ export function ProviderBar({
           the same question and the eye should not have to group them. */}
       <div className="left">
         <SelectionCluster
-          wsId={wsId}
-          chatId={chatId}
           provider={provider}
           providers={providers ?? []}
           model={model}
@@ -89,7 +80,6 @@ export function ProviderBar({
           showSwitcher={showSwitcher}
           handoverBlocked={handoverBlocked}
           switchDisabled={switchDisabled}
-          onSwitchProvider={onSwitchProvider}
           onSelectionChange={onSelectionChange}
           onSelectPresentation={onSelectPresentation}
         />

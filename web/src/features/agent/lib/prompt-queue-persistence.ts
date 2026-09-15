@@ -18,6 +18,15 @@ export interface PromptQueueItem {
   error?: string
   /** A busy response cannot be retried until server state has crossed idle. */
   waitForIdleEpoch?: number
+  /** The picker's staged provider/model/effort at the moment THIS item was
+   *  enqueued — not "whatever is staged now". Baking it into the item is
+   *  what keeps a later pick from bleeding onto an earlier queued message:
+   *  each item carries its own submission's selection, committed atomically
+   *  with it (see submitAgentPrompt). Absent means nothing was staged; the
+   *  chat's current provider / sticky selection is used as-is. */
+  provider?: string
+  model?: string
+  effort?: string
 }
 
 interface StoredQueueV1 {
@@ -117,7 +126,10 @@ function isQueueItem(value: unknown): value is PromptQueueItem {
     (item.waitForIdleEpoch === undefined ||
       (typeof item.waitForIdleEpoch === 'number' &&
         Number.isSafeInteger(item.waitForIdleEpoch) &&
-        item.waitForIdleEpoch >= 0))
+        item.waitForIdleEpoch >= 0)) &&
+    (item.provider === undefined || typeof item.provider === 'string') &&
+    (item.model === undefined || typeof item.model === 'string') &&
+    (item.effort === undefined || typeof item.effort === 'string')
   )
 }
 

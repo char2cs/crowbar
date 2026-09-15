@@ -143,9 +143,17 @@ type TurnUsecase interface {
 // RunnerUsecase is the vendor CLI itself: which one is on a chat, what it has
 // been told, and the lifecycle gestures a client can aim at it.
 type RunnerUsecase interface {
+	// provider/model/effort are the composer's STAGED selection, committed
+	// atomically with the prompt — empty means nothing staged, use the
+	// chat's current provider/sticky value as-is. A non-empty provider that
+	// differs from the chat's current one is switched to BEFORE the prompt is
+	// delivered — the frontend never calls a separate switch endpoint for
+	// this any more, so there is exactly one path from a picker row to a
+	// delivered prompt, not two. See agentusecase.Usecase.SubmitPrompt's own
+	// doc comment.
 	SubmitPrompt(
 		ctx context.Context,
-		chatID, text, clientRequestID string,
+		chatID, text, clientRequestID, provider, model, effort string,
 	) (domain.AgentPromptSubmission, error)
 
 	// PendingPrompt returns chatID's most recent prompt submission the

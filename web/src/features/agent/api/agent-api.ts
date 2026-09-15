@@ -761,17 +761,32 @@ export async function getPendingPrompt(
 }
 
 /** Ask Crowbar to restart the same interactive provider TUI with a completed
- *  prompt. `clientRequestId` is stable across retries. */
+ *  prompt. `clientRequestId` is stable across retries.
+ *
+ *  `provider`/`model`/`effort` are the composer's STAGED pick, if the picker
+ *  has one — omit any of them (or pass '') when nothing is staged, which
+ *  leaves the chat's current provider / sticky selection exactly as it was.
+ *  A staged pick is committed on THIS call, atomically with the prompt: the
+ *  picker itself never writes selection or switches provider on its own, so
+ *  choosing a row never mutates the chat until the user actually sends. A
+ *  provider that differs from the chat's current one is switched to (killing
+ *  the outgoing CLI and spawning the new one) as part of this same request —
+ *  see the backend's Usecase.SubmitPrompt for the exact ordering. See
+ *  setChatSelection's own doc comment — the same 400/422 contract applies
+ *  here for an invalid pair. */
 export async function submitAgentPrompt(
   wsId: string,
   id: string,
   text: string,
   clientRequestId: string,
+  provider?: string,
+  model?: string,
+  effort?: string,
 ): Promise<AgentPromptResult> {
   return apiFetch<AgentPromptResult>(`${chatBase(wsId)}/${encodeURIComponent(id)}/prompts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, clientRequestId }),
+    body: JSON.stringify({ text, clientRequestId, provider, model, effort }),
   })
 }
 

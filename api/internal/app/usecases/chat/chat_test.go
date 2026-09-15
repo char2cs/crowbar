@@ -1294,7 +1294,7 @@ func TestSpawn_UnselectedChatSpawnsIdenticalArgv(t *testing.T) {
 	baseline := f.term.calls[0].argv
 
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "", ""))
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 
 	replacement := f.term.calls[f.term.callCount()-1].argv
@@ -1312,7 +1312,7 @@ func TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner(t *testing.
 	chatID, _ := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "with a model", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "with a model", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 
 	call := f.term.calls[f.term.callCount()-1]
@@ -1327,6 +1327,110 @@ func TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "opus", live.LaunchModel)
 	assert.Equal(t, "high", live.LaunchEffort)
+}
+
+// The composer must never PATCH .../selection on its own — a staged pick has
+// to travel WITH the send, committed by SubmitPrompt itself, not by a prior
+// call. No SetChatSelection call precedes this one.
+func TestSubmitPrompt_CommitsAStagedSelectionItselfBeforeSpawning(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", "opus", "high")
+	require.NoError(t, err)
+
+	call := f.term.calls[f.term.callCount()-1]
+	modelAt := indexOf(call.argv, "--model")
+	require.GreaterOrEqual(t, modelAt, 0)
+	assert.Equal(t, "opus", call.argv[modelAt+1])
+	effortAt := indexOf(call.argv, "--effort")
+	require.GreaterOrEqual(t, effortAt, 0)
+	assert.Equal(t, "high", call.argv[effortAt+1])
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "opus", live.LaunchModel)
+	assert.Equal(t, "high", live.LaunchEffort)
+}
+
+// THE REGRESSION this session fixed. The picker used to call SwitchProvider
+// itself, live, the instant a cross-provider row was clicked — before the
+// user ever sent anything. Now the picker only stages the pick, and the
+// switch happens here, atomically with the send: one path, not two.
+func TestSubmitPrompt_StagedProviderSwitchesBeforeDelivering(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "codex", "", "")
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "codex", live.ProviderID, "the switch actually ran before delivery")
+
+	// SwitchProvider's own distinctive mark — see
+	// TestSwitchProvider_RecordsAProviderSwitchedInterruption — is exactly one
+	// interruption naming the target. Asserting on it rather than a raw
+	// terminal-call count keeps this independent of "codex" delivery's own
+	// mechanics (a real switch always fires it exactly once; ordinary prompt
+	// delivery, restart-based or not, never does).
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, ints, 1)
+	assert.Equal(t, engineagents.InterruptProviderSwitched, ints[0].Kind)
+	assert.Equal(t, "codex", ints[0].Detail)
+}
+
+// A resend under the SAME provider the chat is already on must never pay for
+// a switch — SwitchProvider kills and respawns the CLI unconditionally
+// whenever it runs (see switchProviderLocked), so calling it on every ordinary
+// message would tear down and restart the CLI on every send. Compared as a
+// DELTA against an ordinary (nothing-staged) submit on the same chat, not a
+// raw call count, since this fixture's own delivery may restart the TUI for
+// reasons that have nothing to do with provider — the thing under test is
+// whether STAGING the current provider costs anything ON TOP of that.
+func TestSubmitPrompt_SameProviderNeverTriggersASwitch(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	spawned := f.term.callCount()
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "first", uuid.NewString(), "", "", "")
+	require.NoError(t, err)
+	ordinaryDelta := f.term.callCount() - spawned
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	// A busy chat refuses the next submit — confirm dispatch, then close the
+	// turn, exactly as the CLI's own hooks would in production.
+	prompt(t, f, live.ID, "claude", "first")
+	turn(t, f, live.ID, "claude", "reply")
+	afterOrdinary := f.term.callCount()
+
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "second", uuid.NewString(), "claude", "", "")
+	require.NoError(t, err)
+	stagedSameProviderDelta := f.term.callCount() - afterOrdinary
+
+	assert.Equal(t, ordinaryDelta, stagedSameProviderDelta,
+		"staging the provider the chat is already on must cost exactly what an ordinary send costs")
+
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Empty(t, ints, "the provider never changed — nothing for SwitchProvider to have recorded")
+}
+
+// A staged pick that is not jointly valid (effort the model doesn't declare)
+// must refuse the WHOLE send, exactly as a standalone PATCH .../selection
+// would — and never deliver the prompt on a selection that failed to commit.
+func TestSubmitPrompt_RefusesAndNeverSpawnsOnAnInvalidStagedSelection(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+	callsBefore := f.term.callCount()
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", "gpt-5", "")
+
+	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
+	assert.Equal(t, callsBefore, f.term.callCount(), "an invalid selection must not spawn a replacement runner")
 }
 
 type undeliverableAgent struct {
@@ -1440,7 +1544,7 @@ func TestSubmitPrompt_TheRestartResumesTheNativeConversation(t *testing.T) {
 	turn(t, f, runnerID, "claude", "the conversation exists")
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "keep my history", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "keep my history", uuid.NewString(), "", "", "")
 
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
@@ -1454,7 +1558,7 @@ func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
 	chatID, _ := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
-	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "under opus", uuid.NewString())
+	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "under opus", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, first.RunnerID, "claude", "user_prompt",
@@ -1462,7 +1566,7 @@ func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T)
 	turn(t, f, first.RunnerID, "claude", "answered")
 
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "", ""))
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "back to default", uuid.NewString())
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "back to default", uuid.NewString(), "", "", "")
 
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
@@ -1473,7 +1577,7 @@ func TestSubmitPrompt_NoSwitchUnderARestartingDeliveryIsUnchanged(t *testing.T) 
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "ordinary message", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "ordinary message", uuid.NewString(), "", "", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, f.term.callCount(), "the original spawn plus the delivery restart")
@@ -1531,7 +1635,7 @@ func TestRegression_UnseededChatHonoursAnExplicitLevelOnItsNextRestart(t *testin
 
 	require.NoError(t, f.usecase.SetChatPermissionLevel(f.ctx, chatID, "full-auto"))
 
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString())
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 
 	live, err := f.liveRunnerFor(t, chatID)
@@ -1666,7 +1770,7 @@ runtime:
 `)
 	chatID, _ := f.spawn(t, "claude")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "nowhere to go", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "nowhere to go", uuid.NewString(), "", "", "")
 
 	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported)
 }

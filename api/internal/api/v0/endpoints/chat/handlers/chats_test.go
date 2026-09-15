@@ -209,7 +209,7 @@ func (*configurableListGetUsecase) ReadMessages(
 }
 
 func (*configurableListGetUsecase) SubmitPrompt(
-	context.Context, string, string, string,
+	context.Context, string, string, string, string, string, string,
 ) (domain.AgentPromptSubmission, error) {
 	return domain.AgentPromptSubmission{}, nil
 }
