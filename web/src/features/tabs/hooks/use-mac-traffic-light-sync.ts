@@ -14,11 +14,22 @@ const STATIC_Y = 23
 /** The one pane-top-row actually sitting at the window's physical top-left
  *  corner right now, or null if none is (empty stage, still loading). Same
  *  `< EDGE_THRESHOLD` test `usePaneTopRowEdges` uses per-row, run globally
- *  since this hook has no single row's ref to read. */
+ *  since this hook has no single row's ref to read.
+ *
+ *  WorkspaceHost keeps recently-visited workspaces mounted but hidden
+ *  (`display:none`) so switching back is instant (its own doc) — a hidden
+ *  row's `getBoundingClientRect()` degenerates to all-zero, which trivially
+ *  passes `< EDGE_THRESHOLD` and reads as "flush against the top-left
+ *  corner." Skipping zero-size rows keeps a hidden pane from ever winning
+ *  that check ahead of the one real visible row, whatever order they mount
+ *  in — live-reported as the traffic lights sticking at a fixed spot
+ *  regardless of sidebar side, whichever hidden row happened to sort first
+ *  in `querySelectorAll`. */
 function findTopLeftPaneTopRow(): DOMRect | null {
   const rows = document.querySelectorAll<HTMLElement>('[data-testid="pane-top-row"]')
   for (const row of rows) {
     const rect = row.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) continue
     if (rect.left < EDGE_THRESHOLD && rect.top < EDGE_THRESHOLD) return rect
   }
   return null

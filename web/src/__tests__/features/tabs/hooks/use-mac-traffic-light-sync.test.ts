@@ -97,6 +97,21 @@ describe('useMacTrafficLightSync', () => {
     expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 33 })
   })
 
+  it('skips a hidden, kept-mounted pane-top-row (zero rect) that sorts before the real visible one', async () => {
+    // WorkspaceHost keeps recently-visited workspaces mounted but hidden —
+    // their pane-top-row still matches the selector, with a getBoundingClientRect
+    // that degenerates to all-zero. That trivially satisfies "< EDGE_THRESHOLD"
+    // for both axes, so without a size check it wins the very first iteration
+    // over the real visible row that comes after it in DOM order.
+    addPaneTopRow({ left: 0, top: 0, width: 0, height: 0 })
+    addPaneTopRow({ left: 0, top: 10, width: 400, height: 44 })
+
+    renderHook(() => useMacTrafficLightSync('right'))
+    await act(async () => {})
+
+    expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 33 })
+  })
+
   it('re-applies when sidebarPosition flips from right back to left', async () => {
     addPaneTopRow({ left: 0, top: 10, width: 400, height: 44 })
     const { rerender } = renderHook(({ side }) => useMacTrafficLightSync(side), {
