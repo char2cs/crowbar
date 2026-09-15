@@ -1228,6 +1228,57 @@ func TestSetChatSelection_RefusesAValueOutsideTheDeclaredCatalogue(t *testing.T)
 	}
 }
 
+// TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange
+// guards the standalone PATCH .../selection route (Usecase.SetChatSelection)
+// against racing a SubmitPrompt call that stages its OWN model/effort change
+// on the same chat: the standalone route reads the chat's CURRENT selection,
+// writes its new one, then records which of model/effort actually differed —
+// entirely unguarded by rs.spawns, unlike every other mutating entry point on
+// this interface (SwitchProvider, StopChat, SwitchToTerminal, SwitchToNative,
+// SubmitPromptWithSwitch). Two concurrent writers can each read a "before"
+// snapshot taken before the OTHER's write has landed, so the interruption log
+// ends up narrating a transition to a value a concurrent write immediately
+// superseded — the chat settles on one caller's pick, but the log can still
+// carry a "changed to" entry for the OTHER caller's, never corrected.
+func TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+
+	start := make(chan struct{})
+	done := make(chan error, 2)
+	go func() {
+		<-start
+		done <- f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high")
+	}()
+	go func() {
+		<-start
+		_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hi", uuid.NewString(), "", "haiku", "low")
+		done <- err
+	}()
+	close(start)
+	require.NoError(t, <-done)
+	require.NoError(t, <-done)
+	f.wait()
+
+	final := f.chat(t, chatID)
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+
+	var lastModelDetail string
+	found := false
+	for _, i := range ints {
+		if i.Kind == engineagents.InterruptModelChanged {
+			lastModelDetail = i.Detail
+			found = true
+		}
+	}
+	require.True(t, found, "at least one model-change interruption must be recorded")
+	assert.Equal(t, final.Model, lastModelDetail,
+		"the most recently recorded model-change entry must describe the model the chat "+
+			"actually ended up on (final=%q, logged=%q) — never a value a concurrent write "+
+			"immediately superseded", final.Model, lastModelDetail)
+}
+
 func TestSetChatSelection_RefusesWhereTheProviderDeclaresNoCatalogue(t *testing.T) {
 	f := newFixture(t)
 	writeDescriptor(t, f, "claude", silentDescriptorBody)

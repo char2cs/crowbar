@@ -82,6 +82,24 @@ func (rs *Runners) SubmitPromptWithSwitch(
 	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID)
 }
 
+// SetChatSelection is the standalone PATCH .../selection route's entry
+// point — gated by the SAME rs.spawns hold every other mutating path on this
+// interface takes (SwitchProvider, StopChat, SwitchToTerminal, SwitchToNative,
+// SubmitPromptWithSwitch), so it can never interleave its own read-before /
+// write / record-diff trio with one of THEIRS. Before this existed, the
+// Usecase called conversation.Conversations.SetChatSelection directly, with
+// no lock at all: a standalone selection change racing a SubmitPrompt call
+// that staged its own model/effort could each read a "before" snapshot the
+// other's write had not landed yet, so the durable interruption log ended up
+// narrating a transition to a value a concurrent write immediately
+// superseded. See
+// TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStaleChange
+// (chat_test.go) for the property this closes off.
+func (rs *Runners) SetChatSelection(ctx context.Context, chatID, model, effort string) error {
+	defer rs.spawns.Lock(chatID)()
+	return rs.setChatSelectionLocked(ctx, chatID, model, effort)
+}
+
 // resolveTargetProvider is the provider a staged model/effort must validate
 // against: the one this call is itself about to switch to, or — nothing
 // staged — the chat's current one.
