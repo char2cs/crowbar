@@ -94,26 +94,6 @@
    (`.tools`, transcript.css) — the same rows the finished turn keeps — so a
    call no longer disappears off screen the moment it stops running. */
 
-/* Wraps the live strip and NestedSubagentPanel's own `.tools` list — either
-   may be absent (see SubagentShelf's own early return), so this is a plain
-   stack, never a grid that would leave a gap for a row that isn't there. */
-.agent-chat .substack {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* A nested subagent's own final reply, shown under its tool list once
-   expanded — same treatment as the model's own thinking preview (.thinking
-   above): quiet, never mistaken for the chat's own reply. */
-.agent-chat .tools .reply {
-  margin: 4px 0 0;
-  padding: 0 0 0 8px;
-  font-size: var(--ui-text-xs);
-  color: var(--muted-foreground);
-  white-space: pre-wrap;
-}
-
 /* The subagent shelf, sitting on the top edge of the input box.
  *
  * It has to survive a wide fan-out, so it sheds detail in a fixed order rather
@@ -177,6 +157,12 @@
 }
 .agent-chat .tok:nth-child(3n + 2) i {
   animation-delay: 0.4s;
+}
+/* A finished subagent's chip — same token, but the dot stops pulsing. Motion
+   there means "still working"; a done row saying that would be wrong. */
+.agent-chat .tok.done i {
+  animation: none;
+  opacity: 0.55;
 }
 .agent-chat .tok b {
   font-weight: 400;

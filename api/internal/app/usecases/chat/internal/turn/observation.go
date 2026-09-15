@@ -71,11 +71,20 @@ func (t *Turns) handleObservation(
 			Result: ev.Tool.Result, Status: toolStatus(ev), Error: ev.Tool.Error,
 			DurationMS: ev.Tool.DurationMS, Now: now,
 		}))
+		// BEFORE restateAsyncWork, not after: a completing spawnAgent tool call
+		// (codex's collab_agents) is exactly the moment a nested subagent opens,
+		// and restateAsyncWork's OpenWork read has to see that new row or it
+		// finds nothing else open, restates Working=false, and the live push
+		// that follows tells the frontend to stop polling — right as the
+		// subagent starts. Confirmed live: a 3-subagent codex run never showed
+		// on SubagentShelf because this ran in the other order. Same ordering
+		// HookSubagentPre/HookSubagentPost already use below for the native
+		// (non-nested) case.
+		t.openNestedSubagent(ctx, chat.ID, ev, now)
 		// Closing the last open tool call after the turn itself already closed is the
 		// other half of closeTurnFromStop's OpenWork fallback: open work may now be
 		// zero too.
 		t.restateAsyncWork(ctx, chat.ID)
-		t.openNestedSubagent(ctx, chat.ID, ev, now)
 	case engineagents.HookSubagentPre:
 		note(ctx, "subagent started",
 			t.activity.StartSubagent(ctx, chat.ID, subagentID(ev), ev.Subagent.AgentType, now))

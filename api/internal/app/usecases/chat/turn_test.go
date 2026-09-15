@@ -234,6 +234,52 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	assert.Empty(t, turns, "no top-level turn was ever opened by any of this")
 }
 
+// TestRegression_SpawnAgentCompletionKeepsChatWorkingForTheNestedSubagent is
+// THE BUG live-reported against SubagentShelf: a codex chat ran a real
+// collab_agents subagent, and the live shelf never showed it running at all.
+//
+// handleObservation's HookToolPost case used to call restateAsyncWork BEFORE
+// openNestedSubagent — so the very read meant to notice "something is now
+// open" ran one statement before the write that would have given it
+// something to find. With the PARENT's own turn already closed (codex ends
+// its visible turn the instant it delegates — see observation.go's own
+// comment on this) and nothing else open, that ordering restated
+// Working=false right as the nested subagent started, and nothing ever
+// reopened it: SubagentShelf's live poll had already stopped.
+func TestRegression_SpawnAgentCompletionKeepsChatWorkingForTheNestedSubagent(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "thread-main")
+
+	hook(t, f, runnerID, "codex", "user_prompt", map[string]any{"prompt": "spawn a subagent"})
+	require.True(t, f.chat(t, chatID).Working, "precondition: the turn is open")
+
+	// codex ends its OWN visible turn the instant it delegates — nothing else
+	// is open once this lands.
+	hook(t, f, runnerID, "codex", "turn_stop", map[string]any{
+		"session_id": "thread-main", "last_assistant_message": "Delegating now.",
+	})
+	require.False(t, f.chat(t, chatID).Working,
+		"precondition: the parent's own turn genuinely closed, nothing else open yet")
+
+	// The parent's own spawnAgent tool call completes, naming the child
+	// thread it just created — this is what opens the nested subagent, and
+	// it is the ONLY thing open at this instant.
+	hook(t, f, runnerID, "codex", "tool_post", map[string]any{
+		"session_id": "thread-main", "tool_use_id": "spawn-1", "tool_name": "spawnAgent",
+		"item": map[string]any{"receiverThreadIds": []any{"thread-child"}},
+	})
+
+	chat := f.chat(t, chatID)
+	require.True(t, chat.Working,
+		"the spinner must turn back on: a nested subagent just opened and is still running")
+
+	subs, err := f.activity.Subagents(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	assert.Nil(t, subs[0].EndedAt, "opened, not yet closed")
+}
+
 func TestObservation_InterruptionsAreRecordedForEachKind(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
@@ -2551,7 +2597,7 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what changed?", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what changed?", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"precondition: the real prompt is dispatched and still unconfirmed")

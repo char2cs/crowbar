@@ -20,33 +20,30 @@ function activity(overrides: Partial<AgentActivity> = {}): AgentActivity {
 }
 
 describe('SubagentShelf', () => {
-  it('renders nothing when nothing is running and nothing finished is nested', () => {
+  it('renders nothing when nothing is running', () => {
     const { container } = render(<SubagentShelf activity={activity()} />)
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('still renders the running strip exactly as before when a subagent is running', () => {
+  it('renders the running strip when a subagent is running', () => {
     render(<SubagentShelf activity={activity({ subagents: [subagent({ endedAt: undefined })] })} />)
     expect(screen.getByTestId('agent-subagent-shelf')).toBeInTheDocument()
   })
 
-  // A codex-shaped nested subagent has NOTHING running — its own tool calls
-  // and reply are already durable — yet the shelf used to return null the
-  // instant `running.length === 0`, so its finished record had nowhere to
-  // surface at all. This is the regression NestedSubagentPanel exists to fix.
-  it('renders the finished nested list even when nothing is currently running', () => {
-    render(
+  // A finished subagent — with or without a turn of its own — is drawn by
+  // AgentTurnSubagents in the transcript now, not here. The shelf is the
+  // live strip only: it must go back to returning null the moment nothing is
+  // still running, whatever finished earlier in the conversation.
+  it('renders nothing once a subagent finishes and nothing else is running', () => {
+    const { container } = render(
       <SubagentShelf
-        activity={activity({
-          subagents: [subagent({ endedAt: '2026-08-17T12:00:05Z' })],
-        })}
+        activity={activity({ subagents: [subagent({ endedAt: '2026-08-17T12:00:05Z' })] })}
       />,
     )
-    expect(screen.queryByTestId('agent-subagent-shelf')).not.toBeInTheDocument()
-    expect(screen.getByTestId('agent-nested-subagents')).toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement()
   })
 
-  it('renders both the running strip and the finished nested list together', () => {
+  it('shows only the still-running ones when a mix of running and finished exist', () => {
     render(
       <SubagentShelf
         activity={activity({
@@ -57,20 +54,7 @@ describe('SubagentShelf', () => {
         })}
       />,
     )
-    expect(screen.getByTestId('agent-subagent-shelf')).toBeInTheDocument()
-    expect(screen.getByTestId('agent-nested-subagents')).toBeInTheDocument()
-  })
-
-  // A CLAUDE-native subagent (real turnId) that finished must still be left
-  // to AgentTurnSubagents — NestedSubagentPanel is only for one with none.
-  it('never claims a finished subagent that belongs to a real turn', () => {
-    render(
-      <SubagentShelf
-        activity={activity({
-          subagents: [subagent({ turnId: 'turn-1', endedAt: '2026-08-17T12:00:05Z' })],
-        })}
-      />,
-    )
-    expect(screen.queryByTestId('agent-nested-subagents')).not.toBeInTheDocument()
+    const shelf = screen.getByTestId('agent-subagent-shelf')
+    expect(shelf).toHaveAccessibleName('1 subagent running')
   })
 })

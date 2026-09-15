@@ -271,6 +271,135 @@ describe('AgentTranscript turnbar wiring', () => {
     ).not.toBeNull()
   })
 
+  // THE REGRESSION this session fixed. A Codex-style nested subagent carries
+  // no turnId at all (see AgentSubagent's own doc) — before this it only ever
+  // surfaced in a permanent strip above the composer, disconnected from any
+  // turn. It must attach to the turn it actually ran under instead — here,
+  // with only one turn after it, that is also simply the last one.
+  it('folds a turnId-less finished subagent onto the turn it ran under', () => {
+    draw(
+      [
+        { turnId: 't1', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
+        { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'codex', text: 'b', at: '' },
+      ],
+      {
+        activity: {
+          toolCalls: [],
+          subagents: [
+            {
+              id: 's1',
+              turnId: '',
+              seq: 0,
+              agentType: 'Explore',
+              startedAt: '2026-08-17T12:00:00Z',
+              endedAt: '2026-08-17T12:00:05Z',
+            },
+          ],
+          interruptions: [],
+          choices: [],
+        },
+      },
+    )
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).not.toBeNull()
+    expect(screen.getByText('Explore')).toBeInTheDocument()
+  })
+
+  // THE REGRESSION reported live: a Codex chat ran 3 subagents, then the chat
+  // was switched to Claude and a NEW turn landed after them. The first cut of
+  // this attached orphaned subagents to whichever turn was CURRENTLY last,
+  // recomputed on every render — so the Codex subagents kept sliding onto the
+  // newer Claude turn that had nothing to do with them, every time the
+  // transcript re-rendered. They must stay pinned to the turn they actually
+  // ran under (the reply recorded right after they finished), even once a
+  // later turn — on a different provider — exists.
+  it('keeps a turnId-less finished subagent on the turn it ran under, not a LATER one', () => {
+    draw(
+      [
+        {
+          turnId: 't1',
+          sequence: 1,
+          role: 'assistant',
+          providerId: 'codex',
+          text: 'ran 3 subagents',
+          at: '2026-08-17T12:00:10Z',
+        },
+        {
+          turnId: 't2',
+          sequence: 2,
+          role: 'assistant',
+          providerId: 'claude',
+          text: 'switched turn',
+          at: '2026-08-17T12:05:00Z',
+        },
+      ],
+      {
+        activity: {
+          toolCalls: [],
+          subagents: [
+            {
+              id: 's1',
+              turnId: '',
+              seq: 0,
+              agentType: 'Explore',
+              startedAt: '2026-08-17T12:00:00Z',
+              endedAt: '2026-08-17T12:00:05Z',
+            },
+          ],
+          interruptions: [],
+          choices: [],
+        },
+      },
+    )
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).not.toBeNull()
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).toBeNull()
+  })
+
+  // A turn-scoped (real turnId) finished subagent still attaches to ITS OWN
+  // turn, not the last one, even when a later turn exists.
+  it('still attaches a turn-scoped finished subagent to its own turn, not the last', () => {
+    draw(
+      [
+        { turnId: 't1', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
+        { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'claude', text: 'b', at: '' },
+      ],
+      {
+        activity: {
+          toolCalls: [],
+          subagents: [
+            {
+              id: 's1',
+              turnId: 't1',
+              seq: 0,
+              agentType: 'reviewer',
+              startedAt: '2026-08-17T12:00:00Z',
+              endedAt: '2026-08-17T12:00:02Z',
+            },
+          ],
+          interruptions: [],
+          choices: [],
+        },
+      },
+    )
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).not.toBeNull()
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).toBeNull()
+  })
+
   it('never gives a streaming bubble a turnbar — the turn has not finished', () => {
     draw([], {
       streamingBubbles: [

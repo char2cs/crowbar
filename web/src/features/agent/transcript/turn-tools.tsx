@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type { AgentChoice, AgentSubagent, AgentToolCall } from '@/features/agent/api/agent-api'
+import { formatElapsed } from '@/features/agent/activity/lib/shelf-fit'
 import {
   describeResolvedChoice,
   describeTool,
   formatDuration,
   tailOf,
 } from '@/features/agent/lib/agent-activity'
+import { SubagentIcon } from '@/features/agent/shared/agent-icons'
 import { ToolPayloadPanel } from '@/features/agent/transcript/tool-payload-panel'
 
 /** Rows shown under a reply before the rest collapse into a count — shared by
@@ -259,7 +261,13 @@ function ToolRow({
 /** Ended subagents this turn ran, under the reply — the counterpart of
  *  `AgentTurnTools` for the OTHER kind of work a turn does. Without it a
  *  subagent that finished had no record anywhere once the live shelf stopped
- *  counting it: it simply stopped existing. */
+ *  counting it: it simply stopped existing.
+ *
+ *  Same `.subbar`/`.subhd`/`.tok` chip the live shelf (SubagentShelf) draws
+ *  for a RUNNING subagent — a finished one is the same fact, just no longer
+ *  moving, not a different kind of thing that needs its own look. `.tok done`
+ *  freezes the dot instead of pulsing it: pulsing reads as "still working",
+ *  which a finished row would be lying about. */
 export function AgentTurnSubagents({
   subagentsByTurn,
   turnId,
@@ -272,15 +280,26 @@ export function AgentTurnSubagents({
   if (subagents.length === 0) return null
 
   return (
-    <ul className="tools" data-testid="agent-turn-subagents">
-      {subagents.slice(0, LIMIT).map((subagent) => (
-        <li key={subagent.id}>
-          <span>{subagent.agentType ? `Subagent · ${subagent.agentType}` : 'Subagent'}</span>
-          <span>{formatDuration(elapsedMs(subagent.startedAt, subagent.endedAt as string))}</span>
-        </li>
-      ))}
-      {subagents.length > LIMIT && <li>+{subagents.length - LIMIT} more</li>}
-    </ul>
+    <div className="subbar" data-testid="agent-turn-subagents">
+      <span className="subhd">
+        <SubagentIcon size={12} />
+        <b>{subagents.length}</b>&nbsp;{subagents.length === 1 ? 'subagent' : 'subagents'}
+      </span>
+      <span className="subline">
+        {subagents.slice(0, LIMIT).map((subagent) => (
+          <span className="tok done" key={subagent.id}>
+            <i />
+            {subagent.agentType && <span className="ty">{subagent.agentType}</span>}
+            <b>
+              {formatElapsed(
+                Math.round(elapsedMs(subagent.startedAt, subagent.endedAt as string) / 1000),
+              )}
+            </b>
+          </span>
+        ))}
+        {subagents.length > LIMIT && <span className="submore">+{subagents.length - LIMIT}</span>}
+      </span>
+    </div>
   )
 }
 
