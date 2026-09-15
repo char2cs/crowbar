@@ -329,16 +329,26 @@ export function EditorSurface({
     [paneId],
   )
 
-  usePaneEditorController(paneId, containerRef, {
-    store: windowPaneStore,
-    selectActiveBuffer,
-    manager: editorManager,
-    registry,
-    mountPane,
-    unmountPane,
-    onContentChange: onControllerContentChange,
-    syncCursorAndSelection,
-  })
+  usePaneEditorController(
+    paneId,
+    containerRef,
+    {
+      store: windowPaneStore,
+      selectActiveBuffer,
+      manager: editorManager,
+      registry,
+      mountPane,
+      unmountPane,
+      onContentChange: onControllerContentChange,
+      syncCursorAndSelection,
+    },
+    // The resolved workspace id IS the manager identity (one EditorManager per
+    // workspace) — see the hook's own doc for why this must be a dependency,
+    // not just `paneId`: the ambient-workspace fallback above can resolve
+    // differently once the buffer's own workspace store exists, and the widget
+    // must follow it to the real manager, not stay mounted on the fallback one.
+    workspaceId,
+  )
 
   // ── Retained-widget satellite concerns (settings, theme, decorations, LSP) ─
   const syncLspOverlayTransform = useCallback((scrollTop: number, scrollLeft: number) => {

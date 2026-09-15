@@ -181,6 +181,62 @@ describe('usePaneEditorController', () => {
     expect(calls.some((c) => c[0] === 'typed-into-A' && c[1] === 'b')).toBe(false)
   })
 
+  // Regression: EditorPane falls back to the AMBIENT workspace's manager when
+  // a buffer's own workspace has no store yet, then re-resolves to the real
+  // one once it exists (see the hook's own doc). Before `managerKey`, this
+  // effect mounted once against whichever manager was ambient at the very
+  // first render and never again — the real manager never learned about the
+  // container at all, so the pane rendered a permanently empty
+  // `.editor-container`. Live-reported: opening the same file from two chats
+  // in different workspaces left one pane blank.
+  it('re-mounts onto the new manager when managerKey changes (ambient -> real workspace)', () => {
+    const store = makeStore()
+    const editorA = makeEditor()
+    const editorB = makeEditor()
+    const { deps: depsA, manager: managerA } = makeDeps(store, editorA)
+    const { deps: depsB, manager: managerB } = makeDeps(store, editorB)
+    const containerRef = createRef<HTMLElement>()
+    ;(containerRef as { current: HTMLElement }).current = document.createElement('div')
+
+    const view = renderHook(
+      ({ deps, managerKey }) => usePaneEditorController('p1', containerRef, deps, managerKey),
+      { initialProps: { deps: depsA, managerKey: 'ambient-ws' } },
+    )
+
+    expect(depsA.mountPane).toHaveBeenCalledTimes(1)
+    expect(managerA.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
+    expect(depsA.registry.get('p1')?.filePath).toBe('/a.ts')
+
+    // The buffer's own workspace store now exists — EditorPane re-resolves to
+    // its real manager for the SAME pane.
+    view.rerender({ deps: depsB, managerKey: 'real-ws' })
+
+    expect(depsA.unmountPane).toHaveBeenCalledTimes(1) // torn down off the old manager
+    expect(depsB.mountPane).toHaveBeenCalledTimes(1) // mounted onto the new one
+    expect(managerB.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
+    expect(depsB.registry.get('p1')?.filePath).toBe('/a.ts')
+  })
+
+  it('does NOT re-mount when managerKey stays the same across unrelated re-renders', () => {
+    const store = makeStore()
+    const editor = makeEditor()
+    const { deps, manager } = makeDeps(store, editor)
+    const containerRef = createRef<HTMLElement>()
+    ;(containerRef as { current: HTMLElement }).current = document.createElement('div')
+
+    const view = renderHook(
+      ({ deps, managerKey }) => usePaneEditorController('p1', containerRef, deps, managerKey),
+      { initialProps: { deps, managerKey: 'ws-1' } },
+    )
+    expect(deps.mountPane).toHaveBeenCalledTimes(1)
+
+    view.rerender({ deps, managerKey: 'ws-1' })
+
+    expect(deps.unmountPane).not.toHaveBeenCalled()
+    expect(deps.mountPane).toHaveBeenCalledTimes(1)
+    expect(manager.showBuffer).toHaveBeenCalledTimes(1) // no re-apply either
+  })
+
   it('cleanup unmounts the pane and clears the registry', () => {
     const { deps, view } = setup()
     expect(deps.registry.get('p1')).toBeDefined()

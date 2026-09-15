@@ -83,14 +83,32 @@ export interface PaneEditorControllerDeps<S> {
 }
 
 /**
- * Mount + drive the retained widget for `paneId`. Effect deps are `[paneId]`
- * only (everything else is read through the latest-deps ref) so the widget is
- * mounted and the listeners are bound exactly once per pane lifetime.
+ * Mount + drive the retained widget for `paneId`. Effect deps are
+ * `[paneId, managerKey]` (everything else is read through the latest-deps
+ * ref) so the widget is mounted and the listeners are bound once per pane
+ * lifetime — UNLESS `managerKey` itself changes, which re-mounts onto
+ * whichever manager it now identifies.
+ *
+ * `managerKey` matters because `deps.manager` can resolve to a DIFFERENT
+ * `EditorManager` instance for the same `paneId` across renders: EditorPane
+ * falls back to the ambient workspace's manager when the buffer's own
+ * workspace has no store yet (see its own doc), then re-resolves to the
+ * real one once that store exists. Mounting once and never again meant the
+ * container stayed registered ONLY in whichever manager was ambient at the
+ * very first render — the real manager never learned about it at all, and
+ * the pane rendered a permanently empty `.editor-container` no matter how
+ * long you waited. Live-reported: opening the same file from two chats in
+ * different workspaces left one pane blank. Passing the resolved
+ * workspace id as `managerKey` re-runs this effect (unmount from the old
+ * manager, mount onto the new one, re-apply the current buffer) exactly
+ * when that resolution actually changes — a rare, one-time correction per
+ * pane, not a steady-state cost.
  */
 export function usePaneEditorController<S>(
   paneId: string,
   containerRef: React.RefObject<HTMLElement | null>,
   deps: PaneEditorControllerDeps<S>,
+  managerKey?: string,
 ): void {
   // Latest deps in a ref so the mount effect never re-runs on identity changes
   // of callbacks/selectors; the once-registered listeners read through it.
@@ -187,5 +205,5 @@ export function usePaneEditorController<S>(
       registry.clear(paneId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId])
+  }, [paneId, managerKey])
 }
