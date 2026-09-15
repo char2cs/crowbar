@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { getReviewPatch } from '@/features/git/api/review-window-api'
 import type { FileOutline, HunkShape } from '@/features/git/api/review-window-api'
 import { MAX_MATERIALIZED_LINES, PATCH_LINE_CAP, planWindow } from '@/features/git/lib/patch-window'
+import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import type { GitDiff } from '@/features/git/types/git-types'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { cn } from '@/utils/cn'
@@ -594,6 +595,18 @@ function ReviewCodeViewSurface({
 
   const [patchStates, setPatchStates] = useState<Record<string, PatchState>>({})
 
+  // PaneContainer renders only the active buffer, so a tab switch unmounts this
+  // surface entirely and a return remounts it from scratch — same as
+  // MarkdownPreview (use-preserved-scroll.ts's own doc). Keyed by wsId+commit
+  // (not just wsId) so a branch review and a commit-diff tab on the same
+  // workspace, or two different commit tabs, each keep their own offset.
+  const scrollKey = `${wsId}\u0000${commit ?? ''}`
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const markScrollerRef = useCallback((node: HTMLDivElement | null) => {
+    scrollerRef.current = node
+    if (node != null) node.dataset.reviewCodeViewScroller = ''
+  }, [])
+
   const handleRef = useRef<CodeViewHandle<ReviewThread> | null>(null)
   const heldRef = useRef(new Map<string, HeldPatch>())
   const tokenRef = useRef(0)
@@ -885,6 +898,10 @@ function ReviewCodeViewSurface({
     runWindow()
   }, [runWindow, items, isActivePane])
 
+  // Restored once items exist in the DOM — before that the scroller has no
+  // room to hold an offset and it would be clamped away.
+  usePreservedScroll(scrollerRef, scrollKey, items.length > 0)
+
   useEffect(() => {
     const held = heldRef.current
     return () => held.clear()
@@ -913,7 +930,7 @@ function ReviewCodeViewSurface({
         // document, not an update to this one.
         key={signature}
         ref={handleRef}
-        containerRef={markScroller}
+        containerRef={markScrollerRef}
         initialItems={items}
         options={options}
         onScroll={runWindow}
@@ -997,11 +1014,6 @@ function sameAnnotations(
       annotation.metadata === other.metadata
     )
   })
-}
-
-/** Tags the CodeView's own scroll container so styling and tests can find it. */
-function markScroller(node: HTMLDivElement | null): void {
-  if (node != null) node.dataset.reviewCodeViewScroller = ''
 }
 
 /**

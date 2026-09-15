@@ -10,6 +10,7 @@ import {
 import type { FileOutline } from '@/features/git/api/review-window-api'
 import { PATCH_LINE_CAP } from '@/features/git/lib/patch-window'
 import type { GitDiff } from '@/features/git/types/git-types'
+import { clearPreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 
@@ -531,5 +532,49 @@ describe('ReviewCodeView binary files', () => {
     // is the new one, so its <img> is what proves the viewer actually mounted.
     const image = await screen.findByAltText(/^assets\/logo\.png/)
     expect(image).toHaveAttribute('src', expect.stringContaining('aGVsbG8='))
+  })
+})
+
+describe('ReviewCodeView scroll retention', () => {
+  beforeEach(() => {
+    clearPreservedScroll()
+  })
+
+  // Regression: PaneContainer renders only the active buffer, so switching
+  // away to another tab and back unmounts this surface entirely and rebuilds
+  // it from scratch — the scroll offset used to reset to the top every time.
+  it('restores the scroll offset when the tab is switched away and back', () => {
+    const { files, outline } = manyFiles(5)
+
+    const first = renderSurface(files, outline)
+    const scroller = scrollerOf(first.container)
+    scroller.scrollTop = 400
+    fireEvent.scroll(scroller)
+    first.unmount()
+
+    const second = renderSurface(files, outline)
+    expect(scrollerOf(second.container).scrollTop).toBe(400)
+  })
+
+  it('keeps a commit diff tab at a separate offset from the branch review on the same workspace', () => {
+    const { files, outline } = manyFiles(5)
+    const store = createWorkspaceStore('ws-1')
+
+    const branch = render(
+      <WorkspaceStoreContext.Provider value={store}>
+        <ReviewCodeView wsId="ws-1" files={files} outline={outline} />
+      </WorkspaceStoreContext.Provider>,
+    )
+    const branchScroller = scrollerOf(branch.container)
+    branchScroller.scrollTop = 300
+    fireEvent.scroll(branchScroller)
+    branch.unmount()
+
+    const commitView = render(
+      <WorkspaceStoreContext.Provider value={store}>
+        <ReviewCodeView wsId="ws-1" commit="abc123" files={files} outline={outline} />
+      </WorkspaceStoreContext.Provider>,
+    )
+    expect(scrollerOf(commitView.container).scrollTop).toBe(0)
   })
 })
