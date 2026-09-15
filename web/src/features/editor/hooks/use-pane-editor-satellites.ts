@@ -140,6 +140,16 @@ export interface PaneEditorSatelliteDeps {
    */
   registry: ActiveEditorRegistry
   editorManager: EditorManager
+  /**
+   * Same workspace as `editorManager` above — the other half of a Monaco
+   * model uri (`fileUri(workspaceId, path)`). Needed for the external-edit
+   * seam below, which must build the SAME uri `usePaneEditorController`
+   * used to acquire this model, or it targets a different (or nonexistent)
+   * model in Monaco's global model table. See fileUri's own doc for the
+   * cross-workspace collision that motivated scoping the uri by workspace
+   * at all.
+   */
+  workspaceId: string
   highlightMatches?: Array<{ start: number; end: number }>
   currentHighlightIndex?: number
   lineNumberStart?: number
@@ -199,6 +209,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   const {
     registry,
     editorManager,
+    workspaceId,
     highlightMatches,
     currentHighlightIndex,
     lineNumberStart,
@@ -602,7 +613,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       // Latch the applied text so the surface ignores the model-change event this
       // edit re-fires (otherwise it would bounce straight back to the store).
       if (externalApplyRef) externalApplyRef.current = content
-      editorManager.applyExternalEdit(paneId, fileUri(path), content)
+      editorManager.applyExternalEdit(paneId, fileUri(workspaceId, path), content)
       if (selection) editor.setSelection(selection)
     }
     externalSyncRef.current = applyExternal
@@ -628,7 +639,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     return () => {
       externalSyncRef.current = () => {}
     }
-  }, [editorManager, externalApplyRef, paneId, swapTick])
+  }, [editorManager, externalApplyRef, paneId, swapTick, workspaceId])
 
   // ── Settings: theme (separate so font/layout changes don't redefine theme) ─
   // Runs on mount, when theme inputs change, AND once when the editor instance

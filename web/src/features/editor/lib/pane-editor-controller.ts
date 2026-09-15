@@ -29,8 +29,21 @@ export interface ActiveBufferInfo {
   /** Buffer id — the content-write target (so a flush attributes to the right
    *  buffer even after the active buffer has changed on a fast switch). */
   bufferId: string
-  /** Filesystem path — the stable model key (`fileUri(filePath)`). */
+  /** Filesystem path — half of the stable model key (`fileUri(workspaceId,
+   *  filePath)`). */
   filePath: string
+  /**
+   * The workspace whose EditorManager/ModelRegistry is CURRENTLY hosting
+   * this pane's widget — the caller's own resolved workspace id, not
+   * necessarily the buffer's intrinsic `workspaceId` (they briefly differ
+   * during the ambient-workspace-fallback window; see EditorPane's own
+   * doc). Must always agree with whichever workspace's `armEditor()`
+   * closure will be asked for this uri's content, or the model gets created
+   * with someone else's (or no) text. Also the other half of the model-uri
+   * key — see fileUri's own doc for the cross-workspace collision this
+   * scoping fixes.
+   */
+  workspaceId: string
 }
 
 /** Opaque editor handle that exposes only `getModel()` (cast at the seam). */
@@ -75,7 +88,7 @@ export function applyActiveBuffer(
 ): ActiveEditorContext | undefined {
   if (!buffer) return undefined
   const { manager, registry } = deps
-  const uri = fileUri(buffer.filePath)
+  const uri = fileUri(buffer.workspaceId, buffer.filePath)
 
   manager.showBuffer(paneId, uri)
 

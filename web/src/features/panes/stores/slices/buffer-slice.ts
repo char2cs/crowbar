@@ -423,7 +423,7 @@ export const createBufferSlice: StateCreator<
         // pane. Disposes the model when the last holder releases, so a reopen
         // reads fresh content (no stale model).
         if (buf && isEditorContent(buf) && buf.path) {
-          const uri = fileUri(buf.path)
+          const uri = fileUri(buf.workspaceId, buf.path)
           const manager = editorManagerFor(buf.workspaceId)
           for (const pane of Object.values(get().panes ?? {})) {
             if (pane.editorTabIds.includes(id)) manager?.closeBuffer(pane.id, uri)

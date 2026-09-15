@@ -80,6 +80,7 @@ describe('open file → real monaco model content (live-flow repro)', () => {
       const ctx = applyActiveBuffer({ manager, registry: store.activeEditorRegistry }, paneId, {
         bufferId: buffer.id,
         filePath,
+        workspaceId: 'repro-ws',
       })
 
       // The live symptom: editor sized, but no model/content ever reaches it.
@@ -89,7 +90,7 @@ describe('open file → real monaco model content (live-flow repro)', () => {
       expect(model).not.toBeNull()
       expect(model!.getValue()).toBe(CONTENT)
       // Registry bookkeeping agrees (same model under the buffer's uri).
-      expect(store.modelRegistry!.get(fileUri(filePath))?.getValue()).toBe(CONTENT)
+      expect(store.modelRegistry!.get(fileUri('repro-ws', filePath))?.getValue()).toBe(CONTENT)
       // And the context published to satellites carries the model.
       expect(ctx?.model).toBeTruthy()
     } finally {

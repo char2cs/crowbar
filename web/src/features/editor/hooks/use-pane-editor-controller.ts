@@ -186,7 +186,7 @@ export function usePaneEditorController<S>(
     let currentUri: string | null = null
     const applySwitch = () => {
       const buffer = depsRef.current.selectActiveBuffer(store.getState())
-      const nextUri = buffer ? fileUri(buffer.filePath) : null
+      const nextUri = buffer ? fileUri(buffer.workspaceId, buffer.filePath) : null
       if (nextUri === currentUri) return
       // Flush the outgoing buffer's pending edit BEFORE swapping away — and
       // before `currentBufferId` is updated — so the flush attributes to the

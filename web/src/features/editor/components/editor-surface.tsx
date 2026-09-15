@@ -324,9 +324,14 @@ export function EditorSurface({
       // skip publishing an active-buffer switch rather than key Monaco's model
       // registry by an undefined uri if that invariant is ever violated.
       if (!buffer || !hasTextContent(buffer) || !buffer.path) return null
-      return { bufferId: buffer.id, filePath: buffer.path }
+      // `workspaceId` here is THIS SURFACE'S OWN resolved workspace (the prop
+      // above), not `buffer.workspaceId` — see ActiveBufferInfo's own doc:
+      // the model uri must agree with whichever workspace's armEditor()
+      // closure will be asked for this uri's content, which is always the
+      // manager this surface is CURRENTLY mounted on.
+      return { bufferId: buffer.id, filePath: buffer.path, workspaceId }
     },
-    [paneId],
+    [paneId, workspaceId],
   )
 
   usePaneEditorController(
@@ -375,6 +380,7 @@ export function EditorSurface({
   usePaneEditorSatellites(paneId, {
     registry,
     editorManager,
+    workspaceId,
     onScrollOffsetChange: syncLspOverlayTransform,
     onCoordinateResolverChange: handleCoordinateResolverChange,
     onModelPositionResolverChange: handleModelPositionResolverChange,

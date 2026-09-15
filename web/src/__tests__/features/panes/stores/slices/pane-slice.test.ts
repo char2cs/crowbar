@@ -708,7 +708,7 @@ describe('pane-slice → editorManager model release (C1)', () => {
       workspaceId: 'ws-test',
     })
     store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-ed')
-    expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, fileUri('/src/a.ts'))
+    expect(closeBuffer).toHaveBeenCalledWith(ROOT_PANE_ID, fileUri('ws-test', '/src/a.ts'))
   })
 
   it('does not release for a pane that never held the tab', async () => {

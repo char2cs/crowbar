@@ -16,7 +16,7 @@ import { fileUri } from '@/features/editor/lib/editor-uri'
 
 interface TestState {
   activeBufferId: string | null
-  buffers: Record<string, { bufferId: string; filePath: string }>
+  buffers: Record<string, { bufferId: string; filePath: string; workspaceId: string }>
   setActive(id: string | null): void
 }
 
@@ -24,8 +24,8 @@ function makeStore() {
   return createStore<TestState>((set) => ({
     activeBufferId: 'a',
     buffers: {
-      a: { bufferId: 'a', filePath: '/a.ts' },
-      b: { bufferId: 'b', filePath: '/b.ts' },
+      a: { bufferId: 'a', filePath: '/a.ts', workspaceId: 'w1' },
+      b: { bufferId: 'b', filePath: '/b.ts', workspaceId: 'w1' },
     },
     setActive: (id) => set({ activeBufferId: id }),
   }))
@@ -94,7 +94,7 @@ describe('usePaneEditorController', () => {
   it('mounts the pane once and applies the initial buffer', () => {
     const { deps, manager } = setup()
     expect(deps.mountPane).toHaveBeenCalledTimes(1)
-    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
+    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
     expect(deps.registry.get('p1')?.filePath).toBe('/a.ts')
   })
 
@@ -104,7 +104,7 @@ describe('usePaneEditorController', () => {
 
     act(() => store.getState().setActive('b'))
 
-    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('/b.ts'))
+    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/b.ts'))
     expect(deps.mountPane).toHaveBeenCalledTimes(1) // still mounted once
     expect(deps.registry.get('p1')?.filePath).toBe('/b.ts')
   })
@@ -204,7 +204,7 @@ describe('usePaneEditorController', () => {
     )
 
     expect(depsA.mountPane).toHaveBeenCalledTimes(1)
-    expect(managerA.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
+    expect(managerA.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
     expect(depsA.registry.get('p1')?.filePath).toBe('/a.ts')
 
     // The buffer's own workspace store now exists — EditorPane re-resolves to
@@ -213,7 +213,7 @@ describe('usePaneEditorController', () => {
 
     expect(depsA.unmountPane).toHaveBeenCalledTimes(1) // torn down off the old manager
     expect(depsB.mountPane).toHaveBeenCalledTimes(1) // mounted onto the new one
-    expect(managerB.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
+    expect(managerB.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
     expect(depsB.registry.get('p1')?.filePath).toBe('/a.ts')
   })
 
@@ -249,7 +249,7 @@ describe('usePaneEditorController', () => {
 
     expect(depsOld.unmountPane).toHaveBeenCalledTimes(1)
     expect(depsNew.mountPane).toHaveBeenCalledTimes(1)
-    expect(managerNew.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
+    expect(managerNew.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
     expect(depsNew.registry.get('p1')?.filePath).toBe('/a.ts')
   })
 

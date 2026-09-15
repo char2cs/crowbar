@@ -547,7 +547,7 @@ export const createPaneSlice: StateCreator<
   const releaseEditorTabModel = (paneId: string, tabId: string) => {
     const buf = get().buffers?.find((b) => b.id === tabId)
     if (!buf || !isEditorContent(buf) || !buf.path) return
-    editorManagerFor(buf.workspaceId)?.closeBuffer(paneId, fileUri(buf.path))
+    editorManagerFor(buf.workspaceId)?.closeBuffer(paneId, fileUri(buf.workspaceId, buf.path))
   }
 
   return {
