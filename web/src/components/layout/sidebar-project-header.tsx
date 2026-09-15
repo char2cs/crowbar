@@ -1,5 +1,6 @@
 // Lucide (ISC) rather than Phosphor for this cluster: long-tail arrows and a
 // panel glyph — the toolbar language this app is aiming at.
+import { memo } from 'react'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
 import { SidebarBuildBadgeBand, SidebarBuildBadgeLabel } from '@/components/layout/sidebar-build-badge'
@@ -18,8 +19,17 @@ import { cn } from '@/utils/cn'
  *
  * Settings lives in `SidebarFooter` now, pinned to the content-facing edge
  * of the project-marks row — see that file's doc comment.
+ *
+ * MEMOIZED, and safely so: it takes zero props, so there is nothing a
+ * parent re-render could ever change that this wouldn't ALSO pick up on its
+ * own via `useSettingsStore`/`useSidebar`/`useJumpNavigation` — those three
+ * hooks are what actually decide this bar's output, not `IDEShell`
+ * re-rendering. `IDEShell` re-renders on plenty (an active-pane change, a
+ * settings-dialog toggle) that has nothing to do with any of the three, and
+ * nothing below it is otherwise memoized — see that file's own note on
+ * `NavigationHistoryRecorder` for the same lesson learned once already.
  */
-export function SidebarProjectHeader() {
+export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
@@ -97,4 +107,4 @@ export function SidebarProjectHeader() {
       {cluster}
     </div>
   )
-}
+})

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Plus, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useSettingsStore } from '@/features/settings/store'
@@ -51,8 +52,15 @@ interface SidebarFooterProps {
  * reads as "the sidebar's own settings, at the edge of the window" rather
  * than one more centered mark. `+` mirrors it on the opposite (content-
  * facing) edge for the same reason.
+ *
+ * MEMOIZED: every prop here is either a primitive or (once `ide-shell.tsx`'s
+ * own callers are `useCallback`'d) a stable reference, and `IDEShell` — the
+ * one real caller — re-renders on plenty (an active-pane switch inside one
+ * workspace, a settings toggle) that changes none of them. Nothing below
+ * `IDEShell` is otherwise memoized, so without this every one of those
+ * renders rebuilt the whole marks row for pixel-identical output.
  */
-export function SidebarFooter({
+export const SidebarFooter = memo(function SidebarFooter({
   projects = [],
   activeProjectId,
   onSelectProject,
@@ -127,4 +135,4 @@ export function SidebarFooter({
       </Button>
     </div>
   )
-}
+})

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react'
+import { memo, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
@@ -54,8 +54,16 @@ interface SidebarTreeSurfaceProps {
  * still builds every project's rows), so that subscription has to live
  * somewhere; isolating it here means a git-status/PR tick re-renders this
  * component alone, not `IDEShell` and everything under it.
+ *
+ * MEMOIZED too, for the reverse direction: `IDEShell` re-renders on plenty
+ * (an active-pane switch within one workspace, a settings toggle) that
+ * touches none of the props below — `ide-shell.tsx`'s own callers are
+ * `useCallback`'d so those stay referentially stable across such a render.
+ * The tree's own reactivity (repos, removals, folder signals, home trees) is
+ * unaffected: those are internal subscriptions, read above, that trigger a
+ * re-render on their own regardless of what any parent does.
  */
-export function SidebarTreeSurface({
+export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   projects,
   activeProjectId,
   onActiveProjectChange,
@@ -220,4 +228,4 @@ export function SidebarTreeSurface({
       <SidebarTreeChrome treeRef={treeRef} rows={allRows} repos={repos} />
     </div>
   )
-}
+})

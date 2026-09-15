@@ -238,10 +238,25 @@ export function IDEShell() {
   // Also cancels an in-progress space creation: picking an existing space
   // while the create form is open has to replace it, not leave it stranded
   // behind the newly-routed content.
-  const handleSelectProject = (projectId: string) => {
-    setCreatingSpace(false)
-    void navigate({ to: '/ide/$projectId/home', params: { projectId } })
-  }
+  //
+  // useCallback'd (stable across renders unless `navigate` itself changes —
+  // TanStack Router's own hook already returns a stable reference) so the
+  // memoized SidebarTreeSurface/SidebarFooter below don't see a fresh prop
+  // identity, and therefore don't re-render, on an IDEShell render this
+  // handler had no part in.
+  const handleSelectProject = useCallback(
+    (projectId: string) => {
+      setCreatingSpace(false)
+      void navigate({ to: '/ide/$projectId/home', params: { projectId } })
+    },
+    [navigate],
+  )
+  // Same reason as `handleSelectProject` above — stable identities so
+  // memoized SidebarTreeSurface/SidebarFooter can actually skip a render
+  // that doesn't touch space-creation state, instead of always seeing a
+  // fresh inline-arrow prop.
+  const handleCancelCreateSpace = useCallback(() => setCreatingSpace(false), [])
+  const handleAddProject = useCallback(() => setCreatingSpace(true), [])
   // Browser-tab convention: Cmd/Ctrl+1-9 jump straight to a space by
   // position (9 always the last one) — the same shortcut `develop` wired for
   // sidebar context switching, now driving spaces instead.
@@ -360,7 +375,7 @@ export function IDEShell() {
               onActiveProjectChange={handleSelectProject}
               creatingSpace={creatingSpace}
               onCreateSpace={handleCreateSpace}
-              onCancelCreateSpace={() => setCreatingSpace(false)}
+              onCancelCreateSpace={handleCancelCreateSpace}
             />
           )}
           {/* Floats absolutely over whatever SidebarTreeSurface renders
@@ -388,7 +403,7 @@ export function IDEShell() {
           projects={allProjects}
           activeProjectId={activeProjectIdFromRoute}
           onSelectProject={handleSelectProject}
-          onAddProject={() => setCreatingSpace(true)}
+          onAddProject={handleAddProject}
         />
         <SidebarToastOverlay sidebarOpen={sidebarOpen} sidebarSide={sidebarSide} />
       </div>
