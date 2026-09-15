@@ -287,6 +287,61 @@ describe('ensurePaneChatThenOpen', () => {
   })
 })
 
+// Live-reported: clicking the branch-review shortcut on a pane that wasn't
+// the active one opened that pane's review INSIDE the active pane instead —
+// openContent (buffer-slice.ts) always adds a new tab to
+// `get().activePaneId`, never to whichever pane the caller is acting on. A
+// correctly-scoped `wsId` alone (a prior fix this session) stamped the right
+// workspace onto the buffer but did nothing about where its TAB landed.
+describe('openBranchReviewForWorkspace', () => {
+  beforeEach(() => {
+    resetWindowPaneStoreForTests()
+  })
+
+  it('opens into the given paneId, not whichever pane was active before the call', async () => {
+    const { openBranchReviewForWorkspace } = await import(
+      '@/features/panes/utils/pane-command-actions'
+    )
+    const paneActions = windowPaneStore.getState().paneActions
+    const otherPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
+    if (!otherPaneId) throw new Error('split failed')
+    // The user is looking at ROOT_PANE_ID; the review shortcut clicked lives
+    // on otherPaneId.
+    paneActions.setActivePane(ROOT_PANE_ID)
+
+    const bufferId = openBranchReviewForWorkspace('ws-1', otherPaneId)
+
+    expect(bufferId).not.toBeNull()
+    expect(windowPaneStore.getState().activePaneId).toBe(otherPaneId)
+    expect(windowPaneStore.getState().panes[otherPaneId]?.editorTabIds).toContain(bufferId)
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(bufferId)
+  })
+
+  it('with no paneId, keeps opening into whichever pane is already active (openBranchReviewForActiveWorkspace’s own contract)', async () => {
+    const { openBranchReviewForWorkspace } = await import(
+      '@/features/panes/utils/pane-command-actions'
+    )
+    const paneActions = windowPaneStore.getState().paneActions
+    const otherPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
+    if (!otherPaneId) throw new Error('split failed')
+    paneActions.setActivePane(otherPaneId)
+
+    const bufferId = openBranchReviewForWorkspace('ws-1')
+
+    expect(windowPaneStore.getState().activePaneId).toBe(otherPaneId)
+    expect(windowPaneStore.getState().panes[otherPaneId]?.editorTabIds).toContain(bufferId)
+  })
+
+  it('returns null and touches nothing when wsId is null', async () => {
+    const { openBranchReviewForWorkspace } = await import(
+      '@/features/panes/utils/pane-command-actions'
+    )
+    const before = windowPaneStore.getState().activePaneId
+    expect(openBranchReviewForWorkspace(null, 'some-pane')).toBeNull()
+    expect(windowPaneStore.getState().activePaneId).toBe(before)
+  })
+})
+
 // Regression for the "only one view at a time" bug: ⌘N (and anything else
 // opening a freshly-resolved chat id) used to write straight into the active
 // pane via setPaneChat, which ARCHIVES whatever that pane held into

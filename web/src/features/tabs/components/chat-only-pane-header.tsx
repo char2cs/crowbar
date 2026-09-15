@@ -55,7 +55,7 @@ export function ChatOnlyPaneHeader({ pane, wsId }: ChatOnlyPaneHeaderProps) {
         // THIS pane's own workspace — not whichever one happens to be
         // globally active, which is a different pane in a split showing a
         // different chat/branch entirely.
-        onOpen={() => openBranchReviewForWorkspace(wsId)}
+        onOpen={() => openBranchReviewForWorkspace(wsId, pane.id)}
       />
     </PaneTopRow>
   )

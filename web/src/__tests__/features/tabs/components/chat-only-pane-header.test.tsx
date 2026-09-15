@@ -93,11 +93,16 @@ describe('ChatOnlyPaneHeader', () => {
     expect(screen.getByTestId('chat-branch-header')).toHaveTextContent('My Chat')
   })
 
-  it("the branch-review shortcut opens branch review for THIS pane's own workspace", () => {
+  it("the branch-review shortcut opens branch review for THIS pane's own workspace and pane", () => {
     renderHeader(makePane(), 'w1')
     fireEvent.click(screen.getByRole('button', { name: /review this branch/i }))
     expect(openBranchReviewMock).toHaveBeenCalledTimes(1)
-    expect(openBranchReviewMock).toHaveBeenCalledWith('w1')
+    // The pane id too, not just the workspace: openContent (buffer-slice.ts)
+    // always adds the new tab to whichever pane is currently ACTIVE, so a
+    // click on an INACTIVE pane's own shortcut must assert this pane active
+    // first — passing only the workspace correctly tagged the buffer but
+    // still let it land in the wrong pane's tab strip (live-reported).
+    expect(openBranchReviewMock).toHaveBeenCalledWith('w1', ROOT_PANE_ID)
   })
 
   // Closing a chat/view is a sidebar operation only (Recents' own ×, or a

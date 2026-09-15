@@ -107,9 +107,26 @@ export function toggleActiveEditorGroupLock(): boolean {
 // pane's own chat/workspace, never whichever one happens to be globally
 // active — a different pane in the same split can easily be showing a
 // different chat and workspace entirely.
-export function openBranchReviewForWorkspace(wsId: string | null | undefined): string | null {
+//
+// `paneId`, when given, is asserted active FIRST — same fix, same reason, as
+// `ensurePaneChatThenOpen` below: `openContent` (buffer-slice.ts) adds the new
+// tab to `get().activePaneId` UNCONDITIONALLY, never to whatever pane the
+// caller is acting on. Passing a correctly-scoped `wsId` alone (the original
+// half of this fix) stamped the new buffer with the right workspace but
+// still dropped its TAB into whichever pane happened to be active — live-
+// reported as clicking an INACTIVE pane's own review button opening that
+// pane's review inside the ACTIVE pane instead. Omit `paneId` only for a
+// caller with no pane of its own (see `openBranchReviewForActiveWorkspace`).
+export function openBranchReviewForWorkspace(
+  wsId: string | null | undefined,
+  paneId?: string,
+): string | null {
   if (!wsId) {
     return null
+  }
+
+  if (paneId) {
+    windowPaneStore.getState().paneActions.setActivePane(paneId)
   }
 
   return windowPaneStore
@@ -120,7 +137,7 @@ export function openBranchReviewForWorkspace(wsId: string | null | undefined): s
 // Opens the Branch Review surface for the globally active workspace — for
 // callers with no pane/chat context of their own (GitPanel, a keyboard
 // shortcut), where "active workspace" is genuinely the only meaningful
-// answer.
+// answer. No paneId to assert: the currently active pane IS the right target.
 export function openBranchReviewForActiveWorkspace(): string | null {
   return openBranchReviewForWorkspace(getActiveWorkspaceId())
 }

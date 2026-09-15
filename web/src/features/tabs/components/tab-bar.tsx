@@ -519,6 +519,11 @@ const TabBar = ({
         setTimeout(async () => {
           try {
             const content = buf.type === 'editor' ? buf.content : ''
+            // openContent (buffer-slice.ts) always adds the reopened tab to
+            // get().activePaneId, never to whichever pane's tab was actually
+            // reloaded — assert THIS pane active first, same fix as the
+            // branch-review shortcut below.
+            if (paneId) setActivePane(paneId)
             openContent({ type: 'editor', path, name: buf.name, content })
           } catch (error) {
             console.error('Failed to reload buffer:', error)
@@ -526,7 +531,7 @@ const TabBar = ({
         }, 100)
       }
     },
-    [closeBuffer, openContent, paneId, removeEditorTabFromPane],
+    [closeBuffer, openContent, paneId, removeEditorTabFromPane, setActivePane],
   )
 
   const handleSplitRight = useMemo(
@@ -687,7 +692,7 @@ const TabBar = ({
               // THIS pane's own workspace — not whichever one happens to be
               // globally active, which is a different pane in a split
               // showing a different chat/branch entirely.
-              onOpen={() => openBranchReviewForWorkspace(wsId)}
+              onOpen={() => openBranchReviewForWorkspace(wsId, paneId)}
             />
           )}
 
