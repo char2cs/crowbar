@@ -287,6 +287,22 @@ export function resolveChatOwnerWorkspaceId(chatId: string): string | null {
 
 export function destroyWorkspaceStore(wsId: string): void {
   const store = registry.get(wsId)
+  // planRetention decides eviction from hasViewChat/RETENTION_CAP alone — it
+  // has no notion of "a pane's EDITOR TAB (not chat) still needs this
+  // workspace", so it can queue this call while exactly that is true. The
+  // `hasSurvivingEditorBuffer` gate below stops disposeAll() from yanking a
+  // still-open buffer's model, but `registry.delete(wsId)` ran regardless —
+  // so even with disposeAll() correctly skipped, the store went unreachable
+  // via `getWorkspaceStore(wsId)`. The next re-render of that pane's
+  // EditorSurface then falls back to the ambient workspace (its own
+  // documented fallback for "no store yet") and remounts the retained
+  // widget onto a DIFFERENT manager whose buffer lookup can't find this
+  // workspace's buffers — landing on a silently empty model, no error, no
+  // visible remount. Live-reported as the exact blank-pane symptom
+  // EditorHostRegistry exists to eliminate, reappearing with no repro steps.
+  // Veto the whole eviction, not just disposeAll(), while this workspace's
+  // own EditorManager still has a widget mounted into a real pane.
+  if (store?.editorManager?.hasMountedPanes()) return
   if (store) {
     // Task 26: buffers are window-level now (window-pane-store.ts), not part
     // of this store's own state — scope the lookup to this workspace's own

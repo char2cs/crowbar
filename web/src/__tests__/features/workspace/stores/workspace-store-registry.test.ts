@@ -32,6 +32,33 @@ vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
   saveSessionToStore: vi.fn(),
   clearQueuedWorkspaceSessionSave: vi.fn(),
 }))
+// Fake Monaco adapters so armEditor() (dynamically imported by both
+// WorkspaceStore itself and destroyWorkspaceStore's teardown) never touches
+// real monaco-editor — same fakes editor-pane-workspace-scope.test.tsx uses.
+vi.mock('@/features/editor/lib/monaco-adapters', () => ({
+  EDITOR_CREATE_OPTIONS: {},
+  langForUri: () => 'plaintext',
+  realModelApi: () => ({
+    createModel: (value: string, _lang: string, uri: string) => ({
+      uri,
+      dispose: () => {},
+      getValue: () => value,
+      setValueIfChanged: () => {},
+    }),
+    getModel: () => null,
+  }),
+  realEditorApi: () => ({
+    create: () => ({
+      setModel: () => {},
+      getModel: () => null,
+      saveViewState: () => null,
+      restoreViewState: () => {},
+      layout: () => {},
+      dispose: () => {},
+      raw: () => null,
+    }),
+  }),
+}))
 
 afterEach(() => {
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
@@ -95,6 +122,34 @@ describe('workspace-store-registry', () => {
     getOrCreateWorkspaceStore('ws-evicted')
     destroyWorkspaceStore('ws-evicted')
     expect(getWorkspaceStore('ws-evicted')).toBeUndefined()
+  })
+
+  // Regression: planRetention (keep-alive-policy.ts) evicts purely off
+  // hasViewChat/RETENTION_CAP — it has no notion of "a pane's editor tab
+  // still needs this workspace" — so destroyWorkspaceStore can be called
+  // for a workspace whose EditorManager still has a widget mounted into a
+  // real pane. The disposeAll() gate below already protected the manager's
+  // OWN resources in that case, but registry.delete(wsId) ran regardless,
+  // making the store unreachable via getWorkspaceStore anyway — the next
+  // render of that pane's EditorSurface saw "no store" and fell back to the
+  // ambient workspace, remounting the retained widget onto the WRONG
+  // manager and landing on a silently empty model. Live-reported as a
+  // blank editor pane with no console error and no repro steps.
+  it('does not evict a workspace whose EditorManager still has a mounted pane', async () => {
+    const store = getOrCreateWorkspaceStore('ws-mounted-pane')
+    await store.armEditor()
+    store.editorManager!.mountPane('pane-1', document.createElement('div'))
+
+    destroyWorkspaceStore('ws-mounted-pane')
+
+    expect(getWorkspaceStore('ws-mounted-pane')).toBe(store)
+    expect(getAllActiveWorkspaceIds()).toContain('ws-mounted-pane')
+
+    // Once the pane's widget actually unmounts (its editor tab closes), the
+    // SAME call must go through normally.
+    store.editorManager!.unmountPane('pane-1')
+    destroyWorkspaceStore('ws-mounted-pane')
+    expect(getWorkspaceStore('ws-mounted-pane')).toBeUndefined()
   })
 
   // Task 27: the chatId -> workspaceId resolution Task 26's own review found
