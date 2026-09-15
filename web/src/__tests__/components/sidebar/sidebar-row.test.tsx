@@ -6,7 +6,6 @@ import { SidebarRow } from '@/components/sidebar/sidebar-row'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
 import * as spaceContentActions from '@/components/layout/space-content-actions'
-import { toast } from '@/features/window/stores/toast-store'
 import {
   getInitialInlineRenameState,
   useSidebarInlineRenameStore,
@@ -20,7 +19,6 @@ vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
 
 vi.mock('@/components/layout/space-content-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof spaceContentActions>()),
-  handleTrashRepo: vi.fn(),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -757,28 +755,11 @@ describe('SidebarRow', () => {
       expect(document.querySelector('[data-control="repo-menu"]')).not.toBeInTheDocument()
     })
 
-    it('clicking "Delete Repo" calls handleTrashRepo with the REPO id, not the row id', async () => {
-      const user = userEvent.setup()
-      vi.mocked(spaceContentActions.handleTrashRepo).mockReturnValue(true)
-      render(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
-
-      await user.click(screen.getByRole('button', { name: /more actions for/i }))
-      await user.click(await screen.findByText('Delete Repo'))
-
-      expect(spaceContentActions.handleTrashRepo).toHaveBeenCalledExactlyOnceWith('r1')
-      expect(toast.error).not.toHaveBeenCalled()
-    })
-
-    it('a refusal (nothing held) surfaces a toast instead of pretending to succeed', async () => {
-      const user = userEvent.setup()
-      vi.mocked(spaceContentActions.handleTrashRepo).mockReturnValue(false)
-      render(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} />)
-
-      await user.click(screen.getByRole('button', { name: /more actions for/i }))
-      await user.click(await screen.findByText('Delete Repo'))
-
-      expect(toast.error).toHaveBeenCalledExactlyOnceWith("Can't delete Fix the thing yet")
-    })
+    // The button's own click behavior (opening the menu, "Delete Repo" and
+    // every other item in it) now lives in row-context-menu.test.tsx — this
+    // component only renders the trigger, since `SidebarRowContextMenu`
+    // (a sibling, listening on `treeRef`) owns the menu itself, the same one
+    // a right-click on this row opens.
   })
 
   it('a chat row shows thread, remove, and fold — never fork', () => {

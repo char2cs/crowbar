@@ -37,16 +37,11 @@ import {
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performPromoteChat, performRenameRow } from '@/components/sidebar/lib/row-actions'
-import {
-  confirmPendingCreateName,
-  cancelPendingCreate,
-  handleTrashRepo,
-} from '@/components/layout/space-content-actions'
+import { confirmPendingCreateName, cancelPendingCreate } from '@/components/layout/space-content-actions'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
-import { toast } from '@/features/window/stores/toast-store'
 
 interface SidebarRowProps {
   row: SidebarRowType
@@ -436,39 +431,23 @@ export function SidebarRow({
         )}
 
         {/* The repo-home row's own overflow, first in the cluster (the fold
-            button is last — everything else sits between the two). Spec §9
-            wants a repo trashable like everything else, but `handleTrash`
-            below deliberately refuses this ONE row (it resolves to just its
-            own default-branch workspace, not the whole repo) — so this is
-            the repo's real delete entry point, not the row's. `row.repoIcon`
-            gates it the same way the icon swap above does: absent until the
-            repo's project has seeded. */}
+            button is last — everything else sits between the two). Opens the
+            SAME menu a right-click on this row opens (row-context-menu.tsx,
+            its own `data-control="repo-menu"` capture-phase listener on
+            `treeRef`) — explicit user correction: this used to be a second,
+            separate one-item menu (just "Delete Repo") that drifted out of
+            sync with the right-click menu's own Rename/Import
+            branches/New folder. `row.repoIcon` gates it the same way the icon
+            swap above does: absent until the repo's project has seeded. */}
         {isProjectHome && row.repoIcon && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              data-control="repo-menu"
-              className={subActionClass}
-              aria-label={`More actions for ${row.label}`}
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <DotsThree aria-hidden="true" className="size-3.5" weight="bold" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  const repoId = row.repoIcon?.repoId
-                  if (!repoId || !handleTrashRepo(repoId)) {
-                    toast.error(`Can't delete ${row.label} yet`)
-                  }
-                }}
-              >
-                Delete Repo
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <button
+            type="button"
+            data-control="repo-menu"
+            className={subActionClass}
+            aria-label={`More actions for ${row.label}`}
+          >
+            <DotsThree aria-hidden="true" className="size-3.5" weight="bold" />
+          </button>
         )}
 
         {/* Trailing cluster order, explicit product spec: Thread, Branch

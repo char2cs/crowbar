@@ -8,9 +8,16 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-resolver'
+import * as spaceContentActions from '@/components/layout/space-content-actions'
+import { toast } from '@/features/window/stores/toast-store'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
+}))
+
+vi.mock('@/components/layout/space-content-actions', async (importOriginal) => ({
+  ...(await importOriginal<typeof spaceContentActions>()),
+  handleTrashRepo: vi.fn(),
 }))
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -138,6 +145,21 @@ function rightClick(tree: HTMLElement, rowId: string) {
   tree.appendChild(target)
   fireEvent.contextMenu(target)
   return target
+}
+
+/** sidebar-row.tsx's own "..." button, nested inside the row exactly as it
+ *  really renders — the row-level `[role="treeitem"]` ancestor carries the
+ *  id, not the button itself. */
+function clickRepoMenuButton(tree: HTMLElement, rowId: string) {
+  const row = document.createElement('div')
+  row.setAttribute('role', 'treeitem')
+  row.setAttribute('data-sidebar-row-id', rowId)
+  const button = document.createElement('button')
+  button.setAttribute('data-control', 'repo-menu')
+  row.appendChild(button)
+  tree.appendChild(row)
+  fireEvent.click(button)
+  return button
 }
 
 /** A project-home folder, exactly as `rowsFromHome` would draw it — home
@@ -360,6 +382,69 @@ describe('SidebarRowContextMenu', () => {
     rightClick(treeRef.current, HOME_ROW_ID)
     fireEvent.click(screen.getByText('Import branches'))
     expect(onImport).toHaveBeenCalledWith(HOME_ROW_ID)
+  })
+
+  // Explicit user correction: the repo-home row's own "..." button used to
+  // open a second, separate one-item menu (just "Delete Repo") that drifted
+  // out of sync with this one. Now it opens this exact menu.
+  it('right-clicking the repo-home row also offers Delete Repo', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, HOME_ROW_ID)
+    expect(screen.getByText('Delete Repo')).toBeInTheDocument()
+  })
+
+  it('right-clicking an ordinary branch row does not offer Delete Repo', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, FORK_ROW_ID)
+    expect(screen.queryByText('Delete Repo')).not.toBeInTheDocument()
+  })
+
+  describe('the repo-home row\'s own "..." button (sidebar-row.tsx, data-control="repo-menu")', () => {
+    it('opens the exact same menu a right-click on the row opens', () => {
+      const { treeRef } = renderMenu()
+      clickRepoMenuButton(treeRef.current, HOME_ROW_ID)
+      expect(screen.getByText('Rename')).toBeInTheDocument()
+      expect(screen.getByText('Import branches')).toBeInTheDocument()
+      expect(screen.getByText('New folder')).toBeInTheDocument()
+      expect(screen.getByText('Delete Repo')).toBeInTheDocument()
+    })
+
+    it('clicking Delete Repo calls handleTrashRepo with the REPO id, not the row id', () => {
+      vi.mocked(spaceContentActions.handleTrashRepo).mockReturnValue(true)
+      const { treeRef } = renderMenu()
+      clickRepoMenuButton(treeRef.current, HOME_ROW_ID)
+      fireEvent.click(screen.getByText('Delete Repo'))
+      expect(spaceContentActions.handleTrashRepo).toHaveBeenCalledExactlyOnceWith('repo-1')
+      expect(toast.error).not.toHaveBeenCalled()
+    })
+
+    it('a refusal (nothing held) surfaces a toast instead of pretending to succeed', () => {
+      vi.mocked(spaceContentActions.handleTrashRepo).mockReturnValue(false)
+      const { treeRef } = renderMenu()
+      clickRepoMenuButton(treeRef.current, HOME_ROW_ID)
+      fireEvent.click(screen.getByText('Delete Repo'))
+      expect(toast.error).toHaveBeenCalledExactlyOnceWith("Can't delete repo yet")
+    })
+
+    // The button sits inside the row's own click-to-open div, and every
+    // other trailing-cluster button relies on stopping that propagation on
+    // the way up. This listens in the capture phase specifically so it
+    // cannot lose that race — proven here by asserting the row's own click
+    // handler (onOpen) never fires alongside it.
+    it('does not also trigger the row\'s own click-to-open', () => {
+      const { treeRef } = renderMenu()
+      const onOpen = vi.fn()
+      const row = document.createElement('div')
+      row.setAttribute('role', 'treeitem')
+      row.setAttribute('data-sidebar-row-id', HOME_ROW_ID)
+      row.addEventListener('click', onOpen)
+      const button = document.createElement('button')
+      button.setAttribute('data-control', 'repo-menu')
+      row.appendChild(button)
+      treeRef.current.appendChild(row)
+      fireEvent.click(button)
+      expect(onOpen).not.toHaveBeenCalled()
+    })
   })
 
   // Caught live: a project-home folder is never in any repo's `folders`

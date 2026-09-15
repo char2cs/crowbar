@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react'
-import { DownloadSimple, Folder, Lock, LockOpen, PencilSimpleLine } from '@phosphor-icons/react'
+import { DownloadSimple, Folder, Lock, LockOpen, PencilSimpleLine, Trash } from '@phosphor-icons/react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import {
@@ -11,6 +11,8 @@ import {
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { handleTrashRepo } from '@/components/layout/space-content-actions'
+import { toast } from '@/features/window/stores/toast-store'
 
 interface SidebarRowContextMenuProps {
   treeRef: RefObject<HTMLElement | null>
@@ -57,13 +59,9 @@ export function SidebarRowContextMenu({
   useEffect(() => {
     const tree = treeRef.current
     if (!tree) return
-    const onContextMenu = (e: MouseEvent) => {
-      if (!(e.target instanceof HTMLElement)) return
-      const el = e.target.closest<HTMLElement>('[role="treeitem"]')
-      const rowId = el?.getAttribute('data-sidebar-row-id')
-      if (!rowId) return
+    const resolveMenuData = (rowId: string): MenuData | null => {
       const row = rows.find((r) => r.id === rowId)
-      if (!row) return
+      if (!row) return null
       // Asked in the WORKSPACE id space, which a branch row's id is not in: a
       // locked branch is id'd by the chat that owns its workspace
       // (`rows-from-repo.ts`), so matching the raw row id against `w.id`
@@ -74,11 +72,52 @@ export function SidebarRowContextMenu({
       const locked = repos.some((repo) =>
         repo.workspaces.some((w) => w.id === wsId && w.status === 'locked'),
       )
+      return { row, locked }
+    }
+    const onContextMenu = (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return
+      const el = e.target.closest<HTMLElement>('[role="treeitem"]')
+      const rowId = el?.getAttribute('data-sidebar-row-id')
+      if (!rowId) return
+      const data = resolveMenuData(rowId)
+      if (!data) return
       e.preventDefault()
-      openAt({ x: e.clientX, y: e.clientY }, { row, locked })
+      openAt({ x: e.clientX, y: e.clientY }, data)
+    }
+    // The row's own "..." button (sidebar-row.tsx, `data-control="repo-menu"`)
+    // opens this SAME menu, anchored under the button — explicit user
+    // correction: a repo-home row used to carry a second, separate one-item
+    // menu of its own (just "Delete Repo"), which drifted out of sync with
+    // whatever this menu grew (Import branches, Rename, New folder). One row
+    // gets one menu, reachable by right-click OR by the "..." button.
+    //
+    // Capture phase, not bubble: the button sits inside the row's own
+    // `onClick`-to-open div, and every other trailing-cluster button already
+    // stops that propagation on the way up (see e.g. the Thread button's own
+    // `e.stopPropagation()`). A bubble-phase listener here would race that —
+    // whichever runs first wins — where capture always runs first, well
+    // before the row (or the button's own bubble handler, if it had one) ever
+    // sees the click, so nothing extra is needed on the button itself.
+    const onRepoMenuClick = (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return
+      const trigger = e.target.closest<HTMLElement>('[data-control="repo-menu"]')
+      if (!trigger) return
+      const el = trigger.closest<HTMLElement>('[role="treeitem"]')
+      const rowId = el?.getAttribute('data-sidebar-row-id')
+      if (!rowId) return
+      const data = resolveMenuData(rowId)
+      if (!data) return
+      e.preventDefault()
+      e.stopPropagation()
+      const rect = trigger.getBoundingClientRect()
+      openAt({ x: rect.left, y: rect.bottom + 4 }, data)
     }
     tree.addEventListener('contextmenu', onContextMenu)
-    return () => tree.removeEventListener('contextmenu', onContextMenu)
+    tree.addEventListener('click', onRepoMenuClick, true)
+    return () => {
+      tree.removeEventListener('contextmenu', onContextMenu)
+      tree.removeEventListener('click', onRepoMenuClick, true)
+    }
   }, [treeRef, rows, openAt])
 
   if (!menu.isOpen || !menu.data) return null
@@ -160,6 +199,29 @@ export function SidebarRowContextMenu({
             ? performCreateFolderFromChat(row.id)
             : performCreateFolder(row.id)),
     })
+  }
+
+  // The repo's real delete entry point — `handleTrash` refuses this ONE row
+  // (it resolves to just the repo's own default-branch workspace, not the
+  // whole repo). Same `row.repoIcon` gate as the icon swap and the "..."
+  // button itself (sidebar-row.tsx): absent until the repo's project has
+  // seeded.
+  if (isProjectHome && row.repoIcon) {
+    const repoIcon = row.repoIcon
+    items.push(
+      { id: 'delete-repo-separator', separator: true, label: '', onClick: () => {} },
+      {
+        id: 'delete-repo',
+        label: 'Delete Repo',
+        icon: <Trash />,
+        className: 'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20',
+        onClick: () => {
+          if (!handleTrashRepo(repoIcon.repoId)) {
+            toast.error(`Can't delete ${row.label} yet`)
+          }
+        },
+      },
+    )
   }
 
   return <ContextMenu isOpen items={items} position={menu.position} onClose={menu.close} />
