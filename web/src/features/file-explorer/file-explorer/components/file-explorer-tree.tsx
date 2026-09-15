@@ -15,6 +15,7 @@ import { useFileClipboardStore } from '@/features/file-explorer/stores/file-expl
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {
   computeFileTreeSearchHits,
+  computeStickyScrollLayout,
   filterFileTreeForFffHits,
   findTopVisibleItemIndex,
   getGuideAncestorRows,
@@ -1270,7 +1271,6 @@ function FileExplorerTreeComponent({
         <div id="file-tree-results" className="file-tree-scroll-body py-1">
           {(() => {
             const items = rowVirtualizer.getVirtualItems()
-            const paddingTop = items.length ? items[0].start : 0
             const paddingBottom = items.length
               ? rowVirtualizer.getTotalSize() - items[items.length - 1].end
               : 0
@@ -1281,6 +1281,14 @@ function FileExplorerTreeComponent({
             )
             const stickyAncestors =
               stickyMarkerIndex >= 0 ? getStickyAncestorRows(visibleRows, stickyMarkerIndex) : []
+            const stickyStackHeight = stickyAncestors.length * densityConfig.rowHeight
+            const { paddingTop, visibleItems } = computeStickyScrollLayout(
+              items,
+              stickyMarkerIndex,
+              stickyAncestors.length,
+              densityConfig.rowHeight,
+              FILE_TREE_CONTAINER_INSET,
+            )
             const stickyAncestorsStyle = {
               '--file-tree-container-inset': `${FILE_TREE_CONTAINER_INSET}px`,
               // Only the search bar (SidebarHeader, rendered above the rows
@@ -1294,9 +1302,7 @@ function FileExplorerTreeComponent({
               // right under the sticky header.
               '--file-tree-header-height': `${treeSearchOpen ? FILE_TREE_HEADER_HEIGHT : 0}px`,
               '--file-tree-sticky-row-height': `${densityConfig.rowHeight}px`,
-              '--file-tree-sticky-stack-height': `${
-                stickyAncestors.length * densityConfig.rowHeight
-              }px`,
+              '--file-tree-sticky-stack-height': `${stickyStackHeight}px`,
             } as React.CSSProperties
             return (
               <>
@@ -1360,7 +1366,7 @@ function FileExplorerTreeComponent({
                   </div>
                 ) : null}
                 <div style={{ height: paddingTop }} />
-                {items.map((vi) => {
+                {visibleItems.map((vi) => {
                   const row = visibleRows[vi.index]
                   const previousRow = visibleRows[vi.index - 1]
                   const nextRow = visibleRows[vi.index + 1]
