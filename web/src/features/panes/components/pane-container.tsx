@@ -889,7 +889,7 @@ export function PaneContainer({
               chrome in this state. */}
       <WorkspaceStoreContext.Provider value={chatStore}>
         {chatVisibleAlongsideEditor && (
-          <ChatColumnHeader chatId={pane.chatId} wsId={wsId} isBottomPane={isBottomPane} />
+          <ChatColumnHeader chatId={pane.chatId} wsId={chatWsId} isBottomPane={isBottomPane} />
         )}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <Suspense fallback={null}>
@@ -1014,7 +1014,7 @@ export function PaneContainer({
       }}
     >
       {chatVisibleAlongsideEditor && (
-        <TabBar paneId={pane.id} wsId={wsId} onTabClick={handleTabClick} />
+        <TabBar paneId={pane.id} wsId={chatWsId} onTabClick={handleTabClick} />
       )}
       <div className="relative min-h-0 flex-1 overflow-hidden">{editorViewInner}</div>
     </div>
@@ -1135,11 +1135,11 @@ export function PaneContainer({
         {showTopLevelHeader && (
           <WorkspaceStoreContext.Provider value={chatStore}>
             {chatFillsPane ? (
-              <ChatOnlyPaneHeader pane={pane} wsId={wsId} />
+              <ChatOnlyPaneHeader pane={pane} wsId={chatWsId} />
             ) : (
               <TabBar
                 paneId={pane.id}
-                wsId={wsId}
+                wsId={chatWsId}
                 onTabClick={handleTabClick}
                 showChatTab={showChatTab}
               />

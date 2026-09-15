@@ -1647,4 +1647,41 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
 
     expect(await screen.findByTestId('chat-branch-header')).toHaveTextContent('chat-1')
   })
+
+  // Live-reported: clicking "Review this branch" on an INACTIVE pane opened a
+  // DIFFERENT chat's branch review — root cause was this exact ambient-vs-
+  // owner confusion, but for a DATA-CREATING action (a persisted branchReview
+  // buffer) rather than a display value. Unlike the header/title cases above,
+  // a wrong answer here doesn't just render wrong and self-correct next
+  // frame: it permanently tags a buffer with the wrong workspace.
+  it('opens branch review for the CHAT\'s own workspace, not whichever one is ambient', async () => {
+    getOrCreateWorkspaceStore('w-owner').getState().seedAgentChats([chatRecord('chat-1', 'w-owner')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+
+    // Rendered under a DIFFERENT workspace's context — e.g. a split's other
+    // pane, or whichever WorkspaceView happens to be on screen.
+    await renderPane(createWorkspaceStore('w-onscreen'))
+
+    fireEvent.click(await screen.findByTestId('branch-review-shortcut'))
+
+    const buffers = windowPaneStore.getState().buffers
+    const review = buffers.find((b) => b.type === 'branchReview')
+    expect(review).toBeDefined()
+    expect((review as { wsId?: string }).wsId).toBe('w-owner')
+  })
+
+  // The "skip rather than guess" half of the same fix (pane-chat-workspace.ts's
+  // own documented principle): while nothing can yet name the chat's real
+  // workspace, the action must no-op — never fall back to the ambient one and
+  // silently create a buffer tagged with a workspace the chat doesn't belong
+  // to at all.
+  it('does not open branch review for the ambient workspace while the chat\'s own owner is still unresolved', async () => {
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-unknown', null)
+
+    await renderPane(createWorkspaceStore('w-onscreen'))
+
+    fireEvent.click(await screen.findByTestId('branch-review-shortcut'))
+
+    expect(windowPaneStore.getState().buffers.find((b) => b.type === 'branchReview')).toBeUndefined()
+  })
 })
