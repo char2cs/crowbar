@@ -1283,7 +1283,16 @@ function FileExplorerTreeComponent({
               stickyMarkerIndex >= 0 ? getStickyAncestorRows(visibleRows, stickyMarkerIndex) : []
             const stickyAncestorsStyle = {
               '--file-tree-container-inset': `${FILE_TREE_CONTAINER_INSET}px`,
-              '--file-tree-header-height': `${FILE_TREE_HEADER_HEIGHT}px`,
+              // Only the search bar (SidebarHeader, rendered above the rows
+              // while treeSearchOpen) actually occupies FILE_TREE_HEADER_HEIGHT
+              // of space inside the scrollable container — applying it
+              // unconditionally locked the sticky ancestor ~28px below the
+              // scroll viewport's real top even with no search bar shown,
+              // overlapping (and cutting off the top of) whatever row the
+              // scroll position happened to land on. Live-reported as a
+              // folder name rendering with its first letters sheared off
+              // right under the sticky header.
+              '--file-tree-header-height': `${treeSearchOpen ? FILE_TREE_HEADER_HEIGHT : 0}px`,
               '--file-tree-sticky-row-height': `${densityConfig.rowHeight}px`,
               '--file-tree-sticky-stack-height': `${
                 stickyAncestors.length * densityConfig.rowHeight
