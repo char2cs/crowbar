@@ -129,6 +129,11 @@ vi.mock('@/features/agent/components/agent-chat-pane', () => ({
     }),
 }))
 
+// Editor-portal fix: a mount counter, same reasoning as terminalMountCount
+// below — proves the retained editor widget survives a switch to a
+// non-editor tab (branch review) and back, not just that its marker div
+// looks the same afterwards.
+const { editorMountCount } = vi.hoisted(() => ({ editorMountCount: { current: 0 } }))
 vi.mock('@/features/panes/components/editor-pane', () => ({
   EditorPane: ({
     bufferId,
@@ -138,12 +143,24 @@ vi.mock('@/features/panes/components/editor-pane', () => ({
     bufferId: string
     isPreview: boolean
     isActiveSurface: boolean
-  }) =>
-    createElement('div', {
+  }) => {
+    useEffect(() => {
+      editorMountCount.current += 1
+    }, [])
+    return createElement('div', {
       'data-testid': `editor-marker-${bufferId}`,
       'data-preview': String(isPreview),
       'data-active-surface': String(isActiveSurface),
-    }),
+    })
+  },
+}))
+
+// Not exercised directly by this file's tests (BranchReviewPane has its own
+// dedicated coverage) — only needed as a light stand-in so a pane can hold a
+// non-editor tab to switch to, without pulling in its real diff-rendering.
+vi.mock('@/features/git/components/branch-review-pane', () => ({
+  BranchReviewPane: ({ wsId }: { wsId: string }) =>
+    createElement('div', { 'data-testid': 'branch-review-marker', 'data-ws-id': wsId }),
 }))
 
 vi.mock('@/features/panes/components/new-tab-view', () => ({
@@ -201,6 +218,7 @@ vi.mock('@/features/panes/components/split-drop-overlay', () => ({
 }))
 
 import { PaneContainer } from '@/features/panes/components/pane-container'
+import { EditorHostRegistry } from '@/features/panes/components/editor-host-registry'
 
 function PaneHost({ position, showing }: { position?: PanePosition; showing?: boolean }) {
   // Task 26: panes are window-level now — read off windowPaneStore, not the
@@ -213,6 +231,13 @@ function PaneHost({ position, showing }: { position?: PanePosition; showing?: bo
 // `position` defaults to ROOT_PANE_POSITION (PaneContainer's own default) for
 // every existing caller; Task 9's window-edge/interior-pane tests pass one
 // explicitly to control which of the pane's own edges are real window edges.
+//
+// EditorHostRegistry is rendered as a SIBLING of PaneHost, matching
+// production (WorkspaceLayoutRoot renders it alongside SplitViewRoot, not
+// inside it — see editor-host-registry.tsx's own doc): PaneContainer no
+// longer renders EditorPane directly, only a portal target div, so this is
+// what actually connects the mocked EditorPane back into the tree the
+// `editor-marker-*` assertions below query.
 async function renderPane(
   store: ReturnType<typeof createWorkspaceStore>,
   position?: PanePosition,
@@ -223,7 +248,10 @@ async function renderPane(
       createElement(
         WorkspaceStoreContext.Provider,
         { value: store },
-        createElement(PaneHost, { position, showing }),
+        createElement(Fragment, null, [
+          createElement(PaneHost, { position, showing, key: 'pane' }),
+          createElement(EditorHostRegistry, { key: 'editor-host' }),
+        ]),
       ),
     )
   })
@@ -290,6 +318,33 @@ function seedTerminalTab(
     id,
     type: 'terminal',
     name: `term-${id}`,
+    workspaceId: 'w1',
+  })
+}
+
+/** A branch-review tab — a non-editor buffer type, used by the editor-portal
+ *  regression below to switch a pane's active tab AWAY from its editor
+ *  buffer and back. */
+function seedBranchReviewTab(
+  _store: ReturnType<typeof createWorkspaceStore>,
+  paneId: string,
+  id: string,
+) {
+  windowPaneStore.setState((state) => {
+    state.buffers.push({
+      id,
+      type: 'branchReview',
+      name: 'Branch Review',
+      wsId: 'w1',
+      isPinned: false,
+      workspaceId: 'w1',
+    })
+    return state
+  })
+  windowPaneStore.getState().paneActions.addEditorTabToPane(paneId, {
+    id,
+    type: 'branchReview',
+    name: 'Branch Review',
     workspaceId: 'w1',
   })
 }
@@ -1113,6 +1168,53 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     expect(screen.queryByTestId('chat-chat-1')).not.toBeInTheDocument()
     expect(screen.getByTestId('terminal-marker-term-a')).toBe(terminalBefore)
     expect(terminalMountCount.current).toBe(1)
+  })
+
+  // Editor-portal fix: live-reported regression — switching a pane's active
+  // tab from an editor buffer to a non-editor one (branch review) and back
+  // used to fully unmount EditorPane (PaneContainer only ever rendered the
+  // ACTIVE buffer's component), which disposed the pane's retained Monaco
+  // widget and every model it held. Switching back created a brand-new
+  // editor from scratch — occasionally landing blank or throwing, because
+  // Monaco's own internal async work (e.g. its word-highlighter) could still
+  // be in flight against the just-disposed instance. EditorHostRegistry now
+  // owns EditorPane outside PaneContainer's own subtree entirely, so this
+  // tab switch never reaches it — only the portal target's visibility
+  // changes.
+  it('does not remount the retained editor when the active tab switches to a non-editor buffer and back', async () => {
+    editorMountCount.current = 0
+    const store = createWorkspaceStore('w1')
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+    seedBranchReviewTab(store, ROOT_PANE_ID, 'review-1')
+
+    await renderPane(store)
+    await act(async () => {
+      windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-a')
+    })
+
+    const editorBefore = await screen.findByTestId('editor-marker-tab-a')
+    expect(editorMountCount.current).toBe(1)
+    expect((editorBefore.parentElement as HTMLElement).style.visibility).not.toBe('hidden')
+
+    // Switch away to the non-editor tab.
+    await act(async () => {
+      windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, 'review-1')
+    })
+
+    await screen.findByTestId('branch-review-marker')
+    // Still the SAME node — never unmounted — just hidden.
+    expect(screen.getByTestId('editor-marker-tab-a')).toBe(editorBefore)
+    expect(editorMountCount.current).toBe(1)
+    expect((editorBefore.parentElement as HTMLElement).style.visibility).toBe('hidden')
+
+    // Switch back to the editor tab.
+    await act(async () => {
+      windowPaneStore.getState().paneActions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-a')
+    })
+
+    expect(screen.getByTestId('editor-marker-tab-a')).toBe(editorBefore)
+    expect(editorMountCount.current).toBe(1) // never remounted, ever
+    expect((editorBefore.parentElement as HTMLElement).style.visibility).not.toBe('hidden')
   })
 })
 

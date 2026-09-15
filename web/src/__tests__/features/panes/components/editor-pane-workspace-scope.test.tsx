@@ -126,4 +126,56 @@ describe('EditorPane — resolves the EditorManager by the buffer’s own worksp
     const surface = await screen.findByTestId('monaco-surface')
     expect(surface.dataset.workspaceId).toBe(ambientWsId)
   })
+
+  // Regression: `armed` used to be a `useState` lazy initializer — computed
+  // ONCE and never rechecked. When `workspaceId` later flips from this
+  // ambient fallback to the buffer's own (real) workspace store, `armed`
+  // stayed `true` from the OLD (armed) ambient store even though the NEW
+  // store's own `editorManager` did not exist yet, and EditorSurface rendered
+  // against it, crashing on `workspaceStore.editorManager!` in
+  // editor-surface.tsx. Rare under the old lazy-mount-on-activation
+  // architecture; on nearly every cold boot once EditorHostRegistry started
+  // mounting every pane's editor eagerly (before the buffer's own workspace
+  // had necessarily armed). `armed` must be recomputed fresh for whichever
+  // store `workspaceId` currently names, never carried over from a previous
+  // one.
+  it('does not carry a stale armed=true into a newly-resolved workspace store that is not armed yet', async () => {
+    const ambientWsId = 'editor-pane-race-ambient-ws'
+    const bufferWsId = 'editor-pane-race-buffer-ws'
+    const ambientStore = getOrCreateWorkspaceStore(ambientWsId)
+    await ambientStore.armEditor() // ambient is armed
+    currentBuffer = {
+      id: 'b1',
+      type: 'editor',
+      path: '/r/main.ts',
+      name: 'main.ts',
+      workspaceId: bufferWsId, // no store yet -> falls back to ambient
+    }
+
+    const { rerender } = render(
+      <WorkspaceStoreContext.Provider value={ambientStore}>
+        <EditorPane paneId="p1" bufferId="b1" isActiveSurface isPreview={false} onPromote={() => {}} />
+      </WorkspaceStoreContext.Provider>,
+    )
+    const surface1 = await screen.findByTestId('monaco-surface')
+    expect(surface1.dataset.workspaceId).toBe(ambientWsId)
+
+    // The buffer's own workspace now gets a real store — but it is NOT armed
+    // yet. `workspaceId` flips to it on the next render.
+    getOrCreateWorkspaceStore(bufferWsId)
+    rerender(
+      <WorkspaceStoreContext.Provider value={ambientStore}>
+        <EditorPane paneId="p1" bufferId="b1" isActiveSurface isPreview={false} onPromote={() => {}} />
+      </WorkspaceStoreContext.Provider>,
+    )
+
+    // Must NOT render EditorSurface against the still-unarmed real store —
+    // this is the exact assertion the old code failed (it rendered
+    // immediately, crashing downstream on the missing editorManager).
+    expect(screen.queryByTestId('monaco-surface')).not.toBeInTheDocument()
+
+    // Once the real store finishes arming, it renders against THAT one.
+    const surface2 = await screen.findByTestId('monaco-surface')
+    expect(surface2.dataset.workspaceId).toBe(bufferWsId)
+  })
 })

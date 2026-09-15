@@ -79,14 +79,31 @@ export function EditorPane({
   const workspaceId =
     buffer && getWorkspaceStore(buffer.workspaceId) ? buffer.workspaceId : ambientWorkspaceId
   const workspaceStore = getWorkspaceStore(workspaceId)
-  const [armed, setArmed] = useState(() => workspaceStore?.editorManager !== undefined)
+  // `armed` is derived FRESH every render from the CURRENT workspaceStore,
+  // never cached in state — `editorManager` is a plain getter on the store,
+  // not part of its reactive Zustand state, so nothing re-renders this
+  // component when it flips from undefined to set. A `useState` lazy
+  // initializer computed this ONCE and never rechecked it: when `workspaceId`
+  // flips from the ambient fallback to the buffer's real workspace (see the
+  // ambient-fallback doc below) while `armed` was already `true` for the OLD
+  // store, the stale `true` carried over to a real store whose OWN
+  // `editorManager` might not exist yet, and `EditorSurface` crashed on
+  // `workspaceStore.editorManager!` a few lines past its own "always present
+  // here" doc. Rare under the old lazy-mount-on-activation architecture (the
+  // flip usually settled before a user's own tab switch reached it); apparent
+  // on nearly every cold boot once EditorHostRegistry started mounting every
+  // pane's editor eagerly, before any user interaction gave the race time to
+  // resolve. `armTick` exists only to force a re-render once `armEditor()`
+  // resolves — flipping a closure variable a getter reads does not.
+  const armed = workspaceStore?.editorManager !== undefined
+  const [, setArmTick] = useState(0)
   useEffect(() => {
     if (armed || !workspaceStore) return
     let cancelled = false
     void workspaceStore
       .armEditor()
       .then(() => {
-        if (!cancelled) setArmed(true)
+        if (!cancelled) setArmTick((t) => t + 1)
       })
       // A failed adapter load leaves the pane blank (unarmed) rather than throwing
       // an unhandled rejection; a remount retries via the store's cleared promise.

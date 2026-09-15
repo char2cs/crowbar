@@ -49,6 +49,10 @@ import type {
   TerminalContent,
 } from '../types/pane-content'
 import { ensureBufferInPaneDropTarget } from '../utils/pane-drop-actions'
+import {
+  clearEditorPortalEntry,
+  setEditorPortalEntry,
+} from '../lib/editor-portal-registry'
 import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 
 // Painted straight onto the DOM by `useSidebarDrag`'s own `paintPaneHit` —
@@ -97,7 +101,6 @@ const AgentChatPane = lazy(() =>
     default: m.AgentChatPane,
   })),
 )
-const EditorPane = lazy(() => import('./editor-pane').then((m) => ({ default: m.EditorPane })))
 const CommitDiffPane = lazy(() =>
   import('./commit-diff-pane').then((m) => ({ default: m.CommitDiffPane })),
 )
@@ -132,12 +135,6 @@ export function PaneContainer({
   const bufferActions = useBufferActions()
   const { closeBuffer: closeBufferForce } = bufferActions
 
-  const handlePromote = useCallback(
-    (bufferId: string) => {
-      bufferActions.promotePreview(bufferId)
-    },
-    [bufferActions],
-  )
   // THE CHAT'S OWN WORKSPACE, not the one that happens to be on screen.
   //
   // Panes are window-level (Task 26) and a drop can put ANY workspace's chat
@@ -342,6 +339,36 @@ export function PaneContainer({
   const editorViewHidden =
     Boolean(pane.chatId) &&
     (chatFillsPane || (presentation === 'tabs' && (!showChatTab || chatSelectedInTabsMode)))
+
+  // Editor-portal target: see editor-host-registry.tsx's own doc for why the
+  // actual EditorPane/Monaco widget lives OUTSIDE this component entirely.
+  // This pane publishes only WHERE it wants that widget portaled and what it
+  // should currently show — never renders it directly.
+  const editorPortalTargetRef = useRef<HTMLDivElement>(null)
+  const hasOpenEditorBuffer = paneBuffers.some((b) => b.type === 'editor')
+  const isEditorTabActive = activeBuffer?.type === 'editor' && !editorViewHidden
+  const activeEditorBuffer = activeBuffer?.type === 'editor' ? activeBuffer : null
+  useEffect(() => {
+    const node = editorPortalTargetRef.current
+    if (!hasOpenEditorBuffer || !node) {
+      clearEditorPortalEntry(pane.id)
+      return
+    }
+    setEditorPortalEntry(pane.id, {
+      node,
+      activeEditorBufferId: activeEditorBuffer?.id ?? null,
+      isPreview: activeEditorBuffer?.isPreview ?? false,
+      isActiveSurface: isEditorTabActive && isActivePane,
+    })
+    return () => clearEditorPortalEntry(pane.id)
+  }, [
+    pane.id,
+    hasOpenEditorBuffer,
+    activeEditorBuffer?.id,
+    activeEditorBuffer?.isPreview,
+    isEditorTabActive,
+    isActivePane,
+  ])
   // The chat is "NEVER hidden" everywhere else in this file (side by side,
   // stacked, chatFillsPane) — per spec §7.2, `editorOpen` alone never hides
   // it. This is the one exception: collapsed presentation, real tabs to
@@ -703,18 +730,17 @@ export function PaneContainer({
           return <CsvPreview />
 
         default:
-          return (
-            <EditorPane
-              paneId={pane.id}
-              bufferId={buffer.id}
-              isActiveSurface={isActivePane}
-              isPreview={buffer.isPreview ?? false}
-              onPromote={() => handlePromote(buffer.id)}
-            />
-          )
+          // 'editor' buffers never reach here — see the editor-portal target
+          // below, rendered unconditionally alongside the terminal keep-alive
+          // block for the same reason terminals are: EditorHostRegistry (a
+          // sibling of the whole pane tree, not a descendant of it) owns the
+          // actual EditorPane/Monaco widget so it survives this pane's own
+          // subtree being torn down and rebuilt by a tab switch, a split, or
+          // fullscreen.
+          return null
       }
     },
-    [handleExternalEditorExit, handlePromote, isActivePane, pane.id],
+    [handleExternalEditorExit, isActivePane, pane.id],
   )
 
   // Everything pane.editorTabIds holds — files, terminals, branch review,
@@ -771,8 +797,28 @@ export function PaneContainer({
           )
         })}
 
+      {/* Editor-portal target — see editor-host-registry.tsx's own doc. The
+          actual EditorPane/Monaco widget is portaled in here from OUTSIDE
+          this pane's own subtree, so it survives this component (and this
+          div) being torn down and rebuilt by a tab switch, a split, or
+          fullscreen: only a NEW target node gets registered, the SAME live
+          widget just gets reparented into it. Rendered whenever the pane has
+          any open editor buffer, not only while one is the active tab — same
+          "always mounted, visibility toggled" shape as the terminal block
+          above, for the same reason. */}
+      {hasOpenEditorBuffer && (
+        <div
+          ref={editorPortalTargetRef}
+          className="absolute inset-0"
+          style={isEditorTabActive ? undefined : { visibility: 'hidden' }}
+        />
+      )}
+
       <Suspense fallback={null}>
-        {activeBuffer && activeBuffer.type !== 'terminal' && renderActiveBuffer(activeBuffer)}
+        {activeBuffer &&
+          activeBuffer.type !== 'terminal' &&
+          activeBuffer.type !== 'editor' &&
+          renderActiveBuffer(activeBuffer)}
       </Suspense>
     </>
   )
