@@ -40,8 +40,9 @@ import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useStore } from 'zustand'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
+import type { EditorManager } from '@/features/editor/lib/editor-manager'
 import { isHomeWorkspace } from '@/lib/workspace-scope-url'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -120,6 +121,25 @@ function useDarkModeVersion(): number {
 }
 
 export interface PaneEditorSatelliteDeps {
+  /**
+   * The active-editor registry and Monaco manager for the BUFFER'S OWN
+   * workspace — the exact same values `EditorSurface` already resolved via
+   * its `workspaceId` prop (buffer-own-workspace-if-armed, else ambient —
+   * see that component's own doc). Passed explicitly rather than re-derived
+   * here via `useWorkspaceStore()` (ambient `WorkspaceStoreContext`): that
+   * context is scoped to the PANE'S CHAT's workspace (pane-container.tsx),
+   * which a pane's editor TAB is not required to match — a pane can hold a
+   * chat from one workspace and a file from another. Re-deriving it
+   * independently meant this hook's registry subscription (and therefore
+   * every setting it applies — font size, tabSize, wordWrap, minimap, theme
+   * refresh) silently targeted a DIFFERENT workspace's registry than the one
+   * `usePaneEditorController` actually published the swap to, so it never
+   * fired for that pane's editor at all — left running Monaco's bare
+   * defaults forever. Live-reported: two panes showing the same file at
+   * different font sizes.
+   */
+  registry: ActiveEditorRegistry
+  editorManager: EditorManager
   highlightMatches?: Array<{ start: number; end: number }>
   currentHighlightIndex?: number
   lineNumberStart?: number
@@ -177,6 +197,8 @@ export function useLspScopeReady(): boolean {
  */
 export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatelliteDeps): void {
   const {
+    registry,
+    editorManager,
     highlightMatches,
     currentHighlightIndex,
     lineNumberStart,
@@ -190,11 +212,6 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     externalApplyRef,
   } = deps
 
-  const workspaceStore = useWorkspaceStore()
-  const registry = workspaceStore.activeEditorRegistry
-  // Non-null: this hook runs inside EditorSurface, which EditorPane mounts only
-  // after awaiting `store.armEditor()`, so the manager is armed by now.
-  const editorManager = workspaceStore.editorManager!
   const lspScopeReady = useLspScopeReady()
 
   // Active buffer CONTENT is read IMPERATIVELY (U5b) — NOT subscribed into
@@ -319,6 +336,16 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
 
   // ── Registry subscription: keep editor/model refs current + retarget ──────
   // Bumps `swapTick` to re-run the model-dependent effects on each swap.
+  //
+  // Keyed on `registry` too, not just `paneId`: `registry` is the buffer's
+  // OWN workspace's registry (see PaneEditorSatelliteDeps' own doc), and that
+  // resolution can change out from under an already-mounted pane — the same
+  // ambient-fallback-then-real-workspace race `usePaneEditorController`
+  // handles via its `managerKey` dependency. Re-subscribing on change
+  // matters, not just for correctness of WHICH registry is watched:
+  // `subscribe` calls back immediately with the registry's CURRENT context
+  // for this pane, so switching to the real registry immediately picks up
+  // whatever `usePaneEditorController` already published there.
   const [swapTick, setSwapTick] = useState(0)
   useEffect(() => {
     const unsubscribe = registry.subscribe(paneId, (ctx) => {
@@ -329,7 +356,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     })
     return unsubscribe
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId])
+  }, [paneId, registry])
 
   // ── Imperative active-content change signal (U5b) ──────────────────────────
   // A single vanilla store subscription watches THIS pane's active-buffer text

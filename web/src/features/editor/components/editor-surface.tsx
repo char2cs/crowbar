@@ -372,6 +372,8 @@ export function EditorSurface({
   )
 
   usePaneEditorSatellites(paneId, {
+    registry,
+    editorManager,
     onScrollOffsetChange: syncLspOverlayTransform,
     onCoordinateResolverChange: handleCoordinateResolverChange,
     onModelPositionResolverChange: handleModelPositionResolverChange,
