@@ -14,6 +14,7 @@ import {
   useAttachmentDraggable,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
 import { excalidrawSceneFromCodeBlock } from './chat-code-block-node'
+import { ChatImageLightbox, useChatImageLightbox } from './chat-image-lightbox'
 
 /** True when this image is the excalidraw kind's persisted-PNG sibling — the
  *  fenced JSON immediately before it, per the design spec — which
@@ -36,6 +37,42 @@ function isExcalidrawPngSibling(props: PlateElementProps): boolean {
  *  preview, the text-attachment pill) — reported live: nothing capped a
  *  photo's height at all, so a tall one could take over the whole composer. */
 const IMAGE_MAX_HEIGHT_CLASS = 'max-h-80'
+
+/** The rendered image PLUS its click-to-expand lightbox — the one bit
+ *  shared between the interactive and static blocks below, which otherwise
+ *  differ only in drag furniture. A plain `<button>` around the image
+ *  rather than an onClick on the `<img>` itself, so the affordance is
+ *  keyboard-reachable too; `contentEditable={false}` on the wrapping span
+ *  already keeps it out of Slate's own editing gestures. */
+function ZoomableChatImage({ src, alt }: { src: string; alt: string }) {
+  const lightbox = useChatImageLightbox()
+  return (
+    <>
+      <button
+        type="button"
+        onClick={lightbox.show}
+        title="Click to expand"
+        className="group/zoom relative inline-block cursor-zoom-in rounded"
+      >
+        <img
+          src={src}
+          alt={alt}
+          className={cn(
+            'markdown-image inline-block w-auto max-w-full rounded object-contain',
+            IMAGE_MAX_HEIGHT_CLASS,
+          )}
+        />
+        <span className="absolute inset-0 rounded bg-black/0 transition-colors group-hover/zoom:bg-black/10" />
+      </button>
+      <ChatImageLightbox
+        src={src}
+        alt={alt}
+        open={lightbox.open}
+        onOpenChange={lightbox.onOpenChange}
+      />
+    </>
+  )
+}
 
 /**
  * An attachment image's INTERACTIVE half — the composer, and the transcript's
@@ -61,14 +98,7 @@ function ChatAttachmentImageBlock(props: PlateElementProps) {
       <AttachmentControls dragRef={handleRef} onDelete={remove} />
       <AttachmentDropLine />
       <span contentEditable={false}>
-        <img
-          src={resolvedSrc}
-          alt={alt}
-          className={cn(
-            'markdown-image inline-block w-auto max-w-full rounded object-contain',
-            IMAGE_MAX_HEIGHT_CLASS,
-          )}
-        />
+        <ZoomableChatImage src={resolvedSrc} alt={alt} />
       </span>
       {props.children}
     </PlateElement>
@@ -89,14 +119,7 @@ function ChatAttachmentImageBlockStatic(props: PlateElementProps) {
   return (
     <PlateElement {...props} className="inline-block">
       <span contentEditable={false}>
-        <img
-          src={resolvedSrc}
-          alt={alt}
-          className={cn(
-            'markdown-image inline-block w-auto max-w-full rounded object-contain',
-            IMAGE_MAX_HEIGHT_CLASS,
-          )}
-        />
+        <ZoomableChatImage src={resolvedSrc} alt={alt} />
       </span>
       {props.children}
     </PlateElement>
