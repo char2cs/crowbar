@@ -555,6 +555,74 @@ func TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap(t *testing.T) 
 	}
 }
 
+// TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap is the
+// same shape as TestSwitchProvider_ClaudeSwitchBack_ResumesAndPointsAtTheGap, but
+// through the combined path a real "switch, then send" click actually takes:
+// SubmitPrompt with a staged provider, not a bare SwitchProvider call. SubmitPrompt
+// runs SwitchProvider internally — which spawns its own silent resume runner,
+// correctly carrying the gap — and then immediately displaces THAT runner to spawn
+// a second, replacement one that actually delivers the user's text. The bug this
+// guards: the replacement spawn computed its own context independently via
+// resolvePromptDelivery, whose everTurned gate saw claude's native session already
+// had turns (from before the switch away) and concluded no handoff was owed —
+// discarding the gap the switch had just assembled, because the runner that HELD
+// it was never the one that delivered anything. Live-confirmed as the reason a
+// real switch-then-send never reached claude, even though AssembleConversation
+// itself always produced the right content.
+func TestRegression_SubmitPromptWithStagedProvider_DeliverySpawnCarriesTheGap(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, claudeRunner := f.spawn(t, "claude")
+	f.announce(t, claudeRunner, "sid-claude-native")
+	turn(t, f, claudeRunner, "claude", "claude ledger content")
+	waitForClockTick(t)
+
+	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	f.announce(t, codexRunner, "sid-codex-native")
+
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "turn_stop",
+		mustJSON(t, map[string]any{
+			"threadId": "sid-codex-native",
+			"turn": map[string]any{
+				"items": []any{
+					map[string]any{"type": "agentMessage", "text": "codex spoke while claude was away"},
+				},
+			},
+		})))
+	f.wait()
+
+	// The combined path: switch back to claude AND deliver a prompt in one
+	// call, exactly what the composer does on a staged-provider send.
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I miss?", uuid.NewString(), "claude", "", "")
+	require.NoError(t, err)
+	f.wait()
+
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", live.ProviderID)
+
+	// spawn 0: initial claude. spawn 1: switch to codex. spawn 2: SubmitPrompt's
+	// internal SwitchProvider back to claude (the silent resume, displaced before
+	// it can answer). spawn 3: SubmitPrompt's own replacement spawn — the one
+	// that actually carries "what did I miss?" and is what claude answers from.
+	require.Equal(t, 4, f.term.callCount())
+	argv := f.term.calls[3].argv
+
+	assert.Equal(t, "sid-claude-native", argAfter(t, argv, "--resume"),
+		"the delivery spawn must resume claude's own conversation, not start a blank one")
+
+	joined := strings.Join(argv, "\x00")
+	assert.Contains(t, joined, "what did I miss?",
+		"the delivery spawn must carry the user's actual prompt: argv was %v", argv)
+	assert.Contains(t, joined, "codex spoke while claude was away",
+		"the delivery spawn — not just the switch's own throwaway silent resume — "+
+			"must carry the gap claude missed while away: argv was %v", argv)
+	assert.NotContains(t, joined, "claude ledger content",
+		"a provider resumed into its own conversation must not be re-fed its own earlier turns")
+}
+
 // TestResumeChat_LiveChat_IsNoop: reviving a chat whose CLI is alive must never tear
 // that CLI down — it hands back the runner already on it. (Dormant is a QUERY, so
 // "already live" is answerable without any flag.)
@@ -1626,7 +1694,7 @@ func TestSubmitPrompt_RejectsNULBeforeJournalOrTUITeardown(t *testing.T) {
 	spawnCount := f.term.callCount()
 	terminatedCount := len(f.term.terminatedIDs())
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "invalid\x00argv", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "invalid\x00argv", uuid.NewString(), "", "", "")
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	assert.Equal(t, spawnCount, f.term.callCount(), "invalid input must not start a replacement")
 	assert.Len(t, f.term.terminatedIDs(), terminatedCount, "invalid input must not touch the outgoing TUI")
@@ -1646,7 +1714,7 @@ func TestSubmitPrompt_ParentDirectorySyncFailureAbortsBeforeTUITeardown(t *testi
 		return errors.New("injected parent fsync failure")
 	})
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "must be durable first", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "must be durable first", uuid.NewString(), "", "", "")
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown,
 		"the replacement process was never attempted, so this is not an unknown delivery")
@@ -1662,7 +1730,7 @@ func TestSubmitPrompt_FreshLazyCodexNeedsNoBoundSession(t *testing.T) {
 	chatID, _ := f.spawn(t, "codex")
 	message := "FIRST REACT MESSAGE"
 
-	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString())
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, result.RunnerID)
 	require.NotEmpty(t, result.TerminalSessionID)
@@ -1684,7 +1752,7 @@ func TestSubmitPrompt_ResumeCodexOrdersSubcommandSessionThenPrompt(t *testing.T)
 	// apiOwnsResume (prompts.go) — so no `resume {id} --` prefix precedes the
 	// message; native-session survives only as this replacement runner's own
 	// LaunchSessionID.
-	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString())
+	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "native-session", f.runner(t, submission.RunnerID).LaunchSessionID)
 	call := f.term.calls[f.term.callCount()-1]
@@ -1697,7 +1765,7 @@ func TestSubmitPrompt_FreshClaudeTerminatesVariadicMCPBeforeFinalPrompt(t *testi
 	chatID, _ := f.spawn(t, "claude")
 	message := "CLAUDE REACT MESSAGE"
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
 	mcpAt := indexOf(call.argv, "--mcp-config")
@@ -1712,9 +1780,9 @@ func TestSubmitPrompt_BlocksNextDispatchUntilUserPromptHook(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "one", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "one", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "two", uuid.NewString())
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "two", uuid.NewString(), "", "", "")
 	assert.ErrorIs(t, err, agentusecase.ErrPromptBusy,
 		"spawn success precedes Working=true; the durable pending request closes that no-hook window")
 }
@@ -1732,13 +1800,13 @@ func TestSubmitPrompt_MatchingLateHookFromOutgoingRunnerDoesNotConfirmNewDispatc
 				mustJSON(t, map[string]any{"prompt": message, "session_id": "old-session"}))
 		}()
 	}
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	require.NoError(t, <-hookDone)
 	f.wait()
 	f.term.duringTerminate = nil
 
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString())
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", "", "")
 	assert.ErrorIs(t, err, agentusecase.ErrPromptBusy,
 		"the old runner's matching hook must not clear the replacement's pending-delivery barrier")
 }
@@ -1749,7 +1817,7 @@ func TestSubmitPrompt_ReplacementSpawnFailureStaysOutcomeUnknown(t *testing.T) {
 	requestID := uuid.NewString()
 	f.term.err = errors.New("replacement create failed")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID)
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", "", "")
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown,
 		"a non-command-not-found CreateCommand error may follow a successful fork")
 	record, readErr := os.ReadFile(filepath.Join(f.ws.chatsDir, chatID, "prompt-requests", requestID+".json"))
@@ -1757,7 +1825,7 @@ func TestSubmitPrompt_ReplacementSpawnFailureStaysOutcomeUnknown(t *testing.T) {
 	assert.Contains(t, string(record), `"state":"uncertain"`,
 		"returning outcome_unknown must release the durable dispatching barrier")
 
-	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID)
+	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", "", "")
 	assert.ErrorIs(t, retryErr, agentusecase.ErrPromptOutcomeUnknown,
 		"outgoing displacement must not mark the blank-runner dispatch safely failed")
 }
@@ -1767,12 +1835,12 @@ func TestSubmitPrompt_ReplacementExitBeforeHookStaysOutcomeUnknown(t *testing.T)
 	chatID, _ := f.spawn(t, "codex")
 	requestID := uuid.NewString()
 
-	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID)
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", "", "")
 	require.NoError(t, err)
 	f.term.exit(t, result.TerminalSessionID)
 	f.wait()
 
-	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID)
+	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", "", "")
 	assert.ErrorIs(t, retryErr, agentusecase.ErrPromptOutcomeUnknown,
 		"process exit can race a hook already in flight, so retrying must not duplicate the prompt")
 }
@@ -1782,7 +1850,7 @@ func TestSubmitPrompt_RunnerPersistFailureAfterPTYStartIsOutcomeUnknown(t *testi
 	chatID, _ := f.spawn(t, "codex")
 	runners.failStart = errors.New("runner persistence failed after fork")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", uuid.NewString(), "", "", "")
 	assert.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
 	assert.Equal(t, 2, f.term.callCount(), "the replacement PTY started before runner persistence failed")
 }
@@ -1805,11 +1873,11 @@ func TestSubmitPrompt_RunnerLookupFailureAndAcceptedCrashGapAreSafe(t *testing.T
 		runners.failGetAfter = 2
 	}
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID)
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID, "", "", "")
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
 	runners.failGet = nil
 
-	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID)
+	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID, "", "", "")
 	assert.ErrorIs(t, retryErr, agentusecase.ErrPromptAlreadyAccepted,
 		"accepted-with-runner but without a committed terminal id must never return a blank success DTO")
 }
@@ -1823,12 +1891,12 @@ func TestSubmitPrompt_JournalResultCommitFailureIsOutcomeUnknownAndDoesNotWedgeN
 		require.NoError(t, os.Rename(journalDir, blockedDir))
 	}
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "commit gap", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "commit gap", uuid.NewString(), "", "", "")
 	f.term.duringFork = nil
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
 	require.NoError(t, os.Rename(blockedDir, journalDir))
 
-	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "deliberate follow-up", uuid.NewString())
+	_, retryErr := f.usecase.SubmitPrompt(f.ctx, chatID, "deliberate follow-up", uuid.NewString(), "", "", "")
 	require.NoError(t, retryErr)
 }
 
@@ -1842,7 +1910,7 @@ func TestReconcileRunnersOnBoot_MarksBlankDispatchIntentUncertain(t *testing.T) 
 		require.NoError(t, os.Rename(journalDir, blockedDir))
 	}
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "crash gap", requestID)
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "crash gap", requestID, "", "", "")
 	f.term.duringFork = nil
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
 	require.NoError(t, os.Rename(blockedDir, journalDir))
@@ -1873,7 +1941,7 @@ func TestSubmitPrompt_CompletedStoppedResumedChatKeepsNativeResumeIdentity(t *te
 	assert.Equal(t, "durable-session", f.runner(t, resumedID).LaunchSessionID)
 	f.announce(t, resumedID, "durable-session")
 
-	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue after reopen", uuid.NewString())
+	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue after reopen", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	// codex is api-transport, non-hotswap: this restart's redundant hooks-only
 	// PTY must never ALSO resume durable-session natively (apiOwnsResume,
@@ -1896,7 +1964,7 @@ func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
 	require.Equal(t, chatID, current.CurrentChatID)
 	require.True(t, current.CurrentSessionResumable)
 
-	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue immediately after native resume", uuid.NewString())
+	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue immediately after native resume", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	// codex is api-transport, non-hotswap: this restart's redundant hooks-only
 	// PTY must never ALSO resume known-session natively (apiOwnsResume,
@@ -1941,7 +2009,7 @@ func TestSubmitPrompt_VirginNativeSessionAfterSwitchCarriesTheFullHandoff(t *tes
 	// id the moment it starts, well before the user has said anything to it.
 	f.announce(t, claudeRunner.ID, "claude-session")
 
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I say before?", uuid.NewString())
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "what did I say before?", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
 	contextAt := indexOf(call.argv, "--append-system-prompt")
@@ -1961,7 +2029,7 @@ func TestSubmitPrompt_AlreadyTurnedNativeSessionStaysOnTheCheapPath(t *testing.T
 	f.announce(t, runnerID, "claude-session")
 	turn(t, f, runnerID, "claude", "first answer")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "a normal follow-up", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "a normal follow-up", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
 	assert.Equal(t, -1, indexOf(call.argv, "--append-system-prompt"),
@@ -1994,7 +2062,7 @@ func TestStartupHookBarrier_ReplaysPromptThatFiresBeforeRunnerPersistence(t *tes
 func TestSwitchProvider_DoesNotKillPromptAwaitingAcceptanceFromAnotherWindow(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "queued elsewhere", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "queued elsewhere", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	spawnCount := f.term.callCount()
 	terminated := len(f.term.terminatedIDs())
@@ -2028,7 +2096,7 @@ func TestSubmitPrompt_ExitAfterStartupBarrierBeforeJournalCommitIsUncertain(t *t
 		f.wait()
 	}
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "exit in commit gap", requestID)
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "exit in commit gap", requestID, "", "", "")
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
 	record, readErr := os.ReadFile(filepath.Join(f.ws.chatsDir, chatID, "prompt-requests", requestID+".json"))
 	require.NoError(t, readErr)
@@ -2041,14 +2109,14 @@ func TestSubmitPrompt_IdempotentRetryReturnsOriginalSpawnWhilePending(t *testing
 	chatID, _ := f.spawn(t, "codex")
 	requestID := uuid.NewString()
 
-	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "one operation", requestID)
+	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "one operation", requestID, "", "", "")
 	require.NoError(t, err)
-	retry, err := f.usecase.SubmitPrompt(f.ctx, chatID, "one operation", requestID)
+	retry, err := f.usecase.SubmitPrompt(f.ctx, chatID, "one operation", requestID, "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, first, retry)
 	assert.Equal(t, 2, f.term.callCount(), "the retry must not spawn a third provider TUI")
 
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "different operation", requestID)
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "different operation", requestID, "", "", "")
 	assert.ErrorIs(t, err, agentusecase.ErrPromptRequestIDConflict)
 }
 
@@ -2069,7 +2137,7 @@ func TestSubmitPrompt_ConcurrentSameRequestIDDeliversOnce(t *testing.T) {
 	for range 2 {
 		go func() {
 			<-start
-			d, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID)
+			d, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID, "", "", "")
 			results <- outcome{dto: d, err: err}
 		}()
 	}
@@ -2105,7 +2173,7 @@ func TestSubmitPrompt_RejectsBadInputBeforeTouchingAnything(t *testing.T) {
 			spawns := f.term.callCount()
 			terminated := len(f.term.terminatedIDs())
 
-			_, err := f.usecase.SubmitPrompt(f.ctx, chatID, tc.text, tc.request)
+			_, err := f.usecase.SubmitPrompt(f.ctx, chatID, tc.text, tc.request, "", "", "")
 
 			require.ErrorIs(t, err, apperr.ErrInvalidArgument)
 			assert.Equal(t, spawns, f.term.callCount(), "no replacement was started")
@@ -2120,7 +2188,7 @@ func TestSubmitPrompt_RejectsBadInputBeforeTouchingAnything(t *testing.T) {
 func TestSubmitPrompt_RefusesAChatThatDoesNotExist(t *testing.T) {
 	f := newFixture(t)
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, uuid.NewString(), "hello", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, uuid.NewString(), "hello", uuid.NewString(), "", "", "")
 
 	require.Error(t, err)
 }
@@ -2131,7 +2199,7 @@ func TestSubmitPrompt_RefusesADormantChat(t *testing.T) {
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString(), "", "", "")
 
 	require.ErrorIs(t, err, agentusecase.ErrPromptSessionUnavailable)
 }
@@ -2162,7 +2230,7 @@ runtime:
 	))
 	chatID, _ := f.spawn(t, "codex")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString())
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString(), "", "", "")
 
 	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported)
 }
@@ -2176,7 +2244,7 @@ func TestRegression_EveryShippedProviderDeliversAPromptByReplacingTheCLI(t *test
 			spawns := f.term.callCount()
 			message := "deliver me by restart"
 
-			result, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString())
+			result, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", "", "")
 			require.NoError(t, err)
 
 			require.Equal(t, spawns+1, f.term.callCount(),
@@ -3761,7 +3829,7 @@ func TestSubmitPrompt_ARetryAfterAConfirmedDeliveryReturnsTheOriginal(t *testing
 	const message = "the prompt that landed"
 	requestID := uuid.NewString()
 
-	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID)
+	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID, "", "", "")
 	require.NoError(t, err)
 	live, err := f.liveRunnerFor(t, chatID)
 	require.NoError(t, err)
@@ -3770,7 +3838,7 @@ func TestSubmitPrompt_ARetryAfterAConfirmedDeliveryReturnsTheOriginal(t *testing
 	f.wait()
 	spawnsBefore := f.term.callCount()
 
-	second, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID)
+	second, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, requestID, "", "", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, first, second, "a retry reports the delivery that already happened")

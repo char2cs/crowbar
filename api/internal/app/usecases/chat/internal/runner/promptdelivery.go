@@ -17,12 +17,12 @@ type promptDelivery struct {
 	resumeSteps     []engineagents.InjectStep
 	launchSessionID string
 	resuming        bool
-	// conversation and contextResuming carry a virgin-restart handoff: a native
-	// session that has never itself recorded a turn holds no history for
-	// --resume to restore, so restarting it to deliver its first real message
-	// is this provider's first turn in the chat, not a gap since one it never
-	// had. Both stay empty/false on every other path, where the mechanical
-	// resuming above is already the right content signal too — see
+	// conversation and contextResuming carry a handoff for a restart whose
+	// LIVE runner (the one being displaced to deliver this message) has never
+	// itself turned — its first delivery, whether that runner is brand new to
+	// the chat or was just spawned by a provider switch and displaced before
+	// it got to answer. Both stay empty/false on every other path, where the
+	// mechanical resuming above is already the right content signal too — see
 	// resolvePromptDelivery.
 	conversation    string
 	contextResuming bool
@@ -50,33 +50,51 @@ func (rs *Runners) resolvePromptDelivery(
 		return promptDelivery{}, err
 	}
 
-	// A named native session that has never itself recorded a turn has nothing
-	// on disk for --resume to restore, and no native session at all is, a
-	// fortiori, exactly as new — either way this restart is this provider's
-	// FIRST real turn in the chat, not a gap since one it never had. Computed
-	// before the resuming/not-resuming split below, and BEFORE any early
-	// return, so both outcomes of resumeTarget get the same treatment: the
-	// live bug this fixes reached here with resuming=false (resumeTarget's own
-	// "not yet resumable" branch), not just the resuming=true branch. Same
-	// test resumableConversation already uses for the switch path (see
-	// switch.go), applied here for the restart-to-deliver path.
+	// everTurned/leftAt answer "does the NATIVE SESSION have history of its
+	// own" — true whenever ANY runner ever recorded a turn under it, which
+	// says nothing about whether the runner THIS restart is replacing was the
+	// one that produced it. A provider switch spawns its own silent resume
+	// runner to compute and carry a handoff, then this restart immediately
+	// displaces it to actually deliver the prompt — so nativeSessionID here
+	// routinely already has turns from BEFORE that runner ever ran a single
+	// one. Gating on everTurned alone (as this once did) reads that prior
+	// history as "already caught up" and skips the handoff entirely — live-
+	// confirmed as the reason a switch-then-send never reached Claude: the
+	// switch's own assembled context was thrown away with the runner it was
+	// injected into, and this restart's replacement carried none.
 	everTurned := false
+	var leftAt time.Time
 	if nativeSessionID != "" {
-		_, found, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, nativeSessionID)
+		at, found, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, nativeSessionID)
 		if err != nil {
 			return promptDelivery{}, fmt.Errorf("agent: submit prompt: check native session history: %w", err)
 		}
-		everTurned = found
+		everTurned, leftAt = found, at
+	}
+
+	// liveTurned is the question that actually decides whether THIS restart
+	// owes a handoff: has the runner being displaced right now itself ever
+	// turned, since it was spawned. A runner that has is mid-conversation on
+	// its own native transcript, which --resume already restores in full. A
+	// runner that has not — a switch's silent resume, or a dormant chat's
+	// revive spawn, neither ever given a chance to answer before being
+	// displaced here — has nothing of its own on the wire, so this restart is
+	// really that spawn's first delivery and must carry what one would have:
+	// the gap since leftAt when the session has prior history (everTurned),
+	// or the conversation so far when it has none at all.
+	liveTurned, err := rs.activity.HasTurnAtOrAfter(ctx, chatID, live.ProviderID, live.StartedAt)
+	if err != nil {
+		return promptDelivery{}, fmt.Errorf("agent: submit prompt: check live runner history: %w", err)
 	}
 
 	out := promptDelivery{promptSteps: promptSteps, resuming: resuming, contextResuming: resuming}
-	if !everTurned {
-		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, false, time.Time{})
+	if !liveTurned {
+		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, everTurned, leftAt)
 		if err != nil {
 			return promptDelivery{}, fmt.Errorf("agent: submit prompt: assemble handoff: %w", err)
 		}
 		out.conversation = conversation
-		out.contextResuming = false
+		out.contextResuming = everTurned
 	}
 	if !resuming {
 		return out, nil

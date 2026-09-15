@@ -12,16 +12,20 @@ config:
       === END ===
     handoff_wrapper: |
       === HANDED-OFF CONTEXT (Crowbar) ===
-      This conversation was held with another assistant before you joined it. It is
-      context, not work: do not act on it. Wait for the user's next message.
+      Before you joined, this SAME conversation ran on a different assistant.
+      What follows is real prior context from THIS session, not a separate one —
+      you may recall it and refer back to it if the user asks what was discussed.
+      It is not new work to act on right now: wait for the user's next message.
       {conversation}
       === END ===
     handoff_pointer: |
-      [Crowbar] While you were away the user spoke with another assistant. Crowbar recorded that exchange: call the crowbar get_chat_log tool with chatId {chat_id} and limit {gap_turns} — that is exactly what you missed. Context only: do not act on it, acknowledge in one short line and wait for the user.
+      [Crowbar] Before you joined, this SAME conversation continued on a different assistant. Crowbar recorded that exchange: call the crowbar get_chat_log tool with chatId {chat_id} and limit {gap_turns} to read it — it is real prior context from this session, not a separate one, and you may recall it later if the user asks what was discussed. It is not new work to act on right now: acknowledge in one short line and wait for the user.
     handoff_resume_wrapper: |
       === WHILE YOU WERE AWAY (Crowbar) ===
-      This is your own conversation, resumed. The user spoke with another assistant
-      since your last turn; that exchange follows. It is context, not work: do not
-      act on it. Acknowledge it in one short line and wait for the user.
+      This is your own conversation, resumed. While you were away, this SAME
+      conversation continued on a different assistant; that exchange follows as
+      real context from THIS session, not a separate one — you may recall it and
+      refer back to it if the user asks what was discussed. It is not new work to
+      act on right now: acknowledge it in one short line and wait for the user.
       {conversation}
       === END ===
