@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { chatIsThreadIn } from '@/features/panes/hooks/use-chat-is-thread'
 import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
+import type { HomeTree } from '@/lib/store/home-tree'
+
+function makeHomeTree(overrides: Partial<HomeTree> = {}): HomeTree {
+  return { chats: [], folders: [], ...overrides }
+}
 
 function makeChat(overrides: Partial<Chat> = {}): Chat {
   return {
@@ -96,5 +101,23 @@ describe('chatIsThreadIn', () => {
 
   it('answers false for no chat at all', () => {
     expect(chatIsThreadIn([makeRepo({ chats: [] })], null)).toBe(false)
+  })
+
+  // A project-home chat rides no repo at all (home-tree.ts's own doc), so it
+  // can never own a worktree — unlike the repos-scan miss above, this is a
+  // permanent structural fact, not a "not yet seeded" gap.
+  it('calls a chat found only in a project home tree a thread', () => {
+    const homeTrees = {
+      'proj-1': makeHomeTree({ chats: [makeChat({ id: 'chat-home', repoId: '' })] }),
+    }
+    expect(chatIsThreadIn([], 'chat-home', homeTrees)).toBe(true)
+    // Also true when repos are present but none of them name the chat either.
+    expect(chatIsThreadIn([makeRepo({ chats: [] })], 'chat-home', homeTrees)).toBe(true)
+  })
+
+  it('still answers false for a chat named by neither a repo nor a home tree', () => {
+    const homeTrees = { 'proj-1': makeHomeTree({ chats: [makeChat({ id: 'chat-home' })] }) }
+    expect(chatIsThreadIn([makeRepo({ chats: undefined })], 'chat-1', homeTrees)).toBe(false)
+    expect(chatIsThreadIn([], 'chat-1', {})).toBe(false)
   })
 })
