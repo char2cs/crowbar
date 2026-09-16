@@ -103,10 +103,14 @@ export async function readVisibleRepoTree(): Promise<Repo[]> {
   // twice, once correctly under its project's home and once falsely as a
   // sibling of a repo's own branches, the same leniency bug `handleTrash`
   // already guards against for deletion.
+  const repoFolders: ReturnType<typeof toSidebarFolder>[] = []
+  for (const folder of folders) {
+    if (!resolveHomeRowScope(folder.id)) repoFolders.push(toSidebarFolder(folder))
+  }
   return buildRepoTree(
     repos.filter((repo) => visible.has(repo.projectId)),
     workspaces,
-    folders.filter((folder) => !resolveHomeRowScope(folder.id)).map(toSidebarFolder),
+    repoFolders,
     chats.map(toSidebarChat),
   )
 }

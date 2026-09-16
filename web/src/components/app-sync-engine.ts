@@ -328,9 +328,10 @@ export function useAppSyncEngine(): void {
         const cached = await getAllEntities<T>(store)
         if (!live()) return
         const fresh = new Set(items.map((item) => item.id))
-        const stale = cached
-          .filter((row) => row.repoId === repoId && !fresh.has(row.id))
-          .map((row) => row.id)
+        const stale: string[] = []
+        for (const row of cached) {
+          if (row.repoId === repoId && !fresh.has(row.id)) stale.push(row.id)
+        }
         await Promise.all(stale.map((id) => removeEntity(store, id)))
         await Promise.all(items.map((item) => upsertEntity(store, item)))
       }

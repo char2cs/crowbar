@@ -334,12 +334,14 @@ function SpacePanel({
   // re-render happens — there is no general cross-store live-aggregation
   // primitive in this codebase to close that gap fully (see
   // task-30-report.md).
-  const workingSignal = useSidebarStore((s) =>
-    s.repos
-      .filter((r) => r.projectId === projectId)
-      .flatMap((r) => r.workspaces.map((w) => `${w.id}${ID_DELIM}${w.working ? 1 : 0}`))
-      .join(ID_DELIM),
-  )
+  const workingSignal = useSidebarStore((s) => {
+    const parts: string[] = []
+    for (const r of s.repos) {
+      if (r.projectId !== projectId) continue
+      for (const w of r.workspaces) parts.push(`${w.id}${ID_DELIM}${w.working ? 1 : 0}`)
+    }
+    return parts.join(ID_DELIM)
+  })
   const workspaceIds = Array.from(
     new Set(rows.map((r) => r.workspaceId).filter((id): id is string => id != null)),
   )

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { handleCreateHomeThread } from '@/components/layout/space-content-actions'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
@@ -391,6 +391,14 @@ describe('SpaceScroller', () => {
   // says which project this space is. Built in Task 10 and left with zero
   // importers until the final fix wave.
   describe('space header (spec §4)', () => {
+    // The fold toggle (aria-expanded, the click that folds/unfolds) lives on
+    // its own button INSIDE the row now, not on the row itself (space-header.tsx's
+    // own doc: "the outer div being one big role=button" was un-nested from the
+    // overflow/thread controls it used to swallow) — this file's own testid
+    // still names the outer row, so tests reach the real control through it.
+    const foldToggle = (header: HTMLElement) =>
+      within(header).getByRole('button', { name: /^(Expand|Collapse) / })
+
     const renderScroller = (overrides: Partial<{ onTrashProject: () => void }> = {}) => {
       const projects = [makeProject('p1'), makeProject('p2')]
       const entry: RecentsBandEntry = {
@@ -441,7 +449,7 @@ describe('SpaceScroller', () => {
       expect(screen.getAllByText('Fix the thing')).toHaveLength(2)
       expect(screen.getAllByTestId('recents-band')).toHaveLength(2)
 
-      fireEvent.click(screen.getAllByTestId('space-header-row')[0])
+      fireEvent.click(foldToggle(screen.getAllByTestId('space-header-row')[0]))
 
       // p1's tree is gone; p2's header was not clicked, so its own tree stays.
       expect(screen.queryAllByText('Fix the thing')).toHaveLength(1)
@@ -452,12 +460,18 @@ describe('SpaceScroller', () => {
     it('folds only the space whose header was clicked', () => {
       renderScroller()
       const headers = screen.getAllByTestId('space-header-row')
-      expect(headers[0]).toHaveAttribute('aria-expanded', 'true')
+      expect(foldToggle(headers[0])).toHaveAttribute('aria-expanded', 'true')
 
-      fireEvent.click(headers[0])
+      fireEvent.click(foldToggle(headers[0]))
 
-      expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute('aria-expanded', 'false')
-      expect(screen.getAllByTestId('space-header-row')[1]).toHaveAttribute('aria-expanded', 'true')
+      expect(foldToggle(screen.getAllByTestId('space-header-row')[0])).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      )
+      expect(foldToggle(screen.getAllByTestId('space-header-row')[1])).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      )
     })
 
     // Addendum §4: "the dropdown never carries a Delete item" -- deletion's
@@ -480,7 +494,10 @@ describe('SpaceScroller', () => {
       expect(onTrashProject).not.toHaveBeenCalled()
       // Opening the overflow must not fold the space either way (SpaceHeader
       // stops propagation; this pins that the mount relies on it).
-      expect(screen.getAllByTestId('space-header-row')[0]).toHaveAttribute('aria-expanded', 'true')
+      expect(foldToggle(screen.getAllByTestId('space-header-row')[0])).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      )
     })
 
     // Not `onCreate('row-1', 'thread')`: that pipe resolves against the

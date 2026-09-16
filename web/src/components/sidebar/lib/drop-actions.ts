@@ -822,6 +822,7 @@ export async function performSidebarDrop(
       return
     }
     for (const call of plan) {
+      // react-doctor-disable-next-line async-await-in-loop -- accepted: sequential on purpose (see this function's own doc above) — Promise.all would race the writes.
       await fireRowPlacementCall(call)
     }
   } catch (err) {
