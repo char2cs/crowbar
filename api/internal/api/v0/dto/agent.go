@@ -277,10 +277,10 @@ type AgentToolCallDTO struct {
 	Status string `json:"status"`
 	// Error is a short caption for a failed call. The full failure text is the
 	// call's result payload, fetched on demand like any other.
-	Error      string     `json:"error,omitempty"`
-	DurationMS int        `json:"durationMs,omitempty"`
-	HasRequest bool       `json:"hasRequest"`
-	HasResult  bool       `json:"hasResult"`
+	Error      string `json:"error,omitempty"`
+	DurationMS int    `json:"durationMs,omitempty"`
+	HasRequest bool   `json:"hasRequest"`
+	HasResult  bool   `json:"hasResult"`
 	// SubagentID — see domain.ActivityToolCall's own doc. Set instead of
 	// TurnID when this call belongs to a SUBAGENT's own nested activity, not
 	// the chat's top-level turn.
@@ -672,9 +672,11 @@ type AgentProviderDTO struct {
 // still scopes the home mount's feed (agentChatDef's wsId Filter, keyed off
 // its injected :wsId). The repo-scoped mount names no workspace in its URL, so
 // that Filter resolves inactive there and scopes nothing; what scopes it is
-// RepoID below, against the mount's own :repoId. Before RepoID existed the wsId
-// Filter was this stream's only scoping mechanism and a repo-scoped client
-// received every OTHER repo's chat events too.
+// RepoID below, against the mount's own :repoId, together with ProjectID
+// against its :projectId. Before RepoID existed the wsId Filter was this
+// stream's only scoping mechanism and a repo-scoped client received every OTHER
+// repo's chat events too; before ProjectID existed, every REPO-LESS frame — a
+// folder row, a root bubble, and every chat in a project HOME — still did.
 //
 // ChatID is EMPTY on a `displaced` frame, and that is the frame's whole meaning: Crowbar
 // has taken that runner off its chat (an eviction, a provider switch, a chat deleted under
@@ -691,11 +693,26 @@ type AgentChatEvent struct {
 	// Filter). It is on the frame because a row's repo is DERIVED, never
 	// stored, so the only place it can be answered is where the walk runs.
 	//
-	// EMPTY means "this row has no repo to be held to" — a folder row, or a
-	// bubble whose ancestry owns no workspace — and such a frame reaches every
-	// subscriber rather than none (see matchRepoOrUnscoped).
+	// EMPTY means "this row has no repo to be held to" — a folder row, a
+	// bubble whose ancestry owns no workspace, or ANY row in a project home,
+	// which owns no repo — and such a frame reaches every subscriber of the
+	// same PROJECT rather than none (see matchScopeOrUnscoped).
 	RepoID string `json:"repoId,omitempty"`
-	Kind   string `json:"kind"`
+	// ProjectID is the project the frame's row runs in, resolved from the same
+	// workspace row RepoID is and in the same pass. It is what bounds a
+	// REPO-LESS frame, which RepoID by construction cannot: a project home owns
+	// no repo, so every frame its chats emit — a lifecycle edge, a plan, the
+	// streamed text of a turn — carried an empty RepoID and was therefore
+	// forwarded to every repo-scoped subscriber in the daemon, across projects.
+	// Holding those frames to an exact repo is not an option (it would drop the
+	// folder rows and root bubbles that legitimately have none), so they are
+	// held to the project instead: the narrowest scope that still keeps them.
+	//
+	// EMPTY means the row resolved nothing at all — its placement projection has
+	// not caught up, or its whole ancestry owns no workspace — and such a frame
+	// still reaches everyone, unchanged.
+	ProjectID string `json:"projectId,omitempty"`
+	Kind      string `json:"kind"`
 	// RunnerID names the vendor-CLI process the frame is about, and is set ONLY on
 	// the agent-RUNNER kinds (started/session_bound/moved/exited — see
 	// hub.BroadcastAgentRunner), which ride this same workspace-scoped feed rather

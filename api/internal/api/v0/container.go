@@ -355,6 +355,7 @@ func (c *Container) pushChatWorktree(
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      w.OwningChatID,
 		WorkspaceID: w.ID,
+		ProjectID:   w.ProjectID,
 		RepoID:      w.RepoID,
 		Kind:        dto.AgentChatKindWorktreeState,
 		Worktree:    dto.ChatWorktreeFrom(w),
@@ -464,10 +465,12 @@ func (c *Container) PushAgentChat(
 	kind string,
 	working bool,
 ) {
+	scope := c.freshAgentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      chatID,
 		WorkspaceID: workspaceID,
-		RepoID:      c.freshAgentChatRepo(chatID, workspaceID),
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        kind,
 		Working:     working,
 	})
@@ -482,10 +485,12 @@ func (c *Container) PushAgentChatTerminalWait(
 	workspaceID string,
 	wait *dto.AgentTerminalWaitDTO,
 ) {
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:       chatID,
 		WorkspaceID:  workspaceID,
-		RepoID:       c.agentChatRepo(chatID, workspaceID),
+		ProjectID:    scope.ProjectID,
+		RepoID:       scope.RepoID,
 		Kind:         dto.AgentChatKindTerminalWait,
 		TerminalWait: wait,
 	})
@@ -499,10 +504,12 @@ func (c *Container) PushAgentChatPromptSettled(
 	requestID string,
 	consumed bool,
 ) {
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:          chatID,
 		WorkspaceID:     workspaceID,
-		RepoID:          c.agentChatRepo(chatID, workspaceID),
+		ProjectID:       scope.ProjectID,
+		RepoID:          scope.RepoID,
 		Kind:            dto.AgentChatKindPromptSettled,
 		ClientRequestID: requestID,
 		PromptConsumed:  consumed,
@@ -518,17 +525,25 @@ func (c *Container) PushAgentChatMessageDelta(
 	text string,
 	kind string,
 ) {
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      chatID,
 		WorkspaceID: workspaceID,
-		RepoID:      c.agentChatRepo(chatID, workspaceID),
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        dto.AgentChatKindMessageDelta,
 		Message:     &dto.AgentStreamingMessageDTO{ID: messageID, Text: text, Kind: kind},
 	})
 }
 
 // PushAgentChatPlan implements hub.Subscriber, on the SAME workspace-scoped
-// agent-chat WebSocket as every other conversation fact.
+// agent-chat WebSocket as every other conversation fact — and scoped like every
+// other one.
+//
+// It set no scope at all for its first several months, so every plan frame went
+// out repo-less no matter which chat wrote it and the filter's "a frame with no
+// scope to be held to reaches everyone" hatch fired for all of them: the agent's
+// own free-text to-do list reached every repo-scoped subscriber on the daemon.
 func (c *Container) PushAgentChatPlan(
 	chatID string,
 	workspaceID string,
@@ -538,9 +553,12 @@ func (c *Container) PushAgentChatPlan(
 	for _, s := range steps {
 		out = append(out, dto.AgentPlanStepDTO{Text: s.Text, Status: s.Status})
 	}
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      chatID,
 		WorkspaceID: workspaceID,
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        dto.AgentChatKindPlan,
 		Plan:        out,
 	})
@@ -550,6 +568,9 @@ func (c *Container) PushAgentChatPlan(
 // workspace-scoped agent-chat WebSocket as every other conversation fact.
 // active picks which of the two kinds rides — see dto.AgentChatKindCompactionStarted's
 // own doc comment for why two kinds and no extra field.
+//
+// It carried no scope either, for the same reason PushAgentChatPlan did not:
+// see that method's own comment.
 func (c *Container) PushAgentChatCompaction(
 	chatID string,
 	workspaceID string,
@@ -559,9 +580,12 @@ func (c *Container) PushAgentChatCompaction(
 	if active {
 		kind = dto.AgentChatKindCompactionStarted
 	}
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      chatID,
 		WorkspaceID: workspaceID,
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        kind,
 	})
 }
@@ -577,22 +601,28 @@ func (c *Container) PushAgentChatCompaction(
 // shape requires: it has no snapshot, so a client reads folders over REST and a
 // frame here means "read them again".
 //
-// A folder at the panel root carries no workspace and no repo id, so its frame
-// resolves the EMPTY repo and reaches every subscriber (matchRepoOrUnscoped) —
-// the folder half of the repo boundary is the disclosed limitation
-// ChatTreeUsecase.ListInRepo already carries, unchanged here. The fresh
-// resolution is taken anyway for its other half: a folder move is a structural
-// change that can have carried bubbles into another repo with it, and the memo
-// those bubbles' streaming frames read must not survive it.
+// A folder announced with a workspace resolves that workspace's project and
+// repo like any other row, so a project-home folder is now held to its own
+// project rather than fanned out across every one of them. A folder announced
+// with NO workspace — the repo mount's own folder routes bind no :wsId — still
+// resolves nothing and reaches every subscriber (matchScopeOrUnscoped): the
+// folder half of the repo boundary is the disclosed limitation
+// ChatTreeUsecase.ListInRepo already carries, unchanged here, and the frame
+// carries an id and a kind rather than any of the conversation's content. The
+// fresh resolution is taken anyway for its other half: a folder move is a
+// structural change that can have carried bubbles into another repo with it,
+// and the memo those bubbles' streaming frames read must not survive it.
 func (c *Container) PushAgentChatFolder(
 	folderID string,
 	workspaceID string,
 	kind string,
 ) {
+	scope := c.freshAgentChatScope(folderID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		FolderID:    folderID,
 		WorkspaceID: workspaceID,
-		RepoID:      c.freshAgentChatRepo(folderID, workspaceID),
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        kind,
 	})
 }
@@ -615,10 +645,11 @@ func (c *Container) PushAgentRunner(
 	chatID string,
 	kind string,
 ) {
+	scope := c.freshAgentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID: chatID, WorkspaceID: workspaceID,
-		RepoID: c.freshAgentChatRepo(chatID, workspaceID),
-		Kind:   kind, RunnerID: runnerID,
+		ProjectID: scope.ProjectID, RepoID: scope.RepoID,
+		Kind: kind, RunnerID: runnerID,
 	})
 }
 
@@ -794,7 +825,7 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 // threads, ...) a freshly-connected client simply waits for the next
 // lifecycle event — there is no "current state" to replay.
 //
-// It has TWO scoping filters and stays FlatNamespace, which is the shape the
+// It has FOUR scoping filters and stays FlatNamespace, which is the shape the
 // rows themselves force. The wsId Filter is what narrows the HOME mount, whose
 // RequireHomeWorkspace injects a :wsId for it to resolve; it goes inactive at
 // the repo mount, which binds no :wsId at all — and that inactive filter used
@@ -803,16 +834,31 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 // mount binds :repoId, and every chat frame carries the repo its row actually
 // runs in (see agent_chat_scope.go).
 //
+// The projectId Filter closes what repoId structurally CANNOT. Both live mounts
+// nest under /projects/:projectId, so both resolve it; the flat
+// /v0/chats/:chatId/ws mount binds neither it nor :repoId and is scoped by its
+// own chatId Filter instead, so neither is Required.
+//
 // The stream is NOT given the hierarchical projectId/repoId/wsId namespace
 // threadsDef and terminalsDef use, because half the rows on this feed cannot
-// fill one. A FOLDER carries no workspace and no repo id of its own, and
-// neither does a bubble at the panel root; under a hierarchical namespace those
-// frames would resolve "//" and be dropped from every repo-scoped subscriber,
-// silently killing the live folder feed. matchRepoOrUnscoped is what lets both
-// kinds coexist on one stream: a frame that KNOWS its repo is held to it, and
-// one that cannot know it reaches everyone — the same disclosed limitation
-// ChatTreeUsecase.ListInRepo already carries for folders, unchanged, rather
-// than a new silent drop.
+// fill one. A FOLDER carries no workspace and no repo id of its own, neither
+// does a bubble at the panel root, and neither does ANY row in a project home —
+// that workspace owns no repo; under a hierarchical namespace those frames
+// would resolve "//" and be dropped from every repo-scoped subscriber, silently
+// killing the live folder feed. matchScopeOrUnscoped is what lets both kinds
+// coexist on one stream: a frame that KNOWS a scope is held to it, and one that
+// cannot know it reaches everyone.
+//
+// That escape hatch is why the two filters are needed rather than one. It is
+// keyed per FIELD, so a repo-less frame skipped the repoId filter entirely —
+// and a project home's chats are all repo-less, so a home chat's streamed text
+// in one project was delivered to repo-scoped sockets in EVERY other project in
+// the process. Answering the project as well bounds them: repo-less still means
+// "every repo", but now only every repo OF THIS PROJECT, which is the narrowest
+// scope that keeps the folder rows and root bubbles this hatch exists for. A
+// frame that resolves neither field still reaches everyone — the same disclosed
+// limitation ChatTreeUsecase.ListInRepo already carries for folders, unchanged,
+// rather than a new silent drop.
 func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 	return ws.StreamDef[dto.AgentChatEvent]{
 		Namespace:     func(e dto.AgentChatEvent) string { return e.WorkspaceID },
@@ -821,7 +867,8 @@ func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[dto.AgentChatEvent]{
 			{Param: "wsId", Extract: func(e dto.AgentChatEvent) string { return e.WorkspaceID }, Match: ws.ExactMatch},
-			{Param: "repoId", Extract: func(e dto.AgentChatEvent) string { return e.RepoID }, Match: matchRepoOrUnscoped},
+			{Param: "projectId", Extract: func(e dto.AgentChatEvent) string { return e.ProjectID }, Match: matchScopeOrUnscoped},
+			{Param: "repoId", Extract: func(e dto.AgentChatEvent) string { return e.RepoID }, Match: matchScopeOrUnscoped},
 			{Param: "chatId", Extract: func(e dto.AgentChatEvent) string { return e.ChatID }, Match: ws.ExactMatch},
 		},
 		// message_delta is the one kind on this feed that is already "the
@@ -848,15 +895,21 @@ func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 	}
 }
 
-// matchRepoOrUnscoped holds a frame that KNOWS its repo to exactly that repo,
-// and lets one that does not reach every subscriber.
+// matchScopeOrUnscoped holds a frame that KNOWS one of its scoping ids to
+// exactly that id, and lets one that does not reach every subscriber. It serves
+// both of agentChatDef's scoping Filters, projectId and repoId.
 //
 // The second half is not laxness, it is the honest answer for the rows that
-// have no repo to be held to: a folder row carries none, and neither does a
-// bubble whose ancestry owns no workspace. Refusing those would drop the live
-// folder feed the Chats panel repaints from. ws.ExactMatch would do exactly
-// that, which is why this is its own function and not that one.
-func matchRepoOrUnscoped(
+// have no such id to be held to: a folder row carries no repo, neither does a
+// bubble whose ancestry owns no workspace, and neither does any row in a
+// project home. Refusing those would drop the live folder feed the Chats panel
+// repaints from. ws.ExactMatch would do exactly that, which is why this is its
+// own function and not that one.
+//
+// It is also why ONE of these filters is not enough. The hatch opens per FIELD,
+// so a repo-less frame was held to nothing at all — it took a second field the
+// same row CAN answer to bound it. See agentChatDef.
+func matchScopeOrUnscoped(
 	param string,
 	value string,
 ) bool {

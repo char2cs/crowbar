@@ -114,7 +114,7 @@ func TestAgentWS_HomeMountIsolation(t *testing.T) {
 // :wsId path segment, so agentChatDef's wsId Filter has no value anywhere to
 // resolve and scopes nothing. What DOES scope the mount is a separate repoId
 // Filter (agentChatDef stays FlatNamespace, matching every other feed in this
-// file), matched with matchRepoOrUnscoped against the frame's own resolved
+// file), matched with matchScopeOrUnscoped against the frame's own resolved
 // RepoID — so ONE subscriber of a repo's feed sees a "created" frame for a
 // chat born in EITHER of that repo's own workspaces, and
 // (TestAgentWS_RepoScopedNeverCarriesAnotherReposChats) none at all from
