@@ -8,6 +8,9 @@ import {
   setActiveWorkspaceId,
   clearActiveWorkspaceId,
   getActiveWorkspaceId,
+  subscribeWorkspaceStores,
+  subscribeChatWorking,
+  readChatWorking,
 } from '@/features/workspace/stores/workspace-store-registry'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
@@ -229,6 +232,61 @@ describe('workspace-store-registry', () => {
       destroyWorkspaceStore('ws-evicted')
 
       expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
+    })
+  })
+
+  // `getOrCreateWorkspaceStore` is called FROM THE RENDER PATH
+  // (WorkspaceView/WindowPaneSurface mint the store they provide as context),
+  // so a registration that pushes a change at its watchers pushes a setState
+  // out of React's render phase — live-observed as "Cannot update a component
+  // (`IDEShell`) while rendering a different component (`WorkspaceView`)".
+  // A brand-new store has no agentChats, so it can move no watcher's answer;
+  // the re-bind still has to be synchronous, because the next write to that
+  // very store (its chats stream landing) is what carries the real change.
+  describe('registry change notifications', () => {
+    it('does not fire watchers when a store is merely registered', () => {
+      const fired = vi.fn()
+      const unsubscribe = subscribeWorkspaceStores(fired)
+
+      getOrCreateWorkspaceStore('ws-fresh')
+
+      expect(fired).not.toHaveBeenCalled()
+      unsubscribe()
+    })
+
+    it('still binds that new store, so its very next write DOES fire them', () => {
+      const fired = vi.fn()
+      const unsubscribe = subscribeWorkspaceStores(fired)
+
+      getOrCreateWorkspaceStore('ws-fresh').getState().upsertAgentChat(chat('chat-1', 'ws-fresh'))
+
+      expect(fired).toHaveBeenCalled()
+      unsubscribe()
+    })
+
+    it('fires watchers when a store is destroyed — that really does change the answer', () => {
+      getOrCreateWorkspaceStore('ws-doomed').getState().upsertAgentChat(chat('chat-1', 'ws-doomed'))
+      const fired = vi.fn()
+      const unsubscribe = subscribeWorkspaceStores(fired)
+
+      destroyWorkspaceStore('ws-doomed')
+
+      expect(fired).toHaveBeenCalled()
+      unsubscribe()
+    })
+
+    it('subscribeChatWorking follows the same rule: silent on registration, live on the write', () => {
+      const fired = vi.fn()
+      const unsubscribe = subscribeChatWorking('ws-late', fired)
+
+      getOrCreateWorkspaceStore('ws-late')
+      expect(fired).not.toHaveBeenCalled()
+
+      getOrCreateWorkspaceStore('ws-late').getState().setAgentChatWorking('chat-late', true)
+      expect(fired).toHaveBeenCalled()
+      expect(readChatWorking('ws-late', 'chat-late')).toBe(true)
+
+      unsubscribe()
     })
   })
 

@@ -81,7 +81,7 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
     const snapshot = loadFromLocalStorage(wsId) ?? undefined
     const store = createWorkspaceStore(wsId, snapshot)
     registry.set(wsId, store)
-    notifyRegistryListeners()
+    notifyRegistryListeners('registered')
   }
   return registry.get(wsId)!
 }
@@ -98,14 +98,46 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
  * `getWorkspaceStore`'s own doc) a store for every row the user has never
  * opened. Those watchers need to re-bind when the real store finally appears,
  * and this is the only signal that says it has.
+ *
+ * WHICH KIND of registry change happened. The distinction is not cosmetic —
+ * it decides whether a watcher may PUSH a change at its React subscriber, or
+ * must only re-bind itself:
+ *
+ * - `'registered'`: a brand-new store was just minted. Every registry-wide
+ *   answer this module exposes ({@link isChatWorking},
+ *   {@link resolveWorkspaceIdForChat}, {@link resolveChatOwnerWorkspaceId},
+ *   {@link readChatWorking}, and the `agentChats` scans built on
+ *   {@link getAllActiveWorkspaceIds}) is derived from `agentChats`, which a
+ *   freshly created store has none of — `createWorkspaceStore`'s persisted
+ *   snapshot restores only recentFiles/terminalLayout. So registration cannot
+ *   move any watcher's answer, and pushing one is not merely redundant: it is
+ *   a setState fired from the RENDER PATH. `getOrCreateWorkspaceStore` is
+ *   deliberately called during render (`WorkspaceView`, `WindowPaneSurface`) —
+ *   a workspace forced into the mounted set by the route has no store until
+ *   its own render mints one — so the push landed inside React's render phase
+ *   and updated `IDEShell`'s `useSyncExternalStore` hooks
+ *   (`useActivePaneWorkspaceId` / `useViewWorkspaceIds` /
+ *   `usePaneWorkspaceIds`) while `WorkspaceView` was still rendering:
+ *   "Cannot update a component (`IDEShell`) while rendering a different
+ *   component (`WorkspaceView`)". The RE-BIND still has to happen
+ *   synchronously — the very next write to the new store (its chats stream
+ *   landing, usually in the same tick) is what carries the real change, and a
+ *   watcher not yet attached would miss it.
+ * - `'destroyed'`: a store went away, taking its chats with it. That DOES
+ *   change the answers, and only ever happens from an effect
+ *   (`WorkspaceHost`'s eviction/unmount), never from render — so it pushes.
  */
-const registryListeners = new Set<() => void>()
+export type WorkspaceRegistryChange = 'registered' | 'destroyed'
 
-function notifyRegistryListeners(): void {
-  for (const listener of registryListeners) listener()
+const registryListeners = new Set<(change: WorkspaceRegistryChange) => void>()
+
+function notifyRegistryListeners(change: WorkspaceRegistryChange): void {
+  for (const listener of registryListeners) listener(change)
 }
 
-export function subscribeWorkspaceRegistry(callback: () => void): () => void {
+export function subscribeWorkspaceRegistry(
+  callback: (change: WorkspaceRegistryChange) => void,
+): () => void {
   registryListeners.add(callback)
   return () => {
     registryListeners.delete(callback)
@@ -134,13 +166,17 @@ export function subscribeWorkspaceStores(callback: () => void): () => void {
   // current answer for itself, and firing at it there is an update during
   // subscription that no caller asked for (React's own `useSyncExternalStore`
   // re-checks after subscribing anyway, and warns about the stray one).
-  // Every REbind is a genuine change of what is being watched, so it does.
+  // It is false for a `'registered'` change too — an empty new store moves no
+  // answer, and the push would land mid-render; see
+  // {@link WorkspaceRegistryChange}.
   const rebind = (notify: boolean) => {
     for (const unbind of bound) unbind()
     bound = [...registry.values()].map((store) => store.subscribe(callback))
     if (notify) callback()
   }
-  const unsubscribeRegistry = subscribeWorkspaceRegistry(() => rebind(true))
+  const unsubscribeRegistry = subscribeWorkspaceRegistry((change) =>
+    rebind(change === 'destroyed'),
+  )
   rebind(false)
   return () => {
     unsubscribeRegistry()
@@ -170,16 +206,23 @@ export function subscribeWorkspaceStores(callback: () => void): () => void {
 export function subscribeChatWorking(wsId: string, callback: () => void): () => void {
   let bound: WorkspaceStore | undefined
   let unbind: (() => void) | null = null
-  const rebind = () => {
+  // `notify` follows the same rule as `subscribeWorkspaceStores` above: a
+  // `'registered'` change re-binds silently (a new store's `working` map is
+  // empty, so the row's answer cannot have moved, and the push would land in
+  // the render phase — see {@link WorkspaceRegistryChange}); the row learns
+  // the moment that store's own chats stream writes to it.
+  const rebind = (notify: boolean) => {
     const store = registry.get(wsId)
     if (store === bound) return
     unbind?.()
     bound = store
     unbind = store ? store.subscribe(callback) : null
-    callback()
+    if (notify) callback()
   }
-  const unsubscribeRegistry = subscribeWorkspaceRegistry(rebind)
-  rebind()
+  const unsubscribeRegistry = subscribeWorkspaceRegistry((change) =>
+    rebind(change === 'destroyed'),
+  )
+  rebind(true)
   return () => {
     unsubscribeRegistry()
     unbind?.()
@@ -417,7 +460,7 @@ export function destroyWorkspaceStore(wsId: string): void {
   registry.delete(wsId)
   // After the delete, so a watcher re-binding on this signal sees the store
   // already gone rather than re-attaching to the one being torn down.
-  notifyRegistryListeners()
+  notifyRegistryListeners('destroyed')
 }
 
 export function getAllActiveWorkspaceIds(): string[] {

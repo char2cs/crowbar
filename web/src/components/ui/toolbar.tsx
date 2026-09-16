@@ -177,7 +177,17 @@ function withTooltip<T extends React.ElementType>(Component: T) {
     if (tooltip && mounted) {
       return (
         <TooltipPrimitive.Root {...tooltipProps}>
-          <TooltipPrimitive.Trigger {...tooltipTriggerProps}>{component}</TooltipPrimitive.Trigger>
+          {/* asChild is NOT optional here (and is what the upstream registry
+              ships): without it the trigger renders a <button> of its own
+              around `component`, which is itself a <button> — every
+              `ToolbarButton` resolves to one, whether through
+              `Toolbar.ToggleItem` (the `pressed` branch) or `Toolbar.Button`.
+              A button inside a button is invalid HTML; React logs
+              "<button> cannot contain a nested button" / "This will cause a
+              hydration error" on the first formatting toolbar that opens. */}
+          <TooltipPrimitive.Trigger asChild {...tooltipTriggerProps}>
+            {component}
+          </TooltipPrimitive.Trigger>
 
           <TooltipContent {...tooltipContentProps}>{tooltip}</TooltipContent>
         </TooltipPrimitive.Root>
