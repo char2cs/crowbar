@@ -285,15 +285,15 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 // rescope unchanged even though the repo-scoped mount no longer names a
 // workspace in the URL at all.
 //
-// A FOLDER parent is not refused this way any more. A folder carries no
-// workspace of its own now (2026-08-23 unified-sidebar-design §3.1) — it is a
-// domain.Chat row of Type "folder" that lives in the repo forest, not inside
-// one workspace's tree — so there is no workspace edge left on it to compare.
-// The real boundary a folder-to-folder or chat-to-folder parentage should
-// respect is the REPO the row lives in, and enforcing that is stage 3's walk
-// (Chats.ListChats's own doc comment), not this task's storage retype. This
-// test pins today's honest, permissive behaviour so a future tightening is a
-// conscious assertion change here, not a silently discovered regression.
+// A FOLDER parent carries no workspace edge to compare (2026-08-23
+// unified-sidebar-design §3.1 — it is a domain.Chat row of Type "folder" that
+// lives in the repo forest, not inside one workspace's tree), but it is held
+// to the REPO it lives in instead: checkFolderContainer's golden rule
+// (tree/validate.go, landed in a940a4689c, well before this repo-scoping
+// task) refuses a folder create/move whose parent's own scope — a folder's
+// stored RepoID, or a chat's WorkspaceID resolved through RepoOf — does not
+// match the folder's own. Both a foreign FOLDER parent and a foreign CHAT
+// parent are refused by that one check.
 //
 // Addressing a chat by id alone (Task 17, model spec §5.1) also retires the
 // third case this test used to pin: a chat is no longer invisible merely
@@ -314,16 +314,23 @@ func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
 	foreignChat := createAgentChat(t, h, b)
 
 	// Filing a new folder under another repo's folder, or under another
-	// workspace's chat, is accepted — the repo boundary is not enforced yet.
-	created := createChatFolder(t, h, repoBase(a), "spikes", foreignFolder.ID)
-	assert.Equal(t, foreignFolder.ID, created.ParentID)
-	createChatFolder(t, h, repoBase(a), "spikes-2", foreignChat)
+	// workspace's chat, is refused: the folder-scoping golden rule holds a
+	// folder to its own creation-time repo scope, and repoScopeOf resolves
+	// BOTH a foreign folder (its own stored RepoID) and a foreign chat
+	// (WorkspaceID -> RepoOf) to repo b, which does not match repo a.
+	msg := h.mutationError(http.MethodPost, repoBase(a)+"/chats/folders",
+		map[string]string{"name": "spikes", "parentId": foreignFolder.ID}, http.StatusConflict)
+	assert.Contains(t, msg, "repo")
+
+	msg = h.mutationError(http.MethodPost, repoBase(a)+"/chats/folders",
+		map[string]string{"name": "spikes-2", "parentId": foreignChat}, http.StatusConflict)
+	assert.Contains(t, msg, "repo")
 
 	// A CHAT thread is still refused across workspaces: this boundary is
 	// unchanged by the retype, since a chat still carries a workspace and the
 	// refusal is decided from the MOVED chat's own workspace, never the URL.
 	own := createAgentChat(t, h, a)
-	msg := h.mutationError(http.MethodPatch, repoBase(a)+"/chats/"+own+"/placement",
+	msg = h.mutationError(http.MethodPatch, repoBase(a)+"/chats/"+own+"/placement",
 		map[string]string{"parentId": foreignChat}, http.StatusConflict)
 	assert.Contains(t, msg, "workspace")
 
