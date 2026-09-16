@@ -418,7 +418,7 @@ function parseSingleFilePatch(patch: string, cacheKey: string): FileDiffMetadata
  * Threads are the surface's only annotation, so the renderer's `LAnnotation`
  * type parameter IS `ReviewThread` — see `use-review-annotations.tsx`.
  */
-type CodeViewInstance = ReturnType<CodeViewHandle<ReviewThread>['getInstance']>
+type CodeViewInstance = ReturnType<CodeViewHandle<ReviewThread, undefined>['getInstance']>
 
 /** Why a file's header is showing something other than its diff. */
 type PatchState = 'truncated' | 'loading' | 'failed'
@@ -607,7 +607,7 @@ function ReviewCodeViewSurface({
     if (node != null) node.dataset.reviewCodeViewScroller = ''
   }, [])
 
-  const handleRef = useRef<CodeViewHandle<ReviewThread> | null>(null)
+  const handleRef = useRef<CodeViewHandle<ReviewThread, undefined> | null>(null)
   const heldRef = useRef(new Map<string, HeldPatch>())
   const tokenRef = useRef(0)
   const versionRef = useRef(0)
@@ -907,7 +907,7 @@ function ReviewCodeViewSurface({
     return () => held.clear()
   }, [])
 
-  const options = useMemo<CodeViewOptions<ReviewThread>>(
+  const options = useMemo<CodeViewOptions<ReviewThread, undefined>>(
     () => ({
       stickyHeaders: true,
       tokenizeMaxLineLength: REVIEW_TOKENIZE_MAX_LINE_LENGTH,

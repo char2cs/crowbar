@@ -71,6 +71,7 @@ export const ATTACHMENT_BUTTON_OPAQUE_BG = cn(
 // Exported standalone so both can be unit-tested directly, without the
 // HTML5 drag/pointer-capture wiring `useDraggable` layers on top.
 export const canDropAttachmentNode: CanDropCallback = ({ dragEntry, dropEntry }) =>
+  !!dragEntry &&
   PathApi.equals(PathApi.parent(dragEntry[1]), PathApi.parent(dropEntry[1]))
 
 export function onAttachmentDropHandler(
