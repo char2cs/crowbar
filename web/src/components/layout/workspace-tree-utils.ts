@@ -272,6 +272,3 @@ export function indexSidebarTree(roots: SidebarTreeNode[], rootParentId: string)
 
   return { roots, index: indexFromParents(parentById), nodeById, parentById }
 }
-
-/** An empty repo tree, stable so an absent repo does not remount the rows. */
-export const EMPTY_REPO_TREE: SidebarRepoTree = indexSidebarTree([], '')

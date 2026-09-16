@@ -109,10 +109,6 @@ export const ROW_HAS_VIEW_IDLE = 'bg-sidebar-element-idle'
 // hairline shares so both marks are visibly the same gesture.
 export const ROW_NEST_TARGET = 'border-sidebar-drop-nest-edge bg-sidebar-drop-nest text-foreground'
 
-// Shared add-child glyph (the thin "+" used on every row's trailing action) so
-// the repo header's fork button is visually identical to a workspace row's.
-export const ADD_GLYPH_PATH = 'M8 3v10M3 8h10'
-
 // The disclosure chevron, drawn once. Every expandable row in the sidebar —
 // project, repo, folder, workspace — closes with the same mark in the same
 // trailing slot, rotated 90° when open. It used to be copy-pasted at four call
@@ -122,12 +118,6 @@ export const ADD_GLYPH_PATH = 'M8 3v10M3 8h10'
 // off this one path — the unified SidebarRow (sidebar-row.tsx) is the sole
 // caller now, so there is only one call site left to keep in sync.
 export const DISCLOSURE_GLYPH_PATH = 'M6 3l5 5-5 5'
-
-// The fold-away control on a row that is holding others: a bar with a chevron
-// rising into it — fold up, into the parent. Two inward chevrons were tried and
-// reverted; at 12px they close into an X, which beside a folder reads as delete.
-export const FOLD_AWAY_GLYPH_BAR = 'M3.2 4h9.6'
-export const FOLD_AWAY_GLYPH_CHEVRON = 'M4.8 11.2 8 8l3.2 3.2'
 
 // One tree level, in px. Every indented wrapper steps by this, so a row hoisted
 // under a folded parent lands exactly one step in.
@@ -161,11 +151,11 @@ export const CREATE_ROW_PLACEHOLDER = 'branch-name'
 // 1.000px in a 12px `size-3` box (the repo row's Import branches). That default
 // IS the house weight; matching it is a matter of passing no override at all.
 //
-// An override was tried and reverted: the hand-rolled 16-unit SVGs below
-// (ADD_GLYPH_PATH and the disclosure chevron) render at 2/16 = 1.5px, and taking
-// THOSE as the reference makes every Lucide glyph beside them visibly the boldest
-// mark in the sidebar. They are the outliers, not the standard. If the column is
-// ever unified, move them onto Lucide rather than moving Lucide up to meet them.
+// An override was tried and reverted: the hand-rolled 16-unit disclosure
+// chevron above (DISCLOSURE_GLYPH_PATH) renders at 2/16 = 1.5px, and taking
+// THAT as the reference makes every Lucide glyph beside it visibly the boldest
+// mark in the sidebar. It is the outlier, not the standard. If the column is
+// ever unified, move it onto Lucide rather than moving Lucide up to meet it.
 //
 // (Lucide's `absoluteStrokeWidth` is not the lever either: it computes from the
 // `size` PROP, which class-sized glyphs never set, so it silently solves for 24px.)
@@ -183,10 +173,6 @@ export const ROW_SUB_ACTION =
   'inline-flex shrink-0 cursor-pointer rounded-lg p-1.5 text-muted-foreground ' +
   'hover:bg-sidebar-element-hover hover:text-foreground ' +
   'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
-
-// Non-interactive glyph leading a row (e.g. the "+" beside the inline create
-// input). Same token as ROW_SUB_ACTION, without the button affordances.
-export const ROW_SUB_ACTION_GLYPH = 'shrink-0 text-muted-foreground'
 
 // Trailing action shown only when the row is hovered or focused — and taking
 // NO space otherwise.
@@ -234,10 +220,6 @@ export const ROW_SUB_ACTION_HOVER =
 // with whichever theme is actually showing through `bg-background-inverse`.
 export const ROW_SUB_ACTION_INVERTED =
   'text-foreground-inverse/70 hover:bg-foreground-inverse/10 hover:text-foreground-inverse'
-
-export const ROW_SUB_ACTION_FOLD_AWAY =
-  ROW_SUB_ACTION_HOVER +
-  ' group-hover:animate-row-action-in group-focus-within:animate-row-action-in'
 
 // Every LEADING glyph on a row sits in this box. One label position per level:
 // a box that differs by 2px between row types puts a visible wobble down the
