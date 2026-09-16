@@ -1,4 +1,4 @@
-import { GitBranch } from '@phosphor-icons/react'
+import { ChatsCircle, GitBranch } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { performRenameChat } from '@/components/sidebar/lib/row-actions'
@@ -11,6 +11,7 @@ import {
   ROW_SUBLABEL_DEL,
 } from '@/components/layout/workspace-row-base'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { cn } from '@/lib/utils'
@@ -53,6 +54,11 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
     }
     return null
   })
+  // A thread owns no branch — it runs on the one its parent owns — so it gets
+  // the bubble, never the branch mark, exactly as `RowGlyph` (sidebar-row.tsx)
+  // already draws it in the tree. `wsId` above cannot answer this: a thread
+  // inherits its parent's workspace id.
+  const isThread = useChatIsThread(chatId)
   const [renaming, setRenaming] = useState(false)
 
   const added = workspace?.added ?? 0
@@ -67,6 +73,12 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
       <span data-testid="chat-branch-header-glyph" className={ROW_GLYPH_BOX}>
         {working ? (
           <FlickerSpinner className="size-3.5" />
+        ) : isThread ? (
+          <ChatsCircle
+            data-testid="chat-branch-header-chat-icon"
+            className="size-3.5 text-muted-foreground"
+            weight="regular"
+          />
         ) : (
           <GitBranch
             data-testid="chat-branch-header-branch-icon"

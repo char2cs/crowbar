@@ -11,6 +11,8 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Chat, Repo } from '@/lib/store/sidebar'
 
 const { openBranchReviewMock } = vi.hoisted(() => ({ openBranchReviewMock: vi.fn() }))
 vi.mock('@/features/panes/utils/pane-command-actions', () => ({
@@ -44,6 +46,48 @@ function makePane(overrides: Partial<PaneGroup> = {}): PaneGroup {
   }
 }
 
+/** Seeds the sidebar tree so `chat-1` is either a THREAD hanging off `w1`'s
+ *  own owning chat, or the chat that owns `w1` itself. */
+function seedRepoChats(chatOwnsWorktree: boolean) {
+  const owner: Chat = {
+    id: chatOwnsWorktree ? 'chat-1' : 'chat-main',
+    repoId: 'repo-1',
+    title: 'main',
+    order: 0,
+    workspaceId: 'w1',
+    ownsWorktree: true,
+  }
+  const chats: Chat[] = chatOwnsWorktree
+    ? [owner]
+    : [
+        owner,
+        {
+          id: 'chat-1',
+          repoId: 'repo-1',
+          title: 'My Chat',
+          order: 1,
+          workspaceId: 'w1',
+          ownsWorktree: false,
+          parentId: 'chat-main',
+        },
+      ]
+  useSidebarStore.setState({
+    repos: [
+      {
+        id: 'repo-1',
+        projectId: 'proj-1',
+        name: 'crowbar',
+        avatarLabel: 'C',
+        avatarColor: '#000',
+        workspaces: [],
+        defaultWorkspaceId: 'w1',
+        defaultOwningChatId: owner.id,
+        chats,
+      } as Repo,
+    ],
+  })
+}
+
 function renderHeader(pane: PaneGroup, wsId: string | null = 'w1') {
   const store = createWorkspaceStore('w1')
   store.setState((s) => ({
@@ -69,6 +113,7 @@ function renderHeader(pane: PaneGroup, wsId: string | null = 'w1') {
 // window-chrome duties (drag region) plus its right-pinned actions.
 describe('ChatOnlyPaneHeader', () => {
   afterEach(() => {
+    useSidebarStore.setState({ repos: [] })
     vi.clearAllMocks()
   })
 
@@ -110,6 +155,24 @@ describe('ChatOnlyPaneHeader', () => {
   it('renders no close control', () => {
     renderHeader(makePane())
     expect(screen.queryByRole('button', { name: /close/i })).not.toBeInTheDocument()
+  })
+
+  // Live-reported: a THREAD's own header offered "Review this branch". A
+  // thread owns no branch — it runs on the one its parent owns — so the
+  // affordance belongs to the owning chat's header only, exactly as the tree
+  // only ever draws Fork/branch chrome on a `kind: 'branch'` row.
+  it('hides the branch-review shortcut for a thread that owns no worktree', () => {
+    seedRepoChats(false)
+    renderHeader(makePane())
+    expect(screen.queryByRole('button', { name: /review this branch/i })).not.toBeInTheDocument()
+    // The identity header still shows — only the branch action is gone.
+    expect(screen.getByTestId('chat-branch-header')).toBeInTheDocument()
+  })
+
+  it('still shows the branch-review shortcut for a chat that owns its worktree', () => {
+    seedRepoChats(true)
+    renderHeader(makePane())
+    expect(screen.getByRole('button', { name: /review this branch/i })).toBeInTheDocument()
   })
 
   it('hides the branch-review shortcut on the bottom pane', () => {

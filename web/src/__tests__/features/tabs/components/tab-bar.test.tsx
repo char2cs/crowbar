@@ -11,6 +11,8 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import type { Chat, Repo } from '@/lib/store/sidebar'
 
 // TabBar reaches useSidebar() only for the fallback sidebar-reopen toggle,
 // irrelevant here — stub it so the suite needn't stand up a SidebarProvider
@@ -288,6 +290,88 @@ describe('TabBar pane-top-row anatomy', () => {
       fireEvent.click(screen.getByTestId('split-toggle'))
     })
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorOpen).toBe(true)
+  })
+})
+
+// The second surface the live-reported thread bug showed up on: the IDE
+// sector's own row pinned the same "Review this branch" shortcut regardless
+// of whether the pane's chat owns a branch at all. A thread runs on the
+// worktree its PARENT owns (`Chat.workspaceId` is inherited, and so can
+// never gate this) — only the owning chat gets branch chrome.
+describe('TabBar — branch-review shortcut is for worktree-OWNING chats only', () => {
+  afterEach(() => {
+    useSidebarStore.setState({ repos: [] })
+    vi.clearAllMocks()
+  })
+
+  function seedRepoChats(chatOwnsWorktree: boolean) {
+    const owner: Chat = {
+      id: chatOwnsWorktree ? 'chat-1' : 'chat-main',
+      repoId: 'repo-1',
+      title: 'main',
+      order: 0,
+      workspaceId: 'w1',
+      ownsWorktree: true,
+    }
+    useSidebarStore.setState({
+      repos: [
+        {
+          id: 'repo-1',
+          projectId: 'proj-1',
+          name: 'crowbar',
+          avatarLabel: 'C',
+          avatarColor: '#000',
+          workspaces: [],
+          defaultWorkspaceId: 'w1',
+          defaultOwningChatId: owner.id,
+          chats: chatOwnsWorktree
+            ? [owner]
+            : [
+                owner,
+                {
+                  id: 'chat-1',
+                  repoId: 'repo-1',
+                  title: 'My Chat',
+                  order: 1,
+                  workspaceId: 'w1',
+                  ownsWorktree: false,
+                  parentId: 'chat-main',
+                },
+              ],
+        } as Repo,
+      ],
+    })
+  }
+
+  it('hides it for a pane whose chat is a thread', () => {
+    seedRepoChats(false)
+    const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
+    act(() => {
+      renderTabBar(store, { wsId: 'w1' })
+    })
+    expect(screen.queryByTestId('branch-review-shortcut')).not.toBeInTheDocument()
+    // The rest of the IDE sector's row is untouched.
+    expect(screen.getByTestId('editor-tab-scroller')).toBeInTheDocument()
+  })
+
+  it('keeps it for a pane whose chat owns its worktree', () => {
+    seedRepoChats(true)
+    const store = setupPaneStore({ chatId: 'chat-1', buffers: [makeEditorBuffer(0)] })
+    act(() => {
+      renderTabBar(store, { wsId: 'w1' })
+    })
+    expect(screen.getByTestId('branch-review-shortcut')).toBeInTheDocument()
+  })
+
+  // An editor-only split names no chat at all, so there is no thread to
+  // suppress — the buffers' own workspace is a real worktree either way.
+  it('keeps it for an editor-only pane that holds no chat', () => {
+    seedRepoChats(false)
+    const store = setupPaneStore({ chatId: null, buffers: [makeEditorBuffer(0)] })
+    act(() => {
+      renderTabBar(store, { wsId: 'w1' })
+    })
+    expect(screen.getByTestId('branch-review-shortcut')).toBeInTheDocument()
   })
 })
 

@@ -7,7 +7,7 @@ import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import type { Repo, Workspace } from '@/lib/store/sidebar'
+import type { Chat, Repo, Workspace } from '@/lib/store/sidebar'
 
 vi.mock('@/components/sidebar/lib/row-actions', () => ({
   performRenameChat: vi.fn().mockResolvedValue(undefined),
@@ -39,7 +39,7 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   } as Workspace
 }
 
-function makeRepo(workspaces: Workspace[]): Repo {
+function makeRepo(workspaces: Workspace[], chats?: Chat[]): Repo {
   return {
     id: 'repo-1',
     projectId: 'proj-1',
@@ -47,7 +47,12 @@ function makeRepo(workspaces: Workspace[]): Repo {
     defaultBranch: 'main',
     defaultWorkspaceId: 'w1',
     workspaces,
+    chats,
   } as Repo
+}
+
+function makeSidebarChat(overrides: Partial<Chat> = {}): Chat {
+  return { id: 'chat-1', repoId: 'repo-1', title: 'Seeding test', order: 0, ...overrides }
 }
 
 function renderHeader({
@@ -124,6 +129,46 @@ describe('ChatBranchHeader', () => {
   it('shows the plain branch glyph when the chat is not working', () => {
     renderHeader({ working: false })
     expect(screen.getByTestId('chat-branch-header-branch-icon')).toBeInTheDocument()
+  })
+
+  // Live-reported: a THREAD ("Hi claude", nested under main's own chat and
+  // running on main's ground) drew the branch mark, because the header keyed
+  // off the workspace the chat RUNS IN — which a thread inherits from its
+  // parent — instead of the workspace it OWNS. Same rule `RowGlyph`
+  // (sidebar-row.tsx) already applies in the tree: no `ownsWorktree`, no
+  // branch mark.
+  it('draws the chat bubble, not the branch mark, for a thread that owns no worktree', () => {
+    renderHeader({
+      repos: [
+        makeRepo(
+          [makeWorkspace()],
+          [
+            makeSidebarChat({ id: 'chat-main', workspaceId: 'w1', ownsWorktree: true }),
+            makeSidebarChat({
+              id: 'chat-1',
+              workspaceId: 'w1',
+              ownsWorktree: false,
+              parentId: 'chat-main',
+            }),
+          ],
+        ),
+      ],
+    })
+    expect(screen.queryByTestId('chat-branch-header-branch-icon')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-branch-header-chat-icon')).toBeInTheDocument()
+  })
+
+  it('still draws the branch mark for a chat that owns its own worktree', () => {
+    renderHeader({
+      repos: [
+        makeRepo(
+          [makeWorkspace({ owningChatId: 'chat-1' })],
+          [makeSidebarChat({ id: 'chat-1', workspaceId: 'w1', ownsWorktree: true })],
+        ),
+      ],
+    })
+    expect(screen.getByTestId('chat-branch-header-branch-icon')).toBeInTheDocument()
+    expect(screen.queryByTestId('chat-branch-header-chat-icon')).not.toBeInTheDocument()
   })
 
   it('carries none of the sidebar row hover/selection chrome', () => {

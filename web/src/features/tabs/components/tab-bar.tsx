@@ -13,6 +13,7 @@ import {
   openBranchReviewForWorkspace,
   ensurePaneChatThenOpen,
 } from '@/features/panes/utils/pane-command-actions'
+import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
@@ -255,6 +256,13 @@ const TabBar = ({
   // strand a user with no sidebar and nothing open in a window they cannot get
   // back out of.
   const isEmptyPane = pane !== null && !pane.chatId && !hasEditorTabs
+
+  // A thread has no branch of its own to review — it runs on the worktree its
+  // parent owns, and `wsId` names that INHERITED ground, so it can never gate
+  // the shortcut below. An editor-only pane names no chat at all and keeps it:
+  // there is no thread to suppress, and its buffers' workspace is a real
+  // worktree either way.
+  const chatIsThread = useChatIsThread(pane?.chatId ?? null)
 
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean
@@ -686,7 +694,7 @@ const TabBar = ({
               (git-panel.tsx) — branch review's real home stays the git
               file-explorer card; this is just a faster way to reach it from
               the IDE sector's own row. Pinned at the right edge. */}
-          {paneId && pane && !isEmptyPane && (
+          {paneId && pane && !isEmptyPane && !chatIsThread && (
             <BranchReviewShortcutButton
               isBottomPane={isBottomPane}
               // THIS pane's own workspace — not whichever one happens to be
