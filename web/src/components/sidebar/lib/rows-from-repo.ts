@@ -273,7 +273,8 @@ export function foldWorkspaceOwners(
  * on their own terms into the one row a workspace-owning chat now is.
  *
  * The repo's default (main-worktree) workspace is not a row in
- * `repo.workspaces` — it becomes this tree's one root, exactly as it is the
+ * `repo.workspaces` — enforced below, not assumed — it becomes this tree's one
+ * root, exactly as it is the
  * repo header in the tree being retired. Everything `buildSidebarTree` roots
  * (no fork parent, no compatible folder, no resolvable chat edge) nests under
  * it; a repo with no default workspace yet simply has no root row for its own
@@ -290,7 +291,15 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
   // rows, and a chat rendered in the wrong repo is worse than one not drawn.
   const chats = (repo.chats ?? EMPTY_CHATS).filter((c) => c.repoId === repo.id)
   const chatTitleById = new Map(chats.map((c) => [c.id, c.title]))
-  const workspaces = repo.workspaces.filter((w) => w.status !== 'deleted')
+  // The same last line of defence for the WORKSPACE half, and for the same
+  // reason. "The default workspace is not a member of `repo.workspaces`" (see
+  // this function's own doc, and the home-row exception below) is an invariant
+  // nothing here used to enforce: a payload that does carry it — an import
+  // mid-flight, before `defaultBranch` resolves — reached `walkTreeIntoRows`
+  // as a second `branch` row beside the home row this function already pushed,
+  // unlabeled, because the home chat is excluded from the tree so no owner can
+  // fold onto it. Live-reported on an imported repo.
+  const workspaces = repo.workspaces.filter((w) => w.status !== 'deleted' && w.id !== homeId)
   const ownerChats = resolveOwnerChats(workspaces, chats)
   const ownerOfChat = resolveOwnerOfChat(ownerChats, chats)
 

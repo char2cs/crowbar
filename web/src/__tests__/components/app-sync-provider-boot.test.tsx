@@ -378,6 +378,47 @@ describe('AppSyncProvider boot, end to end', () => {
     expect(w1.working).toBe(false)
   })
 
+  // TestRegression: the ghost row an active project-home chat used to mint.
+  //
+  // A repo-scoped chats socket does not only carry that repo's frames: the
+  // daemon holds a frame that KNOWS its repo to exactly that repo, but fans one
+  // that names NO repo out to every subscriber on purpose (container.go's
+  // matchRepoOrUnscoped), so the live folder feed and root bubbles — rows that
+  // genuinely have no repo — are not silently dropped. The PROJECT-HOME
+  // worktree has no repo either (workspace.CreateHome writes no RepoID), so
+  // every turn_started/turn_stopped in a home chat pushed a worktree_state with
+  // an empty repoId onto EVERY repo's socket. Each repo's mapper then stamped
+  // its OWN repo id onto it and merged the home workspace in as that repo's
+  // workspace — and since a home worktree's branch is '', rows-from-repo.ts
+  // drew it as a labelless `branch` row under every repo header. Live-reported:
+  // "for each thread that becomes active, we're creating ghost rows on the
+  // first level of each repo."
+  it('a repo-less project-home worktree frame creates no row in any repo', async () => {
+    await boot()
+    await waitFor(() => expect(workspaceIdsOf('r2')).toEqual(['w2']))
+
+    const home = wsDTO('ws-home', '', 'p1', { branch: '' })
+    // The one frame, delivered exactly as the daemon fans it out: to the home
+    // socket AND to every repo-scoped one.
+    for (const endpoint of [
+      '/v0/projects/p1/home/chats/ws',
+      '/v0/projects/p1/repos/r1/chats/ws',
+      '/v0/projects/p2/repos/r2/chats/ws',
+    ]) {
+      if (handlers.get(endpoint)?.size) {
+        await push(endpoint, worktreeFrame(home, 'chat-home'))
+      }
+    }
+
+    expect(workspaceIdsOf('r1')).toEqual(['w1'])
+    expect(workspaceIdsOf('r2')).toEqual(['w2'])
+    // ...and it did not land on a repo HEADER either (the other row a frame
+    // merged under the wrong repo can reach).
+    for (const repo of useSidebarStore.getState().repos) {
+      expect(repo.defaultWorkspaceId).not.toBe('ws-home')
+    }
+  })
+
   // TestRegression: the tree's OWN reseed used to depend entirely on
   // useFolderSignalStore's bump signal, which only ever fires from
   // use-workspace-agent-chats-stream.ts — a hook mounted per OPEN WORKSPACE

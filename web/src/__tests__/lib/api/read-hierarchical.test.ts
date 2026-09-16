@@ -5,6 +5,7 @@ import {
   fetchWorkspaces,
   apiFetch,
   workspaceDTOFromChat,
+  workspaceDTOFromWorktreeFrame,
 } from '@/lib/api'
 import type { RepoChatWireDTO } from '@/lib/api'
 import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
@@ -173,6 +174,56 @@ describe('workspaceDTOFromChat', () => {
     expect(
       workspaceDTOFromChat(chatRow({ workspaceId: '', worktree: worktree() }), 'p1', 'r1'),
     ).toBeNull()
+  })
+})
+
+describe('workspaceDTOFromWorktreeFrame', () => {
+  const frame = (over: Record<string, unknown> = {}) => ({
+    chatId: 'c1',
+    workspaceId: 'w1',
+    repoId: 'r1',
+    kind: 'worktree_state',
+    worktree: worktree(),
+    ...over,
+  })
+
+  it("maps the frame's worktree when it names the repo this caller subscribed", () => {
+    expect(workspaceDTOFromWorktreeFrame(frame(), 'p1', 'r1')).toMatchObject({
+      id: 'w1',
+      repoId: 'r1',
+      projectId: 'p1',
+      branch: 'feature/x',
+      owningChatId: 'c1',
+    })
+  })
+
+  it('returns null for every kind that is not a worktree state', () => {
+    expect(workspaceDTOFromWorktreeFrame(frame({ kind: 'turn_started' }), 'p1', 'r1')).toBeNull()
+    expect(workspaceDTOFromWorktreeFrame(null, 'p1', 'r1')).toBeNull()
+  })
+
+  it('returns null for a NON-owning row sharing the same worktree', () => {
+    expect(workspaceDTOFromWorktreeFrame(frame({ chatId: 'c2' }), 'p1', 'r1')).toBeNull()
+  })
+
+  // TestRegression: a repo-scoped chats socket does NOT only carry that repo's
+  // frames. The daemon fans a frame that names NO repo out to every subscriber
+  // on purpose (container.go's matchRepoOrUnscoped) so the live folder feed and
+  // root bubbles survive. The PROJECT-HOME worktree has no repo either, so its
+  // worktree_state reached every repo's socket — and this mapper stamped the
+  // SUBSCRIPTION's own repo id onto it, minting the home workspace as that
+  // repo's workspace. Its branch is '', so rows-from-repo.ts drew it as a
+  // labelless `branch` row under every repo header, in every project, the
+  // instant a home chat took a turn. Live-reported twice.
+  it('returns null for a repo-less (project-home) worktree instead of claiming it', () => {
+    expect(workspaceDTOFromWorktreeFrame(frame({ repoId: '' }), 'p1', 'r1')).toBeNull()
+    // `omitempty` — the field is absent on the wire, not empty.
+    const { repoId: _dropped, ...noRepoId } = frame()
+    expect(workspaceDTOFromWorktreeFrame(noRepoId, 'p1', 'r1')).toBeNull()
+  })
+
+  it("returns null for a frame that names ANOTHER repo than this caller's", () => {
+    expect(workspaceDTOFromWorktreeFrame(frame({ repoId: 'r2' }), 'p1', 'r1')).toBeNull()
   })
 })
 

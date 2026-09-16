@@ -354,18 +354,43 @@ interface WorktreeStateFrame {
   chatId?: string
   workspaceId?: string
   kind?: string
+  /**
+   * The repo the frame's own row runs in (`AgentChatEvent.RepoID`). On a
+   * `worktree_state` frame this is authoritative, never derived: the daemon
+   * takes it straight off the workspace (`container.go`'s `pushChatWorktree` —
+   * "a worktree-owning row names its own repo outright"). Absent means the
+   * worktree has no repo AT ALL — the project-home worktree.
+   */
+  repoId?: string
   worktree?: ChatWorktreeDTO
 }
 
 /**
  * A chat-stream frame -> a `WorkspaceDTO`, or null for every frame that is not
- * this chat's own worktree state.
+ * this chat's own worktree state IN THIS REPO.
  *
  * The chat sockets carry lifecycle EVENTS, not entity DTOs, and most kinds
  * (`turn_started`, `deleted`, `folder_created`, …) say nothing about a worktree.
  * The owning-row rule is the same one `workspaceDTOFromChat` applies to the
  * list: a thread of the owning chat gets `worktree_state` frames too, and
  * letting one through would write the workspace under the wrong chat's identity.
+ *
+ * The REPO rule is the second half, and `repoId` here is a caller's SCOPE, not
+ * a fact about the frame — every caller passes the repo whose socket/route it
+ * subscribed under, and this function stamps it onto the DTO it mints. So it
+ * may only mint when the frame agrees that its worktree really is that repo's.
+ *
+ * A repo-scoped chats socket does NOT only carry that repo's frames: the daemon
+ * holds a frame that knows its repo to exactly that repo, but deliberately fans
+ * a frame with an EMPTY repo out to every subscriber (`container.go`'s
+ * `matchRepoOrUnscoped`) so the live folder feed and root bubbles — rows that
+ * genuinely have no repo — are not silently dropped. The project-home worktree
+ * has no repo either, so its `worktree_state` reaches every repo's socket; each
+ * one used to stamp its OWN repo id onto it and mint the home workspace as that
+ * repo's workspace, producing one labelless `branch` row (its branch is '')
+ * under every repo header, per project, the instant a home chat took a turn.
+ * Live-reported twice. Never re-derive the row away downstream — the row must
+ * not be constructible.
  */
 export function workspaceDTOFromWorktreeFrame(
   raw: unknown,
@@ -376,6 +401,7 @@ export function workspaceDTOFromWorktreeFrame(
   if (!frame || frame.kind !== 'worktree_state') return null
   const worktree = frame.worktree
   if (!worktree || !frame.workspaceId || worktree.owningChatId !== frame.chatId) return null
+  if ((frame.repoId ?? '') !== repoId) return null
   return workspaceDTOFromWorktree(worktree, frame.workspaceId, projectId, repoId)
 }
 

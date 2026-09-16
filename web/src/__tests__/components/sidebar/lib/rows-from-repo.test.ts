@@ -956,3 +956,65 @@ describe('rowsFromRepo — a fresh child parents directly onto the workspace id 
     expect(rowsFromRepo(repo).find((r) => r.id === 'c-1')?.parentId).toBe(HOME_ROW_ID)
   })
 })
+
+/**
+ * Live-reported regression: an imported repo ("athas") drew a SECOND, unlabeled
+ * row beside its real home row — a bare branch glyph with Thread/Fork/X and no
+ * text at all.
+ *
+ * `rowsFromRepo`'s doc states "the repo's default workspace is not a row in
+ * `repo.workspaces`" as an INVARIANT, but nothing enforced it: `chats` is
+ * filtered against the home row twice, `workspaces` was filtered only for
+ * deleted tombstones. A payload that does carry the home workspace (an import
+ * mid-flight, before `defaultBranch` resolves) reached `walkTreeIntoRows`'s
+ * workspace branch, where the home chat had already been excluded so no owner
+ * could fold onto it — the label fell back to the empty `workspace.branch`.
+ *
+ * Fixed the way this codebase always fixes a ghost row (see sidebar-tree.tsx's
+ * removed childless-folder ghost): the row loses its ability to be CONSTRUCTED,
+ * rather than being labelled or hidden at render.
+ */
+describe('rowsFromRepo — the repo home never doubles as a workspace row', () => {
+  it('draws exactly ONE row when repo.workspaces wrongly contains the home workspace', () => {
+    const repo = makeTestRepo({
+      name: 'athas',
+      defaultWorkspaceId: 'ws-home',
+      // No branch yet — an import whose defaultBranch has not resolved, which
+      // is what made the ghost unlabeled rather than merely duplicated.
+      workspaces: [makeTestWorkspace({ id: 'ws-home', branch: '' })],
+    })
+    const rows = rowsFromRepo(repo)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.id).toBe(HOME_ROW_ID)
+    expect(rows[0]?.label).toBe('athas')
+    expect(rows.some((r) => !r.label)).toBe(false)
+  })
+
+  it('draws exactly ONE row when that home workspace also names its owning chat', () => {
+    // The other half of the same payload bug: with `owningChatId` present the
+    // fold relabels the ghost to the home chat's id, producing a DUPLICATE id
+    // rather than an empty label.
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [
+        makeTestWorkspace({ id: 'ws-home', branch: 'main', owningChatId: HOME_ROW_ID }),
+      ],
+    })
+    const rows = rowsFromRepo(repo)
+    expect(rows.filter((r) => r.workspaceId === 'ws-home')).toHaveLength(1)
+    expect(rows.filter((r) => r.id === HOME_ROW_ID)).toHaveLength(1)
+  })
+
+  it('still nests a real fork under the home ROW, not under the ghost it replaced', () => {
+    const repo = makeTestRepo({
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [
+        makeTestWorkspace({ id: 'ws-home', branch: 'main' }),
+        makeTestWorkspace({ id: 'ws-1', branch: 'feature/x', parentId: 'ws-home' }),
+      ],
+    })
+    const rows = rowsFromRepo(repo)
+    expect(rows).toHaveLength(2)
+    expect(rows.find((r) => r.id === 'ws-1')?.parentId).toBe(HOME_ROW_ID)
+  })
+})
