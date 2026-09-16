@@ -1,41 +1,20 @@
-import { useCallback, useLayoutEffect, useEffect, useRef, useState, Suspense } from 'react'
-import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
+import { useLayoutEffect, useEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import { useMatch } from '@tanstack/react-router'
 import { CaretDown, FolderOpen, GitBranch } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
 import { Button } from '@/components/ui/button'
-import { FileExplorerTree } from '@/features/file-explorer/components/file-explorer-tree'
 import { GitPanel } from '@/features/git/components/git-panel'
-import { ErrorBoundary } from '@/components/error-boundary'
-import { SidebarSkeleton } from './sidebar-skeleton'
 import { RemovalTray } from './removal-tray'
-import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
-import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
+import { SidebarCarouselFilesPanel } from './sidebar-carousel-files-panel'
+import { useCardResizeDrag } from './use-card-resize-drag'
+import { useCarouselScrollSync } from './use-carousel-scroll-sync'
 import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
-import {
-  CARD_BOTTOM_INSET_VAR,
-  DEFAULT_CARD_HEIGHT_FRACTION,
-  clampCardHeightFraction,
-  loadCardHeightFraction,
-  saveCardHeightFraction,
-} from './sidebar-card-height'
+import { CARD_BOTTOM_INSET_VAR, loadCardHeightFraction } from './sidebar-card-height'
 
-// 'workspaces' and 'chats' are both dropped: spec §6.1's card holds two
-// glyphs and nothing else, Files and Git. Part B's SidebarTree and Part D's
-// RecentsBand own the workspaces surface directly, mounted via
-// `SpaceScroller` in `sidebar-tree-surface.tsx` (see task-30-report.md) —
-// above this carousel, not as one of its panels.
-// A persisted activeTab of 'workspaces'/'chats' from before this change
-// simply misses every entry here — TABS.indexOf returns -1, which every
-// effect below already treats as a no-op.
-const TABS: SidebarTab[] = ['files', 'git']
-
-// The head's two glyphs (spec §6.1). Icon only, in TABS order.
+// The head's two glyphs (spec §6.1), in the carousel's own panel order
+// (Files, then Git — see use-carousel-scroll-sync.ts's own TABS).
 const HEAD_TABS: {
   tab: SidebarTab
   label: string
@@ -84,36 +63,6 @@ export function SidebarCarousel({
 }: SidebarCarouselProps) {
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
-  const files = useFileSystemStore((s) => s.files)
-  const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
-  const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
-  // File-tree mutation handlers (create/rename/delete/refresh) live on the
-  // file-system store; thread them into the explorer so its context menu and
-  // inline-edit actions actually run (the daemon backs them via /files).
-  const setFiles = useFileSystemStore((s) => s.setFiles)
-  const handleCreateNewFileInDirectory = useFileSystemStore.use.handleCreateNewFileInDirectory?.()
-  const handleCreateNewFolderInDirectory =
-    useFileSystemStore.use.handleCreateNewFolderInDirectory?.()
-  const handleRenamePath = useFileSystemStore.use.handleRenamePath?.()
-  const handleDeletePath = useFileSystemStore.use.handleDeletePath?.()
-  const handleDuplicatePath = useFileSystemStore.use.handleDuplicatePath?.()
-  const handleRevealInFolder = useFileSystemStore.use.handleRevealInFolder?.()
-  const refreshDirectory = useFileSystemStore.use.refreshDirectory?.()
-  const handleUploadFile = useCallback(
-    (directoryPath: string) => void pickAndUploadFiles(directoryPath),
-    [],
-  )
-  // Live-reported: opening a file from the explorer could land it in a
-  // DIFFERENT chat than the one the user was looking at, when that chat
-  // shared its workspace ("group") with another one on screen. The explorer
-  // click never named which pane it meant — see resolveOnscreenPaneForWorkspace's
-  // own doc for the full mechanism. Reasserting the active pane here, right
-  // before the open, is the same fix the file-tree DROP path already applies
-  // for its own unambiguous drop target.
-  const ensureActivePaneForFileOpen = useCallback(() => {
-    const targetPaneId = resolveOnscreenPaneForWorkspace(getWorkspaceScope()?.wsId ?? '')
-    if (targetPaneId) windowPaneStore.getState().paneActions.setActivePane(targetPaneId)
-  }, [])
   const containerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   // The user's own committed open height, as a proportion of `sidebarHeight`
@@ -187,108 +136,15 @@ export function SidebarCarousel({
     railRef?.current?.style.setProperty(CARD_BOTTOM_INSET_VAR, `${height}px`)
   }, [cardHeightPx, cardFolded, railRef])
 
-  // Pointer-drag resize from the top 6px hot zone (spec §6). Mirrors
-  // pane-sash.tsx's/sidebar-split-pane.tsx's own pattern — track window
-  // pointermove/up from pointerdown, coalesce the live size to one DOM write
-  // per animation frame, commit once on release — rather than importing
-  // pane-sash.tsx itself: that component drags a flex-basis between two
-  // sibling panes, this drags one floating element's own height against a
-  // rail it does not share layout with.
-  //
-  // Every live-frame write below is imperative DOM/CSS only — this card's
-  // own `cardRef.current.style.height` AND `railRef`'s
-  // `--card-bottom-inset` custom property, which `SpacePanel` reads via CSS
-  // inheritance (space-scroller.tsx). `onHeightChange` (React state in
-  // ide-shell.tsx) is called exactly once, on release, deliberately: calling
-  // it per frame previously re-rendered ide-shell.tsx and, since none of
-  // SidebarTreeSurface/SpaceScroller/SpacePanel/SidebarTree/SidebarRow are
-  // memoized, every visible row in the active project on every frame of a
-  // drag.
-  const activeDragCleanupRef = useRef<(() => void) | null>(null)
-
-  const handleResizePointerDown = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return
-      const rail = sidebarHeight
-      if (!rail || rail <= 0) return
-      e.preventDefault()
-      const startY = e.clientY
-      const startHeight = cardHeightPx ?? Math.round(rail * DEFAULT_CARD_HEIGHT_FRACTION)
-      let liveHeight = startHeight
-      let moved = false
-      let animationFrame = 0
-
-      const applyLiveHeight = () => {
-        animationFrame = 0
-        if (cardRef.current) cardRef.current.style.height = `${liveHeight}px`
-        railRef?.current?.style.setProperty(CARD_BOTTOM_INSET_VAR, `${liveHeight}px`)
-      }
-
-      const teardown = () => {
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', onUp)
-        window.removeEventListener('pointercancel', onUp)
-        if (animationFrame !== 0) cancelAnimationFrame(animationFrame)
-        activeDragCleanupRef.current = null
-        if (moved) {
-          document.documentElement.removeAttribute('data-pane-resizing')
-          window.dispatchEvent(new CustomEvent('pane-resize-end'))
-        }
-      }
-
-      const onMove = (ev: globalThis.PointerEvent) => {
-        if (!moved) {
-          moved = true
-          document.documentElement.setAttribute('data-pane-resizing', '1')
-        }
-        // The card is anchored to the RAIL's bottom edge, so dragging the top
-        // edge up (negative delta) grows it.
-        const delta = ev.clientY - startY
-        const raw = startHeight - delta
-        const clampedFraction = clampCardHeightFraction(raw / rail)
-        liveHeight = Math.round(rail * clampedFraction)
-        if (animationFrame === 0) animationFrame = requestAnimationFrame(applyLiveHeight)
-      }
-
-      const onUp = () => {
-        const wasMoved = moved
-        if (animationFrame !== 0) {
-          cancelAnimationFrame(animationFrame)
-          applyLiveHeight()
-        }
-        teardown()
-        if (!wasMoved) return
-        const fraction = clampCardHeightFraction(liveHeight / rail)
-        setHeightFraction(fraction)
-        saveCardHeightFraction(fraction)
-      }
-
-      activeDragCleanupRef.current = teardown
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
-      window.addEventListener('pointercancel', onUp)
-    },
-    [sidebarHeight, cardHeightPx, railRef],
-  )
-
-  // Unmount-mid-drag safety (mirrors pane-sash.tsx): stray window listeners
-  // and the global resizing attribute must not survive this component going
-  // away — e.g. the sidebar auto-collapsing, or a route change, mid-drag.
-  useEffect(() => {
-    return () => activeDragCleanupRef.current?.()
-  }, [])
-
-  // Armed only by an actual scroll gesture over the carousel. Everything else
-  // that moves scrollLeft is reflow, not intent: the re-align below, the
-  // activeTab effect's smooth scroll, and — the one that bit — the browser
-  // clamping the offset to 0 while the sidebar collapses to zero width and then
-  // restoring it as the sidebar expands. Reading those offsets back through
-  // Math.round() picked whatever panel happened to be nearest, so hiding and
-  // showing the sidebar while on Files silently landed you on Chats.
-  const isUserGesture = useRef(false)
-  const armUserGesture = () => {
-    isUserGesture.current = true
-  }
+  // Pointer-drag resize from the top 6px hot zone (spec §6) — see
+  // `use-card-resize-drag.ts`'s own doc for the full drag/commit mechanism.
+  const handleResizePointerDown = useCardResizeDrag({
+    cardRef,
+    railRef,
+    sidebarHeight,
+    cardHeightPx,
+    onCommit: setHeightFraction,
+  })
 
   // Git has no meaning without a repo, and the project-home route has no
   // active workspace — carried over verbatim from the old SidebarTabBar,
@@ -301,48 +157,13 @@ export function SidebarCarousel({
   }, [isHomeRoute, activeTab, setActiveTab])
   const visibleHeadTabs = isHomeRoute ? HEAD_TABS.filter((t) => t.tab !== 'git') : HEAD_TABS
 
-  // Re-align scroll when the container is resized (sidebar separator drag,
-  // sidebar collapse/expand, window resize). Each
-  // carousel panel is min-w-full, so scrollLeft must stay at
-  // tabIndex * containerWidth.
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => {
-      isUserGesture.current = false
-      const index = TABS.indexOf(useSidebarStore.getState().activeTab)
-      if (index === -1) return
-      // A collapsed sidebar has zero width: no offset identifies a panel, and
-      // the browser has already clamped scrollLeft to 0. Leave it — the resize
-      // that reopens the sidebar re-aligns it.
-      if (el.clientWidth === 0) return
-      el.scrollLeft = index * el.clientWidth
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
-  // Scroll to the correct panel when activeTab changes (e.g. tab bar click)
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const index = TABS.indexOf(activeTab)
-    if (index === -1) return
-    isUserGesture.current = false
-    el.scrollTo({ left: index * el.clientWidth, behavior: 'smooth' })
-  }, [activeTab])
-
-  // Sync activeTab when the user swipes
-  function handleScroll() {
-    if (!isUserGesture.current) return
-    const el = containerRef.current
-    if (!el || el.clientWidth === 0) return
-    const index = Math.round(el.scrollLeft / el.clientWidth)
-    const tab = TABS[index]
-    if (tab && tab !== useSidebarStore.getState().activeTab) {
-      setActiveTab(tab)
-    }
-  }
+  // Keeps scrollLeft and activeTab in sync in both directions — see
+  // `use-carousel-scroll-sync.ts`'s own doc.
+  const { armUserGesture, handleScroll } = useCarouselScrollSync(
+    containerRef,
+    activeTab,
+    setActiveTab,
+  )
 
   return (
     // Floats over the tree, never splits layout with it (spec §6): absolute
@@ -481,48 +302,7 @@ export function SidebarCarousel({
           )}
         >
           {/* Files panel */}
-          <div
-            data-testid="carousel-panel"
-            className="min-w-full [scroll-snap-align:start] flex flex-col overflow-hidden"
-          >
-            <ErrorBoundary>
-              <Suspense fallback={<SidebarSkeleton />}>
-                <FileExplorerTree
-                  files={files}
-                  rootFolderPath={activeWorkspaceRepoPath}
-                  onFileSelect={(path, isDir) => {
-                    if (isDir) {
-                      useFileTreeStore
-                        .getState()
-                        .toggleFolder(getWorkspaceScope()?.wsId ?? '', path)
-                    } else {
-                      ensureActivePaneForFileOpen()
-                      handleFileSelect?.(path, false)
-                    }
-                  }}
-                  onFileOpen={
-                    handleFileOpen
-                      ? (path: string, isDir: boolean) => {
-                          if (!isDir) {
-                            ensureActivePaneForFileOpen()
-                            void handleFileOpen(path, false)
-                          }
-                        }
-                      : undefined
-                  }
-                  onUpdateFiles={setFiles}
-                  onCreateNewFileInDirectory={handleCreateNewFileInDirectory ?? (() => {})}
-                  onCreateNewFolderInDirectory={handleCreateNewFolderInDirectory ?? undefined}
-                  onRenamePath={handleRenamePath ?? undefined}
-                  onDeletePath={handleDeletePath ?? undefined}
-                  onDuplicatePath={handleDuplicatePath ?? undefined}
-                  onRevealInFinder={handleRevealInFolder ?? undefined}
-                  onUploadFile={handleUploadFile}
-                  onRefreshDirectory={refreshDirectory ?? undefined}
-                />
-              </Suspense>
-            </ErrorBoundary>
-          </div>
+          <SidebarCarouselFilesPanel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
 
           {/* Git panel */}
           <div
