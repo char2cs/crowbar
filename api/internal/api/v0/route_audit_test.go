@@ -304,6 +304,13 @@ func extraRoutes() []string {
 		"DELETE " + ws + "/threads/:threadId",
 		"PATCH " + ws + "/threads/:threadId/messages/:messageId",
 		"DELETE " + ws + "/threads/:threadId/messages/:messageId",
+		// Workspace placement: a LOCKED branch's own sidebar position, moved
+		// by the workspace's own id rather than a chat id — locked
+		// workspaces are not chats, so the chat-keyed placement route above
+		// cannot reach them. The second genuinely workspace-native route on
+		// this mount, alongside threads above (2026-09-09
+		// sidebar-placement-unification, workspace-placement fix).
+		"PATCH " + ws + "/placement",
 		// Agentic-chat surface (00 agentic-engine spec §7, rescoped off the
 		// workspace group onto the repo group by Task 17 of the 2026-08-28
 		// sidebar backend plan: a chat's workspace is optional and mutable, so
