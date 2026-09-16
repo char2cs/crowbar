@@ -3,6 +3,7 @@ package v0
 import (
 	"context"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,7 +48,16 @@ import (
 // forest and the fan-out against the new one. One shared pointer is what keeps
 // the two agreeing, exactly as the single container-built resolver does in
 // production.
+//
+// mu guards rows: Resolve/ChatsForWorkspace run on the broadcaster's own
+// goroutine (Handle registers a client, then computes its snapshot OUTSIDE
+// the broadcaster lock — see ws/broadcaster.go's Handle/snapshotFor), which a
+// test can still be running concurrently with when it calls fork to widen the
+// forest mid-test. A real resolver's ancestry/list reads go through a
+// repository with its own concurrency control; this fake's plain slice needs
+// its own lock to behave the same way.
 type rowsWorktreeResolver struct {
+	mu         sync.RWMutex
 	rows       fanoutChatRows
 	workspaces worktree.WorkspaceReader
 }
@@ -56,10 +66,13 @@ func (r *rowsWorktreeResolver) Resolve(
 	ctx context.Context,
 	chatID string,
 ) (domain.Workspace, error) {
+	r.mu.RLock()
+	rows := r.rows
+	r.mu.RUnlock()
 	return worktree.Resolve(
 		ctx,
 		chatID,
-		worktree.NewChatTreeAncestryReader(r.rows, nil, nil),
+		worktree.NewChatTreeAncestryReader(rows, nil, nil),
 		r.workspaces,
 	)
 }
@@ -68,7 +81,10 @@ func (r *rowsWorktreeResolver) ChatsForWorkspace(
 	ctx context.Context,
 	workspaceID string,
 ) ([]string, error) {
-	return worktree.ChatsForWorkspace(ctx, workspaceID, r.rows, nil, nil)
+	r.mu.RLock()
+	rows := r.rows
+	r.mu.RUnlock()
+	return worktree.ChatsForWorkspace(ctx, workspaceID, rows, nil, nil)
 }
 
 // fork adds a chat to the forest, the way a fork onto an existing worktree
@@ -77,6 +93,8 @@ func (r *rowsWorktreeResolver) fork(
 	chatID string,
 	parentID string,
 ) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.rows = append(r.rows, domain.Chat{
 		ID:       chatID,
 		Type:     domain.ChatTypeChat,
