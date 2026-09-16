@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -10,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -61,14 +61,26 @@ func TestRunHook_ForwardsSegmentProviderAndRawPayload(t *testing.T) {
 	require.Equal(t, "turn_stop", got["event"])
 	require.Equal(t, `{"session_id":"abc"}`, got["payload_raw"])
 	require.NotEmpty(t, got["delivery_id"])
-	entries, err := os.ReadDir(hookSpoolDir())
-	require.NoError(t, err)
-	for _, entry := range entries {
-		require.NotEqual(t, ".json", filepath.Ext(entry.Name()), "acknowledged hook must leave no envelope")
+}
+
+func TestNewHookCmd_HomeFlagOverridesEnv(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", "/wrong/home")
+	cmd := newHookCmd()
+	cmd.SetArgs([]string{"session_start", "--home", "/tmp/right-home", "--payload", "{}"})
+	// The command swallows all errors (must never break the vendor CLI), so
+	// Execute always returns nil; what we assert is the env var it left behind.
+	_ = cmd.Execute()
+	if got := os.Getenv("CROWBAR_HOME"); got != "/tmp/right-home" {
+		t.Fatalf("CROWBAR_HOME = %q, want %q", got, "/tmp/right-home")
 	}
 }
 
-func TestRunHook_Non2xxRemainsSpooledAndRetriesSameDeliveryID(t *testing.T) {
+// TestRunHook_RetriesTransientFailureWithSameDeliveryID covers the race
+// barriers_test.go documents: a hook can fire before the runner row it
+// targets is queryable yet, failing once for reasons that clear a moment
+// later. runHook must retry in-process, a few times, reusing one delivery id
+// — not drop the event, and not hand it to any on-disk queue.
+func TestRunHook_RetriesTransientFailureWithSameDeliveryID(t *testing.T) {
 	t.Setenv("CROWBAR_HOME", t.TempDir())
 	sock := filepath.Join(shortSocketDir(t), "h.sock")
 	ln, err := net.Listen("unix", sock)
@@ -77,42 +89,62 @@ func TestRunHook_Non2xxRemainsSpooledAndRetriesSameDeliveryID(t *testing.T) {
 
 	var mu sync.Mutex
 	var deliveries []string
-	status := http.StatusServiceUnavailable
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var got map[string]any
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
 		mu.Lock()
 		deliveries = append(deliveries, got["delivery_id"].(string))
-		current := status
+		attempt := len(deliveries)
 		mu.Unlock()
-		w.WriteHeader(current)
+		if attempt < 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
 	})}
 	go srv.Serve(ln)
 	defer srv.Close()
 
-	host := "unix://" + sock
 	err = runHook(hookRun{
 		Event: "user_prompt", Segment: "seg-1", Provider: "codex",
 		Project: "p", Repo: "r", Workspace: "w",
-		Payload: []byte(`{"prompt":"keep me"}`), Host: host, Out: io.Discard,
+		Payload: []byte(`{"prompt":"keep me"}`), Host: "unix://" + sock, Out: io.Discard,
 	})
-	require.Error(t, err)
-	files, err := filepath.Glob(filepath.Join(hookSpoolDir(), "*.json"))
-	require.NoError(t, err)
-	require.Len(t, files, 1, "non-2xx must retain the complete durable envelope")
+	require.NoError(t, err, "a retry that eventually succeeds must not surface as a hook error")
 
 	mu.Lock()
-	status = http.StatusAccepted
-	firstID := deliveries[0]
-	mu.Unlock()
-	require.NoError(t, drainHookSpool(context.Background(), host))
-	files, err = filepath.Glob(filepath.Join(hookSpoolDir(), "*.json"))
-	require.NoError(t, err)
-	require.Empty(t, files)
-	mu.Lock()
+	defer mu.Unlock()
 	require.Len(t, deliveries, 2)
-	require.Equal(t, firstID, deliveries[1], "retry must reuse the original delivery id")
-	mu.Unlock()
+	require.Equal(t, deliveries[0], deliveries[1], "every retry must reuse the original delivery id")
+}
+
+// TestRunHook_GivesUpAfterExhaustingRetries asserts the OTHER half of "never
+// blocks the CLI": once the bounded retry is exhausted, runHook returns
+// (surfacing an error internally, printed to stderr by the caller) rather
+// than hanging or persisting the event anywhere for something else to retry
+// later.
+func TestRunHook_GivesUpAfterExhaustingRetries(t *testing.T) {
+	t.Setenv("CROWBAR_HOME", t.TempDir())
+	sock := filepath.Join(shortSocketDir(t), "h.sock")
+	ln, err := net.Listen("unix", sock)
+	require.NoError(t, err)
+	defer ln.Close()
+
+	var attempts atomic.Int64
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	err = runHook(hookRun{
+		Event: "user_prompt", Segment: "seg-1", Provider: "codex",
+		Project: "p", Repo: "r", Workspace: "w",
+		Payload: []byte(`{"prompt":"drop me"}`), Host: "unix://" + sock, Out: io.Discard,
+	})
+	require.Error(t, err)
+	require.Equal(t, int64(hookDeliveryAttempts), attempts.Load())
 }
 
 func TestResolvePayload_Precedence(t *testing.T) {

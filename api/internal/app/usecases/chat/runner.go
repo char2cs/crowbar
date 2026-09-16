@@ -61,9 +61,19 @@ type RunnerUsecase interface {
 	// SubmitPrompt delivers a React-authored prompt to the chat's CLI. Delivery is
 	// at-most-once against clientRequestID: a retry replays the original outcome
 	// rather than prompting twice.
+	//
+	// provider/model/effort are the STAGED selection the composer is showing
+	// right now — not necessarily what the chat already holds. Empty means
+	// "the composer has nothing staged, use the current/sticky value as-is."
+	// A non-empty provider that differs from the chat's current one is
+	// switched to via SwitchProvider BEFORE the prompt is delivered; a
+	// non-empty model/effort pair is committed via SetChatSelection next.
+	// Picking a row in the UI never mutates the chat on its own — provider
+	// included — it only takes effect bundled with the next message, one
+	// atomic call instead of two (or three).
 	SubmitPrompt(
 		ctx context.Context,
-		chatID, text, clientRequestID string,
+		chatID, text, clientRequestID, provider, model, effort string,
 	) (domain.AgentPromptSubmission, error)
 
 	// SlashCatalog probes the chat's live CLI for the slash commands it declares.
@@ -73,6 +83,14 @@ type RunnerUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) (engineagents.SlashCatalog, error)
+
+	// PendingPrompt returns the chat's most recent prompt submission the
+	// journal has not yet confirmed the provider accepted, so a client whose
+	// own local copy of the text was lost can recover it.
+	PendingPrompt(
+		ctx context.Context,
+		chatID string,
+	) (domain.PendingPrompt, bool, error)
 
 	// SwitchToTerminal hands the chat's live turn over to its provider's own
 	// native view — idle-only, for a provider whose descriptor declares attach
@@ -145,9 +163,10 @@ type RunnerUsecase interface {
 	StartTerminalWaitSweep(
 		ctx context.Context,
 		publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-		promptSettled func(chatID, workspaceID, requestID string),
-		messageDelta func(chatID, workspaceID, messageID, text string),
+		promptSettled func(chatID, workspaceID, requestID string, consumed bool),
+		messageDelta func(chatID, workspaceID, messageID, text, kind string),
 		compactionStatus func(chatID, workspaceID string, active bool),
+		planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),
 	)
 }
 
@@ -294,11 +313,33 @@ func (u *Usecase) SwitchProvider(
 
 // SubmitPrompt delivers a Crowbar-authored prompt into the chat's CLI, at most
 // once per client request id.
+//
+// A non-empty provider that differs from the chat's CURRENT one is switched
+// to FIRST — the same switch a standalone POST .../switch would run, staged
+// here instead. This is what lets the composer hold a picked provider
+// (picking a model under a different section) as pure local state: the
+// picker never calls SwitchProvider itself any more, so a row click never
+// tears down the live CLI on its own — only the next actual send does. A
+// provider equal to the chat's current one, or left empty, never switches at
+// all — an idle resend must not pay for a switch it never asked for.
+//
+// A non-empty model/effort commits the chat's sticky selection NEXT — same
+// validation the standalone PATCH .../selection route runs, so a bad value
+// still 400s here exactly as it would there, before anything is sent to the
+// CLI and, critically, before the provider switch above is even attempted —
+// see Runners.SubmitPromptWithSwitch's own doc for why validating first
+// (rather than switching, THEN discovering the pick was bad) matters. This is
+// what lets the composer hold a picked model/effort as pure local state and
+// never write it anywhere until the user actually sends.
+//
+// The whole sequence — switch, selection, delivery — runs under ONE hold of
+// the chat's spawn gate (Runners.SubmitPromptWithSwitch), not three separate
+// ones: see that method's own doc for the race a gap between them opened.
 func (u *Usecase) SubmitPrompt(
 	ctx context.Context,
-	chatID, text, clientRequestID string,
+	chatID, text, clientRequestID, provider, model, effort string,
 ) (domain.AgentPromptSubmission, error) {
-	return u.runners.SubmitPrompt(ctx, chatID, text, clientRequestID)
+	return u.runners.SubmitPromptWithSwitch(ctx, chatID, text, clientRequestID, provider, model, effort)
 }
 
 // SlashCatalog probes the chat's provider for the slash commands it offers.
@@ -309,6 +350,15 @@ func (u *Usecase) SlashCatalog(
 	chatID string,
 ) (engineagents.SlashCatalog, error) {
 	return u.runners.SlashCatalog(ctx, chatID)
+}
+
+// PendingPrompt returns the chat's most recent prompt submission the journal
+// has not yet confirmed the provider accepted.
+func (u *Usecase) PendingPrompt(
+	ctx context.Context,
+	chatID string,
+) (domain.PendingPrompt, bool, error) {
+	return u.runners.PendingPrompt(ctx, chatID)
 }
 
 // LiveRunnerForChat returns the CLI currently placed on the chat.
@@ -339,6 +389,10 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 // Compact asks the chat's provider to compact its own context, through whichever
 // gesture the provider's descriptor declares for it.
 func (u *Usecase) Compact(ctx context.Context, chatID string) error {
+	// A person just asked for this, from the ONE place that fact is knowable.
+	// Armed even though the call below can still fail validation — see
+	// manualCompactRequests' own doc for why that's an acceptable tradeoff.
+	u.turns.ArmManualCompaction(chatID)
 	return u.runners.Compact(ctx, chatID)
 }
 
@@ -382,9 +436,10 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 func (u *Usecase) StartTerminalWaitSweep(
 	ctx context.Context,
 	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-	promptSettled func(chatID, workspaceID, requestID string),
-	messageDelta func(chatID, workspaceID, messageID, text string),
+	promptSettled func(chatID, workspaceID, requestID string, consumed bool),
+	messageDelta func(chatID, workspaceID, messageID, text, kind string),
 	compactionStatus func(chatID, workspaceID string, active bool),
+	planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),
 ) {
-	u.runners.StartTerminalWaitSweep(ctx, publish, promptSettled, messageDelta, compactionStatus)
+	u.runners.StartTerminalWaitSweep(ctx, publish, promptSettled, messageDelta, compactionStatus, planUpdate)
 }

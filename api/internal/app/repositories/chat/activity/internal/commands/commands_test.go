@@ -210,6 +210,85 @@ func TestSubagent_StartThenStopClosesTheSameRecord(t *testing.T) {
 	assert.Equal(t, "explore", stopped.Last.Subagent.AgentType)
 }
 
+// A subagent is a whole nested conversation, not a flat start/end marker — a
+// codex collab agent's own turn closing with a reply is the one place that
+// reply can ever be recorded. StopSubagent's Message is that reply text.
+func TestSubagent_StopWithAMessageAppendsItToTheRecord(t *testing.T) {
+	started := commands.StartSubagent{ChatID: chat, SubagentID: "a1", Now: now}.EmitEvent(nil)
+
+	stopped := commands.StopSubagent{
+		ChatID: chat, SubagentID: "a1", Message: "done", Now: now.Add(time.Second),
+	}.EmitEvent(&started)
+
+	require.Len(t, stopped.Last.Subagent.Messages, 1)
+	assert.Equal(t, "done", stopped.Last.Subagent.Messages[0].Text)
+	assert.Equal(t, now.Add(time.Second), stopped.Last.Subagent.Messages[0].At)
+}
+
+// An empty Message (the common case — a nested turn that produced no final
+// text, or a close that carries none at all) must not append a blank entry.
+func TestSubagent_StopWithNoMessageAppendsNothing(t *testing.T) {
+	started := commands.StartSubagent{ChatID: chat, SubagentID: "a1", Now: now}.EmitEvent(nil)
+
+	stopped := commands.StopSubagent{ChatID: chat, SubagentID: "a1", Now: now.Add(time.Second)}.
+		EmitEvent(&started)
+
+	assert.Empty(t, stopped.Last.Subagent.Messages)
+}
+
+// A subagent removed from the live open-set by its own close (same as
+// today's unconditional delete) starts a FRESH message list if it is ever
+// reopened under the same id — its prior reply lives on in the projected
+// store, not in the live aggregate a later command replays against. This is
+// the same "closed things don't persist in the live model" contract
+// TestSubagent_StopWithoutAStartIsRecordedOnItsOwnTerms already documents
+// for AgentType; Messages follows it too, deliberately, rather than growing
+// event-sourced machinery to reach back into a row this aggregate no longer
+// holds open.
+// A codex-shaped provider's own multi-agent tool call can complete AFTER its
+// own top-level turn has already closed (codex ends its own turn the instant
+// it delegates) — OpenNestedSubagent must never reopen one the way
+// StartSubagent's ensureTurn would, or a nested subagent's own open would
+// silently mint a ghost top-level turn nothing ever really ran.
+func TestOpenNestedSubagent_NeverOpensATopLevelTurn(t *testing.T) {
+	got := commands.OpenNestedSubagent{ChatID: chat, SubagentID: "thread-child", Now: now}.
+		EmitEvent(nil)
+
+	assert.Nil(t, got.Turn, "must not open a top-level turn as a side effect")
+	require.Contains(t, got.Subagents, "thread-child")
+	assert.Empty(t, got.Subagents["thread-child"].TurnID,
+		"a nested subagent has no top-level turn of its own")
+	require.NotNil(t, got.Last.Subagent)
+	assert.Equal(t, domain.DeltaOpen, got.Last.Phase)
+}
+
+func TestOpenNestedSubagent_RejectsTheUnusableCases(t *testing.T) {
+	testCases := []struct {
+		name string
+		cmd  commands.OpenNestedSubagent
+	}{
+		{"no chat", commands.OpenNestedSubagent{SubagentID: "a1"}},
+		{"no subagent id", commands.OpenNestedSubagent{ChatID: chat}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.ErrorIs(t, tc.cmd.Validate(nil), asynxModels.ErrValidation)
+		})
+	}
+}
+
+func TestSubagent_ReopeningAfterACloseStartsAFreshMessageList(t *testing.T) {
+	started := commands.StartSubagent{ChatID: chat, SubagentID: "a1", Now: now}.EmitEvent(nil)
+	closed := commands.StopSubagent{
+		ChatID: chat, SubagentID: "a1", Message: "first life", Now: now.Add(time.Second),
+	}.EmitEvent(&started)
+
+	reopened := commands.StartSubagent{ChatID: chat, SubagentID: "a1", Now: now.Add(2 * time.Second)}.
+		EmitEvent(&closed)
+
+	assert.Empty(t, reopened.Subagents["a1"].Messages)
+}
+
 func TestInterrupt_OpensAndResolvesTheSameRecord(t *testing.T) {
 	turn := commands.OpenTurn{ChatID: chat, TurnID: "t1", Now: now}.EmitEvent(nil)
 	opened := commands.Interrupt{
@@ -456,6 +535,54 @@ func TestCloseTurn_ConsumesAndRemovesItsReservation(t *testing.T) {
 		EmitEvent(&opened)
 
 	assert.NotContains(t, closed.OpenTurnOrders, "runner-a", "consumed, not left to leak forever")
+}
+
+// THE REGRESSION. Live symptom: a pile of an unrelated turn's tool calls —
+// sometimes hundreds — landing under the NEXT reply. Turn is a single
+// pointer, and runner-b's OpenTurn winning that slot before runner-a's own
+// turn ever got to close used to make runner-a's close SUPERSEDE and REPOINT
+// (see projections.go's RepointActivity) runner-b's still-live tools onto
+// runner-a's own message, and delete runner-b's live turn state outright.
+func TestRegression_CloseTurnDoesNotStealAnotherRunnersStillOpenActivity(t *testing.T) {
+	openedA := commands.OpenTurn{ChatID: chat, TurnID: "open-a", RunnerID: "runner-a", Now: now}.
+		EmitEvent(nil)
+
+	// runner-b's OpenTurn wins the shared slot before runner-a's own turn
+	// ever gets a chance to close.
+	openedB := commands.OpenTurn{ChatID: chat, TurnID: "open-b", RunnerID: "runner-b", Now: now}.
+		EmitEvent(&openedA)
+	withToolB := commands.InvokeTool{ChatID: chat, ToolID: "tool-b1", Name: "Read", Now: now}.
+		EmitEvent(&openedB)
+
+	// runner-a's own (now-stale) close arrives late.
+	closedA := commands.CloseTurn{
+		ChatID: chat, TurnID: "t1", RunnerID: "runner-a", Text: "runner-a's reply", Now: now,
+	}.EmitEvent(&withToolB)
+
+	assert.Empty(t, closedA.Last.SupersededTurnID,
+		"runner-a's close must not claim runner-b's currently open turn")
+	require.NotNil(t, closedA.Turn,
+		"runner-b's own still-open turn must survive runner-a's unrelated close")
+	assert.Equal(t, "open-b", closedA.Turn.ID)
+	assert.Contains(t, closedA.Tools, "tool-b1",
+		"runner-b's own live tool call must survive runner-a's unrelated close")
+}
+
+// The other half: a turn nobody has claimed yet (InvokeTool's own no-open-
+// fallback, ensureTurn, mints one with no RunnerID at all) must still be
+// closeable and repointable by whichever runner's reply actually closes it —
+// an empty RunnerID is "unclaimed", never "foreign".
+func TestCloseTurn_StillClaimsAnUnclaimedFallbackTurn(t *testing.T) {
+	withTool := commands.InvokeTool{ChatID: chat, ToolID: "tool-1", Name: "Bash", Now: now}.
+		EmitEvent(nil)
+	fallbackTurnID := withTool.Turn.ID
+
+	closed := commands.CloseTurn{
+		ChatID: chat, TurnID: "t1", RunnerID: "runner-a", Text: "done", Now: now,
+	}.EmitEvent(&withTool)
+
+	assert.Equal(t, fallbackTurnID, closed.Last.SupersededTurnID)
+	assert.Nil(t, closed.Turn)
 }
 
 // TestRegression_AnInterruptionRecordedLateStillDisplaysAtItsTurnsOwnPosition is

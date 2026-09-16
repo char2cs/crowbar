@@ -173,6 +173,15 @@ type fakeAgentUsecase struct {
 	pendingErr    error
 	pendingCalls  []string
 
+	uploadAttachmentCalls []uploadAttachmentCall
+	uploadAttachmentOut   agentusecase.StoredAttachment
+	uploadAttachmentErr   error
+
+	readAttachmentCalls []readAttachmentCall
+	readAttachmentData  []byte
+	readAttachmentType  string
+	readAttachmentErr   error
+
 	answerable  []string
 	answerCalls []answerCall
 	answerErr   error
@@ -199,10 +208,14 @@ type fakeAgentUsecase struct {
 	catalog      engineagents.SlashCatalog
 	catalogErr   error
 	catalogCalls []string
+
+	pendingPrompt      domain.PendingPrompt
+	pendingPromptFound bool
+	pendingPromptErr   error
 }
 
 type promptCall struct {
-	chatID, text, requestID string
+	chatID, text, requestID, provider, model, effort string
 }
 
 type messageCall struct {
@@ -299,9 +312,11 @@ func (f *fakeAgentUsecase) ReadMessages(
 
 func (f *fakeAgentUsecase) SubmitPrompt(
 	_ context.Context,
-	chatID, text, requestID string,
+	chatID, text, requestID, provider, model, effort string,
 ) (domain.AgentPromptSubmission, error) {
-	f.promptCalls = append(f.promptCalls, promptCall{chatID: chatID, text: text, requestID: requestID})
+	f.promptCalls = append(f.promptCalls, promptCall{
+		chatID: chatID, text: text, requestID: requestID, provider: provider, model: model, effort: effort,
+	})
 	return f.promptResult, f.promptErr
 }
 
@@ -311,6 +326,13 @@ func (f *fakeAgentUsecase) SlashCatalog(
 ) (engineagents.SlashCatalog, error) {
 	f.catalogCalls = append(f.catalogCalls, chatID)
 	return f.catalog, f.catalogErr
+}
+
+func (f *fakeAgentUsecase) PendingPrompt(
+	_ context.Context,
+	_ string,
+) (domain.PendingPrompt, bool, error) {
+	return f.pendingPrompt, f.pendingPromptFound, f.pendingPromptErr
 }
 
 // LiveRunnerForChat/ConversationsForChat back the derived runner facts on the chat

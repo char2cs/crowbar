@@ -3,6 +3,7 @@ package projections
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity/internal/store/internal/storage"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -92,6 +93,10 @@ func (p *Projector) applyTurn(ctx context.Context, delta *domain.ActivityDelta) 
 		return fmt.Errorf("agentactivity projection: abandon running tools: %w", err)
 	}
 
+	if err := p.abandonRunningSubagents(ctx, delta); err != nil {
+		return err
+	}
+
 	if err := p.store.ResolveOpenInterruptions(ctx, delta.Turn.ChatID, delta.Turn.EndedAt); err != nil {
 		return fmt.Errorf("agentactivity projection: resolve open interruptions: %w", err)
 	}
@@ -99,6 +104,34 @@ func (p *Projector) applyTurn(ctx context.Context, delta *domain.ActivityDelta) 
 	if err := p.store.ResolveOpenChoices(ctx, delta.Turn.ChatID, delta.Turn.EndedAt); err != nil {
 		return fmt.Errorf("agentactivity projection: resolve open choices: %w", err)
 	}
+	return nil
+}
+
+// abandonRunningSubagents is gated on delta.Abandoned, unlike
+// AbandonRunningTools above: a subagent is deliberately allowed to keep
+// running past its OWN turn's ordinary close (codex hands off and ends its
+// turn right there — see turn.go's restateAsyncWork doc, proven by
+// TestRegression_CodexTurnStopWithOpenSubagent_KeepsChatWorking). Only a
+// delta that gives up on the turn's work entirely — the CLI process is gone,
+// or it produced nothing — may treat a still-open subagent as abandoned
+// rather than legitimately in flight.
+func (p *Projector) abandonRunningSubagents(ctx context.Context, delta *domain.ActivityDelta) error {
+	if !delta.Abandoned {
+		return nil
+	}
+	closed, err := p.store.AbandonRunningSubagents(ctx, delta.Turn.ChatID, delta.Turn.EndedAt)
+	if err != nil {
+		return fmt.Errorf("agentactivity projection: abandon running subagents: %w", err)
+	}
+	if closed == 0 {
+		return nil
+	}
+	// A leak: a subagent still open when the CHAT is given up on entirely means
+	// its subagent_post never arrived — crashed, killed mid-run, or dropped —
+	// and without this call OpenWork would have seen it as open forever, chat-
+	// wide, well past this turn. See AbandonRunningSubagents' own doc.
+	slog.WarnContext(ctx, "agentactivity projection: closed subagent(s) their own turn never heard finish",
+		"chat_id", delta.Turn.ChatID, "turn_id", delta.Turn.ID, "count", closed)
 	return nil
 }
 

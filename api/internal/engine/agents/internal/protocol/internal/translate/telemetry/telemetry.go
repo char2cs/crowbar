@@ -23,19 +23,59 @@ var (
 )
 
 func ParseCallback(d *spec.Descriptor, raw []byte, now time.Time) (models.Telemetry, error) {
-	if d == nil || d.Telemetry == nil || d.Telemetry.Callback == nil {
+	if d == nil {
 		return models.Telemetry{}, ErrUnsupported
 	}
-	cb := d.Telemetry.Callback
-	decoded, err := decode(cb.Format, raw)
+	format, fields, windows, ok := callbackMapping(d)
+	if !ok {
+		return models.Telemetry{}, ErrUnsupported
+	}
+	decoded, err := decode(format, raw)
 	if err != nil {
 		return models.Telemetry{}, err
 	}
-	out := mapFacts(cb.Fields, decoded)
-	out.RateLimits = mapRateLimits(cb.RateLimits, decoded)
+	out := mapFacts(fields, decoded)
+	out.RateLimits = mapRateLimits(windows, decoded)
 	out.ObservedAt = now
 	out.Source = models.TelemetrySourceCallback
 	return out, nil
+}
+
+// callbackMapping finds the field map a pushed telemetry report is read with,
+// from either place a descriptor may declare one.
+//
+// v2 spelled it as a top-level `telemetry.callback:` block. v3 spells it as an
+// ordinary inbound EVENT — `events.telemetry`, with the same canonical fact names
+// in its `map:` and its windows in the event's `rate_limits:` extra. Only the v2
+// block was ever read, so a v3-only provider's telemetry was parsed with no
+// mapping at all and reported ErrUnsupported on every report: codex has mapped
+// thread/tokenUsage/updated correctly since the mixed-transport work and none of
+// it ever reached the context gauge.
+//
+// The v2 block wins where both exist, so a descriptor mid-migration keeps the
+// behaviour it already had.
+func callbackMapping(d *spec.Descriptor) (
+	format string,
+	fields map[string]string,
+	windows []spec.TelemetryRateLimitMap,
+	ok bool,
+) {
+	if d.Telemetry != nil && d.Telemetry.Callback != nil {
+		cb := d.Telemetry.Callback
+		return cb.Format, cb.Fields, cb.RateLimits, true
+	}
+	ev, declared := d.Events[spec.HookTelemetry]
+	if !declared || len(ev.Map) == 0 {
+		return "", nil, nil, false
+	}
+	for _, w := range ev.RateLimits {
+		windows = append(windows, spec.TelemetryRateLimitMap{
+			ID: w.ID, Label: w.Label, UsedPercent: w.UsedPercent, ResetsAt: w.ResetsAt,
+		})
+	}
+	// A v3 event payload is the decoded wire frame either transport hands over,
+	// and decode speaks only JSON — which is what both of them carry.
+	return "json", ev.Map, windows, true
 }
 
 func Probe(

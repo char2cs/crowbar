@@ -1,15 +1,13 @@
-import { useSyncExternalStore } from 'react'
 import { resolveCssVar } from '@/features/editor/theme/resolve-css-color'
+import { isDarkMode, useThemeVersion } from '@/features/editor/theme/use-theme-version'
+
+export { useThemeVersion as useMermaidThemeVersion }
 
 // Mirrors the fallback pattern in use-terminal-theme.ts: resolveCssVar reads
 // live off the DOM and can return null (run before theme.css has painted, or
 // in an environment with no stylesheet at all — a stray unit test), so every
 // token is paired with a light/dark literal rather than letting mermaid fall
 // through to `undefined`.
-function isDarkMode(): boolean {
-  return typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
-}
-
 function color(name: string, light: string, dark: string): string {
   return resolveCssVar(name) ?? (isDarkMode() ? dark : light)
 }
@@ -64,46 +62,4 @@ export function buildMermaidThemeVariables(): Record<string, string> {
     noteTextColor: color('--accent-foreground', '#141413', '#f5f5f5'),
     noteBorderColor: color('--border', '#e5e3da', '#3a3a38'),
   }
-}
-
-// Reactivity seam: the app flips light/dark by toggling a `dark` class on
-// `document.documentElement` (see settings-effects.ts) rather than through
-// any store a React tree could subscribe to. Every other CSS-var consumer
-// (terminal, Monaco) re-reads imperatively on its own trigger; a Mermaid
-// diagram is a plain React render, so it needs an actual subscription to
-// know when to re-run `mermaid.render` with fresh colors. One shared
-// MutationObserver (not one per diagram) backs every subscriber.
-let version = 0
-const listeners = new Set<() => void>()
-let observer: MutationObserver | null = null
-
-function ensureObserver(): void {
-  if (observer || typeof document === 'undefined' || typeof MutationObserver === 'undefined') {
-    return
-  }
-  observer = new MutationObserver(() => {
-    version++
-    listeners.forEach((listener) => listener())
-  })
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-}
-
-function subscribe(listener: () => void): () => void {
-  ensureObserver()
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
-
-function getVersion(): number {
-  return version
-}
-
-function getServerVersion(): number {
-  return 0
-}
-
-/** Bumps whenever the app's light/dark class flips — read it purely to force
- *  a re-render; the actual colors come from `buildMermaidThemeVariables()`. */
-export function useMermaidThemeVersion(): number {
-  return useSyncExternalStore(subscribe, getVersion, getServerVersion)
 }

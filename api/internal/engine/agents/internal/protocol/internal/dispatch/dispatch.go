@@ -30,7 +30,7 @@ func Resolve(d *spec.Descriptor, wireMethod string, params map[string]any) (stri
 	for _, name := range names {
 		ev := d.Events[name]
 		wire, direction := ev.WireEvent()
-		if direction == "out" || wire != wireMethod {
+		if direction == "out" || !wire.Has(wireMethod) {
 			continue
 		}
 		if !mapping.Match(params, ev.When) {

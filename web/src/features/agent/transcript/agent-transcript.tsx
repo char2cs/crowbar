@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import { TerminalIcon } from '@/features/agent/shared/agent-icons'
 import { Button } from '@/components/ui/button'
@@ -6,10 +6,14 @@ import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import type {
   AgentActivity,
   AgentChatMessage,
+  AgentChoice,
   AgentProvider,
+  AgentSubagent,
   AgentToolCall,
 } from '@/features/agent/api/agent-api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
+import { samePrompt } from '@/features/agent/hooks/use-prompt-queue'
+import { finishedNestedSubagents } from '@/features/agent/activity/nested-subagents'
 import { WorkingLine } from '@/features/agent/activity/working-line'
 import {
   useTranscriptAnchor,
@@ -18,7 +22,6 @@ import {
 import { useScrollFrameSpan } from '@/features/agent/hooks/use-scroll-frame-span'
 import { EventDivider } from '@/features/agent/transcript/event-divider'
 import { FirstTurnDivider } from '@/features/agent/transcript/first-turn-divider'
-import { InterruptedDivider } from '@/features/agent/transcript/interrupted-divider'
 import {
   flattenTranscriptRows,
   type DividerTag,
@@ -26,9 +29,19 @@ import {
 } from '@/features/agent/transcript/lib/flatten-transcript-rows'
 import { MessageRow } from '@/features/agent/transcript/message-row'
 import { QueuedRow } from '@/features/agent/transcript/queued-row'
-import { groupToolCallsByTurn } from '@/features/agent/transcript/turn-tools'
+import {
+  AgentLiveTurnTools,
+  groupChoicesByTurn,
+  groupSubagentsByTurn,
+  groupToolCallsByTurn,
+} from '@/features/agent/transcript/turn-tools'
+import { liveTurnToolCalls } from '@/features/agent/lib/agent-activity'
 
 interface AgentTranscriptProps {
+  /** Needed only to fetch a finished tool call's own request/result bytes on
+   *  demand — see MessageRow's own doc. */
+  wsId?: string
+  chatId?: string
   messages: AgentChatMessage[]
   /** One per still-open message item — see useChatMessages. Almost always
    *  0 or 1 entries; more than one only for a provider (Codex) that can
@@ -41,6 +54,12 @@ interface AgentTranscriptProps {
   /** Is this chat LIVE mid-compaction right now — see WorkingLine's own prop
    *  doc for why this cannot come from `activity`. */
   compacting?: boolean
+  /** What the agent is thinking right now — see WorkingLine's own prop doc. */
+  reasoning?: string
+  /** The running tool's live output — see WorkingLine's own prop doc. */
+  toolOutput?: { id: string; text: string }
+  /** The agent's own to-do list — see WorkingLine's own prop doc. */
+  plan?: { text: string; status: string }[]
   loading: boolean
   error: Error | null
   hasOlder: boolean
@@ -55,11 +74,12 @@ interface AgentTranscriptProps {
    *  (a stop followed by a switch, or model+effort changing together) and
    *  draw as pills on the SAME wavy line rather than one divider each. */
   eventsBefore?: Record<number, DividerTag[]>
-  /** The most recent stop with no later CONFIRMED message loaded yet — nothing
-   *  to key it before, so it draws right after the last confirmed/streaming
-   *  content instead: above any still-queued prompt too, which has no
-   *  sequence yet and so can never anchor `eventsBefore` itself. */
-  trailingInterruption?: boolean
+  /** The most recent `stopped`/`compaction` events with no later CONFIRMED
+   *  message loaded yet — nothing to key them before, so they draw right
+   *  after the last confirmed/streaming content instead: above any
+   *  still-queued prompt too, which has no sequence yet and so can never
+   *  anchor `eventsBefore` itself. */
+  trailingInterruption?: DividerTag[]
   onLoadOlder: () => void
   onRetryLoad: () => void
   onOpenTerminal: () => void
@@ -78,6 +98,10 @@ interface AgentTranscriptProps {
    * watching structurally cannot see.
    */
   dockHeight?: number
+  /** Whether this chat is the ACTIVE tab in its pane — a background tab stays
+   *  mounted behind `visibility:hidden`, which nothing here can observe on its
+   *  own. See `UseTranscriptAnchorOptions.visible`. */
+  visible?: boolean
   /** A previously-saved scroll position for this exact chat, this session —
    *  see useTranscriptAnchor's own doc. Omitted or null: land at the
    *  bottom. */
@@ -116,6 +140,8 @@ function precedingUserAtByAssistantSequence(messages: AgentChatMessage[]): Map<n
  *  not stop for one), only a real user turn does — a backward pass one
  *  cheap way to ask "is a later assistant reply still coming before the next
  *  user turn". */
+const EMPTY_SEQUENCE_SET: Set<number> = new Set()
+
 function lastInAgentRunSequences(messages: AgentChatMessage[]): Set<number> {
   const last = new Set<number>()
   let sawAssistantSinceUser = false
@@ -137,6 +163,100 @@ function lastInAgentRunSequences(messages: AgentChatMessage[]): Set<number> {
  *  `measureElement` counts it as part of the row's height and the virtualizer's
  *  offsets stay right. */
 const ROW_GAP = 18
+
+/**
+ * Every height fed into `rowVirtualizer.resizeItem` — from `measureElement`
+ * itself and from the two settle-priming effects below — funnels through
+ * this, rather than handing `getBoundingClientRect()`'s raw float straight
+ * to `resizeItem`.
+ *
+ * `resizeItem` (virtual-core) treats ANY nonzero delta as real:
+ * `const delta = size - itemSize; if (delta !== 0) { ...; this.notify(...) }`
+ * — no epsilon. `getBoundingClientRect()` returns sub-pixel floats, and nothing
+ * guarantees two reads of the SAME unchanged row return the identical float:
+ * fractional `transform: translateY(...)` offsets (this row's own positioning,
+ * line 691) and fractional scroll/zoom compound through layout differently
+ * from one paint to the next, so a row that hasn't visibly changed at all can
+ * still measure 0.2px taller the second time. Every other height constant in
+ * this file is a whole pixel (`ESTIMATED_ROW_HEIGHT`, `ROW_GAP`, the streamed/
+ * queued heights in this file's own tests) — rounding here is what keeps
+ * `itemSizeCache` speaking the same whole-pixel language `resizeItem`'s own
+ * equality check is guarding, so that language once again means "the row
+ * actually changed size" and not "read it a second time and it drifted".
+ * Cheap insurance against a resize→notify→re-render→measure cycle that never
+ * hits exact float equality on its own — attachment rows are where this
+ * actually gets exercised: an image settling to its natural size, or several
+ * cards in one row finishing layout across a couple of frames, means this
+ * ROW's own height is genuinely being re-measured more than once in quick
+ * succession, which a stable row never is.
+ */
+export function measureRowHeight(el: Element): number {
+  return Math.round(el.getBoundingClientRect().height)
+}
+
+/**
+ * The virtualizer's own `measureElement`, with the one reading that is never a
+ * row height refused.
+ *
+ * A workspace switched away from is retained but `display:none`
+ * (workspace-slot-style.ts), so every row in it loses its box at the same
+ * instant and virtual-core's per-row ResizeObserver reports 0 for all of them.
+ * `resizeItem` has no zero-guard, so that writes 0 over the real height of
+ * every row the window was holding and the transcript's total size collapses —
+ * measured live on a 30-turn chat, 8329px of content came back from one
+ * workspace round-trip as 5907. Coming back to a scrollable range far shorter
+ * than the one the reader left CLAMPS the offset the browser restores, which is
+ * what left a bottom-anchored reader 2400px short of the bottom with a ~740ms
+ * glide to climb back.
+ *
+ * A row with no box has not been re-measured at all; its last real height is
+ * the honest answer, and virtual-core exposes exactly that cache.
+ */
+export function measureRowHeightOrCached(
+  el: HTMLDivElement,
+  _entry: ResizeObserverEntry | undefined,
+  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+): number {
+  const height = measureRowHeight(el)
+  if (height > 0) return height
+  const key = instance.options.getItemKey(instance.indexFromElement(el))
+  return instance.itemSizeCache.get(key) ?? height
+}
+
+/**
+ * How many consecutive animation frames the virtualized list's TOTAL HEIGHT has
+ * to hold still before a chat that has just opened is shown — see `settled` in
+ * `AgentTranscript`.
+ *
+ * Opening a chat is not one layout, it is a convergence loop. A row's height
+ * starts as `estimateRowHeight`'s guess; `measureElement` corrects it; the
+ * correction changes the total; the total change reaches
+ * `use-transcript-anchor`'s ResizeObserver, which moves `scrollTop`; the scroll
+ * event reaches the virtualizer A FRAME LATER and changes which rows are in
+ * range; and those newly-ranged rows arrive as guesses again. Every lap of that
+ * loop paints. Measured live on a 30-turn chat opened from the sidebar, at
+ * ordinary speed, with no artificial load:
+ *
+ *   t+0ms    rows still ranged for the previous offset — viewport blank
+ *   t+63ms   top row #85 at y=-46
+ *   t+82ms   top row #83 at y=-26   total 9569 -> 9167: content moves 402px
+ *   t+105ms  total 9129             another 38px
+ *
+ * Four painted positions in ~105ms. `scrollTop` is the true bottom in every one
+ * of them — this is not a scroll bug and no scroll-position fix removes it; the
+ * CONTENT is changing height under a correctly anchored viewport because the
+ * rows in view were over-estimated. Reported as "opening an OLD chat makes it
+ * so that the scroll starts at the top, and THEN scrolls to the bottom", and
+ * measured identically on all three ways in: opening the workspace, opening the
+ * chat into a new tab, and closing and reopening an already-visited one.
+ *
+ * Counting FRAMES rather than waiting a duration is what keeps this honest: the
+ * count restarts on every real change, so this waits exactly as long as the
+ * cascade actually runs and no longer. Three because the cascade's own laps are
+ * one frame apart and it plateaus for a frame mid-way (9569 twice above) — two
+ * would release inside its own pause.
+ */
+const SETTLE_QUIET_FRAMES = 3
 
 /** An unmeasured row's opening guess FLOOR — a short assistant reply's real
  *  shape (padding + one prose line + turnbar + its own group gap), not 64,
@@ -266,6 +386,10 @@ function TranscriptRowView({
   firstTurnSequence,
   firstReplySequence,
   callsByTurn,
+  subagentsByTurn,
+  choicesByTurn,
+  wsId,
+  chatId,
   precedingUserAt,
   lastInAgentRun,
 }: {
@@ -274,6 +398,10 @@ function TranscriptRowView({
   firstTurnSequence: number | undefined
   firstReplySequence: number | undefined
   callsByTurn: Map<string, AgentToolCall[]>
+  subagentsByTurn: Map<string, AgentSubagent[]>
+  choicesByTurn: Map<string, AgentChoice[]>
+  wsId?: string
+  chatId?: string
   precedingUserAt: Map<number, string>
   lastInAgentRun: Set<number>
 }) {
@@ -282,7 +410,8 @@ function TranscriptRowView({
       return <EventDivider tags={row.tags} providers={providers} />
     case 'first-turn-divider':
       return <FirstTurnDivider />
-    case 'message':
+    case 'message': {
+      const assistant = row.message.role === 'assistant'
       return (
         <MessageRow
           message={row.message}
@@ -290,10 +419,15 @@ function TranscriptRowView({
           firstTurn={row.message.sequence === firstTurnSequence}
           firstReply={row.message.sequence === firstReplySequence}
           turnbar={lastInAgentRun.has(row.message.sequence)}
-          toolCallsByTurn={row.message.role === 'assistant' ? callsByTurn : undefined}
+          toolCallsByTurn={assistant ? callsByTurn : undefined}
+          subagentsByTurn={assistant ? subagentsByTurn : undefined}
+          choicesByTurn={assistant ? choicesByTurn : undefined}
+          wsId={wsId}
+          chatId={chatId}
           precedingUserAt={precedingUserAt.get(row.message.sequence)}
         />
       )
+    }
   }
 }
 
@@ -304,12 +438,27 @@ function TranscriptRowView({
  * below the record and above the working line, which is the order they will
  * actually happen in.
  */
+// This component's own effects are the load-bearing part of this branch's
+// entire scroll/streaming correctness work (pin-to-top, tail-room, the
+// streaming/queued row height cache above, prepend/restore-position) and are
+// heavily interdependent through shared refs and measured DOM state, not a
+// pile of unrelated concerns. Splitting it is a real architecture decision,
+// not a quick fix — per this tool's own guidance ("split behavior-changing
+// work into separate PRs"), and given how delicate this exact file's timing
+// has already proven this session (see its own effects' doc comments), it
+// belongs in its own reviewed pass, not a last change before a CI deadline.
+// react-doctor-disable-next-line no-giant-component -- see comment above, splitting this is a separate architectural pass
 export function AgentTranscript(props: AgentTranscriptProps) {
   const { messages, queue, dockHeight } = props
+  // Whether this chat's OPENING measurement cascade is over — see
+  // `SETTLE_QUIET_FRAMES`. Until it is, the virtualized rows are laid out and
+  // measured but not shown.
+  const [settled, setSettled] = useState(false)
   const anchor = useTranscriptAnchor({
     loadingHistory: props.loading,
     initialPosition: props.initialScrollPosition,
     onPositionChange: props.onScrollPositionChange,
+    visible: props.visible,
   })
   const scrollFrame = useScrollFrameSpan()
   // The dock overlays this transcript rather than sizing it (see
@@ -320,12 +469,189 @@ export function AgentTranscript(props: AgentTranscriptProps) {
   useEffect(() => {
     anchor.notifyReflow()
   }, [dockHeight, anchor.notifyReflow])
+  // A TURN STARTING lifts the prompt that started it to the top of the
+  // transcript, so the reply has the whole viewport to grow down into rather
+  // than whatever slice bottom-following happened to leave under the previous
+  // turn — see `TranscriptAnchor.pinTurnToTop`.
+  //
+  // The queue's newest `clientRequestId` is the signal, because it is the only
+  // one that fires exactly ONCE per turn at the moment of dispatch:
+  // `messages` lags by a poll, `working` lags the daemon and is true for
+  // agent self-continued turns too, and `streamingBubbles` changes on every
+  // token. `enqueue` pushes the item synchronously, so the queued row is in
+  // the DOM by the time this layout effect reads for it.
+  //
+  // It is the QUEUED row that gets measured, not a message row: a just-sent
+  // prompt has no ledger-confirmed row yet, and by the time it does the pin's
+  // work is already done (`pinTurnToTop` keeps the offset, not the element).
+  const pinnedRequestId = useRef<string | null>(null)
+  // The prompt item the CURRENT pin was measured from, if any — kept so a
+  // later run, once the queue drains it, can tell "this prompt settled into
+  // the ledger, the pin is still exactly right" apart from "this prompt
+  // vanished without ever sending" (canceled before it dispatched), which
+  // needs an explicit release. See the empty-queue branch below.
+  const pinnedItem = useRef<PromptQueueItem | null>(null)
+  const sawFirstQueue = useRef(false)
+  useLayoutEffect(() => {
+    const newestItem = queue.at(-1) ?? null
+    const newest = newestItem?.clientRequestId ?? null
+    // A chat REOPENED with prompts still waiting inherits them; that is a
+    // restore, not a send, so the first run only ever records what it found.
+    //
+    // Computed and flipped BEFORE the equality check below, not after: a
+    // freshly-mounted pane's very first run starts with an EMPTY queue, so
+    // `newest` (null) already equals `pinnedRequestId.current`'s own initial
+    // value (also null) — the equality check below would return before ever
+    // reaching this flip, leaving `sawFirstQueue.current` false forever. The
+    // user's actual first send then finds `sawFirstQueue.current` still
+    // false, reads its OWN run as "inherited", and never pins — silently
+    // losing pin-to-top for the single most common case, the first prompt in
+    // a chat's lifetime.
+    const inherited = !sawFirstQueue.current
+    sawFirstQueue.current = true
+    if (newest === pinnedRequestId.current) return
+    pinnedRequestId.current = newest
+    if (inherited) return
+    if (newest) {
+      pinnedItem.current = newestItem
+      // ONLY IF THIS PROMPT IS ACTUALLY STARTING A TURN. A prompt sent while
+      // one is still running starts nothing — it QUEUES (the composer says
+      // "Queue a message…") until the current turn finishes. `pinTurnToTop`'s
+      // whole contract is "a turn is starting, give its reply room to grow
+      // into", and none of that holds here: no reply is coming yet, so the
+      // room it reserves just sits empty.
+      //
+      // And the blank is the lesser half. Lifting the queued row to the top of
+      // the viewport pushes the turn that IS running off the top, so the
+      // reader loses sight of the reply actually being written. Captured live
+      // mid-queue, in `.scroll`-relative coordinates:
+      //
+      //   row       top=-80  "Running the exact command now…"  streaming, off-screen
+      //   row       top=-32  "The command is still running"    streaming, off-screen
+      //   queued    top=16   the queued prompt, pinned
+      //   activity  top=96   "Calculating… · 1:04"
+      //   padding-bottom: 401px, real content ending at y=163 of a 754px pane
+      //
+      // Reported twice from a screenshot showing an entirely blank transcript
+      // with the composer reading "Queue a message…".
+      if (props.working) return
+      const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
+        `[data-client-request-id="${CSS.escape(newest)}"]`,
+      )
+      if (row) anchor.pinTurnToTop(row)
+      return
+    }
+    // The queue just drained to empty. If the prompt that was pinned settled
+    // into a real ledger message, the pin is still exactly right — it keeps
+    // an OFFSET, not the element, and releases itself once the reply grows
+    // past the reserved room (see tailRoom). But if it vanished WITHOUT
+    // settling — "Cancel unsent prompts", before it ever dispatched —
+    // nothing will ever grow to fill that room: applyTailRoom's own
+    // shortfall math then reads the now-SHRUNKEN content as needing MORE
+    // reserved space, not less, and grows a permanent, ever-widening blank
+    // gap instead of releasing it. `pinTurnToTop(null)` — the documented
+    // release path — is the only way out of that once it has happened, and
+    // nothing else in this file ever calls it.
+    const settled = pinnedItem.current
+      ? messages.find((m) => samePrompt(m, pinnedItem.current!))
+      : undefined
+    if (!settled) {
+      anchor.pinTurnToTop(null)
+    } else {
+      // Re-anchored to the LEDGER row that replaced the queued one, rather
+      // than left holding an offset with nothing to re-measure against. The
+      // pin survives the swap either way (it keeps an offset, not the
+      // element), but an offset alone assumes nothing above the pin ever
+      // moves — and `lastInAgentRun` above empties the moment `working` goes
+      // true, so every settled reply on screen loses its turnbar. Whether the
+      // turnbars go before or after this swap is a race; re-anchoring here
+      // means `applyTailRoom` has a live element to re-measure from either
+      // way.
+      const row = anchor.scrollRef.current?.querySelector<HTMLElement>(
+        `[data-sequence="${settled.sequence}"]`,
+      )
+      if (row) anchor.pinTurnToTop(row)
+    }
+    pinnedItem.current = null
+    // `props.working` is READ, not depended on: this effect exists to react to
+    // the QUEUE changing, and re-running it when a turn merely starts or stops
+    // would re-enter the branches above against a `newest` that has not moved.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, props.working is read not tracked
+  }, [queue, messages, anchor.scrollRef, anchor.pinTurnToTop])
   const callsByTurn = useMemo(
     () => groupToolCallsByTurn(props.activity.toolCalls),
     [props.activity.toolCalls],
   )
+  // A Codex-style nested subagent carries no turnId at all (see AgentSubagent's
+  // own doc) — there is no turn it actually belongs to, so once it finishes it
+  // is folded into the turn it actually ran under: the first assistant reply
+  // recorded AT OR AFTER it ended, the same way every other finished subagent
+  // is nested under the reply its work fed into.
+  //
+  // THE REGRESSION this fixed: the first cut of this attached every orphaned
+  // subagent to whichever turn was CURRENTLY last, recomputed fresh on every
+  // render — so a Codex subagent that ran minutes ago kept sliding onto
+  // whatever turn (any provider) happened most recently, including one on a
+  // DIFFERENT provider entirely after a switch. Anchoring on the subagent's
+  // own `endedAt` against each reply's `at` makes the attachment a fact about
+  // when it happened, not about what the transcript looks like right now.
+  const subagentsByTurn = useMemo(() => {
+    const grouped = groupSubagentsByTurn(props.activity.subagents)
+    grouped.delete('')
+    const orphaned = finishedNestedSubagents(props.activity)
+    if (orphaned.length === 0) return grouped
+
+    const assistantTurns: { turnId: string; at: number }[] = []
+    for (const m of messages) {
+      if (m.role === 'assistant' && m.turnId) {
+        assistantTurns.push({ turnId: m.turnId, at: Date.parse(m.at) })
+      }
+    }
+    assistantTurns.sort((a, b) => a.at - b.at)
+    if (assistantTurns.length === 0) return grouped
+
+    for (const subagent of orphaned) {
+      const endedAt = Date.parse(subagent.endedAt as string)
+      const turnId =
+        assistantTurns.find((t) => t.at >= endedAt)?.turnId ?? assistantTurns.at(-1)!.turnId
+      const existing = grouped.get(turnId)
+      if (existing) existing.push(subagent)
+      else grouped.set(turnId, [subagent])
+    }
+    for (const list of grouped.values()) {
+      list.sort((a, b) => a.seq - b.seq)
+    }
+    return grouped
+  }, [props.activity, messages])
+  const choicesByTurn = useMemo(
+    () => groupChoicesByTurn(props.activity.choices),
+    [props.activity.choices],
+  )
+  // Which turns already have a reply row that can hold their tool calls. Only
+  // an assistant message anchors one — TranscriptRowView hands `callsByTurn` to
+  // nothing else — so counting any other role here would hide a live turn's
+  // work behind a row that never draws it.
+  const anchoredTurnIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const message of messages) {
+      if (message.role === 'assistant' && message.turnId) ids.add(message.turnId)
+    }
+    return ids
+  }, [messages])
+  const liveToolCalls = useMemo(
+    () => liveTurnToolCalls(props.activity, anchoredTurnIds),
+    [props.activity, anchoredTurnIds],
+  )
   const precedingUserAt = useMemo(() => precedingUserAtByAssistantSequence(messages), [messages])
-  const lastInAgentRun = useMemo(() => lastInAgentRunSequences(messages), [messages])
+  // Empty while `working` — the settled reply this would otherwise mark is not
+  // actually the run's last step any more the instant the agent starts on the
+  // next one (self-continued or freshly prompted; `working` covers both, see
+  // this file's own note on it above). Without this a screenshot showed the
+  // turnbar staying persistent on a reply the agent had already moved past.
+  const lastInAgentRun = useMemo(
+    () => (props.working ? EMPTY_SEQUENCE_SET : lastInAgentRunSequences(messages)),
+    [messages, props.working],
+  )
   // The ABSOLUTE first turn, never the first one merely loaded — `hasOlder`
   // paging in more history must not retroactively unfreeze a message that was
   // never actually the beginning of the conversation. Only meaningful once
@@ -366,7 +692,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     getScrollElement: () => anchor.scrollRef.current,
     estimateSize: (index) => estimateRowHeight(rows[index]),
     overscan: 12,
-    measureElement: (el) => el.getBoundingClientRect().height,
+    measureElement: measureRowHeightOrCached,
     getItemKey,
     observeElementRect: observeScrollRect,
     // Off by design, not a default left alone. `measureElement`'s ref fires
@@ -389,6 +715,161 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     useFlushSync: false,
   })
 
+  // Watches the virtualized list's total height until it stops moving, then
+  // shows it — see `SETTLE_QUIET_FRAMES` for what is moving and why. Runs only
+  // while a chat is opening: `settled` latches true and this stops for good.
+  useEffect(() => {
+    // NOT ON SCREEN, so this has not opened yet. A background tab lays out and
+    // measures behind `visibility:hidden` — and then measures AGAIN when it is
+    // brought to the front, because its rows only get their real paint-time
+    // sizes once they are actually painted. Letting it latch while hidden spent
+    // the gate on a settle nobody saw, and the reader got the whole cascade on
+    // the first switch to that tab: measured live, three content states and a
+    // 338px shift in ~130ms.
+    if (settled || rows.length === 0 || props.visible === false) return
+    let quiet = 0
+    let last = -1
+    let frame = 0
+    const step = () => {
+      const el = anchor.scrollRef.current
+      // NOTHING IS LAID OUT YET, so nothing is converging yet. A chat mounts
+      // well before its pane has a box — a second tab opens hidden, a workspace
+      // slot is `display:none` until it is switched to — and with no viewport to
+      // range against, the virtualizer renders no rows and the total sits
+      // perfectly still at its opening estimate. Counting those frames as quiet
+      // latched this open before the first row had ever rendered, and the whole
+      // cascade then played out in full view.
+      if (!el || el.clientHeight === 0 || rowVirtualizer.getVirtualItems().length === 0) {
+        quiet = 0
+        last = -1
+        frame = requestAnimationFrame(step)
+        return
+      }
+      const total = rowVirtualizer.getTotalSize()
+      if (total !== last) {
+        last = total
+        quiet = 0
+      } else {
+        quiet += 1
+      }
+      if (quiet >= SETTLE_QUIET_FRAMES) {
+        setSettled(true)
+        return
+      }
+      frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+    // `anchor.scrollRef` is a ref: `.current` is read fresh inside the frame
+    // callback regardless of this list — React's own documented exemption.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
+  }, [settled, rows.length, rowVirtualizer, props.visible])
+
+  // The streaming bubble's own LAST REAL height, by message sequence — kept
+  // only as long as that message is actually streaming. Read once, in the
+  // settle effect below, the moment that same sequence reappears as a
+  // virtualized row: `estimateRowHeight` has to guess from raw character
+  // count alone, and for anything its line-height model doesn't fit — a
+  // heading, a list, a table — that guess lands well short of a real reply's
+  // height. This is the one case a guess is unnecessary: the content just sat
+  // on screen, laid out for real, a moment before the same message settles
+  // into the virtualizer. Reusing that measurement instead of re-guessing is
+  // what closes the "glides up, then drops hard, then glides back up" gap
+  // `estimateRowHeight`'s own doc comment already describes as a residual,
+  // physical drop in `.stream`'s height the browser clamps `scrollTop`
+  // against — measured live: a 212px hard drop, then a ~230ms climb back.
+  const lastStreamedHeight = useRef(new Map<number, number>())
+  useLayoutEffect(() => {
+    const bubbles = props.streamingBubbles
+    const container = anchor.scrollRef.current
+    if (!bubbles?.length || !container) return
+    for (const bubble of bubbles) {
+      const el = container.querySelector<HTMLElement>(`[data-sequence="${bubble.sequence}"]`)
+      if (el) lastStreamedHeight.current.set(bubble.sequence, measureRowHeight(el))
+    }
+    // Deliberately gated on `streamingBubbles` alone, not every render: this
+    // pays a querySelector + forced-synchronous getBoundingClientRect per
+    // streaming bubble, and AgentTranscript re-renders on every rAF-batched
+    // token flush while a reply is actively streaming — ungated, this
+    // reintroduced exactly the per-frame layout cost the rest of this
+    // branch exists to remove.
+    // `anchor.scrollRef` is a ref: `.current` is read fresh when the effect
+    // body runs regardless of the deps array, so it is never "stale" the way
+    // a plain value could be, and including the (identity-stable) ref object
+    // itself would change nothing — React's own documented exemption.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
+  }, [props.streamingBubbles])
+  // Primes the virtualizer with that real height BEFORE this row's first
+  // paint as a virtualized item, rather than letting it start from
+  // `estimateRowHeight`'s guess and wait for `measureElement` to correct it a
+  // beat later. One-shot per message: the cache entry is consumed (deleted)
+  // the instant it is used, so a later, ordinary re-measurement of the same
+  // row (content still settling, a code block highlighting in) is untouched.
+  useLayoutEffect(() => {
+    if (lastStreamedHeight.current.size === 0) return
+    rows.forEach((row, index) => {
+      if (row.kind !== 'message') return
+      const cached = lastStreamedHeight.current.get(row.message.sequence)
+      if (cached === undefined) return
+      lastStreamedHeight.current.delete(row.message.sequence)
+      rowVirtualizer.resizeItem(index, cached)
+    })
+  }, [rows, rowVirtualizer])
+
+  // The queued row's own LAST REAL height, by clientRequestId — the same
+  // idea as `lastStreamedHeight` above, one step earlier in a message's
+  // life. Dispatch removes a prompt's `QueuedRow` from `.stream` the
+  // instant the daemon confirms it, well before the corresponding message
+  // is necessarily back in `rows` (that needs its own fetch or WS push) —
+  // so the real height that row's own prompt text was occupying vanishes
+  // outright for however long that gap lasts, and `estimateRowHeight`'s
+  // guess stands in until `measureElement` corrects it a beat later.
+  // Measured live: a 245px hard drop the instant the queued row unmounts,
+  // then a climb back — reported as "bouncing... once the provider
+  // approved and confirmed the message has been submitted".
+  //
+  // Matched via `samePrompt` — the SAME evidence usePromptQueue itself
+  // trusts to retire a queued item — rather than a second, driftable
+  // definition of "is this THAT prompt" living here.
+  const lastQueuedHeight = useRef(new Map<string, { item: PromptQueueItem; height: number }>())
+  useLayoutEffect(() => {
+    const container = anchor.scrollRef.current
+    if (!container) return
+    for (const item of queue) {
+      const el = container.querySelector<HTMLElement>(
+        `[data-client-request-id="${CSS.escape(item.clientRequestId)}"]`,
+      )
+      if (el)
+        lastQueuedHeight.current.set(item.clientRequestId, {
+          item,
+          height: measureRowHeight(el),
+        })
+    }
+    // Gated on `queue` alone — see the streaming-bubble effect above's own
+    // comment for why: the same per-item forced-layout cost, paid on every
+    // render instead of only when the queue actually changes.
+    // Same false positive as the streaming-bubble effect above:
+    // `anchor.scrollRef` is a ref, and reading `.current` inside the effect
+    // body is never stale.
+    // react-doctor-disable-next-line exhaustive-deps -- see comment above, anchor.scrollRef is a ref
+  }, [queue])
+  // Primes the virtualizer the same way the streaming-bubble effect above
+  // does, for the same reason. One-shot per prompt: consumed (deleted) the
+  // instant a match is used, so a later, ordinary re-measurement of the
+  // same row is untouched.
+  useLayoutEffect(() => {
+    if (lastQueuedHeight.current.size === 0) return
+    rows.forEach((row, index) => {
+      if (row.kind !== 'message') return
+      for (const [key, { item, height }] of lastQueuedHeight.current) {
+        if (!samePrompt(row.message, item)) continue
+        lastQueuedHeight.current.delete(key)
+        rowVirtualizer.resizeItem(index, height)
+        break
+      }
+    })
+  }, [rows, rowVirtualizer])
+
   return (
     <div
       className="scroll"
@@ -398,6 +879,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         anchor.onScroll()
         scrollFrame.onScrollEvent()
       }}
+      // A REAL gesture at the transcript outranks the opening gate above,
+      // whatever is still resizing behind it: a reader reaching for a chat is
+      // owed the chat. Deliberately not `onScroll`, which fires for this
+      // component's own programmatic writes (the anchor's mount landing among
+      // them) and would release the gate before the first row had rendered.
+      onWheel={() => setSettled(true)}
+      onPointerDown={() => setSettled(true)}
     >
       {/* Bottom-anchor for a SHORT conversation — see transcript.css's own
           comment on `.scroll-spacer` for why this is a separate flex-grow
@@ -440,7 +928,13 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             between a zero-height box and whatever follows it — the old
             `messages.map` over an empty array emitted no element at all. */}
         {rows.length > 0 && (
-          <div className="virtual-rows" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+          <div
+            className="virtual-rows"
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              ...(settled ? null : { visibility: 'hidden' }),
+            }}
+          >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const row = rows[virtualRow.index]
               if (!row) return null
@@ -468,6 +962,10 @@ export function AgentTranscript(props: AgentTranscriptProps) {
                     firstTurnSequence={firstTurnSequence}
                     firstReplySequence={firstReplySequence}
                     callsByTurn={callsByTurn}
+                    subagentsByTurn={subagentsByTurn}
+                    choicesByTurn={choicesByTurn}
+                    wsId={props.wsId}
+                    chatId={props.chatId}
                     precedingUserAt={precedingUserAt}
                     lastInAgentRun={lastInAgentRun}
                   />
@@ -476,7 +974,12 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             })}
           </div>
         )}
-        {props.trailingInterruption && !props.working && <InterruptedDivider />}
+        {props.trailingInterruption &&
+          props.trailingInterruption.length > 0 &&
+          !props.working &&
+          !props.compacting && (
+            <EventDivider tags={props.trailingInterruption} providers={props.providers} />
+          )}
         {props.streamingBubbles?.map((bubble) => (
           <MessageRow
             key={bubble.sequence}
@@ -485,6 +988,14 @@ export function AgentTranscript(props: AgentTranscriptProps) {
             streaming
           />
         ))}
+        {/* Directly under the reply-so-far, which is where these same rows end
+            up once the turn closes and they reparent onto its message row. */}
+        <AgentLiveTurnTools
+          calls={liveToolCalls}
+          toolOutput={props.toolOutput}
+          wsId={props.wsId}
+          chatId={props.chatId}
+        />
         {queue.map((item, index) => {
           // The ABSOLUTE first turn, exactly as firstTurnSequence reasons about
           // it above: nothing loaded yet, nothing older to page in, and this is
@@ -516,9 +1027,21 @@ export function AgentTranscript(props: AgentTranscriptProps) {
         })}
         <WorkingLine
           activity={props.activity}
-          working={props.working}
+          // `working` is folded from the daemon's event-sourced turn state,
+          // dispatched over the ASYNC command path on purpose (StartTurn and
+          // StopTurn fire on every hook, and a sync wait here would put a
+          // git-mutex-prone projection back on the hook's critical path — see
+          // event_store.go's own comment on that history). It can therefore
+          // still read false for a moment after a new turn's first tokens are
+          // already arriving. `streamingBubbles` comes off that same delta
+          // feed the text itself renders from, so a live bubble is proof the
+          // chat is working regardless of whether the fold has caught up —
+          // observed live as a reply filling in with no spinner above it.
+          working={props.working || (props.streamingBubbles?.length ?? 0) > 0}
           since={messages.at(-1)?.at}
           compactingLive={props.compacting}
+          reasoning={props.reasoning}
+          plan={props.plan}
         />
         {/* A REAL, measured spacer — not `.scroll`'s own `padding-bottom` (see
             `.dock-spacer`'s own comment in transcript.css for why: the

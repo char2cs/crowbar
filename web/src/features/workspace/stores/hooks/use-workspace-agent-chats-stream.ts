@@ -149,6 +149,7 @@ interface AgentStreamEvent {
     | 'terminal_wait'
     | 'prompt_settled'
     | 'message_delta'
+    | 'plan'
     | 'compaction_started'
     | 'compaction_stopped'
     | 'title_set'
@@ -212,6 +213,18 @@ interface AgentStreamEvent {
    */
   clientRequestId?: string
   /**
+   * Whether anything actually proved the provider took that prompt, on the
+   * `prompt_settled` kind. True is a built-in the CLI demonstrably ran (a
+   * `/compact`); absent or false is the daemon's delivery timeout expiring with
+   * no evidence of any kind.
+   *
+   * The queue item is the only place the user's typed text still exists at that
+   * moment — the daemon's journal keeps a hash of it, never the text — so this
+   * is what separates "safe to drop" from "the user's words would be destroyed".
+   * Absent reads as false, which is the preserving answer.
+   */
+  promptConsumed?: boolean
+  /**
    * An assistant message still being produced, on the `message_delta` kind.
    *
    * Carries the text SO FAR rather than the newest increment, so a client that
@@ -219,7 +232,24 @@ interface AgentStreamEvent {
    * its own. It is deliberately not in the ledger: a message still growing is a
    * view, and the ledger gets it once, when it is finished.
    */
-  message?: { id: string; text: string }
+  message?: {
+    id: string
+    text: string
+    /**
+     * WHICH stream this text belongs to. Absent is the agent's ANSWER — the
+     * stream that existed before there was more than one, and the only one the
+     * ledger ever records. `reasoning` is the agent thinking on the way there:
+     * live-only, dropped at the turn edge, and rendered as a thought rather
+     * than as the reply.
+     */
+    kind?: string
+  }
+  /**
+   * The agent's own running to-do list, on the `plan` kind. Always the WHOLE
+   * list — the newest one is the entire truth, so a client replaces rather than
+   * merges and a missed frame costs nothing.
+   */
+  plan?: { text: string; status: string }[]
 }
 
 /**
@@ -741,6 +771,14 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // Hardcoding false here is exactly what kept the spinner dark under a live
           // background subagent even after the server knew better.
           st.setAgentChatWorking(ev.chatId, ev.working === true)
+          // The thinking belonged to the turn that just changed state, and the
+          // answer supersedes it. Unlike streamingMessages below there is nothing
+          // to preserve across the edge: a thought is never recorded, so a stale
+          // one can only mislead. The server drops its own buffer on the same
+          // edge (turn/reasoning.go).
+          st.setAgentChatStreamingReasoning(ev.chatId, null)
+          st.setAgentChatStreamingToolOutput(ev.chatId, null)
+          st.setAgentChatStreamingPlan(ev.chatId, null)
           //
           // Deliberately NOT clearing streamingMessages[chatId] here (tried,
           // reverted): "interrupted" does not mean dead. Stopping a turn is a
@@ -754,11 +792,39 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           // dedup-against-the-ledger check, same as any other item.
           return
         case 'message_delta':
+          if (!ev.message) return
+          // A THOUGHT, not the answer. It must never reach streamingMessages:
+          // nothing in the ledger will ever match it, so useChatMessages' own
+          // prune-against-the-ledger pass could not retire it and it would sit in
+          // the transcript as an assistant bubble forever. It is also the frame
+          // that fills the long silence while a reasoning model works, which is
+          // the whole reason it is carried at all.
+          if (ev.message.kind === 'reasoning') {
+            st.setAgentChatStreamingReasoning(ev.chatId, {
+              id: ev.message.id,
+              text: ev.message.text,
+            })
+            return
+          }
+          // A running tool's output. Same contract as a thought: nothing in the
+          // ledger will ever match it (the tool's full output arrives once, on
+          // the completed call), so it must never reach streamingMessages either.
+          if (ev.message.kind === 'tool_output') {
+            st.setAgentChatStreamingToolOutput(ev.chatId, {
+              id: ev.message.id,
+              text: ev.message.text,
+            })
+            return
+          }
           // The agent is mid-sentence. This is the only frame in the feed that is
           // not a record of anything — it is replaced by the ledger's own copy the
           // moment the message completes. Batched to the next frame rather than
           // written straight through — see streamingMessages above.
-          if (ev.message) streamingMessages.schedule(ev.chatId, ev.message)
+          streamingMessages.schedule(ev.chatId, ev.message)
+          return
+        case 'plan':
+          // Wholesale replace: see the frame's own doc above.
+          st.setAgentChatStreamingPlan(ev.chatId, ev.plan ?? null)
           return
         case 'compaction_started':
           // The ledger's own interruption record for this is born already
@@ -780,11 +846,20 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           st.setAgentChatCompacting(ev.chatId, false)
           return
         case 'prompt_settled':
-          // A prompt Crowbar delivered turned out not to produce a turn — a
-          // provider built-in, handled inside the CLI, announcing nothing. The
+          // A prompt Crowbar delivered turned out not to produce a turn. The
           // composer's pending queue is waiting on a user message that is never
           // coming, and this frame is the only thing that releases it.
-          if (ev.clientRequestId) st.setAgentChatPromptSettled(ev.chatId, ev.clientRequestId)
+          //
+          // WHICH way it is released is the difference between a tidy composer
+          // and losing the user's work. `promptConsumed` says the CLI actually
+          // ran it — a built-in like `/compact`, which announces nothing by
+          // design — and only then is the queued text spent and safe to discard.
+          // Without that proof the daemon is merely reporting that its delivery
+          // timeout expired, and the queue item is the last copy of what the user
+          // typed, so it is kept and surfaced as failed instead.
+          if (!ev.clientRequestId) return
+          if (ev.promptConsumed) st.setAgentChatPromptSettled(ev.chatId, ev.clientRequestId)
+          else st.setAgentChatPromptAbandoned(ev.chatId, ev.clientRequestId)
           return
         case 'terminal_wait':
           // The frame IS the answer, both ways round: a present payload raises

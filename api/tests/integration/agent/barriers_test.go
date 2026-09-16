@@ -396,14 +396,16 @@ func settleCLI(
 	//     claude's ORIGINAL automatic delivery attempt failed once
 	//     (transient — most likely a race with the runner row not yet being
 	//     queryable at the exact moment SessionStart fires), and NOTHING
-	//     ever retries it here. In production this self-heals within 1s via
-	//     `go drainHookSpoolLoop(ctx, host)` (cmd/crowbar/main.go, started by
-	//     `crowbar serve`) — but this harness builds its daemon in-process
-	//     (newHarness) and never runs `serve`, so that retry loop never
-	//     starts. A real fix needs the client-side spool/drain logic in
-	//     cmd/crowbar/hook_spool.go (currently unexported, package main)
-	//     moved to an importable package so the test harness can run its own
-	//     copy of the retry loop — a moderate refactor, not attempted here.
+	//     ever retries it here. As of the hook-spool removal, retry lives
+	//     IN-PROCESS inside runHook itself (deliverHookEnvelopeWithRetry,
+	//     cmd/crowbar/hook_delivery.go) — a few hundred ms to ~1.2s of bounded
+	//     retries within the same `crowbar hook` invocation, no separate
+	//     daemon-lifetime loop and no dependency on `crowbar serve` being up.
+	//     This harness DOES invoke the real hook command, so it may already
+	//     exercise that retry — not reverified here; whether ~1.2s covers the
+	//     same window the old 1s-tick background loop happened to cover is
+	//     open. If it's still short of the race, the fix is a longer or
+	//     larger retry budget in runHook, not a moved/imported drain loop.
 	//
 	//  2. claude's OWN terminal output freezes regardless of (1): manually
 	//     firing the retry above makes CurrentSession correct immediately,

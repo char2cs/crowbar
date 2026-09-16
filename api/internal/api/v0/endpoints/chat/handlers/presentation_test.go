@@ -56,6 +56,61 @@ func TestSubmitPrompt_ReturnsReplacementIdentity(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), `"runnerId":"runner-new"`)
 }
 
+// A staged model/effort travels on the SAME request as the text — the
+// composer never PATCHes .../selection on its own, only bundles the pick
+// with the next send. Regression for that becoming two separate calls again.
+func TestSubmitPrompt_ThreadsStagedModelAndEffortOntoTheSameCall(t *testing.T) {
+	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
+		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341","model":"opus","effort":"high"}`))
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
+	uc := &fakeAgentUsecase{
+		getChat:      domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
+		promptResult: domain.AgentPromptSubmission{RunnerID: "runner-new", TerminalSessionID: "term-new"},
+	}
+	newChatHandlers(uc).SubmitPrompt(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, uc.promptCalls, 1)
+	assert.Equal(t, "opus", uc.promptCalls[0].model)
+	assert.Equal(t, "high", uc.promptCalls[0].effort)
+}
+
+// A staged provider travels on the SAME request as the text too — the
+// picker never calls a separate switch endpoint any more, only bundles the
+// pick with the next send, exactly like model/effort above.
+func TestSubmitPrompt_ThreadsStagedProviderOntoTheSameCall(t *testing.T) {
+	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
+		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341","provider":"codex"}`))
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
+	uc := &fakeAgentUsecase{
+		getChat:      domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
+		promptResult: domain.AgentPromptSubmission{RunnerID: "runner-new", TerminalSessionID: "term-new"},
+	}
+	newChatHandlers(uc).SubmitPrompt(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, uc.promptCalls, 1)
+	assert.Equal(t, "codex", uc.promptCalls[0].provider)
+}
+
+// No model/effort in the request body means the composer had nothing staged
+// — the sticky selection must be left exactly as-is, not overwritten to "".
+func TestSubmitPrompt_OmittedModelAndEffortMeansNothingStaged(t *testing.T) {
+	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
+		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341"}`))
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
+	uc := &fakeAgentUsecase{
+		getChat:      domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
+		promptResult: domain.AgentPromptSubmission{RunnerID: "runner-new", TerminalSessionID: "term-new"},
+	}
+	newChatHandlers(uc).SubmitPrompt(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, uc.promptCalls, 1)
+	assert.Empty(t, uc.promptCalls[0].model)
+	assert.Empty(t, uc.promptCalls[0].effort)
+}
+
 func TestSubmitPrompt_ConflictCarriesStableMachineCode(t *testing.T) {
 	ctx, rec := newTestContext(t, http.MethodPost, "/prompts", []byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341"}`))
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}

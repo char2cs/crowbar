@@ -24,13 +24,23 @@ func (rs *Runners) SubmitPrompt(
 	ctx context.Context,
 	chatID, text, clientRequestID string,
 ) (domain.AgentPromptSubmission, error) {
+	defer rs.spawns.Lock(chatID)()
+	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID)
+}
+
+// submitPromptLocked is SubmitPrompt's body, split out so
+// SubmitPromptWithSwitch (promptswitch.go) can run it as the TAIL of its own
+// single gate hold — a staged provider switch and selection commit, then this,
+// never releasing the gate in between. See that file's own doc for why.
+func (rs *Runners) submitPromptLocked(
+	ctx context.Context,
+	chatID, text, clientRequestID string,
+) (domain.AgentPromptSubmission, error) {
 	clientRequestID, err := normalisePromptRequest(text, clientRequestID)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, err
 	}
 	textHash := agentjournal.PromptTextHash(text)
-
-	defer rs.spawns.Lock(chatID)()
 
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
@@ -72,7 +82,7 @@ func (rs *Runners) SubmitPrompt(
 
 	replacementRunnerID := uuid.NewString()
 	prior, existingAttempt, err := rs.prompts.Begin(
-		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, replacementRunnerID, time.Now(),
+		journalDir, clientRequestID, text, textHash, live.ProviderID, live.ID, replacementRunnerID, time.Now(),
 	)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, fmt.Errorf(
@@ -172,7 +182,7 @@ func (rs *Runners) submitPromptOverAPI(
 	}
 
 	prior, existingAttempt, err := rs.prompts.Begin(
-		journalDir, clientRequestID, textHash, live.ProviderID, live.ID, live.ID, time.Now(),
+		journalDir, clientRequestID, text, textHash, live.ProviderID, live.ID, live.ID, time.Now(),
 	)
 	if err != nil {
 		return domain.AgentPromptSubmission{}, true, fmt.Errorf(
@@ -187,7 +197,15 @@ func (rs *Runners) submitPromptOverAPI(
 		return domain.AgentPromptSubmission{}, true, ErrPromptOutcomeUnknown
 	}
 
-	_, _, pushErr := rs.pushPromptOverAPI(ctx, live.ID, live.CurrentSession, worktree, text)
+	// A COPY of text for dispatch — the durable ledger text is never mutated.
+	dispatchText, err := rs.rewritePromptTextForDispatch(ctx, chat.WorkspaceID, chat.ID, text)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, true, rs.markPromptOutcomeUncertain(
+			ctx, journalDir, clientRequestID, "materialize attachments", err,
+		)
+	}
+
+	_, _, pushErr := rs.pushPromptOverAPI(ctx, live.ID, live.CurrentSession, worktree, dispatchText)
 	if pushErr != nil {
 		return domain.AgentPromptSubmission{}, true, rs.markPromptOutcomeUncertain(
 			ctx, journalDir, clientRequestID, "api push", pushErr,
@@ -359,131 +377,4 @@ func promptSubmission(record agentjournal.PromptRequest) domain.AgentPromptSubmi
 		RunnerID:          record.RunnerID,
 		TerminalSessionID: record.TerminalSessionID,
 	}
-}
-
-type promptDelivery struct {
-	promptSteps     []engineagents.InjectStep
-	resumeSteps     []engineagents.InjectStep
-	launchSessionID string
-	resuming        bool
-	// conversation and contextResuming carry a virgin-restart handoff: a native
-	// session that has never itself recorded a turn holds no history for
-	// --resume to restore, so restarting it to deliver its first real message
-	// is this provider's first turn in the chat, not a gap since one it never
-	// had. Both stay empty/false on every other path, where the mechanical
-	// resuming above is already the right content signal too — see
-	// resolvePromptDelivery.
-	conversation    string
-	contextResuming bool
-}
-
-func (rs *Runners) resolvePromptDelivery(
-	ctx context.Context,
-	chatID string,
-	live engineagents.Runner,
-	descriptor engineagents.Agent,
-) (promptDelivery, error) {
-	resuming, nativeSessionID, err := rs.resumeTarget(ctx, chatID, live)
-	if err != nil {
-		return promptDelivery{}, err
-	}
-
-	promptSteps, err := descriptor.PromptSteps(resuming)
-	if err != nil {
-		if errors.Is(err, engineagents.ErrPromptSubmitUnsupported) {
-			return promptDelivery{}, ErrPromptUnsupported
-		}
-		return promptDelivery{}, fmt.Errorf("agent: submit prompt: render prompt mapping: %w", err)
-	}
-	if err := rs.RequirePromptRestart(ctx, chatID, live, descriptor); err != nil {
-		return promptDelivery{}, err
-	}
-
-	// A named native session that has never itself recorded a turn has nothing
-	// on disk for --resume to restore, and no native session at all is, a
-	// fortiori, exactly as new — either way this restart is this provider's
-	// FIRST real turn in the chat, not a gap since one it never had. Computed
-	// before the resuming/not-resuming split below, and BEFORE any early
-	// return, so both outcomes of resumeTarget get the same treatment: the
-	// live bug this fixes reached here with resuming=false (resumeTarget's own
-	// "not yet resumable" branch), not just the resuming=true branch. Same
-	// test resumableConversation already uses for the switch path (see
-	// switch.go), applied here for the restart-to-deliver path.
-	everTurned := false
-	if nativeSessionID != "" {
-		_, found, err := rs.activity.LastTurnForSession(ctx, chatID, live.ProviderID, nativeSessionID)
-		if err != nil {
-			return promptDelivery{}, fmt.Errorf("agent: submit prompt: check native session history: %w", err)
-		}
-		everTurned = found
-	}
-
-	out := promptDelivery{promptSteps: promptSteps, resuming: resuming, contextResuming: resuming}
-	if !everTurned {
-		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, false, time.Time{})
-		if err != nil {
-			return promptDelivery{}, fmt.Errorf("agent: submit prompt: assemble handoff: %w", err)
-		}
-		out.conversation = conversation
-		out.contextResuming = false
-	}
-	if !resuming {
-		return out, nil
-	}
-	// Unsupported is judged against the FULL native mapping, never the
-	// api-transport-suppressed one below: a provider with no resume arg at
-	// all cannot deliver this message any way, but one whose api connection
-	// resumes it instead (nativeResumeSteps) is not that case merely because
-	// its PTY carries no positional args.
-	if _, resumable := descriptor.ResumeArg(); !resumable {
-		return promptDelivery{}, ErrPromptUnsupported
-	}
-	out.resumeSteps = nativeResumeSteps(descriptor, nativeSessionID)
-	out.launchSessionID = nativeSessionID
-	return out, nil
-}
-
-func (rs *Runners) resumeTarget(
-	ctx context.Context,
-	chatID string,
-	live engineagents.Runner,
-) (bool, string, error) {
-	if live.LaunchSessionID != "" &&
-		(live.CurrentSession == "" || live.CurrentSession == live.LaunchSessionID) {
-		return true, live.LaunchSessionID, nil
-	}
-	if live.CurrentSession == "" {
-		return false, live.CurrentSession, nil
-	}
-
-	if live.CurrentSessionResumable || live.CurrentSessionSince.IsZero() {
-		return live.CurrentSessionResumable, live.CurrentSession, nil
-	}
-	resuming, err := rs.activity.HasTurnAtOrAfter(ctx, chatID, live.ProviderID, live.CurrentSessionSince)
-	if err != nil {
-		return false, "", fmt.Errorf("agent: submit prompt: inspect current conversation: %w", err)
-	}
-	return resuming, live.CurrentSession, nil
-}
-
-func (rs *Runners) RequirePromptRestart(
-	ctx context.Context,
-	chatID string,
-	live engineagents.Runner,
-	descriptor engineagents.Agent,
-) error {
-	if descriptor.Capabilities().Delivery == engineagents.DeliveryRestartTUI {
-		return nil
-	}
-	desired, err := rs.conversations.ChatSelection(ctx, chatID, false)
-	if err != nil {
-		return err
-	}
-	launched := engineagents.Selection{
-		Model: live.LaunchModel, Effort: live.LaunchEffort, PermissionLevel: live.LaunchPermissionLevel,
-	}
-	if descriptor.SelectionRestart(launched, desired) {
-		return nil
-	}
-	return ErrPromptUnsupported
 }

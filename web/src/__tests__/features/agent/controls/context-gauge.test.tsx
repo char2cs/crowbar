@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentTelemetry } from '@/features/agent/api/agent-api'
 import { AgentContextGauge } from '@/features/agent/controls/context-gauge'
@@ -63,5 +63,51 @@ describe('AgentContextGauge', () => {
     expect(title).toContain('40,000 of 200,000 tokens')
     expect(title).toContain('5-hour: 12%')
     expect(title).toContain('$0.4213')
+  })
+
+  // The one gesture that spends less — offered on the same element already
+  // reporting why someone would reach for it, rather than a second control.
+  describe('onCompact', () => {
+    it('stays the plain, non-interactive report when compaction is not offered', () => {
+      render(<AgentContextGauge telemetry={telemetry({ context: { usedPercent: 61 } })} />)
+      const gauge = screen.getByTestId('agent-context-gauge')
+      expect(gauge.tagName).toBe('SPAN')
+    })
+
+    it('becomes a real button the instant a handler is offered — never a disabled one', () => {
+      render(
+        <AgentContextGauge
+          telemetry={telemetry({ context: { usedPercent: 61 } })}
+          onCompact={() => {}}
+        />,
+      )
+      const gauge = screen.getByTestId('agent-context-gauge')
+      expect(gauge.tagName).toBe('BUTTON')
+      expect(gauge).not.toBeDisabled()
+    })
+
+    it('calls onCompact on click, and nothing else', () => {
+      const onCompact = vi.fn()
+      render(
+        <AgentContextGauge
+          telemetry={telemetry({ context: { usedPercent: 61 } })}
+          onCompact={onCompact}
+        />,
+      )
+      fireEvent.click(screen.getByTestId('agent-context-gauge'))
+      expect(onCompact).toHaveBeenCalledTimes(1)
+    })
+
+    it('still carries the bar and the percentage — the button IS the gauge, not a second control beside it', () => {
+      render(
+        <AgentContextGauge
+          telemetry={telemetry({ context: { usedPercent: 61.4 } })}
+          onCompact={() => {}}
+        />,
+      )
+      const gauge = screen.getByTestId('agent-context-gauge')
+      expect(gauge).toHaveTextContent('61% context')
+      expect(gauge.querySelector('.gbar > span')).toHaveStyle({ width: '61.4%' })
+    })
   })
 })

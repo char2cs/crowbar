@@ -16,6 +16,26 @@ export interface FollowScroll {
 const TAU_MS = 100
 const SETTLE_PX = 0.5
 
+// The longest gap this will smooth over in ONE frame, however long the main
+// thread was actually blocked.
+//
+// Exponential smoothing over real elapsed time is right in continuous time
+// and wrong on a screen: a frame arriving 250ms late "should" close 1 -
+// e^(-250/100) = 92% of the remaining distance, but the frames in between
+// were never painted, so nobody sees a fast glide — they see the transcript
+// teleport. Reported live as "scroll bouncing, not stable", and only ever
+// while the fps HUD was in the red, which is the tell: at a steady 60fps this
+// value never binds at all. Capping the step makes a recovering scroll read
+// as catching up instead of jumping; the target keeps moving to the bottom
+// anyway, so it still converges, just over a few more frames.
+const MAX_FRAME_MS = 32
+
+// Below this, a write did not move the element at all — it is already at its
+// own scrollable edge and the target is simply out of reach (content shrank
+// under us). Stopping is right; spinning a rAF loop that rewrites the same
+// pixel forever is not.
+const MIN_STEP_PX = 0.05
+
 /**
  * Continuously eases `el.scrollTop` toward a target that can itself keep
  * moving — a growing transcript retargets this every time a new line
@@ -54,19 +74,34 @@ export function createFollowScroll(
     // following) re-syncs `lastWritten` and restarts cleanly.
     if (Math.abs(el.scrollTop - lastWritten) > 1) return
 
-    const dt = now - lastTime
+    // Capped, not the raw elapsed time — see MAX_FRAME_MS.
+    const dt = Math.min(now - lastTime, MAX_FRAME_MS)
     lastTime = now
-    const distance = target - el.scrollTop
+    const from = el.scrollTop
+    const distance = target - from
     if (Math.abs(distance) <= SETTLE_PX) {
       el.scrollTop = target
-      lastWritten = target
-      onTick?.(target)
+      // Read back here too: even the final write is clamped if the target is
+      // past the container's edge.
+      lastWritten = el.scrollTop
+      onTick?.(lastWritten)
       return
     }
     const closed = 1 - Math.exp(-dt / TAU_MS)
-    lastWritten = el.scrollTop + distance * closed
-    el.scrollTop = lastWritten
+    el.scrollTop = from + distance * closed
+    // READ BACK what the container actually took. It clamps to its own
+    // scrollable ceiling, and that ceiling drops whenever the content shrinks
+    // under us (a turn releasing the room reserved to pin it to the top does
+    // exactly that). `lastWritten` is not bookkeeping for this loop alone —
+    // it is also what `use-transcript-anchor` hands to `onTick` and compares
+    // the next scroll EVENT against, to tell its own writes apart from the
+    // reader's gesture. Reporting a position the element never took made the
+    // very next scroll event look like the reader grabbing the scrollbar, so
+    // the transcript decided it was no longer stuck and quietly stopped
+    // following the reply for the rest of the turn.
+    lastWritten = el.scrollTop
     onTick?.(lastWritten)
+    if (Math.abs(lastWritten - from) < MIN_STEP_PX) return
     raf = requestAnimationFrame(step)
   }
 

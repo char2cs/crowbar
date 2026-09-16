@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -83,4 +84,37 @@ func TestCloseAbandonedTurn_EmptyChatID_SalvagesNothing(t *testing.T) {
 	rs.closeAbandonedTurn(context.Background(), "", agents.Runner{ID: "runner-old"})
 
 	assert.Empty(t, spy.calls, "an empty chatID names nothing to salvage")
+}
+
+// TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY
+// guards the bug reported live 2026-09-08 ("chats losing its provider when
+// closing"): SwitchToTerminal forks a NEW native-view PTY for the session the
+// user actually looks at, tracked only in rs.attached — it never touches
+// runner.TerminalSession, which still names the ORIGINAL companion PTY every
+// api-transport spawn forks alongside its connection. retire() used to
+// terminate only that stale field, leaving the real, visible attached process
+// running forever with rs.attached still answering AttachedTerminalSession
+// for a runner id nothing will ever revisit.
+func TestRegression_RetireTerminatesTheAttachedNativeViewNotJustTheStaleCompanionPTY(t *testing.T) {
+	term := &fakeTermForAttach{}
+	store := &stopRetireRunnerStore{
+		runner: agents.Runner{ID: "runner-1", TerminalSession: "companion-pty-term"},
+	}
+	rs := &Runners{
+		runnerStore:   store,
+		attached:      newAttachRegistry(),
+		apiConns:      newAPIConnRegistry(),
+		term:          term,
+		inflightTurns: inflight.NewTurns(),
+	}
+	rs.attached.set("runner-1", attachedView{termSessID: "native-view-term"})
+
+	rs.retire(context.Background(), store.runner)
+
+	assert.Contains(t, term.terminated, "companion-pty-term",
+		"the original companion PTY is still a real process and must still be torn down")
+	assert.Contains(t, term.terminated, "native-view-term",
+		"the actually-attached native view PTY — the one the user was looking at — must be torn down too")
+	_, stillAttached := rs.attached.get("runner-1")
+	assert.False(t, stillAttached, "the attach registry entry must be forgotten, or it answers for a runner nothing will revisit")
 }

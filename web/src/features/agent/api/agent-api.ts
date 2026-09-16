@@ -391,8 +391,14 @@ export async function listChats(wsId: string): Promise<AgentChat[]> {
   return (raw ?? []).map(mapChat)
 }
 
-export async function getChat(wsId: string, id: string): Promise<AgentChatDetail> {
-  const raw = await apiFetch<AgentChatDetail>(`${chatBase(wsId)}/${encodeURIComponent(id)}`)
+export async function getChat(
+  wsId: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<AgentChatDetail> {
+  const raw = await apiFetch<AgentChatDetail>(`${chatBase(wsId)}/${encodeURIComponent(id)}`, {
+    signal,
+  })
   return { ...mapChat(raw), conversations: raw.conversations ?? [] }
 }
 
@@ -441,11 +447,25 @@ export interface AgentToolCall {
    *  Absent is legible; a guess would be wrong. */
   target?: string
   status: ToolCallStatus
+  /** A short caption for a FAILED call — absent on every other status. The full
+   *  failure text is the result payload, fetched on demand like any other side
+   *  (see `getToolPayload`); this is the one line worth showing without asking. */
+  error?: string
   durationMs?: number
   hasRequest: boolean
   hasResult: boolean
   startedAt: string
   endedAt?: string
+  /** Set instead of a meaningful `turnId` when this call belongs to a
+   *  SUBAGENT's own nested activity (its id) rather than the chat's own
+   *  top-level turn — see `AgentSubagent`. */
+  subagentId?: string
+}
+
+/** One closed turn of a subagent's own nested conversation. */
+export interface AgentSubagentMessage {
+  text: string
+  at: string
 }
 
 export interface AgentSubagent {
@@ -455,6 +475,11 @@ export interface AgentSubagent {
   agentType?: string
   startedAt: string
   endedAt?: string
+  /** The subagent's own reply history, in arrival order — present only for a
+   *  provider whose subagent is a whole nested conversation with its own
+   *  tool calls and turns (see `AgentToolCall.subagentId`), not the flat
+   *  marker a native subagent (Claude's Task tool) still is. */
+  messages?: AgentSubagentMessage[]
 }
 
 export type InterruptionKind =
@@ -466,6 +491,10 @@ export type InterruptionKind =
   | 'provider_switched'
   | 'model_changed'
   | 'effort_changed'
+  /** Crowbar's own guess, not a person's Stop click or a provider report: a
+   *  turn's assistant reply went quiet with nothing open to explain it, and
+   *  the daemon closed it on a timeout. See turn.AbandonMessageInferredInterrupt. */
+  | 'inferred'
 
 /** The agent blocked on, or interrupted by, something outside the turn. These
  *  are what make an apparently frozen agent legible. */
@@ -563,6 +592,11 @@ export interface AgentChoice {
   /** Who answered it when `resolution` is `answered`: policy (`true`) or a
    *  human's own click (`false`). */
   autoApproved?: boolean
+  /** Which of `options` (or a question's own options) was actually picked, when
+   *  `resolution` is `answered` through Crowbar. Absent for one that proceeded
+   *  at the provider's own terminal or was abandoned with its turn — those
+   *  genuinely have no such answer to report, not merely an unrecorded one. */
+  answeredOptionIds?: string[]
 }
 
 export interface AgentActivity {
@@ -726,18 +760,59 @@ export async function getChatTelemetry(
   return raw ?? null
 }
 
+export interface PendingPrompt {
+  text: string
+  state: string
+  /** The original client request id this submission was journalled under —
+   *  not freshly minted, so a recovered row stays deduped against a retry and
+   *  matches the settled/abandoned broadcasts that resolve it. */
+  requestId: string
+}
+
+/** Recover a chat's most recent prompt submission the backend has not yet
+ *  confirmed the provider accepted — used to rehydrate a queued prompt whose
+ *  local copy was lost (an idle tab, a crash, cleared storage). Null means
+ *  nothing to recover, not an error. */
+export async function getPendingPrompt(
+  wsId: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<PendingPrompt | null> {
+  const raw = await apiFetch<PendingPrompt | null>(
+    `${chatBase(wsId)}/${encodeURIComponent(id)}/pending-prompt`,
+    { signal },
+    { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+  )
+  return raw ?? null
+}
+
 /** Ask Crowbar to restart the same interactive provider TUI with a completed
- *  prompt. `clientRequestId` is stable across retries. */
+ *  prompt. `clientRequestId` is stable across retries.
+ *
+ *  `provider`/`model`/`effort` are the composer's STAGED pick, if the picker
+ *  has one — omit any of them (or pass '') when nothing is staged, which
+ *  leaves the chat's current provider / sticky selection exactly as it was.
+ *  A staged pick is committed on THIS call, atomically with the prompt: the
+ *  picker itself never writes selection or switches provider on its own, so
+ *  choosing a row never mutates the chat until the user actually sends. A
+ *  provider that differs from the chat's current one is switched to (killing
+ *  the outgoing CLI and spawning the new one) as part of this same request —
+ *  see the backend's Usecase.SubmitPrompt for the exact ordering. See
+ *  setChatSelection's own doc comment — the same 400/422 contract applies
+ *  here for an invalid pair. */
 export async function submitAgentPrompt(
   wsId: string,
   id: string,
   text: string,
   clientRequestId: string,
+  provider?: string,
+  model?: string,
+  effort?: string,
 ): Promise<AgentPromptResult> {
   return apiFetch<AgentPromptResult>(`${chatBase(wsId)}/${encodeURIComponent(id)}/prompts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, clientRequestId }),
+    body: JSON.stringify({ text, clientRequestId, provider, model, effort }),
   })
 }
 
@@ -935,11 +1010,23 @@ export async function createChatWithOwnWorktree(
 // switchProvider quits the chat's current vendor CLI, hands off the accumulated
 // context, and starts `provider` as a NEW RUNNER on the same chat. Returns that
 // runner's id — the chat is unchanged, the process is not.
-export async function switchProvider(wsId: string, id: string, provider: string): Promise<string> {
+//
+// `signal` for the identical reason resumeChat takes one (see that function's
+// own comment): this drives the SAME daemon-side per-chat spawn mutex
+// (switchProviderLocked), and the caller renders the same buttonless
+// "Starting {provider}…" spinner while this is out — a switch that never
+// answers is a pane the user can only abandon just like an unbounded resume.
+export async function switchProvider(
+  wsId: string,
+  id: string,
+  provider: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider }),
+    signal,
   })
   return res.id
 }
@@ -952,9 +1039,17 @@ export async function switchProvider(wsId: string, id: string, provider: string)
 // Returns the id of the RUNNER now on the chat. A chat that is still live is a
 // no-op that hands back the runner already there, so this can never end up with
 // two CLIs on one conversation.
-export async function resumeChat(wsId: string, id: string): Promise<string> {
+// `signal` is not optional politeness: the caller renders a SPINNER WITH NO
+// BUTTON ON IT while this is out, so a resume that never answers is a chat the
+// user can only abandon. The daemon serialises every spawn path of one chat
+// behind a plain per-chat mutex with no context on it (inflight's Gate), so this
+// request can queue behind another spawn indefinitely and produce no response and
+// no access-log line at all. Whoever draws that spinner has to be able to stop
+// waiting — see AgentChatPane.revive.
+export async function resumeChat(wsId: string, id: string, signal?: AbortSignal): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/resume`, {
     method: 'POST',
+    signal,
   })
   return res.id
 }

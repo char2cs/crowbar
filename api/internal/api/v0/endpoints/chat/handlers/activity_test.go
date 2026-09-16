@@ -67,6 +67,58 @@ func TestActivity_ReturnsWhatTheAgentDid(t *testing.T) {
 	assert.Equal(t, "permission", body.Data.Interruptions[0].Kind)
 }
 
+// A subagent's own nested tool call and its own reply history must reach the
+// wire — the durable nested transcript this DTO exists to carry, not just
+// the flat start/end marker the shape used to be limited to.
+func TestActivity_CarriesASubagentsOwnNestedToolCallAndMessages(t *testing.T) {
+	ended := activityAt.Add(time.Second)
+	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		ToolCalls: []domain.ActivityToolCall{{
+			ID: "child-tool-1", Seq: 1, Name: "Bash", SubagentID: "thread-child",
+			Status: domain.ToolStatusOK, StartedAt: activityAt, EndedAt: &ended,
+		}},
+		Subagents: []domain.ActivitySubagent{{
+			ID: "thread-child", Seq: 2, StartedAt: activityAt, EndedAt: &ended,
+			Messages: []domain.ActivitySubagentMessage{{Text: "done", At: ended}},
+		}},
+	}}
+	ctx, rec := scoped(t, "/activity")
+	newChatHandlers(inWorkspace(uc)).Activity(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Data dto.AgentActivityDTO `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.ToolCalls, 1)
+	assert.Equal(t, "thread-child", body.Data.ToolCalls[0].SubagentID)
+	assert.Empty(t, body.Data.ToolCalls[0].TurnID, "a nested tool call has no top-level turn")
+
+	require.Len(t, body.Data.Subagents, 1)
+	require.Len(t, body.Data.Subagents[0].Messages, 1)
+	assert.Equal(t, "done", body.Data.Subagents[0].Messages[0].Text)
+}
+
+// An ordinary top-level tool call and a subagent with no reply yet must not
+// grow a subagentId or a messages array out of nothing.
+func TestActivity_OrdinaryToolCallsAndFreshSubagentsCarryNoNestedFields(t *testing.T) {
+	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
+		ToolCalls: []domain.ActivityToolCall{{
+			ID: "tool-1", TurnID: "turn-1", Seq: 1, Name: "Edit",
+			Status: domain.ToolStatusOK, StartedAt: activityAt,
+		}},
+		Subagents: []domain.ActivitySubagent{{
+			ID: "a1", TurnID: "turn-1", Seq: 2, StartedAt: activityAt,
+		}},
+	}}
+	ctx, rec := scoped(t, "/activity")
+	newChatHandlers(inWorkspace(uc)).Activity(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), `"subagentId"`)
+	assert.NotContains(t, rec.Body.String(), `"messages"`)
+}
+
 func TestActivity_NeverPublishesAContentRef(t *testing.T) {
 	uc := &fakeAgentUsecase{activity: agentusecase.ChatActivity{
 		ToolCalls: []domain.ActivityToolCall{{

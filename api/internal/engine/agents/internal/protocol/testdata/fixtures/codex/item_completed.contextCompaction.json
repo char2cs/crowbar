@@ -1,0 +1,13 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "contextCompaction",
+      "id": "01a08220-84f9-7f13-b859-543ce2e6f4be"
+    },
+    "threadId": "01a08220-68df-7613-8d83-ac66eff2f813",
+    "turnId": "01a08220-84ed-7981-9a28-e906eb2caa57",
+    "completedAtMs": 1788889569065
+  },
+  "emittedAtMs": 1788889569065
+}

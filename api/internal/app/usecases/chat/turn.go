@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -93,6 +92,21 @@ type TurnUsecase interface {
 		providerID string,
 		screen string,
 	) (engineagents.TerminalNotice, bool)
+
+	// UploadAttachment stores one attachment into chatID's durable attachment
+	// store, returning the logical reference written back into the message.
+	UploadAttachment(
+		ctx context.Context,
+		chatID string,
+		in UploadAttachmentInput,
+	) (StoredAttachment, error)
+
+	// ReadAttachment resolves chatID's stored attachment fileName to bytes and
+	// a sniffed content type, for the asset-serving GET endpoint.
+	ReadAttachment(
+		ctx context.Context,
+		chatID, fileName string,
+	) ([]byte, string, error)
 }
 
 var _ TurnUsecase = (*Usecase)(nil)
@@ -184,41 +198,4 @@ func (u *Usecase) MatchTerminalNotice(
 	screen string,
 ) (engineagents.TerminalNotice, bool) {
 	return u.turns.MatchTerminalNotice(ctx, providerID, screen)
-}
-
-// recordSelectionChange marks whichever of model/effort actually CHANGED —
-// Crowbar's own doing, mirroring RecordStop and the provider-switch marker
-// (internal/runner/switch.go): nothing a provider reports, recorded the
-// instant Crowbar itself commits to the change. before/beforeErr are
-// SetChatSelection's own pre-change read, passed in rather than re-read
-// here, so this never observes a value the write above has already
-// clobbered. Best-effort throughout: a marker failing never unwinds the
-// selection change itself, and a failed "before" read means "unknown", not
-// "unchanged" — skip both markers rather than risk a false positive.
-func (u *Usecase) recordSelectionChange(
-	ctx context.Context,
-	chatID string,
-	before engineagents.Selection,
-	beforeErr error,
-	model, effort string,
-) {
-	if beforeErr != nil {
-		return
-	}
-	if model != before.Model {
-		if err := u.turns.RecordChatSwitch(
-			ctx, chatID, engineagents.InterruptModelChanged, model,
-		); err != nil {
-			slog.WarnContext(ctx, "agent: set chat selection: record model change (best-effort, continuing)",
-				"chat_id", chatID, "err", err)
-		}
-	}
-	if effort != before.Effort {
-		if err := u.turns.RecordChatSwitch(
-			ctx, chatID, engineagents.InterruptEffortChanged, effort,
-		); err != nil {
-			slog.WarnContext(ctx, "agent: set chat selection: record effort change (best-effort, continuing)",
-				"chat_id", chatID, "err", err)
-		}
-	}
 }

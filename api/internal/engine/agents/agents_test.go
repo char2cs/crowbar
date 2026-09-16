@@ -263,12 +263,10 @@ func TestAgent_ParseHookMapsAConversationTurn(t *testing.T) {
 	assert.Equal(t, 1, ev.AsyncWork)
 }
 
-// The foreign-conversation guard is meaningful only for a hooks-delivered
-// payload — codex's user_prompt is now api-transport (see the mixed transport
-// design spec), and an api-transport event carries no such ambiguity: it
-// arrives on the one websocket this runner's own serve process opened, which
-// IS the scoping. subagent_pre stays hooks-only, so it is what this test now
-// exercises the guard against.
+// subagent_pre stays hooks-only (no per-event transport override AND no
+// api-transport equivalent at all), so an api-transport delivery can never
+// reach it — the guard is unconditional here regardless of how it treats
+// dual-shape events.
 func TestAgent_ParseHookRefusesAnotherConversationsPayload(t *testing.T) {
 	a := get(t, "codex")
 
@@ -276,6 +274,61 @@ func TestAgent_ParseHookRefusesAnotherConversationsPayload(t *testing.T) {
 		[]byte(`{"session_id":"s1","agent_id":"a1","agent_type":"t1","transcript_path":null}`))
 
 	assert.ErrorIs(t, err, agents.ErrForeignConversation)
+}
+
+// TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat pins the
+// exact live capture from the original chat-theft bug against the REAL,
+// shipped codex.yaml (not a synthetic stand-in), through the same ParseHook
+// entry point production uses.
+//
+// user_prompt has no per-event transport override, so it inherits the
+// runtime's api default — but codex's spawn config still ALSO fires it
+// hooks-shaped for its internal memory-consolidation session, which is
+// exactly what a transport-wide skip (rather than a per-field presence
+// check) let through: the event is classified "api", so the guard was
+// skipped outright even though THIS delivery is hooks-shaped and foreign.
+func TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat(t *testing.T) {
+	a := get(t, "codex")
+
+	_, err := a.ParseHook(agents.HookUserPrompt,
+		[]byte(`{"session_id":"019fafaf-4f2c-7551-806e-eda96d1cefed","turn_id":"019fafaf-4f54",`+
+			`"transcript_path":null,"cwd":"/h/.codex/memories","hook_event_name":"UserPromptSubmit",`+
+			`"model":"gpt-5.6-terra","permission_mode":"bypassPermissions",`+
+			`"prompt":"MEMORY-WRITING-AGENT-PHASE-2-CONSOLIDATION"}`))
+
+	assert.ErrorIs(t, err, agents.ErrForeignConversation,
+		"a hooks-shaped delivery of a dual-shape event must still be checked, even though "+
+			"user_prompt's declared transport is api")
+}
+
+// TestRegression_EveryDualShapeCodexEventRejectsAForeignHooksPayload sweeps
+// every codex.yaml event sharing session_start/user_prompt/turn_stop's own
+// hazard: no per-event transport override (so it inherits runtime.transport:
+// api) AND a config_injection hooks.* entry that fires it, unconditionally,
+// off the disconnected companion PTY (grep -n '||' codex.yaml plus
+// config_injection's hooks.* pass_args names exactly this set).
+// ownsConversation (hooks.go) is keyed only on RequiredPayloadFields, never on
+// the canonical event name, so the fix that closed the memory-consolidation
+// chat-theft bug for user_prompt must reject a foreign hooks-shaped delivery
+// of every one of these the same way — proven here against the REAL,
+// shipped codex.yaml rather than asserted from reading the mechanism.
+func TestRegression_EveryDualShapeCodexEventRejectsAForeignHooksPayload(t *testing.T) {
+	a := get(t, "codex")
+	for _, event := range []string{
+		agents.HookSessionStart, agents.HookUserPrompt, agents.HookTurnStop,
+		agents.HookToolPre, agents.HookToolPost,
+		agents.HookPermission, agents.HookCompactPre, agents.HookCompactPost,
+	} {
+		t.Run(event, func(t *testing.T) {
+			require.Equal(t, "api", a.TransportFor(event),
+				"precondition: this event must actually inherit the api default for the "+
+					"sweep to mean anything")
+
+			_, err := a.ParseHook(event, []byte(`{"transcript_path":null}`))
+
+			assert.ErrorIs(t, err, agents.ErrForeignConversation)
+		})
+	}
 }
 
 func TestAgent_ParseHookReportsAnUndeclaredEvent(t *testing.T) {
@@ -302,10 +355,61 @@ func TestAgent_ParseTelemetryMapsTheProvidersReport(t *testing.T) {
 	assert.Equal(t, now, got.ObservedAt)
 }
 
-func TestAgent_ParseTelemetryIsUnsupportedWhereNoChannelIsDeclared(t *testing.T) {
-	_, err := get(t, "codex").ParseTelemetry([]byte(`{}`), time.Now())
+// This test used to assert codex declares NO telemetry channel. It did declare
+// one — events.telemetry, mapping thread/tokenUsage/updated — but only the v2
+// top-level telemetry.callback block was ever read, so every codex report came
+// back ErrUnsupported, t.telemetry.Set was never called, and the context gauge
+// (which renders nothing without a usedPercent) has never appeared on a codex chat.
+//
+// The genuinely-undeclared case is covered where it belongs, on a descriptor that
+// declares telemetry neither way:
+// translate/telemetry.TestParseCallback_UnsupportedWhenNeitherFormIsDeclared.
+func TestRegression_CodexTelemetryReachesTheContextGauge(t *testing.T) {
+	// Shape copied from the LIVE capture in
+	// internal/protocol/testdata/fixtures/codex/thread_tokenUsage_updated.json —
+	// modelContextWindow sits inside tokenUsage, not beside it.
+	raw := []byte(`{"threadId":"t1","turnId":"tn1","tokenUsage":{
+	  "total":{"totalTokens":16924,"inputTokens":16907,"outputTokens":17},
+	  "last":{"totalTokens":16924,"inputTokens":16907,"outputTokens":17},
+	  "modelContextWindow":258400}}`)
 
-	assert.ErrorIs(t, err, agents.ErrTelemetryUnsupported)
+	got, err := get(t, "codex").ParseTelemetry(raw, time.Now())
+
+	require.NoError(t, err)
+	require.NotNil(t, got.Context, "no context usage means the gauge renders nothing")
+	require.NotNil(t, got.Context.UsedTokens)
+	assert.Equal(t, 16924, *got.Context.UsedTokens)
+	require.NotNil(t, got.Context.CapacityTokens)
+	assert.Equal(t, 258400, *got.Context.CapacityTokens)
+	// The gauge renders nothing at all without a percentage; it is derived here.
+	require.NotNil(t, got.Context.UsedPercent)
+	assert.InDelta(t, 6.55, *got.Context.UsedPercent, 0.1)
+}
+
+// TestRegression_CodexContextPercentUsesLastTurnNotSessionTotal: tokenUsage.total
+// is a lifetime counter that only grows turn over turn (codex's own TUI draws the
+// identical distinction against the same wire shape — codex-rs/tui/src/token_usage.rs,
+// tokens_in_context_window's doc comment). Mapping it into context.used_tokens divided
+// a number that keeps climbing forever by the fixed context window, so a chat well
+// past its first couple of turns rendered percentages over 1000% — observed live as
+// "2519% of context used" on an ordinary long-running codex chat, nothing to do with
+// a provider switch. tokenUsage.last — the current turn's own context size — is what
+// must drive the gauge instead.
+func TestRegression_CodexContextPercentUsesLastTurnNotSessionTotal(t *testing.T) {
+	raw := []byte(`{"threadId":"t1","turnId":"tn9","tokenUsage":{
+	  "total":{"totalTokens":6512000,"inputTokens":6500000,"outputTokens":12000},
+	  "last":{"totalTokens":92800,"inputTokens":92000,"outputTokens":800},
+	  "modelContextWindow":258400}}`)
+
+	got, err := get(t, "codex").ParseTelemetry(raw, time.Now())
+
+	require.NoError(t, err)
+	require.NotNil(t, got.Context)
+	require.NotNil(t, got.Context.UsedTokens)
+	assert.Equal(t, 92800, *got.Context.UsedTokens, "the gauge must track the current turn's context size, not the session-wide lifetime total")
+	require.NotNil(t, got.Context.UsedPercent)
+	assert.InDelta(t, 35.9, *got.Context.UsedPercent, 0.1)
+	assert.LessOrEqual(t, *got.Context.UsedPercent, 100.0, "a context gauge can never legitimately exceed 100%")
 }
 
 func TestAgent_SlashCatalogRefusesAnInvalidWorkdir(t *testing.T) {
@@ -335,12 +439,16 @@ func TestInjectionRegistry_RecognisesAnEchoOncePerRunner(t *testing.T) {
 	e := agents.New()
 	e.RecordInjection("runner-1", "handoff blob")
 
-	assert.True(t, e.WasInjected("runner-1", "handoff blob"))
-	assert.False(t, e.WasInjected("runner-1", "handoff blob"))
+	remainder, found := e.ConsumeInjectedPrefix("runner-1", "handoff blob")
+	assert.True(t, found)
+	assert.Empty(t, remainder)
+	_, found = e.ConsumeInjectedPrefix("runner-1", "handoff blob")
+	assert.False(t, found)
 
 	e.RecordInjection("runner-2", "other")
 	e.ForgetRunner("runner-2")
-	assert.False(t, e.WasInjected("runner-2", "other"))
+	_, found = e.ConsumeInjectedPrefix("runner-2", "other")
+	assert.False(t, found)
 }
 
 func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
@@ -770,7 +878,7 @@ func TestAgent_CodexDeclaresAnAnswerChannelForPermission(t *testing.T) {
 
 	stdout, err := a.RenderAnswer(agents.HookPermission, nil, agents.AnswerDecision{Key: agents.ChoiceOptionAllow})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"decision":"approved"}`, string(stdout))
+	assert.JSONEq(t, `{"decision":"accept"}`, string(stdout))
 }
 
 func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {

@@ -16,7 +16,7 @@ func descriptor(events map[string]map[string]string, require_ ...string) *spec.D
 	d.Runtime.Hooks.Format = "json"
 	d.Runtime.Hooks.RequirePayloadFields = require_
 	for canonical, fields := range events {
-		d.Events[canonical] = spec.EventSpec{In: canonical, Map: fields}
+		d.Events[canonical] = spec.EventSpec{In: spec.WireRef(canonical), Map: fields}
 	}
 	return d
 }
@@ -116,6 +116,49 @@ func TestParse_ADescriptorDeclaringNoGuardIsUnaffected(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestRegression_ADualShapeEventStillCatchesAForeignHooksPayload is the bug
+// reported live: codex's session_start/user_prompt/turn_stop declare no
+// per-event transport override, so on codex's own mixed-transport descriptor
+// they inherit the runtime default of "api" — but codex's spawn config still
+// ALSO fires them hooks-shaped for its internal memory-consolidation session
+// (transcript_path: null, byte-identical to a real /new otherwise). The guard
+// used to be skipped outright for any event whose DECLARED transport is api,
+// which let this exact payload through and re-opened the chat-theft bug
+// require_payload_fields exists to close. Confirmed live against the real
+// codex.yaml before this fix: accepted, no rejection.
+func TestRegression_ADualShapeEventStillCatchesAForeignHooksPayload(t *testing.T) {
+	d := descriptor(
+		map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}},
+		"transcript_path",
+	)
+	d.Runtime.Transport = "api"
+	// No per-event Transport override — exactly codex.yaml's own shape for
+	// session_start/user_prompt/turn_stop, inheriting the runtime default.
+
+	_, err := inbound.Parse(d, spec.HookUserPrompt,
+		[]byte(`{"prompt":"MEMORY-WRITING-AGENT-PHASE-2-CONSOLIDATION","transcript_path":null}`))
+
+	require.ErrorIs(t, err, inbound.ErrForeignConversation,
+		"a hooks-shaped delivery of a dual-shape event must still be checked, even though the "+
+			"EVENT's declared transport is api")
+}
+
+// TestParse_ADualShapeEventStillAcceptsAGenuineAPIPayload guards the failure
+// mode the old transport-wide skip existed to prevent in the first place: an
+// api-transport payload structurally never carries transcript_path at all
+// (absent, not empty), and must not be rejected for lacking it.
+func TestParse_ADualShapeEventStillAcceptsAGenuineAPIPayload(t *testing.T) {
+	d := descriptor(
+		map[string]map[string]string{spec.HookUserPrompt: {"message": "prompt"}},
+		"transcript_path",
+	)
+	d.Runtime.Transport = "api"
+
+	_, err := inbound.Parse(d, spec.HookUserPrompt, []byte(`{"prompt":"hi"}`))
+
+	assert.NoError(t, err, "an api-transport payload never carries transcript_path; its absence is not foreign")
+}
+
 func TestParse_AsyncWorkIsTheLengthOfTheDeclaredArray(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -188,6 +231,37 @@ func TestParse_BuildsAToolEventForBothToolPhases(t *testing.T) {
 	require.NotNil(t, post.Tool)
 	assert.Equal(t, "ok", string(post.Tool.Result))
 	assert.Equal(t, 42, post.Tool.DurationMS)
+}
+
+// A tool call may name a whole SECOND conversation, not just its own
+// request/result — codex's collabAgentToolCall reports the thread id of the
+// agent it spawned or is addressing. NestedSessionID is generic: the
+// descriptor supplies the path, Go never learns why the field is there.
+func TestParse_ToolPostCarriesANestedSessionIDWhenTheDescriptorMapsOne(t *testing.T) {
+	d := descriptor(map[string]map[string]string{
+		spec.HookToolPost: {
+			"tool_id": "tool_use_id", "nested_session_id": "receiver_thread",
+		},
+	})
+
+	ev, err := inbound.Parse(d, spec.HookToolPost,
+		[]byte(`{"tool_use_id":"t1","receiver_thread":"child-1"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Tool)
+	assert.Equal(t, "child-1", ev.Tool.NestedSessionID)
+}
+
+func TestParse_ToolPostWithNoNestedSessionMappingLeavesItEmpty(t *testing.T) {
+	d := descriptor(map[string]map[string]string{
+		spec.HookToolPost: {"tool_id": "tool_use_id"},
+	})
+
+	ev, err := inbound.Parse(d, spec.HookToolPost, []byte(`{"tool_use_id":"t1"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, ev.Tool)
+	assert.Empty(t, ev.Tool.NestedSessionID)
 }
 
 func TestParse_ToolTargetTakesTheFirstMappedPathThatHasAValue(t *testing.T) {

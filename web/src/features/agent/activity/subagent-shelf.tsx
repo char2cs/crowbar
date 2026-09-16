@@ -15,15 +15,18 @@ function estimate(token: ShelfToken, dense: boolean): number {
 }
 
 /**
- * How many subagents are running, and for how long.
+ * How many subagents are running, and for how long — the live status strip
+ * pinned above the composer. A finished subagent is not drawn here any more
+ * (see `AgentTurnSubagents`, transcript/turn-tools.tsx): it gets the SAME
+ * `.tok` chip, just attached to the turn it belongs to (or the last turn,
+ * for one with no turn of its own) rather than floating above the input for
+ * the rest of the conversation.
  *
- * That is the WHOLE payload — `AgentSubagent` carries an id, an optional type
- * and two timestamps, and nothing else exists to show. It is not actionable and
- * it never pretends to be: there is no way to inspect a subagent from here,
- * because Crowbar is never told what one is doing.
- *
- * It sheds detail in a fixed order as a fan-out widens (see `fitShelf`), and the
- * count and clocks are the two things that never drop.
+ * The live strip itself is still the flat count+clock it always was:
+ * `AgentSubagent` carries an id, an optional type and two timestamps while
+ * running, and a native (Claude) subagent never has more to show than that.
+ * It sheds detail in a fixed order as a fan-out widens (see `fitShelf`), and
+ * the count and clocks are the two things that never drop.
  */
 export function SubagentShelf({ activity }: { activity: AgentActivity }) {
   const lineRef = useRef<HTMLSpanElement>(null)

@@ -5,6 +5,18 @@ type CanonicalEvent struct {
 	SessionID string
 	Message   string
 
+	// TurnID is the provider's own turn identifier, when its descriptor maps
+	// one. Most canonical events never need it — a chat has one open turn at
+	// a time, so Kind plus SessionID is enough to place the effect. It exists
+	// for the case that assumption breaks: codex's turn/completed is a sum
+	// type that ALSO wraps a compact_start round trip, with nothing else on
+	// the frame telling that apart from an ordinary reply (confirmed live —
+	// a genuinely interrupted turn and a genuine turn with no final message
+	// produce the IDENTICAL shape). compact_pre maps turn_id to arm a latch
+	// keyed by it; turn_stop and turn_failed map turn_id to consult and
+	// consume that latch before acting. See turn/compaction.go.
+	TurnID string
+
 	AsyncWork int
 
 	Model string
@@ -22,6 +34,10 @@ type CanonicalEvent struct {
 	Failure *TurnFailure
 
 	Choice *ChoicePrompt
+
+	// Plan is the agent's own running to-do list for this turn, newest state
+	// wholesale. Nil when the event carries none.
+	Plan []PlanStep
 
 	Raw map[string]any
 }
@@ -60,6 +76,15 @@ type ToolEvent struct {
 
 	Error      string
 	DurationMS int
+
+	// NestedSessionID names a SECOND conversation this tool call's own
+	// completion references — a whole other turn/item stream riding the same
+	// connection, not a flat sibling id (codex's collabAgentToolCall: the
+	// spawned agent's own thread id, present on spawnAgent/wait/closeAgent's
+	// completion once the provider has minted or is addressing it). Empty for
+	// every tool call that names no such thing. See turn/ingest.go's
+	// nested-session routing for what Go does with it.
+	NestedSessionID string
 }
 
 type SubagentEvent struct {
@@ -86,6 +111,15 @@ const (
 	InterruptProviderSwitched = "provider_switched"
 	InterruptModelChanged     = "model_changed"
 	InterruptEffortChanged    = "effort_changed"
+	// InterruptInferred is ALSO Crowbar's own doing, not a provider hook — but
+	// unlike the three above, it is not something Crowbar decided: it is
+	// Crowbar's own INFERENCE that a turn was interrupted, drawn from silence
+	// rather than observed directly. Recorded when a fuse elsewhere in the
+	// hook ingress (the message-quiet timeout an assistant reply stopped
+	// growing under, with nothing else open to explain why) decides a turn
+	// is never going to close on its own — the only trace a CLI's own
+	// hookless abort (an ESC/Ctrl+C it reports to nobody) leaves behind.
+	InterruptInferred = "inferred"
 )
 
 type InterruptEvent struct {
@@ -148,3 +182,23 @@ type ChoiceOption struct {
 	Label       string
 	Description string
 }
+
+// PlanStep is one entry of an agent's running plan.
+//
+// Status is CROWBAR'S word, not the provider's: a descriptor translates its own
+// vocabulary with `steps.status_map` (the same mechanism permission's
+// suggestion_label.* uses), so Go never learns any provider's spelling of
+// "in progress".
+type PlanStep struct {
+	Text   string
+	Status string
+}
+
+// The step statuses Crowbar renders. A descriptor whose status_map produces
+// anything else leaves the step unstyled rather than failing — an unknown status
+// is still a step worth showing.
+const (
+	PlanStepPending = "pending"
+	PlanStepActive  = "active"
+	PlanStepDone    = "done"
+)

@@ -6,6 +6,10 @@ import {
   isMultiline,
   sendInset,
   SEND_DIAMETER,
+  handleClusterWidth,
+  fieldRightPadding,
+  HANDLE_GAP,
+  PLUS_DIAMETER,
 } from '@/features/agent/composer/lib/handle-geometry'
 
 describe('handleOffset', () => {
@@ -47,5 +51,35 @@ describe('sendInset', () => {
   it('follows the diameter', () => {
     expect(sendInset(24)).toBe(6)
     expect(sendInset(SEND_DIAMETER, 20, 10)).toBe(6)
+  })
+})
+
+describe('handleClusterWidth', () => {
+  it('is one circle wide with a single occupant', () => {
+    expect(handleClusterWidth(1)).toBe(SEND_DIAMETER)
+  })
+
+  it('adds one diameter and one gap for the second occupant', () => {
+    expect(handleClusterWidth(2)).toBe(2 * SEND_DIAMETER + HANDLE_GAP)
+  })
+
+  it('the plus button matches the send button diameter', () => {
+    expect(PLUS_DIAMETER).toBe(SEND_DIAMETER)
+  })
+})
+
+describe('fieldRightPadding', () => {
+  // THE TWO ARE ONE NUMBER, same as sendInset: this must equal the literal
+  // `padding-right` composer.css already ships on `.pill .field`.
+  it('matches the shipped field padding-right exactly, for two occupants', () => {
+    expect(fieldRightPadding()).toBe(62)
+  })
+
+  it('shrinks to the single-occupant reservation', () => {
+    expect(fieldRightPadding(sendInset(), 1)).toBe(32)
+  })
+
+  it('follows HANDLE_GAP', () => {
+    expect(fieldRightPadding(4, 2, 28, 3)).toBe(4 + 28 + 3 + 28)
   })
 })

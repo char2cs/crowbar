@@ -171,7 +171,7 @@ func (stubUsecase) ReadMessages(
 }
 
 func (stubUsecase) SubmitPrompt(
-	context.Context, string, string, string,
+	context.Context, string, string, string, string, string, string,
 ) (domain.AgentPromptSubmission, error) {
 	return domain.AgentPromptSubmission{RunnerID: "run-2", TerminalSessionID: "term-2"}, nil
 }
@@ -180,6 +180,13 @@ func (stubUsecase) SlashCatalog(
 	context.Context, string,
 ) (engineagents.SlashCatalog, error) {
 	return engineagents.SlashCatalog{Items: []engineagents.SlashCatalogItem{}}, nil
+}
+
+func (stubUsecase) PendingPrompt(
+	ctx context.Context,
+	chatID string,
+) (domain.PendingPrompt, bool, error) {
+	return domain.PendingPrompt{}, false, nil
 }
 
 // LiveRunnerForChat answers agentrunner.ErrNotFound — "this chat is DORMANT", the
@@ -352,6 +359,9 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/chats/c1/messages"},
 		{http.MethodPost, base + "/chats/c1/prompts"},
 		{http.MethodGet, base + "/chats/c1/slash-catalog"},
+		{http.MethodGet, base + "/chats/c1/pending-prompt"},
+		{http.MethodPost, base + "/chats/c1/attachments"},
+		{http.MethodGet, base + "/chats/c1/attachments/f1.png"},
 		{http.MethodPost, base + "/chats/c1/switch"},
 		{http.MethodPost, base + "/chats/c1/rename"},
 		{http.MethodGet, base + "/chats/c1/handoff"},
@@ -487,4 +497,14 @@ func (stubUsecase) SetChatPermissionLevel(
 
 func (stubUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 	return engineagents.Telemetry{}, false
+}
+
+func (stubUsecase) UploadAttachment(
+	context.Context, string, agentusecase.UploadAttachmentInput,
+) (agentusecase.StoredAttachment, error) {
+	return agentusecase.StoredAttachment{}, nil
+}
+
+func (stubUsecase) ReadAttachment(context.Context, string, string) ([]byte, string, error) {
+	return nil, "", nil
 }

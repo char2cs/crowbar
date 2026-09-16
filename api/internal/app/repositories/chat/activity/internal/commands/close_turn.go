@@ -79,18 +79,40 @@ func (c CloseTurn) EmitEvent(current *domain.ChatActivity) domain.ChatActivity {
 		delete(next.OpenTurnOrders, c.RunnerID)
 	}
 
-	superseded := inheritOpenTurn(&turn, next.Turn)
+	// THE REGRESSION. next.Turn is that same single pointer, and inheriting
+	// and consuming it unconditionally trusted whoever happened to be sitting
+	// there — so the exact replacement the comment above names (a different
+	// runner's OpenTurn winning the slot before this runner's own turn could
+	// close) made this close SUPERSEDE and REPOINT the OTHER runner's still-
+	// live tools, subagents, interruptions and choices onto ITS OWN message.
+	// Live symptom: a pile of an unrelated turn's tool rows — a provider
+	// switch's outgoing CLI, or a subagent's own runner racing this chat's
+	// activity — landing under the NEXT reply, sometimes hundreds of them,
+	// because they had silently piled up under a Turn this close never owned.
+	//
+	// An empty RunnerID on either side still owns it: InvokeTool's own
+	// no-open-turn fallback (ensureTurn) mints a Turn with none set at all,
+	// and that turn's own eventual close must still claim and repoint it —
+	// see TestInvokeTool_WithNoOpenTurnOpensOneImplicitly and
+	// TestCloseTurn_WithNoOpenTurnStillRecordsTheReply. Only a turn NAMED for
+	// a runner other than this one is foreign.
+	var superseded string
+	ownsCurrent := next.Turn != nil &&
+		(c.RunnerID == "" || next.Turn.RunnerID == "" || next.Turn.RunnerID == c.RunnerID)
+	if ownsCurrent {
+		superseded = inheritOpenTurn(&turn, next.Turn)
+		next.Turn = nil
+		next.Tools = nil
+		next.Subagents = nil
+		next.Interruptions = nil
+		next.Choices = nil
+	}
 	turn.Text = c.Text
 	if c.Effort != "" {
 		turn.Effort = c.Effort
 	}
 	turn.EndedAt = at(c.Now)
 
-	next.Turn = nil
-	next.Tools = nil
-	next.Subagents = nil
-	next.Interruptions = nil
-	next.Choices = nil
 	next.Last = &domain.ActivityDelta{
 		Phase: domain.DeltaClose, Kind: domain.DeltaTurn, Turn: &turn,
 		SupersededTurnID: superseded,

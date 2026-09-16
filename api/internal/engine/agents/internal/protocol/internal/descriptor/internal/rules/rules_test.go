@@ -100,6 +100,12 @@ func TestPromptSubmit_AcceptsTheOneStrategyThisDaemonImplements(t *testing.T) {
 	require.NoError(t, rules.Apply(withPromptSubmit(valid(), spec.DeliveryRestartTUI)))
 }
 
+func TestPromptSubmit_AcceptsADeclaredLeadingSigil(t *testing.T) {
+	d := withPromptSubmit(valid(), spec.DeliveryRestartTUI)
+	d.Presentation.PromptSubmit.LeadingSigils = &spec.LeadingSigilsSpec{Chars: []string{"!"}, Escape: " "}
+	require.NoError(t, rules.Apply(d))
+}
+
 func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 	testCases := []struct {
 		name    string
@@ -153,6 +159,38 @@ func TestPromptSubmit_RejectsTheBrokenShapes(t *testing.T) {
 				}
 			},
 			"exactly once",
+		},
+		{
+			"leading sigils declared with no characters",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.LeadingSigils = &spec.LeadingSigilsSpec{Escape: " "}
+			},
+			"leading_sigils.chars is empty",
+		},
+		{
+			"a leading sigil that is the empty string",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.LeadingSigils = &spec.LeadingSigilsSpec{
+					Chars: []string{""}, Escape: " ",
+				}
+			},
+			"holds an empty entry",
+		},
+		{
+			"no escape to hide the sigil behind",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.LeadingSigils = &spec.LeadingSigilsSpec{Chars: []string{"!"}}
+			},
+			"leading_sigils.escape is required",
+		},
+		{
+			"an escape that opens with the very sigil it must hide",
+			func(d *spec.Descriptor) {
+				d.Presentation.PromptSubmit.LeadingSigils = &spec.LeadingSigilsSpec{
+					Chars: []string{"!"}, Escape: "!!",
+				}
+			},
+			"starts with the sigil",
 		},
 	}
 	for _, tc := range testCases {

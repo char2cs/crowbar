@@ -12,7 +12,13 @@ import {
   type AgentChoiceQuestion,
   type PermissionLevel,
 } from '@/features/agent/api/agent-api'
-import { choiceDetail, choiceQuestions, describeChoice } from '@/features/agent/lib/agent-activity'
+import {
+  choiceDetail,
+  choiceQuestions,
+  describeChoice,
+  optionLabel,
+  pendingChoices,
+} from '@/features/agent/lib/agent-activity'
 import { PermissionLevelSwitcher } from '@/features/agent/composer/permission-level-switcher'
 import { ApiError } from '@/lib/api'
 
@@ -117,6 +123,13 @@ export function ComposerChoice({
   onOpenTerminal?: () => void
 }) {
   const detail = choiceDetail(activity, choice)
+  // The bar is one occupant, always the OLDEST pending prompt (see
+  // resolveComposerState) — a second simultaneous one (a parallel subagent's
+  // own ask, most measured) used to just vanish with no sign it existed at
+  // all. This is not a second card: it is the one thing missing from the
+  // "invisible" report — proof there IS another decision waiting, once this
+  // one is answered.
+  const queued = pendingChoices(activity).filter((c) => c.id !== choice.id).length
   const [stored, setStored] = useState<CardState>(() => freshCard(choice.id))
   // Read through the stamp rather than resetting in an effect: an effect runs
   // AFTER the paint, so there would be one frame in which the previous prompt's
@@ -216,6 +229,11 @@ export function ComposerChoice({
           {card.sent && (
             <span className="sub" data-testid="agent-choice-sent">
               Answer sent. Waiting for {providerLabel} to confirm it.
+            </span>
+          )}
+          {queued > 0 && (
+            <span className="sub" data-testid="agent-choice-queue-depth">
+              +{queued} more waiting
             </span>
           )}
         </span>
@@ -564,13 +582,6 @@ function prettySchema(schema: string): string {
  *  a question that is no longer on the prompt can never be sent. */
 function flatPicks(questions: AgentChoiceQuestion[], picked: Record<string, string[]>): string[] {
   return questions.flatMap((question) => picked[question.id] ?? [])
-}
-
-/** An option with no label is named by its kind — Crowbar's own word for it — so a
- *  provider that labels nothing still gets a legible control rather than a blank. */
-function optionLabel(option: AgentChoiceOption): string {
-  if (option.label) return option.label
-  return option.kind.charAt(0).toUpperCase() + option.kind.slice(1)
 }
 
 /**

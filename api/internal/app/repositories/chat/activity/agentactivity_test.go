@@ -157,6 +157,39 @@ func TestToolCall_RoundTripsThroughInvokeAndComplete(t *testing.T) {
 	assert.Equal(t, "applied", string(result))
 }
 
+// TestRegression_CompleteTool_IsDurableBeforeItReturns_NoWaitNeeded is the
+// fix for the identical stale-read race StopSubagent already had fixed for
+// it (see that method's own doc comment): observation.go's HookToolPost/
+// HookToolFail case calls CompleteTool and then IMMEDIATELY
+// restateAsyncWork, whose OpenWork is a SQL read of the very row
+// CompleteTool just wrote — with no wait of its own, exactly like this test
+// deliberately has none. Under the old fire-and-forget `send`, the read
+// could land before the write projected, still see the tool "running", and
+// the chat's Working spinner would stick forever. `sendWait` makes the
+// write durable before CompleteTool returns, which is what this test
+// actually proves: NOT calling f.wait() and still seeing the completed
+// status immediately.
+func TestRegression_CompleteTool_IsDurableBeforeItReturns_NoWaitNeeded(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: chat, ToolID: "tool-1", Name: "Bash", Now: t0,
+	}))
+	f.wait()
+
+	require.NoError(t, f.repo.CompleteTool(f.ctx, activity.ToolResultInput{
+		ChatID: chat, ToolID: "tool-1", Status: domain.ToolStatusOK,
+		DurationMS: 5, Now: t0.Add(time.Second),
+	}))
+	// Deliberately no f.wait() here — mirrors observation.go's real call
+	// site, which reads back immediately with no wait of its own.
+
+	calls, err := f.repo.ToolCalls(f.ctx, chat, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, domain.ToolStatusOK, calls[0].Status,
+		"CompleteTool must be durably visible to the very next read, with no wait — an immediate caller reading 'running' here reproduces the stuck-spinner bug")
+}
+
 func TestInvokeTool_IsVisibleBeforeItCompletes(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
@@ -191,11 +224,60 @@ func TestCloseTurn_AbandonsToolsWhoseCompletionNeverArrived(t *testing.T) {
 	assert.NotNil(t, calls[0].EndedAt)
 }
 
+// TestRegression_ALateCompleteAfterAbandonPreservesTheOriginalToolRecord: a
+// user Stop closes the turn while the provider's own tool call is still
+// genuinely running (its shell command was never killed) — CloseTurn abandons
+// it correctly (the test above), but the CLI's real tool_post can still land
+// afterward. CompleteTool's aggregate has no open turn left to attribute it
+// to, so it falls back to synthesizing a bare record — which used to blindly
+// overwrite the already-correct abandoned row, erasing its turn id, its real
+// start time (replaced by the completion's own "now", making startedAt equal
+// endedAt despite a nonzero reported duration), and its request payload.
+// Confirmed live: a stopped codex chat recorded a tool row with turnId "",
+// startedAt==endedAt, and hasRequest false, ~20s after the turn had already
+// closed.
+func TestRegression_ALateCompleteAfterAbandonPreservesTheOriginalToolRecord(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Now: t0,
+	}))
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: chat, ToolID: "slow", Name: "Bash", Target: "sleep 20",
+		Request: []byte(`{"command":"sleep 20"}`), Now: t0,
+	}))
+	f.wait()
+
+	require.NoError(t, f.repo.CloseTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Text: "stopped", Now: t0.Add(3 * time.Second),
+	}))
+	f.wait()
+
+	// The real tool_post, arriving ~20s later — long after the turn closed.
+	require.NoError(t, f.repo.CompleteTool(f.ctx, activity.ToolResultInput{
+		ChatID: chat, ToolID: "slow", Result: []byte("done"),
+		Status: domain.ToolStatusOK, DurationMS: 19903, Now: t0.Add(20 * time.Second),
+	}))
+
+	calls, err := f.repo.ToolCalls(f.ctx, chat, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "t1", calls[0].TurnID, "the late completion must not erase which turn this call belonged to")
+	assert.Equal(t, t0, calls[0].StartedAt, "must keep the real start time, not the completion's own arrival time")
+	assert.Equal(t, domain.ToolStatusOK, calls[0].Status, "the real outcome still lands")
+	assert.Equal(t, 19903, calls[0].DurationMS)
+	require.NotNil(t, calls[0].EndedAt)
+	assert.True(t, calls[0].EndedAt.After(calls[0].StartedAt), "startedAt/endedAt must not collapse to the same instant")
+
+	request, err := f.repo.Payload(f.ctx, calls[0].RequestRef)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"command":"sleep 20"}`, string(request), "the original request payload must survive the late completion")
+}
+
 func TestSubagentsAndInterruptions_AreRecorded(t *testing.T) {
 	f := newFixture(t)
 
 	require.NoError(t, f.repo.StartSubagent(f.ctx, chat, "a1", "explore", t0))
-	require.NoError(t, f.repo.StopSubagent(f.ctx, chat, "a1", "explore", t0.Add(time.Second)))
+	require.NoError(t, f.repo.StopSubagent(f.ctx, chat, "a1", "explore", "", t0.Add(time.Second)))
 	require.NoError(t, f.repo.Interrupt(f.ctx, chat, "i1", "permission", "Bash", t0))
 	require.NoError(t, f.repo.ResolveInterruption(f.ctx, chat, "i1", "permission", "Bash", t0.Add(time.Second)))
 	f.wait()
@@ -211,6 +293,59 @@ func TestSubagentsAndInterruptions_AreRecorded(t *testing.T) {
 	require.Len(t, ints, 1)
 	assert.Equal(t, "permission", ints[0].Kind)
 	assert.NotNil(t, ints[0].ResolvedAt)
+}
+
+// TestRegression_AbandonClosesASubagentWhosePostNeverArrived is the bug
+// reported live: a chat can spawn a subagent (subagent_pre) and then its
+// process crashes, is killed, or its subagent_post is simply dropped — nobody
+// ever tells Crowbar it finished. Abandon already force-closed a tool call
+// left running the same way (TestCloseTurn_AbandonsToolsWhoseCompletionNever
+// Arrived), but had no equivalent for subagents, so this row's EndedAt stayed
+// nil forever: OpenWork checks Subagents chat-wide with no time bound, so
+// every future turn in that chat read as "still working" too. Confirmed live
+// against a production chat's own state: 14 such rows, oldest 11 days old,
+// one chat alone holding 10 of them.
+func TestRegression_AbandonClosesASubagentWhosePostNeverArrived(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Now: t0,
+	}))
+	require.NoError(t, f.repo.StartSubagent(f.ctx, chat, "orphan", "explorer", t0))
+	f.wait()
+
+	require.NoError(t, f.repo.Abandon(f.ctx, chat, t0.Add(time.Minute)))
+
+	subs, err := f.repo.Subagents(f.ctx, chat)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	require.NotNil(t, subs[0].EndedAt, "a subagent abandoned with its turn must not stay open forever")
+	assert.Equal(t, t0.Add(time.Minute), *subs[0].EndedAt)
+}
+
+// TestCloseTurn_NeverAbandonsASubagentStillRunningPastItsOwnTurn guards the
+// invariant the fix above must not break: unlike a tool call, a subagent is
+// deliberately allowed to keep running after the turn that spawned it closes
+// — a CLI that hands work to a background task ends its own turn right there
+// and goes quiet until that work reports back (see turn.go's restateAsyncWork
+// doc, proven end to end by TestRegression_CodexTurnStopWithOpenSubagent_
+// KeepsChatWorking). An ordinary CloseTurn must never treat that as
+// abandonment; only giving up on the chat entirely (Abandon) may.
+func TestCloseTurn_NeverAbandonsASubagentStillRunningPastItsOwnTurn(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Now: t0,
+	}))
+	require.NoError(t, f.repo.StartSubagent(f.ctx, chat, "still-running", "explorer", t0))
+	f.wait()
+
+	require.NoError(t, f.repo.CloseTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", Text: "I'll delegate this to a subagent.", Now: t0.Add(time.Minute),
+	}))
+
+	subs, err := f.repo.Subagents(f.ctx, chat)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	assert.Nil(t, subs[0].EndedAt, "the subagent genuinely outlives its own turn; CloseTurn must not touch it")
 }
 
 func TestAbandon_ClosesAnOpenTurnWithoutRecordingABlankReply(t *testing.T) {
@@ -410,6 +545,52 @@ func TestForget_DropsTheRecordAndItsRows(t *testing.T) {
 	ints, err := f.repo.Interruptions(f.ctx, chat)
 	require.NoError(t, err)
 	assert.Empty(t, ints)
+}
+
+func TestForget_DeletesABlobNothingElseReferences(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: chat, ToolID: "tool-1", Name: "Read", Request: []byte("only chat-1 uses this"), Now: t0,
+	}))
+	f.wait()
+
+	calls, err := f.repo.ToolCalls(f.ctx, chat, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, calls, 1)
+	ref := calls[0].RequestRef
+	require.NotEmpty(t, ref)
+
+	require.NoError(t, f.repo.Forget(f.ctx, chat))
+	f.wait()
+
+	_, err = f.repo.Payload(f.ctx, ref)
+	assert.ErrorIs(t, err, activity.ErrNotFound)
+}
+
+func TestForget_KeepsABlobAnotherChatStillReferences(t *testing.T) {
+	const otherChat = "chat-2"
+	f := newFixture(t)
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: chat, ToolID: "tool-1", Name: "Read", Request: []byte("shared payload"), Now: t0,
+	}))
+	f.wait()
+	calls, err := f.repo.ToolCalls(f.ctx, chat, 0, 10)
+	require.NoError(t, err)
+	ref := calls[0].RequestRef
+
+	// A second chat's tool call happens to produce the identical payload, so
+	// content-store dedup gives it the SAME ref.
+	require.NoError(t, f.repo.InvokeTool(f.ctx, activity.ToolInput{
+		ChatID: otherChat, ToolID: "tool-2", Name: "Read", Request: []byte("shared payload"), Now: t0,
+	}))
+	f.wait()
+
+	require.NoError(t, f.repo.Forget(f.ctx, chat))
+	f.wait()
+
+	got, err := f.repo.Payload(f.ctx, ref)
+	require.NoError(t, err, "chat-2 still references this ref; Forget(chat-1) must not have deleted it")
+	assert.Equal(t, "shared payload", string(got))
 }
 
 func TestValidation_IsSurfacedAndNeverRetried(t *testing.T) {

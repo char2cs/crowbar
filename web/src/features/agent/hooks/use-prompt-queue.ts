@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  getPendingPrompt,
   submitAgentPrompt,
   type AgentChatMessage,
   type AgentPromptResult,
@@ -35,6 +36,18 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** True while an image attachment still shows its OWN optimistic local
+ *  preview — `insertPendingImageInto`/`settlePendingImageInto` (chat-
+ *  markdown-editor.tsx) point it at a `URL.createObjectURL` blob until its
+ *  upload resolves, and a `blob:` url is meaningless outside this browser
+ *  session: the agent could never fetch it, and it stops working the moment
+ *  this tab revokes or closes it. Sending has to wait for the swap, not race
+ *  it — the whole point of the optimistic preview is instant FEEDBACK, not
+ *  skipping the upload itself. */
+export function hasPendingImageUpload(text: string): boolean {
+  return /!\[[^\]]*\]\(blob:/.test(text)
+}
+
 /** A queue item handed to the server and waiting to be proven delivered. Only
  *  these are resolvable by evidence; the rest are the user's. */
 export function awaitingEvidence(item: PromptQueueItem): boolean {
@@ -45,7 +58,11 @@ export function awaitingEvidence(item: PromptQueueItem): boolean {
   )
 }
 
-function samePrompt(message: AgentChatMessage, prompt: PromptQueueItem): boolean {
+/** Exported for `agent-transcript.tsx`'s own use of the same evidence match
+ *  — priming a settling row's virtualizer height from the queued row it
+ *  replaces needs the identical "is this THAT prompt" answer this FIFO
+ *  already trusts, not a second, driftable copy of it. */
+export function samePrompt(message: AgentChatMessage, prompt: PromptQueueItem): boolean {
   return (
     message.role === 'user' &&
     message.sequence > prompt.baselineSequence &&
@@ -62,12 +79,21 @@ export interface PromptQueueOptions {
   wsId: string
   chatId: string
   working: boolean
+  /** Busy in a way `working` cannot see. A bare /compact opens no tracked turn,
+   *  so the aggregate reports idle for the whole compaction — dispatching against
+   *  that "idle" hands the CLI a prompt mid-compaction and aborts the compaction.
+   *  The composer already promises this queues; the FIFO has to honour it. */
+  compacting: boolean
   live: boolean
   active: boolean
   visible: boolean
   turnRevision: number
   terminalWaiting: boolean
   settledPrompts?: string[]
+  /** Deliveries the daemon retired with NO proof the provider took them. Unlike
+   *  `settledPrompts` these must never drop the item: its text is the last copy
+   *  of what the user typed. See the effect that consumes it. */
+  abandonedPrompts?: string[]
   /** The ledger's newest sequence, read at dispatch time to baseline evidence. */
   getBaseline: () => number
   /** Ask the ledger to re-read. Called after every dispatch outcome. */
@@ -78,6 +104,12 @@ export interface PromptQueueOptions {
   onRefreshChat: () => Promise<boolean>
   /** The provider answered 422 prompt_submit_unsupported. */
   onSubmitUnavailable: () => void
+  /** A staged model/effort this item carried was just ACCEPTED by the server
+   *  — submitAgentPrompt's 200 is the only confirmation there is (the PATCH
+   *  this used to ride has no body either). Only fires for an item that
+   *  actually staged something; the caller's job is to fold it into its own
+   *  cache of the chat's sticky selection. */
+  onSelectionCommitted?: (model: string, effort: string) => void
 }
 
 /**
@@ -99,12 +131,14 @@ export function usePromptQueue(options: PromptQueueOptions) {
     wsId,
     chatId,
     working,
+    compacting,
     live,
     active,
     visible,
     turnRevision,
     terminalWaiting,
     settledPrompts,
+    abandonedPrompts,
     getBaseline,
     refreshMessages,
     onPromptSpawned,
@@ -112,6 +146,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
     onPromptDispatchSettled,
     onRefreshChat,
     onSubmitUnavailable,
+    onSelectionCommitted,
   } = options
 
   const initialQueue = useMemo(() => loadPromptQueue(wsId, chatId), [wsId, chatId])
@@ -262,11 +297,14 @@ export function usePromptQueue(options: PromptQueueOptions) {
     [updateQueue],
   )
 
-  // A delivery the daemon has RETIRED resolves its own queue item, and nothing
-  // else ever will: a provider built-in is handled inside the CLI, so no user
-  // message for it is coming to the ledger and `reconcile` can never fire on it.
-  // Without this the FIFO head sits in awaiting_turn and blocks the composer for
-  // the rest of the runner's life.
+  // A delivery the daemon has retired AND can vouch for resolves its own queue
+  // item, and nothing else ever will: a provider built-in is handled inside the
+  // CLI, so no user message for it is coming to the ledger and `reconcile` can
+  // never fire on it. Without this the FIFO head sits in awaiting_turn and
+  // blocks the composer for the rest of the runner's life.
+  //
+  // Dropping the item destroys its text, so this must stay limited to the
+  // vouched-for case — see the abandoned effect below.
   useEffect(() => {
     if (!settledPrompts?.length) return
     const settled = new Set(settledPrompts)
@@ -277,6 +315,73 @@ export function usePromptQueue(options: PromptQueueOptions) {
       return remaining.length === items.length ? items : remaining
     })
   }, [settledPrompts, updateQueue])
+
+  // A delivery the daemon retired with NOTHING to show for it — its timeout ran
+  // out and no turn ever appeared — releases the FIFO the same way, but MUST NOT
+  // take the text with it.
+  //
+  // REGRESSION, reported live against codex: "User's turns after some time of
+  // idle is lost, and does not record anywhere." This case used to be
+  // indistinguishable from the vouched-for one above, so the item was filtered
+  // out — erasing it from this queue and, on the same tick, from localStorage.
+  // At that moment the queued text is the ONLY copy left: the journal itself
+  // now stores the literal text too, but a settled record is a PROVEN-OVER
+  // outcome PendingPrompt deliberately never recovers (runner/pendingprompt.go)
+  // — the backend will not hand this text back again — and by definition
+  // nothing reached the ledger. The user's words were gone for good, with no
+  // error and no trace.
+  //
+  // So the row stays, carrying its text and the Retry/Edit affordances a failed
+  // row already renders. `failed` rather than `outcome_uncertain` deliberately:
+  // the daemon waited out its own delivery window and saw nothing, which is as
+  // close to "this did not happen" as Crowbar ever gets — and a failed row is
+  // the one the user can act on.
+  useEffect(() => {
+    if (!abandonedPrompts?.length) return
+    const abandoned = new Set(abandonedPrompts)
+    updateQueue((items) => {
+      let changed = false
+      const next = items.map((item) => {
+        if (!awaitingEvidence(item) || !abandoned.has(item.clientRequestId)) return item
+        changed = true
+        return {
+          ...item,
+          state: 'failed' as const,
+          error:
+            'The provider never picked this prompt up, and Crowbar saw no turn for it. Your text is kept here — retry or edit it.',
+        }
+      })
+      return changed ? next : items
+    })
+  }, [abandonedPrompts, updateQueue])
+
+  // Recovers a prompt this tab's local queue lost entirely (idle reload,
+  // crash, cleared storage) from the backend's own pending-prompt record.
+  // Runs once per chat becoming visible; only ever appends — never touches
+  // an existing item, never the busy barrier above.
+  useEffect(() => {
+    if (!visible) return
+    const controller = new AbortController()
+    void (async () => {
+      const pending = await getPendingPrompt(wsId, chatId, controller.signal).catch(() => null)
+      if (!pending || controller.signal.aborted) return
+      updateQueue((current) => {
+        if (current.some((item) => item.text.trim() === pending.text.trim())) return current
+        const recovered: PromptQueueItem = {
+          // The journal's own request id, NOT a freshly minted one: it is what
+          // keeps this row inside the at-most-once retry dedup and lets the
+          // daemon's settled/abandoned broadcasts ever match it.
+          clientRequestId: pending.requestId,
+          text: pending.text,
+          state: 'outcome_uncertain',
+          createdAt: new Date().toISOString(),
+          baselineSequence: getBaseline(),
+        }
+        return [...current, recovered]
+      })
+    })()
+    return () => controller.abort()
+  }, [visible, wsId, chatId, getBaseline, updateQueue])
 
   /** Evidence still outstanding, for the ledger's recovery walk. */
   const pendingEvidence = useCallback(() => queueRef.current.some(awaitingEvidence), [])
@@ -320,11 +425,22 @@ export function usePromptQueue(options: PromptQueueOptions) {
         waitForIdleEpoch: undefined,
       }))
       try {
-        const result = await submitAgentPrompt(wsId, chatId, item.text, item.clientRequestId)
+        const result = await submitAgentPrompt(
+          wsId,
+          chatId,
+          item.text,
+          item.clientRequestId,
+          item.provider ?? '',
+          item.model ?? '',
+          item.effort ?? '',
+        )
         // Success means the replacement TUI exists, not that the provider has
         // accepted the message. Keep this row as the FIFO head until user_prompt
         // appears in the authoritative ledger.
         mark(item.clientRequestId, (current) => ({ ...current, state: 'awaiting_turn' }))
+        if (item.model !== undefined || item.effort !== undefined) {
+          onSelectionCommitted?.(item.model ?? '', item.effort ?? '')
+        }
         try {
           await onPromptSpawned(result)
         } catch {
@@ -407,16 +523,24 @@ export function usePromptQueue(options: PromptQueueOptions) {
       onPromptDispatchStart,
       onPromptDispatchSettled,
       onSubmitUnavailable,
+      onSelectionCommitted,
     ],
   )
 
   // Only the FIFO head can move.
+  //
+  // `working` is not the whole of "busy": a compaction opens no tracked turn, so
+  // the aggregate folds it as idle and this guard used to wave the head straight
+  // through — the prompt reached the CLI mid-compaction and killed it. Both busy
+  // signals are read HERE, at flush time, so a compaction that starts after the
+  // prompt was already queued still holds it.
   useEffect(() => {
     const head = queue[0]
-    if (!head || head.state !== 'queued' || working || !live || !active || !visible) return
+    if (!head || head.state !== 'queued' || working || compacting || !live || !active || !visible)
+      return
     if (head.waitForIdleEpoch !== undefined && head.waitForIdleEpoch > idleEpoch) return
     void dispatch(head)
-  }, [queue, working, live, active, visible, idleEpoch, dispatch])
+  }, [queue, working, compacting, live, active, visible, idleEpoch, dispatch])
 
   // A replacement CLI that disappears before user_prompt is not accepted. Keep
   // the same request identity but require a human retry; never silently resubmit.
@@ -436,8 +560,11 @@ export function usePromptQueue(options: PromptQueueOptions) {
   }, [live, mark, refreshMessages])
 
   const enqueue = useCallback(
-    (raw: string): EnqueueResult => {
+    (raw: string, provider?: string, model?: string, effort?: string): EnqueueResult => {
       const text = raw.trim()
+      if (hasPendingImageUpload(text)) {
+        return { ok: false, error: 'Wait for the attached photo to finish uploading.' }
+      }
       if (!isPromptTextWithinLimit(text)) {
         // Empty gets no error: Enter reaches here even with nothing typed
         // (the send button is disabled for that case, but Enter bypasses
@@ -462,6 +589,12 @@ export function usePromptQueue(options: PromptQueueOptions) {
         state: 'queued',
         createdAt: new Date().toISOString(),
         baselineSequence: getBaseline(),
+        // Baked in at enqueue time, not read fresh at dispatch: a later pick
+        // must never bleed onto an earlier queued message. See the field's
+        // own doc comment on PromptQueueItem.
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
       }
       const next = [...queueRef.current, item]
       if (!canPersistPromptQueue(wsId, chatId, next)) {

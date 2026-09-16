@@ -283,12 +283,20 @@ func (s *Store) ChatForSession(
 	return row.ChatID, nil
 }
 
-// LastConversation returns the most recent conversation the chat has hosted —
-// the one a resume picks up from. Ordered by first_seen_at, which is when the
-// CONVERSATION opened (never when its runner spawned), so a chat that two runners
-// have written into still orders by which conversation is newer. SQLite's
-// insertion-order rowid breaks an exact tie, keeping the answer deterministic
-// when two conversations share a timestamp.
+// LastConversation returns the chat's CURRENT conversation — the one a resume
+// picks up from, and the provider ActiveProviderID/ChatProviderID fall back to
+// once the chat goes dormant. Ordered by last_active_at, which is when a runner
+// most recently bound or MOVED INTO the conversation (never when its runner
+// spawned, and never merely when it first opened): a switch back to a provider
+// this chat already ran re-activates that provider's OWN prior conversation
+// without minting a new row, and first_seen_at (immutable, stamped once) cannot
+// tell that apart from a chat that has not touched that provider since. Ordering
+// by it instead named the provider the chat was switched AWAY FROM as still
+// current, forever, the instant the chat went dormant — confirmed live: a chat
+// handed from codex to claude and then stopped mid-turn came back on codex, the
+// stale provider, not claude, the one actually running and actually stopped.
+// SQLite's insertion-order rowid breaks an exact tie, keeping the answer
+// deterministic when two conversations share a timestamp.
 func (s *Store) LastConversation(
 	ctx context.Context,
 	chatID string,
@@ -296,7 +304,7 @@ func (s *Store) LastConversation(
 	var row conversationRow
 	err := s.db.WithContext(ctx).
 		Where("chat_id = ?", chatID).
-		Order("first_seen_at DESC, rowid DESC").
+		Order("last_active_at DESC, rowid DESC").
 		Take(&row).Error
 	if errors.Is(err, gormdb.ErrRecordNotFound) {
 		return agents.ChatConversation{}, fmt.Errorf("agentrunner store: last conversation for chat %q: %w", chatID, ErrNotFound)
@@ -465,9 +473,11 @@ func (p *projector) upsertLive(
 
 // appendConversation records the (chat, conversation) pair the runner now holds,
 // stamped with when that conversation OPENED (CurrentSessionSince — the moment it
-// was bound or moved into), never with the runner's spawn time. Idempotent:
-// DoNothing on conflict keeps the history append-only under replay, so a rebuilt
-// model is identical to the one it replaces.
+// was bound or moved into), never with the runner's spawn time. Idempotent: a
+// REVISIT of an already-known (chat, session) pair — a switch back to a provider
+// this chat already ran, resuming its own prior session — never touches
+// FirstSeenAt, only LastActiveAt, so a rebuilt model's append-only OPEN-time
+// history is identical to the one it replaces.
 //
 // Package-level rather than a projector method because the boot heal folds it
 // WITHOUT the live-row writer (heal.go) — history is the only thing a replay is
@@ -486,13 +496,17 @@ func appendConversation(
 		return nil
 	}
 	conv := conversationRow{
-		ChatID:      r.CurrentChatID,
-		SessionID:   r.CurrentSession,
-		WorkspaceID: r.WorkspaceID,
-		ProviderID:  r.ProviderID,
-		FirstSeenAt: r.CurrentSessionSince,
+		ChatID:       r.CurrentChatID,
+		SessionID:    r.CurrentSession,
+		WorkspaceID:  r.WorkspaceID,
+		ProviderID:   r.ProviderID,
+		FirstSeenAt:  r.CurrentSessionSince,
+		LastActiveAt: r.CurrentSessionSince,
 	}
-	err := db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&conv).Error
+	err := db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "chat_id"}, {Name: "session_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"last_active_at"}),
+	}).Create(&conv).Error
 	if err != nil {
 		return fmt.Errorf("agentrunner store: append conversation (chat %q, session %q): %w",
 			r.CurrentChatID, r.CurrentSession, err)

@@ -45,13 +45,15 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 			Status: c.Status, Error: c.Error, DurationMS: c.DurationMS,
 
 			HasRequest: c.RequestRef != "", HasResult: c.ResultRef != "",
-			StartedAt: c.StartedAt, EndedAt: c.EndedAt,
+			SubagentID: c.SubagentID,
+			StartedAt:  c.StartedAt, EndedAt: c.EndedAt,
 		})
 	}
 	for _, s := range activity.Subagents {
 		out.Subagents = append(out.Subagents, dto.AgentSubagentDTO{
 			ID: s.ID, TurnID: s.TurnID, Seq: s.Seq, AgentType: s.AgentType,
 			StartedAt: s.StartedAt, EndedAt: s.EndedAt,
+			Messages: subagentMessageDTOs(s.Messages),
 		})
 	}
 	for _, i := range activity.Interruptions {
@@ -62,6 +64,17 @@ func (h *Handlers) Activity(ctx *gin.Context) {
 		})
 	}
 	libs.WriteQueryOK(ctx, out)
+}
+
+func subagentMessageDTOs(in []domain.ActivitySubagentMessage) []dto.AgentSubagentMessageDTO {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]dto.AgentSubagentMessageDTO, 0, len(in))
+	for _, m := range in {
+		out = append(out, dto.AgentSubagentMessageDTO{Text: m.Text, At: m.At})
+	}
+	return out
 }
 
 func (h *Handlers) Choices(ctx *gin.Context) {
@@ -94,7 +107,8 @@ func (h *Handlers) choiceDTOs(chatID string, in []domain.ActivityChoice) []dto.A
 			Pending:    c.Pending(),
 			Answerable: answerable[c.ID],
 			At:         c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
-			AutoApproved: c.AutoApproved,
+			AutoApproved:      c.AutoApproved,
+			AnsweredOptionIDs: c.AnsweredOptionIDs,
 		})
 	}
 	return out

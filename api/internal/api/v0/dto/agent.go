@@ -281,6 +281,10 @@ type AgentToolCallDTO struct {
 	DurationMS int        `json:"durationMs,omitempty"`
 	HasRequest bool       `json:"hasRequest"`
 	HasResult  bool       `json:"hasResult"`
+	// SubagentID — see domain.ActivityToolCall's own doc. Set instead of
+	// TurnID when this call belongs to a SUBAGENT's own nested activity, not
+	// the chat's top-level turn.
+	SubagentID string     `json:"subagentId,omitempty"`
 	StartedAt  time.Time  `json:"startedAt"`
 	EndedAt    *time.Time `json:"endedAt,omitempty"`
 }
@@ -292,6 +296,14 @@ type AgentSubagentDTO struct {
 	AgentType string     `json:"agentType,omitempty"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+	// Messages is the subagent's own nested reply history — see
+	// domain.ActivitySubagent's own doc.
+	Messages []AgentSubagentMessageDTO `json:"messages,omitempty"`
+}
+
+type AgentSubagentMessageDTO struct {
+	Text string    `json:"text"`
+	At   time.Time `json:"at"`
 }
 
 // AgentInterruptionDTO is the agent being blocked on, or interrupted by,
@@ -371,6 +383,10 @@ type AgentChoiceDTO struct {
 	// domain.ActivityChoice.AutoApproved). Never omitted — false is a real
 	// answer here, not an absence.
 	AutoApproved bool `json:"autoApproved"`
+	// AnsweredOptionIDs is which of Options/Questions was actually picked, set
+	// only when Resolution is "answered" through Crowbar — see
+	// domain.ActivityChoice.AnsweredOptionIDs.
+	AnsweredOptionIDs []string `json:"answeredOptionIds,omitempty"`
 }
 
 // AgentHookAckDTO is the daemon's reply to a relay that has just delivered a
@@ -488,6 +504,18 @@ type PromptSubmissionDTO struct {
 	TerminalSessionID string `json:"terminalSessionId"`
 }
 
+// PendingPromptDTO is the wire shape of domain.PendingPrompt — a prompt
+// submission the journal has not yet confirmed the provider accepted, sent
+// so a client whose own local copy was lost can recover the literal text.
+type PendingPromptDTO struct {
+	Text  string `json:"text"`
+	State string `json:"state"`
+	// RequestID is the original client request id, carried through so the
+	// recovered row rejoins this chat's own dedup and settlement broadcasts
+	// instead of a freshly minted id nothing will ever match.
+	RequestID string `json:"requestId"`
+}
+
 // SlashCatalogDTO is one ephemeral deterministic provider capability response.
 // Completeness is never inferred by Crowbar; it is declared by the provider
 // descriptor so partial inventories remain visibly partial.
@@ -509,18 +537,34 @@ type SlashCatalogItemDTO struct {
 
 // activeProviderID derives the provider to show for a chat: the live runner's while one
 // is placed on it (mid-switch, the incoming runner is already the truth — it outranks a
-// history whose last entry still names the outgoing vendor), else the provider of the
-// chat's last conversation, else "".
+// history whose last entry still names the outgoing vendor), else the provider that was
+// most recently ACTIVE, else "".
+//
+// rt.Conversations is oldest-FIRST-SEEN-first (ConversationsForChat's own contract —
+// callers besides this one rely on that order), so its last element is NOT necessarily
+// the answer: a chat switched back to a provider it already ran re-activates that
+// provider's own EARLIER row rather than minting a new one, and that row's position in
+// the slice never moves even though it is once again the current one. Scanning for the
+// max LastActiveAt is what actually answers "current" — see LastConversation's own doc
+// for the live bug this replaced (the stale-provider-after-Stop report).
 func activeProviderID(
 	rt ChatRuntime,
 ) string {
 	if rt.LiveRunner != nil {
 		return rt.LiveRunner.ProviderID
 	}
-	if n := len(rt.Conversations); n > 0 {
-		return rt.Conversations[n-1].ProviderID
+	var last agents.ChatConversation
+	found := false
+	for _, c := range rt.Conversations {
+		if !found || c.LastActiveAt.After(last.LastActiveAt) {
+			last = c
+			found = true
+		}
 	}
-	return ""
+	if !found {
+		return ""
+	}
+	return last.ProviderID
 }
 
 // AgentChatDTOList converts a slice of AgentChats into wire DTOs, returning a
@@ -715,6 +759,25 @@ type AgentChatEvent struct {
 	// the same instant and from the same bytes.
 	Worktree *ChatWorktreeDTO `json:"worktree,omitempty"`
 
+	// PromptConsumed rides the prompt_settled kind beside ClientRequestID and says
+	// whether anything actually proved the provider took that prompt.
+	//
+	// True is a provider built-in that demonstrably ran — a `/compact` the CLI
+	// handled itself, announcing nothing. False is the terminal-wait sweep's bare
+	// thirty-second timeout: nothing was proved, and the prompt may never have been
+	// seen at all.
+	//
+	// The distinction is not cosmetic, and a client cannot derive it: the two cases
+	// are identical in the ledger (neither produced a turn) and identical in the
+	// delivery journal, which records a HASH of the prompt and never its text. So a
+	// client's own pending-queue item holds the only surviving copy of what the user
+	// typed, and discarding it on the timeout case destroys their words outright.
+	// Discard on true; keep the text and surface a failure on false.
+	//
+	// Omitempty makes the SAFE reading the default: a frame with the field absent
+	// preserves the text rather than dropping it.
+	PromptConsumed bool `json:"promptConsumed,omitempty"`
+
 	// Message is an assistant message still being produced, on the message_delta
 	// kind and nowhere else.
 	//
@@ -724,6 +787,17 @@ type AgentChatEvent struct {
 	// to persist text that is replaced a moment later. So the partial travels on
 	// the live feed only, and the ledger gets the message once, when it is done.
 	Message *AgentStreamingMessageDTO `json:"message,omitempty"`
+	// Plan is the agent's running to-do list, on the `plan` kind.
+	Plan []AgentPlanStepDTO `json:"plan,omitempty"`
+}
+
+// AgentPlanStepDTO is one entry of the agent's running plan.
+type AgentPlanStepDTO struct {
+	Text string `json:"text"`
+	// Status is CROWBAR'S word — pending, active or done — translated from the
+	// provider's own vocabulary by its descriptor, never by a client. An unknown
+	// value is still a step and must render unstyled rather than be dropped.
+	Status string `json:"status"`
 }
 
 // AgentStreamingMessageDTO is one assistant message as far as it has been said.
@@ -735,6 +809,15 @@ type AgentStreamingMessageDTO struct {
 	// missed a frame is therefore correct again on the next one, with no
 	// reassembly and no gap detection of its own.
 	Text string `json:"text"`
+	// Kind names WHICH stream this text belongs to. Absent (the default) is the
+	// agent's answer — the stream that existed before there was more than one, and
+	// the only one that is ever recorded in the ledger. "reasoning" is the agent
+	// thinking on the way there: live-only, dropped when the turn ends, and
+	// rendered as a thought rather than as the reply.
+	//
+	// Omitempty deliberately: an answer frame is byte-identical to what every
+	// client already parses.
+	Kind string `json:"kind,omitempty"`
 }
 
 // AgentChatKindPromptSettled announces that a prompt Crowbar delivered is OVER
@@ -760,6 +843,12 @@ const AgentChatKindMessageDelta = "message_delta"
 // chat-scoped feed and the workspace-scoped stream can never disagree about the
 // same branch. A chat that owns no worktree never produces one.
 const AgentChatKindWorktreeState = "worktree_state"
+
+// AgentChatKindPlan announces that the agent restated its own to-do list for the
+// turn. The list arrives WHOLESALE — the newest one is the entire truth, so a
+// client that missed a frame is correct again on the next one, and there is
+// nothing to merge. Never stored: a plan for a turn in progress is a view of it.
+const AgentChatKindPlan = "plan"
 
 // AgentChatKindTerminalWait is the lifecycle kind that announces a change in
 // whether a chat's CLI is blocked behind a terminal-only prompt.

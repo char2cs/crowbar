@@ -37,9 +37,21 @@ type PresentationSpec struct {
 }
 
 type PromptSubmitSpec struct {
-	Strategy string       `yaml:"strategy"`
-	Fresh    []InjectStep `yaml:"fresh"`
-	Resume   []InjectStep `yaml:"resume"`
+	Strategy      string             `yaml:"strategy"`
+	Fresh         []InjectStep       `yaml:"fresh"`
+	Resume        []InjectStep       `yaml:"resume"`
+	LeadingSigils *LeadingSigilsSpec `yaml:"leading_sigils"`
+}
+
+// LeadingSigilsSpec names the characters this CLI reads as a CONTROL gesture
+// rather than as text when one of them is the message's FIRST character, and
+// what to put in front of one to make it text again. Crowbar's own attachment
+// encoding can put such a character there with nobody typing it — see the
+// promptsigil package, the only consumer, which never touches a sigil a person
+// typed.
+type LeadingSigilsSpec struct {
+	Chars  []string `yaml:"chars"`
+	Escape string   `yaml:"escape"`
 }
 
 type SlashCatalogSpec struct {

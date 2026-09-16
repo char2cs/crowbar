@@ -402,6 +402,14 @@ func extraRoutes() []string {
 		// full payload, open choices, message history, and provider telemetry.
 		"GET " + repo + "/chats/:id/activity",
 		"GET " + repo + "/chats/:id/activity/:toolId/payload",
+		// Chat attachments: an uploaded file (image, CSV, text) a message
+		// references. GET serves the stored bytes; HEAD the same response's
+		// headers alone (the composer's own file-card size lookup) — the
+		// handler never checks the request method, so registering both against
+		// it is enough.
+		"POST " + repo + "/chats/:id/attachments",
+		"GET " + repo + "/chats/:id/attachments/:file",
+		"HEAD " + repo + "/chats/:id/attachments/:file",
 		"GET " + repo + "/chats/:id/choices",
 		"GET " + repo + "/chats/:id/messages",
 		"GET " + repo + "/chats/:id/telemetry",
@@ -414,8 +422,10 @@ func extraRoutes() []string {
 		"PUT " + repo + "/chats/:id/permission-level",
 		// A human deciding a question the agent put to them mid-turn.
 		"POST " + repo + "/chats/:id/choices/:choiceId/answer",
-		// Submitting the user's own text into the chat.
+		// Submitting the user's own text into the chat, and recovering it if
+		// the client's own copy was lost before the provider confirmed it.
 		"POST " + repo + "/chats/:id/prompts",
+		"GET " + repo + "/chats/:id/pending-prompt",
 		// The answer channel's other two legs (routes.go): the in-PTY relay parking
 		// alive while the provider's gate stays open, and what it reports when the
 		// provider decided at the terminal instead.
@@ -522,11 +532,17 @@ func extraRoutes() []string {
 		"GET " + home + "/chats/:id/choices",
 		"GET " + home + "/chats/:id/messages",
 		"GET " + home + "/chats/:id/telemetry",
+		// Same attachments pair as the workspace group above, mounted on home
+		// for the same reason as the rest of this block.
+		"POST " + home + "/chats/:id/attachments",
+		"GET " + home + "/chats/:id/attachments/:file",
+		"HEAD " + home + "/chats/:id/attachments/:file",
 		"GET " + home + "/chats/:id/slash-catalog",
 		"PATCH " + home + "/chats/:id/selection",
 		"PUT " + home + "/chats/:id/permission-level",
 		"POST " + home + "/chats/:id/choices/:choiceId/answer",
 		"POST " + home + "/chats/:id/prompts",
+		"GET " + home + "/chats/:id/pending-prompt",
 		// And the same answer-channel pair, for the same reason.
 		"POST " + home + "/chats/hooks/await",
 		"POST " + home + "/chats/hooks/abandon",

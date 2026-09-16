@@ -48,6 +48,10 @@ type conversationRow struct {
 	WorkspaceID string `gorm:"index"`
 	ProviderID  string
 	FirstSeenAt time.Time
+	// LastActiveAt advances on every bind/move into this row, even a REVISIT of an
+	// already-known (chat, session) pair — see ChatConversation's own doc. FirstSeenAt
+	// never does; that immutability is the whole reason a second column exists.
+	LastActiveAt time.Time
 }
 
 func (conversationRow) TableName() string {
@@ -102,9 +106,10 @@ func (r runnerRow) toRunner() agents.Runner {
 
 func (c conversationRow) toConversation() agents.ChatConversation {
 	return agents.ChatConversation{
-		ChatID:      c.ChatID,
-		ProviderID:  c.ProviderID,
-		SessionID:   c.SessionID,
-		FirstSeenAt: c.FirstSeenAt,
+		ChatID:       c.ChatID,
+		ProviderID:   c.ProviderID,
+		SessionID:    c.SessionID,
+		FirstSeenAt:  c.FirstSeenAt,
+		LastActiveAt: c.LastActiveAt,
 	}
 }

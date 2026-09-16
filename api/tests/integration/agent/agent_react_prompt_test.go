@@ -33,7 +33,7 @@ func TestAgent_ReactPromptRestartsInteractiveTUI(t *testing.T) {
 
 			firstWant := fmt.Sprintf("CROWBAR-%s-FIRST", provider)
 			firstText := "--crowbar-leading-dash=Reply with only the exact text " + firstWant
-			first, err := h.app.Usecases.AgentRunner.SubmitPrompt(ctx, chatID, firstText, uuid.NewString())
+			first, err := h.app.Usecases.AgentRunner.SubmitPrompt(ctx, chatID, firstText, uuid.NewString(), "", "", "")
 			require.NoError(t, err)
 			require.NotEqual(t, idleRunnerID, first.RunnerID)
 			require.NotEqual(t, idleTermID, first.TerminalSessionID)
@@ -56,7 +56,7 @@ func TestAgent_ReactPromptRestartsInteractiveTUI(t *testing.T) {
 
 			secondWant := fmt.Sprintf("CROWBAR-%s-SECOND", provider)
 			secondText := "-p=Reply with only the exact text " + secondWant
-			second, err := h.app.Usecases.AgentRunner.SubmitPrompt(ctx, chatID, secondText, uuid.NewString())
+			second, err := h.app.Usecases.AgentRunner.SubmitPrompt(ctx, chatID, secondText, uuid.NewString(), "", "", "")
 			require.NoError(t, err)
 			require.NotEqual(t, first.RunnerID, second.RunnerID)
 			require.NotEqual(t, first.TerminalSessionID, second.TerminalSessionID)

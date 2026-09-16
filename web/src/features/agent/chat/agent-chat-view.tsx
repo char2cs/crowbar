@@ -8,7 +8,9 @@ import {
   useState,
 } from 'react'
 import type { KeyboardEvent, ReactNode, Ref } from 'react'
+import { DndScope } from '@/features/agent/chat/dnd-scope'
 import {
+  compactChat,
   stopChat,
   type AgentChatMessage,
   type AgentInterruption,
@@ -27,6 +29,7 @@ import {
 } from '@/features/agent/composer/lib/composer-state'
 import { ComposerSlashPicker } from '@/features/agent/composer/composer-slash-picker'
 import type { CaretEdges } from '@/features/agent/composer/plate/chat-markdown-editor'
+import { ChatMarkdownAssetProvider } from '@/features/agent/composer/plate/attachments/chat-markdown-asset-provider'
 import { ProviderBar } from '@/features/agent/controls/provider-bar'
 import { SelectionCluster } from '@/features/agent/controls/selection-cluster'
 import { AgentTranscript } from '@/features/agent/transcript/agent-transcript'
@@ -46,12 +49,15 @@ import {
 import { useAgentActivity } from '@/features/agent/hooks/use-agent-activity'
 import { useAgentTelemetry, limitResetsAt } from '@/features/agent/hooks/use-agent-telemetry'
 import { useChatMessages } from '@/features/agent/hooks/use-chat-messages'
+import {
+  getScrollPosition,
+  setScrollPosition,
+} from '@/features/agent/hooks/lib/transcript-scroll-positions'
 import { usePromptHistory } from '@/features/agent/hooks/use-prompt-history'
 import { usePromptQueue } from '@/features/agent/hooks/use-prompt-queue'
 import { useSlashCatalog } from '@/features/agent/hooks/use-slash-catalog'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 
 import '@/features/agent/styles/composer.css'
 import '@/features/agent/styles/transcript.css'
@@ -67,10 +73,12 @@ export interface AgentChatViewHandle {
 export interface AgentChatViewProps {
   wsId: string
   chatId: string
+  /** The chat's REAL, live provider — what its CLI actually is right now.
+   *  Drives everything that can only mean something about a live process
+   *  (the slash catalog probe, submit-availability resets). Never a staged
+   *  pick — see `provider` below for that. */
   providerId: string
   providers: AgentProvider[]
-  /** Move this chat to another provider — the identity chip's other groups. */
-  onSwitchProvider?: (providerId: string) => Promise<boolean>
   /** A switch is already running, or the pane is mid-delivery. */
   switchDisabled?: boolean
   working: boolean
@@ -112,8 +120,18 @@ export interface AgentChatViewProps {
   headerClearancePx?: number
   /** Client request ids the daemon has reported as delivered-and-over. */
   settledPrompts?: string[]
+  /** Retired with no proof the provider took them — the queue keeps their text.
+   *  See AgentChatsState.abandonedPrompts. */
+  abandonedPrompts?: string[]
   /** The message(s) the agent is mid-way through saying — see useChatMessages. */
   streamingMessages?: { id: string; text: string }[]
+  /** The agent's in-flight thinking — live-only, never in the ledger.
+   *  See AgentChatsState.streamingReasoning. */
+  reasoning?: string
+  /** The running tool's live output — see WorkingLine's own prop doc. */
+  toolOutput?: { id: string; text: string }
+  /** The agent's own to-do list — see WorkingLine's own prop doc. */
+  plan?: { text: string; status: string }[]
   /** Prune confirmed ids out of the store's own streamingMessages[chatId] —
    *  see useChatMessages' onStreamingSettled for why this is safe where a
    *  turn-boundary clear was not. */
@@ -141,10 +159,23 @@ export interface AgentChatViewProps {
   /** The daemon has confirmed this chat id does not exist (404 on its own
    *  messages) — never a transient failure, so retrying can't help. */
   onChatGone?: () => void
+  /** The EFFECTIVE provider / model / effort right now: the chat's real
+   *  provider and sticky selection, or a staged pick on top of them if the
+   *  picker has one (the caller owns which — see AgentChatPane's
+   *  `stagedSelection`). `provider` '' means "use `providerId` as-is" — see
+   *  its own doc above for why the two are never the same prop. This is what
+   *  the trigger shows AND what travels with the next enqueue; the picker
+   *  itself never writes selection or switches provider, so
+   *  `onSelectionChange` below only ever updates local staged state, never
+   *  the server. */
+  provider: string
   /** The chat's sticky model / effort selection. '' means unset. */
   model: string
   effort: string
-  onSelectionChange: (model: string, effort: string) => void
+  onSelectionChange: (provider: string, model: string, effort: string) => void
+  /** A staged pick this file just sent WAS ACCEPTED — see
+   *  usePromptQueue's `onSelectionCommitted` for the exact contract. */
+  onSelectionCommitted?: (model: string, effort: string) => void
   /** Which surface the pane is showing, and how to change it. */
   presentation: ChatPresentation
   splitEnabled: boolean
@@ -174,25 +205,57 @@ function displayOrderOf(item: { sequence?: number; seq?: number; displayOrder?: 
   return item.displayOrder ?? item.sequence ?? item.seq ?? 0
 }
 
-/** The five interruption kinds the transcript draws a boundary pill for, mapped
+/** The six interruption kinds the transcript draws a boundary pill for, mapped
  *  to that pill's own shape. `null` for everything else (permission,
  *  notification, elicitation) — those are answered inline, never a divider. */
 function toDividerTag(interruption: AgentInterruption): DividerTag | null {
+  const id = interruption.id
   switch (interruption.kind) {
     case 'compaction':
-      return { kind: 'compaction', trigger: interruption.detail || 'auto' }
+      return { kind: 'compaction', id, trigger: interruption.detail || 'auto' }
     case 'stopped':
-      return { kind: 'interrupted' }
+      return { kind: 'interrupted', id }
+    // Crowbar's own GUESS, not an observed Stop click — kept as its own tag
+    // rather than folded into 'interrupted' so the pill never claims a person
+    // did something nobody actually did.
+    case 'inferred':
+      return { kind: 'inferred-interrupt', id }
     case 'provider_switched':
-      return { kind: 'provider', detail: interruption.detail ?? '' }
+      return { kind: 'provider', id, detail: interruption.detail ?? '' }
     case 'model_changed':
-      return { kind: 'model', detail: interruption.detail ?? '' }
+      return { kind: 'model', id, detail: interruption.detail ?? '' }
     case 'effort_changed':
-      return { kind: 'effort', detail: interruption.detail ?? '' }
+      return { kind: 'effort', id, detail: interruption.detail ?? '' }
     default:
       return null
   }
 }
+
+/** Interruption kinds allowed to draw at the FOOT of the transcript when
+ *  nothing yet follows them — every other kind (a provider/model/effort
+ *  switch) only ever renders anchored above a later message. `stopped`: a
+ *  person cut the turn short. `compaction`: the ledger's own record is born
+ *  already resolved (compact.go — no turn ever opens for it), so without
+ *  this the pill never appeared until whatever was typed next dragged it
+ *  along as an `eventsBefore` anchor instead — reported live as the divider
+ *  only showing up once you sent a follow-up message. `inferred`: same
+ *  born-already-resolved shape as `stopped` (AbandonMessageInferredInterrupt
+ *  opens and resolves it in one call), and it is exactly the silently-aborted
+ *  turn with nothing typed after it that this whole kind exists to catch. */
+const TRAILING_INTERRUPTION_KINDS = new Set(['stopped', 'compaction', 'inferred'])
+
+// `DndScope` (dnd-scope.tsx) is `AgentChatView`'s one `<DndProvider>` —
+// `@platejs/dnd`'s `useDraggable`/`useDropLine` (attachment-drag-handle.tsx)
+// THROW without an ancestor one, and this is the real common ancestor of
+// every Plate tree that can render an attachment node live: the
+// transcript's streaming `MarkdownMessage` (via `transcript` below) and the
+// composer's `ChatMarkdownEditor` (via `AgentComposer`/`AgentEmptyDocument`
+// further down). Deliberately NOT wrapping the settled transcript:
+// `MarkdownMessageStatic` renders through `chatComposerPluginsStatic`, whose
+// code-block/link node components never call `useAttachmentDraggable` at all
+// (see chat-composer-plugins.ts's `STATIC_NODE_OVERRIDES`), so a settled
+// message never needs this context — costs nothing extra to cover it anyway,
+// but the real gate is in the plugin set, not here.
 
 /**
  * The chat surface: a transcript, and one bar under it.
@@ -210,7 +273,6 @@ export function AgentChatView({
   chatId,
   providerId,
   providers,
-  onSwitchProvider,
   switchDisabled,
   working,
   compacting = false,
@@ -225,7 +287,11 @@ export function AgentChatView({
   terminalWaitKind,
   headerClearancePx = 0,
   settledPrompts,
+  abandonedPrompts,
   streamingMessages,
+  reasoning,
+  toolOutput,
+  plan,
   onStreamingSettled,
   onPromptSpawned,
   onPromptDispatchStart,
@@ -237,17 +303,18 @@ export function AgentChatView({
   onBlankChange,
   blankSignpost,
   onChatGone,
+  provider: effectiveProviderId,
   model,
   effort,
   onSelectionChange,
+  onSelectionCommitted,
   presentation,
   splitEnabled,
   onSelectPresentation,
   ref,
 }: AgentChatViewProps) {
-  const activity = useAgentActivity(wsId, chatId, working, visible)
+  const activity = useAgentActivity(wsId, chatId, working, compacting, visible)
   const telemetry = useAgentTelemetry(wsId, chatId, visible)
-  const store = useWorkspaceStore()
   // Read exactly once, at construction — this component remounts wholesale
   // on every chat switch (key={wsId:chatId} in AgentChatPane), so "once per
   // component instance" already means "once per chat". A lazy useState
@@ -255,9 +322,12 @@ export function AgentChatView({
   // FIRST render (it flows down into AgentTranscript's own mount-time
   // scroll-restore effect), before any effect in this component tree could
   // read it instead.
-  const [initialScrollPosition] = useState(
-    () => store.getState().agentChats.scrollPositions[chatId] ?? null,
-  )
+  //
+  // Sourced from transcript-scroll-positions.ts, NOT the workspace store:
+  // destroyWorkspaceStore drops that store wholesale on every workspace
+  // switch, which silently discarded this across a switch away and back —
+  // see that module's own doc.
+  const [initialScrollPosition] = useState(() => getScrollPosition(chatId))
 
   const [draft, setDraft] = useState('')
   // The box is UNCONTROLLED — a controlled contenteditable rebuilds itself under
@@ -282,6 +352,14 @@ export function AgentChatView({
   // track, which is what made the glass read as smudging the thumb itself.
   const [scrollbarWidth, setScrollbarWidth] = useState(0)
   useEffect(() => setScrollbarWidth(measureScrollbarWidth()), [])
+  // The excalidraw takeover portals here instead of rendering inline under
+  // the composer — the composer sits inside `.dock`, itself `position:
+  // absolute` and therefore ITS OWN containing block for any absolutely-
+  // positioned descendant regardless of `.dock`'s own (small, bottom-pinned)
+  // size. State, not a plain ref: AgentComposer needs the actual node to
+  // portal into, and a ref's `.current` isn't populated yet during the render
+  // that first needs it.
+  const [chatSurfaceEl, setChatSurfaceEl] = useState<HTMLElement | null>(null)
   // The empty document's own handle, read exactly once — at the instant of the
   // first send — so the arrival slide has something to arrive FROM. A ref, not
   // state: nothing ever renders off it, and it must survive the very unmount
@@ -302,7 +380,20 @@ export function AgentChatView({
     // this, so `playArrival` no-ops for every ordinary open.
     playArrival(node, arrivalOriginRef.current)
     arrivalOriginRef.current = null
-    const report = () => setDockHeight(node.getBoundingClientRect().height)
+    // A ZERO here is never the dock's height, only the absence of a box: a
+    // workspace switched away from is retained but `display:none`
+    // (workspace-slot-style.ts), which fires this observer for every element
+    // under it at once. Publishing that as `--agent-dock-h` collapsed
+    // `.scroll`'s own bottom reservation, so the transcript came back from
+    // every workspace round-trip 86px shorter than it left, the offset the
+    // browser restores got clamped to that shorter range, and the transcript
+    // then glided back up to the bottom in view. The real unmount — the blank
+    // surface dropping the dock entirely — reports 0 through the `!node` branch
+    // above, which is the only place it means anything.
+    const report = () => {
+      const height = node.getBoundingClientRect().height
+      if (height > 0) setDockHeight(height)
+    }
     report()
     const observer = new ResizeObserver(report)
     // False positive: this IS the cleanup path. dockRef is a stable ref callback
@@ -343,12 +434,14 @@ export function AgentChatView({
     wsId,
     chatId,
     working,
+    compacting,
     live,
     active,
     visible,
     turnRevision,
     terminalWaiting,
     settledPrompts,
+    abandonedPrompts,
     getBaseline,
     refreshMessages,
     onPromptSpawned,
@@ -356,6 +449,7 @@ export function AgentChatView({
     onPromptDispatchSettled,
     onRefreshChat,
     onSubmitUnavailable,
+    onSelectionCommitted,
   })
 
   const ledger = useChatMessages({
@@ -428,19 +522,16 @@ export function AgentChatView({
 
   const provider = providers.find((candidate) => candidate.id === providerId)
   const providerLabel = provider?.displayName ?? providerId
+  // The picker's OWN provider, model and effort catalogue must reflect a
+  // staged pick immediately — the whole point of staging is showing what
+  // WILL happen on the next send. Everything else above (providerLabel,
+  // slash catalog) stays on the REAL, live `provider`/`providerId`: a staged
+  // pick has not taken effect yet, so there is no live CLI to probe or label.
+  const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
   // The provider's stop reason occupies the BAR, so the transcript must not also
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
   const halted = haltedBy(ledger.messages)
-  // A stopped turn, positioned the exact same way a compaction is: a real,
-  // sequence-anchored activity record (turn.RecordStop, backend-side), not
-  // this session's own memory of having clicked Stop. That is what keeps it
-  // from drifting — the old client-local version pinned itself to "the end of
-  // the transcript" and every later message pushed it along.
-  const stoppedInterruptions = useMemo(
-    () => activity.interruptions.filter((interruption) => interruption.kind === 'stopped'),
-    [activity.interruptions],
-  )
   // Where the transcript draws its boundary pills — one merged wavy line per
   // anchor rather than one full-width divider per event (a stop, a switch and
   // a compaction landing on the same next message used to stack three
@@ -451,13 +542,14 @@ export function AgentChatView({
   // has no way to recover which of two DIFFERENT kinds actually happened
   // first, only this one, chronologically-sorted pass does.
   //
-  // An event with nothing after it yet draws NOTHING, and for compaction that
-  // is the point: the pill says "what is above me is gone from the model's
-  // context", a claim about two sides. Drawing it under the newest message
-  // would put a boundary below the whole conversation and read as if the
-  // chat had ended.
-  const eventsBefore = useMemo(() => {
+  // An event with nothing after it yet falls to `trailingTags` below instead
+  // — not every kind is allowed to draw there (see TRAILING_INTERRUPTION_KINDS).
+  const { eventsBefore, trailingTags } = useMemo(() => {
     const marks: Record<number, DividerTag[]> = {}
+    // Latest wins per kind, same as a single trailing `stopped` always did:
+    // `relevant` is chronological, so a later push simply overwrites an
+    // earlier one of the same kind.
+    const trailingByKind = new Map<string, DividerTag>()
     const relevant = activity.interruptions
       .map((interruption) => ({ interruption, tag: toDividerTag(interruption) }))
       .filter(
@@ -467,23 +559,18 @@ export function AgentChatView({
       .sort((a, b) => displayOrderOf(a.interruption) - displayOrderOf(b.interruption))
     for (const { interruption, tag } of relevant) {
       const next = ledger.messages.find((m) => displayOrderOf(m) > displayOrderOf(interruption))
-      if (!next) continue
-      const list = marks[next.sequence] ?? []
-      list.push(tag)
-      marks[next.sequence] = list
+      if (next) {
+        const list = marks[next.sequence] ?? []
+        list.push(tag)
+        marks[next.sequence] = list
+        continue
+      }
+      if (TRAILING_INTERRUPTION_KINDS.has(interruption.kind)) {
+        trailingByKind.set(tag.kind, tag)
+      }
     }
-    return marks
+    return { eventsBefore: marks, trailingTags: [...trailingByKind.values()] }
   }, [activity.interruptions, ledger.messages])
-  // The most recent stop with nothing after it yet: there is no next message to
-  // anchor before, so this is the one case the divider still draws at the foot
-  // of the transcript — exactly where the working line it replaced just was.
-  const trailingInterruption = useMemo(() => {
-    if (stoppedInterruptions.length === 0) return false
-    const latest = stoppedInterruptions.reduce((a, b) =>
-      displayOrderOf(b) > displayOrderOf(a) ? b : a,
-    )
-    return !ledger.messages.some((m) => displayOrderOf(m) > displayOrderOf(latest))
-  }, [stoppedInterruptions, ledger.messages])
 
   const updateDraft = (value: string) => {
     setDraft(value)
@@ -499,7 +586,17 @@ export function AgentChatView({
   // not have reached React yet — reading state there can enqueue the prompt one
   // keystroke short, or empty. The element is the authority; state is the mirror.
   const enqueueDraft = (text?: string) => {
-    const result = prompts.enqueue(text ?? draft)
+    // `model`/`effort` are whatever the picker currently shows — the chat's
+    // sticky selection, or a staged override on top of it. `provider` follows
+    // the SAME "empty means unchanged" contract, but compares against the
+    // REAL `providerId`, not just staging: nothing staged, or staged back
+    // onto the provider the chat is already on, both send '' — an ordinary
+    // resend must not carry a provider value on every single message, even
+    // one the backend would no-op on. Baking these into the queue item now
+    // (not reading them again at dispatch) is what keeps a later pick from
+    // bleeding onto this message.
+    const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
+    const result = prompts.enqueue(text ?? draft, stagedProvider, model, effort)
     if (!result.ok) {
       setComposerError(result.error ?? '')
       return
@@ -540,6 +637,14 @@ export function AgentChatView({
   const handleStop = () => {
     seedDraft(draft)
     void stopChat(wsId, chatId)
+  }
+
+  // Fire-and-forget, same as handleStop above: compactChat's own doc is the
+  // provider's declared gesture, not a durable write Crowbar makes itself,
+  // and the ledger's compact_pre/compact_post pair (already live-pushed as
+  // `compacting`) is what actually reflects whether it happened.
+  const handleCompact = () => {
+    void compactChat(wsId, chatId)
   }
 
   const selectSlashItem = (item: SlashCatalogItem) => {
@@ -692,9 +797,7 @@ export function AgentChatView({
 
   const selectionCluster = (
     <SelectionCluster
-      wsId={wsId}
-      chatId={chatId}
-      provider={provider}
+      provider={effectiveProvider}
       providers={providers}
       model={model}
       effort={effort}
@@ -703,7 +806,6 @@ export function AgentChatView({
       showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
       handoverBlocked={!provider?.hotswap && working}
       switchDisabled={switchDisabled}
-      onSwitchProvider={onSwitchProvider}
       onSelectionChange={onSelectionChange}
       onSelectPresentation={onSelectPresentation}
     />
@@ -711,6 +813,8 @@ export function AgentChatView({
 
   const transcript = (
     <AgentTranscript
+      wsId={wsId}
+      chatId={chatId}
       messages={ledger.messages}
       streamingBubbles={ledger.streamingBubbles}
       queue={queue}
@@ -721,6 +825,9 @@ export function AgentChatView({
       // silencing it, and would make that carve-out unreachable.
       working={working}
       compacting={compacting}
+      reasoning={reasoning}
+      toolOutput={toolOutput}
+      plan={plan}
       loading={ledger.loading}
       error={ledger.error}
       hasOlder={ledger.hasOlder}
@@ -735,12 +842,11 @@ export function AgentChatView({
       }
       eventsBefore={eventsBefore}
       suppressSequence={halted?.sequence}
-      trailingInterruption={trailingInterruption}
+      trailingInterruption={trailingTags}
       dockHeight={dockHeight}
+      visible={visible}
       initialScrollPosition={initialScrollPosition}
-      onScrollPositionChange={(position) =>
-        store.getState().setAgentChatScrollPosition(chatId, position)
-      }
+      onScrollPositionChange={(position) => setScrollPosition(chatId, position)}
     />
   )
 
@@ -756,124 +862,146 @@ export function AgentChatView({
 
   if (settling) {
     return (
-      <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
-        {transcript}
-      </section>
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
+          <section
+            className="agent-chat chat"
+            aria-label="Agent chat"
+            style={headerClearanceStyle}
+          >
+            {transcript}
+          </section>
+        </ChatMarkdownAssetProvider>
+      </DndScope>
     )
   }
 
   if (blank) {
     return (
-      <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
-        <AgentEmptyDocument
-          ref={emptyDocRef}
-          draft={seed.text}
-          draftSeed={seed.n}
-          hasText={draft.trim().length > 0}
-          onDraftChange={updateDraft}
-          onSubmit={() => enqueueDraft()}
-          onKeyDown={handleKeyDown}
-          controls={selectionCluster}
-          working={working}
-          canStop={live}
-          sending={prompts.deliveryPending}
-          onStop={handleStop}
-          headerClearancePx={headerClearancePx}
-          banner={blankSignpost}
-        />
-        {composerError && (
-          <p className="meta" role="alert">
-            {composerError}
-          </p>
-        )}
-      </section>
+      <DndScope>
+        <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
+          <section
+            className="agent-chat chat"
+            aria-label="Agent chat"
+            style={headerClearanceStyle}
+          >
+            <AgentEmptyDocument
+              ref={emptyDocRef}
+              wsId={wsId}
+              chatId={chatId}
+              draft={seed.text}
+              draftSeed={seed.n}
+              hasText={draft.trim().length > 0}
+              onDraftChange={updateDraft}
+              onSubmit={() => enqueueDraft()}
+              onKeyDown={handleKeyDown}
+              controls={selectionCluster}
+              working={working}
+              canStop={live}
+              sending={prompts.deliveryPending}
+              onStop={handleStop}
+              headerClearancePx={headerClearancePx}
+              banner={blankSignpost}
+            />
+            {composerError && (
+              <p className="meta" role="alert">
+                {composerError}
+              </p>
+            )}
+          </section>
+        </ChatMarkdownAssetProvider>
+      </DndScope>
     )
   }
 
   return (
-    <section
-      className="agent-chat chat"
-      aria-label="Agent chat"
-      style={
-        {
-          ...headerClearanceStyle,
-          '--agent-dock-h': `${Math.round(dockHeight)}px`,
-          '--agent-scrollbar-w': `${scrollbarWidth}px`,
-        } as React.CSSProperties
-      }
-    >
-      {transcript}
+    <DndScope>
+      <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
+        <section
+          ref={setChatSurfaceEl}
+          className="agent-chat chat"
+          aria-label="Agent chat"
+          style={
+            {
+              ...headerClearanceStyle,
+              '--agent-dock-h': `${Math.round(dockHeight)}px`,
+              '--agent-scrollbar-w': `${scrollbarWidth}px`,
+            } as React.CSSProperties
+          }
+        >
+          {transcript}
 
-      <div className="dissolve" aria-hidden="true">
-        {DISSOLVE_LAYERS.map((_, i) => (
-          <div key={i} className="dissolve-layer" />
-        ))}
-      </div>
+          <div className="dissolve" aria-hidden="true">
+            {DISSOLVE_LAYERS.map((_, i) => (
+              <div key={i} className="dissolve-layer" />
+            ))}
+          </div>
 
-      <div ref={dockRef} className="dock">
-        <SubagentShelf activity={activity} />
-        {slash.open && (
-          <ComposerSlashPicker
-            state={slash.state}
-            items={slash.items}
-            selected={slash.selected}
-            onSelect={selectSlashItem}
-          />
-        )}
-        <AgentComposer
-          wsId={wsId}
-          chatId={chatId}
-          activity={activity}
-          providerLabel={providerLabel}
-          permissionLevels={provider?.permissionLevels}
-          live={live}
-          revival={revival}
-          working={working}
-          compacting={compacting}
-          sending={prompts.deliveryPending}
-          submitUnavailable={submitUnavailable}
-          terminalWait={terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined}
-          haltedMessage={halted?.text}
-          haltedResetsAt={limitResetsAt(telemetry)}
-          canStop={live}
-          draft={draft}
-          fieldHeight={fieldHeight}
-          slashOpen={slash.open}
-          onDraftChange={updateDraft}
-          onHeightChange={setFieldHeight}
-          onKeyDown={handleKeyDown}
-          onSend={() => enqueueDraft()}
-          onStop={handleStop}
-          onOpenTerminal={onOpenTerminal}
-          onRevive={onRevive}
-          draftSeed={seed.n}
-          seedText={seed.text}
-        />
-        <ProviderBar
-          wsId={wsId}
-          chatId={chatId}
-          provider={provider}
-          providers={providers}
-          onSwitchProvider={onSwitchProvider}
-          switchDisabled={switchDisabled}
-          model={model}
-          effort={effort}
-          telemetry={telemetry}
-          presentation={presentation}
-          splitEnabled={splitEnabled && provider?.hotswap === true}
-          queued={queue.length}
-          onSelectionChange={onSelectionChange}
-          onSelectPresentation={onSelectPresentation}
-          showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
-          handoverBlocked={!provider?.hotswap && working}
-        />
-        {(composerError || prompts.persistenceLost) && (
-          <p className="meta" role="alert">
-            {composerError ||
-              'Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.'}
-          </p>
-        )}
-      </div>
-    </section>
+          <div ref={dockRef} className="dock">
+            <SubagentShelf activity={activity} />
+            {slash.open && (
+              <ComposerSlashPicker
+                state={slash.state}
+                items={slash.items}
+                selected={slash.selected}
+                onSelect={selectSlashItem}
+              />
+            )}
+            <AgentComposer
+              wsId={wsId}
+              chatId={chatId}
+              activity={activity}
+              providerLabel={providerLabel}
+              permissionLevels={provider?.permissionLevels}
+              live={live}
+              revival={revival}
+              working={working}
+              compacting={compacting}
+              sending={prompts.deliveryPending}
+              submitUnavailable={submitUnavailable}
+              terminalWait={terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined}
+              haltedMessage={halted?.text}
+              haltedResetsAt={limitResetsAt(telemetry)}
+              canStop={live}
+              draft={draft}
+              fieldHeight={fieldHeight}
+              slashOpen={slash.open}
+              onDraftChange={updateDraft}
+              onHeightChange={setFieldHeight}
+              onKeyDown={handleKeyDown}
+              onSend={() => enqueueDraft()}
+              onStop={handleStop}
+              onOpenTerminal={onOpenTerminal}
+              onRevive={onRevive}
+              draftSeed={seed.n}
+              seedText={seed.text}
+              takeoverContainer={chatSurfaceEl}
+            />
+            <ProviderBar
+              provider={effectiveProvider}
+              providers={providers}
+              switchDisabled={switchDisabled}
+              model={model}
+              effort={effort}
+              telemetry={telemetry}
+              presentation={presentation}
+              splitEnabled={splitEnabled && provider?.hotswap === true}
+              queued={queue.length}
+              onCompact={provider?.compaction && live && !compacting ? handleCompact : undefined}
+              onSelectionChange={onSelectionChange}
+              onSelectPresentation={onSelectPresentation}
+              showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
+              handoverBlocked={!provider?.hotswap && working}
+            />
+            {(composerError || prompts.persistenceLost) && (
+              <p className="meta" role="alert">
+                {composerError ||
+                  'Pending prompts cannot be saved on this device. Keep Crowbar open until they finish.'}
+              </p>
+            )}
+          </div>
+        </section>
+      </ChatMarkdownAssetProvider>
+    </DndScope>
   )
 }

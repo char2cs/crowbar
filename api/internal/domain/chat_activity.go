@@ -76,6 +76,15 @@ type ActivityDelta struct {
 
 	SupersededTurnID string `json:"supersededTurnId,omitempty"`
 
+	// Abandoned marks a DeltaTurn/DeltaClose that comes from giving up on this
+	// turn's work entirely (the CLI process is gone, or the turn produced
+	// nothing at all) rather than an ordinary turn_stop. A subagent is
+	// deliberately allowed to keep running past its own turn's close — see
+	// turn.go's restateAsyncWork doc — so only THIS delta may force-close one
+	// still open; an ordinary close must never treat "my own turn ended" as
+	// "the subagent it dispatched to is gone too".
+	Abandoned bool `json:"abandoned,omitempty"`
+
 	Turn         *ActivityTurn         `json:"turn,omitempty"`
 	Tool         *ActivityToolCall     `json:"tool,omitempty"`
 	Subagent     *ActivitySubagent     `json:"subagent,omitempty"`
@@ -129,6 +138,13 @@ type ActivityToolCall struct {
 	Error      string `json:"error,omitempty"`
 	DurationMS int    `json:"durationMs,omitempty"`
 
+	// SubagentID is non-empty when this tool call belongs to a SUBAGENT's own
+	// nested activity — a call the subagent's own child conversation made,
+	// not one the chat's top-level turn made directly — in which case TurnID
+	// is empty: a nested tool call has no top-level turn of its own to
+	// belong to. See ActivitySubagent's own doc.
+	SubagentID string `json:"subagentId,omitempty"`
+
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 }
@@ -141,6 +157,22 @@ type ActivitySubagent struct {
 	AgentType string     `json:"agentType,omitempty"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+
+	// Messages is the subagent's OWN reply history, in arrival order — a
+	// nested conversation can run more than one turn of its own (a provider
+	// whose collab-agent tool supports sendInput/resumeAgent, say), so this
+	// is a stream, not a single overwritten string. Appended to only by a
+	// ROUTED child turn closing (see turn/ingest.go's nested-session
+	// routing); never by anything at the top level, which has no way to
+	// observe a nested conversation's own replies at all otherwise.
+	Messages []ActivitySubagentMessage `json:"messages,omitempty"`
+}
+
+// ActivitySubagentMessage is one closed turn of a subagent's own nested
+// conversation.
+type ActivitySubagentMessage struct {
+	Text string    `json:"text"`
+	At   time.Time `json:"at"`
 }
 
 type ActivityInterruption struct {
@@ -221,6 +253,14 @@ type ActivityChoice struct {
 	// wire rather than removed outright: a client reading it still gets a
 	// truthful answer, just a constant one.
 	AutoApproved bool `json:"autoApproved,omitempty"`
+	// AnsweredOptionIDs is which of Options (or a question's own options) was
+	// actually picked, when Resolution is "answered" — set only by an answer
+	// that went through Crowbar, never guessed at for one that proceeded at the
+	// provider's own terminal or was abandoned with its turn. A reader resolves
+	// these ids against Options/Questions to say WHAT was decided, not merely
+	// THAT it was — the transcript record of a permission is otherwise
+	// indistinguishable from one that was denied.
+	AnsweredOptionIDs []string `json:"answeredOptionIds,omitempty"`
 }
 
 type ActivityChoiceQuestion struct {

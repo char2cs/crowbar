@@ -190,6 +190,23 @@ func (s *Store) Subagents(ctx context.Context, chatID string) ([]domain.Activity
 	return out, nil
 }
 
+// IsSubagentOpen reports whether chatID currently has a STILL-RUNNING
+// subagent recorded under sessionID — the routing lookup nested-session
+// dispatch uses to tell a genuinely foreign conversation (drop) apart from a
+// chat's own subagent's child thread (route). Scoped to chatID, not a bare
+// id lookup: a provider's own id space is not guaranteed unique across
+// chats, and this must never let one chat's subagent claim another's frames.
+func (s *Store) IsSubagentOpen(ctx context.Context, chatID, sessionID string) (bool, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&SubagentRow{}).
+		Where("chat_id = ? AND id = ? AND ended_at IS NULL", chatID, sessionID).
+		Limit(1).Count(&count).Error
+	if err != nil {
+		return false, fmt.Errorf("agentactivity storage: is subagent open: %w", err)
+	}
+	return count > 0, nil
+}
+
 func (s *Store) Interruptions(
 	ctx context.Context,
 	chatID string,
@@ -280,7 +297,8 @@ func (r ToolCallRow) domain() domain.ActivityToolCall {
 		ID: r.ID, TurnID: r.TurnID, ChatID: r.ChatID, Seq: r.Seq,
 		Name: r.Name, Target: r.Target, RequestRef: r.RequestRef, ResultRef: r.ResultRef,
 		Status: r.Status, Error: r.Error, DurationMS: r.DurationMS,
-		StartedAt: r.StartedAt, EndedAt: r.EndedAt,
+		SubagentID: r.SubagentID,
+		StartedAt:  r.StartedAt, EndedAt: r.EndedAt,
 	}
 }
 
@@ -288,6 +306,7 @@ func (r SubagentRow) domain() domain.ActivitySubagent {
 	return domain.ActivitySubagent{
 		ID: r.ID, TurnID: r.TurnID, ChatID: r.ChatID, Seq: r.Seq,
 		AgentType: r.AgentType, StartedAt: r.StartedAt, EndedAt: r.EndedAt,
+		Messages: decodeList[domain.ActivitySubagentMessage](r.Messages),
 	}
 }
 
@@ -308,7 +327,8 @@ func (r ChoiceRow) domain() domain.ActivityChoice {
 		Questions: decodeList[domain.ActivityChoiceQuestion](r.Questions),
 		Schema:    r.Schema,
 		At:        r.At, ResolvedAt: r.ResolvedAt, Resolution: r.Resolution,
-		AutoApproved: r.AutoApproved,
+		AutoApproved:      r.AutoApproved,
+		AnsweredOptionIDs: decodeList[string](r.AnsweredOptionIDs),
 	}
 }
 

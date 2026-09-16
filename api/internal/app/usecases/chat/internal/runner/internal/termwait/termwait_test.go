@@ -274,14 +274,59 @@ func (f *fakeDeliveries) allSettled() []string {
 	return append([]string(nil), f.settled...)
 }
 
+type fakeLiveness struct {
+	live bool
+}
+
+func (f *fakeLiveness) HasLiveAPIConnection(string) bool { return f.live }
+
+// THE working-status desync, reproduced live: a codex security review reasoned
+// for 31s of complete silence between two of its own tool calls, this detector
+// read that as a dead CLI and abandoned the live turn — the spinner went dark
+// while codex went on to emit 337 more events. Its shell commands finish in
+// milliseconds, so the open-tool guard above vouched for almost none of the turn
+// (148 of 149 sweeps read open_work=false).
+//
+// Silence over a connection Crowbar still holds is a model thinking. Losing that
+// connection is reconciled directly instead (runner/connloss.go). Measured after
+// the fix: the same review ran 10m18s with a 159s quiet stretch and was never
+// touched.
+func TestRegression_NeverAbandonsAQuietMessageWhileTheConnectionIsLive(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+	r.liveness.live = true
+
+	r.clock.advance(10 * termwait.DefaultMessageQuiet)
+	r.sweep()
+
+	assert.Zero(t, r.msgs.count(),
+		"a turn riding a live connection is not silent because it died")
+}
+
+// The heuristic still has to work for the transport it was built for: a
+// hooks/PTY provider gives no connection to ask, and a message that goes quiet
+// there really is the only sign the CLI is gone.
+func TestRegression_StillAbandonsAQuietMessageWithNoLiveConnection(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+	r.liveness.live = false
+
+	r.clock.advance(termwait.DefaultMessageQuiet)
+	r.sweep()
+
+	assert.Equal(t, 1, r.msgs.count(),
+		"without a connection to vouch for it, a cut-off message must still close its turn")
+}
+
 type fakeMessages struct {
-	mu         sync.Mutex
-	since      time.Time
-	unfinished bool
-	abandoned  int
-	closed     bool
-	err        error
-	asked      int
+	mu                 sync.Mutex
+	since              time.Time
+	unfinished         bool
+	abandoned          int
+	inferredInterrupts int
+	closed             bool
+	err                error
+	asked              int
 }
 
 func (f *fakeMessages) UnfinishedSince(string) (time.Time, bool) {
@@ -302,10 +347,31 @@ func (f *fakeMessages) AbandonMessage(context.Context, string) (bool, error) {
 	return f.closed, nil
 }
 
+// AbandonMessageInferredInterrupt shares AbandonMessage's own accounting — count()
+// must answer "was a turn abandoned" the same way regardless of which method did
+// it — plus its own counter, so a test can tell the two call sites apart.
+func (f *fakeMessages) AbandonMessageInferredInterrupt(context.Context, string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return false, f.err
+	}
+	f.abandoned++
+	f.inferredInterrupts++
+	f.unfinished = false
+	return f.closed, nil
+}
+
 func (f *fakeMessages) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.abandoned
+}
+
+func (f *fakeMessages) inferredCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inferredInterrupts
 }
 
 const (
@@ -337,6 +403,8 @@ type rig struct {
 	work     *fakeWork
 	deliv    *fakeDeliveries
 	msgs     *fakeMessages
+	idle     *fakeIdle
+	liveness *fakeLiveness
 	clock    *clock
 	rec      *recorder
 	stalls   *stalls
@@ -378,8 +446,10 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		runners: runners, chats: chats, choices: choices, screens: screens,
 		prompts: prompts, notices: notices, work: &fakeWork{}, clock: newClock(),
 		rec: &recorder{}, stalls: &stalls{},
-		deliv: &fakeDeliveries{pending: map[string]termwait.Delivery{}},
-		msgs:  &fakeMessages{closed: true},
+		deliv:    &fakeDeliveries{pending: map[string]termwait.Delivery{}},
+		msgs:     &fakeMessages{closed: true},
+		idle:     &fakeIdle{},
+		liveness: &fakeLiveness{},
 	}
 	r.detector = termwait.New(termwait.Deps{
 		Runners:    runners,
@@ -392,6 +462,8 @@ func newRigEvery(t *testing.T, interval time.Duration) *rig {
 		OnStall:    r.stalls.onStall,
 		Deliveries: r.deliv,
 		Messages:   r.msgs,
+		Liveness:   r.liveness,
+		Idle:       r.idle,
 		Interval:   interval,
 		Now:        r.clock.Now,
 	})
@@ -406,7 +478,12 @@ func (r *rig) wedged() {
 
 func (r *rig) delivering() {
 	r.screens.set(session, idleScreen)
-	r.deliv.pending[chatID] = termwait.Delivery{RequestID: "req-1", RunnerID: "runner-1"}
+	// Stamped with the clock the way the journal stamps a real delivery: the
+	// timeout is measured against THIS, not only against the screen's own quiet
+	// window — see settleDelivery.
+	r.deliv.pending[chatID] = termwait.Delivery{
+		RequestID: "req-1", RunnerID: "runner-1", CreatedAt: r.clock.Now(),
+	}
 }
 
 func (r *rig) cutOff() {
@@ -984,6 +1061,55 @@ func TestDetector_Sweep_SettlesADeliveryThatProducedNoTurn(t *testing.T) {
 	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled())
 }
 
+// TestRegression_Sweep_GivesAPromptOnAnIdleChatItsFullGracePeriod is the
+// data-loss bug reported live against codex: "User's turns after some time of
+// idle is lost, and does not record anywhere."
+//
+// An api-transport chat's PTY is a disconnected companion driving an unrelated
+// conversation, so it draws NOTHING for as long as the chat sits idle. The
+// screen's quiet window is therefore already hours old when the user finally
+// types, and gating the delivery timeout on that alone retired the prompt on the
+// very next sweep — the thirty-second grace this timeout exists to give was
+// zero, measured live at under one second on a real codex chat.
+//
+// That retirement is broadcast to the browser, whose pending queue item is the
+// only copy of the user's text in the system (the journal stores a hash of it,
+// and nothing reached the ledger). A prompt still on its way — which is exactly
+// what the FIRST prompt after an idle gap is, with a session to resume and a
+// cold model — therefore had its text deleted out from under it.
+//
+// The delivery's own age is the clock that has to run out, whatever the screen
+// has been doing.
+func TestRegression_Sweep_GivesAPromptOnAnIdleChatItsFullGracePeriod(t *testing.T) {
+	r := newRig(t)
+
+	// The chat has sat idle for an hour: the companion PTY last changed then, so
+	// the screen's quiet window is long past DefaultDeliveryQuiet before the user
+	// has typed a single character.
+	r.screens.set(session, idleScreen)
+	r.sweep()
+	r.clock.advance(time.Hour)
+	r.sweep()
+
+	// Now the prompt is submitted, and the provider has not answered yet.
+	r.deliv.pending[chatID] = termwait.Delivery{
+		RequestID: "req-1", RunnerID: "runner-1", CreatedAt: r.clock.Now(),
+	}
+
+	r.sweep()
+	assert.Empty(t, r.deliv.allSettled(),
+		"a prompt submitted a moment ago must not be retired because the PTY beside it is idle")
+
+	r.clock.advance(termwait.DefaultDeliveryQuiet - time.Second)
+	r.sweep()
+	assert.Empty(t, r.deliv.allSettled(), "the delivery's own grace period has not run out yet")
+
+	r.clock.advance(2 * time.Second)
+	r.sweep()
+	assert.Equal(t, []string{"req-1"}, r.deliv.allSettled(),
+		"once the delivery itself has gone quiet for the full window it is still retired")
+}
+
 func TestDetector_Sweep_LeavesADeliveryAloneUntilTheScreenHasBeenStillLongEnough(t *testing.T) {
 	r := newRig(t)
 	r.delivering()
@@ -1181,4 +1307,108 @@ func TestDetector_Sweep_AbandonsNothingWithoutTheMessagesPort(t *testing.T) {
 	noMessages.Sweep(context.Background(), r.rec.publish)
 
 	assert.Zero(t, r.msgs.count())
+}
+
+// fakeIdle stands in for the provider's own "I am doing nothing" latch.
+type fakeIdle struct {
+	mu    sync.Mutex
+	since time.Time
+	armed bool
+}
+
+func (f *fakeIdle) ProviderIdleSince(string) (time.Time, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.since, f.armed
+}
+
+func (f *fakeIdle) arm(at time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.since, f.armed = at, true
+}
+
+// A turn whose close never arrives is the case NOTHING else here can reach: the
+// stall detector needs a declared notice sitting on a PTY for two minutes, and
+// the abandoned-message detector needs a half-written message that went quiet.
+// A turn that only reasoned produces neither — and codex.yaml records live that
+// codex can end a turn with no close event at all.
+func TestProviderIdle_ClosesATurnWhoseCloseNeverCame(t *testing.T) {
+	r := newRig(t)
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.idle.arm(r.clock.Now())
+
+	// Before the quiet period the report is indistinguishable from the one that
+	// lands microseconds ahead of an ordinary close.
+	r.detector.Sweep(t.Context(), r.rec.publish)
+	require.Equal(t, 0, r.msgs.count(), "must not pre-empt a normal turn close")
+
+	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
+	r.detector.Sweep(t.Context(), r.rec.publish)
+
+	assert.Equal(t, 1, r.msgs.count(),
+		"a latch still armed after the wait is a turn nothing is going to close")
+}
+
+// The latch is disarmed by the turn's own close, so a healthy turn never reaches
+// the detector at all. Proven here by the latch simply not being armed.
+func TestProviderIdle_LeavesAHealthyTurnAlone(t *testing.T) {
+	r := newRig(t)
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+
+	r.clock.advance(termwait.DefaultIdleQuiet + time.Minute)
+	r.detector.Sweep(t.Context(), r.rec.publish)
+
+	assert.Equal(t, 0, r.msgs.count())
+}
+
+// A chat holding a prompt for a person is not stranded, whatever the provider
+// says about its own idleness — the human is the one being waited on.
+func TestProviderIdle_WaitsForAPersonBeforeItselves(t *testing.T) {
+	r := newRig(t)
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.idle.arm(r.clock.Now())
+	r.choices.pending[chatID] = []domain.ActivityChoice{{ID: "choice-1", ChatID: chatID}}
+
+	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
+	r.detector.Sweep(t.Context(), r.rec.publish)
+
+	assert.Equal(t, 0, r.msgs.count())
+}
+
+// TestRegression_MessageQuietFuseRecordsAnInferredInterrupt proves the
+// message-quiet detector — the one place a hooks/PTY provider's silent,
+// hookless abort (an ESC/Ctrl+C the CLI reports to nobody) is ever caught at
+// all — routes through AbandonMessageInferredInterrupt, not the bare
+// AbandonMessage the provider-idle authority below still uses. Reuses
+// DefaultMessageQuiet, the fuse TestDetector_Sweep_ClosesATurnWhoseMessageWasCutOff
+// already exercises, rather than a new threshold.
+func TestRegression_MessageQuietFuseRecordsAnInferredInterrupt(t *testing.T) {
+	r := newRig(t)
+	r.cutOff()
+
+	r.clock.advance(termwait.DefaultMessageQuiet)
+	r.sweep()
+
+	assert.Equal(t, 1, r.msgs.inferredCount(),
+		"the message-quiet fuse is Crowbar's own inference and must record itself as one")
+}
+
+// TestRegression_ProviderIdleNeverRecordsAnInferredInterrupt proves the
+// authoritative "provider says it is idle" path is left untouched: it still
+// closes the turn through the bare AbandonMessage, never the inferred-
+// interrupt sibling above. That path is a provider's OWN report of a clean
+// completion, not something Crowbar is guessing at — labelling it an
+// inferred interruption would misrepresent a normal turn end.
+func TestRegression_ProviderIdleNeverRecordsAnInferredInterrupt(t *testing.T) {
+	r := newRig(t)
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.idle.arm(r.clock.Now())
+
+	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
+	r.sweep()
+
+	require.Equal(t, 1, r.msgs.count(), "the idle report still closes the turn")
+	assert.Zero(t, r.msgs.inferredCount(),
+		"an authoritative idle report is not an interruption Crowbar inferred")
 }

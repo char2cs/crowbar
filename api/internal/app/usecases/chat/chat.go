@@ -289,26 +289,16 @@ func (u *Usecase) GetChat(
 }
 
 // SetChatSelection pins the model and reasoning effort the chat's next CLI is
-// launched with. Recording which of model/effort actually CHANGED —
-// Crowbar's own doing, never something a provider reports — is
-// recordSelectionChange's job, in turn.go beside the rest of what u.turns
-// backs.
+// launched with, and records whichever of model/effort actually CHANGED.
+// Delegated to Runners so this runs under the SAME rs.spawns hold every other
+// mutating path on this interface takes — see Runners.SetChatSelection's own
+// doc (promptswitch.go) for the race a bare, unlocked read-write-record here
+// used to open against a concurrent SubmitPrompt staging its own selection.
 func (u *Usecase) SetChatSelection(
 	ctx context.Context,
 	chatID, model, effort string,
 ) error {
-	// Read the CURRENT sticky selection before applying the change: this is
-	// what tells a real change from a request that just restates what the
-	// chat already had, and it's the only place that comparison can be made —
-	// SetSelection itself always overwrites both fields unconditionally.
-	before, beforeErr := u.conversations.ChatSelection(ctx, chatID, false)
-
-	if err := u.conversations.SetChatSelection(ctx, chatID, model, effort); err != nil {
-		return err
-	}
-
-	u.recordSelectionChange(ctx, chatID, before, beforeErr, model, effort)
-	return nil
+	return u.runners.SetChatSelection(ctx, chatID, model, effort)
 }
 
 // ReadChatLog returns the chat's turns as the tool surface renders them.

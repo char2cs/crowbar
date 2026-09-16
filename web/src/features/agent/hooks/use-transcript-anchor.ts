@@ -29,6 +29,42 @@ const STICK_SLACK = 96
  */
 const ARM_QUIET_MS = 150
 
+/**
+ * How recently a real input must have happened for a scroll to be read as the
+ * READER's rather than the browser's.
+ *
+ * `scrollTop` changing is not evidence that anybody scrolled. The browser
+ * moves it on its own — scroll anchoring, keeping the view stable when
+ * content around it resizes — and a streaming transcript is content resizing
+ * continuously, so this is the common case rather than an edge one. Measured
+ * live on a 35-item numbered list: the view jumped 213px backward in one
+ * sample while `scrollHeight` moved 3px (far too small to have clamped it),
+ * with no gesture anywhere near, and following then stopped dead for 15.6
+ * seconds because that jump was indistinguishable from the reader scrolling
+ * up.
+ *
+ * A real gesture always announces itself first — `wheel`, `touchmove`,
+ * `keydown`, or a scrollbar drag — a frame or two before the scroll event it
+ * causes. Generous on purpose: erring toward "the reader did it" only ever
+ * reproduces the old behaviour of pausing, which is safe, while erring the
+ * other way would yank a reader back to the bottom mid-sentence.
+ */
+const READER_INPUT_MS = 1000
+
+/**
+ * How long after a turn starts (`pinTurnToTop`) a scroll cannot be read as
+ * the reader's, full stop — see `pinGraceUntil`.
+ *
+ * Sized to the pin's OWN settle sequence, not to any input's recency: the
+ * just-sent prompt swaps from a queued row to its ledger row, the working
+ * indicator mounts, tail-room finds its real reservation — measured live,
+ * that cascade runs for up to ~1.3s. Shorter than that would let the last
+ * of it slip back through the generic heuristic; there is no cost to
+ * generosity here the way there is with `READER_INPUT_MS`, since this
+ * window opens at a moment this file chose, not one it is guessing about.
+ */
+const PIN_SETTLE_GRACE_MS = 1500
+
 /** Where the reader was, captured on unmount so the NEXT time this exact
  *  chat mounts (a switch back, this session) it can pick up from here
  *  instead of defaulting to the bottom — see UseTranscriptAnchorOptions. */
@@ -71,6 +107,30 @@ export interface UseTranscriptAnchorOptions {
    *  of this same chat, so there is nothing to keep current in the
    *  meantime. */
   onPositionChange?: (position: TranscriptScrollPosition) => void
+  /**
+   * Whether this chat is the one actually on screen in its pane.
+   *
+   * A chat tab that is NOT the active one is kept mounted behind
+   * `visibility: hidden` (pane-container.tsx) — a live layout box, not a
+   * destroyed one, which is exactly what makes it invisible to everything
+   * `resync` uses to notice a reveal. `display: none` reaches it as a resize to
+   * 0x0 (see `boxed` there); `visibility` changes NO geometry, so the
+   * ResizeObserver never fires at all, and the settle that follows a tab switch
+   * — rows re-measuring now that the pane is in front — arrives looking exactly
+   * like a reply streaming in. It gets EASED. Measured live switching between
+   * two open tabs on a 30-turn chat:
+   *
+   *   st 9388 -> 9464 -> 9491 -> 9563 -> 9615 -> 9653 ... over ~8 frames,
+   *   total climbing 10142 -> 10508
+   *
+   * i.e. the transcript visibly gliding to the bottom every single time the
+   * reader switches tabs. Nothing observable can be derived here; the pane
+   * already knows which tab it is showing, so it says so.
+   *
+   * Defaults to true — a caller that never mentions visibility is a chat that
+   * is always on screen, and nothing below changes for it.
+   */
+  visible?: boolean
 }
 
 export interface TranscriptAnchor {
@@ -99,6 +159,43 @@ export interface TranscriptAnchor {
    * until more text pushes past it" was reported as live.
    */
   notifyReflow: () => void
+  /**
+   * Call as a turn STARTS, with the just-sent user message's element: the
+   * transcript brings that message's top edge up to the top of the viewport
+   * and leaves the reply room to grow downward into, instead of starting the
+   * reply wherever bottom-following happened to leave the previous turn.
+   *
+   * Pass null to give up the pin early (the chat closed, the turn never
+   * produced anything). It releases itself as soon as the reply outgrows the
+   * space below it — see `tailRoom`.
+   */
+  pinTurnToTop: (element: HTMLElement | null) => void
+}
+
+/**
+ * How much empty room the content needs BELOW `pin` for that pin to be able
+ * to sit at the top of the viewport — the whole of this behaviour, in one
+ * number.
+ *
+ * A scroll container cannot scroll past its own end, so "put this element at
+ * the top" is not a scroll instruction at all when there is nothing below it:
+ * it is a request for somewhere to scroll TO. Reserving exactly the shortfall
+ * is what makes it reachable, and it is deliberately the ONLY thing this
+ * behaviour does — with the room reserved, the ordinary bottom-follow below
+ * already lands in the right place in both phases, and the handoff between
+ * them needs no mode of its own:
+ *
+ *   - while the reply is shorter than the viewport, the true bottom IS the
+ *     pinned position, so following the bottom holds the prompt at the top
+ *     and the reply fills the space underneath;
+ *   - once the reply outgrows that space the shortfall reaches zero, this
+ *     stops reserving anything, and following the bottom is once again
+ *     following the bottom.
+ *
+ * Returns 0 (and so releases the pin) the moment it is no longer needed.
+ */
+export function tailRoom(pinTop: number, contentHeight: number, viewportHeight: number): number {
+  return Math.max(0, viewportHeight - (contentHeight - pinTop))
 }
 
 /**
@@ -138,6 +235,9 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // running a second, independent timer of its own — one pending arm
   // request at a time, always through `armTimer`, however it gets triggered.
   const scheduleArmRef = useRef<() => void>(() => {})
+  // How the tab-reveal effect below reaches the live `beginReveal` — the same
+  // pattern, and for the same reason, as `resyncRef`/`scheduleArmRef`.
+  const beginRevealRef = useRef<() => void>(() => {})
   // Read only inside the two mount-only (`[]` deps) effects below, so they
   // see the LATEST callbacks/values without re-running on every render —
   // this hook's caller remounts wholesale on every chat switch anyway, so
@@ -151,6 +251,90 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // behaviour exactly when `loadingHistory` is never mentioned.
   const easedArmed = useRef(!(options.loadingHistory ?? false))
   const armTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // How far down the content the turn currently held at the top begins, or
+  // null when none is — see `pinTurnToTop`. Cleared by `applyTailRoom` itself
+  // once the reply has grown past the space below it.
+  //
+  // An OFFSET, not the element it was measured from, for two reasons. The
+  // element does not survive the turn: a just-sent prompt starts life as a
+  // queued row and is swapped — in a single commit — for a virtualized
+  // message row the moment the ledger confirms it, so anything holding the
+  // node would lose the pin mid-reply. And nothing above the pin moves while
+  // a turn runs (it is settled history), so the offset stays true without
+  // being re-measured, which also keeps this off the layout-reading path of
+  // every ResizeObserver callback.
+  //
+  // Measured relative to `.stream` (the content element `applyTailRoom`
+  // reserves padding on), NOT `.scroll` (the scrollable container) — the
+  // latter also contains `.scroll-spacer`, a flex-grow sibling ABOVE
+  // `.stream` that bottom-anchors a short conversation and collapses toward
+  // 0 the instant real content needs the room instead (transcript.css). The
+  // very first reservation this pin ever triggers does exactly that: it
+  // grows `.stream`, which shrinks the spacer by the same amount, which
+  // silently moves anything measured relative to `.scroll` out from under
+  // whatever offset was captured here — a turn no longer settled history.
+  // Reported live as a nearly blank transcript after a short first prompt:
+  // the spacer being large (little content yet) is precisely what made the
+  // shift big enough to notice. `.stream`'s own top is never affected by its
+  // sibling's height, so an offset measured against it stays true for the
+  // same reason the original comment already gives for the rest of this
+  // value.
+  const pinnedTop = useRef<number | null>(null)
+  // The element that offset was measured from, while it lasts — what lets
+  // `applyTailRoom` re-measure rather than trust the offset for the whole
+  // turn. Not a replacement for `pinnedTop`: the row genuinely does not
+  // survive the turn (see above), so this goes null on the queued-to-ledger
+  // swap and the offset carries on from whatever it last read.
+  const pinnedRow = useRef<HTMLElement | null>(null)
+  // Set by `applyTailRoom` for the one resync that follows the pinned row
+  // moving — see there. Consumed by `resync`, which lands instead of easing.
+  const pinShifted = useRef(false)
+  // Whether the container currently HAS a layout box. A workspace switched
+  // away from is retained but `display:none` (workspace-slot-style.ts), so
+  // every measurement below reads 0 until it comes back — see `resync`.
+  const boxed = useRef(true)
+  // The `visibility:hidden` twin of `boxed` — see the `visible` option. Kept
+  // separate from `boxed` on purpose: the two hidings are independent (a hidden
+  // TAB inside a retained, `display:none` WORKSPACE is both at once) and each
+  // has to be able to reveal on its own without clearing the other's state.
+  const tabHidden = useRef(!(options.visible ?? true))
+  // `scrollHeight - scrollTop` the last time there was a box to read it from.
+  // The only value a reveal has to work with: once the box is gone the element
+  // reports 0 for all three, so this has to have been captured in advance.
+  const lastFromBottom = useRef<number | null>(options.initialPosition?.distanceFromBottom ?? null)
+  // Same, but re-applied on EVERY resync until the reveal's own settle is over
+  // rather than consumed once like `restoreFromBottom` — the transcript's
+  // scrollable ceiling is still climbing back over those frames, so a single
+  // landing would be against a height that is about to change.
+  const revealFromBottom = useRef<number | null>(null)
+  // Where the CURRENT continuous catch-up began — the scrollTop the eased loop
+  // started converging from — or null while it is converged. This is what makes
+  // the size test in `resync` cumulative rather than per-step.
+  const easeFrom = useRef<number | null>(null)
+  // When the reader last actually did something — see READER_INPUT_MS.
+  const lastInputAt = useRef(Number.NEGATIVE_INFINITY)
+  // A scrollbar drag only announces itself once, at `pointerdown`, and can
+  // then run for as long as the reader holds the button; the timestamp alone
+  // would go stale under them mid-drag.
+  const pointerHeld = useRef(false)
+  // Until this timestamp, `onScroll` cannot read a scroll as the reader's,
+  // no matter what `lastInputAt`/`pointerHeld` say. Set only by
+  // `pinTurnToTop`, which already knows — explicitly, synchronously, with
+  // no inference involved — that a turn just started and `stuck` needs to
+  // survive whatever resizes that turn's own settling produces (a queued
+  // row swapping for its ledger row, tail-room finding its footing).
+  //
+  // `READER_INPUT_MS` above exists to solve a DIFFERENT, harder problem —
+  // telling a real gesture apart from the browser's own scroll anchoring,
+  // which fires with NO programmatic signal at all, so recency is the only
+  // evidence available. Sending a prompt is not that problem: submitting IS
+  // a keydown (Enter) or a pointerdown/up (Send), so it always sits inside
+  // that same recency window, and the reader-heuristic could only ever be
+  // taught to carve THIS keystroke or THAT click out one at a time. Asserting
+  // the known window directly, from the one call site that actually knows it
+  // exists, closes the whole class at once instead of chasing each new event
+  // source into it.
+  const pinGraceUntil = useRef(0)
 
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -163,6 +347,11 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     }
   }, [])
 
+  // The return far below removes every one of this effect's listeners
+  // (`focus`, the three `INPUT_EVENTS`, `keydown`, `pointerdown/up/cancel`)
+  // and disconnects the observer; the analyzer likely can't tie a
+  // loop-registered listener (`INPUT_EVENTS`) to its loop-based removal.
+  // react-doctor-disable-next-line effect-needs-cleanup -- see comment above, cleanup exists at the end of this effect
   useEffect(() => {
     const el = scrollRef.current
     // The LAST child, not the first: `.scroll`'s first child is now
@@ -193,17 +382,134 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       clearTimeout(armTimer.current)
       armTimer.current = setTimeout(() => {
         easedArmed.current = true
+        revealFromBottom.current = null
       }, ARM_QUIET_MS)
     }
+    // The two hidings a chat can come back from — `display:none` (a retained
+    // workspace, seen by `resync` as a resize to 0x0) and `visibility:hidden`
+    // (a background tab, seen by nothing at all) — need the same treatment, so
+    // they share it.
+    const beginReveal = () => {
+      easedArmed.current = false
+      scheduleArm()
+      // A reader who was NOT at the bottom has no bottom-follow to put them
+      // back, so nothing below would restore them at all — and the reveal can
+      // still move them, since the offset the browser hands back is clamped to
+      // whatever the scrollable range happens to be on that first frame. Hold
+      // the distance they actually left on.
+      if (!stuck.current) revealFromBottom.current = lastFromBottom.current
+    }
+    beginRevealRef.current = beginReveal
     scheduleArmRef.current = scheduleArm
+    // Reserves (and keeps re-measuring) the room the pinned turn needs below
+    // it — see `tailRoom`. Written as padding on the content element rather
+    // than as a spacer sibling because `.scroll`'s LAST child is what the
+    // observer below treats as the content: a new element there would
+    // silently become the thing being watched, and the real content's growth
+    // would stop being seen at all.
+    const applyTailRoom = () => {
+      const box = content as HTMLElement
+      if (pinnedTop.current === null) {
+        if (box.style.paddingBottom) box.style.paddingBottom = ''
+        pinnedRow.current = null
+        return
+      }
+      // RE-MEASURED, not merely remembered, while the pinned row is still in
+      // the tree. `pinnedTop`'s own doc rests on "nothing above the pin moves
+      // while a turn runs (it is settled history)", and that stopped being
+      // true: a turn STARTING empties `lastInAgentRun` (agent-transcript.tsx),
+      // so every settled reply on screen loses its turnbar at the moment
+      // `working` goes true. Content above the pin shrinking while the offset
+      // stands still is read here as content BELOW it shrinking, so this
+      // over-reserves by exactly the height that vanished and the
+      // bottom-follow carries the prompt that far past the top of the
+      // viewport. Captured live on a fresh Codex turn:
+      //
+      //   t=9315  turnbars 5 -> 0 as `working` goes true, prompt still at y=13
+      //   t=9335  reserved 486 -> 605
+      //   t=9371+ prompt sinks past the top: -23, -44, -52 ... -139
+      //   resting pinY=-139, ALL content ending at y=22 of a 754px pane
+      //
+      // i.e. the whole viewport blank for the length of the turn.
+      const row = pinnedRow.current
+      if (row && box.contains(row)) {
+        const measured = row.getBoundingClientRect().top - box.getBoundingClientRect().top
+        // THE PIN MOVED, which only happens when content ABOVE it changed
+        // height. The follow target below moves by the same amount (the bottom
+        // is exactly the pinned position while a pin is held), so easing there
+        // is what makes the shift visible: the content lands first and the
+        // scroll catches up over the next dozen frames. Reported as "just
+        // before the turn is finishing, the whole scroll does like a bounce
+        // effect, it goes up, and then it goes down" — that is the turnbars
+        // coming BACK as `working` goes false, ~140px of content reappearing
+        // above the prompt. Measured at three consecutive turn closes:
+        //
+        //   pinY 14 -> 33 -> 154, st 5907 -> 5888 -> 5887, then eased back
+        //
+        // Landing instead of easing on exactly these frames holds the prompt
+        // still while the content changes around it, which is what a pin is.
+        if (pinnedTop.current !== null && Math.abs(measured - pinnedTop.current) > 1) {
+          pinShifted.current = true
+        }
+        pinnedTop.current = measured
+      }
+      const pinTop = pinnedTop.current
+      const reserved = parseFloat(box.style.paddingBottom || '0') || 0
+      // `box.scrollHeight`, not `el.scrollHeight` — see `pinnedTop`'s own doc
+      // for why measuring against `.scroll` itself (which also contains
+      // `.scroll-spacer`) is exactly the bug this replaced.
+      const room = tailRoom(pinTop, box.scrollHeight - reserved, el.clientHeight)
+      // Released for good once the reply has outgrown the space: re-measuring
+      // a pin nobody can see any more would keep this running for the rest of
+      // the turn, and re-reserving room mid-reply would yank the reader.
+      if (room <= 0) {
+        pinnedTop.current = null
+        if (box.style.paddingBottom) box.style.paddingBottom = ''
+        return
+      }
+      // Sub-pixel churn here feeds straight back into the ResizeObserver that
+      // called this, so only a real change is written.
+      if (Math.abs(room - reserved) > 1) box.style.paddingBottom = `${room}px`
+    }
+
     const resync = () => {
-      const keep = restoreFromBottom.current
+      // NO LAYOUT BOX. A retained workspace that is not the active one is
+      // `display:none` (workspace-slot-style.ts), which reaches the observer
+      // below as an ordinary resize to 0x0 — and every measurement in this
+      // function then reads 0. Two things go wrong if that is allowed through:
+      // `applyTailRoom` computes its shortfall against a zero viewport and a
+      // zero content height, which reads as needing the whole reservation over
+      // again and grows the padding without bound; and the follow target
+      // becomes `0 - 0`. Neither is a real measurement of anything, and the
+      // reader has not moved — hold everything as it is.
+      if (el.clientHeight === 0) {
+        boxed.current = false
+        return
+      }
+      if (!boxed.current) {
+        boxed.current = true
+        // BACK IN VIEW, which is mechanically a fresh open: the scroll box was
+        // destroyed and rebuilt, and the virtualized rows inside it re-measure
+        // over the next few frames (agent-transcript.tsx). Disarm eased mode
+        // for exactly that settle — the same treatment `loadingHistory` gives
+        // a cold open, and for the same reason. Without it every one of those
+        // corrections retargets the eased glide instead of landing, and the
+        // catch-up reads as the whole transcript sweeping up from wherever the
+        // reveal left it: measured live on a 30-turn chat, scrollTop climbing
+        // 5153 -> 7552 across ~60 painted frames, ~740ms, on every single
+        // workspace round-trip.
+        beginReveal()
+      }
+      lastFromBottom.current = el.scrollHeight - el.scrollTop
+      applyTailRoom()
+      const keep = restoreFromBottom.current ?? revealFromBottom.current
       if (keep !== null) {
-        // Older messages just landed above the fold. Holding the distance from
-        // the BOTTOM — not scrollTop — is what leaves the row the reader was
-        // looking at exactly where it was. Instant, deliberately: nothing here
-        // is "the newest line arriving", so easing it would read as the whole
-        // transcript sliding for no visible reason.
+        // Older messages just landed above the fold, or the pane just came
+        // back into view. Holding the distance from the BOTTOM — not scrollTop
+        // — is what leaves the row the reader was looking at exactly where it
+        // was. Instant, deliberately: nothing here is "the newest line
+        // arriving", so easing it would read as the whole transcript sliding
+        // for no visible reason.
         restoreFromBottom.current = null
         el.scrollTop = el.scrollHeight - keep
         return
@@ -219,18 +525,54 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       // ceiling — which the native scrollTop setter then clamps to
       // instantly. The result is indistinguishable from no easing at all.
       const target = el.scrollHeight - el.clientHeight
-      if (!easedArmed.current) {
-        // Still settling (see UseTranscriptAnchorOptions.loadingHistory):
-        // land on the real target instantly, same as the prepend branch
-        // above, and push the arm-check back another ARM_QUIET_MS. Skip the
-        // write when already there — a resize that didn't change the
-        // ceiling (width-only, say) still reaches this branch, and a no-op
-        // write is one more scroll event this settle burst's tail doesn't
-        // need.
+      // The pinned row just moved because content above it changed height.
+      // Land, do not glide — see `pinShifted`'s own note in `applyTailRoom`.
+      if (pinShifted.current) {
+        pinShifted.current = false
         if (el.scrollTop !== target) el.scrollTop = target
+        return
+      }
+      // INSTANT while still settling (see
+      // UseTranscriptAnchorOptions.loadingHistory), and instant for any gap
+      // bigger than a viewport whether settling or not.
+      //
+      // THE SIZE TEST IS THE LOAD-BEARING HALF. Easing exists for the newest
+      // line arriving; a gap of more than a whole viewport is not content
+      // arriving, it is a REPOSITION — a chat mounting onto a page of history
+      // whose rows have not been measured yet, a saved position landing before
+      // the virtualizer has settled — and easing one of those is the entire
+      // transcript visibly sweeping from wherever it started down to the end.
+      // Measured live on a chat closed and reopened from the sidebar:
+      // `scrollTop` climbing 0 -> 2471 across 43 painted frames.
+      //
+      // `easedArmed` alone could never have caught that: while arming was a
+      // one-frame wait it landed BEFORE the very settle it exists for (a rAF
+      // callback runs ahead of the same frame's ResizeObserver delivery), so
+      // eased mode armed mid-cascade every single time. ARM_QUIET_MS's
+      // wall-clock debounce closes that hole — do not take it back to a frame
+      // count — and the size test still stands on its own: a gap this big is
+      // a reposition whether anything is armed or not.
+      //
+      // MEASURED FROM WHERE THE CATCH-UP BEGAN, not from where it has crawled
+      // to. A settle does not arrive as one jump; it arrives as a staircase of
+      // sub-viewport growths as each row is measured, and testing every step on
+      // its own waves all of them through — measured live on a chat opening
+      // cold in another workspace, 36 rising frames climbing 848px in ~700px
+      // steps. Cumulative, this catches the whole staircase on its second step.
+      // A burst of real streamed lines is nowhere near a viewport in total, so
+      // it still glides.
+      if (target - el.scrollTop <= 1) easeFrom.current = null
+      const from = easeFrom.current ?? el.scrollTop
+      if (!easedArmed.current || target - from > el.clientHeight) {
+        // Skipped when already there: a resize that didn't change the ceiling
+        // (width-only, say) still reaches this branch, and a no-op write is one
+        // more scroll event this settle burst's tail doesn't need.
+        if (el.scrollTop !== target) el.scrollTop = target
+        easeFrom.current = null
         scheduleArm()
         return
       }
+      easeFrom.current = from
       follow.current?.setTarget(target)
     }
     resyncRef.current = resync
@@ -272,20 +614,106 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       resync()
     }
     window.addEventListener('focus', onWindowFocus)
+    // Captured on the window, not the container: a keypress scrolls the
+    // transcript while focus sits anywhere in the chat, and capture phase
+    // means nothing downstream can swallow the signal before it is recorded.
+    const noteInput = () => {
+      lastInputAt.current = performance.now()
+    }
+    // A keydown ONLY: typing, or pressing Enter to send, in the composer is
+    // never "the reader scrolling the transcript" — it just happens to be a
+    // keydown, the same event type PageDown/Space/arrow keys use to
+    // legitimately scroll the transcript when IT has focus. Without this,
+    // the send keystroke itself armed `reader` for a full READER_INPUT_MS
+    // afterward, and any resize-driven scroll adjustment in that window (the
+    // browser's own clamp when content shrinks, say) got misread as the
+    // reader grabbing the scrollbar. Observed live: `stuck` latched false
+    // right after send, the pin-to-top reservation kept adjusting
+    // (`applyTailRoom` runs unconditionally) while `scrollTop` itself never
+    // moved again — "the space is there, the auto-scroll didn't work."
+    const noteKeydownUnlessEditing = (event: Event) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('[contenteditable], input, textarea')) return
+      noteInput()
+    }
+    // Scoped to a wheel/touch event that actually targets THIS container —
+    // unscoped, this was the wheel/touch twin of the keydown and pointerdown
+    // bugs just above/below: scrolling a DIFFERENT pane entirely (split
+    // view) or any other on-screen scrollable region set `lastInputAt` for
+    // every mounted instance of this hook, and if the browser's own scroll
+    // anchoring then adjusted a DIFFERENT, actively-streaming pane within
+    // READER_INPUT_MS, `onScroll` misread it as that pane's own reader
+    // grabbing the scrollbar and stopped following for the rest of the turn.
+    const noteWheelOrTouchWithinContainer = (event: Event) => {
+      const target = event.target
+      if (!(target instanceof Element) || !el.contains(target)) return
+      noteInput()
+    }
+    // Scoped to a pointerdown that actually STARTS on this container (its
+    // scrollbar, its rows) — the scrollbar-drag `pointerHeld` above exists
+    // for. Unscoped, this was the pointer-event twin of the keydown bug just
+    // above: clicking Send, or literally anything else anywhere in the app,
+    // fired a pointerdown/pointerup pair on `window` and got read as the
+    // reader grabbing the scrollbar. `pointerup`/`pointercancel` stay
+    // UNSCOPED on purpose — a real drag can end with the cursor anywhere
+    // once it outruns the scrollbar's bounds — but only ever DO anything
+    // when `pointerHeld` says a drag we actually started tracking is the
+    // one ending.
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element) || !el.contains(target)) return
+      pointerHeld.current = true
+      noteInput()
+    }
+    const onPointerUp = () => {
+      if (!pointerHeld.current) return
+      pointerHeld.current = false
+      noteInput()
+    }
+    const INPUT_EVENTS = ['wheel', 'touchstart', 'touchmove'] as const
+    for (const type of INPUT_EVENTS) {
+      window.addEventListener(type, noteWheelOrTouchWithinContainer, {
+        capture: true,
+        passive: true,
+      })
+    }
+    window.addEventListener('keydown', noteKeydownUnlessEditing, { capture: true, passive: true })
+    window.addEventListener('pointerdown', onPointerDown, { capture: true, passive: true })
+    window.addEventListener('pointerup', onPointerUp, { capture: true, passive: true })
+    window.addEventListener('pointercancel', onPointerUp, { capture: true, passive: true })
     return () => {
       observer.disconnect()
       window.removeEventListener('focus', onWindowFocus)
+      for (const type of INPUT_EVENTS) {
+        window.removeEventListener(type, noteWheelOrTouchWithinContainer, { capture: true })
+      }
+      window.removeEventListener('keydown', noteKeydownUnlessEditing, { capture: true })
+      window.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      window.removeEventListener('pointerup', onPointerUp, { capture: true })
+      window.removeEventListener('pointercancel', onPointerUp, { capture: true })
       follow.current?.stop()
       follow.current = null
       resyncRef.current = () => {}
+      beginRevealRef.current = () => {}
       scheduleArmRef.current = () => {}
+      pinnedTop.current = null
+      pinnedRow.current = null
       clearTimeout(armTimer.current)
       // Wherever the reader ends up, for this exact chat's next mount this
       // session (a switch back) to restore — see
       // UseTranscriptAnchorOptions.onPositionChange.
+      //
+      // Read from `lastFromBottom` when there is no box left to measure: a
+      // retained workspace is evicted (workspace-host.tsx) from the HIDDEN
+      // state it has been sitting in, so unmount is the one moment this is
+      // reliably `display:none` and every measurement here reads 0 — which
+      // saved a bottom distance of 0, i.e. "scrolled past the end".
       optionsRef.current.onPositionChange?.({
         stuck: stuck.current,
-        distanceFromBottom: el.scrollHeight - el.scrollTop,
+        distanceFromBottom:
+          el.clientHeight > 0
+            ? el.scrollHeight - el.scrollTop
+            : (lastFromBottom.current ?? el.scrollHeight - el.scrollTop),
       })
     }
   }, [])
@@ -300,7 +728,53 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     scheduleArmRef.current()
   }, [options.loadingHistory])
 
+  // THE TAB CAME BACK TO THE FRONT — the one reveal nothing in this hook can
+  // observe for itself, see the `visible` option. A LAYOUT effect, not an
+  // ordinary one: `visibility` flips in the same commit, and the settle it
+  // starts is already underway by the time a passive effect would run.
+  useLayoutEffect(() => {
+    if (options.visible === false) {
+      tabHidden.current = true
+      return
+    }
+    if (!tabHidden.current) return
+    tabHidden.current = false
+    beginRevealRef.current()
+    resyncRef.current()
+  }, [options.visible])
+
   const notifyReflow = useCallback(() => {
+    resyncRef.current()
+  }, [])
+
+  const pinTurnToTop = useCallback((element: HTMLElement | null) => {
+    const el = scrollRef.current
+    if (!el || !element) {
+      pinnedTop.current = null
+      pinnedRow.current = null
+      resyncRef.current()
+      return
+    }
+    // Measured once, here, against `.stream` (`el`'s last child — see the
+    // mount effect above) rather than `el` itself — see `pinnedTop`'s own
+    // doc for why. Both elements are fixed for the element's lifetime; no
+    // scrollTop term is needed the way `el`-relative measurement required,
+    // since a descendant's rect and its ancestor CONTENT element's rect move
+    // together by the same amount as `el` scrolls.
+    const base = el.lastElementChild as HTMLElement | null
+    pinnedTop.current =
+      element.getBoundingClientRect().top - (base ?? el).getBoundingClientRect().top
+    // Kept so `applyTailRoom` can re-measure that offset instead of trusting
+    // it for the rest of the turn — see `pinnedRow`.
+    pinnedRow.current = element
+    // A turn starting is also the reader rejoining the live end — it is their
+    // own prompt that just landed. Without this, a prompt sent after reading
+    // back through history would reserve the room and then not move.
+    stuck.current = true
+    // Protects the assertion just above for as long as this pin's own
+    // settling can plausibly still be resizing things — see
+    // `pinGraceUntil`/`PIN_SETTLE_GRACE_MS`.
+    pinGraceUntil.current = performance.now() + PIN_SETTLE_GRACE_MS
     resyncRef.current()
   }, [])
 
@@ -317,13 +791,31 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     ) {
       return
     }
-    // Real input: the reader's own scroll wins immediately, even mid-glide —
-    // the loop's own drift check would catch this too on its next frame, but
-    // clearing the expected value here means the NEXT tick doesn't have to.
+    // Not one of our own writes. The loop's own drift check would catch this
+    // too on its next frame, but clearing the expected value here means the
+    // NEXT tick doesn't have to.
     expectedScrollTop.current = null
+    // ...but "not ours" is still not "the reader's". The browser moves
+    // scrollTop by itself to keep the view stable when content around it
+    // resizes, which a streaming transcript does constantly — see
+    // READER_INPUT_MS. Treating that as a gesture is what left a reply
+    // stranded mid-generation with the transcript refusing to follow it any
+    // further. Nobody having touched anything means the view is still where
+    // the reader left it: keep following, from wherever it now sits.
+    const reader =
+      performance.now() >= pinGraceUntil.current &&
+      (pointerHeld.current || performance.now() - lastInputAt.current < READER_INPUT_MS)
+    if (!reader) {
+      resyncRef.current()
+      return
+    }
     // Re-armed as soon as the reader comes back to the bottom, so following
     // resumes without them having to do anything but scroll down.
     stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK
+    lastFromBottom.current = el.scrollHeight - el.scrollTop
+    // The reader scrolling during a reveal's settle outranks the restore that
+    // settle was still re-applying — they are looking at where they are now.
+    revealFromBottom.current = null
   }, [])
 
   const preservePosition = useCallback(() => {
@@ -331,5 +823,5 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
     if (el) restoreFromBottom.current = el.scrollHeight - el.scrollTop
   }, [])
 
-  return { scrollRef, onScroll, preservePosition, notifyReflow }
+  return { scrollRef, onScroll, preservePosition, notifyReflow, pinTurnToTop }
 }

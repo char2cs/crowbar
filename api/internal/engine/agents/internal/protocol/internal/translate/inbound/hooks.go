@@ -37,24 +37,29 @@ func Parse(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEv
 	// The ownership guard (RequiredPayloadFields, e.g. codex's transcript_path)
 	// exists for HTTP-delivered hook payloads: any process on the machine can
 	// POST one, so Crowbar must confirm it actually names THIS CLI's own
-	// conversation before trusting it. An api-transport event carries no such
-	// ambiguity — it arrived on the one websocket connection this runner's own
-	// serve process opened, which IS the scoping — and structurally can never
-	// carry a hooks-only field like transcript_path. Applying the guard to it
-	// anyway means EVERY api-transport event fails ownsConversation and is
-	// silently dropped as "foreign", which is exactly what happened before this
-	// fix: session_start through turn_stop all reported successful ingestion
-	// while the ledger never gained a single turn.
-	if d.TransportFor(canonical) != "api" {
-		if field, ok := ownsConversation(d, decoded); !ok {
-			return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
-		}
+	// conversation before trusting it.
+	//
+	// THE TRAP: this used to be skipped whenever TransportFor(canonical) ==
+	// "api", on the reasoning that an api-transport event structurally never
+	// carries a hooks-only field. That reasoning breaks for a DUAL-SHAPE event
+	// (codex's session_start/user_prompt/turn_stop, which inherit the api
+	// default but are still ALSO fired hooks-shaped by codex's own internal
+	// memory-consolidation session) — the skip is keyed on the event's static
+	// declared transport, not on whether THIS delivery is actually hooks-
+	// shaped, so it let the memory session's payload through unchecked and
+	// reintroduced the chat-theft bug this guard exists for. ownsConversation
+	// below is presence-gated per field instead (mapping.Present), which is
+	// safe for both shapes without a transport check at all: an api payload
+	// never has the key so it's skipped; a hooks payload always does, real or
+	// foreign.
+	if field, ok := ownsConversation(d, decoded); !ok {
+		return models.CanonicalEvent{}, &ForeignConversationError{Field: field}
 	}
 	fields, declared := d.EventFields(canonical)
 	if !declared {
 		return models.CanonicalEvent{}, fmt.Errorf("%w: %q on %q", ErrUndeclaredEvent, canonical, d.ID)
 	}
-	return build(canonical, fields, decoded), nil
+	return build(canonical, fields, d.EventSteps(canonical), decoded), nil
 }
 
 func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
@@ -73,6 +78,13 @@ func decode(d *spec.Descriptor, raw []byte) (map[string]any, error) {
 
 func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool) {
 	for _, field := range d.RequiredPayloadFields() {
+		// Absent, not merely empty: a payload whose shape never carries this
+		// field at all (a genuine api-transport delivery of a dual-shape
+		// event) is not evidence of anything and must not be rejected — see
+		// Parse's own doc on why this replaced a transport-wide skip.
+		if !mapping.Present(decoded, field) {
+			continue
+		}
 		if mapping.String(decoded, field) == "" {
 			return field, false
 		}
@@ -83,6 +95,7 @@ func ownsConversation(d *spec.Descriptor, decoded map[string]any) (string, bool)
 func build(
 	canonical string,
 	fields map[string]string,
+	steps *spec.StepsSpec,
 	decoded map[string]any,
 ) models.CanonicalEvent {
 	get := func(name string) string { return firstNonEmpty(decoded, fields[name]) }
@@ -91,6 +104,7 @@ func build(
 		Kind:      canonical,
 		SessionID: get("session_id"),
 		Message:   get("message"),
+		TurnID:    get("turn_id"),
 		AsyncWork: mapping.Count(decoded, fields["async_work"]),
 		Model:     get("model"),
 		Effort:    get("effort"),
@@ -113,8 +127,13 @@ func build(
 	case spec.HookElicitation:
 		ev.Interrupt = &models.InterruptEvent{Kind: models.InterruptElicitation, Detail: ev.Message}
 		ev.Choice = elicitationChoice(fields, decoded, ev.Message)
-	case spec.HookMessageDelta:
+	case spec.HookMessageDelta, spec.HookReasoningDelta, spec.HookToolOutputDelta:
+		// Same payload shape, deliberately: a thought and an answer are both
+		// streamed text belonging to one item. Only ev.Kind tells them apart, and
+		// only the consumer acts on that difference.
 		ev.Delta = buildDelta(fields, decoded)
+	case spec.HookPlanUpdate:
+		ev.Plan = buildPlan(steps, decoded)
 	case spec.HookTurnFailed:
 		ev.Failure = &models.TurnFailure{Reason: get("reason"), Detail: get("detail")}
 	case spec.HookCompactPre:
@@ -140,6 +159,37 @@ func buildDelta(fields map[string]string, decoded map[string]any) *models.Messag
 	}
 }
 
+// buildPlan reads the whole plan array, WHOLESALE: the newest list is the entire
+// truth, so there is nothing to merge and nothing that can drift — the same
+// anti-drift rule turn_stop's async-work LEVEL follows.
+//
+// A step with no text is skipped (a plan entry with nothing to say is not a step),
+// but an unknown status passes through UNCHANGED rather than being dropped: a
+// status the descriptor's map does not name is still a step worth showing, and
+// silently shortening the plan would be worse than an unstyled row.
+func buildPlan(steps *spec.StepsSpec, decoded map[string]any) []models.PlanStep {
+	if steps == nil || steps.Items == "" {
+		return nil
+	}
+	rows := mapping.Objects(decoded, steps.Items)
+	out := make([]models.PlanStep, 0, len(rows))
+	for _, row := range rows {
+		text := mapping.String(row, steps.Text)
+		if text == "" {
+			continue
+		}
+		status := mapping.String(row, steps.Status)
+		if mapped, ok := steps.StatusMap[status]; ok {
+			status = mapped
+		}
+		out = append(out, models.PlanStep{Text: text, Status: status})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEvent {
 	duration, _ := mapping.Int(decoded, fields["duration_ms"])
 	return &models.ToolEvent{
@@ -148,10 +198,11 @@ func buildTool(fields map[string]string, decoded map[string]any) *models.ToolEve
 		Target: firstNonEmpty(decoded, fields["tool_target"]),
 		Input:  mapping.JSON(decoded, fields["tool_input"]),
 
-		Result:     firstNonEmptyJSON(decoded, fields["tool_result"]),
-		Error:      firstNonEmpty(decoded, fields["tool_error"]),
-		Status:     firstNonEmpty(decoded, fields["tool_status"]),
-		DurationMS: duration,
+		Result:          firstNonEmptyJSON(decoded, fields["tool_result"]),
+		Error:           firstNonEmpty(decoded, fields["tool_error"]),
+		Status:          firstNonEmpty(decoded, fields["tool_status"]),
+		DurationMS:      duration,
+		NestedSessionID: firstNonEmpty(decoded, fields["nested_session_id"]),
 	}
 }
 

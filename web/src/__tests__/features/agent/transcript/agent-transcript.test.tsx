@@ -1,12 +1,65 @@
-import { render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage } from '@/features/agent/api/agent-api'
+import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import {
   AgentTranscript,
   ESTIMATED_ROW_HEIGHT,
   estimateRowHeight,
+  measureRowHeight,
 } from '@/features/agent/transcript/agent-transcript'
 import type { TranscriptRow } from '@/features/agent/transcript/lib/flatten-transcript-rows'
+
+// Spies on every `resizeItem` call the real virtualizer makes, across the
+// whole file — a passthrough wrapper, not a stub, so every other test in
+// this file gets the real virtualizer unchanged. ESM named exports are not
+// configurable (vitest can't `vi.spyOn` one directly), so this is done via
+// `vi.mock` instead; `vi.hoisted` is what lets the array below be visible
+// both inside the (hoisted) mock factory and inside a normal test body.
+const { resizeItemCalls } = vi.hoisted(() => ({
+  resizeItemCalls: [] as Array<{ index: number; size: number }>,
+}))
+vi.mock('@tanstack/react-virtual', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-virtual')>()
+  return {
+    ...actual,
+    useVirtualizer: (options: Parameters<typeof actual.useVirtualizer>[0]) => {
+      const instance = actual.useVirtualizer(options)
+      const originalResizeItem = instance.resizeItem.bind(instance)
+      instance.resizeItem = (index: number, size: number) => {
+        resizeItemCalls.push({ index, size })
+        originalResizeItem(index, size)
+      }
+      return instance
+    },
+  }
+})
+
+// Spies on every `pinTurnToTop` call the real anchor hook's wiring effect
+// makes — a passthrough, not a stub, so every other test in this file still
+// gets the real hook, real scroll math and all, unchanged. This is what lets
+// a test assert WHETHER agent-transcript.tsx's own queue-watching effect
+// decided to pin at all, independent of jsdom having no real layout engine
+// to observe the resulting padding-bottom through.
+const { pinTurnToTopCalls } = vi.hoisted(() => ({
+  pinTurnToTopCalls: [] as Array<HTMLElement | null>,
+}))
+vi.mock('@/features/agent/hooks/use-transcript-anchor', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/agent/hooks/use-transcript-anchor')>()
+  return {
+    ...actual,
+    useTranscriptAnchor: (...args: Parameters<typeof actual.useTranscriptAnchor>) => {
+      const instance = actual.useTranscriptAnchor(...args)
+      const originalPinTurnToTop = instance.pinTurnToTop
+      instance.pinTurnToTop = (element: HTMLElement | null) => {
+        pinTurnToTopCalls.push(element)
+        originalPinTurnToTop(element)
+      }
+      return instance
+    },
+  }
+})
 
 // The historical rows are windowed (`@tanstack/react-virtual`), and jsdom has no
 // layout engine: every element measures 0×0, and a virtualiser told its viewport
@@ -20,6 +73,8 @@ const VIEWPORT_HEIGHT = 800
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
 
 beforeEach(() => {
+  resizeItemCalls.length = 0
+  pinTurnToTopCalls.length = 0
   const rect = {
     top: 0,
     left: 0,
@@ -153,6 +208,40 @@ describe('AgentTranscript turnbar wiring', () => {
     ).not.toBeNull()
   })
 
+  it('drops the persistent turnbar off the last settled reply while the agent is working on the next step', () => {
+    const messages: AgentChatMessage[] = [
+      { turnId: 't1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' },
+      { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
+    ]
+
+    const { rerender } = draw(messages)
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).not.toBeNull()
+
+    rerender(
+      <AgentTranscript
+        messages={messages}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="message-turn-actions"]'),
+    ).toBeNull()
+  })
+
   it("wires a turn's finished tool calls through to its own message row, keyed by turnId", () => {
     draw(
       [{ turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' }],
@@ -182,7 +271,136 @@ describe('AgentTranscript turnbar wiring', () => {
     ).not.toBeNull()
   })
 
-  it('never gives a streaming bubble a turnbar or tool calls — the turn has not finished', () => {
+  // THE REGRESSION this session fixed. A Codex-style nested subagent carries
+  // no turnId at all (see AgentSubagent's own doc) — before this it only ever
+  // surfaced in a permanent strip above the composer, disconnected from any
+  // turn. It must attach to the turn it actually ran under instead — here,
+  // with only one turn after it, that is also simply the last one.
+  it('folds a turnId-less finished subagent onto the turn it ran under', () => {
+    draw(
+      [
+        { turnId: 't1', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
+        { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'codex', text: 'b', at: '' },
+      ],
+      {
+        activity: {
+          toolCalls: [],
+          subagents: [
+            {
+              id: 's1',
+              turnId: '',
+              seq: 0,
+              agentType: 'Explore',
+              startedAt: '2026-08-17T12:00:00Z',
+              endedAt: '2026-08-17T12:00:05Z',
+            },
+          ],
+          interruptions: [],
+          choices: [],
+        },
+      },
+    )
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).not.toBeNull()
+    expect(screen.getByText('Explore')).toBeInTheDocument()
+  })
+
+  // THE REGRESSION reported live: a Codex chat ran 3 subagents, then the chat
+  // was switched to Claude and a NEW turn landed after them. The first cut of
+  // this attached orphaned subagents to whichever turn was CURRENTLY last,
+  // recomputed on every render — so the Codex subagents kept sliding onto the
+  // newer Claude turn that had nothing to do with them, every time the
+  // transcript re-rendered. They must stay pinned to the turn they actually
+  // ran under (the reply recorded right after they finished), even once a
+  // later turn — on a different provider — exists.
+  it('keeps a turnId-less finished subagent on the turn it ran under, not a LATER one', () => {
+    draw(
+      [
+        {
+          turnId: 't1',
+          sequence: 1,
+          role: 'assistant',
+          providerId: 'codex',
+          text: 'ran 3 subagents',
+          at: '2026-08-17T12:00:10Z',
+        },
+        {
+          turnId: 't2',
+          sequence: 2,
+          role: 'assistant',
+          providerId: 'claude',
+          text: 'switched turn',
+          at: '2026-08-17T12:05:00Z',
+        },
+      ],
+      {
+        activity: {
+          toolCalls: [],
+          subagents: [
+            {
+              id: 's1',
+              turnId: '',
+              seq: 0,
+              agentType: 'Explore',
+              startedAt: '2026-08-17T12:00:00Z',
+              endedAt: '2026-08-17T12:00:05Z',
+            },
+          ],
+          interruptions: [],
+          choices: [],
+        },
+      },
+    )
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).not.toBeNull()
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).toBeNull()
+  })
+
+  // A turn-scoped (real turnId) finished subagent still attaches to ITS OWN
+  // turn, not the last one, even when a later turn exists.
+  it('still attaches a turn-scoped finished subagent to its own turn, not the last', () => {
+    draw(
+      [
+        { turnId: 't1', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
+        { turnId: 't2', sequence: 2, role: 'assistant', providerId: 'claude', text: 'b', at: '' },
+      ],
+      {
+        activity: {
+          toolCalls: [],
+          subagents: [
+            {
+              id: 's1',
+              turnId: 't1',
+              seq: 0,
+              agentType: 'reviewer',
+              startedAt: '2026-08-17T12:00:00Z',
+              endedAt: '2026-08-17T12:00:02Z',
+            },
+          ],
+          interruptions: [],
+          choices: [],
+        },
+      },
+    )
+
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).not.toBeNull()
+    expect(
+      screen.getByTestId('agent-message-2').querySelector('[data-testid="agent-turn-subagents"]'),
+    ).toBeNull()
+  })
+
+  it('never gives a streaming bubble a turnbar — the turn has not finished', () => {
     draw([], {
       streamingBubbles: [
         {
@@ -215,7 +433,107 @@ describe('AgentTranscript turnbar wiring', () => {
 
     expect(screen.getByText('typing…')).toBeInTheDocument()
     expect(screen.queryByTestId('message-turn-actions')).toBeNull()
+    // Not on the BUBBLE — the live list below it is what carries them now.
     expect(screen.queryByTestId('agent-turn-tools')).toBeNull()
+  })
+
+  // THE REGRESSION. `working` folds off the daemon's event-sourced turn state,
+  // dispatched over an async command path on purpose, so it can still read
+  // false for a moment after a turn's first tokens are already streaming —
+  // reported live as a reply filling in with no spinner above it. A live
+  // streaming bubble is proof the chat is working regardless of what `working`
+  // says, and must light the spinner on its own.
+  it('shows the spinner for a streaming bubble even before `working` catches up', () => {
+    draw([], {
+      working: false,
+      streamingBubbles: [
+        {
+          turnId: '',
+          sequence: 1,
+          role: 'assistant',
+          providerId: 'codex',
+          text: 'still writing…',
+          at: '',
+        },
+      ],
+    })
+
+    expect(screen.getByTestId('agent-activity-strip')).toBeInTheDocument()
+  })
+
+  it('shows no spinner when idle with nothing streaming', () => {
+    draw([], { working: false })
+
+    expect(screen.queryByTestId('agent-activity-strip')).toBeNull()
+  })
+
+  // THE REGRESSION. A call is filed against the turn that was open when it ran,
+  // and only turn close repoints it onto the reply's own turn id — so mid-turn
+  // it matched no message and nothing on screen drew it. Measured live before
+  // this existed: five calls, the first known to the backend at t=13.8s, none of
+  // them painted until t=39.4s, when the turn ended.
+  it("draws the in-flight turn's calls before any reply exists to hold them", () => {
+    draw([{ turnId: 'user-1', sequence: 1, role: 'user', providerId: '', text: 'go', at: '' }], {
+      working: true,
+      activity: {
+        toolCalls: [
+          {
+            id: 'c1',
+            turnId: 'open-chat-runner',
+            seq: 4,
+            name: 'commandExecution',
+            target: 'ls -la',
+            status: 'ok',
+            durationMs: 17,
+            hasRequest: false,
+            hasResult: false,
+            startedAt: '',
+          },
+        ],
+        subagents: [],
+        interruptions: [],
+        choices: [],
+      },
+    })
+
+    expect(screen.getByTestId('agent-live-turn-tools')).toBeInTheDocument()
+    expect(screen.getByText('commandExecution · ls -la')).toBeInTheDocument()
+  })
+
+  // The same calls, once the reply lands and the ledger repoints them onto it:
+  // the reply draws them, and the live list has to go quiet or every row is
+  // drawn twice.
+  it('hands the calls over to the reply row rather than drawing them twice', () => {
+    draw(
+      [{ turnId: 'msg-7', sequence: 1, role: 'assistant', providerId: 'codex', text: 'a', at: '' }],
+      {
+        activity: {
+          toolCalls: [
+            {
+              id: 'c1',
+              turnId: 'msg-7',
+              seq: 4,
+              name: 'commandExecution',
+              target: 'ls -la',
+              status: 'ok',
+              durationMs: 17,
+              hasRequest: false,
+              hasResult: false,
+              startedAt: '',
+            },
+          ],
+          subagents: [],
+          interruptions: [],
+          choices: [],
+        },
+      },
+    )
+
+    expect(screen.queryByTestId('agent-live-turn-tools')).toBeNull()
+    expect(
+      screen.getByTestId('agent-message-1').querySelector('[data-testid="agent-turn-tools"]'),
+    ).not.toBeNull()
+    expect(screen.getAllByText('commandExecution · ls -la')).toHaveLength(1)
   })
 
   it("times a reply's turnbar against the user turn it answers, not against now", () => {
@@ -415,7 +733,7 @@ describe('AgentTranscript windowed history', () => {
         { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
         { turnId: 't2', sequence: 1, role: 'assistant', providerId: 'claude', text: 'a', at: '' },
       ],
-      { eventsBefore: { 1: [{ kind: 'compaction', trigger: 'manual' }] } },
+      { eventsBefore: { 1: [{ kind: 'compaction', id: 'e1', trigger: 'manual' }] } },
     )
 
     const rows = Array.from(container.querySelectorAll<HTMLElement>('.virtual-rows > [data-index]'))
@@ -463,7 +781,7 @@ describe('AgentTranscript windowed history', () => {
         { turnId: 't1', sequence: 0, role: 'user', providerId: '', text: 'first', at: '' },
         { turnId: 't2', sequence: 1, role: 'user', providerId: '', text: 'being edited', at: '' },
       ],
-      { suppressSequence: 1, eventsBefore: { 1: [{ kind: 'interrupted' }] } },
+      { suppressSequence: 1, eventsBefore: { 1: [{ kind: 'interrupted', id: 'e1' }] } },
     )
 
     expect(screen.getByTestId('agent-message-0')).toBeInTheDocument()
@@ -534,13 +852,267 @@ describe('AgentTranscript queued first turn', () => {
   })
 })
 
+describe('AgentTranscript: pinning the turn a prompt actually started', () => {
+  let nextId = 0
+  function queueItem(text: string) {
+    nextId += 1
+    return {
+      clientRequestId: `pin-r${nextId}`,
+      text,
+      state: 'queued' as const,
+      createdAt: '2026-08-24T00:00:00Z',
+      baselineSequence: 0,
+    }
+  }
+
+  // REGRESSION: the wiring effect's very first run, on a freshly-mounted
+  // pane, sees an EMPTY queue — `newest` (null) already equals
+  // `pinnedRequestId.current`'s own initial value (also null) — so an
+  // equality check placed before the "have I run before" bookkeeping
+  // returned early without ever recording that the first run happened. The
+  // user's actual first send then read its own run as "inherited" (a
+  // restore, not a send) and never pinned — silently losing pin-to-top for
+  // the single most common case, the first prompt in a chat's lifetime.
+  it('pins the very first prompt sent in a freshly-mounted pane', () => {
+    const { rerender } = draw([], { queue: [] })
+    expect(pinTurnToTopCalls).toEqual([])
+
+    const item = queueItem('the first thing I ever said')
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls).toHaveLength(1)
+    expect(pinTurnToTopCalls[0]).not.toBeNull()
+    expect(pinTurnToTopCalls[0]).toHaveAttribute('data-client-request-id', item.clientRequestId)
+  })
+
+  /*
+   * REGRESSION, reported twice from a screenshot of an entirely blank
+   * transcript with the composer reading "Queue a message…".
+   *
+   * A prompt sent while a turn is still running starts nothing — it QUEUES
+   * until that turn finishes. Pinning it anyway reserved a viewport of room
+   * for a reply that was not coming yet, AND lifted the queued row to the top
+   * of the viewport, which pushed the turn that IS running off the top.
+   * Captured live mid-queue, `.scroll`-relative: the two streaming reply rows
+   * at top=-80 and top=-32, the queued prompt pinned at top=16, and 401px of
+   * reserved blank under content ending at y=163 of a 754px pane.
+   */
+  it('does not pin a prompt that is only queued behind a turn already running', () => {
+    const item = queueItem('sent while the agent is still busy')
+    const { rerender } = draw([], { queue: [], working: true })
+    expect(pinTurnToTopCalls).toEqual([])
+
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    // Nothing pinned: the turn that is actually running keeps the viewport.
+    expect(pinTurnToTopCalls).toEqual([])
+  })
+
+  // The other half of the same rule, and the case this must not break: a
+  // prompt sent while the chat is IDLE does start a turn, and still pins.
+  it('still pins a prompt sent while nothing is running', () => {
+    const item = queueItem('sent to an idle chat')
+    const { rerender } = draw([], { queue: [], working: false })
+
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls).toHaveLength(1)
+    expect(pinTurnToTopCalls[0]).toHaveAttribute('data-client-request-id', item.clientRequestId)
+  })
+
+  // The existing, already-correct behavior this fix must not disturb: a
+  // chat REOPENED with a prompt still queued from before inherits it — that
+  // is a restore, not a send, and must never pin.
+  it('does not pin an inherited queue found already waiting on mount', () => {
+    draw([], { queue: [queueItem('left over from before')] })
+
+    expect(pinTurnToTopCalls).toEqual([])
+  })
+
+  // REGRESSION: `pinTurnToTop(null)` — the documented release path — was
+  // never called anywhere. A prompt canceled via "Cancel unsent prompts"
+  // before it ever dispatched drains the queue back to empty with nothing
+  // to replace it; without an explicit release, tailRoom's own shortfall
+  // math reads the now-shrunken content as needing MORE reserved space, not
+  // less, and grows a permanent, ever-widening blank gap instead.
+  it('releases the pin when the pinned prompt is canceled before it ever settles into a message', () => {
+    const item = queueItem('never actually sent')
+    const { rerender } = draw([], { queue: [] })
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(pinTurnToTopCalls).toHaveLength(1)
+    expect(pinTurnToTopCalls[0]).not.toBeNull()
+
+    // Canceled: the queue drains back to empty, and no message with this
+    // text ever appears — nothing replaced it.
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    expect(pinTurnToTopCalls.at(-1)).toBeNull()
+  })
+
+  // The ordinary case this fix must not disturb: a prompt that DISPATCHES
+  // (settles into a real ledger message) also drains the queue back to
+  // empty, but the turn is still running and the pin is still wanted. This
+  // must NOT call pinTurnToTop(null) — and it must hand the pin the LEDGER
+  // row that replaced the queued one, so `applyTailRoom` still has a live
+  // element to re-measure from: an offset alone assumes nothing above the pin
+  // moves, and a turn starting strips the turnbar off every reply above it.
+  it('re-anchors to the settled ledger row instead of releasing the pin', () => {
+    const item = queueItem('this one actually sent')
+    const { rerender } = draw([], { queue: [] })
+    rerender(
+      <AgentTranscript
+        messages={[]}
+        queue={[item]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+    expect(pinTurnToTopCalls).toHaveLength(1)
+
+    // Settled: the queue drains to empty, but a matching user message (same
+    // text, a real sequence past the prompt's baseline) is now present.
+    rerender(
+      <AgentTranscript
+        messages={[
+          {
+            turnId: 't1',
+            sequence: 1,
+            role: 'user',
+            providerId: '',
+            text: item.text,
+            at: '',
+          },
+        ]}
+        queue={[]}
+        providers={[]}
+        activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+        working={false}
+        loading={false}
+        error={null}
+        hasOlder={false}
+        onLoadOlder={() => {}}
+        onRetryLoad={() => {}}
+        onOpenTerminal={() => {}}
+        onEditPrompt={() => {}}
+        onCancelPrompt={() => {}}
+        onRetryPrompt={() => {}}
+      />,
+    )
+
+    // Never released, and re-anchored: the last call is the ledger row for the
+    // very prompt that was pinned, not null.
+    expect(pinTurnToTopCalls).toHaveLength(2)
+    const repinned = pinTurnToTopCalls.at(-1)
+    expect(repinned).not.toBeNull()
+    expect(repinned?.getAttribute('data-sequence')).toBe('1')
+  })
+})
+
 describe('AgentTranscript interrupted marker', () => {
   const oneFrozenTurn = [
     { turnId: 't1', sequence: 0, role: 'user' as const, providerId: '', text: 'first', at: '' },
   ]
 
   it('draws the trailing marker once the turn has actually gone idle, with nothing after it yet', () => {
-    draw(oneFrozenTurn, { trailingInterruption: true, working: false })
+    draw(oneFrozenTurn, {
+      trailingInterruption: [{ kind: 'interrupted', id: 'e1' }],
+      working: false,
+    })
 
     expect(screen.getByTestId('agent-interrupted-divider')).toHaveTextContent('Interrupted')
   })
@@ -549,13 +1121,16 @@ describe('AgentTranscript interrupted marker', () => {
   // instant — never both on screen, and the spinner's own disappearance is
   // what hands off to it, not a separate timer.
   it('does not draw the trailing marker while the turn still reads as working', () => {
-    draw(oneFrozenTurn, { trailingInterruption: true, working: true })
+    draw(oneFrozenTurn, {
+      trailingInterruption: [{ kind: 'interrupted', id: 'e1' }],
+      working: true,
+    })
 
     expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
 
   it('draws nothing when nothing was interrupted', () => {
-    draw(oneFrozenTurn, { trailingInterruption: false, working: false })
+    draw(oneFrozenTurn, { trailingInterruption: [], working: false })
 
     expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
   })
@@ -577,8 +1152,8 @@ describe('AgentTranscript interrupted marker', () => {
       },
     ]
     draw(messages, {
-      eventsBefore: { 1: [{ kind: 'interrupted' }] },
-      trailingInterruption: false,
+      eventsBefore: { 1: [{ kind: 'interrupted', id: 'e1' }] },
+      trailingInterruption: [],
       working: false,
     })
 
@@ -595,7 +1170,7 @@ describe('AgentTranscript interrupted marker', () => {
   // is part of "the record" the queue sits below, same as any confirmed message.
   it('draws the trailing marker above a prompt still waiting on hook confirmation', () => {
     draw(oneFrozenTurn, {
-      trailingInterruption: true,
+      trailingInterruption: [{ kind: 'interrupted', id: 'e1' }],
       working: false,
       queue: [
         {
@@ -622,7 +1197,7 @@ describe('AgentTranscript switch marker', () => {
 
   it('draws a provider-switch pill, resolving the display name from the providers list', () => {
     draw(twoMessages, {
-      eventsBefore: { 1: [{ kind: 'provider', detail: 'codex' }] },
+      eventsBefore: { 1: [{ kind: 'provider', id: 'e1', detail: 'codex' }] },
       providers: [{ id: 'codex', displayName: 'Codex' } as never],
     })
 
@@ -632,13 +1207,13 @@ describe('AgentTranscript switch marker', () => {
   })
 
   it('draws a model-changed pill with the raw model id', () => {
-    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'model', detail: 'opus' }] } })
+    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'model', id: 'e1', detail: 'opus' }] } })
 
     expect(screen.getByTestId('agent-model-switch-divider')).toHaveTextContent('Model: opus')
   })
 
   it('draws an effort-changed pill with the raw effort level', () => {
-    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'effort', detail: 'high' }] } })
+    draw(twoMessages, { eventsBefore: { 1: [{ kind: 'effort', id: 'e1', detail: 'high' }] } })
 
     expect(screen.getByTestId('agent-effort-switch-divider')).toHaveTextContent('Effort: high')
   })
@@ -647,8 +1222,8 @@ describe('AgentTranscript switch marker', () => {
     draw(twoMessages, {
       eventsBefore: {
         1: [
-          { kind: 'model', detail: 'opus' },
-          { kind: 'effort', detail: 'high' },
+          { kind: 'model', id: 'e1', detail: 'opus' },
+          { kind: 'effort', id: 'e2', detail: 'high' },
         ],
       },
     })
@@ -675,9 +1250,9 @@ describe('AgentTranscript switch marker', () => {
     const { container } = draw(twoMessages, {
       eventsBefore: {
         1: [
-          { kind: 'interrupted' },
-          { kind: 'provider', detail: 'codex' },
-          { kind: 'model', detail: 'opus' },
+          { kind: 'interrupted', id: 'e1' },
+          { kind: 'provider', id: 'e2', detail: 'codex' },
+          { kind: 'model', id: 'e3', detail: 'opus' },
         ],
       },
       providers: [{ id: 'codex', displayName: 'Codex' } as never],
@@ -690,6 +1265,43 @@ describe('AgentTranscript switch marker', () => {
     expect(pills?.[0]).toHaveTextContent('Interrupted')
     expect(pills?.[1]).toHaveTextContent('Switched to Codex')
     expect(pills?.[2]).toHaveTextContent('Model: opus')
+  })
+
+  // REGRESSION (live-reported): switching provider twice with nothing sent in
+  // between anchors TWO `provider` tags on the same divider — both used to be
+  // keyed by the shared literal `tag.kind` ('provider'), which is exactly the
+  // "two children with the same key, `provider`" React warning seen firing in
+  // the real app. Each tag now keys off its own interruption id, so both
+  // pills must render distinctly rather than one silently colliding with the
+  // other.
+  it('draws two provider-switch pills on the same divider when the provider was switched twice', () => {
+    // Asserting on the DOM alone isn't enough here: React still renders both
+    // siblings on a first, static mount even when their keys collide — the
+    // warning below is the only place the bug is actually observable.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const { container } = draw(twoMessages, {
+      eventsBefore: {
+        1: [
+          { kind: 'provider', id: 'e1', detail: 'claude' },
+          { kind: 'provider', id: 'e2', detail: 'codex' },
+        ],
+      },
+      providers: [
+        { id: 'claude', displayName: 'Claude' } as never,
+        { id: 'codex', displayName: 'Codex' } as never,
+      ],
+    })
+
+    expect(errorSpy.mock.calls.flat().join(' ')).not.toMatch(/same key/i)
+    errorSpy.mockRestore()
+
+    const dividers = container.querySelectorAll('[data-testid="agent-event-divider"]')
+    expect(dividers).toHaveLength(1)
+    const pills = dividers[0]?.querySelectorAll('[data-testid="agent-provider-switch-divider"]')
+    expect(pills).toHaveLength(2)
+    expect(pills?.[0]).toHaveTextContent('Switched to Claude')
+    expect(pills?.[1]).toHaveTextContent('Switched to Codex')
   })
 })
 
@@ -737,8 +1349,403 @@ describe('estimateRowHeight', () => {
         kind: 'event-divider',
         key: 'k',
         sequence: 0,
-        tags: [{ kind: 'interrupted' }, { kind: 'compaction', trigger: 'manual' }],
+        tags: [
+          { kind: 'interrupted', id: 'e1' },
+          { kind: 'compaction', id: 'e2', trigger: 'manual' },
+        ],
       }),
     ).toBe(ESTIMATED_ROW_HEIGHT)
+  })
+})
+
+// Regression: the live bug behind "the transcript bounces at turn end", root
+// -caused and measured directly in a real WKWebView (jsdom's zero-layout
+// engine can't reproduce the browser's own hard scrollTop clamp, so this
+// tests the MECHANISM — the settling row is primed ahead of its first paint —
+// not the visible motion itself). A short "typing…" bubble's TEXT is short,
+// but the reply had already grown tall on screen by the time it settles;
+// estimateRowHeight only ever sees the text, never what was actually
+// rendered, so it floors at ESTIMATED_ROW_HEIGHT regardless. Without the fix,
+// the settling row starts there and waits for measureElement's async
+// correction — the exact one-tick window the real clamp fires in. With it,
+// resizeItem is called with the streaming bubble's own last measured height
+// before that row ever paints as an estimate.
+describe('AgentTranscript: priming a settling row from its streaming height', () => {
+  it('primes the virtualizer with the streaming bubble’s real height the instant the same message settles, before any re-measurement', () => {
+    resizeItemCalls.length = 0
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.tagName === 'ARTICLE' && this.getAttribute('data-sequence') === '1') {
+        return {
+          top: 0,
+          left: 0,
+          right: VIEWPORT_WIDTH,
+          bottom: 400,
+          width: VIEWPORT_WIDTH,
+          height: 400,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect
+      }
+      return originalRect.call(this)
+    }
+
+    try {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'typing…',
+        at: '',
+      }
+      const { rerender } = draw([], { streamingBubbles: [message] })
+
+      rerender(
+        <AgentTranscript
+          messages={[message]}
+          queue={[]}
+          providers={[]}
+          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+          working={false}
+          loading={false}
+          error={null}
+          hasOlder={false}
+          onLoadOlder={() => {}}
+          onRetryLoad={() => {}}
+          onOpenTerminal={() => {}}
+          onEditPrompt={() => {}}
+          onCancelPrompt={() => {}}
+          onRetryPrompt={() => {}}
+        />,
+      )
+
+      expect(resizeItemCalls).toContainEqual({ index: 0, size: 400 })
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect
+    }
+  })
+})
+
+// Regression: the live bug reported as "bouncing... once the provider
+// approved and confirmed the message has been submitted" — dispatch removes
+// a prompt's QueuedRow the instant the daemon confirms it, well before the
+// corresponding message is necessarily back in `rows`, so the real height
+// that row's own text was occupying vanishes outright until
+// estimateRowHeight's guess is corrected a beat later. Measured live: a
+// 245px hard drop right at that swap, then a climb back — the same shape as
+// the streaming-bubble case above, one step earlier in a message's life.
+describe('AgentTranscript: priming a settling row from its queued height', () => {
+  it('primes the virtualizer with the queued row’s real height the instant the matching message settles', () => {
+    resizeItemCalls.length = 0
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.getAttribute('data-client-request-id') === 'req-1') {
+        return {
+          top: 0,
+          left: 0,
+          right: VIEWPORT_WIDTH,
+          bottom: 245,
+          width: VIEWPORT_WIDTH,
+          height: 245,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect
+      }
+      return originalRect.call(this)
+    }
+
+    try {
+      const item: PromptQueueItem = {
+        clientRequestId: 'req-1',
+        text: 'draw me a flowchart',
+        state: 'submitting',
+        createdAt: '',
+        baselineSequence: 0,
+      }
+      const { rerender } = draw([], { queue: [item] })
+
+      // The daemon confirms delivery: the queued row is gone, and the
+      // matching user message has landed in the ledger.
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: '',
+        text: 'draw me a flowchart',
+        at: '',
+      }
+      rerender(
+        <AgentTranscript
+          messages={[message]}
+          queue={[]}
+          providers={[]}
+          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+          working={true}
+          loading={false}
+          error={null}
+          hasOlder={false}
+          onLoadOlder={() => {}}
+          onRetryLoad={() => {}}
+          onOpenTerminal={() => {}}
+          onEditPrompt={() => {}}
+          onCancelPrompt={() => {}}
+          onRetryPrompt={() => {}}
+        />,
+      )
+
+      expect(resizeItemCalls).toContainEqual({ index: 0, size: 245 })
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect
+    }
+  })
+
+  it('does not prime a row for an unrelated message — only a real samePrompt match', () => {
+    resizeItemCalls.length = 0
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.getAttribute('data-client-request-id') === 'req-1') {
+        return { ...originalRect.call(this), height: 245 } as DOMRect
+      }
+      return originalRect.call(this)
+    }
+
+    try {
+      const item: PromptQueueItem = {
+        clientRequestId: 'req-1',
+        text: 'draw me a flowchart',
+        state: 'submitting',
+        createdAt: '',
+        baselineSequence: 0,
+      }
+      const { rerender } = draw([], { queue: [item] })
+
+      // A DIFFERENT user message lands — same role, unrelated text.
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'user',
+        providerId: '',
+        text: 'something else entirely',
+        at: '',
+      }
+      rerender(
+        <AgentTranscript
+          messages={[message]}
+          queue={[]}
+          providers={[]}
+          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+          working={true}
+          loading={false}
+          error={null}
+          hasOlder={false}
+          onLoadOlder={() => {}}
+          onRetryLoad={() => {}}
+          onOpenTerminal={() => {}}
+          onEditPrompt={() => {}}
+          onCancelPrompt={() => {}}
+          onRetryPrompt={() => {}}
+        />,
+      )
+
+      expect(resizeItemCalls).not.toContainEqual({ index: 0, size: 245 })
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect
+    }
+  })
+})
+
+// Regression: `resizeItem` (virtual-core) has no epsilon —
+// `const delta = size - itemSize; if (delta !== 0) { ...; this.notify(...) }`
+// treats ANY nonzero float delta as a real resize, and `getBoundingClientRect`
+// returns sub-pixel floats that can drift between two reads of a row nobody
+// would call "changed" (fractional `translateY` offsets and fractional
+// zoom/scroll compound through layout differently each paint). An attachment
+// row is exactly where a row gets measured more than once in quick succession
+// — an image settling to its natural size, several cards finishing layout a
+// frame apart — so this is where that drift turns into extra, unnecessary
+// `resizeItem`/`notify`/re-render cycles. `measureRowHeight` rounds before
+// anything reaches `resizeItem`, so two reads that only disagree by a
+// fraction of a pixel collapse to the identical integer instead of tripping
+// virtual-core's bare `!== 0` check.
+describe('measureRowHeight', () => {
+  function rectOf(height: number): Element {
+    return {
+      getBoundingClientRect: () => ({ height }) as DOMRect,
+    } as unknown as Element
+  }
+
+  it('rounds a sub-pixel measurement to a whole pixel', () => {
+    expect(measureRowHeight(rectOf(245.4))).toBe(245)
+    expect(measureRowHeight(rectOf(245.6))).toBe(246)
+  })
+
+  it('collapses two reads of an unchanged row that drifted by under a pixel to the same value', () => {
+    // The exact shape of the drift this guards against: no real content
+    // change, just two `getBoundingClientRect` reads landing a fraction of a
+    // pixel apart.
+    expect(measureRowHeight(rectOf(245.3))).toBe(measureRowHeight(rectOf(245.4)))
+  })
+})
+
+// Regression: the streamed/queued height caches (lastStreamedHeight,
+// lastQueuedHeight above) feed `resizeItem` from the SAME
+// `getBoundingClientRect` read `measureElement` itself will make a beat
+// later for that row — if the cached value is a raw float and the later
+// natural measurement rounds, the two can disagree by a sub-pixel amount and
+// `resizeItem`'s epsilon-free check (see `measureRowHeight`'s own doc) treats
+// that disagreement as a second real resize. Both paths go through
+// `measureRowHeight` now, so they can't drift apart.
+describe('AgentTranscript: settle-priming heights are rounded, not raw floats', () => {
+  it('primes with a whole-pixel height even when the streaming bubble measured a fractional one', () => {
+    resizeItemCalls.length = 0
+    const originalRect = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      if (this.tagName === 'ARTICLE' && this.getAttribute('data-sequence') === '1') {
+        return { height: 400.4 } as DOMRect
+      }
+      return originalRect.call(this)
+    }
+
+    try {
+      const message: AgentChatMessage = {
+        turnId: 't1',
+        sequence: 1,
+        role: 'assistant',
+        providerId: 'claude',
+        text: 'typing…',
+        at: '',
+      }
+      const { rerender } = draw([], { streamingBubbles: [message] })
+
+      rerender(
+        <AgentTranscript
+          messages={[message]}
+          queue={[]}
+          providers={[]}
+          activity={{ toolCalls: [], subagents: [], interruptions: [], choices: [] }}
+          working={false}
+          loading={false}
+          error={null}
+          hasOlder={false}
+          onLoadOlder={() => {}}
+          onRetryLoad={() => {}}
+          onOpenTerminal={() => {}}
+          onEditPrompt={() => {}}
+          onCancelPrompt={() => {}}
+          onRetryPrompt={() => {}}
+        />,
+      )
+
+      expect(resizeItemCalls).toContainEqual({ index: 0, size: 400 })
+      expect(resizeItemCalls.some((call) => !Number.isInteger(call.size))).toBe(false)
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect
+    }
+  })
+})
+
+// A chat OPENING is a convergence loop, not one layout: an estimated row height
+// is corrected by `measureElement`, the correction moves the total, the total
+// reaches the anchor's ResizeObserver, that moves `scrollTop`, the scroll event
+// reaches the virtualizer a frame later and re-ranges the rows, and the newly
+// ranged rows arrive as estimates again. Measured live on a 30-turn chat opened
+// from the sidebar, at ordinary speed: FOUR painted positions in ~105ms, the
+// middle two moving the content 402px and then 38px — with `scrollTop` at the
+// true bottom in every one of them. That is what was reported as "opening an
+// OLD chat makes it so that the scroll starts at the top, and THEN scrolls to
+// the bottom", and no scroll-position fix reaches it: the content is changing
+// height under an already-correct viewport. These pin the only thing that does
+// — the laps are laid out and measured, but not shown.
+describe('AgentTranscript opening settle gate', () => {
+  const originalClientHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    'clientHeight',
+  )
+  // Deterministic frames, not real ones: the gate counts ANIMATION FRAMES with
+  // the total height unchanged, so a test that waited on a clock would be
+  // asserting the scheduler rather than the behaviour.
+  let frames: Array<() => void> = []
+  let originalRaf: typeof requestAnimationFrame
+  let originalCancelRaf: typeof cancelAnimationFrame
+
+  function conversation(turns: number): AgentChatMessage[] {
+    return Array.from({ length: turns }, (_, i) => ({
+      turnId: `t${i}`,
+      sequence: i,
+      role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      providerId: i % 2 === 0 ? '' : 'claude',
+      text: `turn ${i}`,
+      at: '',
+    }))
+  }
+
+  beforeEach(() => {
+    frames = []
+    originalRaf = globalThis.requestAnimationFrame
+    originalCancelRaf = globalThis.cancelAnimationFrame
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+      frames.push(() => cb(0))) as unknown as typeof requestAnimationFrame
+    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame
+    // jsdom has no layout engine, and the gate refuses to count a container
+    // with no box at all — which in the real app is a chat mounted into a tab
+    // or a workspace slot that is not on screen yet.
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get: () => VIEWPORT_HEIGHT,
+    })
+  })
+
+  afterEach(() => {
+    globalThis.requestAnimationFrame = originalRaf
+    globalThis.cancelAnimationFrame = originalCancelRaf
+    if (originalClientHeight) {
+      Object.defineProperty(HTMLElement.prototype, 'clientHeight', originalClientHeight)
+    }
+  })
+
+  const runFrames = (count: number) => {
+    for (let i = 0; i < count; i++) {
+      const pending = frames
+      frames = []
+      act(() => {
+        for (const frame of pending) frame()
+      })
+    }
+  }
+
+  const virtualRows = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('.virtual-rows')
+
+  it('does not show the virtualized rows on the frame they first render', () => {
+    const { container } = draw(conversation(12))
+
+    expect(virtualRows(container)).not.toBeNull()
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+  })
+
+  it('shows them once the total height has held still, and not before', () => {
+    const { container } = draw(conversation(12))
+
+    // One quiet frame is not a settled chat: the cascade's laps are a frame
+    // apart and it plateaus mid-way, which is exactly why this waits for more
+    // than one — see SETTLE_QUIET_FRAMES.
+    runFrames(2)
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+
+    runFrames(4)
+    expect(virtualRows(container)?.style.visibility).toBe('')
+  })
+
+  it('gives up the gate the moment the reader actually touches the transcript', () => {
+    const { container } = draw(conversation(12))
+    const scroll = container.querySelector<HTMLElement>('.scroll')
+
+    expect(virtualRows(container)?.style.visibility).toBe('hidden')
+    fireEvent.wheel(scroll as HTMLElement)
+
+    expect(virtualRows(container)?.style.visibility).toBe('')
   })
 })

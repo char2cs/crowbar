@@ -13,10 +13,15 @@ import {
   choiceToolTarget,
   describeChoice,
   describeInterruption,
+  describeResolvedChoice,
   describeTool,
   formatDuration,
+  liveTurnToolCalls,
   NO_ACTIVITY,
+  optionLabel,
   pendingChoices,
+  pickedOptionLabels,
+  resolvedChoices,
   runningSubagents,
   runningTools,
 } from '@/features/agent/lib/agent-activity'
@@ -111,6 +116,59 @@ describe('runningTools', () => {
     ]
 
     expect(runningTools(activity({ toolCalls: calls })).map((c) => c.id)).toEqual(['a', 'b'])
+  })
+})
+
+// A call is filed against whichever turn was OPEN when it ran; only when that
+// turn closes does the ledger repoint it onto the reply's own turn id. Between
+// those two moments it matched no message on screen and nothing drew it, so a
+// turn's whole body of work first appeared when the turn had already ended.
+describe('liveTurnToolCalls', () => {
+  it("returns the open turn's calls, running ones included, in seq order", () => {
+    const calls = [
+      tool({ id: 'b', turnId: 'open-1', seq: 5, status: 'running' }),
+      tool({ id: 'a', turnId: 'open-1', seq: 3, status: 'ok' }),
+    ]
+
+    expect(liveTurnToolCalls(activity({ toolCalls: calls }), new Set()).map((c) => c.id)).toEqual([
+      'a',
+      'b',
+    ])
+  })
+
+  // The instant the reply exists, the reply draws them (AgentTurnTools). Two
+  // lists over one set of calls would draw every row twice.
+  it('goes quiet once a message anchors the turn', () => {
+    const calls = [tool({ id: 'a', turnId: 'msg-9', seq: 3, status: 'ok' })]
+
+    expect(liveTurnToolCalls(activity({ toolCalls: calls }), new Set(['msg-9']))).toEqual([])
+  })
+
+  // The transcript pages: a chat past its first page has anchoring messages
+  // that are simply not loaded. Treating "no loaded message claims it" as "it
+  // is live" piled every older call up at the bottom of an idle chat.
+  it('ignores older turns no loaded message happens to anchor', () => {
+    const calls = [
+      tool({ id: 'paged-out', turnId: 'msg-1', seq: 2, status: 'ok' }),
+      tool({ id: 'newest', turnId: 'msg-9', seq: 7, status: 'ok' }),
+    ]
+
+    expect(liveTurnToolCalls(activity({ toolCalls: calls }), new Set(['msg-9']))).toEqual([])
+  })
+
+  it('keeps only the newest turn when an older one is also unanchored', () => {
+    const calls = [
+      tool({ id: 'old', turnId: 'msg-1', seq: 2, status: 'ok' }),
+      tool({ id: 'live', turnId: 'open-2', seq: 7, status: 'running' }),
+    ]
+
+    expect(liveTurnToolCalls(activity({ toolCalls: calls }), new Set()).map((c) => c.id)).toEqual([
+      'live',
+    ])
+  })
+
+  it('answers empty for a chat with no tool calls at all', () => {
+    expect(liveTurnToolCalls(NO_ACTIVITY, new Set())).toEqual([])
   })
 })
 
@@ -330,6 +388,118 @@ describe('choiceQuestions', () => {
   it('reports nothing for a permission or an elicitation', () => {
     expect(choiceQuestions(choice())).toEqual([])
     expect(choiceQuestions(choice({ kind: 'elicitation', options: [] }))).toEqual([])
+  })
+})
+
+describe('resolvedChoices', () => {
+  it('reports nothing while every choice is still pending', () => {
+    expect(resolvedChoices(activity({ choices: [choice()] }))).toEqual([])
+  })
+
+  it('keeps every no-longer-pending choice, oldest first', () => {
+    const done = activity({
+      choices: [
+        choice({ id: 'b', seq: 2, pending: false }),
+        choice({ id: 'a', seq: 1, pending: false }),
+        choice({ id: 'open', seq: 3 }),
+      ],
+    })
+
+    expect(resolvedChoices(done).map((c) => c.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('optionLabel', () => {
+  it('uses the provider’s own label when there is one', () => {
+    expect(optionLabel({ id: 'allow', kind: 'allow', label: 'Allow' })).toBe('Allow')
+  })
+
+  it('title-cases the kind when the provider labels nothing', () => {
+    expect(optionLabel({ id: 'allow', kind: 'allow' })).toBe('Allow')
+  })
+})
+
+describe('pickedOptionLabels', () => {
+  it('reports nothing when no answer was recorded', () => {
+    expect(pickedOptionLabels(choice({ pending: false, resolution: 'proceeded' }))).toEqual([])
+    expect(pickedOptionLabels(choice({ pending: false, resolution: 'answered' }))).toEqual([])
+  })
+
+  it('resolves the answered ids against the choice’s own options', () => {
+    const answered = choice({
+      pending: false,
+      resolution: 'answered',
+      answeredOptionIds: ['allow'],
+    })
+
+    expect(pickedOptionLabels(answered)).toEqual(['Allow'])
+  })
+
+  it('resolves against a QUESTION’s own options too, not only the prompt-level ones', () => {
+    const answered = choice({
+      kind: 'question',
+      options: [],
+      questions: [
+        {
+          id: 'q0',
+          text: 'Which?',
+          options: [{ id: 'a', kind: 'answer', label: 'Option A' }],
+        },
+      ],
+      pending: false,
+      resolution: 'answered',
+      answeredOptionIds: ['a'],
+    })
+
+    expect(pickedOptionLabels(answered)).toEqual(['Option A'])
+  })
+
+  // An id nothing on the record still names describes: an unrecognised label is
+  // strictly better than dropping the fact something was picked at all.
+  it('falls back to the raw id when it names no known option', () => {
+    const answered = choice({ pending: false, resolution: 'answered', answeredOptionIds: ['x'] })
+
+    expect(pickedOptionLabels(answered)).toEqual(['x'])
+  })
+})
+
+describe('describeResolvedChoice', () => {
+  it('names what was picked, against the tool it gated', () => {
+    const answered = choice({
+      pending: false,
+      resolution: 'answered',
+      answeredOptionIds: ['allow'],
+    })
+
+    expect(describeResolvedChoice(answered)).toBe('Bash · Allow')
+  })
+
+  it('says an answer went through Crowbar even without which one, for an older record', () => {
+    const answered = choice({ pending: false, resolution: 'answered' })
+
+    expect(describeResolvedChoice(answered)).toBe('Bash · Answered')
+  })
+
+  it('tells apart a terminal answer from one nobody ever gave', () => {
+    expect(describeResolvedChoice(choice({ pending: false, resolution: 'proceeded' }))).toBe(
+      'Bash · answered at the terminal',
+    )
+    expect(describeResolvedChoice(choice({ pending: false, resolution: 'abandoned' }))).toBe(
+      'Bash · left unanswered',
+    )
+  })
+
+  it('falls back to the prompt’s own headline when there is no gated tool', () => {
+    const asked = choice({
+      kind: 'question',
+      toolName: '',
+      question: 'Which do you want?',
+      options: [],
+      pending: false,
+      resolution: 'proceeded',
+    })
+
+    expect(describeResolvedChoice(asked)).toBe('Which do you want? · answered at the terminal')
   })
 })
 

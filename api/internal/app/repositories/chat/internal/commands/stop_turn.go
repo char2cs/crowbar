@@ -34,6 +34,17 @@ type StopTurn struct {
 	// AsyncWork is the level reported by THIS turn_stop. Ignored when Abandoned.
 	AsyncWork int
 	Abandoned bool
+	// Restate marks a stop that is not a report from the CLI at all, but Crowbar's
+	// own recount of the open work IT is tracking — the tool calls and subagents in
+	// its activity ledger — after one of them closes. It is what clears the spinner
+	// for a provider that reports no async-work level of its own: codex ends its
+	// top-level turn the moment it delegates, and nothing else would ever restate
+	// the level once that work drains.
+	//
+	// It carries two preconditions, and they live in Validate rather than in the
+	// caller precisely because they cannot be asked anywhere else without a race —
+	// see the comment there.
+	Restate bool
 }
 
 func (c StopTurn) AggregateID() string  { return c.ChatID }
@@ -60,12 +71,37 @@ func (c StopTurn) ShouldSnapshot() bool { return false }
 // An ordinary turn_stop is NOT held to this: the hook is the CLI restating its async-work
 // level, and a level arriving on a chat the read model calls idle is exactly the report
 // that must be recorded.
+// A RESTATE is held to two further conditions, here for exactly the same reason:
+//
+//   - A turn genuinely open restates its own level when it ends, and a recount
+//     landing in the middle of one would nil out CurrentTurnStarted and close a
+//     turn that is still running.
+//   - A recount at the level already standing must append no event, because this
+//     runs on the hot path — every tool_post, tool_fail and subagent_post.
+//
+// Both used to be asked by the caller off the read model (turn.go's
+// restateAsyncWork), which is the identical mistake the paragraph above describes:
+// a turn_stop already durable in the log still read as open through the
+// asynchronous projection, the caller took the early return, and the recount that
+// would have darkened the spinner never happened. For codex — which reports no
+// async-work level of its own — that recount is the only thing that ever clears it,
+// so the chat spun until the next turn.
 func (c StopTurn) Validate(current *domain.Chat) error {
 	if current == nil {
 		return fmt.Errorf("stop turn: no chat: %w", asynxModels.ErrValidation)
 	}
 	if c.Abandoned && !foldWorking(current) {
 		return fmt.Errorf("stop turn: nothing to abandon: %w", asynxModels.ErrValidation)
+	}
+	if c.Restate {
+		if current.CurrentTurnStarted != nil {
+			return fmt.Errorf(
+				"stop turn: a turn is open; its own stop restates it: %w", asynxModels.ErrValidation)
+		}
+		if current.AsyncWork == c.AsyncWork {
+			return fmt.Errorf(
+				"stop turn: async work already at %d: %w", c.AsyncWork, asynxModels.ErrValidation)
+		}
 	}
 	return nil
 }

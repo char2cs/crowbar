@@ -156,6 +156,23 @@ func (t *Turns) ingestResolvedHook(
 		return nil
 	}
 
+	if namesAnotherConversation(runner, ev) {
+		// Not necessarily foreign: a codex-shaped provider pushes a spawned
+		// subagent's OWN complete turn/item stream over this SAME connection,
+		// carrying the CHILD's own thread id as session_id — see
+		// routeNestedSubagentEvent's own doc. Only once that returns false is
+		// this genuinely another conversation to drop.
+		if routed, err := t.routeNestedSubagentEvent(ctx, runner, ev); routed {
+			return err
+		}
+		slog.DebugContext(ctx,
+			"agent: ingest hook: dropping an event that names another conversation",
+			"event", ev.Kind, "event_session", ev.SessionID,
+			"runner_session", runner.CurrentSession,
+			"runner_id", runnerID, "provider", runner.ProviderID)
+		return nil
+	}
+
 	// Where does this conversation's own transcript stand RIGHT NOW? Asked on every
 	// hook and answered once per file: a session Crowbar has not been watching must
 	// start at the file's end, or a resumed conversation's whole history would be
@@ -168,7 +185,9 @@ func (t *Turns) ingestResolvedHook(
 		return t.runners.HandleSessionStart(ctx, runner, ev)
 	case engineagents.HookUserPrompt, engineagents.HookTurnStop, engineagents.HookTurnFailed:
 		return t.handleTurn(ctx, runner, descriptor, ev)
-	case engineagents.HookMessageDelta,
+	case engineagents.HookMessageDelta, engineagents.HookReasoningDelta,
+		engineagents.HookIdle, engineagents.HookToolOutputDelta,
+		engineagents.HookPlanUpdate,
 		engineagents.HookToolPre, engineagents.HookToolPost, engineagents.HookToolFail,
 		engineagents.HookSubagentPre, engineagents.HookSubagentPost,
 		engineagents.HookNotification, engineagents.HookPermission,
@@ -217,11 +236,25 @@ func (t *Turns) ReplayStartupHook(
 // as well; only the ORIGIN of this specific delivery tells the two apart. See
 // the call site's own comment for the full mechanism and the bug an unmarked
 // check caused.
+//
+// HasDispatchedOverAPI, not just HasLiveAPIConnection: a connection can be
+// live yet have carried NOTHING of this runner's own doing — the spawn that
+// created it may have handed its opening prompt to the companion PTY's own
+// argv instead (submitPromptOverAPI's replacement-spawn fallback, prompts.go).
+// A connection nothing has been dispatched to has nothing of its own to echo,
+// so treating its mere existence as proof the api side already reports this
+// turn was dropping the companion PTY's hooks — the turn's ONLY record — as a
+// presumed duplicate of a report that was never actually made. Confirmed
+// live: a message answered normally by the CLI never appeared in the ledger
+// at all, api transport dutifully "covering" a turn it was never asked to
+// carry.
 func (t *Turns) apiOwnsThisEvent(ctx context.Context, runnerID string, descriptor engineagents.Agent, canonical string) bool {
 	if inflight.FromAPITransport(ctx) {
 		return false
 	}
-	return descriptor.TransportFor(canonical) == "api" && t.runners.HasLiveAPIConnection(runnerID)
+	return descriptor.TransportFor(canonical) == "api" &&
+		t.runners.HasLiveAPIConnection(runnerID) &&
+		t.runners.HasDispatchedOverAPI(runnerID)
 }
 
 func (t *Turns) ingestHookNow(
@@ -244,6 +277,45 @@ func (t *Turns) ingestHookNow(
 		return fmt.Errorf("agent: ingest hook: runner: %w", err)
 	}
 	return t.ingestResolvedHook(ctx, runner, provider, canonicalEvent, rawPayload)
+}
+
+// namesAnotherConversation reports whether ev describes a conversation other
+// than the one this runner is on — in which case it is not this chat's to
+// record, whatever wire carried it here.
+//
+// A CONNECTION IS NOT A CONVERSATION. Confirmed live (codex-cli 0.149.1): codex
+// pushes a child thread's COMPLETE, independent turn/started..item/*..
+// turn/completed cycle down the SAME websocket the runner's own thread uses,
+// having never been asked to open it — for a collab agent, and for the review,
+// compaction and memory-consolidation threads it spawns on its own. Measured on
+// a security review that delegated to a sub-agent: the child's turn/completed
+// landed 83 SECONDS before the user's turn actually ended, and closeTurnFromStop
+// filed it against the user's chat — StopTurn, Working=false, spinner dark,
+// while codex was still writing the answer. The child's assistant messages were
+// recorded into the user's transcript on the way past, and its
+// thread/status/changed(idle) armed the 5s provider-idle fuse under that same
+// live turn.
+//
+// inbound.Parse skips its own ownership guard for api-transport events, on the
+// reasoning that the socket "IS the scoping". It is not. This is the check that
+// actually scopes them, and it needs no provider vocabulary to do it: the
+// descriptor already maps session_id for exactly these events, so all that was
+// missing was the identity comparison.
+//
+// session_start is exempt: it is the one event that legitimately announces a
+// session this runner does not have yet, and move.Decide already arbitrates
+// whether that binds, moves or is ignored.
+func namesAnotherConversation(
+	runner engineagents.Runner,
+	ev engineagents.CanonicalEvent,
+) bool {
+	if ev.Kind == engineagents.HookSessionStart {
+		return false
+	}
+	if ev.SessionID == "" || runner.CurrentSession == "" {
+		return false
+	}
+	return ev.SessionID != runner.CurrentSession
 }
 
 func (t *Turns) chatForRunner(

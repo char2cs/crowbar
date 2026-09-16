@@ -44,7 +44,7 @@ func ParseV3(raw []byte) (*spec.Descriptor, error) {
 	maps := make(map[string]map[string]string, len(d.Events))
 	for name, e := range d.Events {
 		switch {
-		case e.Out != "":
+		case !e.Out.Empty():
 			maps[name] = canonicalRefs(e.Send)
 		case len(e.Fresh) > 0 || len(e.Resume) > 0 || len(e.Action) > 0:
 			maps[name] = canonicalRefsFromSteps(e.Fresh, e.Resume, e.Action)
@@ -71,7 +71,7 @@ func checkEvent(vocab schema.Vocabulary, providerID, name string, e spec.EventSp
 	rule := vocab.Events[name] // presence already proven by Validate
 
 	wire, direction := e.WireEvent()
-	if wire == "" {
+	if wire.Empty() {
 		if len(e.Fresh) == 0 && len(e.Resume) == 0 && len(e.Action) == 0 {
 			return fmt.Errorf(
 				"descriptor: %s: event %q declares no in:, out:, ask:, or fresh:/resume:/action: — it names nothing",

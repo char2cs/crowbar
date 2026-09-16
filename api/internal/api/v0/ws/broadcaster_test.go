@@ -401,3 +401,31 @@ func TestBroadcaster_SerializationError_SkipsDelivery(t *testing.T) {
 	assert.Equal(t, "sentinel", readItem(t, conn).Name,
 		"the unserializable event must be skipped, not delivered")
 }
+
+// TestRegression_HandshakeCompletesOnlyOnceRegistered is the fix for a real,
+// reproduced CI flake: roughly one full Linux run of api/tests in five stalled
+// for 30s on a frame that had been broadcast to a subscriber list the dialling
+// connection was not yet in. The client was registered AFTER the 101 was written,
+// so every subscribe-then-mutate caller — awaitEntity in the web client,
+// dial-then-POST throughout api/tests — raced the handler goroutine's next
+// scheduling slot, and a lost race is unrecoverable (the missed frame is never
+// re-sent). Widening that window with a 200ms sleep between Upgrade and register
+// turned the flake into a 100% hang, which is how it was pinned down.
+//
+// The assertion is the guarantee itself: Push the instant Dial returns, with NO
+// WaitRegistered gate — that gate is exactly the crutch this ordering removes.
+// Fresh connections each iteration, because the race is sampled once per connect;
+// a reintroduced one loses within a handful of them. Like every read in this file
+// the read carries no deadline: a frame that never arrives parks here until
+// `go test -timeout` names this test.
+func TestRegression_HandshakeCompletesOnlyOnceRegistered(t *testing.T) {
+	b, srv := setup(t, itemDef())
+	for i := 0; i < 32; i++ {
+		name := fmt.Sprintf("immediate%d", i)
+		conn := dial(t, srv, "/items")
+		b.Push(item{Name: name, Kind: "fruit"})
+		assert.Equal(t, name, readItem(t, conn).Name,
+			"a frame pushed after the handshake returned must reach the connection")
+		_ = conn.Close()
+	}
+}

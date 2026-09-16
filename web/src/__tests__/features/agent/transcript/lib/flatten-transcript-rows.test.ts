@@ -26,7 +26,7 @@ describe('flattenTranscriptRows', () => {
   it('inserts an event-divider row before the message it precedes', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],
-      eventsBefore: { 2: [{ kind: 'compaction', trigger: 'manual' }] },
+      eventsBefore: { 2: [{ kind: 'compaction', id: 'e1', trigger: 'manual' }] },
       firstTurnSequence: undefined,
     })
 
@@ -42,10 +42,10 @@ describe('flattenTranscriptRows', () => {
 
   it('collapses several tags for the same anchor into ONE row, in the order given', () => {
     const tags: DividerTag[] = [
-      { kind: 'interrupted' },
-      { kind: 'provider', detail: 'codex' },
-      { kind: 'model', detail: 'opus' },
-      { kind: 'effort', detail: 'high' },
+      { kind: 'interrupted', id: 'e1' },
+      { kind: 'provider', id: 'e2', detail: 'codex' },
+      { kind: 'model', id: 'e3', detail: 'opus' },
+      { kind: 'effort', id: 'e4', detail: 'high' },
     ]
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],
@@ -71,7 +71,7 @@ describe('flattenTranscriptRows', () => {
   it('drops a suppressed message and its event divider entirely', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2), msg(3)],
-      eventsBefore: { 2: [{ kind: 'provider', detail: 'codex' }] },
+      eventsBefore: { 2: [{ kind: 'provider', id: 'e1', detail: 'codex' }] },
       firstTurnSequence: undefined,
       suppressSequence: 2,
     })
@@ -104,7 +104,12 @@ describe('flattenTranscriptRows', () => {
   it('drops a suppressed message and its dividers entirely', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2), msg(3)],
-      eventsBefore: { 2: [{ kind: 'compaction', trigger: 'manual' }, { kind: 'interrupted' }] },
+      eventsBefore: {
+        2: [
+          { kind: 'compaction', id: 'e1', trigger: 'manual' },
+          { kind: 'interrupted', id: 'e2' },
+        ],
+      },
       firstTurnSequence: 2,
       suppressSequence: 2,
     })
@@ -116,7 +121,12 @@ describe('flattenTranscriptRows', () => {
   it('gives every row a unique key', () => {
     const rows = flattenTranscriptRows({
       messages: [msg(1), msg(2)],
-      eventsBefore: { 2: [{ kind: 'compaction', trigger: 'manual' }, { kind: 'interrupted' }] },
+      eventsBefore: {
+        2: [
+          { kind: 'compaction', id: 'e1', trigger: 'manual' },
+          { kind: 'interrupted', id: 'e2' },
+        ],
+      },
       firstTurnSequence: 1,
     })
 

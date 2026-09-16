@@ -13,6 +13,7 @@ import (
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -61,6 +62,7 @@ func (rs *Runners) discardSpawnedChat(
 	return cause
 }
 
+//nolint:funlen // orchestrates preflight, path resolution, attachment materialization, descriptor render, spawn-plan build and fork in one strict sequence; splitting would scatter the abort-on-failure cleanup this function is responsible for at each step
 func (rs *Runners) spawnRunner(
 	ctx context.Context,
 	chatID string,
@@ -94,6 +96,24 @@ func (rs *Runners) spawnRunner(
 	if err != nil {
 		return "", fmt.Errorf("agent: spawn runner: resolve descriptor: %w", err)
 	}
+
+	// Copies of promptMessage and conversation for dispatch — the durable ledger
+	// text is never mutated. conversation (AssembleConversation's rendering of
+	// the prior exchange, handed to a freshly spawned CLI on a restart or a
+	// provider switch) carries whatever attachment references the ORIGINAL
+	// turns held, exactly like promptMessage does for the live one — without
+	// this, only the CURRENT prompt's attachments resolved to real paths, and
+	// every earlier attachment a resumed/switched-to CLI was handed the
+	// literal logical reference for a file it therefore could not read.
+	//
+	// The sigil guard runs BEFORE materialization, while the attachment is still
+	// the logical `chats/<id>/attachments/<file>` reference its pattern is
+	// written against; the escape it may prepend does not disturb the rewrite.
+	sigils, escape := descriptor.PromptLeadingSigils()
+	guardedMessage := promptsigil.Guard(sigils, escape, chatID, promptMessage)
+	dispatchMessage := materializeAttachmentsForDispatch(paths.chatsDir, chatID, guardedMessage)
+	dispatchConversation := materializeAttachmentsForDispatch(paths.chatsDir, chatID, conversation)
+
 	// The tool surface is switched off by rendering a descriptor that does not
 	// declare one, rather than by filtering steps at the injection site: WHERE those
 	// steps land is the descriptor's business (claude's --mcp-config is variadic and
@@ -117,8 +137,8 @@ func (rs *Runners) spawnRunner(
 		crowbarHome:     crowbarHome,
 		launchSessionID: launchSessionID,
 		threads:         threads,
-		conversation:    conversation,
-		promptMessage:   promptMessage,
+		conversation:    dispatchConversation,
+		promptMessage:   dispatchMessage,
 		gapTurns:        gapTurns,
 		resuming:        resuming,
 		selection:       sel,
@@ -137,6 +157,17 @@ func (rs *Runners) spawnRunner(
 	// echo — and since the capability preamble makes tctx.Context non-empty on every
 	// spawn, registering unconditionally would leave a guard behind for text no CLI
 	// was ever given.
+	//
+	// Unconditional otherwise — including when promptMessage is also set: a real
+	// prompt can ride the SAME positional as the injected document
+	// (mergeLeadingPositional), and the hook side (ConsumeInjectedPrefix,
+	// turn.go) is what tells "bare echo" and "echo with a real prompt merged
+	// ahead of it" apart, returning the remainder in the second case rather
+	// than swallowing the whole turn. Registering only for the bare case (a
+	// prior version of this gate) left the merged case with nothing
+	// registered at all — the injected preamble was then recorded verbatim as
+	// what the user typed, corrupting the ledger, the derived title, and
+	// every hash-based "was this accepted" check downstream.
 	if inject {
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}
@@ -432,56 +463,6 @@ func (rs *Runners) onRunnerExit(home, runnerID, tmpDir string) func() {
 		}
 		rs.reconcileRunnerExit(context.Background(), runnerID)
 	}
-}
-
-// buildSpawnSteps assembles the ordered InjectStep list a spawn's SpawnPlan
-// renders against: extraSteps first, then the descriptor's own selection and
-// context steps, then finalSteps — positional user prompts are final by
-// contract (Claude's variadic --mcp-config must already be terminated by
-// later options, and codex's resume subcommand/id must precede the message).
-//
-// descriptor.SelectionSteps contributes an EMPTY slice for a chat with no
-// model/effort choice, or a provider declaring no such block — so this costs
-// nothing on a spawn not using the feature, and the argv is byte-identical to
-// one rendered before it existed.
-func buildSpawnSteps(
-	descriptor engineagents.Agent,
-	resuming, inject bool,
-	sel engineagents.Selection,
-	extraSteps, finalSteps []engineagents.InjectStep,
-) []engineagents.InjectStep {
-	steps := append([]engineagents.InjectStep{}, extraSteps...)
-	steps = append(steps, descriptor.SelectionSteps(sel)...)
-	if contextStepsAllowed(resuming, inject, descriptor) {
-		steps = append(steps, descriptor.ContextSteps(resuming)...)
-	}
-	return append(steps, finalSteps...)
-}
-
-// contextStepsAllowed is whether ContextSteps — a CLI argv, a POSITIONAL
-// PROMPT on the resume path — may be rendered at all. False exactly when the
-// redundant hooks-only PTY this same spawn's applyAPITransport call has
-// already resumed over the api connection would otherwise answer it as its
-// own genuine first turn (a provider whose only resume channel is a user
-// message, e.g. codex — see apiOwnsResume). Never suppressed for a FRESH
-// inject: an unresumed spawn's ContextSteps is silent config, nothing for the
-// PTY to act on. resumeContextFor, just below, is this same routing decision
-// for the OTHER channel — InjectAt over the api connection itself.
-func contextStepsAllowed(resuming, inject bool, descriptor engineagents.Agent) bool {
-	return inject && (!resuming || !apiOwnsResume(descriptor))
-}
-
-// resumeContextFor is the gap document a resumed api-transport connection's
-// applyAPITransport call hands to InjectAt("context") — see that function's own
-// comment for why this rides a separate channel from EstablishSession's own
-// "context" value. Empty whenever inject's own gate says there is nothing to
-// hand over, or this spawn isn't a resume at all: a fresh establish already
-// carries tctx.Context as thread/start's developerInstructions.
-func resumeContextFor(resuming, inject bool, tctx engineagents.TemplateCtx) string {
-	if resuming && inject {
-		return tctx.Context
-	}
-	return ""
 }
 
 func (rs *Runners) crowbarHookPath(home string) string {

@@ -198,6 +198,14 @@ presentation:
     resume:
       - pass_arg: { positional: "--" }
       - pass_arg: { positional: "{message}" }
+    # `!` opens claude's shell mode — measured typed into 2.1.268's own box,
+    # where it ran the command. 2.1.268 does NOT apply that to the argv prompt
+    # above (also measured: it submits as an ordinary prompt), so this costs a
+    # space today and is what keeps an attachment sent first — Crowbar encodes
+    # one as `![alt](path)` — from becoming a shell command if it ever does.
+    leading_sigils:
+      chars: ["!"]
+      escape: " "
   # Plugin metadata is readable without a model turn; project/user skills
   # are not, hence plugin_only rather than complete.
   slash_catalog:

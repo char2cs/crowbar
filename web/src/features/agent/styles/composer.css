@@ -310,6 +310,12 @@
     0 8px 28px -18px oklch(0 0 0 / 0.55),
     0 0 0 3px color-mix(in oklch, var(--ring) 30%, transparent);
 }
+.agent-chat .pill.drop-target {
+  border-color: color-mix(in oklch, var(--ring) 60%, transparent);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.06),
+    0 0 0 3px color-mix(in oklch, var(--ring) 25%, transparent);
+}
 
 .agent-chat .pill .field {
   display: block;
@@ -323,7 +329,9 @@
   background: none;
   outline: none;
   resize: none;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 50vh;
   padding: 0 62px 0 0;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -493,6 +501,42 @@
   box-shadow: none;
 }
 
+/* The plus button's own left margin is unset — see handle-geometry.ts's
+   fieldRightPadding() derivation. `.handle`'s flex `gap: 2px` is the ONLY
+   spacing between it and `.send`; keeping `.send`'s base margin-left: 5px
+   here too would double-count against the field's exactly-sized padding. */
+.agent-chat .handle .send {
+  margin-left: 0;
+}
+
+/* Cosmetic treatment (ghost variant, fully rounded, 28px to match `.send`)
+   now lives on the shared `Button` component (composer-plus-button.tsx) —
+   `.plusbtn` is left as a bare positioning hook only. */
+.agent-chat .plusbtn svg:not([class*='size-']) {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.9;
+}
+
+/* Once wrapped, the plus button moves above `.send` instead of beside it —
+   taken out of `.handle`'s flex row so `.handle` shrinks to fit just `.send`. */
+.agent-chat .pill.multi .plusbtn {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 2px); /* HANDLE_GAP, handle-geometry.ts */
+}
+
+.agent-chat .pill.multi .field {
+  padding-right: 32px; /* fieldRightPadding(sendInset(), 1) — one circle now */
+  scrollbar-gutter: stable;
+  /* Narrows the scrolling box (and the native scrollbar riding its edge)
+     clear of `.send`'s own reach past the pill's padding: 4px inset + 28px
+     diameter − the pill's own 14px padding. `width`, not `margin` — `.field`
+     is already `width: 100%`, and an explicit margin-right there is an
+     over-constrained box the browser just discards at layout time. */
+  width: calc(100% - 18px);
+}
+
 /* A stop notice REPLACES the input rather than sitting above it, because the
    fact it reports IS that there is nothing to type into. Same 38px box, same
    stadium — the bar has not gone anywhere, it has stopped being an input. The
@@ -609,15 +653,29 @@
 }
 
 /* ── the blank chat's document ─────────────────────────── */
-/* Its own measure, and deliberately NOT the transcript's: a conversation is read
-   in a 720px column of 14px UI text, and a thing you are WRITING gets 16px at
-   1.7 with the same 720px of line. The two agree on the measure and disagree on
-   the size, which is the difference between reading and drafting. */
+/* Its own measure, and its own size: this sits at 16px/1.7 while the
+   transcript reads at 14px (`.agent-prose`, transcript.css), deliberately
+   disagreeing "drafting" from "reading." The type changes once the first
+   turn lands and the transcript's own size takes over — only the 720px
+   measure carries across both. */
 .agent-chat .docwrap {
   position: relative;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+/* Same affordance as `.pill.drop-target`, drawn as an inset overlay rather
+   than a border: the pill's own border IS its edge, but the document has no
+   edge of its own to recolor — an inset ring reads as "drop here" without
+   implying the writing area itself just gained a border. */
+.agent-chat .docwrap.drop-target::after {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border-radius: 18px;
+  border: 1px dashed color-mix(in oklch, var(--ring) 60%, transparent);
+  background: color-mix(in oklch, var(--ring) 4%, transparent);
+  pointer-events: none;
 }
 .agent-chat .doc {
   --pad: max(22px, calc((100% - 720px) / 2));
@@ -637,6 +695,9 @@
   line-height: 1.7;
   outline: none;
   color: var(--foreground);
+  /* Content wider than the measure (an unwrapped long line, a code fence)
+     scrolls instead of clipping. */
+  overflow-x: auto;
 }
 /* The document's editable. Plate owns the blocks inside it; this is only the
    column they sit in. */
@@ -687,8 +748,12 @@
   height: 24px;
   padding: 0 7px;
 }
+/* Zeroed for the same reason as `.handle .send` above: the plus button now
+   leads this side group, and `.side`'s own flex `gap: 2px` is the ONLY
+   spacing the two circles need — keeping this margin too would stack an
+   extra 5px on top of that gap instead of the tight single-family look. */
 .agent-chat .dochandle .send {
-  margin-left: 5px;
+  margin-left: 0;
 }
 /* The reviving/idle/trust-wait signpost takes this same slot INSTEAD OF
    `.grp` above — same row, same transform, never both. `.inner`'s own
@@ -812,6 +877,29 @@
 .agent-chat .gbar.warn > span {
   background: var(--warning);
 }
+/* The gauge as a button — only ever rendered when compaction is actually
+   offered (context-gauge.tsx), never a disabled decoration. `.chip` gives it
+   the same hover treatment as its row-mates; `.gtext`'s two children stack in
+   the same grid cell and swap opacity on hover, so hovering turns the report
+   into the offer without a second element crowding the row the rest of the
+   time, and without the button's own width jumping when it does. */
+.gauge .gtext {
+  display: grid;
+}
+.gauge .gpct,
+.gauge .gaction {
+  grid-area: 1 / 1;
+}
+.gauge .gaction {
+  opacity: 0;
+}
+.gauge.chip:hover:not(:disabled) .gpct {
+  opacity: 0;
+}
+.gauge.chip:hover:not(:disabled) .gaction {
+  opacity: 1;
+  color: var(--foreground);
+}
 
 /* ── the view switcher (ui/tabs pill variant) ──────────── */
 /* Scoped to the PANE, not the chat. The terminal surface draws this same
@@ -918,13 +1006,17 @@
 /* A blank markdown document, because that is what a good first prompt looks
    like. The affordance is inverted from the transcript's: the writing surface is
    the page and the controls are the box, rather than the other way round. */
+/* `.sheet` below is a retired static placeholder — nothing renders it any
+   more (the live `.doc` above is the interactive Plate editor). This rule
+   still shares the `.doc` selector and sits LATER in the cascade, so its
+   `overflow` used to win over the live rule's own — dropped here rather than
+   left to silently reintroduce that clip. */
 .agent-chat .doc {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  overflow: hidden;
 }
 .agent-chat .doc .sheet {
   width: 100%;

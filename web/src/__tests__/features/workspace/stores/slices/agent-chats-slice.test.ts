@@ -151,42 +151,44 @@ describe('agent-chats-slice', () => {
     ])
   })
 
-  // ── scrollPositions: per-chat, in-memory, read once on the chat's next
-  //    mount this session — see AgentChatsState.scrollPositions' own doc.
+  // Scroll positions themselves are no longer part of this store — see
+  // transcript-scroll-positions.test.ts. removeAgentChat's own delegation to
+  // that module's clearScrollPosition is covered there, against the module
+  // directly, since this slice has no way to observe it.
 
-  it('setAgentChatScrollPosition writes the position for that chat only', () => {
+  // ── excalidrawEditRequests: a one-shot "open the takeover with this scene"
+  //    signal from an Edit button buried in a chat's transcript up to the
+  //    composer that owns the takeover — cleared once the composer consumes it.
+
+  it('requestExcalidrawEdit records the scene for that chat only', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
-    s.getState().setAgentChatScrollPosition('c2', { stuck: true, distanceFromBottom: 0 })
+    const scene = { elements: [{ type: 'rectangle' }], appState: {} }
 
-    expect(s.getState().agentChats.scrollPositions['c1']).toEqual({
-      stuck: false,
-      distanceFromBottom: 240,
-    })
-    expect(s.getState().agentChats.scrollPositions['c2']).toEqual({
-      stuck: true,
-      distanceFromBottom: 0,
-    })
+    s.getState().requestExcalidrawEdit('c1', scene)
+
+    expect(s.getState().agentChats.excalidrawEditRequests['c1']).toEqual(scene)
+    expect(s.getState().agentChats.excalidrawEditRequests['c2']).toBeUndefined()
   })
 
-  it('setAgentChatScrollPosition replaces a chat’s previous entry, not merges it', () => {
+  it('clearExcalidrawEditRequest removes only that chat’s pending request', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
-    s.getState().setAgentChatScrollPosition('c1', { stuck: true, distanceFromBottom: 400 })
+    const scene = { elements: [], appState: {} }
+    s.getState().requestExcalidrawEdit('c1', scene)
+    s.getState().requestExcalidrawEdit('c2', scene)
 
-    expect(s.getState().agentChats.scrollPositions['c1']).toEqual({
-      stuck: true,
-      distanceFromBottom: 400,
-    })
+    s.getState().clearExcalidrawEditRequest('c1')
+
+    expect(s.getState().agentChats.excalidrawEditRequests['c1']).toBeUndefined()
+    expect(s.getState().agentChats.excalidrawEditRequests['c2']).toEqual(scene)
   })
 
-  it('removeAgentChat forgets the saved scroll position', () => {
+  it('removeAgentChat forgets a pending excalidraw edit request', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 240 })
+    s.getState().requestExcalidrawEdit('c1', { elements: [], appState: {} })
 
     s.getState().removeAgentChat('c1')
 
-    expect(s.getState().agentChats.scrollPositions['c1']).toBeUndefined()
+    expect(s.getState().agentChats.excalidrawEditRequests['c1']).toBeUndefined()
   })
 
   // ── The sticky model / effort selection ───────────────────────────────────
@@ -511,6 +513,29 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.providers).toHaveLength(1)
     s.getState().setActiveAgentChatId('c1')
     expect(s.getState().agentChats.activeChatId).toBe('c1')
+  })
+
+  // THE REGRESSION, reported live 2026-09-12: a "chat_busy" queued prompt
+  // resent itself into a still-generating turn, corrupting its output mid-
+  // stream. Root cause: use-prompt-queue.ts treats every turnRevision advance
+  // while `working` reads false as an authoritative idle edge and releases
+  // the queue's busy barrier — but a periodic reconcile poll re-announcing
+  // the SAME value it already had (working stayed true; or a stale false
+  // reading it merely re-confirmed) bumped the revision anyway, on a call
+  // that carried no real transition at all.
+  it('re-announcing the same working value is a no-op — it must not advance turnRevision', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().setAgentChatWorking('c1', true)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(1)
+
+    s.getState().setAgentChatWorking('c1', true)
+    expect(s.getState().agentChats.working.c1).toBe(true)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(1)
+
+    s.getState().setAgentChatWorking('c1', false)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(2)
+    s.getState().setAgentChatWorking('c1', false)
+    expect(s.getState().agentChats.turnRevision.c1).toBe(2)
   })
 
   it('working map defaults to idle (undefined) for chats never toggled', () => {

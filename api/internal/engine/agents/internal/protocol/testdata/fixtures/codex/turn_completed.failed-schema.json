@@ -1,0 +1,22 @@
+{
+  "method": "turn/completed",
+  "params": {
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "turn": {
+      "id": "01a0306b-8633-71d1-a176-a421b13cf2da",
+      "items": [],
+      "itemsView": "summary",
+      "status": "failed",
+      "error": {
+        "message": "stream error: exceeded retry limit",
+        "additionalDetails": "connection reset by peer",
+        "codexErrorInfo": null,
+        "misalignment": null
+      },
+      "startedAt": 1787518748,
+      "completedAt": 1787518754,
+      "durationMs": 6080
+    }
+  },
+  "emittedAtMs": 1787518754299
+}

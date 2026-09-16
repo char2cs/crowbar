@@ -228,6 +228,64 @@ func TestParseProbe_UnsupportedWhenNoProbeIsDeclared(t *testing.T) {
 	assert.ErrorIs(t, err, telemetry.ErrUnsupported)
 }
 
+// A v3 descriptor declares telemetry as an EVENT (`events.telemetry`), not as the
+// v2 top-level `telemetry.callback:` block. Reading only the v2 block meant codex —
+// whose events.telemetry maps thread/tokenUsage/updated correctly, and has done
+// since the mixed-transport work — got ErrUnsupported on every report, so
+// t.telemetry.Set was never called and the context gauge, which renders nothing
+// without a usedPercent, has never appeared on a codex chat.
+func TestParseCallback_FallsBackToTheV3TelemetryEvent(t *testing.T) {
+	d := &spec.Descriptor{ID: "codex", Events: map[string]spec.EventSpec{
+		"telemetry": {
+			In: "thread/tokenUsage/updated",
+			Map: map[string]string{
+				spec.FactContextUsedTokens:     "tokenUsage.total.totalTokens",
+				spec.FactContextCapacityTokens: "tokenUsage.modelContextWindow",
+			},
+		},
+	}}
+	raw := []byte(`{"threadId":"t1","tokenUsage":{
+	  "total":{"totalTokens":120,"inputTokens":100,"outputTokens":20},
+	  "modelContextWindow":272000}}`)
+
+	got, err := telemetry.ParseCallback(d, raw, at)
+
+	require.NoError(t, err)
+	assert.Equal(t, models.TelemetrySourceCallback, got.Source)
+	require.NotNil(t, got.Context)
+	require.NotNil(t, got.Context.UsedTokens)
+	assert.Equal(t, 120, *got.Context.UsedTokens)
+	require.NotNil(t, got.Context.CapacityTokens)
+	assert.Equal(t, 272000, *got.Context.CapacityTokens)
+}
+
+// The v2 block still wins where a descriptor declares one, so claude is untouched.
+func TestParseCallback_TheV2BlockTakesPrecedenceOverTheEvent(t *testing.T) {
+	d := withCallback(map[string]string{spec.FactContextUsedTokens: "v2.used"})
+	d.Events = map[string]spec.EventSpec{"telemetry": {
+		In:  "some/event",
+		Map: map[string]string{spec.FactContextUsedTokens: "v3.used"},
+	}}
+
+	got, err := telemetry.ParseCallback(d, []byte(`{"v2":{"used":7},"v3":{"used":9}}`), at)
+
+	require.NoError(t, err)
+	require.NotNil(t, got.Context.UsedTokens)
+	assert.Equal(t, 7, *got.Context.UsedTokens)
+}
+
+// A descriptor that declares telemetry NEITHER way still reports unsupported, so
+// "this provider has no telemetry" stays distinguishable from "it reported nothing".
+func TestParseCallback_UnsupportedWhenNeitherFormIsDeclared(t *testing.T) {
+	d := &spec.Descriptor{ID: "bare", Events: map[string]spec.EventSpec{
+		"turn_stop": {In: "Stop", Map: map[string]string{"message": "m"}},
+	}}
+
+	_, err := telemetry.ParseCallback(d, []byte(`{}`), at)
+
+	assert.ErrorIs(t, err, telemetry.ErrUnsupported)
+}
+
 func TestParseProbe_RejectsAnUnsupportedFormat(t *testing.T) {
 	d := &spec.Descriptor{ID: "codex", Telemetry: &spec.TelemetrySpec{
 		Probe: &spec.TelemetryProbeSpec{Format: "toml", Fields: map[string]string{spec.FactModelID: "m"}},

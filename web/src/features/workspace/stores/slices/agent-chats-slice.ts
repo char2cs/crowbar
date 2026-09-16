@@ -8,7 +8,8 @@ import type {
 } from '@/features/agent/api/agent-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import { chatReadMark } from '@/features/agent/lib/chat-read-order'
-import type { TranscriptScrollPosition } from '@/features/agent/hooks/use-transcript-anchor'
+import { clearScrollPosition } from '@/features/agent/hooks/lib/transcript-scroll-positions'
+import type { ParsedExcalidrawScene } from '@/features/agent/composer/plate/attachments/excalidraw-scene'
 
 // The queue that reads these is itself capped, so an id older than this window is
 // already unreachable by anything that could act on it.
@@ -62,6 +63,21 @@ export const selectEnabledProviders = (s: WorkspaceState): AgentProvider[] =>
 
 export interface AgentChatsState {
   chats: AgentChat[]
+  /**
+   * Has an AUTHORITATIVE chat list ever landed for this workspace?
+   *
+   * `chats` alone cannot answer that, and the difference is not cosmetic. An
+   * empty-or-incomplete list reads identically before the first seed and after
+   * one that simply does not mention some chat — but "not known YET" is a wait
+   * that ends, and "not in the list" is a wait that does not. A surface pointed
+   * at a chat the list never mentions (a pane restored from a saved layout, a
+   * chat opened from another scope) has to be able to tell those apart, or it
+   * sits in its pre-resolution state for the life of the mount.
+   *
+   * Set once by seedAgentChats and never cleared: this is "the answer arrived",
+   * not "the answer is current".
+   */
+  listSeeded: boolean
   /**
    * Is this chat's agent busy — the spinner map, keyed by chat id.
    *
@@ -133,6 +149,21 @@ export interface AgentChatsState {
    */
   settledPrompts: Record<string, string[]>
   /**
+   * Client request ids the daemon has reported as over WITHOUT any proof the
+   * provider ever took them — its delivery timeout expiring, and nothing else.
+   *
+   * Kept apart from settledPrompts because the two call for opposite treatment.
+   * A settled prompt is spent and its queue item can go; an abandoned one is a
+   * prompt that may never have been seen at all, and its queue item holds the
+   * only surviving copy of what the user typed — the daemon's journal records a
+   * hash of the text and never the text itself, and nothing reached the ledger.
+   * Dropping those ids the way settled ones are dropped is what silently erased
+   * a user's message after an idle gap.
+   *
+   * Bounded per chat exactly like settledPrompts, and for the same reason.
+   */
+  abandonedPrompts: Record<string, string[]>
+  /**
    * The assistant message(s) each chat is CURRENTLY producing, if any.
    *
    * An ARRAY, not a single slot: a turn can have more than one message item
@@ -150,23 +181,55 @@ export interface AgentChatsState {
    * streaming chat to store text that is superseded a moment later.
    */
   streamingMessages: Record<string, { id: string; text: string }[]>
+  /**
+   * What the agent is THINKING right now, keyed by chat — the current thinking
+   * block only, never a history.
+   *
+   * Separate from streamingMessages on purpose. A thought is not an answer: it is
+   * never recorded in the ledger, so useChatMessages' prune-against-the-ledger
+   * pass could never retire it, and rendering it as an assistant bubble would put
+   * the model's reasoning into the transcript as though it had said it out loud.
+   *
+   * A reasoning model spends most of a hard turn here emitting nothing else, so
+   * this is the difference between a chat that looks busy and one that looks dead.
+   * Cleared on every turn edge — it belongs to the turn that produced it.
+   */
+  streamingReasoning: Record<string, { id: string; text: string }>
+  /**
+   * A running tool's output as it is produced, keyed by chat — the newest tool
+   * only. `id` is the tool call it belongs to, so a client can put the lines
+   * under the right running row.
+   *
+   * Live-only for the same reason as streamingReasoning: the tool's FULL output
+   * lands once, on the completed tool call, and keeping every line of every
+   * build in the ledger would multiply the transcript for text nobody scrolls
+   * back to. Cleared on every turn edge.
+   */
+  streamingToolOutput: Record<string, { id: string; text: string }>
+  /**
+   * The agent's own running to-do list for the current turn, keyed by chat.
+   *
+   * Restated WHOLESALE by the server on every update — the newest list is the
+   * entire truth, so this is a replace, never a merge, and there is no ordering
+   * or diffing for a client to get wrong. Live-only and cleared at the turn edge,
+   * for the same reason as streamingReasoning: a plan for a turn in progress is a
+   * view of it, not a record.
+   */
+  streamingPlan: Record<string, { text: string; status: string }[]>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
    *  may have occurred while the socket was down. */
   turnRevision: Record<string, number>
   /**
-   * Where the reader last left each chat's transcript, keyed by chat id —
-   * read once when a chat's AgentTranscript (re)mounts (a chat remounts
-   * wholesale on every switch, `key={wsId:chatId}` in AgentChatPane, so
-   * nothing else survives a switch-away/switch-back to carry this).
-   *
-   * In-memory only, deliberately never persisted to disk (unlike
-   * agent-chat-order's localStorage above): "still hot" means this running
-   * session, not "restore across an app restart" — a cold app open has
-   * nothing more useful to land on than the newest message anyway.
+   * A one-shot "open the takeover with this scene" signal, keyed by chat id —
+   * how an Edit button on a diagram rendered deep in a chat's transcript
+   * reaches the composer (which owns the takeover) without threading a
+   * callback prop through every Plate node component in between. The
+   * composer's effect consumes it (opens the takeover, preloaded) and clears
+   * it in the same tick; never persisted.
    */
-  scrollPositions: Record<string, TranscriptScrollPosition>
+  excalidrawEditRequests: Record<string, ParsedExcalidrawScene>
   order: string[]
   activeChatId: string | null
   providers: AgentProvider[]
@@ -209,11 +272,32 @@ export interface AgentChatsSlice {
   setAgentChatCompacting: (chatId: string, active: boolean) => void
   /** Record that one delivered prompt is over without having produced a turn. */
   setAgentChatPromptSettled: (chatId: string, clientRequestId: string) => void
+  /** Record one prompt the daemon retired with no proof the provider took it.
+   *  The queue KEEPS its text and surfaces a failure — see abandonedPrompts. */
+  setAgentChatPromptAbandoned: (chatId: string, clientRequestId: string) => void
   /** Upsert (by id) one message a chat is mid-way through saying, or clear
    *  ALL of a chat's in-flight messages with null (a new turn starting). */
   setAgentChatStreamingMessage: (
     chatId: string,
     message: { id: string; text: string } | null,
+  ) => void
+  /** Replace (or clear, with null) the thinking block a chat is mid-way through.
+   *  Only the latest is kept — see AgentChatsState.streamingReasoning. */
+  setAgentChatStreamingReasoning: (
+    chatId: string,
+    block: { id: string; text: string } | null,
+  ) => void
+  /** Replace (or clear, with null) the live output of the tool a chat is
+   *  currently running. See AgentChatsState.streamingToolOutput. */
+  setAgentChatStreamingToolOutput: (
+    chatId: string,
+    block: { id: string; text: string } | null,
+  ) => void
+  /** Replace (or clear, with null) the agent's running to-do list for a chat.
+   *  Always a whole list — see AgentChatsState.streamingPlan. */
+  setAgentChatStreamingPlan: (
+    chatId: string,
+    steps: { text: string; status: string }[] | null,
   ) => void
   /** Drop the given ids' entries once the ledger has recorded them for real —
    *  see useChatMessages' streamingBubbles for the matching id computation
@@ -225,9 +309,11 @@ export interface AgentChatsSlice {
    *  is what keeps the array bounded without that regression: an entry is
    *  only ever removed once its own content is durably persisted elsewhere. */
   pruneAgentChatStreamingMessages: (chatId: string, ids: string[]) => void
-  /** Record wherever the reader left a chat's transcript, for its next
-   *  mount this session to restore — see AgentChatsState.scrollPositions. */
-  setAgentChatScrollPosition: (chatId: string, position: TranscriptScrollPosition) => void
+  /** Signal the composer to open the takeover, preloaded with this scene —
+   *  see AgentChatsState.excalidrawEditRequests. */
+  requestExcalidrawEdit: (chatId: string, scene: ParsedExcalidrawScene) => void
+  /** Consume (drop) a chat's pending edit request once the composer has acted on it. */
+  clearExcalidrawEditRequest: (chatId: string) => void
   /**
    * Write the chat's sticky model / effort selection after the server ACCEPTED it.
    *
@@ -266,13 +352,18 @@ export interface AgentChatsSlice {
 
 export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   chats: [],
+  listSeeded: false,
   working: {},
   terminalWaits: {},
   compacting: {},
   settledPrompts: {},
+  abandonedPrompts: {},
   streamingMessages: {},
+  streamingReasoning: {},
+  streamingToolOutput: {},
+  streamingPlan: {},
   turnRevision: {},
-  scrollPositions: {},
+  excalidrawEditRequests: {},
   order: [],
   activeChatId: null,
   providers: [],
@@ -339,6 +430,7 @@ export const createAgentChatsSlice: StateCreator<
 
     set((s) => {
       s.agentChats.chats = chats
+      s.agentChats.listSeeded = true
       if (opts?.keepWorking) {
         for (const id of Object.keys(s.agentChats.working)) {
           if (!present.has(id)) delete s.agentChats.working[id]
@@ -505,17 +597,35 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.terminalWaits[chatId]
       delete s.agentChats.compacting[chatId]
       delete s.agentChats.settledPrompts[chatId]
+      delete s.agentChats.abandonedPrompts[chatId]
       delete s.agentChats.streamingMessages[chatId]
+      delete s.agentChats.streamingReasoning[chatId]
+      delete s.agentChats.streamingToolOutput[chatId]
+      delete s.agentChats.streamingPlan[chatId]
       delete s.agentChats.turnRevision[chatId]
-      delete s.agentChats.scrollPositions[chatId]
+      delete s.agentChats.excalidrawEditRequests[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
       if (s.agentChats.activeChatId === chatId) s.agentChats.activeChatId = null
     })
     clearPersistedPromptQueue(get().workspaceId, chatId)
+    // Not part of this store — see transcript-scroll-positions.ts's own doc.
+    clearScrollPosition(chatId)
   },
 
+  // THE REGRESSION. turnRevision is a signal a change actually happened —
+  // use-prompt-queue.ts treats every advance while `working` reads false as
+  // an authoritative idle edge and releases a queued prompt's busy barrier,
+  // retrying its submission. A caller re-announcing the SAME value (a
+  // periodic reconcile poll re-confirming `working:true` while a turn is
+  // still genuinely running, landing between two rapid-fire assistant
+  // messages) bumped the revision anyway, and a poll tick landing on a
+  // legitimately transient `false` reading between those messages fired the
+  // release WHILE the CLI was still generating — re-submitting the prompt
+  // into a live turn corrupted its output mid-stream. No-op on an unchanged
+  // value: only a REAL transition is a real edge.
   setAgentChatWorking: (chatId, working) =>
     set((s) => {
+      if (s.agentChats.working[chatId] === working) return
       s.agentChats.working[chatId] = working
       s.agentChats.turnRevision[chatId] = (s.agentChats.turnRevision[chatId] ?? 0) + 1
     }),
@@ -541,6 +651,15 @@ export const createAgentChatsSlice: StateCreator<
       )
     }),
 
+  setAgentChatPromptAbandoned: (chatId, clientRequestId) =>
+    set((s) => {
+      const seen = s.agentChats.abandonedPrompts[chatId] ?? []
+      if (seen.includes(clientRequestId)) return
+      s.agentChats.abandonedPrompts[chatId] = [...seen, clientRequestId].slice(
+        -SETTLED_PROMPTS_PER_CHAT,
+      )
+    }),
+
   setAgentChatStreamingMessage: (chatId, message) =>
     set((s) => {
       if (!message) {
@@ -557,6 +676,33 @@ export const createAgentChatsSlice: StateCreator<
       else list.push(message)
     }),
 
+  setAgentChatStreamingReasoning: (chatId, block) =>
+    set((s) => {
+      if (!block) {
+        delete s.agentChats.streamingReasoning[chatId]
+        return
+      }
+      s.agentChats.streamingReasoning[chatId] = block
+    }),
+
+  setAgentChatStreamingToolOutput: (chatId, block) =>
+    set((s) => {
+      if (!block) {
+        delete s.agentChats.streamingToolOutput[chatId]
+        return
+      }
+      s.agentChats.streamingToolOutput[chatId] = block
+    }),
+
+  setAgentChatStreamingPlan: (chatId, steps) =>
+    set((s) => {
+      if (!steps || steps.length === 0) {
+        delete s.agentChats.streamingPlan[chatId]
+        return
+      }
+      s.agentChats.streamingPlan[chatId] = steps
+    }),
+
   pruneAgentChatStreamingMessages: (chatId, ids) =>
     set((s) => {
       if (ids.length === 0) return
@@ -569,9 +715,14 @@ export const createAgentChatsSlice: StateCreator<
       else s.agentChats.streamingMessages[chatId] = kept
     }),
 
-  setAgentChatScrollPosition: (chatId, position) =>
+  requestExcalidrawEdit: (chatId, scene) =>
     set((s) => {
-      s.agentChats.scrollPositions[chatId] = position
+      s.agentChats.excalidrawEditRequests[chatId] = scene
+    }),
+
+  clearExcalidrawEditRequest: (chatId) =>
+    set((s) => {
+      delete s.agentChats.excalidrawEditRequests[chatId]
     }),
 
   setAgentChatSelection: (chatId, model, effort) =>

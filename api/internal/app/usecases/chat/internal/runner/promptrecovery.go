@@ -72,7 +72,32 @@ func (rs *Runners) promptRecordAccepted(
 		return false, fmt.Errorf("agent: recover prompt request: turns: %w", err)
 	}
 	for _, t := range turns {
-		if deliveredThisRequest(t, record) && agentjournal.PromptTextHash(t.Text) == record.TextHash {
+		if !deliveredThisRequest(t, record) {
+			continue
+		}
+		// A specific expected runner id (record.RunnerID != "", the ordinary
+		// case) is already a unique identity match on its own: a runner
+		// delivers at MOST one user-prompt-opened turn in its whole life — it
+		// is replaced wholesale by the next message's own spawn — so a "user"
+		// turn under this exact runnerID can only be the one THIS dispatch
+		// produced. The text hash adds nothing there except false negatives
+		// whenever the ledger's stored text legitimately differs from the
+		// journal's original-dispatch-text hash: attachments, a leading-sigil
+		// escape, and (mergeLeadingPositional) an injected gap merged ahead of
+		// a real prompt in the same positional all do this by design.
+		// recordUserTurn (turn.go) already strips all three back out before
+		// storing, but this identity check must not re-depend on that holding
+		// perfectly forever the way it once silently did.
+		//
+		// Only the weaker no-runnerID fallback below — matching on
+		// role/provider/timing alone, reached when the record predates
+		// knowing which runner would deliver it — still needs the hash: on
+		// its own it could otherwise land on some unrelated LATER message to
+		// the same provider.
+		if record.RunnerID != "" {
+			return true, nil
+		}
+		if agentjournal.PromptTextHash(t.Text) == record.TextHash {
 			return true, nil
 		}
 	}

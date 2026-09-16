@@ -15,6 +15,7 @@ import { useWorkspaceAgentChatsStream } from '../stores/hooks/use-workspace-agen
 import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSidebarTabKeyboard } from '@/features/keymaps/hooks/use-sidebar-tab-keyboard'
+import { useZoomKeyboard } from '@/features/keymaps/hooks/use-zoom-keyboard'
 
 interface WorkspaceViewProps {
   wsId: string
@@ -181,5 +182,6 @@ function WorkspaceActiveEffects({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
   useSaveKeyboard()
   usePaneKeyboard()
   useSidebarTabKeyboard()
+  useZoomKeyboard()
   return null
 }

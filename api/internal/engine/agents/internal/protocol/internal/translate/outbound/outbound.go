@@ -25,14 +25,14 @@ func Resolve(
 	values map[string]string,
 ) (wireEvent string, send map[string]string, ok bool) {
 	e, declared := d.Events[canonical]
-	if !declared || e.Out == "" {
+	if !declared || e.Out.Empty() {
 		return "", nil, false
 	}
 	out := make(map[string]string, len(e.Send))
 	for field, tmpl := range e.Send {
 		out[field] = Substitute(tmpl, values)
 	}
-	return e.Out, out, true
+	return e.Out.Name(), out, true
 }
 
 // Declared lists the canonical events Crowbar can SEND to this provider, sorted. It is
@@ -40,7 +40,7 @@ func Resolve(
 func Declared(d *spec.Descriptor) []string {
 	var out []string
 	for name, e := range d.Events {
-		if e.Out != "" {
+		if !e.Out.Empty() {
 			out = append(out, name)
 		}
 	}

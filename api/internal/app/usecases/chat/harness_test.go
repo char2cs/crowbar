@@ -337,6 +337,7 @@ type fakeWorkspace struct {
 	// the spawn) can pass "" first and the ancestor's id second, which
 	// lastWorkspaceID alone cannot tell apart from resolving both correctly.
 	worktreeDirIDs []string
+	worktreeErr    error // fails only WorktreeDir, leaving AgentChatsDir callers unaffected
 }
 
 func (f *fakeWorkspace) WorktreeDir(
@@ -347,6 +348,9 @@ func (f *fakeWorkspace) WorktreeDir(
 	f.worktreeDirIDs = append(f.worktreeDirIDs, workspaceID)
 	if f.err != nil {
 		return "", "", "", "", f.err
+	}
+	if f.worktreeErr != nil {
+		return "", "", "", "", f.worktreeErr
 	}
 	return f.home, f.projectID, f.repoID, f.worktree, nil
 }
@@ -1426,11 +1430,11 @@ func (f *faultWriteActivity) StartSubagent(ctx context.Context, chatID, id, agen
 	return f.EventStore.StartSubagent(ctx, chatID, id, agentType, now)
 }
 
-func (f *faultWriteActivity) StopSubagent(ctx context.Context, chatID, id, agentType string, now time.Time) error {
+func (f *faultWriteActivity) StopSubagent(ctx context.Context, chatID, id, agentType, message string, now time.Time) error {
 	if f.writeErr != nil {
 		return f.writeErr
 	}
-	return f.EventStore.StopSubagent(ctx, chatID, id, agentType, now)
+	return f.EventStore.StopSubagent(ctx, chatID, id, agentType, message, now)
 }
 
 func (f *faultWriteActivity) Interrupt(ctx context.Context, chatID, id, kind, detail string, now time.Time) error {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -34,9 +35,11 @@ import (
 //     project.ErrFolderNotFound (a project import targeting a path that does
 //     not exist on disk), enginegit.ErrBranchNotFound (a branch or
 //     revision operand git could not resolve), agentchat.ErrNotFound (an
-//     agent chat/segment id the agentic-chat repo has no row for), and
+//     agent chat/segment id the agentic-chat repo has no row for),
 //     agentrunner.ErrNotFound (a runner id — a `--segment` value — with no
-//     live row, either never spawned or already exited).
+//     live row, either never spawned or already exited), and
+//     repoattachments.ErrNotFound (a stored chat attachment file name with no
+//     row on disk).
 //   - 400 Bad Request    — agentusecase.ErrTreeNameRequired (a folder create or
 //     rename with a blank name — the sidebar's own folder-placement feature and
 //     the Chats panel share this one tree, so one sentinel now covers both),
@@ -184,7 +187,8 @@ func isNotFound(
 		errors.Is(err, project.ErrFolderNotFound) ||
 		errors.Is(err, enginegit.ErrBranchNotFound) ||
 		errors.Is(err, agentchat.ErrNotFound) ||
-		errors.Is(err, agentrunner.ErrNotFound)
+		errors.Is(err, agentrunner.ErrNotFound) ||
+		errors.Is(err, repoattachments.ErrNotFound)
 }
 
 // isBadRequest reports whether err is one of the sentinels that map to HTTP 400.

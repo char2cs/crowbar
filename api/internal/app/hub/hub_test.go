@@ -1,6 +1,7 @@
 package hub_test
 
 import (
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,6 +34,7 @@ type promptSettledPush struct {
 	chatID      string
 	workspaceID string
 	requestID   string
+	consumed    bool
 }
 
 type messageDeltaPush struct {
@@ -147,9 +149,10 @@ func (f *fakeSubscriber) PushAgentChatPromptSettled(
 	chatID string,
 	workspaceID string,
 	requestID string,
+	consumed bool,
 ) {
 	f.promptSettled = append(f.promptSettled, promptSettledPush{
-		chatID: chatID, workspaceID: workspaceID, requestID: requestID,
+		chatID: chatID, workspaceID: workspaceID, requestID: requestID, consumed: consumed,
 	})
 }
 
@@ -158,11 +161,14 @@ func (f *fakeSubscriber) PushAgentChatMessageDelta(
 	workspaceID string,
 	messageID string,
 	text string,
+	_ string,
 ) {
 	f.messageDeltas = append(f.messageDeltas, messageDeltaPush{
 		chatID: chatID, workspaceID: workspaceID, messageID: messageID, text: text,
 	})
 }
+
+func (f *fakeSubscriber) PushAgentChatPlan(_, _ string, _ []agents.PlanStep) {}
 
 func (f *fakeSubscriber) PushAgentChatCompaction(
 	chatID string,
@@ -403,9 +409,11 @@ func TestHub_BroadcastAgentChatPromptSettled_FansOut(t *testing.T) {
 	h.Register(a)
 	h.Register(b)
 
-	h.BroadcastAgentChatPromptSettled("c1", "w1", "req-1")
+	h.BroadcastAgentChatPromptSettled("c1", "w1", "req-1", true)
 
-	want := []promptSettledPush{{chatID: "c1", workspaceID: "w1", requestID: "req-1"}}
+	want := []promptSettledPush{
+		{chatID: "c1", workspaceID: "w1", requestID: "req-1", consumed: true},
+	}
 	assert.Equal(t, want, a.promptSettled)
 	assert.Equal(t, want, b.promptSettled)
 }
@@ -422,8 +430,8 @@ func TestHub_BroadcastAgentChatMessageDelta_FansOut(t *testing.T) {
 	h.Register(a)
 	h.Register(b)
 
-	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial tex")
-	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial text")
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial tex", "")
+	h.BroadcastAgentChatMessageDelta("c1", "w1", "m1", "partial text", "")
 
 	want := []messageDeltaPush{
 		{chatID: "c1", workspaceID: "w1", messageID: "m1", text: "partial tex"},

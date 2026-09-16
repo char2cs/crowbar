@@ -23,6 +23,13 @@ runtime:
     # SwitchToTerminal forks this, and only once idle.
     attach: [codex, resume, "{session_id}"]
     handshake: { call: initialize }
+    # Captured live (0.149.1) from BOTH calls that name a thread id, against a
+    # thread the server no longer has: thread/resume answers "no rollout found
+    # for thread id X" and turn/start answers "thread not found: X" — same code
+    # each time. codex writes no rollout until a turn COMPLETES, so any thread
+    # that never finished one is unresumable the moment its app-server is
+    # replaced, which is why this is reached routinely, not exceptionally.
+    session_lost_codes: [-32600]
   hooks:
     format: json
     delivery: http
@@ -52,29 +59,157 @@ events:
       message:    "item.content[type=text].text || prompt"
 
   # turn.lastAgentMessage does not exist — the answer is an item IN a list.
+  #
+  # turn/completed is a SUM TYPE on turn.status (completed|interrupted|failed|
+  # inProgress — codex's own TurnStatus enum). Ungated, this event also swallowed
+  # every FAILED turn: it recorded an ordinary stop whose message resolved to
+  # nothing, so the user saw the spinner end on an empty reply and turn.error was
+  # discarded.
+  #
+  # DELIBERATELY UNGATED all the same — turn_failed below carries the narrow
+  # `failed` clause and dispatch.Resolve offers it FIRST (sorted name order), so
+  # the split works without this event having to enumerate the statuses it wants.
+  # Enumerating them would be a wedge: a status this list forgot — `inProgress`,
+  # or anything codex adds later — would match NEITHER event, and a turn that
+  # never receives a close is a spinner that never stops. Falling through to an
+  # ordinary stop is the safe default. An interrupt is an ordinary stop too: the
+  # human asked for it.
   turn_stop:
     in: turn/completed
     map:
       session_id: "threadId || session_id"
       message:    "turn.items[type=agentMessage].text || last_assistant_message"
+      # Not read for the reply itself — it is what lets Go tell this apart
+      # from thread/compact/start's own turn/started..completed wrapper,
+      # which rides this SAME event with nothing else on the frame saying
+      # so (confirmed live: a compaction's turn/completed is byte-for-byte
+      # the same shape — items: [], itemsView: "notLoaded", status:
+      # "completed" — as a genuinely interrupted real turn's). See
+      # compact_pre below and turn/compaction.go.
+      turn_id:    turn.id
 
-  tool_pre:
-    in: item/started
-    when: { item.type: commandExecution || fileChange || mcpToolCall }
+  # The other half of that sum type. No `message:` deliberately: a failed turn's
+  # items are not reliably populated, and closeAssistantTurn has already salvaged
+  # whatever message_delta streamed before the failure — mapping it here would
+  # only risk overwriting real text with an empty string.
+  turn_failed:
+    in: turn/completed
+    when: { turn.status: failed }
     map:
       session_id: "threadId || session_id"
-      tool_id:    "item.id || tool_use_id"
-      tool_name:  "item.type || tool_name"
-      tool_input: item
+      reason:     "turn.error.message || turn.status"
+      detail:     turn.error.additionalDetails
+      # See turn_stop's own turn_id comment — a compaction can fail too.
+      turn_id:    turn.id
 
-  tool_post:
-    in: item/completed
-    when: { item.type: commandExecution || fileChange || mcpToolCall }
+  # item.type values are codex's ThreadItem variants. webSearch and dynamicToolCall
+  # were missing, so a turn that searched the web showed NO activity for that step.
+  # collabAgentToolCall is the model's OWN multi-agent tool — spawnAgent, sendInput,
+  # resumeAgent, wait, closeAgent (confirmed live: a real spawnAgent/wait/closeAgent
+  # sequence renders as three ordinary tool rows this way, target and all). It is
+  # deliberately mapped here rather than as subagent_pre/subagent_post below: a
+  # StartSubagent/StopSubagent pair assumes one flat id with no nesting, but a
+  # collab agent is a whole second THREAD (its own turn/item stream on this same
+  # connection, confirmed live) with no "completed" kind of its own — what a caller
+  # actually gets back is exactly this tool call's own id/status/target, the same
+  # shape every other tool call already has. See subagent_pre below for what this
+  # does NOT cover.
+  #
+  # tool_target is what the transcript actually renders (`name · target`); with it
+  # unmapped every codex tool call read as the bare word "commandExecution". Each
+  # variant keeps its target in its own field, hence the alternation:
+  #   commandExecution -> command       fileChange  -> changes[0].path
+  #   webSearch        -> query         mcpToolCall -> server (its tool is the NAME)
+  #   collabAgentToolCall -> the prompt handed to spawnAgent, or (wait/closeAgent/
+  #     sendInput/resumeAgent, which carry no prompt) the receiving thread's id.
+  # changes[0] is an INDEX selector: FileUpdateChange.kind is an object
+  # ({"type":"update"}), so no [field=value] selector can address that list.
+  # receiverThreadIds[0] is the same INDEX selector, for the same reason: the list
+  # holds exactly one id in every shape captured live, and a bare field name cannot
+  # select "the first element of a list" any other way this grammar offers.
+  # NO nested_session_id here, deliberately: receiverThreadIds[0] is EMPTY on
+  # spawnAgent's own item/started (confirmed live: the child does not exist
+  # yet — see testdata/fixtures/codex/item_started.collabAgentToolCall.json,
+  # and TestV3Descriptors_ResolveAgainstRecordedTraffic, which fails the
+  # build the moment a mapped field stops resolving against every recorded
+  # variant it could fire on). wait/closeAgent's own item/started PROBABLY
+  # already addresses an existing child the same way their item/completed
+  # does, but no fixture of either exists to prove it — see tool_post below,
+  # where the same field IS proven.
+  tool_pre:
+    in: item/started
+    when: { item.type: commandExecution || fileChange || mcpToolCall || webSearch || dynamicToolCall || collabAgentToolCall }
     map:
       session_id:  "threadId || session_id"
       tool_id:     "item.id || tool_use_id"
-      tool_name:   "item.type || tool_name"
-      tool_result: "item.content || tool_response"
+      tool_name:   "item.tool || item.type || tool_name"
+      tool_target: "item.command || item.query || item.server || item.changes[0].path || item.prompt || item.receiverThreadIds[0] || tool_input.file_path"
+      tool_input:  item
+
+  # tool_result was `item.content`, which exists on NO codex item — every tool
+  # call completed with an empty result. The real output field differs per
+  # variant: aggregatedOutput (commandExecution), result (mcpToolCall),
+  # changes (fileChange), agentsStates (collabAgentToolCall — the spawned
+  # agent's own status/message map, keyed by the thread id nested_session_id
+  # below also names; item.agentsStates[receiverThreadIds[0]] is addressable
+  # via mapping's dynamic-key selector, but the WHOLE map is mapped here
+  # rather than one value out of it — a reader of this tool call's result
+  # wants everything the parent saw, not a value already surfaced through the
+  # nested subagent this tool call OPENS/refreshes via nested_session_id).
+  #
+  # nested_session_id — CONFIRMED LIVE against testdata/fixtures/codex/
+  # item_completed.collabAgentToolCall.json and .wait.json: receiverThreadIds[0]
+  # is the SAME id agentsStates is keyed by, on both spawnAgent's own
+  # completion (agentsStates[id].status: "pendingInit") and wait's
+  # (agentsStates[id].status: "completed"). See turn/ingest.go's nested-session
+  # routing for what opens/keeps-open a subagent from this field, and
+  # turn/observation.go for what a routed child frame does once one is open —
+  # a child's OWN turn_stop is what CLOSES it, not this field going away (it
+  # never does: closeAgent's own completion still names the same id).
+  tool_post:
+    in: item/completed
+    when: { item.type: commandExecution || fileChange || mcpToolCall || webSearch || dynamicToolCall || collabAgentToolCall }
+    map:
+      session_id:        "threadId || session_id"
+      tool_id:           "item.id || tool_use_id"
+      tool_name:         "item.tool || item.type || tool_name"
+      tool_target:       "item.command || item.query || item.server || item.changes[0].path || item.prompt || item.receiverThreadIds[0] || tool_input.file_path"
+      tool_result:       "item.aggregatedOutput || item.result || item.changes || item.agentsStates || tool_response"
+      duration_ms:       "item.durationMs || duration_ms"
+      nested_session_id: item.receiverThreadIds[0]
+
+  # Fires on the SAME wire event as tool_post, separated only by item.status.
+  # dispatch.Resolve tries candidates in sorted name order, so `tool_fail` is
+  # offered before `tool_post` and its narrower when: wins on a failure; anything
+  # else falls through to tool_post. tool_post deliberately declares NO status
+  # clause: webSearch carries no status field at all, and a `when:` whose path is
+  # missing never matches — gating it would have left every web search open
+  # forever. collabAgentToolCall's own CollabAgentToolCallStatus enum has no
+  # "declined" — only inProgress|completed|failed — so it can only ever match the
+  # `failed` branch here, never the one commandExecution/fileChange/mcpToolCall
+  # share with a human's own decline.
+  tool_fail:
+    in: item/completed
+    when:
+      item.type:   commandExecution || fileChange || mcpToolCall || dynamicToolCall || collabAgentToolCall
+      item.status: failed || declined
+    map:
+      session_id:        "threadId || session_id"
+      tool_id:           "item.id || tool_use_id"
+      tool_name:         "item.tool || item.type || tool_name"
+      tool_target:       "item.command || item.query || item.server || item.changes[0].path || item.prompt || item.receiverThreadIds[0] || tool_input.file_path"
+      tool_result:       "item.aggregatedOutput || item.result || item.changes || item.agentsStates || tool_response"
+      # collabAgentToolCall carries no .error field at all (confirmed live and
+      # against the published schema) — item.status ("failed") is the only text
+      # this variant has to fall back to, same as every other tool_error here.
+      tool_error:  "item.error.message || item.status"
+      duration_ms: "item.durationMs || duration_ms"
+      # NO nested_session_id here either, same reason as tool_pre: no
+      # recorded collabAgentToolCall failure exists to prove receiverThreadIds
+      # is still populated on this path. A subagent a failed spawnAgent opened
+      # via tool_post before failing stays open until abandonRunningSubagents'
+      # own sweep reclaims it with the rest of the turn — see StartSubagent's
+      # call site in turn/observation.go.
 
   # No index: this delta stream is already arrival-ordered.
   message_delta:
@@ -85,27 +220,119 @@ events:
       text:       delta
       turn_id:    turnId
 
+  # Codex spends most of a hard turn HERE and emits nothing else while it does
+  # (captured live, codex-cli 0.149.1: item/started type reasoning, then
+  # summaryPartAdded, then a run of summaryTextDelta, then item/completed). With
+  # this unmapped the chat sat on a spinner and a rotating flavour verb for the
+  # whole of it — the single biggest source of apparent dead air.
+  #
+  # summaryTextDelta, not textDelta: the summary is the stream codex actually
+  # emits for a normal turn, and it is the human-readable one. Raw reasoning
+  # content is gated behind a separate opt-in and was never observed live.
+  #
+  # index is summaryIndex — a thinking block is emitted in numbered parts, and
+  # without it the parts of one block cannot be ordered.
+  reasoning_delta:
+    in: item/reasoning/summaryTextDelta
+    map:
+      session_id: threadId
+      message_id: itemId
+      text:       delta
+      turn_id:    turnId
+      index:      summaryIndex
+
+  # A long command's output, line by line, while it runs. Captured live: a
+  # five-second command emits one of these per line and nothing else, so without
+  # it the tool row sat static for the whole run with no sign of progress.
+  # itemId is the commandExecution item, which is the same id tool_pre opened the
+  # call under — that is what puts the lines under the right running row.
+  tool_output_delta:
+    in: item/commandExecution/outputDelta
+    map:
+      session_id: threadId
+      message_id: itemId
+      text:       delta
+      turn_id:    turnId
+
+  # The agent's own to-do list for the turn, restated wholesale on each update.
+  # Captured live: codex emits four of these across a three-step task, each
+  # carrying the FULL list with one more step advanced.
+  #
+  # status_map is where codex's words become Crowbar's. Go never learns
+  # "inProgress"; a provider that spells it differently changes this map and
+  # nothing else.
+  plan_update:
+    in: turn/plan/updated
+    # No `message:` — turn/plan/updated carries an `explanation`, but it was null
+    # on every plan update captured live, and the replay harness rejects a path
+    # that resolves to nothing.
+    map:
+      session_id: threadId
+      turn_id:    turnId
+    steps:
+      items:  plan
+      text:   step
+      status: status
+      status_map:
+        pending:    pending
+        inProgress: active
+        completed:  done
+
   # tokenUsage nests under total/ — not tokenUsage.inputTokens directly.
+  #
+  # context.used_tokens reads .last, not .total: .total is a lifetime counter
+  # that only grows turn over turn (codex's own TUI draws the same
+  # distinction — codex-rs/tui/src/token_usage.rs), so dividing it by the
+  # fixed context window produced impossible percentages (2519% observed
+  # live) past the first couple of turns. .last is the current context size.
   telemetry:
     in: thread/tokenUsage/updated
     map:
       session_id:              threadId
       input_tokens:            tokenUsage.total.inputTokens
       output_tokens:           tokenUsage.total.outputTokens
-      context.used_tokens:     tokenUsage.total.totalTokens
+      context.used_tokens:     tokenUsage.last.totalTokens
       context.capacity_tokens: tokenUsage.modelContextWindow
 
-  # Same dual-shape hazard as session_start: a hooks-delivered
-  # PermissionRequest uses tool_name/tool_input, not this event's api names.
+  # codex NAMESPACES approval per item type, so one canonical `permission` answers
+  # to two wire methods (`||`, the same alternation `when:` and `map:` use). Both
+  # confirmed live against 0.149.1 at --ask-for-approval on-request:
+  #   item/commandExecution/requestApproval — a command that steps outside the
+  #     sandbox (network, or a cwd the sandbox does not make writable)
+  #   item/fileChange/requestApproval       — an apply_patch outside the writable root
+  # item/permissions/requestApproval, which this event used to name, is neither of
+  # them: it never fires on this build (not even with --enable
+  # exec_permission_approvals) and its response carries a GrantedPermissionProfile
+  # rather than a decision at all, so the reply below could never have satisfied it.
+  # Naming it meant dispatch.Resolve matched nothing, no card was ever raised, and
+  # the turn sat waitingOnApproval until the budget expired.
+  #
+  # Same dual-shape hazard as session_start: a hooks-delivered PermissionRequest
+  # uses tool_name/tool_input, not this event's api names.
+  #
+  # decision is codex's OWN enum and `approved`/`denied` are not in it — live, both
+  # came back "unknown variant, expected one of accept, acceptForSession,
+  # acceptWithExecpolicyAmendment, applyNetworkPolicyAmendment, decline, cancel" and
+  # codex failed the tool call with Rejected("approval request failed"), so even an
+  # APPROVE broke the turn. Crowbar's allow/deny map onto the two that carry exactly
+  # those meanings and no more: `decline` (not `cancel`) because Deny must refuse
+  # this one call and let the agent carry on, where cancel kills the whole turn;
+  # `accept` (not `acceptForSession`) because a single Allow press must not silently
+  # widen to every later command in the session.
   permission:
-    ask: item/permissions/requestApproval
+    ask: item/commandExecution/requestApproval || item/fileChange/requestApproval
     timeout_seconds: 270
     map:
+      session_id: "threadId || session_id"
+      # codex's own sentence for what it wants ("Allow the exact curl command to
+      # access example.com outside the restricted sandbox?"). A fileChange approval
+      # carries none, and the card names the gated tool call instead.
+      message:    "reason || message"
       tool_name:  "tool || tool_name"
       tool_input: "params || tool_input"
     reply:
-      allow: '{"decision":"approved"}'
-      deny:  '{"decision":"denied","message":{reason_json}}'
+      allow: '{"decision":"accept"}'
+      deny:  '{"decision":"decline"}'
 
   elicitation:
     ask: mcpServer/elicitation/request
@@ -163,14 +390,133 @@ events:
     out: turn/interrupt
     send: { threadId: "{session_id}", turnId: "{turn_id}" }
 
+  # Captured live (0.149.1): thread/status/changed fires `active` when a turn
+  # opens and `idle` when it ends — and the idle one lands IMMEDIATELY BEFORE
+  # turn/completed on a perfectly healthy turn. So this can never close a turn
+  # directly; it only ARMS the reconcile that catches the turn whose close never
+  # comes at all (this file's own terminal_notices note records that happening).
+  #
+  # `systemError` and `notLoaded` are deliberately unmapped: neither means the
+  # work is finished, and treating them as idle would close a turn that is merely
+  # broken, or one that has not been loaded yet.
+  idle:
+    in: thread/status/changed
+    when: { status.type: idle }
+    map: { session_id: threadId }
+
   compact_start:
     out: thread/compact/start
     send: { threadId: "{session_id}" }
 
-  # The api transport carries none of these five. transport: hooks means
-  # SOME codex process still fires them, but with no attach it is a
-  # separate, disconnected PTY spawnRunner still forks — driving its own
-  # unrelated conversation. Known gap, tracked as follow-up work.
+  # These two USED to ride transport: hooks — the api transport carried no
+  # equivalent, so it was SOME codex process firing them, but with no attach
+  # it was a separate, disconnected PTY spawnRunner still forks, driving its
+  # own unrelated conversation. codex's `thread/compacted` notification is
+  # its own published schema's replacement for that (marked deprecated in
+  # favour of a `contextCompaction` ThreadItem), and confirmed live
+  # (codex-cli 0.149.1, via thread/compact/start): compaction is not a
+  # dedicated notification at all — it is a THIRD sum-type variant riding
+  # the exact same item/started/item/completed stream tool_pre/tool_post
+  # already consume, gated on item.type: contextCompaction the same way.
+  #
+  # The contextCompaction item itself carries only {id, type} — no trigger,
+  # no summary — so `trigger:` is dropped rather than mapped to a path that
+  # would never resolve (the same call plan_update's own comment already
+  # documents for its `explanation` field).
+  #
+  # THE TRAP: thread/compact/start's response wraps the item pair in its OWN
+  # turn/started..turn/completed pair, on the SAME connection, and that
+  # turn/completed is turn_stop/turn_failed's wire event too — confirmed
+  # live, and confirmed live that NEITHER itemsView nor an empty items list
+  # tells it apart from a genuinely interrupted real turn or a real turn
+  # that ran a tool and sent no final text (both produce the identical empty
+  # shape). turn_stop/turn_failed's own turn_id mapping plus the latch in
+  # turn/compaction.go is what keeps a compaction from being misread as an
+  # ordinary reply or a failed one.
+  compact_pre:
+    in: item/started
+    when: { item.type: contextCompaction }
+    map:
+      session_id: "threadId || session_id"
+      turn_id:    turnId
+
+  compact_post:
+    in: item/completed
+    when: { item.type: contextCompaction }
+    map:
+      session_id: "threadId || session_id"
+      turn_id:    turnId
+
+  # NEVER FIRE for codex, deliberately: SubagentStart/SubagentStop are a
+  # hooks-transport pair that assumes one flat id with no nesting — codex's
+  # real multi-agent mechanism is architecturally nothing like it. Confirmed
+  # live (codex-cli 0.149.1, `-c features.collab_agents=true`, a prompt that
+  # asks the model to spawn one), and preserved as testdata/fixtures/codex/
+  # item_started.collabAgentToolCall.json, item_completed.collabAgentToolCall.json
+  # and item_completed.collabAgentToolCall.wait.json (real captures, not
+  # schema guesses — see the fixtures dir's own README):
+  #
+  #   1. The model calls its OWN collabAgentToolCall tool (spawnAgent), an
+  #      ORDINARY item/started..completed pair on the PARENT thread — mapped
+  #      as a plain tool call (tool_pre/tool_post/tool_fail's
+  #      collabAgentToolCall branch above), and item/completed's
+  #      receiverThreadIds[0] names the spawned agent's own new thread id.
+  #      CONFIRMED LIVE (the fixture pair above): receiverThreadIds is EMPTY
+  #      on item/started and holds exactly one id on item/completed.
+  #   2. That child thread runs a COMPLETE, independent turn/started ..
+  #      item/* .. turn/completed cycle of its own, pushed over this SAME
+  #      connection despite the client never having called thread/start or
+  #      thread/resume on it — ordinary canonical events (turn_stop,
+  #      tool_pre/post, message_delta, idle...), just carrying the CHILD's
+  #      own threadId as their session_id instead of the parent's. This part
+  #      is confirmed live by namesAnotherConversation's own doc in
+  #      turn/ingest.go (a real bleed-through incident the fix there guards
+  #      against), not by a fixture file.
+  #   3. The model calls collabAgentToolCall(tool: wait) — another ordinary
+  #      tool call — whose OWN item/completed.agentsStates[childId] carries
+  #      the child's terminal status and result message. CONFIRMED LIVE
+  #      (item_completed.collabAgentToolCall.wait.json): agentsStates is
+  #      keyed by EXACTLY the id receiverThreadIds[0] names on that SAME
+  #      frame — item.agentsStates[receiverThreadIds[0]] (mapping.go's
+  #      dynamic-key selector) resolves correctly against real traffic.
+  #   4. The model calls collabAgentToolCall(tool: closeAgent) to tear the
+  #      child down. No live capture of this call exists; by structural
+  #      symmetry with 1 and 3 its own completion is assumed to keep naming
+  #      the same id in receiverThreadIds, but that assumption is
+  #      UNCONFIRMED — see nested_session_id's own note on tool_fail above.
+  #
+  # subAgentActivity — the OTHER item type the first pass's schema reading
+  # guessed this would ride, with its started|interacted|interrupted kinds —
+  # NEVER appeared, across every live capture taken of this sequence. It is
+  # presumably reserved for codex's OWN internally-spawned subagents
+  # (SubAgentSource's bare review|compact|memory_consolidation variants), not
+  # an explicit model-driven collab tool call. Still UNCONFIRMED.
+  #
+  # None of this is mapped onto subagent_pre/subagent_post — a
+  # StartSubagent/StopSubagent PAIR still cannot express "a whole second
+  # thread," and forcing one to would need Go to know collabAgentToolCall's
+  # own vocabulary to decide when to fire each half, which turn/ingest.go and
+  # turn/observation.go deliberately do not. Built instead, all fully
+  # generic (nested_session_id is declared on tool_post above — see its own
+  # note for why NOT tool_pre/tool_fail too — with zero codex-vocabulary
+  # knowledge in Go):
+  #
+  #   - a tool completion naming a nested_session_id Go has not already seen
+  #     open calls OpenNestedSubagent (turn/observation.go's
+  #     openNestedSubagent) — StartSubagent's OWN turn-safe twin, not
+  #     StartSubagent itself: StartSubagent's ensureTurn would silently mint
+  #     a ghost top-level turn the instant this fires after codex's own turn
+  #     has already closed, which it usually has by then;
+  #   - a frame whose session id names a chat's own currently-open subagent
+  #     is ROUTED into that subagent's nested activity instead of being
+  #     dropped as foreign (turn/ingest.go's routeNestedSubagentEvent) or
+  #     bled into the chat's own top-level turn (the bug
+  #     TestRegression_AChildThreadsTurnStopNeverClosesThisChatsTurn guards);
+  #   - within that routing, the child's OWN tool_pre/tool_post/tool_fail
+  #     record its own nested tool calls (InvokeSubagentTool/
+  #     CompleteSubagentTool) and its OWN turn_stop/turn_failed closes the
+  #     subagent and records its final reply (StopSubagent) — see
+  #     turn/nested.go's handleNestedObservation.
   subagent_pre:
     transport: hooks
     in: SubagentStart
@@ -181,16 +527,26 @@ events:
     in: SubagentStop
     map: { session_id: session_id, subagent_id: agent_id, agent_type: agent_type }
 
-  compact_pre:
-    transport: hooks
-    in: PreCompact
-    map: { session_id: session_id, trigger: trigger }
-
-  compact_post:
-    transport: hooks
-    in: PostCompact
-    map: { session_id: session_id, trigger: trigger }
-
+  # STILL rides transport: hooks, but investigated and confirmed harmless:
+  # HookSessionEnd's own dispatch (turn/ingest.go) is ALREADY a deliberate
+  # no-op regardless of which transport delivers it — a session ending is
+  # observed authoritatively by the PTY-exit reconcile (every provider) and,
+  # for the api transport specifically, by onAPIConnLost (runner/connloss.go)
+  # tearing the connection down and reconciling its turn the moment the
+  # driver's Events() channel closes. Acting on session_end a second time
+  # would close a turn twice.
+  #
+  # codex's api schema has no dedicated "session is ending, here is why"
+  # notification to move this onto. The closest candidate, thread/closed
+  # (params: {threadId}, no reason), was tried live against every
+  # client-reachable action that could plausibly precede it — including
+  # thread/unsubscribe — and never fired. Absent a reachable trigger,
+  # mapping it would be exactly the kind of ships-but-never-fires change
+  # this report's own methodology exists to catch (see the thread/status/
+  # changed correction above), so nothing was added. If a future codex
+  # version exposes an explicit "close this thread" request, or thread/
+  # closed is later observed to fire from a client-reachable action, that
+  # is the wire to map this onto — driven and confirmed live first.
   session_end:
     transport: hooks
     in: SessionEnd
@@ -270,6 +626,14 @@ presentation:
     resume:
       - pass_arg: { positional: "--" }
       - pass_arg: { positional: "{message}" }
+    # Measured on 0.149.1, argv prompt: a message opening with `!` is RUN as a
+    # shell command, never sent to the model — `![shot.png](/…/shot.png)` (an
+    # image attached before anything was typed) executed as
+    # `[shot.png](/…/shot.png)`. A leading SPACE is enough, also measured; do
+    # not "simplify" it to a newline without re-measuring.
+    leading_sigils:
+      chars: ["!"]
+      escape: " "
   # `debug prompt-input` renders model-visible instructions without
   # starting a turn; the native /skills menu may hold more.
   slash_catalog:
@@ -317,6 +681,14 @@ effort:
 # do) made cleanup destroy the user's own threads.
 config_injection:
   - pass_arg: { arg: "-c", value: 'check_for_update_on_startup=false' }
+  # ASK for reasoning summaries. Codex emits NONE by default — measured on
+  # 0.149.1 by running the identical reasoning-heavy prompt twice: zero
+  # item/reasoning/* frames with the default, a full stream with this set. So
+  # without this line the reasoning_delta event above is inert in production and
+  # a reasoning model's long silences stay unexplained, which is exactly the
+  # dead air it was added to fix. Caught only by driving the real app; every
+  # unit test passed either way.
+  - pass_arg: { arg: "-c", value: 'model_reasoning_summary=detailed' }
   # TUI-native modals, suppressed rather than answered — no hook fires for
   # these. Only the three unambiguous ones: migration-prompt keys contain
   # dots, which a TOML dotted-key override would parse as nested tables. An
@@ -327,6 +699,14 @@ config_injection:
   # workspace-write denies network, and a unix-socket connect IS network on
   # macOS — grants network only, not the filesystem.
   - pass_arg: { arg: "-c", value: 'sandbox_workspace_write.network_access=true' }
+  # Without this, collabAgentToolCall (spawnAgent/wait/closeAgent) never
+  # appears at all — the model has no tool to spawn a subagent with, so
+  # tool_pre/tool_post's own collabAgentToolCall mapping and the
+  # nested_session_id routing it feeds (turn/nested.go) are permanently
+  # inert. Claude's subagent indicator (SubagentShelf) already works off the
+  # same generic activity.subagents feed; this is the one flag that lets
+  # codex actually produce the events that feed it too.
+  - pass_arg: { arg: "-c", value: 'features.collab_agents=true' }
   - pass_arg:
       arg: "-c"
       value: 'hooks.SessionStart=[{hooks=[{type="command",command="{crowbar_hook} hook session_start --segment {segid} --provider {provider} {scope_flags}"}]}]'

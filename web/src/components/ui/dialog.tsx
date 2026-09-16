@@ -273,4 +273,15 @@ export function AppDialog({
   )
 }
 
-export { DialogPrimitive, DialogPopup as DialogContent }
+export {
+  DialogPrimitive,
+  DialogPopup as DialogContent,
+  DialogPortal,
+  // Exported for callers that need the RAW viewport chrome (backdrop scrim +
+  // centered grid) around a bespoke `DialogPrimitive.Popup` of their own —
+  // an edge-to-edge image lightbox, say — rather than DialogPopup's own
+  // bordered, max-w-lg card. Keeps that chrome defined in exactly one place
+  // instead of a second caller re-typing these classes.
+  DialogBackdrop,
+  DialogViewport,
+}

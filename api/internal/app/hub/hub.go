@@ -6,6 +6,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	agents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 // Hub fans out domain broadcasts to all registered Subscribers. It implements
@@ -162,15 +163,21 @@ func (h *Hub) BroadcastAgentChatTerminalWait(
 // Fed by the terminal-wait detector, like the wait edge and for the same reason:
 // the fact is derived from a live PTY's screen joined against the chat's busy
 // state and its delivery journal, so no aggregate's event log can emit it.
+//
+// consumed says whether anything proved the provider took the prompt, and rides
+// the frame because a client cannot derive it: both cases look identical in the
+// ledger (neither produced a turn). A client holding the user's typed text may
+// discard it only when consumed is true.
 func (h *Hub) BroadcastAgentChatPromptSettled(
 	chatID string,
 	workspaceID string,
 	requestID string,
+	consumed bool,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushAgentChatPromptSettled(chatID, workspaceID, requestID)
+		s.PushAgentChatPromptSettled(chatID, workspaceID, requestID, consumed)
 	}
 }
 
@@ -181,16 +188,40 @@ func (h *Hub) BroadcastAgentChatPromptSettled(
 // second per streaming chat — and it is deliberately the only thing in this
 // feature that never touches durable storage. A partial message is a view, not a
 // record; the ledger gets the message once, when it is finished.
+// kind says WHICH stream this text belongs to: the empty string (or "answer")
+// for what the agent is saying, "reasoning" for what it is thinking on the way
+// there. Both are transient views of the same shape; only the answer is ever
+// recorded, and a client renders the two differently.
 func (h *Hub) BroadcastAgentChatMessageDelta(
 	chatID string,
 	workspaceID string,
 	messageID string,
 	text string,
+	kind string,
 ) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, s := range h.subscribers {
-		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text)
+		s.PushAgentChatMessageDelta(chatID, workspaceID, messageID, text, kind)
+	}
+}
+
+// BroadcastAgentChatPlan fans the agent's own running to-do list out on the same
+// workspace-scoped feed as every other fact about a conversation.
+//
+// Restated WHOLESALE on every update, like the streamed message's text-so-far:
+// the newest list is the entire truth, so a client that missed a frame is correct
+// again on the next one. Like that one it is deliberately never stored — a plan
+// for a turn in progress is a view, not a record.
+func (h *Hub) BroadcastAgentChatPlan(
+	chatID string,
+	workspaceID string,
+	steps []agents.PlanStep,
+) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, s := range h.subscribers {
+		s.PushAgentChatPlan(chatID, workspaceID, steps)
 	}
 }
 

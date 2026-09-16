@@ -23,6 +23,9 @@ func (d *detector) evaluate(
 	}
 
 	if chat.Working {
+		if d.providerSaysItIsIdle(ctx, runner) {
+			return domain.AgentTerminalWait{}, prev, false
+		}
 		if d.abandonedMessage(ctx, runner) {
 			return domain.AgentTerminalWait{}, prev, false
 		}
@@ -64,6 +67,28 @@ func (d *detector) settleDelivery(
 	delivery, ok := d.deps.Deliveries.PendingDelivery(ctx, runner.CurrentChatID)
 
 	if !ok || delivery.RunnerID == "" || delivery.RunnerID != runner.ID {
+		return
+	}
+	// And the DELIVERY's own age, not just the screen's.
+	//
+	// The screen clock above measures how long this PTY has drawn nothing, which
+	// for an api-transport chat (codex) is the wrong question entirely: the PTY
+	// beside that connection is a disconnected companion driving an unrelated
+	// conversation, so it draws nothing for as long as the chat sits idle. Its
+	// quiet window is therefore ALREADY hours old when a prompt arrives, and the
+	// grace period this timeout exists to give — thirty seconds for the provider
+	// to produce a turn — collapsed to zero: the next sweep, up to two seconds
+	// later, retired the delivery outright.
+	//
+	// Measured live on a fresh codex chat: a delivery journalled at 14:14:59.535Z
+	// was logged "produced no turn and was settled" inside the same second, while
+	// the provider's own turn was still on its way (it landed 910ms later). The
+	// prompt survived only because the ledger beat the client's own reaction to
+	// the retirement — a race, and one an idle chat loses more often, since the
+	// first prompt after a gap is exactly the slow one (session resume, cold
+	// model). Losing it discards the user's typed text, which at that moment
+	// exists nowhere else (see settle.go).
+	if d.now().Sub(delivery.CreatedAt) < d.deliveryQuiet() {
 		return
 	}
 	retired, err := d.deps.Deliveries.SettleDelivery(ctx, runner.CurrentChatID, delivery.RequestID)
@@ -156,6 +181,18 @@ func (d *detector) abandonedMessage(ctx context.Context, runner agents.Runner) b
 	if d.deps.Messages == nil {
 		return false
 	}
+	// A turn riding a connection Crowbar still holds is not silent because it
+	// died. Codex reasons for well over this window between tool calls on a
+	// long task — measured live at 31s of complete quiet in the middle of a
+	// security review, with 337 more events still to come — and its shell
+	// commands finish in milliseconds, so OpenWork vouches for almost none of
+	// it (148 of 149 sweeps read open_work=false). This detector fired, the
+	// turn was abandoned mid-answer and the spinner went dark while the CLI
+	// carried on. Losing the connection is reconciled directly instead — see
+	// runner/connloss.go.
+	if d.deps.Liveness != nil && d.deps.Liveness.HasLiveAPIConnection(runner.ID) {
+		return false
+	}
 	since, ok := d.deps.Messages.UnfinishedSince(runner.CurrentChatID)
 	if !ok || since.IsZero() {
 		return false
@@ -172,6 +209,47 @@ func (d *detector) abandonedMessage(ctx context.Context, runner agents.Runner) b
 		if err != nil || open {
 			return false
 		}
+	}
+	closed, err := d.deps.Messages.AbandonMessageInferredInterrupt(ctx, runner.CurrentChatID)
+	if err != nil {
+		return false
+	}
+	return closed
+}
+
+// providerSaysItIsIdle closes a turn the provider itself has reported finished
+// and that nothing else ever closed.
+//
+// It is tried BEFORE the two screen-derived detectors because it is the only one
+// of the three that is authoritative rather than heuristic: the provider said so.
+// The others infer it from a notice sitting unchanged on a PTY for two minutes,
+// or from a half-written message going quiet — and a turn that only reasoned
+// produces neither, which is exactly the turn that used to hang forever.
+//
+// Deliberately NOT gated on OpenWork, unlike those two. A tool call or subagent
+// still open in Crowbar's ledger while the provider reports idle is a STALE
+// record, not live work — it is the provider that knows, and AbandonMessage
+// zeroes the async-work level as it closes. Gating on it would have preserved
+// exactly the stuck spinner this exists to clear.
+func (d *detector) providerSaysItIsIdle(ctx context.Context, runner agents.Runner) bool {
+	if d.deps.Idle == nil || d.deps.Messages == nil {
+		return false
+	}
+	since, ok := d.deps.Idle.ProviderIdleSince(runner.CurrentChatID)
+	if !ok || since.IsZero() {
+		return false
+	}
+	// The report lands microseconds before an ordinary turn close, so the wait is
+	// what separates "this turn is ending normally" from "nothing is going to end
+	// it". A close clears the latch, so a healthy turn never reaches here at all.
+	if d.now().Sub(since) < d.idleQuiet() {
+		return false
+	}
+	// A chat holding a prompt for a human is not stranded, whatever the provider
+	// says about its own idleness: the person is the one being waited on.
+	pending, err := d.deps.Choices.PendingChoices(ctx, runner.CurrentChatID)
+	if err != nil || len(pending) > 0 {
+		return false
 	}
 	closed, err := d.deps.Messages.AbandonMessage(ctx, runner.CurrentChatID)
 	if err != nil {

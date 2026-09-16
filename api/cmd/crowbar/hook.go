@@ -10,18 +10,21 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"github.com/char2cs/crowbar/api/internal/core/ipc"
 )
 
 const maxHookPayloadBytes = 64 << 20
 
 func newHookCmd() *cobra.Command {
-	var segment, provider, payloadFile, payloadInline, project, repo, workspace string
+	var segment, provider, payloadFile, payloadInline, project, repo, workspace, home string
 	cmd := &cobra.Command{
 		Use:    "hook <event>",
 		Short:  "Forward a vendor-CLI hook payload to the Crowbar daemon",
 		Args:   cobra.ExactArgs(1),
 		Hidden: true,
 		RunE: func(_ *cobra.Command, args []string) error {
+			applyHomeOverride(home)
 			// A hook must never break the vendor CLI: swallow every error into
 			// an exit-0 RunE, surfaced on stderr only (never stdout).
 			payload, err := resolvePayload(payloadInline, payloadFile, os.Stdin)
@@ -42,7 +45,7 @@ func newHookCmd() *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "", "provider id")
 	cmd.Flags().StringVar(&payloadFile, "payload-file", "", "read the payload from this file instead of stdin")
 	cmd.Flags().StringVar(&payloadInline, "payload", "", "inline payload instead of stdin")
-	bindScopeFlags(cmd, &project, &repo, &workspace)
+	bindScopeFlags(cmd, &project, &repo, &workspace, &home)
 	return cmd
 }
 
@@ -104,11 +107,12 @@ type hookRun struct {
 // process STAYS ALIVE. A vendor CLI holds its permission gate open for exactly as
 // long as its hook runs, so exiting is what lets its own dialog through.
 //
-// A DAEMON THAT CANNOT BE REACHED NEVER BLOCKS. The delivery error returns
-// immediately, nothing is printed, and the exit is 0 — so the CLI's dialog
-// reaches the human in milliseconds. That is strictly better than waiting out a
-// budget on a daemon that will never answer, and its worst case is exactly the
-// behaviour of a machine with no Crowbar on it.
+// A DAEMON THAT CANNOT BE REACHED NEVER BLOCKS. A delivery error returns
+// after a few quick, bounded retries (deliverHookEnvelopeWithRetry) — nothing
+// is printed beyond stderr, and the exit is 0 — so the CLI's dialog reaches
+// the human in at most a couple of seconds. That is strictly better than
+// waiting out a budget on a daemon that will never answer, and its worst case
+// is exactly the behaviour of a machine with no Crowbar on it.
 func runHook(run hookRun) error {
 	envelope := hookEnvelope{
 		DeliveryID: uuid.NewString(),
@@ -121,13 +125,11 @@ func runHook(run hookRun) error {
 		Workspace:  run.Workspace,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	if _, err := persistHookEnvelope(envelope); err != nil {
+	client, err := ipc.NewClient(run.Host)
+	if err != nil {
 		return err
 	}
-	// A failed or non-2xx delivery leaves the fsynced envelope in the spool.
-	// The daemon's loop and every later hook retry the same delivery id in FIFO
-	// order; nothing is discarded merely because this short-lived callback exits.
-	ack, err := drainHookSpoolFor(context.Background(), run.Host, envelope.DeliveryID)
+	ack, err := deliverHookEnvelopeWithRetry(context.Background(), client, envelope)
 	if err != nil {
 		return err
 	}

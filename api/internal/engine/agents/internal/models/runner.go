@@ -97,4 +97,11 @@ type ChatConversation struct {
 	ProviderID  string    `json:"providerId"`
 	SessionID   string    `json:"sessionId"`
 	FirstSeenAt time.Time `json:"firstSeenAt"`
+	// LastActiveAt is when a runner most recently bound or moved into this exact
+	// conversation — unlike FirstSeenAt, it moves forward on a REVISIT (a switch
+	// back to a provider this chat already ran, resuming its own prior session).
+	// It is what "which provider is current" must order by; FirstSeenAt alone
+	// answers a different question (when a conversation first opened) and goes
+	// stale the moment its provider is switched away from and back.
+	LastActiveAt time.Time `json:"lastActiveAt"`
 }

@@ -40,12 +40,13 @@ import (
 const mcpRelayTimeout = 120 * time.Second
 
 func newMCPCmd() *cobra.Command {
-	var project, repo, workspace, segment, token string
+	var project, repo, workspace, segment, token, home string
 	cmd := &cobra.Command{
 		Use:    "mcp",
 		Short:  "Relay MCP stdio traffic to the Crowbar daemon",
 		Hidden: true,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			applyHomeOverride(home)
 			client, err := ipc.NewClientWithTimeout("unix://", mcpRelayTimeout)
 			if err != nil {
 				return err
@@ -58,7 +59,7 @@ func newMCPCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&segment, "segment", "", "Crowbar segment id")
 	cmd.Flags().StringVar(&token, "token", "", "runner token minted at spawn")
-	bindScopeFlags(cmd, &project, &repo, &workspace)
+	bindScopeFlags(cmd, &project, &repo, &workspace, &home)
 	return cmd
 }
 

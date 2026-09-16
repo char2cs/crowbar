@@ -30,6 +30,16 @@ type TemplateCtx struct {
 	RepoID      string
 	WorkspaceID string
 
+	// CrowbarHome is the crowbar home this spawn was resolved against
+	// (spawnPaths.crowbarHome in the runner package). Every in-PTY callback
+	// (hook, mcp, handoff) must operate against THIS home, not whatever
+	// CROWBAR_HOME the vendor CLI's own hook/subprocess mechanism happens to
+	// forward — which is not guaranteed, and silently defaults to the user's
+	// real ~/.crowbar when absent. Baking it into the command line here,
+	// exactly like project/repo/workspace already are, makes delivery correct
+	// regardless of what environment the callback inherits.
+	CrowbarHome string
+
 	// Socket is the unix socket path an api-transport provider's `serve` and
 	// `attach` argv template against ({socket} in codex.yaml's
 	// runtime.api.serve/.attach). Short-lived, per-runner, and NEVER under a
@@ -58,6 +68,9 @@ func (c TemplateCtx) ScopeFlags() string {
 	if c.RepoID != "" {
 		flags += " --repo=" + c.RepoID
 	}
+	if c.CrowbarHome != "" {
+		flags += " --home=" + c.CrowbarHome
+	}
 	return flags
 }
 
@@ -75,6 +88,7 @@ func (c TemplateCtx) Replacer() *strings.Replacer {
 		"{effort}", c.Effort,
 		"{cwd}", c.Cwd,
 		"{crowbar_hook}", c.CrowbarHook,
+		"{crowbar_home}", c.CrowbarHome,
 
 		"{crowbar}", c.CrowbarHook,
 		"{segid}", c.Segid,

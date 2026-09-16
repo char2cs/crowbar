@@ -45,6 +45,7 @@ const (
 // are the on-disk format; a rename orphans every record already written.
 type PromptRequest struct {
 	RequestID         string    `json:"requestId"`
+	Text              string    `json:"text"`
 	TextHash          string    `json:"textHash"`
 	State             string    `json:"state"`
 	ProviderID        string    `json:"providerId"`
@@ -68,13 +69,17 @@ type PromptRequests interface {
 		chatID string,
 	) string
 	// Begin records a dispatching intent for requestID, creating the journal
-	// directory if needed. It reports whether an ATTEMPT for this id already
-	// existed (in which case the caller must classify it rather than dispatch),
-	// and refuses with ErrPromptBusy, ErrPromptOutcomeUnknown or
-	// ErrPromptRequestIDConflict when the journal already owes an answer.
+	// directory if needed. text is the literal prompt, stored so a lost
+	// frontend copy can be recovered later (see LatestRequest) — it is never
+	// used for matching, only textHash is. It reports whether an ATTEMPT for
+	// this id already existed (in which case the caller must classify it
+	// rather than dispatch), and refuses with ErrPromptBusy,
+	// ErrPromptOutcomeUnknown or ErrPromptRequestIDConflict when the journal
+	// already owes an answer.
 	Begin(
 		dir string,
 		requestID string,
+		text string,
 		textHash string,
 		providerID string,
 		outgoingRunnerID string,
@@ -146,6 +151,13 @@ type PromptRequests interface {
 	) (PromptRequest, bool, error)
 	// ActiveDelivery returns the journal's single in-flight record, if any.
 	ActiveDelivery(
+		dir string,
+	) (PromptRequest, bool, error)
+	// LatestRequest returns the journal's most recently updated record, if
+	// any, regardless of its state — unlike ActiveDelivery, which only
+	// surfaces a record still genuinely in flight. Its caller decides what a
+	// given state means for their own purpose (see Runners.PendingPrompt).
+	LatestRequest(
 		dir string,
 	) (PromptRequest, bool, error)
 	// HasPendingDelivery reports whether anything is genuinely in flight, first
@@ -227,6 +239,7 @@ func (s *promptRequests) Lookup(
 func (s *promptRequests) Begin(
 	dir string,
 	requestID string,
+	text string,
 	textHash string,
 	providerID string,
 	outgoingRunnerID string,
@@ -258,6 +271,7 @@ func (s *promptRequests) Begin(
 	}
 	record := PromptRequest{
 		RequestID:        requestID,
+		Text:             text,
 		TextHash:         textHash,
 		State:            PromptStateDispatching,
 		ProviderID:       providerID,
@@ -536,6 +550,27 @@ func (s *promptRequests) ActiveDelivery(dir string) (PromptRequest, bool, error)
 		return PromptRequest{}, false, err
 	}
 	return record, record.RequestID != "", nil
+}
+
+func (s *promptRequests) LatestRequest(dir string) (PromptRequest, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	records, err := readPromptRequests(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return PromptRequest{}, false, nil
+		}
+		return PromptRequest{}, false, err
+	}
+	var latest PromptRequest
+	found := false
+	for _, record := range records {
+		if !found || record.UpdatedAt.After(latest.UpdatedAt) {
+			latest = record
+			found = true
+		}
+	}
+	return latest, found, nil
 }
 
 func (s *promptRequests) RecoverOrphanedDispatches(dir string, now time.Time) error {

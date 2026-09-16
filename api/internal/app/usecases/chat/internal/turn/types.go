@@ -75,6 +75,15 @@ type Runners interface {
 	// delivery of an event the descriptor declares api-owned — see its own
 	// comment for why that combination means the delivery is a redundant echo.
 	HasLiveAPIConnection(runnerID string) bool
+	// ShowingNativeView reports whether runnerID is handed over to its
+	// provider's own view right now (runner.SwitchToTerminal). holdForAnswer
+	// reads it to stay out of a decision the CLI is about to put on screen
+	// itself — see its own comment.
+	ShowingNativeView(runnerID string) bool
+	// HasDispatchedOverAPI reports whether runnerID's live api connection has
+	// actually carried a prompt, as opposed to merely being established —
+	// apiOwnsThisEvent's own comment has the full reasoning.
+	HasDispatchedOverAPI(runnerID string) bool
 	// SettleDeliveryFor retires runnerID's pending prompt delivery on chatID
 	// right now, if it has one. handleObservation calls this on compact_post:
 	// compaction never confirms via a user_prompt hook or a ledger turn, so

@@ -24,6 +24,7 @@ type spawnPaths struct {
 	repoID      string
 	worktree    string
 	tmpDir      string
+	chatsDir    string
 }
 
 func (rs *Runners) spawnPaths(
@@ -75,6 +76,7 @@ func (rs *Runners) spawnPaths(
 		repoID:      repoID,
 		worktree:    worktree,
 		tmpDir:      tmpDir,
+		chatsDir:    chatsDir,
 	}, nil
 }
 
@@ -113,6 +115,7 @@ func (rs *Runners) renderSpawnContext(
 		Tmp:         in.tmpDir,
 		Cwd:         in.worktree,
 		CrowbarHook: rs.crowbarHookPath(in.crowbarHome),
+		CrowbarHome: in.crowbarHome,
 		Segid:       in.runnerID,
 		// The credential the descriptors hand `crowbar mcp` so this runner's tool
 		// calls can be attributed to it. Minted here because this is where the

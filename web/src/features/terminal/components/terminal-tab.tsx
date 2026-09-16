@@ -44,7 +44,18 @@ export function TerminalTab({
   isVisible = true,
 }: TerminalTabProps) {
   const handleTerminalExit = useCallback(() => {
-    windowPaneStore.getState().bufferActions.closeBuffer(bufferId)
+    // The PTY is already gone, so this buffer must be torn down regardless of
+    // how many panes still list it — closeBuffer only does that once NO pane
+    // references the id any more (see its own doc comment: a pane that still
+    // holds it reads as a SIBLING still showing a live split, which this is
+    // not). Strip every pane's membership first.
+    const state = windowPaneStore.getState()
+    for (const pane of Object.values(state.panes)) {
+      if (pane.editorTabIds.includes(bufferId)) {
+        state.paneActions.removeEditorTabFromPane(pane.id, bufferId)
+      }
+    }
+    state.bufferActions.closeBuffer(bufferId)
   }, [bufferId])
 
   const handleActivate = useCallback(() => {

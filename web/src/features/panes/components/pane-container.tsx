@@ -26,6 +26,7 @@ import TabBar from '@/features/tabs/components/tab-bar'
 import { ChatOnlyPaneHeader } from '@/features/tabs/components/chat-only-pane-header'
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
+import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import {
   clearInternalTabDragData,
   getInternalTabDragData,
@@ -49,10 +50,7 @@ import type {
   TerminalContent,
 } from '../types/pane-content'
 import { ensureBufferInPaneDropTarget } from '../utils/pane-drop-actions'
-import {
-  clearEditorPortalEntry,
-  setEditorPortalEntry,
-} from '../lib/editor-portal-registry'
+import { clearEditorPortalEntry, setEditorPortalEntry } from '../lib/editor-portal-registry'
 import { PANE_DROP_ATTR } from '@/components/sidebar/hooks/use-sidebar-drag'
 
 // Painted straight onto the DOM by `useSidebarDrag`'s own `paintPaneHit` —
@@ -323,7 +321,8 @@ export function PaneContainer({
   // spanning over the chat's too. `showTopLevelHeader` below is the ONLY
   // state where one header legitimately spans the whole pane: a single
   // surface (chat OR one editor tab) filling 100% of it.
-  const chatVisibleAlongsideEditor = Boolean(pane.chatId) && !chatFillsPane && presentation !== 'tabs'
+  const chatVisibleAlongsideEditor =
+    Boolean(pane.chatId) && !chatFillsPane && presentation !== 'tabs'
   const showTopLevelHeader = !pane.chatId || chatFillsPane || presentation === 'tabs'
   const isBottomPane = pane.id === BOTTOM_PANE_ID
 
@@ -466,7 +465,21 @@ export function PaneContainer({
 
   const handleExternalEditorExit = useCallback(() => {
     if (activeBuffer?.type === 'externalEditor') {
-      closeBufferForce(activeBuffer.id)
+      // The external process is already gone, so this buffer must be torn down
+      // regardless of how many panes still list it (an externalEditor buffer is
+      // shareable across a split, same as an ordinary editor — see
+      // getShareableSplitBufferId). closeBuffer only tears a buffer down once NO
+      // pane references the id any more, reading any remaining membership as a
+      // SIBLING still showing a live split — which this is not. Strip every
+      // pane's membership first.
+      const bufferId = activeBuffer.id
+      const state = windowPaneStore.getState()
+      for (const p of Object.values(state.panes)) {
+        if (p.editorTabIds.includes(bufferId)) {
+          state.paneActions.removeEditorTabFromPane(p.id, bufferId)
+        }
+      }
+      closeBufferForce(bufferId)
     }
   }, [activeBuffer, closeBufferForce])
 
@@ -669,6 +682,19 @@ export function PaneContainer({
     },
     [pane.id, handleFileOpen],
   )
+
+  const handleTauriFileDrop = useCallback(
+    async (paths: string[]) => {
+      if (paths.length === 0 || !handleFileOpen) return
+      windowPaneStore.getState().paneActions.setActivePane(pane.id)
+      for (const droppedPath of paths) {
+        // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open reads the pane's current tab list and appends, so concurrent opens could race on that read-modify-write and land tabs out of drop order. Rare (multi-file drag-drop), not a hot path.
+        await handleFileOpen(droppedPath, false)
+      }
+    },
+    [pane.id, handleFileOpen],
+  )
+  useTauriFileDrop(containerRef, handleTauriFileDrop)
 
   const renderActiveBuffer = useCallback(
     (buffer: PaneRenderBuffer) => {

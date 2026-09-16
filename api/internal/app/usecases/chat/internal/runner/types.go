@@ -30,6 +30,16 @@ type Conversations interface {
 		chatID string,
 		create bool,
 	) (engineagents.Selection, error)
+	// SetChatSelection pins the model and effort the chat's next CLI launches
+	// with, refusing a value the resolved provider does not declare. Reached
+	// from SubmitPromptWithSwitch (promptswitch.go) so a staged model/effort
+	// commits under the SAME spawn-gate hold as the staged provider switch and
+	// the delivery that follows it — see that file's own doc for why.
+	SetChatSelection(
+		ctx context.Context,
+		chatID string,
+		model, effort string,
+	) error
 	// ChatTurns is the chat's turns, read to decide whether a resumed CLI has
 	// anything to be told about.
 	ChatTurns(
@@ -115,10 +125,12 @@ type Turns interface {
 		chatID string,
 	) (bool, error)
 	// RecordStop notes, durably, that a person cut chatID's in-flight turn
-	// short. A no-op when the chat is idle.
+	// short. A no-op when the chat is idle. runnerID serialises this against
+	// that runner's own in-flight hook ingestion — see the implementation's
+	// doc for why.
 	RecordStop(
 		ctx context.Context,
-		chatID string,
+		chatID, runnerID string,
 	) error
 	// RecordChatSwitch notes, durably, that Crowbar itself changed chatID's
 	// provider, model or effort. kind is one of
@@ -130,7 +142,8 @@ type Turns interface {
 		chatID, kind, detail string,
 	) error
 	// SetMessageDelta wires the growing-assistant-message fan-out at sweep start.
-	SetMessageDelta(fn func(chatID, workspaceID, messageID, text string))
+	SetMessageDelta(fn func(chatID, workspaceID, messageID, text, kind string))
+	SetPlanUpdate(fn func(chatID, workspaceID string, steps []engineagents.PlanStep))
 	// SetCompactionStatus wires the live compact_pre/compact_post fan-out at
 	// sweep start — see turn.Turns.SetCompactionStatus's own doc comment for
 	// why this cannot ride the ledger's interruption record.
@@ -145,13 +158,14 @@ type Turns interface {
 		runner engineagents.Runner,
 	) (bool, error)
 
-	// The four seams the terminal-wait detector reads through. They are here
+	// The five seams the terminal-wait detector reads through. They are here
 	// rather than passed separately because they all belong to the hook side, and
 	// splitting them would only make the detector's construction lie about that.
 	termwait.Prompts
 	termwait.Notices
 	termwait.Work
 	termwait.Messages
+	termwait.Idle
 	// CloseStalledTurn ends a turn the screen says will never finish — a usage
 	// limit, a service outage — because no hook will ever report it.
 	CloseStalledTurn(ctx context.Context, stall seam.Stall)

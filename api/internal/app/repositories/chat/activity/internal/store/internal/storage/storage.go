@@ -43,19 +43,55 @@ func (s *Store) SaveTurn(ctx context.Context, t domain.ActivityTurn) error {
 }
 
 func (s *Store) SaveToolCall(ctx context.Context, c domain.ActivityToolCall) error {
-	return upsert(ctx, s.db, ToolCallRow{
+	row := ToolCallRow{
 		Key: rowKey(c.ChatID, c.ID), ID: c.ID, TurnID: c.TurnID, ChatID: c.ChatID,
 		Seq: c.Seq, Name: c.Name, Target: c.Target,
 		RequestRef: c.RequestRef, ResultRef: c.ResultRef,
 		Status: c.Status, Error: c.Error, DurationMS: c.DurationMS,
-		StartedAt: c.StartedAt, EndedAt: c.EndedAt,
-	})
+		SubagentID: c.SubagentID,
+		StartedAt:  c.StartedAt, EndedAt: c.EndedAt,
+	}
+	// c.TurnID is empty for two different reasons, and only one wants this merge:
+	// CompleteTool's own aggregate had no open turn left to attribute this call
+	// to — the turn already closed and cleared the in-flight map (CloseTurn),
+	// and this is a tool_post arriving late for a call the CLI kept running past
+	// the turn's own end. AbandonRunningTools already closed that row correctly,
+	// with its real turn id and start time; blindly upserting this call's own
+	// now/empty guesses over it would clobber that with a fabricated, turn-less,
+	// zero-duration-looking record — observed live on a user Stop that landed
+	// mid-tool-call. Merge in the outcome only.
+	//
+	// A SUBAGENT's own tool call (c.SubagentID set) has NO TurnID by design,
+	// never as a symptom of lateness — InvokeSubagentTool/CompleteSubagentTool
+	// already carry its own name/target/start time through correctly on their
+	// own, so this merge has nothing to add and is skipped for it.
+	if c.TurnID == "" && c.SubagentID == "" {
+		var existing ToolCallRow
+		if err := s.db.WithContext(ctx).Where("key = ?", row.Key).First(&existing).Error; err == nil {
+			row.TurnID, row.StartedAt = existing.TurnID, existing.StartedAt
+			if row.Name == "" {
+				row.Name = existing.Name
+			}
+			if row.Target == "" {
+				row.Target = existing.Target
+			}
+			if row.RequestRef == "" {
+				row.RequestRef = existing.RequestRef
+			}
+		}
+	}
+	return upsert(ctx, s.db, row)
 }
 
 func (s *Store) SaveSubagent(ctx context.Context, a domain.ActivitySubagent) error {
+	messages, err := encodeList(a.Messages)
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: encode subagent messages: %w", err)
+	}
 	return upsert(ctx, s.db, SubagentRow{
 		Key: rowKey(a.ChatID, a.ID), ID: a.ID, TurnID: a.TurnID, ChatID: a.ChatID,
 		Seq: a.Seq, AgentType: a.AgentType, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
+		Messages: messages,
 	})
 }
 
@@ -76,6 +112,10 @@ func (s *Store) SaveChoice(ctx context.Context, c domain.ActivityChoice) error {
 	if err != nil {
 		return fmt.Errorf("agentactivity storage: encode choice questions: %w", err)
 	}
+	answeredOptionIDs, err := encodeList(c.AnsweredOptionIDs)
+	if err != nil {
+		return fmt.Errorf("agentactivity storage: encode choice answered option ids: %w", err)
+	}
 	return upsert(ctx, s.db, ChoiceRow{
 		Key: rowKey(c.ChatID, c.ID), ID: c.ID, TurnID: c.TurnID, ChatID: c.ChatID,
 		Seq: c.Seq, Kind: c.Kind, PromptID: c.PromptID,
@@ -83,7 +123,7 @@ func (s *Store) SaveChoice(ctx context.Context, c domain.ActivityChoice) error {
 		Title: c.Title, Question: c.Question, Mode: c.Mode, Multi: c.Multi,
 		Options: options, Questions: questions, Schema: c.Schema,
 		At: c.At, ResolvedAt: c.ResolvedAt, Resolution: c.Resolution,
-		AutoApproved: c.AutoApproved,
+		AutoApproved: c.AutoApproved, AnsweredOptionIDs: answeredOptionIDs,
 	})
 }
 
@@ -160,6 +200,24 @@ func (s *Store) AbandonRunningTools(ctx context.Context, chatID string, endedAt 
 		}).Error
 }
 
+// AbandonRunningSubagents closes every subagent this chat has that never
+// closed itself, e.g. its subagent_post was dropped, or the process behind it
+// crashed or was killed mid-run — the subagent's own equivalent of
+// AbandonRunningTools. It returns how many rows it closed so the caller can
+// treat a nonzero count as a leak signal worth logging: unlike a tool call,
+// SubagentRow has no status column, so ended_at IS NULL is the only "still
+// running" a caller (OpenWork, in turn) can ever check, and without this call
+// that row stays that way forever, chat-wide, well past the turn or run that
+// leaked it.
+func (s *Store) AbandonRunningSubagents(
+	ctx context.Context, chatID string, endedAt *time.Time,
+) (int64, error) {
+	result := s.db.WithContext(ctx).Model(&SubagentRow{}).
+		Where("chat_id = ? AND ended_at IS NULL", chatID).
+		Update("ended_at", endedAt)
+	return result.RowsAffected, result.Error
+}
+
 func (s *Store) ResolveOpenInterruptions(ctx context.Context, chatID string, at *time.Time) error {
 	return s.db.WithContext(ctx).Model(&InterruptionRow{}).
 		Where("chat_id = ? AND resolved_at IS NULL", chatID).
@@ -176,6 +234,41 @@ func (s *Store) DeleteChat(ctx context.Context, chatID string) error {
 		}
 	}
 	return nil
+}
+
+// ToolCallRefs returns every non-empty RequestRef/ResultRef chatID's tool
+// calls carry. Forget calls this BEFORE DeleteChat erases those rows, so it
+// knows what to check for continued use afterward.
+func (s *Store) ToolCallRefs(ctx context.Context, chatID string) ([]string, error) {
+	var rows []ToolCallRow
+	if err := s.db.WithContext(ctx).Where("chat_id = ?", chatID).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("agentactivity storage: tool call refs: %w", err)
+	}
+	refs := make([]string, 0, len(rows)*2)
+	for _, r := range rows {
+		if r.RequestRef != "" {
+			refs = append(refs, r.RequestRef)
+		}
+		if r.ResultRef != "" {
+			refs = append(refs, r.ResultRef)
+		}
+	}
+	return refs, nil
+}
+
+// RefInUse reports whether any tool call row anywhere still references ref —
+// the liveness check Forget runs, per ref, AFTER deleting the forgotten
+// chat's own rows, so a shared (deduplicated) blob is never deleted out from
+// under a chat that still legitimately points at it.
+func (s *Store) RefInUse(ctx context.Context, ref string) (bool, error) {
+	var count int64
+	err := s.db.WithContext(ctx).Model(&ToolCallRow{}).
+		Where("request_ref = ? OR result_ref = ?", ref, ref).
+		Limit(1).Count(&count).Error
+	if err != nil {
+		return false, fmt.Errorf("agentactivity storage: ref in use: %w", err)
+	}
+	return count > 0, nil
 }
 
 func (s *Store) Empty(ctx context.Context) (bool, error) {

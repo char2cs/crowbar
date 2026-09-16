@@ -283,7 +283,7 @@ func TestRegression_AProviderWithNoAnswerChannelHoldsNoRelay(t *testing.T) {
 // TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI is the
 // positive half of a9ebb6f1's promise ("permission and elicitation are now
 // answerable" — see the commit's own message): codex's hooks-delivered
-// PermissionRequest and its api-transport item/permissions/requestApproval
+// PermissionRequest and its api-transport item/commandExecution/requestApproval
 // share one canonical "permission" event and one reply: block, so a human's
 // Allow must reach a hooks-delivered relay exactly as it already does for
 // claude (TestAnswer_APermissionIsAnsweredFromCrowbarAndReachesTheCLI) — just
@@ -308,7 +308,7 @@ func TestRegression_ACodexPermissionIsAnsweredFromCrowbarAndReachesTheCLI(t *tes
 	require.NoError(t, f.usecase.AnswerChoice(f.ctx, chatID, pending[0].ID, []string{"allow"}, "", nil))
 	f.wait()
 
-	assert.JSONEq(t, `{"decision":"approved"}`, <-printed)
+	assert.JSONEq(t, `{"decision":"accept"}`, <-printed)
 	assert.Empty(t, pendingChoices(t, f, chatID), "an answered prompt stops pending")
 }
 

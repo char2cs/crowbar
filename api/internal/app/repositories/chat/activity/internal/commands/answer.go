@@ -63,6 +63,7 @@ func (c AnswerChoice) EmitEvent(current *domain.ChatActivity) domain.ChatActivit
 	item.ResolvedAt = at(c.Now)
 	item.Resolution = domain.ChoiceResolutionAnswered
 	item.AutoApproved = c.Auto
+	item.AnsweredOptionIDs = c.OptionIDs
 	next.Last = &domain.ActivityDelta{
 		Phase: domain.DeltaClose, Kind: domain.DeltaChoice, Choice: &item,
 	}

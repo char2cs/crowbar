@@ -18,6 +18,16 @@ const DefaultDeliveryQuiet = 30 * time.Second
 
 const DefaultMessageQuiet = 30 * time.Second
 
+// DefaultIdleQuiet is how long a provider's own idle report is allowed to stand
+// before the turn it belongs to is treated as one nothing will ever close.
+//
+// Far shorter than the screen-scraping quiet periods around it, because the
+// signal is AUTHORITATIVE rather than heuristic: the provider said it is doing
+// nothing. Measured against codex-cli 0.149.1, the gap between that report and
+// the turn's own close on a healthy turn is sub-millisecond, so this is roughly
+// four orders of magnitude of headroom.
+const DefaultIdleQuiet = 5 * time.Second
+
 type Runners interface {
 	AllLive(ctx context.Context) ([]engineagents.Runner, error)
 }
@@ -54,6 +64,13 @@ type Work interface {
 	OpenWork(ctx context.Context, chatID string) (bool, error)
 }
 
+// Idle reports when the provider itself last said it was doing nothing, if
+// nothing has closed the turn since. See turn/idle.go for why it is a latch the
+// sweep reads rather than something acted on where it arrives.
+type Idle interface {
+	ProviderIdleSince(chatID string) (at time.Time, ok bool)
+}
+
 type Publish func(chatID, workspaceID string, wait domain.AgentTerminalWait)
 
 type Stalled func(ctx context.Context, stall seam.Stall)
@@ -62,6 +79,28 @@ type Messages interface {
 	UnfinishedSince(chatID string) (at time.Time, ok bool)
 
 	AbandonMessage(ctx context.Context, chatID string) (bool, error)
+
+	// AbandonMessageInferredInterrupt is AbandonMessage plus a durable record of
+	// why: abandonedMessage (evaluate.go) is the one place a hooks/PTY provider's
+	// silent, hookless abort — an ESC/Ctrl+C the CLI reports to nobody — is ever
+	// caught at all, so closing the turn there must also record that Crowbar
+	// INFERRED the interruption rather than observed one. providerSaysItIsIdle
+	// stays on the bare AbandonMessage above: a provider's own idle report is an
+	// authoritative completion, not something Crowbar is guessing at.
+	AbandonMessageInferredInterrupt(ctx context.Context, chatID string) (bool, error)
+}
+
+// Liveness answers whether Crowbar still holds the live provider connection this
+// runner's turn is riding on.
+//
+// It exists to keep the message-quiet heuristic off the one transport that does
+// not need it. That heuristic infers "the CLI is gone" from an assistant message
+// going quiet — the only thing a hooks/PTY provider gives you to infer it from.
+// A connection-carried turn answers the same question directly, and its loss is
+// reconciled on its own (runner/connloss.go), so silence there is a model
+// thinking, not a death.
+type Liveness interface {
+	HasLiveAPIConnection(runnerID string) bool
 }
 
 type Deliveries interface {
@@ -74,6 +113,11 @@ type Delivery struct {
 	RequestID string
 
 	RunnerID string
+
+	// CreatedAt is when this delivery was journalled, and is what the delivery
+	// timeout is actually measured against — see settleDelivery for why the
+	// screen's own quiet clock cannot stand in for it.
+	CreatedAt time.Time
 }
 
 type Deps struct {
@@ -91,6 +135,10 @@ type Deps struct {
 
 	Messages Messages
 
+	Liveness Liveness
+
+	Idle Idle
+
 	Interval time.Duration
 
 	StallQuiet time.Duration
@@ -98,6 +146,8 @@ type Deps struct {
 	DeliveryQuiet time.Duration
 
 	MessageQuiet time.Duration
+
+	IdleQuiet time.Duration
 
 	Now func() time.Time
 }
@@ -178,6 +228,13 @@ func (d *detector) messageQuiet() time.Duration {
 		return d.deps.MessageQuiet
 	}
 	return DefaultMessageQuiet
+}
+
+func (d *detector) idleQuiet() time.Duration {
+	if d.deps.IdleQuiet > 0 {
+		return d.deps.IdleQuiet
+	}
+	return DefaultIdleQuiet
 }
 
 func (d *detector) now() time.Time {

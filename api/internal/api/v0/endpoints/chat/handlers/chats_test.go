@@ -403,7 +403,7 @@ func (*configurableListGetUsecase) ReadMessages(
 }
 
 func (*configurableListGetUsecase) SubmitPrompt(
-	context.Context, string, string, string,
+	context.Context, string, string, string, string, string, string,
 ) (domain.AgentPromptSubmission, error) {
 	return domain.AgentPromptSubmission{}, nil
 }
@@ -412,6 +412,12 @@ func (*configurableListGetUsecase) SlashCatalog(
 	context.Context, string,
 ) (engineagents.SlashCatalog, error) {
 	return engineagents.SlashCatalog{}, nil
+}
+
+func (*configurableListGetUsecase) PendingPrompt(
+	context.Context, string,
+) (domain.PendingPrompt, bool, error) {
+	return domain.PendingPrompt{}, false, nil
 }
 
 func (u *configurableListGetUsecase) LiveRunnerForChat(
@@ -682,8 +688,8 @@ func TestList_DormantChatFallsBackToLastConversationProvider(
 		// No live runner for c1: the chat is dormant.
 		conversations: map[string][]engineagents.ChatConversation{
 			"c1": {
-				{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC()},
-				{ChatID: "c1", ProviderID: "vendor-b", SessionID: "sess-2", FirstSeenAt: time.Unix(2, 0).UTC()},
+				{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC(), LastActiveAt: time.Unix(1, 0).UTC()},
+				{ChatID: "c1", ProviderID: "vendor-b", SessionID: "sess-2", FirstSeenAt: time.Unix(2, 0).UTC(), LastActiveAt: time.Unix(2, 0).UTC()},
 			},
 		},
 	}
@@ -702,7 +708,7 @@ func TestList_DormantChatFallsBackToLastConversationProvider(
 	require.Len(t, envelope.Data, 1)
 	assert.Empty(t, envelope.Data[0].LiveRunnerID, "a dormant chat has no runner: absence IS the liveness answer")
 	assert.Empty(t, envelope.Data[0].TerminalSessionID, "no runner, no PTY to attach to")
-	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID, "dormant falls back to the LAST conversation's provider")
+	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID, "dormant falls back to the MOST RECENTLY ACTIVE conversation's provider")
 }
 
 // TestList_LiveChatCarriesRunnerAndPTY proves the live join: a chat a runner is
@@ -1295,6 +1301,18 @@ func (configurableListGetUsecase) SetChatPermissionLevel(
 
 func (configurableListGetUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 	return engineagents.Telemetry{}, false
+}
+
+func (configurableListGetUsecase) UploadAttachment(
+	context.Context, string, agentusecase.UploadAttachmentInput,
+) (agentusecase.StoredAttachment, error) {
+	return agentusecase.StoredAttachment{}, nil
+}
+
+func (configurableListGetUsecase) ReadAttachment(
+	context.Context, string, string,
+) ([]byte, string, error) {
+	return nil, "", nil
 }
 
 // TestSetSelection_ForwardsTheWholeSelection proves the endpoint decodes both

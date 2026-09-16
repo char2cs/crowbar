@@ -12,18 +12,59 @@ const WARN_AT = 85
  * gets no gauge rather than an empty one, because "not reported" and "zero" are
  * different facts and a 0% bar over the first is a lie.
  */
-export function AgentContextGauge({ telemetry }: { telemetry: AgentTelemetry | null }) {
+export function AgentContextGauge({
+  telemetry,
+  onCompact,
+}: {
+  telemetry: AgentTelemetry | null
+  /**
+   * The one gesture that spends less — offered here because this is the one
+   * control on screen already reporting WHY someone would reach for it.
+   * Absent means exactly what every other optional control in this bar means
+   * (see provider-bar.tsx's own doc): the caller has already decided
+   * compaction cannot be offered right now (the provider declares no
+   * gesture, the chat is not live, or one is already running), so this stays
+   * the plain, non-interactive gauge it always was rather than a disabled
+   * button — the house rule is absence, never a greyed-out control.
+   */
+  onCompact?: () => void
+}) {
   const used = telemetry?.context?.usedPercent
   if (used === undefined) return null
   const pct = Math.max(0, Math.min(100, used))
+  const bar = (
+    <span className={cn('gbar', pct >= WARN_AT && 'warn')}>
+      <span style={{ width: `${pct}%` }} />
+    </span>
+  )
+  const title = contextTitle(telemetry)
+
+  if (!onCompact) {
+    return (
+      <span className="gauge" title={title} data-testid="agent-context-gauge">
+        {bar}
+        {Math.round(used)}% context
+      </span>
+    )
+  }
 
   return (
-    <span className="gauge" title={contextTitle(telemetry)} data-testid="agent-context-gauge">
-      <span className={cn('gbar', pct >= WARN_AT && 'warn')}>
-        <span style={{ width: `${pct}%` }} />
+    <button
+      type="button"
+      className="gauge chip"
+      title={title}
+      data-testid="agent-context-gauge"
+      onClick={onCompact}
+    >
+      {bar}
+      {/* Swapped by CSS on hover (composer.css) — the same instant the row's
+          other chips turn interactive, this one turns from a report into an
+          offer instead of adding a second element beside it. */}
+      <span className="gtext">
+        <span className="gpct">{Math.round(used)}% context</span>
+        <span className="gaction">Compact</span>
       </span>
-      {Math.round(used)}% context
-    </span>
+    </button>
   )
 }
 

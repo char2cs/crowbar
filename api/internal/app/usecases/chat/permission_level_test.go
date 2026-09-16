@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -176,4 +178,48 @@ func TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption(
 			"interruption %s must have closed alongside its answered choice, not been left "+
 				"stranded under an id nothing ever resolves", i.ID)
 	}
+}
+
+// TestRegression_ARedeliveredNoPromptIDPermission_DoesNotOpenASecondChoice
+// covers the other half of the same gap: even paired, the id
+// TestRegression_APermissionWithNoPromptIDStillPairsItsChoiceAndInterruption
+// checks was still choice-<fallbackID()> for a no-prompt-id provider — a
+// fresh, unrepeatable value every time the observation runs.
+//
+// IngestHookDelivery's own Begin/Complete bookkeeping already dedupes an
+// identical (deliveryID, payload) POST before it ever reaches this far — so
+// this drives the ingest path IngestHookDelivery itself sits in front of
+// (IngestHook, ctx carrying the SAME inflight delivery id both times) to
+// isolate choiceID's own behavior: a delivery whose completion was never
+// recorded (the daemon restarting between Begin and Complete, a buffered
+// hook replayed after a crash — see ingest.go's own replayCtx) re-runs the
+// observation for real, under the SAME delivery id both times. Keying its
+// fallback on inflight.RecordID instead of a fresh fallbackID() — the same
+// id the answer relay itself already correlates an ask by (see
+// vocabulary.yaml's `permission` entry) — makes THAT replay idempotent: the
+// second run writes the same choiceID the first one did, so the store
+// absorbs it instead of stranding two open choices behind one real question.
+func TestRegression_ARedeliveredNoPromptIDPermission_DoesNotOpenASecondChoice(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	hook(t, f, runnerID, "claude", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
+
+	payload := permissionPayload()
+	delete(payload, "prompt_id")
+	raw := mustJSON(t, payload)
+	ctx := inflight.WithDeliveryID(f.ctx, uuid.NewString())
+
+	require.NoError(t, f.usecase.IngestHook(ctx, runnerID, "claude", engineagents.HookPermission, raw))
+	f.wait()
+	first := pendingChoices(t, f, chatID)
+	require.Len(t, first, 1)
+
+	// The same delivery id replayed, as a crash-recovery replay of a hook
+	// whose completion was never durably recorded would arrive — not a new ask.
+	require.NoError(t, f.usecase.IngestHook(ctx, runnerID, "claude", engineagents.HookPermission, raw))
+	f.wait()
+
+	second := pendingChoices(t, f, chatID)
+	require.Len(t, second, 1, "a replayed delivery must not open a second choice")
+	assert.Equal(t, first[0].ID, second[0].ID)
 }

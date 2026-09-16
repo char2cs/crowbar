@@ -15,12 +15,23 @@ func (d *Descriptor) EventFields(canonical string) (map[string]string, bool) {
 	return e.Map, true
 }
 
+// EventSteps is the structured `steps:` extra for an event, if it declares one.
+// It is separate from EventFields because a flat field map cannot express a LIST
+// of {text, status} pairs — see StepsSpec.
+func (d *Descriptor) EventSteps(canonical string) *StepsSpec {
+	e, ok := d.Events[canonical]
+	if !ok {
+		return nil
+	}
+	return e.Steps
+}
+
 // DeclaredEvents lists every canonical event the provider observes, sorted.
 func (d *Descriptor) DeclaredEvents() []string {
 	var out []string
 	for name, e := range d.Events {
 		// Outbound events are things Crowbar SENDS; they are not observations.
-		if e.Out != "" {
+		if !e.Out.Empty() {
 			continue
 		}
 		out = append(out, name)
@@ -36,7 +47,7 @@ func (d *Descriptor) DeclaredEvents() []string {
 // decision would reach nobody, which is the case for codex permissions.
 func (d *Descriptor) AnswerFor(canonical string) (AnswerEventSpec, bool) {
 	e, ok := d.Events[canonical]
-	if !ok || e.Ask == "" {
+	if !ok || e.Ask.Empty() {
 		return AnswerEventSpec{}, false
 	}
 	if e.Answerable != nil && !*e.Answerable {
@@ -55,8 +66,8 @@ func (d *Descriptor) AnswerFor(canonical string) (AnswerEventSpec, bool) {
 // WireName returns the provider's own name for a canonical event — the hook name or
 // the RPC method.
 func (d *Descriptor) WireName(canonical string) string {
-	name, _ := d.Events[canonical].WireEvent()
-	return name
+	ref, _ := d.Events[canonical].WireEvent()
+	return ref.Name()
 }
 
 // HookFormat is the payload encoding for hook-transport providers.

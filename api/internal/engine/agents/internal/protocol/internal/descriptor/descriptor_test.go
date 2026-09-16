@@ -72,6 +72,26 @@ func TestResolve_FallsBackToTheEmbeddedDefault(t *testing.T) {
 	assert.Equal(t, "claude", d.Spawn.Cmd)
 }
 
+// REGRESSION. Both shipped CLIs open a shell mode on a message whose FIRST
+// character is `!` — and Crowbar's own image-attachment encoding, `![alt](…)`,
+// puts one there whenever something is attached before anything is typed.
+// Measured on codex-cli 0.149.1: the message was RUN instead of sent. The
+// dispatch-time guard is driven entirely off this declaration, so a descriptor
+// that stops declaring it silently re-opens the hole.
+func TestRegression_ShippedDescriptorsDeclareTheirShellModeSigil(t *testing.T) {
+	for _, id := range []string{"claude", "codex"} {
+		t.Run(id, func(t *testing.T) {
+			d, err := descriptor.Resolve(context.Background(), t.TempDir(), id)
+
+			require.NoError(t, err)
+			require.NotNil(t, d.Presentation.PromptSubmit)
+			require.NotNil(t, d.Presentation.PromptSubmit.LeadingSigils)
+			assert.Equal(t, []string{"!"}, d.Presentation.PromptSubmit.LeadingSigils.Chars)
+			assert.NotEmpty(t, d.Presentation.PromptSubmit.LeadingSigils.Escape)
+		})
+	}
+}
+
 func TestResolve_UnknownIDIsNotFound(t *testing.T) {
 	_, err := descriptor.Resolve(context.Background(), "", "no-such-provider")
 
@@ -269,14 +289,24 @@ func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
 	assert.NotEmpty(t, d.Runtime.API.Serve)
 	assert.NotEmpty(t, d.Runtime.Hooks.Format, "hooks stay declared — see codex.yaml's own comment on why")
 
-	hooksOnly := []string{"subagent_pre", "subagent_post", "compact_pre", "compact_post", "session_end"}
+	// subagent_pre/subagent_post remain the known gap (B1's nested-thread/
+	// collab-tool-call model does not fit StartSubagent/StopSubagent yet —
+	// see codex.yaml's own comment). session_end stays on hooks too: its
+	// dispatch is already a no-op on either transport, and no live-reachable
+	// api equivalent was found — see codex.yaml's comment there.
+	hooksOnly := []string{"subagent_pre", "subagent_post", "session_end"}
 	for _, name := range hooksOnly {
 		assert.Equal(t, "hooks", d.TransportFor(name),
 			"event %q must stay on hooks — the API does not carry it", name)
 	}
+	// compact_pre/compact_post moved off hooks: confirmed live that
+	// thread/compact/start's contextCompaction item rides the same
+	// item/started/item/completed stream tool_pre/tool_post already consume
+	// on the api transport — see codex.yaml's own comment.
 	apiOnly := []string{
 		"session_start", "user_prompt", "turn_stop", "tool_pre", "tool_post",
 		"message_delta", "permission", "elicitation", "telemetry", "interrupt", "compact_start",
+		"compact_pre", "compact_post",
 	}
 	for _, name := range apiOnly {
 		assert.Equal(t, "api", d.TransportFor(name), "event %q must be on the api default", name)

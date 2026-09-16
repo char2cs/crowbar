@@ -4,6 +4,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage, AgentProvider, SlashCatalog } from '@/features/agent/api/agent-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
+import {
+  __resetScrollPositionsForTests,
+  getScrollPosition,
+  setScrollPosition,
+} from '@/features/agent/hooks/lib/transcript-scroll-positions'
 import { ApiError } from '@/lib/api'
 import { __resetPerfForTests } from '@/lib/perf/instrumentation'
 import { ESTIMATED_ROW_HEIGHT } from '@/features/agent/transcript/agent-transcript'
@@ -22,6 +27,7 @@ const { listMessagesFn, submitPromptFn, slashCatalogFn, setSelectionFn, stopChat
 )
 
 vi.mock('@/features/agent/api/agent-api', () => ({
+  getPendingPrompt: vi.fn().mockResolvedValue(null),
   listChatMessages: (...args: unknown[]) => listMessagesFn(...args),
   submitAgentPrompt: (...args: unknown[]) => submitPromptFn(...args),
   getSlashCatalog: (...args: unknown[]) => slashCatalogFn(...args),
@@ -160,6 +166,7 @@ const baseProps = () => ({
   providerId: 'codex',
   providers,
   working: false,
+  compacting: false,
   turnRevision: 0,
   live: true,
   active: true,
@@ -182,8 +189,12 @@ const baseProps = () => ({
   // signpost to hand down, so the component's own default (undefined,
   // rendering the ordinary control row) is fine left unset.
   blankSignpost: undefined as ReactNode | undefined,
-  // No sticky selection: these fixtures' providers declare no catalogue, so the
-  // picker renders nothing at all here (see agent-model-picker.test.tsx).
+  // Nothing staged: `provider` mirrors `providerId` exactly as
+  // AgentChatPane's own effectiveProviderId does when stagedSelection is
+  // null. No sticky model/effort: these fixtures' providers declare no
+  // catalogue, so the picker renders nothing at all here (see
+  // agent-model-picker.test.tsx).
+  provider: 'codex',
   model: '',
   effort: '',
   onSelectionChange: vi.fn(),
@@ -567,7 +578,7 @@ describe('AgentChatView durable FIFO', () => {
 
     await waitFor(() => expect(refresh).toHaveBeenCalled())
     await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
-    expect(submitPromptFn.mock.calls[0]?.slice(2)).toEqual(['survive reload', clientRequestId])
+    expect(submitPromptFn.mock.calls[0]?.slice(2, 4)).toEqual(['survive reload', clientRequestId])
   })
 
   it('bulk-cancels only safely unsent rows and preserves every in-flight identity', async () => {
@@ -909,7 +920,15 @@ describe('AgentChatView composer controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send prompt' }))
 
     await waitFor(() =>
-      expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', 'click to send', expect.any(String)),
+      expect(submitPromptFn).toHaveBeenCalledWith(
+        'w1',
+        'c1',
+        'click to send',
+        expect.any(String),
+        '',
+        '',
+        '',
+      ),
     )
   })
 
@@ -928,6 +947,9 @@ describe('AgentChatView composer controls', () => {
         'c1',
         'first ever message',
         expect.any(String),
+        '',
+        '',
+        '',
       ),
     )
   })
@@ -1156,7 +1178,15 @@ describe('AgentChatView slash catalog', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await act(async () => vi.advanceTimersByTimeAsync(0))
-    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', '/compact', expect.any(String))
+    expect(submitPromptFn).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      '/compact',
+      expect.any(String),
+      '',
+      '',
+      '',
+    )
     vi.useRealTimers()
   })
 
@@ -1210,7 +1240,15 @@ describe('AgentChatView slash catalog', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     await act(async () => vi.advanceTimersByTimeAsync(0))
-    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', '/clear', expect.any(String))
+    expect(submitPromptFn).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      '/clear',
+      expect.any(String),
+      '',
+      '',
+      '',
+    )
     vi.useRealTimers()
   })
 
@@ -1375,27 +1413,61 @@ describe('AgentChatView model + effort selection', () => {
   it('shows no picker at all for a provider that declares no catalogue', async () => {
     setup()
     await composer()
-    expect(screen.queryByTestId('agent-model-picker')).toBeNull()
+    expect(screen.queryByTestId('agent-selection-picker')).toBeNull()
   })
 
   it('puts the picker by the composer when the provider declares one', async () => {
     setup({ providers: selectable })
     await composer()
-    expect(screen.getByTestId('agent-model-picker')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Model:/ })).toHaveTextContent('Default model')
+    expect(screen.getByTestId('agent-selection-picker')).toBeInTheDocument()
   })
 
-  it('writes a picked model and hands the accepted pair back to the chat owner', async () => {
+  // The picker never writes selection itself any more — see
+  // agent-selection-picker.test.tsx for its own local-staging behavior. This
+  // file's job is the OTHER half: proving AgentChatView never calls
+  // setChatSelection on a mere pick, and that the pick travels on the NEXT
+  // send instead (submitAgentPrompt's model/effort args), atomically.
+  it('a pick updates the chat owner locally without ever calling setChatSelection', async () => {
     const onSelectionChange = vi.fn()
     setup({ providers: selectable, model: 'gpt-5.6-sol', effort: 'ultra', onSelectionChange })
     await composer()
 
-    fireEvent.click(screen.getByRole('button', { name: /^Model:/ }))
+    fireEvent.click(screen.getByTestId('agent-selection-picker'))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'gpt-5.6-luna' }))
 
-    // `ultra` is not a gpt-5.6-luna level, so it is cleared in the same write.
-    await waitFor(() => expect(setSelectionFn).toHaveBeenCalledWith('w1', 'c1', 'gpt-5.6-luna', ''))
-    expect(onSelectionChange).toHaveBeenCalledWith('gpt-5.6-luna', '')
+    // `ultra` is not a gpt-5.6-luna level, so it lands on that model's own
+    // first declared level (`low`) — the new picker has no "provider
+    // default" row to clear back to instead. gpt-5.6-luna is still codex —
+    // the picker's OWN provider (the row's section), staged alongside it.
+    expect(onSelectionChange).toHaveBeenCalledWith('codex', 'gpt-5.6-luna', 'low')
+    expect(setSelectionFn).not.toHaveBeenCalled()
+  })
+
+  it('carries the staged model/effort onto the NEXT send, atomically with the prompt', async () => {
+    setup({ providers: selectable, model: 'gpt-5.6-luna', effort: 'high' })
+    await enterPrompt('go')
+
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    expect(submitPromptFn).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      'go',
+      expect.any(String),
+      // Provider is unstaged here — the same 'codex' as `providerId` — so it
+      // sends '' exactly like an ordinary resend, never a redundant switch.
+      '',
+      'gpt-5.6-luna',
+      'high',
+    )
+    expect(setSelectionFn).not.toHaveBeenCalled()
+  })
+
+  it('sends with no model/effort at all when the chat has no sticky selection yet', async () => {
+    setup({ providers: selectable, model: '', effort: '' })
+    await enterPrompt('go')
+
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', 'go', expect.any(String), '', '', '')
   })
 
   // The reported effort used to render here; it is gone from the transcript
@@ -1524,14 +1596,27 @@ describe('AgentChatView non-conversational roles', () => {
       expect(divider.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
 
-    it('draws nothing when the compaction is newer than every message', async () => {
+    // REGRESSION (live-reported): a finished compaction with nothing typed
+    // since drew NO divider at all — not late, simply absent — until the next
+    // message dragged it in as an `eventsBefore` anchor. It must draw right at
+    // the foot of the transcript instead, the same way a trailing `stopped`
+    // already did.
+    it('draws at the foot of the transcript when the compaction is newer than every message', async () => {
       initialMessages = [message(10, 'user', 'the only message')]
       activityFn.mockResolvedValue(compactionAt(99))
       setup()
 
       expect(await screen.findByText('the only message')).toBeTruthy()
-      // A rule under the newest message would put a boundary below the whole
-      // conversation and read as if the chat had ended.
+      const divider = await screen.findByTestId('agent-compaction-divider')
+      expect(divider.textContent).toMatch(/compacted/i)
+    })
+
+    it('holds off drawing the trailing divider while still compacting', async () => {
+      initialMessages = [message(10, 'user', 'the only message')]
+      activityFn.mockResolvedValue(compactionAt(99))
+      setup({ compacting: true })
+
+      expect(await screen.findByText('the only message')).toBeTruthy()
       expect(screen.queryByTestId('agent-compaction-divider')).toBeNull()
     })
 
@@ -1844,6 +1929,54 @@ describe('AgentChatView stopped turn divider', () => {
   })
 })
 
+// The message-quiet fuse (turn.AbandonMessageInferredInterrupt, api-side)
+// opens and resolves its interruption in one call, exactly like an explicit
+// stop — born already resolved, same as `stoppedAt`/`compactionAt` above.
+// Without TRAILING_INTERRUPTION_KINDS covering it too, the exact turn this
+// kind exists to catch (a silent abort with nothing typed after it) would
+// repeat the "no divider until the next message drags it in" bug already
+// fixed for `stopped` and `compaction`.
+describe('AgentChatView inferred-interrupt divider', () => {
+  const inferredAt = (seq: number) => ({
+    ...emptyActivity,
+    interruptions: [
+      {
+        id: `inferred-${seq}`,
+        turnId: '',
+        seq,
+        kind: 'inferred' as const,
+        detail: '',
+        at: '2026-08-16T00:00:00Z',
+        resolvedAt: '2026-08-16T00:00:01Z',
+      },
+    ],
+  })
+
+  it('draws at the foot of the transcript when nothing followed the silent abort', async () => {
+    initialMessages = [message(10, 'user', 'the only message')]
+    activityFn.mockResolvedValue(inferredAt(99))
+    setup()
+
+    expect(await screen.findByText('the only message')).toBeTruthy()
+    expect(await screen.findByTestId('agent-inferred-interrupt-divider')).toHaveTextContent(
+      'Interrupted unexpectedly',
+    )
+  })
+
+  // A person's own Stop click and Crowbar's own guess must never read as the
+  // same fact — wording and test id are what tell them apart, since neither
+  // pill carries any other visual marker (this feature has none to borrow).
+  it('renders distinct wording from an explicit stopped-turn divider, never that divider itself', async () => {
+    initialMessages = [message(10, 'user', 'the only message')]
+    activityFn.mockResolvedValue(inferredAt(99))
+    setup()
+
+    const divider = await screen.findByTestId('agent-inferred-interrupt-divider')
+    expect(divider).toHaveTextContent('Interrupted unexpectedly')
+    expect(screen.queryByTestId('agent-interrupted-divider')).toBeNull()
+  })
+})
+
 describe('chat.open perf span', () => {
   beforeEach(() => {
     __resetPerfForTests()
@@ -1868,30 +2001,35 @@ describe('chat.open perf span', () => {
 // restore) is unit-tested against a real scrollHeight/clientHeight mock in
 // use-transcript-anchor.test.tsx; jsdom has no layout engine, so every
 // dimension here reads 0 regardless of what the reader "did". What matters at
-// this level is that AgentChatView is actually wired to the WORKSPACE store —
-// a future refactor dropping the prop-threading between here and
-// AgentTranscript would silently break restore without any of the anchor's
-// own unit tests noticing, since they exercise the hook in isolation.
+// this level is that AgentChatView is actually wired to
+// transcript-scroll-positions.ts — a future refactor dropping the
+// prop-threading between here and AgentTranscript would silently break
+// restore without any of the anchor's own unit tests noticing, since they
+// exercise the hook in isolation.
 describe('AgentChatView scroll position', () => {
-  it('writes the transcript scroll position to the workspace store on unmount', async () => {
+  beforeEach(() => {
+    __resetScrollPositionsForTests()
+  })
+
+  it('writes the transcript scroll position on unmount', async () => {
     initialMessages = [message(1, 'user', 'Question')]
     const view = setup()
     await screen.findByText('Question')
 
-    expect(view.store.getState().agentChats.scrollPositions['c1']).toBeUndefined()
+    expect(getScrollPosition('c1')).toBeNull()
 
     view.unmount()
 
-    expect(view.store.getState().agentChats.scrollPositions['c1']).toEqual({
+    expect(getScrollPosition('c1')).toEqual({
       stuck: expect.any(Boolean),
       distanceFromBottom: expect.any(Number),
     })
   })
 
-  it('reads a previously-saved scroll position from the workspace store without crashing', async () => {
+  it('reads a previously-saved scroll position without crashing', async () => {
     initialMessages = [message(1, 'user', 'Question')]
+    setScrollPosition('c1', { stuck: false, distanceFromBottom: 120 })
     const store = createWorkspaceStore('w1')
-    store.getState().setAgentChatScrollPosition('c1', { stuck: false, distanceFromBottom: 120 })
 
     render(
       <WorkspaceStoreContext.Provider value={store}>
@@ -1901,10 +2039,42 @@ describe('AgentChatView scroll position', () => {
 
     expect(await screen.findByText('Question')).toBeInTheDocument()
     // The seeded entry is left untouched until THIS mount's own unmount.
-    expect(store.getState().agentChats.scrollPositions['c1']).toEqual({
-      stuck: false,
-      distanceFromBottom: 120,
-    })
+    expect(getScrollPosition('c1')).toEqual({ stuck: false, distanceFromBottom: 120 })
+  })
+
+  // Regression: a chat's saved position used to live in the workspace store
+  // (agent-chats-slice.ts), which destroyWorkspaceStore drops wholesale on
+  // every workspace switch — so a position saved under one store instance
+  // was unreachable from whatever NEW store instance the switch-back handed
+  // AgentChatView, and the transcript defaulted to the bottom (visibly
+  // sweeping up from the top as history settled in) instead of restoring.
+  // This asserts the save/restore round-trip survives exactly that: a
+  // DIFFERENT workspace store instance across unmount and remount.
+  it('restores across a workspace switch — a scroll position saved under one workspace store instance is read back after a different one replaces it', async () => {
+    initialMessages = [message(1, 'user', 'Question')]
+    const storeBeforeSwitch = createWorkspaceStore('w1')
+    const view = render(
+      <WorkspaceStoreContext.Provider value={storeBeforeSwitch}>
+        <AgentChatView {...baseProps()} />
+      </WorkspaceStoreContext.Provider>,
+    )
+    await screen.findByText('Question')
+    view.unmount()
+    const saved = getScrollPosition('c1')
+    expect(saved).not.toBeNull()
+
+    // The workspace switch: a brand new store instance for the SAME
+    // workspace id, exactly what the registry hands back after
+    // destroyWorkspaceStore + a later re-lookup — never storeBeforeSwitch.
+    const storeAfterSwitch = createWorkspaceStore('w1')
+    render(
+      <WorkspaceStoreContext.Provider value={storeAfterSwitch}>
+        <AgentChatView {...baseProps()} />
+      </WorkspaceStoreContext.Provider>,
+    )
+
+    expect(await screen.findByText('Question')).toBeInTheDocument()
+    expect(getScrollPosition('c1')).toEqual(saved)
   })
 })
 

@@ -38,11 +38,13 @@ func (noopTurns) AwaitTurnComplete(context.Context, string) error { return nil }
 
 func (noopTurns) ChatWorking(context.Context, string) (bool, error) { return false, nil }
 
-func (noopTurns) RecordStop(context.Context, string) error { return nil }
+func (noopTurns) RecordStop(context.Context, string, string) error { return nil }
 
 func (noopTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 
-func (noopTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text string)) {}
+func (noopTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text, kind string)) {}
+func (noopTurns) SetPlanUpdate(func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
+}
 
 func (noopTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
 
@@ -60,9 +62,14 @@ func (noopTurns) MatchTerminalNotice(
 
 func (noopTurns) OpenWork(context.Context, string) (bool, error) { return false, nil }
 
-func (noopTurns) UnfinishedSince(string) (time.Time, bool) { return time.Time{}, false }
+func (noopTurns) UnfinishedSince(string) (time.Time, bool)   { return time.Time{}, false }
+func (noopTurns) ProviderIdleSince(string) (time.Time, bool) { return time.Time{}, false }
 
 func (noopTurns) AbandonMessage(context.Context, string) (bool, error) { return false, nil }
+
+func (noopTurns) AbandonMessageInferredInterrupt(context.Context, string) (bool, error) {
+	return false, nil
+}
 
 func (noopTurns) AbandonMessageForRunner(
 	context.Context, string, engineagents.Runner,
@@ -220,7 +227,7 @@ events:
       session_id: threadId
       message: "turn.items[type=agentMessage].text"
   permission:
-    ask: item/permissions/requestApproval
+    ask: acme/tool/requestApproval
     timeout_seconds: 270
     map: { tool_name: tool, tool_input: params }
     reply:
@@ -337,7 +344,7 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 	replySeen := make(chan string, 1)
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		ask, _ := json.Marshal(map[string]any{
-			"id": 7, "method": "item/permissions/requestApproval",
+			"id": 7, "method": "acme/tool/requestApproval",
 			"params": map[string]string{"tool": "shell"},
 		})
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
@@ -387,7 +394,7 @@ func TestPumpAPIConn_UnansweredAskWritesNoReply(t *testing.T) {
 	wroteReply := make(chan struct{}, 1)
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) {
 		ask, _ := json.Marshal(map[string]any{
-			"id": 9, "method": "item/permissions/requestApproval",
+			"id": 9, "method": "acme/tool/requestApproval",
 			"params": map[string]string{"tool": "shell"},
 		})
 		require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))

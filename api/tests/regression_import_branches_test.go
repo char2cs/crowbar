@@ -162,6 +162,8 @@ func TestRegression_ImportBranchTakesRemoteContentNotDivergedLocal(t *testing.T)
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "import must broadcast a workspace for the branch")
 
+	// The hub frame above can outrun the durable read model Get reads.
+	h.Quiesce()
 	ws, err := h.app.Repositories.Workspace.Get(t.Context(), wsID)
 	require.NoError(t, err)
 	require.NotEmpty(t, ws.WorktreePath,
@@ -304,6 +306,9 @@ func TestRegression_RetryProvisionTakesRemoteContentNotDivergedLocal(t *testing.
 	wsID, _ := created["workspaceId"].(string)
 	require.NotEmpty(t, wsID, "a branch held elsewhere must still produce a row")
 
+	// The hub frame above can outrun the durable read model Get reads — and the
+	// retry-provision POST further down addresses this same id over REST.
+	h.Quiesce()
 	ws, err := h.app.Repositories.Workspace.Get(t.Context(), wsID)
 	require.NoError(t, err)
 	require.Empty(t, ws.WorktreePath, "a held branch must arrive as a placeholder")

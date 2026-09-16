@@ -1,0 +1,30 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "fileChange",
+      "id": "item_fc_1",
+      "status": "completed",
+      "changes": [
+        {
+          "path": "/w/main.go",
+          "kind": {
+            "type": "update"
+          },
+          "diff": "@@ -1 +1 @@\n-a\n+b\n"
+        },
+        {
+          "path": "/w/util.go",
+          "kind": {
+            "type": "add"
+          },
+          "diff": null
+        }
+      ]
+    },
+    "threadId": "01a0306b-8589-7d72-b688-c1de62c9db37",
+    "turnId": "01a0306b-8633-71d1-a176-a421b13cf2da",
+    "completedAtMs": 1787518750963
+  },
+  "emittedAtMs": 1787518750963
+}

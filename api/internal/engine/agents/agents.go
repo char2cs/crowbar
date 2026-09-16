@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -31,7 +32,13 @@ type Agents interface {
 
 	RecordInjection(runnerID string, docs ...string)
 
-	WasInjected(runnerID, text string) bool
+	// ConsumeInjectedPrefix reports whether text contains a document this
+	// runnerID was handed and, if so, returns text with that document (and
+	// mergeLeadingPositional's own separator) removed — see
+	// registry.ConsumePrefix's own doc for why a bare boolean isn't enough: a
+	// real prompt can ride the SAME positional as the injected document, and
+	// the remainder left after removing it is what the user actually typed.
+	ConsumeInjectedPrefix(runnerID, text string) (remainder string, found bool)
 
 	ForgetRunner(runnerID string)
 }
@@ -68,6 +75,12 @@ type Agent interface {
 	SpawnPlan(ctx TemplateCtx, baseEnv []string, extra []InjectStep) (*SpawnPlan, error)
 
 	PromptSteps(resume bool) ([]InjectStep, error)
+
+	// PromptLeadingSigils is presentation.prompt_submit.leading_sigils: the
+	// characters this CLI reads as a control gesture rather than as text when
+	// one of them opens a message, and the escape that makes one text again.
+	// Empty chars for a provider that declares none.
+	PromptLeadingSigils() (chars []string, escape string)
 
 	ContextSteps(resuming bool) []InjectStep
 
@@ -206,8 +219,8 @@ func (s *service) RecordInjection(runnerID string, docs ...string) {
 	s.injected.SetInjected(runnerID, docs...)
 }
 
-func (s *service) WasInjected(runnerID, text string) bool {
-	return s.injected.Consume(runnerID, text)
+func (s *service) ConsumeInjectedPrefix(runnerID, text string) (string, bool) {
+	return s.injected.ConsumePrefix(runnerID, text)
 }
 
 func (s *service) ForgetRunner(runnerID string) {
@@ -299,6 +312,14 @@ func (a *agent) PromptSteps(resume bool) ([]InjectStep, error) {
 		return nil, errPromptSubmitUnsupported
 	}
 	return steps, nil
+}
+
+func (a *agent) PromptLeadingSigils() ([]string, string) {
+	ps := a.spec.Presentation.PromptSubmit
+	if ps == nil || ps.LeadingSigils == nil {
+		return nil, ""
+	}
+	return slices.Clone(ps.LeadingSigils.Chars), ps.LeadingSigils.Escape
 }
 
 func (a *agent) ContextSteps(resuming bool) []InjectStep {

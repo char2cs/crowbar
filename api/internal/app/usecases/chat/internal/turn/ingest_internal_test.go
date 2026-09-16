@@ -9,15 +9,19 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
-// fakeLiveConn reports a fixed HasLiveAPIConnection answer for every runner —
-// apiOwnsThisEvent is the only thing under test here, so nothing else on
-// Runners needs a real implementation.
+// fakeLiveConn reports fixed HasLiveAPIConnection/HasDispatchedOverAPI answers
+// for every runner — apiOwnsThisEvent is the only thing under test here, so
+// nothing else on Runners needs a real implementation. dispatched defaults to
+// matching live (the ordinary shape: a connection that is live because
+// something was already pushed down it), overridable per test.
 type fakeLiveConn struct {
 	Runners
-	live bool
+	live       bool
+	dispatched bool
 }
 
 func (f fakeLiveConn) HasLiveAPIConnection(string) bool { return f.live }
+func (f fakeLiveConn) HasDispatchedOverAPI(string) bool { return f.dispatched }
 
 func descriptorFor(t *testing.T, provider string) engineagents.Agent {
 	t.Helper()
@@ -41,11 +45,30 @@ func descriptorFor(t *testing.T, provider string) engineagents.Agent {
 // new information.
 func TestApiOwnsThisEvent_APIOwnedEventOnALiveConnectionIsRedundant(t *testing.T) {
 	t.Parallel()
-	turns := &Turns{runners: fakeLiveConn{live: true}}
+	turns := &Turns{runners: fakeLiveConn{live: true, dispatched: true}}
 	codex := descriptorFor(t, "codex")
 
 	require.True(t, turns.apiOwnsThisEvent(t.Context(), "runner-1", codex, "turn_stop"),
-		"codex declares no per-event transport for turn_stop, so it inherits runtime.transport: api")
+		"codex declares no per-event transport for turn_stop, so it inherits runtime.transport: api, and this connection has actually carried a prompt")
+}
+
+// TestRegression_ALiveButUndispatchedConnectionNeverMakesTheCompanionPTYsHooksRedundant
+// guards the bug reported live 2026-09-08: closing a codex tab mid-turn, or a
+// prompt's replacement-spawn fallback (submitPromptOverAPI, prompts.go),
+// establishes a live api connection that carries NOTHING of its own — the
+// prompt actually rides the companion PTY's own resume+text argv. codex's
+// title-setting MCP tool call (a synchronous, ledger-independent path) proved
+// the CLI answered normally, yet the turn never appeared in the chat's
+// message ledger at all: HasLiveAPIConnection alone made this function treat
+// the companion PTY's real hooks as a redundant echo of a report the api side
+// was never asked to make.
+func TestRegression_ALiveButUndispatchedConnectionNeverMakesTheCompanionPTYsHooksRedundant(t *testing.T) {
+	t.Parallel()
+	turns := &Turns{runners: fakeLiveConn{live: true, dispatched: false}}
+	codex := descriptorFor(t, "codex")
+
+	require.False(t, turns.apiOwnsThisEvent(t.Context(), "runner-1", codex, "turn_stop"),
+		"the connection is live but has dispatched nothing, so it has nothing of its own for this hooks delivery to be a redundant copy of")
 }
 
 func TestApiOwnsThisEvent_APIOwnedEventWithNoLiveConnectionIsNotRedundant(t *testing.T) {
@@ -55,6 +78,32 @@ func TestApiOwnsThisEvent_APIOwnedEventWithNoLiveConnectionIsNotRedundant(t *tes
 
 	require.False(t, turns.apiOwnsThisEvent(t.Context(), "runner-1", codex, "turn_stop"),
 		"with no live api connection there is no OTHER copy for a hooks delivery to be redundant with")
+}
+
+// TestRegression_EveryDualShapeCodexEventIsRedundantOnALiveDispatchedConnection
+// sweeps every codex.yaml event sharing turn_stop's own dual-shape hazard —
+// tool_pre, tool_post, permission, compact_pre and compact_post all inherit
+// the api transport default (no per-event override) AND are also fired
+// hooks-shaped, unconditionally, by codex's own config.toml (see codex.yaml's
+// config_injection hooks.* entries). apiOwnsThisEvent reads only
+// descriptor.TransportFor(canonical) — no event-name branching — so the
+// "drop the companion PTY's redundant echo" guard the bug reports above
+// exercised through turn_stop must hold for every one of them.
+func TestRegression_EveryDualShapeCodexEventIsRedundantOnALiveDispatchedConnection(t *testing.T) {
+	t.Parallel()
+	turns := &Turns{runners: fakeLiveConn{live: true, dispatched: true}}
+	codex := descriptorFor(t, "codex")
+
+	for _, event := range []string{
+		"session_start", "user_prompt", "turn_stop",
+		"tool_pre", "tool_post", "permission", "compact_pre", "compact_post",
+	} {
+		t.Run(event, func(t *testing.T) {
+			require.True(t, turns.apiOwnsThisEvent(t.Context(), "runner-1", codex, event),
+				"a live, dispatched api connection already reports this event; the "+
+					"companion PTY's hooks copy of it must be treated as redundant")
+		})
+	}
 }
 
 func TestApiOwnsThisEvent_AnEventExplicitlyDeclaredHooksOwnedIsNeverRedundant(t *testing.T) {

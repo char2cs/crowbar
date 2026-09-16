@@ -1,6 +1,7 @@
 import type {
   AgentActivity,
   AgentChoice,
+  AgentChoiceOption,
   AgentChoiceQuestion,
   AgentInterruption,
   AgentToolCall,
@@ -120,10 +121,91 @@ export function choiceDetail(activity: AgentActivity, choice: AgentChoice): stri
   return choice.title && choice.title !== headline ? choice.title : ''
 }
 
+/** An option with no label is named by its kind — Crowbar's own word for it —
+ *  so a provider that labels nothing still gets a legible control rather than
+ *  a blank. Shared by the live card (composer-choice.tsx) and the resolved
+ *  record below, so the two can never spell the same option differently. */
+export function optionLabel(option: AgentChoiceOption): string {
+  if (option.label) return option.label
+  return option.kind.charAt(0).toUpperCase() + option.kind.slice(1)
+}
+
+/** Choices no longer pending, oldest first — the record of what was decided,
+ *  once nobody is waiting on it any more. */
+export function resolvedChoices(activity: AgentActivity): AgentChoice[] {
+  return activity.choices.filter((choice) => !choice.pending).sort((a, b) => a.seq - b.seq)
+}
+
+/** What a resolved choice's `answeredOptionIds` actually named, read back
+ *  against the options it was asked with — a permission's allow/deny, an
+ *  elicitation's verb, or a question's own answers. Empty when the choice
+ *  carries none: nothing was answered through Crowbar (`proceeded`,
+ *  `abandoned`), or it predates this being recorded at all. */
+export function pickedOptionLabels(choice: AgentChoice): string[] {
+  const ids = choice.answeredOptionIds
+  if (!ids || ids.length === 0) return []
+  const all: AgentChoiceOption[] = [
+    ...choice.options,
+    ...(choice.questions ?? []).flatMap((q) => q.options),
+  ]
+  const byID = new Map(all.map((option) => [option.id, option]))
+  return ids.map((id) => {
+    const option = byID.get(id)
+    return option ? optionLabel(option) : id
+  })
+}
+
+/** One line for a choice that is no longer pending — the transcript's only
+ *  record that a permission was ever asked, once it stops blocking anyone.
+ *  `Bash · Allow` reads the same way a tool row's own `name · target` does:
+ *  what it was about, then what happened.
+ *
+ *  `proceeded` (decided at the CLI's own terminal) and `abandoned` (never
+ *  decided) are told apart from `answered` because they are different facts —
+ *  and from each other, because "the terminal handled it" and "nobody
+ *  answered" call for different reactions from a reader scanning back. */
+export function describeResolvedChoice(choice: AgentChoice): string {
+  const subject = choice.toolName || describeChoice(choice)
+  if (choice.resolution === 'proceeded') return `${subject} · answered at the terminal`
+  if (choice.resolution === 'abandoned') return `${subject} · left unanswered`
+  const picked = pickedOptionLabels(choice)
+  const verb = picked.length > 0 ? picked.join(', ') : 'Answered'
+  return `${subject} · ${verb}`
+}
+
 /** Tool calls still running, oldest first — which is the order they started and
  *  the order a reader scans. */
 export function runningTools(activity: AgentActivity): AgentToolCall[] {
   return activity.toolCalls.filter((c) => c.status === 'running').sort((a, b) => a.seq - b.seq)
+}
+
+/**
+ * The turn in flight's tool calls, for as long as it has no reply to sit under.
+ *
+ * A call is filed against whichever turn was OPEN when it ran, and only once that
+ * turn closes does the ledger repoint it onto the assistant reply's own turn id.
+ * Between those two moments the calls are recorded and polled, but match no
+ * message on screen — which is why a turn's work used to become visible only
+ * after the turn had already ended.
+ *
+ * Scoped to the NEWEST turn, not to every call no loaded message claims: the
+ * transcript pages, so a chat past its first page has anchoring messages that
+ * simply are not loaded, and every one of their calls would otherwise read as
+ * live work and pile up at the bottom of an idle chat. Only the newest turn can
+ * be the open one, and for an idle chat it is always anchored — so this answers
+ * empty exactly when nothing is in flight.
+ */
+export function liveTurnToolCalls(
+  activity: AgentActivity,
+  anchoredTurnIds: ReadonlySet<string>,
+): AgentToolCall[] {
+  let newest: AgentToolCall | undefined
+  for (const call of activity.toolCalls) {
+    if (!newest || call.seq > newest.seq) newest = call
+  }
+  if (!newest || anchoredTurnIds.has(newest.turnId)) return []
+  const turnId = newest.turnId
+  return activity.toolCalls.filter((c) => c.turnId === turnId).sort((a, b) => a.seq - b.seq)
 }
 
 /** Subagents still working. Starts and stops do NOT balance on either provider —
@@ -138,6 +220,55 @@ export function runningSubagents(activity: AgentActivity): number {
 export function describeTool(call: AgentToolCall): string {
   if (!call.target) return call.name
   return `${call.name} · ${call.target}`
+}
+
+/**
+ * The last `limit` characters of live text, flattened to one line.
+ *
+ * The TAIL, not the head: on a thought and on a running tool's output alike, the
+ * newest words are the ones that say what is happening now. Providers head each
+ * thinking block with a markdown-bold title, and this renders as one plain line —
+ * running a markdown pipeline over text replaced on every token is not worth the
+ * cost — so the emphasis runs are stripped rather than shown as literal asterisks.
+ */
+export function tailOf(text: string, limit: number): string {
+  const flat = text
+    .replace(/\*{1,3}/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (flat.length <= limit) return flat
+  return `…${flat.slice(flat.length - limit)}`
+}
+
+/**
+ * The interruption kinds that mean the agent is waiting on a PERSON.
+ *
+ * The rest are things Crowbar did to the chat itself — it stopped the turn, it
+ * switched provider, model or effort — and the transcript already draws a pill for
+ * each. The agent is not blocked on anyone for those, so a turn in flight during
+ * one is still a turn in flight.
+ *
+ * Compaction is deliberately absent: it is the CLI's own housekeeping, and its
+ * ledger record is born already resolved, so it is driven by a live push instead
+ * (see WorkingLine's `compactingLive`).
+ *
+ * `notification` is deliberately absent too. Unlike a permission or an
+ * elicitation, it names nothing the agent is actually paused on — it is an
+ * idle ping ("Claude is waiting for your input"), and the backend's own
+ * Interrupt command only leaves one OPEN (unresolved) when it lands while its
+ * activity aggregate still considers a turn in flight (see interrupt.go's
+ * `idle := next.Turn == nil`). A CLI backgrounding a subagent can fire its
+ * idle notification in that exact window, while Crowbar's own chat-level
+ * `working` (folded from AsyncWork) correctly still says busy — and this set
+ * deciding the interruption wins would blank a live spinner under a
+ * genuinely still-running background agent with a stale "waiting for your
+ * input" claim. `working` is the aggregate's own real-time truth; a
+ * notification racing it is never grounds to override it.
+ */
+const PERSON_BLOCKING: ReadonlySet<string> = new Set(['permission', 'elicitation'])
+
+export function blocksOnAPerson(interruption: AgentInterruption | null): boolean {
+  return interruption !== null && PERSON_BLOCKING.has(interruption.kind)
 }
 
 /** Human copy for why the agent is stopped. Each kind is a genuinely different

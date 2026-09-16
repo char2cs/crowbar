@@ -62,7 +62,7 @@ func newStopTestTurns(t *testing.T) (*Turns, *fakeStopActivity, *inflight.Turns)
 func TestRecordStop_NoOpWhenTheChatIsIdle(t *testing.T) {
 	turns, activity, _ := newStopTestTurns(t)
 
-	err := turns.RecordStop(context.Background(), "chat-1")
+	err := turns.RecordStop(context.Background(), "chat-1", "runner-1")
 
 	require.NoError(t, err)
 	assert.Empty(t, activity.interrupts, "an idle chat has no turn to interrupt — StopChat closing a chat tab must stay silent")
@@ -73,7 +73,7 @@ func TestRecordStop_RecordsAndResolvesAStoppedInterruption_WhenATurnIsInFlight(t
 	turns, activity, inflightTurns := newStopTestTurns(t)
 	inflightTurns.Begin("runner-1", "chat-1")
 
-	err := turns.RecordStop(context.Background(), "chat-1")
+	err := turns.RecordStop(context.Background(), "chat-1", "runner-1")
 
 	require.NoError(t, err)
 	require.Len(t, activity.interrupts, 1)
@@ -93,10 +93,56 @@ func TestRecordStop_UsesAFreshIDPerCall_UnlikeCompactionsSharedOne(t *testing.T)
 	// into one record and lose the second divider entirely.
 	turns, activity, inflightTurns := newStopTestTurns(t)
 	inflightTurns.Begin("runner-1", "chat-1")
-	require.NoError(t, turns.RecordStop(context.Background(), "chat-1"))
+	require.NoError(t, turns.RecordStop(context.Background(), "chat-1", "runner-1"))
 	inflightTurns.Begin("runner-1", "chat-1")
-	require.NoError(t, turns.RecordStop(context.Background(), "chat-1"))
+	require.NoError(t, turns.RecordStop(context.Background(), "chat-1", "runner-1"))
 
 	require.Len(t, activity.interrupts, 2)
 	assert.NotEqual(t, activity.interrupts[0].id, activity.interrupts[1].id)
+}
+
+// TestRegression_RecordStopWaitsForAnInFlightHookOnTheSameRunner guards the
+// bug reported live 2026-09-12: an "Interrupted" divider landed anchored to a
+// message's turn that a self-continuation hook had already superseded only
+// 17-31ms earlier — the interrupt was committed AHEAD of replies the CLI had
+// already produced by the moment Stop was clicked.
+//
+// Root cause: interruptTurn's Send only waits for the API connection to say
+// the turn is over; it says nothing about whether that SAME turn's own
+// closing/reopening hook deliveries have finished being ingested through
+// IngestHookDelivery, a wholly separate channel. RecordStop used to commit
+// its Interrupt with no regard for a hook still mid-flight for the same
+// runner, racing ahead of state that hook was about to (and, chronologically
+// at the CLI, already had) supersede.
+//
+// Proven the same way this repo's own gate_test.go proves the gate itself
+// serialises: not with timing (which proves nothing about a race), but by
+// making a broken RecordStop a genuine, -race-detectable data race on an
+// unsynchronised value — a gate that lets RecordStop in early corrupts
+// `order` from two goroutines at once; a gate that waits its turn cannot.
+func TestRegression_RecordStopWaitsForAnInFlightHookOnTheSameRunner(t *testing.T) {
+	turns, _, inflightTurns := newStopTestTurns(t)
+	inflightTurns.Begin("runner-1", "chat-1")
+
+	// Simulates a hook delivery for runner-1 already admitted into
+	// IngestHookDelivery and still mid-ingest — holding exactly the gate
+	// delivery.go holds across its whole ingest (dedupe, effects, completion).
+	release := turns.hookGates.Lock("runner-1")
+
+	var order []string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		require.NoError(t, turns.RecordStop(context.Background(), "chat-1", "runner-1"))
+		order = append(order, "stop")
+	}()
+
+	order = append(order, "hook")
+	release()
+	<-done
+
+	require.Equal(t, []string{"hook", "stop"}, order,
+		"RecordStop must wait for runner-1's own in-flight hook to release its gate before touching "+
+			"the activity ledger, or it can anchor the Interrupted divider to state that hook was about "+
+			"to supersede")
 }

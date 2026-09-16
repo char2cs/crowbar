@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
@@ -56,6 +57,33 @@ type ToolResultInput struct {
 	Now        time.Time
 }
 
+// SubagentToolInput and SubagentToolResultInput are ToolInput/ToolResultInput's
+// twins for a tool call belonging to a SUBAGENT's own nested activity — see
+// commands.InvokeSubagentTool's own doc for why these are separate commands
+// rather than ToolInput/ToolResultInput plus an optional field.
+type SubagentToolInput struct {
+	ChatID     string
+	SubagentID string
+	ToolID     string
+	Name       string
+	Target     string
+	Request    []byte
+	Now        time.Time
+}
+
+type SubagentToolResultInput struct {
+	ChatID     string
+	SubagentID string
+	ToolID     string
+	Name       string
+	Target     string
+	Result     []byte
+	Status     string
+	Error      string
+	DurationMS int
+	Now        time.Time
+}
+
 type ChoiceInput struct {
 	ChatID   string
 	ChoiceID string
@@ -87,8 +115,17 @@ type EventStore interface {
 	InvokeTool(ctx context.Context, in ToolInput) error
 	CompleteTool(ctx context.Context, in ToolResultInput) error
 
+	InvokeSubagentTool(ctx context.Context, in SubagentToolInput) error
+	CompleteSubagentTool(ctx context.Context, in SubagentToolResultInput) error
+
 	StartSubagent(ctx context.Context, chatID, subagentID, agentType string, now time.Time) error
-	StopSubagent(ctx context.Context, chatID, subagentID, agentType string, now time.Time) error
+	// OpenNestedSubagent is StartSubagent's turn-safe twin — see
+	// commands.OpenNestedSubagent's own doc for why a separate command.
+	OpenNestedSubagent(ctx context.Context, chatID, subagentID string, now time.Time) error
+	// StopSubagent's message is the subagent's own final reply text, when
+	// this close carries one — empty for the ordinary Claude-native
+	// SubagentStop, which reports none. See commands.StopSubagent's own doc.
+	StopSubagent(ctx context.Context, chatID, subagentID, agentType, message string, now time.Time) error
 
 	Interrupt(ctx context.Context, chatID, id, kind, detail string, now time.Time) error
 	ResolveInterruption(ctx context.Context, chatID, id, kind, detail string, now time.Time) error
@@ -112,6 +149,8 @@ type EventStore interface {
 	ToolCalls(ctx context.Context, chatID string, after int64, limit int) ([]domain.ActivityToolCall, error)
 	ToolCallsBefore(ctx context.Context, chatID string, before int64, limit int) ([]domain.ActivityToolCall, error)
 	Subagents(ctx context.Context, chatID string) ([]domain.ActivitySubagent, error)
+	// IsSubagentOpen is the nested-session routing lookup — see turn/ingest.go.
+	IsSubagentOpen(ctx context.Context, chatID, sessionID string) (bool, error)
 	Interruptions(ctx context.Context, chatID string) ([]domain.ActivityInterruption, error)
 
 	Choices(ctx context.Context, chatID string) ([]domain.ActivityChoice, error)
@@ -245,28 +284,42 @@ func (r *eventSourced) Abandon(ctx context.Context, chatID string, now time.Time
 	return r.sendWait(ctx, commands.Abandon{ChatID: chatID, Now: now})
 }
 
+// The four tool/subagent lifecycle commands all use sendWait for the same reason
+// OpenChoice does (see its own comment below): every one of them is immediately
+// followed by a read of the state it just wrote.
+//
+// That reader is OpenWork — "is any tool call or subagent still open?" — which
+// turn.go consults on the very next line, from restateAsyncWork after a close and
+// from fallbackAsyncWork on a turn_stop. It answers off the activity READ MODEL, so
+// on the async path it saw the state from BEFORE the write it is meant to observe,
+// and both directions of that are a wrong spinner:
+//
+//   - a close not yet folded reads as still-open, so the recount that would have
+//     darkened the spinner never happens — and for codex, which reports no
+//     async-work level of its own, nothing else ever will;
+//   - an open not yet folded reads as idle at turn_stop, which darkens the spinner
+//     under a tool call that is genuinely still running.
+//
+// Measured at roughly one in two on the subagent-drain path before this changed.
 func (r *eventSourced) InvokeTool(ctx context.Context, in ToolInput) error {
 	ref, err := r.store.Content().Put(in.Request)
 	if err != nil {
 		ref = ""
 	}
-	return r.send(ctx, commands.InvokeTool{
+	return r.sendWait(ctx, commands.InvokeTool{
 		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Target: in.Target,
 		RequestRef: ref, Now: in.Now,
 	})
 }
 
-// CompleteTool uses sendWait, not send, for the same reason OpenChoice does:
-// closing the last piece of open work is immediately followed by a caller
-// asking the READ MODEL whether any work is still open (turn.restateAsyncWork,
-// via OpenWork). On send, that question was asked before this close had
-// projected, so the answer was the state one event ago — still open — the
-// restate was skipped as a no-op, and nothing ever cleared the spinner.
-//
-// The aggregate cannot answer it instead: CloseTurn nils Tools and Subagents,
-// so work that outlives its turn is only ever visible in the projection.
-// Opening work (InvokeTool, StartSubagent) owes no such barrier and keeps the
-// unblocked hot path — nothing reads back to decide anything.
+// CompleteTool uses sendWait, not send, for the same reason StopSubagent
+// does (see that method's own comment): observation.go's HookToolPost/
+// HookToolFail case calls this and then immediately restateAsyncWork,
+// whose OpenWork is a SQL read of the very row this closes. Under send the
+// read can land before the write projects, still see the tool running, and
+// restateAsyncWork returns early without the turn_stopped that clears
+// Working — the exact same stuck-spinner shape, now for tool calls instead
+// of subagents.
 func (r *eventSourced) CompleteTool(ctx context.Context, in ToolResultInput) error {
 	ref, err := r.store.Content().Put(in.Result)
 	if err != nil {
@@ -276,6 +329,33 @@ func (r *eventSourced) CompleteTool(ctx context.Context, in ToolResultInput) err
 		ChatID: in.ChatID, ToolID: in.ToolID, Name: in.Name, Target: in.Target,
 		ResultRef: ref, Status: in.Status, Error: truncate(in.Error, maxToolErrorBytes),
 		DurationMS: in.DurationMS, Now: in.Now,
+	})
+}
+
+// InvokeSubagentTool/CompleteSubagentTool use sendWait for the same reason
+// InvokeTool/CompleteTool do — see CompleteTool's own comment: a caller
+// scoping OpenWork to a subagent's own nested activity must see this write
+// land before it reads back.
+func (r *eventSourced) InvokeSubagentTool(ctx context.Context, in SubagentToolInput) error {
+	ref, err := r.store.Content().Put(in.Request)
+	if err != nil {
+		ref = ""
+	}
+	return r.sendWait(ctx, commands.InvokeSubagentTool{
+		ChatID: in.ChatID, SubagentID: in.SubagentID, ToolID: in.ToolID,
+		Name: in.Name, Target: in.Target, RequestRef: ref, Now: in.Now,
+	})
+}
+
+func (r *eventSourced) CompleteSubagentTool(ctx context.Context, in SubagentToolResultInput) error {
+	ref, err := r.store.Content().Put(in.Result)
+	if err != nil {
+		ref = ""
+	}
+	return r.sendWait(ctx, commands.CompleteSubagentTool{
+		ChatID: in.ChatID, SubagentID: in.SubagentID, ToolID: in.ToolID,
+		Name: in.Name, Target: in.Target, ResultRef: ref, Status: in.Status,
+		Error: truncate(in.Error, maxToolErrorBytes), DurationMS: in.DurationMS, Now: in.Now,
 	})
 }
 
@@ -322,18 +402,31 @@ func (r *eventSourced) AnswerChoice(
 func (r *eventSourced) StartSubagent(
 	ctx context.Context, chatID, subagentID, agentType string, now time.Time,
 ) error {
-	return r.send(ctx, commands.StartSubagent{
+	return r.sendWait(ctx, commands.StartSubagent{
 		ChatID: chatID, SubagentID: subagentID, AgentType: agentType, Now: now,
 	})
 }
 
-// StopSubagent is CompleteTool's twin and sendWait for the same reason: it is
-// the other close turn.restateAsyncWork reads back through OpenWork.
+func (r *eventSourced) OpenNestedSubagent(
+	ctx context.Context, chatID, subagentID string, now time.Time,
+) error {
+	return r.sendWait(ctx, commands.OpenNestedSubagent{
+		ChatID: chatID, SubagentID: subagentID, Now: now,
+	})
+}
+
+// StopSubagent uses sendWait, not send, for the same reason OpenChoice does: its
+// caller reads back the projection it just wrote. observation.go's subagent_post
+// case follows this with restateAsyncWork, whose OpenWork is a SQL read of the
+// very row this closes — under send it still saw the subagent running, so the
+// level matched, restateAsyncWork returned early without the turn_stopped that
+// clears Working, and nothing re-runs it: the spinner stayed lit forever. Only
+// codex shows it; a provider that restates its own async_work level masks it.
 func (r *eventSourced) StopSubagent(
-	ctx context.Context, chatID, subagentID, agentType string, now time.Time,
+	ctx context.Context, chatID, subagentID, agentType, message string, now time.Time,
 ) error {
 	return r.sendWait(ctx, commands.StopSubagent{
-		ChatID: chatID, SubagentID: subagentID, AgentType: agentType, Now: now,
+		ChatID: chatID, SubagentID: subagentID, AgentType: agentType, Message: message, Now: now,
 	})
 }
 
@@ -411,6 +504,12 @@ func (r *eventSourced) Subagents(
 	return r.store.Subagents(ctx, chatID)
 }
 
+func (r *eventSourced) IsSubagentOpen(
+	ctx context.Context, chatID, sessionID string,
+) (bool, error) {
+	return r.store.IsSubagentOpen(ctx, chatID, sessionID)
+}
+
 func (r *eventSourced) Interruptions(
 	ctx context.Context, chatID string,
 ) ([]domain.ActivityInterruption, error) {
@@ -444,11 +543,39 @@ func (r *eventSourced) Payload(_ context.Context, ref string) ([]byte, error) {
 }
 
 func (r *eventSourced) Forget(ctx context.Context, chatID string) error {
+	refs, err := r.store.ToolCallRefs(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agentactivity: forget: collect refs: %w", err)
+	}
 	if err := r.store.DeleteChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agentactivity: forget rows: %w", err)
 	}
+	r.deleteOrphanedRefs(ctx, refs)
 	if err := r.ax.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agentactivity: forget: %w", err)
 	}
 	return nil
+}
+
+// deleteOrphanedRefs removes each of chatID's former blobs that no OTHER
+// chat's tool call still references. Called after DeleteChat, so chatID's
+// own rows are already gone and RefInUse only sees rows that belong to
+// somebody else — content is deduplicated by hash, so two unrelated chats
+// can legitimately share one blob. Best-effort: a check or delete failure is
+// logged, never fatal — Forget must still complete the row/event erasure the
+// caller is waiting on.
+func (r *eventSourced) deleteOrphanedRefs(ctx context.Context, refs []string) {
+	for _, ref := range refs {
+		inUse, err := r.store.RefInUse(ctx, ref)
+		if err != nil {
+			slog.WarnContext(ctx, "agentactivity: forget: ref liveness check failed; leaving blob", "ref", ref, "err", err)
+			continue
+		}
+		if inUse {
+			continue
+		}
+		if err := r.store.Content().Delete(ref); err != nil {
+			slog.WarnContext(ctx, "agentactivity: forget: delete blob failed", "ref", ref, "err", err)
+		}
+	}
 }

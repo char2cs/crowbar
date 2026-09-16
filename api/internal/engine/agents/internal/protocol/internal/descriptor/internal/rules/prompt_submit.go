@@ -27,7 +27,36 @@ func (r promptSubmit) Check(d *spec.Descriptor) error {
 	if err := r.checkSteps(d.ID, "fresh", ps.Fresh); err != nil {
 		return err
 	}
-	return r.checkSteps(d.ID, "resume", ps.Resume)
+	if err := r.checkSteps(d.ID, "resume", ps.Resume); err != nil {
+		return err
+	}
+	return r.checkLeadingSigils(d.ID, ps.LeadingSigils)
+}
+
+func (promptSubmit) checkLeadingSigils(id string, sigils *spec.LeadingSigilsSpec) error {
+	if sigils == nil {
+		return nil
+	}
+	if len(sigils.Chars) == 0 {
+		return invalid(id, "presentation.prompt_submit.leading_sigils.chars is empty")
+	}
+	for _, char := range sigils.Chars {
+		if char == "" {
+			return invalid(id, "presentation.prompt_submit.leading_sigils.chars holds an empty entry")
+		}
+	}
+	if sigils.Escape == "" {
+		return invalid(id, "presentation.prompt_submit.leading_sigils.escape is required")
+	}
+	// An escape that itself starts with a declared sigil would hand the CLI the
+	// very gesture it is there to prevent.
+	for _, char := range sigils.Chars {
+		if strings.HasPrefix(sigils.Escape, char) {
+			return invalid(id,
+				"presentation.prompt_submit.leading_sigils.escape starts with the sigil %q it must hide", char)
+		}
+	}
+	return nil
 }
 
 func (promptSubmit) checkSteps(id, name string, steps []spec.InjectStep) error {

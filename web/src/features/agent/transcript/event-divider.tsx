@@ -7,6 +7,11 @@ function tagLabel(tag: DividerTag, providers: AgentProvider[]): string {
       return tag.trigger === 'manual' ? 'Compacted' : 'Compacted automatically'
     case 'interrupted':
       return 'Interrupted'
+    // Crowbar guessed this one from silence rather than observing a Stop
+    // click or a provider report — worded so it never reads as something the
+    // user did.
+    case 'inferred-interrupt':
+      return 'Interrupted unexpectedly'
     case 'provider': {
       const name = providers.find((p) => p.id === tag.detail)?.displayName ?? tag.detail
       return `Switched to ${name || 'a different provider'}`
@@ -24,6 +29,8 @@ function tagTestId(tag: DividerTag): string {
       return 'agent-compaction-divider'
     case 'interrupted':
       return 'agent-interrupted-divider'
+    case 'inferred-interrupt':
+      return 'agent-inferred-interrupt-divider'
     case 'provider':
       return 'agent-provider-switch-divider'
     case 'model':
@@ -56,7 +63,11 @@ export function EventDivider({
     <div className="divider" role="separator" data-testid="agent-event-divider">
       <span className="ln" />
       {tags.map((tag) => (
-        <span key={tag.kind} className="tag" data-testid={tagTestId(tag)}>
+        // Keyed by the tag's own interruption id, not `tag.kind`: two
+        // provider switches (or any other same-kind pair) can land before the
+        // SAME next message and share one divider — see flatten-transcript-
+        // rows.ts's DividerTag doc — and `kind` collides for both of them.
+        <span key={tag.id} className="tag" data-testid={tagTestId(tag)}>
           {tagLabel(tag, providers)}
         </span>
       ))}

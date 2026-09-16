@@ -39,6 +39,13 @@ type APISpec struct {
 	// structured protocol and the terminal pane with no screen scraping.
 	Attach    []string          `yaml:"attach"`
 	Handshake map[string]string `yaml:"handshake"`
+	// SessionLostCodes are the protocol error codes that mean "the session you
+	// named does not exist any more" — the one failure a caller must not treat
+	// as fatal, because the session can be re-established from scratch. Which
+	// codes carry that meaning is a property of the provider's own server, so
+	// it is declared here as DATA; apidriver only ever compares numbers.
+	// Empty (any hooks-only descriptor) disables the recovery entirely.
+	SessionLostCodes []int `yaml:"session_lost_codes"`
 }
 
 type HooksWire struct {
@@ -51,9 +58,9 @@ type HooksWire struct {
 
 // EventSpec is one conversational fact. Exactly one of In/Out/Ask names the wire event.
 type EventSpec struct {
-	In  string `yaml:"in"`  // they tell us
-	Out string `yaml:"out"` // we tell them
-	Ask string `yaml:"ask"` // they block on our reply
+	In  WireRef `yaml:"in"`  // they tell us
+	Out WireRef `yaml:"out"` // we tell them
+	Ask WireRef `yaml:"ask"` // they block on our reply
 
 	// Transport overrides RuntimeSpec.Transport for this event alone. This is the
 	// whole mechanism behind a MIXED provider — API for turns, hooks for permissions.
@@ -82,6 +89,9 @@ type EventSpec struct {
 	RateLimits []RateLimitSpec `yaml:"rate_limits"`
 	// AnswersInto is permission's structured extra.
 	AnswersInto string `yaml:"answers_into"`
+	// Steps is plan_update's structured extra: a field map cannot express a LIST
+	// of {text, status} pairs.
+	Steps *StepsSpec `yaml:"steps"`
 
 	// Fresh/Resume/Action are the alternative to Out/Send for an api-transport
 	// event that must first ESTABLISH a session before it can act — codex's
@@ -117,6 +127,21 @@ type CallStep struct {
 	Capture map[string]string `yaml:"capture"`
 }
 
+// StepsSpec maps a provider's plan array onto Crowbar's own step vocabulary.
+//
+// StatusMap is what keeps provider words out of Go: codex says "inProgress",
+// another provider will say something else, and the descriptor translates both
+// into Crowbar's own pending/active/done. A status with no entry passes through
+// unchanged rather than being dropped — an unrecognised status is still a step.
+type StepsSpec struct {
+	// Items is the path to the array itself.
+	Items string `yaml:"items"`
+	// Text and Status are paths WITHIN one element.
+	Text      string            `yaml:"text"`
+	Status    string            `yaml:"status"`
+	StatusMap map[string]string `yaml:"status_map"`
+}
+
 type RateLimitSpec struct {
 	ID          string `yaml:"id"`
 	Label       string `yaml:"label"`
@@ -150,14 +175,16 @@ func (d *Descriptor) TransportFor(event string) string {
 	return d.Runtime.Transport
 }
 
-// WireEvent returns the wire name and which direction declared it.
-func (e EventSpec) WireEvent() (name, direction string) {
+// WireEvent returns the wire name — or, for a provider that namespaces one canonical
+// fact across several methods, every name it answers to — and which direction
+// declared them.
+func (e EventSpec) WireEvent() (ref WireRef, direction string) {
 	switch {
-	case e.In != "":
+	case !e.In.Empty():
 		return e.In, "in"
-	case e.Out != "":
+	case !e.Out.Empty():
 		return e.Out, "out"
-	case e.Ask != "":
+	case !e.Ask.Empty():
 		return e.Ask, "ask"
 	}
 	return "", ""

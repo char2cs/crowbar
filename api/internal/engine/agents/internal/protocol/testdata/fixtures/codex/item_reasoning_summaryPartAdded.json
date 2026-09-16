@@ -1,0 +1,10 @@
+{
+  "method": "item/reasoning/summaryPartAdded",
+  "params": {
+    "threadId": "01a081b0-fe3e-7610-bd5d-341d4c4f7749",
+    "turnId": "01a081b0-ffd3-7a11-a381-ec122201eb91",
+    "itemId": "rs_052b6896240d8d9d016aa02d538cd087d2b6f5760993ec63b9",
+    "summaryIndex": 0
+  },
+  "emittedAtMs": 1788882261859
+}

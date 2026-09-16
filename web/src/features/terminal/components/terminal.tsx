@@ -24,6 +24,7 @@ import React, {
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
+import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import {
   createTerminalAddons,
   injectLinkStyles,
@@ -303,6 +304,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         createTerminal: () => terminalCreate(base, existingSession?.profileId),
         attachOnly,
       })
+      if ('unknown' in result) {
+        // The daemon could not be asked whether this PTY is live. That is NOT a
+        // death — saying so latches the owner's "this agent has exited" over a CLI
+        // that is still running, and nothing re-reads it afterwards. Stay
+        // uninitialized and let the next reconnect ask again.
+        return
+      }
       if ('gone' in result) {
         // Attach-only and the PTY is gone: the owner renders its ended state.
         onSessionGoneRef.current?.(sessionId)
@@ -559,6 +567,17 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     [writeBuffered],
   )
 
+  const handleTauriTerminalDrop = useCallback(
+    (paths: string[]) => {
+      const text = formatDroppedPathsForTerminal(paths)
+      if (!text) return
+      writeBuffered(text, 'file-drop')
+      requestAnimationFrame(() => xtermRef.current?.focus())
+    },
+    [writeBuffered],
+  )
+  useTauriFileDrop(terminalContainerRef, handleTauriTerminalDrop)
+
   const handleTerminalDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
     if (!Array.from(event.dataTransfer.types).includes('Files')) return
     event.preventDefault()
@@ -814,6 +833,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         createTerminal: () => terminalCreate(base, existingSession?.profileId),
         attachOnly,
       })
+      if ('unknown' in result) {
+        // Could not ask the daemon — see the mount path's note. A failed question
+        // is not a dead PTY, and this is the RECONNECT path, where a momentarily
+        // unreachable daemon is exactly the expected condition.
+        releaseInitLock()
+        return
+      }
       if ('gone' in result) {
         // Attach-only and the PTY is gone. Leave the terminal uninitialized (no
         // connection, nothing to write to) and let the owner render its ended

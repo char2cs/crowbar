@@ -140,7 +140,9 @@ describe('agent-api', () => {
       ],
     })
     const chat = await api.getChat('w1', 'c1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats/c1')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats/c1', {
+      signal: undefined,
+    })
     expect(chat.liveRunnerId).toBe('r1')
     expect(chat.terminalSessionId).toBe('pty1')
     // Conversations succeed the deleted `segments`: pure append-only history, with
@@ -232,6 +234,47 @@ describe('agent-api', () => {
     )
   })
 
+  it('threads a staged model/effort onto the same prompt body, committed atomically', async () => {
+    apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
+    await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', '', 'opus', 'high')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/chats/c1/prompts',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          text: 'go',
+          clientRequestId: 'request-1',
+          provider: '',
+          model: 'opus',
+          effort: 'high',
+        }),
+      }),
+    )
+  })
+
+  // THE REGRESSION this session fixed: a staged CROSS-provider pick used to
+  // call a separate, immediate switchProvider — killing the live CLI the
+  // instant a row was clicked, before the user ever sent anything. It now
+  // travels on this SAME call, exactly like model/effort, and the backend
+  // decides whether that actually means switching anything.
+  it('threads a staged provider onto the same prompt body, committed atomically', async () => {
+    apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
+    await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', 'codex', '', '')
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/chats/c1/prompts',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          text: 'go',
+          clientRequestId: 'request-1',
+          provider: 'codex',
+          model: '',
+          effort: '',
+        }),
+      }),
+    )
+  })
+
   it('loads a cancellable slash catalog with no read retry/cache layer', async () => {
     const controller = new AbortController()
     apiFetch.mockResolvedValue({
@@ -247,6 +290,43 @@ describe('agent-api', () => {
       { signal: controller.signal },
       { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
     )
+  })
+
+  // getPendingPrompt: recovers a prompt submission the backend has not yet
+  // confirmed the provider accepted. 204 (no body) means nothing to recover,
+  // not an error — the same "no body" convention as listChats/listProviders
+  // above, and the same cancellable single-attempt read as getSlashCatalog.
+  describe('getPendingPrompt', () => {
+    it('returns null when the backend has nothing pending (204)', async () => {
+      apiFetch.mockResolvedValueOnce(undefined)
+      const result = await api.getPendingPrompt('w1', 'c1')
+      expect(result).toBeNull()
+    })
+
+    it('returns the recovered text, state and request id when something is pending', async () => {
+      apiFetch.mockResolvedValueOnce({
+        text: 'please rename this function',
+        state: 'dispatching',
+        requestId: '5c1b1c8a-2f3e-4a9b-9d1e-6a2b3c4d5e6f',
+      })
+      const result = await api.getPendingPrompt('w1', 'c1')
+      expect(result).toEqual({
+        text: 'please rename this function',
+        state: 'dispatching',
+        requestId: '5c1b1c8a-2f3e-4a9b-9d1e-6a2b3c4d5e6f',
+      })
+    })
+
+    it('GETs the cancellable pending-prompt route with no read retry/cache layer', async () => {
+      const controller = new AbortController()
+      apiFetch.mockResolvedValueOnce(undefined)
+      await api.getPendingPrompt('w1', 'c1', controller.signal)
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/v0/projects/p1/repos/r1/chats/c1/pending-prompt',
+        { signal: controller.signal },
+        { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+      )
+    })
   })
 
   it('createChat POSTs the provider and returns the new id', async () => {

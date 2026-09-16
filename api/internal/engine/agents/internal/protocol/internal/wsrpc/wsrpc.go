@@ -63,6 +63,24 @@ type wireError struct {
 	Message string `json:"message"`
 }
 
+// CallError is the error response the server returned to one of OUR OWN Calls,
+// kept structured rather than flattened into prose: Code is the only part of a
+// JSON-RPC failure that is machine-readable, and a caller that has to tell
+// "your session is gone" from "your payload is malformed" cannot get that out
+// of Message without knowing the provider's own wording — which is exactly the
+// provider-specific knowledge this layer exists to keep out of Go. Error()
+// renders the same string the flattened fmt.Errorf used to, so every log line
+// quoting one is unchanged.
+type CallError struct {
+	Method  string
+	Code    int
+	Message string
+}
+
+func (e *CallError) Error() string {
+	return fmt.Sprintf("wsrpc: %s: %s (code %d)", e.Method, e.Message, e.Code)
+}
+
 // Dial performs the WebSocket handshake over a unix socket at socketPath.
 //
 // EnableCompression is left at its zero value (false) DELIBERATELY: codex's
@@ -188,7 +206,7 @@ func (c *Conn) Call(ctx context.Context, method string, params any) (json.RawMes
 	select {
 	case f := <-ch:
 		if f.Error != nil {
-			return nil, fmt.Errorf("wsrpc: %s: %s (code %d)", method, f.Error.Message, f.Error.Code)
+			return nil, &CallError{Method: method, Code: f.Error.Code, Message: f.Error.Message}
 		}
 		return f.Result, nil
 	case <-ctx.Done():

@@ -31,19 +31,40 @@ interface ResolveArgs {
  * live on the daemon and spawning a replacement is forbidden. The caller must
  * render its own "this session has ended" state — there is nothing to attach to.
  */
-export type ResolvedTerminal = { connectionId: string; reused: boolean } | { gone: true }
+export type ResolvedTerminal =
+  { connectionId: string; reused: boolean } | { gone: true } | { unknown: true }
 
-// List the daemon's live sessions, tolerating a transiently-empty result right
-// after a daemon restart (socket-rebind window / startup restore): an empty list
-// is retried once after a short delay before being trusted. Used by BOTH reuse
-// branches so neither falls to a spurious fresh-create during the restart window.
-async function listLiveWithRetry(list: () => Promise<string[]>): Promise<string[]> {
-  let live = await list().catch(() => [] as string[])
-  if (live.length === 0) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 400))
-    live = await list().catch(() => [] as string[])
+// List the daemon's live sessions — or answer `null`, meaning WE COULD NOT ASK.
+//
+// That distinction is the whole point. This used to be `list().catch(() => [])`,
+// which turned a failed request into "the daemon has no sessions" — and every
+// caller reads an absent session as a DEAD one. So a request that merely failed
+// (a busy or restarting daemon, a socket hiccup, a suspended webview) resolved to
+// `{ gone: true }` under attachOnly, and the agent pane latched "This agent has
+// exited" with a Resume button over a CLI that was alive and working. It also
+// dropped the reconnect mapping on the way out, so no later mount could re-attach
+// the PTY that never died, and nothing re-reads the chat afterwards — the pane
+// stays wrong until the tab is closed, with its composer's `live` false and the
+// prompt queue frozen behind it at "1 queued".
+//
+// An EMPTY list is still a real answer (and still retried once: right after a
+// daemon restart the socket-rebind window genuinely reports none for a moment).
+// A FAILURE is not an answer at all, and the callers must be able to tell.
+async function listLiveWithRetry(list: () => Promise<string[]>): Promise<string[] | null> {
+  const ask = async (): Promise<string[] | null> => {
+    try {
+      return await list()
+    } catch {
+      return null
+    }
   }
-  return live
+  const first = await ask()
+  if (first !== null && first.length > 0) return first
+  await new Promise<void>((resolve) => setTimeout(resolve, 400))
+  const second = await ask()
+  // A second failure leaves us with whatever the first attempt managed: an
+  // authoritative empty list, or still nothing at all.
+  return second ?? first
 }
 
 // The single "the session we wanted is not on the daemon" exit. Under attachOnly
@@ -93,6 +114,9 @@ export async function resolveTerminalConnection(args: ResolveArgs): Promise<Reso
     const canReuseInPlace = !args.attachOnly && terminalHasTransport(args.storeConnectionId)
     if (!canReuseInPlace) {
       const live = await listLiveWithRetry(args.listLiveSessions)
+      // Could not ask. Change NOTHING — do not declare this PTY dead, and do not
+      // spawn over it. The next reconnect asks again.
+      if (live === null) return { unknown: true }
       if (!live.includes(args.storeConnectionId)) {
         // PTY no longer exists on the daemon.
         return spawnOrReportGone(args)
@@ -105,6 +129,9 @@ export async function resolveTerminalConnection(args: ResolveArgs): Promise<Reso
   const persisted = loadReconnect(args.workspaceId, args.tabSessionId)
   if (persisted) {
     const live = await listLiveWithRetry(args.listLiveSessions)
+    // Could not ask — keep the mapping and try again later, rather than clearing
+    // the one record of a PTY that is probably still running.
+    if (live === null) return { unknown: true }
     if (live.includes(persisted)) {
       await terminalAttach(persisted, args.base)
       return { connectionId: persisted, reused: true }

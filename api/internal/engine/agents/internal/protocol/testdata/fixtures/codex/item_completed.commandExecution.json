@@ -1,0 +1,30 @@
+{
+  "method": "item/completed",
+  "params": {
+    "item": {
+      "type": "commandExecution",
+      "id": "call_ol5v7QSjvkNQl8R6y6xpMI2u",
+      "pluginId": null,
+      "scriptPath": null,
+      "command": "/bin/zsh -lc 'ls -la'",
+      "cwd": "/tmp/codex_probe_ws",
+      "processId": "10527",
+      "source": "unifiedExecStartup",
+      "status": "completed",
+      "commandActions": [
+        {
+          "type": "listFiles",
+          "command": "ls -la",
+          "path": null
+        }
+      ],
+      "aggregatedOutput": "total 0\ndrwxr-xr-x@   2 char2cs  wheel    64 Sep  8 12:41 .\ndrwxrwxrwt  304 root     wheel  9728 Sep  8 12:41 ..\n",
+      "exitCode": 0,
+      "durationMs": 0
+    },
+    "threadId": "01a081ae-15cb-72d0-acab-538cfaef5646",
+    "turnId": "01a081ae-1762-7c81-a20b-52a575825cef",
+    "completedAtMs": 1788882070766
+  },
+  "emittedAtMs": 1788882070768
+}

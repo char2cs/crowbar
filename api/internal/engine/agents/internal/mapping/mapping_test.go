@@ -279,13 +279,14 @@ func TestObject_ReturnsANestedObjectOrNil(t *testing.T) {
 
 // --- coverage of the selector grammar's malformed shapes --------------------
 
-// A bracketed segment that is not a valid `field=value` selector (no `=`, or
-// an empty field name before it) must fall back to a PLAIN key rather than
-// being treated as a selector — parseSelector's own contract.
-func TestString_ASelectorSegmentWithNoEqualsIsAPlainKey(t *testing.T) {
+// A bracketed segment with no `=` and a non-numeric body is now a dynamic-key
+// selector (see the dynamic-key tests above) rather than a plain key — but
+// `arr` here is an array, not an object, so the map lookup a dynamic key
+// performs still fails closed to empty.
+func TestString_ASelectorSegmentWithNoEqualsOverAnArrayIsEmpty(t *testing.T) {
 	d := map[string]any{"arr": []any{map[string]any{"a": "1"}}}
 	if got := mapping.String(d, "arr[novalue]"); got != "" {
-		t.Fatalf("got %q, want empty: a bracket with no '=' is not a selector", got)
+		t.Fatalf("got %q, want empty: a dynamic-key selector over an array must not resolve", got)
 	}
 }
 
@@ -358,5 +359,135 @@ func TestIsEmpty_OnlyNilAndEmptyStringCountAsEmpty(t *testing.T) {
 	}
 	if got := mapping.String(d, "blank || nil"); got != "" {
 		t.Fatalf("all-empty alternation should be empty, got %q", got)
+	}
+}
+
+// A list whose interesting element is positional, not findable by a field=value
+// match. codex's fileChange.changes is exactly this: its `kind` is an OBJECT
+// ({"type":"update"}), so `changes[kind=update]` can never match and the first
+// changed path is otherwise unaddressable.
+func changesDoc() map[string]any {
+	var d map[string]any
+	_ = json.Unmarshal([]byte(`{"item":{"changes":[
+	  {"path":"/w/main.go","kind":{"type":"update"},"diff":"@@ -1 +1 @@"},
+	  {"path":"/w/util.go","kind":{"type":"add"}}
+	]}}`), &d)
+	return d
+}
+
+func TestString_SelectsFromAnArrayByIndex(t *testing.T) {
+	if got := mapping.String(changesDoc(), "item.changes[0].path"); got != "/w/main.go" {
+		t.Fatalf("got %q, want /w/main.go", got)
+	}
+	if got := mapping.String(changesDoc(), "item.changes[1].path"); got != "/w/util.go" {
+		t.Fatalf("got %q, want /w/util.go", got)
+	}
+}
+
+func TestString_IndexSelectionComposesWithAlternation(t *testing.T) {
+	got := mapping.String(changesDoc(), "item.command || item.changes[0].path")
+	if got != "/w/main.go" {
+		t.Fatalf("got %q, want the fallback branch to resolve", got)
+	}
+}
+
+func TestString_IndexOutOfRangeIsEmptyNotAPanic(t *testing.T) {
+	if got := mapping.String(changesDoc(), "item.changes[9].path"); got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
+
+// A nested selector must still reach a scalar under an object-valued key.
+func TestString_SelectsANestedFieldOfAnIndexedElement(t *testing.T) {
+	if got := mapping.String(changesDoc(), "item.changes[0].kind.type"); got != "update" {
+		t.Fatalf("got %q, want update", got)
+	}
+}
+
+func TestPresent_TrueForAnExplicitNull(t *testing.T) {
+	d := map[string]any{"transcript_path": nil}
+	if !mapping.Present(d, "transcript_path") {
+		t.Fatal("a JSON null is a present key, not an absent one")
+	}
+}
+
+func TestPresent_FalseWhenTheKeyIsEntirelyAbsent(t *testing.T) {
+	if mapping.Present(map[string]any{}, "transcript_path") {
+		t.Fatal("a key the payload never carries at all must not read as present")
+	}
+}
+
+func TestPresent_TrueForAnOrdinaryValue(t *testing.T) {
+	if !mapping.Present(doc(), "session_id") {
+		t.Fatal("a present, non-empty value must read as present")
+	}
+}
+
+// --- dynamic-key (map) selection ---------------------------------------
+//
+// A list's interesting element is findable by a field=value match or a fixed
+// index; a MAP's interesting entry is sometimes findable only by a key the
+// payload itself names in a sibling field, not a literal the descriptor
+// could ever spell out. codex's collabAgentToolCall(wait) is exactly this:
+// item.agentsStates is a status/message map keyed by a spawned thread's id,
+// and that same id is the item's own item.receiverThreadIds[0].
+
+func collabDoc() map[string]any {
+	return map[string]any{
+		"item": map[string]any{
+			"type":              "collabAgentToolCall",
+			"receiverThreadIds": []any{"thread-child-1"},
+			"agentsStates": map[string]any{
+				"thread-child-1": map[string]any{"status": "completed", "message": "done"},
+				"thread-other":   map[string]any{"status": "failed", "message": "boom"},
+			},
+		},
+	}
+}
+
+func TestString_SelectsAMapValueByADynamicKeyFromASiblingField(t *testing.T) {
+	got := mapping.String(collabDoc(), "item.agentsStates[receiverThreadIds[0]].status")
+	if got != "completed" {
+		t.Fatalf("got %q, want completed", got)
+	}
+}
+
+func TestString_DynamicKeySelectionReachesANestedField(t *testing.T) {
+	got := mapping.String(collabDoc(), "item.agentsStates[receiverThreadIds[0]].message")
+	if got != "done" {
+		t.Fatalf("got %q, want done", got)
+	}
+}
+
+func TestString_DynamicKeySelectionWithNoMatchingEntryIsEmpty(t *testing.T) {
+	d := map[string]any{
+		"item": map[string]any{
+			"childId": "missing-thread",
+			"states":  map[string]any{"thread-1": map[string]any{"status": "completed"}},
+		},
+	}
+	if got := mapping.String(d, "item.states[childId].status"); got != "" {
+		t.Fatalf("got %q, want empty: no entry under the resolved key", got)
+	}
+}
+
+func TestString_DynamicKeySelectionOnANonObjectTargetIsEmpty(t *testing.T) {
+	d := map[string]any{"item": map[string]any{"childId": "x", "states": []any{"not a map"}}}
+	if got := mapping.String(d, "item.states[childId].status"); got != "" {
+		t.Fatalf("got %q, want empty: a dynamic-key selector over a non-object must not resolve", got)
+	}
+}
+
+func TestString_DynamicKeySelectionWithAnUnresolvedKeyPathIsEmpty(t *testing.T) {
+	d := map[string]any{"item": map[string]any{"states": map[string]any{"x": "y"}}}
+	if got := mapping.String(d, "item.states[missingSibling].value"); got != "" {
+		t.Fatalf("got %q, want empty: the key path itself never resolved", got)
+	}
+}
+
+func TestString_DynamicKeySelectorComposesWithAlternation(t *testing.T) {
+	expr := "item.agentsStates[missing].status || item.agentsStates[receiverThreadIds[0]].message"
+	if got := mapping.String(collabDoc(), expr); got != "done" {
+		t.Fatalf("got %q, want the fallback branch to resolve", got)
 	}
 }

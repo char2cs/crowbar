@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
@@ -43,13 +44,23 @@ func (r *attachRegistry) set(runnerID string, v attachedView) {
 }
 
 func (r *attachRegistry) get(runnerID string) (attachedView, bool) {
+	if r == nil {
+		return attachedView{}, false
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	v, ok := r.byRun[runnerID]
 	return v, ok
 }
 
+// drop is nil-safe like apiConnRegistry's own, for the same reason: retire()
+// (lifecycle.go) now reaches this from every teardown path, including tests
+// and callers that construct a Runners with no attach registry at all because
+// nothing about their scenario ever attaches one.
 func (r *attachRegistry) drop(runnerID string) {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.byRun, runnerID)
@@ -68,6 +79,20 @@ func (rs *Runners) AttachedTerminalSession(runnerID string) (string, bool) {
 		return "", false
 	}
 	return view.termSessID, true
+}
+
+// ShowingNativeView reports whether runnerID is handed over to its provider's
+// OWN view right now — the same fact as AttachedTerminalSession, asked by a
+// caller that does not care which session it is.
+//
+// Only a non-hotswap provider can ever be in this state: a hotswap provider's
+// terminal is a second window onto a session Crowbar is still driving, so it
+// never calls SwitchToTerminal at all. That is what makes this the generic
+// signal for "the CLI's own UI is the one in front of the user", rather than a
+// provider name.
+func (rs *Runners) ShowingNativeView(runnerID string) bool {
+	_, ok := rs.attached.get(runnerID)
+	return ok
 }
 
 // ErrNoNativeTerminal is SwitchToTerminal's refusal for a provider with
@@ -160,7 +185,14 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	// Keyed by the CHAT, not the runner row's workspace: the native view is a
 	// PTY this chat owns, and live.WorkspaceID is empty for a chat with no
 	// worktree of its own. tctx.Cwd stays the separately-resolved directory.
-	termSessID, err := rs.term.CreateCommand(ctx, chatID, tctx.Cwd, argv, nil,
+	//
+	// os.Environ(), the same base every ordinary spawn plans from — NOT nil.
+	// CreateCommand takes the env verbatim, so nil left the native view with
+	// three variables and no PATH or HOME: measured live, every hook
+	// APIAttachArgv wires died with exit 127 and `crowbar mcp` never started,
+	// which is the exact "reports NOTHING back to Crowbar's ledger" that
+	// method's own doc says this path exists to prevent.
+	termSessID, err := rs.term.CreateCommand(ctx, chatID, tctx.Cwd, argv, os.Environ(),
 		rs.onAttachExit(chatID, live.ID))
 	if err != nil {
 		// The api connection is already gone; degrade to dormant rather than leave
