@@ -195,7 +195,9 @@ describe('a project-home chat or folder', () => {
   it('is never confused by a repo whose OWN folders array also claims the same id', () => {
     getHomeWorkspaceId.mockReturnValue('home-ws-1')
     useHomeTreeStore.setState({
-      trees: { p1: { chats: [], folders: [{ id: 'home-folder-1', repoId: '', name: 'x', order: 0 }] } },
+      trees: {
+        p1: { chats: [], folders: [{ id: 'home-folder-1', repoId: '', name: 'x', order: 0 }] },
+      },
     })
     const bled = repo({ folders: [{ id: 'home-folder-1', repoId: 'r1', name: 'x', order: 0 }] })
 

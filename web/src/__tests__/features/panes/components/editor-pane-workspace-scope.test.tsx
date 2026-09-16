@@ -154,7 +154,13 @@ describe('EditorPane — resolves the EditorManager by the buffer’s own worksp
 
     const { rerender } = render(
       <WorkspaceStoreContext.Provider value={ambientStore}>
-        <EditorPane paneId="p1" bufferId="b1" isActiveSurface isPreview={false} onPromote={() => {}} />
+        <EditorPane
+          paneId="p1"
+          bufferId="b1"
+          isActiveSurface
+          isPreview={false}
+          onPromote={() => {}}
+        />
       </WorkspaceStoreContext.Provider>,
     )
     const surface1 = await screen.findByTestId('monaco-surface')
@@ -165,7 +171,13 @@ describe('EditorPane — resolves the EditorManager by the buffer’s own worksp
     getOrCreateWorkspaceStore(bufferWsId)
     rerender(
       <WorkspaceStoreContext.Provider value={ambientStore}>
-        <EditorPane paneId="p1" bufferId="b1" isActiveSurface isPreview={false} onPromote={() => {}} />
+        <EditorPane
+          paneId="p1"
+          bufferId="b1"
+          isActiveSurface
+          isPreview={false}
+          onPromote={() => {}}
+        />
       </WorkspaceStoreContext.Provider>,
     )
 

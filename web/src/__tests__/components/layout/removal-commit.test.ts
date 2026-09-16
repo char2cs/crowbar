@@ -207,7 +207,12 @@ describe('committing a workspace removal', () => {
 describe('committing a project-home removal', () => {
   it('a home chat deletes through its own home workspace, never bumping a repo signal that has none to bump', async () => {
     useHomeTreeStore.setState({
-      trees: { p1: { chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }], folders: [] } },
+      trees: {
+        p1: {
+          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }],
+          folders: [],
+        },
+      },
     })
     const before = useFolderSignalStore.getState().generations['r1'] ?? 0
 
@@ -255,7 +260,12 @@ describe('committing a project-home removal', () => {
   it('un-hides a home chat and says why when its delete is refused', async () => {
     deleteChat.mockRejectedValueOnce(new Error('not found'))
     useHomeTreeStore.setState({
-      trees: { p1: { chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }], folders: [] } },
+      trees: {
+        p1: {
+          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 't', order: 0 }],
+          folders: [],
+        },
+      },
     })
     useRemovalTrayStore.getState().hold([
       {
@@ -273,7 +283,14 @@ describe('committing a project-home removal', () => {
     ])
 
     await commitRemoval(
-      entry({ kind: 'chat', id: 'c1', projectId: 'p1', repoId: '', wsId: 'home-ws-1', hiddenIds: ['c1'] }),
+      entry({
+        kind: 'chat',
+        id: 'c1',
+        projectId: 'p1',
+        repoId: '',
+        wsId: 'home-ws-1',
+        hiddenIds: ['c1'],
+      }),
       context,
     )
 

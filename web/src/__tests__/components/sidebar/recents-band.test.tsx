@@ -158,7 +158,7 @@ describe('RecentsBand', () => {
   // shell's own height lands on the same 36px as `ROW_BASE` alone — a solo
   // row (never `compactHeight`) keeps the full `h-9`, since it has no shell
   // padding to compensate for.
-  it('a set member gives up ROW_BASE\'s own h-9 for h-8, compensating for the shell\'s padding', () => {
+  it("a set member gives up ROW_BASE's own h-9 for h-8, compensating for the shell's padding", () => {
     const entries: RecentsBandEntry[] = [
       { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'set', workspaceId: 'ws-1' },
     ]
@@ -286,7 +286,13 @@ describe('RecentsBand', () => {
       showing: true,
       workspaceId: 'ws-1',
       chatIcons: {
-        'chat-1': { kind: 'branch', ownsWorktree: true, branchName: 'feature/x', added: 3, deleted: 1 },
+        'chat-1': {
+          kind: 'branch',
+          ownsWorktree: true,
+          branchName: 'feature/x',
+          added: 3,
+          deleted: 1,
+        },
       },
     }
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
@@ -362,7 +368,7 @@ describe('RecentsBand', () => {
     }
   })
 
-  it('a set shell keeps its own external gutter and matches an ordinary row\'s radius', () => {
+  it("a set shell keeps its own external gutter and matches an ordinary row's radius", () => {
     const entries: RecentsBandEntry[] = [
       {
         id: 'e1',
@@ -401,9 +407,15 @@ describe('RecentsBand', () => {
   // own `gap-0.5`/`p-0.5` be the only source of spacing, so all three are the
   // same 2px — the same small gap the tab strip already uses between its own
   // pills (tabs.tsx's `gap-x-0.5`).
-  it('every gap around and between a set\'s members is the same small value, on both axes', () => {
+  it("every gap around and between a set's members is the same small value, on both axes", () => {
     const entries: RecentsBandEntry[] = [
-      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'live', workspaceId: 'ws-1' },
+      {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1', 'chat-2'],
+        state: 'live',
+        workspaceId: 'ws-1',
+      },
     ]
     render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
     const shell = screen.getByTestId('recents-set-e1')

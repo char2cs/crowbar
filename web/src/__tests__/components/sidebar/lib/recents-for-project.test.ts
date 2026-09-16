@@ -318,7 +318,9 @@ describe('recentsForProject', () => {
   // builder reads, not a second, parallel guess.
   it("resolves a workspace-owning chat's icon fields from the SAME repo data the tree draws from", () => {
     activeIds.current = ['ws-1']
-    storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'branch-chat-1' }], working: {} } })
+    storeStates.current.set('ws-1', {
+      agentChats: { chats: [{ id: 'branch-chat-1' }], working: {} },
+    })
     seedLivePane('branch-chat-1')
     const repos = [
       makeTestRepo({
@@ -333,7 +335,14 @@ describe('recentsForProject', () => {
           }),
         ],
         chats: [
-          { id: 'branch-chat-1', repoId: 'r1', title: '', order: 0, workspaceId: 'ws-1', ownsWorktree: true },
+          {
+            id: 'branch-chat-1',
+            repoId: 'r1',
+            title: '',
+            order: 0,
+            workspaceId: 'ws-1',
+            ownsWorktree: true,
+          },
         ],
       }),
     ]

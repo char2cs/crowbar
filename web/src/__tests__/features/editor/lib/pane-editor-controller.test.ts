@@ -64,14 +64,22 @@ describe('applyActiveBuffer', () => {
   it('switching to the SAME buffer does not re-notify subscribers', () => {
     const manager = fakeManager()
     const registry = createActiveEditorRegistry()
-    applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts', workspaceId: 'w1' })
+    applyActiveBuffer({ manager, registry }, 'p1', {
+      bufferId: 'b-a',
+      filePath: '/a.ts',
+      workspaceId: 'w1',
+    })
 
     const cb = vi.fn()
     registry.subscribe('p1', cb) // immediate call (1)
     expect(cb).toHaveBeenCalledTimes(1)
 
     // Same path again — showBuffer is uri-deduped and registry.set is uri-deduped.
-    applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts', workspaceId: 'w1' })
+    applyActiveBuffer({ manager, registry }, 'p1', {
+      bufferId: 'b-a',
+      filePath: '/a.ts',
+      workspaceId: 'w1',
+    })
     expect(cb).toHaveBeenCalledTimes(1) // no re-notify
   })
 

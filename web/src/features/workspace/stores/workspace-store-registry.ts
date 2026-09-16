@@ -174,9 +174,7 @@ export function subscribeWorkspaceStores(callback: () => void): () => void {
     bound = [...registry.values()].map((store) => store.subscribe(callback))
     if (notify) callback()
   }
-  const unsubscribeRegistry = subscribeWorkspaceRegistry((change) =>
-    rebind(change === 'destroyed'),
-  )
+  const unsubscribeRegistry = subscribeWorkspaceRegistry((change) => rebind(change === 'destroyed'))
   rebind(false)
   return () => {
     unsubscribeRegistry()
@@ -219,9 +217,7 @@ export function subscribeChatWorking(wsId: string, callback: () => void): () => 
     unbind = store ? store.subscribe(callback) : null
     if (notify) callback()
   }
-  const unsubscribeRegistry = subscribeWorkspaceRegistry((change) =>
-    rebind(change === 'destroyed'),
-  )
+  const unsubscribeRegistry = subscribeWorkspaceRegistry((change) => rebind(change === 'destroyed'))
   rebind(true)
   return () => {
     unsubscribeRegistry()

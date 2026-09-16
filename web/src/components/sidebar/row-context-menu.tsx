@@ -1,5 +1,12 @@
 import { useEffect, type RefObject } from 'react'
-import { DownloadSimple, Folder, Lock, LockOpen, PencilSimpleLine, Trash } from '@phosphor-icons/react'
+import {
+  DownloadSimple,
+  Folder,
+  Lock,
+  LockOpen,
+  PencilSimpleLine,
+  Trash,
+} from '@phosphor-icons/react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import {
@@ -214,7 +221,8 @@ export function SidebarRowContextMenu({
         id: 'delete-repo',
         label: 'Delete Repo',
         icon: <Trash />,
-        className: 'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20',
+        className:
+          'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20',
         onClick: () => {
           if (!handleTrashRepo(repoIcon.repoId)) {
             toast.error(`Can't delete ${row.label} yet`)

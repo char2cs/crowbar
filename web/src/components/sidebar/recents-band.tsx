@@ -386,7 +386,9 @@ function RecentsEntryRow({
           // group dissolves for free once it is down to one — see
           // `viewIdOf`'s own "group of one" fallback, pane-views.ts). A solo
           // entry's one row IS the whole view, so its close still ends it.
-          onClose={canClose ? (isSet ? () => onCloseChat(entry, chatId) : () => onClose(entry)) : undefined}
+          onClose={
+            canClose ? (isSet ? () => onCloseChat(entry, chatId) : () => onClose(entry)) : undefined
+          }
           drag={drag}
           registerRow={registerRow}
         />

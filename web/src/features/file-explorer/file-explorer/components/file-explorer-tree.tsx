@@ -1116,7 +1116,9 @@ function FileExplorerTreeComponent({
             if (!current) break
             e.preventDefault()
             if (isDir) {
-              const expanded = useFileTreeStore.getState().isExpanded(activeWorkspaceId ?? '', current.path)
+              const expanded = useFileTreeStore
+                .getState()
+                .isExpanded(activeWorkspaceId ?? '', current.path)
               if (!expanded) {
                 void toggleDirectory(current.path)
               } else {
@@ -1132,7 +1134,10 @@ function FileExplorerTreeComponent({
           case 'ArrowLeft': {
             if (!current) break
             e.preventDefault()
-            if (isDir && useFileTreeStore.getState().isExpanded(activeWorkspaceId ?? '', current.path)) {
+            if (
+              isDir &&
+              useFileTreeStore.getState().isExpanded(activeWorkspaceId ?? '', current.path)
+            ) {
               void toggleDirectory(current.path)
             } else {
               const sep = current.path.includes('\\') ? '\\' : '/'
@@ -1182,7 +1187,10 @@ function FileExplorerTreeComponent({
         revealPathInTree={revealPathInTree}
       />
       {treeSearchOpen && (
-        <SidebarHeader onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+        <SidebarHeader
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <div className="flex items-stretch gap-1.5">
             <span className="relative flex min-w-0 flex-1 items-center">
               <Search

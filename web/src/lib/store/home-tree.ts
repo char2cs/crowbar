@@ -103,7 +103,10 @@ export function removeHomeFolder(projectId: string, folderId: string): void {
   const store = useHomeTreeStore.getState()
   const current = store.trees[projectId] ?? EMPTY_HOME_TREE
   if (!current.folders.some((f) => f.id === folderId)) return
-  store.setTree(projectId, { ...current, folders: current.folders.filter((f) => f.id !== folderId) })
+  store.setTree(projectId, {
+    ...current,
+    folders: current.folders.filter((f) => f.id !== folderId),
+  })
 }
 
 /**

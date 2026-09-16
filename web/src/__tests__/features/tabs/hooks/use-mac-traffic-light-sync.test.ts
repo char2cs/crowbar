@@ -48,7 +48,7 @@ describe('useMacTrafficLightSync', () => {
     expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 23 })
   })
 
-  it('sidebar-right translates the static value by the top-left row\'s own live offset', async () => {
+  it("sidebar-right translates the static value by the top-left row's own live offset", async () => {
     addPaneTopRow({ left: 0, top: 10, width: 400, height: 44 })
 
     renderHook(() => useMacTrafficLightSync('right'))

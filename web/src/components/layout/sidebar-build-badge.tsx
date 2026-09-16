@@ -34,7 +34,11 @@ function getDarkSnapshot(): boolean {
 }
 
 function useIsDarkMode(): boolean {
-  useSyncExternalStore(subscribeDark, () => darkVersion, () => 0)
+  useSyncExternalStore(
+    subscribeDark,
+    () => darkVersion,
+    () => 0,
+  )
   return getDarkSnapshot()
 }
 

@@ -492,7 +492,9 @@ export function SidebarCarousel({
                   rootFolderPath={activeWorkspaceRepoPath}
                   onFileSelect={(path, isDir) => {
                     if (isDir) {
-                      useFileTreeStore.getState().toggleFolder(getWorkspaceScope()?.wsId ?? '', path)
+                      useFileTreeStore
+                        .getState()
+                        .toggleFolder(getWorkspaceScope()?.wsId ?? '', path)
                     } else {
                       ensureActivePaneForFileOpen()
                       handleFileSelect?.(path, false)

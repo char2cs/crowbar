@@ -3,7 +3,10 @@
 import { memo } from 'react'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
-import { SidebarBuildBadgeBand, SidebarBuildBadgeLabel } from '@/components/layout/sidebar-build-badge'
+import {
+  SidebarBuildBadgeBand,
+  SidebarBuildBadgeLabel,
+} from '@/components/layout/sidebar-build-badge'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
 import { useSettingsStore } from '@/features/settings/store'
@@ -101,7 +104,9 @@ export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
           cluster — `justify-start` already lands there when the cluster is
           on the right; flip to `justify-end` when the parent's row-reverse
           has flipped the cluster to the left. */}
-      <div className={cn('relative z-10 flex min-w-0 flex-1 items-center', isRight && 'justify-end')}>
+      <div
+        className={cn('relative z-10 flex min-w-0 flex-1 items-center', isRight && 'justify-end')}
+      >
         <SidebarBuildBadgeLabel align={isRight ? 'end' : 'start'} />
       </div>
       {cluster}

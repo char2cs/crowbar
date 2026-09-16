@@ -989,9 +989,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       // DOCUMENT_POSITION_FOLLOWING on chatView (from editorView's
       // perspective) means editorView comes first in the DOM.
       expect(
-        Boolean(
-          editorView.compareDocumentPosition(chatView) & Node.DOCUMENT_POSITION_FOLLOWING,
-        ),
+        Boolean(editorView.compareDocumentPosition(chatView) & Node.DOCUMENT_POSITION_FOLLOWING),
       ).toBe(true)
       expect(editorView.style.borderRight).toBe('1px solid var(--border)')
       expect(editorView.style.borderTopRightRadius).toBe('0px') // jsdom normalizes '0' on read-back
@@ -1035,9 +1033,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
         const editorView = document.querySelector('[data-editor-view]')! as HTMLElement
 
         expect(
-          Boolean(
-            chatView.compareDocumentPosition(editorView) & Node.DOCUMENT_POSITION_FOLLOWING,
-          ),
+          Boolean(chatView.compareDocumentPosition(editorView) & Node.DOCUMENT_POSITION_FOLLOWING),
         ).toBe(true)
         const outerRef = document.createElement('div')
         Object.assign(
@@ -1654,8 +1650,10 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // buffer) rather than a display value. Unlike the header/title cases above,
   // a wrong answer here doesn't just render wrong and self-correct next
   // frame: it permanently tags a buffer with the wrong workspace.
-  it('opens branch review for the CHAT\'s own workspace, not whichever one is ambient', async () => {
-    getOrCreateWorkspaceStore('w-owner').getState().seedAgentChats([chatRecord('chat-1', 'w-owner')])
+  it("opens branch review for the CHAT's own workspace, not whichever one is ambient", async () => {
+    getOrCreateWorkspaceStore('w-owner')
+      .getState()
+      .seedAgentChats([chatRecord('chat-1', 'w-owner')])
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
 
     // Rendered under a DIFFERENT workspace's context — e.g. a split's other
@@ -1675,13 +1673,15 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // workspace, the action must no-op — never fall back to the ambient one and
   // silently create a buffer tagged with a workspace the chat doesn't belong
   // to at all.
-  it('does not open branch review for the ambient workspace while the chat\'s own owner is still unresolved', async () => {
+  it("does not open branch review for the ambient workspace while the chat's own owner is still unresolved", async () => {
     windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-unknown', null)
 
     await renderPane(createWorkspaceStore('w-onscreen'))
 
     fireEvent.click(await screen.findByTestId('branch-review-shortcut'))
 
-    expect(windowPaneStore.getState().buffers.find((b) => b.type === 'branchReview')).toBeUndefined()
+    expect(
+      windowPaneStore.getState().buffers.find((b) => b.type === 'branchReview'),
+    ).toBeUndefined()
   })
 })

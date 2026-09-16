@@ -431,7 +431,7 @@ describe('SidebarRowContextMenu', () => {
     // the way up. This listens in the capture phase specifically so it
     // cannot lose that race — proven here by asserting the row's own click
     // handler (onOpen) never fires alongside it.
-    it('does not also trigger the row\'s own click-to-open', () => {
+    it("does not also trigger the row's own click-to-open", () => {
       const { treeRef } = renderMenu()
       const onOpen = vi.fn()
       const row = document.createElement('div')

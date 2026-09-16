@@ -117,7 +117,11 @@ describe('SpaceScroller', () => {
     useHomeTreeStore.setState({ trees: {} })
     usePendingCreatesStore.setState(getInitialPendingCreatesState())
     __resetWorkspaceScopesForTest()
-    useHomeWorkspaceStateMock.mockReturnValue({ wsId: 'home-ws-1', owningChatId: null, error: false })
+    useHomeWorkspaceStateMock.mockReturnValue({
+      wsId: 'home-ws-1',
+      owningChatId: null,
+      error: false,
+    })
   })
 
   it('renders one panel per project, min-width 100%', () => {

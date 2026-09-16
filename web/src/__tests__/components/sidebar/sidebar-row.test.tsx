@@ -109,7 +109,9 @@ describe('SidebarRow', () => {
   })
 
   it('a has-view-idle row never carries the CossUI top-highlight either', () => {
-    render(<SidebarRow row={{ ...baseRow, hasView: true }} depth={0} onOpen={vi.fn()} hasViewIdle />)
+    render(
+      <SidebarRow row={{ ...baseRow, hasView: true }} depth={0} onOpen={vi.fn()} hasViewIdle />,
+    )
     const treeitem = screen.getByRole('treeitem').className
     expect(treeitem).not.toContain('inset-shadow-[0_1px_var(--elevated-highlight)]')
     expect(treeitem).not.toContain('shadow-xs')
@@ -227,7 +229,12 @@ describe('SidebarRow', () => {
   it('hides Fork (never Thread) on a chat row whose canFork is explicitly false', () => {
     const onCreate = vi.fn()
     render(
-      <SidebarRow row={{ ...baseRow, canFork: false }} depth={0} onOpen={vi.fn()} onCreate={onCreate} />,
+      <SidebarRow
+        row={{ ...baseRow, canFork: false }}
+        depth={0}
+        onOpen={vi.fn()}
+        onCreate={onCreate}
+      />,
     )
     expect(screen.queryByRole('button', { name: /fork/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
@@ -235,9 +242,7 @@ describe('SidebarRow', () => {
 
   it('both Fork and Thread render on a row that owns a worktree too', () => {
     const onCreate = vi.fn()
-    render(
-      <SidebarRow row={deletableRow} depth={0} onOpen={vi.fn()} onCreate={onCreate} />,
-    )
+    render(<SidebarRow row={deletableRow} depth={0} onOpen={vi.fn()} onCreate={onCreate} />)
     expect(screen.getByRole('button', { name: /fork/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
   })
@@ -463,7 +468,11 @@ describe('SidebarRow', () => {
       }
       const html = iconMarkup(<SidebarRow row={prOpenRow} depth={0} onOpen={vi.fn()} />)
       const expected = iconMarkup(
-        <GitPullRequest aria-hidden="true" className="size-4 shrink-0 text-green-500" weight="fill" />,
+        <GitPullRequest
+          aria-hidden="true"
+          className="size-4 shrink-0 text-green-500"
+          weight="fill"
+        />,
       )
       expect(html).toBe(expected)
     })
@@ -679,7 +688,13 @@ describe('SidebarRow', () => {
 
     it('coexists with onTrash (never wired together by a real caller, but neither excludes the other structurally)', () => {
       render(
-        <SidebarRow row={deletableRow} depth={0} onOpen={vi.fn()} onTrash={vi.fn()} onClose={vi.fn()} />,
+        <SidebarRow
+          row={deletableRow}
+          depth={0}
+          onOpen={vi.fn()}
+          onTrash={vi.fn()}
+          onClose={vi.fn()}
+        />,
       )
       expect(document.querySelector('[data-control="remove"]')).toBeInTheDocument()
       expect(document.querySelector('[data-control="close"]')).toBeInTheDocument()
@@ -693,9 +708,7 @@ describe('SidebarRow', () => {
     // which is what made them unreadable once every close button moved onto
     // this inline cluster (live-reported: "any button are not noticeable").
     it('re-keys its color onto the inverted pair when painted on an activeGround', () => {
-      render(
-        <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onClose={vi.fn()} activeGround />,
-      )
+      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} onClose={vi.fn()} activeGround />)
       const close = screen.getByRole('button', { name: `Close ${baseRow.label}` })
       expect(close.className).toContain('text-foreground-inverse/70')
       expect(close.className).toContain('hover:text-foreground-inverse')
@@ -710,7 +723,7 @@ describe('SidebarRow', () => {
     })
   })
 
-  describe('the repo-home row\'s own overflow (repo delete)', () => {
+  describe("the repo-home row's own overflow (repo delete)", () => {
     const repoIcon = {
       repoId: 'r1',
       projectId: 'p1',
@@ -801,11 +814,7 @@ describe('SidebarRow', () => {
       />,
     )
     const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
-    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual([
-      'thread',
-      'fork',
-      'fold',
-    ])
+    expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['thread', 'fork', 'fold'])
   })
 
   // A project-home folder (rows-from-home.ts) never owns a worktree — no

@@ -336,7 +336,7 @@ describe('performSidebarDrop — clearing a stale folder edge', () => {
 // SAME locked branch PATCHed 200, the write landed, and the panel never
 // showed the reorder because the row had just left that branch's own level.
 describe('performSidebarDrop — folder edge for a workspace container that owns a chat', () => {
-  it('landing directly under a workspace container writes that workspace\'s OWNING CHAT id, never bare \'\'', async () => {
+  it("landing directly under a workspace container writes that workspace's OWNING CHAT id, never bare ''", async () => {
     useSidebarStore.setState({
       repos: [
         {

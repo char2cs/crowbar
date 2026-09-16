@@ -27,7 +27,9 @@ const apiFetch = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/api', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 
 const openDialog = vi.fn()
-vi.mock('@/lib/native-dialog', () => ({ openNativeDialog: (...args: unknown[]) => openDialog(...args) }))
+vi.mock('@/lib/native-dialog', () => ({
+  openNativeDialog: (...args: unknown[]) => openDialog(...args),
+}))
 
 const isTauri = vi.fn(() => false)
 vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: () => isTauri() }))
@@ -125,11 +127,7 @@ describe('IconPopover — onStage mode stages locally instead of mutating the ne
   it('does not append a cache-busting query param to a staged iconUrl', () => {
     const onStage = vi.fn()
     render(
-      <IconPopover
-        {...baseProps}
-        onStage={onStage}
-        iconUrl="asset://staged/Users/me/icon.png"
-      />,
+      <IconPopover {...baseProps} onStage={onStage} iconUrl="asset://staged/Users/me/icon.png" />,
     )
     // The mocked Popover renders trigger and content at once (both carry
     // their own <img>), so assert over all of them rather than assume one.

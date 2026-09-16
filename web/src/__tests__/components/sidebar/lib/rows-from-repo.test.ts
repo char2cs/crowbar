@@ -996,9 +996,7 @@ describe('rowsFromRepo — the repo home never doubles as a workspace row', () =
     // rather than an empty label.
     const repo = makeTestRepo({
       defaultWorkspaceId: 'ws-home',
-      workspaces: [
-        makeTestWorkspace({ id: 'ws-home', branch: 'main', owningChatId: HOME_ROW_ID }),
-      ],
+      workspaces: [makeTestWorkspace({ id: 'ws-home', branch: 'main', owningChatId: HOME_ROW_ID })],
     })
     const rows = rowsFromRepo(repo)
     expect(rows.filter((r) => r.workspaceId === 'ws-home')).toHaveLength(1)

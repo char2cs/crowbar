@@ -89,7 +89,9 @@ export const usePendingCreatesStore = create<PendingCreatesState>()((set) => ({
     set((s) => ({ entries: [...s.entries, { ...entry, status: 'naming', label: '' }] })),
   confirmNaming: (tempId, label) =>
     set((s) => ({
-      entries: s.entries.map((e) => (e.tempId === tempId ? { ...e, status: 'creating', label } : e)),
+      entries: s.entries.map((e) =>
+        e.tempId === tempId ? { ...e, status: 'creating', label } : e,
+      ),
     })),
   addCreating: (entry) =>
     set((s) => ({ entries: [...s.entries, { ...entry, status: 'creating', label: '' }] })),

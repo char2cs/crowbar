@@ -587,7 +587,11 @@ fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(
 /// as a pure function — no `AnyObject`, no live window — so the one bit of
 /// real arithmetic here is unit-testable without AppKit.
 #[cfg_attr(not(test), allow(dead_code))]
-fn traffic_light_container_frame(close_button_height: f64, y: f64, window_frame_height: f64) -> (f64, f64) {
+fn traffic_light_container_frame(
+    close_button_height: f64,
+    y: f64,
+    window_frame_height: f64,
+) -> (f64, f64) {
     let height = close_button_height + y;
     (height, window_frame_height - height)
 }

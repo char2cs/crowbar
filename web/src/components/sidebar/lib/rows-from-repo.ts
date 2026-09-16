@@ -160,7 +160,14 @@ export function resolveOwnerOfChat(
  */
 export type ChatIconFields = Pick<
   SidebarRow,
-  'kind' | 'ownsWorktree' | 'branchName' | 'added' | 'deleted' | 'locked' | 'status' | 'isPlaceholder'
+  | 'kind'
+  | 'ownsWorktree'
+  | 'branchName'
+  | 'added'
+  | 'deleted'
+  | 'locked'
+  | 'status'
+  | 'isPlaceholder'
 >
 
 /**
@@ -169,9 +176,7 @@ export type ChatIconFields = Pick<
  * factored out so `chatIconIndex` (Recents' own icon fallback, below) can
  * produce the identical shape without re-deriving it.
  */
-function workspaceIconFields(
-  workspace: Workspace,
-): Omit<ChatIconFields, 'kind' | 'ownsWorktree'> {
+function workspaceIconFields(workspace: Workspace): Omit<ChatIconFields, 'kind' | 'ownsWorktree'> {
   return {
     branchName: workspace.branch,
     added: workspace.added,

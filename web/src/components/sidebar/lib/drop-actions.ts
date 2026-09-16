@@ -243,7 +243,7 @@ function planTreeRowDrop(
     // never-yet-touched or previously-corrupted row needs the SAME correction
     // a properly-placed sibling already carries, not a same-as-before no-op.
     const directFolderId =
-      containerKind === 'workspace' ? owningChatIdOfWorkspace(repos, containerId) ?? '' : folderId
+      containerKind === 'workspace' ? (owningChatIdOfWorkspace(repos, containerId) ?? '') : folderId
     calls.push({
       kind: 'workspace',
       projectId,
@@ -293,7 +293,10 @@ function planChatDropOntoBranch(
   // `allowedModes` never returns `into: true` for a branch target — see
   // sidebar-drop-policy.ts's own doc — so this only ever reorders.
   if (mode === 'into') return []
-  const repos = applyPendingRemovals(useSidebarStore.getState().repos, useRemovalTrayStore.getState().hiddenIds)
+  const repos = applyPendingRemovals(
+    useSidebarStore.getState().repos,
+    useRemovalTrayStore.getState().hiddenIds,
+  )
   const scope = resolveRowRepo(repos, target.id)
   if (!scope?.projectId) return []
   const projectId = scope.projectId
@@ -305,7 +308,9 @@ function planChatDropOntoBranch(
   const homeWorkspaceId = getHomeWorkspaceId(projectId)
   const homeTree = homeWorkspaceId ? useHomeTreeStore.getState().trees[projectId] : undefined
   const rows: SidebarRow[] = [
-    ...(homeWorkspaceId && homeTree ? rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders) : []),
+    ...(homeWorkspaceId && homeTree
+      ? rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders)
+      : []),
     ...rowsForProject(repos, projectId),
   ]
   const lifted = new Set(subjects.map((s) => s.id))

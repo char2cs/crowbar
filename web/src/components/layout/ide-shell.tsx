@@ -195,7 +195,8 @@ export function IDEShell() {
   // The workspace WorkspaceHost should treat as "active": the active pane's
   // own workspace first (see above), then the routed workspace, then — on
   // project home — the resolved home workspace once known.
-  const effectiveActiveWorkspaceId = activePaneWorkspaceId ?? activeWorkspaceId ?? homeWorkspaceId ?? null
+  const effectiveActiveWorkspaceId =
+    activePaneWorkspaceId ?? activeWorkspaceId ?? homeWorkspaceId ?? null
   // Open the per-:wsId workspace WS stream for the viewed workspace. Beyond data,
   // this is what starts the daemon's per-connection provider poll so a branch with
   // an open PR flips to the green pr-open icon (the list stream never starts it).

@@ -89,14 +89,21 @@ const darkModeListeners = new Set<() => void>()
 let darkModeObserver: MutationObserver | null = null
 
 function ensureDarkModeObserver(): void {
-  if (darkModeObserver || typeof document === 'undefined' || typeof MutationObserver === 'undefined') {
+  if (
+    darkModeObserver ||
+    typeof document === 'undefined' ||
+    typeof MutationObserver === 'undefined'
+  ) {
     return
   }
   darkModeObserver = new MutationObserver(() => {
     darkModeVersion++
     darkModeListeners.forEach((listener) => listener())
   })
-  darkModeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  darkModeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  })
 }
 
 function subscribeDarkMode(listener: () => void): () => void {

@@ -6,7 +6,11 @@ vi.mock('@/lib/persistence/sidebar-ui', () => ({
 }))
 
 import { handleTrash } from '@/components/layout/space-content-actions'
-import { applyPendingRemovals, attachRemovalState, descendantHiddenIds } from '@/components/layout/removal-plan'
+import {
+  applyPendingRemovals,
+  attachRemovalState,
+  descendantHiddenIds,
+} from '@/components/layout/removal-plan'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useRemovalTrayStore, getInitialRemovalState } from '@/lib/store/sidebar-removal'

@@ -299,9 +299,8 @@ describe('openBranchReviewForWorkspace', () => {
   })
 
   it('opens into the given paneId, not whichever pane was active before the call', async () => {
-    const { openBranchReviewForWorkspace } = await import(
-      '@/features/panes/utils/pane-command-actions'
-    )
+    const { openBranchReviewForWorkspace } =
+      await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
     const otherPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     if (!otherPaneId) throw new Error('split failed')
@@ -318,9 +317,8 @@ describe('openBranchReviewForWorkspace', () => {
   })
 
   it('with no paneId, keeps opening into whichever pane is already active (openBranchReviewForActiveWorkspace’s own contract)', async () => {
-    const { openBranchReviewForWorkspace } = await import(
-      '@/features/panes/utils/pane-command-actions'
-    )
+    const { openBranchReviewForWorkspace } =
+      await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
     const otherPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     if (!otherPaneId) throw new Error('split failed')
@@ -333,9 +331,8 @@ describe('openBranchReviewForWorkspace', () => {
   })
 
   it('returns null and touches nothing when wsId is null', async () => {
-    const { openBranchReviewForWorkspace } = await import(
-      '@/features/panes/utils/pane-command-actions'
-    )
+    const { openBranchReviewForWorkspace } =
+      await import('@/features/panes/utils/pane-command-actions')
     const before = windowPaneStore.getState().activePaneId
     expect(openBranchReviewForWorkspace(null, 'some-pane')).toBeNull()
     expect(windowPaneStore.getState().activePaneId).toBe(before)

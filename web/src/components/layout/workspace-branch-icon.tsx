@@ -60,7 +60,11 @@ export function WorkspaceBranchIcon({
       return (
         <Lock
           aria-hidden="true"
-          className={cn(size, 'shrink-0 text-foreground', invertedGround && 'text-foreground-inverse')}
+          className={cn(
+            size,
+            'shrink-0 text-foreground',
+            invertedGround && 'text-foreground-inverse',
+          )}
           weight="fill"
         />
       )
@@ -68,7 +72,11 @@ export function WorkspaceBranchIcon({
       return (
         <GitBranch
           aria-hidden="true"
-          className={cn(size, 'shrink-0 text-foreground', invertedGround && 'text-foreground-inverse')}
+          className={cn(
+            size,
+            'shrink-0 text-foreground',
+            invertedGround && 'text-foreground-inverse',
+          )}
           weight="fill"
         />
       )

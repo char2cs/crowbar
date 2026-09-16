@@ -878,7 +878,13 @@ export function confirmPendingCreateName(tempId: string, name: string): void {
   // identical reasoning on the thread path above; the same hang risk applies
   // here, and a stuck naming lock would leave every later "+" click on this
   // exact row permanently inert.
-  createChatWithOwnWorktree(armed.projectId, armed.repoId, armed.providerId, armed.placementParentId, name)
+  createChatWithOwnWorktree(
+    armed.projectId,
+    armed.repoId,
+    armed.providerId,
+    armed.placementParentId,
+    name,
+  )
     .then((chatId) => {
       armed.release()
       announceTreeChange(armed.repoId)

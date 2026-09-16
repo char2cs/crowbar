@@ -37,7 +37,10 @@ import {
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 import { performPromoteChat, performRenameRow } from '@/components/sidebar/lib/row-actions'
-import { confirmPendingCreateName, cancelPendingCreate } from '@/components/layout/space-content-actions'
+import {
+  confirmPendingCreateName,
+  cancelPendingCreate,
+} from '@/components/layout/space-content-actions'
 import { EditableRepoIcon } from '@/components/layout/repo-icon-mark'
 import { WorkspaceBranchIcon } from '@/components/layout/workspace-branch-icon'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
@@ -366,7 +369,12 @@ export function SidebarRow({
                 size="lg"
               />
             ) : (
-              <RowGlyph row={row} large={isProjectHome} expanded={expanded} activeGround={activeGround} />
+              <RowGlyph
+                row={row}
+                large={isProjectHome}
+                expanded={expanded}
+                activeGround={activeGround}
+              />
             )}
           </span>
         )}
@@ -497,8 +505,7 @@ export function SidebarRow({
           </button>
         )}
 
-        {onCreate &&
-          (row.kind === 'folder' ? row.ownsWorktree : row.kind === 'branch') && (
+        {onCreate && (row.kind === 'folder' ? row.ownsWorktree : row.kind === 'branch') && (
           <button
             type="button"
             data-control="fork"
@@ -536,21 +543,21 @@ export function SidebarRow({
           (row.kind === 'chat' ||
             row.kind === 'folder' ||
             (row.kind === 'branch' && !row.locked)) && (
-          <button
-            type="button"
-            data-control="remove"
-            className={subActionClass}
-            aria-label={`Remove ${row.label}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              e.currentTarget.blur()
-              onTrash(row.id)
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <X aria-hidden="true" className="size-3" weight="bold" />
-          </button>
-        )}
+            <button
+              type="button"
+              data-control="remove"
+              className={subActionClass}
+              aria-label={`Remove ${row.label}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                e.currentTarget.blur()
+                onTrash(row.id)
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <X aria-hidden="true" className="size-3" weight="bold" />
+            </button>
+          )}
 
         {onClose && (
           <button
@@ -623,7 +630,11 @@ function PendingSidebarRow({
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
       <div
-        className={cn(ROW_BASE, 'border-transparent', !isNaming && 'pointer-events-none opacity-60')}
+        className={cn(
+          ROW_BASE,
+          'border-transparent',
+          !isNaming && 'pointer-events-none opacity-60',
+        )}
       >
         <span className={ROW_GLYPH_BOX}>
           {isError ? (

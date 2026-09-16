@@ -162,7 +162,9 @@ describe('useViewWorkspaceIds', () => {
 
   it("includes a chat's owning workspace once it is live in a pane", () => {
     act(() => {
-      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
+      getOrCreateWorkspaceStore('ws-a')
+        .getState()
+        .seedAgentChats([chat('c1', 'ws-a')])
     })
     const { result, rerender } = renderHook(() => useViewWorkspaceIds())
     expect(result.current).toEqual([])
@@ -177,7 +179,9 @@ describe('useViewWorkspaceIds', () => {
 
   it('includes the owner of a chat that is merely "working", with no pane', () => {
     act(() => {
-      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
+      getOrCreateWorkspaceStore('ws-a')
+        .getState()
+        .seedAgentChats([chat('c1', 'ws-a')])
     })
     const { result, rerender } = renderHook(() => useViewWorkspaceIds())
 
@@ -191,7 +195,9 @@ describe('useViewWorkspaceIds', () => {
 
   it('drops a workspace the instant its last chat leaves every Recents entry (close, not a grace period)', () => {
     act(() => {
-      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
+      getOrCreateWorkspaceStore('ws-a')
+        .getState()
+        .seedAgentChats([chat('c1', 'ws-a')])
       seedLivePane('c1')
     })
     const { result, rerender } = renderHook(() => useViewWorkspaceIds())
@@ -210,8 +216,12 @@ describe('useViewWorkspaceIds', () => {
 
   it('unions owners across more than one workspace', () => {
     act(() => {
-      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
-      getOrCreateWorkspaceStore('ws-b').getState().seedAgentChats([chat('c2', 'ws-b')])
+      getOrCreateWorkspaceStore('ws-a')
+        .getState()
+        .seedAgentChats([chat('c1', 'ws-a')])
+      getOrCreateWorkspaceStore('ws-b')
+        .getState()
+        .seedAgentChats([chat('c2', 'ws-b')])
       seedLivePane('c1')
       seedLivePane('c2')
     })
@@ -235,11 +245,15 @@ describe('useViewWorkspaceIds', () => {
   // with no user interaction involved at all.
   it("attributes a chat to its OWN workspaceId even when a sibling store's repo-wide copy also lists it", () => {
     act(() => {
-      getOrCreateWorkspaceStore('ws-a').getState().seedAgentChats([chat('c1', 'ws-a')])
+      getOrCreateWorkspaceStore('ws-a')
+        .getState()
+        .seedAgentChats([chat('c1', 'ws-a')])
       // ws-b's store also carries a copy of c1 — a repo-scoped listChats
       // leak, not a real ownership claim (c1's own workspaceId still says
       // ws-a).
-      getOrCreateWorkspaceStore('ws-b').getState().seedAgentChats([chat('c1', 'ws-a')])
+      getOrCreateWorkspaceStore('ws-b')
+        .getState()
+        .seedAgentChats([chat('c1', 'ws-a')])
       seedLivePane('c1')
     })
     const { result, rerender } = renderHook(() => useViewWorkspaceIds())
@@ -286,7 +300,10 @@ describe('usePaneEditorWorkspaceIds', () => {
 
     act(() => {
       windowPaneStore.setState((state) => ({
-        panes: { ...state.panes, 'editor-pane-a': { ...state.panes['editor-pane-a']!, editorTabIds: [] } },
+        panes: {
+          ...state.panes,
+          'editor-pane-a': { ...state.panes['editor-pane-a']!, editorTabIds: [] },
+        },
       }))
     })
     rerender()

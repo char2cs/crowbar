@@ -148,7 +148,12 @@ const TabBarItem = memo(function TabBarItem({
           ) : buffer.type === 'terminal' ? (
             <Terminal className="text-muted-foreground" />
           ) : (
-            <FileExplorerIcon fileName={buffer.name} isDir={false} className="text-muted-foreground" size={14} />
+            <FileExplorerIcon
+              fileName={buffer.name}
+              isDir={false}
+              className="text-muted-foreground"
+              size={14}
+            />
           )}
         </div>
         <span

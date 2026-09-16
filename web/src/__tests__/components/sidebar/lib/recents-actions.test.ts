@@ -284,7 +284,13 @@ describe('closeRecentChat', () => {
     paneActions.setPaneChat(b, 'chat-2', null)
 
     closeRecentChat(
-      { id: 'e1', localId: 'e1', chatIds: ['chat-1', 'chat-2'], state: 'live', workspaceId: 'ws-1' },
+      {
+        id: 'e1',
+        localId: 'e1',
+        chatIds: ['chat-1', 'chat-2'],
+        state: 'live',
+        workspaceId: 'ws-1',
+      },
       'chat-1',
     )
 

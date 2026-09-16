@@ -139,7 +139,9 @@ export function BuildBadgeSection() {
         <div className="flex items-center gap-1">
           <Select
             value={buildBadgeOverride}
-            onValueChange={(v) => updateSetting('buildBadgeOverride', v as Settings['buildBadgeOverride'])}
+            onValueChange={(v) =>
+              updateSetting('buildBadgeOverride', v as Settings['buildBadgeOverride'])
+            }
           >
             <SelectTrigger className={SETTINGS_CONTROL_WIDTHS.wide} size="sm">
               <SelectValue />

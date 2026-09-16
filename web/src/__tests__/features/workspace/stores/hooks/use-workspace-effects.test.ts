@@ -373,7 +373,9 @@ describe('useWorkspaceEffects', () => {
       // 'ws-race' here would silently inherit the prior test's id and skip
       // right past the race this test exists to cover.
       const wsId = 'ws-race-children'
-      const treeWithSrc: AppFile[] = [{ name: 'src', path: 'src', isDir: true, children: undefined }]
+      const treeWithSrc: AppFile[] = [
+        { name: 'src', path: 'src', isDir: true, children: undefined },
+      ]
       const srcChildren: AppFile[] = [{ name: 'index.ts', path: 'src/index.ts', isDir: false }]
 
       setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId })
@@ -402,7 +404,12 @@ describe('useWorkspaceEffects', () => {
       expect(fetchFileTree).not.toHaveBeenCalled()
 
       fetchFileTree.mockResolvedValueOnce(srcChildren)
-      recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId, owningChatId: 'chat-race-children' })
+      recordWorkspaceScope({
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId,
+        owningChatId: 'chat-race-children',
+      })
 
       await waitFor(() => {
         expect(fetchFileTree).toHaveBeenCalledWith(wsId, 'src')

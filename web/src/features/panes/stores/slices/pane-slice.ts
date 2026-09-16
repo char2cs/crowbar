@@ -1060,7 +1060,11 @@ export const createPaneSlice: StateCreator<
           ]
           // Sync isUncloseable for both panes (see the function's own doc for
           // when a sole tab is left closeable instead).
-          syncSoleEditorTabCloseability(state, fromPaneId, paneCanSafelyLoseLastTab(state, fromPaneId))
+          syncSoleEditorTabCloseability(
+            state,
+            fromPaneId,
+            paneCanSafelyLoseLastTab(state, fromPaneId),
+          )
           syncSoleEditorTabCloseability(state, toPaneId, paneCanSafelyLoseLastTab(state, toPaneId))
         })
       },

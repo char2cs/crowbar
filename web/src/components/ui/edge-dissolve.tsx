@@ -38,8 +38,13 @@ function layerStyle(layer: DissolveLayerSpec, height: number): CSSProperties {
   // how that becomes the visual TOP once flipped); a 4-stop layer's own
   // fade-out means it stops short of it.
   const bottom = layer.stops.length === 4 ? Math.max(0, height * (1 - lastStop) - layer.blur) : 0
-  const colors = layer.stops.length === 4 ? ['transparent', 'black', 'black', 'transparent'] : ['transparent', 'black']
-  const stopsCss = layer.stops.map((s, i) => `${colors[i]} ${(height * s - top).toFixed(2)}px`).join(', ')
+  const colors =
+    layer.stops.length === 4
+      ? ['transparent', 'black', 'black', 'transparent']
+      : ['transparent', 'black']
+  const stopsCss = layer.stops
+    .map((s, i) => `${colors[i]} ${(height * s - top).toFixed(2)}px`)
+    .join(', ')
   const mask = `linear-gradient(to bottom, ${stopsCss})`
   return {
     position: 'absolute',

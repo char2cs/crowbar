@@ -269,7 +269,9 @@ describe('WorkspaceHost', () => {
   })
 
   it('evicts a paneWsIds entry once it stops being pane-referenced and has no view chat', () => {
-    const { rerender } = render(<WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} viewWsIds={['b']} />)
+    const { rerender } = render(
+      <WorkspaceHost activeWsId="a" paneWsIds={['a', 'b']} viewWsIds={['b']} />,
+    )
     expect(slot('b')).not.toBeNull()
 
     // The pane closes and its chat leaves Recents entirely.

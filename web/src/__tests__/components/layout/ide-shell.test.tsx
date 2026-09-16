@@ -6,7 +6,10 @@ import { IDEShell } from '@/components/layout/ide-shell'
 import { useSettingsStore } from '@/features/settings/store'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { idle, success } from '@/lib/loadable'
-import { windowPaneStore, resetWindowPaneStoreForTests } from '@/features/panes/stores/window-pane-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 const router = vi.hoisted(() => ({ pathname: '/', navigate: vi.fn() }))
@@ -327,7 +330,7 @@ describe('IDEShell', () => {
   // workspace never followed. Caught live: two panes on totally different
   // repos, and the file explorer stayed on whichever repo the URL happened
   // to name, regardless of which pane you clicked into.
-  describe('the active pane, not the route, decides WorkspaceHost\'s active workspace', () => {
+  describe("the active pane, not the route, decides WorkspaceHost's active workspace", () => {
     it("mounts the active pane's own workspace as active, even for a repo the route never visited", () => {
       router.pathname = '/ide/p1/r1/ws-a'
       sidebarState.repos = [
@@ -396,12 +399,7 @@ describe('IDEShell', () => {
       resetWindowPaneStoreForTests()
       const paneActions = () => windowPaneStore.getState().paneActions
       paneActions().setPaneChat(ROOT_PANE_ID, 'chat-a', null)
-      const secondPaneId = paneActions().splitPane(
-        ROOT_PANE_ID,
-        'horizontal',
-        undefined,
-        'after',
-      )!
+      const secondPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal', undefined, 'after')!
       paneActions().setPaneChat(secondPaneId, 'chat-b', null)
       // The asymmetry that used to move the shell's `activeEditorTabId`: one
       // pane holds an editor tab, the other holds only its chat.

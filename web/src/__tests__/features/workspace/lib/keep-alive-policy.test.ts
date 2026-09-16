@@ -133,7 +133,12 @@ describe('workspacesWithViewChat', () => {
   }
 
   it('includes the owner of a chat currently held by a live pane', () => {
-    const owners = workspacesWithViewChat([pane('p1', 'chat-1')], {}, [], new Map([['chat-1', 'ws-a']]))
+    const owners = workspacesWithViewChat(
+      [pane('p1', 'chat-1')],
+      {},
+      [],
+      new Map([['chat-1', 'ws-a']]),
+    )
     expect(owners).toEqual(new Set(['ws-a']))
   })
 
