@@ -1,6 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Upload, Smile, Star, Trash2, Pencil } from 'lucide-react'
-import { convertFileSrc } from '@tauri-apps/api/core'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -9,7 +8,7 @@ import { RepoAvatarImg } from './repo-avatar'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/features/window/stores/toast-store'
 import { openNativeDialog as openDialog } from '@/lib/native-dialog'
-import { isTauri } from '@/lib/crowbar-bridge'
+import { isTauri, convertFileSrc } from '@/lib/crowbar-bridge'
 
 /**
  * A pick made in `onStage` mode (create-space-panel.tsx) — nothing hits the

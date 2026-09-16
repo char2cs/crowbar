@@ -1,6 +1,6 @@
 // Crowbar system operations backed by the Go daemon's /v0 API.
 
-import { Channel } from '@tauri-apps/api/core'
+import { Channel, convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
 import { Menu } from '@tauri-apps/api/menu'
 import type {
   MenuItemOptions,
@@ -598,6 +598,11 @@ export async function showNativeContextMenu(
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
+
+/** A Tauri-picked filesystem path -> a URL its own webview can load
+ *  (`asset://...`). Re-exported here (not imported directly) so this file
+ *  stays the one place non-bridge code reaches `@tauri-apps/*` through. */
+export const convertFileSrc = tauriConvertFileSrc
 
 async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<void> {
   if (!isTauri()) throw new Error(`tauriInvoke called outside Tauri: ${cmd}`)

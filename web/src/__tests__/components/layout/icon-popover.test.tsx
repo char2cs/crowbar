@@ -32,9 +32,8 @@ vi.mock('@/lib/native-dialog', () => ({
 }))
 
 const isTauri = vi.fn(() => false)
-vi.mock('@/lib/crowbar-bridge', () => ({ isTauri: () => isTauri() }))
-
-vi.mock('@tauri-apps/api/core', () => ({
+vi.mock('@/lib/crowbar-bridge', () => ({
+  isTauri: () => isTauri(),
   convertFileSrc: (path: string) => `asset://staged${path}`,
 }))
 
