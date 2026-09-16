@@ -2,6 +2,7 @@ import { DndContext, DragOverlay, closestCenter, useSensor, useSensors } from '@
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
@@ -50,30 +51,42 @@ const writeText = (text: string) => navigator.clipboard.writeText(text)
  * rendered field actually moves.
  *
  * The rendered-field set is defined once by `sameRenderedBuffer`
- * (tab-bar-item.tsx) and reused here as the per-buffer equality, so this
+ * (tab-bar-item-utils.ts) and reused here as the per-buffer equality, so this
  * strip-level gate and TabBarItem's per-tab memo can never fall out of sync.
  * Real `PaneContent` objects are returned (not a reduced tuple) because the tab
  * strip's own hooks — drag, keyboard-nav, display-name — need the full buffer;
  * they only ever read rendered fields, so returning a stale-but-rendered-equal
  * object is safe. Handlers that need live non-rendered fields (e.g. reload,
  * which reads `content`) read `windowPaneStore.getState()` instead.
+ *
+ * The equality lives in `useStoreWithEqualityFn`'s `isEqual`, not a
+ * hand-rolled ref inside the selector: Zustand v5 (`useSyncExternalStore`)
+ * can call a selector multiple times per commit, including for renders React
+ * later discards, so a selector that mutates a ref to cache its own last
+ * result can hand back a reference from a discarded render and never
+ * stabilize — the exact "fresh selector" shape that trips Zustand v5's
+ * snapshot checks into a render loop. `useStoreWithEqualityFn` keeps that
+ * previous-value cache in React's own sync-external-store layer instead,
+ * where it's safe.
  */
+function sameRenderedBufferList(a: PaneContent[], b: PaneContent[]): boolean {
+  return a.length === b.length && a.every((buffer, i) => sameRenderedBuffer(buffer, b[i]))
+}
+
 function useRenderedPaneBuffers(paneBufferIds: string[]): PaneContent[] {
-  const prev = useRef<PaneContent[]>([])
-  return useStore(windowPaneStore, (s) => {
-    const map = new Map(s.buffers.map((b) => [b.id, b]))
-    const next: PaneContent[] = []
-    for (const id of paneBufferIds) {
-      const b = map.get(id)
-      if (b) next.push(b)
-    }
-    const p = prev.current
-    if (p.length === next.length && next.every((b, i) => sameRenderedBuffer(p[i], b))) {
-      return p
-    }
-    prev.current = next
-    return next
-  })
+  return useStoreWithEqualityFn(
+    windowPaneStore,
+    (s) => {
+      const map = new Map(s.buffers.map((b) => [b.id, b]))
+      const next: PaneContent[] = []
+      for (const id of paneBufferIds) {
+        const b = map.get(id)
+        if (b) next.push(b)
+      }
+      return next
+    },
+    sameRenderedBufferList,
+  )
 }
 
 interface TabBarProps {
