@@ -203,20 +203,40 @@ func (c *Conn) Call(ctx context.Context, method string, params any) (json.RawMes
 		return nil, fmt.Errorf("wsrpc: write %s: %w", method, writeErr)
 	}
 
+	// ch is buffered (cap 1): a response already delivered into it by readLoop
+	// sits there even after ctx.Done()/c.closed also fire, and select then picks
+	// among ready cases at random. Re-checking ch non-blockingly in each of
+	// those branches prefers an answer that already arrived over discarding it
+	// for a signal that merely fired around the same time.
 	select {
 	case f := <-ch:
-		if f.Error != nil {
-			return nil, &CallError{Method: method, Code: f.Error.Code, Message: f.Error.Message}
-		}
-		return f.Result, nil
+		return callResult(method, f)
 	case <-ctx.Done():
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
-		return nil, ctx.Err()
+		select {
+		case f := <-ch:
+			return callResult(method, f)
+		default:
+			return nil, ctx.Err()
+		}
 	case <-c.closed:
-		return nil, errors.New("wsrpc: connection closed")
+		select {
+		case f := <-ch:
+			return callResult(method, f)
+		default:
+			return nil, errors.New("wsrpc: connection closed")
+		}
 	}
+}
+
+// callResult converts a dispatched response frame into Call's return values.
+func callResult(method string, f wireFrame) (json.RawMessage, error) {
+	if f.Error != nil {
+		return nil, &CallError{Method: method, Code: f.Error.Code, Message: f.Error.Message}
+	}
+	return f.Result, nil
 }
 
 // Notify sends a JSON-RPC notification (no id, no reply expected).
