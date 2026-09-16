@@ -392,8 +392,14 @@ func readUntil(
 	// BEFORE the caller subscribed, and no amount of further blocking recovers
 	// it. Unbounded, that costs the entire PACKAGE — Go's 4m timeout kills every
 	// other test in ./tests and leaves a goroutine dump as the only evidence of
-	// which one was at fault. Bounded, the test names itself in 30s.
-	deadline := time.Now().Add(30 * time.Second)
+	// which one was at fault. Bounded, the test names itself instead.
+	//
+	// 45s, not 30s: TestRegression_DeleteWorkspaceTombstones was seen missing
+	// this bound under CI's constrained CPU with an otherwise clean, leak-free
+	// harness — worst-case scheduling latency against a large legitimate
+	// goroutine footprint, not a hang. Still an order of magnitude under the
+	// package's own 4m ceiling.
+	deadline := time.Now().Add(45 * time.Second)
 	for {
 		require.NoError(t, conn.SetReadDeadline(deadline))
 		mt, raw, err := conn.ReadMessage()

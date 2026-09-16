@@ -362,7 +362,9 @@ func TestRegression_ResumeIntoOccupiedChat_OnADifferentConversation(t *testing.T
 	runnerB2 := switched.ID
 	require.NotEmpty(t, runnerB2)
 	require.NotEqual(t, runnerB1, runnerB2, "a switch spawns a new CLI")
-	frames.awaitRunner(runnerB1, "displaced")
+	// Not awaiting "displaced": quitOutgoingCLI kills before calling displace
+	// (switch.go), so under load the kill can win and Validate's documented
+	// benign-race no-op (displace.go) skips the frame. "exited" always fires.
 	frames.awaitRunner(runnerB1, "exited")
 	frames.awaitRunner(runnerB2, "started")
 
