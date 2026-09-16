@@ -63,7 +63,23 @@ func newHarnessAt(
 	home string,
 ) *harness {
 	t.Helper()
-	ctx := context.Background()
+	// The lifecycle ctx handed to engine.New/app.New is what the production
+	// daemon (internal.Container.New, then .Run) uses to stop the two
+	// long-running background loops app.New starts at boot: the provider
+	// engine's 5-minute cron sweep and the chat usecase's 2-second
+	// terminal-wait detector (startProviderSweep/startTerminalWaitSweep in
+	// internal/app/container.go). Production cancels that SAME ctx the instant
+	// a shutdown signal arrives — before Run's own drain/Close sequence even
+	// begins — which is what stops both loops.
+	//
+	// A bare context.Background() here never delivers that signal, so every
+	// harness this package ever boots leaked its own copy of both loops for
+	// the rest of the TEST BINARY's life (every test in ./tests shares one
+	// process): dozens of them accumulate over a full package run, each still
+	// ticking its 2s sweep against a torn-down harness while later tests run.
+	// cancelBoot closes that gap on every teardown path (see drainDown and
+	// crashDie below).
+	ctx, cancelBoot := context.WithCancel(context.Background())
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
@@ -87,8 +103,9 @@ func newHarnessAt(
 	h.server = srv
 	h.url = srv.URL
 	// drainDown is the daemon's ORDERED GRACEFUL DRAIN — internal.Container.Run's
-	// ctx.Done branch, verbatim: stop serving, then quiesce every asynchronous
-	// writer and drain every aggregate, all while the DBs are still OPEN.
+	// ctx.Done branch, verbatim: cancel the boot ctx (stopping the two loops
+	// above), stop serving, then quiesce every asynchronous writer and drain
+	// every aggregate, all while the DBs are still OPEN.
 	//
 	// Splitting it out of stop is what lets a test look at the state the daemon
 	// commits ON ITS WAY DOWN (harness.drain), in the one window where that state is
@@ -97,6 +114,7 @@ func newHarnessAt(
 	// BOUND on a wedge, never a synchronisation device, and a test that leaned on it
 	// would be timing-dependent by construction.
 	h.drainDown = func() {
+		cancelBoot()
 		srv.Close()
 		_ = appContainer.Shutdown(context.Background())
 	}
@@ -114,6 +132,7 @@ func newHarnessAt(
 	// durable store goes FIRST, so nothing that happens afterwards can be recorded.
 	// See harness.crash.
 	h.crashDie = func() {
+		cancelBoot()
 		srv.Close()
 		_ = adapters.Close()
 		appContainer.Close()

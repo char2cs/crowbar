@@ -344,12 +344,45 @@ func (c *Container) quiesceTerminal(
 }
 
 // Close tears down the application layer's live realtime resources: it stops
-// every file watcher and LSP host the service still holds. It is idempotent and
-// runs on graceful shutdown so fsnotify file descriptors and LSP subprocesses
-// are released promptly.
+// every file watcher and LSP host the service still holds, and — on whichever
+// path reaches Close WITHOUT a preceding Shutdown (harness.crash's simulated
+// death; a production Serve failure that returns before Run's ctx.Done branch
+// ever runs) — stops the six per-type asynx singletons' own background worker
+// pools too, so neither path leaks them into whatever the process does next.
+// It is idempotent and runs on graceful shutdown so fsnotify file descriptors
+// and LSP subprocesses are released promptly.
 func (c *Container) Close() {
 	shutdownAgentRunners(c.Usecases)
 	c.Realtime.Close()
+	c.stopBackgroundWorkers(context.Background())
+}
+
+// stopBackgroundWorkers stops each per-type asynx singleton's own worker/
+// dispatcher goroutines (8 shards x 8 workers plus dispatchers apiece, spun up
+// by asynx.Builder at construction — see newAsynx) WITHOUT running Shutdown's
+// write-path steps (terminal quiesce, reactor drain): those exist to let a
+// GRACEFUL stop record every in-flight death before the stores close, and
+// Close running them again here would be meaningless at best (nothing is
+// listening any more, the graceful path already ran them) and unsafe at worst
+// on the paths that reach Close first (a stray write racing an adapter that
+// may already be closed).
+//
+// A Shutdown that already ran for this Container makes every call here an
+// immediate, harmless no-op (asynx.ErrAlreadyShuttingDown, swallowed) — each
+// per-type Shutdown latches via its own CompareAndSwap, so Close can call this
+// unconditionally instead of tracking whether Shutdown ran. On the path that
+// DIDN'T run one (a crash, a Serve failure), this is what stops the shard
+// pools rather than leaving them idling on an empty queue forever: they were
+// the one background resource Close used to leave for the caller to leak.
+func (c *Container) stopBackgroundWorkers(
+	ctx context.Context,
+) {
+	_ = c.axWorkspace.Shutdown(ctx)
+	_ = c.axReviewThread.Shutdown(ctx)
+	_ = c.axAgentRunner.Shutdown(ctx)
+	_ = c.axAgentChat.Shutdown(ctx)
+	_ = c.axAgentActivity.Shutdown(ctx)
+	_ = c.axNode.Shutdown(ctx)
 }
 
 // terminateAgentSession adapts the terminal engine's TerminateGraceful into the
