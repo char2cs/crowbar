@@ -743,7 +743,6 @@ func reconcileAgentRunners(
 	}
 }
 
-
 // shutdownAgentRunners kills every live api-transport connection before the
 // daemon exits. It is the shutdown-time mirror of reconcileAgentRunners:
 // nothing else in Close's chain (engine.Container.Close, Realtime.Close)

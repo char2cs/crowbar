@@ -28,18 +28,18 @@ type TurnRow struct {
 func (TurnRow) TableName() string { return "agent_turns" }
 
 type ToolCallRow struct {
-	Key        string     `gorm:"primaryKey;column:key"`
-	ID         string     `gorm:"column:id"`
-	TurnID     string     `gorm:"column:turn_id;index"`
-	ChatID     string     `gorm:"column:chat_id;index:idx_tool_chat_seq,priority:1"`
-	Seq        int64      `gorm:"column:seq;index:idx_tool_chat_seq,priority:2"`
-	Name       string     `gorm:"column:name;index"`
-	Target     string     `gorm:"column:target;index"`
-	RequestRef string     `gorm:"column:request_ref"`
-	ResultRef  string     `gorm:"column:result_ref"`
-	Status     string     `gorm:"column:status;index"`
-	Error      string     `gorm:"column:error"`
-	DurationMS int        `gorm:"column:duration_ms"`
+	Key        string `gorm:"primaryKey;column:key"`
+	ID         string `gorm:"column:id"`
+	TurnID     string `gorm:"column:turn_id;index"`
+	ChatID     string `gorm:"column:chat_id;index:idx_tool_chat_seq,priority:1"`
+	Seq        int64  `gorm:"column:seq;index:idx_tool_chat_seq,priority:2"`
+	Name       string `gorm:"column:name;index"`
+	Target     string `gorm:"column:target;index"`
+	RequestRef string `gorm:"column:request_ref"`
+	ResultRef  string `gorm:"column:result_ref"`
+	Status     string `gorm:"column:status;index"`
+	Error      string `gorm:"column:error"`
+	DurationMS int    `gorm:"column:duration_ms"`
 	// SubagentID — see domain.ActivityToolCall's own doc. Empty for every
 	// ordinary top-level call; indexed the same way TurnID is, since a
 	// client's nested-transcript read groups by it the same way.
