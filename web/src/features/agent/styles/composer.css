@@ -653,11 +653,10 @@
 }
 
 /* ── the blank chat's document ─────────────────────────── */
-/* Its own measure, and its own size: this sits at 16px/1.7 while the
-   transcript reads at 14px (`.agent-prose`, transcript.css), deliberately
-   disagreeing "drafting" from "reading." The type changes once the first
-   turn lands and the transcript's own size takes over — only the 720px
-   measure carries across both. */
+/* Its own measure, but the transcript's size: this reads at 14px/1.7, the
+   same as `.agent-prose` (transcript.css). What you draft and what you then
+   read back are one continuous text — the type must not resize under you the
+   moment the first turn lands. Only the 720px measure is this surface's own. */
 .agent-chat .docwrap {
   position: relative;
   flex: 1;
@@ -691,7 +690,7 @@
      genuinely empty document, where there is no rendered line to measure
      instead. */
   padding-top: calc(48px + var(--agent-header-clearance, 0px));
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.7;
   outline: none;
   color: var(--foreground);

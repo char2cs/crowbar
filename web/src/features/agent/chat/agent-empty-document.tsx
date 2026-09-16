@@ -27,14 +27,14 @@ import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { cn } from '@/lib/utils'
 
 /** The handle's own position on an empty document: the doc's top padding plus
- *  one line, matching `.doc`'s 48px / 16px × 1.7. `headerClearancePx` is
+ *  one line, matching `.doc`'s 48px / 14px × 1.7. `headerClearancePx` is
  *  `.doc`'s OWN extra top padding (composer.css's `--agent-header-clearance`,
  *  the same value agent-chat-pane.tsx computes for its overlay header) —
  *  when the document is genuinely empty this fallback has no rendered first
  *  line to measure, so it has to add that same clearance itself or it would
  *  place the handle above where the (padded-down) caret actually sits. */
 function firstLineTop(headerClearancePx: number): number {
-  return 48 + headerClearancePx + 27.2
+  return 48 + headerClearancePx + 23.8
 }
 /** The gap between the last line and the handle riding under it. */
 const HANDLE_LEAD = 4
