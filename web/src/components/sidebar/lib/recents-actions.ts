@@ -68,7 +68,9 @@ export function closeRecent(entry: RecentsBandEntry): void {
   // pane in it, including one holding only editor tabs, which a
   // chatIds-driven loop would have left behind holding the view open.
   const chatIds = new Set(entry.chatIds)
-  const member = paneActions.getAllPaneGroups().find((p) => p.chatId != null && chatIds.has(p.chatId))
+  const member = paneActions
+    .getAllPaneGroups()
+    .find((p) => p.chatId != null && chatIds.has(p.chatId))
   if (member) {
     paneActions.closeView(viewIdOf(member))
     return
