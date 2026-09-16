@@ -920,13 +920,12 @@ func TestAssembleHandoff_UnknownChat_ReturnsError(t *testing.T) {
 // message, and which its user-prompt hook duly reports. Returns the new claude runner
 // and the exact document it was spawned with.
 //
-// claude, not codex: codex is api-transport and non-hotswap, so ITS OWN resume happens
-// over the api connection (applyAPITransport's thread/resume), and the redundant
-// hooks-only PTY spawnRunner still forks alongside it must never ALSO be handed this
-// pointer — apiOwnsResume (prompts.go) withholds it there for exactly that reason (a
-// second, disconnected "codex" conversation would otherwise answer it, confirmed live).
-// claude has no such competing connection: its PTY IS the conversation, so this
-// mechanism is still its live, correct delivery path.
+// claude, not codex: codex declares no resume_context_inject at all, so its gap never
+// rides argv on any transport — and when its api connection IS live, apiResumes
+// (resume_injection.go) additionally withholds the whole resume from the companion
+// PTY, which would otherwise answer the pointer as a second, disconnected "codex"
+// conversation (confirmed live). claude has no such competing connection: its PTY IS
+// the conversation, so this mechanism is its live, correct delivery path.
 func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, injected string) {
 	t.Helper()
 

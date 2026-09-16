@@ -233,7 +233,9 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 	// resuming one that was ever actually away — view.tctx's own Context is
 	// whatever the ORIGINAL spawn assembled and would only be a stale replay
 	// of the same document on every terminal<->chat toggle if reused here.
-	rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, &engineagents.SpawnPlan{}, "")
+	// No plan to point at attach either: there is no PTY being forked here, and
+	// the native view this just replaced has already been torn down above.
+	_ = rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, "")
 	return nil
 }
 

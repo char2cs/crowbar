@@ -262,31 +262,33 @@ func TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens(
 	assert.NotContains(t, argv, "--resume sid-claude-native")
 }
 
-// TestSwitchProvider_SwitchBack_ResumesOverAPINotTheRedundantPTY exercises the
-// codex-target switch-back path. codex is api-transport, non-hotswap:
-// applyAPITransport's own thread/resume call (apiconn.go) is what actually
-// resumes sid-codex-native — never the redundant hooks-only PTY spawnRunner
-// still forks alongside it (codex.yaml's own comment on subagent_pre explains
-// why that PTY exists at all). Handing that SAME session id to the PTY too —
-// natively as `resume {id}`, or as the resume context pointer, which for a
-// provider whose only resume channel is a user message IS a prompt the PTY
-// will act on — makes it a second writer on a thread the api connection
-// already holds. codex enforces one writer per thread (a thread-writer-lock
-// file, confirmed on disk): confirmed live, the native-id case crashes that
-// PTY outright and the switch that looked like it succeeded silently reverts;
-// confirmed live also, the pointer-without-id case doesn't crash, but the PTY
-// answers the pointer as its OWN genuine first turn, landing on this chat as
-// a second, disconnected "codex" conversation the api connection knows
-// nothing about. nativeResumeSteps/apiOwnsResume (prompts.go, spawn.go)
-// withhold both from this PTY for exactly that reason.
+// TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs
+// exercises the codex-target switch-back path with NO api connection —
+// this fixture pins CROWBAR_DISABLE_API_TRANSPORT (harness_test.go), which is
+// the same shape production degrades to whenever `codex app-server` fails to
+// fork, its socket never appears, or the handshake is refused (design spec
+// §2.2b: the session then runs over hooks alone).
+//
+// With no connection, the hooks PTY is not redundant — it is the ONLY codex,
+// and therefore the conversation. So it must carry the native `resume {id}`
+// itself: withholding it, as the descriptor-only apiOwnsResume check used to,
+// made codex mint a BRAND NEW thread and silently abandon the chat's own
+// conversation on every switch back. Live-confirmed by
+// TestAgent_SwitchBackToCodexResumesItsOwnSession
+// (tests/integration/agent/agent_gaps_test.go) against the real CLI.
+//
+// The WITHHOLDING contract — that a LIVE api connection's thread/resume makes
+// the companion PTY a second writer on a thread codex's own writer-lock
+// permits only one of — is unchanged, and is pinned directly on the decision
+// that now carries it:
+// TestBuildSpawnSteps_ApiResumes_WithholdsTheNativeResumeAndTheGap
+// (internal/runner/spawnsteps_internal_test.go).
 //
 // The api connection resuming silently, with no gap handed to it either, is a
 // real, separate, KNOWN gap this leaves in place — codex.yaml declares an
 // inject: at: context step (thread/inject_items) for exactly this, and
-// nothing calls it yet. Recorded here, not silently assumed fixed: this test
-// asserts only that the switch-back is SAFE, not that codex is told what it
-// missed.
-func TestSwitchProvider_SwitchBack_ResumesOverAPINotTheRedundantPTY(t *testing.T) {
+// nothing calls it yet.
+func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, codexRunner := f.spawn(t, "codex")
@@ -308,18 +310,23 @@ func TestSwitchProvider_SwitchBack_ResumesOverAPINotTheRedundantPTY(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, "codex", live.ProviderID)
 
-	// The api connection is what actually resumes sid-codex-native — see
+	// sid-codex-native is the session this switch-back resumes — see
 	// resumeTarget/resolvePromptDelivery's launchSessionID plumbing, persisted
 	// here as the new runner's own LaunchSessionID.
 	assert.Equal(t, "sid-codex-native", f.runner(t, newRunnerID).LaunchSessionID)
 
 	require.Equal(t, 3, f.term.callCount())
 	argv := f.term.calls[2].argv
-	assert.NotContains(t, argv, "resume",
-		"the redundant PTY must never resume the SAME thread the api connection just did: %v", argv)
+	resumeIdx := indexOf(argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0,
+		"with no api connection holding the thread, the PTY IS codex and must resume its own session: %v", argv)
+	require.Less(t, resumeIdx+1, len(argv))
+	assert.Equal(t, "sid-codex-native", argv[resumeIdx+1],
+		"the resume subcommand must name codex's own prior thread: %v", argv)
 	for _, tok := range argv {
 		assert.NotContains(t, tok, "[Crowbar]",
-			"the resume pointer must not reach this PTY either — it would answer as an unrelated second conversation: %v", argv)
+			"codex declares no resume_context_inject: its gap never rides argv as a pointer it would answer "+
+				"as an unrelated second conversation: %v", argv)
 	}
 }
 
@@ -1169,8 +1176,11 @@ func TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge(
 	assert.Equal(t, "back to codex now", call.argv[len(call.argv)-1],
 		"codex's replacement PTY must carry exactly the message, untouched by the "+
 			"positional-merge fix that exists only for claude's own shape: %v", call.argv)
-	assert.NotContains(t, call.argv, "resume",
-		"codex's redundant PTY must never carry a native resume either: %v", call.argv)
+	// The resume subcommand is still there — this fixture has no api connection
+	// to take the resume over (see apiResumes), so the PTY carries it. What must
+	// NOT appear is a folded-in context document ahead of the message.
+	assert.Contains(t, call.argv, "resume",
+		"with no api connection, the PTY must still resume codex's own thread: %v", call.argv)
 }
 
 // TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume: same rule on the
@@ -1226,10 +1236,11 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 	}
 
 	// Leave codex and come back: it resumes its own conversation, and Crowbar had no
-	// session store to lose in between. The resume itself happens over the api
-	// connection (applyAPITransport's thread/resume), never the redundant
-	// hooks-only PTY — see apiOwnsResume (prompts.go) — so it is codex's OWN
-	// resume, not one this test could have papered over by owning CODEX_HOME.
+	// session store to lose in between. This fixture has no api connection
+	// (CROWBAR_DISABLE_API_TRANSPORT), so the PTY is the only codex there is and
+	// carries the resume itself — see apiResumes (resume_injection.go). Either
+	// way it is codex's OWN session id, not one this test could have papered over
+	// by owning CODEX_HOME.
 	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
 	f.wait()
@@ -1240,8 +1251,12 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 
 	assert.Equal(t, "sid-codex", f.runner(t, newRunnerID).LaunchSessionID)
 	require.Equal(t, 3, f.term.callCount())
-	assert.NotContains(t, f.term.calls[2].argv, "resume",
-		"the redundant PTY must never also resume codex's own conversation")
+	argv := f.term.calls[2].argv
+	resumeIdx := indexOf(argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0, "codex must resume its own conversation: %v", argv)
+	require.Less(t, resumeIdx+1, len(argv))
+	assert.Equal(t, "sid-codex", argv[resumeIdx+1],
+		"the resumed thread must be the one codex announced before it was switched away: %v", argv)
 }
 
 // ─── from midturn_test.go ─────────────────────────────────────────────
@@ -2164,16 +2179,19 @@ func TestSubmitPrompt_ResumeCodexOrdersSubcommandSessionThenPrompt(t *testing.T)
 	turn(t, f, runnerID, "codex", "the current conversation exists")
 	message := "CONTINUE FROM REACT"
 
-	// codex is api-transport, non-hotswap: the redundant hooks-only PTY this
-	// restart still forks must never ALSO resume native-session natively — see
-	// apiOwnsResume (prompts.go) — so no `resume {id} --` prefix precedes the
-	// message; native-session survives only as this replacement runner's own
-	// LaunchSessionID.
+	// codex is api-transport, non-hotswap — but this fixture has no api
+	// connection to take the resume over (apiResumes, resume_injection.go), so
+	// the PTY is the conversation and its argv must ORDER the resume subcommand,
+	// the session id and only then the message: `resume {id} -- <message>`.
 	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "native-session", f.runner(t, submission.RunnerID).LaunchSessionID)
 	call := f.term.calls[f.term.callCount()-1]
-	assert.NotContains(t, call.argv, "resume")
+	resumeIdx := indexOf(call.argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v", call.argv)
+	require.Less(t, resumeIdx+1, len(call.argv))
+	assert.Equal(t, "native-session", call.argv[resumeIdx+1])
+	assert.Less(t, resumeIdx, len(call.argv)-1, "the resume subcommand must precede the message")
 	assert.Equal(t, message, call.argv[len(call.argv)-1])
 }
 
@@ -2360,13 +2378,16 @@ func TestSubmitPrompt_CompletedStoppedResumedChatKeepsNativeResumeIdentity(t *te
 
 	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue after reopen", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
-	// codex is api-transport, non-hotswap: this restart's redundant hooks-only
-	// PTY must never ALSO resume durable-session natively (apiOwnsResume,
-	// prompts.go) — launch-as-resume identity survives instead as this
-	// replacement runner's own LaunchSessionID, even though old ledger turns
-	// predate the new runner's session_start.
+	// No api connection in this fixture, so the restart's PTY is the conversation
+	// and must resume durable-session itself (apiResumes, resume_injection.go) —
+	// the same identity that also persists as the replacement runner's own
+	// LaunchSessionID, even though old ledger turns predate its session_start.
 	assert.Equal(t, "durable-session", f.runner(t, submission.RunnerID).LaunchSessionID)
-	assert.NotContains(t, f.term.calls[f.term.callCount()-1].argv, "resume")
+	argv := f.term.calls[f.term.callCount()-1].argv
+	resumeIdx := indexOf(argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v", argv)
+	require.Less(t, resumeIdx+1, len(argv))
+	assert.Equal(t, "durable-session", argv[resumeIdx+1])
 }
 
 func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
@@ -2383,12 +2404,15 @@ func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
 
 	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue immediately after native resume", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
-	// codex is api-transport, non-hotswap: this restart's redundant hooks-only
-	// PTY must never ALSO resume known-session natively (apiOwnsResume,
-	// prompts.go) — the identity survives instead as this replacement
-	// runner's own LaunchSessionID.
+	// No api connection in this fixture, so the restart's PTY is the conversation
+	// and must resume known-session itself (apiResumes, resume_injection.go) —
+	// never temporary-new-session, the one it announced in between.
 	assert.Equal(t, "known-session", f.runner(t, submission.RunnerID).LaunchSessionID)
-	assert.NotContains(t, f.term.calls[f.term.callCount()-1].argv, "resume")
+	argv := f.term.calls[f.term.callCount()-1].argv
+	resumeIdx := indexOf(argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v", argv)
+	require.Less(t, resumeIdx+1, len(argv))
+	assert.Equal(t, "known-session", argv[resumeIdx+1])
 }
 
 // TestSubmitPrompt_VirginNativeSessionAfterSwitchCarriesTheFullHandoff pins the

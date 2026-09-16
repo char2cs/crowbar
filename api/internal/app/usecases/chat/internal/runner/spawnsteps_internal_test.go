@@ -1,9 +1,13 @@
 package runner
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -85,4 +89,105 @@ func TestRegression_MergeLeadingPositional_MultiStepContext_NeverMerges(t *testi
 	_, ok := mergeLeadingPositional(context, final)
 
 	assert.False(t, ok)
+}
+
+// apiResumeTestDescriptor is codex's own shape reduced to what this decision
+// touches: api transport for prompt, NO hotswap (so apiOwnsResume is true), a
+// native resume arg, and a resume-time context inject. It is a real descriptor
+// loaded through the real registry rather than a hand-faked Agent, so
+// TransportFor/Capabilities/ResumeArg/ContextSteps all answer the way
+// production's do.
+const apiResumeTestDescriptor = `
+id: apiresume-test
+spawn:
+  cmd: acme
+  interactive_required: true
+session:
+  resume: { arg: "resume {id}" }
+resume_context_inject:
+  - pass_arg: { positional: "<system-reminder>{context}</system-reminder>" }
+events:
+  session_start:
+    in: thread/started
+    map: { session_id: thread.id }
+  turn_stop:
+    in: turn/completed
+    map:
+      session_id: threadId
+      message: "turn.items[type=agentMessage].text"
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve: [acme, serve]
+    handshake: { call: initialize }
+`
+
+func loadAPIResumeDescriptor(t *testing.T) engineagents.Agent {
+	t.Helper()
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(home, "descriptors", "apiresume-test.yaml"), []byte(apiResumeTestDescriptor), 0o600))
+	d, err := engineagents.New().Get(context.Background(), home, "apiresume-test")
+	require.NoError(t, err)
+	return d
+}
+
+// TestBuildSpawnSteps_ApiResumes_WithholdsTheNativeResumeAndTheGap is the
+// WITHHOLDING half of the contract, pinned on the decision that now carries it.
+// A LIVE api connection has already run thread/resume on this session, and codex
+// permits exactly one writer per thread (a writer-lock file, confirmed on disk):
+// handing the companion PTY the same id as a native `resume {id}` kills it
+// outright (exit 1, the switch silently reverts), and handing it the gap
+// document instead makes it answer as a second, disconnected conversation the
+// api connection knows nothing about. Both confirmed live. So both are withheld.
+func TestBuildSpawnSteps_ApiResumes_WithholdsTheNativeResumeAndTheGap(t *testing.T) {
+	d := loadAPIResumeDescriptor(t)
+	require.True(t, apiOwnsResume(d), "this descriptor must declare that api transport owns resuming")
+	resume := resumeInjectionSteps(d, "sess-1")
+	require.NotEmpty(t, resume, "the descriptor's own native resume argv must render")
+
+	steps := buildSpawnSteps(d, true, true, true, engineagents.Selection{}, resume, nil)
+
+	assert.Empty(t, steps,
+		"a live api connection owns this resume: neither the native id nor the gap may reach the PTY: %v", steps)
+}
+
+// TestBuildSpawnSteps_NoLiveAPIConnection_CarriesTheNativeResume is the bug this
+// pair exists for. The same descriptor, but nothing actually resumed the session:
+// `serve` never forked, its socket never appeared, the handshake was refused, or
+// the transport is off for this process (design spec §2.2b — the session then
+// runs over hooks alone). There is no first writer to collide with, the PTY IS
+// the conversation, and withholding the resume made it mint a brand new thread —
+// the chat's own history silently abandoned on every restart and switch back.
+func TestBuildSpawnSteps_NoLiveAPIConnection_CarriesTheNativeResume(t *testing.T) {
+	d := loadAPIResumeDescriptor(t)
+	resume := resumeInjectionSteps(d, "sess-1")
+
+	steps := buildSpawnSteps(d, true, true, false, engineagents.Selection{}, resume, nil)
+
+	require.GreaterOrEqual(t, len(steps), len(resume))
+	assert.Equal(t, resume, steps[:len(resume)],
+		"the native resume must lead the argv, ahead of selection and context: %v", steps)
+	assert.Greater(t, len(steps), len(resume),
+		"the gap document must ride the argv too, since no api connection can carry it: %v", steps)
+}
+
+// TestApiResumes_RequiresBOTHTheDeclarationAndALiveConnection pins the two
+// halves against each other on Runners itself: the descriptor answer alone is
+// what the buggy version asked, and it is true here for both cases.
+func TestApiResumes_RequiresBOTHTheDeclarationAndALiveConnection(t *testing.T) {
+	d := loadAPIResumeDescriptor(t)
+	rs := &Runners{apiConns: newAPIConnRegistry()}
+
+	assert.False(t, rs.apiResumes(d, "runner-1"),
+		"no connection registered: the PTY must be left to resume the session itself")
+
+	rs.apiConns.set("runner-1", &apiconn{})
+
+	assert.True(t, rs.apiResumes(d, "runner-1"),
+		"a live connection holds the thread: the PTY must not become a second writer on it")
+	assert.False(t, rs.apiResumes(d, "runner-2"),
+		"scoped to the runner asked about, never to any connection anywhere")
 }

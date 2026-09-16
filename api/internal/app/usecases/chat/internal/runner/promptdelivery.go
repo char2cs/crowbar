@@ -99,15 +99,18 @@ func (rs *Runners) resolvePromptDelivery(
 	if !resuming {
 		return out, nil
 	}
-	// Unsupported is judged against the FULL native mapping, never the
-	// api-transport-suppressed one below: a provider with no resume arg at
-	// all cannot deliver this message any way, but one whose api connection
-	// resumes it instead (nativeResumeSteps) is not that case merely because
-	// its PTY carries no positional args.
+	// Unsupported is judged against the FULL native mapping: a provider with no
+	// resume arg at all cannot deliver this message any way, but one whose api
+	// connection may resume it instead is not that case merely because its PTY
+	// might end up carrying no positional args.
 	if _, resumable := descriptor.ResumeArg(); !resumable {
 		return promptDelivery{}, ErrPromptUnsupported
 	}
-	out.resumeSteps = nativeResumeSteps(descriptor, nativeSessionID)
+	// The full native resume argv, unsuppressed: spawnRunner drops it if and only
+	// if the replacement's OWN api connection comes up and resumes the session
+	// (apiResumes). Deciding it here would be deciding it before that connection
+	// exists — see resume_injection.go.
+	out.resumeSteps = resumeInjectionSteps(descriptor, nativeSessionID)
 	out.launchSessionID = nativeSessionID
 	return out, nil
 }

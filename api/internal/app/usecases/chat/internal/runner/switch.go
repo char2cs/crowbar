@@ -142,7 +142,7 @@ func (rs *Runners) switchProviderLocked(
 		// pass_arg would become one literal argument.
 		var resumeSteps []engineagents.InjectStep
 		if resuming {
-			resumeSteps = nativeResumeSteps(d, priorSessionID)
+			resumeSteps = resumeInjectionSteps(d, priorSessionID)
 		}
 
 		// Resume args go first so a positional resume_context_inject — codex's `resume
