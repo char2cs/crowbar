@@ -16,7 +16,6 @@ import type {
 } from '@/features/panes/types/pane-content'
 import { shouldStartLsp, isEditorContent } from '@/features/panes/types/pane-content'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
-import { fileUri } from '@/features/editor/lib/editor-uri'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
 // Leaf module (zustand only, no Plate) — a static import here keeps the rich
@@ -24,10 +23,7 @@ import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-hi
 // synchronous way to release the buffer's rich/source preference.
 import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
 import { useSettingsStore } from '@/features/settings/store'
-import {
-  getActiveWorkspaceId,
-  getWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
 import { bestEffort } from '@/lib/best-effort'
 
@@ -98,12 +94,6 @@ export const createBufferSlice: StateCreator<
   [],
   BufferSlice
 > = (set, get) => {
-  // See pane-slice for why the editor manager stays keyed by workspaceId
-  // rather than living on this (now window-level) store. I3: never CREATE a
-  // workspace store just to look this up — see the matching comment in
-  // pane-slice.ts.
-  const editorManagerFor = (workspaceId: string) => getWorkspaceStore(workspaceId)?.editorManager
-
   return {
     buffers: [],
     closedBuffersHistory: [],
@@ -442,20 +432,6 @@ export const createBufferSlice: StateCreator<
               state.closedBuffersHistory.pop()
             }
           })
-        }
-        // Release the held Monaco model for any pane that STILL holds this buffer.
-        // The canonical close paths call `removeEditorTabFromPane` first (which
-        // already released for that pane and stripped the id), so this only
-        // fires for panes that were skipped (direct closeBuffer callers) or
-        // other panes holding the same file — release exactly once per holding
-        // pane. Disposes the model when the last holder releases, so a reopen
-        // reads fresh content (no stale model).
-        if (buf && isEditorContent(buf) && buf.path) {
-          const uri = fileUri(buf.workspaceId, buf.path)
-          const manager = editorManagerFor(buf.workspaceId)
-          for (const pane of Object.values(get().panes ?? {})) {
-            if (pane.editorTabIds.includes(id)) manager?.closeBuffer(pane.id, uri)
-          }
         }
         // Free git-blame data accumulated for this file so per-file Maps don't
         // grow unbounded across a long session. Dynamic import mirrors the pattern
