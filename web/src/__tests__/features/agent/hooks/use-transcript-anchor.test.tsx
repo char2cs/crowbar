@@ -810,6 +810,42 @@ describe('tailRoom', () => {
   it('never reserves negative room for a reply far past the viewport', () => {
     expect(tailRoom(0, 5000, 400)).toBe(0)
   })
+
+  /*
+   * The floating overlay header (PaneTopRow's `chat-blur overlay` variant)
+   * paints over the top of the viewport without reserving a single pixel of
+   * flex space — `--agent-header-clearance` is how everything underneath is
+   * told it is there (transcript.css's `.scroll`, composer.css's `.doc`,
+   * agent-empty-document's `firstLineTop`). The pin had no such term, so
+   * "lift the prompt to the top of the viewport" meant the top of the
+   * CONTAINER, which is the middle of the frosted bar: the prompt you just
+   * sent landed behind it.
+   */
+  describe('with an overlay header floating over the top', () => {
+    it('lands the pin BELOW the header rather than behind it', () => {
+      // Same 900/1000/400 geometry as the first case, where 300px lifted the
+      // prompt to the container's top edge. The reservation is what pulls it
+      // up there, so leaving it 52px lower means reserving 52px LESS, not
+      // more — the shortfall is against the VISIBLE 348px, not the full pane.
+      expect(tailRoom(900, 1000, 400, 52)).toBe(248)
+    })
+
+    it('releases the pin as soon as the reply fills the VISIBLE viewport', () => {
+      // 348px of reply below the prompt already fills the 400px viewport minus
+      // the 52px the header covers — there is nothing left to lift it with.
+      expect(tailRoom(652, 1000, 400, 52)).toBe(0)
+      expect(tailRoom(653, 1000, 400, 52)).toBe(1)
+    })
+
+    it('reserves nothing rather than negative room for a header taller than the pane', () => {
+      expect(tailRoom(900, 1000, 40, 52)).toBe(0)
+    })
+
+    it('is exactly the original behaviour at zero clearance — an unsplit pane', () => {
+      expect(tailRoom(900, 1000, 400, 0)).toBe(tailRoom(900, 1000, 400))
+      expect(tailRoom(500, 1000, 400, 0)).toBe(tailRoom(500, 1000, 400))
+    })
+  })
 })
 
 describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
@@ -865,8 +901,14 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
       for (const cb of [...observerCallbacks]) cb()
     })
 
-  function PinHost({ onReady }: { onReady: (anchor: TranscriptAnchor) => void }) {
-    const anchor = useTranscriptAnchor()
+  function PinHost({
+    onReady,
+    anchorOptions,
+  }: {
+    onReady: (anchor: TranscriptAnchor) => void
+    anchorOptions?: UseTranscriptAnchorOptions
+  }) {
+    const anchor = useTranscriptAnchor(anchorOptions)
     useEffect(() => {
       onReady(anchor)
     }, [anchor, onReady])
@@ -1172,6 +1214,82 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
     vi.advanceTimersByTime(1500)
 
     expect(content.style.paddingBottom).toBe('')
+  })
+
+  /*
+   * Regression, reported live in SPLIT view: the pane's chat header is a
+   * FLOATING, frosted overlay there (PaneTopRow's `chat-blur overlay` variant,
+   * rendered by ChatOnlyPaneHeader/ChatColumnHeader) — `position: absolute;
+   * top: 0`, no fill, no flex space of its own. Every other surface that
+   * pins content near the top already knows to duck under it via
+   * `--agent-header-clearance` / `headerClearancePx` (transcript.css's
+   * `.scroll` padding, composer.css's `.doc`, agent-empty-document's
+   * `firstLineTop`) — the autoscroll did not, so `pinTurnToTop` lifted the
+   * just-sent prompt to the top of the CONTAINER, which in split view is
+   * behind the blurred bar. An unsplit pane threads no clearance at all and
+   * must be pixel-for-pixel unchanged.
+   */
+  describe('with a floating overlay header (split view)', () => {
+    const CLEARANCE = 52 // HEADER_ROW_HEIGHT_PX (44, mac) + 8, see agent-chat-pane.tsx
+
+    it('lands the just-sent prompt below the overlay header, not behind it', () => {
+      let anchor!: TranscriptAnchor
+      const { getByTestId } = render(
+        <PinHost onReady={(a) => (anchor = a)} anchorOptions={{ headerClearancePx: CLEARANCE }} />,
+      )
+      const scroller = getByTestId('scroller')
+      const content = getByTestId('content')
+
+      act(() => anchor.pinTurnToTop(getByTestId('pin')))
+      vi.advanceTimersByTime(1500)
+
+      // 100px of content sits below the prompt; the visible viewport is
+      // 400 - 52, so 248 is the shortfall — 52px LESS than the unsplit case
+      // reserves, which is exactly the height the header covers.
+      expect(content.style.paddingBottom).toBe('248px')
+      // The prompt's top edge clears the header instead of sitting at y=0.
+      expect(scroller.scrollTop).toBe(848)
+      expect(pinTop - scroller.scrollTop).toBe(CLEARANCE)
+    })
+
+    it('leaves an unsplit pane — no overlay header, no clearance — exactly as it was', () => {
+      let anchor!: TranscriptAnchor
+      const { getByTestId } = render(
+        <PinHost onReady={(a) => (anchor = a)} anchorOptions={{ headerClearancePx: 0 }} />,
+      )
+      const scroller = getByTestId('scroller')
+      const content = getByTestId('content')
+
+      act(() => anchor.pinTurnToTop(getByTestId('pin')))
+      vi.advanceTimersByTime(1500)
+
+      expect(content.style.paddingBottom).toBe('300px')
+      expect(scroller.scrollTop).toBe(900)
+      expect(pinTop - scroller.scrollTop).toBe(0)
+    })
+
+    it('still hands over to ordinary bottom-following once the reply outgrows the visible space', () => {
+      let anchor!: TranscriptAnchor
+      const { getByTestId } = render(
+        <PinHost onReady={(a) => (anchor = a)} anchorOptions={{ headerClearancePx: CLEARANCE }} />,
+      )
+      const scroller = getByTestId('scroller')
+      const content = getByTestId('content')
+      act(() => anchor.pinTurnToTop(getByTestId('pin')))
+      vi.advanceTimersByTime(1500)
+      expect(content.style.paddingBottom).toBe('248px')
+
+      // The reply grows past the viewport: 700px now sits below the prompt.
+      scrollHeight = 1600
+      fire()
+      vi.advanceTimersByTime(1500)
+
+      // The reservation is gone and the true bottom is the target again — the
+      // header term never applies to the BOTTOM, only to what is pinned at the
+      // top, so this is identical to the unsplit hand-over.
+      expect(content.style.paddingBottom).toBe('')
+      expect(scroller.scrollTop).toBe(1200)
+    })
   })
 })
 

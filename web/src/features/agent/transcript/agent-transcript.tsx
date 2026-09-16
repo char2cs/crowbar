@@ -108,6 +108,12 @@ interface AgentTranscriptProps {
   initialScrollPosition?: TranscriptScrollPosition | null
   /** Called once, on unmount, with wherever the reader ended up. */
   onScrollPositionChange?: (position: TranscriptScrollPosition) => void
+  /** How much of this transcript's top edge the pane's floating overlay chat
+   *  header paints over — the same `--agent-header-clearance` the caller
+   *  publishes for `.scroll`'s own `padding-top`, threaded in as a NUMBER
+   *  because the anchor's turn-pinning is JS layout math that CSS padding
+   *  cannot reach. See `UseTranscriptAnchorOptions.headerClearancePx`. */
+  headerClearancePx?: number
 }
 
 /** The `at` of the user turn each assistant reply actually answers, keyed by
@@ -459,6 +465,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     initialPosition: props.initialScrollPosition,
     onPositionChange: props.onScrollPositionChange,
     visible: props.visible,
+    headerClearancePx: props.headerClearancePx,
   })
   const scrollFrame = useScrollFrameSpan()
   // The dock overlays this transcript rather than sizing it (see

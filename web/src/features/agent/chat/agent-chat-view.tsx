@@ -847,6 +847,11 @@ export function AgentChatView({
       visible={visible}
       initialScrollPosition={initialScrollPosition}
       onScrollPositionChange={(position) => setScrollPosition(chatId, position)}
+      // The CSS var below covers `.scroll`'s own padding; the anchor's
+      // turn-pinning positions content at the top of the viewport in JS, where
+      // that padding is already scrolled away, so it needs the raw number too
+      // — the same reason AgentEmptyDocument takes it.
+      headerClearancePx={headerClearancePx}
     />
   )
 
@@ -864,11 +869,7 @@ export function AgentChatView({
     return (
       <DndScope>
         <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
-          <section
-            className="agent-chat chat"
-            aria-label="Agent chat"
-            style={headerClearanceStyle}
-          >
+          <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
             {transcript}
           </section>
         </ChatMarkdownAssetProvider>
@@ -880,11 +881,7 @@ export function AgentChatView({
     return (
       <DndScope>
         <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
-          <section
-            className="agent-chat chat"
-            aria-label="Agent chat"
-            style={headerClearanceStyle}
-          >
+          <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
             <AgentEmptyDocument
               ref={emptyDocRef}
               wsId={wsId}
