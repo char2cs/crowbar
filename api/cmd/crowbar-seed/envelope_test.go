@@ -28,7 +28,7 @@ func TestDecodeEnvelopeRejectsNon2xx(t *testing.T) {
 }
 
 func TestDecodeEnvelopeRejectsAFailedEnvelopeOn200(t *testing.T) {
-	err := errorFrom[workspaceDTO](t, 200, []byte(`{"success":false,"error":"branch is required"}`))
+	err := errorFrom[chatDTO](t, 200, []byte(`{"success":false,"error":"branch is required"}`))
 
 	if !strings.Contains(err.Error(), "branch is required") {
 		t.Fatalf("error should carry the daemon's message, got %v", err)

@@ -96,9 +96,49 @@
    during a drag, 26ms with these two properties removed. A 10px corner is not
    perceptible mid-drag, and both come straight back on release.
    `!important` because buildPaneContentStyle sets them as inline styles. */
-html[data-pane-resizing] [data-pane-content] {
+html[data-pane-resizing] [data-pane-content],
+/* The two halves of the chat/editor split get the SAME treatment, and need it
+   more than the pane box does: `buildInnerViewStyle` gives each its own rounded
+   border on the edge that faces the other, and it is THEIR flex-basis PaneSash
+   rewrites on every raw pointermove — so a ~620x1110 rounded, `overflow:hidden`,
+   background-painting box is the one surface re-clipped and re-rasterised every
+   single frame of the drag. Measured live (Tauri MCP + a rAF frame-time probe)
+   on a chat/editor sash drag: with the corners flattened for the drag span the
+   same gesture ran 36fps → 78fps, p90 frame 56ms → 19ms. The pane box's rule
+   above never covered these, because they are not `[data-pane-content]`. */
+html[data-pane-resizing] [data-chat-view],
+html[data-pane-resizing] [data-editor-view] {
   border-radius: 0 !important;
   box-shadow: none !important;
+}
+
+/* The chat header's progressive-blur "dissolve" (EdgeDissolve, chat-blur
+   variant — pane-top-row.tsx) lives inside the chat/editor split's own box,
+   whose flex-basis PaneSash rewrites on every raw pointermove during a drag.
+   Each of its 7 stacked backdrop-filter layers has to resample the pixels
+   behind it at the new width on every one of those writes. Measured live
+   (Tauri MCP + a rAF frame-time probe) during a chat/editor sash drag: up to
+   103ms/frame against a 31ms idle ceiling, with the fix below it dropped to a
+   17ms ceiling. Paused (not removed) for the exact span `data-pane-resizing`
+   already exists for — same mechanism `.monaco-editor`'s GPU-layer promotion
+   below uses for the identical reason — and restored the instant the drag
+   ends, so the glass looks the same at rest either way. */
+html[data-pane-resizing] [data-testid='edge-dissolve'] > div,
+/* The composer's own dissolve (agent-chat-view.tsx + composer.css) is the SAME
+   7-layer recipe — EdgeDissolve was extracted from it — so it pays the same
+   per-frame resample, over a band the full width of the chat. It was simply
+   never added to the pause above. */
+html[data-pane-resizing] .agent-chat .dissolve-layer {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  /* The mask goes too, and it is free to drop: with the blur off these layers
+     have no background and no content, so they paint NOTHING either way — but
+     a mask still costs its own raster at the new width on every frame of the
+     drag. Live-audited under `data-pane-resizing`, these 7 layers were the only
+     masked surfaces left in the resizing subtree, and removing them took the
+     same sash drag from 49.8fps to ~71fps. */
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
 }
 
 /* Nothing is selectable while a row is in the air.

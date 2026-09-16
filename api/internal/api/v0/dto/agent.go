@@ -78,6 +78,15 @@ type AgentChatDTO struct {
 	WorkspaceID string `json:"workspaceId"`
 	Title       string `json:"title"`
 
+	// Type is the row's own kind in the sidebar forest (domain.ChatType — chat,
+	// branch, folder, workflow), always present rather than omitted: unlike
+	// ParentID/Order's ""/0-is-meaningful pattern, "" is not a real ChatType
+	// value, but every row this DTO ever serializes has a real Type, so there
+	// is no meaningful absent case to distinguish. It is what lets a client
+	// tell a locked-branch or repo-home row apart from an ordinary chat within
+	// the same GET .../repos/:repoId/chats list.
+	Type domain.ChatType `json:"type"`
+
 	// LiveRunnerID is the id of the runner placed on this chat, or "" when the chat
 	// is dormant. This IS the liveness answer — do not look for another.
 	LiveRunnerID string `json:"liveRunnerId"`
@@ -135,26 +144,44 @@ type AgentChatDTO struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 
+	// Worktree is the git state of the worktree this chat OWNS — branch, diff
+	// counts, lock status, merge and PR state — and is present exactly when
+	// WorkspaceID is non-empty (spec §5). It is what lets one read of the chat
+	// list answer everything the deleted workspace list used to, in ONE object
+	// per row rather than two fetches a client has to join by id.
+	//
+	// Omitted, not zero, for a chat that owns no worktree: see ChatWorktreeDTO.
+	Worktree *ChatWorktreeDTO `json:"worktree,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 // AgentChatDTOFrom converts a persisted AgentChat plus its derived runtime into the
 // wire shape. The zero ChatRuntime (no live runner, no history) is the honest shape of
 // a chat that has never had a runner: every derived field reads "".
+//
+// wt is the chat's own worktree state, ALREADY RESOLVED by the caller, and nil
+// for a chat that owns none. It is a resolved value rather than a lookup for
+// the same reason WorkspaceDTOFrom takes an eligibility instead of computing
+// one: resolving it needs the row's repo siblings, and doing that per row would
+// put a repo-wide read on the broadcast hot path (spec §10).
 func AgentChatDTOFrom(
 	c domain.Chat,
 	rt ChatRuntime,
+	wt *ChatWorktreeDTO,
 ) AgentChatDTO {
 	out := AgentChatDTO{
 		ID:               c.ID,
 		WorkspaceID:      c.WorkspaceID,
 		Title:            c.Title,
+		Type:             c.Type,
 		ActiveProviderID: activeProviderID(rt),
 		Working:          c.Working,
 		ParentID:         c.ParentID,
 		Order:            c.Order,
 		Model:            c.Model,
 		Effort:           c.Effort,
+		Worktree:         wt,
 		CreatedAt:        c.CreatedAt,
 	}
 	if rt.LiveRunner != nil {
@@ -250,10 +277,10 @@ type AgentToolCallDTO struct {
 	Status string `json:"status"`
 	// Error is a short caption for a failed call. The full failure text is the
 	// call's result payload, fetched on demand like any other.
-	Error      string     `json:"error,omitempty"`
-	DurationMS int        `json:"durationMs,omitempty"`
-	HasRequest bool       `json:"hasRequest"`
-	HasResult  bool       `json:"hasResult"`
+	Error      string `json:"error,omitempty"`
+	DurationMS int    `json:"durationMs,omitempty"`
+	HasRequest bool   `json:"hasRequest"`
+	HasResult  bool   `json:"hasResult"`
 	// SubagentID — see domain.ActivityToolCall's own doc. Set instead of
 	// TurnID when this call belongs to a SUBAGENT's own nested activity, not
 	// the chat's top-level turn.
@@ -545,18 +572,30 @@ func activeProviderID(
 // runtimes is keyed by chat id; a chat with no entry is rendered from the zero
 // ChatRuntime — dormant, no history — which is exactly what a chat missing from both
 // runner projections is.
+//
+// worktreeFn resolves each row's owned worktree, and is the exact counterpart
+// of WorkspaceDTOList's eligFn/owningChatIDFn: a closure the CALLER builds over
+// the repo-wide reads it has already taken once, so the enrichment costs one
+// repo read for the whole list rather than one per row. A nil worktreeFn — the
+// honest wiring for a surface that serves only folder rows, which own no
+// worktree by construction — leaves every row's Worktree absent.
 func AgentChatDTOList(
 	chats []domain.Chat,
 	runtimes map[string]ChatRuntime,
+	worktreeFn func(domain.Chat) *ChatWorktreeDTO,
 ) []AgentChatDTO {
 	out := make([]AgentChatDTO, 0, len(chats))
 	for _, c := range chats {
-		out = append(out, AgentChatDTOFrom(c, runtimes[c.ID]))
+		var wt *ChatWorktreeDTO
+		if worktreeFn != nil {
+			wt = worktreeFn(c)
+		}
+		out = append(out, AgentChatDTOFrom(c, runtimes[c.ID], wt))
 	}
 	return out
 }
 
-// AgentChatDetailDTO is the wire shape of GET .../workspaces/:wsId/chats/:id: the
+// AgentChatDetailDTO is the wire shape of GET .../repos/:repoId/chats/:id: the
 // chat (with its derived runner facts) plus the conversations it has hosted, oldest
 // first. Conversations succeeds the deleted `segments` list: it is what a segment really
 // was, minus everything that described a process (no status, no PTY, no runner id), so
@@ -572,18 +611,19 @@ type AgentChatDetailDTO struct {
 func AgentChatDetailDTOFrom(
 	c domain.Chat,
 	rt ChatRuntime,
+	wt *ChatWorktreeDTO,
 ) AgentChatDetailDTO {
 	convs := rt.Conversations
 	if convs == nil {
 		convs = []agents.ChatConversation{}
 	}
 	return AgentChatDetailDTO{
-		AgentChatDTO:  AgentChatDTOFrom(c, rt),
+		AgentChatDTO:  AgentChatDTOFrom(c, rt, wt),
 		Conversations: convs,
 	}
 }
 
-// HandoffDTO is the wire shape of GET .../workspaces/:wsId/chats/:id/handoff: the
+// HandoffDTO is the wire shape of GET .../repos/:repoId/chats/:id/handoff: the
 // assembled handoff blob a freshly spawned provider CLI can be given as prior
 // context. Handoff is "" (not omitted) when the chat's ledger has no entries
 // yet.
@@ -622,13 +662,21 @@ type AgentProviderDTO struct {
 }
 
 // AgentChatEvent is the wire frame pushed on the agent-chat lifecycle WebSocket
-// (GET .../workspaces/:wsId/chats/ws): the thing that changed, the workspace it
-// belongs to, and the lifecycle kind — chat kinds (created/turn_started/turn_stopped/
-// title_set/placement_set/deleted), runner kinds (started/session_bound/moved/
-// displaced/exited), and folder kinds (folder_created/folder_updated/folder_deleted),
-// all of which ride this same workspace-scoped feed. It carries no snapshot; the stream is a
-// bare event feed, not a full-state resource stream. WorkspaceID both scopes the feed
-// (agentChatDef's wsId Filter) and rides along on the wire frame.
+// (GET .../repos/:repoId/chats/ws, and still GET .../home/chats/ws): the thing
+// that changed, the workspace it belongs to, and the lifecycle kind — chat
+// kinds (created/turn_started/turn_stopped/title_set/placement_set/deleted),
+// runner kinds (started/session_bound/moved/displaced/exited), and folder
+// kinds (folder_created/folder_updated/folder_deleted), all of which ride this
+// same feed. It carries no snapshot; the stream is a bare event feed, not a
+// full-state resource stream. WorkspaceID rides along on the wire frame and
+// still scopes the home mount's feed (agentChatDef's wsId Filter, keyed off
+// its injected :wsId). The repo-scoped mount names no workspace in its URL, so
+// that Filter resolves inactive there and scopes nothing; what scopes it is
+// RepoID below, against the mount's own :repoId, together with ProjectID
+// against its :projectId. Before RepoID existed the wsId Filter was this
+// stream's only scoping mechanism and a repo-scoped client received every OTHER
+// repo's chat events too; before ProjectID existed, every REPO-LESS frame — a
+// folder row, a root bubble, and every chat in a project HOME — still did.
 //
 // ChatID is EMPTY on a `displaced` frame, and that is the frame's whole meaning: Crowbar
 // has taken that runner off its chat (an eviction, a provider switch, a chat deleted under
@@ -638,7 +686,33 @@ type AgentProviderDTO struct {
 type AgentChatEvent struct {
 	ChatID      string `json:"chatId"`
 	WorkspaceID string `json:"workspaceId"`
-	Kind        string `json:"kind"`
+	// RepoID is the repo the frame's row actually runs in, resolved server-side
+	// from the row's own ground: its workspace when it has one, and — for a
+	// BUBBLE, which has none — the workspace its cwd walk lands on (model spec
+	// §3.2). It is what scopes the repo-scoped mount (agentChatDef's repoId
+	// Filter). It is on the frame because a row's repo is DERIVED, never
+	// stored, so the only place it can be answered is where the walk runs.
+	//
+	// EMPTY means "this row has no repo to be held to" — a folder row, a
+	// bubble whose ancestry owns no workspace, or ANY row in a project home,
+	// which owns no repo — and such a frame reaches every subscriber of the
+	// same PROJECT rather than none (see matchScopeOrUnscoped).
+	RepoID string `json:"repoId,omitempty"`
+	// ProjectID is the project the frame's row runs in, resolved from the same
+	// workspace row RepoID is and in the same pass. It is what bounds a
+	// REPO-LESS frame, which RepoID by construction cannot: a project home owns
+	// no repo, so every frame its chats emit — a lifecycle edge, a plan, the
+	// streamed text of a turn — carried an empty RepoID and was therefore
+	// forwarded to every repo-scoped subscriber in the daemon, across projects.
+	// Holding those frames to an exact repo is not an option (it would drop the
+	// folder rows and root bubbles that legitimately have none), so they are
+	// held to the project instead: the narrowest scope that still keeps them.
+	//
+	// EMPTY means the row resolved nothing at all — its placement projection has
+	// not caught up, or its whole ancestry owns no workspace — and such a frame
+	// still reaches everyone, unchanged.
+	ProjectID string `json:"projectId,omitempty"`
+	Kind      string `json:"kind"`
 	// RunnerID names the vendor-CLI process the frame is about, and is set ONLY on
 	// the agent-RUNNER kinds (started/session_bound/moved/exited — see
 	// hub.BroadcastAgentRunner), which ride this same workspace-scoped feed rather
@@ -689,6 +763,18 @@ type AgentChatEvent struct {
 	// CLI handles it and announces nothing — so without this frame the item waits
 	// forever on evidence that is not coming.
 	ClientRequestID string `json:"clientRequestId,omitempty"`
+
+	// Worktree rides the `worktree_state` kind and nothing else: the git state of
+	// the worktree ChatID owns, as of this event.
+	//
+	// It is on the frame rather than refetched for the same reason Working and
+	// TerminalWait are — the fact IS the change, and a client that had to ask for
+	// it would repaint a round trip after the diff counts moved. It is also what
+	// makes the chat feed a complete substitute for the workspace stream a client
+	// used to watch alongside it (spec §5): the same push site serves both, so a
+	// chat-scoped subscriber and a workspace-scoped one learn of a git change in
+	// the same instant and from the same bytes.
+	Worktree *ChatWorktreeDTO `json:"worktree,omitempty"`
 
 	// PromptConsumed rides the prompt_settled kind beside ClientRequestID and says
 	// whether anything actually proved the provider took that prompt.
@@ -765,6 +851,15 @@ const AgentChatKindPromptSettled = "prompt_settled"
 // self-heals on the next one. It stops when the message is complete: the message
 // then exists in the ledger, and the ledger is what the chat reads.
 const AgentChatKindMessageDelta = "message_delta"
+
+// AgentChatKindWorktreeState announces that the git state of the worktree a
+// chat OWNS has moved: a commit, a file edited, a PR opened, a lock taken.
+//
+// It is a CHAT kind — it names the row a client draws, carries no runner id,
+// and is emitted from the one place a workspace frame is already built, so the
+// chat-scoped feed and the workspace-scoped stream can never disagree about the
+// same branch. A chat that owns no worktree never produces one.
+const AgentChatKindWorktreeState = "worktree_state"
 
 // AgentChatKindPlan announces that the agent restated its own to-do list for the
 // turn. The list arrives WHOLESALE — the newest one is the entire truth, so a

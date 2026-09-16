@@ -1,8 +1,11 @@
 package chat
 
 import (
+	"context"
+
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/fanout"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
@@ -57,9 +60,14 @@ type (
 	ToolRunnerReader    = tools.RunnerReader
 	ToolChatGetter      = tools.ChatGetter
 	ToolWorkspaceLister = tools.WorkspaceLister
+	// ToolWorkspaceBranchRenamer is set_branch_name's write seam onto the
+	// workspace usecase. It is re-exported for the composition root's sake: the
+	// tool is withdrawn silently when it is nil, so the root has to be able to
+	// name the port it must refuse to start without.
+	ToolWorkspaceBranchRenamer = tools.WorkspaceBranchRenamer
 )
 
-// The Chats panel's tree, re-exported.
+// The sidebar forest's tree, re-exported.
 //
 // The tree is a separate usecase with its own routes, but it is part of THIS
 // feature: it moves chat rows, and its chat delete cascades into the chat
@@ -68,12 +76,28 @@ type (
 	// TreeUsecase is the folder/placement surface the /folders routes are served
 	// off.
 	TreeUsecase = tree.Usecase
-	// TreeStore is the chat-folder table the tree persists into.
-	TreeStore = tree.Store
-	// TreeChats is the chat-aggregate surface the tree reads and re-places.
+	// TreeChats is the chat-aggregate surface the tree reads and re-places —
+	// folder rows and conversation rows are the same table now.
 	TreeChats = tree.Chats
 	// TreeAgent is what the tree asks to erase each chat a cascade decided must go.
 	TreeAgent = tree.Agent
+	// TreeWorkspaceGitStatus is DeletePreview's read onto each workspace-owning
+	// row's already-synced uncommitted file counts.
+	TreeWorkspaceGitStatus = tree.WorkspaceGitStatus
+	// TreeWorkspaceReaper is the teardown a cascading chat delete puts each
+	// worktree in its subtree through, so a workspace never outlives the chat
+	// that owned it.
+	TreeWorkspaceReaper = tree.WorkspaceReaper
+	// TreeWorkspaceHolders is the census that decides whether that teardown may
+	// run: every chat currently resolving to a workspace, so a worktree
+	// surviving siblings still hold is never cascaded out from under them.
+	TreeWorkspaceHolders = tree.WorkspaceHolders
+	// TreeFolders is the plain-GORM identity surface a home-scoped folder's
+	// name lives on (2026-09-08 sidebar-placement-unification Task 5).
+	TreeFolders = tree.Folders
+	// TreeNodes is the position surface a home-scoped chat or folder's
+	// placement goes through instead of Chat.SetOrder/.SetPlacement.
+	TreeNodes = tree.Nodes
 
 	// CreateInput, MoveInput and PlaceInput are the three writes the panel makes.
 	CreateInput = tree.CreateInput
@@ -81,6 +105,26 @@ type (
 	PlaceInput  = tree.PlaceInput
 	// ChatDeletion is what a cascading chat delete removed.
 	ChatDeletion = tree.ChatDeletion
+
+	// WorktreeSpec, WorktreeMode and ImportSpec are CreateChat's worktree half:
+	// whether the new chat owns nothing, a fresh fork, or a branch that already
+	// exists — and, for the last, which branch. Re-exported because the
+	// composition root has to construct one to wire the import paths, and the
+	// tree package it is declared in is internal to this feature.
+	WorktreeSpec = tree.WorktreeSpec
+	WorktreeMode = tree.WorktreeMode
+	ImportSpec   = tree.ImportSpec
+)
+
+// The three worktree modes a create can ask for, re-exported alongside the
+// spec they live on.
+const (
+	// WorktreeNone is a plain chat — a bubble or a thread — owning no worktree.
+	WorktreeNone = tree.WorktreeNone
+	// WorktreeFork mints a fresh branch off the chat's resolved fork parent.
+	WorktreeFork = tree.WorktreeFork
+	// WorktreeImport adopts a branch that already exists in the repository.
+	WorktreeImport = tree.WorktreeImport
 )
 
 // NewTokenMinter mints the daemon's single MCP token secret.
@@ -107,16 +151,68 @@ func NewToolIdempotency() *ToolIdempotency { return tools.NewIdempotency() }
 // NewToolMetrics returns an empty per-tool call counter.
 func NewToolMetrics() *ToolMetrics { return tools.NewMetrics() }
 
-// NewTree builds the Chats panel's tree usecase.
-func NewTree(folders TreeStore, chats TreeChats, agent TreeAgent) TreeUsecase {
-	return tree.New(folders, chats, agent)
+// NewTree builds the sidebar forest's tree usecase. work is the chat
+// usecase's own in-flight tracker (see Usecase.Work) — the tree's move and
+// delete verbs refuse over a subtree that is still working, and there is
+// exactly one tracker to ask. workspaces is DeletePreview's seam onto the
+// workspace layer.
+func NewTree(
+	chats TreeChats,
+	agent TreeAgent,
+	work *inflight.Work,
+	workspaces TreeWorkspaceGitStatus,
+	reaper TreeWorkspaceReaper,
+	holders TreeWorkspaceHolders,
+	folders TreeFolders,
+	nodes TreeNodes,
+) TreeUsecase {
+	return tree.New(chats, agent, work, workspaces, reaper, holders, folders, nodes)
 }
 
-// NewChatLineage builds the lineage reader over the chat-folder table and the
-// chat repository. It is built BEFORE the chat usecase and handed to it, because
-// the tree usecase that owns the same edges holds the chat usecase in turn.
-func NewChatLineage(folders TreeStore, chats TreeChats) ChatLineage {
-	return tree.NewLineage(folders, chats)
+// Work exposes the in-flight turn tracker this usecase's own components
+// observe, so the tree usecase built on top of it (see NewTree) can refuse a
+// move or delete over a chat that is currently working. Deliberately not on
+// ChatUsecase: only the composition root wiring the tree usecase needs it.
+func (u *Usecase) Work() *inflight.Work {
+	return u.work
+}
+
+// HasTurns reports whether anything was ever SAID in a chat.
+//
+// Here rather than in one of the five responsibility files for the same reason
+// as Work and Working above: the only caller is the tree usecase built on top
+// of this one, whose boot backfill asks it before adopting a row into a
+// different kind (see tree.Agent.HasTurns). It is the same "has this chat said
+// anything yet" test NoteThreadLineage already makes, kept to one read of the
+// turn record rather than rendering a log nobody reads.
+func (u *Usecase) HasTurns(
+	ctx context.Context,
+	chatID string,
+) (bool, error) {
+	turns, err := u.conversations.ChatTurns(ctx, chatID)
+	if err != nil {
+		return false, err
+	}
+	return len(turns) > 0, nil
+}
+
+// Working reports whether chatID is currently working — the SAME live,
+// process-local answer Work() exposes the tree usecase's guardNotWorking, in
+// the narrow bool shape usecases/workspace's own reparent guard needs. It is
+// exposed here, rather than through inflight.Work directly, so that package
+// (this feature's own turn/runner machinery) never has to be imported by a
+// consumer with no other business depending on it (usecases/workspace may not
+// import usecases/chat/internal/shared/inflight, an internal package).
+func (u *Usecase) Working(chatID string) bool {
+	working, _, _ := u.work.Observe(chatID)
+	return working
+}
+
+// NewChatLineage builds the lineage reader over the chat repository. It is
+// built BEFORE the chat usecase and handed to it, because the tree usecase
+// that owns the same edges holds the chat usecase in turn.
+func NewChatLineage(chats TreeChats) ChatLineage {
+	return tree.NewLineage(chats)
 }
 
 // The seams this feature reaches the rest of the daemon through, re-exported so
@@ -149,6 +245,20 @@ var (
 	// ErrTreeCrossWorkspace is a move whose destination belongs to another
 	// workspace.
 	ErrTreeCrossWorkspace = tree.ErrCrossWorkspace
+	// ErrTreeCrossRepo is a folder create or move whose destination belongs to
+	// a different repo scope (or home, vs. a repo).
+	ErrTreeCrossRepo = tree.ErrCrossRepo
+	// ErrTreeCrossContext is a folder MOVE that would cross from one context
+	// (project home, a bare repo root, or one specific branch's own
+	// workspace) to a different one, even within the same repo.
+	ErrTreeCrossContext = tree.ErrCrossContext
+	// ErrTreeForkChainSplit is a WORKSPACE placement that would file a fork's
+	// own row outside the space its fork parent owns — organisation carrying a
+	// row away from a git lineage the placement does not move with it.
+	ErrTreeForkChainSplit = tree.ErrForkChainSplit
+	// ErrTreeSubtreeWorking is a move or delete refused because the row or a
+	// row in the subtree it takes is currently working.
+	ErrTreeSubtreeWorking = tree.ErrSubtreeWorking
 )
 
 // Fanout shapes repository lifecycle announcements into frontend frames.

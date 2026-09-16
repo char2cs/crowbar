@@ -21,6 +21,13 @@ interface PaneSashProps {
    * below a width (a fixed-column TUI reflows into uselessness) raises it.
    */
   minPx?: number
+  /** Extra classes merged onto the sash element — e.g. the chat/editor
+   *  sash's own `bg-chrome-bg`, so it paints the same translucent fill the
+   *  chat box beside it does instead of showing whatever's behind the whole
+   *  pane (nothing, now that the shared pane box stopped painting a fill of
+   *  its own for the chat's real vibrancy to work). A generic pane-splitting
+   *  sash has no such need, so this is opt-in, not a hard-coded default. */
+  className?: string
 }
 
 /**
@@ -45,6 +52,7 @@ export function PaneSash({
   secondPaneRef,
   onResizeCommit,
   minPx = MIN_PANE_SIZE,
+  className,
 }: PaneSashProps) {
   const isHorizontal = direction === 'horizontal'
   const sashRef = useRef<HTMLDivElement>(null)
@@ -216,6 +224,7 @@ export function PaneSash({
         'relative z-10 flex shrink-0 items-center justify-center ring-offset-background',
         'transition-colors hover:bg-border/60',
         isHorizontal ? 'w-1.5 cursor-col-resize' : 'h-1.5 w-full cursor-row-resize',
+        className,
       )}
     />
   )

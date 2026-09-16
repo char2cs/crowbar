@@ -176,8 +176,10 @@ func (s stubRunnerStoreLiveness) LiveRunnerForChat(
 // (so the delivery guard passes), and the two answers under test.
 func runnersForDisplace(t *testing.T, working, live bool) *Runners {
 	t.Helper()
+	home := t.TempDir()
 	return &Runners{
-		ws:            fakeWSReader{chatsDir: t.TempDir()},
+		home:          func() (string, error) { return home, nil },
+		ws:            fakeWSReader{chatsDir: home},
 		prompts:       agentjournal.NewPromptRequests(),
 		turnStarts:    inflight.NewGate(),
 		inflightTurns: inflight.NewTurns(),

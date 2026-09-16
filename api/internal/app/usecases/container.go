@@ -9,15 +9,14 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/git"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/discover"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/terminal"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -29,12 +28,11 @@ import (
 type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
 	Repositories             store.ScopedStore[domain.Repository, string]
-	Folders                  store.ScopedStore[domain.Folder, string]
-	AgentChatFolders         store.ScopedStore[domain.ChatFolder, string]
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
 	AgentPermissionDefault   store.Store[domain.AgentPermissionDefault, string]
+	Folders                  store.ScopedStore[domain.Folder, string]
 }
 
 // Container holds every application usecase, composing the aggregate
@@ -43,13 +41,11 @@ type Container struct {
 	Project       project.Usecase
 	ProjectImport project.ImportUsecase
 	ProjectDelete project.DeleteUsecase
-	Folder        folder.Usecase
 	Workspace     workspace.Usecase
 	File          file.Usecase
 	Git           git.Usecase
 	Terminal      terminal.Usecase
 	ProviderSync  provider.Usecase
-	Worktree      worktree.Usecase
 	BranchReview  branchreview.Usecase
 	// TerminalMeta is the durable session metadata store implementation exposed
 	// so the API layer can inject it into the terminal engine via SetMetaStore
@@ -83,6 +79,14 @@ type Container struct {
 	// into repositories.New itself: the reader is built from repos.Workspace,
 	// which does not exist until repositories.New returns.
 	AgentWorkspaceReader agentusecase.WorkspaceReader
+	// Worktree resolves a chat to the workspace whose worktree it reads and
+	// writes through (internal/app/usecases/worktree, spec
+	// docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3): itself
+	// first, then each ancestor in turn, nearest first. Built and wired here
+	// (law 6) — every future chat-scoped handler declares its own narrow
+	// Resolve(ctx, chatID) interface (law 4) and gets it satisfied by this
+	// same value. Unused by any caller yet — spec §8 step 2.
+	Worktree WorktreeResolver
 
 	// agentToolMetrics is the SAME *agentusecase.ToolMetrics instance the agent tool
 	// surface records through — held here only so AgentToolMetrics can read it
@@ -105,6 +109,50 @@ func (c *Container) AgentToolMetrics() map[string]agentusecase.ToolStat {
 	return c.agentToolMetrics.Snapshot()
 }
 
+// WorktreeResolver is the Resolve(ctx, chatID) shape spec §3
+// (docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md) describes a
+// future handler calling in place of h.wsReader.Get(ctx, wsID) — h.resolver
+// .Resolve(ctx, chatID) instead — plus its inverse, ChatsForWorkspace, which
+// spec §7.4 needs to fan a shared worktree's push out to every chat currently
+// resolving to it. The container's own worktreeResolver is the one concrete
+// value that satisfies both.
+type WorktreeResolver interface {
+	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
+	ChatsForWorkspace(ctx context.Context, workspaceID string) ([]string, error)
+}
+
+// worktreeResolver adapts the package-level worktree.Resolve and
+// worktree.ChatsForWorkspace functions (internal/app/usecases/worktree) into a
+// WorktreeResolver value: chats, chatRows and workspaces are the container's
+// own concrete usecases, satisfying the resolver's locally-declared ports
+// (law 4) structurally.
+type worktreeResolver struct {
+	chats      worktree.ChatAncestryReader
+	chatRows   worktree.ChatLister
+	workspaces worktree.WorkspaceReader
+	// folders/nodes let ChatsForWorkspace's own ancestry walk step past a
+	// Folder-only ancestor (2026-09-08 sidebar-placement-unification Task
+	// 8's own review fix round) — see worktree.ChatsForWorkspace's own doc.
+	folders worktree.Folders
+	nodes   worktree.Nodes
+}
+
+// Resolve implements WorktreeResolver.
+func (r worktreeResolver) Resolve(
+	ctx context.Context,
+	chatID string,
+) (domain.Workspace, error) {
+	return worktree.Resolve(ctx, chatID, r.chats, r.workspaces)
+}
+
+// ChatsForWorkspace implements WorktreeResolver.
+func (r worktreeResolver) ChatsForWorkspace(
+	ctx context.Context,
+	workspaceID string,
+) ([]string, error) {
+	return worktree.ChatsForWorkspace(ctx, workspaceID, r.chatRows, r.folders, r.nodes)
+}
+
 // New builds the usecases container. It takes the aggregate repositories, the
 // GORM CRUD stores, and the engines rather than the app-layer GORMStores struct
 // to keep the usecases package free of any dependency on its parent package.
@@ -118,20 +166,41 @@ func New(
 	engines *engine.Container,
 	crowbarHome func() (string, error),
 	threadBroadcast agentusecase.ToolThreadBroadcast,
+	broadcastAgentChatFolder func(id, workspaceID, kind string),
 ) (*Container, error) {
 	projectUsecase := project.New(
 		gormStores.Projects,
 		gormStores.Repositories,
 		repos.Workspace,
-	)
-	folderUsecase := folder.New(
 		gormStores.Folders,
-		repos.Workspace,
+		repos.Node,
+		// homeChats restores the per-project scoping a bare-root repo reorder
+		// needs for its CHAT-kind Node siblings (SDD review fix round 2,
+		// 2026-09-08 sidebar-placement-unification Task 5) — see
+		// project.HomeChats' own doc for why this narrow read is needed even
+		// though the rest of project.go deliberately dropped the chat
+		// package as a sibling-read dependency.
+		repos.AgentChat,
+		// Announces a repo reorder's COLLATERAL chat/folder siblings on the
+		// same chats WS their own drag would use — see project.New's own doc
+		// and placeRepoAmongHomeSiblings.
+		broadcastAgentChatFolder,
 	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,
 		engines.Git,
 		projectUsecase,
+		repos.Workspace,
+		engines.Git,
+		engines.Provider,
+		gormStores.Repositories,
+		nowFunc,
+		crowbarHome,
+		workspace.WithTerminalReaper(engines.Terminal),
+		// Every workspace this usecase creates (fork, import, adopted repo
+		// default) mints its own Node{Kind:workspace} row unconditionally at
+		// creation — 2026-09-08 sidebar-placement-unification Task 7.
+		workspace.WithNodes(repos.Node),
 	)
 	fileUsecase := file.New(
 		newFsEngineAdapter(engines.FS),
@@ -140,17 +209,6 @@ func New(
 	gitUsecase := git.New(
 		engines.Git,
 		workspaceUsecase,
-	)
-	terminalMeta := terminal.NewSessionMetaStore(
-		repos.Workspace,
-		gormStores.TerminalSessions,
-		crowbarHome,
-	)
-	terminalUsecase := terminal.New(
-		engines.Terminal,
-		gormStores.TerminalProfiles,
-		repos.Workspace,
-		terminalMeta,
 	)
 	providerSync := provider.New(
 		repos.Workspace,
@@ -164,15 +222,6 @@ func New(
 		Git:         engines.Git,
 		CrowbarHome: crowbarHome,
 	})
-	worktreeUsecase := worktree.New(
-		repos.Workspace,
-		engines.Git,
-		engines.Provider,
-		gormStores.Repositories,
-		nowFunc,
-		crowbarHome,
-		worktree.WithTerminalReaper(engines.Terminal),
-	)
 	branchReview := branchreview.New(
 		repos.Workspace,
 		repos.ReviewThread,
@@ -180,30 +229,83 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase)
 	if err != nil {
 		return nil, err
 	}
+	// Wired AFTER agentic exists, not as a workspace.New(...) option: the chat
+	// usecase itself depends on the workspace usecase (Promote forks a
+	// workspace through worktreeChildCreator above), so at workspace.New's own
+	// call site the chat usecase does not exist yet to hand over. See
+	// workspace.Usecase.SetChatObserver's doc comment.
+	workspaceUsecase.SetChatObserver(agentic.chat)
+	// Both ways a branch becomes locked at RUNTIME — the user's own lock, and a
+	// provider poll reporting the branch protected — used to hand the workspace
+	// to a chat-tree reconciler here (EnsureOwningChat), so its owning row was a
+	// branch row from that instant rather than from the next boot's backfill.
+	// Deleted (2026-09-08 sidebar-placement-unification Task 7): every
+	// Workspace now mints its own Node{Kind:workspace} row unconditionally at
+	// creation (see hierarchy.WithNodes / project.ImportDeps.Nodes below), so
+	// there is no more "does this now-locked workspace have an owning row yet"
+	// question for a reconciler to answer here. workspaceUsecase.SetLock and
+	// providerSync.SyncFromState no longer take a reconciler at all.
+	// Every workspace the import paths create is minted UNDER a chat from here
+	// on. Wired at the same point and for the same reason as the two setters
+	// above — the chat tree does not exist until agentic is built — and this is
+	// the wiring that makes the §0 orphan unrepresentable rather than merely
+	// reconciled: without it both importers refuse outright (ErrNoOwningChats)
+	// instead of falling back to a workspace-first create.
+	owningChats := hierarchyOwningChats{tree: agentic.chatTree}
+	workspaceUsecase.SetOwningChats(owningChats)
+	projectImport.SetOwningChats(owningChats)
+	// Built inside newAgentWiring, where the chat tree's own delete already
+	// needs it (see the holders argument to NewTree), and handed back rather
+	// than rebuilt here: one resolver means "which chats hold this worktree"
+	// has one answer in the daemon, whether it is asked to fan a push out or to
+	// decide whether a delete may cascade that worktree away.
+	worktreeUsecase := agentic.worktree
+	// Built HERE, not beside the other usecases above, because both take the
+	// chat→worktree resolver: a terminal session is owned by a CHAT and merely
+	// RUNS in a worktree (spec §4.2's owned bucket), so each needs to turn a
+	// chat id into the workspace behind it, and worktreeUsecase does not exist
+	// until the chat usecase above does.
+	terminalMeta := terminal.NewSessionMetaStore(
+		worktreeUsecase,
+		gormStores.TerminalSessions,
+		crowbarHome,
+	)
+	terminalUsecase := terminal.New(
+		engines.Terminal,
+		gormStores.TerminalProfiles,
+		worktreeUsecase,
+		terminalMeta,
+	)
 	return &Container{
-		Project:              projectUsecase,
-		ProjectImport:        projectImport,
-		ProjectDelete:        projectDelete,
-		Folder:               folderUsecase,
-		Workspace:            workspaceUsecase,
-		File:                 fileUsecase,
-		Git:                  gitUsecase,
-		Terminal:             terminalUsecase,
-		ProviderSync:         providerSync,
-		Worktree:             worktreeUsecase,
-		BranchReview:         branchReview,
-		TerminalMeta:         terminalMeta,
-		AgentChat:            agentic.chat,
+		Project:       projectUsecase,
+		ProjectImport: projectImport,
+		ProjectDelete: projectDelete,
+		Workspace:     workspaceUsecase,
+		File:          fileUsecase,
+		Git:           gitUsecase,
+		Terminal:      terminalUsecase,
+		ProviderSync:  providerSync,
+		BranchReview:  branchReview,
+		TerminalMeta:  terminalMeta,
+		// Wrapped, not the raw chat usecase: a chat's ParentID/Order are
+		// frozen at creation now (2026-09-08 sidebar-placement-unification
+		// Task 5 for home-scoped, Task 8 for repo-scoped too) — every READ
+		// needs its live Node position overlaid, or a chat filed into a
+		// folder renders at the panel root forever, surviving a reload. See
+		// agentusecase.NewHomeCorrectedChats' own doc for what this does and
+		// does not close (no WS-broadcast fix, only the read/reload path).
+		AgentChat:            agentusecase.NewHomeCorrectedChats(agentic.chat, repos.Node),
 		AgentTurn:            agentic.chat,
 		AgentRunner:          agentic.chat,
 		AgentAnswer:          agentic.chat,
 		AgentProvider:        agentic.chat,
 		AgentChatFolder:      agentic.chatTree,
 		AgentWorkspaceReader: agentic.wsReader,
+		Worktree:             worktreeUsecase,
 		agentToolMetrics:     agentic.metrics,
 	}, nil
 }
@@ -215,6 +317,7 @@ func New(
 type agentWiring struct {
 	chat     *agentusecase.Usecase
 	chatTree agentusecase.TreeUsecase
+	worktree worktreeResolver
 	wsReader agentusecase.WorkspaceReader
 	metrics  *agentusecase.ToolMetrics
 }
@@ -234,6 +337,7 @@ func newAgentWiring(
 	crowbarHome func() (string, error),
 	review agentusecase.ToolReviewReader,
 	threadBroadcast agentusecase.ToolThreadBroadcast,
+	workspaceUsecase workspace.Usecase,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -244,14 +348,26 @@ func newAgentWiring(
 	if err != nil {
 		return agentWiring{}, fmt.Errorf("usecases: new container: %w", err)
 	}
-	// The Chats-panel lineage read, built FIRST and from the two stores directly.
-	// The spawn path needs it to tell a thread which chats it reads, and it is
-	// deliberately not taken off the tree usecase, which already holds the chat
-	// usecase for the delete cascade and would close a construction cycle if that
-	// usecase reached back into it. (The tool surface needs the same answer and
-	// gets it from the chat usecase, which re-exposes this as Ancestors.)
-	lineage := agentusecase.NewChatLineage(gormStores.AgentChatFolders, repos.AgentChat)
-	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast)
+	// The Chats-panel lineage read, built FIRST and from the chat repository
+	// directly — folder rows and conversation rows are one table now, so one
+	// store answers it. The spawn path needs it to tell a thread which chats it
+	// reads, and it is deliberately not taken off the tree usecase, which already
+	// holds the chat usecase for the delete cascade and would close a
+	// construction cycle if that usecase reached back into it. (The tool surface
+	// needs the same answer and gets it from the chat usecase, which re-exposes
+	// this as Ancestors.)
+	//
+	// Wrapped, not the raw repository: a chat's ParentID is frozen at
+	// creation now (2026-09-08 sidebar-placement-unification Task 5 for
+	// home-scoped, Task 8 for repo-scoped too), and this lineage read
+	// (LoadChat/ListByWorkspace) is what decides what a freshly spawned CLI
+	// is told to read — unlike Container.AgentChat, wrapped separately above
+	// in New, this one is built here, independently, and was missed by that
+	// fix. See agentusecase.NewHomeCorrectedTreeChats' own doc.
+	lineage := agentusecase.NewChatLineage(agentusecase.NewHomeCorrectedTreeChats(
+		repos.AgentChat, repos.Node, gormStores.Folders,
+	))
+	toolDeps, err := newAgentToolDeps(minter, repos, review, threadBroadcast, workspaceUsecase)
 	if err != nil {
 		return agentWiring{}, err
 	}
@@ -262,6 +378,7 @@ func newAgentWiring(
 		Agents:          engines.Agents,
 		Terminal:        engines.Terminal,
 		Workspace:       wsReader,
+		Worktree:        worktreeChildCreator{worktree: workspaceUsecase},
 		Lineage:         lineage,
 		ProviderPrefs:   gormStores.AgentProviderPreferences,
 		PermissionPrefs: gormStores.AgentPermissionDefault,
@@ -270,11 +387,49 @@ func newAgentWiring(
 		// install probe. Only tests inject a stub to isolate from the host PATH.
 		Minter: minter,
 		Tools:  toolDeps,
+		// Folders/Nodes let own_worktree.go/promote.go/repo_scope.go/
+		// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
+		// (2026-09-08 sidebar-placement-unification Task 8's own review fix
+		// round) — see agentusecase.Deps' own doc.
+		Folders: gormStores.Folders,
+		Nodes:   repos.Node,
 	})
-	chatTree := agentusecase.NewTree(gormStores.AgentChatFolders, repos.AgentChat, chat)
+	// The chat→worktree resolver, built here because it reads the chat forest
+	// off the usecase above and because the tree below needs its inverse. The
+	// container hands this same value to the chat-scoped routes (New's
+	// worktreeUsecase), so the fan-out set a shared write pushes to and the
+	// holder set a delete checks against are one function, not two.
+	worktreeUsecase := worktreeResolver{
+		chats:      worktree.NewChatTreeAncestryReader(chat, gormStores.Folders, repos.Node),
+		chatRows:   chat,
+		workspaces: workspaceUsecase,
+		folders:    gormStores.Folders,
+		nodes:      repos.Node,
+	}
+	chatTree := agentusecase.NewTree(
+		repos.AgentChat,
+		chat,
+		chat.Work(),
+		workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
+		// The SAME adapter the chat usecase's own WorktreeCreator is satisfied
+		// with, handed here a second time on purpose: a cascading delete and a
+		// failed promotion's rollback must tear a workspace down through one call
+		// (hierarchy.DeleteCascade), not two implementations that could drift.
+		worktreeChildCreator{worktree: workspaceUsecase},
+		// And the census that gates it: Chat.WorkspaceID names the worktree a
+		// chat is anchored to, never that it is anchored there alone, so the
+		// delete asks who else is currently resolving to it before cascading.
+		worktreeUsecase,
+		// Home-scoped (project-home) folders/chat placement now go through
+		// Folder/Node (2026-09-08 sidebar-placement-unification Task 5) —
+		// repo-scoped folders/chats are untouched by these, still Chat-backed.
+		gormStores.Folders,
+		repos.Node,
+	)
 	return agentWiring{
 		chat:     chat,
 		chatTree: chatTree,
+		worktree: worktreeUsecase,
 		wsReader: wsReader,
 		metrics:  toolDeps.Metrics,
 	}, nil
@@ -297,6 +452,7 @@ func newProjectImport(
 		Provider:    engines.Provider,
 		Discover:    discover.Repos,
 		RefRunner:   newRefRunner,
+		Nodes:       repos.Node,
 		Now:         nowFunc,
 		CrowbarHome: crowbarHome,
 	})
@@ -321,6 +477,15 @@ func newProjectImport(
 // a thread out needs the wire DTO, and a usecase must not import the api layer's
 // wire types. See agentusecase.ToolThreadBroadcast.
 //
+// workspaces is the workspace usecase itself, which already satisfies
+// set_branch_name's narrow WorkspaceBranchRenamer port by name. It is a
+// parameter rather than something read off repos because renaming a branch is a
+// USECASE verb — a git ref rename plus one record write, with the locked/held
+// refusals in front of it — not a store write. It is in the refusal switch for
+// the reason every other port is: a nil here withdraws set_branch_name, and an
+// agent that cannot name its own branch leaves every generated provisional name
+// in place with nothing anywhere reporting why.
+//
 // ChatLogs is deliberately NOT set here, unlike ChatReads: get_chat_log's ledger
 // read (agentusecase.ToolChatLogReader) is implemented by the agent CHAT concern
 // (agentusecase.ChatUsecase.ReadChatLog), which does not exist yet at this point in
@@ -337,10 +502,13 @@ func newAgentToolDeps(
 	repos *repositories.Container,
 	review agentusecase.ToolReviewReader,
 	threadBroadcast agentusecase.ToolThreadBroadcast,
+	workspaces agentusecase.ToolWorkspaceBranchRenamer,
 ) (agentusecase.ToolDeps, error) {
 	switch {
 	case minter == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no token minter")
+	case workspaces == nil:
+		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no workspace usecase")
 	case repos.AgentRunner == nil:
 		return agentusecase.ToolDeps{}, fmt.Errorf("usecases: wire agent tools: no runner store")
 	case repos.AgentChat == nil:
@@ -362,6 +530,7 @@ func newAgentToolDeps(
 			chatReader,
 			repos.Workspace,
 		),
+		Workspaces:      workspaces,
 		Review:          review,
 		Threads:         repos.ReviewThread,
 		ThreadWrites:    repos.ReviewThread,
@@ -400,6 +569,247 @@ func (r agentChatReader) ListChats(
 	return r.chats.ListChats(ctx)
 }
 
+// workspaceGitStatusReader adapts the workspace usecase into the chat tree
+// usecase's WorkspaceGitStatus seam (internal/app/usecases/chat/internal/tree.
+// WorkspaceGitStatus): DeletePreview needs each workspace-owning row's file
+// counts, and Get's Added/Deleted are the SAME already-synced numbers the
+// sidebar itself renders — never a live git call recomputed per row on every
+// preview.
+type workspaceGitStatusReader struct {
+	workspace workspace.Usecase
+	// repos is used ONLY by RepoIDsForHome (SDD review fix round 3) — every
+	// other method here predates it and never touches it.
+	repos store.ScopedStore[domain.Repository, string]
+}
+
+// WorkingTreeSummary implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) WorkingTreeSummary(
+	ctx context.Context,
+	workspaceID string,
+) (int, int, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return 0, 0, err
+	}
+	return ws.Added, ws.Deleted, nil
+}
+
+// RepoOf implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) RepoOf(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	return ws.RepoID, nil
+}
+
+// RepoIDsForHome implements agentusecase.TreeWorkspaceGitStatus. It answers
+// every repo id belonging to the SAME project as home workspace
+// homeWorkspaceID — the tree package's own counterpart to project.go's
+// repoIDSet, added in the SDD review's fix round 3: mergeHomeForest's
+// repo-phantom rows (domain.Node carries no project id of its own) must be
+// scoped the same way home-scoped CHAT rows already are (the review's
+// Critical 2 fix), or a bare-root chat/folder placement in one project
+// renumbers — and WRITES, via Nodes.SetOrder/.SetPlacement — another
+// project's repo Node row as a side effect.
+func (w workspaceGitStatusReader) RepoIDsForHome(
+	ctx context.Context,
+	homeWorkspaceID string,
+) (map[string]bool, error) {
+	ws, err := w.workspace.Get(ctx, homeWorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := w.repos.FindWhere(ctx, domain.Repository{ProjectID: ws.ProjectID})
+	if err != nil {
+		return nil, err
+	}
+	ids := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		ids[r.ID] = true
+	}
+	return ids, nil
+}
+
+// RendersAsBranch implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) RendersAsBranch(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	return ws.RendersAsBranch(), nil
+}
+
+// VisibleForkParent implements agentusecase.TreeWorkspaceGitStatus. The
+// reduction to "" lives here, over the aggregate that carries the two fields
+// it reads, rather than in the tree package: a fork parent that draws no row
+// of its own is the repo's DEFAULT checkout (which IS that tree's root — see
+// the port's own doc) or a project HOME workspace, and both are answered off
+// domain.Workspace directly. A parent id that no longer resolves is reduced
+// the same way, for the same reason: there is no space left to hold a row to.
+func (w workspaceGitStatusReader) VisibleForkParent(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	if ws.ParentID == "" {
+		return "", nil
+	}
+	parent, err := w.workspace.Get(ctx, ws.ParentID)
+	if err != nil || parent.IsDefault || parent.Kind == domain.WorkspaceKindHome {
+		return "", nil
+	}
+	return ws.ParentID, nil
+}
+
+// worktreeChildCreator adapts the worktree hierarchy usecase into the agent
+// usecase's WorktreeCreator seam (internal/app/usecases/chat.WorktreeCreator):
+// Promote names only the fork parent it forks from, and this fills in the rest
+// of workspace.CreateChildInput the way every other spontaneous create does —
+// leaving RepoID/RepoPath/RemoteURL/ParentBranch blank so CreateChild's own
+// parent-inherited defaulting resolves them, and Branch blank so it generates
+// and collision-checks a provisional name (model spec §4.1).
+//
+// OwnWorktree is the one field NOT left to that defaulting: resolveInherited's
+// default is "inherit whether the PARENT owns a worktree" (model spec §4.1's
+// taxonomy rule for an ordinary create), but promotion's entire point is
+// giving the chat a worktree of its own — a fork parent that is itself a
+// workspace-less bubble must not silently promote this chat into another
+// bubble. So it is forced true here, always.
+type worktreeChildCreator struct {
+	worktree workspace.Usecase
+}
+
+// CreateChildWorkspace implements agentusecase.WorktreeCreator.
+func (w worktreeChildCreator) CreateChildWorkspace(
+	ctx context.Context,
+	forkParentID string,
+	branch string,
+) (domain.Workspace, error) {
+	ownWorktree := true
+	return w.worktree.CreateChild(ctx, workspace.CreateChildInput{
+		ParentID:    forkParentID,
+		Branch:      branch,
+		OwnWorktree: &ownWorktree,
+	})
+}
+
+// CreateImportedWorkspace implements agentusecase.WorktreeCreator. Unlike
+// CreateChildWorkspace above it fills in NOTHING: an import already knows its
+// repo, its branch and its git-lineage parent, because the caller discovered
+// the branch in that repository and resolved its PR base before asking. Leaving
+// any of it to CreateChild's parent-inherited defaulting would resolve it from
+// a parent workspace an import rooted at the repo does not have.
+//
+// OwnWorktree is forced true for the same reason it is forced above: the
+// taxonomy default is "inherit whether the parent owns a worktree", and an
+// import whose lineage parent happens to be a bubble must still get a real
+// worktree of its own — that is the entire request.
+func (w worktreeChildCreator) CreateImportedWorkspace(
+	ctx context.Context,
+	spec agentusecase.ImportSpec,
+) (domain.Workspace, error) {
+	ownWorktree := true
+	return w.worktree.CreateChild(ctx, workspace.CreateChildInput{
+		RepoID:       spec.RepoID,
+		ProjectID:    spec.ProjectID,
+		RepoPath:     spec.RepoPath,
+		RemoteURL:    spec.RemoteURL,
+		Branch:       spec.Branch,
+		ParentID:     spec.ParentWorkspaceID,
+		ParentBranch: spec.ParentBranch,
+		ForceLocked:  spec.ForceLocked,
+		OwnWorktree:  &ownWorktree,
+	})
+}
+
+// DiscardChildWorkspace implements agentusecase.WorktreeCreator: it removes a
+// workspace a promotion minted and then could not finish, through the SAME
+// cascade a user-initiated workspace removal takes, so the worktree and the
+// branch go together and nothing is left half-reaped. The cascade's own guards
+// still apply — by the time this runs the chat has stopped pointing at the
+// workspace, so its working-chat guard sees an empty workspace and passes.
+func (w worktreeChildCreator) DiscardChildWorkspace(
+	ctx context.Context,
+	workspaceID string,
+) error {
+	return w.worktree.DeleteCascade(ctx, workspaceID)
+}
+
+// hierarchyOwningChats adapts the Chats-panel tree usecase into the worktree
+// hierarchy's OwningChats seam (usecases/workspace.OwningChats) — the mirror of
+// worktreeChildCreator above, pointing the other way: that one lets a chat ask
+// for a worktree, this one makes every worktree the import path creates be born
+// under a chat.
+//
+// Three of the four verbs are the tree's own, unchanged. Only the import
+// differs, and only in shape: the hierarchy describes a branch in its OWN
+// vocabulary (workspace.ImportedBranch, which it declares because it is the
+// consumer) and wants back the one thing its chain walk records — the workspace
+// id — while the tree speaks its own ImportSpec and hands back both ids. This
+// is exactly the translation the container exists to do, and it is why neither
+// usecase has to import the other.
+//
+// The delegation is written out rather than embedded on purpose: an embedded
+// TreeUsecase would silently expose a SECOND ImportBranchAsChat with a
+// different signature, and which one a caller reached would depend on where it
+// was standing.
+type hierarchyOwningChats struct {
+	tree agentusecase.TreeUsecase
+}
+
+// ImportBranchAsChat implements workspace.OwningChats.
+func (h hierarchyOwningChats) ImportBranchAsChat(
+	ctx context.Context,
+	in workspace.ImportedBranch,
+) (string, error) {
+	_, workspaceID, err := h.tree.ImportBranchAsChat(ctx, agentusecase.ImportSpec{
+		RepoID:            in.RepoID,
+		ProjectID:         in.ProjectID,
+		RepoPath:          in.RepoPath,
+		RemoteURL:         in.RemoteURL,
+		Branch:            in.Branch,
+		ParentWorkspaceID: in.ParentWorkspaceID,
+		ParentBranch:      in.ParentBranch,
+		ForceLocked:       in.ForceLocked,
+	})
+	return workspaceID, err
+}
+
+// MintOwningChat implements workspace.OwningChats.
+func (h hierarchyOwningChats) MintOwningChat(
+	ctx context.Context,
+	parentWorkspaceID string,
+) (string, error) {
+	return h.tree.MintOwningChat(ctx, parentWorkspaceID)
+}
+
+// AttachOwningWorkspace implements workspace.OwningChats.
+func (h hierarchyOwningChats) AttachOwningWorkspace(
+	ctx context.Context,
+	chatID string,
+	ws domain.Workspace,
+) error {
+	return h.tree.AttachOwningWorkspace(ctx, chatID, ws)
+}
+
+// DiscardOwningChat implements workspace.OwningChats.
+func (h hierarchyOwningChats) DiscardOwningChat(
+	ctx context.Context,
+	chatID string,
+) error {
+	return h.tree.DiscardOwningChat(ctx, chatID)
+}
+
 // workspaceGetter is the minimal workspace-read surface agentWorkspaceReader
 // needs: resolving the owning project/repo for a workspace id.
 type workspaceGetter interface {
@@ -408,7 +818,7 @@ type workspaceGetter interface {
 
 // repoGetter is the minimal repository-read surface agentWorkspaceReader needs to
 // resolve a home-kind (adopted-checkout) workspace's on-disk identity slug from
-// its repo id, mirroring worktree.resolveSlug's load-the-row pattern so the
+// its repo id, mirroring workspace's worktree hierarchy resolveSlug's load-the-row pattern so the
 // no-remote fallback can still reach the repo NAME.
 type repoGetter interface {
 	FindByKey(ctx context.Context, id string) (*domain.Repository, error)
@@ -451,16 +861,20 @@ func (r *agentWorkspaceReader) WorktreeDir(
 }
 
 // AgentChatsDir implements agentusecase.WorkspaceReader: it resolves the directory that
-// holds a workspace's agentic chat state, ALWAYS strictly under crowbar home.
+// holds a workspace's OWN agent-work state (per-spawn tmp dirs, the per-runner
+// hook-delivery journal), ALWAYS strictly under crowbar home. It is NOT where a
+// chat's own ledger lives — that is worktreepath.LedgerChatsDir, keyed by the
+// chat's id alone, because WorkspaceID is optional and mutable (spec §1.5) and
+// this lookup requires a resolvable workspace.
 //
 // For a Crowbar-managed worktree (WorktreePath strictly under home) the chats dir
 // is the sibling of the worktree (worktreepath.ChatsDir), reaped with the
 // workspace root on delete. For an ADOPTED CHECKOUT — the repo-home / project-home
 // whose WorktreePath is the user's REAL directory OUTSIDE home — the chats dir
 // reroots under home at <home>/projects/<projectId>/<slug>/default/chats
-// (worktreepath.HomeDefaultChatsDir), so a plaintext conversation ledger is never
-// written onto the user's filesystem beside their repository (Task 7). The Cwd is
-// unaffected: WorktreeDir still returns the adopted worktree unchanged.
+// (worktreepath.HomeDefaultChatsDir), so plaintext state is never written onto
+// the user's filesystem beside their repository. The Cwd is unaffected:
+// WorktreeDir still returns the adopted worktree unchanged.
 //
 // The discriminator is the under-home test, NOT the workspace Kind: the
 // chat-hosting repo-home is a Kind=git / IsDefault workspace (adoptRepoHome does
@@ -509,7 +923,7 @@ func (r *agentWorkspaceReader) AgentChatsDir(
 // repo) yields an empty slug, which HomeDefaultChatsDir collapses to the project
 // directory — still strictly under home. It always loads the repo row so the
 // no-remote / unparseable-URL fallback can reach the repo NAME, mirroring
-// worktree.resolveSlug.
+// workspace's worktree hierarchy resolveSlug.
 func (r *agentWorkspaceReader) repoSlug(
 	ctx context.Context,
 	repoID string,

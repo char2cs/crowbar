@@ -63,7 +63,7 @@ func openChat(
 ) {
 	t.Helper()
 	_, err := ax.SendWait(ctx, acCmds.Create{
-		ID: chatID, WorkspaceID: "w1", Now: time.Unix(1, 0).UTC(),
+		ID: chatID, WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
 
@@ -99,12 +99,12 @@ func TestStore_GetChatMissingReturnsErrNotFound(t *testing.T) {
 // workspaces: c1+c2 (both w1) are returned, c3 (w2) is not.
 func TestStore_ListByWorkspace_ScopesToWorkspace(t *testing.T) {
 	ctx, st, ax := newStore(t)
-	_, err := ax.SendWait(ctx, acCmds.Create{ID: "c1", WorkspaceID: "w1", Now: time.Unix(1, 0).UTC()})
+	_, err := ax.SendWait(ctx, acCmds.Create{ID: "c1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
-	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c2", WorkspaceID: "w1", Now: time.Unix(1, 0).UTC()})
+	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c2", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
 	// c3 belongs to a DIFFERENT workspace — must never be returned for w1.
-	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c3", WorkspaceID: "w2", Now: time.Unix(1, 0).UTC()})
+	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c3", WorkspaceID: "w2", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
 
 	list, err := st.ListByWorkspace(ctx, "w1")
@@ -325,6 +325,7 @@ func (minimalStore) Append(context.Context, string, int64, []byte) error { retur
 func (minimalStore) ReadFrom(context.Context, string, int64) ([][]byte, error) {
 	return nil, nil
 }
+
 func (minimalStore) ReadRange(context.Context, string, int64, int64) ([][]byte, error) {
 	return nil, nil
 }
@@ -392,7 +393,7 @@ func TestStore_Rebuild_SkipsNonEventKey(t *testing.T) {
 	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
 	ctx := context.Background()
-	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c1", WorkspaceID: "w1", Now: time.Unix(1, 0).UTC()})
+	_, err = ax.SendWait(ctx, acCmds.Create{ID: "c1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC()})
 	require.NoError(t, err)
 
 	db, err := storesqlite.OpenDB(":memory:")

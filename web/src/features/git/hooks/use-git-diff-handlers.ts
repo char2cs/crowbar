@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { primitiveAlert } from '@/components/ui/primitive-dialog-service'
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 
 interface UseGitDiffHandlersProps {
   activeRepoPath: string | null
@@ -50,7 +51,7 @@ export function useGitDiffHandlers({ activeRepoPath, onFileSelect }: UseGitDiffH
         await primitiveAlert('No active workspace to open the commit in.', 'Git Diff')
         return
       }
-      store.getState().bufferActions.openContent({
+      windowPaneStore.getState().bufferActions.openContent({
         type: 'commitDiff',
         wsId: activeRepoPath,
         sha: commitHash,

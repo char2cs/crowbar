@@ -17,12 +17,12 @@ import (
 func TestCreateCommand_RegistersSession(t *testing.T) {
 	e := New()
 	defer e.Shutdown()
-	id, err := e.CreateCommand(context.Background(), "ws1", t.TempDir(),
+	id, err := e.CreateCommand(context.Background(), "chat1", t.TempDir(),
 		[]string{"/bin/sh", "-c", "sleep 1"}, os.Environ(), nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, id)
 	require.True(t, e.SessionExists(context.Background(), id))
-	require.Contains(t, e.ListSessionsForWorkspace("ws1"), id)
+	require.Contains(t, e.ListSessionsForChat("chat1"), id)
 }
 
 // TestCreateCommand_OnExitFiresOnceSessionEnds guards the resource-leak fix
@@ -36,7 +36,7 @@ func TestCreateCommand_OnExitFiresOnceSessionEnds(t *testing.T) {
 
 	var fired int32
 	exits := make(chan struct{}, 8) // buffered: a (buggy) duplicate fire must not block the reaper
-	id, err := e.CreateCommand(ctx, "ws1", t.TempDir(),
+	id, err := e.CreateCommand(ctx, "chat1", t.TempDir(),
 		[]string{"/bin/sh", "-c", "true"}, os.Environ(), func() {
 			atomic.AddInt32(&fired, 1)
 			exits <- struct{}{}
@@ -70,7 +70,7 @@ func TestTerminateGraceful_OnExitFiresAfterGracefulSignal(t *testing.T) {
 
 	var fired int32
 	exits := make(chan struct{}, 8)
-	id, err := e.CreateCommand(ctx, "ws1", t.TempDir(),
+	id, err := e.CreateCommand(ctx, "chat1", t.TempDir(),
 		[]string{"/bin/sh", "-c", "sleep 30"}, os.Environ(), func() {
 			atomic.AddInt32(&fired, 1)
 			exits <- struct{}{}
@@ -121,7 +121,7 @@ func TestTerminateGraceful_FallsBackToKill_OnExitStillFires(t *testing.T) {
 	// fork+exec of /bin/sh is, and if the guess lost, the SIGTERM would race ahead of the
 	// trap, the child would die normally, and the test would silently exercise the GRACEFUL
 	// path while claiming to prove the FALLBACK one.
-	id, err := e.CreateCommand(ctx, "ws1", t.TempDir(),
+	id, err := e.CreateCommand(ctx, "chat1", t.TempDir(),
 		[]string{"/bin/sh", "-c", "trap '' TERM; printf '%s%s\\n' TRAP PED; sleep 30"},
 		os.Environ(), func() {
 			atomic.AddInt32(&fired, 1)
@@ -209,7 +209,7 @@ func TestRegression_CreateCommandChildGetsUTF8Locale(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "lang")
 	exits := make(chan struct{}, 1)
-	_, err := e.CreateCommand(context.Background(), "ws-locale", dir,
+	_, err := e.CreateCommand(context.Background(), "chat-locale", dir,
 		[]string{"/bin/sh", "-c", "printf '%s' \"$LANG\" > \"" + out + "\""},
 		[]string{"PATH=/usr/bin:/bin"},
 		func() { exits <- struct{}{} })
@@ -253,7 +253,7 @@ func TestEngine_CreateCommand_MissingBinary_IsErrCommandNotFound(t *testing.T) {
 
 	_, err := e.CreateCommand(
 		context.Background(),
-		"ws1",
+		"chat1",
 		t.TempDir(),
 		[]string{"crowbar-definitely-not-a-real-binary-xyz"},
 		[]string{"PATH=/usr/bin"},

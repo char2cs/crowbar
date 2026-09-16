@@ -9,11 +9,9 @@ import {
 import { memo, useCallback } from 'react'
 import type { RefCallback } from 'react'
 import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
-import { AgentChatTabIcon } from '@/features/agent/shared/agent-chat-tab-icon'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
 import { Button } from '@/components/ui/button'
-import { CrowbarMark } from '@/components/ui/crowbar-mark'
 import { Tab } from '@/components/ui/tabs'
 import { cn } from '@/utils/cn'
 
@@ -81,9 +79,11 @@ const TabBarItem = memo(function TabBarItem({
     [handleTabClose, buffer.id],
   )
 
-  // An editor tab with unsaved edits. When it's also the active tab we render
-  // the whole pill in the primary-button style (the fill is the signal, so the
-  // dot is dropped); inactive unsaved tabs keep the pill and show a bright dot.
+  // An editor tab with unsaved edits. When it's also the active tab the
+  // signal is a blue border on top of the tab's normal muted active fill
+  // (the same `bg-sidebar-element-hover` every other active ghost tab
+  // already gets) — not a tinted fill of its own. Inactive unsaved tabs keep
+  // the plain ghost shape and show a bright dot instead.
   const isDirtyEditor = buffer.type === 'editor' && buffer.isDirty
 
   return (
@@ -109,12 +109,27 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
+        variant="ghost"
         className={cn(
           'h-8',
           'gap-1.5 pl-2.5 pr-8',
+          // Unsaved+active keeps its own distinct signal, but ONLY via a blue
+          // border — the fill and text stay whatever the ghost variant's
+          // normal active state already renders (`bg-sidebar-element-hover`/
+          // `text-foreground`, set by `Tab` itself above via `isActive`).
+          // Every attempt to tint the FILL blue too (a translucent
+          // `bg-primary/12`, several `color-mix` blends, then a plain solid
+          // `bg-primary`) read as wrong once compared side-by-side with the
+          // rest of the tab strip — the muted active fill was correct all
+          // along. `shadow-xs`/`inset-shadow-[...]` is copied verbatim from
+          // ROW_ACTIVE (workspace-row-base.ts) — the same CossUI top-highlight
+          // every other active/hovered row gets — layered on top of the
+          // border-only blue signal, not replacing it.
           isActive &&
             isDirtyEditor &&
-            'border-primary bg-primary text-primary-foreground shadow-primary/24',
+            'rounded-sm border-primary shadow-xs shadow-black/10 ' +
+              'not-disabled:inset-shadow-[0_1px_var(--elevated-highlight)] ' +
+              'active:inset-shadow-[0_1px_--theme(--color-black/8%)] active:shadow-none',
         )}
         onClick={handleClick}
         onMouseDown={onMouseDown}
@@ -132,23 +147,11 @@ const TabBarItem = memo(function TabBarItem({
             <GitBranch className="text-muted-foreground" />
           ) : buffer.type === 'terminal' ? (
             <Terminal className="text-muted-foreground" />
-          ) : buffer.type === 'newTab' ? (
-            // Deliberately LARGER than the 14px icon slot (it overflows the
-            // place-content-center box, which has no clip). The mark art is a
-            // circle with generous internal padding, so at the sibling icons'
-            // 14px it reads visibly smaller than them; ~18px makes it match by
-            // eye. Don't "normalise" this back to size-3.5 — that regresses it.
-            <CrowbarMark className="size-[18px] shrink-0 text-muted-foreground" />
-          ) : buffer.type === 'agentChat' ? (
-            <AgentChatTabIcon wsId={buffer.wsId} chatId={buffer.chatId} />
           ) : (
             <FileExplorerIcon
               fileName={buffer.name}
               isDir={false}
-              className={cn(
-                'text-muted-foreground',
-                isActive && isDirtyEditor && 'text-primary-foreground',
-              )}
+              className="text-muted-foreground"
               size={14}
             />
           )}
@@ -190,7 +193,6 @@ const TabBarItem = memo(function TabBarItem({
           className={cn(
             'absolute inset-y-0 my-auto right-1.5 !size-5 !min-h-0 !min-w-0 grid place-items-center cursor-pointer select-none !rounded-md !p-0 text-muted-foreground transition-opacity',
             buffer.isPinned || isActive ? 'opacity-60' : 'opacity-0 group-hover/tab:opacity-60',
-            isActive && isDirtyEditor && 'text-primary-foreground',
           )}
           tooltip={buffer.isPinned ? 'Unpin tab' : 'Close'}
           tooltipSide="bottom"
@@ -215,7 +217,7 @@ const TabBarItem = memo(function TabBarItem({
  * naive `prev.buffer === next.buffer` check would re-render the active tab on
  * every keystroke even though nothing it draws has changed. Enumerated from the
  * fields read in the render body: id, type, name, path, isPinned, isPreview,
- * isUncloseable, the editor dirty flag, the diff payload and the agent-chat ids.
+ * isUncloseable, the editor dirty flag and the diff payload.
  *
  * Exported and REUSED by TabBar's `useRenderedPaneBuffers` subscription
  * (tab-bar.tsx) so the field set that gates the WHOLE tab strip's re-render is

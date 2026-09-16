@@ -34,7 +34,7 @@ func (h *Handlers) ingest(
 	)
 }
 
-// Hooks handles POST .../workspaces/:wsId/chats/hooks: the vendor-CLI hook forwarder posts a
+// Hooks handles POST .../repos/:repoId/chats/hooks: the vendor-CLI hook forwarder posts a
 // canonical hook event here (segment_id/provider/event/payload_raw). IngestHook
 // runs the context-move reducer and persists the outcome. Ingestion is a
 // fail-fast/good-path-async mutation — any resulting chat-lifecycle change is
@@ -61,6 +61,11 @@ func (h *Handlers) Hooks(
 		return
 	}
 
+	// ctx.Param("wsId") is "" at the repo-scoped mount (Task 17): Turns.
+	// hookDeliveryScope already falls back to the runner's own persisted
+	// WorkspaceID whenever the route supplies none, so this only loses the
+	// narrow runner-not-yet-persisted race the route value used to shortcut.
+	// The home mount still injects a real :wsId and keeps that fast path.
 	err := h.ingest(rctx, ctx.Param("wsId"), body.DeliveryID,
 		body.SegmentID, body.Provider, body.Event, []byte(body.PayloadRaw))
 	if err != nil {

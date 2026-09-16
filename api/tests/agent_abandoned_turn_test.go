@@ -68,11 +68,11 @@ func TestRegression_ChatStoppedMidTurn_SpunTheWorkspaceForever(t *testing.T) {
 	// The user closes the tab while the agent is still answering. The CLI is SIGTERMed
 	// mid-turn, so the turn_stop that would have closed this turn is never coming — the
 	// teardown is the only thing that can, and it gets no second chance.
-	resp := h.raw(http.MethodPost, wsBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/stop", nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 	h.Quiesce()
 
-	require.Empty(t, getAgentChat(t, h, wsBase(imported), chatID).LiveRunnerID,
+	require.Empty(t, getAgentChat(t, h, repoBase(imported), chatID).LiveRunnerID,
 		"precondition: the stop took the CLI off the chat, so nothing but the teardown can ever close its turn")
 	requireRESTWorking(t, h, imported, false)
 }

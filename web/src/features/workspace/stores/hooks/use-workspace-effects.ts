@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import deepEqual from 'fast-deep-equal'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
@@ -20,8 +20,8 @@ import { toast } from '@/features/window/stores/toast-store'
 import { wsManager } from '@/lib/ws/manager'
 import { openFileContent } from '@/features/workspace/lib/open-file-content'
 import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-sync'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import { workspaceBase, isHomeWorkspace } from '@/lib/workspace-scope-url'
+import { gitBaseForWorkspace, isHomeWorkspace } from '@/lib/workspace-scope-url'
+import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import { fetchAllGitData, useGitStore } from '@/features/git/stores/git-store'
 import { useWorkspaceThreadsStream } from './use-workspace-threads-stream'
 import {
@@ -32,6 +32,11 @@ import {
 import type { AppFile } from '@/features/file-system/types/app'
 
 const GIT_REFRESH_DEBOUNCE_MS = 400
+
+// Stable reference for a workspace with nothing expanded yet — a fresh
+// `new Set()` on every selector call would defeat the effect's own
+// `[wsId, expandedPaths]` dependency check below and re-run it every render.
+const EMPTY_EXPANDED_PATHS: ReadonlySet<string> = new Set()
 
 function parentDir(path: string): string {
   const idx = path.lastIndexOf('/')
@@ -96,10 +101,44 @@ export function framesEqual(prev: unknown, next: unknown): boolean {
   return prev !== null && deepEqual(prev, next)
 }
 
+/**
+ * `getOwningChatId(wsId)`, kept in sync with `workspace-scope.ts`'s registry.
+ *
+ * The registry is a plain module Map, written by the ROUTE (no chat id — see
+ * `workspace-scope.ts`) and, separately and asynchronously, by the sidebar
+ * once its own chat-list fetch resolves. A workspace's git/file effects below
+ * need the OWNING CHAT id to build their URLs (chat-scoped routes, spec §7.1)
+ * and used to read it once at mount via a plain `getOwningChatId(wsId)` call —
+ * correct once the sidebar had already won that race, wrong whenever
+ * `WorkspaceView`'s own (IndexedDB-backed, often faster) hydration won it
+ * instead: the effect fired before any chat id was recorded, and
+ * `gitBaseForWorkspace`/`filesBaseForWorkspace` throw on a null id (by
+ * design — see their own doc comments). This hook makes that id a piece of
+ * REACT STATE the effects can depend on, so a workspace that activates before
+ * its owning chat is known re-runs them the moment the sidebar catches up,
+ * instead of crashing (git) or silently giving up (files).
+ */
+function useOwningChatId(wsId: string): string | null {
+  return useSyncExternalStore(
+    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
+    () => getOwningChatId(wsId),
+  )
+}
+
 export function useWorkspaceEffects(wsId: string) {
   const bufferActions = useBufferActions()
-  const expandedPaths = useFileTreeStore((state) => state.expandedPaths)
+  const expandedPaths = useFileTreeStore(
+    (state) => state.expandedPathsByWorkspace[wsId] ?? EMPTY_EXPANDED_PATHS,
+  )
+  const files = useFileSystemStore((state) => state.files)
   const loadingDirs = useRef<Set<string>>(new Set())
+  const owningChatId = useOwningChatId(wsId)
+  const homeWorkspace = isHomeWorkspace(wsId)
+  // A non-home workspace's git/file routes need the owning chat id; until the
+  // sidebar has recorded one there is nothing a fetch or subscription could
+  // legally address yet (see useOwningChatId above) — both effects below wait
+  // for this rather than firing early and hitting the throw.
+  const chatScopeReady = homeWorkspace || owningChatId !== null
 
   useWorkspaceThreadsStream(wsId)
 
@@ -108,6 +147,14 @@ export function useWorkspaceEffects(wsId: string) {
   // overwrite the global file-system store after the user has switched away.
   useEffect(() => {
     let cancelled = false
+    // Nothing to fetch yet: a non-home workspace's file routes are chat-scoped
+    // (filesBaseForWorkspace throws without an owning chat id), and the
+    // sidebar hasn't recorded one for this wsId yet. Leaving isFileTreeLoading
+    // at whatever it already is (true, on a cold activation) keeps the
+    // explorer showing its loading state instead of a silently-empty tree;
+    // this effect re-runs the moment chatScopeReady flips (owningChatId is a
+    // dependency below), same as the git effect's own wait.
+    if (!chatScopeReady) return
     loadingDirs.current.clear()
 
     // The workspace-scoped file handlers, wired into the global fs store on
@@ -255,13 +302,35 @@ export function useWorkspaceEffects(wsId: string) {
     return () => {
       cancelled = true
     }
-  }, [wsId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wsId, chatScopeReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Lazily fetch a directory's children the first time it is expanded.
+  // Lazily fetch a directory's children the first time it is expanded — and
+  // re-check on every `files` change, not just when `expandedPaths` itself
+  // changes. Live-reported: returning to a workspace whose folder was left
+  // expanded showed the open chevron but no children under it. Root cause:
+  // the seed effect above resets the SHARED `files` tree to a children-less
+  // root list on anything but a still-warm return (`isWarmDataFresh`), which
+  // silently drops a previously-fetched expanded directory's children — and
+  // this effect had no reason to re-run and re-fetch them, since the SAME
+  // `path` was already in `expandedPaths` before and after.
+  //
+  // Also live-reported: "some chats on the same repo show files inside src/,
+  // others don't" — a SECOND bug in this same effect. fetchFileTree(wsId, …)
+  // resolves filesBaseForWorkspace(wsId), which throws synchronously without
+  // a recorded owning chat id (same race useOwningChatId/chatScopeReady
+  // exists for above). This effect was the one place in the file that never
+  // waited for chatScopeReady, so a folder expanded in the window before the
+  // sidebar's chat-list fetch resolves an owning chat id threw, was silently
+  // swallowed by the bare `.catch(() => {})`, and — since chatScopeReady
+  // flipping true changes neither `expandedPaths` nor `files` — never
+  // retried: the chevron stayed open over a permanently empty directory.
+  // Which chats hit the window is a race, matching the "weird"/inconsistent
+  // per-chat pattern reported.
   useEffect(() => {
+    if (!chatScopeReady) return
     let cancelled = false
     for (const path of expandedPaths) {
-      const node = findNode(useFileSystemStore.getState().files, path)
+      const node = findNode(files, path)
       if (!node?.isDir || node.children !== undefined) continue
       if (loadingDirs.current.has(path)) continue
       loadingDirs.current.add(path)
@@ -277,12 +346,16 @@ export function useWorkspaceEffects(wsId: string) {
     return () => {
       cancelled = true
     }
-  }, [wsId, expandedPaths])
+  }, [wsId, expandedPaths, files, chatScopeReady])
 
   // Apply live file-change events: refresh the affected directory level(s) in
   // place, preserving any expanded subtrees that still exist. Content-only
   // edits are ignored (the tree shape is unchanged).
   useEffect(() => {
+    // filesWsEndpoint(wsId) resolves through filesBaseForWorkspace, which
+    // throws without a recorded owning chat id — same wait as the seed effect
+    // above and the git effect below; re-runs once chatScopeReady flips.
+    if (!chatScopeReady) return
     let cancelled = false
     const refreshDir = async (dir: string) => {
       const fresh = await fetchFileTree(wsId, dir || undefined).catch(() => null)
@@ -300,7 +373,7 @@ export function useWorkspaceEffects(wsId: string) {
       // later save cannot resurrect content that was discarded on disk.
       // Own-save echoes are filtered inside via the pending-save markers.
       if (evt.type === 'modified' || evt.type === 'created') {
-        void syncBufferWithDisk(getOrCreateWorkspaceStore(wsId), evt.path)
+        void syncBufferWithDisk(wsId, evt.path)
       }
       if (!isStructuralChange(evt.type)) return
       void refreshDir(parentDir(evt.path))
@@ -310,18 +383,27 @@ export function useWorkspaceEffects(wsId: string) {
       cancelled = true
       unsubscribe()
     }
-  }, [wsId])
+  }, [wsId, chatScopeReady])
 
   // Load full git data once, then keep status + commit log live on the git
   // topic. Branches/stashes change rarely — those reload on explicit git
   // actions.
   //
-  // The home (project-level) workspace has no git surface — the backend mounts
-  // no /home/git/* routes (the project root is not a per-workspace git
-  // worktree). Skip all git loading and the git/status stream for it so we never
-  // fire requests that 404. Files and threads remain enabled for home.
+  // The home (project-level) workspace has no git surface: the project root is
+  // not a git worktree at all, so there is nothing for status/log/branches to
+  // answer. That was true when git was addressed by workspace and is still true
+  // now that it is addressed by chat — the route changed, the absence of a
+  // worktree did not. Skip all git loading and the git/status stream for it.
+  // Files and threads remain enabled for home.
   useEffect(() => {
     if (isHomeWorkspace(wsId)) return
+    // gitBaseForWorkspace(wsId) throws without a recorded owning chat id — see
+    // useOwningChatId above. The sidebar's chat-list fetch that records one
+    // races WorkspaceView's own (often faster) hydration, so on a workspace
+    // that just activated this can still be null; wait rather than crash. The
+    // effect re-runs the moment owningChatId is recorded (it's a dependency
+    // below), same as the file-tree effect's own wait.
+    if (owningChatId === null) return
     let cancelled = false
 
     // Warm fast path: git data for THIS workspace survived a brief hide — skip
@@ -375,7 +457,7 @@ export function useWorkspaceEffects(wsId: string) {
     // SAME status doesn't retrigger a reload; a differing frame still does (the
     // self-heal for a change that landed while hidden). Null on a cold seed.
     let lastFrame: unknown = gitFresh ? peekGitFrame(wsId) : null
-    const unsubscribe = wsManager.subscribe(`${workspaceBase(wsId)}/git/status`, (frame) => {
+    const unsubscribe = wsManager.subscribe(`${gitBaseForWorkspace(wsId)}/status`, (frame) => {
       if (framesEqual(lastFrame, frame)) return
       lastFrame = frame
       scheduleStatusReload()
@@ -392,5 +474,5 @@ export function useWorkspaceEffects(wsId: string) {
       // Preserve the last-seen frame so a quick warm return dedupes the re-push.
       saveGitFrame(wsId, lastFrame)
     }
-  }, [wsId])
+  }, [wsId, owningChatId])
 }

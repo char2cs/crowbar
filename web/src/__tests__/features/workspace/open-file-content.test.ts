@@ -12,19 +12,20 @@ import { setWorkspaceScope } from '@/lib/workspace-scope'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  // §3: content route is hierarchical; record the scope for the test wsId.
-  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
+  // The content route is addressed through the chat holding the worktree;
+  // record a scope carrying one for the test wsId.
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
 })
 
 describe('openFileContent', () => {
-  it('fetches the workspace-scoped content route and opens a buffer', async () => {
+  it('fetches the chat-scoped content route and opens a buffer', async () => {
     ;(apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue({ content: 'hello world' })
     const openContent = vi.fn()
     await openFileContent('ws-1', 'web/vite.config.ts', { openContent } as never, {
       preview: false,
     })
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/projects/p1/repos/r1/workspaces/ws-1/files/content?path=web%2Fvite.config.ts',
+      '/v0/chats/chat-1/files/content?path=web%2Fvite.config.ts',
     )
     expect(openContent).toHaveBeenCalledWith(
       expect.objectContaining({

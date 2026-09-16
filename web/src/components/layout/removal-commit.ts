@@ -1,9 +1,14 @@
-import { deleteProject, deleteRepo, deleteWorkspace } from '@/lib/api'
-import { deleteFolder } from '@/lib/api/sidebar-placement'
+import { deleteProject, deleteRepo } from '@/lib/api'
+import { deleteFolder, deleteHomeFolder } from '@/lib/api/sidebar-placement'
+import { deleteChat } from '@/features/agent/api/agent-api'
+import { getOwningChatId } from '@/lib/workspace-scope'
+import { owningChatIdOfWorkspace } from '@/components/sidebar/lib/branch-row-id'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useHomeTreeStore, removeHomeFolder, applyHomeFolders } from '@/lib/store/home-tree'
+import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
 import { toast } from '@/features/window/stores/toast-store'
-import { isChatRemoval, sendChatRemoval } from '@/features/agent/tree/lib/chat-removal'
 
 /**
  * Committing a hold — the one step of the removal path that destroys anything.
@@ -38,7 +43,20 @@ function stillPresent(repos: Repo[], ids: readonly string[]): boolean {
   return ids.some(
     (id) =>
       repos.some((r) => r.id === id || r.projectId === id) ||
-      repos.some((r) => r.workspaces.some((w) => w.id === id)),
+      repos.some((r) => r.workspaces.some((w) => w.id === id)) ||
+      // Chats: same reseed channel workspaces/repos ride, checked so a
+      // drag-to-trashed chat's row stays hidden across the round trip
+      // instead of flashing back the instant the DELETE resolves.
+      repos.some((r) => r.chats?.some((c) => c.id === id)) ||
+      // A project-home chat rides the identical live reseed a repo chat
+      // does (`performRenameHomeChat`'s own doc: its own `/home/chats/ws`
+      // feed is what settles a write) — checked across every visible
+      // project's home tree, not just `repos`, or a held home chat would
+      // release the instant its own DELETE resolved, well before the tree
+      // that actually draws it had caught up.
+      Object.values(useHomeTreeStore.getState().trees).some((t) =>
+        t.chats.some((c) => c.id === id),
+      ),
   )
 }
 
@@ -69,21 +87,116 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
   // an argument on the wire-facing signature that only the unload flush uses.
   const opts: [RequestInit] | [] = init ? [init] : []
   switch (entry.kind) {
-    case 'workspace':
-      return deleteWorkspace(entry.projectId, entry.repoId, entry.id, ...opts)
+    case 'workspace': {
+      // A worktree is taken by deleting the CHAT that holds it: DELETE
+      // .../chats/:id now cascades the worktree teardown, so this is the same
+      // destruction the workspace route did, addressed by the only id a route
+      // may name. No fallback to a workspace route — that group is gone.
+      // Rejected rather than thrown, so `flushDrainingRemovals`'s `.catch` on
+      // an unloading page still catches it.
+      //
+      // Resolved from the SIDEBAR TREE first (`owningChatIdOfWorkspace` — the
+      // same union `rows-from-repo.ts` renders the row from), and only then
+      // from `workspace-scope.ts`'s side registry. That order is the fix: the
+      // registry is a second copy of this fact, written on navigation and on
+      // seed, and a workspace the user has only ever SEEN as a row — never
+      // opened — could legitimately be absent from it. Asking it first turned
+      // that absence into a rejected delete on a perfectly valid row, and since
+      // the row had already been optimistically hidden, the removal looked like
+      // it worked right up until the next reseed brought it back.
+      const owningChatId =
+        owningChatIdOfWorkspace(useSidebarStore.getState().repos, entry.id) ??
+        getOwningChatId(entry.id)
+      if (!owningChatId) {
+        return Promise.reject(new Error(`no owning chat recorded for workspace ${entry.id}`))
+      }
+      return deleteChat(entry.id, owningChatId, ...opts).then(() => {
+        bumpRepoTree(entry.repoId)
+      })
+    }
     case 'folder':
-      return deleteFolder(entry.projectId, entry.repoId, entry.id, ...opts)
+      // A project-home folder rides no repo at all (`repoId` is '' — see
+      // `removal-plan.ts`'s own home branch) and has its own DELETE route
+      // (`deleteHomeFolder`, scoped by project rather than repo): the repo
+      // route below would either 404 or, worse, land on the WRONG repo,
+      // since a home folder is exactly the row `fetchFolders`'s bleed
+      // (`handleTrash`'s own doc) can make a repo falsely claim.
+      if (!entry.repoId) {
+        return deleteHomeFolder(entry.projectId, entry.id, ...opts).then((shifted) => {
+          // No live channel for a home folder either (same Task 34 reason
+          // the repo branch below has none) — apply the tombstone directly
+          // rather than wait for a reseed nothing will ever send.
+          removeHomeFolder(entry.projectId, entry.id)
+          shifted.forEach((f) => applyHomeFolders(entry.projectId, [toSidebarFolder(f)]))
+        })
+      }
+      // Folders carry no dedicated push channel any more (Task 34). `stillPresent`
+      // above never checks `r.folders` at all, so `releaseWhenGone` below always
+      // finds a folder id already absent and releases the tray row IMMEDIATELY —
+      // it never subscribes for a folder kind, so there is no hang to worry about
+      // here. The real problem this guards against: the row is still sitting in
+      // `useSidebarStore` (nothing else removes it any more), so an immediate
+      // release without applying the tombstone would let it flash right back on
+      // screen the instant the tray hides it. Apply the tombstone (and the
+      // promotion shift the delete triggers) straight off the DELETE's own
+      // response, the same way row-actions.ts's writes do — and `bump` the repo's
+      // folder signal too, so the `crowbar_folders` cache every tree rebuild reads
+      // from agrees, or the deleted folder comes BACK on the next unrelated
+      // rebuild (see row-actions.ts's performRenameFolder for the full story).
+      return deleteFolder(entry.projectId, entry.repoId, entry.id, ...opts).then((shifted) => {
+        const apply = useSidebarStore.getState().applyFolderDTO
+        apply({
+          id: entry.id,
+          repoId: entry.repoId,
+          projectId: entry.projectId,
+          name: '',
+          order: 0,
+          status: 'deleted',
+        })
+        shifted.forEach(apply)
+        useFolderSignalStore.getState().bump(entry.repoId)
+      })
     case 'repo':
       return deleteRepo(entry.projectId, entry.repoId, ...opts)
     case 'project':
       return deleteProject(entry.projectId, ...opts)
-    // A chat is not one DELETE but a subtree of them, deepest first, plus the
-    // pane tabs the doomed chats had open — so the Chats tree owns its own send
-    // and this only routes to it.
     case 'chat':
-    case 'chatFolder':
-      return sendChatRemoval(entry, ...opts)
+      // No local tombstone (unlike folder's own special case): a chat DOES
+      // arrive on a real push/reseed channel. But that channel has a condition
+      // — see `bumpRepoTree` — and this is one of the surfaces that does not
+      // meet it, so the acting client rings its own bell.
+      return deleteChat(entry.wsId, entry.id, ...opts).then(() => {
+        bumpRepoTree(entry.repoId)
+      })
   }
+}
+
+/**
+ * Tell this repo's sidebar tree to re-read its rows.
+ *
+ * `app-sync-provider.tsx`'s `openRepoTreeSubscription` reseeds `crowbar_chats`
+ * on exactly one trigger: this repo's generation in `useFolderSignalStore`
+ * moving. The only thing that normally moves it is
+ * `use-workspace-agent-chats-stream.ts`, on a structural chat frame — and that
+ * hook runs only for a MOUNTED workspace. App-sync's own comment records the
+ * assumption that made that acceptable: "a chat can only be created, renamed or
+ * moved from a surface that has that workspace mounted."
+ *
+ * That assumption is no longer true, and this is the correction. The sidebar is
+ * on screen on every route (including project home, where no repo workspace is
+ * mounted at all), it deletes and creates chats, and it does so for rows whose
+ * workspace the user has never opened. Without this bump the daemon really did
+ * take the chat and the row simply stayed on screen — which reads as "I deleted
+ * these chats and they came back", because the optimistic hide releases as soon
+ * as the WORKSPACE half tombstones and the surviving chat row paints again.
+ *
+ * The same reasoning `row-actions.ts` already applies to every folder and chat
+ * RENAME it fires (`performRenameChat`, `performRenameFolder`,
+ * `performCreateFolder`, `performSetWorkspaceLock` all bump); create and delete
+ * were the two verbs left out.
+ */
+function bumpRepoTree(repoId: string): void {
+  if (repoId) useFolderSignalStore.getState().bump(repoId)
 }
 
 /**
@@ -141,11 +254,7 @@ export async function commitRemoval(entry: RemovalEntry, context: RemovalContext
     return
   }
 
-  // A chat is not a sidebar row, so there is no tree to watch it leave — the
-  // send above already took it out of the workspace store, and waiting on a
-  // tombstone that never arrives would leave its rows hidden for good.
-  if (isChatRemoval(entry)) useRemovalTrayStore.getState().release(entry.hiddenIds)
-  else releaseWhenGone(entry.hiddenIds)
+  releaseWhenGone(entry.hiddenIds)
   leaveIfRemoved(entry, context)
 }
 

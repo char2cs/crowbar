@@ -43,10 +43,10 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 	require.NoError(t, os.WriteFile(bufPath, scrollback, 0o644))
 
 	require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
-		SessionID:   sid,
-		WorkspaceID: "ws-concurrent",
-		CWD:         store.dir,
-		Shell:       "/bin/sh",
+		SessionID: sid,
+		ChatID:    "chat-concurrent",
+		CWD:       store.dir,
+		Shell:     "/bin/sh",
 	}, scrollback))
 
 	const N = 20
@@ -150,7 +150,7 @@ func TestKill_vs_Suspend_Serialized(t *testing.T) {
 
 		// The shell must be at its prompt (hence idle) for Suspend to be eligible — that is
 		// the precondition of the race under test, so it is established by observation.
-		sid := newReadyShell(t, eng, "ws-ks", store.dir)
+		sid := newReadyShell(t, eng, "chat-ks", store.dir)
 
 		// Race Kill vs Suspend on the same idle session.
 		var wg sync.WaitGroup
@@ -238,7 +238,7 @@ func (g *gatedMetaStore) releaseGate() {
 	close(r)
 }
 
-func (g *gatedMetaStore) StorageDir(ctx context.Context, ws string) (string, error) {
+func (g *gatedMetaStore) StorageDir(ctx context.Context, chatID string) (string, error) {
 	g.gmu.Lock()
 	if g.armed {
 		g.armed = false
@@ -246,10 +246,10 @@ func (g *gatedMetaStore) StorageDir(ctx context.Context, ws string) (string, err
 		g.gmu.Unlock()
 		close(b) // signal: a call has parked
 		<-r      // wait for the test to release us
-		return g.fakeMetaStore.StorageDir(ctx, ws)
+		return g.fakeMetaStore.StorageDir(ctx, chatID)
 	}
 	g.gmu.Unlock()
-	return g.fakeMetaStore.StorageDir(ctx, ws)
+	return g.fakeMetaStore.StorageDir(ctx, chatID)
 }
 
 // TestReap_NoResurrection_OnSelfExit verifies that when a shell self-exits (the
@@ -326,7 +326,7 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) { close(reaped) })
 
 			// Block until the shell is at its prompt (drawn, idle, ready for input).
-			sid := newReadyShell(t, eng, "ws-reap", store.dir)
+			sid := newReadyShell(t, eng, "chat-reap", store.dir)
 
 			// Attach a real client. The first frame the conn receives is Attach's snapshot
 			// keyframe, so receiving anything at all proves the client is attached and
@@ -436,7 +436,7 @@ func TestFlush_Serialized_NewestWins(t *testing.T) {
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 
-	sid := newReadyShell(t, eng, "ws-flush", store.dir)
+	sid := newReadyShell(t, eng, "chat-flush", store.dir)
 
 	// Drive output so the model is dirty: the next Snapshot() returns (blob, changed=true),
 	// which gates the cadence flush so it persists. runShell blocks until that output has

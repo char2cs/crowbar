@@ -102,7 +102,7 @@ func TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue(t *testi
 
 	const submittedText = "please rename this function to something clearer"
 
-	resp := h.raw(http.MethodPost, wsBase(imported)+"/chats/"+chatID+"/prompts",
+	resp := h.raw(http.MethodPost, repoBase(imported)+"/chats/"+chatID+"/prompts",
 		map[string]string{"text": submittedText, "clientRequestId": "11111111-1111-1111-1111-111111111111"},
 		http.StatusOK,
 	)
@@ -112,7 +112,7 @@ func TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue(t *testi
 		Text  string `json:"text"`
 		State string `json:"state"`
 	}
-	h.get(wsBase(imported)+"/chats/"+chatID+"/pending-prompt", &got)
+	h.get(repoBase(imported)+"/chats/"+chatID+"/pending-prompt", &got)
 
 	assert.Equal(t, submittedText, got.Text,
 		"the recovered record must carry the literal submitted text, not merely a hash — "+

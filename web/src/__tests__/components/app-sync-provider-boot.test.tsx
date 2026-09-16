@@ -14,20 +14,27 @@ import { IDBFactory } from 'fake-indexeddb'
 // Real timers throughout, deliberately: fake-indexeddb schedules its own work,
 // and every assertion below blocks on the real signal (the tree contents) via
 // waitFor rather than on an elapsed duration.
-const { fetchRepos, fetchWorkspaces, fetchFolders, subscribe } = vi.hoisted(() => ({
+const { fetchRepos, fetchWorkspaces, fetchFolders, fetchRepoChats, subscribe } = vi.hoisted(() => ({
   fetchRepos: vi.fn(),
   fetchWorkspaces: vi.fn(),
   fetchFolders: vi.fn(),
+  fetchRepoChats: vi.fn().mockResolvedValue([]),
   subscribe: vi.fn(),
 }))
 
-vi.mock('@/lib/api', () => ({
-  API_BASE: '',
+// Only the network seams are faked. `workspaceDTOFromWorktreeFrame` stays REAL:
+// a worktree's live updates ride the chat lifecycle socket, so that mapper is
+// part of the daemon→cache→tree path this file exists to exercise end to end.
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
   fetchRepos: (...args: unknown[]) => fetchRepos(...args),
   fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
   fetchFolders: (...args: unknown[]) => fetchFolders(...args),
+  fetchRepoChats: (...args: unknown[]) => fetchRepoChats(...args),
   fetchProjects: vi.fn().mockResolvedValue([]),
   fetchHomeWorkspace: vi.fn().mockResolvedValue(null),
+  fetchHomeChats: vi.fn().mockResolvedValue([]),
+  fetchHomeFolders: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('@/lib/ws/manager', () => ({
@@ -39,6 +46,7 @@ import { success } from '@/lib/loadable'
 import { resetDB } from '@/lib/persistence/idb'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import type { FolderDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const project = (id: string): Project => ({
@@ -87,6 +95,45 @@ const wsDTO = (
   ...over,
 })
 
+/**
+ * The chat-stream frame that carries `ws`'s worktree state.
+ *
+ * A worktree is HELD BY A CHAT, so it has no push channel of its own any more:
+ * its live updates arrive as `worktree_state` events on the repo's chat feed,
+ * with the git half nested inside. The chat is named twice on purpose —
+ * `chatId` is who the event is about, `worktree.owningChatId` is who holds the
+ * worktree — because a thread of that chat receives the SAME worktree object and
+ * is filtered out by exactly that comparison.
+ */
+const worktreeFrame = (ws: WorkspaceDTO, chatId = `chat-${ws.id}`, owningChatId = chatId) => ({
+  chatId,
+  workspaceId: ws.id,
+  repoId: ws.repoId,
+  kind: 'worktree_state',
+  working: ws.working,
+  worktree: {
+    branch: ws.branch,
+    status: ws.status,
+    lastError: ws.lastError,
+    working: ws.working,
+    isDefault: ws.isDefault,
+    added: ws.added,
+    deleted: ws.deleted,
+    mergeStrategy: ws.mergeStrategy,
+    canMergeLocally: ws.canMergeLocally,
+    mergeConflicts: ws.mergeConflicts,
+    parentBranch: ws.parentBranch,
+    prUrl: ws.prUrl,
+    prTitle: ws.prTitle,
+    prTargetBranch: ws.prTargetBranch,
+    localPath: ws.localPath,
+    heldByPath: ws.heldByPath,
+    forkPointSha: ws.forkPointSha,
+    parentId: ws.parentId,
+    owningChatId,
+  },
+})
+
 const folderDTO = (
   id: string,
   repoId: string,
@@ -102,7 +149,14 @@ const folderDTO = (
 })
 
 /** Live frame handlers the code under test registered, by endpoint. */
-const handlers = new Map<string, (data: unknown) => void>()
+// A Set per endpoint, not one slot: the real wsManager multiplexes several
+// subscribers onto the SAME endpoint (its own `channels`/`callbacks` Set —
+// app-sync-provider.tsx's per-repo tree subscription and its "workspaces"
+// entity-stream now both subscribe the identical .../chats/ws URL). A single-
+// slot mock let the second subscriber silently REPLACE the first's handler,
+// which is exactly backward from the real fan-out contract this file exists
+// to exercise end to end.
+const handlers = new Map<string, Set<(data: unknown) => void>>()
 
 const repoIds = (): string[] =>
   useSidebarStore
@@ -124,10 +178,11 @@ const folderIdsOf = (repoId: string): string[] =>
 
 /** Deliver a live frame on an endpoint and let the resulting merge commit. */
 async function push(endpoint: string, frame: unknown): Promise<void> {
-  const handler = handlers.get(endpoint)
-  expect(handler, `no live subscription on ${endpoint}`).toBeDefined()
+  const forEndpoint = handlers.get(endpoint)
+  expect(forEndpoint, `no live subscription on ${endpoint}`).toBeDefined()
+  expect(forEndpoint!.size, `no live subscription on ${endpoint}`).toBeGreaterThan(0)
   await act(async () => {
-    handler!(frame)
+    for (const handler of forEndpoint!) handler(frame)
   })
 }
 
@@ -137,8 +192,10 @@ beforeEach(async () => {
   resetDB()
   globalThis.indexedDB = new IDBFactory()
   subscribe.mockImplementation((endpoint: string, cb: (data: unknown) => void) => {
-    handlers.set(endpoint, cb)
-    return () => handlers.delete(endpoint)
+    const forEndpoint = handlers.get(endpoint) ?? new Set<(data: unknown) => void>()
+    handlers.set(endpoint, forEndpoint)
+    forEndpoint.add(cb)
+    return () => forEndpoint.delete(cb)
   })
   fetchRepos.mockImplementation((projectId: string) =>
     Promise.resolve(projectId === 'p1' ? [repoDTO('r1', 'p1')] : [repoDTO('r2', 'p2')]),
@@ -165,6 +222,7 @@ beforeEach(async () => {
     collapsedRepos: new Set<string>(),
     collapsedProjects: new Set<string>(),
   })
+  useFolderSignalStore.setState({ generations: {} })
   vi.spyOn(useProjectDataStore.getState(), 'fetch').mockResolvedValue(undefined)
   vi.spyOn(useProjectDataStore.getState(), 'startSync').mockReturnValue(() => {})
 })
@@ -211,16 +269,28 @@ describe('AppSyncProvider boot, end to end', () => {
     expect(folderIdsOf('r2')).toEqual([])
   })
 
-  it('a live folder frame adds the row the daemon just created', async () => {
-    // What the user actually does: create a folder from a row's `+`. The POST
-    // answers with an id and the FolderDTO arrives on this stream.
+  // Task 34: the dedicated folders REST+WS resource is gone (the backend plan
+  // that carried it is closed) — there is no per-DTO push frame left to
+  // deliver a folder change. use-workspace-agent-chats-stream.ts bumps
+  // useFolderSignalStore's per-repo generation on a folder_* frame instead,
+  // and app-sync-provider.tsx's folders subscription reseeds (a full
+  // fetchFolders re-run, not a merge) whenever that generation moves — proven
+  // here the same end-to-end way the workspace frames above are.
+  it('a folder_* signal reseeds the repo, and the row the daemon just created appears', async () => {
+    // What the user actually does: create a folder from a row's `+`. The
+    // create's own response lands it immediately (sidebar-placement.ts); this
+    // proves the OTHER path — a change made elsewhere reaching this client via
+    // the signal + reseed.
     await boot()
     await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1']))
 
-    await push(
-      '/v0/projects/p1/repos/r1/folders',
+    fetchFolders.mockResolvedValue([
+      folderDTO('f1', 'r1', 'p1', { name: 'spikes' }),
       folderDTO('f2', 'r1', 'p1', { name: 'nested', parentId: 'f1', order: 1 }),
-    )
+    ])
+    act(() => {
+      useFolderSignalStore.getState().bump('r1')
+    })
     await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1', 'f2']))
     const nested = useSidebarStore
       .getState()
@@ -229,28 +299,24 @@ describe('AppSyncProvider boot, end to end', () => {
     expect(nested).toMatchObject({ name: 'nested', parentId: 'f1', order: 1 })
   })
 
-  it('a live folder tombstone removes the row', async () => {
+  it('a folder_* signal reseed drops a row the fresh list no longer carries', async () => {
     await boot()
     await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1']))
 
-    await push(
-      '/v0/projects/p1/repos/r1/folders',
-      folderDTO('f1', 'r1', 'p1', { status: 'deleted' }),
-    )
-    await waitFor(() => expect(folderIdsOf('r1')).toEqual([]))
-    // ...and it is gone from the cache too, so the next rebuild cannot resurrect it.
     fetchFolders.mockResolvedValue([])
-    await push('/v0/projects/p1/repos/r1/folders', { reconnected: true })
+    act(() => {
+      useFolderSignalStore.getState().bump('r1')
+    })
     await waitFor(() => expect(folderIdsOf('r1')).toEqual([]))
     // The repo's workspace rows are untouched by any of it.
     expect(workspaceIdsOf('r1')).toEqual(['w1'])
   })
 
-  it('a live workspace frame updates the row it names', async () => {
+  it('a live worktree_state frame updates the row it names', async () => {
     await boot()
     await push(
-      '/v0/projects/p1/repos/r1/workspaces',
-      wsDTO('w1', 'r1', 'p1', { working: true, status: 'pr-open' }),
+      '/v0/projects/p1/repos/r1/chats/ws',
+      worktreeFrame(wsDTO('w1', 'r1', 'p1', { working: true, status: 'pr-open' })),
     )
     await waitFor(() => {
       const w1 = useSidebarStore.getState().repos[0].workspaces.find((w) => w.id === 'w1')!
@@ -264,8 +330,10 @@ describe('AppSyncProvider boot, end to end', () => {
     // tree row, so the incremental merge has to lift it onto the header itself.
     await boot()
     await push(
-      '/v0/projects/p1/repos/r1/workspaces',
-      wsDTO('w-default', 'r1', 'p1', { isDefault: true, branch: 'main', working: true }),
+      '/v0/projects/p1/repos/r1/chats/ws',
+      worktreeFrame(
+        wsDTO('w-default', 'r1', 'p1', { isDefault: true, branch: 'main', working: true }),
+      ),
     )
     await waitFor(() => expect(useSidebarStore.getState().repos[0].defaultWorking).toBe(true))
     // ...and it still is not a row.
@@ -275,15 +343,114 @@ describe('AppSyncProvider boot, end to end', () => {
   it('a live tombstone removes the row', async () => {
     await boot()
     await push(
-      '/v0/projects/p1/repos/r1/workspaces',
-      wsDTO('w1', 'r1', 'p1', { status: 'deleted' }),
+      '/v0/projects/p1/repos/r1/chats/ws',
+      worktreeFrame(wsDTO('w1', 'r1', 'p1', { status: 'deleted' })),
     )
     await waitFor(() => expect(workspaceIdsOf('r1')).toEqual([]))
   })
 
+  // The chat feed carries THREE vocabularies (chats, runners, folders) and only
+  // one of them is about a worktree. Everything else has to fall straight
+  // through, or the hottest frames in the app (a turn starting and stopping)
+  // would each write the workspace cache.
+  it('ignores every frame on the chat feed that is not this chat’s worktree state', async () => {
+    await boot()
+    await push('/v0/projects/p1/repos/r1/chats/ws', {
+      chatId: 'chat-w1',
+      workspaceId: 'w1',
+      kind: 'turn_started',
+      working: true,
+    })
+    await push('/v0/projects/p1/repos/r1/chats/ws', {
+      chatId: 'chat-w1',
+      kind: 'folder_created',
+      folderId: 'f9',
+    })
+    // A THREAD of the owning chat gets the same worktree object; only the
+    // owning row is the worktree's row.
+    await push(
+      '/v0/projects/p1/repos/r1/chats/ws',
+      worktreeFrame(wsDTO('w1', 'r1', 'p1', { status: 'deleted' }), 'chat-w1-thread', 'chat-w1'),
+    )
+
+    expect(workspaceIdsOf('r1')).toEqual(['w1'])
+    const w1 = useSidebarStore.getState().repos[0].workspaces.find((w) => w.id === 'w1')!
+    expect(w1.working).toBe(false)
+  })
+
+  // TestRegression: the ghost row an active project-home chat used to mint.
+  //
+  // A repo-scoped chats socket does not only carry that repo's frames: the
+  // daemon holds a frame that KNOWS its repo to exactly that repo, but fans one
+  // that names NO repo out to every subscriber on purpose (container.go's
+  // matchRepoOrUnscoped), so the live folder feed and root bubbles — rows that
+  // genuinely have no repo — are not silently dropped. The PROJECT-HOME
+  // worktree has no repo either (workspace.CreateHome writes no RepoID), so
+  // every turn_started/turn_stopped in a home chat pushed a worktree_state with
+  // an empty repoId onto EVERY repo's socket. Each repo's mapper then stamped
+  // its OWN repo id onto it and merged the home workspace in as that repo's
+  // workspace — and since a home worktree's branch is '', rows-from-repo.ts
+  // drew it as a labelless `branch` row under every repo header. Live-reported:
+  // "for each thread that becomes active, we're creating ghost rows on the
+  // first level of each repo."
+  it('a repo-less project-home worktree frame creates no row in any repo', async () => {
+    await boot()
+    await waitFor(() => expect(workspaceIdsOf('r2')).toEqual(['w2']))
+
+    const home = wsDTO('ws-home', '', 'p1', { branch: '' })
+    // The one frame, delivered exactly as the daemon fans it out: to the home
+    // socket AND to every repo-scoped one.
+    for (const endpoint of [
+      '/v0/projects/p1/home/chats/ws',
+      '/v0/projects/p1/repos/r1/chats/ws',
+      '/v0/projects/p2/repos/r2/chats/ws',
+    ]) {
+      if (handlers.get(endpoint)?.size) {
+        await push(endpoint, worktreeFrame(home, 'chat-home'))
+      }
+    }
+
+    expect(workspaceIdsOf('r1')).toEqual(['w1'])
+    expect(workspaceIdsOf('r2')).toEqual(['w2'])
+    // ...and it did not land on a repo HEADER either (the other row a frame
+    // merged under the wrong repo can reach).
+    for (const repo of useSidebarStore.getState().repos) {
+      expect(repo.defaultWorkspaceId).not.toBe('ws-home')
+    }
+  })
+
+  // TestRegression: the tree's OWN reseed used to depend entirely on
+  // useFolderSignalStore's bump signal, which only ever fires from
+  // use-workspace-agent-chats-stream.ts — a hook mounted per OPEN WORKSPACE
+  // TAB. Dragging a row IN THE SIDEBAR needs no tab open at all, so a fork
+  // with no open tab PATCHed 200 and the sidebar never repainted without a
+  // manual reload (caught live). This boot has NO workspace-view mounted
+  // anywhere — the ONLY way this reseed can happen is app-sync-provider.tsx's
+  // own direct subscription to the repo's chats/ws feed, added alongside the
+  // bump-signal one specifically because that one is not always there.
+  it('a structural chat frame reseeds the tree with no workspace tab open at all', async () => {
+    await boot()
+    await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1']))
+
+    fetchFolders.mockResolvedValue([
+      folderDTO('f1', 'r1', 'p1', { name: 'spikes' }),
+      folderDTO('f2', 'r1', 'p1', { name: 'nested', parentId: 'f1', order: 1 }),
+    ])
+    // A plain chat placement frame — no folderId, no bump() call, no
+    // workspace-view hook anywhere in this test — is what a sidebar drag on
+    // an ordinary fork actually emits (PushAgentChatFolder's own doc: "the
+    // frame names the folder and nothing more", used for a chat's own
+    // placement too since 2026-09-09).
+    await push('/v0/projects/p1/repos/r1/chats/ws', {
+      chatId: 'fork-chat',
+      kind: 'placement_set',
+    })
+    await waitFor(() => expect(folderIdsOf('r1')).toEqual(['f1', 'f2']))
+  })
+
   it('a reconnect sentinel reseeds without emptying the tree', async () => {
     await boot()
-    await push('/v0/projects/p1/repos/r1/workspaces', { reconnected: true })
+    await push('/v0/projects/p1/repos/r1/chats/ws', { reconnected: true })
     await waitFor(() => expect(workspaceIdsOf('r1')).toEqual(['w1']))
   })
 

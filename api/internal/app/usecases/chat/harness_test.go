@@ -22,8 +22,8 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -52,11 +52,11 @@ func mustJSON(t *testing.T, m map[string]any) []byte {
 }
 
 type commandCall struct {
-	workspaceID string
-	cwd         string
-	argv        []string
-	env         []string
-	onExit      func()
+	chatID string
+	cwd    string
+	argv   []string
+	env    []string
+	onExit func()
 }
 
 // fakeCommander is a thread-safe TerminalCommander double: CreateCommand records
@@ -103,7 +103,7 @@ type fakeCommander struct {
 
 func (f *fakeCommander) CreateCommand(
 	_ context.Context,
-	workspaceID string,
+	chatID string,
 	cwd string,
 	argv []string,
 	env []string,
@@ -111,11 +111,11 @@ func (f *fakeCommander) CreateCommand(
 ) (string, error) {
 	if f.duringForkCall != nil {
 		f.duringForkCall(commandCall{
-			workspaceID: workspaceID,
-			cwd:         cwd,
-			argv:        append([]string{}, argv...),
-			env:         append([]string{}, env...),
-			onExit:      onExit,
+			chatID: chatID,
+			cwd:    cwd,
+			argv:   append([]string{}, argv...),
+			env:    append([]string{}, env...),
+			onExit: onExit,
 		})
 	}
 	if f.duringFork != nil {
@@ -134,11 +134,11 @@ func (f *fakeCommander) CreateCommand(
 	}
 	f.byID[id] = len(f.calls)
 	f.calls = append(f.calls, commandCall{
-		workspaceID: workspaceID,
-		cwd:         cwd,
-		argv:        append([]string{}, argv...),
-		env:         append([]string{}, env...),
-		onExit:      onExit,
+		chatID: chatID,
+		cwd:    cwd,
+		argv:   append([]string{}, argv...),
+		env:    append([]string{}, env...),
+		onExit: onExit,
 	})
 	return id, nil
 }
@@ -320,19 +320,32 @@ func (f *fakeRunnerBroadcaster) snapshot() []runnerFrame {
 }
 
 type fakeWorkspace struct {
-	home        string
-	projectID   string
-	repoID      string
-	worktree    string
-	chatsDir    string
-	err         error
-	worktreeErr error // fails only WorktreeDir, leaving AgentChatsDir callers unaffected
+	home      string
+	projectID string
+	repoID    string
+	worktree  string
+	chatsDir  string
+	err       error
+	// lastWorkspaceID records the id WorktreeDir was last called with. The
+	// fake otherwise answers every id identically, including "" — a test
+	// that only checks the CALL succeeded proves nothing about which
+	// workspace a caller actually resolved a bubble's cwd against; a test
+	// that needs that must read this field.
+	lastWorkspaceID string
+	// worktreeDirIDs records EVERY id WorktreeDir was called with, in order. A
+	// verb that resolves a cwd more than once (SwitchProvider: a preflight, then
+	// the spawn) can pass "" first and the ancestor's id second, which
+	// lastWorkspaceID alone cannot tell apart from resolving both correctly.
+	worktreeDirIDs []string
+	worktreeErr    error // fails only WorktreeDir, leaving AgentChatsDir callers unaffected
 }
 
 func (f *fakeWorkspace) WorktreeDir(
 	_ context.Context,
-	_ string,
+	workspaceID string,
 ) (crowbarHome, projectID, repoID, worktree string, err error) {
+	f.lastWorkspaceID = workspaceID
+	f.worktreeDirIDs = append(f.worktreeDirIDs, workspaceID)
 	if f.err != nil {
 		return "", "", "", "", f.err
 	}
@@ -344,12 +357,104 @@ func (f *fakeWorkspace) WorktreeDir(
 
 func (f *fakeWorkspace) AgentChatsDir(
 	_ context.Context,
-	_ string,
+	workspaceID string,
 ) (string, error) {
+	f.lastWorkspaceID = workspaceID
 	if f.err != nil {
 		return "", f.err
 	}
 	return f.chatsDir, nil
+}
+
+// fakeWorktreeCreator is a thread-safe agentusecase.WorktreeCreator double:
+// CreateChildWorkspace records the fork parent id it was called with and hands
+// back a fresh workspace id, so Promote's tests can assert on both without a
+// real worktree usecase (git engine, repo store) in this package's fixture.
+type fakeWorktreeCreator struct {
+	mu       sync.Mutex
+	forkedOn []string
+	// forkedBranches is the branch name each CreateChildWorkspace call asked
+	// for, in the same order as forkedOn — "" for the server-generated-name
+	// case, mirroring imported below.
+	forkedBranches []string
+	nextID         int
+	err            error
+	// discarded records the workspaces a failed promotion took back out, in
+	// order. Without it a rollback that never ran and one that ran perfectly
+	// look identical from the chat's side.
+	discarded  []string
+	discardErr error
+	// imported records the branch each CreateImportedWorkspace call asked for,
+	// in order, and importErr fails them. They are kept apart from forkedOn
+	// above because the two verbs are the whole distinction this port now
+	// carries: a fork names a PARENT to branch from, an import names the BRANCH
+	// that already exists, and a test that could not tell them apart could not
+	// prove an import took the import path.
+	imported   []string
+	importedWS domain.Workspace
+	importErr  error
+}
+
+func (f *fakeWorktreeCreator) CreateChildWorkspace(
+	_ context.Context,
+	forkParentID string,
+	branch string,
+) (domain.Workspace, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.forkedOn = append(f.forkedOn, forkParentID)
+	f.forkedBranches = append(f.forkedBranches, branch)
+	if f.err != nil {
+		return domain.Workspace{}, f.err
+	}
+	f.nextID++
+	return domain.Workspace{ID: fmt.Sprintf("ws-child-%d", f.nextID)}, nil
+}
+
+func (f *fakeWorktreeCreator) CreateImportedWorkspace(
+	_ context.Context,
+	spec agentusecase.ImportSpec,
+) (domain.Workspace, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.imported = append(f.imported, spec.Branch)
+	if f.importErr != nil {
+		return domain.Workspace{}, f.importErr
+	}
+	if f.importedWS.ID != "" {
+		return f.importedWS, nil
+	}
+	f.nextID++
+	return domain.Workspace{ID: fmt.Sprintf("ws-child-%d", f.nextID)}, nil
+}
+
+// imports returns the branches an import was asked for, in call order.
+func (f *fakeWorktreeCreator) imports() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.imported...)
+}
+
+func (f *fakeWorktreeCreator) DiscardChildWorkspace(
+	_ context.Context,
+	workspaceID string,
+) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.discarded = append(f.discarded, workspaceID)
+	return f.discardErr
+}
+
+func (f *fakeWorktreeCreator) discards() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.discarded...)
+}
+
+func (f *fakeWorktreeCreator) calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.forkedOn...)
 }
 
 // fakeChatStore wraps a real agentchat.EventStore and lets a test force a chosen
@@ -363,14 +468,22 @@ func (f *fakeWorkspace) AgentChatsDir(
 // the call happened at all, and for which id.
 type fakeChatStore struct {
 	agentchat.EventStore
-	failGetChat   error
-	failCreate    error
-	failListChats error
+	failGetChat         error
+	failCreate          error
+	failListChats       error
+	failListByWorkspace error
 	// failSetSelection / failLoadChat arm the two writes-and-reads the model and
 	// effort selection travels through, so the "a spawn whose selection cannot be
 	// read must fail before it forks" paths are reachable from a test.
 	failSetSelection error
 	failLoadChat     error
+	// failSetWorkspace arms the one write that fills a promoted chat's
+	// workspace slot, so the orphaned-workspace rollback is reachable.
+	// failClearWorkspace arms the SAME write in the other direction — the
+	// rollback's own first step — so the ordering that keeps the rollback safe
+	// (never delete a workspace a row still points at) is reachable too.
+	failSetWorkspace   error
+	failClearWorkspace error
 	// failLoadChatAfter lets that failure land on the Nth fold rather than the
 	// first: a spawn folds the chat twice — once for its lineage, once for its
 	// selection — so failing every fold can only ever prove the first.
@@ -389,6 +502,18 @@ type fakeChatStore struct {
 	// the property into one a test can actually hold: whatever the projection says,
 	// a decision about placement must not come from it.
 	staleProjection bool
+
+	// staleAsyncWorkProjection is staleProjection's twin for TURN STATE: GetChat
+	// answers with the async-work level the chat had before its last turn_stop
+	// folded, while LoadChat keeps answering from the log.
+	//
+	// It models the same ordinary state for the same reason. StopTurn is
+	// deliberately on the async Send path (see the EventStore doc), so between a
+	// turn_stop returning and its projection folding, the read model genuinely
+	// still reports the level from before it. A restate that compares the open-work
+	// level it just computed against THAT reads 0 == 0, calls itself a no-op, and
+	// leaves the aggregate lit with nothing left to restate it.
+	staleAsyncWorkProjection bool
 
 	// onStopTurn runs INSIDE StopTurn, before the aggregate is written. It is the
 	// only seam that can observe what a client would see the instant the turn-state
@@ -462,11 +587,27 @@ func (s *fakeChatStore) GetChat(ctx context.Context, id string) (domain.Chat, er
 		return domain.Chat{}, s.failGetChat
 	}
 	chat, err := s.EventStore.GetChat(ctx, id)
-	if err != nil || !s.staleProjection {
-		return chat, err
+	if err != nil {
+		return domain.Chat{}, err
 	}
-	chat.ParentID = ""
+	if s.staleProjection {
+		chat.ParentID = ""
+	}
+	if s.staleAsyncWorkProjection {
+		chat.AsyncWork = 0
+		chat.Working = false
+	}
 	return chat, nil
+}
+
+func (s *fakeChatStore) SetWorkspace(ctx context.Context, id, workspaceID string) (domain.Chat, error) {
+	if s.failSetWorkspace != nil && workspaceID != "" {
+		return domain.Chat{}, s.failSetWorkspace
+	}
+	if s.failClearWorkspace != nil && workspaceID == "" {
+		return domain.Chat{}, s.failClearWorkspace
+	}
+	return s.EventStore.SetWorkspace(ctx, id, workspaceID)
 }
 
 func (s *fakeChatStore) Create(ctx context.Context, in agentchat.CreateInput) (domain.Chat, error) {
@@ -481,6 +622,16 @@ func (s *fakeChatStore) ListChats(ctx context.Context) ([]domain.Chat, error) {
 		return nil, s.failListChats
 	}
 	return s.EventStore.ListChats(ctx)
+}
+
+// ListByWorkspace is what the lineage resolver reads a spawn's ancestors
+// through — folder rows and chat rows share this one list now — so this is
+// the seam a test arms to prove a lineage read failure fails the spawn.
+func (s *fakeChatStore) ListByWorkspace(ctx context.Context, workspaceID string) ([]domain.Chat, error) {
+	if s.failListByWorkspace != nil {
+		return nil, s.failListByWorkspace
+	}
+	return s.EventStore.ListByWorkspace(ctx, workspaceID)
 }
 
 // fakeRunnerStore is the same fault-injecting wrapper for the runner aggregate, and
@@ -601,6 +752,12 @@ type harnessUsecase struct {
 type testFixture struct {
 	ctx     context.Context
 	usecase *harnessUsecase
+	// own is the SAME usecase as usecase, held at its concrete type for the
+	// handful of methods (SpawnChatWithOwnWorktree) that are a seam reached only
+	// through tree.Agent — not part of any of the five public ports harnessUsecase
+	// embeds — so a test exercising them directly needs the concrete type to call
+	// through.
+	own *agentusecase.Usecase
 	// chats/runners are the REAL concrete EventStores, used for test reads; the
 	// usecase may be built over a fault-injecting wrapper of them (newFaultFixture)
 	// but writes still land here.
@@ -609,11 +766,15 @@ type testFixture struct {
 	// waitFn drains both asynx dispatch queues and runs every projection handler
 	// (ax.WaitPublish), so a subsequent read observes all prior mutations with no
 	// polling and no timeouts.
-	waitFn   func()
-	term     *fakeCommander
-	bc       *fakeBroadcaster
-	rbc      *fakeRunnerBroadcaster
-	ws       *fakeWorkspace
+	waitFn func()
+	term   *fakeCommander
+	bc     *fakeBroadcaster
+	rbc    *fakeRunnerBroadcaster
+	ws     *fakeWorkspace
+	wt     *fakeWorktreeCreator
+	// homeErr faults the crowbar-home resolver (Home), independent of ws.err —
+	// see its construction in newFixtureUsing.
+	homeErr  *error
 	engine   engineagents.Agents
 	activity agentactivity.EventStore
 	// providerPrefs is the real sqlite preference store the usecase resolves
@@ -626,9 +787,12 @@ type testFixture struct {
 	// minter is the SAME token minter the usecase's MCP seam verifies against, so
 	// a test can mint the token a spawned runner would have been handed.
 	minter *agenttools.TokenMinter
-	// folders is the in-memory chat-folder table the lineage resolver reads, so a
-	// test can file a thread inside folders and prove the walk steps through them.
-	folders *mocks.AgentChatFolderStore
+	// folders/nodes are the Folder+Node fakes the lineage resolver reads
+	// through (2026-09-08 sidebar-placement-unification Task 8) — a folder
+	// is never a Chat row any more, so file() (below) seeds through these
+	// instead of usedChats.Create.
+	folders *mocks.FolderStore
+	nodes   *mocks.NodePlacements
 }
 
 // fixtureChatReader adapts the chat EventStore into agenttools.ChatReader, whose
@@ -1059,7 +1223,17 @@ func newFixtureUsing(
 		ID: domain.DefaultPermissionLevelKey, Level: pinnedDefault,
 	}))
 	connected := map[string]bool{}
-	homeFn := func() (string, error) { return home, nil }
+	// homeErr lets a test fault the crowbar-home resolver itself (distinct from
+	// f.ws.err, which only faults workspace lookups): the chat ledger's own reap
+	// and journal-dir derivation go through Home directly, never through a
+	// workspace, so that is the one hook that can exercise their failure path.
+	homeErr := new(error)
+	homeFn := func() (string, error) {
+		if *homeErr != nil {
+			return "", *homeErr
+		}
+		return home, nil
+	}
 	probe := func(a engineagents.Agent) bool { return connected[a.ID()] }
 	// The tool surface is wired over the SAME real stores the rest of the fixture
 	// reads, so an MCP tool call lands in the aggregates every other test asserts
@@ -1077,6 +1251,7 @@ func newFixtureUsing(
 	// every caller of New faces, so wiring them here would just be re-doing what
 	// New itself is responsible for — which is exactly the wiring
 	// TestDispatchMCP_ListsTheChatTools exists to guard.
+	wt := &fakeWorktreeCreator{}
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	chatReader := fixtureChatReader{chats: usedChats}
@@ -1086,12 +1261,18 @@ func newFixtureUsing(
 		chatReader,
 		fixtureWorkspaceLister{},
 	)
-	// The REAL lineage resolver, over the same chat store and an in-memory folder
-	// table, so a threaded chat in this package resolves its ancestors exactly the
-	// way production does — folders and all. A stub here would have let the walk
-	// and the spawn path agree with each other while both were wrong.
-	folders := mocks.NewAgentChatFolderStore()
-	lineage := tree.NewLineage(folders, usedChats)
+	// The REAL lineage resolver, wrapped over the chat store the SAME way
+	// container.go wires production (NewHomeCorrectedTreeChats) — a folder
+	// is Folder+Node-backed now (2026-09-08 sidebar-placement-unification
+	// Task 5 for home-scoped, Task 8 for repo-scoped too), never a row
+	// usedChats itself carries, so a threaded chat in this package resolves
+	// its ancestors exactly the way production does — folders and all — only
+	// once this same decorator folds them back in. A stub here would have
+	// let the walk and the spawn path agree with each other while both were
+	// wrong.
+	folders := mocks.NewFolderStore()
+	nodes := mocks.NewNodePlacements()
+	lineage := tree.NewLineage(agentusecase.NewHomeCorrectedTreeChats(usedChats, nodes, folders))
 	u := agentusecase.New(agentusecase.Deps{
 		Chats:           usedChats,
 		Runners:         usedRunners,
@@ -1099,6 +1280,7 @@ func newFixtureUsing(
 		Agents:          engine,
 		Terminal:        term,
 		Workspace:       ws,
+		Worktree:        wt,
 		Lineage:         lineage,
 		ProviderPrefs:   providerPrefs,
 		PermissionPrefs: permissionPrefs,
@@ -1130,6 +1312,7 @@ func newFixtureUsing(
 			AnswerUsecase:   u,
 			ProviderUsecase: u,
 		},
+		own:           u,
 		chats:         realChats,
 		runners:       realRunners,
 		waitFn:        func() { waitChats(); waitRunners(); waitActivity() },
@@ -1137,12 +1320,15 @@ func newFixtureUsing(
 		bc:            bc,
 		rbc:           rbc,
 		ws:            ws,
+		wt:            wt,
+		homeErr:       homeErr,
 		engine:        engine,
 		activity:      realActivity,
 		providerPrefs: providerPrefs,
 		connected:     connected,
 		minter:        minter,
 		folders:       folders,
+		nodes:         nodes,
 	}
 	return f, realChats, realRunners
 }

@@ -18,8 +18,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/holder"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
@@ -81,6 +81,15 @@ type WorkspaceCreator interface {
 		in workspace.CreateInput,
 		now time.Time,
 	) (domain.Workspace, error)
+	// Delete tombstones a workspace row. It is here for exactly one caller:
+	// rolling back a row that was written but could not be attached to the chat
+	// minted to own it (see discardUnownedWorkspace). Leaving such a row behind
+	// is the orphan the chat-first create exists to prevent, so the path that
+	// creates one has to be able to take it away again.
+	Delete(
+		ctx context.Context,
+		id string,
+	) error
 }
 
 // ImportGitEngine is the git surface the import usecase consumes. Import does
@@ -213,7 +222,11 @@ type ImportDeps struct {
 	Provider   ImportProviderEngine
 	Discover   DiscoverFunc
 	RefRunner  RefRunnerFactory
-	Now        func() time.Time
+	// Nodes mints the Node{Kind: NodeKindRepo} row that owns a newly imported
+	// repo's own sidebar position, at the same point its Repository row is
+	// persisted — see NodePlacements.
+	Nodes NodePlacements
+	Now   func() time.Time
 	// Stat probes the import path before anything is persisted, so a failed
 	// import leaves no project behind. Defaults to os.Stat when nil; tests
 	// stub it to avoid touching the real filesystem.
@@ -269,10 +282,21 @@ type ImportUsecase interface {
 		projectID string,
 		repoPath string,
 	) error
+	// SetOwningChats wires the chat side every workspace this usecase creates is
+	// minted under (see OwningChats). It is a post-construction setter because
+	// the chat usecase is built after this one; until it is called, every path
+	// that would create a workspace refuses with ErrNoOwningChats.
+	SetOwningChats(chats OwningChats)
 }
 
 type projectImport struct {
-	deps ImportDeps
+	deps        ImportDeps
+	owningChats OwningChats
+}
+
+// SetOwningChats implements ImportUsecase.
+func (u *projectImport) SetOwningChats(chats OwningChats) {
+	u.owningChats = chats
 }
 
 // NewImport builds an ImportUsecase from its dependencies.
@@ -428,18 +452,39 @@ func (u *projectImport) importOneRepo(
 	if err := u.deps.Repos.Save(ctx, repo); err != nil {
 		return domain.Repository{}, fmt.Errorf("project import: save repository: %w", err)
 	}
-	// Roll back the repo row if HOME ADOPTION fails. A repository with no
-	// workspaces is unnavigable (workspaces are the UI's unit) and unusable; never
-	// leave one persisted. Once the home workspace exists the repo is navigable and
+	// Roll back the repo row (AND its own Node row, once minted below) if HOME
+	// ADOPTION fails. A repository with no workspaces is unnavigable
+	// (workspaces are the UI's unit) and unusable; never leave one persisted
+	// — nor its position row, which a retry could never reclaim (the retry
+	// mints a Node under a FRESH repo id, leaving the old one permanently
+	// orphaned). Once the home workspace exists the repo is navigable and
 	// must be kept, so committed is set before the best-effort protected-branch
 	// managed worktrees (whose per-branch failure must NOT roll back a repo that
 	// already has its home workspace).
 	committed := false
 	defer func() {
-		if !committed {
-			_ = u.deps.Repos.Delete(ctx, repo.ID)
+		if committed {
+			return
+		}
+		_ = u.deps.Repos.Delete(ctx, repo.ID)
+		if u.deps.Nodes != nil {
+			_ = u.deps.Nodes.Forget(ctx, repo.ID)
 		}
 	}()
+	// Mint the Node row that owns this repo's OWN sidebar position — every
+	// repo gets one at creation, not only at its first reorder, so
+	// UpdateRepo's read (getRepoNode) is never guessing at a row that was
+	// never born. Filed at the project-home root ("", order 0) alongside
+	// whatever else already sits there; the first drag densifies it for
+	// real. A repo that never gets one (Nodes left unwired) is exactly the
+	// unusable state HOME ADOPTION failing already rolls back for, so it
+	// shares that same rollback (the defer above).
+	if u.deps.Nodes == nil {
+		return domain.Repository{}, ErrNoNodesWired
+	}
+	if _, err := u.deps.Nodes.Create(ctx, repo.ID, domain.NodeKindRepo, "", 0); err != nil {
+		return domain.Repository{}, fmt.Errorf("project import: mint repo node: %w", err)
+	}
 	// Resolve protected branches once: it decides whether the home must detach
 	// off a protected branch and which branches get their own managed worktree. A
 	// provider failure is soft — import the repo home alone rather than failing the
@@ -549,7 +594,7 @@ func (u *projectImport) adoptRepoHome(
 		// ForkPointSha stays empty and Protected stays false: the home is the base
 		// the branch tree hangs off, and Crowbar does not operate on it.
 	}
-	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
+	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		return fmt.Errorf("project import: adopt repo home: %w", err)
 	}
 	return nil
@@ -732,7 +777,7 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 		ForkPointSha: startSha,
 		Protected:    true,
 	}
-	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
+	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		// The row failed after the worktree was created on disk — remove the
 		// orphaned worktree so a later retry can recreate it cleanly.
 		if rmErr := u.deps.Git.WorktreeRemove(ctx, repo.Path, path); rmErr != nil {
@@ -763,7 +808,7 @@ func (u *projectImport) createPlaceholderWorkspace(
 		HeldByPath: heldByPath,
 		// WorktreePath + ForkPointSha stay empty — this is the placeholder signal.
 	}
-	if _, err := u.deps.Workspaces.Create(ctx, in, u.deps.Now()); err != nil {
+	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		return fmt.Errorf("create placeholder workspace for %q: %w", branch, err)
 	}
 	return nil
@@ -869,7 +914,7 @@ func resolvePath(p string) string {
 // createHomeWorkspace persists the project-level home workspace rooted at the
 // project's own path. It has no repo, branch, or git operations.
 func (u *projectImport) createHomeWorkspace(ctx context.Context, project domain.Project) error {
-	_, err := u.deps.Workspaces.Create(ctx, workspace.CreateInput{
+	_, err := u.createOwnedWorkspace(ctx, workspace.CreateInput{
 		ID:           uuid.NewString(),
 		ProjectID:    project.ID,
 		WorktreePath: project.Path,

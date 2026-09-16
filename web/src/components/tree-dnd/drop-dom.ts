@@ -147,7 +147,14 @@ export function createDropRowDom<Row extends DragSubjectBase>(spec: DropRowSpec)
  */
 export interface DropZone<S extends DragSubjectBase, Hit> {
   attr: string
-  hit(subjects: readonly S[]): Hit | null
+  /**
+   * `el`/`point` are the zone's own element and the pointer's viewport
+   * position — extra facts a binary zone (the old dwell-to-remove pane) never
+   * needed but a geometry-aware one does (Task 21's pane center/edge zones,
+   * `getPaneDropZoneFromRect`). Additive: an existing `hit(subjects)` that
+   * ignores them still satisfies this signature.
+   */
+  hit(subjects: readonly S[], el: Element, point: { x: number; y: number }): Hit | null
 }
 
 /**
@@ -158,6 +165,14 @@ export interface DropZone<S extends DragSubjectBase, Hit> {
  * drag: a refusal returns null rather than falling through to whatever sits
  * behind it, because "this row says no" is the honest reading and drawing an
  * indicator on some ancestor would be the indicator lying.
+ *
+ * `zone` takes either one `DropZone` (every caller before this) or several —
+ * an array, checked in the order given, first match wins — so two whole-region
+ * targets (the pane, the file explorer card's trash surface) can coexist
+ * without either owning the other's slot. Checked PER ELEMENT, interleaved
+ * with the row read below, same as a single zone always was: a zone only wins
+ * when it is the TOPMOST thing painted at the point, never merely present
+ * somewhere in `elementsFromPoint`'s list.
  */
 export function createDropHitTest<
   S extends DragSubjectBase,
@@ -166,11 +181,27 @@ export function createDropHitTest<
 >(
   dom: DropRowDom<Row>,
   policy: DropPolicy<S, Row>,
-  zone?: DropZone<S, Hit>,
+  zone?: DropZone<S, Hit> | ReadonlyArray<DropZone<S, Hit>>,
 ): (x: number, y: number, subjects: readonly S[]) => RowHit<Row> | Hit | null {
+  const zones: ReadonlyArray<DropZone<S, Hit>> =
+    zone === undefined ? [] : Array.isArray(zone) ? zone : [zone]
   return (x, y, subjects) => {
     for (const el of document.elementsFromPoint(x, y)) {
-      if (zone && el.hasAttribute(zone.attr)) return zone.hit(subjects)
+      // The drag ghost (`drag-ghost.tsx`'s `DragGhost`, `data-drag-ghost`) is
+      // a DEEP CLONE of the row(s) actually being dragged — cloneGhostRows
+      // (drag-ghost.tsx) copies the whole element, drop attributes and all,
+      // onto a floating overlay that tracks the cursor and therefore sits
+      // exactly where a drop is being aimed. `pointer-events: none` on that
+      // overlay is supposed to keep `elementsFromPoint` from ever reporting
+      // it as a hit, but a clone carrying a REAL row's own kind+id attribute
+      // is exactly the shape of thing that turns a hit-testing quirk into a
+      // silently wrong target — this is a maybe-redundant, zero-cost second
+      // line of defence: something this hit test may never legitimately
+      // resolve to, ghost clone or not.
+      if (el.closest('[data-drag-ghost]')) continue
+      for (const z of zones) {
+        if (el.hasAttribute(z.attr)) return z.hit(subjects, el, { x, y })
+      }
       const row = dom.read(el)
       if (!row) continue
       const allowed = policy.allowedModes(subjects, row)

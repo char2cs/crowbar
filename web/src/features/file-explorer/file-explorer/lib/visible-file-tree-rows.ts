@@ -180,6 +180,37 @@ export function filterFileTreeForFffHits(
   }
 }
 
+/** The shape of a TanStack `VirtualItem` this needs — kept minimal so this
+ *  file doesn't have to import `@tanstack/react-virtual` just for a type. */
+export interface VirtualRowExtent {
+  index: number
+  start: number
+  size: number
+}
+
+/**
+ * Which virtualized row is genuinely at the top of the scrolled viewport,
+ * for the sticky-ancestor header to key off.
+ *
+ * Live-reported: the sticky header for a folder overlapped/garbled the real
+ * row scrolled underneath it. Root cause: the caller used to re-derive this
+ * index independently via `Math.floor(scrollOffset / rowHeight)`, assuming
+ * every row's real rendered position exactly equals `index * rowHeight`.
+ * `items` (from the virtualizer's own `getVirtualItems()`) is the single
+ * source of truth for where rows actually are — reading it directly instead
+ * can never drift from what is actually on screen. `items` includes
+ * overscanned rows above and below the visible window, so the genuinely
+ * topmost VISIBLE one is the first whose bottom edge is past `scrollOffset`.
+ */
+export function findTopVisibleItemIndex(
+  items: readonly VirtualRowExtent[],
+  scrollOffset: number,
+): number {
+  const topItem =
+    items.find((item) => item.start + item.size > scrollOffset) ?? items[items.length - 1]
+  return topItem ? topItem.index : -1
+}
+
 export function getStickyAncestorRow(
   rows: readonly VisibleFileTreeRow[],
   firstVisibleIndex: number,
@@ -212,6 +243,62 @@ export function getStickyAncestorRows(
   }
 
   return ancestors.filter((row): row is VisibleFileTreeRow => row !== null)
+}
+
+export interface StickyScrollLayout {
+  /** Height (px) to reserve above the first rendered row. */
+  paddingTop: number
+  /** `items`, minus any rows that would render behind the sticky stack. */
+  visibleItems: readonly VirtualRowExtent[]
+}
+
+/**
+ * Where real content should start once a sticky-ancestor stack is showing,
+ * so nothing renders partially behind its opaque band.
+ *
+ * Live-reported (twice): a folder name rendering with its first letters
+ * sheared off directly under the sticky header. The stack is a
+ * `position: sticky; height: 0` overlay (it has to be — the ancestor rows it
+ * shows are virtualized OUT of `items`, so it can never be a normal-flow
+ * sibling of them) painted at a FIXED screen position, while the row
+ * scrolled to the real top of the content keeps rendering at its ordinary,
+ * continuously-scrolled position underneath it. For whatever slice of every
+ * scroll frame that position falls inside the stack's band, the stack
+ * paints over the top of that row.
+ *
+ * A one-time size reservation (e.g. adding the stack's height to
+ * `paddingTop` once) does NOT fix this — it only shifts which continuous
+ * scroll position produces the overlap, since scrolling still passes
+ * through every fractional offset between rows; verified live by scrubbing
+ * scroll position by hand and watching the overlap reappear a few pixels
+ * later. The only way nothing ever renders partially behind the stack is to
+ * stop rendering the marker row (whatever row is currently at the real top)
+ * at its raw scrolled offset, and instead SNAP it — and everything after —
+ * to start exactly where the stack ends, the same "content snaps into
+ * place under sticky headers" behavior editors with this feature already
+ * use. `containerInset` must be the same value the stack's own CSS `top`
+ * offset subtracts (`file-explorer-tree.css`'s `.file-tree-sticky-ancestors`
+ * — matching it is what closes the last few pixels of the gap).
+ */
+export function computeStickyScrollLayout(
+  items: readonly VirtualRowExtent[],
+  stickyMarkerIndex: number,
+  stickyAncestorCount: number,
+  rowHeight: number,
+  containerInset: number,
+): StickyScrollLayout {
+  const stickyStackHeight = stickyAncestorCount * rowHeight
+  const markerItem =
+    stickyAncestorCount > 0 ? items.find((item) => item.index === stickyMarkerIndex) : undefined
+
+  if (!markerItem) {
+    return { paddingTop: items.length ? items[0].start : 0, visibleItems: items }
+  }
+
+  return {
+    paddingTop: markerItem.start + stickyStackHeight + containerInset,
+    visibleItems: items.filter((item) => item.index >= stickyMarkerIndex),
+  }
 }
 
 export function getGuideAncestorRows(

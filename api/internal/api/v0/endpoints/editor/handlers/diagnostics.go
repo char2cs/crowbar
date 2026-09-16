@@ -7,7 +7,7 @@ import (
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-// Diagnostics handles GET /v0/workspaces/:wsId/lsp/diagnostics. The data field
+// Diagnostics handles GET /v0/chats/:chatId/lsp/diagnostics. The data field
 // carries the latest diagnostics snapshot for the workspace under the
 // DiagnosticsEvent shape, empty until diagnostics arrive.
 func (h *Handlers) Diagnostics(
@@ -19,12 +19,12 @@ func (h *Handlers) Diagnostics(
 	if _, ok := h.worktreePath(c); !ok {
 		return
 	}
-	wsID := c.Param("wsId")
-	diags := h.lsp.DiagnosticsSnapshot(wsID)
+	ownerID := h.lspOwnerID(c)
+	diags := h.lsp.DiagnosticsSnapshot(ownerID)
 	libs.WriteQueryOK(
 		c,
 		domlsp.DiagnosticsEvent{
-			WsID:        wsID,
+			WsID:        ownerID,
 			Diagnostics: diags,
 		},
 	)

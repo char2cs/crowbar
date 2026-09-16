@@ -11,12 +11,56 @@ import "errors"
 // write, so the tree is never briefly cyclic. Handlers map it to 409.
 var ErrCycle = errors.New("usecases: a chat or folder cannot be moved inside itself")
 
-// ErrCrossWorkspace is returned when a row's parent belongs to a different
-// workspace. Chats and their folders are workspace-scoped: the panel renders one
-// workspace's tree, so a cross-workspace edge is a row that is simply never
-// drawn — and for a chat it would additionally mean reading turns from a
-// workspace the user is not in. Handlers map it to 409.
-var ErrCrossWorkspace = errors.New("usecases: a chat or folder and its parent must be in the same workspace")
+// ErrCrossWorkspace is returned when a CHAT's parent belongs to a different
+// workspace. A folder carries no workspace and so can never trigger it — only a
+// row threading under another CHAT can. A cross-workspace thread would mean
+// reading turns from a workspace the user is not in. Handlers map it to 409.
+var ErrCrossWorkspace = errors.New("usecases: a chat and its chat parent must be in the same workspace")
+
+// ErrCrossRepo is returned when a FOLDER's parent resolves to a different repo
+// scope — "" (project-home) counts as its own scope here, distinct from every
+// real repo id. The folder-scoping golden rule: a folder may only be created or
+// moved under a parent that shares its own repo, the same way ErrCrossWorkspace
+// already holds a chat to its own workspace. Handlers map it to 409.
+var ErrCrossRepo = errors.New("usecases: a folder and its parent must share the same repo")
+
+// ErrCrossContext is the golden rule's finer grain, returned when a folder
+// MOVE would cross from one context to another even within the same repo —
+// a different branch's own subtree, the bare repo root versus any branch, or
+// project-home versus a repo (ErrCrossRepo's own boundary, restated here at
+// the within-repo granularity ErrCrossRepo alone cannot see). "Context", in
+// order: Project -> Repo -> Locked branch -> Parent unlocked branch. A
+// folder moves freely within whichever one it already sits under; never
+// across. Handlers map it to 409.
+var ErrCrossContext = errors.New("usecases: a folder cannot move to a different context")
+
+// ErrForkChainSplit is returned when a WORKSPACE placement would file a fork's
+// own row outside the space its fork parent owns — a folder, or another
+// branch's subtree, whose own fork anchor is a different workspace than the one
+// this workspace was cut from. Organisation and git lineage are separate edges,
+// so a folder may freely organise a fork UNDER its own parent; carrying it
+// anywhere else does not take the lineage with it. domain.Workspace.ParentID
+// stays where it was — three git paths still resolve it back to a workspace
+// (merge eligibility, the diff base, the reparent leaf guard) — and the sidebar
+// settles the contradiction by dropping the placement and drawing the row under
+// its fork parent regardless, so the drag answers 200 and visibly does nothing.
+// Changing what a fork hangs off is the reparent route's job. Handlers map it
+// to 409.
+var ErrForkChainSplit = errors.New("usecases: a workspace cannot be filed away from its fork parent")
+
+// ErrNotAContainer is returned when a move or create names a REPO as its
+// parent/folder id. A repo's own Node row rides through this package's
+// planning snapshot purely so it densifies correctly alongside its home
+// chat/folder siblings (see plan.go's mergeHomeForest) — it was never meant
+// to be filed INTO, the same way nothing may be filed into a chat's own
+// runner. Hardened after an SDD review caught it reachable via a raw
+// PATCH .../chats/:id/placement (or the folder-move route) with no frontend
+// involvement: repoScopeOf answering nil for a row with no WorkspaceID (the
+// SAME "nothing to conflict with" posture a plain bubble sibling correctly
+// gets) let a repo's own id slip through checkFolderContainer/
+// checkChatContainer's cross-scope refusal unrefused. Handlers map it to
+// 409, alongside the rest of this file's placement refusals.
+var ErrNotAContainer = errors.New("usecases: a repo cannot be filed into")
 
 // ErrNameRequired is returned when a create or rename supplies a blank name. A
 // nameless folder is an unlabelled box the user cannot tell apart from any

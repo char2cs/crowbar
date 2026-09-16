@@ -28,7 +28,10 @@ func newWorkspaceUsecase(
 	repo := mocks.NewWorkspaceLifecycleRepo()
 	git := mocks.NewWorkingTreeGitEngine()
 	roll := mocks.NewProjectRollup()
-	uc := workspace.New(repo, git, roll)
+	// The hierarchy-only params are nil: none of this file's tests exercise the
+	// worktree hierarchy (CreateChild, Reparent, ...), only the lifecycle
+	// methods repo/git/roll above back — see workspace.New's doc comment.
+	uc := workspace.New(repo, git, roll, nil, nil, nil, nil, nil, nil)
 	return repo, git, roll, uc
 }
 
@@ -604,4 +607,31 @@ func TestWorkspaceUsecase_SetLockSurfacesAFailedWrite(t *testing.T) {
 	_, err := uc.SetLock(context.Background(), "w1", &lock)
 
 	require.Error(t, err)
+}
+
+// TestWorkspaceUsecase_SetLockLocksWithNoOwningChatReconciler is the
+// regression test for 2026-09-08 sidebar-placement-unification Task 7:
+// SetLock used to hand a newly-locked workspace to a chat-tree reconciler
+// (EnsureOwningChat) so its owning row became a branch row from that instant
+// rather than the next boot's backfill. That call is now a pure deletion —
+// every Workspace mints its own Node{Kind:workspace} row unconditionally at
+// creation (see the hierarchy/project packages), so there is no more "does
+// this now-locked workspace have an owning row yet" question left for a
+// runtime reconciler to answer. Usecase no longer even exposes a setter for
+// one; this proves the lock itself still transitions correctly with nothing
+// wired in that gap.
+func TestWorkspaceUsecase_SetLockLocksWithNoOwningChatReconciler(t *testing.T) {
+	repo, _, _, uc := newWorkspaceUsecase(t)
+	repo.GetFn = func(_ context.Context, id string) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusNew}, nil
+	}
+	repo.SetLockFn = func(_ context.Context, id string, _ *bool, _ bool) (domain.Workspace, error) {
+		return domain.Workspace{ID: id, Status: domain.WorkspaceStatusLocked}, nil
+	}
+
+	lock := true
+	got, err := uc.SetLock(context.Background(), "w1", &lock)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.WorkspaceStatusLocked, got.Status)
 }

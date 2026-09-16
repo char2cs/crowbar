@@ -47,12 +47,12 @@ func TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted(t *testing.T) {
 
 	// Dial BEFORE creating the chat so the "created" frame (drained below to
 	// make the later "deleted" read unambiguous) is never missed.
-	frames := dialAgentWS(t, h, wsBase(ws)+"/chats/ws")
+	frames := dialAgentWS(t, h, repoBase(ws)+"/chats/ws")
 
 	chatID := createAgentChat(t, h, ws)
 	waitForChatFrame(t, frames, chatID, "created")
 
-	resp := h.raw(http.MethodDelete, wsBase(ws)+"/chats/"+chatID, nil, http.StatusAccepted)
+	resp := h.raw(http.MethodDelete, repoBase(ws)+"/chats/"+chatID, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
 
 	deleted := waitForChatFrame(t, frames, chatID, "deleted")
@@ -61,11 +61,11 @@ func TestAgentDelete_HardDeletesAndBroadcastsScopedDeleted(t *testing.T) {
 	h.Quiesce()
 
 	var list []agentChatDTO
-	h.get(wsBase(ws)+"/chats", &list)
+	h.get(repoBase(ws)+"/chats", &list)
 	for _, c := range list {
 		require.NotEqual(t, chatID, c.ID, "a purged chat must not appear in List")
 	}
 
-	getResp := h.raw(http.MethodGet, wsBase(ws)+"/chats/"+chatID, nil, http.StatusNotFound)
+	getResp := h.raw(http.MethodGet, repoBase(ws)+"/chats/"+chatID, nil, http.StatusNotFound)
 	_ = getResp.Body.Close()
 }

@@ -60,16 +60,55 @@ export function getFirstLeafId(root: LayoutNode): string {
   return getFirstLeafId(root.first)
 }
 
+/**
+ * `leafId` names the leaf to insert instead of minting one. Used by the MOVE
+ * half of a merge (`mergePaneIntoView`): the pane already exists and has been
+ * lifted out of the tree that held it, so the split has to re-home THAT id
+ * rather than create a second pane and leave the first stranded.
+ */
 export function splitLayout(
   root: LayoutNode,
   paneId: string,
   direction: 'horizontal' | 'vertical',
   placement: 'before' | 'after' = 'after',
+  leafId?: string,
 ): { layout: LayoutNode; newPaneId: string } | null {
-  const newPaneId = nanoid()
+  const newPaneId = leafId ?? nanoid()
   const result = insertLeaf(root, paneId, createLeaf(newPaneId), direction, placement)
   if (!result) return null
   return { layout: result, newPaneId }
+}
+
+/**
+ * Add a leaf as a PEER of everything already in `root`.
+ *
+ * The counterpart to `splitLayout`, and deliberately not a special case of it:
+ * `splitLayout` subdivides ONE named pane, so whatever pane it is given pays
+ * for the new one out of its own half. That is the right shape for a drop
+ * ("into this view, on that side" — spec §8.1) and the wrong one for a click
+ * ("clicking a chat makes its own view" — §8.4), which names no pane at all
+ * and must not cost the pane you were looking at half its width.
+ *
+ * The new leaf joins at the TOP of the tree, then every peer in the flattened
+ * row is given an equal share, so n opened views are n equal columns rather
+ * than the 50/25/12.5 cascade repeated subdividing produces. Splits of the
+ * other direction are one entry in that row and keep their own internal sizes.
+ */
+export function appendLeaf(
+  root: LayoutNode,
+  direction: 'horizontal' | 'vertical' = 'horizontal',
+): { layout: LayoutNode; newPaneId: string } {
+  const newPaneId = nanoid()
+  const layout = createSplit(direction, root, createLeaf(newPaneId))
+  const entries = flattenForRender(layout)
+  const even = 100 / entries.length
+  return {
+    layout: writeFlatSizesToLayout(
+      entries.map((entry) => ({ ...entry, size: even })),
+      layout,
+    ),
+    newPaneId,
+  }
 }
 
 function insertLeaf(

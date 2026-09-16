@@ -29,7 +29,25 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding-top: 20px;
+  /* The 20px is this column's own top breathing room, unconditional. The
+     overlay chat header (PaneTopRow's `chat-blur overlay` variant) paints no
+     fill and reserves no flex space of its own, so
+     `--agent-transcript-header-clearance` (set on `.agent-chat` by
+     AgentChatView) is on top of that, not instead of it: it only becomes
+     visible once a conversation genuinely overflows and is scrolled to its
+     top, since a short one sits bottom-anchored (`.scroll-spacer`) below all
+     of this regardless.
+
+     This is the header's FULL EdgeDissolve reach (100px Mac / 90px
+     elsewhere — pane-top-row.tsx's ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX), not
+     the narrower `--agent-header-clearance` the banners/composer use (52px /
+     42px — just the header's own clickable row). Text, unlike an opaque
+     banner, is not merely covered by the extra 48px of glass beyond the
+     row's own height — EdgeDissolve's own mask layers still carry heavy
+     blur (16px-64px) well past it, so text left resting in that gap renders
+     visibly out of focus rather than hidden. */
+  padding-top: calc(20px + var(--agent-transcript-header-clearance, 0px));
+  scroll-padding-top: calc(20px + var(--agent-transcript-header-clearance, 0px));
   /* Fades in on its own first paint — every mount of this element IS a chat
      becoming visible, whether that's opening one or (the case this exists
      for) the empty document handing off to it on a first send. Without this,

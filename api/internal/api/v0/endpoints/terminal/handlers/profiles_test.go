@@ -19,44 +19,34 @@ import (
 // UpdateProfile/DeleteProfile that stubProfiles (which always finds a row)
 // never reaches.
 type notFoundProfiles struct {
-	stubProfilesEmbed
+	stubProfiles
 }
 
-// stubProfilesEmbed re-declares stubProfiles' methods so notFoundProfiles and
-// deleteErrProfiles can override just one each. Named separately from
-// stubProfiles (defined in handlers_test.go) only to keep this file
-// self-contained; behaviourally identical.
-type stubProfilesEmbed struct{}
-
-func (stubProfilesEmbed) FindAll(_ context.Context) ([]domain.TerminalProfile, error) {
-	return []domain.TerminalProfile{{ID: "p1"}}, nil
-}
-
-func (stubProfilesEmbed) FindByKey(_ context.Context, id string) (*domain.TerminalProfile, error) {
-	return &domain.TerminalProfile{ID: id}, nil
-}
-
-func (stubProfilesEmbed) Save(_ context.Context, _ domain.TerminalProfile) error { return nil }
-
-func (stubProfilesEmbed) Delete(_ context.Context, _ string) error { return nil }
-
-func (notFoundProfiles) FindByKey(_ context.Context, _ string) (*domain.TerminalProfile, error) {
+func (notFoundProfiles) FindByKey(
+	_ context.Context,
+	_ string,
+) (*domain.TerminalProfile, error) {
 	return nil, nil
 }
 
 // deleteErrProfiles finds the row fine but fails the actual delete, isolating
 // DeleteProfile's own error branch from its FindByKey guard.
 type deleteErrProfiles struct {
-	stubProfilesEmbed
+	stubProfiles
 }
 
-func (deleteErrProfiles) Delete(_ context.Context, _ string) error {
+func (deleteErrProfiles) Delete(
+	_ context.Context,
+	_ string,
+) error {
 	return errors.New("disk full")
 }
 
-func newProfilesRouter(store handlers.ProfileStore) *gin.Engine {
+func newProfilesRouter(
+	store handlers.ProfileStore,
+) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, store, stubReader{}, &spyBroadcaster{})
+	h := handlers.New(stubEngine{}, store, &spyBroadcaster{})
 	rg := r.Group("/v0")
 	rg.GET("/settings/terminal/profiles", h.ListProfiles)
 	rg.GET("/settings/terminal/profiles/:id", h.GetProfile)
@@ -66,7 +56,13 @@ func newProfilesRouter(store handlers.ProfileStore) *gin.Engine {
 	return r
 }
 
-func doRaw(r *gin.Engine, method, path string, body []byte) *httptest.ResponseRecorder {
+// doRaw posts a raw, possibly-malformed body — unlike do/doTerminal, which
+// json.Marshal a Go value and so can never produce actually-invalid JSON.
+func doRaw(
+	r *gin.Engine,
+	method, path string,
+	body []byte,
+) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(method, path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -75,7 +71,7 @@ func doRaw(r *gin.Engine, method, path string, body []byte) *httptest.ResponseRe
 }
 
 func TestCreateProfile_400OnMalformedBody(t *testing.T) {
-	r := newProfilesRouter(stubProfilesEmbed{})
+	r := newProfilesRouter(stubProfiles{})
 
 	rec := doRaw(r, http.MethodPost, "/v0/settings/terminal/profiles", []byte("{not json"))
 
@@ -92,7 +88,7 @@ func TestUpdateProfile_404OnUnknownProfile(t *testing.T) {
 }
 
 func TestUpdateProfile_400OnMalformedBody(t *testing.T) {
-	r := newProfilesRouter(stubProfilesEmbed{})
+	r := newProfilesRouter(stubProfiles{})
 
 	rec := doRaw(r, http.MethodPut, "/v0/settings/terminal/profiles/p1", []byte("{not json"))
 

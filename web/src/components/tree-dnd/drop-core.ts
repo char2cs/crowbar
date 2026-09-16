@@ -46,8 +46,13 @@ export const ALL_MODES: AllowedModes = { before: true, after: true, into: true }
 export interface DragSubjectBase {
   kind: string
   id: string
-  /** The container this row sits in. '' is the tree's own root. */
-  parentId?: string
+  /**
+   * The container this row sits in. '' is the tree's own root; `null` and
+   * `undefined` both mean "a tree that models root as null rather than
+   * absence" — drop-core never reads this field itself, so it accepts
+   * whichever a tree's own row type actually carries.
+   */
+  parentId?: string | null
 }
 
 /**

@@ -27,7 +27,8 @@
 import type React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLspIntegration } from '@/features/editor/hooks/use-lsp-integration'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useEditorUIStore } from '@/features/editor/stores/ui-store'
@@ -65,6 +66,26 @@ interface GoToLineEventDetail {
 
 export interface PaneLspLayerProps {
   paneId: string
+  /**
+   * The active-editor registry for the BUFFER'S OWN workspace — the same
+   * value `EditorSurface` already resolved via its `workspaceId` prop.
+   * Passed explicitly rather than re-derived here via `useWorkspaceStore()`
+   * (ambient `WorkspaceStoreContext`, scoped to the PANE'S CHAT's workspace
+   * — see pane-container.tsx's `chatStore`): a pane's chat and its open file
+   * are not required to share a workspace, and when they didn't, this
+   * layer's registry subscription silently watched the wrong workspace's
+   * registry, `filePath` never updated off its initial empty string, and
+   * every LSP feature gated on it (hover, go-to-definition, diagnostics)
+   * silently never activated for that pane. Same root cause as the
+   * font-size bug fixed in use-pane-editor-satellites.ts (8dcd26e8f).
+   */
+  registry: ActiveEditorRegistry
+  /**
+   * The buffer's OWN workspace id — forwarded to {@link useLspIntegration} so
+   * its `windowPaneStore` buffer lookups (open/close/completion lifecycle)
+   * key on the same workspace as `filePath`, not the ambient chat workspace.
+   */
+  workspaceId: string
   /** Active surface gate (interactive + rich services). Stable per pane mount. */
   isActiveSurface: boolean
   /** The positioned `editor-container` div (overlay parent + scroll source). */
@@ -89,6 +110,8 @@ export interface PaneLspLayerProps {
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive LSP overlay — hover/completion/diagnostics layers all bind to one editor's LSP client and position math; not separable without duplicating that binding.
 export function PaneLspLayer({
   paneId,
+  registry,
+  workspaceId,
   isActiveSurface,
   overlayContainerRef,
   mouseHandlersRef,
@@ -107,8 +130,6 @@ export function PaneLspLayer({
   const enableRichEditorServices = enableInteractiveServices
 
   // ── Active file path: from the registry (re-renders only this leaf on swap) ─
-  const workspaceStore = useWorkspaceStore()
-  const registry = workspaceStore.activeEditorRegistry
   const [filePath, setFilePath] = useState(() => registry.get(paneId)?.filePath ?? '')
   useEffect(() => {
     return registry.subscribe(paneId, (ctx) => setFilePath(ctx?.filePath ?? ''))
@@ -143,11 +164,11 @@ export function PaneLspLayer({
   // work (in-file search) — without subscribing content into render. LSP reads
   // content on demand through `getValue` (passed to useLspIntegration).
   const readActiveContent = useCallback(() => {
-    const state = workspaceStore.getState()
-    const bufferId = state.panes[paneId]?.activeBufferId ?? null
+    const state = windowPaneStore.getState()
+    const bufferId = state.panes[paneId]?.activeEditorTabId ?? null
     const buffer = bufferId ? state.buffers.find((b) => b.id === bufferId) : null
     return buffer && hasTextContent(buffer) ? buffer.content : ''
-  }, [workspaceStore, paneId])
+  }, [paneId])
   const getValue = useCallback(() => valueRef.current, [])
   // Seed the ref synchronously on first render so the first LSP/search run has
   // the current content even before the subscription's first emit.
@@ -158,14 +179,14 @@ export function PaneLspLayer({
   useEffect(() => {
     valueRef.current = readActiveContent()
     let previous = valueRef.current
-    return workspaceStore.subscribe(() => {
+    return windowPaneStore.subscribe(() => {
       const next = readActiveContent()
       if (next === previous) return
       previous = next
       valueRef.current = next
       onContentChangeRef.current?.()
     })
-  }, [workspaceStore, readActiveContent])
+  }, [readActiveContent])
 
   const zoomLevel = useZoomStore.use.editorZoomLevel()
   const settings = useSettingsStore((s) => s.settings)
@@ -191,8 +212,9 @@ export function PaneLspLayer({
     getValue,
     editorRef: overlayContainerRef,
     resolveEditorPosition,
+    workspaceId,
   })
-  const rename = useRename(enableRichEditorServices ? filePath : undefined)
+  const rename = useRename(enableRichEditorServices ? filePath : undefined, paneId)
   const codeLenses = useCodeLens(
     enableDeferredRichServices ? filePath : undefined,
     enableDeferredRichServices,

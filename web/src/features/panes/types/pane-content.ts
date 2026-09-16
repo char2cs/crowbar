@@ -8,53 +8,64 @@ export interface TokenEntry {
 }
 
 // ── Content type discriminant ───────────────────────────────────────
+//
+// A pane's chat is PaneGroup.chatId, never a member of this union: 'agentChat'
+// and 'newTab' left it entirely when the pane gained a dedicated chat slot —
+// see pane.ts.
 
-export type PaneContentType =
+export type EditorTabContentType =
   | 'editor'
   | 'terminal'
-  | 'newTab'
   | 'commitDiff'
   | 'markdownPreview'
   | 'htmlPreview'
   | 'csvPreview'
   | 'externalEditor'
   | 'branchReview'
-  | 'agentChat'
 
 /** Every content type this build can render.
  *
  *  A saved layout outlives the code that wrote it, so the restore path checks
  *  a persisted buffer's type against this set and drops what it no longer
  *  knows — see stripNewTabs in persisted-layout.ts. */
-export const PANE_CONTENT_TYPES: ReadonlySet<PaneContentType> = new Set<PaneContentType>([
+export const PANE_CONTENT_TYPES: ReadonlySet<EditorTabContentType> = new Set<EditorTabContentType>([
   'editor',
   'terminal',
-  'newTab',
   'commitDiff',
   'markdownPreview',
   'htmlPreview',
   'csvPreview',
   'externalEditor',
   'branchReview',
-  'agentChat',
 ])
 
-// ── Base fields shared by every content type ────────────────────────
+// ── Base fields shared by every editor-tab content type ─────────────
 
-interface PaneContentBase {
+export interface EditorTabBase {
   id: string
-  type: PaneContentType
-  path: string
+  type: EditorTabContentType
+  path?: string
   name: string
-  isPinned: boolean
-  isPreview: boolean
-  isActive: boolean
+  isPinned?: boolean
+  isPreview?: boolean
   isUncloseable?: boolean
+  /**
+   * The workspace this tab's content belongs to. Load-bearing since Task 26
+   * hoisted `buffers`/`panes` out of the per-workspace store registry into
+   * one window-level store: `path` is workspace-RELATIVE (a sibling worktree
+   * can hold a different file at the same path), so once every workspace's
+   * buffers share one flat list, this field is the only thing that keeps
+   * "src/foo.ts in workspace A" from being confused with "src/foo.ts in
+   * workspace B" — in dedup (`openContent`), disk reconciliation
+   * (`external-buffer-sync.ts`, `hydrate.ts`), and per-workspace teardown
+   * (`destroyWorkspaceStore`'s terminal-detach/blame-clear/history-cleanup).
+   */
+  workspaceId: string
 }
 
 // ── Per-type content definitions ────────────────────────────────────
 
-export interface EditorContent extends PaneContentBase {
+export interface EditorContent extends EditorTabBase {
   type: 'editor'
   content: string
   savedContent: string
@@ -77,7 +88,7 @@ export interface EditorContent extends PaneContentBase {
   tokens: TokenEntry[]
 }
 
-export interface TerminalContent extends PaneContentBase {
+export interface TerminalContent extends EditorTabBase {
   type: 'terminal'
   sessionId: string
   initialCommand?: string
@@ -85,68 +96,41 @@ export interface TerminalContent extends PaneContentBase {
   remoteConnectionId?: string
 }
 
-export interface NewTabContent extends PaneContentBase {
-  type: 'newTab'
-}
-
 /** One commit's diff, rendered on the same windowed surface as the branch
  *  review. It carries the SHA, not the diff: the payload is fetched per file as
  *  the viewport reaches it, so a tab costs the same whether the commit changed
  *  three lines or a million. */
-export interface CommitDiffContent extends PaneContentBase {
+export interface CommitDiffContent extends EditorTabBase {
   type: 'commitDiff'
   wsId: string
   sha: string
 }
 
-export interface MarkdownPreviewContent extends PaneContentBase {
+export interface MarkdownPreviewContent extends EditorTabBase {
   type: 'markdownPreview'
   content: string
   sourceFilePath: string
 }
 
-export interface HtmlPreviewContent extends PaneContentBase {
+export interface HtmlPreviewContent extends EditorTabBase {
   type: 'htmlPreview'
   content: string
   sourceFilePath: string
 }
 
-export interface CsvPreviewContent extends PaneContentBase {
+export interface CsvPreviewContent extends EditorTabBase {
   type: 'csvPreview'
   content: string
   sourceFilePath: string
 }
 
-export interface ExternalEditorContent extends PaneContentBase {
+export interface ExternalEditorContent extends EditorTabBase {
   type: 'externalEditor'
   terminalConnectionId: string
 }
 
-export interface BranchReviewContent extends PaneContentBase {
+export interface BranchReviewContent extends EditorTabBase {
   type: 'branchReview'
-  wsId: string
-}
-
-// An agent-chat tab is a VIEWPORT on a moving target, so BOTH of its identity
-// fields are mutable — see repointAgentChatBuffer (buffer-slice).
-//
-//  - the RUNNER (the vendor-CLI process) moves to another chat when the user types
-//    /clear or /resume inside the CLI: chatId is re-pointed and the tab relabels,
-//    while the terminal — keyed by the runner's unchanged PTY — never remounts.
-//    That is the whole feature: the conversation changes without the terminal
-//    changing.
-//  - a DORMANT chat that is Resumed gets a brand-new runner: runnerId is
-//    re-pointed and the tab re-attaches to that runner's PTY.
-//
-// Neither id is stable for the life of the tab, and pinning either one is exactly
-// the bug this shape replaces (a pane pinned to a chatId showed "this agent has
-// exited" while its CLI was alive and well in another chat).
-export interface AgentChatContent extends PaneContentBase {
-  type: 'agentChat'
-  /** The chat this tab is SHOWING right now. Follows the runner when it moves. */
-  chatId: string
-  /** The runner this tab is FOLLOWING, or '' when the chat is dormant (no CLI). */
-  runnerId: string
   wsId: string
 }
 
@@ -155,14 +139,12 @@ export interface AgentChatContent extends PaneContentBase {
 export type PaneContent =
   | EditorContent
   | TerminalContent
-  | NewTabContent
   | CommitDiffContent
   | MarkdownPreviewContent
   | HtmlPreviewContent
   | CsvPreviewContent
   | ExternalEditorContent
   | BranchReviewContent
-  | AgentChatContent
 
 // ── Type guards ─────────────────────────────────────────────────────
 
@@ -178,10 +160,6 @@ export function isCommitDiffContent(c: PaneContent): c is CommitDiffContent {
   return c.type === 'commitDiff'
 }
 
-export function isAgentChatContent(c: PaneContent): c is AgentChatContent {
-  return c.type === 'agentChat'
-}
-
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /** Content types that represent real files on disk and should be persisted to session. */
@@ -190,12 +168,10 @@ export function isPersistableContent(c: PaneContent): c is EditorContent {
 }
 
 /** Content types that are virtual (not backed by a real file on disk). */
-const VIRTUAL_TYPES: ReadonlySet<PaneContentType> = new Set([
+const VIRTUAL_TYPES: ReadonlySet<EditorTabContentType> = new Set([
   'terminal',
-  'newTab',
   'branchReview',
   'commitDiff',
-  'agentChat',
 ])
 
 export function isVirtualContent(c: PaneContent): boolean {
@@ -223,7 +199,7 @@ export function shouldStartLsp(c: PaneContent): c is EditorContent {
 
 // ── Open spec (input to openContent) ────────────────────────────────
 
-export type OpenContentSpec =
+export type OpenEditorTabSpec =
   | {
       type: 'editor'
       path: string
@@ -232,6 +208,8 @@ export type OpenContentSpec =
       isVirtual?: boolean
       isPreview?: boolean
       language?: string
+      /** Defaults to the active workspace when omitted — see EditorTabBase.workspaceId. */
+      workspaceId?: string
     }
   | {
       type: 'terminal'
@@ -241,13 +219,14 @@ export type OpenContentSpec =
       remoteConnectionId?: string
       sessionId?: string
       path?: string
+      workspaceId?: string
     }
-  | { type: 'newTab' }
   | {
       type: 'commitDiff'
       wsId: string
       sha: string
       name: string
+      workspaceId?: string
     }
   | {
       type: 'markdownPreview'
@@ -255,6 +234,7 @@ export type OpenContentSpec =
       name: string
       content: string
       sourceFilePath: string
+      workspaceId?: string
     }
   | {
       type: 'htmlPreview'
@@ -262,6 +242,7 @@ export type OpenContentSpec =
       name: string
       content: string
       sourceFilePath: string
+      workspaceId?: string
     }
   | {
       type: 'csvPreview'
@@ -269,28 +250,20 @@ export type OpenContentSpec =
       name: string
       content: string
       sourceFilePath: string
+      workspaceId?: string
     }
   | {
       type: 'externalEditor'
       path: string
       name: string
       terminalConnectionId: string
+      workspaceId?: string
     }
   | {
       type: 'branchReview'
       wsId: string
       name: string
-    }
-  | {
-      type: 'agentChat'
-      chatId: string
-      wsId: string
-      name: string
-      /** The runner on the chat at open time, when the caller happens to know it.
-       *  Optional because it is never load-bearing: the pane adopts whatever runner
-       *  its chat actually has, so a tab opened with '' (or with an id that has
-       *  since died) converges on the truth by itself. */
-      runnerId?: string
+      workspaceId?: string
     }
 
 // ── Buffer history / dialog state (used by workspace store) ─────────
@@ -299,6 +272,7 @@ export interface ClosedBuffer {
   path: string
   name: string
   isPinned: boolean
+  workspaceId: string
 }
 
 export interface PendingClose {

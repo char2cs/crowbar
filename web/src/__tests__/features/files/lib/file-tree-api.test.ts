@@ -7,7 +7,7 @@ const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 
 vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
 vi.mock('@/lib/workspace-scope-url', () => ({
-  workspaceBase: (wsId: string) => `/v0/ws/${wsId}`,
+  filesBaseForWorkspace: (wsId: string) => `/v0/chats/chat-for-${wsId}/files`,
 }))
 
 import {
@@ -26,7 +26,7 @@ beforeEach(() => {
 describe('file-tree-api mutations', () => {
   it('createFileNode POSTs {path, type:"file"}', async () => {
     await createFileNode('ws1', 'src/new.ts', 'file')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/ws1/files', {
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-for-ws1/files', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: 'src/new.ts', type: 'file' }),
@@ -40,7 +40,7 @@ describe('file-tree-api mutations', () => {
 
   it('renameFileNode PATCHes {path, newPath}', async () => {
     await renameFileNode('ws1', 'a.ts', 'b.ts')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/ws1/files', {
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-for-ws1/files', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: 'a.ts', newPath: 'b.ts' }),
@@ -49,7 +49,7 @@ describe('file-tree-api mutations', () => {
 
   it('deleteFileNode DELETEs {path}', async () => {
     await deleteFileNode('ws1', 'gone.ts')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/ws1/files', {
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-for-ws1/files', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: 'gone.ts' }),
@@ -58,7 +58,7 @@ describe('file-tree-api mutations', () => {
 
   it('writeFileContent PUTs {path, content} as UTF-8 by default (no encoding field)', async () => {
     await writeFileContent('ws1', 'a.ts', 'hi')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/ws1/files/content', {
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-for-ws1/files/content', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: 'a.ts', content: 'hi' }),
@@ -82,7 +82,7 @@ describe('copyFileNode', () => {
     await copyFileNode('ws1', 'img.png', 'img copy.png')
 
     expect(apiFetch).toHaveBeenCalledTimes(1)
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/ws1/files/copy', {
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-for-ws1/files/copy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sourcePath: 'img.png', destPath: 'img copy.png' }),

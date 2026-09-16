@@ -21,21 +21,25 @@ type TerminalProfileDTO struct {
 }
 
 // TerminalSessionDTO is the wire shape of a PTY session's lifecycle (00 §5.6):
-// the hierarchical entity ids, the launch profile, the
-// active|detached|suspended|ended status, and the creation/termination
-// timestamps. It is the Broadcaster[TerminalSessionDTO] payload; the raw PTY
-// byte stream is a separate, non-broadcast WebSocket. ExitCode is only present
-// on "ended" frames where the exit code is known (>=0).
+// the owning chat, the launch profile, the active|detached|suspended|ended
+// status, and the creation/termination timestamps. It is the
+// Broadcaster[TerminalSessionDTO] payload; the raw PTY byte stream is a
+// separate, non-broadcast WebSocket. ExitCode is only present on "ended"
+// frames where the exit code is known (>=0).
+//
+// ChatID is the ONLY id here, and it is also the broadcast topic key. The
+// former projectId/repoId/workspaceId triple is gone: under the flat
+// /v0/chats/:chatId/terminals route none of the three appears in the URL, and
+// a workspace id on the wire is exactly what spec §6 rejected — a resource a
+// consumer could name independently of any chat.
 type TerminalSessionDTO struct {
-	ID          string     `json:"id"`
-	ProjectID   string     `json:"projectId"`
-	RepoID      string     `json:"repoId"`
-	WorkspaceID string     `json:"workspaceId"`
-	ProfileID   string     `json:"profileId,omitempty"`
-	Status      string     `json:"status"`
-	ExitCode    *int       `json:"exitCode,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	EndedAt     *time.Time `json:"endedAt,omitempty"`
+	ID        string     `json:"id"`
+	ChatID    string     `json:"chatId"`
+	ProfileID string     `json:"profileId,omitempty"`
+	Status    string     `json:"status"`
+	ExitCode  *int       `json:"exitCode,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
 }
 
 // TerminalProfileDTOFrom converts a domain TerminalProfile into its wire DTO,
@@ -69,39 +73,33 @@ func TerminalProfileDTOList(
 	return out
 }
 
-// TerminalSessionDTOFrom builds a lifecycle DTO from a session id and its
-// hierarchical scope. Terminal sessions are ephemeral (D6: no terminal_sessions
+// TerminalSessionDTOFrom builds a lifecycle DTO from a session id and the chat
+// that owns it. Terminal sessions are ephemeral (D6: no terminal_sessions
 // view.db), so the DTO is assembled from the in-memory engine registry plus the
 // resolving path context rather than a domain row. EndedAt stays nil; the
 // "ended" frame is stamped by the caller when a session terminates.
 func TerminalSessionDTOFrom(
 	sessionID string,
-	workspaceID string,
-	projectID string,
-	repoID string,
+	chatID string,
 	profileID string,
 	status string,
 	createdAt time.Time,
 ) TerminalSessionDTO {
 	return TerminalSessionDTO{
-		ID:          sessionID,
-		WorkspaceID: workspaceID,
-		ProjectID:   projectID,
-		RepoID:      repoID,
-		ProfileID:   profileID,
-		Status:      status,
-		CreatedAt:   createdAt,
+		ID:        sessionID,
+		ChatID:    chatID,
+		ProfileID: profileID,
+		Status:    status,
+		CreatedAt: createdAt,
 	}
 }
 
-// TerminalSessionDTOList converts the in-memory session ids for a workspace into
-// lifecycle DTOs sharing the same scope, returning a non-nil slice so the
-// envelope carries [] rather than null when the workspace has no live sessions.
+// TerminalSessionDTOList converts the in-memory session ids owned by one chat
+// into lifecycle DTOs sharing that chat, returning a non-nil slice so the
+// envelope carries [] rather than null when the chat has no live sessions.
 func TerminalSessionDTOList(
 	sessionIDs []string,
-	workspaceID string,
-	projectID string,
-	repoID string,
+	chatID string,
 	profileID string,
 	status string,
 	createdAt time.Time,
@@ -110,15 +108,7 @@ func TerminalSessionDTOList(
 	for _, id := range sessionIDs {
 		out = append(
 			out,
-			TerminalSessionDTOFrom(
-				id,
-				workspaceID,
-				projectID,
-				repoID,
-				profileID,
-				status,
-				createdAt,
-			),
+			TerminalSessionDTOFrom(id, chatID, profileID, status, createdAt),
 		)
 	}
 	return out

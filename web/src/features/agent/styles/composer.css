@@ -653,12 +653,10 @@
 }
 
 /* ── the blank chat's document ─────────────────────────── */
-/* Its own measure, but not its own size: this used to sit at 16px/1.7 while the
-   transcript read at 14px, deliberately disagreeing "drafting" from "reading."
-   That size call is now overridden — the empty document reads at the exact
-   size rendered turn output uses (`.agent-prose`, transcript.css), so nothing
-   about the type changes once the first turn lands. Only the 720px measure
-   stays this surface's own. */
+/* Its own measure, but the transcript's size: this reads at 14px/1.7, the
+   same as `.agent-prose` (transcript.css). What you draft and what you then
+   read back are one continuous text — the type must not resize under you the
+   moment the first turn lands. Only the 720px measure is this surface's own. */
 .agent-chat .docwrap {
   position: relative;
   flex: 1;
@@ -679,8 +677,19 @@
   pointer-events: none;
 }
 .agent-chat .doc {
-  --pad: max(40px, calc((100% - 720px) / 2));
+  --pad: max(22px, calc((100% - 720px) / 2));
   padding: 48px var(--pad) 96px;
+  /* Overrides just the top value above. The blank document is TOP-anchored
+     (unlike the transcript's bottom-anchored `.scroll`), so its first line
+     always renders at this fixed offset — no scrolling makes it visible
+     later, it is obstructed the instant the overlay chat header floats over
+     it. `--agent-header-clearance` is the same value agent-chat-pane.tsx
+     already computes for its own pinned banners, set on the `.agent-chat`
+     ancestor and inherited here. agent-empty-document.tsx's `lastLineTop`
+     fallback (`firstLineTop`) has to agree with this exact offset for a
+     genuinely empty document, where there is no rendered line to measure
+     instead. */
+  padding-top: calc(48px + var(--agent-header-clearance, 0px));
   font-size: 14px;
   line-height: 1.7;
   outline: none;
@@ -706,7 +715,7 @@
   pointer-events: none;
 }
 .agent-chat .dochandle .inner {
-  --pad: max(40px, calc((100% - 720px) / 2));
+  --pad: max(22px, calc((100% - 720px) / 2));
   display: flex;
   justify-content: flex-end;
   padding: 0 var(--pad);
@@ -744,6 +753,14 @@
    extra 5px on top of that gap instead of the tight single-family look. */
 .agent-chat .dochandle .send {
   margin-left: 0;
+}
+/* The reviving/idle/trust-wait signpost takes this same slot INSTEAD OF
+   `.grp` above — same row, same transform, never both. `.inner`'s own
+   `pointer-events: none` (it exists only to hold `.grp`'s hit-box) has to be
+   restored here too, exactly like `.grp` already restores it for itself. */
+.agent-chat .dochandle .banner {
+  width: 100%;
+  pointer-events: auto;
 }
 
 /* ── the row under the pill ────────────────────────────── */
@@ -964,7 +981,7 @@
   flex: none;
   font-size: 13px;
   font-weight: 400;
-  font-family: 'JetBrains Mono Variable', ui-monospace, monospace;
+  font-family: 'Geist Mono Variable', ui-monospace, monospace;
 }
 .agent-chat .slash .opt .d {
   flex: 1;

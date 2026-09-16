@@ -10,6 +10,10 @@
  * misses one (a visible stutter), and scrolling per pointermove ties the speed
  * to how fast the user's hand happens to be moving, which is exactly backwards
  * for reaching something they are holding still over.
+ *
+ * Restored verbatim (Task 21) from before the workspace tree/chats panel
+ * retirement (commit f119a402) — generic, tree-agnostic, and exactly what one
+ * unified drag arm needs; only its two former consumers were tree-specific.
  */
 
 /** How close to an end of the scroller starts the drag scrolling it. */

@@ -1,0 +1,1935 @@
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
+
+// Mocked so the real registry's store creation doesn't need a real
+// IndexedDB/localStorage write path — same setup recents-actions.test.ts
+// uses for exercising the real registry.
+vi.mock('@/lib/persistence/workspace-layout', () => ({
+  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
+  saveSessionToStore: vi.fn(),
+  clearQueuedWorkspaceSessionSave: vi.fn(),
+}))
+vi.mock('@/features/window/stores/toast-store', () => ({
+  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
+}))
+vi.mock('@/lib/api/sidebar-placement', () => ({
+  placeWorkspace: vi.fn().mockResolvedValue(undefined),
+  // Echoes the call's own args back as the {folder, shifted} envelope the
+  // real .../chats/folders PATCH answers with (Task 34) — fireRowPlacementCall
+  // applies `folder` straight to the sidebar store, so this has to resolve to
+  // something shaped like a real FolderDTO rather than `undefined`.
+  placeFolder: vi.fn(
+    async (
+      projectId: string,
+      repoId: string,
+      folderId: string,
+      placement: { parentId?: string; order?: number },
+    ) => ({
+      folder: {
+        id: folderId,
+        repoId,
+        projectId,
+        name: folderId,
+        parentId: placement.parentId ?? '',
+        order: placement.order ?? 0,
+      },
+      shifted: [],
+    }),
+  ),
+  // {@link placeFolder}'s home-scoped mirror — same envelope, repoId ''.
+  placeHomeFolder: vi.fn(
+    async (
+      projectId: string,
+      folderId: string,
+      placement: { parentId?: string; order?: number },
+    ) => ({
+      folder: {
+        id: folderId,
+        repoId: '',
+        projectId,
+        name: folderId,
+        parentId: placement.parentId ?? '',
+        order: placement.order ?? 0,
+      },
+      shifted: [],
+    }),
+  ),
+  // The real PATCH .../repos/:repoId answers 204 (no body) — the repo's own
+  // updated DTO rides the `repos` broadcast, never this response.
+  placeRepo: vi.fn().mockResolvedValue(undefined),
+}))
+vi.mock('@/lib/api/workspace', () => ({
+  reparentWorkspace: vi.fn(),
+}))
+vi.mock('@/features/agent/api/agent-api', () => ({
+  // Echoes the call's own args back as `{chat, shifted}` the same way
+  // `placeFolder`'s mock above does — `fireRowPlacementCall`'s 'chat' case
+  // applies `chat.parentId`/`chat.order` straight to the sidebar store now
+  // (the response used to be discarded entirely), so a mock returning `{}`
+  // for `chat` would make every one of those tests pass by accident.
+  setChatPlacement: vi.fn(
+    async (workspaceId: string, chatId: string, patch: { parentId?: string; order?: number }) => ({
+      chat: { id: chatId, workspaceId, parentId: patch.parentId ?? '', order: patch.order ?? 0 },
+      shifted: [],
+    }),
+  ),
+}))
+// `resolveHomeRowScope` (home-tree.ts) reads this to name the project a
+// resolved home row belongs to — a real async fetch+cache round trip these
+// tests have no reason to exercise.
+const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({ getHomeWorkspaceId }))
+
+import {
+  openChatInOwnPane,
+  performSidebarPaneDrop,
+  performSidebarDrop,
+} from '@/components/sidebar/lib/drop-actions'
+import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import {
+  placeWorkspace,
+  placeFolder,
+  placeHomeFolder,
+  placeRepo,
+} from '@/lib/api/sidebar-placement'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { reparentWorkspace } from '@/lib/api/workspace'
+import { setChatPlacement } from '@/features/agent/api/agent-api'
+import { toast } from '@/features/window/stores/toast-store'
+import {
+  getOrCreateWorkspaceStore,
+  destroyWorkspaceStore,
+  getAllActiveWorkspaceIds,
+  setActiveWorkspaceId,
+} from '@/features/workspace/stores/workspace-store-registry'
+import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
+import { viewIdOf } from '@/features/panes/lib/pane-views'
+import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
+import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import type { AgentChat, AgentChatFolder } from '@/features/agent/api/agent-api'
+
+/**
+ * `performSidebarDrop` — the row-to-row half of spec §8.1 (Task 33). Adapts
+ * `drop-plan.ts`'s (git show 9ad89156) container/fork-lineage math to
+ * `SidebarRow`/`SIDEBAR_DROP_POLICY`, minus its `project`/`repo` subjects and
+ * its optimistic `writes` half (this plan has no local optimistic paint).
+ *
+ * `performSidebarPaneDrop`'s own suite (below, unchanged from Task 22) covers
+ * §8.1's other two targets — the middle/edge of a PANE.
+ *
+ * `reparent-settle.test.ts` unit-tests `watchReparent` itself (the immediate/
+ * subscription/failure/timeout paths); the "waits for real confirmation"
+ * describe block below only proves it is actually WIRED into the placement
+ * sequence here.
+ */
+
+/** Which VIEW the pane holding `chatId` belongs to — the grouping fact a
+ *  merge writes and a click never shares (features/panes/lib/pane-views.ts). */
+function liveViewOf(chatId: string): string | undefined {
+  const pane = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === chatId)
+  return pane && viewIdOf(pane)
+}
+
+/** The chats of every LIVE Recents row, in band order — one row per view. */
+function liveRecents(): string[][] {
+  const { panes, dormantArrangements, recentsOrder } = windowPaneStore.getState()
+  return deriveRecentsEntries(Object.values(panes), {}, dormantArrangements, recentsOrder)
+    .filter((e) => e.state === 'live')
+    .map((e) => [...e.chatIds].sort())
+}
+
+const branchRow = (id: string, over: Partial<SidebarRow> = {}): SidebarRow => ({
+  id,
+  kind: 'branch',
+  parentId: null,
+  order: 0,
+  label: id,
+  ownsWorktree: true,
+  workspaceId: id,
+  working: false,
+  hasView: false,
+  ...over,
+})
+
+const folderRow = (id: string, over: Partial<SidebarRow> = {}): SidebarRow => ({
+  id,
+  kind: 'folder',
+  parentId: null,
+  order: 0,
+  label: id,
+  ownsWorktree: true,
+  workspaceId: null,
+  working: false,
+  hasView: false,
+  ...over,
+})
+
+const chatRow = (id: string, wsId: string, over: Partial<SidebarRow> = {}): SidebarRow => ({
+  id,
+  kind: 'chat',
+  parentId: null,
+  order: 0,
+  label: id,
+  ownsWorktree: false,
+  workspaceId: wsId,
+  working: false,
+  hasView: false,
+  ...over,
+})
+
+/**
+ * One repo, shared across the branch/folder scenarios below:
+ *
+ *   home-1 (repo header)
+ *     ws-a
+ *       ws-fork    (forked off ws-a, no folder)
+ *       folder-3   (a folder nested under ws-a)
+ *         ws-d     (forked off ws-a too, filed into folder-3)
+ *     ws-b
+ *     ws-c
+ *     folder-1
+ *     folder-2
+ */
+function makeRepo(): Repo {
+  return {
+    id: 'repo-1',
+    projectId: 'proj-1',
+    name: 'repo-1',
+    avatarLabel: 'R',
+    avatarColor: 'bg-indigo-700',
+    defaultWorkspaceId: 'home-1',
+    defaultBranch: 'main',
+    workspaces: [
+      { id: 'ws-a', branch: 'a', age: '', order: 0 },
+      { id: 'ws-b', branch: 'b', age: '', order: 1 },
+      { id: 'ws-c', branch: 'c', age: '', order: 2 },
+      { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
+      { id: 'ws-d', branch: 'd', age: '', order: 0, parentId: 'ws-a', folderId: 'folder-3' },
+    ],
+    folders: [
+      { id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 3 },
+      { id: 'folder-2', repoId: 'repo-1', name: 'Chores', order: 4 },
+      { id: 'folder-3', repoId: 'repo-1', name: 'Nested', parentId: 'ws-a', order: 1 },
+    ],
+  }
+}
+
+/** Simulates the WS frame a real reparent lands on success: a fresh
+ *  `Workspace` object reporting the new `parentId`. */
+function confirmReparent(wsId: string, parentId: string): void {
+  useSidebarStore.setState((s) => ({
+    repos: s.repos.map((r) => ({
+      ...r,
+      workspaces: r.workspaces.map((w) => (w.id === wsId ? { ...w, parentId } : w)),
+    })),
+  }))
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  useSidebarStore.setState({ ...getInitialState(), repos: [makeRepo()] })
+  useRemovalTrayStore.setState(getInitialRemovalState())
+  useHomeTreeStore.setState({ trees: {} })
+  setActiveWorkspaceId('ws-1')
+  // Default: the reparent POST's background job "succeeds" and its
+  // confirming WS frame lands essentially at once — most tests below care
+  // about the PLACEMENT sequencing this unblocks, not the settle mechanism
+  // itself. The dedicated "waits for real confirmation"/"refusal" tests
+  // below override this per-call to prove the wait is real.
+  vi.mocked(reparentWorkspace).mockImplementation(async (wsId, parentId) => {
+    confirmReparent(wsId, parentId)
+  })
+})
+
+afterEach(() => {
+  getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
+  // Task 26: panes/buffers are a window-level singleton now, never destroyed
+  // by destroyWorkspaceStore — reset it to a pristine store between tests.
+  resetWindowPaneStoreForTests()
+  // `recentsOrder` isn't in `resetWindowPaneStoreForTests`'s own field list
+  // (that helper predates it) — cleared explicitly here so a reorder written
+  // in one test can't leak an id into the next one's assertions.
+  windowPaneStore.setState({ recentsOrder: [] })
+})
+
+describe('performSidebarDrop — reordering (no lineage change)', () => {
+  it('reorders a workspace among its current siblings — one placement call, no reparent', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('ws-a', { parentId: 'home-1' }),
+      'before',
+    )
+
+    expect(placeWorkspace).toHaveBeenCalledTimes(1)
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-c', {
+      folderId: '',
+      order: 0,
+    })
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('reorders a folder among its siblings the same way', async () => {
+    await performSidebarDrop(
+      [folderRow('folder-2')],
+      folderRow('folder-1', { parentId: 'home-1' }),
+      'before',
+    )
+
+    expect(placeFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'folder-2', {
+      parentId: '',
+      order: 3,
+    })
+  })
+})
+
+describe('performSidebarDrop — filing into a folder', () => {
+  it('drops a workspace into a folder — folder edge written, no lineage change', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      folderRow('folder-1', { parentId: 'home-1' }),
+      'into',
+    )
+
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
+      folderId: 'folder-1',
+      order: 0,
+    })
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+  })
+})
+
+describe('performSidebarDrop — clearing a stale folder edge', () => {
+  it('landing directly under the current fork parent drops the folder edge, with no lineage change', async () => {
+    // ws-d already forks off ws-a and sits filed in folder-3 (also under
+    // ws-a). Dropped directly INTO ws-a itself, its lineage does not
+    // change (ws-a was already its fork parent) but the folder edge must
+    // still be explicitly cleared.
+    await performSidebarDrop([branchRow('ws-d')], branchRow('ws-a', { parentId: 'home-1' }), 'into')
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    // ws-a's own children are [ws-fork, folder-3] — landing "into" ws-a
+    // appends after both.
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-d', {
+      folderId: '',
+      order: 2,
+    })
+  })
+})
+
+// TestRegression: `makeRepo()`'s own fixture wires no workspace's
+// `owningChatId`, so the two tests above never exercise the branch that
+// actually resolves one — `directFolderId`'s old `?? ''` fallback and its
+// correct resolved value are indistinguishable there. A real fork's own
+// locked-branch parent DOES carry one (every workspace mints its Node the
+// instant it's created — place_workspace.go's own doc), and Node.ParentID
+// for a row sitting directly under it is that OWNING CHAT's id, never bare
+// ''. Sending '' filed the row at the true project root — a different level
+// entirely — caught live: dragging a fork past a sibling fork under the
+// SAME locked branch PATCHed 200, the write landed, and the panel never
+// showed the reorder because the row had just left that branch's own level.
+describe('performSidebarDrop — folder edge for a workspace container that owns a chat', () => {
+  it("landing directly under a workspace container writes that workspace's OWNING CHAT id, never bare ''", async () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          ...makeRepo(),
+          workspaces: [
+            { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' },
+            { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
+            { id: 'ws-e', branch: 'e', age: '', order: 1, parentId: 'ws-a' },
+          ],
+        },
+      ],
+    })
+
+    await performSidebarDrop(
+      [branchRow('ws-fork')],
+      branchRow('ws-e', { parentId: 'ws-a' }),
+      'before',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { folderId: 'chat-a', order: 1 })
+  })
+})
+
+describe('performSidebarDrop — crossing a fork parent', () => {
+  it('reparents before placing when the destination is under a different fork parent', async () => {
+    // ws-fork currently hangs off ws-a; dropped INTO ws-b it must rebase.
+    await performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
+
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'ws-b')
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { order: 0 })
+    expect(vi.mocked(reparentWorkspace).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(placeWorkspace).mock.invocationCallOrder[0],
+    )
+  })
+
+  it('dropping "after" an EXPANDED row with children re-parents as its first child', async () => {
+    // ws-a is expanded by default (nothing folded) and has children, so the
+    // gap right under it is the first-child slot, not a sibling-after
+    // reorder.
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      branchRow('ws-a', { parentId: 'home-1' }),
+      'after',
+    )
+
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a')
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', { order: 0 })
+  })
+
+  it('the same "after" drop on a COLLAPSED row is a plain sibling reorder instead', async () => {
+    useSidebarStore.setState({ collapsedChatRows: new Set(['ws-a']) })
+
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      branchRow('ws-a', { parentId: 'home-1' }),
+      'after',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    // ws-a sits at index 0 among the root siblings, so "after" it is index 1.
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
+      folderId: '',
+      order: 1,
+    })
+  })
+
+  it('reparenting onto the repo home row rebases onto the repo checkout itself', async () => {
+    // ws-fork forks off ws-a; dropped onto the repo's own header it must
+    // rebase onto the (hidden-from-the-tree) default workspace, same as the
+    // old root-drop path.
+    await performSidebarDrop(
+      [branchRow('ws-fork')],
+      branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+      'into',
+    )
+
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'home-1')
+    // Root-level siblings (5 of them) plus this one landing at the end.
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { order: 5 })
+  })
+})
+
+describe('performSidebarDrop — waits for a real reparent confirmation, not just the 202', () => {
+  it('does not fire the placement call until a WS frame actually confirms the new parentId', async () => {
+    // This one call resolves the POST with no confirming side effect —
+    // exactly what the real 202-then-background-job endpoint does.
+    vi.mocked(reparentWorkspace).mockResolvedValueOnce(undefined)
+
+    const done = performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
+
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'ws-b')
+    // The POST resolved, but nothing has confirmed the move landed yet.
+    expect(placeWorkspace).not.toHaveBeenCalled()
+
+    confirmReparent('ws-fork', 'ws-b')
+    await done
+
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { order: 0 })
+  })
+
+  it('a server-side refusal (lastError set, e.g. guardReparent declining) surfaces as toast.error — the placement call never fires', async () => {
+    vi.mocked(reparentWorkspace).mockResolvedValueOnce(undefined)
+
+    const done = performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Simulate the background job's own refusal landing on the entity —
+    // this is the ONLY channel `guardReparent`'s error reaches.
+    useSidebarStore.setState((s) => ({
+      repos: s.repos.map((r) => ({
+        ...r,
+        workspaces: r.workspaces.map((w) =>
+          w.id === 'ws-fork' ? { ...w, lastError: 'workspace has fork children' } : w,
+        ),
+      })),
+    }))
+    await done
+
+    expect(placeWorkspace).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalledWith(
+      'reparent of ws-fork failed: workspace has fork children',
+    )
+  })
+
+  // Caught live: dragging a chat onto a branch row the sidebar can show
+  // before its worktree is ever checked out surfaced the raw Go usecase
+  // string verbatim — "reparent of <id> failed: usecases: parent branch is
+  // not yet provisioned" — as the entire toast. `guardReparent`'s refusal is
+  // correct; only the message reaching the user needed to stop being one.
+  it('a reparent onto an unprovisioned branch translates the raw Go error into a clear message', async () => {
+    vi.mocked(reparentWorkspace).mockResolvedValueOnce(undefined)
+
+    const done = performSidebarDrop([branchRow('ws-fork')], branchRow('ws-b'), 'into')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    useSidebarStore.setState((s) => ({
+      repos: s.repos.map((r) => ({
+        ...r,
+        workspaces: r.workspaces.map((w) =>
+          w.id === 'ws-fork'
+            ? { ...w, lastError: 'usecases: parent branch is not yet provisioned' }
+            : w,
+        ),
+      })),
+    }))
+    await done
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "That branch hasn't been checked out yet — try again once it has",
+    )
+  })
+})
+
+describe('performSidebarDrop — multi-row moves', () => {
+  it('fires each call in order, awaiting the previous one before the next starts', async () => {
+    let resolveFirst!: () => void
+    const pending = new Promise<void>((resolve) => {
+      resolveFirst = resolve
+    })
+    vi.mocked(placeWorkspace).mockImplementationOnce(() => pending)
+
+    const done = performSidebarDrop(
+      [branchRow('ws-b'), branchRow('ws-c')],
+      branchRow('ws-a', { parentId: 'home-1' }),
+      'before',
+    )
+
+    // Let every already-settled microtask run without advancing past the
+    // still-pending first call.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(placeWorkspace).toHaveBeenCalledTimes(1)
+
+    resolveFirst()
+    await done
+
+    expect(placeWorkspace).toHaveBeenCalledTimes(2)
+    expect(placeWorkspace).toHaveBeenNthCalledWith(1, 'ws-b', {
+      folderId: '',
+      order: 0,
+    })
+    expect(placeWorkspace).toHaveBeenNthCalledWith(2, 'ws-c', {
+      folderId: '',
+      order: 1,
+    })
+  })
+})
+
+describe('performSidebarDrop — failures', () => {
+  it('a failed API call produces a toast.error, not a thrown exception', async () => {
+    vi.mocked(placeWorkspace).mockRejectedValueOnce(new Error('locked'))
+
+    await expect(
+      performSidebarDrop([branchRow('ws-c')], branchRow('ws-a', { parentId: 'home-1' }), 'before'),
+    ).resolves.toBeUndefined()
+
+    expect(toast.error).toHaveBeenCalledWith('locked')
+  })
+})
+
+describe('performSidebarDrop — the repo home row', () => {
+  // Without `repoIcon` this row is indistinguishable from an ordinary branch
+  // that merely shares the home workspace's id — `planTreeRowDrop`'s own
+  // early return (it is not a member of `repo.workspaces`) is the fallback
+  // that keeps THAT case a no-op rather than constructing a bogus
+  // `placeWorkspace` call. A row carrying `repoIcon` (see the describe block
+  // below) takes an entirely different path now.
+  it('a workspace-kind row sharing the home id but carrying no repoIcon is a no-op', async () => {
+    await expect(
+      performSidebarDrop(
+        [branchRow('home-1', { parentId: null, workspaceId: 'home-1' })],
+        branchRow('ws-a', { parentId: 'home-1' }),
+        'after',
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(placeWorkspace).not.toHaveBeenCalled()
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    expect(placeRepo).not.toHaveBeenCalled()
+  })
+
+  it('dropping directly into the home row is the same as landing at the repo root', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+      'into',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    // Root siblings minus ws-b itself: ws-a, ws-c, folder-1, folder-2 — ws-b
+    // lands after all four.
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
+      folderId: '',
+      order: 4,
+    })
+  })
+
+  it('dropping "after" the EXPANDED home row lands as the FIRST root-level row, not the last', async () => {
+    // The home row is a row like any other, but it is not a node in
+    // `buildSidebarTree`'s own graph — its rendered children ARE the
+    // tree's roots. Naively reusing `findNode` for it would always report
+    // zero children and silently turn this into an append-at-the-end.
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+      'after',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-c', {
+      folderId: '',
+      order: 0,
+    })
+  })
+})
+
+describe('performSidebarDrop — unresolvable rows', () => {
+  it('a target the live store does not recognise is a no-op, not a throw', async () => {
+    useSidebarStore.setState({ repos: [] })
+
+    await expect(
+      performSidebarDrop([branchRow('ws-a')], branchRow('ghost'), 'before'),
+    ).resolves.toBeUndefined()
+
+    expect(placeWorkspace).not.toHaveBeenCalled()
+  })
+})
+
+describe('performSidebarDrop — removal-tray hold', () => {
+  it('plans against the removal-filtered tree the user actually saw, not the raw store', async () => {
+    // ws-a's own children (ws-fork, folder-3 holding ws-d) are all held for
+    // removal — hidden from the tree, but still sitting in the raw store
+    // until the hold either commits or is cancelled.
+    useRemovalTrayStore.setState({ hiddenIds: new Set(['ws-fork', 'folder-3', 'ws-d']) })
+
+    // Planned against the RAW repos, ws-a would still read as having
+    // children and — expanded — "after" it would reparent ws-b as its
+    // first child. Filtered the way the user actually saw the tree, ws-a
+    // has no visible children left, so this is a plain sibling reorder.
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      branchRow('ws-a', { parentId: 'home-1' }),
+      'after',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    // Root siblings minus ws-b: ws-a, ws-c, folder-1, folder-2 — "after"
+    // ws-a (index 0) is index 1.
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
+      folderId: '',
+      order: 1,
+    })
+  })
+})
+
+// ── Chats: `AgentChat`'s own placement, not `placeWorkspace`/`placeFolder` ──
+
+const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentChat => ({
+  id,
+  workspaceId: wsId,
+  title: id,
+  liveRunnerId: '',
+  terminalSessionId: '',
+  activeProviderId: 'claude',
+  createdAt: '2026-01-01T00:00:00Z',
+  order: 0,
+  parentId: '',
+  ...over,
+})
+
+const chatFolder = (
+  id: string,
+  wsId: string,
+  over: Partial<AgentChatFolder> = {},
+): AgentChatFolder => ({
+  id,
+  workspaceId: wsId,
+  name: id,
+  parentId: '',
+  order: 0,
+  ...over,
+})
+
+describe('performSidebarDrop — chats', () => {
+  it('reorders a chat among its siblings in its own workspace via setChatPlacement', async () => {
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store
+      .getState()
+      .seedAgentChats([
+        chat('chat-a', 'ws-x', { order: 0 }),
+        chat('chat-b', 'ws-x', { order: 1 }),
+        chat('chat-c', 'ws-x', { order: 2 }),
+      ])
+
+    await performSidebarDrop([chatRow('chat-c', 'ws-x')], chatRow('chat-a', 'ws-x'), 'before')
+
+    expect(setChatPlacement).toHaveBeenCalledWith('ws-x', 'chat-c', { parentId: '', order: 0 })
+    expect(placeWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('dropping a chat "into" another chat makes it one of its threads', async () => {
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into')
+
+    expect(setChatPlacement).toHaveBeenCalledWith('ws-x', 'chat-b', {
+      parentId: 'chat-a',
+      order: 0,
+    })
+  })
+
+  // Reported live as "can't parent a chat into a folder": the PATCH always
+  // succeeded (confirmed live — the daemon had the chat under its new
+  // parent, survived a reload) but nothing on screen ever moved, because
+  // `setChatPlacement`'s own response used to be discarded here entirely —
+  // the sidebar tree's own `repos` (what `rowsFromRepo` actually reads,
+  // separate from the per-workspace agent-chats store the other tests in
+  // this block seed) was never told. Pins the fix: the response is now
+  // applied straight to `useSidebarStore`, and the SAME repo/workspace
+  // `folder-signal.ts` bump the folder case already gets, so a later
+  // unrelated reseed reads this move back instead of reverting it.
+  it('applies its own setChatPlacement response directly to the sidebar tree store', async () => {
+    useSidebarStore.setState((s) => ({
+      repos: [
+        ...s.repos,
+        {
+          id: 'repo-chat-x',
+          projectId: 'proj-1',
+          name: 'repo-chat-x',
+          avatarLabel: 'X',
+          avatarColor: 'bg-indigo-700',
+          defaultWorkspaceId: 'ws-x',
+          workspaces: [],
+          chats: [
+            { id: 'chat-c', repoId: 'repo-chat-x', workspaceId: 'ws-x', title: 'c', order: 2 },
+          ],
+        },
+      ],
+    }))
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store
+      .getState()
+      .seedAgentChats([
+        chat('chat-a', 'ws-x', { order: 0 }),
+        chat('chat-b', 'ws-x', { order: 1 }),
+        chat('chat-c', 'ws-x', { order: 2 }),
+      ])
+    const bumpSpy = vi.spyOn(useFolderSignalStore.getState(), 'bump')
+
+    await performSidebarDrop([chatRow('chat-c', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into')
+
+    const patched = useSidebarStore
+      .getState()
+      .repos.find((r) => r.id === 'repo-chat-x')
+      ?.chats?.find((c) => c.id === 'chat-c')
+    expect(patched).toMatchObject({ parentId: 'chat-a', order: 0 })
+    expect(bumpSpy).toHaveBeenCalledWith('repo-chat-x')
+  })
+
+  it('computes the insert index against the REAL sibling order, not a raw [...chats, ...folders] concat', async () => {
+    // Real order (`compareSiblings`: order ascending, folders above chats on
+    // a tie): folder-z(0), chat-x(1), chat-y(2). A naive concat instead
+    // pushes every folder after every chat regardless of `order`, seeing
+    // [chat-x, chat-y, folder-z] — a DIFFERENT list, so a DIFFERENT index.
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store
+      .getState()
+      .seedAgentChats([chat('chat-x', 'ws-x', { order: 1 }), chat('chat-y', 'ws-x', { order: 2 })])
+    store.getState().seedAgentChatFolders([chatFolder('folder-z', 'ws-x', { order: 0 })])
+
+    await performSidebarDrop([chatRow('chat-x', 'ws-x')], chatRow('chat-y', 'ws-x'), 'before')
+
+    // Real siblings minus chat-x: [folder-z, chat-y] — "before" chat-y is
+    // index 1. (The naive concat would have computed 0.)
+    expect(setChatPlacement).toHaveBeenCalledWith('ws-x', 'chat-x', { parentId: '', order: 1 })
+  })
+
+  it('refuses a chat dropped onto a target in a different workspace — no placement endpoint can move it', async () => {
+    await expect(
+      performSidebarDrop([chatRow('c1', 'ws-x')], chatRow('c2', 'ws-y'), 'before'),
+    ).resolves.toBeUndefined()
+
+    expect(setChatPlacement).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalled()
+  })
+
+  it('a chat dropped onto a branch row is a no-op — a branch is not one of a chat’s threads', async () => {
+    await expect(
+      performSidebarDrop(
+        [chatRow('c1', 'ws-x')],
+        branchRow('ws-a', { parentId: 'home-1' }),
+        'into',
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(setChatPlacement).not.toHaveBeenCalled()
+  })
+
+  // The literal "can't group chats into a folder" gap, caught live: filing a
+  // chat into a folder used to be a silent no-op — `planChatDrop` refused any
+  // non-chat target outright. `kind: 'folder'` is one aggregate in the
+  // current unified row model (rows-from-repo.ts's folder push is the same
+  // `AgentChatFolder` this targets), so there is a real placement to make.
+  it('a chat dropped onto a folder row files it there', async () => {
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x')])
+    store.getState().seedAgentChatFolders([chatFolder('folder-1', 'ws-x')])
+
+    await performSidebarDrop(
+      [chatRow('chat-a', 'ws-x')],
+      { ...chatRow('folder-1', 'ws-x'), kind: 'folder', workspaceId: null },
+      'into',
+    )
+
+    expect(setChatPlacement).toHaveBeenCalledWith('ws-x', 'chat-a', {
+      parentId: 'folder-1',
+      order: 0,
+    })
+  })
+
+  // A folder row carries no `workspaceId` of its own (pure organisation) —
+  // this pins that the dragged chat's OWN workspace is what the drop still
+  // resolves against, the same way it must for a project-home folder
+  // (rows-from-home.ts), which can never have a `workspaceId` to fall back
+  // on any other way.
+  it('a chat dropped onto a home folder still resolves the home workspace off the chat itself', async () => {
+    const store = getOrCreateWorkspaceStore('home-ws-1')
+    store.getState().seedAgentChats([chat('c1', 'home-ws-1')])
+    store.getState().seedAgentChatFolders([chatFolder('home-folder-1', 'home-ws-1')])
+
+    await performSidebarDrop(
+      [chatRow('c1', 'home-ws-1')],
+      { ...chatRow('home-folder-1', 'home-ws-1'), kind: 'folder', workspaceId: null },
+      'into',
+    )
+
+    expect(setChatPlacement).toHaveBeenCalledWith('home-ws-1', 'c1', {
+      parentId: 'home-folder-1',
+      order: 0,
+    })
+  })
+
+  // 2026-09-09, caught live as "can't put a chat right at the bottom of
+  // the tree list": a chat reordering PAST a BRANCH row (a repo's own
+  // header, a locked branch, or an ordinary fork) used to be refused
+  // outright by the drop policy, and even once allowed there, planChatDrop
+  // had no way to see a branch row at all — it comes from a different
+  // aggregate than Chat/Folder, invisible to the workspace-scoped
+  // {chats, folders} read this describe block's other tests use. Both
+  // halves are fixed together: the policy now allows before/after (never
+  // "into" — a branch is still not a chat's thread parent), and
+  // `planChatDropOntoBranch` computes the index over the same combined
+  // tree that actually renders this level.
+  describe('reordering past a branch row', () => {
+    beforeEach(() => {
+      getHomeWorkspaceId.mockReturnValue('home-ws-1')
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [
+              {
+                id: 'home-owning-chat',
+                repoId: '',
+                ownsWorktree: true,
+                workspaceId: 'home-ws-1',
+                title: '',
+                order: 0,
+              },
+              {
+                id: 'home-chat-1',
+                repoId: '',
+                ownsWorktree: false,
+                workspaceId: 'home-ws-1',
+                title: 'a home chat',
+                parentId: '',
+                order: 1,
+              },
+            ],
+            folders: [],
+          },
+        },
+      })
+    })
+
+    it('reorders a home chat to land BEFORE the repo header row sharing its level', async () => {
+      await performSidebarDrop(
+        [chatRow('home-chat-1', 'home-ws-1')],
+        branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+        'before',
+      )
+
+      expect(setChatPlacement).toHaveBeenCalledWith('home-ws-1', 'home-chat-1', {
+        parentId: '',
+        order: 0,
+      })
+    })
+
+    it('reorders a home chat to land AFTER the repo header row sharing its level', async () => {
+      await performSidebarDrop(
+        [chatRow('home-chat-1', 'home-ws-1')],
+        branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+        'after',
+      )
+
+      expect(setChatPlacement).toHaveBeenCalledWith('home-ws-1', 'home-chat-1', {
+        parentId: '',
+        order: 1,
+      })
+    })
+
+    it('never threads a chat INTO a branch row — the policy still refuses that mode', async () => {
+      await performSidebarDrop(
+        [chatRow('home-chat-1', 'home-ws-1')],
+        branchRow('home-1', { parentId: null, workspaceId: 'home-1' }),
+        'into',
+      )
+
+      expect(setChatPlacement).not.toHaveBeenCalled()
+    })
+  })
+})
+
+// A project-home FOLDER as the DRAGGED SUBJECT (not the target — see the
+// chat-target tests above for that half) — the literal "can't drag/group a
+// home folder" gap, caught live: `planTreeRowDrop` is entirely `Repo`-shaped
+// and can never see one, so every drag involving one was a silent no-op.
+describe('performSidebarDrop — a project-home folder as the dragged subject', () => {
+  // `planHomeFolderDrop` (via `resolveHomeOwnerId`) resolves the row that owns
+  // `home-ws-1` off `ownsWorktree` — minted chat-first, atomically, at that
+  // workspace's own creation (2026-09-08 sidebar-placement-unification
+  // Task 9), never a boot backfill, and never `type: 'branch'`.
+  const HOME_OWNING_CHAT = {
+    id: 'home-branch-row',
+    repoId: '',
+    ownsWorktree: true,
+    workspaceId: 'home-ws-1',
+    title: '',
+    order: 0,
+  }
+
+  const homeFolderRow = (id: string, over: Partial<SidebarRow> = {}): SidebarRow => ({
+    id,
+    kind: 'folder',
+    parentId: null,
+    order: 0,
+    label: id,
+    ownsWorktree: false,
+    workspaceId: null,
+    working: false,
+    hasView: false,
+    ...over,
+  })
+
+  beforeEach(() => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+  })
+
+  it('reorders a home folder among its siblings via placeHomeFolder', async () => {
+    useHomeTreeStore.setState({
+      trees: {
+        'proj-1': {
+          chats: [HOME_OWNING_CHAT],
+          folders: [
+            { id: 'home-folder-a', repoId: '', name: 'a', order: 0 },
+            { id: 'home-folder-b', repoId: '', name: 'b', order: 1 },
+          ],
+        },
+      },
+    })
+
+    await performSidebarDrop(
+      [homeFolderRow('home-folder-b')],
+      homeFolderRow('home-folder-a'),
+      'before',
+    )
+
+    expect(placeHomeFolder).toHaveBeenCalledWith('proj-1', 'home-folder-b', {
+      parentId: '',
+      order: 0,
+    })
+    expect(placeFolder).not.toHaveBeenCalled()
+  })
+
+  it('files a home folder into another home folder', async () => {
+    useHomeTreeStore.setState({
+      trees: {
+        'proj-1': {
+          chats: [HOME_OWNING_CHAT],
+          folders: [
+            { id: 'home-folder-a', repoId: '', name: 'a', order: 0 },
+            { id: 'home-folder-b', repoId: '', name: 'b', order: 1 },
+          ],
+        },
+      },
+    })
+
+    await performSidebarDrop(
+      [homeFolderRow('home-folder-b')],
+      homeFolderRow('home-folder-a'),
+      'into',
+    )
+
+    expect(placeHomeFolder).toHaveBeenCalledWith('proj-1', 'home-folder-b', {
+      parentId: 'home-folder-a',
+      order: 0,
+    })
+  })
+
+  it('applies the response directly to useHomeTreeStore — no dedicated push channel to wait on', async () => {
+    useHomeTreeStore.setState({
+      trees: {
+        'proj-1': {
+          chats: [HOME_OWNING_CHAT],
+          folders: [
+            { id: 'home-folder-a', repoId: '', name: 'a', order: 0 },
+            { id: 'home-folder-b', repoId: '', name: 'b', order: 1 },
+          ],
+        },
+      },
+    })
+
+    await performSidebarDrop(
+      [homeFolderRow('home-folder-a')],
+      homeFolderRow('home-folder-b'),
+      'into',
+    )
+
+    expect(
+      useHomeTreeStore.getState().trees['proj-1']?.folders.find((f) => f.id === 'home-folder-a')
+        ?.parentId,
+    ).toBe('home-folder-b')
+  })
+})
+
+// A REPO's own header row as the dragged subject — caught live: dragging it
+// did nothing at all, since `planTreeRowDrop` (Repo-shaped) had no call to
+// construct for a row that is not a member of `repo.workspaces`, and its real
+// placement lives on a whole different aggregate (`domain.Repository`). Its
+// one legal destination is project home — reordered among that project's
+// home chats/folders/other repos, or filed into one of that project's home
+// folders — never a repo-internal target (refused earlier, by
+// `SIDEBAR_DROP_POLICY`).
+describe('performSidebarDrop — a repo header row as the dragged subject', () => {
+  // Same reasoning as the home-folder-subject block above: `resolveHomeOwnerId`
+  // resolves the row that owns the project's home workspace off
+  // `ownsWorktree`, never `type: 'branch'`.
+  const HOME_OWNING_CHAT = {
+    id: 'home-branch-row',
+    repoId: '',
+    ownsWorktree: true,
+    workspaceId: 'home-ws-1',
+    title: '',
+    order: 0,
+  }
+
+  const repoHeaderRow = (
+    id: string,
+    projectId: string,
+    repoId: string,
+    over: Partial<SidebarRow> = {},
+  ): SidebarRow =>
+    branchRow(id, {
+      parentId: null,
+      workspaceId: id,
+      repoIcon: { repoId, projectId, name: repoId, avatarLabel: 'R', avatarColor: 'bg-indigo-700' },
+      ...over,
+    })
+
+  beforeEach(() => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+  })
+
+  it('files a repo into a project-home folder', async () => {
+    useHomeTreeStore.setState({
+      trees: {
+        'proj-1': {
+          chats: [HOME_OWNING_CHAT],
+          folders: [{ id: 'home-folder-1', repoId: '', name: 'Projects', order: 0 }],
+        },
+      },
+    })
+
+    await performSidebarDrop(
+      [repoHeaderRow('home-1', 'proj-1', 'repo-1')],
+      folderRow('home-folder-1', { parentId: null, workspaceId: null }),
+      'into',
+    )
+
+    expect(placeRepo).toHaveBeenCalledWith('proj-1', 'repo-1', {
+      folderId: 'home-folder-1',
+      order: 0,
+    })
+  })
+
+  it('reorders relative to a home chat, in the same project', async () => {
+    useHomeTreeStore.setState({
+      trees: {
+        'proj-1': {
+          chats: [HOME_OWNING_CHAT, { id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+          folders: [],
+        },
+      },
+    })
+
+    await performSidebarDrop(
+      [repoHeaderRow('home-1', 'proj-1', 'repo-1')],
+      chatRow('home-chat-1', '', { parentId: null }),
+      'after',
+    )
+
+    expect(placeRepo).toHaveBeenCalledWith('proj-1', 'repo-1', { folderId: '', order: 1 })
+  })
+
+  it('reorders relative to another repo header in the same project', async () => {
+    useSidebarStore.setState((s) => ({
+      repos: [
+        ...s.repos,
+        {
+          id: 'repo-2',
+          projectId: 'proj-1',
+          name: 'repo-2',
+          avatarLabel: 'B',
+          avatarColor: 'bg-indigo-700',
+          defaultWorkspaceId: 'home-2',
+          workspaces: [],
+        },
+      ],
+    }))
+    useHomeTreeStore.setState({ trees: { 'proj-1': { chats: [HOME_OWNING_CHAT], folders: [] } } })
+
+    await performSidebarDrop(
+      [repoHeaderRow('home-1', 'proj-1', 'repo-1')],
+      repoHeaderRow('home-2', 'proj-1', 'repo-2'),
+      'before',
+    )
+
+    expect(placeRepo).toHaveBeenCalledWith('proj-1', 'repo-1', { folderId: '', order: 0 })
+  })
+
+  it('a failed placement produces a toast.error, not a thrown exception', async () => {
+    vi.mocked(placeRepo).mockRejectedValueOnce(new Error('locked'))
+    useHomeTreeStore.setState({
+      trees: {
+        'proj-1': {
+          chats: [HOME_OWNING_CHAT],
+          folders: [{ id: 'home-folder-1', repoId: '', name: 'Projects', order: 0 }],
+        },
+      },
+    })
+
+    await expect(
+      performSidebarDrop(
+        [repoHeaderRow('home-1', 'proj-1', 'repo-1')],
+        folderRow('home-folder-1', { parentId: null, workspaceId: null }),
+        'into',
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(toast.error).toHaveBeenCalledWith('locked')
+  })
+
+  // Caught live: a home folder nested inside a CHAT (a legal spot for a
+  // folder) still let a repo reorder "past" it, constructing a `placeRepo`
+  // call whose folderId named that CHAT — refused by the daemon with a raw
+  // 400. `SIDEBAR_DROP_POLICY` refuses this before a drop is ever offered
+  // (its own regression test), and this pins the defensive backstop in
+  // `planRepoHomeDrop` itself for the same case, same as every other plan
+  // function in this file keeps one.
+  it('refuses (no placeRepo call) reordering past a home folder nested inside a CHAT', async () => {
+    useHomeTreeStore.setState({
+      trees: {
+        'proj-1': {
+          chats: [HOME_OWNING_CHAT, { id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
+          folders: [
+            { id: 'home-folder-1', repoId: '', name: 'Notes', parentId: 'home-chat-1', order: 0 },
+          ],
+        },
+      },
+    })
+
+    await performSidebarDrop(
+      [repoHeaderRow('home-1', 'proj-1', 'repo-1')],
+      folderRow('home-folder-1', { parentId: 'home-chat-1', workspaceId: null }),
+      'after',
+    )
+
+    expect(placeRepo).not.toHaveBeenCalled()
+  })
+})
+
+// ── performSidebarPaneDrop — spec §8.1's other two targets ──
+//
+// Task 26: panes are window-level now (`windowPaneStore`, one flat store for
+// every workspace — see window-pane-store.ts), not one of the many
+// per-workspace `getOrCreateWorkspaceStore(wsId)` stores. Every assertion
+// below moved from `getOrCreateWorkspaceStore('ws-1').getState()` to
+// `windowPaneStore.getState()` for that reason.
+
+describe('performSidebarPaneDrop — rows that name no chat', () => {
+  it('ignores folder/workflow rows — a folder only folds, and nothing produces a workflow row yet', () => {
+    const before = windowPaneStore.getState().panes[ROOT_PANE_ID]
+
+    performSidebarPaneDrop(
+      [
+        chatRow('folder-a', 'ws-1', { kind: 'folder' }),
+        chatRow('flow-a', 'ws-1', { kind: 'workflow' }),
+      ],
+      ROOT_PANE_ID,
+      'center',
+    )
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]).toEqual(before)
+  })
+
+  it('is a no-op for a chat row with no owning workspace', () => {
+    expect(() =>
+      performSidebarPaneDrop(
+        [chatRow('c1', 'ws-1', { workspaceId: null })],
+        ROOT_PANE_ID,
+        'center',
+      ),
+    ).not.toThrow()
+  })
+})
+
+/**
+ * A WORKSPACE row dropped onto a pane — "we should support splits if users
+ * drag either a single chat-view, or a workspace row into the pane system".
+ *
+ * It used to be refused with every other non-chat kind ("no pane has an
+ * 'open into' meaning for them yet"), which is precisely why dragging a
+ * workspace row onto the pane area did nothing at all. It has a meaning, and
+ * it is the same one a chat row has: `rows-from-repo.ts` gives every
+ * workspace-owning row the id of the CHAT that owns its worktree, so a
+ * workspace row IS a chat row wearing a workspace's clothes.
+ */
+describe('performSidebarPaneDrop — a workspace row', () => {
+  /** A row exactly as `rows-from-repo.ts` builds one for a fork: id'd from the
+   *  owning chat, carrying the workspace it owns. */
+  const workspaceRow = (chatId: string, wsId: string) => branchRow(chatId, { workspaceId: wsId })
+
+  beforeEach(() => {
+    useSidebarStore.setState({
+      ...getInitialState(),
+      repos: [
+        {
+          ...makeRepo(),
+          workspaces: [
+            { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'owner-a' },
+            // No owner resolvable — its row keeps its own WORKSPACE id.
+            { id: 'ws-b', branch: 'b', age: '', order: 1 },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('opens the chat that owns the workspace', () => {
+    performSidebarPaneDrop([workspaceRow('owner-a', 'ws-a')], ROOT_PANE_ID, 'center')
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('owner-a')
+  })
+
+  it('splits an occupied pane exactly as a chat row does, into ONE view', () => {
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+
+    performSidebarPaneDrop([workspaceRow('owner-a', 'ws-a')], ROOT_PANE_ID, 'right')
+
+    const opened = Object.values(windowPaneStore.getState().panes).find(
+      (p) => p.chatId === 'owner-a',
+    )
+    expect(opened?.id).toBeDefined()
+    expect(opened?.id).not.toBe(ROOT_PANE_ID)
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
+    expect(liveViewOf('owner-a')).toBe(liveViewOf('c1'))
+  })
+
+  it('is a no-op when no owning chat can be resolved — that row id is a WORKSPACE id, not a chat', () => {
+    performSidebarPaneDrop([workspaceRow('ws-b', 'ws-b')], ROOT_PANE_ID, 'center')
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+  })
+})
+
+/**
+ * THE SPLIT THE PRODUCT OWNER COULD NOT MAKE.
+ *
+ * Once every chat got a view of its own (`openChatInOwnPane`) and only the
+ * showing view occupies the screen, every chat the user had ever opened
+ * already had a pane — parked, off screen, but a pane. `openChatIntoPane`'s
+ * dedup read "already up anywhere → go TO it" as a blanket refusal, so a drop
+ * onto a pane's EDGE switched views instead of splitting. Every Recents row is
+ * exactly such a chat, so dragging one onto the pane area could never produce
+ * a split at all.
+ *
+ * §8.2's "it never opens twice" is a rule against DUPLICATION, and it still
+ * holds here: the pane the chat is already in MOVES (`mergePaneIntoView`),
+ * carrying its own live state with it. Never a second pane for one chat, and
+ * never a close-and-reopen either.
+ */
+describe('performSidebarPaneDrop — a chat that already has a view of its own', () => {
+  /** The state a Recents row for a single-chat view describes: `chatId` is up
+   *  in a view of its own, currently parked behind `showing`. */
+  function parkChatInOwnView(chatId: string, showing: string) {
+    openChatInOwnPane(chatRow(chatId, 'ws-1'))
+    openChatInOwnPane(chatRow(showing, 'ws-1'))
+  }
+
+  it('splits the showing pane, rather than switching to the dragged chat’s parked view', () => {
+    parkChatInOwnView('c1', 'c2')
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(1)
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-1')],
+      windowPaneStore.getState().activePaneId,
+      'right',
+    )
+
+    const leaves = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    expect(leaves).toHaveLength(2)
+    expect(leaves.map((id) => windowPaneStore.getState().panes[id]?.chatId).sort()).toEqual([
+      'c1',
+      'c2',
+    ])
+  })
+
+  it('leaves both panes in ONE view, and nothing parked behind them', () => {
+    parkChatInOwnView('c1', 'c2')
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-1')],
+      windowPaneStore.getState().activePaneId,
+      'right',
+    )
+
+    expect(liveViewOf('c1')).toBe(liveViewOf('c2'))
+    // c1's own view held nothing else, so it is gone rather than parked empty.
+    expect(windowPaneStore.getState().parkedViews).toEqual({})
+    expect(liveRecents()).toEqual([['c1', 'c2']])
+  })
+
+  it('MOVES the pane it already had — same pane, same runner, never a second one', () => {
+    parkChatInOwnView('c1', 'c2')
+    const before = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c1')!
+    windowPaneStore.getState().paneActions.setPaneChat(before.id, 'c1', 'runner-1')
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-1')],
+      windowPaneStore.getState().activePaneId,
+      'right',
+    )
+
+    const holding = Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId === 'c1')
+    expect(holding).toHaveLength(1)
+    expect(holding[0].id).toBe(before.id)
+    expect(holding[0].runnerId).toBe('runner-1')
+  })
+
+  it('gives every pane exactly one chat — a split is never a second chat in one pane', () => {
+    parkChatInOwnView('c1', 'c2')
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-1')],
+      windowPaneStore.getState().activePaneId,
+      'right',
+    )
+
+    for (const pane of Object.values(windowPaneStore.getState().panes)) {
+      expect(typeof pane.chatId === 'string' || pane.chatId === null).toBe(true)
+    }
+    expect(
+      Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId !== null),
+    ).toHaveLength(2)
+  })
+
+  it('honours the zone: a left drop puts the arriving chat FIRST', () => {
+    parkChatInOwnView('c1', 'c2')
+
+    performSidebarPaneDrop([chatRow('c1', 'ws-1')], windowPaneStore.getState().activePaneId, 'left')
+
+    const leaves = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    expect(windowPaneStore.getState().panes[leaves[0]]?.chatId).toBe('c1')
+  })
+
+  it('a cross-workspace row already up elsewhere merges the same way', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-offscreen'))
+    openChatInOwnPane(chatRow('c2', 'ws-visible'))
+    setActiveWorkspaceId('ws-visible')
+
+    performSidebarPaneDrop(
+      [chatRow('c1', 'ws-offscreen')],
+      windowPaneStore.getState().activePaneId,
+      'bottom',
+    )
+
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
+    expect(liveViewOf('c1')).toBe(liveViewOf('c2'))
+  })
+})
+
+describe('performSidebarPaneDrop — plain open (spec §8.1 "middle of a pane")', () => {
+  it('opens a chat that is not up anywhere into an empty pane, and focuses it', () => {
+    performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'center')
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+  })
+})
+
+describe('performSidebarPaneDrop — already up (spec §8.2)', () => {
+  it('a chat already live in another pane goes TO it — reveal, never a second setPaneChat', () => {
+    const otherPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)
+
+    performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'center')
+
+    // Never opened twice: ROOT_PANE_ID is untouched, and the reveal just
+    // refocuses the pane that already has it.
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+    expect(windowPaneStore.getState().panes[otherPane]?.chatId).toBe('c1')
+    expect(windowPaneStore.getState().activePaneId).toBe(otherPane)
+  })
+
+  it('dropping a chat onto the exact pane already showing it is a harmless no-op', () => {
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+
+    performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'right')
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    expect(Object.keys(windowPaneStore.getState().panes)).toHaveLength(2) // root + bottom only — no split made
+  })
+})
+
+describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2)', () => {
+  it('an edge drop onto an EMPTY pane still splits, with nothing to merge into', () => {
+    performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'right')
+
+    const panes = windowPaneStore.getState().panes
+    const newPane = Object.values(panes).find((p) => p.chatId === 'c1')
+    expect(newPane).toBeDefined()
+    expect(newPane?.id).not.toBe(ROOT_PANE_ID)
+    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
+  })
+
+  it('a center drop onto an OCCUPIED pane never swaps — it merges instead (rule 1: every drop adds)', () => {
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+
+    performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'center')
+
+    // c1 is still exactly where it was — nothing was evicted.
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    const newPane = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c2')
+    expect(newPane).toBeDefined()
+  })
+
+  it('an edge drop onto an occupied pane puts both chats in ONE view ("side by side")', () => {
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+
+    performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right')
+
+    expect(liveViewOf('c2')).toBe(liveViewOf('c1'))
+    // And Recents draws the merged view as one row carrying both — the
+    // grouping is read off the panes, never written to Recents separately.
+    expect(liveRecents()).toEqual([['c1', 'c2']])
+  })
+
+  it('merging into a pane already part of a view GROWS that view rather than starting a second', () => {
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now one view
+
+    performSidebarPaneDrop([chatRow('c3', 'ws-1')], ROOT_PANE_ID, 'bottom')
+
+    expect(liveViewOf('c3')).toBe(liveViewOf('c1'))
+    expect(liveRecents()).toEqual([['c1', 'c2', 'c3']])
+  })
+
+  it('dropping an already-grouped chat elsewhere reveals it in place — the view is untouched', () => {
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now one view
+    const view = liveViewOf('c1')
+
+    const freshPane = windowPaneStore.getState().paneActions.addPane()!
+    performSidebarPaneDrop([chatRow('c1', 'ws-1')], freshPane, 'center')
+
+    // The empty view the drop was aimed at evaporates as the c1+c2 view comes
+    // back over it — an arrangement with nothing in it is not something to
+    // switch back to.
+    expect(windowPaneStore.getState().panes[freshPane]).toBeUndefined()
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+    expect(liveViewOf('c1')).toBe(view)
+    expect(liveViewOf('c2')).toBe(view)
+  })
+})
+
+/**
+ * `openChatInOwnPane` — spec §8.4's CLICK, and the point of it being its own
+ * function rather than a `openChatIntoPane(…, activePaneId, 'center')` call.
+ *
+ * Measured live before the split: clicking four sidebar rows in turn produced
+ * ONE Recents entry holding all four chats (the drop's `groupIntoArrangement`
+ * merge) and a 50/25/12.5/12.5 cascade of splits nested inside the first pane
+ * (the drop's `splitPane` on the target). That is what "clicking a new row
+ * appends a chat to the current view" was. Merging two views is a
+ * drag-and-drop gesture and only that.
+ */
+describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => {
+  beforeEach(() => setActiveWorkspaceId('ws-1'))
+
+  it('fills the empty pane a fresh window starts with, rather than opening a second one beside it', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([ROOT_PANE_ID])
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+  })
+
+  it('gives a second chat a pane of its OWN — the active pane keeps what it was showing', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    const opened = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c2')
+    expect(opened).toBeDefined()
+    expect(windowPaneStore.getState().activePaneId).toBe(opened?.id)
+  })
+
+  it('mints a BRAND-NEW view id every time — no two clicks share one', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    openChatInOwnPane(chatRow('c3', 'ws-1'))
+
+    const views = ['c1', 'c2', 'c3'].map(liveViewOf)
+    expect(views.every(Boolean)).toBe(true)
+    expect(new Set(views).size).toBe(3)
+  })
+
+  it('NEVER merges clicked chats into one Recents row — that is the drop’s gesture, not the click’s', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    openChatInOwnPane(chatRow('c3', 'ws-1'))
+
+    // The identical sequence through the DROP path produces ONE row holding
+    // all three (see "an edge drop onto an occupied pane puts both chats in
+    // ONE view" above) — three clicks are three separate rows.
+    expect(liveRecents()).toEqual([['c1'], ['c2'], ['c3']])
+    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
+  })
+
+  // The subtler half of "makes its own view": the pane a click REUSES can
+  // already be one member of a view somebody merged earlier, and filling it
+  // in place would silently have added this chat to that group — the same
+  // "it appended to what I was looking at" complaint, one level down.
+  it('pulls a REUSED pane out of whatever view it was merged into first', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    const merged = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
+    expect(viewIdOf(windowPaneStore.getState().panes[merged])).toBe(liveViewOf('c1'))
+
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+
+    expect(windowPaneStore.getState().panes[merged]?.chatId).toBe('c2')
+    expect(liveViewOf('c2')).not.toBe(liveViewOf('c1'))
+    expect(liveRecents()).toEqual([['c1'], ['c2']])
+  })
+
+  it('each clicked view REPLACES the one on screen — three clicks, one view showing', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    openChatInOwnPane(chatRow('c3', 'ws-1'))
+
+    // THE BUG. Three separately clicked chats used to draw as three columns
+    // at once: each click appended a peer leaf to the one shared tiling tree,
+    // so "its own view" was true in the data and invisible on screen.
+    const showing = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    expect(showing).toHaveLength(1)
+    expect(windowPaneStore.getState().panes[showing[0]]?.chatId).toBe('c3')
+
+    // Nothing was swapped out or lost: the other two are open, off screen,
+    // each still holding exactly the chat it was opened with.
+    const parked = Object.values(windowPaneStore.getState().parkedViews)
+    expect(parked).toHaveLength(2)
+    const chatIds = parked
+      .flatMap((tree) => getAllLeafIds(tree))
+      .map((id) => windowPaneStore.getState().panes[id]?.chatId)
+    expect([...chatIds].sort()).toEqual(['c1', 'c2'])
+    // And every one of them keeps its Recents row — a switcher needs targets.
+    expect(liveRecents()).toEqual([['c1'], ['c2'], ['c3']])
+  })
+
+  it('clicking a chat that is already open SWITCHES to its view, never duplicates it', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    const c1Pane = windowPaneStore.getState().activePaneId
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).not.toContain(c1Pane)
+
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([c1Pane])
+    expect(windowPaneStore.getState().activePaneId).toBe(c1Pane)
+    expect(
+      Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId === 'c1'),
+    ).toHaveLength(1)
+  })
+
+  it('a chat already up is gone TO, never opened twice', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    const paneCount = getAllLeafIds(windowPaneStore.getState().rootLayout).length
+
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(paneCount)
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+    expect(
+      Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId === 'c1'),
+    ).toHaveLength(1)
+  })
+
+  it('reuses an empty pane left on screen instead of adding another one beside it', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    const second = windowPaneStore.getState().paneActions.addPane()!
+
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+
+    expect(windowPaneStore.getState().panes[second]?.chatId).toBe('c2')
+    // Filled in place rather than opening a third view beside it — and it is
+    // the only thing on screen, with c1's view parked behind it.
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([second])
+    expect(Object.keys(windowPaneStore.getState().parkedViews)).toEqual([ROOT_PANE_ID])
+  })
+
+  it('opens a chat whose workspace is not the routed one — the resolver replaced that refusal', () => {
+    setActiveWorkspaceId('ws-visible')
+
+    openChatInOwnPane(chatRow('c1', 'ws-offscreen'))
+
+    expect(Object.values(windowPaneStore.getState().panes).some((p) => p.chatId === 'c1')).toBe(
+      true,
+    )
+  })
+
+  it('is a no-op for a chat row naming no workspace at all', () => {
+    expect(() => openChatInOwnPane(chatRow('c1', 'ws-1', { workspaceId: null }))).not.toThrow()
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+  })
+})
+
+/**
+ * CROSS-WORKSPACE drops.
+ *
+ * This used to be refused outright: `openChatIntoPane` compared the row's
+ * workspace against `getActiveWorkspaceId()` and silently did nothing
+ * otherwise. The reason was real — the RENDER side resolved a pane's chat
+ * through the AMBIENT `WorkspaceStoreContext` of whichever `WorkspaceView`
+ * happened to draw it, so a chat from another workspace rendered permanently
+ * blank and (since `setPaneChat` persists) survived reload — but the refusal
+ * covered a very common case: the sidebar shows a whole PROJECT, and Recents
+ * spans every workspace in it, so most rows on screen at any moment belong to
+ * a workspace other than the routed one. Dropping any of them did nothing at
+ * all.
+ *
+ * The mechanism the refusal stood in for is now built — `resolveChatWorkspaceId`
+ * (features/panes/lib/pane-chat-workspace.ts), read by `PaneContainer` through
+ * `useChatWorkspaceId` — so the drop is a drop.
+ */
+describe('performSidebarPaneDrop — cross-workspace', () => {
+  it('splits for a chat whose workspace is not the routed one', () => {
+    setActiveWorkspaceId('ws-visible') // ws-visible is what's on screen
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'already-here', 'runner-1')
+
+    performSidebarPaneDrop([chatRow('c1', 'ws-offscreen')], ROOT_PANE_ID, 'right')
+
+    const newPane = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c1')
+    expect(newPane).toBeDefined()
+    expect(newPane?.id).not.toBe(ROOT_PANE_ID)
+    // Nothing was evicted to make room, and the two are ONE view.
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('already-here')
+    expect(liveViewOf('c1')).toBe(liveViewOf('already-here'))
+  })
+
+  it('still works normally once the chat and the active workspace agree', () => {
+    setActiveWorkspaceId('ws-visible')
+
+    performSidebarPaneDrop([chatRow('c1', 'ws-visible')], ROOT_PANE_ID, 'center')
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+  })
+})
+
+/**
+ * The FOURTH id-space consumer of a branch row's id, after
+ * `resolveChatRow`/`resolveRow`/`performRenameRow`. A branch row is addressed
+ * by the chat that owns its workspace (`rows-from-repo.ts`), and everything
+ * this file computes with — `buildSidebarTree`'s nodes, `placeWorkspace`,
+ * `reparentWorkspace` — is in the WORKSPACE id space. Untranslated,
+ * `resolveRowRepo` returned null for the repo-home row and every locked
+ * branch, `planTreeRowDrop` returned `[]`, and the drop the indicator had just
+ * promised fired no request at all.
+ */
+// ── targetInRecents (spec §8.1's Recents-row targets — Task 2b) ──
+
+function makeChatRepo(): Repo {
+  return {
+    id: 'repo-2',
+    projectId: 'proj-2',
+    name: 'repo-2',
+    avatarLabel: 'R',
+    avatarColor: 'bg-indigo-700',
+    defaultWorkspaceId: 'home-2',
+    defaultBranch: 'main',
+    workspaces: [{ id: 'ws-x', branch: 'x', age: '', order: 0 }],
+  }
+}
+
+describe('performSidebarDrop — targetInRecents', () => {
+  beforeEach(() => {
+    useSidebarStore.setState((s) => ({ repos: [...s.repos, makeChatRepo()] }))
+  })
+
+  it('middle of an already-LIVE Recents entry merges the dragged chat beside it, not a tree placement', async () => {
+    setActiveWorkspaceId('ws-x')
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-a')
+    const newPane = Object.values(windowPaneStore.getState().panes).find(
+      (p) => p.chatId === 'chat-b',
+    )
+    expect(newPane).toBeDefined()
+    // One view holding both — Recents draws them as a single grouped row.
+    expect(liveViewOf('chat-b')).toBe(liveViewOf('chat-a'))
+    expect(liveRecents()).toEqual([['chat-a', 'chat-b']])
+    // A merge, never a tree/chat-tree placement write.
+    expect(setChatPlacement).not.toHaveBeenCalled()
+  })
+
+  it('middle of a DORMANT Recents entry opens it first, then merges the dragged chat beside it', async () => {
+    setActiveWorkspaceId('ws-x')
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
+
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-a')
+    const newPane = Object.values(windowPaneStore.getState().panes).find(
+      (p) => p.chatId === 'chat-b',
+    )
+    expect(newPane).toBeDefined()
+  })
+
+  it('dropping a chat that is already up onto a Recents target just reveals it — never opened twice', async () => {
+    setActiveWorkspaceId('ws-x')
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+    const otherPane = windowPaneStore.getState().paneActions.addPane()!
+    windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
+
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
+
+    // chat-b stayed exactly where it already was — no new pane, no swap.
+    expect(windowPaneStore.getState().panes[otherPane]?.chatId).toBe('chat-b')
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-a')
+    expect(Object.keys(windowPaneStore.getState().panes)).toHaveLength(3)
+  })
+
+  it('above/below a Recents entry reorders the persisted Recents order instead of writing a tree placement', async () => {
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+    // `addPane`, not `splitPane` — two INDEPENDENT views, which is what two
+    // Recents rows to reorder means. A split would merge them into one.
+    const otherPane = windowPaneStore.getState().paneActions.addPane()!
+    windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
+
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'before', true)
+
+    expect(setChatPlacement).not.toHaveBeenCalled()
+    expect(windowPaneStore.getState().recentsOrder).toEqual([otherPane, ROOT_PANE_ID])
+  })
+
+  it('a second reorder only moves the dragged entry, leaving every other tracked id in place', async () => {
+    const store = getOrCreateWorkspaceStore('ws-x')
+    store
+      .getState()
+      .seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+    const paneB = windowPaneStore.getState().paneActions.addPane()!
+    windowPaneStore.getState().paneActions.setPaneChat(paneB, 'chat-b', 'runner-2')
+    const paneC = windowPaneStore.getState().paneActions.addPane()!
+    windowPaneStore.getState().paneActions.setPaneChat(paneC, 'chat-c', 'runner-3')
+    // Natural order: [ROOT(a), paneB(b), paneC(c)]. Move c before a.
+    await performSidebarDrop([chatRow('chat-c', 'ws-x')], chatRow('chat-a', 'ws-x'), 'before', true)
+    expect(windowPaneStore.getState().recentsOrder).toEqual([paneC, ROOT_PANE_ID, paneB])
+
+    // Now move b to sit after c — a and c's relative order must not change.
+    await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-c', 'ws-x'), 'after', true)
+
+    expect(windowPaneStore.getState().recentsOrder).toEqual([paneC, paneB, ROOT_PANE_ID])
+  })
+})
+
+describe('performSidebarDrop — a branch row is addressed by its owning chat', () => {
+  /** The repo above, plus the owning chats minted chat-first for it: one for
+   *  the home workspace, one for the locked branch `ws-a` — never `type:
+   *  'branch'` (2026-09-08 sidebar-placement-unification Task 9). */
+  function repoWithBranchRows(): Repo {
+    const base = makeRepo()
+    return {
+      ...base,
+      defaultOwningChatId: 'home-row',
+      workspaces: base.workspaces.map((w) =>
+        w.id === 'ws-a' ? { ...w, status: 'locked', owningChatId: 'ws-a-row' } : w,
+      ),
+      chats: [
+        {
+          id: 'home-row',
+          repoId: 'repo-1',
+          ownsWorktree: true,
+          workspaceId: 'home-1',
+          title: '',
+          order: 0,
+        },
+        {
+          id: 'ws-a-row',
+          repoId: 'repo-1',
+          ownsWorktree: true,
+          workspaceId: 'ws-a',
+          title: '',
+          order: 0,
+        },
+      ],
+    }
+  }
+
+  beforeEach(() => {
+    useSidebarStore.setState({ ...getInitialState(), repos: [repoWithBranchRows()] })
+  })
+
+  it('dropping INTO the repo-home row places at the repo root, not silently nothing', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('home-row', { workspaceId: 'home-1' }),
+      'into',
+    )
+
+    expect(placeWorkspace).toHaveBeenCalledOnce()
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-c', {
+      folderId: '',
+      order: expect.any(Number),
+    })
+  })
+
+  it('dropping INTO a locked branch row reparents onto its WORKSPACE, not its chat id', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      branchRow('ws-a-row', { workspaceId: 'ws-a', parentId: 'home-row' }),
+      'into',
+    )
+
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a')
+  })
+
+  it('a branch row as the SUBJECT is placed by its workspace id', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-a-row', { workspaceId: 'ws-a' })],
+      folderRow('folder-1', { parentId: 'home-row' }),
+      'into',
+    )
+
+    expect(placeWorkspace).toHaveBeenCalledWith(
+      'ws-a',
+      expect.objectContaining({ folderId: 'folder-1' }),
+    )
+  })
+
+  it('reordering BEFORE a branch row lands in its real sibling space', async () => {
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('ws-a-row', { workspaceId: 'ws-a', parentId: 'home-row' }),
+      'before',
+    )
+
+    // ws-a sits at index 0 of the repo root, so `ws-c` takes that slot — the
+    // index is only computable if the target resolved to `ws-a` at all.
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-c', expect.objectContaining({ order: 0 }))
+  })
+})
+
+/**
+ * RECENTS IS THE VIEW SWITCHER — spec §8.1's "into that view, opened", now
+ * that the view in question is usually NOT the one on screen.
+ *
+ * The band already draws exactly one row per view, so it is the switcher
+ * rather than a second, parallel tab strip listing the same views again. That
+ * makes its rows drop targets for a view that is off screen, which before
+ * views owned their own trees could not work at all: the split machinery
+ * looked the target pane up in `rootLayout` only, found nothing, and silently
+ * dropped the merge on the floor.
+ */
+describe('performSidebarDrop — dropping onto a Recents row (spec §8.1)', () => {
+  beforeEach(() => setActiveWorkspaceId('ws-1'))
+
+  it('merges into a view that is NOT on screen, and brings it over', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    const c1Pane = windowPaneStore.getState().activePaneId
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    // c1's view is parked; c2's is showing.
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).not.toContain(c1Pane)
+
+    // `targetInRecents` is what `use-sidebar-drag.ts`'s hit test threads
+    // through when the drop lands on a band row rather than a tree row.
+    void performSidebarDrop([chatRow('c3', 'ws-1')], chatRow('c1', 'ws-1'), 'into', true)
+
+    // It really landed in c1's own arrangement...
+    expect(liveViewOf('c3')).toBe(liveViewOf('c1'))
+    expect(liveRecents()).toEqual([['c1', 'c3'], ['c2']])
+    // ...and the user is looking at the thing they just acted on, with both
+    // chats genuinely on screen together.
+    const showing = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    expect(showing).toHaveLength(2)
+    const showingChats = showing.map((id) => windowPaneStore.getState().panes[id]?.chatId)
+    expect([...showingChats].sort()).toEqual(['c1', 'c3'])
+  })
+
+  it('merging into an off-screen view leaves every OTHER view alone', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+    openChatInOwnPane(chatRow('c2', 'ws-1'))
+    const c2View = liveViewOf('c2')
+
+    void performSidebarDrop([chatRow('c3', 'ws-1')], chatRow('c1', 'ws-1'), 'into', true)
+
+    expect(liveViewOf('c2')).toBe(c2View)
+    expect(liveViewOf('c2')).not.toBe(liveViewOf('c1'))
+  })
+
+  it('merges into the SHOWING view without disturbing anything either', () => {
+    openChatInOwnPane(chatRow('c1', 'ws-1'))
+
+    void performSidebarDrop([chatRow('c2', 'ws-1')], chatRow('c1', 'ws-1'), 'into', true)
+
+    expect(liveViewOf('c2')).toBe(liveViewOf('c1'))
+    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
+  })
+})

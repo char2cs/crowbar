@@ -144,7 +144,7 @@ export async function loadAndVerifyFont(fontFamily: string, fontSize: number): P
  * xterm silently falls back to its DOM renderer for them — which rebuilds the
  * whole cell grid every frame and stalls the main thread ~130ms on full-screen
  * TUIs (cmatrix, htop, vim). Map a variable family to its static cut (e.g.
- * "JetBrains Mono Variable" -> "JetBrains Mono") so the WebGL renderer stays on.
+ * "Geist Mono Variable" -> "Geist Mono") so the WebGL renderer stays on.
  *
  * Returns `null` when the font has no distinct static equivalent.
  */

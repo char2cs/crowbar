@@ -63,6 +63,11 @@ type Container struct {
 	// behind a tool-call storm.
 	axAgentActivity asynx.Asynx[domain.ChatActivity]
 	axAgentRunner   asynx.Asynx[agents.Runner]
+	// axNode is the Node position aggregate's own per-type singleton
+	// (2026-09-08 sidebar-placement-unification): the ONE entity that will own
+	// every sidebar row's ParentID/Order. This wiring is purely additive —
+	// nothing else in the codebase reads or writes it yet.
+	axNode asynx.Asynx[domain.Node]
 }
 
 // New constructs the application layer from the engine and adapter containers
@@ -79,7 +84,16 @@ func New(
 	// One eager axWorkspace singleton over the per-type event log, routing every
 	// workspace id to a shard by hash (decision 1) — replaces the per-entity
 	// AsynxFactory the repository used to resolve per workspace.
-	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES(), adapters.WorkspaceSS())
+	// SchemaVersion/StripRetiredPlacementFields: real production workspaces
+	// dragged or reordered before the sidebar-placement-unification migration
+	// carry /order and /folderId patches domain.Workspace no longer has fields
+	// for — see StripRetiredPlacementFields's own doc.
+	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES(), adapters.WorkspaceSS(),
+		func(b *asynx.Builder[domain.Workspace]) {
+			b.WithSchemaVersion(workspace.SchemaVersion).
+				WithUpcaster(1, workspace.StripRetiredPlacementFields)
+		},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
@@ -111,17 +125,18 @@ func New(
 		return nil, fmt.Errorf("app: asynx agent runner: %w", err)
 	}
 
+	axNode, err := newAxNode(adapters)
+	if err != nil {
+		return nil, err
+	}
+
 	gormStores, err := newGORMStores(adapters.GlobalView())
 	if err != nil {
 		return nil, err
 	}
 
 	h := hub.NewHub()
-	// The agent aggregates announce; the fanout decides what a client is told. The hub
-	// still reaches the repository layer for workspace frames, which are outside this
-	// subsystem.
-	agentFanout := agentusecase.NewFanout(h)
-	repos, err := repositories.New(
+	repos, err := newRepositoriesContainer(
 		ctx,
 		adapters,
 		h,
@@ -130,20 +145,21 @@ func New(
 		axAgentChat,
 		axAgentActivity,
 		axAgentRunner,
-		engines.Git,
-		terminateAgentSession(engines.Terminal),
-		agentFanout.ChatWatch(),
-		agentFanout.RunnerWatch(),
+		axNode,
+		engines,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("app: repositories: %w", err)
+		return nil, err
 	}
 
 	// Path-deriving usecases must share the adapter's resolved home so git
 	// worktrees and per-entity storages land under the same root.
 	crowbarHome := adapters.CrowbarHome()
 	homeFunc := func() (string, error) { return crowbarHome, nil }
-	ucs, err := usecases.New(repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h))
+	ucs, err := usecases.New(
+		repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h),
+		h.BroadcastAgentChatFolder,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
 	}
@@ -187,6 +203,7 @@ func New(
 		axAgentChat:     axAgentChat,
 		axAgentActivity: axAgentActivity,
 		axAgentRunner:   axAgentRunner,
+		axNode:          axNode,
 	}, nil
 }
 
@@ -264,6 +281,7 @@ func (c *Container) Shutdown(
 		c.axAgentRunner.Shutdown(ctx),
 		c.axAgentChat.Shutdown(ctx),
 		c.axAgentActivity.Shutdown(ctx),
+		c.axNode.Shutdown(ctx),
 	)
 }
 
@@ -326,12 +344,45 @@ func (c *Container) quiesceTerminal(
 }
 
 // Close tears down the application layer's live realtime resources: it stops
-// every file watcher and LSP host the service still holds. It is idempotent and
-// runs on graceful shutdown so fsnotify file descriptors and LSP subprocesses
-// are released promptly.
+// every file watcher and LSP host the service still holds, and — on whichever
+// path reaches Close WITHOUT a preceding Shutdown (harness.crash's simulated
+// death; a production Serve failure that returns before Run's ctx.Done branch
+// ever runs) — stops the six per-type asynx singletons' own background worker
+// pools too, so neither path leaks them into whatever the process does next.
+// It is idempotent and runs on graceful shutdown so fsnotify file descriptors
+// and LSP subprocesses are released promptly.
 func (c *Container) Close() {
 	shutdownAgentRunners(c.Usecases)
 	c.Realtime.Close()
+	c.stopBackgroundWorkers(context.Background())
+}
+
+// stopBackgroundWorkers stops each per-type asynx singleton's own worker/
+// dispatcher goroutines (8 shards x 8 workers plus dispatchers apiece, spun up
+// by asynx.Builder at construction — see newAsynx) WITHOUT running Shutdown's
+// write-path steps (terminal quiesce, reactor drain): those exist to let a
+// GRACEFUL stop record every in-flight death before the stores close, and
+// Close running them again here would be meaningless at best (nothing is
+// listening any more, the graceful path already ran them) and unsafe at worst
+// on the paths that reach Close first (a stray write racing an adapter that
+// may already be closed).
+//
+// A Shutdown that already ran for this Container makes every call here an
+// immediate, harmless no-op (asynx.ErrAlreadyShuttingDown, swallowed) — each
+// per-type Shutdown latches via its own CompareAndSwap, so Close can call this
+// unconditionally instead of tracking whether Shutdown ran. On the path that
+// DIDN'T run one (a crash, a Serve failure), this is what stops the shard
+// pools rather than leaving them idling on an empty queue forever: they were
+// the one background resource Close used to leave for the caller to leak.
+func (c *Container) stopBackgroundWorkers(
+	ctx context.Context,
+) {
+	_ = c.axWorkspace.Shutdown(ctx)
+	_ = c.axReviewThread.Shutdown(ctx)
+	_ = c.axAgentRunner.Shutdown(ctx)
+	_ = c.axAgentChat.Shutdown(ctx)
+	_ = c.axAgentActivity.Shutdown(ctx)
+	_ = c.axNode.Shutdown(ctx)
 }
 
 // terminateAgentSession adapts the terminal engine's TerminateGraceful into the
@@ -416,18 +467,77 @@ type threadBroadcaster interface {
 	)
 }
 
+// newAxNode builds the Node position aggregate's per-type singleton, mirroring
+// axAgentChat's own construction. Purely additive (2026-09-08
+// sidebar-placement-unification, Task 1): nothing else sends Node commands
+// yet — later tasks migrate existing placement logic onto it one vertical
+// slice at a time. Split out of New only to keep that constructor within its
+// length budget.
+func newAxNode(
+	adapters *adapter.Container,
+) (asynx.Asynx[domain.Node], error) {
+	axNode, err := newAsynx[domain.Node](adapters.NodeES(), adapters.NodeSS())
+	if err != nil {
+		return nil, fmt.Errorf("app: asynx node: %w", err)
+	}
+	return axNode, nil
+}
+
+// newRepositoriesContainer builds the repository layer from every per-type
+// asynx singleton and the injected app-layer seams. The agent aggregates
+// announce; the fanout built here decides what a client is told — the hub
+// still reaches the repository layer for workspace frames, which are outside
+// this subsystem. No live-update consumer is wired to Node yet (Task 1 is
+// purely additive), so its watch is nil — safe, mirroring agentchat's own
+// nil-tolerant hub projection. Split out of New only to keep that constructor
+// within its length budget, mirroring newAgentWiring/newProjectImport in
+// usecases/container.go.
+func newRepositoriesContainer(
+	ctx context.Context,
+	adapters *adapter.Container,
+	h *hub.Hub,
+	axReviewThread asynx.Asynx[domain.ReviewThread],
+	axWorkspace asynx.Asynx[domain.Workspace],
+	axAgentChat asynx.Asynx[domain.Chat],
+	axAgentActivity asynx.Asynx[domain.ChatActivity],
+	axAgentRunner asynx.Asynx[agents.Runner],
+	axNode asynx.Asynx[domain.Node],
+	engines *engine.Container,
+) (*repositories.Container, error) {
+	agentFanout := agentusecase.NewFanout(h)
+	repos, err := repositories.New(
+		ctx,
+		adapters,
+		h,
+		axReviewThread,
+		axWorkspace,
+		axAgentChat,
+		axAgentActivity,
+		axAgentRunner,
+		axNode,
+		engines.Git,
+		terminateAgentSession(engines.Terminal),
+		agentFanout.ChatWatch(),
+		agentFanout.RunnerWatch(),
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("app: repositories: %w", err)
+	}
+	return repos, nil
+}
+
 func toUsecaseStores(
 	gormStores *GORMStores,
 ) usecases.GORMStores {
 	return usecases.GORMStores{
 		Projects:                 gormStores.Projects,
 		Repositories:             gormStores.Repositories,
-		Folders:                  gormStores.Folders,
-		AgentChatFolders:         gormStores.AgentChatFolders,
 		TerminalProfiles:         gormStores.TerminalProfiles,
 		TerminalSessions:         gormStores.TerminalSessions,
 		AgentProviderPreferences: gormStores.AgentProviderPreferences,
 		AgentPermissionDefault:   gormStores.AgentPermissionDefault,
+		Folders:                  gormStores.Folders,
 	}
 }
 

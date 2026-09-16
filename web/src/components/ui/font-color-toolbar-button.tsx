@@ -86,7 +86,10 @@ function ColorDropdownMenuItem({
 
   return name ? (
     <Tooltip>
-      <TooltipTrigger>{content}</TooltipTrigger>
+      {/* asChild, same as every other trigger in this kit (see toolbar.tsx):
+          without it the trigger adds a <button> around the menu item, which
+          buries the `role="menuitem"` the surrounding menu drives. */}
+      <TooltipTrigger asChild>{content}</TooltipTrigger>
       <TooltipContent className="mb-1 capitalize">{name}</TooltipContent>
     </Tooltip>
   ) : (

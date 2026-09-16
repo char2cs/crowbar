@@ -1,5 +1,20 @@
 import { indexFromParents, type TreeIndex } from './keep-set'
 import type { Workspace } from '@/lib/store/sidebar'
+import type { ChatType } from '@/lib/types'
+
+// 2026-09-08 sidebar-placement-unification Task 10: this file needed no
+// change. There is no wire-level `Node` shape to cut over to — verified
+// against the current backend DTOs (api/internal/api/v0/dto): ChatDTO and
+// FolderDTO still carry flat `parentId`/`order`, just Node-sourced
+// server-side now (Tasks 5/8's mergeForest/correctHomePlacement), so
+// `SidebarChat`/`SidebarFolder` below already read exactly what's on the
+// wire. WorkspaceDTO never carried a placement field to begin with — its
+// `parentId` is fork lineage (git ancestry), a different edge — a
+// workspace-owning row's RENDERED position has always come from folding its
+// owning chat's placement into it (rows-from-repo.ts's foldWorkspaceOwners),
+// unchanged by this plan. `PlacedWorkspace.folderId`/`.order` below are
+// consumed exactly as before Task 10; nothing here needed a Node-specific
+// read path of its own.
 
 /**
  * A folder as the sidebar needs it. Organisation only — no branch, no git
@@ -21,17 +36,62 @@ export interface SidebarFolder {
  */
 export type PlacedWorkspace = Workspace & { folderId?: string; order?: number }
 
+/**
+ * A chat as the sidebar tree needs it — design spec §3.1's `chat` row.
+ *
+ * ONE edge, unlike a workspace's two: a chat has no branch, so it has no fork
+ * lineage a folder edge could split, and `parentId` is the whole answer (§3.2).
+ * `workspaceId` is not a second edge either — it is the row's GROUND, and it
+ * only ever places the row when `parentId` names nothing, which is what "'' is
+ * the workspace root" means on the wire.
+ *
+ * Declared here rather than imported so the tree builder does not depend on the
+ * store, exactly as `SidebarFolder` above is. `lib/store/sidebar.ts`'s `Chat`
+ * satisfies it structurally.
+ */
+export interface SidebarChat {
+  id: string
+  /** This row's own kind. Carried so a caller can tell an ordinary conversation
+   *  from a `branch` row — which IS a workspace's row, not a chat beside it —
+   *  before handing the list here. The builder itself places all four kinds
+   *  identically. */
+  type?: ChatType
+  /** Another chat (this row is a thread of it), or a folder. */
+  parentId?: string
+  /** The workspace this chat owns; absent on a bubble, which owns none. */
+  workspaceId?: string
+  title: string
+  order?: number
+}
+
 export type SidebarTreeNode =
   | { kind: 'workspace'; id: string; workspace: PlacedWorkspace; children: SidebarTreeNode[] }
   | { kind: 'folder'; id: string; folder: SidebarFolder; children: SidebarTreeNode[] }
+  | { kind: 'chat'; id: string; chat: SidebarChat; children: SidebarTreeNode[] }
 
 /** Missing order sorts last, and ties keep arrival order via the index tiebreak. */
 const NO_ORDER = Number.MAX_SAFE_INTEGER
 
 /**
- * Build the sidebar tree from a repo's workspaces and folders.
+ * Build the sidebar tree from a repo's workspaces, folders and chats.
  *
- * Placement follows one rule, in this order:
+ * `chats` is optional and defaults to none, so the two callers that place only
+ * branches and folders (`drop-actions.ts`, `removal-plan.ts`) are unchanged.
+ *
+ * A CHAT is placed by one rule, and it is deliberately not the workspace rule
+ * below: a chat carries no branch, so it has no fork lineage for a folder edge
+ * to split and nothing to check anchors for.
+ *
+ *   1. `parentId` — another chat (this row is a thread of it) or a folder.
+ *   2. `workspaceId` — its GROUND, used only when `parentId` names nothing.
+ *      This is what "'' is the workspace root" means on the wire: a chat filed
+ *      nowhere sits at the root of the workspace it owns.
+ *   3. otherwise the repo root — which is where a bubble whose ancestry lives in
+ *      another repo lands (spec §9.2: a repo's chats are not a closed set, so an
+ *      edge that resolves to nothing here is ordinary, not corrupt). Rendered at
+ *      the root beats dropped: a row the user can see is recoverable.
+ *
+ * A WORKSPACE's placement follows one rule, in this order:
  *
  *   1. `folderId` — for a fork ROOT, always; for a forked child, when that
  *      folder lives in the same visible fork-parent space. A child of `develop`
@@ -51,6 +111,7 @@ const NO_ORDER = Number.MAX_SAFE_INTEGER
 export function buildSidebarTree(
   workspaces: PlacedWorkspace[],
   folders: SidebarFolder[] = [],
+  chats: SidebarChat[] = [],
 ): SidebarTreeNode[] {
   const nodes = new Map<string, SidebarTreeNode>()
   // Arrival index per id, so the sibling sort has a stable tiebreak that does
@@ -68,13 +129,34 @@ export function buildSidebarTree(
     nodes.set(ws.id, { kind: 'workspace', id: ws.id, workspace: ws, children: [] })
     arrival.set(ws.id, seen++)
   }
+  // Chats arrive LAST, so an untouched level — every row still holding order 0,
+  // which is the whole tree on a daemon that has placed nothing — reads
+  // folders, then branches, then chats. Same convention `chat-rows.ts` sorts
+  // the Chats panel by ("folders sort above every chat"), so the two surfaces
+  // cannot disagree about a level nobody has dragged.
+  for (const chat of chats) {
+    nodes.set(chat.id, { kind: 'chat', id: chat.id, chat, children: [] })
+    arrival.set(chat.id, seen++)
+  }
 
   for (const folder of folders) parentOf.set(folder.id, folder.parentId || undefined)
+  // Resolved BEFORE the workspace loop below, because `folderWorkspaceAnchor`
+  // walks this map: a folder nested inside a chat has to step through that chat
+  // to find the workspace whose sibling space it really sits in.
+  for (const chat of chats) {
+    const filed = chat.parentId && nodes.has(chat.parentId) ? chat.parentId : undefined
+    const ground = chat.workspaceId && nodes.has(chat.workspaceId) ? chat.workspaceId : undefined
+    parentOf.set(chat.id, filed ?? ground)
+  }
 
   // The workspace that owns a folder's visible sibling space. Root-level
   // folders have no anchor. Walking rather than looking only at the immediate
   // parent lets nested folders remain useful without weakening the lineage
   // check.
+  //
+  // Steps through CHAT rows as well as folders — a folder may live inside a
+  // chat (it orders that chat's threads), and stopping there would report no
+  // anchor for a folder that plainly sits inside one workspace's space.
   const folderWorkspaceAnchor = (folderId: string): string | undefined => {
     const visited = new Set<string>()
     let cursor: string | undefined = folderId
@@ -83,7 +165,7 @@ export function buildSidebarTree(
       const node = nodes.get(cursor)
       if (!node) return undefined
       if (node.kind === 'workspace') return node.id
-      cursor = node.folder.parentId || undefined
+      cursor = parentOf.get(cursor)
     }
     return undefined
   }
@@ -129,8 +211,15 @@ export function buildSidebarTree(
     else parent.children.push(node)
   }
 
+  // One sibling space, one sort key: a level interleaves folders, branches and
+  // chats and they all sort on the SAME dense `order` (spec §3.1; the backend's
+  // AgentChatDTO.order says so in as many words).
   const orderOf = (node: SidebarTreeNode) =>
-    (node.kind === 'folder' ? node.folder.order : node.workspace.order) ?? NO_ORDER
+    (node.kind === 'folder'
+      ? node.folder.order
+      : node.kind === 'chat'
+        ? node.chat.order
+        : node.workspace.order) ?? NO_ORDER
   const sortSiblings = (list: SidebarTreeNode[]) => {
     list.sort(
       (a, b) => orderOf(a) - orderOf(b) || (arrival.get(a.id) ?? 0) - (arrival.get(b.id) ?? 0),
@@ -183,6 +272,3 @@ export function indexSidebarTree(roots: SidebarTreeNode[], rootParentId: string)
 
   return { roots, index: indexFromParents(parentById), nodeById, parentById }
 }
-
-/** An empty repo tree, stable so an absent repo does not remount the rows. */
-export const EMPTY_REPO_TREE: SidebarRepoTree = indexSidebarTree([], '')

@@ -18,9 +18,11 @@ import (
 // reaches, like MarkFailedDispatch) and can set real prompt text.
 func pendingPromptFixture(t *testing.T) (*Runners, string) {
 	t.Helper()
-	chatsDir := filepath.Join(t.TempDir(), "chats")
+	home := t.TempDir()
+	chatsDir := filepath.Join(home, "chats")
 
 	rs := &Runners{
+		home:          func() (string, error) { return home, nil },
 		ws:            fakeWSReader{chatsDir: chatsDir},
 		chats:         stubChatsForSettle{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"}},
 		conversations: stubConversationsForSettle{},

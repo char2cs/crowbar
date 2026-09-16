@@ -84,6 +84,11 @@ export function cssColorToHex(value: string): string | null {
   return null
 }
 
+/** Set a #hex/#hexAA color's alpha to `alpha` (0-1), dropping any alpha it already had. */
+export function withAlpha(hex: string, alpha: number): string {
+  return `${hex.slice(0, 7)}${toHexByte(alpha * 255)}`
+}
+
 /** Syntax token keys → their CSS variable is `--syntax-<key>`. */
 export const SYNTAX_TOKEN_KEYS = [
   'keyword',

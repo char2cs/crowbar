@@ -10,12 +10,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Providers handles GET .../workspaces/:wsId/chats/providers: the registered
+// Providers handles GET .../repos/:repoId/chats/providers: the registered
 // agent providers enriched with connected (installed) + enabled (!disabled) and
-// returned in priority order (spec §3.1). The :wsId path param is retained for
-// surface compatibility but the list is workspace-independent — the resolver reads
-// crowbar home from app config, not the workspace — so every workspace yields the
-// same ordered catalog.
+// returned in priority order (spec §3.1). The list is scope-independent — the
+// resolver reads crowbar home from app config, never the URL — so every mount
+// (repo-scoped or the home group's) yields the same ordered catalog.
 func (h *Handlers) Providers(
 	ctx *gin.Context,
 ) {

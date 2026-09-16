@@ -98,13 +98,19 @@ func TestProjectUsecase_UpdateRepo_SaveError(t *testing.T) {
 
 // TestProjectUsecase_UpdateRepo_DensifyNewProjectSaveError covers a sibling
 // row's renumbering write failing while densifying the repo's (destination)
-// project after the update.
+// project after the update. Order now lives on the repo's own Node row, not
+// domain.Repository, so the sibling's failing write is injected on the Node
+// fake (OrderErrForID) rather than the repository store.
 func TestProjectUsecase_UpdateRepo_DensifyNewProjectSaveError(t *testing.T) {
-	_, repos, uc := newProjectUsecase(t)
+	repos, nodes, uc := newProjectUsecaseWithNodes(t)
 	ctx := context.Background()
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Order: 0}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1", Order: 1}))
-	repos.SaveErrForID = map[string]error{"r2": errors.New("db down")}
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r2", ProjectID: "p1"}))
+	nodes.Rows = []domain.Node{
+		{ID: "r1", Kind: domain.NodeKindRepo, Order: 0},
+		{ID: "r2", Kind: domain.NodeKindRepo, Order: 1},
+	}
+	nodes.OrderErrForID = map[string]error{"r2": errors.New("db down")}
 
 	// Moving r1 to slot 1 (after r2) displaces r2 down to slot 0, so densify
 	// must renumber (and re-save) the sibling r2, not just r1 itself.
@@ -120,10 +126,10 @@ func TestProjectUsecase_UpdateRepo_DensifyOriginProjectSaveError(t *testing.T) {
 	projects, repos, _, uc := newProjectUsecaseWithWorkspaces(t)
 	ctx := context.Background()
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Order: 0}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 	// A sibling left behind in the ORIGIN project (p1), which the post-move
 	// densify of p1 must renumber.
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r-sibling", ProjectID: "p1", Order: 1}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r-sibling", ProjectID: "p1"}))
 
 	repos.FindWhereFn = func(match domain.Repository) ([]domain.Repository, error) {
 		if match.ProjectID == "p1" {

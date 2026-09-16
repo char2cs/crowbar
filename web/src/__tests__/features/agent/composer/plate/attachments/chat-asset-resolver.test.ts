@@ -41,7 +41,7 @@ describe('parseChatAttachmentRef', () => {
 describe('chatAttachmentUrl', () => {
   it('builds the URL through the same chatBase every chat endpoint uses', () => {
     expect(chatAttachmentUrl('ws1', 'chats/c1/attachments/a b.png')).toBe(
-      '/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1/attachments/a%20b.png',
+      '/v0/projects/p1/repos/r1/chats/c1/attachments/a%20b.png',
     )
   })
 

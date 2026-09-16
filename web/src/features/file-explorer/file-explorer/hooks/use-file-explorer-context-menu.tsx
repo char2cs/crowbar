@@ -21,6 +21,7 @@ import {
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
 import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { readFile as readTextFile, writeFile } from '@/features/file-system/controllers/platform'
 import {
   buildEnvTemplateContent,
@@ -29,6 +30,7 @@ import {
 } from '@/features/file-explorer/lib/env-template'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
+import { getWorkspaceScope } from '@/lib/workspace-scope'
 import type { ContextMenuState } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
@@ -170,10 +172,17 @@ export function useFileExplorerContextMenu({
 
         const wsStore = getActiveWorkspaceStoreRef()
         if (wsStore) {
-          const wsState = wsStore.getState()
-          const createdBuffer = wsState.buffers.find((buffer) => buffer.path === createdPath)
+          const workspaceId = wsStore.getState().workspaceId
+          // Task 26: buffers are window-level — scope by workspaceId too, or
+          // a sibling worktree's buffer at the same relative path could get
+          // this content instead.
+          const createdBuffer = windowPaneStore
+            .getState()
+            .buffers.find(
+              (buffer) => buffer.path === createdPath && buffer.workspaceId === workspaceId,
+            )
           if (createdBuffer) {
-            wsStore.setState((state) => ({
+            windowPaneStore.setState((state) => ({
               ...state,
               buffers: state.buffers.map((b) =>
                 b.id === createdBuffer.id && 'content' in b
@@ -283,8 +292,9 @@ export function useFileExplorerContextMenu({
             // '' doesn't match relative paths, so the root collapses everything
             // via collapseAll(); a subdir collapses just its own subtree.
             const treeStore = useFileTreeStore.getState()
-            if (isRootTarget) treeStore.collapseAll()
-            else treeStore.collapsePath(contextMenu.path)
+            const wsId = getWorkspaceScope()?.wsId ?? ''
+            if (isRootTarget) treeStore.collapseAll(wsId)
+            else treeStore.collapsePath(wsId, contextMenu.path)
           },
         },
         {
@@ -293,10 +303,11 @@ export function useFileExplorerContextMenu({
           icon: <Terminal />,
           onClick: () => {
             const folderName = getBaseName(dirTargetPath, 'terminal')
-            getActiveWorkspaceStoreRef()?.getState().bufferActions.openContent({
+            windowPaneStore.getState().bufferActions.openContent({
               type: 'terminal',
               name: folderName,
               workingDirectory: dirTargetPath,
+              workspaceId: getActiveWorkspaceStoreRef()?.getState().workspaceId,
             })
           },
         },

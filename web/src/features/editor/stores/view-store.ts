@@ -4,10 +4,7 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { createSelectors } from '@/utils/zustand-selectors'
 import { createSparseLineArray, getLargeEditorModeInfo } from '../utils/large-file'
-import {
-  getActiveWorkspaceStoreRef,
-  onActiveWorkspaceStoreChange,
-} from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { PaneGroup } from '@/features/panes/types/pane'
 
 interface EditorViewState {
@@ -40,11 +37,10 @@ export const useEditorViewStore = createSelectors(
         getLineCount: () => get().lineCount,
 
         getContent: () => {
-          const wsStore = getActiveWorkspaceStoreRef()?.getState()
-          if (!wsStore) return ''
-          const activeBufferId = wsStore.panes[wsStore.activePaneId]?.activeBufferId ?? null
+          const paneState = windowPaneStore.getState()
+          const activeBufferId = paneState.panes[paneState.activePaneId]?.activeEditorTabId ?? null
           const activeBuffer = activeBufferId
-            ? wsStore.buffers.find((b) => b.id === activeBufferId)
+            ? paneState.buffers.find((b) => b.id === activeBufferId)
             : null
           if (!activeBuffer || !isEditorContent(activeBuffer)) return ''
           return activeBuffer.content
@@ -158,13 +154,13 @@ export function applyIncrementalLineEdit(
   ]
 }
 
-// Subscribe to workspace store changes and update computed view values.
+// Subscribe to pane/buffer store changes and update computed view values.
 // Call this once at app startup (main.tsx). Returns an unsubscribe function.
 //
-// Because the workspace store is set asynchronously (when the WorkspaceView
-// React component mounts), this function uses onActiveWorkspaceStoreChange to
-// wire up a workspace-store subscription whenever the store becomes available
-// and tear it down when the store is removed.
+// Task 26: panes/buffers moved to one window-level store, created once and
+// never destroyed/recreated — unlike the old per-workspace store (set
+// asynchronously, when a WorkspaceView mounts), there is nothing to re-wire
+// here any more, so this subscribes directly and just once.
 let _viewStoreUnsubscribe: (() => void) | null = null
 
 function handleWorkspaceState(state: {
@@ -172,7 +168,7 @@ function handleWorkspaceState(state: {
   panes: Record<string, PaneGroup>
   activePaneId: string
 }) {
-  const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null
+  const activeBufferId = state.panes[state.activePaneId]?.activeEditorTabId ?? null
   const activeBuffer = activeBufferId ? state.buffers.find((b) => b.id === activeBufferId) : null
 
   if (activeBuffer && isEditorContent(activeBuffer)) {
@@ -233,35 +229,14 @@ function handleWorkspaceState(state: {
 export function initViewStoreSubscription(): () => void {
   if (_viewStoreUnsubscribe) return _viewStoreUnsubscribe
 
-  let _wsSubscriptionUnsub: (() => void) | null = null
-
-  const _stopWatchingRef = onActiveWorkspaceStoreChange((store) => {
-    // Tear down previous workspace store subscription when store changes.
-    if (_wsSubscriptionUnsub) {
-      _wsSubscriptionUnsub()
-      _wsSubscriptionUnsub = null
-    }
-
-    if (store) {
-      // Wire up subscription on the new workspace store.
-      _wsSubscriptionUnsub = store.subscribe((state) => {
-        handleWorkspaceState(state)
-      })
-      // Also fire immediately with current state so view is up to date.
-      handleWorkspaceState(store.getState())
-    } else {
-      // Workspace was torn down — reset to blank state.
-      previousActiveBufferSnapshot = null
-      useEditorViewStore.setState({ lines: [''], lineCount: 1 })
-    }
+  const unsub = windowPaneStore.subscribe((state) => {
+    handleWorkspaceState(state)
   })
+  // Fire immediately with current state so the view is up to date.
+  handleWorkspaceState(windowPaneStore.getState())
 
   _viewStoreUnsubscribe = () => {
-    if (_wsSubscriptionUnsub) {
-      _wsSubscriptionUnsub()
-      _wsSubscriptionUnsub = null
-    }
-    _stopWatchingRef()
+    unsub()
     _viewStoreUnsubscribe = null
   }
 

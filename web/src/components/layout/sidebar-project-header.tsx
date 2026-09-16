@@ -1,47 +1,45 @@
-// Lucide (ISC) rather than Phosphor for this cluster: long-tail arrows, a round
-// cog with a ring centre, and a panel glyph — the toolbar language this app is
-// aiming at. Phosphor's GearSix is a six-lobed scalloped gear that reads as a
-// flower at 16px and was the most obviously off-key icon in the set.
-import { ArrowLeft, ArrowRight, Settings } from 'lucide-react'
+// Lucide (ISC) rather than Phosphor for this cluster: long-tail arrows and a
+// panel glyph — the toolbar language this app is aiming at.
+import { memo } from 'react'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { SidebarToggleIcon } from '@/components/ui/sidebar-toggle-icon'
+import {
+  SidebarBuildBadgeBand,
+  SidebarBuildBadgeLabel,
+} from '@/components/layout/sidebar-build-badge'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
 import { useSettingsStore } from '@/features/settings/store'
-import { useUIState } from '@/features/window/stores/ui-state-store'
 import { useJumpNavigation } from '@/features/tabs/hooks/use-jump-navigation'
 import { IS_MAC } from '@/utils/platform'
 import { cn } from '@/utils/cn'
 
 /**
- * Sidebar top bar: a sidebar-toggle on the leading edge and a back / forward /
- * settings cluster on the trailing edge. Mirrors when the sidebar sits on the
- * right. Back/forward reuse the editor jump navigation.
+ * Sidebar top bar: a back / forward / sidebar-toggle cluster on the trailing
+ * edge, with a `flex-1` spacer holding it off the traffic-light side.
+ * Mirrors when the sidebar sits on the right. Back/forward reuse the editor
+ * jump navigation.
+ *
+ * Settings lives in `SidebarFooter` now, pinned to the content-facing edge
+ * of the project-marks row — see that file's doc comment.
+ *
+ * MEMOIZED, and safely so: it takes zero props, so there is nothing a
+ * parent re-render could ever change that this wouldn't ALSO pick up on its
+ * own via `useSettingsStore`/`useSidebar`/`useJumpNavigation` — those three
+ * hooks are what actually decide this bar's output, not `IDEShell`
+ * re-rendering. `IDEShell` re-renders on plenty (an active-pane change, a
+ * settings-dialog toggle) that has nothing to do with any of the three, and
+ * nothing below it is otherwise memoized — see that file's own note on
+ * `NavigationHistoryRecorder` for the same lesson learned once already.
  */
-export function SidebarProjectHeader() {
+export const SidebarProjectHeader = memo(function SidebarProjectHeader() {
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const isRight = sidebarPosition === 'right'
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const { canGoBack, canGoForward, handleJumpBack, handleJumpForward } = useJumpNavigation()
 
-  const toggle = (
-    <Button
-      onClick={toggleSidebar}
-      variant="ghost"
-      size="icon-sm"
-      className={cn(
-        'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
-        isRight && 'scale-x-[-1]',
-      )}
-      tooltip={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
-      tooltipSide="bottom"
-      aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-    >
-      <SidebarToggleIcon />
-    </Button>
-  )
-
   const cluster = (
-    <div className="flex shrink-0 items-center gap-0.5">
+    <div className="relative z-10 flex shrink-0 items-center gap-0.5">
       <Button
         onClick={() => void handleJumpBack()}
         disabled={!canGoBack}
@@ -67,15 +65,18 @@ export function SidebarProjectHeader() {
         <ArrowRight size={16} />
       </Button>
       <Button
-        onClick={() => useUIState.getState().openSettingsDialog()}
+        onClick={toggleSidebar}
         variant="ghost"
         size="icon-sm"
-        className="shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover"
-        tooltip="Settings"
+        className={cn(
+          'shrink-0 rounded-sm text-muted-foreground hover:bg-sidebar-element-hover',
+          isRight && 'scale-x-[-1]',
+        )}
+        tooltip={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
         tooltipSide="bottom"
-        aria-label="Settings"
+        aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
       >
-        <Settings size={16} />
+        <SidebarToggleIcon />
       </Button>
     </div>
   )
@@ -83,7 +84,7 @@ export function SidebarProjectHeader() {
   return (
     <div
       className={cn(
-        'flex w-full flex-shrink-0 items-center gap-1',
+        'relative flex w-full flex-shrink-0 items-center gap-1 overflow-hidden',
         // The 12px breathing room hugs the outer (screen-edge) side the sidebar
         // is docked against; the inner side uses the same 8px inset as the
         // context pill and tab bar so the buttons line up with the column.
@@ -93,12 +94,22 @@ export function SidebarProjectHeader() {
       )}
       data-tauri-drag-region
     >
+      {/* Build-state band paints behind the traffic lights, dead space, and
+          cluster below — it never affects their layout. */}
+      <SidebarBuildBadgeBand className="absolute inset-0 z-0" align={isRight ? 'end' : 'start'} />
       {/* Reserve space for the macOS traffic lights on whichever side is
           top-left (only when the sidebar is on the left). */}
-      {IS_MAC && !isRight && <div className="w-[72px] shrink-0" />}
-      {toggle}
-      <div className="flex-1" />
+      {IS_MAC && !isRight && <div className="relative z-10 w-[72px] shrink-0" />}
+      {/* Text sits on the true outer edge of this bar, away from the
+          cluster — `justify-start` already lands there when the cluster is
+          on the right; flip to `justify-end` when the parent's row-reverse
+          has flipped the cluster to the left. */}
+      <div
+        className={cn('relative z-10 flex min-w-0 flex-1 items-center', isRight && 'justify-end')}
+      >
+        <SidebarBuildBadgeLabel align={isRight ? 'end' : 'start'} />
+      </div>
       {cluster}
     </div>
   )
-}
+})

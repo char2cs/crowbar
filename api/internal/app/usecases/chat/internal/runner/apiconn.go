@@ -87,8 +87,13 @@ func (r *apiConnRegistry) set(runnerID string, c *apiconn) {
 
 // get returns runnerID's live connection, if it has one. ok=false is the
 // common case for a hooks-only provider, and is how submitPromptOverAPI
-// decides to fall back to restart_tui instead.
+// decides to fall back to restart_tui instead. Nil-safe for the same reason
+// drop is: spawnRunner asks this on EVERY spawn now (apiResumes), including
+// from test doubles that build a Runners without ever making a registry.
 func (r *apiConnRegistry) get(runnerID string) (*apiconn, bool) {
+	if r == nil {
+		return nil, false
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c, ok := r.byRun[runnerID]
@@ -221,9 +226,17 @@ func (rs *Runners) startAPIConn(
 
 // applyAPITransport starts serve+handshake for an api-transport descriptor,
 // ESTABLISHES its session (Fresh or Resume — see apiconn's own EstablishSession
-// doc) before anything else, and, once connected, points plan at `attach`'s
-// argv instead of the bare descriptor spawn.cmd — so the PTY spawnRunner forks
-// carries the attached TUI, not a second copy of the hooks-only launch.
+// doc) before anything else, and, once connected, RETURNS `attach`'s argv for
+// the caller to point its spawn plan at instead of the bare descriptor
+// spawn.cmd — so the PTY spawnRunner forks carries the attached TUI, not a
+// second copy of the hooks-only launch. Returns nil when there is nothing to
+// override.
+//
+// It returns that argv rather than writing it into a *SpawnPlan because
+// spawnRunner must call this BEFORE it builds the plan at all: whether this
+// connection came up is what decides if the plan may carry a native
+// `resume {id}` (see apiResumes), and asking afterwards is how that decision
+// used to be made from the descriptor alone.
 //
 // The session must exist BEFORE attach's argv is rendered: attach has to name
 // the SAME thread `prompt`'s turn/start will act on (codex.yaml's attach is
@@ -250,12 +263,11 @@ func (rs *Runners) applyAPITransport(
 	runnerID, providerID string,
 	agent engineagents.Agent,
 	tctx engineagents.TemplateCtx,
-	plan *engineagents.SpawnPlan,
 	resumeContext string,
-) {
+) []string {
 	conn, ok := rs.startAPIConn(ctx, runnerID, agent, tctx)
 	if !ok {
-		return
+		return nil
 	}
 	values := map[string]string{
 		"session_id": tctx.Session,
@@ -283,7 +295,7 @@ func (rs *Runners) applyAPITransport(
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)
 		rs.apiConns.drop(runnerID)
-		return
+		return nil
 	}
 	tctx.Session = established["session_id"]
 	// The ONLY channel that reaches an already-resumed codex thread: no CLI
@@ -311,13 +323,25 @@ func (rs *Runners) applyAPITransport(
 	// before any turn has run, is exactly the request that fails live against
 	// codex (its rollout is not flushed yet) — so that case is left to
 	// SwitchToTerminal (attach.go), never rendered eagerly.
+	var attach []string
 	if agent.Capabilities().Hotswap {
 		if attachArgv, ok := agent.APIAttachArgv(tctx); ok {
-			plan.Executable = binpath.Resolve(attachArgv[0])
-			plan.Argv = attachArgv[1:]
+			attach = attachArgv
 		}
 	}
 	rs.pumpAPIConn(runnerID, providerID, agent, conn)
+	return attach
+}
+
+// pointPlanAtAttach redirects a spawn plan's PTY at applyAPITransport's attach
+// argv. binpath.Resolve for the same reason spawnRunner resolves its own
+// argv[0]: exec.Command looks a bare name up against the DAEMON's PATH.
+func pointPlanAtAttach(plan *engineagents.SpawnPlan, attachArgv []string) {
+	if len(attachArgv) == 0 {
+		return
+	}
+	plan.Executable = binpath.Resolve(attachArgv[0])
+	plan.Argv = attachArgv[1:]
 }
 
 // forkServeProcess starts argv as a long-lived BACKGROUND process — not a PTY:

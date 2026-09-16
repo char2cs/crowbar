@@ -37,7 +37,7 @@ export function useTabKeyboardNav({
           if (index > 0) {
             const prev = sortedBuffers[index - 1]
             onTabClick(prev.id)
-            onUpdateActivePath(prev.path)
+            onUpdateActivePath(prev.path ?? '')
             onAnnounce(announce(prev))
             tabRefs.current[index - 1]?.focus()
           }
@@ -48,7 +48,7 @@ export function useTabKeyboardNav({
           if (index < sortedBuffers.length - 1) {
             const next = sortedBuffers[index + 1]
             onTabClick(next.id)
-            onUpdateActivePath(next.path)
+            onUpdateActivePath(next.path ?? '')
             onAnnounce(announce(next))
             tabRefs.current[index + 1]?.focus()
           }
@@ -59,7 +59,7 @@ export function useTabKeyboardNav({
           if (sortedBuffers.length > 0) {
             const first = sortedBuffers[0]
             onTabClick(first.id)
-            onUpdateActivePath(first.path)
+            onUpdateActivePath(first.path ?? '')
             onAnnounce(announce(first))
             tabRefs.current[0]?.focus()
           }
@@ -71,7 +71,7 @@ export function useTabKeyboardNav({
             const lastIndex = sortedBuffers.length - 1
             const last = sortedBuffers[lastIndex]
             onTabClick(last.id)
-            onUpdateActivePath(last.path)
+            onUpdateActivePath(last.path ?? '')
             onAnnounce(announce(last))
             tabRefs.current[lastIndex]?.focus()
           }
@@ -92,7 +92,7 @@ export function useTabKeyboardNav({
         case ' ':
           e.preventDefault()
           onTabClick(buffer.id)
-          onUpdateActivePath(buffer.path)
+          onUpdateActivePath(buffer.path ?? '')
           onAnnounce(
             `Activated ${buffer.name}${buffer.type === 'editor' && buffer.isDirty ? ', unsaved changes' : ''}`,
           )

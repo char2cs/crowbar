@@ -1,100 +1,165 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { vi, expect, test, beforeEach } from 'vitest'
-
-const BASE = '/v0/projects/proj-1/repos/repo-1'
-
-const BRANCHES = [
-  { name: 'dev', isProtected: true, hasWorkspace: false },
-  { name: 'feat/base', isProtected: false, hasWorkspace: false },
-  { name: 'feat/9324', isProtected: false, hasWorkspace: false },
-  { name: 'already', isProtected: false, hasWorkspace: true },
-]
-const PR_LINKS = [
-  { head: 'feat/9324', base: 'feat/base' },
-  { head: 'feat/base', base: 'dev' },
-]
-
-vi.mock('@/lib/api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/api')>()
-  return {
-    ...actual,
-    apiFetch: vi.fn((path: string) =>
-      path === `${BASE}/branches`
-        ? Promise.resolve(BRANCHES as never)
-        : Promise.resolve(undefined as never),
-    ),
-    getRepoPullRequests: vi.fn(() => Promise.resolve(PR_LINKS)),
-  }
-})
-
+/**
+ * Task 6: per-branch lock choice at import time. `RepoImportDialog` already
+ * lists remote branches with a checkbox per row (multi-select — Import posts
+ * the whole batch in one call, see the component's own doc comment); this
+ * covers the lock toggle added alongside it and what `onImport` receives.
+ */
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { RepoImportDialog } from '@/components/layout/repo-import-dialog'
+import * as api from '@/lib/api'
 
-// jsdom has no layout, so every element reports a 0×0 rect and @tanstack/react-virtual
-// windows to zero rows. Give elements a real viewport height so the virtualizer
-// mounts the (few) rows this test asserts on.
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof api>()),
+  apiFetch: vi.fn(),
+  getRepoPullRequests: vi.fn(),
+}))
+
+// The branch list is virtualised; jsdom has no layout engine, so a zero-sized
+// scroll element renders nothing at all. Same fix changed-files-tree.test.tsx
+// uses for the same virtualizer.
+const VIEWPORT_WIDTH = 320
+const VIEWPORT_HEIGHT = 600
+const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect
+
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+  const rect = {
     top: 0,
     left: 0,
-    right: 400,
-    bottom: 600,
-    width: 400,
-    height: 600,
+    right: VIEWPORT_WIDTH,
+    bottom: VIEWPORT_HEIGHT,
+    width: VIEWPORT_WIDTH,
+    height: VIEWPORT_HEIGHT,
     x: 0,
     y: 0,
-    toJSON: () => ({}),
-  } as DOMRect)
+  }
+  HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    return { ...rect, toJSON: () => rect } as DOMRect
+  }
+  vi.mocked(api.getRepoPullRequests).mockResolvedValue([])
 })
 
-function renderDialog(onOpenChange = vi.fn(), onImport = vi.fn()) {
-  return render(
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect
+})
+
+function mockBranches(
+  branches: Array<{ name: string; isProtected?: boolean; hasWorkspace?: boolean }>,
+) {
+  vi.mocked(api.apiFetch).mockResolvedValue(
+    branches.map((b) => ({ isProtected: false, hasWorkspace: false, ...b })),
+  )
+}
+
+function renderDialog(onImport = vi.fn()) {
+  const onOpenChange = vi.fn()
+  render(
     <RepoImportDialog
       projectId="proj-1"
       repoId="repo-1"
-      defaultBranch="dev"
-      open
+      defaultBranch="main"
+      open={true}
       onOpenChange={onOpenChange}
       onImport={onImport}
     />,
   )
+  return { onImport, onOpenChange }
 }
 
-// base-ui's checkbox carries no resolvable accessible name, so a selectable row
-// is toggled by clicking its wrapping <label> (found via the branch text).
-async function selectBranch(name: string) {
-  const span = await screen.findByText(name)
-  const label = span.closest('label')
-  if (!label) throw new Error(`branch ${name} is not selectable (no label)`)
-  fireEvent.click(label)
+async function waitForRow(name: string) {
+  return waitFor(() => screen.getByText(name))
 }
 
-test('renders branch rows; protected + already-imported are not selectable', async () => {
-  renderDialog()
-  await waitFor(() => expect(screen.getByText('feat/9324')).toBeInTheDocument())
+describe('RepoImportDialog lock choice', () => {
+  it('shows no lock control on an unselected branch row', async () => {
+    mockBranches([{ name: 'feature-a' }])
+    renderDialog()
+    await waitForRow('feature-a')
+    expect(screen.queryByRole('button', { name: /lock feature-a/i })).not.toBeInTheDocument()
+  })
 
-  // Selectable rows are wrapped in a <label>; protected/imported rows are not.
-  expect(screen.getByText('feat/9324').closest('label')).not.toBeNull()
-  expect(screen.getByText('feat/base').closest('label')).not.toBeNull()
-  expect(screen.getByText('dev').closest('label')).toBeNull()
-  expect(screen.getByText('already').closest('label')).toBeNull()
-})
+  it('shows a lock toggle once the branch is checked for import', async () => {
+    const user = userEvent.setup()
+    mockBranches([{ name: 'feature-a' }])
+    renderDialog()
+    await waitForRow('feature-a')
+    await user.click(screen.getByRole('checkbox', { name: /^feature-a/ }))
+    expect(screen.getByRole('button', { name: /lock feature-a after import/i })).toBeInTheDocument()
+  })
 
-test('selecting a branch with a missing PR base shows the "creates N parents" hint', async () => {
-  renderDialog()
-  await selectBranch('feat/9324')
+  it('importing with the lock choice left at its default (untouched) sends no locked branches — identical to import before this task', async () => {
+    const user = userEvent.setup()
+    mockBranches([{ name: 'feature-a' }])
+    const { onImport, onOpenChange } = renderDialog()
+    await waitForRow('feature-a')
+    await user.click(screen.getByRole('checkbox', { name: /^feature-a/ }))
+    await user.click(screen.getByRole('button', { name: 'Import' }))
+    expect(onImport).toHaveBeenCalledWith(['feature-a'], [])
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
 
-  await waitFor(() => expect(screen.getByText(/creates 1 parent branch/i)).toBeInTheDocument())
-})
+  it('toggling a branch’s lock control and importing sends it as locked', async () => {
+    const user = userEvent.setup()
+    mockBranches([{ name: 'feature-a' }])
+    const { onImport } = renderDialog()
+    await waitForRow('feature-a')
+    await user.click(screen.getByRole('checkbox', { name: /^feature-a/ }))
+    await user.click(screen.getByRole('button', { name: /lock feature-a after import/i }))
+    await user.click(screen.getByRole('button', { name: 'Import' }))
+    expect(onImport).toHaveBeenCalledWith(['feature-a'], ['feature-a'])
+  })
 
-test('Import hands the selection to onImport and closes the dialog', async () => {
-  const onOpenChange = vi.fn()
-  const onImport = vi.fn()
-  renderDialog(onOpenChange, onImport)
-  await selectBranch('feat/9324')
+  it('each branch carries its own independent lock choice across a multi-branch import', async () => {
+    const user = userEvent.setup()
+    mockBranches([{ name: 'feature-a' }, { name: 'feature-b' }])
+    const { onImport } = renderDialog()
+    await waitForRow('feature-a')
+    await waitForRow('feature-b')
+    await user.click(screen.getByRole('checkbox', { name: /^feature-a/ }))
+    await user.click(screen.getByRole('checkbox', { name: /^feature-b/ }))
+    // Lock only feature-a.
+    await user.click(screen.getByRole('button', { name: /lock feature-a after import/i }))
+    await user.click(screen.getByRole('button', { name: 'Import' }))
+    const [branches, locked] = onImport.mock.calls[0] as [string[], string[]]
+    expect(new Set(branches)).toEqual(new Set(['feature-a', 'feature-b']))
+    expect(locked).toEqual(['feature-a'])
+  })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+  it('unchecking a branch drops it from onImport even if it had been marked locked', async () => {
+    const user = userEvent.setup()
+    mockBranches([{ name: 'feature-a' }])
+    const { onImport } = renderDialog()
+    await waitForRow('feature-a')
+    const checkbox = screen.getByRole('checkbox', { name: /^feature-a/ })
+    await user.click(checkbox)
+    await user.click(screen.getByRole('button', { name: /lock feature-a after import/i }))
+    await user.click(checkbox) // deselect
+    // Import is disabled with nothing selected, so re-select without locking
+    // to prove the lock choice did not survive the deselect.
+    await user.click(checkbox)
+    await user.click(screen.getByRole('button', { name: 'Import' }))
+    expect(onImport).toHaveBeenCalledWith(['feature-a'], [])
+  })
 
-  expect(onImport).toHaveBeenCalledWith(['feat/9324'])
-  expect(onOpenChange).toHaveBeenCalledWith(false)
+  it('the lock toggle reflects its pressed state via aria-pressed', async () => {
+    const user = userEvent.setup()
+    mockBranches([{ name: 'feature-a' }])
+    renderDialog()
+    await waitForRow('feature-a')
+    await user.click(screen.getByRole('checkbox', { name: /^feature-a/ }))
+    const lockButton = screen.getByRole('button', { name: /lock feature-a after import/i })
+    expect(lockButton).toHaveAttribute('aria-pressed', 'false')
+    await user.click(lockButton)
+    expect(lockButton).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('a protected branch row never gets a lock toggle (it is not importable at all)', async () => {
+    mockBranches([{ name: 'main', isProtected: true }])
+    renderDialog()
+    await waitForRow('main')
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /lock main/i })).not.toBeInTheDocument()
+  })
 })

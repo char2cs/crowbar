@@ -13,6 +13,7 @@ import {
   readSyntaxPalette,
   resolveCssVar,
   type SyntaxTokenKey,
+  withAlpha,
 } from '@/features/editor/theme/resolve-css-color'
 import { SEMANTIC_TOKEN_TYPES } from './semantic-tokens-encode'
 
@@ -100,7 +101,11 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editor.findMatchBackground': ui.selection,
       'editor.findMatchHighlightBackground': ui.border,
       focusBorder: ui.ring,
-      'editor.lineHighlightBackground': ui.border,
+      // `ui.border` is opaque (it's a hairline-border token) — at full strength
+      // this reads as a solid grey block behind the cursor line instead of a
+      // subtle wash. Only sticky scroll's OWN opaque widgetBackground below is
+      // meant to fully cover content; this one should barely be visible.
+      'editor.lineHighlightBackground': withAlpha(ui.border, 0.08),
       'editorLineNumber.foreground': ui.subtle,
       'editorLineNumber.activeForeground': ui.foreground,
       'editorIndentGuide.background1': ui.border,
@@ -109,6 +114,13 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
       'editorWidget.background': ui.widgetBackground,
       'editorWidget.foreground': ui.foreground,
       'editorWidget.border': ui.border,
+      // Both default to `editor.background`, which we set transparent above
+      // for the CSS pane background to show through the editor content — but
+      // sticky scroll's function-header widget floats OVER scrolled content,
+      // so left at that default it goes transparent too and the text
+      // scrolling underneath shows through it.
+      'editorStickyScroll.background': ui.widgetBackground,
+      'editorStickyScrollGutter.background': ui.widgetBackground,
       'editorSuggestWidget.background': ui.widgetBackground,
       'editorSuggestWidget.foreground': ui.foreground,
       'editorSuggestWidget.border': ui.border,

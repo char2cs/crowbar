@@ -38,12 +38,40 @@ export interface AwaitEntityOptions<T> {
    * on a branch that already has a workspace doesn't match the stale row.
    */
   acceptExisting?: boolean
+  /**
+   * Turn ONE raw frame into the entity being awaited, or null to ignore it.
+   *
+   * Applied BEFORE the `id` check and before `match`, for the same reason
+   * `subscribeEntityStream`'s own `mapFrame` is: the worktree a repo import
+   * creates is announced on the chat LIFECYCLE socket, whose frames are events
+   * rather than entity DTOs — the workspace is nested inside a `worktree_state`
+   * one and every other kind is about something else. Omitted, the frame is cast
+   * exactly as it always was.
+   */
+  mapFrame?: (raw: unknown) => T | null
+  /**
+   * A one-shot REST read of the same set, consulted once the action settles.
+   *
+   * Required whenever the endpoint is a feed with NO snapshot-on-subscribe (the
+   * chat lifecycle socket is one): such a stream replays nothing on connect, so
+   * an entity that already exists is never announced and `acceptExisting` has
+   * nothing to accept. Omitted, behaviour is exactly as it was.
+   */
+  seed?: () => Promise<T[]>
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
 export function awaitEntity<T extends { id: string }>(opts: AwaitEntityOptions<T>): Promise<T> {
-  const { endpoint, match, action, timeoutMs = DEFAULT_TIMEOUT_MS, acceptExisting = false } = opts
+  const {
+    endpoint,
+    match,
+    action,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    acceptExisting = false,
+    mapFrame,
+    seed,
+  } = opts
   return new Promise<T>((resolve, reject) => {
     let settled = false
     // Ids replayed by the snapshot-on-subscribe burst. While `collecting` is
@@ -65,7 +93,9 @@ export function awaitEntity<T extends { id: string }>(opts: AwaitEntityOptions<T
     const unsubscribe = wsManager.subscribe(endpoint, (data: unknown) => {
       // The reconnect sentinel is not a DTO — ignore it.
       if (isReconnectSentinel(data)) return
-      const frame = data as T
+      const mapped = mapFrame ? mapFrame(data) : (data as T)
+      if (mapped === null) return
+      const frame = mapped as T
       if (!frame || typeof frame.id !== 'string') return
       if (!match(frame)) return
       // Snapshot window: bank the id (it is a pre-existing row) and wait for a
@@ -91,7 +121,35 @@ export function awaitEntity<T extends { id: string }>(opts: AwaitEntityOptions<T
     void action()
       .then(() => {
         collecting = false
+        return runSeed()
       })
       .catch((err) => finish(() => reject(err)))
+
+    // The REST fallback, read AFTER the subscription is live so a row arriving
+    // mid-read is never missed — the socket already has it.
+    //
+    // It is what makes `acceptExisting` mean anything on a stream with no
+    // snapshot-on-subscribe. The chat lifecycle feed is a bare event feed: it
+    // replays nothing on connect, so an entity created before this call — which
+    // is the norm here, since the repo POST that creates the worktree completes
+    // inside the PRECEDING await — would never be announced again and this would
+    // sit until the timeout. Reading the list closes that hole without weakening
+    // the snapshot-window rule for streams that do replay.
+    function runSeed(): Promise<void> {
+      if (!seed || settled) return Promise.resolve()
+      return seed()
+        .then((rows) => {
+          if (settled) return
+          const hit = rows.find((row) => row && typeof row.id === 'string' && match(row))
+          if (!hit) return
+          if (!acceptExisting && seen.has(hit.id)) return
+          finish(() => resolve(hit))
+        })
+        .catch(() => {
+          // A failed read is not a failed await: the frame may still arrive, and
+          // the timeout is the real deadline. Swallowing it keeps a transient
+          // 5xx from turning a working live path into a hard failure.
+        })
+    }
   })
 }

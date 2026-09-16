@@ -14,8 +14,9 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -68,7 +69,10 @@ func (rs *Runners) spawnRunner(
 	workspaceID string,
 	providerID string,
 	preallocatedRunnerID string,
-	extraSteps []engineagents.InjectStep,
+	// The FULL native resume argv this spawn would carry, never pre-suppressed by
+	// its caller: only this function, once applyAPITransport has run, knows
+	// whether an api connection took the resume over instead (apiResumes).
+	resumeSteps []engineagents.InjectStep,
 	finalSteps []engineagents.InjectStep,
 	conversation string,
 	gapTurns int,
@@ -84,7 +88,7 @@ func (rs *Runners) spawnRunner(
 	threads, sel := pre.threads, pre.selection
 	runnerID := newRunnerID(preallocatedRunnerID)
 
-	paths, err := rs.spawnPaths(ctx, workspaceID, runnerID, providerID)
+	paths, err := rs.spawnPaths(ctx, chatID, workspaceID, runnerID, providerID)
 	if err != nil {
 		return "", err
 	}
@@ -144,8 +148,6 @@ func (rs *Runners) spawnRunner(
 		permissionVars:  descriptor.PermissionVars(sel.PermissionLevel),
 	})
 
-	steps := buildSpawnSteps(descriptor, resuming, inject, sel, extraSteps, finalSteps)
-
 	// Register the injected document BEFORE the CLI can run: a provider whose only
 	// resume channel is a user message (codex) fires its user-prompt hook with this
 	// exact text the moment it starts, and that echo must never be recorded as a
@@ -171,16 +173,36 @@ func (rs *Runners) spawnRunner(
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}
 
+	// BEFORE the argv is rendered, not after. Whether this connection actually
+	// comes up is what decides whether the companion PTY may carry a native
+	// `resume {id}` and the positional gap document at all (apiResumes,
+	// resume_injection.go) — asked the other way round, from the descriptor
+	// alone, a codex whose app-server never started had BOTH withheld and duly
+	// minted a brand new thread, silently abandoning the chat's own conversation
+	// on every restart and every switch back. Still never a reason to fail the
+	// spawn: a connection that does not come up leaves apiResumes false and the
+	// session runs over hooks alone, exactly as design spec §2.2b requires.
+	attachArgv := rs.applyAPITransport(
+		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(resuming, inject, tctx),
+	)
+	steps := buildSpawnSteps(
+		descriptor, resuming, inject, rs.apiResumes(descriptor, runnerID), sel, resumeSteps, finalSteps,
+	)
+
 	plan, err := descriptor.SpawnPlan(tctx, os.Environ(), steps)
 	if err != nil {
 		// The injected-context entry above was registered before the CLI could exist, and
 		// only reconcileRunnerExit (via the onExit callback) ever forgets it — a callback
 		// that never fires when the CLI never goes live. Forget it here, or every failed
 		// spawn leaks one handoff-sized string until the daemon restarts.
+		//
+		// Same for the connection just established: onRunnerExit's own drop fires
+		// from a PTY dying, and this spawn never gets one.
+		rs.apiConns.drop(runnerID)
 		rs.agents.ForgetRunner(runnerID)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
-	rs.applyAPITransport(ctx, runnerID, providerID, descriptor, tctx, plan, resumeContextFor(resuming, inject, tctx))
+	pointPlanAtAttach(plan, attachArgv)
 
 	// binpath.Resolve, never the bare descriptor cmd: the PTY exec's argv[0] through
 	// exec.Command, which resolves a bare name against the DAEMON's PATH — plan.Env is
@@ -192,7 +214,7 @@ func (rs *Runners) spawnRunner(
 	termSessID, err := rs.forkCLI(ctx, forkRequest{
 		runnerID:    runnerID,
 		providerID:  providerID,
-		workspaceID: workspaceID,
+		chatID:      chatID,
 		worktree:    worktree,
 		crowbarHome: crowbarHome,
 		tmpDir:      tmpDir,
@@ -249,7 +271,7 @@ func (rs *Runners) forkCLI(
 		worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
 		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
 	}
-	termSessID, err := rs.term.CreateCommand(ctx, req.workspaceID, req.worktree, req.argv, req.env,
+	termSessID, err := rs.term.CreateCommand(ctx, req.chatID, req.worktree, req.argv, req.env,
 		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir))
 	if err == nil {
 		return termSessID, nil
@@ -284,6 +306,7 @@ func (rs *Runners) recordRunner(
 		created, err := rs.chats.Create(ctx, agentchat.CreateInput{
 			ID:          chatID,
 			WorkspaceID: workspaceID,
+			Type:        domain.ChatTypeChat,
 			Now:         now,
 		})
 		if err != nil {
@@ -414,9 +437,12 @@ func (rs *Runners) spawnPreflight(
 }
 
 type forkRequest struct {
-	runnerID    string
-	providerID  string
-	workspaceID string
+	runnerID   string
+	providerID string
+	// chatID is the terminal engine's session-scoping key — NOT the workspace id
+	// this used to carry: a chat with no worktree of its own has an empty one, so
+	// every such runner registered under the key "". worktree below is the CWD.
+	chatID      string
 	worktree    string
 	crowbarHome string
 	tmpDir      string

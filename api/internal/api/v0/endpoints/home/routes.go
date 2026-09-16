@@ -36,6 +36,10 @@ func Register(
 	files homehandlers.Files,
 	termEng homehandlers.TerminalEngine,
 	working homehandlers.WorkSignal,
+	// nodes mints a lazily-provisioned legacy project's home workspace its own
+	// Node{Kind:workspace} row the instant resolveHome creates one (2026-09-08
+	// sidebar-placement-unification Task 7) — see homehandlers.WithNodes.
+	nodes homehandlers.NodeCreator,
 	filesWS gin.HandlerFunc,
 	threadStore threadhandlers.ThreadStore,
 	threadBroadcast threadhandlers.ThreadBroadcaster,
@@ -50,7 +54,9 @@ func Register(
 	agentWS gin.HandlerFunc,
 	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
-	h := homehandlers.New(workspaces, projects, files, termEng, working)
+	// agentChats already satisfies homehandlers.ChatResolver (ListChatsByWorkspace) —
+	// no new dependency to thread through Register, only to wire in here.
+	h := homehandlers.New(workspaces, projects, files, termEng, working).WithChats(agentChats).WithNodes(nodes)
 	th := threadhandlers.New(threadStore, threadBroadcast)
 	ah := chathandlers.New(
 		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
@@ -144,7 +150,9 @@ func registerAgent(
 	home.PATCH("/chats/:id/selection", h.RequireHomeWorkspace, ah.SetSelection)
 	home.GET("/chats/:id/handoff", h.RequireHomeWorkspace, ah.Handoff)
 	home.PATCH("/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
+	home.POST("/chats/:id/promote", h.RequireHomeWorkspace, ah.Promote)
 	home.DELETE("/chats/:id", h.RequireHomeWorkspace, ah.Delete)
+	home.GET("/chats/:id/delete-preview", h.RequireHomeWorkspace, ah.DeletePreview)
 	// Chat FOLDERS, mounted here for the reason the chats above are: the project
 	// home is the surface that accumulates the most chats, so it is the one that
 	// most needs somewhere to put them. Mounting them only on the workspace group

@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { gitBaseForWorkspace } from '@/lib/workspace-scope-url'
 import type { GitStash } from '../types/git-types'
 
 interface StashDTO {
@@ -9,9 +9,7 @@ interface StashDTO {
   filesChanged: number
 }
 
-function base(wsId: string): string {
-  return `${workspaceBase(wsId)}/git`
-}
+const base = gitBaseForWorkspace
 
 export const getStashes = async (wsId: string): Promise<GitStash[]> => {
   try {

@@ -1,0 +1,311 @@
+import { useState } from 'react'
+import {
+  ArrowElbowDownRight,
+  CaretDown,
+  DotsThree,
+  Folder as FolderIcon,
+  FolderOpen,
+} from '@phosphor-icons/react'
+import { cn } from '@/lib/utils'
+import {
+  ROW_BASE,
+  ROW_GLYPH_BOX,
+  ROW_INACTIVE,
+  ROW_SUB_ACTION,
+} from '@/components/layout/workspace-row-base'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
+import { EditableProjectIcon } from '@/components/layout/project-icon-mark'
+import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
+import { performRenameProject } from '@/components/sidebar/lib/row-actions'
+import type { Project } from '@/lib/types'
+
+interface SpaceHeaderProps {
+  project: Project
+  folded: boolean
+  onToggleFold: () => void
+  /** Starts a new thread on the project's home workspace — same mechanism
+   *  a row's own Thread button uses (`onCreate(homeRowId, 'thread')`). */
+  onCreateThread: () => void
+  /** Opens the "Import a repo" modal. */
+  onImportRepo: () => void
+  /** Starts a folder on the project's own home workspace. */
+  onCreateFolder: () => void
+  /** Trashes the whole space — `SpacePanel`'s own `onTrashProject`, already
+   *  threaded down from `sidebar-tree-surface.tsx` (spec §9: "the space
+   *  header for the project" carries a trash too). */
+  onDeleteSpace: () => void
+}
+
+/**
+ * The space header (spec §4): "the `.row` component with different controls."
+ * Built on the same layout tokens as SidebarRow (B.2) — ROW_BASE, the size-5
+ * glyph box the row's own comment already calls out as a "section header"
+ * exception, ROW_SUB_ACTION — rather than wrapping `<SidebarRow>` itself: this
+ * row's interaction is a LEADING-slot swap (mark -> chevron) that SidebarRow's
+ * trailing-controls-only model has no shape for.
+ *
+ * Hover is tracked in state, not CSS `group-hover`, because the trailing
+ * thread/add-menu buttons are a CONTENT swap (nothing renders at rest), not
+ * just a visibility toggle. The leading mark's own swap (icon -> chevron)
+ * rides a SECOND, narrower hover state — see `showChevron`'s own doc for why.
+ */
+export function SpaceHeader({
+  project,
+  folded,
+  onToggleFold,
+  onCreateThread,
+  onImportRepo,
+  onCreateFolder,
+  onDeleteSpace,
+}: SpaceHeaderProps) {
+  const [active, setActive] = useState(false)
+  // The delete menu's own open state, ORed into the cluster's mount
+  // condition below (`active || menuOpen`) — its content renders in a
+  // portal outside this row's DOM subtree, so moving the pointer onto it to
+  // click an item fires a real `mouseleave` on the row, and without this
+  // `active` alone would unmount the whole menu (trigger included) mid-
+  // click: the item's text stayed findable a beat longer than its React
+  // fiber did, so the click landed on a detached node and silently did
+  // nothing — caught live.
+  const [menuOpen, setMenuOpen] = useState(false)
+  // Whether the pointer is directly over the glyph's OWN hit-target (the
+  // size-5 box below), not the row generally — see `showChevron`.
+  const [glyphHovered, setGlyphHovered] = useState(false)
+  // Whether the icon's OWN popover (icon-popover.tsx) is open — see
+  // `showChevron`'s own doc for why this has to hold the swap off, not just
+  // `glyphHovered`.
+  const [iconPopoverOpen, setIconPopoverOpen] = useState(false)
+  // Folded reports a state rather than offering one (spec §4): the chevron
+  // stays even once the pointer, or focus, has moved on.
+  //
+  // Spec §4: "On hover — the mark's slot becomes a chevron, and an overflow
+  // (…) appears." An EARLIER version of this row (and its ancestor,
+  // project-home-row.tsx, deleted in the tree retirement — git history
+  // cf422bc5) hit exactly this and reverted it: gating the swap on `active`
+  // (row-wide hover) meant Task 5's click-to-edit icon (EditableProjectIcon)
+  // was swapped out from under the pointer before a click could ever land on
+  // it — clickable in principle, unclickable in practice. A prior pass
+  // "fixed" that by gating the swap on `folded` alone, which resolved the
+  // click-target conflict but dropped the spec's hover behaviour entirely.
+  //
+  // The actual conflict is narrower than either fix treated it: it is only
+  // the GLYPH's own hit-target that must stay the icon (so its own
+  // `group-hover/entity-icon` pencil affordance — icon-popover.tsx — stays
+  // reachable). Everywhere else on the row, hover can safely become a
+  // chevron, since a click there already just folds. `glyphHovered` carves
+  // that one hit-target out of `active`: the row-wide hover swap now applies
+  // spec's full behaviour, while a pointer sitting exactly on the mark keeps
+  // it as the icon it also is.
+  //
+  // `!iconPopoverOpen` on top of that: `glyphHovered` alone only covers the
+  // pointer SITTING on the glyph — reaching the popover the glyph opens
+  // means leaving that hit-target, which flips `glyphHovered` false while
+  // `active` (hovering the wider row en route) can easily still be true.
+  // Without this, `EditableProjectIcon` (and the still-open popover mounted
+  // inside it) kept getting hidden and re-shown on every such crossing —
+  // live-reported as the mark "flashing" between the icon and the chevron
+  // while the popover sat open and undisturbed the whole time. Held open for
+  // as long as the popover itself reports open, regardless of where the
+  // pointer wanders meanwhile.
+  const showChevron = folded || (active && !glyphHovered && !iconPopoverOpen)
+  // Double-click-to-rename the project itself — restored from the deleted
+  // tree's project-home-row.tsx, which called the same `renameProject` API
+  // through `startRenaming`/`isRenaming` state it owned locally, exactly like
+  // this. A project has no id in the row-based `SidebarRow[]`/`renamingRowId`
+  // space sidebar-tree-chrome.tsx owns (a project is not a row), so this
+  // stays local to this one header rather than threading a second concept
+  // through that shared state. A real inline `<input>` in place of the
+  // label, matching `develop`'s actual behavior — not a modal.
+  const [renaming, setRenaming] = useState(false)
+
+  return (
+    <div
+      data-testid="space-header-row"
+      // No `role`/`tabIndex`/`onClick` here on purpose: this used to be
+      // `role="button"` wrapping the WHOLE row, including the overflow menu
+      // and thread button below — a `<button>` (or Base UI's own trigger,
+      // same difference to a screen reader) nested inside another element
+      // ARIA presents as one atomic button, which swallows the nested
+      // controls' own semantics (`html-no-nested-interactive`: AT can no
+      // longer reach them independently, and a real nested `<button>`
+      // clicked via a synthesized AT "activate" gesture can double-fire
+      // both). The fold toggle now lives on the label `<button>` below — a
+      // true sibling of the overflow/thread controls, not their ancestor —
+      // so this div stays a plain, non-interactive flex container with no
+      // click/keyboard behavior of its own to mis-scope.
+      //
+      // `mt-0` overrides ROW_BASE's `my-0.5` top half (via twMerge — the
+      // bottom half stays, spacing this row from whatever follows). This is
+      // the FIRST row in the column, directly under SidebarProjectHeader —
+      // `my-0.5`'s 2px top margin reads as normal inter-row rhythm
+      // everywhere else in the tree, but with nothing above it to justify
+      // here it read as unwanted padding under the toolbar.
+      className={cn(ROW_BASE, ROW_INACTIVE, 'mt-0')}
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onBlur={() => setActive(false)}
+    >
+      <span
+        data-testid="space-glyph"
+        className={cn(ROW_GLYPH_BOX, 'size-5')}
+        onMouseEnter={() => setGlyphHovered(true)}
+        onMouseLeave={() => setGlyphHovered(false)}
+      >
+        {/* Both stay MOUNTED always — only which one is visible toggles —
+            rather than the ternary swap this replaced. `EditableProjectIcon`
+            owns the icon popover's own open state (icon-popover.tsx's
+            `Popover`, uncontrolled); the popover's trigger sits INSIDE this
+            same glyph box, so moving the mouse from the trigger toward the
+            popover's own (portaled) content always crosses this box's edge
+            first, flipping `glyphHovered` false while the row itself is
+            still `active` — `showChevron` then swapped this OUT for the
+            chevron mid-transit, unmounting `EditableProjectIcon` and
+            destroying the popover's open state with it. Live-reported as
+            the popover being impossible to move the mouse into: it was
+            never a hover/hit-test problem, the popover was closing itself.
+            `hidden`, not `invisible`: the closed one costs nothing engine-side
+            (ROW_SUB_ACTION_HOVER's own doc, same reasoning) — either way, the
+            popover's portal renders elsewhere and is untouched by this
+            trigger's own visibility either way. */}
+        <span className={cn(!showChevron && 'hidden')}>
+          {/* rotate-180, not SidebarRow's rotate-90+DISCLOSURE_GLYPH_PATH: that
+              chevron toggles between two states of a row's OWN children;
+              this one reports the whole space's fold, matching the task
+              brief's own literal test (`toHaveClass('rotate-180')`). */}
+          <CaretDown
+            aria-hidden="true"
+            data-testid="chevron"
+            className={cn('size-4 transition-transform', folded && 'rotate-180')}
+          />
+        </span>
+        <span className={cn(showChevron && 'hidden')}>
+          <EditableProjectIcon project={project} size="lg" onOpenChange={setIconPopoverOpen} />
+        </span>
+      </span>
+
+      {renaming ? (
+        <InlineRenameInput
+          defaultValue={project.name}
+          onConfirm={(name) => {
+            setRenaming(false)
+            if (name !== project.name) void performRenameProject(project.id, name)
+          }}
+          onCancel={() => setRenaming(false)}
+        />
+      ) : (
+        // The row's own fold toggle now lives HERE, as an independent
+        // sibling of the overflow/thread controls below, rather than the
+        // outer div being one big `role="button"` around all three (see its
+        // own doc above). `aria-expanded`/`aria-label` moved down with it —
+        // this is the control they actually describe.
+        //
+        // `stopPropagation` keeps this click from bubbling any further than
+        // it needs to (an ancestor further up the tree, not this row —
+        // there is no row-level click handler left to double-fire). Two
+        // `click`s still precede a `dblclick` (delivered only after both
+        // land) — same as every other renameable row's double-click
+        // (sidebar-row.tsx, and the deleted project-home-row.tsx before
+        // it): this button's own `onClick` still runs for both, folding and
+        // unfolding on its way to opening the editor. Harmless — it ends up
+        // back where it started.
+        <button
+          type="button"
+          aria-expanded={!folded}
+          aria-label={`${folded ? 'Expand' : 'Collapse'} ${project.name}`}
+          className={cn(
+            'min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left outline-none',
+            'focus-visible:ring-1 focus-visible:ring-ring',
+          )}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleFold()
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            setRenaming(true)
+          }}
+        >
+          {project.name}
+        </button>
+      )}
+
+      {(active || menuOpen) && (
+        <>
+          {/* First in the cluster — the fold toggle is the row's own leading
+              glyph, so nothing else here competes for "last." Spec §9: "the
+              space header for the project" carries a trash too, same as
+              every other row. Controlled `open` (rather than leaving it
+              uncontrolled) is what lets `menuOpen` keep this whole block
+              mounted once opened — see that state's own doc above. */}
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger
+              data-testid="delete-menu"
+              data-control="delete-menu"
+              className={ROW_SUB_ACTION}
+              aria-label={`More actions for ${project.name}`}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <DotsThree aria-hidden="true" className="size-3.5" weight="bold" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onImportRepo()
+                }}
+              >
+                <FolderOpen className="size-4" />
+                Import a repo
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onCreateFolder()
+                }}
+              >
+                <FolderIcon className="size-4" />
+                Create a folder
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDeleteSpace()
+                }}
+              >
+                Delete Space
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {/* Starts a thread on the project's home workspace — same
+              mechanism and icon as a row's own Thread button
+              (sidebar-row.tsx), just anchored at the project level instead
+              of a specific row. */}
+          <button
+            type="button"
+            data-testid="new-thread"
+            data-control="thread"
+            className={ROW_SUB_ACTION}
+            aria-label={`New thread on ${project.name}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onCreateThread()
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <ArrowElbowDownRight aria-hidden="true" className="size-3" weight="bold" />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}

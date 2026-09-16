@@ -18,7 +18,11 @@ import (
 type Create struct {
 	ID          string
 	WorkspaceID string
-	Now         time.Time
+	// RepoID is meaningful only when Type is ChatTypeFolder — see
+	// domain.Chat.RepoID's own doc. Left "" for every other type.
+	RepoID string
+	Type   domain.ChatType
+	Now    time.Time
 }
 
 func (c Create) AggregateID() string  { return c.ID }
@@ -29,16 +33,37 @@ func (c Create) Validate(current *domain.Chat) error {
 	if current != nil {
 		return fmt.Errorf("create agent chat: exists: %w", asynxModels.ErrValidation)
 	}
-	if c.ID == "" || c.WorkspaceID == "" {
+	if c.ID == "" {
 		return fmt.Errorf("create agent chat: missing ids: %w", asynxModels.ErrValidation)
 	}
+	if !validChatType(c.Type) {
+		return fmt.Errorf("create agent chat: invalid type: %w", asynxModels.ErrValidation)
+	}
 	return nil
+}
+
+// validChatType no longer accepts ChatTypeFolder (2026-09-08
+// sidebar-placement-unification Task 8) or ChatTypeBranch (Task 9): a folder
+// is a domain.Folder row now, home-scoped or repo-scoped alike, and a
+// workspace's own position is its Node{Kind:workspace} row — neither is ever
+// minted or retyped as a Chat aggregate any more.
+func validChatType(t domain.ChatType) bool {
+	switch t {
+	case domain.ChatTypeChat, domain.ChatTypeWorkflow:
+		return true
+	case domain.ChatTypeFolder, domain.ChatTypeBranch:
+		return false
+	default:
+		return false
+	}
 }
 
 func (c Create) EmitEvent(_ *domain.Chat) domain.Chat {
 	return domain.Chat{
 		ID:             c.ID,
 		WorkspaceID:    c.WorkspaceID,
+		RepoID:         c.RepoID,
+		Type:           c.Type,
 		CreatedAt:      c.Now,
 		LastActivityAt: c.Now,
 	}

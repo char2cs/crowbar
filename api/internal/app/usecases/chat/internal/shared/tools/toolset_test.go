@@ -757,6 +757,7 @@ func seedContextTree(
 			_, err := s.chatStore.Create(ctx, agentchat.CreateInput{
 				ID:          fmt.Sprintf("perf-chat-%d-%d", i, j),
 				WorkspaceID: fmt.Sprintf("perf-ws-%d", i),
+				Type:        domain.ChatTypeChat,
 				Now:         perfNow(),
 			})
 			require.NoError(b, err)
@@ -777,6 +778,7 @@ func seedRunnerOn(
 	_, err := s.chatStore.Create(ctx, agentchat.CreateInput{
 		ID:          chatID,
 		WorkspaceID: wsID,
+		Type:        domain.ChatTypeChat,
 		Now:         perfNow(),
 	})
 	require.NoError(b, err)

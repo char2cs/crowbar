@@ -193,10 +193,10 @@ fn retire_if_current(
 #[tauri::command]
 pub async fn terminal_open(
     session_id: String,
-    // §3: the hierarchical PTY WS path, e.g.
-    // /v0/projects/:p/repos/:r/workspaces/:w/terminals/:sessionId/ws. The
-    // frontend builds it (workspace-scope aware) and hands it down so Rust no
-    // longer hardcodes the removed flat /v0/ws/terminals/:id route.
+    // The PTY WS path, e.g. /v0/chats/:chatId/terminals/:sessionId/ws. The
+    // frontend builds it and hands it down, so Rust hardcodes no route shape
+    // and did not need touching when terminals moved from the workspace prefix
+    // to the chat one.
     ws_path: String,
     on_data: Channel<String>,
     manager: State<'_, TerminalManager>,

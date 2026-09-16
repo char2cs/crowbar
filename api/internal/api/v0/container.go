@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/api/v0/ws"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -22,23 +23,23 @@ import (
 // routes. It implements hub.Subscriber so app-layer broadcasts reach connected
 // clients.
 //
-// The push-only Broadcaster[T] instances held here are workspaces, git, files,
-// and lsp. The Terminal topic is intentionally NOT a Broadcaster[T]: PTY streams
-// are bidirectional, so the Terminal topic is served by the engine.Attach
-// WebSocket handler (endpoints/terminal/handlers/ws.go), whose ring-buffer
-// replay is its snapshot-on-subscribe (03 §1a). It is wired separately in
-// router.go.
+// The push-only Broadcaster[T] instances held here are git, files, and lsp. The
+// Terminal topic is intentionally NOT a Broadcaster[T]: PTY streams are
+// bidirectional, so the Terminal topic is served by the engine.Attach WebSocket
+// handler (endpoints/terminal/handlers/ws.go), whose ring-buffer replay is its
+// snapshot-on-subscribe (03 §1a). It is wired separately in router.go.
 type Container struct {
 	projects   *ws.Broadcaster[dto.ProjectDTO]
 	repos      *ws.Broadcaster[dto.RepoDTO]
-	folders    *ws.Broadcaster[dto.FolderDTO]
-	workspaces *ws.Broadcaster[dto.WorkspaceDTO]
 	threads    *ws.Broadcaster[dto.ThreadDTO]
 	terminals  *ws.Broadcaster[dto.TerminalSessionDTO]
 	git        *ws.Broadcaster[gitdomain.GitStatusEvent]
 	files      *ws.Broadcaster[domain.FileChangeEvent]
 	lsp        *ws.Broadcaster[lspdomain.DiagnosticsEvent]
 	agentChats *ws.Broadcaster[dto.AgentChatEvent]
+	// chatScopes answers what each agent-chat frame namespaces under — see
+	// agent_chat_scope.go.
+	chatScopes *agentChatScopes
 	app        *app.Container
 	eng        *engine.Container
 }
@@ -64,14 +65,13 @@ func New(
 	c := &Container{
 		projects:   ws.NewBroadcaster(projectsDef(appContainer)),
 		repos:      ws.NewBroadcaster(reposDef(appContainer)),
-		folders:    ws.NewBroadcaster(foldersDef(appContainer)),
-		workspaces: ws.NewBroadcaster(withProviderPollLifecycle(workspacesDef(appContainer), appContainer)),
 		threads:    ws.NewBroadcaster(threadsDef(appContainer)),
 		terminals:  ws.NewBroadcaster(terminalsDef(appContainer, engContainer)),
 		git:        ws.NewBroadcaster(withOriginSyncLifecycle(withWatcherLifecycle(gitDef(appContainer), appContainer), appContainer)),
 		files:      ws.NewBroadcaster(withWatcherLifecycle(filesDef(), appContainer)),
 		lsp:        ws.NewBroadcaster(withLSPLifecycle(lspDef(appContainer, engContainer), appContainer)),
-		agentChats: ws.NewBroadcaster(agentChatDef()),
+		agentChats: ws.NewBroadcaster(withChatProviderPollLifecycle(agentChatDef(), appContainer)),
+		chatScopes: newAgentChatScopes(),
 		app:        appContainer,
 		eng:        engContainer,
 	}
@@ -92,22 +92,25 @@ func New(
 // onTerminalEnded emits an "ended" lifecycle frame when a PTY exits on its own
 // (the reap path in the terminal engine). The handler-driven Kill path also
 // pushes an "ended" frame; the broadcaster's idempotent full-replace makes the
-// duplicate harmless. The owning project/repo are resolved from the workspace
-// repo so the frame namespaces under projectId/repoId/wsId. exitCode is the
-// process exit code; it is included in the frame when >=0 (known).
+// duplicate harmless. exitCode is the process exit code; it is included in the
+// frame when >=0 (known).
+//
+// The frame namespaces under the OWNING CHAT alone. It no longer resolves a
+// project/repo pair on the way out: terminal is spec §4.2's owned bucket, so
+// the topic is a single chat and there is nothing to fan out to (§7.4). That
+// also removes a silent failure mode — the old lookup returned ("", "") for an
+// unresolvable workspace and published the frame under the namespace "//",
+// where no subscriber was listening.
 func (c *Container) onTerminalEnded(
-	ctx context.Context,
-	workspaceID string,
+	_ context.Context,
+	chatID string,
 	sessionID string,
 	exitCode int,
 ) {
-	projectID, repoID := c.resolveWorkspaceScope(ctx, workspaceID)
 	endedAt := time.Now().UTC()
 	ended := dto.TerminalSessionDTOFrom(
 		sessionID,
-		workspaceID,
-		projectID,
-		repoID,
+		chatID,
 		"",
 		"ended",
 		endedAt,
@@ -120,20 +123,16 @@ func (c *Container) onTerminalEnded(
 }
 
 // onTerminalState emits a lifecycle frame when a session transitions to
-// "detached" or "suspended". The owning project/repo are resolved from the
-// workspace so the frame namespaces under projectId/repoId/wsId.
+// "detached" or "suspended", namespaced under the chat that owns the session.
 func (c *Container) onTerminalState(
-	ctx context.Context,
-	workspaceID string,
+	_ context.Context,
+	chatID string,
 	sessionID string,
 	state string,
 ) {
-	projectID, repoID := c.resolveWorkspaceScope(ctx, workspaceID)
 	d := dto.TerminalSessionDTOFrom(
 		sessionID,
-		workspaceID,
-		projectID,
-		repoID,
+		chatID,
 		"",
 		state,
 		time.Now().UTC(),
@@ -158,8 +157,10 @@ func (c *Container) resolveWorkspaceScope(
 }
 
 // withWatcherLifecycle attaches the Files∪Git watcher subscription triggers to a
-// StreamDef, scoping the refcount by wsId resolved from the path or query and
-// delegating to the app-layer realtime service.
+// StreamDef, scoping the refcount by wsId resolved from the path (still bound
+// on files' home mount; git's own :wsId mount is gone as of spec §8 step 6),
+// the chat group's resolved workspace, or the query, and delegating to the
+// app-layer realtime service.
 func withWatcherLifecycle[T any](
 	def ws.StreamDef[T],
 	appContainer *app.Container,
@@ -171,13 +172,20 @@ func withWatcherLifecycle[T any](
 }
 
 // withLSPLifecycle attaches the independent LSP subscription triggers to a
-// StreamDef, scoping the refcount by wsId resolved from the path or query and
-// delegating to the app-layer realtime service.
+// StreamDef, scoping the refcount by scopeLSPOwnerID and delegating to the
+// app-layer realtime service.
+//
+// This is the one lifecycle hook that does NOT reuse scopeWsID (T15): LSP is
+// spec §4.2's OWNED bucket, so its session is per-CHAT, not per-workspace —
+// editor's handlers key every engine call by scopeLSPOwnerID's same answer
+// (handlers.Handlers.lspOwnerID), and the refcount that tears those sessions
+// down on the last unsubscribe (LSPLifecycle.Shutdown → ReleaseWorkspace) has
+// to match that key or the chat-scoped ones would never be released.
 func withLSPLifecycle[T any](
 	def ws.StreamDef[T],
 	appContainer *app.Container,
 ) ws.StreamDef[T] {
-	def.ScopeKey = scopeWsID
+	def.ScopeKey = scopeLSPOwnerID
 	def.OnSubscribe = appContainer.Realtime.AcquireLSP
 	def.OnUnsubscribe = appContainer.Realtime.ReleaseLSP
 	return def
@@ -211,31 +219,82 @@ func withOriginSyncLifecycle[T any](
 	return def
 }
 
-// withProviderPollLifecycle attaches the per-active-WS-connection provider-poll
-// subscription triggers to a StreamDef, scoping the refcount by wsId resolved
-// from the path or query and delegating to the app-layer realtime service
-// (D10/§11). Only the single-workspace (:wsId) subscription carries a wsId; the
-// workspace list scope (.../workspaces, no :wsId) resolves to "" and the
-// manager no-ops, so the poll starts only when a client watches one workspace.
-func withProviderPollLifecycle[T any](
-	def ws.StreamDef[T],
-	appContainer *app.Container,
-) ws.StreamDef[T] {
-	def.ScopeKey = scopeWsID
-	def.OnSubscribe = appContainer.Realtime.AcquireProviderPoll
-	def.OnUnsubscribe = appContainer.Realtime.ReleaseProviderPoll
-	return def
-}
-
-// scopeWsID resolves the workspace id from the path param, falling back to the
-// query param, mirroring the dual-served Git/Files/LSP routes (T15).
+// scopeWsID resolves the workspace id the per-scope WS resources (the file
+// watcher, the protected-branch origin sync) are refcounted by: the path
+// param (still bound on files' home mount, and query-bound on neither git nor
+// files' own live mounts any more), then the chat group's already-resolved
+// workspace, then the query param.
+//
+// The reqscope step is what keeps those resources alive for a CHAT-scoped
+// subscriber. A client on /v0/chats/:chatId/git/status binds no :wsId at all,
+// so without it this resolved "" — and the acquire/release calls this feeds are
+// per-workspace refcounts, so the file watcher that PRODUCES git-status pushes
+// would never have been started for that workspace. The subscription would
+// connect, replay its snapshot, and then sit silent forever, which is the
+// failure mode the whole re-key would otherwise have shipped. resolveChatWorktree
+// has already resolved the workspace by the time the broadcaster reads the
+// scope, so this is a context read, not a second resolve.
 func scopeWsID(
 	c *gin.Context,
 ) string {
 	if id := c.Param("wsId"); id != "" {
 		return id
 	}
+	if ws, ok := reqscope.Workspace(c); ok && ws.ID != "" {
+		return ws.ID
+	}
 	return c.Query("wsId")
+}
+
+// withChatProviderPollLifecycle attaches the provider-poll subscription
+// triggers to the agent-chat stream, scoped by the worktree the CHAT mount
+// resolved and by nothing else.
+//
+// It keys on scopeChatWorktreeID rather than on scopeWsID, which the other
+// lifecycle wrappers use, because scopeWsID also answers the :wsId PATH param —
+// and the home mount (.../home/chats/ws) binds one. Keying on it would silently
+// start a PR-status poll on the project-home row, which has no repo, no remote
+// and no git surface at all: work that cannot succeed, on a stream that never
+// asked for it. scopeChatWorktreeID reads ONLY the chat group's resolved
+// worktree, so the repo mount and the home mount both resolve "" and no-op
+// exactly as they did before this stream carried a lifecycle at all.
+func withChatProviderPollLifecycle[T any](
+	def ws.StreamDef[T],
+	appContainer *app.Container,
+) ws.StreamDef[T] {
+	def.ScopeKey = scopeChatWorktreeID
+	def.OnSubscribe = appContainer.Realtime.AcquireProviderPoll
+	def.OnUnsubscribe = appContainer.Realtime.ReleaseProviderPoll
+	return def
+}
+
+// scopeChatWorktreeID answers the workspace the /v0/chats/:chatId group's own
+// resolveChatWorktree middleware put on the request, and "" anywhere that
+// middleware did not run. It is deliberately NOT scopeWsID: see
+// withChatProviderPollLifecycle.
+func scopeChatWorktreeID(
+	c *gin.Context,
+) string {
+	if ws, ok := reqscope.Workspace(c); ok {
+		return ws.ID
+	}
+	return ""
+}
+
+// scopeLSPOwnerID resolves the key the LSP topic's lifecycle (withLSPLifecycle)
+// refcounts by: the :chatId path param on /v0/chats/:chatId/lsp/ws, the only
+// live mount of this stream (spec §8 step 6 retired the old
+// /workspaces/:wsId/lsp/ws mount).
+//
+// LSP is spec §4.2's OWNED bucket, not shared like the file watcher/origin
+// sync scopeWsID otherwise serves: keying by chat id rather than workspace id
+// is what makes a chat-scoped subscriber refcount the same per-chat key its
+// REST calls key their LSP session by (handlers.Handlers.lspOwnerID) — not
+// the workspace those calls only resolve the worktree from.
+func scopeLSPOwnerID(
+	c *gin.Context,
+) string {
+	return c.Param("chatId")
 }
 
 // PushProject implements hub.Subscriber.
@@ -252,18 +311,55 @@ func (c *Container) PushRepo(
 	c.repos.Push(r)
 }
 
-// PushFolder implements hub.Subscriber.
-func (c *Container) PushFolder(
-	f dto.FolderDTO,
-) {
-	c.folders.Push(f)
-}
-
-// PushWorkspace implements hub.Subscriber.
+// PushWorkspace implements hub.Subscriber. It fans a workspace's state onto the
+// CHAT topic alone: the workspace-keyed topic it also served is gone with the
+// routes that mounted it (spec §7.4), so the chat that owns the worktree is the
+// only scoping answer left.
 func (c *Container) PushWorkspace(
 	w dto.WorkspaceDTO,
 ) {
-	c.workspaces.Push(w)
+	c.pushChatWorktree(w)
+}
+
+// pushChatWorktree fans a workspace's git state out on the CHAT feed, keyed on
+// the chat that owns it.
+//
+// It reads the owning chat id off the frame rather than resolving one, and that
+// is deliberate: enrichFrame has already resolved it, through the same
+// branch-preferring domain.ResolveOwningChat every other surface uses, so taking
+// it here means the chat frame names exactly the row the workspace frame says
+// owns this worktree — never a second, independently derived answer that could
+// pick a different one.
+//
+// A workspace with no resolved owning chat pushes nothing. That is the honest
+// answer rather than a broadcast to nobody: such a row is the orphan spec §0
+// diagnosed, with no chat for a client to draw it on — chat-first creation
+// (MintOwningChat/AttachOwningWorkspace, owning_chat.go) is what makes this
+// unrepresentable for every workspace made going forward.
+//
+// RepoID comes straight off the workspace, with no chat-forest walk: unlike a
+// bubble, whose repo is derived from where its cwd lands, a worktree-owning row
+// names its own repo outright.
+func (c *Container) pushChatWorktree(
+	w dto.WorkspaceDTO,
+) {
+	if w.OwningChatID == "" {
+		return
+	}
+	// Working is deliberately LEFT UNSET. The frame's own Working field is the
+	// CHAT's folded turn state (see AgentChatEvent.Working), and a workspace's
+	// is a different fact — a long-running git operation, not a conversation in
+	// flight. Putting the workspace's answer there would make a client's spinner
+	// follow whichever of the two moved last. The workspace's own busy state
+	// rides the worktree object, where it belongs.
+	c.agentChats.Push(dto.AgentChatEvent{
+		ChatID:      w.OwningChatID,
+		WorkspaceID: w.ID,
+		ProjectID:   w.ProjectID,
+		RepoID:      w.RepoID,
+		Kind:        dto.AgentChatKindWorktreeState,
+		Worktree:    dto.ChatWorktreeFrom(w),
+	})
 }
 
 // PushThread implements hub.Subscriber.
@@ -280,8 +376,23 @@ func (c *Container) PushTerminalSession(
 	c.terminals.Push(s)
 }
 
-// PushGit implements hub.Subscriber. It wraps the status in a wsId-carrying
-// event so the Git broadcaster can scope the fan-out to a single workspace.
+// PushGit implements hub.Subscriber. It wraps the status in an event carrying
+// BOTH scoping answers — the workspace it describes, and every chat currently
+// holding that workspace — so one Push serves the workspace-scoped route and
+// fans out to the chat-scoped one in a single pass (spec §7.4).
+//
+// This is the single production push site for the git topic: hub.BroadcastGit
+// is called only by the realtime watcher dispatcher's OnGitStatus. The "watcher
+// broadcast" that git's own write handlers name in their doc comments IS this
+// path — a write completes, the file watcher notices, and the post-op state
+// arrives here — not a second, handler-driven push of its own.
+//
+// The set is resolved at PUSH time rather than at connect time on purpose: a
+// client's predicate is compiled once, when it subscribes, so a chat forked
+// onto this worktree AFTER that moment can only be reached by news the event
+// itself carries. The resolve costs one chat-forest read per push, and the
+// watcher already dedups against its previous status, so it runs on real
+// change rather than per tick.
 func (c *Container) PushGit(
 	wsID string,
 	status gitdomain.GitStatus,
@@ -291,30 +402,75 @@ func (c *Container) PushGit(
 	if status.Files == nil {
 		status.Files = []gitdomain.GitFile{}
 	}
-	c.git.Push(gitdomain.GitStatusEvent{WsID: wsID, Status: status})
+	c.git.Push(gitdomain.GitStatusEvent{
+		WsID:    wsID,
+		ChatIDs: c.chatsHolding(context.Background(), wsID),
+		Status:  status,
+	})
 }
 
-// PushFile implements hub.Subscriber.
+// chatsHolding answers which chats currently resolve to workspaceID, degrading
+// to the empty set rather than an error: a fan-out that cannot be resolved
+// reaches nobody, which leaves the workspace-scoped subscribers on the same
+// event untouched. It never returns a nil-vs-empty distinction, because a set
+// carrying nothing already matches nobody (ws.FilterDef.ExtractSet).
+func (c *Container) chatsHolding(
+	ctx context.Context,
+	workspaceID string,
+) []string {
+	if c.app == nil || c.app.Usecases == nil || c.app.Usecases.Worktree == nil {
+		return nil
+	}
+	chatIDs, err := c.app.Usecases.Worktree.ChatsForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil
+	}
+	return chatIDs
+}
+
+// PushFile implements hub.Subscriber. It stamps the event with every chat
+// currently holding the workspace it describes, so one Push serves the
+// workspace-scoped and home routes and fans out to the chat-scoped one in a
+// single pass (spec §7.4) — the same shape PushGit takes, for the same reason.
+//
+// The set is resolved at PUSH time rather than at connect time on purpose: a
+// client's predicate is compiled once, when it subscribes, so a chat forked
+// onto this worktree AFTER that moment can only be reached by news the event
+// itself carries.
+//
+// Unlike git's, this push arrives per DEBOUNCED filesystem event rather than
+// only on a changed status, so the resolve rides a burst rather than a real
+// change — it is one chat-forest read against the same in-memory rows the
+// resolver already serves, and the alternative (resolving at connect) cannot
+// answer the fork-after-connect case at all.
 func (c *Container) PushFile(
 	evt domain.FileChangeEvent,
 ) {
+	evt.ChatIDs = c.chatsHolding(context.Background(), evt.WsID)
 	c.files.Push(evt)
 }
 
 // PushAgentChat implements hub.Subscriber. It fans an agent-chat lifecycle
 // event out to every subscriber of the agent-chat WebSocket (GET
-// .../workspaces/:wsId/chats/ws) whose :wsId matches workspaceID,
-// mirroring PushGit/PushFile's wsId-scoped fan-out (Task 3: agentChatDef's
-// Filter enforces the scoping; this method itself pushes unconditionally).
+// .../repos/:repoId/chats/ws, and .../home/chats/ws) whose scope the frame's
+// namespace falls under.
+//
+// It takes the FRESH scope: every kind reaching this method is structural — a
+// create, a placement, a workspace slot filled, a delete — and each is exactly
+// the kind of change that can move a bubble into another repo, so the memo the
+// streaming frames read must not survive it.
 func (c *Container) PushAgentChat(
 	chatID string,
 	workspaceID string,
 	kind string,
 	working bool,
 ) {
+	scope := c.freshAgentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      chatID,
 		WorkspaceID: workspaceID,
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        kind,
 		Working:     working,
 	})
@@ -329,9 +485,12 @@ func (c *Container) PushAgentChatTerminalWait(
 	workspaceID string,
 	wait *dto.AgentTerminalWaitDTO,
 ) {
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:       chatID,
 		WorkspaceID:  workspaceID,
+		ProjectID:    scope.ProjectID,
+		RepoID:       scope.RepoID,
 		Kind:         dto.AgentChatKindTerminalWait,
 		TerminalWait: wait,
 	})
@@ -345,9 +504,12 @@ func (c *Container) PushAgentChatPromptSettled(
 	requestID string,
 	consumed bool,
 ) {
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:          chatID,
 		WorkspaceID:     workspaceID,
+		ProjectID:       scope.ProjectID,
+		RepoID:          scope.RepoID,
 		Kind:            dto.AgentChatKindPromptSettled,
 		ClientRequestID: requestID,
 		PromptConsumed:  consumed,
@@ -363,16 +525,25 @@ func (c *Container) PushAgentChatMessageDelta(
 	text string,
 	kind string,
 ) {
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      chatID,
 		WorkspaceID: workspaceID,
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        dto.AgentChatKindMessageDelta,
 		Message:     &dto.AgentStreamingMessageDTO{ID: messageID, Text: text, Kind: kind},
 	})
 }
 
 // PushAgentChatPlan implements hub.Subscriber, on the SAME workspace-scoped
-// agent-chat WebSocket as every other conversation fact.
+// agent-chat WebSocket as every other conversation fact — and scoped like every
+// other one.
+//
+// It set no scope at all for its first several months, so every plan frame went
+// out repo-less no matter which chat wrote it and the filter's "a frame with no
+// scope to be held to reaches everyone" hatch fired for all of them: the agent's
+// own free-text to-do list reached every repo-scoped subscriber on the daemon.
 func (c *Container) PushAgentChatPlan(
 	chatID string,
 	workspaceID string,
@@ -382,9 +553,12 @@ func (c *Container) PushAgentChatPlan(
 	for _, s := range steps {
 		out = append(out, dto.AgentPlanStepDTO{Text: s.Text, Status: s.Status})
 	}
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      chatID,
 		WorkspaceID: workspaceID,
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        dto.AgentChatKindPlan,
 		Plan:        out,
 	})
@@ -394,6 +568,9 @@ func (c *Container) PushAgentChatPlan(
 // workspace-scoped agent-chat WebSocket as every other conversation fact.
 // active picks which of the two kinds rides — see dto.AgentChatKindCompactionStarted's
 // own doc comment for why two kinds and no extra field.
+//
+// It carried no scope either, for the same reason PushAgentChatPlan did not:
+// see that method's own comment.
 func (c *Container) PushAgentChatCompaction(
 	chatID string,
 	workspaceID string,
@@ -403,9 +580,12 @@ func (c *Container) PushAgentChatCompaction(
 	if active {
 		kind = dto.AgentChatKindCompactionStarted
 	}
+	scope := c.agentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		ChatID:      chatID,
 		WorkspaceID: workspaceID,
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        kind,
 	})
 }
@@ -420,14 +600,29 @@ func (c *Container) PushAgentChatCompaction(
 // The frame carries the folder id and no row, which is what the stream's own
 // shape requires: it has no snapshot, so a client reads folders over REST and a
 // frame here means "read them again".
+//
+// A folder announced with a workspace resolves that workspace's project and
+// repo like any other row, so a project-home folder is now held to its own
+// project rather than fanned out across every one of them. A folder announced
+// with NO workspace — the repo mount's own folder routes bind no :wsId — still
+// resolves nothing and reaches every subscriber (matchScopeOrUnscoped): the
+// folder half of the repo boundary is the disclosed limitation
+// ChatTreeUsecase.ListInRepo already carries, unchanged here, and the frame
+// carries an id and a kind rather than any of the conversation's content. The
+// fresh resolution is taken anyway for its other half: a folder move is a
+// structural change that can have carried bubbles into another repo with it,
+// and the memo those bubbles' streaming frames read must not survive it.
 func (c *Container) PushAgentChatFolder(
 	folderID string,
 	workspaceID string,
 	kind string,
 ) {
+	scope := c.freshAgentChatScope(folderID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
 		FolderID:    folderID,
 		WorkspaceID: workspaceID,
+		ProjectID:   scope.ProjectID,
+		RepoID:      scope.RepoID,
 		Kind:        kind,
 	})
 }
@@ -450,8 +645,11 @@ func (c *Container) PushAgentRunner(
 	chatID string,
 	kind string,
 ) {
+	scope := c.freshAgentChatScope(chatID, workspaceID)
 	c.agentChats.Push(dto.AgentChatEvent{
-		ChatID: chatID, WorkspaceID: workspaceID, Kind: kind, RunnerID: runnerID,
+		ChatID: chatID, WorkspaceID: workspaceID,
+		ProjectID: scope.ProjectID, RepoID: scope.RepoID,
+		Kind: kind, RunnerID: runnerID,
 	})
 }
 
@@ -482,40 +680,6 @@ func reposDef(
 	}
 }
 
-// foldersDef serves the Folders topic. Its hierarchical namespace is
-// projectID/repoID/ID, mirroring reposDef one level down, so a repo-scoped
-// subscription ("p/r") receives every folder in that repo (spec §5). The
-// snapshot is repo-scoped from the client's subscription prefix and reads the
-// folders table directly — folders ride path A (a plain GORM row broadcast by
-// its own handler), so there is no projection between the write and the frame.
-func foldersDef(
-	appContainer *app.Container,
-) ws.StreamDef[dto.FolderDTO] {
-	return ws.StreamDef[dto.FolderDTO]{
-		Namespace: func(d dto.FolderDTO) string {
-			return d.ProjectID + "/" + d.RepoID + "/" + d.ID
-		},
-		Serialize: func(d dto.FolderDTO) ([]byte, error) { return json.Marshal(d) },
-		Snapshot:  folderSnapshot(appContainer),
-	}
-}
-
-// workspacesDef serves the Workspaces topic. Its hierarchical namespace is
-// projectID/repoID/ID, so a repo-scoped subscription ("p/r") receives every
-// child workspace (spec §5). The snapshot is repo-scoped from the client's
-// subscription prefix and carries the merge-eligibility overlay (spec §9/§10).
-func workspacesDef(
-	appContainer *app.Container,
-) ws.StreamDef[dto.WorkspaceDTO] {
-	return ws.StreamDef[dto.WorkspaceDTO]{
-		Namespace: func(d dto.WorkspaceDTO) string {
-			return d.ProjectID + "/" + d.RepoID + "/" + d.ID
-		},
-		Serialize: func(d dto.WorkspaceDTO) ([]byte, error) { return json.Marshal(d) },
-		Snapshot:  workspacesSnapshot(appContainer),
-	}
-}
-
 // threadsDef serves the Threads topic. Its hierarchical namespace is
 // projectID/repoID/workspaceID/ID, so a workspace-scoped subscription ("p/r/w")
 // receives every thread in that workspace (spec §5); the per-client
@@ -541,37 +705,50 @@ func threadsDef(
 	}
 }
 
-// terminalsDef serves the Terminal-session lifecycle topic. Its hierarchical
-// namespace is projectID/repoID/workspaceID, so a workspace-scoped subscription
-// ("p/r/w") receives every session in that workspace (spec §5); the per-client
-// projectId/repoId/wsId Filters mirror the dual-served route's path params so
-// path-first filter resolution scopes correctly. The snapshot derives from the
-// in-memory engine registry (D6: no terminal_sessions view.db). The raw PTY byte
-// stream is a separate, non-broadcast WebSocket.
+// terminalsDef serves the Terminal-session lifecycle topic, keyed by the chat
+// that OWNS each session (spec §4.2's owned bucket, §7.4's straight re-key —
+// no fan-out, because nothing here is shared).
+//
+// It is FlatNamespace with a single chatId Filter, the same shape git/files/lsp
+// already use: the namespace is a bare chat id, not a hierarchical "p/r/w"
+// path, so the hierarchical client-scope prefix must not be applied. The
+// dual-served route is /v0/chats/:chatId/terminals, which binds no
+// projectId/repoId/wsId at all — leaving the stream hierarchical would build an
+// empty prefix that matches EVERY chat's frames, handing each subscriber every
+// other chat's terminal lifecycle. The chatId Filter resolves from that path
+// param and is what actually scopes a client.
+//
+// The snapshot derives from the in-memory engine registry (D6: no
+// terminal_sessions view.db). The raw PTY byte stream is a separate,
+// non-broadcast WebSocket.
 func terminalsDef(
 	appContainer *app.Container,
 	engContainer *engine.Container,
 ) ws.StreamDef[dto.TerminalSessionDTO] {
 	return ws.StreamDef[dto.TerminalSessionDTO]{
-		Namespace: func(d dto.TerminalSessionDTO) string {
-			return d.ProjectID + "/" + d.RepoID + "/" + d.WorkspaceID
-		},
-		Serialize: func(d dto.TerminalSessionDTO) ([]byte, error) { return json.Marshal(d) },
-		Snapshot:  terminalsSnapshot(appContainer, engContainer),
+		Namespace:     func(d dto.TerminalSessionDTO) string { return d.ChatID },
+		Serialize:     func(d dto.TerminalSessionDTO) ([]byte, error) { return json.Marshal(d) },
+		Snapshot:      terminalsSnapshot(appContainer, engContainer),
+		FlatNamespace: true,
 		Filters: []ws.FilterDef[dto.TerminalSessionDTO]{
-			{Param: "projectId", Extract: func(d dto.TerminalSessionDTO) string { return d.ProjectID }, Match: ws.ExactMatch},
-			{Param: "repoId", Extract: func(d dto.TerminalSessionDTO) string { return d.RepoID }, Match: ws.ExactMatch},
-			{Param: "wsId", Extract: func(d dto.TerminalSessionDTO) string { return d.WorkspaceID }, Match: ws.ExactMatch},
+			{Param: "chatId", Extract: func(d dto.TerminalSessionDTO) string { return d.ChatID }, Match: ws.ExactMatch},
 		},
 	}
 }
 
-// gitDef scopes the Git topic to a single workspace by wsId. The wsId resolves
-// from the PATH param on the dual-served .../workspaces/:wsId/git/status route
-// (the dedicated /ws/git route was removed in W7-2). The wire
-// payload is a bare GitStatus (the embedded Status), matching the REST snapshot
-// of the dual-serve route; only the WsID is used for filtering, never serialized
-// onto the Git stream.
+// gitDef scopes the Git topic to a single worktree, named by the chat that
+// holds it. The wire payload is a bare GitStatus (the embedded Status),
+// matching the REST snapshot of the dual-serve route; the scoping field is
+// never serialized onto the Git stream.
+//
+// The chatId filter matches by MEMBERSHIP against the fan-out set the event
+// carries — every chat holding that worktree, resolved at push time (PushGit)
+// — via ws.ChatFanoutFilter, Required: a subscriber resolving no chat id at
+// all gets nothing rather than every workspace on the daemon (the trap
+// Required exists to close). The old /workspaces/:wsId/git/status mount that
+// once needed a second, non-required wsId filter beside this one is gone
+// (spec §8 step 6) — /chats/:chatId/git/status is the only live mount of this
+// broadcaster's Handle (router.go).
 func gitDef(
 	appContainer *app.Container,
 ) ws.StreamDef[gitdomain.GitStatusEvent] {
@@ -581,11 +758,51 @@ func gitDef(
 		Snapshot:      gitSnapshot(appContainer),
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[gitdomain.GitStatusEvent]{
-			{Param: "wsId", Extract: func(e gitdomain.GitStatusEvent) string { return e.WsID }, Match: ws.ExactMatch},
+			ws.ChatFanoutFilter(func(e gitdomain.GitStatusEvent) []string { return e.ChatIDs }),
 		},
 	}
 }
 
+// filesDef scopes the Files topic to a single worktree, named either way its
+// live routes name one. Unlike gitDef the whole event goes on the wire, so the
+// fan-out set is the one field held back by its json tag rather than by the
+// Serialize lambda.
+//
+// It carries NO Snapshot, and that is the shape of the topic rather than an
+// omission: a file-change event is news, not state. A connecting client has
+// already fetched the tree over REST and has nothing to replay — which is why
+// this step needs no chat-scoped snapshot resolver of the kind gitSnapshot grew
+// (snapshots.go), and why a chat-scoped subscriber's first frame is simply the
+// next change.
+//
+// ONE StreamDef serves every mount, because there is one Broadcaster: it is
+// built once, in New, and every client registers against the same compiled def
+// regardless of which route it upgraded on. So the two filters below are not
+// alternatives the wiring picks between — both are declared for every client,
+// and each client activates whichever one its own request resolves:
+//
+//   - /projects/:p/repos/:r/workspaces/:wsId/files/ws binds :wsId, so the wsId
+//     filter is active and scopes it to exactly one workspace, exactly as
+//     before this step.
+//   - /projects/:p/home/files/ws binds no :wsId in its PATH, but
+//     RequireHomeWorkspace injects one before the upgrade runs, so it resolves
+//     the same wsId filter and is likewise untouched.
+//   - /chats/:chatId/files/ws binds :chatId and no :wsId, so the chatId filter
+//     is active and matches by MEMBERSHIP against the fan-out set the event
+//     carries — every chat holding that worktree, resolved at push time
+//     (PushFile) — while the wsId filter goes inactive.
+//
+// matchesAll requires every ACTIVE filter to match, so each client is scoped by
+// the one it actually resolved, and no mount can see another's traffic.
+//
+// NEITHER filter is Required, forced by the same argument gitDef records and
+// with one more mount to satisfy: Required on chatId would refuse every client
+// of the workspace-scoped route AND every client of the home route, neither of
+// which can resolve a :chatId; Required on wsId would refuse every chat-scoped
+// one. The trap Required exists to close — a client resolving NEITHER param and
+// being handed every workspace on the daemon — needs a mount binding neither,
+// and the three above are the only mounts of this broadcaster's Handle
+// (router.go, home/routes.go).
 func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 	return ws.StreamDef[domain.FileChangeEvent]{
 		Namespace:     func(e domain.FileChangeEvent) string { return e.WsID },
@@ -593,20 +810,55 @@ func filesDef() ws.StreamDef[domain.FileChangeEvent] {
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[domain.FileChangeEvent]{
 			{Param: "wsId", Extract: func(e domain.FileChangeEvent) string { return e.WsID }, Match: ws.ExactMatch},
+			{
+				Param:      "chatId",
+				ExtractSet: func(e domain.FileChangeEvent) []string { return e.ChatIDs },
+				Match:      ws.ExactMatch,
+			},
 		},
 	}
 }
 
 // agentChatDef serves the agent-chat lifecycle event stream (GET
-// .../workspaces/:wsId/chats/ws), scoped to a single workspace by wsId
-// (Task 3), mirroring gitDef/filesDef. It carries no snapshot: unlike the
-// full-state resource streams above (projects, repos, workspaces, ...) a
-// freshly-connected client simply waits for the next lifecycle event — there
-// is no "current state" to replay. FlatNamespace opts it out of the
-// hierarchical projectId/repoId/wsId prefix-match (the bare Namespace of ""
-// would otherwise never match that prefix and drop every event, per
-// BuildPredicate's doc comment); the explicit wsId Filter is the sole scoping
-// mechanism.
+// .../repos/:repoId/chats/ws, and still GET .../home/chats/ws). It carries no
+// snapshot: unlike the full-state resource streams above (projects, repos,
+// threads, ...) a freshly-connected client simply waits for the next
+// lifecycle event — there is no "current state" to replay.
+//
+// It has FOUR scoping filters and stays FlatNamespace, which is the shape the
+// rows themselves force. The wsId Filter is what narrows the HOME mount, whose
+// RequireHomeWorkspace injects a :wsId for it to resolve; it goes inactive at
+// the repo mount, which binds no :wsId at all — and that inactive filter used
+// to be the whole of this stream's scoping, so a repo-scoped client received
+// every OTHER repo's chat events too. The repoId Filter closes that: the repo
+// mount binds :repoId, and every chat frame carries the repo its row actually
+// runs in (see agent_chat_scope.go).
+//
+// The projectId Filter closes what repoId structurally CANNOT. Both live mounts
+// nest under /projects/:projectId, so both resolve it; the flat
+// /v0/chats/:chatId/ws mount binds neither it nor :repoId and is scoped by its
+// own chatId Filter instead, so neither is Required.
+//
+// The stream is NOT given the hierarchical projectId/repoId/wsId namespace
+// threadsDef and terminalsDef use, because half the rows on this feed cannot
+// fill one. A FOLDER carries no workspace and no repo id of its own, neither
+// does a bubble at the panel root, and neither does ANY row in a project home —
+// that workspace owns no repo; under a hierarchical namespace those frames
+// would resolve "//" and be dropped from every repo-scoped subscriber, silently
+// killing the live folder feed. matchScopeOrUnscoped is what lets both kinds
+// coexist on one stream: a frame that KNOWS a scope is held to it, and one that
+// cannot know it reaches everyone.
+//
+// That escape hatch is why the two filters are needed rather than one. It is
+// keyed per FIELD, so a repo-less frame skipped the repoId filter entirely —
+// and a project home's chats are all repo-less, so a home chat's streamed text
+// in one project was delivered to repo-scoped sockets in EVERY other project in
+// the process. Answering the project as well bounds them: repo-less still means
+// "every repo", but now only every repo OF THIS PROJECT, which is the narrowest
+// scope that keeps the folder rows and root bubbles this hatch exists for. A
+// frame that resolves neither field still reaches everyone — the same disclosed
+// limitation ChatTreeUsecase.ListInRepo already carries for folders, unchanged,
+// rather than a new silent drop.
 func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 	return ws.StreamDef[dto.AgentChatEvent]{
 		Namespace:     func(e dto.AgentChatEvent) string { return e.WorkspaceID },
@@ -615,6 +867,9 @@ func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[dto.AgentChatEvent]{
 			{Param: "wsId", Extract: func(e dto.AgentChatEvent) string { return e.WorkspaceID }, Match: ws.ExactMatch},
+			{Param: "projectId", Extract: func(e dto.AgentChatEvent) string { return e.ProjectID }, Match: matchScopeOrUnscoped},
+			{Param: "repoId", Extract: func(e dto.AgentChatEvent) string { return e.RepoID }, Match: matchScopeOrUnscoped},
+			{Param: "chatId", Extract: func(e dto.AgentChatEvent) string { return e.ChatID }, Match: ws.ExactMatch},
 		},
 		// message_delta is the one kind on this feed that is already "the
 		// full state so far" by construction (see
@@ -640,6 +895,39 @@ func agentChatDef() ws.StreamDef[dto.AgentChatEvent] {
 	}
 }
 
+// matchScopeOrUnscoped holds a frame that KNOWS one of its scoping ids to
+// exactly that id, and lets one that does not reach every subscriber. It serves
+// both of agentChatDef's scoping Filters, projectId and repoId.
+//
+// The second half is not laxness, it is the honest answer for the rows that
+// have no such id to be held to: a folder row carries no repo, neither does a
+// bubble whose ancestry owns no workspace, and neither does any row in a
+// project home. Refusing those would drop the live folder feed the Chats panel
+// repaints from. ws.ExactMatch would do exactly that, which is why this is its
+// own function and not that one.
+//
+// It is also why ONE of these filters is not enough. The hatch opens per FIELD,
+// so a repo-less frame was held to nothing at all — it took a second field the
+// same row CAN answer to bound it. See agentChatDef.
+func matchScopeOrUnscoped(
+	param string,
+	value string,
+) bool {
+	return value == "" || param == value
+}
+
+// lspDef scopes the LSP diagnostics topic to a single owned session, named by
+// the chat that owns it.
+//
+// The chatId filter scopes a client to exactly the diagnostics that chat's
+// own lsp/didOpen etc. calls produced (handlers.Handlers.lspOwnerID) — never a
+// sibling chat's, even one sharing this chat's worktree. It is NOT a fan-out
+// membership match (ExtractSet) the way gitDef/filesDef's chatId filter is:
+// editor/LSP is spec §4.2's OWNED bucket, so an event has exactly one owner.
+//
+// The old /workspaces/:wsId/lsp/ws mount that once needed a second, matching
+// wsId filter beside this one is gone (spec §8 step 6) — /chats/:chatId/lsp/ws
+// is the only live mount of this broadcaster's Handle (router.go).
 func lspDef(
 	appContainer *app.Container,
 	engContainer *engine.Container,
@@ -650,7 +938,7 @@ func lspDef(
 		Snapshot:      lspSnapshot(appContainer, engContainer),
 		FlatNamespace: true,
 		Filters: []ws.FilterDef[lspdomain.DiagnosticsEvent]{
-			{Param: "wsId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
+			{Param: "chatId", Extract: func(e lspdomain.DiagnosticsEvent) string { return e.WsID }, Match: ws.ExactMatch},
 		},
 	}
 }

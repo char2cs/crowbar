@@ -42,7 +42,7 @@ describe('ChatMarkdownAssetProvider', () => {
       expect(screen.getByTestId('probe').textContent).toMatch(/^data:image\/png;base64,/),
     )
     expect(fetchMock).toHaveBeenCalledWith(
-      '/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1/attachments/x.png',
+      '/v0/projects/p1/repos/r1/chats/c1/attachments/x.png',
       expect.anything(),
     )
     vi.unstubAllGlobals()

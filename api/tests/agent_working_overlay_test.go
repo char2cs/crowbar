@@ -45,10 +45,12 @@ func writeLiveStubProviderDescriptor(t *testing.T, h *harness) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "livestub.yaml"), []byte(liveStubProviderDescriptorYAML), 0o644))
 }
 
-// requireRESTWorking asserts that BOTH REST read paths — the repo-scoped List
-// (GET .../workspaces) and the single-workspace Detail (GET .../workspaces/:wsId)
-// — stamp the workspace's `working` overlay as want. It is the REST counterpart
-// to the WS readUntil: the agent-turn overlay is folded synchronously in the SAME
+// requireRESTWorking asserts that BOTH REST read paths — the repo-scoped chat
+// list (which carries every worktree-owning chat's git state inline) and one
+// workspace's own row within it (worktreeOf; the dedicated GET
+// .../workspaces/:wsId detail route is gone, spec §8 step 6) — stamp the
+// workspace's `working` overlay as want. It is the REST counterpart to the WS
+// readUntilWorktree: the agent-turn overlay is folded synchronously in the SAME
 // axAgentChat projection callback that re-broadcasts the workspace, so once the
 // caller has observed the WS frame the in-memory overlay is already settled and
 // these plain GETs need no polling (block on the WS signal, never on time).
@@ -68,8 +70,7 @@ func requireRESTWorking(
 	}
 	require.Truef(t, found, "workspace %s absent from REST List", imported.workspaceID)
 
-	var detail workspaceDTO
-	h.get(wsBase(imported), &detail)
+	detail := worktreeOf(t, h, imported, imported.workspaceID)
 	require.Equalf(t, want, detail.Working, "REST Detail working for %s", imported.workspaceID)
 }
 
@@ -88,32 +89,37 @@ func TestRegression_WorkspaceWorkingReflectsAgentTurn(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(repoBase+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
+		http.StatusCreated, &created)
 	h.Quiesce()
 
-	detail := getAgentChat(t, h, wsBase(imported), created.ID)
+	detail := getAgentChat(t, h, repoBase, created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	segID := detail.LiveRunnerID
 
-	conn := h.dial(repoBase + "/workspaces")
+	// The standalone workspaces WS is gone; the repo-scoped chat feed carries the
+	// same worktree_state frames now, wrapped under dto.AgentChatEvent —
+	// readUntilWorktree unwraps them back to the flat vocabulary below.
+	conn := repoChatsWS(h, imported)
 
 	// user_prompt opens the turn.
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, repoBase+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": "livestub", "event": "user_prompt",
 		"payload_raw": `{"prompt":"hi"}`,
 	}, http.StatusAccepted).Body.Close()
-	readUntil(t, conn, func(m map[string]any) bool {
+	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == true
 	})
 	// REST reads (List + Detail) must now reflect the same live overlay.
 	requireRESTWorking(t, h, imported, true)
 
 	// turn_stop closes it.
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, repoBase+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": "livestub", "event": "turn_stop",
 		"payload_raw": `{"last_assistant_message":"done"}`,
 	}, http.StatusAccepted).Body.Close()
-	readUntil(t, conn, func(m map[string]any) bool {
+	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == false
 	})
 	// REST reads must have flipped back too.
@@ -137,16 +143,18 @@ func createLiveStubChat(
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
+		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
-	detail := getAgentChat(t, h, wsBase(imported), created.ID)
+	detail := getAgentChat(t, h, repoBase(imported), created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	return created.ID, detail.LiveRunnerID
 }
 
-// postAgentHook fires one in-PTY hook callback at the workspace's agent mount.
+// postAgentHook fires one in-PTY hook callback at the repo-scoped agent mount.
 func postAgentHook(
 	t *testing.T,
 	h *harness,
@@ -154,7 +162,7 @@ func postAgentHook(
 	segID, event, payload string,
 ) {
 	t.Helper()
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
 		"segment_id": segID, "provider": "livestub", "event": event, "payload_raw": payload,
 	}, http.StatusAccepted).Body.Close()
 }
@@ -181,16 +189,15 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	imported := importWritableWorkspace(t, h)
-	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
 	_, segA := createLiveStubChat(t, h, imported)
 	_, segB := createLiveStubChat(t, h, imported)
 
-	conn := h.dial(repoBase + "/workspaces")
+	conn := repoChatsWS(h, imported)
 
 	// Chat A opens a turn: idle → working. The ONE legitimate true frame.
 	postAgentHook(t, h, imported, segA, "user_prompt", `{"prompt":"a"}`)
-	readUntil(t, conn, func(m map[string]any) bool {
+	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == true
 	})
 
@@ -209,7 +216,7 @@ func TestRegression_WorkspaceWorkingOverlappingChatsBroadcastOnce(t *testing.T) 
 	// Chat B closes the LAST turn: working → idle, the transition the FE needs.
 	postAgentHook(t, h, imported, segB, "turn_stop", `{"last_assistant_message":"b done"}`)
 	redundant := 0
-	readUntil(t, conn, func(m map[string]any) bool {
+	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		if m["id"] != imported.workspaceID {
 			return false
 		}
@@ -248,16 +255,15 @@ func TestRegression_WorkspaceWorkingClearsWhenClearAbandonsATurn(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	imported := importWritableWorkspace(t, h)
-	repoBase := "/v0/projects/" + imported.projectID + "/repos/" + imported.repoID
 
 	_, seg := createLiveStubChat(t, h, imported)
 	postAgentHook(t, h, imported, seg, "session_start", `{"session_id":"sid-original"}`)
 
-	conn := h.dial(repoBase + "/workspaces")
+	conn := repoChatsWS(h, imported)
 
 	// The user typed: the workspace lights up.
 	postAgentHook(t, h, imported, seg, "user_prompt", `{"prompt":"think about this"}`)
-	readUntil(t, conn, func(m map[string]any) bool {
+	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == true
 	})
 	requireRESTWorking(t, h, imported, true)
@@ -267,7 +273,7 @@ func TestRegression_WorkspaceWorkingClearsWhenClearAbandonsATurn(t *testing.T) {
 	// onto it — abandoning the turn on the chat it just left.
 	postAgentHook(t, h, imported, seg, "session_start", `{"session_id":"sid-after-clear"}`)
 
-	readUntil(t, conn, func(m map[string]any) bool {
+	readUntilWorktree(t, conn, func(m map[string]any) bool {
 		return m["id"] == imported.workspaceID && m["working"] == false
 	})
 	requireRESTWorking(t, h, imported, false)

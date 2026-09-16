@@ -37,7 +37,7 @@ func (h *Handlers) ListTerminals(c *gin.Context) {
 	if !ok {
 		return
 	}
-	sessions := h.termEng.ListSessionsForWorkspace(ws.ID)
+	sessions := h.termEng.ListSessionsForChat(ws.ID)
 	if sessions == nil {
 		sessions = []string{}
 	}
@@ -109,7 +109,7 @@ func (h *Handlers) KillTerminal(c *gin.Context) {
 	}
 	sessionID := c.Param("sessionId")
 	// Verify the session belongs to this home workspace before killing it.
-	sessions := h.termEng.ListSessionsForWorkspace(ws.ID)
+	sessions := h.termEng.ListSessionsForChat(ws.ID)
 	found := false
 	for _, s := range sessions {
 		if s == sessionID {

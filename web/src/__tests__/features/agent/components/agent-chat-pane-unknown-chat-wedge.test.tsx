@@ -2,13 +2,14 @@ import { createElement } from 'react'
 import { act, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
+import { nanoid } from 'nanoid'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
-import type { AgentChatContent } from '@/features/panes/types/pane-content'
-import {
-  WorkspaceStoreContext,
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 const {
   getChatFn,
@@ -120,34 +121,53 @@ function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
 
 type Store = ReturnType<typeof seedWorkspace>
 
-function openBuffer(store: Store, chatId: string, runnerId: string) {
-  return store
-    .getState()
-    .bufferActions.openContent({ type: 'agentChat', chatId, wsId: 'w1', name: 'Chat', runnerId })
+// A chat is a PANE, not a buffer: panes are window-level (windowPaneStore) and
+// carry chatId/runnerId as fields of their own. That is exactly the shape this
+// file needs — a pane can be pointed at a chatId the workspace store's own list
+// has never carried, which is the whole fixture.
+//
+// A real `PaneGroup` carries no workspace id (pane-container reads it from the
+// ambient WorkspaceStoreContext), so the harness keeps it beside the pane.
+const paneWorkspace = new Map<string, string>()
+
+function openChatPane(_store: Store, chatId: string, runnerId: string, wsId = 'w1') {
+  const id = nanoid()
+  windowPaneStore.setState((s) => {
+    s.panes[id] = {
+      id,
+      type: 'group',
+      chatId,
+      runnerId: runnerId || null,
+      editorTabIds: [],
+      activeEditorTabId: null,
+      editorOpen: false,
+    }
+    return s
+  })
+  paneWorkspace.set(id, wsId)
+  return id
 }
 
-function PaneHost({ bufferId }: { bufferId: string }) {
-  const store = useWorkspaceStore()
-  const buf = useStore(store, (s) => s.buffers.find((b) => b.id === bufferId)) as
-    AgentChatContent | undefined
-  if (!buf) return null
+function PaneHost({ paneId }: { paneId: string }) {
+  const group = useStore(windowPaneStore, (s) => s.panes[paneId])
+  if (!group) return null
   return createElement(AgentChatPane, {
-    chatId: buf.chatId,
-    runnerId: buf.runnerId,
-    wsId: buf.wsId,
-    bufferId: buf.id,
+    chatId: group.chatId ?? '',
+    runnerId: group.runnerId ?? '',
+    wsId: paneWorkspace.get(paneId) ?? 'w1',
+    paneId: group.id,
     isActivePane: true,
     isVisible: true,
   })
 }
 
-async function renderPane(store: Store, bufferId: string) {
+async function renderPane(store: Store, paneId: string) {
   await act(async () => {
     render(
       createElement(
         WorkspaceStoreContext.Provider,
         { value: store },
-        createElement(PaneHost, { bufferId }),
+        createElement(PaneHost, { paneId }),
       ),
     )
   })
@@ -171,6 +191,8 @@ async function settle(rounds = 12) {
 }
 
 beforeEach(() => {
+  resetWindowPaneStoreForTests()
+  paneWorkspace.clear()
   for (const f of [
     getChatFn,
     resumeChatFn,
@@ -254,8 +276,8 @@ describe('a queued prompt for a chat missing from the seeded list', () => {
       ]),
     ).toBe(true)
 
-    const bufferId = openBuffer(store, 'c-wedged', '')
-    await renderPane(store, bufferId)
+    const paneId = openChatPane(store, 'c-wedged', '')
+    await renderPane(store, paneId)
     await settle()
 
     // The whole bug in one assertion: a queued head, an idle chat, a live runner
@@ -279,8 +301,8 @@ describe('a queued prompt for a chat missing from the seeded list', () => {
     // a missing chat is not a reason to hammer the daemon forever.
     getChatFn.mockRejectedValue(new Error('not found'))
 
-    const bufferId = openBuffer(store, 'c-ghost', '')
-    await renderPane(store, bufferId)
+    const paneId = openChatPane(store, 'c-ghost', '')
+    await renderPane(store, paneId)
     await settle()
 
     expect(getChatFn.mock.calls.filter((c) => c[1] === 'c-ghost')).toHaveLength(1)

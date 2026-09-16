@@ -17,9 +17,12 @@ type WSConn = engineterminal.WSConn
 
 // TerminalEngine is the subset of the terminal engine surface used by the handlers.
 type TerminalEngine interface {
+	// Create spawns a PTY owned by chatID, running in workspaceDir. The two
+	// are different questions: the owner is the chat, the directory is the
+	// worktree that chat resolved to — one sibling chats may share.
 	Create(
 		ctx context.Context,
-		workspaceID string,
+		chatID string,
 		workspaceDir string,
 		prof *domain.TerminalProfile,
 	) (sessionID string, err error)
@@ -36,8 +39,8 @@ type TerminalEngine interface {
 		sessionID string,
 		conn WSConn,
 	) error
-	ListSessionsForWorkspace(
-		workspaceID string,
+	ListSessionsForChat(
+		chatID string,
 	) []string
 	// StateOf returns the current lifecycle state ("active", "detached",
 	// "suspended") for the given session and true; ("", false) if not found.
@@ -69,16 +72,17 @@ type ProfileStore interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// WorkspaceReader can fetch a single workspace by ID.
-type WorkspaceReader interface {
-	Get(ctx context.Context, id string) (domain.Workspace, error)
-}
-
 // Handlers holds the dependencies shared across all terminal handler methods.
+//
+// There is deliberately no WorkspaceReader here any more. These routes mount
+// under /v0/chats/:chatId, whose resolveChatWorktree middleware has ALREADY
+// resolved the chat to its workspace and stashed it on the request context
+// (reqscope.Workspace). A reader on this struct would only let a handler
+// resolve the same thing a second time per request, which is precisely what
+// doing the resolve as middleware exists to avoid.
 type Handlers struct {
 	termEng      TerminalEngine
 	profileStore ProfileStore
-	wsReader     WorkspaceReader
 	broadcast    TerminalBroadcaster
 }
 
@@ -86,13 +90,11 @@ type Handlers struct {
 func New(
 	termEng TerminalEngine,
 	profileStore ProfileStore,
-	wsReader WorkspaceReader,
 	broadcast TerminalBroadcaster,
 ) *Handlers {
 	return &Handlers{
 		termEng:      termEng,
 		profileStore: profileStore,
-		wsReader:     wsReader,
 		broadcast:    broadcast,
 	}
 }

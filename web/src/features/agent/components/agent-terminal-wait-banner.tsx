@@ -28,10 +28,23 @@ interface AgentTerminalWaitBannerProps {
  *  falls back to saying only that input is wanted, which is all that is actually
  *  known.
  *
- *  STAYS a pane-level overlay rather than moving into the composer alongside
+ *  STAYS pane-level rather than moving into the composer alongside
  *  dormant/unsupported: the composer is unreachable for a chat with no messages
  *  yet, and a workspace-trust prompt is disproportionately a FIRST-TURN event —
- *  see the note where this renders in agent-chat-pane.tsx. */
+ *  see the note where this renders in agent-chat-pane.tsx. Rendered in NORMAL
+ *  FLOW there, not as an `absolute` overlay: a fixed offset under an absolute
+ *  box reserves no space for its own height, so whatever sat beneath it never
+ *  moved when this wrapped to more lines — measured as a real, worsening
+ *  overlap with the composer as the pane narrowed.
+ *
+ *  ONE LINE, ALWAYS — `truncate` on the message rather than letting it wrap —
+ *  for the same reason: a fixed, single-line height is what let the pane's own
+ *  wrapper reserve exactly enough room for this without measuring it, where a
+ *  message that wrapped to two or three lines as the pane narrowed used to grow
+ *  into whatever sat below it instead. Same stadium shape AgentComposer's own
+ *  ComposerSignpost wears for the equivalent reviving/idle states once the chat
+ *  has messages, for the same reason: read as ONE family of "here's why, here's
+ *  what to do" rows. */
 export function AgentTerminalWaitBanner({
   kind,
   providerLabel,
@@ -44,19 +57,16 @@ export function AgentTerminalWaitBanner({
       : `${who} is waiting for input in its terminal.`
 
   return (
-    // The same card the choice prompt and the interruption strip wear, because it
-    // is the same class of thing to the reader: the agent has stopped, and it
-    // wants something from you.
     <div
-      className="flex items-center justify-between gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
+      className="flex h-[38px] items-center gap-3 rounded-full border border-warning/40 bg-warning/10 px-3.5 text-sm"
       role="alert"
       data-testid="agent-terminal-wait"
       data-wait-kind={kind}
     >
-      <p className="min-w-0 text-warning-foreground">
+      <p className="min-w-0 truncate text-warning-foreground">
         {what} <span className="text-muted-foreground">Crowbar can’t answer this one.</span>
       </p>
-      <Button className="shrink-0" size="xs" variant="secondary" onClick={onOpenTerminal}>
+      <Button className="ml-auto shrink-0" size="xs" variant="secondary" onClick={onOpenTerminal}>
         <TerminalIcon /> Open Terminal
       </Button>
     </div>

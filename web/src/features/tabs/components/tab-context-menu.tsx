@@ -1,12 +1,10 @@
 import {
-  Columns as Columns2,
   Copy,
   FolderOpen,
   PencilSimpleLine,
   PushPin as Pin,
   PushPinSlash as PinOff,
   ArrowCounterClockwise as RotateCcw,
-  Rows as Rows2,
   TerminalWindow as Terminal,
   X,
 } from '@phosphor-icons/react'
@@ -14,7 +12,7 @@ import type { PaneContent } from '@/features/panes/types/pane-content'
 import { isVirtualContent } from '@/features/panes/types/pane-content'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { stripControlChars } from '@/features/terminal/utils/control-chars'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { primitivePrompt } from '@/components/ui/primitive-dialog-service'
 import { getBaseName, getDirName } from '@/utils/path-helpers'
@@ -46,7 +44,6 @@ const TabContextMenu = ({
   isOpen,
   position,
   buffer,
-  paneId,
   onClose,
   onPin,
   onCloseTab,
@@ -57,12 +54,16 @@ const TabContextMenu = ({
   onCopyRelativePath,
   onReload,
   onRevealInFinder,
-  onSplitRight,
-  onSplitDown,
+  // paneId/onSplitRight/onSplitDown are still accepted (tab-bar.tsx keeps
+  // wiring them from splitEditorGroup) but deliberately unused: spec §7.3 —
+  // "a pane group is a group of chats, never of tabs" (Law 3) — a tab's
+  // context menu no longer offers a way to split a pane.
 }: TabContextMenuProps) => {
-  const workspaceStore = useWorkspaceStore()
-
   if (!isOpen || !buffer) return null
+
+  // openContent always sets a real path (file path, or a synthetic scheme for
+  // terminal/commitDiff/branchReview) — narrow once rather than per item below.
+  const path = buffer.path ?? ''
 
   const items: ContextMenuItem[] = [
     {
@@ -96,7 +97,7 @@ const TabContextMenu = ({
                 name: nextName,
                 customName: true,
               })
-              workspaceStore.setState((state) => ({
+              windowPaneStore.setState((state) => ({
                 buffers: state.buffers.map((b) =>
                   b.id === buffer.id ? { ...b, name: nextName } : b,
                 ),
@@ -106,41 +107,18 @@ const TabContextMenu = ({
         ]
       : []),
     { id: 'sep-1', label: '', separator: true, onClick: () => {} },
-    ...(paneId && onSplitRight
-      ? [
-          {
-            id: 'split-right',
-            label: 'Split Right',
-            icon: <Columns2 />,
-            onClick: () => onSplitRight(paneId, buffer.id),
-          },
-        ]
-      : []),
-    ...(paneId && onSplitDown
-      ? [
-          {
-            id: 'split-down',
-            label: 'Split Down',
-            icon: <Rows2 />,
-            onClick: () => onSplitDown(paneId, buffer.id),
-          },
-        ]
-      : []),
-    ...(paneId && (onSplitRight || onSplitDown)
-      ? [{ id: 'sep-2', label: '', separator: true, onClick: () => {} }]
-      : []),
     {
       id: 'copy-path',
       label: 'Copy Path',
       icon: <Copy />,
       onClick: async () => {
         if (onCopyPath) {
-          onCopyPath(buffer.path)
+          onCopyPath(path)
           return
         }
 
         try {
-          await navigator.clipboard.writeText(buffer.path)
+          await navigator.clipboard.writeText(path)
         } catch (error) {
           console.error('Failed to copy path:', error)
         }
@@ -150,27 +128,28 @@ const TabContextMenu = ({
       id: 'copy-relative-path',
       label: 'Copy Relative Path',
       icon: <Copy />,
-      onClick: () => onCopyRelativePath?.(buffer.path),
+      onClick: () => onCopyRelativePath?.(path),
     },
     {
       id: 'reveal',
       label: 'Reveal in Finder',
       icon: <FolderOpen />,
-      onClick: () => onRevealInFinder?.(buffer.path),
+      onClick: () => onRevealInFinder?.(path),
     },
-    ...(!isVirtualContent(buffer) && !buffer.path.includes('://')
+    ...(!isVirtualContent(buffer) && !path.includes('://')
       ? [
           {
             id: 'terminal',
             label: 'Open in Terminal',
             icon: <Terminal />,
             onClick: () => {
-              const dirPath = getDirName(buffer.path)
+              const dirPath = getDirName(path)
               const dirName = getBaseName(dirPath, 'terminal')
-              workspaceStore.getState().bufferActions.openContent({
+              windowPaneStore.getState().bufferActions.openContent({
                 type: 'terminal',
                 name: dirName,
                 workingDirectory: dirPath,
+                workspaceId: buffer.workspaceId,
               })
             },
           },

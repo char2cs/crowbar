@@ -92,7 +92,7 @@ func createChat(
 	now time.Time,
 ) domain.Chat {
 	t.Helper()
-	chat, err := repo.Create(ctx, chat.CreateInput{ID: id, WorkspaceID: wsID, Now: now})
+	chat, err := repo.Create(ctx, chat.CreateInput{ID: id, WorkspaceID: wsID, Type: domain.ChatTypeChat, Now: now})
 	require.NoError(t, err)
 	return chat
 }
@@ -117,7 +117,7 @@ func TestAgentChat_Create_ErrorOnDuplicate(t *testing.T) {
 	now := time.Unix(1, 0).UTC()
 	createChat(t, ctx, repo, "c1", "w1", now)
 
-	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "w1", Now: now})
+	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: now})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, asynxModels.ErrValidation)
 }
@@ -257,7 +257,7 @@ func TestAgentChat_ConcurrentCreate_OneWins(t *testing.T) {
 		for i := range results {
 			g.Go(func() error {
 				_, results[i] = repo.Create(ctx, chat.CreateInput{
-					ID: chatID, WorkspaceID: "w1", Now: now,
+					ID: chatID, WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: now,
 				})
 				return nil
 			})
@@ -390,9 +390,9 @@ func TestAgentChat_NewEventSourced_ErrorOnBadDB(t *testing.T) {
 func TestLoadChat_AnswersWhileTheProjectionIsStillBehind(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 
-	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Now: time.Now()})
+	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Type: domain.ChatTypeChat, Now: time.Now()})
 	require.NoError(t, err)
-	_, err = repo.Create(ctx, chat.CreateInput{ID: "c2", WorkspaceID: "ws-1", Now: time.Now()})
+	_, err = repo.Create(ctx, chat.CreateInput{ID: "c2", WorkspaceID: "ws-1", Type: domain.ChatTypeChat, Now: time.Now()})
 	require.NoError(t, err)
 	chat.WaitQuiescentForTest(repo)
 
@@ -430,9 +430,9 @@ func TestLoadChat_AnswersWhileTheProjectionIsStillBehind(t *testing.T) {
 func TestSetOrder_RenumbersWithoutMoving(t *testing.T) {
 	ctx, repo, _, _ := newRepoWithDeps(t)
 
-	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Now: time.Now()})
+	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Type: domain.ChatTypeChat, Now: time.Now()})
 	require.NoError(t, err)
-	_, err = repo.Create(ctx, chat.CreateInput{ID: "c2", WorkspaceID: "ws-1", Now: time.Now()})
+	_, err = repo.Create(ctx, chat.CreateInput{ID: "c2", WorkspaceID: "ws-1", Type: domain.ChatTypeChat, Now: time.Now()})
 	require.NoError(t, err)
 	_, err = repo.SetPlacement(ctx, "c2", "c1", 0)
 	require.NoError(t, err)
@@ -455,6 +455,36 @@ func TestSetOrder_RefusesAChatThatDoesNotExist(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestSetWorkspace_FillsTheSlotAndReflectsImmediatelyInTheReadModel pins
+// SetWorkspace to the SendWait path, unlike every other setter in this file.
+//
+// It asserts on GetChat — the READ MODEL — with no explicit wait in between,
+// which only holds deterministically if the write actually blocks until the
+// projection folds (SendWait), mirroring TestAgentChat_CreateAndGetChat's own
+// proof for Create. Promote (usecases/chat) depends on exactly this: its next
+// act after this write is a provider switch that resolves the respawn cwd off
+// GetChat, and a Send here would leave a live window serving the OLD, empty
+// WorkspaceID.
+func TestSetWorkspace_FillsTheSlotAndReflectsImmediatelyInTheReadModel(t *testing.T) {
+	ctx, repo := newRepo(t)
+	createChat(t, ctx, repo, "c1", "", time.Now())
+
+	updated, err := repo.SetWorkspace(ctx, "c1", "ws-1")
+	require.NoError(t, err)
+	assert.Equal(t, "ws-1", updated.WorkspaceID)
+
+	got, err := repo.GetChat(ctx, "c1")
+	require.NoError(t, err)
+	assert.Equal(t, "ws-1", got.WorkspaceID)
+}
+
+func TestSetWorkspace_RefusesAChatThatDoesNotExist(t *testing.T) {
+	ctx, repo := newRepo(t)
+
+	_, err := repo.SetWorkspace(ctx, "no-such-chat", "ws-1")
+	assert.Error(t, err)
+}
+
 // A miss arrives as this package's own sentinel whichever read served it, so no
 // caller has to know that one folds from the log and the other reads a table.
 func TestLoadChat_UnknownChatIsTheSameNotFoundGetChatReports(t *testing.T) {
@@ -472,7 +502,7 @@ func TestLoadChat_UnknownChatIsTheSameNotFoundGetChatReports(t *testing.T) {
 func TestGetChat_AReadFailureIsNotAMiss(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 
-	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Now: time.Now()})
+	_, err := repo.Create(ctx, chat.CreateInput{ID: "c1", WorkspaceID: "ws-1", Type: domain.ChatTypeChat, Now: time.Now()})
 	require.NoError(t, err)
 	chat.WaitQuiescentForTest(repo)
 

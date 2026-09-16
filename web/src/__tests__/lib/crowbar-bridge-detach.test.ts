@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // window.__TAURI_INTERNALS__ = { invoke: vi.fn() }.)
 import { terminalCreate, terminalDetach, __getBridgeInternals } from '@/lib/crowbar-bridge'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { terminalsBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = []
@@ -25,8 +26,9 @@ class FakeWebSocket {
 beforeEach(() => {
   FakeWebSocket.instances = []
   vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
-  // terminalCreate calls workspaceBase(wsId) which requires a recorded scope.
-  setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1' })
+  // terminalCreate takes an already-built base; terminalsBaseForWorkspace resolves
+  // it from the recorded scope's owning chat (`/v0/chats/chat-1/terminals`).
+  setWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
   // terminalCreate POSTs via apiFetch, which unwraps the {success,data} envelope.
   vi.stubGlobal(
     'fetch',
@@ -41,7 +43,7 @@ beforeEach(() => {
 
 describe('terminalDetach', () => {
   it('closes the WS and drops the transport entry but keeps the DELETE base', async () => {
-    const connectionId = await terminalCreate('ws-1')
+    const connectionId = await terminalCreate(terminalsBaseForWorkspace('ws-1'))
     const ws = FakeWebSocket.instances[0]
 
     await terminalDetach(connectionId)
@@ -53,7 +55,7 @@ describe('terminalDetach', () => {
   })
 
   it('does NOT call DELETE', async () => {
-    const connectionId = await terminalCreate('ws-1')
+    const connectionId = await terminalCreate(terminalsBaseForWorkspace('ws-1'))
     const fetchSpy = globalThis.fetch as ReturnType<typeof vi.fn>
     fetchSpy.mockClear()
     await terminalDetach(connectionId)

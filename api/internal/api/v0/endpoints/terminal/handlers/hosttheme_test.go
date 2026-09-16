@@ -41,7 +41,7 @@ func (r *recordingEngine) snapshot() (calls int, bg, fg color.Color) {
 
 func newHostThemeRouter(eng handlers.TerminalEngine) *gin.Engine {
 	r := gin.New()
-	h := handlers.New(eng, stubProfiles{}, stubReader{}, &spyBroadcaster{})
+	h := handlers.New(eng, stubProfiles{}, &spyBroadcaster{})
 	r.Group("/v0").PUT("/settings/terminal/theme", h.SetHostTheme)
 	return r
 }

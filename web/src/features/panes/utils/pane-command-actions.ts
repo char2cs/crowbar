@@ -1,16 +1,69 @@
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { isPaneEmpty } from '@/features/panes/stores/slices/pane-slice'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { getOwningChatId } from '@/lib/workspace-scope'
 import { BOTTOM_PANE_ID } from '../constants/pane'
 import type { LayoutNode } from '../types/pane'
 import { getAllLeafIds } from './pane-layout'
 import { getPaneScopeForPaneId } from './pane-routing'
 import { createPaneBeside } from './pane-split-actions'
 
+/**
+ * Put `chatId` on screen as its OWN view — spec §8.4, "clicking a chat makes
+ * its own view" — regardless of where the chat id comes from. The one shared
+ * core behind every "open this chat, the way a click does" caller:
+ * `openChatInOwnPane` (drop-actions.ts, a sidebar row click/reveal) and the
+ * ⌘N new-chat command (use-pane-keyboard.ts), which differ only in how they
+ * got a chat id (an existing chat vs. one just minted) but must agree on what
+ * "open" means once they have one — see the fix note below for why they used
+ * to disagree.
+ *
+ *   - **already up anywhere → go TO it** (§8.2's "it never opens twice"),
+ *     checked against every pane, including one in a view currently off
+ *     screen (`setActivePane` brings that whole view over).
+ *   - **an EMPTY pane in the showing view → it fills that one** (the active
+ *     pane first, so it lands where the user is already looking).
+ *   - **otherwise → a brand-new VIEW** (`addPane`), which takes the screen
+ *     while the arrangement that was showing is PARKED whole, not lost.
+ *
+ * `detachPaneToOwnView` covers the middle case: a reused empty pane can still
+ * be tagged into a view someone merged earlier, and filling it in place would
+ * silently add this chat to that group.
+ *
+ * Before this existed, ⌘N wrote straight into `activePaneId` via
+ * `setPaneChat` — which ARCHIVES whatever that pane held into
+ * `dormantArrangements` (closed, not parked) — instead of minting a view of
+ * its own. Every chat the user had open before pressing ⌘N was one keystroke
+ * from being silently closed, which is what made the app feel like it could
+ * only ever hold one view at a time. `runnerId` defaults to null — a freshly
+ * minted chat has no runner yet; a revealed existing one ignores it entirely
+ * (the reveal branch returns before it would apply).
+ */
+export function openChatIdInOwnView(chatId: string, runnerId: string | null = null): void {
+  const { panes, activePaneId, rootLayout, paneActions } = windowPaneStore.getState()
+
+  const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
+  if (existingPane) {
+    paneActions.setActivePane(existingPane.id)
+    return
+  }
+
+  const openPaneIds = getAllLeafIds(rootLayout)
+  const vacant = (id: string) => isPaneEmpty(panes[id])
+  const targetId =
+    (openPaneIds.includes(activePaneId) && vacant(activePaneId) ? activePaneId : undefined) ??
+    openPaneIds.find(vacant) ??
+    paneActions.addPane()
+  if (!targetId) return
+
+  paneActions.detachPaneToOwnView(targetId)
+  paneActions.setPaneChat(targetId, chatId, runnerId)
+  paneActions.setActivePane(targetId)
+}
+
 export const getShareableSplitBufferId = (bufferId: string | null | undefined) => {
   if (!bufferId) return undefined
-  const activeBuffer = getActiveWorkspaceStoreRef()
-    ?.getState()
-    .buffers.find((buffer) => buffer.id === bufferId)
+  const activeBuffer = windowPaneStore.getState().buffers.find((buffer) => buffer.id === bufferId)
   if (activeBuffer?.type === 'terminal') {
     return undefined
   }
@@ -23,14 +76,11 @@ function isEditorPaneId(paneId: string): boolean {
     return false
   }
 
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
-  return getAllLeafIds(state.rootLayout).includes(paneId)
+  return getAllLeafIds(windowPaneStore.getState().rootLayout).includes(paneId)
 }
 
 function getActiveEditorPane() {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return null
+  const state = windowPaneStore.getState()
   const activePane = state.paneActions.getActivePane()
   if (!activePane || !isEditorPaneId(activePane.id)) {
     return null
@@ -40,8 +90,7 @@ function getActiveEditorPane() {
 }
 
 export function toggleActiveEditorGroupLock(): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const activePane = getActiveEditorPane()
   if (!activePane) {
     return false
@@ -51,18 +100,93 @@ export function toggleActiveEditorGroupLock(): boolean {
   return true
 }
 
-// Opens the Branch Review surface for the active workspace as a pane tab.
-// Returns the opened buffer id, or null when there is no active workspace.
-export function openBranchReviewForActiveWorkspace(): string | null {
-  const store = getActiveWorkspaceStoreRef()
-  const wsId = getActiveWorkspaceId()
-  if (!store || !wsId) {
+// Opens the Branch Review surface for the given workspace as a pane tab.
+// Returns the opened buffer id, or null when there is no workspace to open
+// one for. The caller supplies the workspace: a button living inside a
+// SPECIFIC pane (TabBar, ChatOnlyPaneHeader) must open review for THAT
+// pane's own chat/workspace, never whichever one happens to be globally
+// active — a different pane in the same split can easily be showing a
+// different chat and workspace entirely.
+//
+// `paneId`, when given, is asserted active FIRST — same fix, same reason, as
+// `ensurePaneChatThenOpen` below: `openContent` (buffer-slice.ts) adds the new
+// tab to `get().activePaneId` UNCONDITIONALLY, never to whatever pane the
+// caller is acting on. Passing a correctly-scoped `wsId` alone (the original
+// half of this fix) stamped the new buffer with the right workspace but
+// still dropped its TAB into whichever pane happened to be active — live-
+// reported as clicking an INACTIVE pane's own review button opening that
+// pane's review inside the ACTIVE pane instead. Omit `paneId` only for a
+// caller with no pane of its own (see `openBranchReviewForActiveWorkspace`).
+export function openBranchReviewForWorkspace(
+  wsId: string | null | undefined,
+  paneId?: string,
+): string | null {
+  if (!wsId) {
     return null
   }
 
-  return store
+  if (paneId) {
+    windowPaneStore.getState().paneActions.setActivePane(paneId)
+  }
+
+  return windowPaneStore
     .getState()
     .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' })
+}
+
+// Opens the Branch Review surface for the globally active workspace — for
+// callers with no pane/chat context of their own (GitPanel, a keyboard
+// shortcut), where "active workspace" is genuinely the only meaningful
+// answer. No paneId to assert: the currently active pane IS the right target.
+export function openBranchReviewForActiveWorkspace(): string | null {
+  return openBranchReviewForWorkspace(getActiveWorkspaceId())
+}
+
+// Law 3 (spec §7.2): "nothing lands in a pane of its own; everything lands in
+// the editor view [of a chat]". A pane must hold a chat before anything opens
+// into its editor view. When `paneId` already has one, `openTab` just runs.
+//
+// Every workspace already has a real, permanent owning chat — the daemon
+// mints one per locked branch, repo home and project home
+// (rows-from-repo.ts's `branchRowIds` doc) — so a chatless PANE never means a
+// chatless WORKSPACE. This resolves and reuses that owning chat
+// (`getOwningChatId`, the same read every other workspace-scoped surface
+// uses — lsp-client.ts, terminal.tsx, branch-review-pane.tsx, etc.) rather
+// than minting a second, redundant chat, which is what this used to do
+// unconditionally on any pane that merely hadn't been told its workspace's
+// chat yet. If no owning chat can be resolved (e.g. the sidebar hasn't
+// loaded this workspace's scope yet), this does nothing — never creates one
+// as a side effect of opening a terminal, a file, or a branch review.
+export function ensurePaneChatThenOpen(wsId: string, paneId: string, openTab: () => void): void {
+  const paneActions = windowPaneStore.getState().paneActions
+  paneActions.setActivePane(paneId)
+
+  if (windowPaneStore.getState().panes[paneId]?.chatId) {
+    openTab()
+    return
+  }
+
+  const owningChatId = getOwningChatId(wsId)
+  if (!owningChatId) return
+
+  // Same dedup rule every other "put a chat in a pane" path already follows
+  // (open-agent-chat.ts's openAgentChat, drop-actions.ts's openChatIntoPane):
+  // a chat already showing somewhere is REVEALED, never duplicated into a
+  // second pane.
+  const existingPane = Object.values(windowPaneStore.getState().panes).find(
+    (p) => p.chatId === owningChatId,
+  )
+  if (existingPane) {
+    paneActions.setActivePane(existingPane.id)
+    openTab()
+    return
+  }
+
+  // No runner known yet — agent-chat-pane's own mount-time revive resolves
+  // and writes back the real one (same convention openAgentChat/
+  // openChatIntoPane use for a freshly attached chat).
+  paneActions.setPaneChat(paneId, owningChatId, null)
+  openTab()
 }
 
 export function splitActiveEditorGroup(direction: 'horizontal' | 'vertical'): boolean {
@@ -71,7 +195,8 @@ export function splitActiveEditorGroup(direction: 'horizontal' | 'vertical'): bo
     return false
   }
 
-  return splitEditorGroup(activePane.id, direction, activePane.activeBufferId)
+  // I8 (Task 26 fix round 1): same activeBufferId dead-field bug as above.
+  return splitEditorGroup(activePane.id, direction, activePane.activeEditorTabId)
 }
 
 export function splitEditorGroup(
@@ -87,8 +212,7 @@ export function splitEditorGroup(
 }
 
 export function closeActiveEditorGroup(): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const activePane = getActiveEditorPane()
   if (!activePane) {
     return false
@@ -109,8 +233,7 @@ export function closeActiveEditorGroup(): boolean {
 }
 
 export function closeOtherEditorGroups(): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const activePane = getActiveEditorPane()
   if (!activePane) {
     return false
@@ -143,8 +266,7 @@ function collectSplitIds(node: LayoutNode): string[] {
 }
 
 export function resetEditorGroupSizes(): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const splitIds = collectSplitIds(state.rootLayout)
   if (splitIds.length === 0) {
     return false
@@ -158,10 +280,9 @@ export function resetEditorGroupSizes(): boolean {
 }
 
 export function moveActiveEditorToAdjacentGroup(direction: 'next' | 'previous'): boolean {
-  const state = getActiveWorkspaceStoreRef()?.getState()
-  if (!state) return false
+  const state = windowPaneStore.getState()
   const activePane = getActiveEditorPane()
-  if (!activePane || !activePane.activeBufferId) {
+  if (!activePane || !activePane.activeEditorTabId) {
     return false
   }
 
@@ -187,6 +308,8 @@ export function moveActiveEditorToAdjacentGroup(direction: 'next' | 'previous'):
     return false
   }
 
-  state.paneActions.moveBufferToPane(activePane.activeBufferId, activePane.id, targetPane.id)
+  // I8 (Task 26 fix round 1): moveBufferToPane has not existed on PaneActions
+  // since Task 1's editorTabIds rename — real name is moveEditorTabToPane.
+  state.paneActions.moveEditorTabToPane(activePane.activeEditorTabId, activePane.id, targetPane.id)
   return true
 }

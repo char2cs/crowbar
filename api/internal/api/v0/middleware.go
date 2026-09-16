@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -90,6 +91,51 @@ func scopeWorkspaceToPath(reader workspaceScopeReader) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		c.Next()
+	}
+}
+
+// chatWorktreeResolver resolves a chat id to the workspace whose worktree it
+// reads and writes through (internal/app/usecases/worktree, spec
+// docs/superpowers/specs/2026-09-02-chat-scoped-api-design.md §3). Declared
+// here rather than imported from usecases/worktree directly (law 4) — it is
+// the narrow Resolve(ctx, chatID) shape resolveChatWorktree needs; the
+// container's Worktree resolver (usecases.WorktreeResolver) satisfies it
+// structurally.
+type chatWorktreeResolver interface {
+	Resolve(ctx context.Context, chatID string) (domain.Workspace, error)
+}
+
+// resolveChatWorktree scopes every route mounted under
+// rg.Group("/chats/:chatId") (router.go, spec §7.1's flat chat prefix) to the
+// workspace behind the chat's worktree, and stashes it on the gin context
+// (chatWorktreeContextKey) so every handler below reads it back without a
+// second resolve call per request.
+//
+// Unlike scopeWorkspaceToPath, which loads a workspace named directly by the
+// URL and only validates it against sibling :projectId/:repoId segments, a
+// chat is never itself a workspace: the workspace has to be resolved from the
+// chat's ancestry (spec §3) before any handler below can run. A chat with no
+// worktree anywhere in its ancestry (worktree.ErrNoWorktreeInAncestry) and
+// any other resolve failure both write the same 404-shaped envelope
+// scopeWorkspaceToPath uses for an unscoped id — from the caller's
+// perspective a chat whose worktree cannot be resolved is indistinguishable
+// from one that doesn't exist.
+//
+// The resolved workspace is stashed via reqscope, a leaf package the endpoint
+// handlers can import; this package cannot host the accessor itself, because
+// router.go imports every endpoint group and the handlers reading it back
+// would close an import cycle.
+func resolveChatWorktree(resolver chatWorktreeResolver) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		chatID := c.Param("chatId")
+		ws, err := resolver.Resolve(c.Request.Context(), chatID)
+		if err != nil {
+			libs.WriteErr(c, http.StatusNotFound, "chat not found")
+			c.Abort()
+			return
+		}
+		reqscope.SetWorkspace(c, ws)
 		c.Next()
 	}
 }

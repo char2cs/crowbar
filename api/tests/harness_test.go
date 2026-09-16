@@ -63,7 +63,23 @@ func newHarnessAt(
 	home string,
 ) *harness {
 	t.Helper()
-	ctx := context.Background()
+	// The lifecycle ctx handed to engine.New/app.New is what the production
+	// daemon (internal.Container.New, then .Run) uses to stop the two
+	// long-running background loops app.New starts at boot: the provider
+	// engine's 5-minute cron sweep and the chat usecase's 2-second
+	// terminal-wait detector (startProviderSweep/startTerminalWaitSweep in
+	// internal/app/container.go). Production cancels that SAME ctx the instant
+	// a shutdown signal arrives — before Run's own drain/Close sequence even
+	// begins — which is what stops both loops.
+	//
+	// A bare context.Background() here never delivers that signal, so every
+	// harness this package ever boots leaked its own copy of both loops for
+	// the rest of the TEST BINARY's life (every test in ./tests shares one
+	// process): dozens of them accumulate over a full package run, each still
+	// ticking its 2s sweep against a torn-down harness while later tests run.
+	// cancelBoot closes that gap on every teardown path (see drainDown and
+	// crashDie below).
+	ctx, cancelBoot := context.WithCancel(context.Background())
 
 	engines, err := engine.New(ctx, engine.WithHomeDir(home))
 	require.NoError(t, err)
@@ -87,8 +103,9 @@ func newHarnessAt(
 	h.server = srv
 	h.url = srv.URL
 	// drainDown is the daemon's ORDERED GRACEFUL DRAIN — internal.Container.Run's
-	// ctx.Done branch, verbatim: stop serving, then quiesce every asynchronous
-	// writer and drain every aggregate, all while the DBs are still OPEN.
+	// ctx.Done branch, verbatim: cancel the boot ctx (stopping the two loops
+	// above), stop serving, then quiesce every asynchronous writer and drain
+	// every aggregate, all while the DBs are still OPEN.
 	//
 	// Splitting it out of stop is what lets a test look at the state the daemon
 	// commits ON ITS WAY DOWN (harness.drain), in the one window where that state is
@@ -97,6 +114,7 @@ func newHarnessAt(
 	// BOUND on a wedge, never a synchronisation device, and a test that leaned on it
 	// would be timing-dependent by construction.
 	h.drainDown = func() {
+		cancelBoot()
 		srv.Close()
 		_ = appContainer.Shutdown(context.Background())
 	}
@@ -114,6 +132,7 @@ func newHarnessAt(
 	// durable store goes FIRST, so nothing that happens afterwards can be recorded.
 	// See harness.crash.
 	h.crashDie = func() {
+		cancelBoot()
 		srv.Close()
 		_ = adapters.Close()
 		appContainer.Close()
@@ -373,8 +392,14 @@ func readUntil(
 	// BEFORE the caller subscribed, and no amount of further blocking recovers
 	// it. Unbounded, that costs the entire PACKAGE — Go's 4m timeout kills every
 	// other test in ./tests and leaves a goroutine dump as the only evidence of
-	// which one was at fault. Bounded, the test names itself in 30s.
-	deadline := time.Now().Add(30 * time.Second)
+	// which one was at fault. Bounded, the test names itself instead.
+	//
+	// 45s, not 30s: TestRegression_DeleteWorkspaceTombstones was seen missing
+	// this bound under CI's constrained CPU with an otherwise clean, leak-free
+	// harness — worst-case scheduling latency against a large legitimate
+	// goroutine footprint, not a hang. Still an order of magnitude under the
+	// package's own 4m ceiling.
+	deadline := time.Now().Add(45 * time.Second)
 	for {
 		require.NoError(t, conn.SetReadDeadline(deadline))
 		mt, raw, err := conn.ReadMessage()
@@ -466,8 +491,70 @@ func waitForWorkComplete(
 		working, ok := m["working"].(bool)
 		return ok && working == want
 	}
-	readUntil(t, conn, func(m map[string]any) bool { return isWorking(m, true) })
-	return readUntil(t, conn, func(m map[string]any) bool { return isWorking(m, false) })
+	readUntilWorktree(t, conn, func(m map[string]any) bool { return isWorking(m, true) })
+	return readUntilWorktree(t, conn, func(m map[string]any) bool { return isWorking(m, false) })
+}
+
+// worktreeFrame projects one chat-feed frame down to the flat workspace map the
+// deleted `workspaces` stream used to send, so a predicate written against that
+// stream reads the same keys off this one.
+//
+// It is an UNWRAP, not a translation. A worktree_state frame is the workspace's
+// own WorkspaceDTO put through dto.ChatWorktreeFrom and hung under `worktree`
+// (v0.Container.pushChatWorktree), so every key here is the byte the workspace
+// stream would have sent — this only lifts them back out of the envelope and
+// restores the two identity fields the envelope, not the payload, carries: `id`
+// (the frame's workspaceId) and `repoId`.
+//
+// projectId, createdAt and kind are NOT recoverable: the chat feed never carried
+// them.
+//
+// A frame that is not a worktree_state one is returned UNCHANGED, which is what
+// keeps readUntilWorktree usable on the flat DTO streams (projects, repos,
+// threads) as well as this one.
+func worktreeFrame(
+	m map[string]any,
+) map[string]any {
+	wt, ok := m["worktree"].(map[string]any)
+	if !ok {
+		return m
+	}
+	wsID, _ := m["workspaceId"].(string)
+	if wsID == "" {
+		return m
+	}
+	out := make(map[string]any, len(wt)+3)
+	for k, v := range wt {
+		out[k] = v
+	}
+	out["id"] = wsID
+	out["chatId"] = m["chatId"]
+	if repoID, ok := m["repoId"]; ok {
+		out["repoId"] = repoID
+	}
+	return out
+}
+
+// readUntilWorktree is readUntil with worktreeFrame applied to every frame
+// before match sees it, returning the PROJECTED map. Use it on the chat feed
+// (.../chats/ws or /v0/chats/:chatId/ws) wherever a predicate is written in the
+// old workspace vocabulary.
+func readUntilWorktree(
+	t *testing.T,
+	conn *websocket.Conn,
+	match func(map[string]any) bool,
+) map[string]any {
+	t.Helper()
+	var hit map[string]any
+	readUntil(t, conn, func(raw map[string]any) bool {
+		m := worktreeFrame(raw)
+		if match(m) {
+			hit = m
+			return true
+		}
+		return false
+	})
+	return hit
 }
 
 // gitRepoWithCommit creates a real on-disk git repo with one committed file and

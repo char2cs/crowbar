@@ -9,7 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 )
 
-// MCP handles POST .../workspaces/:wsId/chats/runners/:segid/mcp: it carries one
+// MCP handles POST .../repos/:repoId/chats/runners/:segid/mcp: it carries one
 // JSON-RPC message from a vendor CLI's MCP client to the daemon's tool surface,
 // and the reply back. The body is {"token": string, "rpc": <raw JSON-RPC>}; the
 // reply rides under the standard envelope as data.rpc, and a message the server
@@ -23,8 +23,8 @@ import (
 // Like Hooks it is runner-keyed and so makes NO
 // requireChatInWorkspace check: the caller is authenticated by (:segid, token)
 // and its entire scope is derived from the runner, never from the URL. The path
-// ids exist only because every in-PTY callback builds a workspace-nested agent
-// URL.
+// ids exist only because every in-PTY callback builds a repo-scoped agent URL
+// (cmd/crowbar/scope.go).
 func (h *Handlers) MCP(
 	ctx *gin.Context,
 ) {

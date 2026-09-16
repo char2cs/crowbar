@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 import type { AppFile } from '@/features/file-system/types/app'
 
 export interface FileNodeDTO {
@@ -32,14 +32,17 @@ export function toAppFile(node: FileNodeDTO): AppFile {
 // call), so the explorer fetches deeper levels on expand.
 export async function fetchFileTree(wsId: string, path?: string): Promise<AppFile[]> {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
-  const nodes = await apiFetch<FileNodeDTO[]>(`${workspaceBase(wsId)}/files/tree${query}`)
+  const nodes = await apiFetch<FileNodeDTO[]>(`${filesBaseForWorkspace(wsId)}/tree${query}`)
   return nodes.map(toAppFile)
 }
 
-// §3: the file-change WS is the workspace-scoped `.../files/ws` leaf (the old
-// flat /v0/ws/files?wsId= route is gone).
+// The file-change WS is the `.../files/ws` leaf of the same base the REST calls
+// above use — a chat-scoped `/v0/chats/:chatId/files/ws` for a worktree-backed
+// workspace, the project's own home leaf for the home one. It is its own route
+// rather than a dual-serve of `/tree`, so the path is a real suffix, not an
+// upgrade on an existing GET.
 export function filesWsEndpoint(wsId: string): string {
-  return `${workspaceBase(wsId)}/files/ws`
+  return `${filesBaseForWorkspace(wsId)}/ws`
 }
 
 // File-tree mutations against the workspace files endpoint. Paths are
@@ -53,7 +56,7 @@ export async function createFileNode(
   path: string,
   type: 'file' | 'dir',
 ): Promise<void> {
-  await apiFetch(`${workspaceBase(wsId)}/files`, {
+  await apiFetch(filesBaseForWorkspace(wsId), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, type }),
@@ -62,7 +65,7 @@ export async function createFileNode(
 
 /** Rename/move the node at `path` to `newPath` (both workspace-relative). */
 export async function renameFileNode(wsId: string, path: string, newPath: string): Promise<void> {
-  await apiFetch(`${workspaceBase(wsId)}/files`, {
+  await apiFetch(filesBaseForWorkspace(wsId), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, newPath }),
@@ -71,7 +74,7 @@ export async function renameFileNode(wsId: string, path: string, newPath: string
 
 /** Delete the file or directory at `path`. */
 export async function deleteFileNode(wsId: string, path: string): Promise<void> {
-  await apiFetch(`${workspaceBase(wsId)}/files`, {
+  await apiFetch(filesBaseForWorkspace(wsId), {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path }),
@@ -91,7 +94,7 @@ export async function writeFileContent(
   content: string,
   encoding?: 'base64',
 ): Promise<void> {
-  await apiFetch(`${workspaceBase(wsId)}/files/content`, {
+  await apiFetch(`${filesBaseForWorkspace(wsId)}/content`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(encoding ? { path, content, encoding } : { path, content }),
@@ -110,7 +113,7 @@ export async function copyFileNode(
   sourcePath: string,
   destPath: string,
 ): Promise<void> {
-  await apiFetch(`${workspaceBase(wsId)}/files/copy`, {
+  await apiFetch(`${filesBaseForWorkspace(wsId)}/copy`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sourcePath, destPath }),

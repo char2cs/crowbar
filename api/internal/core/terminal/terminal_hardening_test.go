@@ -139,12 +139,12 @@ func (c *blockingConn) Close() error {
 	return nil
 }
 
-// hookedReg wraps a real *registry.Registry, optionally overriding Get/WorkspaceID/List so a
+// hookedReg wraps a real *registry.Registry, optionally overriding Get/ChatID/List so a
 // test can simulate a session vanishing from the map between two reads.
 type hookedReg struct {
 	*registry.Registry
 	getFn  func(id string, base *registry.Registry) (*session.Session, bool)
-	wsFn   func(id string, base *registry.Registry) (string, bool)
+	chatFn func(id string, base *registry.Registry) (string, bool)
 	listFn func(base *registry.Registry) []string
 }
 
@@ -155,11 +155,11 @@ func (h *hookedReg) Get(id string) (*session.Session, bool) {
 	return h.Registry.Get(id)
 }
 
-func (h *hookedReg) WorkspaceID(id string) (string, bool) {
-	if h.wsFn != nil {
-		return h.wsFn(id, h.Registry)
+func (h *hookedReg) ChatID(id string) (string, bool) {
+	if h.chatFn != nil {
+		return h.chatFn(id, h.Registry)
 	}
-	return h.Registry.WorkspaceID(id)
+	return h.Registry.ChatID(id)
 }
 
 func (h *hookedReg) List() []string {
@@ -406,7 +406,7 @@ func TestCreate_StartupWriteError(t *testing.T) {
 	defer func() { startupWrite = orig }()
 
 	prof := &domain.TerminalProfile{Shell: "/bin/sh", StartupCommands: []string{"echo one", "echo two"}}
-	sid, err := e.Create(context.Background(), "ws-startup", t.TempDir(), prof)
+	sid, err := e.Create(context.Background(), "chat-startup", t.TempDir(), prof)
 	require.NoError(t, err, "a startup-write failure must NOT fail Create (non-fatal)")
 	assert.NotEmpty(t, sid)
 	_ = e.Kill(context.Background(), sid)
@@ -420,7 +420,7 @@ func TestAttach_LiveSessionAttachError(t *testing.T) {
 	defer e.Shutdown()
 
 	s := session.NewDoneClosedForTest("done-closed", "/bin/sh", t.TempDir(), "")
-	real.Add("done-closed", "ws-1", s)
+	real.Add("done-closed", "chat-1", s)
 
 	err := e.Attach(context.Background(), "done-closed", newBlockingConn())
 	require.Error(t, err, "Attach on a live-but-dead session must surface the Attach error")
@@ -473,38 +473,38 @@ func TestAttach_PostRestoreVanished(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Lookup-race (!ok / !wsOK) guards via the hooked registry
+// Lookup-race (!ok / !chatOK) guards via the hooked registry
 // ---------------------------------------------------------------------------
 
-// TestWorkspaceVanished covers the four "WorkspaceID returns false after Get succeeded"
+// TestChatVanished covers the four "ChatID returns false after Get succeeded"
 // guards: restore, suspend, persistOnDetach, and flushSessionOnce.
-func TestWorkspaceVanished(t *testing.T) {
+func TestChatVanished(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	noWs := func(string, *registry.Registry) (string, bool) { return "", false }
+	noChat := func(string, *registry.Registry) (string, bool) { return "", false }
 
 	t.Run("restore", func(t *testing.T) {
 		e, real := newCoverEngine(t)
 		defer e.Shutdown()
-		ph := session.NewPlaceholder("ph-ws", "/bin/sh", dir, "", nil)
-		real.Add("ph-ws", "ws-1", ph)
-		e.reg = &hookedReg{Registry: real, wsFn: noWs}
-		err := e.restore(ctx, "ph-ws")
+		ph := session.NewPlaceholder("ph-chat", "/bin/sh", dir, "", nil)
+		real.Add("ph-chat", "chat-1", ph)
+		e.reg = &hookedReg{Registry: real, chatFn: noChat}
+		err := e.restore(ctx, "ph-chat")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "workspace not found")
+		assert.Contains(t, err.Error(), "chat not found")
 	})
 
 	t.Run("suspend", func(t *testing.T) {
 		e, real := newCoverEngine(t)
 		defer e.Shutdown()
-		s, err := session.New("live-ws", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
+		s, err := session.New("live-chat", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
 		require.NoError(t, err)
 		defer s.Kill()
-		real.Add("live-ws", "ws-1", s)
-		e.reg = &hookedReg{Registry: real, wsFn: noWs}
-		assert.NoError(t, e.suspend(ctx, "live-ws", true),
-			"suspend must no-op when the workspace lookup races to empty")
+		real.Add("live-chat", "chat-1", s)
+		e.reg = &hookedReg{Registry: real, chatFn: noChat}
+		assert.NoError(t, e.suspend(ctx, "live-chat", true),
+			"suspend must no-op when the chat lookup races to empty")
 	})
 
 	t.Run("persistOnDetach", func(t *testing.T) {
@@ -513,8 +513,8 @@ func TestWorkspaceVanished(t *testing.T) {
 		s, err := session.New("live-pd", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
 		require.NoError(t, err)
 		defer s.Kill()
-		real.Add("live-pd", "ws-1", s)
-		e.reg = &hookedReg{Registry: real, wsFn: noWs}
+		real.Add("live-pd", "chat-1", s)
+		e.reg = &hookedReg{Registry: real, chatFn: noChat}
 		require.NotPanics(t, func() { e.persistOnDetach(ctx, "live-pd", s) })
 	})
 
@@ -524,14 +524,14 @@ func TestWorkspaceVanished(t *testing.T) {
 		s, err := session.New("live-fl", "/bin/sh", dir, "", os.Environ(), 80, 24, 0)
 		require.NoError(t, err)
 		defer s.Kill()
-		real.Add("live-fl", "ws-1", s)
-		e.reg = &hookedReg{Registry: real, wsFn: noWs}
+		real.Add("live-fl", "chat-1", s)
+		e.reg = &hookedReg{Registry: real, chatFn: noChat}
 		require.NotPanics(t, func() { e.flushSessionOnce(ctx, "live-fl") })
 	})
 }
 
 // TestGhostSessionSkipped covers the "List yields an id that Get cannot resolve" guards in
-// Stats, allWorkspaceIDs, placeholderCandidates, and the maintenance underCeiling sweep.
+// Stats, allChatIDs, placeholderCandidates, and the maintenance underCeiling sweep.
 func TestGhostSessionSkipped(t *testing.T) {
 	PinShellForTest(t)
 
@@ -540,7 +540,7 @@ func TestGhostSessionSkipped(t *testing.T) {
 	defer e.Shutdown()
 
 	// One real live session so the surrounding loop bodies still run.
-	sid, err := e.Create(ctx, "ws-ghost", t.TempDir(), nil)
+	sid, err := e.Create(ctx, "chat-ghost", t.TempDir(), nil)
 	require.NoError(t, err)
 	defer func() { _ = e.Kill(ctx, sid) }()
 
@@ -555,7 +555,7 @@ func TestGhostSessionSkipped(t *testing.T) {
 	active, detached, suspended, _, _, _ := e.Stats()
 	assert.Equal(t, 1, active+detached+suspended, "ghost id must not be counted")
 
-	assert.NotContains(t, e.allWorkspaceIDs(), "", "ghost id (no workspace) must be skipped")
+	assert.NotContains(t, e.allChatIDs(), "", "ghost id (no chat) must be skipped")
 	assert.Empty(t, e.placeholderCandidates(), "ghost id must not appear as a placeholder candidate")
 
 	// underCeiling sweep iterates the ghost id too; must not panic.
@@ -580,7 +580,7 @@ func TestStats_CountsDegraded(t *testing.T) {
 	defer e.Shutdown()
 	ctx := context.Background()
 
-	sid, err := e.Create(ctx, "ws-deg", t.TempDir(), nil)
+	sid, err := e.Create(ctx, "chat-deg", t.TempDir(), nil)
 	require.NoError(t, err)
 	defer func() { _ = e.Kill(ctx, sid) }()
 
@@ -607,7 +607,7 @@ func TestReapOnDone_DeleteBufError(t *testing.T) {
 	ended := make(chan struct{}, 1)
 	e.OnSessionEnded(func(context.Context, string, string, int) { ended <- struct{}{} })
 
-	sid, err := e.Create(ctx, "ws-reap", t.TempDir(), nil)
+	sid, err := e.Create(ctx, "chat-reap", t.TempDir(), nil)
 	require.NoError(t, err)
 	makeBadBufDir(t, store.dir, sid) // DeleteBuf will fail on reap
 
@@ -627,7 +627,7 @@ func TestKillPlaceholder_DeleteBufError(t *testing.T) {
 	e.SetMetaStore(store)
 
 	require.NoError(t, e.LoadPlaceholder(ctx, SessionMeta{
-		SessionID: "ph-kill", WorkspaceID: "ws-1", Shell: "/bin/sh", State: "suspended",
+		SessionID: "ph-kill", ChatID: "chat-1", Shell: "/bin/sh", State: "suspended",
 	}, []byte("CRWB1 80 24 0 10000\n")))
 	makeBadBufDir(t, store.dir, "ph-kill")
 
@@ -645,7 +645,7 @@ func TestDropUnrestorable_DeleteBufError(t *testing.T) {
 	e.SetMetaStore(store)
 
 	require.NoError(t, e.LoadPlaceholder(ctx, SessionMeta{
-		SessionID: "ph-drop", WorkspaceID: "ws-1", Shell: "/nonexistent/shell/binary", State: "suspended",
+		SessionID: "ph-drop", ChatID: "chat-1", Shell: "/nonexistent/shell/binary", State: "suspended",
 	}, nil))
 	makeBadBufDir(t, store.dir, "ph-drop")
 
@@ -668,7 +668,7 @@ func TestEvictPlaceholder_DeleteBufError(t *testing.T) {
 
 	for _, id := range []string{"ev-old", "ev-new"} {
 		require.NoError(t, e.LoadPlaceholder(ctx, SessionMeta{
-			SessionID: id, WorkspaceID: "ws-1", Shell: "/bin/sh", State: "suspended",
+			SessionID: id, ChatID: "chat-1", Shell: "/bin/sh", State: "suspended",
 		}, []byte("CRWB1 80 24 0 10000\n")))
 	}
 	makeBadBufDir(t, store.dir, "ev-old")
@@ -694,7 +694,7 @@ func TestWriteBufErrors(t *testing.T) {
 		defer e.Shutdown()
 		store := newCoverStore(makeFilePath(t))
 		e.SetMetaStore(store)
-		sid, err := e.Create(ctx, "ws-1", t.TempDir(), nil)
+		sid, err := e.Create(ctx, "chat-1", t.TempDir(), nil)
 		require.NoError(t, err)
 		defer func() { _ = e.Kill(ctx, sid) }()
 		waitEngineIdle(t, e, sid)
@@ -712,7 +712,7 @@ func TestWriteBufErrors(t *testing.T) {
 		s, err := session.New("pd-1", "/bin/sh", t.TempDir(), "", os.Environ(), 80, 24, 0)
 		require.NoError(t, err)
 		defer s.Kill()
-		e.reg.Add("pd-1", "ws-1", s)
+		e.reg.Add("pd-1", "chat-1", s)
 		require.NotPanics(t, func() { e.persistOnDetach(ctx, "pd-1", s) })
 		assert.True(t, store.savedState("pd-1", "detached"))
 	})
@@ -722,7 +722,7 @@ func TestWriteBufErrors(t *testing.T) {
 		defer e.Shutdown()
 		store := newCoverStore(makeFilePath(t))
 		e.SetMetaStore(store)
-		sid, err := e.Create(ctx, "ws-1", t.TempDir(), nil)
+		sid, err := e.Create(ctx, "chat-1", t.TempDir(), nil)
 		require.NoError(t, err)
 		defer func() { _ = e.Kill(ctx, sid) }()
 		waitEngineOutput(t, e, sid) // dirty so Snapshot reports changed and WriteBuf is attempted
@@ -733,7 +733,7 @@ func TestWriteBufErrors(t *testing.T) {
 		e, _ := newCoverEngine(t)
 		store := newCoverStore(makeFilePath(t))
 		e.SetMetaStore(store)
-		sid, err := e.Create(ctx, "ws-1", t.TempDir(), nil)
+		sid, err := e.Create(ctx, "chat-1", t.TempDir(), nil)
 		require.NoError(t, err)
 		_ = sid
 		require.NotPanics(t, func() { e.Shutdown() })
@@ -748,7 +748,7 @@ func TestFlushSessionOnce_NoStore(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newCoverEngine(t)
 	defer e.Shutdown()
-	sid, err := e.Create(ctx, "ws-1", t.TempDir(), nil)
+	sid, err := e.Create(ctx, "chat-1", t.TempDir(), nil)
 	require.NoError(t, err)
 	defer func() { _ = e.Kill(ctx, sid) }()
 	require.NotPanics(t, func() { e.flushSessionOnce(ctx, sid) })
@@ -759,12 +759,12 @@ func TestFlushSessionOnce_NoStore(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestMaintenance_AttachedSessionSkipped covers the AttachedCount>0 skips in both the
-// per-workspace and global classification loops: an attached session is never a suspend
+// per-chat and global classification loops: an attached session is never a suspend
 // candidate.
 func TestMaintenance_AttachedSessionSkipped(t *testing.T) {
 	PinShellForTest(t)
 
-	restore := SetSoftLimitPerWorkspaceForTest(0) // force the soft-limit loop body to run
+	restore := SetSoftLimitPerChatForTest(0) // force the soft-limit loop body to run
 	defer restore()
 
 	ctx := context.Background()
@@ -773,7 +773,7 @@ func TestMaintenance_AttachedSessionSkipped(t *testing.T) {
 	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
-	sid, err := e.Create(ctx, "ws-att", t.TempDir(), nil)
+	sid, err := e.Create(ctx, "chat-att", t.TempDir(), nil)
 	require.NoError(t, err)
 
 	attachReturned := make(chan struct{})
@@ -814,9 +814,9 @@ func TestMaintenance_Phase3aIdleSuspend(t *testing.T) {
 	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
-	sid1, err := e.Create(ctx, "ws-3a", t.TempDir(), nil)
+	sid1, err := e.Create(ctx, "chat-3a", t.TempDir(), nil)
 	require.NoError(t, err)
-	sid2, err := e.Create(ctx, "ws-3a", t.TempDir(), nil)
+	sid2, err := e.Create(ctx, "chat-3a", t.TempDir(), nil)
 	require.NoError(t, err)
 	waitEngineIdle(t, e, sid1)
 	waitEngineIdle(t, e, sid2)
@@ -862,7 +862,7 @@ func TestMaintenance_Phase3aSuspendLastThenReturn(t *testing.T) {
 	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
 
-	sid, err := e.Create(ctx, "ws-3a1", t.TempDir(), nil)
+	sid, err := e.Create(ctx, "chat-3a1", t.TempDir(), nil)
 	require.NoError(t, err)
 	waitEngineIdle(t, e, sid)
 
@@ -896,7 +896,7 @@ func TestMaintenance_CacheDropResolves(t *testing.T) {
 
 		var sids []string
 		for i := 0; i < n; i++ {
-			sid, err := e.Create(ctx, "ws-cache", t.TempDir(), nil)
+			sid, err := e.Create(ctx, "chat-cache", t.TempDir(), nil)
 			require.NoError(t, err)
 			sids = append(sids, sid)
 			waitEngineIdle(t, e, sid)
@@ -946,7 +946,7 @@ func TestMaintenanceLoop_TickerFires(t *testing.T) {
 	ctx := context.Background()
 	store := newCoverStore(t.TempDir())
 	e.SetMetaStore(store)
-	sid, err := e.Create(ctx, "ws-tick", t.TempDir(), nil)
+	sid, err := e.Create(ctx, "chat-tick", t.TempDir(), nil)
 	require.NoError(t, err)
 
 	// The ticker-driven sweep must flush the dirty session's scrollback to disk on its own.

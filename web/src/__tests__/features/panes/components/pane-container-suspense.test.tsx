@@ -1,11 +1,13 @@
 import { createElement } from 'react'
+import { useStore } from 'zustand'
 import { act, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-import {
-  WorkspaceStoreContext,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 // A classic controlled Suspense "resource": renders nothing until resolved,
@@ -69,30 +71,72 @@ vi.mock('@/features/tabs/components/tab-bar', () => ({
 import { PaneContainer } from '@/features/panes/components/pane-container'
 
 function PaneHost() {
-  const panes = useWorkspaceStoreContext((s) => s.panes)
+  // Task 26: panes are window-level now — read off windowPaneStore, not the
+  // per-workspace WorkspaceStoreContext.
+  const panes = useStore(windowPaneStore, (s) => s.panes)
   const pane = panes[ROOT_PANE_ID]
   if (!pane) return null
   return createElement(PaneContainer, { pane })
 }
 
+// bufferActions.openContent goes through buffer-slice's own (currently
+// unmigrated, pre-existing-broken) addBufferToPane call — seed the buffers
+// and editor tabs directly instead, the same way buffer-slice.test.ts and
+// pane-slice.test.ts do, so this test exercises PaneContainer's OWN keep-alive
+// wiring rather than buffer-slice's unrelated breakage.
 function seedStore() {
+  // PaneContainer still reads `workspaceId` off the per-workspace
+  // WorkspaceStoreContext (for AgentChatPane's wsId prop) — panes/buffers
+  // themselves come from the window-level singleton instead.
   const store = createWorkspaceStore('w1')
-  const terminalId = store.getState().bufferActions.openContent({
-    type: 'terminal',
-    sessionId: 'pty-1',
+  const terminalId = 'terminal-1'
+  const diffId = 'diff-1'
+  windowPaneStore.setState((state) => {
+    state.buffers.push({
+      id: terminalId,
+      type: 'terminal',
+      sessionId: 'pty-1',
+      path: 'terminal://pty-1',
+      name: 'Terminal 1',
+      isPinned: false,
+      isPreview: false,
+      workspaceId: 'w1',
+    })
+    state.buffers.push({
+      id: diffId,
+      type: 'commitDiff',
+      wsId: 'w1',
+      sha: 'abc1234',
+      name: 'Commit abc1234',
+      path: 'commit-diff://w1/abc1234',
+      isPinned: false,
+      isPreview: false,
+      workspaceId: 'w1',
+    })
+    return state
   })
-  // Opened AFTER the terminal, so openContent's addBufferToPane(..., true)
-  // leaves this one — the lazy pane — as the pane's active buffer.
-  const diffId = store.getState().bufferActions.openContent({
+  windowPaneStore.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+    id: terminalId,
+    type: 'terminal',
+    name: 'Terminal 1',
+    workspaceId: 'w1',
+  })
+  // Added AFTER the terminal, so addEditorTabToPane's own always-activates
+  // behavior leaves this one — the lazy pane — as the pane's active tab.
+  windowPaneStore.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+    id: diffId,
     type: 'commitDiff',
-    wsId: 'w1',
-    sha: 'abc1234',
     name: 'Commit abc1234',
+    workspaceId: 'w1',
   })
   return { store, terminalId, diffId }
 }
 
 describe('PaneContainer Suspense boundary', () => {
+  beforeEach(() => {
+    resetWindowPaneStoreForTests()
+  })
+
   it('keeps the always-mounted terminal pane mounted while a sibling lazy pane suspends, and after it resolves', async () => {
     const { store } = seedStore()
 

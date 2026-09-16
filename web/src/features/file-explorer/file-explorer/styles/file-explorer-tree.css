@@ -8,6 +8,16 @@
   -webkit-overflow-scrolling: auto !important;
   scroll-behavior: auto !important;
   pointer-events: auto !important;
+  /* The sticky-ancestor stack's reserved space (file-explorer-tree.tsx's
+     paddingTop, grown by stickyStackHeight) is inserted ABOVE the visible
+     viewport as you scroll deeper into a folder. Chrome's scroll anchoring
+     "helpfully" adjusts scrollTop to cancel out exactly that kind of
+     above-the-fold size change, silently undoing the reservation on every
+     scroll frame — verified live: the reserved space landed in the DOM but
+     the sticky header still painted over the next row, because scrollTop
+     had already been nudged to compensate. This is the one container where
+     that compensation is never wanted. */
+  overflow-anchor: none !important;
 }
 
 /* Apply UI font family to file tree */

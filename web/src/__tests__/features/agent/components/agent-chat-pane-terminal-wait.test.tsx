@@ -138,7 +138,7 @@ function seedNonHotswap(wait?: { kind: string }) {
  *  props under test — so they have to be settable one at a time. */
 async function renderPane(
   store: Store,
-  opts: { isActivePane?: boolean; isVisible?: boolean } = {},
+  opts: { isActivePane?: boolean; isVisible?: boolean; belowOverlayHeader?: boolean } = {},
 ) {
   const result = await act(async () =>
     render(
@@ -149,9 +149,10 @@ async function renderPane(
           chatId: 'c1',
           runnerId: 'r1',
           wsId: 'w1',
-          bufferId: 'b1',
+          paneId: 'b1',
           isActivePane: opts.isActivePane ?? true,
           isVisible: opts.isVisible ?? true,
+          belowOverlayHeader: opts.belowOverlayHeader ?? false,
         }),
       ),
     ),
@@ -166,10 +167,15 @@ async function setWait(store: Store, wait: { kind: string } | null) {
   })
 }
 
-/** Which surface is showing. The pane keeps both mounted and hides one, so the
- *  honest read is the toggle's own aria-pressed rather than a class. */
+/** Which surface is showing. The pane keeps both mounted and hides one via
+ *  `hidden` on `agent-chat-surface` — read THAT rather than the ViewSwitcher
+ *  tab's own `aria-selected`, because the blank chat's copy of that switcher
+ *  lives inside AgentEmptyDocument's control-bar slot and is not on screen at
+ *  all while a reviving/idle/trust-wait signpost occupies that same slot
+ *  instead (the terminal surface still carries its own copy, but it is
+ *  itself the thing under test, not a reliable read of it). */
 const showing = () =>
-  (surfaceToggle().getAttribute('aria-selected') === 'true' ? 'terminal' : 'chat') as
+  (screen.getByTestId('agent-chat-surface').className.includes('hidden') ? 'terminal' : 'chat') as
     'chat' | 'terminal'
 
 /** The Terminal half of the surface switcher. Named EXACTLY, because the banner's
@@ -324,7 +330,7 @@ describe('AgentChatPane — waiting in the terminal', () => {
             chatId: 'c1',
             runnerId: 'r1',
             wsId: 'w1',
-            bufferId: 'b1',
+            paneId: 'b1',
             isActivePane: false,
             isVisible: true,
           }),
@@ -392,6 +398,91 @@ describe('AgentChatPane — waiting in the terminal', () => {
 
     expect(showing()).toBe('terminal')
     expect(screen.getByTestId('agent-return-to-chat')).toBeInTheDocument()
+  })
+
+  // ── Doesn't overlap the composer ───────────────────────────────────
+
+  // Task 1 measured a real, live overlap that got WORSE as the window
+  // narrowed and the banner's own text wrapped to more lines: the banner sat
+  // ABOVE the composer handle as its own free-floating row, so a resize could
+  // separate the two. It now rides INSIDE AgentEmptyDocument's own
+  // `.dochandle` — the SAME element the model/effort/attach/send row would
+  // otherwise occupy, sharing that row's one `place()` transform — so there
+  // is no second position left to drift out of sync with the first.
+  it('renders the wait banner inside AgentEmptyDocument, not as a free-floating row above it', async () => {
+    const store = seed()
+    await renderPane(store)
+    await setWait(store, { kind: 'workspace_trust' })
+
+    const banner = screen.getByTestId('agent-terminal-wait')
+    const handle = banner.closest('.dochandle')
+    expect(handle).not.toBeNull()
+    expect(banner.closest('.banner')).not.toBeNull()
+    // The document's own writing surface, not a sibling above it.
+    expect(handle?.closest('.docwrap')).not.toBeNull()
+  })
+
+  // ── Doesn't render under the chat's own overlay header ──────────────
+  //
+  // ChatColumnHeader and ChatOnlyPaneHeader (pane-top-row.tsx) float
+  // `position: absolute; top: 0` with no fill of their own, so nothing about
+  // the pane's DOM stops pinned-near-top content from landing at that exact
+  // same y=0 and sitting underneath the header's own real, clickable 44px
+  // (Mac) hit-box. `--agent-header-clearance` (on `.agent-chat.chat`) is the
+  // ONE mechanism that pushes it clear — `AgentEmptyDocument`'s own
+  // `place()`/`lastLineTop` reads the same number, so the banner riding
+  // inside it clears the header exactly as the ordinary control row does.
+  // `belowOverlayHeader` is pane-container's own answer to "is an overlay
+  // header actually floating above me" — passed false by default (the
+  // collapsed 'tabs' presentation's small in-flow ChatBranchHeader already
+  // reserves its own space, so there is nothing to clear there).
+  it('clears the overlay header row when one floats above this pane', async () => {
+    const store = seed()
+    await renderPane(store, { belowOverlayHeader: true })
+    await setWait(store, { kind: 'workspace_trust' })
+
+    screen.getByTestId('agent-terminal-wait')
+    // 44px header (IS_MAC is hard-coded true off-webview, utils/platform.ts)
+    // plus the pane's own original 8px breathing room.
+    const section = document.querySelector('.agent-chat.chat') as HTMLElement
+    expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+  })
+
+  it('keeps its original offset with no overlay header above (default)', async () => {
+    const store = seed()
+    await renderPane(store)
+    await setWait(store, { kind: 'workspace_trust' })
+
+    screen.getByTestId('agent-terminal-wait')
+    const section = document.querySelector('.agent-chat.chat') as HTMLElement
+    expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('8px')
+  })
+
+  // The chat surface's className is built as `hidden`-when-not-
+  // `presentation==='chat'`, full stop — there is no longer a second class to
+  // reconcile it with (`flex flex-col` used to apply here too, only while
+  // the wait banner was up, back when the banner was a sibling row this
+  // container had to stack alongside AgentChatView). Reachable through the
+  // banner's own primary CTA: `openTerminalFromBanner` flips `presentation`
+  // to 'terminal' but does NOT clear `waiting` (that only clears once the CLI
+  // actually answers) — so a user clicking "Open Terminal" while the prompt
+  // is still pending is exactly `splitting=false, presentation='terminal',
+  // waiting=true`.
+  it('keeps the chat surface hidden after Open Terminal, even while still waiting', async () => {
+    const store = seed()
+    await renderPane(store, { isVisible: false })
+    await setWait(store, { kind: 'workspace_trust' })
+    expect(showing()).toBe('chat')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Terminal' }))
+    expect(showing()).toBe('terminal')
+
+    // Deliberately NOT calling setWait(store, null) here — the daemon has not
+    // answered, `waiting` is still true, which is the exact case the bug
+    // needs to reproduce.
+    const chatSurface = screen.getByTestId('agent-chat-surface')
+    expect(chatSurface.className).toMatch(/\bhidden\b/)
+    expect(chatSurface.className).not.toMatch(/\bflex\b/)
   })
 
   // ── The quiet case ─────────────────────────────────────────────────

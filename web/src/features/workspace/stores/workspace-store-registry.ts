@@ -1,7 +1,5 @@
 import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
-import { stripNewTabs } from './persisted-layout'
-import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { useHistoryStore } from '@/features/editor/stores/history-store'
 import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
 import type { TerminalContent } from '@/features/panes/types/pane-content'
@@ -11,9 +9,6 @@ import { bestEffort } from '@/lib/best-effort'
 import { clearWorkspaceFreshness } from '../lib/activation-freshness'
 
 const registry = new Map<string, WorkspaceStore>()
-const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
-/** Unsubscribe functions for the per-workspace persistence subscriptions. */
-const persistUnsubs = new Map<string, () => void>()
 
 let _activeWorkspaceId: string | null = null
 
@@ -33,6 +28,26 @@ export function setActiveWorkspaceId(wsId: string): void {
   setActiveScopeWorkspaceId(wsId)
 }
 
+/**
+ * Undo `setActiveWorkspaceId(wsId)` — but ONLY if `wsId` is still the one
+ * recorded, so a losing caller can never clobber a newer claim (two
+ * `WorkspaceView`s can flip `active` in the same commit: the one going
+ * inactive must not race the one becoming active). Without this,
+ * `WorkspaceView`'s own active-only effect (below) had no cleanup at all —
+ * unlike its sibling `setActiveWorkspaceStoreRef` effect right above it,
+ * which does null itself out on deactivation — so `_activeWorkspaceId` kept
+ * pointing at a workspace whose `WorkspaceView` had since unmounted (evicted
+ * from WorkspaceHost's retention) once nothing else claimed the id: a
+ * dangling reference the file explorer (getWorkspaceScope()) went on
+ * reading and writing to forever, for any chat sharing that workspace with
+ * no dedicated `/ide/:p/:r/:wsId` route of its own to re-claim it.
+ */
+export function clearActiveWorkspaceId(wsId: string): void {
+  if (_activeWorkspaceId !== wsId) return
+  _activeWorkspaceId = null
+  setActiveScopeWorkspaceId(null)
+}
+
 export function getActiveWorkspaceStore(): WorkspaceStore | null {
   if (!_activeWorkspaceId) return null
   return registry.get(_activeWorkspaceId) ?? null
@@ -42,134 +57,396 @@ export function getActiveWorkspaceId(): string | null {
   return _activeWorkspaceId
 }
 
+/**
+ * A registered workspace store, or `undefined` if none exists — never
+ * creates one. Task 26 fix round 1 (I3): `editorManagerFor(workspaceId)`
+ * (pane-slice.ts/buffer-slice.ts) resolves a buffer's per-workspace Monaco
+ * manager by id, and a buffer can outlive its owning workspace's eviction
+ * (buffers are window-level now, panes/tabs can still reference one whose
+ * workspace was already destroyed). Looking that id up with
+ * `getOrCreateWorkspaceStore` would silently re-register a store
+ * `WorkspaceHost` never mounted and will never destroy — a real per-session
+ * leak. Callers that only want to read an existing store, never mint one,
+ * must use this instead.
+ */
+export function getWorkspaceStore(wsId: string): WorkspaceStore | undefined {
+  return registry.get(wsId)
+}
+
 export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
   if (!registry.has(wsId)) {
-    // Stripped on the way IN as well as on the way out: the save path can only
-    // filter what this build knows about, and a layout written by an older
-    // build is exactly the case that matters — a tab whose content type has
-    // since been retired restores into a renderer that no longer exists.
-    const saved = loadFromLocalStorage(wsId)
-    const snapshot =
-      saved && saved.buffers && saved.panes
-        ? { ...saved, ...stripNewTabs({ buffers: saved.buffers, panes: saved.panes }) }
-        : (saved ?? undefined)
+    // Task 26: pane/buffer layout no longer lives on this per-workspace
+    // snapshot (it's window-level now — see window-pane-store.ts), so the
+    // only fields left to restore here are recentFiles/terminalLayout.
+    const snapshot = loadFromLocalStorage(wsId) ?? undefined
     const store = createWorkspaceStore(wsId, snapshot)
-
-    // Subscribe to store changes and debounce persistence writes.
-    // The callback runs a shallow-compare of the five persisted layout fields
-    // before doing any work, so non-persisted mutations (LSP diagnostics,
-    // terminal output, editor cursor, etc.) are ignored immediately without
-    // arming the debounce timer.
-    const unsub = store.subscribe((state, prev) => {
-      if (
-        state.panes === prev.panes &&
-        state.rootLayout === prev.rootLayout &&
-        state.bottomLayout === prev.bottomLayout &&
-        state.activePaneId === prev.activePaneId &&
-        state.mostRecentActivePaneIds === prev.mostRecentActivePaneIds &&
-        state.buffers === prev.buffers
-      ) {
-        return
-      }
-
-      const existing = persistTimers.get(wsId)
-      if (existing !== undefined) clearTimeout(existing)
-      const timer = setTimeout(() => {
-        persistTimers.delete(wsId)
-        const persistable = stripNewTabs({ buffers: state.buffers, panes: state.panes })
-        saveWorkspaceLayout({
-          workspaceId: wsId,
-          panes: persistable.panes,
-          rootLayout: state.rootLayout,
-          bottomLayout: state.bottomLayout,
-          activePaneId: state.activePaneId,
-          mostRecentActivePaneIds: state.mostRecentActivePaneIds,
-          buffers: persistable.buffers,
-          sidebarWidth: 0,
-          rightSidebarWidth: 0,
-          updatedAt: Date.now(),
-        })
-      }, 300)
-      persistTimers.set(wsId, timer)
-    })
-    persistUnsubs.set(wsId, unsub)
-
     registry.set(wsId, store)
+    notifyRegistryListeners('registered')
   }
   return registry.get(wsId)!
 }
 
+/**
+ * Notified whenever a workspace store is REGISTERED or DESTROYED — i.e.
+ * whenever `getWorkspaceStore(wsId)` might start (or stop) answering.
+ *
+ * The registry is a plain Map, so there has never been anything to subscribe
+ * to; every caller either held a store already or minted one. That is fine for
+ * code that owns a workspace, and wrong for code that merely WATCHES one it
+ * must not bring into existence — the sidebar tree, which draws a row per
+ * workspace in the repo and would otherwise mint (and permanently leak, see
+ * `getWorkspaceStore`'s own doc) a store for every row the user has never
+ * opened. Those watchers need to re-bind when the real store finally appears,
+ * and this is the only signal that says it has.
+ *
+ * WHICH KIND of registry change happened. The distinction is not cosmetic —
+ * it decides whether a watcher may PUSH a change at its React subscriber, or
+ * must only re-bind itself:
+ *
+ * - `'registered'`: a brand-new store was just minted. Every registry-wide
+ *   answer this module exposes ({@link isChatWorking},
+ *   {@link resolveWorkspaceIdForChat}, {@link resolveChatOwnerWorkspaceId},
+ *   {@link readChatWorking}, and the `agentChats` scans built on
+ *   {@link getAllActiveWorkspaceIds}) is derived from `agentChats`, which a
+ *   freshly created store has none of — `createWorkspaceStore`'s persisted
+ *   snapshot restores only recentFiles/terminalLayout. So registration cannot
+ *   move any watcher's answer, and pushing one is not merely redundant: it is
+ *   a setState fired from the RENDER PATH. `getOrCreateWorkspaceStore` is
+ *   deliberately called during render (`WorkspaceView`, `WindowPaneSurface`) —
+ *   a workspace forced into the mounted set by the route has no store until
+ *   its own render mints one — so the push landed inside React's render phase
+ *   and updated `IDEShell`'s `useSyncExternalStore` hooks
+ *   (`useActivePaneWorkspaceId` / `useViewWorkspaceIds` /
+ *   `usePaneWorkspaceIds`) while `WorkspaceView` was still rendering:
+ *   "Cannot update a component (`IDEShell`) while rendering a different
+ *   component (`WorkspaceView`)". The RE-BIND still has to happen
+ *   synchronously — the very next write to the new store (its chats stream
+ *   landing, usually in the same tick) is what carries the real change, and a
+ *   watcher not yet attached would miss it.
+ * - `'destroyed'`: a store went away, taking its chats with it. That DOES
+ *   change the answers, and only ever happens from an effect
+ *   (`WorkspaceHost`'s eviction/unmount), never from render — so it pushes.
+ */
+export type WorkspaceRegistryChange = 'registered' | 'destroyed'
+
+const registryListeners = new Set<(change: WorkspaceRegistryChange) => void>()
+
+function notifyRegistryListeners(change: WorkspaceRegistryChange): void {
+  for (const listener of registryListeners) listener(change)
+}
+
+export function subscribeWorkspaceRegistry(
+  callback: (change: WorkspaceRegistryChange) => void,
+): () => void {
+  registryListeners.add(callback)
+  return () => {
+    registryListeners.delete(callback)
+  }
+}
+
+/**
+ * Fire `callback` whenever ANY registered workspace store changes, and
+ * whenever the set of registered stores itself changes.
+ *
+ * The subscribe half of the registry-wide scans this module already exposes
+ * ({@link resolveChatOwnerWorkspaceId}, {@link isChatWorking}) — those answer
+ * "right now" and had no way to say "ask again". A render path resolving a
+ * chat's owning workspace needs both: which workspace a pane's chat belongs to
+ * is unknowable until SOME store has been seeded with that chat, and the pane
+ * mounts before that happens.
+ *
+ * Re-binds on every registry change, so a workspace mounted after this was
+ * armed is watched too — the same rebind {@link subscribeChatWorking} makes
+ * for one id, widened to all of them because a chat's owning store is exactly
+ * what the caller does not know yet.
+ */
+export function subscribeWorkspaceStores(callback: () => void): () => void {
+  let bound: Array<() => void> = []
+  // `notify` is false for the FIRST bind only: a subscriber has just read the
+  // current answer for itself, and firing at it there is an update during
+  // subscription that no caller asked for (React's own `useSyncExternalStore`
+  // re-checks after subscribing anyway, and warns about the stray one).
+  // It is false for a `'registered'` change too — an empty new store moves no
+  // answer, and the push would land mid-render; see
+  // {@link WorkspaceRegistryChange}.
+  const rebind = (notify: boolean) => {
+    for (const unbind of bound) unbind()
+    bound = [...registry.values()].map((store) => store.subscribe(callback))
+    if (notify) callback()
+  }
+  const unsubscribeRegistry = subscribeWorkspaceRegistry((change) => rebind(change === 'destroyed'))
+  rebind(false)
+  return () => {
+    unsubscribeRegistry()
+    for (const unbind of bound) unbind()
+    bound = []
+  }
+}
+
+/**
+ * Watch whether `chatId` is mid-turn inside `wsId`, WITHOUT creating `wsId`'s
+ * store if it does not exist.
+ *
+ * The subscribe half of {@link isChatWorking}, narrowed to one workspace
+ * because the caller (a sidebar row) already knows which workspace its chat
+ * runs in and has no business waking on every other workspace's writes.
+ *
+ * Re-binds through {@link subscribeWorkspaceRegistry}, which is what makes the
+ * not-yet-mounted case correct rather than merely safe: a row whose workspace
+ * has no store reads `false` (nothing is running a turn in a workspace with no
+ * live store — the `working` map is filled by that workspace's own chats
+ * stream, which only runs while it is mounted), and the moment the workspace
+ * IS mounted this attaches to the real store and the row starts spinning.
+ * Without the re-bind the row would be stuck on that `false` for the life of
+ * the session, which is precisely the "I never see the loading state" this
+ * exists to end.
+ */
+export function subscribeChatWorking(wsId: string, callback: () => void): () => void {
+  let bound: WorkspaceStore | undefined
+  let unbind: (() => void) | null = null
+  // `notify` follows the same rule as `subscribeWorkspaceStores` above: a
+  // `'registered'` change re-binds silently (a new store's `working` map is
+  // empty, so the row's answer cannot have moved, and the push would land in
+  // the render phase — see {@link WorkspaceRegistryChange}); the row learns
+  // the moment that store's own chats stream writes to it.
+  const rebind = (notify: boolean) => {
+    const store = registry.get(wsId)
+    if (store === bound) return
+    unbind?.()
+    bound = store
+    unbind = store ? store.subscribe(callback) : null
+    if (notify) callback()
+  }
+  const unsubscribeRegistry = subscribeWorkspaceRegistry((change) => rebind(change === 'destroyed'))
+  rebind(true)
+  return () => {
+    unsubscribeRegistry()
+    unbind?.()
+  }
+}
+
+/** The snapshot half of {@link subscribeChatWorking} — a plain read, no store
+ *  minted, `false` for a workspace with no live store. */
+export function readChatWorking(wsId: string, chatId: string): boolean {
+  return registry.get(wsId)?.getState().agentChats.working[chatId] ?? false
+}
+
+/**
+ * Whether `chatId` is currently mid-turn, per whichever active workspace
+ * store's `agentChats.working` map actually names it. A chat's owning store
+ * is not known ahead of time from the id alone — a chat belongs to exactly
+ * one workspace, but which one is not encoded in the id — so this searches
+ * every currently-registered workspace store. Used by the window-level pane
+ * slice (`features/panes/stores/slices/pane-slice.ts`) in place of the old
+ * same-store `state.agentChats.working[chatId]` read, now that panes no
+ * longer live in the same store as a workspace's own agent-chat state.
+ */
+export function isChatWorking(chatId: string): boolean {
+  for (const store of registry.values()) {
+    if (store.getState().agentChats.working[chatId]) return true
+  }
+  return false
+}
+
+/**
+ * Which registered workspace store's `agentChats.chats` names `chatId`, or
+ * null if none does — the general single-chat form of `isChatWorking`'s own
+ * scan (a chat's owning workspace is not encoded in its id, so every
+ * registered store has to be searched), returning the owning id itself
+ * rather than a boolean.
+ *
+ * This is the real mechanism `recents-for-project.ts`'s `recentsForProject`
+ * already uses inline to build a whole project's chatId->workspaceId map in
+ * one pass (batch, not exposed as a per-chat function there because a
+ * project's Recents band needs the map for every chat at once, not one
+ * lookup at a time) — this is the single-id form for a caller that has
+ * exactly one chat to resolve, no project to scope the scan to, and needs
+ * the id itself rather than a batch.
+ *
+ * Returns the REGISTRY KEY the chat was found under, not `chat.workspaceId`
+ * (a field `AgentChat` also carries) — the registry key is what tells a
+ * caller "this workspace has a live store right now", which is what every
+ * caller of this resolver actually needs (a store to read/act against), and
+ * doesn't require trusting a denormalized field on the chat record to agree
+ * with where it was actually found.
+ *
+ * NOT THE CHAT'S OWNING WORKSPACE, and not a near-enough stand-in for it:
+ * `listChats` is REPO-scoped (`chatBase` → `/repos/:r/chats`), so every
+ * workspace store in a repo is seeded with that whole repo's chats and the
+ * first key iterated matches ANY of them. Use
+ * {@link resolveChatOwnerWorkspaceId} for "which workspace does this chat
+ * belong to" — its doc has the bug this distinction was found through.
+ *
+ * REGISTRY-SCOPED, NOT OMNISCIENT: only searches currently-REGISTERED
+ * stores (`WorkspaceHost`'s keep-alive set). `WorkspaceHost` evicts and
+ * destroys a workspace's store on its own age/LRU window, while a pane
+ * holding that workspace's chat deliberately outlives the eviction — that
+ * survival is the entire point of Task 26's window-level pane hoist. So a
+ * pane whose chat belongs to an EVICTED (no longer registered) workspace —
+ * exactly the case this resolver exists to serve — resolves to null here,
+ * same as a chat that never existed. A caller that must survive eviction
+ * needs a second source (e.g. persisted chat metadata) this function
+ * intentionally does not attempt to be.
+ */
+export function resolveWorkspaceIdForChat(chatId: string): string | null {
+  for (const [wsId, store] of registry.entries()) {
+    if (store.getState().agentChats.chats.some((chat) => chat.id === chatId)) return wsId
+  }
+  return null
+}
+
+/**
+ * The workspace `chatId` actually BELONGS to — `chat.workspaceId` off the
+ * record itself — or null when no registered store knows the chat.
+ *
+ * The counterpart to {@link resolveWorkspaceIdForChat}, and NOT
+ * interchangeable with it. That one answers "which registry key was this
+ * found under", which is the right answer for building a workspace-scoped
+ * URL against a live store — but it is NOT the chat's owning workspace,
+ * because `listChats` is REPO-scoped (`chatBase` → `repoChatsBaseForWorkspace`,
+ * i.e. `/repos/:r/chats`): every workspace store in a repo is seeded with
+ * that whole repo's chat list, so the first registry key iterated matches any
+ * chat of the repo. Measured live: closing a view asked "does this workspace
+ * still have a chat on screen?" through the registry key and got yes for
+ * panes holding OTHER workspaces' chats entirely, so nothing was ever torn
+ * down.
+ *
+ * The id returned here names the real owner and may well have no live store
+ * (a workspace nobody opened) — which is exactly what a caller deciding
+ * whether a workspace is still in use needs, and why it cannot be answered by
+ * "where did I find it".
+ */
+export function resolveChatOwnerWorkspaceId(chatId: string): string | null {
+  for (const store of registry.values()) {
+    const chat = store.getState().agentChats.chats.find((c) => c.id === chatId)
+    if (chat) return chat.workspaceId || null
+  }
+  return null
+}
+
 export function destroyWorkspaceStore(wsId: string): void {
-  const existing = persistTimers.get(wsId)
-  if (existing !== undefined) {
-    clearTimeout(existing)
-    persistTimers.delete(wsId)
-  }
-
-  const unsub = persistUnsubs.get(wsId)
-  if (unsub !== undefined) {
-    unsub()
-    persistUnsubs.delete(wsId)
-  }
-
   const store = registry.get(wsId)
+  // planRetention decides eviction from hasViewChat/RETENTION_CAP alone — it
+  // has no notion of "a pane's EDITOR TAB (not chat) still needs this
+  // workspace", so it can queue this call while exactly that is true. The
+  // `hasSurvivingEditorBuffer` gate below stops disposeAll() from yanking a
+  // still-open buffer's model, but `registry.delete(wsId)` ran regardless —
+  // so even with disposeAll() correctly skipped, the store went unreachable
+  // via `getWorkspaceStore(wsId)`. The next re-render of that pane's
+  // EditorSurface then falls back to the ambient workspace (its own
+  // documented fallback for "no store yet") and remounts the retained
+  // widget onto a DIFFERENT manager whose buffer lookup can't find this
+  // workspace's buffers — landing on a silently empty model, no error, no
+  // visible remount. Live-reported as the exact blank-pane symptom
+  // EditorHostRegistry exists to eliminate, reappearing with no repro steps.
+  // Veto the whole eviction, not just disposeAll(), while this workspace's
+  // own EditorManager still has a widget mounted into a real pane.
+  if (store?.editorManager?.hasMountedPanes()) return
   if (store) {
-    const { buffers } = store.getState()
+    // Task 26: buffers are window-level now (window-pane-store.ts), not part
+    // of this store's own state — scope the lookup to this workspace's own
+    // buffers via `workspaceId` (a buffer persists past this destroy; only
+    // the LIVE per-workspace resources below — the terminal transport, the
+    // blame cache, the undo history, the Monaco model — are torn down here).
+    // Dynamic import avoids a registry ↔ window-pane-store cycle (the pane
+    // slice itself resolves an editor manager BY workspace id through this
+    // very module).
+    bestEffort(
+      import('@/features/panes/stores/window-pane-store').then(({ windowPaneStore }) => {
+        const paneState = windowPaneStore.getState()
+        // Task 26 fix round 1 (I2): a buffer belonging to this workspace can
+        // still be open in a pane RIGHT NOW — buffers/panes are window-level
+        // and outlive this workspace's own destroy by design (that is the
+        // whole point of the hoist). Tearing down its live resources anyway
+        // would leave a still-visible terminal with a detached transport, or
+        // a still-open editor with a disposed Monaco model and wiped undo
+        // history. Only buffers no pane currently references (closed
+        // everywhere, just not yet swept from the flat list) are safe to
+        // tear down here.
+        const openEditorTabIds = new Set(
+          Object.values(paneState.panes).flatMap((pane) => pane.editorTabIds),
+        )
+        const buffers = paneState.buffers.filter(
+          (b) => b.workspaceId === wsId && !openEditorTabIds.has(b.id),
+        )
 
-    // Detach (not kill) pane terminal PTY sessions on workspace switch.
-    // The PTY stays alive in the daemon; the WS transport is closed and the
-    // connectionId is persisted to localStorage so re-entry can re-attach with
-    // scrollback replay. killTerminalSession is still used on real tab close.
-    const terminalBuffers = buffers.filter((b) => b.type === 'terminal')
-    if (terminalBuffers.length > 0) {
-      bestEffort(
-        import('@/features/terminal/lib/detach-terminal-session').then(
-          ({ detachTerminalSession }) => {
-            for (const buf of terminalBuffers) {
-              void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(() => {})
-            }
-          },
-        ),
-        'detach terminal sessions',
-      )
-    }
+        // Detach (not kill) pane terminal PTY sessions on workspace switch.
+        // The PTY stays alive in the daemon; the WS transport is closed and the
+        // connectionId is persisted to localStorage so re-entry can re-attach with
+        // scrollback replay. killTerminalSession is still used on real tab close.
+        const terminalBuffers = buffers.filter((b) => b.type === 'terminal')
+        if (terminalBuffers.length > 0) {
+          bestEffort(
+            import('@/features/terminal/lib/detach-terminal-session').then(
+              ({ detachTerminalSession }) => {
+                for (const buf of terminalBuffers) {
+                  void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(
+                    () => {},
+                  )
+                }
+              },
+            ),
+            'detach terminal sessions',
+          )
+        }
 
-    // Free cached git-blame for this workspace's open files. The blame store is a
-    // global singleton keyed by file path, so clearAllBlame() would wipe blame for
-    // OTHER still-active workspaces; we instead clear only this workspace's editor
-    // buffer paths. Dynamic import avoids a registry → git-feature cycle, mirroring
-    // the terminal branch above.
-    const editorPaths: string[] = []
-    for (const b of buffers) {
-      if (isEditorContent(b)) editorPaths.push(b.path)
-    }
-    if (editorPaths.length > 0) {
-      bestEffort(
-        import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-          const { clearBlameForFile } = useGitBlameStore.getState()
-          for (const path of editorPaths) {
-            clearBlameForFile(path)
-          }
-        }),
-        'clear blame for disposed workspace',
-      )
-    }
+        // Free cached git-blame for this workspace's open files. The blame store is a
+        // global singleton keyed by file path, so clearAllBlame() would wipe blame for
+        // OTHER still-active workspaces; we instead clear only this workspace's editor
+        // buffer paths.
+        const editorPaths: string[] = []
+        for (const b of buffers) {
+          if (isEditorContent(b) && b.path) editorPaths.push(b.path)
+        }
+        if (editorPaths.length > 0) {
+          bestEffort(
+            import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
+              const { clearBlameForFile } = useGitBlameStore.getState()
+              for (const path of editorPaths) {
+                clearBlameForFile(path)
+              }
+            }),
+            'clear blame for disposed workspace',
+          )
+        }
 
-    // Cleanup undo tracker and history for each buffer
-    for (const buf of buffers) {
-      cleanupBufferHistoryTracking(buf.id)
-      useHistoryStore.getState().actions.clearHistory(buf.id)
-    }
+        // Cleanup undo tracker and history for each buffer
+        for (const buf of buffers) {
+          cleanupBufferHistoryTracking(buf.id)
+          useHistoryStore.getState().actions.clearHistory(buf.id)
+        }
 
-    // Tear down the store's internal session-persistence subscription so a late
-    // setState after teardown can't write this (now stale) workspace's session
-    // to IndexedDB. Distinct from the registry's layout-persistence unsubscribe
-    // handled above; this one lives inside the store itself.
-    store._disposeSession()
-
-    // Dispose editor resources (only if the workspace ever armed the editor —
-    // a terminal/agent-only workspace never constructs the manager).
-    store.editorManager?.disposeAll()
+        // Dispose editor resources (only if the workspace ever armed the
+        // editor — a terminal/agent-only workspace never constructs the
+        // manager) — and only when NONE of this workspace's editor buffers
+        // are still open in a live pane. disposeAll() unmounts every pane
+        // this workspace's EditorManager has a Monaco editor mounted into and
+        // disposes its whole model registry; doing that while a buffer it
+        // owns is still visible would kill a live editor out from under the
+        // user (disposed model, wiped undo history) rather than merely
+        // freeing a resource nobody can see any more.
+        //
+        // Task 26 fix round 2 (I2 revisited) reverted this gate to
+        // unconditional, reasoning that editor-surface.tsx resolved its
+        // EditorManager from the AMBIENT workspace, never from
+        // `buf.workspaceId` — so a still-visible copy of this buffer,
+        // rendered by a different WorkspaceView, could never be using the
+        // manager being destroyed, making the gate dead weight that only cost
+        // a permanent leak. editor-pane.tsx/editor-surface.tsx now resolve
+        // the manager via `getWorkspaceStore(buf.workspaceId)` instead (the
+        // ambient-hidden-copy leak that round 2 traded this gate away for),
+        // which makes round 2's premise false: a still-open buffer's REAL
+        // manager is once again this one, wherever it is rendered from. The
+        // gate is restored so disposeAll() cannot yank a live widget's model.
+        const hasSurvivingEditorBuffer = paneState.buffers.some(
+          (b) => b.workspaceId === wsId && isEditorContent(b) && openEditorTabIds.has(b.id),
+        )
+        if (!hasSurvivingEditorBuffer) {
+          store.editorManager?.disposeAll()
+        }
+      }),
+      'window-pane-store buffer teardown',
+    )
   }
 
   // Drop the warm-reactivation freshness ledger for this workspace so a future
@@ -177,6 +454,9 @@ export function destroyWorkspaceStore(wsId: string): void {
   clearWorkspaceFreshness(wsId)
 
   registry.delete(wsId)
+  // After the delete, so a watcher re-binding on this signal sees the store
+  // already gone rather than re-attaching to the one being torn down.
+  notifyRegistryListeners('destroyed')
 }
 
 export function getAllActiveWorkspaceIds(): string[] {

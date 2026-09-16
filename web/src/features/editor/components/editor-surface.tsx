@@ -6,7 +6,8 @@ import '../styles/monaco-editor.css'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useEditorScroll } from '@/features/editor/hooks/use-scroll'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
@@ -30,11 +31,48 @@ import { usePaneEditorSatellites } from '../hooks/use-pane-editor-satellites'
 import { defineMonacoTheme } from '../monaco/define-theme'
 import { toEditorPosition, toEditorRange } from '../monaco/editor-conversions'
 import { createRafCoalescer } from '../lib/raf-coalesce'
+import {
+  beginSelectionDrag,
+  endSelectionDrag,
+  isSelectionDragging,
+  releaseSelectionDrag,
+} from '../lib/selection-drag'
 import type * as Monaco from 'monaco-editor'
+
+/**
+ * How often the cursor/selection store write is allowed to land WHILE a
+ * selection drag is in flight.
+ *
+ * Monaco emits one selection change per pointer move and per auto-scroll tick —
+ * ~120/s on this display — and each one used to schedule a store write that
+ * React turned into a commit through the app's whole provider chain. The only
+ * things that RENDER from it are the status bar's `line:col` chip and the
+ * completion popup (which is never open mid-drag); everything else reads the
+ * store imperatively, after the gesture. Measured live in the Tauri app on an
+ * 896-line file: 200 selection changes cost 76fps with a commit each and 83fps
+ * with none, and a real drag-select went 89 → 94 fps median (50 → 11 commits).
+ * 100ms keeps the chip visibly live at 10Hz — past what the eye resolves on a
+ * moving caret — and `flush()` on pointer-up lands the exact final position, so
+ * nothing downstream ever sees a stale value at rest.
+ */
+const SELECTION_DRAG_SYNC_MS = 100
 
 export interface EditorSurfaceProps {
   paneId: string
   bufferId: string
+  /**
+   * The workspace THIS buffer belongs to (buffer.workspaceId), NOT the ambient
+   * WorkspaceStoreContext. WorkspaceHost keeps every retained WorkspaceView
+   * mounted at once for keep-alive, each rendering the same window-level pane
+   * tree under a DIFFERENT ambient context — resolving the EditorManager from
+   * ambient context instead of the buffer's own would let a wrong-ambient
+   * hidden copy mount a second, leaked Monaco model/widget under a manager
+   * the buffer's own `closeBuffer` cleanup (scoped to buf.workspaceId, see
+   * buffer-slice.ts's `editorManagerFor`) never visits. Passed explicitly by
+   * EditorPane, which already looked the buffer up to arm this exact
+   * workspace's editor before mounting this surface.
+   */
+  workspaceId: string
   isActiveSurface?: boolean
   isPreview?: boolean
   onPromote?: () => void
@@ -65,6 +103,7 @@ export interface EditorSurfaceProps {
 export function EditorSurface({
   paneId,
   bufferId,
+  workspaceId,
   isActiveSurface = true,
   isPreview = false,
   onPromote,
@@ -80,9 +119,12 @@ export function EditorSurface({
   const editorModelPositionResolverRef = useRef<EditorModelPositionResolver | null>(null)
   const mouseHandlersRef = useRef<PaneOverlayMouseHandlers | null>(null)
 
-  const workspaceStore = useWorkspaceStore()
-  // Non-null: EditorPane awaits `store.armEditor()` before it mounts EditorSurface
-  // (that is the lazy-Monaco seam), so the manager is always present here.
+  // Resolved by the buffer's OWN workspace id (see the `workspaceId` prop
+  // doc), not ambient context. Non-null: EditorPane awaits
+  // `getWorkspaceStore(workspaceId)?.armEditor()` for this same workspaceId
+  // before it mounts EditorSurface (that is the lazy-Monaco seam), so the
+  // store and its manager are always present here.
+  const workspaceStore = getWorkspaceStore(workspaceId)!
   const editorManager = workspaceStore.editorManager!
   const registry = workspaceStore.activeEditorRegistry
 
@@ -117,7 +159,9 @@ export function EditorSurface({
   // it survives buffer swaps. Cancel the pending frame on unmount.
   const cursorSyncerRef = useRef<ReturnType<typeof createRafCoalescer> | null>(null)
   if (!cursorSyncerRef.current) {
-    cursorSyncerRef.current = createRafCoalescer(() => flushCursorSyncRef.current())
+    cursorSyncerRef.current = createRafCoalescer(() => flushCursorSyncRef.current(), {
+      minIntervalMs: () => (isSelectionDragging() ? SELECTION_DRAG_SYNC_MS : 0),
+    })
   }
   useEffect(() => {
     const syncer = cursorSyncerRef.current
@@ -181,16 +225,26 @@ export function EditorSurface({
       }
       window.addEventListener('pane-resize-end', handlePaneResizeEnd)
 
-      // GPU-promote Monaco during pointer-down drag-selection so per-frame
+      // A selection drag is in flight: GPU-promote Monaco so per-frame
       // selection-overlay updates are compositor-composited rather than triggering
-      // WKWebView CPU tile re-rasterization across each selected line.
+      // WKWebView CPU tile re-rasterization across each selected line (the CSS
+      // half, keyed on `data-editor-selecting`), and throttle the cursor/selection
+      // store write the drag would otherwise fire at pointer-move rate (the JS
+      // half, via `isSelectionDragging` in the coalescer above).
+      let dragHeld = false
       const handlePointerDown = (e: PointerEvent) => {
-        if (e.button === 0) {
-          document.documentElement.setAttribute('data-editor-selecting', '1')
-        }
+        if (e.button !== 0 || dragHeld) return
+        dragHeld = true
+        beginSelectionDrag()
       }
       const handlePointerUp = () => {
-        document.documentElement.removeAttribute('data-editor-selecting')
+        if (!dragHeld) return
+        dragHeld = false
+        endSelectionDrag()
+        // Land the final caret/selection now rather than leaving it in a
+        // throttled timer — everything that reads the store on demand (jump
+        // navigation, rename, the per-buffer view-state cache) reads it at rest.
+        cursorSyncerRef.current?.flush()
       }
       container.addEventListener('pointerdown', handlePointerDown)
       window.addEventListener('pointerup', handlePointerUp)
@@ -203,7 +257,8 @@ export function EditorSurface({
         container.removeEventListener('pointerdown', handlePointerDown)
         window.removeEventListener('pointerup', handlePointerUp)
         window.removeEventListener('pointercancel', handlePointerUp)
-        document.documentElement.removeAttribute('data-editor-selecting')
+        releaseSelectionDrag(dragHeld)
+        dragHeld = false
         document.documentElement.removeAttribute('data-editor-layout')
       }
     },
@@ -262,25 +317,44 @@ export function EditorSurface({
   )
 
   const selectActiveBuffer = useCallback(
-    (state: import('@/features/workspace/stores/workspace-store.types').WorkspaceState) => {
-      const id = state.panes[paneId]?.activeBufferId ?? null
+    (state: import('@/features/panes/stores/window-pane-store.types').WindowPaneState) => {
+      const id = state.panes[paneId]?.activeEditorTabId ?? null
       const buffer = id ? state.buffers.find((b) => b.id === id) : null
-      if (!buffer || !hasTextContent(buffer)) return null
-      return { bufferId: buffer.id, filePath: buffer.path }
+      // Text-content buffers always carry a real path (see OpenEditorTabSpec) —
+      // skip publishing an active-buffer switch rather than key Monaco's model
+      // registry by an undefined uri if that invariant is ever violated.
+      if (!buffer || !hasTextContent(buffer) || !buffer.path) return null
+      // `workspaceId` here is THIS SURFACE'S OWN resolved workspace (the prop
+      // above), not `buffer.workspaceId` — see ActiveBufferInfo's own doc:
+      // the model uri must agree with whichever workspace's armEditor()
+      // closure will be asked for this uri's content, which is always the
+      // manager this surface is CURRENTLY mounted on.
+      return { bufferId: buffer.id, filePath: buffer.path, workspaceId }
     },
-    [paneId],
+    [paneId, workspaceId],
   )
 
-  usePaneEditorController(paneId, containerRef, {
-    store: workspaceStore,
-    selectActiveBuffer,
-    manager: editorManager,
-    registry,
-    mountPane,
-    unmountPane,
-    onContentChange: onControllerContentChange,
-    syncCursorAndSelection,
-  })
+  usePaneEditorController(
+    paneId,
+    containerRef,
+    {
+      store: windowPaneStore,
+      selectActiveBuffer,
+      manager: editorManager,
+      registry,
+      mountPane,
+      unmountPane,
+      onContentChange: onControllerContentChange,
+      syncCursorAndSelection,
+    },
+    // The manager instance itself, NOT the workspace id — see the hook's own
+    // doc for why a string proxy missed a real regression: `destroyWorkspaceStore`
+    // can dispose and recreate this same workspace's EditorManager (a fresh
+    // instance) without `workspaceId` ever changing, and only the manager
+    // reference actually distinguishes "still the one this pane is mounted on"
+    // from "was replaced out from under it."
+    editorManager,
+  )
 
   // ── Retained-widget satellite concerns (settings, theme, decorations, LSP) ─
   const syncLspOverlayTransform = useCallback((scrollTop: number, scrollLeft: number) => {
@@ -304,6 +378,9 @@ export function EditorSurface({
   )
 
   usePaneEditorSatellites(paneId, {
+    registry,
+    editorManager,
+    workspaceId,
     onScrollOffsetChange: syncLspOverlayTransform,
     onCoordinateResolverChange: handleCoordinateResolverChange,
     onModelPositionResolverChange: handleModelPositionResolverChange,
@@ -331,7 +408,18 @@ export function EditorSurface({
 
   // Stable container mouse handlers — forward to the LSP layer's latest set so a
   // buffer switch never changes the container's handler identity.
+  //
+  // Dead while a selection drag is in flight: this handler exists for the HOVER
+  // affordances (the LSP tooltip's delay timer, the cmd-hover definition link),
+  // none of which can fire with the button held down — Monaco owns the pointer
+  // and is painting a selection. It was still running on every pointer move of
+  // the drag, arming and clearing the hover timer and pushing the event through
+  // React's synthetic dispatch each time. Measured live in the Tauri app on a
+  // 200-move drag-select: the synchronous per-frame cost inside the move
+  // dispatch fell 1.95/1.73ms → 1.63/1.45ms and the gesture ran 79.6/81.4 →
+  // 82.5/88 fps with this path cut out.
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (isSelectionDragging()) return
     mouseHandlersRef.current?.handleMouseMove(e)
   }, [])
   const handleMouseLeave = useCallback(() => {
@@ -371,9 +459,18 @@ export function EditorSurface({
         paneId={paneId}
         isActiveSurface={isActiveSurface}
         onContentChange={onContentChange}
+        registry={registry}
       />
       <div className="absolute inset-0 flex flex-col overflow-hidden">
-        {showToolbar && <Breadcrumb {...breadcrumbProps} paneId={paneId} />}
+        {/* `bufferId` passed explicitly — see EditorHostRegistry's own doc:
+            this EditorSurface can now be the pane's RETAINED editor while a
+            non-editor tab (branch review, ...) is the pane's actual active
+            tab. Breadcrumb's own `paneId`-only fallback resolves via
+            `pane.activeEditorTabId`, which would then name the OTHER tab —
+            live-caught as the breadcrumb reading "branch-review://..." while
+            still showing this file's content. `bufferId` is always the
+            buffer THIS surface is actually showing, active tab or not. */}
+        {showToolbar && <Breadcrumb {...breadcrumbProps} paneId={paneId} bufferId={bufferId} />}
 
         {showToolbar && enableInteractiveServices && <FindBar />}
 
@@ -386,6 +483,8 @@ export function EditorSurface({
         >
           <PaneLspLayer
             paneId={paneId}
+            registry={registry}
+            workspaceId={workspaceId}
             isActiveSurface={isActiveSurface}
             overlayContainerRef={overlayContainerRef}
             mouseHandlersRef={mouseHandlersRef}

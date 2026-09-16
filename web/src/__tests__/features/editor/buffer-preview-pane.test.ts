@@ -1,8 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  setActiveWorkspaceId,
+  destroyWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
+
+// Task 26 hoisted buffers/panes out of the per-workspace store into one
+// window-level store, and Task 2's ruling settled that preview/pinned are the
+// TAB'S own `isPreview`/`isPinned` — `PaneGroup` never gained
+// `previewBufferId`/`pinnedBufferIds` (the fields this suite asserted on).
+// Migrated onto both: the real store, and the real place the flag lives.
+//
+// `openContent` resolves an unspecified `workspaceId` from
+// `getActiveWorkspaceId()`, and scopes its dedup and its tab cap on it — so
+// this registers a real active workspace rather than leaving it ''.
 
 const createMockStorage = () => {
   const storage = new Map<string, string>()
@@ -26,8 +43,6 @@ const createMockStorage = () => {
 }
 
 describe('buffer preview pane integration', () => {
-  let store: WorkspaceStore
-
   beforeEach(() => {
     vi.stubGlobal('localStorage', createMockStorage())
     vi.stubGlobal('window', {
@@ -42,17 +57,22 @@ describe('buffer preview pane integration', () => {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     })
-    store = createWorkspaceStore('test-ws')
+    resetWindowPaneStoreForTests()
+    const store = createWorkspaceStore('test-ws')
     setActiveWorkspaceStoreRef(store)
+    setActiveWorkspaceId('test-ws')
   })
 
   afterEach(() => {
     setActiveWorkspaceStoreRef(null)
+    destroyWorkspaceStore('test-ws')
     vi.unstubAllGlobals()
   })
 
-  it('tracks preview buffer metadata per pane when previews are opened', () => {
-    const { bufferActions, paneActions } = store.getState()
+  const bufferById = (id: string) => windowPaneStore.getState().buffers.find((b) => b.id === id)
+
+  it('marks each preview on the tab, one preview slot per pane', () => {
+    const { bufferActions, paneActions } = windowPaneStore.getState()
 
     const firstPreviewId = bufferActions.openContent({
       type: 'editor',
@@ -65,6 +85,7 @@ describe('buffer preview pane integration', () => {
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
+    // The split became the active pane, so the second preview opens there.
     const secondPreviewId = bufferActions.openContent({
       type: 'editor',
       path: '/workspace/b.ts',
@@ -73,16 +94,20 @@ describe('buffer preview pane integration', () => {
       isPreview: true,
     })
 
-    expect(store.getState().buffers.map((buffer) => buffer.id)).toEqual([
+    expect(windowPaneStore.getState().buffers.map((buffer) => buffer.id)).toEqual([
       firstPreviewId,
       secondPreviewId,
     ])
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.previewBufferId).toBe(firstPreviewId)
-    expect(paneActions.getPaneById(rightPaneId)?.previewBufferId).toBe(secondPreviewId)
+    expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual([firstPreviewId])
+    expect(paneActions.getPaneById(rightPaneId)?.editorTabIds).toEqual([secondPreviewId])
+    // Each pane's own preview is marked, and marking one never clears the other
+    // pane's (preview is per-pane, and the two panes hold different tabs).
+    expect(bufferById(firstPreviewId)?.isPreview).toBe(true)
+    expect(bufferById(secondPreviewId)?.isPreview).toBe(true)
   })
 
-  it('clears pane preview metadata when a preview becomes definite', () => {
-    const { bufferActions, paneActions } = store.getState()
+  it('clears the preview mark when a preview becomes definite', () => {
+    const { bufferActions } = windowPaneStore.getState()
 
     const previewId = bufferActions.openContent({
       type: 'editor',
@@ -92,18 +117,15 @@ describe('buffer preview pane integration', () => {
       isPreview: true,
     })
 
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.previewBufferId).toBe(previewId)
+    expect(bufferById(previewId)?.isPreview).toBe(true)
 
     bufferActions.promotePreview(previewId)
 
-    expect(store.getState().buffers.find((buffer) => buffer.id === previewId)?.isPreview).toBe(
-      false,
-    )
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.previewBufferId).toBeNull()
+    expect(bufferById(previewId)?.isPreview).toBe(false)
   })
 
-  it('pins preview buffers as definite pane metadata', () => {
-    const { bufferActions, paneActions } = store.getState()
+  it('pins a promoted preview', () => {
+    const { bufferActions, paneActions } = windowPaneStore.getState()
 
     const previewId = bufferActions.openContent({
       type: 'editor',
@@ -113,33 +135,17 @@ describe('buffer preview pane integration', () => {
       isPreview: true,
     })
 
-    // Pin: promote preview (clear isPreview) + set pinned on buffer + update pane metadata
+    // Pin: promote the preview (clears isPreview everywhere) then pin the tab.
     bufferActions.promotePreview(previewId)
-    bufferActions.setPinned(previewId, true)
-    paneActions.setPaneBufferPinned(ROOT_PANE_ID, previewId, true)
+    paneActions.setEditorTabPinned(ROOT_PANE_ID, previewId, true)
 
-    const buffer = store.getState().buffers.find((item) => item.id === previewId)
-    const pane = paneActions.getPaneById(ROOT_PANE_ID)
-    expect(buffer?.isPreview).toBe(false)
-    expect(buffer?.isPinned).toBe(true)
-    expect(pane?.previewBufferId).toBeNull()
-    expect(pane?.pinnedBufferIds).toEqual([previewId])
+    expect(bufferById(previewId)?.isPreview).toBe(false)
+    expect(bufferById(previewId)?.isPinned).toBe(true)
   })
 
-  it('opens a new tab placeholder in the active pane', () => {
-    const { bufferActions, paneActions } = store.getState()
-
-    const editorId = bufferActions.openContent({
-      type: 'editor',
-      path: '/workspace/a.ts',
-      name: 'a.ts',
-      content: '',
-    })
-    const newTabId = bufferActions.openContent({ type: 'newTab' })
-
-    const newTabBuffer = store.getState().buffers.find((buffer) => buffer.id === newTabId)
-    expect(newTabBuffer?.type).toBe('newTab')
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.bufferIds).toEqual([editorId, newTabId])
-    expect(paneActions.getPaneById(ROOT_PANE_ID)?.activeBufferId).toBe(newTabId)
-  })
+  // DELETED (final fix wave): 'opens a new tab placeholder in the active pane'.
+  // The 'newTab' placeholder buffer no longer exists — Task 1 removed it from
+  // PaneContent's union and Task 31 made a pane with zero `editorTabIds` render
+  // the New Tab stage for free, so there is nothing to open and nothing to
+  // assert. `new-tab-view.test.tsx` covers the surface that replaced it.
 })

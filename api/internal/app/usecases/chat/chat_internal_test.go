@@ -17,6 +17,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/mocks"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -31,6 +32,8 @@ type wiringRunners struct{ agentrunner.EventStore }
 type wiringActivity struct{ agentactivity.EventStore }
 
 type wiringWorkspace struct{ WorkspaceReader }
+
+type wiringWorktree struct{ WorktreeCreator }
 
 type wiringLineage struct{ ChatLineage }
 
@@ -130,11 +133,18 @@ func newWiringFixture(t *testing.T) *Usecase {
 		Agents:        engineagents.New(),
 		Terminal:      screenReadingCommander{},
 		Workspace:     wiringWorkspace{},
+		Worktree:      wiringWorktree{},
 		Lineage:       wiringLineage{},
 		ProviderPrefs: wiringPrefs{},
 		Home:          func() (string, error) { return home, nil },
 		Minter:        minter,
 		Tools:         agenttools.Deps{},
+		// Folders/Nodes are ALWAYS wired in production (container.go, both
+		// unconditional) — mirrored here rather than left nil, exactly like
+		// every other port this fixture wires (see Installed's own doc for
+		// the one deliberate exception).
+		Folders: mocks.NewFolderStore(),
+		Nodes:   mocks.NewNodePlacements(),
 	})
 }
 

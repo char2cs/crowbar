@@ -22,13 +22,14 @@ import { createElement } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
+import { nanoid } from 'nanoid'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
-import type { AgentChatContent } from '@/features/panes/types/pane-content'
-import {
-  WorkspaceStoreContext,
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 const { getChatFn, resumeChatFn, listMessagesFn, submitPromptFn, slashCatalogFn, saveReconnectFn } =
   vi.hoisted(() => ({
@@ -135,28 +136,50 @@ function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
 
 type Store = ReturnType<typeof seedWorkspace>
 
-function openBuffer(store: Store, chatId: string, runnerId: string) {
-  return store
-    .getState()
-    .bufferActions.openContent({ type: 'agentChat', chatId, wsId: 'w1', name: 'Chat', runnerId })
+// A chat is a PANE, not a buffer: panes are window-level (windowPaneStore) and
+// carry chatId/runnerId as fields of their own. A Cmd+\ split is therefore TWO
+// `PaneGroup`s holding the identical chatId — the exact shape this file is
+// about — and PaneHost is what pane-container.tsx does with each of them: read
+// the group, feed its chatId/runnerId back in as props.
+//
+// A real `PaneGroup` carries no workspace id (pane-container reads it from the
+// ambient WorkspaceStoreContext), so the harness keeps it beside the pane.
+const paneWorkspace = new Map<string, string>()
+
+function openChatPane(_store: Store, chatId: string, runnerId: string, wsId = 'w1') {
+  const id = nanoid()
+  windowPaneStore.setState((s) => {
+    s.panes[id] = {
+      id,
+      type: 'group',
+      chatId,
+      runnerId: runnerId || null,
+      editorTabIds: [],
+      activeEditorTabId: null,
+      editorOpen: false,
+    }
+    return s
+  })
+  paneWorkspace.set(id, wsId)
+  return id
 }
 
-function PaneHost({ bufferId }: { bufferId: string }) {
-  const store = useWorkspaceStore()
-  const buf = useStore(store, (s) => s.buffers.find((b) => b.id === bufferId)) as
-    AgentChatContent | undefined
-  if (!buf) return null
+function PaneHost({ paneId }: { paneId: string }) {
+  const group = useStore(windowPaneStore, (s) => s.panes[paneId])
+  if (!group) return null
   return createElement(AgentChatPane, {
-    chatId: buf.chatId,
-    runnerId: buf.runnerId,
-    wsId: buf.wsId,
-    bufferId: buf.id,
+    chatId: group.chatId ?? '',
+    runnerId: group.runnerId ?? '',
+    wsId: paneWorkspace.get(paneId) ?? 'w1',
+    paneId: group.id,
     isActivePane: true,
     isVisible: true,
   })
 }
 
 beforeEach(() => {
+  resetWindowPaneStoreForTests()
+  paneWorkspace.clear()
   for (const f of [
     getChatFn,
     resumeChatFn,
@@ -198,12 +221,12 @@ describe('AgentChatPane: two panes sharing one chat (a Cmd+\\ split)', () => {
     )
 
     const store = seedWorkspace([dormantChat({ id: 'c1' })])
-    const bufferA = openBuffer(store, 'c1', '')
-    const bufferB = openBuffer(store, 'c1', '')
+    const paneA = openChatPane(store, 'c1', '')
+    const paneB = openChatPane(store, 'c1', '')
 
     // Both panes mount in the SAME commit — exactly what a split produces:
-    // createPaneBeside adds the second pane's buffer to the store and both
-    // panes render in the next flush, not one after the other.
+    // createPaneBeside adds the second `PaneGroup` to the window pane store and
+    // both panes render in the next flush, not one after the other.
     await act(async () => {
       render(
         createElement(
@@ -212,8 +235,8 @@ describe('AgentChatPane: two panes sharing one chat (a Cmd+\\ split)', () => {
           createElement(
             'div',
             null,
-            createElement(PaneHost, { bufferId: bufferA }),
-            createElement(PaneHost, { bufferId: bufferB }),
+            createElement(PaneHost, { paneId: paneA }),
+            createElement(PaneHost, { paneId: paneB }),
           ),
         ),
       )
@@ -250,8 +273,8 @@ describe('AgentChatPane: two panes sharing one chat (a Cmd+\\ split)', () => {
     )
 
     const store = seedWorkspace([dormantChat({ id: 'c1' })])
-    const bufferA = openBuffer(store, 'c1', '')
-    const bufferB = openBuffer(store, 'c1', '')
+    const paneA = openChatPane(store, 'c1', '')
+    const paneB = openChatPane(store, 'c1', '')
 
     await act(async () => {
       render(
@@ -261,8 +284,8 @@ describe('AgentChatPane: two panes sharing one chat (a Cmd+\\ split)', () => {
           createElement(
             'div',
             null,
-            createElement(PaneHost, { bufferId: bufferA }),
-            createElement(PaneHost, { bufferId: bufferB }),
+            createElement(PaneHost, { paneId: paneA }),
+            createElement(PaneHost, { paneId: paneB }),
           ),
         ),
       )

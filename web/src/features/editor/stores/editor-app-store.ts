@@ -12,8 +12,8 @@ import {
 } from '@/features/panes/types/pane-content'
 import { useSettingsStore } from '@/features/settings/store'
 import { createSelectors } from '@/utils/zustand-selectors'
-import { writeFile } from '@/features/file-system/controllers/platform'
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { writeWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
 import type { Position, Range } from '../types/editor'
 import { trackBufferHistoryChange } from './buffer-history-tracking'
@@ -42,17 +42,16 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
     window.dispatchEvent(new Event('flush-editor-content'))
   }
 
-  const wsRef = getActiveWorkspaceStoreRef()
-  const wsStore = wsRef?.getState()
-  if (!wsStore) return false
-  const { buffers } = wsStore
+  const { buffers } = windowPaneStore.getState()
   const { updateSettingsFromJSON } = useSettingsStore.getState()
   const { markPendingSave } = useFileWatcherStore.getState()
   const activeBuffer = buffers.find((buffer) => buffer.id === bufferId)
-  if (!activeBuffer || !isEditorContent(activeBuffer)) return false
+  // openContent always assigns a real path to an 'editor' buffer (see
+  // buffer-slice.ts) — bail rather than write to a path-less buffer.
+  if (!activeBuffer || !isEditorContent(activeBuffer) || !activeBuffer.path) return false
 
   const markBufferDirty = (id: string, isDirty: boolean) => {
-    wsRef?.setState((state) => ({
+    windowPaneStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
         b.id === id && isEditorContent(b)
           ? {
@@ -66,7 +65,7 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
   }
 
   const updateBufferContent = (id: string, content: string, markDirty = true) => {
-    wsRef?.setState((state) => ({
+    windowPaneStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
         b.id === id && isEditorContent(b)
           ? {
@@ -83,7 +82,7 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
 
   const updateBufferPath = (id: string, newPath: string) => {
     const newName = newPath.split('/').pop() || newPath
-    wsRef?.setState((state) => ({
+    windowPaneStore.setState((state) => ({
       buffers: state.buffers.map((b) =>
         b.id === id && isEditorContent(b)
           ? { ...b, path: newPath, name: newName, isVirtual: false, savedContent: b.content }
@@ -97,7 +96,12 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
     const result = window.prompt('Save as:', activeBuffer.name)
     if (!result) return false
 
-    await writeFile(result, activeBuffer.content)
+    // Buffers are window-level now (Task 26) — write to THIS buffer's own
+    // workspace, never the merely-active one (they can disagree: the user
+    // can switch workspaces while a different one's dirty tab stays open in
+    // the shared pane tree; writing against the active workspace would
+    // silently corrupt whichever workspace happens to be on screen).
+    await writeWorkspaceFile(activeBuffer.workspaceId, result, activeBuffer.content)
     updateBufferPath(activeBuffer.id, result)
     markBufferDirty(activeBuffer.id, false)
     return true
@@ -143,7 +147,8 @@ async function saveEditorBufferById(bufferId: string): Promise<boolean> {
       }
     }
 
-    await writeFile(activeBuffer.path, contentToSave)
+    // See the Save-As branch above: write to this buffer's OWN workspace.
+    await writeWorkspaceFile(activeBuffer.workspaceId, activeBuffer.path, contentToSave)
     const { LspClient } = await import('@/features/editor/lsp/lsp-client')
     await LspClient.getInstance().notifyDocumentSave(activeBuffer.path, contentToSave)
     markBufferDirty(activeBuffer.id, false)
@@ -229,20 +234,22 @@ export const useEditorAppStore = createSelectors(
             targetBufferId?: string
           },
         ) => {
-          const wsRef = getActiveWorkspaceStoreRef()
-          const wsStore = wsRef?.getState()
-          if (!wsStore) return
-          const { buffers, panes, activePaneId } = wsStore
+          const { buffers, panes, activePaneId } = windowPaneStore.getState()
           // Pin to the explicitly-targeted buffer when provided (I3); otherwise
           // fall back to the active buffer (legacy seam behavior).
           const targetBufferId =
-            options?.targetBufferId ?? panes[activePaneId]?.activeBufferId ?? null
+            options?.targetBufferId ?? panes[activePaneId]?.activeEditorTabId ?? null
           const { settings } = useSettingsStore.getState()
           const { markPendingSave } = useFileWatcherStore.getState()
           const contentAlreadyApplied = options?.contentAlreadyApplied === true
 
           const activeBuffer = buffers.find((b) => b.id === targetBufferId)
-          if (!activeBuffer || !isEditorContent(activeBuffer)) return
+          // openContent always assigns a real path to an 'editor' buffer (see
+          // buffer-slice.ts) — bail rather than write to a path-less buffer.
+          if (!activeBuffer || !isEditorContent(activeBuffer) || !activeBuffer.path) return
+          // Captured for the setTimeout closure below, where narrowing on
+          // activeBuffer.path does not carry over.
+          const activeBufferPath = activeBuffer.path
 
           if (targetBufferId) {
             trackBufferHistoryChange({
@@ -260,7 +267,7 @@ export const useEditorAppStore = createSelectors(
 
           if (isRemoteFile) {
             if (!contentAlreadyApplied) {
-              wsRef?.setState((state) => ({
+              windowPaneStore.setState((state) => ({
                 buffers: state.buffers.map((b) =>
                   b.id === activeBuffer.id && isEditorContent(b) ? { ...b, content } : b,
                 ),
@@ -268,7 +275,7 @@ export const useEditorAppStore = createSelectors(
             }
           } else {
             if (!contentAlreadyApplied) {
-              wsRef?.setState((state) => ({
+              windowPaneStore.setState((state) => ({
                 buffers: state.buffers.map((b) =>
                   b.id === activeBuffer.id && isEditorContent(b)
                     ? { ...b, content, isDirty: content !== b.savedContent }
@@ -285,9 +292,11 @@ export const useEditorAppStore = createSelectors(
 
               const newTimeoutId = setTimeout(async () => {
                 try {
-                  markPendingSave(activeBuffer.path)
-                  await writeFile(activeBuffer.path, content)
-                  wsRef?.setState((state) => ({
+                  markPendingSave(activeBufferPath)
+                  // See saveEditorBufferById: write to this buffer's OWN
+                  // workspace, not whichever one is merely active now.
+                  await writeWorkspaceFile(activeBuffer.workspaceId, activeBufferPath, content)
+                  windowPaneStore.setState((state) => ({
                     buffers: state.buffers.map((b) =>
                       b.id === activeBuffer.id && isEditorContent(b)
                         ? { ...b, isDirty: false, savedContent: content, hasExternalChange: false }
@@ -297,11 +306,11 @@ export const useEditorAppStore = createSelectors(
 
                   const rootFolderPath = useFileSystemStore.getState().rootFolderPath
                   if (rootFolderPath) {
-                    gitDiffCache.invalidate(rootFolderPath, activeBuffer.path)
+                    gitDiffCache.invalidate(rootFolderPath, activeBufferPath)
                     setTimeout(() => {
                       window.dispatchEvent(
                         new CustomEvent('git-status-updated', {
-                          detail: { filePath: activeBuffer.path },
+                          detail: { filePath: activeBufferPath },
                         }),
                       )
                     }, 50)
@@ -309,7 +318,7 @@ export const useEditorAppStore = createSelectors(
                 } catch (error) {
                   console.error('Error saving file:', error)
                   reportSaveError(error)
-                  wsRef?.setState((state) => ({
+                  windowPaneStore.setState((state) => ({
                     buffers: state.buffers.map((b) =>
                       b.id === activeBuffer.id && isEditorContent(b) ? { ...b, isDirty: true } : b,
                     ),
@@ -325,10 +334,8 @@ export const useEditorAppStore = createSelectors(
         },
 
         handleSave: async () => {
-          const wsStore = getActiveWorkspaceStoreRef()?.getState()
-          if (!wsStore) return
-          const { buffers, panes, activePaneId } = wsStore
-          const activeBufferId = panes[activePaneId]?.activeBufferId ?? null
+          const { buffers, panes, activePaneId } = windowPaneStore.getState()
+          const activeBufferId = panes[activePaneId]?.activeEditorTabId ?? null
           const activeBuffer = buffers.find((b) => b.id === activeBufferId)
           if (!activeBuffer || !isEditorContent(activeBuffer)) return
 
@@ -336,16 +343,22 @@ export const useEditorAppStore = createSelectors(
         },
 
         handleSaveAll: async () => {
-          const wsStore = getActiveWorkspaceStoreRef()?.getState()
-          if (!wsStore) return 0
-          const dirtyBufferIds = getDirtyEditorBuffers(wsStore.buffers).map((buffer) => buffer.id)
+          // Deliberately spans every workspace's dirty buffers, not just the
+          // active workspace's: buffers are one shared, window-level list now
+          // (Task 26), so "Save All" naturally means every dirty file
+          // currently open, whichever workspace's pane it's in — safe only
+          // because saveEditorBufferById below writes each one to its OWN
+          // buffer.workspaceId, never the merely-active workspace.
+          const dirtyBufferIds = getDirtyEditorBuffers(windowPaneStore.getState().buffers).map(
+            (buffer) => buffer.id,
+          )
           let savedCount = 0
 
           for (const bufferId of dirtyBufferIds) {
             // react-doctor-disable-next-line async-await-in-loop -- kept sequential: saveEditorBufferById can synchronously block on window.prompt('Save as:') for an untitled buffer, so parallel saves could pop multiple native prompts at once with no way to tell which file each belongs to. Save All is a rare, user-invoked action, not a hot path.
             const saved = await saveEditorBufferById(bufferId)
-            const nextBuffer = getActiveWorkspaceStoreRef()
-              ?.getState()
+            const nextBuffer = windowPaneStore
+              .getState()
               .buffers.find((buffer) => buffer.id === bufferId)
             if (saved && (!nextBuffer || !isEditorContent(nextBuffer) || !nextBuffer.isDirty)) {
               savedCount += 1

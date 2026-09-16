@@ -37,13 +37,17 @@ type (
 	ChatEvent = store.ChatEvent
 )
 
-// CreateInput seeds a new AgentChat: identity, workspace, clock. It carries no
-// segment/provider/terminal because the chat does not own the CLI talking to it
-// — that is the runner (runner.Start), a separate aggregate.
+// CreateInput seeds a new AgentChat: identity, kind, workspace, clock. It
+// carries no segment/provider/terminal because the chat does not own the CLI
+// talking to it — that is the runner (runner.Start), a separate aggregate.
 type CreateInput struct {
 	ID          string
 	WorkspaceID string
-	Now         time.Time
+	// RepoID is meaningful only when Type is ChatTypeFolder — see
+	// domain.Chat.RepoID's own doc. Left "" for every other type.
+	RepoID string
+	Type   domain.ChatType
+	Now    time.Time
 }
 
 // EventStore is the asynx-backed AgentChat aggregate repository: mutations
@@ -205,6 +209,39 @@ type EventStore interface {
 		chatID string,
 		order int,
 	) (domain.Chat, error)
+	// SetWorkspace fills a chat's WorkspaceID slot — a bubble gaining worktree
+	// ownership, or a thread being promoted (Promote, usecases/chat).
+	//
+	// It is on the SAME SendWait path as Create, not the ordinary async Send
+	// path every other setter above uses: Promote's very next act after this
+	// write is a provider switch that resolves the respawn cwd from GetChat's
+	// READ MODEL, and a Send here would leave a live window where that read
+	// still serves the OLD (empty) WorkspaceID — spawning the incoming CLI into
+	// the wrong directory. See Create's own doc for the same reasoning.
+	SetWorkspace(
+		ctx context.Context,
+		chatID string,
+		workspaceID string,
+	) (domain.Chat, error)
+	// SetType rewrites which KIND of row a chat is, leaving its id, placement,
+	// workspace and conversation untouched. It is how a row survives its
+	// workspace changing character — an ordinary worktree becoming a locked
+	// branch — without a second row being minted to claim the same workspace.
+	// See commands.SetType, which refuses a retype across the folder boundary.
+	//
+	// It is on the SendWait path, like Create above and for the same reason: a
+	// retype happens because the workspace JUST became locked, and the client
+	// that locked it re-reads the chat list off the READ MODEL as soon as the
+	// call returns — expecting the branch row the lock entitles it to. On the
+	// ordinary async Send path that read can still serve the pre-retype row, so
+	// the guarantee "a locked workspace has a branch row" would hold in the
+	// event log and not on the wire. Retypes are rare (a lock, not a keystroke),
+	// so the barrier costs nothing worth saving.
+	SetType(
+		ctx context.Context,
+		chatID string,
+		chatType domain.ChatType,
+	) (domain.Chat, error)
 	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
 	// OnForget drops the read-model row AND the underlying event log is
 	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
@@ -218,6 +255,13 @@ type EventStore interface {
 		id string,
 	) error
 	GetChat(
+		ctx context.Context,
+		id string,
+	) (domain.Chat, error)
+	// Get is GetChat under the name the unified sidebar forest's tree usecase
+	// asks by: a row is a row, folder or chat, and that usecase reads by id
+	// alone.
+	Get(
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
@@ -326,6 +370,8 @@ func (r *eventSourced) Create(
 	evt, err := occSend(ctx, r.ax.SendWait, commands.Create{
 		ID:          in.ID,
 		WorkspaceID: in.WorkspaceID,
+		RepoID:      in.RepoID,
+		Type:        in.Type,
 		Now:         in.Now,
 	})
 	if err != nil {
@@ -448,6 +494,11 @@ func (r *eventSourced) SetPlacement(
 	return evt.Aggregate, nil
 }
 
+// SetOrder reports a target that no longer exists as apperr.ErrNotFound rather
+// than the command's raw validation failure: a densify plans a whole level from
+// one snapshot, and a chat a concurrent delete purged out from under it needs
+// no order any more, which its caller can only tell apart from a genuine
+// validation bug (a negative order) via this sentinel.
 func (r *eventSourced) SetOrder(
 	ctx context.Context,
 	chatID string,
@@ -455,7 +506,36 @@ func (r *eventSourced) SetOrder(
 ) (domain.Chat, error) {
 	evt, err := r.sendWithOCC(ctx, commands.SetOrder{ID: chatID, Order: order})
 	if err != nil {
+		if errors.Is(err, commands.ErrNoSuchChat) {
+			return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", apperr.ErrNotFound)
+		}
 		return domain.Chat{}, fmt.Errorf("agentchat: set order: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+// SetWorkspace is deliberately on the SendWait path — see the interface doc.
+func (r *eventSourced) SetWorkspace(
+	ctx context.Context,
+	chatID string,
+	workspaceID string,
+) (domain.Chat, error) {
+	evt, err := occSend(ctx, r.ax.SendWait, commands.SetWorkspace{ID: chatID, WorkspaceID: workspaceID})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: set workspace: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+// SetType is deliberately on the SendWait path — see the interface doc.
+func (r *eventSourced) SetType(
+	ctx context.Context,
+	chatID string,
+	chatType domain.ChatType,
+) (domain.Chat, error) {
+	evt, err := occSend(ctx, r.ax.SendWait, commands.SetType{ID: chatID, Type: chatType})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: set type: %w", err)
 	}
 	return evt.Aggregate, nil
 }
@@ -481,6 +561,13 @@ func (r *eventSourced) GetChat(
 		return domain.Chat{}, fmt.Errorf("agentchat: get chat: %w", mapNotFound(err))
 	}
 	return chat, nil
+}
+
+func (r *eventSourced) Get(
+	ctx context.Context,
+	id string,
+) (domain.Chat, error) {
+	return r.GetChat(ctx, id)
 }
 
 func (r *eventSourced) ListChats(

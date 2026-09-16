@@ -14,7 +14,11 @@ export function buildPersistedEditorViewState(
   buffer: EditorContent,
 ): PersistedEditorViewState | undefined {
   const viewState = useEditorStateStore.getState().actions.getCachedViewState(buffer.id)
-  const collapsedFoldLines = useFoldStore.getState().actions.getCollapsedLines(buffer.path)
+  // Editor buffers always get a real path from openContent; skip fold-line
+  // persistence rather than key it by an empty string if that ever breaks.
+  const collapsedFoldLines = buffer.path
+    ? useFoldStore.getState().actions.getCollapsedLines(buffer.path)
+    : []
 
   const persistedState: PersistedEditorViewState = {
     cursor: viewState?.cursor,
@@ -50,7 +54,7 @@ export function restorePersistedEditorViewState(
     useEditorStateStore.getState().actions.cacheViewStateForBuffer(buffer.id, viewState)
   }
 
-  if (persistedState.collapsedFoldLines) {
+  if (persistedState.collapsedFoldLines && buffer.path) {
     useFoldStore
       .getState()
       .actions.setCollapsedLines(buffer.path, persistedState.collapsedFoldLines)

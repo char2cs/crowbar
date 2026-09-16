@@ -34,18 +34,19 @@ describe('applyActiveBuffer', () => {
     const ctx = applyActiveBuffer({ manager, registry }, 'p1', {
       bufferId: 'b-a',
       filePath: '/a.ts',
+      workspaceId: 'w1',
     })
 
-    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
+    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
     expect(setSpy).toHaveBeenCalledTimes(1)
     expect(ctx).toMatchObject({
       paneId: 'p1',
-      uri: fileUri('/a.ts'),
+      uri: fileUri('w1', '/a.ts'),
       filePath: '/a.ts',
     })
     expect(ctx?.model).toBe(manager.editor.getModel())
     expect(ctx?.editor).toBe(manager.editor)
-    expect(registry.get('p1')?.uri).toBe(fileUri('/a.ts'))
+    expect(registry.get('p1')?.uri).toBe(fileUri('w1', '/a.ts'))
   })
 
   it('is a no-op when the buffer is null', () => {
@@ -63,14 +64,22 @@ describe('applyActiveBuffer', () => {
   it('switching to the SAME buffer does not re-notify subscribers', () => {
     const manager = fakeManager()
     const registry = createActiveEditorRegistry()
-    applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts' })
+    applyActiveBuffer({ manager, registry }, 'p1', {
+      bufferId: 'b-a',
+      filePath: '/a.ts',
+      workspaceId: 'w1',
+    })
 
     const cb = vi.fn()
     registry.subscribe('p1', cb) // immediate call (1)
     expect(cb).toHaveBeenCalledTimes(1)
 
     // Same path again — showBuffer is uri-deduped and registry.set is uri-deduped.
-    applyActiveBuffer({ manager, registry }, 'p1', { bufferId: 'b-a', filePath: '/a.ts' })
+    applyActiveBuffer({ manager, registry }, 'p1', {
+      bufferId: 'b-a',
+      filePath: '/a.ts',
+      workspaceId: 'w1',
+    })
     expect(cb).toHaveBeenCalledTimes(1) // no re-notify
   })
 
@@ -85,9 +94,10 @@ describe('applyActiveBuffer', () => {
     const ctx = applyActiveBuffer({ manager, registry }, 'p1', {
       bufferId: 'b-a',
       filePath: '/a.ts',
+      workspaceId: 'w1',
     })
 
-    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('/a.ts'))
+    expect(manager.showBuffer).toHaveBeenCalledWith('p1', fileUri('w1', '/a.ts'))
     expect(ctx).toBeUndefined()
     expect(setSpy).not.toHaveBeenCalled()
   })

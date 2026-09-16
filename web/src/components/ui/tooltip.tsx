@@ -19,8 +19,13 @@ export const tooltipContentBase =
 const tooltipContentVariants = cva(tooltipContentBase)
 
 export function TooltipProvider({ children }: { children: React.ReactNode }) {
+  // skipDelayDuration=0 — see button.tsx's own Tooltip Provider for why: a
+  // shorter "instant reopen" window than this tooltip's own close animation
+  // let two floating-ui rigs (ResizeObservers, an IntersectionObserver,
+  // ancestor listeners) stay mounted at once during a fast sweep across
+  // several triggers, live-measured as real jank.
   return (
-    <TooltipPrimitive.Provider delayDuration={150} skipDelayDuration={100} disableHoverableContent>
+    <TooltipPrimitive.Provider delayDuration={150} skipDelayDuration={0} disableHoverableContent>
       {children}
     </TooltipPrimitive.Provider>
   )

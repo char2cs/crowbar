@@ -3,10 +3,11 @@ import {
   postProject,
   postRepo,
   renameRepo,
-  postWorkspace,
-  deleteWorkspace,
+  importBranches,
+  renameWorkspaceBranch,
   apiFetch,
 } from '@/lib/api'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 
 // §3/§7: every entity mutation is hierarchical and fire-and-forget — the daemon
 // answers 202 Accepted with an EMPTY body and the real entity arrives over the
@@ -17,10 +18,12 @@ let fetchMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }))
   vi.stubGlobal('fetch', fetchMock)
+  __resetWorkspaceScopesForTest()
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  __resetWorkspaceScopesForTest()
 })
 
 function lastCall(): [string, RequestInit] {
@@ -56,37 +59,46 @@ describe('hierarchical mutations are 202-empty (no synchronous entity)', () => {
     expect(res).toBeUndefined()
   })
 
-  test('POST .../workspaces body {branch, parentId?} → 202, resolves undefined', async () => {
-    const res = await postWorkspace('p1', 'r1', 'feature/x', { parentId: 'parent-id' })
+  // Batch import moved onto the chat surface with the rest of creation: a
+  // worktree is created and held by a chat, never by a route of its own.
+  test('POST .../chats/import-batch body {branches} → 202, resolves undefined', async () => {
+    const res = await importBranches('p1', 'r1', ['feature/x', 'feature/y'])
     const [url, init] = lastCall()
-    expect(url).toBe('/v0/projects/p1/repos/r1/workspaces')
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats/import-batch')
     expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toEqual({ branch: 'feature/x', parentId: 'parent-id' })
+    expect(JSON.parse(init.body as string)).toEqual({ branches: ['feature/x', 'feature/y'] })
     expect(res).toBeUndefined()
   })
 
-  test('postWorkspace omits parentId when not given', async () => {
-    await postWorkspace('p1', 'r1', 'develop')
+  // It stays ONE call over the set rather than N single-branch creates. Only the
+  // batch route resolves the repo's open-PR graph ACROSS the branches, creates
+  // the ancestors they are parented under, and falls back to a placeholder row
+  // for a branch another worktree already holds; a loop would drop all three
+  // silently, and answer 202 while doing so.
+  test('sends every branch in ONE request, never one request per branch', async () => {
+    await importBranches('p1', 'r1', ['a', 'b', 'c'])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     const [, init] = lastCall()
-    expect(JSON.parse(init.body as string)).toEqual({ branch: 'develop' })
+    expect(JSON.parse(init.body as string).branches).toEqual(['a', 'b', 'c'])
   })
 
-  // A folder is placement, not lineage: it goes out as folderId and the fork
-  // parent is left off entirely, so the daemon falls back to the repo's default
-  // branch. Sending the folder as parentId is a create that cannot resolve what
-  // to fork from.
-  test('postWorkspace sends a folder as folderId, never as parentId', async () => {
-    await postWorkspace('p1', 'r1', 'feature/x', { folderId: 'f-rev' })
-    const [, init] = lastCall()
-    expect(JSON.parse(init.body as string)).toEqual({ branch: 'feature/x', folderId: 'f-rev' })
-  })
-
-  test('DELETE .../workspaces/:w → 202, resolves undefined', async () => {
-    const res = await deleteWorkspace('p1', 'r1', 'w1')
+  // A branch rename is a WORKTREE verb, so it is addressed by the chat holding
+  // it — beside lock/merge/reparent on the same repo-scoped chat prefix, not on
+  // a workspace route of its own. The old PATCH .../workspaces/:w also relocated
+  // the worktree directory; this one renames the git ref and nothing else.
+  test('PATCH .../chats/:chatId/branch body {branch}', async () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1', owningChatId: 'c1' })
+    await renameWorkspaceBranch('p1', 'r1', 'w1', 'feature/renamed')
     const [url, init] = lastCall()
-    expect(url).toBe('/v0/projects/p1/repos/r1/workspaces/w1')
-    expect(init.method).toBe('DELETE')
-    expect(res).toBeUndefined()
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats/c1/branch')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body as string)).toEqual({ branch: 'feature/renamed' })
+  })
+
+  test('refuses to rename a workspace whose owning chat was never recorded', async () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w-orphan' })
+    expect(() => renameWorkspaceBranch('p1', 'r1', 'w-orphan', 'x')).toThrow(/no owning chat/)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 

@@ -35,6 +35,10 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
 // paint is rAF-scheduled; it rendered the instant the display woke). Kept as a
 // permanent guard: it pins the arm-seam → real-monaco content path end to end.
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 import { applyActiveBuffer } from '@/features/editor/lib/pane-editor-controller'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 
@@ -42,14 +46,17 @@ const CONTENT = 'const hello = 42\nexport default hello\n'
 
 describe('open file → real monaco model content (live-flow repro)', () => {
   it('the mounted pane editor holds a model containing the opened buffer content', async () => {
+    resetWindowPaneStoreForTests()
     const store = createWorkspaceStore('repro-ws')
 
     // 1. Sidebar click: content is fetched FIRST, then the buffer opens with it.
-    const bufferId = store.getState().bufferActions.openContent({
+    // Task 26: panes/buffers are window-level now.
+    const bufferId = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
       path: 'src/app.ts',
       name: 'app.ts',
       content: CONTENT,
+      workspaceId: 'repro-ws',
     })
 
     // 2. EditorPane's arm gate — block on the real dynamic-import promise.
@@ -57,20 +64,23 @@ describe('open file → real monaco model content (live-flow repro)', () => {
     const manager = store.editorManager!
 
     // 3. Controller mount effect: mount the retained widget into a container.
-    const paneId = store.getState().activePaneId
+    const paneId = windowPaneStore.getState().activePaneId
     const container = document.createElement('div')
     document.body.appendChild(container)
     try {
       manager.mountPane(paneId, container)
 
       // 4. Controller applySwitch → applyActiveBuffer (model swap + publish).
-      const state = store.getState()
-      const activeBufferId = state.panes[paneId]?.activeBufferId
+      const state = windowPaneStore.getState()
+      const activeBufferId = state.panes[paneId]?.activeEditorTabId
       expect(activeBufferId).toBe(bufferId)
       const buffer = state.buffers.find((b) => b.id === activeBufferId)!
+      // Set explicitly by openContent's `path: 'src/app.ts'` above.
+      const filePath = buffer.path!
       const ctx = applyActiveBuffer({ manager, registry: store.activeEditorRegistry }, paneId, {
         bufferId: buffer.id,
-        filePath: buffer.path,
+        filePath,
+        workspaceId: 'repro-ws',
       })
 
       // The live symptom: editor sized, but no model/content ever reaches it.
@@ -80,7 +90,7 @@ describe('open file → real monaco model content (live-flow repro)', () => {
       expect(model).not.toBeNull()
       expect(model!.getValue()).toBe(CONTENT)
       // Registry bookkeeping agrees (same model under the buffer's uri).
-      expect(store.modelRegistry!.get(fileUri(buffer.path))?.getValue()).toBe(CONTENT)
+      expect(store.modelRegistry!.get(fileUri('repro-ws', filePath))?.getValue()).toBe(CONTENT)
       // And the context published to satellites carries the model.
       expect(ctx?.model).toBeTruthy()
     } finally {

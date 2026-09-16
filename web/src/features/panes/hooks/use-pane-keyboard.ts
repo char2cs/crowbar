@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
-import { splitActiveEditorGroup } from '../utils/pane-command-actions'
+import { ensurePaneChatThenOpen, openChatIdInOwnView } from '../utils/pane-command-actions'
 import { getPaneScopeForPaneId } from '../utils/pane-routing'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
 import { createChat } from '@/features/agent/api/agent-api'
@@ -39,38 +40,53 @@ export function usePaneKeyboard() {
         return chord ? eventMatchesChord(e, chord) : false
       }
 
-      if (matches(PANE_SPLIT_RIGHT)) {
+      if (matches(PANE_SPLIT_RIGHT) || matches(PANE_SPLIT_DOWN)) {
+        // Spec §7.3: "a pane group is a group of chats, never of tabs" (Law
+        // 3) — splitting the active editor tab into a new pane is gone with
+        // the tab-driven split it came from. Still a registered, rebindable
+        // command (mirrors TAB_NEW below), so the chord stays claimed rather
+        // than falling through to a browser/OS default.
         e.preventDefault()
-        splitActiveEditorGroup('horizontal')
-        return
-      }
-
-      if (matches(PANE_SPLIT_DOWN)) {
-        e.preventDefault()
-        splitActiveEditorGroup('vertical')
         return
       }
 
       if (matches(TAB_NEW)) {
+        // A New Tab is no longer a mintable placeholder tab (Task 1 removed it
+        // from the model) — a pane already shows its own empty stage for free
+        // whenever it holds no editor tabs. There is currently no primitive for
+        // "detach the active tab without closing it" to reproduce the old "add
+        // a blank scratch tab beside my real ones" gesture, so this chord is
+        // inert until one exists. Still prevented, so ⌘T never falls through to
+        // a browser/OS default.
         e.preventDefault()
-        workspaceStore.getState().bufferActions.openNewTab()
         return
       }
 
       if (matches(TAB_NEW_TERMINAL)) {
+        // Law 3 (spec §7.2): nothing lands in a pane of its own — a pane
+        // must hold a chat before a terminal opens into its editor view.
+        // ensurePaneChatThenOpen resolves and reuses the workspace's real
+        // owning chat; it never mints one (pane-command-actions.ts).
         e.preventDefault()
-        workspaceStore.getState().bufferActions.openContent({ type: 'terminal' })
+        const targetPaneId = windowPaneStore.getState().activePaneId
+        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, () => {
+          windowPaneStore.getState().bufferActions.openContent({ type: 'terminal' })
+        })
         return
       }
 
       if (matches(TAB_NEW_FILE)) {
+        // Same Law 3 fix as TAB_NEW_TERMINAL above, for a new file.
         e.preventDefault()
-        workspaceStore.getState().bufferActions.openContent({
-          type: 'editor',
-          path: 'untitled:Untitled',
-          name: 'Untitled',
-          content: '',
-          isVirtual: true,
+        const targetPaneId = windowPaneStore.getState().activePaneId
+        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, () => {
+          windowPaneStore.getState().bufferActions.openContent({
+            type: 'editor',
+            path: 'untitled:Untitled',
+            name: 'Untitled',
+            content: '',
+            isVirtual: true,
+          })
         })
         return
       }
@@ -78,27 +94,24 @@ export function usePaneKeyboard() {
       if (matches(AGENT_NEW_CHAT)) {
         // ⌘N is registered in the keymap and rendered as a badge on the New
         // Tab surface's "New Chat" action, but nothing dispatched it (I4) — a
-        // rebindable command whose chord did nothing. Mirrors NewTabView's own
-        // createNewChat: pick the first ENABLED provider (selectEnabledProviders —
-        // the same rule every New-chat surface uses; a disabled provider is never
-        // offered), create the chat, then open it on the currently active pane.
+        // rebindable command whose chord did nothing. Picks the first ENABLED
+        // provider (selectEnabledProviders — the same rule every New-chat
+        // surface uses; a disabled provider is never offered), creates the
+        // chat, then opens it as its OWN VIEW (spec §8.4, same as clicking a
+        // chat in the tree) via `openChatIdInOwnView` — never straight into
+        // `activePaneId`, which used to ARCHIVE whatever that pane held
+        // (setPaneChat's dedicated close-and-replace path) instead of parking
+        // it as a still-live view. That is what made ⌘N feel like it could
+        // only ever leave one view open at a time.
         e.preventDefault()
         const state = workspaceStore.getState()
         const provider = selectEnabledProviders(state)[0]
         if (!provider) return
-        const targetPaneId = state.activePaneId
         createChat(state.workspaceId, provider.id)
           .then((chatId) => {
-            const st = workspaceStore.getState()
-            const title = st.agentChats.chats.find((c) => c.id === chatId)?.title
-            st.setActiveAgentChatId(chatId)
-            st.paneActions.setActivePane(targetPaneId)
-            st.bufferActions.openContent({
-              type: 'agentChat',
-              chatId,
-              wsId: st.workspaceId,
-              name: title || `${provider.displayName} chat`,
-            })
+            workspaceStore.getState().setActiveAgentChatId(chatId)
+            // A brand-new chat has no runner yet — null until it spawns one.
+            openChatIdInOwnView(chatId, null)
           })
           .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
         return
@@ -106,27 +119,27 @@ export function usePaneKeyboard() {
 
       if (matches(TAB_REOPEN_CLOSED)) {
         e.preventDefault()
-        workspaceStore.getState().bufferActions.reopenLastClosedBuffer()
+        windowPaneStore.getState().bufferActions.reopenLastClosedBuffer()
         return
       }
 
       if (matches(TAB_CLOSE)) {
         // Always preventDefault so the chord never reaches the OS window-close.
-        // Mirror the tab × button (handleTabClose): remove the buffer from its
+        // Mirror the tab × button (handleTabClose): remove the tab from its
         // pane FIRST so an adjacent tab activates (raw closeBuffer alone leaves
-        // a dangling activeBufferId → empty state), and prompt before discarding
-        // a dirty editor buffer. No active buffer → no-op (never quits the app).
+        // a dangling activeEditorTabId → empty state), and prompt before
+        // discarding a dirty editor buffer. No active tab → no-op (never quits
+        // the app).
         e.preventDefault()
-        const state = workspaceStore.getState()
+        const state = windowPaneStore.getState()
         const paneId = state.activePaneId
-        const bufferId = state.panes[paneId]?.activeBufferId
-        if (!bufferId) return
-        const buf = state.buffers.find((b) => b.id === bufferId)
-        // A sole New Tab has no close: closing it would spawn another (see
-        // pane-slice's removeBufferFromPane), so ⌘W would visibly do nothing.
-        // In a SPLIT that keystroke means "dismiss this split" — which is the
-        // only reading that leaves the user anywhere new. In the last remaining
-        // pane there is nowhere to go, so it is a genuine no-op.
+        const pane = state.panes[paneId]
+        if (!pane) return
+        // A pane with zero editor tabs is already showing its own empty stage
+        // (no placeholder buffer to close any more). ⌘W there means "dismiss
+        // this split" — the only reading that leaves the user anywhere new. In
+        // the last remaining pane there is nowhere to go, so it is a genuine
+        // no-op.
         //
         // "Last remaining pane" must be scoped to paneId's OWN layout tree
         // (root editor area vs. the bottom panel) via getPaneScopeForPaneId —
@@ -137,8 +150,7 @@ export function usePaneKeyboard() {
         // remaining pane in either tree and bricking it (see pane-slice's
         // closePane — deleting the sole root leaf goes through the reseed
         // branch and immediately deletes the fallback leaf right after).
-        const pane = state.panes[paneId]
-        if (buf?.type === 'newTab' && pane && pane.bufferIds.length === 1) {
+        if (pane.editorTabIds.length === 0) {
           const scope = getPaneScopeForPaneId(
             state.rootLayout,
             state.bottomLayout,
@@ -150,12 +162,15 @@ export function usePaneKeyboard() {
           }
           return
         }
+        const tabId = pane.activeEditorTabId
+        if (!tabId) return
+        const buf = state.buffers.find((b) => b.id === tabId)
         if (buf && buf.type === 'editor' && buf.isDirty) {
-          state.bufferActions.setPendingClose({ type: 'single', bufferId })
+          state.bufferActions.setPendingClose({ type: 'single', bufferId: tabId })
           return
         }
-        state.paneActions.removeBufferFromPane(paneId, bufferId)
-        state.bufferActions.closeBuffer(bufferId)
+        state.paneActions.removeEditorTabFromPane(paneId, tabId)
+        state.bufferActions.closeBuffer(tabId)
         return
       }
 
@@ -168,7 +183,7 @@ export function usePaneKeyboard() {
       for (const [commandId, direction] of navTargets) {
         if (matches(commandId)) {
           e.preventDefault()
-          workspaceStore.getState().paneActions.navigateToPane(direction)
+          windowPaneStore.getState().paneActions.navigateToPane(direction)
           return
         }
       }

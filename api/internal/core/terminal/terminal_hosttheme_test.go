@@ -62,7 +62,7 @@ func TestRegression_CommandSessionAnswersOSC11WithHostThemeAtBirth(t *testing.T)
 
 	out := filepath.Join(t.TempDir(), "reply")
 	exits := make(chan struct{})
-	_, err := e.CreateCommand(context.Background(), "ws1", t.TempDir(),
+	_, err := e.CreateCommand(context.Background(), "chat1", t.TempDir(),
 		oscQueryScript(out), os.Environ(), func() { close(exits) })
 	require.NoError(t, err)
 
@@ -89,7 +89,7 @@ func TestCommandSessionWithoutHostTheme_KeepsEmulatorDefault(t *testing.T) {
 
 	out := filepath.Join(t.TempDir(), "reply")
 	exits := make(chan struct{})
-	_, err := e.CreateCommand(context.Background(), "ws1", t.TempDir(),
+	_, err := e.CreateCommand(context.Background(), "chat1", t.TempDir(),
 		oscQueryScript(out), os.Environ(), func() { close(exits) })
 	require.NoError(t, err)
 	<-exits
@@ -112,7 +112,7 @@ func TestSetHostTheme_LastPushWins(t *testing.T) {
 
 	out := filepath.Join(t.TempDir(), "reply")
 	exits := make(chan struct{})
-	_, err := e.CreateCommand(context.Background(), "ws1", t.TempDir(),
+	_, err := e.CreateCommand(context.Background(), "chat1", t.TempDir(),
 		oscQueryScript(out), os.Environ(), func() { close(exits) })
 	require.NoError(t, err)
 	<-exits

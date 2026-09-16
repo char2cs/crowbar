@@ -15,7 +15,7 @@ import (
 )
 
 // createErrEngine fails Create, exercising CreateSession's own error branch
-// (distinct from the workspace-lookup 404 errReader already covers).
+// (distinct from the unresolved-workspace 500 handlers_test already covers).
 type createErrEngine struct {
 	stubEngine
 }
@@ -42,14 +42,14 @@ func (killErrEngine) Kill(
 	return errors.New("pty wedged")
 }
 
-// vanishedStateEngine reports one session from ListSessionsForWorkspace whose
-// StateOf then reports it gone — the race ListSessions' own comment describes
-// ("session vanished between List and StateOf").
+// vanishedStateEngine reports two sessions from ListSessionsForChat, the second
+// of which StateOf then reports gone — the race ListSessions' own comment
+// describes ("session vanished between List and StateOf").
 type vanishedStateEngine struct {
 	stubEngine
 }
 
-func (vanishedStateEngine) ListSessionsForWorkspace(
+func (vanishedStateEngine) ListSessionsForChat(
 	_ string,
 ) []string {
 	return []string{"sess1", "sess2"}
@@ -68,7 +68,7 @@ func TestCreateSession_400OnMalformedBody(t *testing.T) {
 	r := gin.New()
 	mountSessions(r, newHandlers(&spyBroadcaster{}))
 
-	rec := doRaw(r, http.MethodPost, wsPath, []byte("{not json"))
+	rec := doRaw(r, http.MethodPost, chatPath, []byte("{not json"))
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -76,10 +76,10 @@ func TestCreateSession_400OnMalformedBody(t *testing.T) {
 func TestCreateSession_500WhenTheEngineFailsToSpawn(t *testing.T) {
 	r := gin.New()
 	spy := &spyBroadcaster{}
-	h := handlers.New(createErrEngine{}, stubProfiles{}, stubReader{}, spy)
+	h := handlers.New(createErrEngine{}, stubProfiles{}, spy)
 	mountSessions(r, h)
 
-	rec := do(r, http.MethodPost, wsPath, nil)
+	rec := do(r, http.MethodPost, chatPath, nil)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.Empty(t, spy.pushed, "a failed spawn must not broadcast an active session")
@@ -88,10 +88,10 @@ func TestCreateSession_500WhenTheEngineFailsToSpawn(t *testing.T) {
 func TestKillSession_500OnAGenericEngineError(t *testing.T) {
 	r := gin.New()
 	spy := &spyBroadcaster{}
-	h := handlers.New(killErrEngine{}, stubProfiles{}, stubReader{}, spy)
+	h := handlers.New(killErrEngine{}, stubProfiles{}, spy)
 	mountSessions(r, h)
 
-	rec := do(r, http.MethodDelete, wsPath+"/sess1", nil)
+	rec := do(r, http.MethodDelete, chatPath+"/sess1", nil)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.Empty(t, spy.pushed, "a kill that never actually succeeded must not broadcast 'ended'")
@@ -99,10 +99,10 @@ func TestKillSession_500OnAGenericEngineError(t *testing.T) {
 
 func TestListSessions_SkipsASessionThatVanishedBetweenListAndStateOf(t *testing.T) {
 	r := gin.New()
-	h := handlers.New(vanishedStateEngine{}, stubProfiles{}, stubReader{}, &spyBroadcaster{})
+	h := handlers.New(vanishedStateEngine{}, stubProfiles{}, &spyBroadcaster{})
 	mountSessions(r, h)
 
-	rec := do(r, http.MethodGet, wsPath, nil)
+	rec := do(r, http.MethodGet, chatPath, nil)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "sess1")
@@ -115,10 +115,10 @@ func TestListSessions_SkipsASessionThatVanishedBetweenListAndStateOf(t *testing.
 // failing the whole session create over an optional lookup.
 func TestCreateSession_UnresolvableProfileIsIgnoredNotFatal(t *testing.T) {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, errProfiles{}, stubReader{}, &spyBroadcaster{})
+	h := handlers.New(stubEngine{}, errProfiles{}, &spyBroadcaster{})
 	mountSessions(r, h)
 
-	rec := do(r, http.MethodPost, wsPath, map[string]any{"profileId": "p1"})
+	rec := do(r, http.MethodPost, chatPath, map[string]any{"profileId": "p1"})
 
 	assert.Equal(t, http.StatusCreated, rec.Code,
 		"an unresolvable requested profile must not block session creation")
@@ -129,12 +129,12 @@ func TestCreateSession_UnresolvableProfileIsIgnoredNotFatal(t *testing.T) {
 // mode with no WS fan-out), rather than requiring every caller to nil-check.
 func TestPushSession_NilBroadcaster_NoPanic(t *testing.T) {
 	r := gin.New()
-	h := handlers.New(stubEngine{}, stubProfiles{}, stubReader{}, nil)
+	h := handlers.New(stubEngine{}, stubProfiles{}, nil)
 	mountSessions(r, h)
 
-	rec := do(r, http.MethodPost, wsPath, nil)
+	rec := do(r, http.MethodPost, chatPath, nil)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
-	rec = do(r, http.MethodDelete, wsPath+"/sess1", nil)
+	rec = do(r, http.MethodDelete, chatPath+"/sess1", nil)
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 }

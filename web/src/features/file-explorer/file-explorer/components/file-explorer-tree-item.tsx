@@ -1,3 +1,4 @@
+import { CaretRight } from '@phosphor-icons/react'
 import type React from 'react'
 import { memo, useEffect, useRef } from 'react'
 import {
@@ -12,7 +13,11 @@ import { TreeRow } from '@/components/ui/tree-row'
 import { cn } from '@/utils/cn'
 import { FileExplorerIcon } from './file-explorer-icon'
 
-export const FILE_TREE_BASE_INDENT = 10
+// Matches the sidebar's own row content inset (`ROW_BASE`'s `px-1.5`) — a
+// depth-0 row's label starts exactly where a sidebar row's does, given the
+// container itself now supplies the matching `mx-1.5`-equivalent gutter
+// (file-explorer-tree.tsx's own `px-1.5`).
+export const FILE_TREE_BASE_INDENT = 6
 
 export interface FileTreeGuideTarget {
   path: string
@@ -63,6 +68,29 @@ interface FileExplorerTreeItemProps {
   isSearchMatch?: boolean
   rowId?: string
   fileFeedback?: Map<string, 'copied-path' | 'copied-rel' | 'created' | 'err'>
+}
+
+// Reserves the same leading slot on every row (file or folder) so icons line
+// up in one column — only directories draw a caret into it, rotated 90° open
+// (the same disclosure convention as SearchReplaceToggle in ui/search.tsx).
+function DirectoryChevron({ isDir, isExpanded }: { isDir: boolean; isExpanded: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="file-tree-chevron"
+      className="flex size-3.5 shrink-0 items-center justify-center"
+    >
+      {isDir && (
+        <CaretRight
+          weight="bold"
+          className={cn(
+            'size-2.5 text-muted-foreground transition-transform duration-150',
+            isExpanded && 'rotate-90',
+          )}
+        />
+      )}
+    </span>
+  )
 }
 
 function renderHighlightedLabel(label: string, query: string | undefined) {
@@ -177,6 +205,7 @@ function FileExplorerTreeItemComponent({
             paddingLeft: `${paddingLeft}px`,
           }}
         >
+          <DirectoryChevron isDir={file.isDir ?? false} isExpanded={false} />
           <FileExplorerIcon
             fileName={file.isDir ? 'folder' : 'file'}
             isDir={file.isDir ?? false}
@@ -241,6 +270,7 @@ function FileExplorerTreeItemComponent({
         depth={depth}
         indentSize={indentSize}
       >
+        <DirectoryChevron isDir={file.isDir ?? false} isExpanded={isExpanded} />
         <FileExplorerIcon
           fileName={file.name}
           isDir={file.isDir ?? false}

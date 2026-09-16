@@ -59,20 +59,11 @@ func TestLive_FileChangeEvent(t *testing.T) {
 	assert.Equal(t, imported.workspaceID, got["wsId"])
 }
 
-// TestLive_WorkspaceSnapshotOnConnect proves snapshot-on-subscribe for the
-// repo-scoped Workspaces topic: the current workspace row is delivered
-// immediately on connect, before any live event, so the sidebar renders live on
-// first connect.
-func TestLive_WorkspaceSnapshotOnConnect(t *testing.T) {
-	h := newHarness(t)
-	imported := importProject(t, h)
-
-	conn := h.dial("/v0/projects/" + imported.projectID + "/repos/" + imported.repoID + "/workspaces")
-	got := readUntil(t, conn, func(m map[string]any) bool {
-		return m["id"] == imported.workspaceID
-	})
-	assert.Equal(t, imported.repoID, got["repoId"])
-}
+// The standalone repo-scoped Workspaces topic this pinned snapshot-on-subscribe
+// for is deleted outright (spec §8 step 6). Its replacement, the repo-scoped
+// chat feed, is a live event stream with a deliberately nil Snapshot
+// (agentChatDef) — TestLive_WorkspaceSnapshotOnConnect asserted exactly the
+// capability that was removed, so it is deleted rather than ported.
 
 // TestLive_GitWsIdScopingIsolatesWorkspaces proves workspace scoping: a Git
 // subscriber for workspace A receives A's snapshot but never workspace B's, even

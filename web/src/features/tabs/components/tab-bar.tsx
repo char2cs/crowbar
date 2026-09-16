@@ -1,16 +1,20 @@
 import { DndContext, DragOverlay, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useStore } from 'zustand'
+import { useStoreWithEqualityFn } from 'zustand/traditional'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import { usePaneById, usePaneActions } from '@/features/workspace/stores/hooks/use-pane-store'
 import { useBufferActions } from '@/features/workspace/stores/hooks/use-buffer-store'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
-import { splitEditorGroup } from '@/features/panes/utils/pane-command-actions'
+  splitEditorGroup,
+  openBranchReviewForWorkspace,
+  ensurePaneChatThenOpen,
+} from '@/features/panes/utils/pane-command-actions'
+import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
@@ -18,15 +22,16 @@ import { useSidebarStore } from '@/features/layout/stores/sidebar-store'
 import UnsavedChangesDialog from '@/features/window/components/unsaved-changes-dialog'
 import { useSidebar } from '@/components/ui/sidebar'
 import { getRelativePath } from '@/utils/path-helpers'
-import { cn } from '@/utils/cn'
-import { IS_MAC } from '@/utils/platform'
 import TabBarItem from './tab-bar-item'
 import { sameRenderedBuffer } from './tab-bar-item-utils'
 import TabContextMenu from './tab-context-menu'
 import TabNavigationButtons from './tab-navigation-buttons'
 import TabAddButton from './tab-add-button'
-import CloseSplitButton from './close-split-button'
 import SortableEditorTab from './sortable-editor-tab'
+import { SplitToggleButton } from './split-toggle-button'
+import { BranchReviewShortcutButton } from './branch-review-shortcut-button'
+import { ChatTabItem } from './chat-tab-item'
+import { PaneTopRow } from './pane-top-row'
 import { useBufferDisplayName } from '../hooks/use-buffer-display-name'
 import { useTabKeyboardNav } from '../hooks/use-tab-keyboard-nav'
 import { useTabDrag } from '../hooks/use-tab-drag'
@@ -46,126 +51,160 @@ const writeText = (text: string) => navigator.clipboard.writeText(text)
  * rendered field actually moves.
  *
  * The rendered-field set is defined once by `sameRenderedBuffer`
- * (tab-bar-item.tsx) and reused here as the per-buffer equality, so this
+ * (tab-bar-item-utils.ts) and reused here as the per-buffer equality, so this
  * strip-level gate and TabBarItem's per-tab memo can never fall out of sync.
  * Real `PaneContent` objects are returned (not a reduced tuple) because the tab
  * strip's own hooks — drag, keyboard-nav, display-name — need the full buffer;
  * they only ever read rendered fields, so returning a stale-but-rendered-equal
  * object is safe. Handlers that need live non-rendered fields (e.g. reload,
- * which reads `content`) read `workspaceStore.getState()` instead.
+ * which reads `content`) read `windowPaneStore.getState()` instead.
+ *
+ * The equality lives in `useStoreWithEqualityFn`'s `isEqual`, not a
+ * hand-rolled ref inside the selector: Zustand v5 (`useSyncExternalStore`)
+ * can call a selector multiple times per commit, including for renders React
+ * later discards, so a selector that mutates a ref to cache its own last
+ * result can hand back a reference from a discarded render and never
+ * stabilize — the exact "fresh selector" shape that trips Zustand v5's
+ * snapshot checks into a render loop. `useStoreWithEqualityFn` keeps that
+ * previous-value cache in React's own sync-external-store layer instead,
+ * where it's safe.
  */
+function sameRenderedBufferList(a: PaneContent[], b: PaneContent[]): boolean {
+  return a.length === b.length && a.every((buffer, i) => sameRenderedBuffer(buffer, b[i]))
+}
+
 function useRenderedPaneBuffers(paneBufferIds: string[]): PaneContent[] {
-  const prev = useRef<PaneContent[]>([])
-  return useWorkspaceStoreContext((s) => {
-    const map = new Map(s.buffers.map((b) => [b.id, b]))
-    const next: PaneContent[] = []
-    for (const id of paneBufferIds) {
-      const b = map.get(id)
-      if (b) next.push(b)
-    }
-    const p = prev.current
-    if (p.length === next.length && next.every((b, i) => sameRenderedBuffer(p[i], b))) {
-      return p
-    }
-    prev.current = next
-    return next
-  })
+  return useStoreWithEqualityFn(
+    windowPaneStore,
+    (s) => {
+      const map = new Map(s.buffers.map((b) => [b.id, b]))
+      const next: PaneContent[] = []
+      for (const id of paneBufferIds) {
+        const b = map.get(id)
+        if (b) next.push(b)
+      }
+      return next
+    },
+    sameRenderedBufferList,
+  )
 }
 
 interface TabBarProps {
   paneId?: string
+  /** THIS pane's own workspace (see pane-container.tsx's `wsId` resolution)
+   *  — needed to open branch review, or a new file/terminal, for the right
+   *  workspace rather than whichever one happens to be globally active. */
+  wsId?: string | null
   onTabClick?: (bufferId: string) => void
-  disablePaneActions?: boolean
+  /**
+   * Chats/pane redesign: draw the chat as the FIRST entry in the tab strip
+   * (`ChatTabItem`) — the collapsed presentation's "chat is just another
+   * tab." Set by pane-container.tsx, which owns `presentation`; TabBar
+   * itself has no opinion on when this is true, only on how to draw it.
+   */
+  showChatTab?: boolean
 }
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive tab strip — drag/reorder, overflow scroll and active-tab tracking share one dnd context and scroll ref.
 const TabBar = ({
   paneId,
+  wsId,
   onTabClick: externalTabClick,
-  disablePaneActions = false,
+  showChatTab = false,
 }: TabBarProps) => {
-  const globalActiveBufferId = useWorkspaceStoreContext(
-    (s) => s.paneActions.getActivePane()?.activeBufferId ?? null,
+  const globalActiveBufferId = useStore(
+    windowPaneStore,
+    (s) => s.paneActions.getActivePane()?.activeEditorTabId ?? null,
   )
-  const pendingClose = useWorkspaceStoreContext((s) => s.pendingClose)
+  const pendingClose = useStore(windowPaneStore, (s) => s.pendingClose)
   const pane = usePaneById(paneId ?? '')
   const {
-    closePane,
     setActivePane,
-    activatePaneBuffer,
-    removeBufferFromPane,
+    activateEditorTabInPane,
+    activateChatInPane,
+    removeEditorTabFromPane,
     splitPane,
-    moveBufferToPane,
-    reorderPaneBuffers,
+    reorderEditorTabs,
   } = usePaneActions()
   const {
     closeBuffer,
     openContent,
-    openNewTab,
     promotePreview: promotePreviewBuffer,
     setPinned,
     confirmPendingClose,
     setPendingClose,
   } = useBufferActions()
-  const workspaceStore = useWorkspaceStore()
-  const paneBufferIds = pane?.bufferIds ?? []
+  const paneBufferIds = pane?.editorTabIds ?? []
+  const hasEditorTabs = paneBufferIds.length > 0
   // Projected, rendered-field-gated subscription (see useRenderedPaneBuffers):
   // TabBar no longer re-renders on content flushes, only on tab-appearance
   // changes.
   const buffers = useRenderedPaneBuffers(paneBufferIds)
-  const activeBufferCandidate = pane ? pane.activeBufferId : globalActiveBufferId
+  const activeBufferCandidate = pane ? pane.activeEditorTabId : globalActiveBufferId
   const activeBufferId =
     activeBufferCandidate && buffers.some((buffer) => buffer.id === activeBufferCandidate)
       ? activeBufferCandidate
       : null
+  // Read defensively (`!== false`) — see PaneGroup.chatSelected's own doc on
+  // why a pane restored from an old layout may not have this field at all.
+  const chatIsSelected = showChatTab && pane?.chatSelected !== false
 
   const handleTabPin = useCallback(
     (bufferId: string) => {
-      const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
+      const buf = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
       if (buf) setPinned(bufferId, !buf.isPinned)
     },
-    [workspaceStore, setPinned],
+    [setPinned],
   )
+  // Task 26 fix round 1 (I4): buffers are one flat, window-wide list now, but
+  // "Close Others/All/to the Right" are THIS PANE's own tab-bar affordances —
+  // they must only ever touch tabs actually open IN paneId, in that pane's
+  // own visual order, never sweep up another pane's (or another workspace's)
+  // tabs. Read live off windowPaneStore at call time (not the React-rendered
+  // `buffers`) so a fast successive action sees the latest editorTabIds.
+  function thisPaneBuffersInOrder(): PaneContent[] {
+    if (!paneId) return []
+    const state = windowPaneStore.getState()
+    const editorTabIds = state.panes[paneId]?.editorTabIds ?? []
+    const byId = new Map(state.buffers.map((b) => [b.id, b]))
+    const ordered: PaneContent[] = []
+    for (const id of editorTabIds) {
+      const b = byId.get(id)
+      if (b) ordered.push(b)
+    }
+    return ordered
+  }
   function handleCloseOtherTabs(keepBufferId: string) {
-    const { buffers: allBufs } = workspaceStore.getState()
-    // isUncloseable filters out the sole New Tab a pane is holding — closing it
-    // would just respawn another (see pane-slice's removeBufferFromPane) and, in
-    // the single-pane case, strand the pane tab-less in the meantime (I2).
-    const toClose = allBufs.filter((b) => b.id !== keepBufferId && !b.isPinned && !b.isUncloseable)
+    // isUncloseable filters out the sole editor tab a pane is holding (see
+    // pane-slice's syncSoleEditorTabCloseability), which — since there is no
+    // "Editor" placeholder tab to fall back to any more — would otherwise
+    // strand the pane with an empty scroller and no way back in (I2).
+    const toClose = thisPaneBuffersInOrder().filter(
+      (b) => b.id !== keepBufferId && !b.isPinned && !b.isUncloseable,
+    )
     toClose.forEach((b) => {
-      if (paneId) removeBufferFromPane(paneId, b.id)
+      if (paneId) removeEditorTabFromPane(paneId, b.id)
       closeBuffer(b.id)
     })
   }
   function handleCloseAllTabs() {
-    const { buffers: allBufs } = workspaceStore.getState()
-    // Same isUncloseable guard as handleCloseOtherTabs (I2). NOTE: this still
-    // iterates every buffer in the WORKSPACE while only ever removing from the
-    // current pane (paneId) — a separate, pre-existing bug this fix does not
-    // attempt, since narrowing the buffer set is a larger behavior change than
-    // the uncloseable-tab regression it was found alongside.
-    const toClose = allBufs.filter((b) => !b.isPinned && !b.isUncloseable)
+    // Same isUncloseable guard as handleCloseOtherTabs (I2).
+    const toClose = thisPaneBuffersInOrder().filter((b) => !b.isPinned && !b.isUncloseable)
     toClose.forEach((b) => {
-      if (paneId) removeBufferFromPane(paneId, b.id)
+      if (paneId) removeEditorTabFromPane(paneId, b.id)
       closeBuffer(b.id)
     })
   }
   function handleCloseTabsToRight(bufferId: string) {
-    const { buffers: allBufs } = workspaceStore.getState()
-    const idx = allBufs.findIndex((b) => b.id === bufferId)
+    const paneBufs = thisPaneBuffersInOrder()
+    const idx = paneBufs.findIndex((b) => b.id === bufferId)
     if (idx === -1) return
-    const toClose = allBufs.slice(idx + 1).filter((b) => !b.isPinned && !b.isUncloseable)
+    const toClose = paneBufs.slice(idx + 1).filter((b) => !b.isPinned && !b.isUncloseable)
     toClose.forEach((b) => {
-      if (paneId) removeBufferFromPane(paneId, b.id)
+      if (paneId) removeEditorTabFromPane(paneId, b.id)
       closeBuffer(b.id)
     })
   }
-  const reorderBuffers = useCallback(
-    (startIndex: number, endIndex: number) => {
-      if (paneId) reorderPaneBuffers(paneId, startIndex, endIndex)
-    },
-    [paneId, reorderPaneBuffers],
-  )
   const confirmCloseWithoutSaving = confirmPendingClose
   // Stable identity: handleCancelClose memoizes on this, so a fresh function each
   // render would defeat that memo. setPendingClose is a stable store action.
@@ -175,33 +214,38 @@ const TabBar = ({
   const handleTabClick = useCallback(
     (bufferId: string) => {
       if (paneId) {
-        activatePaneBuffer(paneId, bufferId)
+        activateEditorTabInPane(paneId, bufferId)
         setActivePane(paneId)
       }
       externalTabClick?.(bufferId)
     },
-    [activatePaneBuffer, externalTabClick, paneId, setActivePane],
+    [activateEditorTabInPane, externalTabClick, paneId, setActivePane],
   )
+
+  const handleChatTabSelect = useCallback(() => {
+    if (!paneId) return
+    activateChatInPane(paneId)
+    setActivePane(paneId)
+  }, [activateChatInPane, paneId, setActivePane])
 
   const handleTabClose = useCallback(
     (bufferId: string) => {
-      const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
+      const buf = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
       // The single choke point every close affordance funnels through (× button,
       // middle-click's handleAuxClick, the context menu's single "Close", and
       // Delete/Backspace in keyboard nav all call this via `closeTab`). A pane's
-      // sole New Tab has no close affordance at all — closing it would just
-      // respawn another (pane-slice's removeBufferFromPane) and strand the pane
-      // tab-less in between (I2) — so honour the same flag the × button's
-      // visibility already does, here too.
+      // sole editor tab has no close affordance at all — see the note on
+      // handleCloseOtherTabs above (I2) — so honour the same flag the ×
+      // button's visibility already does, here too.
       if (buf?.isUncloseable) return
       if (buf && buf.type === 'editor' && buf.isDirty) {
         setPendingClose({ type: 'single', bufferId })
         return
       }
-      if (paneId) removeBufferFromPane(paneId, bufferId)
+      if (paneId) removeEditorTabFromPane(paneId, bufferId)
       closeBuffer(bufferId)
     },
-    [closeBuffer, paneId, removeBufferFromPane, setPendingClose, workspaceStore],
+    [closeBuffer, paneId, removeEditorTabFromPane, setPendingClose],
   )
 
   const { handleSave } = useEditorAppStore.use.actions()
@@ -209,15 +253,29 @@ const TabBar = ({
   const sidebarPosition = useSettingsStore((s) => s.settings.sidebarPosition)
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined
-  // Subscribe to the DERIVED count, not the whole `panes` record: a number is
-  // referentially stable, so TabBar no longer re-renders on every pane mutation
-  // (another pane's active-buffer swap, buffer add/remove, etc.) — only when the
-  // number of main panes actually changes.
-  const mainPaneCount = useWorkspaceStoreContext(
-    (s) => Object.keys(s.panes).filter((id) => id !== BOTTOM_PANE_ID).length,
-  )
-  const isInSplit = pane !== null && paneId !== null && mainPaneCount > 1
   const isBottomPane = paneId === BOTTOM_PANE_ID
+  // A pane holding NOTHING — no chat, no editor tabs — is a fallback screen,
+  // not a view: "it should only appear when NO VIEW is opened." An emptied
+  // pane in a split now collapses out of the layout entirely
+  // (`dropEmptiedPanes`, pane-slice.ts), so the only one that reaches here is
+  // the last pane in the window with nothing open in it — and that one has no
+  // name to show, nothing to close, and no second view to toggle beside a chat
+  // that is not there. Every control that names or acts on pane CONTENT goes.
+  //
+  // The ROW ITSELF stays, deliberately: it carries the macOS traffic-light
+  // inset and `data-tauri-drag-region` (without it the window's top-left is
+  // bare content and the frame loses its drag handle), and it is the only
+  // affordance that reopens a COLLAPSED sidebar — removing it outright would
+  // strand a user with no sidebar and nothing open in a window they cannot get
+  // back out of.
+  const isEmptyPane = pane !== null && !pane.chatId && !hasEditorTabs
+
+  // A thread has no branch of its own to review — it runs on the worktree its
+  // parent owns, and `wsId` names that INHERITED ground, so it can never gate
+  // the shortcut below. An editor-only pane names no chat at all and keeps it:
+  // there is no thread to suppress, and its buffers' workspace is a real
+  // worktree either way.
+  const chatIsThread = useChatIsThread(pane?.chatId ?? null)
 
   const [contextMenu, setContextMenu] = useState<{
     isOpen: boolean
@@ -247,6 +305,17 @@ const TabBar = ({
   }, [buffers])
   const sortedBufferIds = useMemo(() => sortedBuffers.map((buffer) => buffer.id), [sortedBuffers])
 
+  // `reorderEditorTabs` (pane-slice) takes the moved tab's OWN id and a target
+  // index, not a pair of indices — translate dnd-kit's oldIndex/newIndex pair
+  // (from `sortedBufferIds`, the array it actually dragged) into that shape.
+  const reorderBuffers = useCallback(
+    (startIndex: number, endIndex: number) => {
+      const tabId = sortedBufferIds[startIndex]
+      if (paneId && tabId) reorderEditorTabs(paneId, tabId, endIndex)
+    },
+    [paneId, reorderEditorTabs, sortedBufferIds],
+  )
+
   const handleTabSelect = useCallback(
     (buffer: PaneContent) => {
       if (externalTabClick) {
@@ -254,7 +323,7 @@ const TabBar = ({
       } else {
         handleTabClick(buffer.id)
       }
-      updateActivePath(buffer.path)
+      updateActivePath(buffer.path ?? '')
       setSrAnnouncement(
         `Switched to ${buffer.name}${buffer.type === 'editor' && buffer.isDirty ? ', unsaved changes' : ''}`,
       )
@@ -262,29 +331,36 @@ const TabBar = ({
     [externalTabClick, handleTabClick, updateActivePath],
   )
 
-  const {
-    draggedBufferId,
-    draggedBuffer,
-    handleDragStart,
-    handleDragMove,
-    handleDragEnd,
-    resetDrag,
-  } = useTabDrag({
-    paneId,
+  const { draggedBufferId, draggedBuffer, handleDragStart, handleDragEnd, resetDrag } = useTabDrag({
     sortedBuffers,
     onTabSelect: handleTabSelect,
     onTabClick: handleTabClick,
     onReorderBuffers: reorderBuffers,
-    onMoveBufferToPane: moveBufferToPane,
-    onActivatePaneBuffer: activatePaneBuffer,
     onSplitPane: (targetPaneId, direction, bufferId, placement) =>
       splitPane(targetPaneId, direction, bufferId, placement) ?? undefined,
   })
 
-  const { tabBarRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge, handleWheel } = useTabBarScroll({
-    sidebarPosition,
-    draggedBufferId,
-  })
+  const { tabBarRef, scrollRef, isAtLeftEdge, isAtRightEdge, isAtTopEdge, handleWheel } =
+    useTabBarScroll({
+      sidebarPosition,
+      draggedBufferId,
+    })
+
+  // Spec §7.1/§7.2: `PaneGroup.editorOpen` is the split-toggle's own state —
+  // chat-only vs. chat+editor. A plain store write, not a new pane-slice
+  // action: every existing action is already just a wrapper around the same
+  // `set()`, and this field carries no other invariant to protect.
+  const handleToggleSplit = useCallback(() => {
+    if (!paneId) return
+    // windowPaneStore's exported type erases the immer producer signature (see
+    // editor-app-store.ts's setState calls) — return a new partial state
+    // rather than mutating the draft in place.
+    windowPaneStore.setState((state) => {
+      const p = state.panes[paneId]
+      if (!p) return {}
+      return { panes: { ...state.panes, [paneId]: { ...p, editorOpen: !p.editorOpen } } }
+    })
+  }, [paneId])
 
   // The tab-bar sidebar-toggle is only a fallback for reopening a collapsed
   // sidebar (when open, the sidebar header owns the toggle). It appears on the
@@ -305,9 +381,9 @@ const TabBar = ({
   // Auto-scroll active tab into view
   useEffect(() => {
     const activeIndex = sortedBuffers.findIndex((buffer) => buffer.id === activeBufferId)
-    if (activeIndex !== -1 && tabRefs.current[activeIndex] && tabBarRef.current) {
+    if (activeIndex !== -1 && tabRefs.current[activeIndex] && scrollRef.current) {
       const activeTab = tabRefs.current[activeIndex]
-      const container = tabBarRef.current
+      const container = scrollRef.current
       if (activeTab) {
         const tabRect = activeTab.getBoundingClientRect()
         const containerRect = container.getBoundingClientRect()
@@ -316,7 +392,7 @@ const TabBar = ({
         }
       }
     }
-  }, [activeBufferId, sortedBuffers, tabBarRef])
+  }, [activeBufferId, sortedBuffers, scrollRef])
 
   useEffect(() => {
     tabRefs.current = tabRefs.current.slice(0, sortedBuffers.length)
@@ -373,15 +449,22 @@ const TabBar = ({
     const buffer = buffers.find((b) => b.id === pendingClose.bufferId)
     if (!buffer) return
     await handleSave()
-    if (paneId) removeBufferFromPane(paneId, pendingClose.bufferId)
+    if (paneId) removeEditorTabFromPane(paneId, pendingClose.bufferId)
     confirmCloseWithoutSaving()
-  }, [pendingClose, buffers, handleSave, confirmCloseWithoutSaving, paneId, removeBufferFromPane])
+  }, [
+    pendingClose,
+    buffers,
+    handleSave,
+    confirmCloseWithoutSaving,
+    paneId,
+    removeEditorTabFromPane,
+  ])
 
   const handleDiscardAndClose = useCallback(() => {
     if (!pendingClose) return
-    if (paneId) removeBufferFromPane(paneId, pendingClose.bufferId)
+    if (paneId) removeEditorTabFromPane(paneId, pendingClose.bufferId)
     confirmCloseWithoutSaving()
-  }, [confirmCloseWithoutSaving, pendingClose, paneId, removeBufferFromPane])
+  }, [confirmCloseWithoutSaving, pendingClose, paneId, removeEditorTabFromPane])
 
   const handleCancelClose = useCallback(() => {
     cancelPendingClose()
@@ -447,21 +530,29 @@ const TabBar = ({
       // Read from getState(), not the rendered-field-gated `buffers`: reload
       // needs the buffer's LIVE `content`, which that projection deliberately
       // does not track (it can hold a content-stale object reference).
-      const buf = workspaceStore.getState().buffers.find((b) => b.id === bufferId)
-      if (buf && buf.path !== 'extensions://marketplace') {
-        if (paneId) removeBufferFromPane(paneId, bufferId)
+      const buf = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
+      // openContent always assigns a real path (see buffer-slice.ts); bail if
+      // that invariant is ever violated instead of reopening a path-less tab.
+      if (buf && buf.path && buf.path !== 'extensions://marketplace') {
+        const path = buf.path
+        if (paneId) removeEditorTabFromPane(paneId, bufferId)
         closeBuffer(bufferId)
         setTimeout(async () => {
           try {
             const content = buf.type === 'editor' ? buf.content : ''
-            openContent({ type: 'editor', path: buf.path, name: buf.name, content })
+            // openContent (buffer-slice.ts) always adds the reopened tab to
+            // get().activePaneId, never to whichever pane's tab was actually
+            // reloaded — assert THIS pane active first, same fix as the
+            // branch-review shortcut below.
+            if (paneId) setActivePane(paneId)
+            openContent({ type: 'editor', path, name: buf.name, content })
           } catch (error) {
             console.error('Failed to reload buffer:', error)
           }
         }, 100)
       }
     },
-    [workspaceStore, closeBuffer, openContent, paneId, removeBufferFromPane],
+    [closeBuffer, openContent, paneId, removeEditorTabFromPane, setActivePane],
   )
 
   const handleSplitRight = useMemo(
@@ -488,27 +579,35 @@ const TabBar = ({
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
-        onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         onDragCancel={resetDrag}
       >
-        <div
-          ref={tabBarRef}
-          data-tab-bar-pane-id={paneId ?? ''}
-          className={cn(
-            'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 py-1',
-            IS_MAC ? 'h-[44px]' : 'h-[34px]',
-            // Traffic-light inset: only the tab bar that actually sits under
-            // the macOS window controls (window top-left) reserves the space —
-            // in a vertical split the lower pane is at the left edge too but
-            // nowhere near the traffic lights.
-            IS_MAC && !isBottomPane && isAtLeftEdge && isAtTopEdge && 'pl-[88px]',
-          )}
-          role="tablist"
-          aria-label="Open files"
-          data-tauri-drag-region
-          onWheel={handleWheel}
+        <PaneTopRow
+          rowRef={tabBarRef}
+          paneId={paneId ?? ''}
+          isBottomPane={isBottomPane}
+          isAtLeftEdge={isAtLeftEdge}
+          isAtTopEdge={isAtTopEdge}
+          // Chats/pane redesign: only meaningfully dynamic in the collapsed
+          // ('tabs') presentation, where this row can show either the chat
+          // or a real tab — chat-blur when the chat is the one selected,
+          // the IDE sector's usual opaque fill otherwise. `chatIsSelected`
+          // is already `false` outside 'tabs' presentation (showChatTab's
+          // own gate), so this row stays opaque there unconditionally, same
+          // as before.
+          variant={chatIsSelected ? 'chat-blur' : 'opaque'}
         >
+          {/* Spec §7.1 (chats/pane redesign revision): the split toggle leads
+              the whole row, outside the tab scroller. The chat is no longer
+              part of this row at all — it moved to its own header
+              (`ChatBranchHeader`, pane-container.tsx) at the top of the chat
+              view now that the chat interface and the IDE sector are two
+              separate boxes. Absent on an empty pane — there is no chat for
+              a second view to sit beside. */}
+          {paneId && !isEmptyPane && (
+            <SplitToggleButton active={pane?.editorOpen ?? false} onToggle={handleToggleSplit} />
+          )}
+
           {showReopenToggleLeft && (
             <TabNavigationButtons
               isBottomPane={isBottomPane}
@@ -518,55 +617,103 @@ const TabBar = ({
             />
           )}
 
-          <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
-            {/* The empty area of this scroll container is a window drag handle.
-                Tauri only drags on the exact element with the attribute, so the
-                tab children remain interactive and reorderable. */}
-            <div
-              data-tauri-drag-region
-              className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]"
-            >
-              {sortedBuffers.map((buffer, index) => (
-                <SortableEditorTab key={buffer.id} id={buffer.id} tabRef={getTabRefCallback(index)}>
-                  <TabBarItem
-                    buffer={buffer}
-                    displayName={getBufferDisplayName(buffer)}
-                    index={index}
-                    isActive={buffer.id === activeBufferId}
-                    isDraggedTab={buffer.id === draggedBufferId}
-                    onSelect={handleTabSelect}
-                    onDoubleClick={handleDoubleClick}
-                    onContextMenu={handleContextMenu}
-                    onKeyDown={handleTabKeyDown}
-                    handleTabClose={closeTab}
-                    handleTabPin={handleTabPin}
+          {/* A pane holding only its chat draws no tab-strip scroller at all
+              (spec §7.1) — the second view is reached through open files or
+              `+`, never a tab standing for the idea of one. */}
+          {hasEditorTabs && (
+            <SortableContext items={sortedBufferIds} strategy={horizontalListSortingStrategy}>
+              {/* The empty area of this scroll container is a window drag handle.
+                  Tauri only drags on the exact element with the attribute, so the
+                  tab children remain interactive and reorderable. */}
+              <div
+                ref={scrollRef}
+                data-testid="editor-tab-scroller"
+                role="tablist"
+                aria-label="Open files"
+                data-tauri-drag-region
+                onWheel={handleWheel}
+                className="tab-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden [overscroll-behavior-x:contain]"
+              >
+                {/* The chat as "just another tab" (spec redesign) — first in
+                    the strip, outside the sortable list: never draggable,
+                    never closable, no reason to reorder the one entry that
+                    isn't an editor tab at all. */}
+                {showChatTab && pane?.chatId && (
+                  <ChatTabItem
+                    chatId={pane.chatId}
+                    isActive={chatIsSelected}
+                    onSelect={handleChatTabSelect}
                   />
-                </SortableEditorTab>
-              ))}
+                )}
+                {sortedBuffers.map((buffer, index) => (
+                  <SortableEditorTab
+                    key={buffer.id}
+                    id={buffer.id}
+                    tabRef={getTabRefCallback(index)}
+                  >
+                    <TabBarItem
+                      buffer={buffer}
+                      displayName={getBufferDisplayName(buffer)}
+                      index={index}
+                      isActive={buffer.id === activeBufferId && !chatIsSelected}
+                      isDraggedTab={buffer.id === draggedBufferId}
+                      onSelect={handleTabSelect}
+                      onDoubleClick={handleDoubleClick}
+                      onContextMenu={handleContextMenu}
+                      onKeyDown={handleTabKeyDown}
+                      handleTabClose={closeTab}
+                      handleTabPin={handleTabPin}
+                    />
+                  </SortableEditorTab>
+                ))}
 
-              {/* Flows immediately after the last tab and shifts as tabs
-                  open/close — NOT a SortableEditorTab, so it never joins
-                  sortedBufferIds and is never draggable. */}
-              {paneId && (
-                <TabAddButton
-                  isBottomPane={isBottomPane}
-                  onNewTab={() => {
-                    setActivePane(paneId)
-                    openNewTab(paneId)
-                  }}
-                />
-              )}
-            </div>
-          </SortableContext>
+                {/* Flows immediately after the last tab and shifts as tabs
+                    open/close — NOT a SortableEditorTab, so it never joins
+                    sortedBufferIds and is never draggable. Last child inside
+                    the scroller (spec §7.1). A dropdown, not a single default
+                    action: the two things that can actually land in this
+                    pane's editor view are a blank file or a terminal, so
+                    both are offered rather than picking one silently. */}
+                {paneId && (
+                  <TabAddButton
+                    isBottomPane={isBottomPane}
+                    onNewFile={() => {
+                      if (!wsId) return
+                      setActivePane(paneId)
+                      ensurePaneChatThenOpen(wsId, paneId, () => {
+                        openContent({
+                          type: 'editor',
+                          path: 'untitled:Untitled',
+                          name: 'Untitled',
+                          content: '',
+                          isVirtual: true,
+                        })
+                      })
+                    }}
+                    onNewTerminal={() => {
+                      if (!wsId) return
+                      setActivePane(paneId)
+                      ensurePaneChatThenOpen(wsId, paneId, () => {
+                        openContent({ type: 'terminal' })
+                      })
+                    }}
+                  />
+                )}
+              </div>
+            </SortableContext>
+          )}
 
-          {/* A pane action, not a tab action — stays pinned at the right
-              edge, outside the scrolling tab container. */}
-          {paneId && (
-            <CloseSplitButton
+          {/* Shortcut into GitPanel's own "Review this branch" action
+              (git-panel.tsx) — branch review's real home stays the git
+              file-explorer card; this is just a faster way to reach it from
+              the IDE sector's own row. Pinned at the right edge. */}
+          {paneId && pane && !isEmptyPane && !chatIsThread && (
+            <BranchReviewShortcutButton
               isBottomPane={isBottomPane}
-              disablePaneActions={disablePaneActions}
-              isInSplit={isInSplit}
-              onClosePane={() => closePane(paneId)}
+              // THIS pane's own workspace — not whichever one happens to be
+              // globally active, which is a different pane in a split
+              // showing a different chat/branch entirely.
+              onOpen={() => openBranchReviewForWorkspace(wsId, paneId)}
             />
           )}
 
@@ -578,7 +725,7 @@ const TabBar = ({
               onToggleSidebar={toggleSidebar}
             />
           )}
-        </div>
+        </PaneTopRow>
 
         <DragOverlay dropAnimation={null}>
           {draggedBuffer ? (

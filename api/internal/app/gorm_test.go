@@ -108,94 +108,61 @@ func TestNewGORMStores_RepositoryStoreError(t *testing.T) {
 	assert.ErrorContains(t, err, "app: repository store:")
 }
 
-// TestNewGORMStores_FolderStoreError triggers the "folder store" error branch by
-// allowing the first two ExecContext calls (Project and Repository CREATE TABLE)
-// to succeed before injecting a failure.
-func TestNewGORMStores_FolderStoreError(t *testing.T) {
-	db := newFailAfterExecDB(t, 2)
-	_, err := newGORMStores(db)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "app: folder store:")
-}
-
-// TestNewGORMStores_AgentChatFolderStoreError triggers the "agent chat folder
-// store" error branch by allowing the first three ExecContext calls (Project,
-// Repository and Folder CREATE TABLE) to succeed before injecting a failure.
-func TestNewGORMStores_AgentChatFolderStoreError(t *testing.T) {
-	db := newFailAfterExecDB(t, 3)
-	_, err := newGORMStores(db)
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "app: agent chat folder store:")
-}
-
 // TestNewGORMStores_TerminalProfileStoreError triggers the "terminal profile
-// store" error branch by allowing the first five ExecContext calls (Project,
-// Repository and Folder CREATE TABLE, then AgentChatFolder's CREATE TABLE and
-// the CREATE INDEX its workspace_id column carries) to succeed before injecting
-// a failure.
+// store" error branch by allowing the first two ExecContext calls (Project and
+// Repository CREATE TABLE) to succeed before injecting a failure.
 func TestNewGORMStores_TerminalProfileStoreError(t *testing.T) {
-	db := newFailAfterExecDB(t, 5)
+	db := newFailAfterExecDB(t, 2)
 	_, err := newGORMStores(db)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "app: terminal profile store:")
 }
 
 // TestNewGORMStores_TerminalSessionStoreError triggers the "terminal session
-// store" error branch by allowing the first six ExecContext calls (everything up
-// to and including TerminalProfile's CREATE TABLE) to succeed before injecting a
-// failure.
+// store" error branch by allowing the first three ExecContext calls (everything
+// up to and including TerminalProfile's CREATE TABLE) to succeed before
+// injecting a failure.
 func TestNewGORMStores_TerminalSessionStoreError(t *testing.T) {
-	db := newFailAfterExecDB(t, 6)
+	db := newFailAfterExecDB(t, 3)
 	_, err := newGORMStores(db)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "app: terminal session store:")
 }
 
-func TestNewGORMStores_FolderRoundTrips(t *testing.T) {
-	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
-	stores, err := newGORMStores(db)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	require.NoError(t, stores.Folders.Save(ctx, domain.Folder{
-		ID: "f1", ProjectID: "p1", RepoID: "r1", Name: "spikes", Order: 3,
-	}))
-	require.NoError(t, stores.Folders.Save(ctx, domain.Folder{
-		ID: "f2", ProjectID: "p1", RepoID: "r2", Name: "elsewhere",
-	}))
-
-	// The repo-scoped query is the sidebar read path: it must narrow at the DB,
-	// not hand back the whole table for the caller to filter.
-	scoped, err := stores.Folders.FindWhere(ctx, domain.Folder{ProjectID: "p1", RepoID: "r1"})
-	require.NoError(t, err)
-	require.Len(t, scoped, 1)
-	assert.Equal(t, "spikes", scoped[0].Name)
-	assert.Equal(t, 3, scoped[0].Order, "order survives the round trip through a reserved-word column")
+// TestNewGORMStores_FolderStoreError triggers the "folder store" error branch:
+// Folders is the LAST store newGORMStores builds, so allowing every earlier
+// store's own migration to succeed before injecting a failure lands on the
+// folder store's own migration. failAt is 7, not 6, because
+// TerminalSession's AutoMigrate happens to issue TWO ExecContext calls
+// (unlike every other store here, which issues one) — probed empirically
+// rather than assumed, since the existing failAt=1/2/3 tests only exercise
+// stores built before TerminalSession's own double call.
+func TestNewGORMStores_FolderStoreError(t *testing.T) {
+	db := newFailAfterExecDB(t, 7)
+	_, err := newGORMStores(db)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "app: folder store:")
 }
 
-// The Chats panel reads ONE workspace's folders, so the scoped query has to
-// narrow at the DB exactly as the sidebar's does — a whole-table read here would
-// grow with the install rather than with the request.
-func TestNewGORMStores_AgentChatFolderRoundTrips(t *testing.T) {
+func TestNewGORMStores_FolderRoundTrip(t *testing.T) {
 	db, err := storesqlite.OpenDB(":memory:")
 	require.NoError(t, err)
 	stores, err := newGORMStores(db)
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, stores.AgentChatFolders.Save(ctx, domain.ChatFolder{
-		ID: "cf1", WorkspaceID: "w1", Name: "spikes", Order: 3,
-	}))
-	require.NoError(t, stores.AgentChatFolders.Save(ctx, domain.ChatFolder{
-		ID: "cf2", WorkspaceID: "w2", Name: "elsewhere",
-	}))
+	require.NoError(t, stores.Folders.Save(ctx, domain.Folder{ID: "f1", Name: "Work", RepoID: "r1"}))
 
-	scoped, err := stores.AgentChatFolders.FindWhere(ctx, domain.ChatFolder{WorkspaceID: "w1"})
+	got, err := stores.Folders.FindByKey(ctx, "f1")
 	require.NoError(t, err)
-	require.Len(t, scoped, 1)
-	assert.Equal(t, "spikes", scoped[0].Name)
-	assert.Equal(t, 3, scoped[0].Order, "order survives the round trip through a reserved-word column")
+	require.NotNil(t, got)
+	assert.Equal(t, "Work", got.Name)
+	assert.Equal(t, "r1", got.RepoID)
+
+	require.NoError(t, stores.Folders.Delete(ctx, "f1"))
+	gone, err := stores.Folders.FindByKey(ctx, "f1")
+	require.NoError(t, err)
+	assert.Nil(t, gone)
 }
 
 func TestNewGORMStores_TerminalSessionRoundTrip(t *testing.T) {
@@ -206,18 +173,18 @@ func TestNewGORMStores_TerminalSessionRoundTrip(t *testing.T) {
 
 	ctx := context.Background()
 	sess := domain.TerminalSession{
-		SessionID:   "sess-1",
-		WorkspaceID: "ws-1",
-		ProjectID:   "proj-1",
-		RepoID:      "repo-1",
-		State:       "active",
+		SessionID: "sess-1",
+		ChatID:    "chat-1",
+		ProjectID: "proj-1",
+		RepoID:    "repo-1",
+		State:     "active",
 	}
 	require.NoError(t, stores.TerminalSessions.Save(ctx, sess))
 
 	got, err := stores.TerminalSessions.FindByKey(ctx, "sess-1")
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.Equal(t, "ws-1", got.WorkspaceID)
+	assert.Equal(t, "chat-1", got.ChatID)
 	assert.Equal(t, "proj-1", got.ProjectID)
 	assert.Equal(t, "active", got.State)
 

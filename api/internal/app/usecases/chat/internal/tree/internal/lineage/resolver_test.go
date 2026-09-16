@@ -51,54 +51,35 @@ func (s *stubChats) ListByWorkspace(
 	return s.listed, nil
 }
 
-type stubFolders struct {
-	rows  []domain.ChatFolder
-	err   error
-	finds int
-}
-
-func (s *stubFolders) FindWhere(
-	_ context.Context,
-	_ domain.ChatFolder,
-) ([]domain.ChatFolder, error) {
-	s.finds++
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.rows, nil
-}
-
 func chat(
 	id string,
 	parentID string,
 ) domain.Chat {
-	return domain.Chat{ID: id, WorkspaceID: workspaceID, ParentID: parentID}
+	return domain.Chat{ID: id, Type: domain.ChatTypeChat, WorkspaceID: workspaceID, ParentID: parentID}
 }
 
 func folder(
 	id string,
 	parentID string,
-) domain.ChatFolder {
-	return domain.ChatFolder{ID: id, WorkspaceID: workspaceID, ParentID: parentID}
+) domain.Chat {
+	return domain.Chat{ID: id, Type: domain.ChatTypeFolder, ParentID: parentID}
 }
 
 // tree builds a resolver over one workspace's rows, keying the chats for the
 // authoritative read and listing the same rows for the walk.
 func tree(
-	chats []domain.Chat,
-	folders []domain.ChatFolder,
-) (*stubFolders, *stubChats, *lineage.Resolver) {
-	keyed := make(map[string]domain.Chat, len(chats))
-	for _, c := range chats {
-		keyed[c.ID] = c
+	rows []domain.Chat,
+) (*stubChats, *lineage.Resolver) {
+	keyed := make(map[string]domain.Chat, len(rows))
+	for _, r := range rows {
+		keyed[r.ID] = r
 	}
-	cs := &stubChats{keyed: keyed, listed: chats}
-	fs := &stubFolders{rows: folders}
-	return fs, cs, lineage.New(fs, cs)
+	cs := &stubChats{keyed: keyed, listed: rows}
+	return cs, lineage.New(cs)
 }
 
 func TestAncestors_AChatUnderAChatReadsIt(t *testing.T) {
-	_, _, resolver := tree([]domain.Chat{chat("c1", ""), chat("c2", "c1")}, nil)
+	_, resolver := tree([]domain.Chat{chat("c1", ""), chat("c2", "c1")})
 
 	got, err := resolver.Ancestors(context.Background(), "c2")
 	require.NoError(t, err)
@@ -110,10 +91,10 @@ func TestAncestors_AChatUnderAChatReadsIt(t *testing.T) {
 // them at all, and a resolver that skipped that read would report that a filed
 // thread inherits nothing.
 func TestAncestors_StepsThroughTwoFolders(t *testing.T) {
-	_, _, resolver := tree(
-		[]domain.Chat{chat("c1", ""), chat("c2", "f2")},
-		[]domain.ChatFolder{folder("f1", "c1"), folder("f2", "f1")},
-	)
+	_, resolver := tree([]domain.Chat{
+		chat("c1", ""), chat("c2", "f2"),
+		folder("f1", "c1"), folder("f2", "f1"),
+	})
 
 	got, err := resolver.Ancestors(context.Background(), "c2")
 	require.NoError(t, err)
@@ -122,10 +103,10 @@ func TestAncestors_StepsThroughTwoFolders(t *testing.T) {
 }
 
 func TestAncestors_ReturnsTheWholeChainNearestFirst(t *testing.T) {
-	_, _, resolver := tree(
-		[]domain.Chat{chat("c1", ""), chat("c2", "c1"), chat("c3", "f1")},
-		[]domain.ChatFolder{folder("f1", "c2")},
-	)
+	_, resolver := tree([]domain.Chat{
+		chat("c1", ""), chat("c2", "c1"), chat("c3", "f1"),
+		folder("f1", "c2"),
+	})
 
 	got, err := resolver.Ancestors(context.Background(), "c3")
 	require.NoError(t, err)
@@ -136,22 +117,18 @@ func TestAncestors_ReturnsTheWholeChainNearestFirst(t *testing.T) {
 // table scans are what this feature would otherwise charge every spawn in the
 // daemon for a relationship almost none of them have.
 func TestAncestors_AChatAtTheRootReadsNoTables(t *testing.T) {
-	folders, chats, resolver := tree([]domain.Chat{chat("c1", "")}, nil)
+	chats, resolver := tree([]domain.Chat{chat("c1", "")})
 
 	got, err := resolver.Ancestors(context.Background(), "c1")
 	require.NoError(t, err)
 	assert.Empty(t, got)
-	assert.Zero(t, folders.finds, "a chat with no parent needs no folder table")
-	assert.Zero(t, chats.lists, "and no chat list either")
+	assert.Zero(t, chats.lists, "a chat with no parent needs no list read")
 }
 
-// A chat filed in a root folder has a parent and so pays for the reads, but
+// A chat filed in a root folder has a parent and so pays for the read, but
 // still inherits nothing — the walk finds a folder above it and then the root.
 func TestAncestors_AChatFiledInARootFolderInheritsNothing(t *testing.T) {
-	_, _, resolver := tree(
-		[]domain.Chat{chat("c1", "f1")},
-		[]domain.ChatFolder{folder("f1", "")},
-	)
+	_, resolver := tree([]domain.Chat{chat("c1", "f1"), folder("f1", "")})
 
 	got, err := resolver.Ancestors(context.Background(), "c1")
 	require.NoError(t, err)
@@ -175,7 +152,7 @@ func TestAncestors_ThePlacementComesFromTheLogFoldNotTheStaleList(t *testing.T) 
 		keyed:  map[string]domain.Chat{"c1": chat("c1", ""), "c2": placed},
 		listed: []domain.Chat{chat("c1", ""), unplaced},
 	}
-	resolver := lineage.New(&stubFolders{}, cs)
+	resolver := lineage.New(cs)
 
 	got, err := resolver.Ancestors(context.Background(), "c2")
 	require.NoError(t, err)
@@ -185,21 +162,10 @@ func TestAncestors_ThePlacementComesFromTheLogFoldNotTheStaleList(t *testing.T) 
 
 func TestAncestors_SurfacesAChatReadFailure(t *testing.T) {
 	cs := &stubChats{getErr: errors.New("boom")}
-	resolver := lineage.New(&stubFolders{}, cs)
+	resolver := lineage.New(cs)
 
 	_, err := resolver.Ancestors(context.Background(), "c2")
 	require.ErrorContains(t, err, "boom")
-}
-
-func TestAncestors_SurfacesAFolderReadFailure(t *testing.T) {
-	folders, _, _ := tree([]domain.Chat{chat("c1", ""), chat("c2", "c1")}, nil)
-	folders.err = errors.New("folders down")
-	resolver := lineage.New(folders, &stubChats{
-		keyed: map[string]domain.Chat{"c2": chat("c2", "c1")},
-	})
-
-	_, err := resolver.Ancestors(context.Background(), "c2")
-	require.ErrorContains(t, err, "folders down")
 }
 
 func TestAncestors_SurfacesAChatListFailure(t *testing.T) {
@@ -207,7 +173,7 @@ func TestAncestors_SurfacesAChatListFailure(t *testing.T) {
 		keyed: map[string]domain.Chat{"c2": chat("c2", "c1")},
 		list:  errors.New("chats down"),
 	}
-	resolver := lineage.New(&stubFolders{}, cs)
+	resolver := lineage.New(cs)
 
 	_, err := resolver.Ancestors(context.Background(), "c2")
 	require.ErrorContains(t, err, "chats down")

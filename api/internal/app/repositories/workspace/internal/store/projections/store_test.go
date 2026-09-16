@@ -245,6 +245,7 @@ func (corruptInner) Delete(context.Context, string) error     { return nil }
 func (corruptInner) FindByKey(context.Context, string) (*workspaceRow, error) {
 	return &workspaceRow{ID: "w1", Data: []byte("not valid json")}, nil
 }
+
 func (corruptInner) FindAll(context.Context) ([]workspaceRow, error) {
 	return []workspaceRow{{ID: "w1", Data: []byte("not valid json")}}, nil
 }

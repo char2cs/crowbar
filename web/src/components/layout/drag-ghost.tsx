@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { cn } from '@/utils/cn'
+import { cn } from '@/lib/utils'
 import { ROW_ACTIVE, ROW_INACTIVE } from './workspace-row-base'
 
 /**
@@ -11,6 +11,10 @@ import { ROW_ACTIVE, ROW_INACTIVE } from './workspace-row-base'
  * ghost used to pin its top-left to the cursor plus a fixed offset, so whatever
  * you grabbed — the middle of a long branch name, the right end of the row — the
  * row snapped its corner to your hand the instant the drag began.
+ *
+ * Restored verbatim (Task 21) from before the workspace tree/chats panel
+ * retirement (commit f119a402) — generic, tree-agnostic, and exactly what one
+ * unified drag arm needs; only its two former consumers were tree-specific.
  */
 export interface GrabOffset {
   dx: number

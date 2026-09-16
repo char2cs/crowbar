@@ -12,13 +12,13 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Tree handles GET /v0/workspaces/:wsId/files/tree
+// Tree handles GET /v0/chats/:chatId/files/tree
 func (h *Handlers) Tree(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 	dirPath := ctx.DefaultQuery("path", ".")
 
 	nodes, err := h.files.Tree(rctx, wsID, dirPath, nil)
@@ -34,13 +34,13 @@ func (h *Handlers) Tree(
 	libs.WriteQueryOK(ctx, nodes)
 }
 
-// ReadContent handles GET /v0/workspaces/:wsId/files/content
+// ReadContent handles GET /v0/chats/:chatId/files/content
 func (h *Handlers) ReadContent(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 	filePath := ctx.Query("path")
 
 	if filePath == "" {
@@ -57,13 +57,13 @@ func (h *Handlers) ReadContent(
 	libs.WriteQueryOK(ctx, content)
 }
 
-// SaveContent handles PUT /v0/workspaces/:wsId/files/content
+// SaveContent handles PUT /v0/chats/:chatId/files/content
 func (h *Handlers) SaveContent(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Path     string `json:"path"`
@@ -88,13 +88,13 @@ func (h *Handlers) SaveContent(
 	libs.WriteMutationOK(ctx, http.StatusOK, body.Path)
 }
 
-// Create handles POST /v0/workspaces/:wsId/files
+// Create handles POST /v0/chats/:chatId/files
 func (h *Handlers) Create(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Path string `json:"path"`
@@ -128,7 +128,7 @@ func (h *Handlers) Create(
 	libs.WriteMutationOK(ctx, http.StatusCreated, body.Path)
 }
 
-// Copy handles POST /v0/workspaces/:wsId/files/copy. It duplicates sourcePath
+// Copy handles POST /v0/chats/:chatId/files/copy. It duplicates sourcePath
 // to destPath (both workspace-relative) byte-faithfully — the server-side
 // io.Copy path exists precisely so binary files never round-trip through the
 // base64 content read (which corrupts them when written back as text).
@@ -138,7 +138,7 @@ func (h *Handlers) Copy(
 ) {
 	rctx := ctx.Request.Context()
 
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		SourcePath string `json:"sourcePath"`
@@ -162,13 +162,13 @@ func (h *Handlers) Copy(
 	libs.WriteMutationOK(ctx, http.StatusCreated, body.DestPath)
 }
 
-// Rename handles PATCH /v0/workspaces/:wsId/files
+// Rename handles PATCH /v0/chats/:chatId/files
 func (h *Handlers) Rename(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Path    string `json:"path"`
@@ -192,13 +192,13 @@ func (h *Handlers) Rename(
 	libs.WriteMutationOK(ctx, http.StatusOK, body.NewPath)
 }
 
-// Delete handles DELETE /v0/workspaces/:wsId/files
+// Delete handles DELETE /v0/chats/:chatId/files
 func (h *Handlers) Delete(
 	ctx *gin.Context,
 ) {
 	rctx := ctx.Request.Context()
 
-	wsID := ctx.Param("wsId")
+	wsID := h.workspaceID(ctx)
 
 	var body struct {
 		Path string `json:"path"`

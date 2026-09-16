@@ -2,7 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { Trash2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { FlickerSpinner } from '@/components/ui/flicker-spinner'
+import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import {
   getChat,
   resumeChat,
@@ -10,7 +10,6 @@ import {
   switchToNative,
   switchToTerminal,
 } from '@/features/agent/api/agent-api'
-import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
@@ -19,7 +18,9 @@ import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
   SPLIT_MIN_HALF_PX,
@@ -29,6 +30,7 @@ import {
 } from '@/features/agent/hooks/use-chat-presentation'
 import { PaneSash } from '@/features/panes/components/pane-sash'
 import { cn } from '@/lib/utils'
+import { IS_MAC } from '@/utils/platform'
 import {
   AgentReturnToChatNotice,
   AgentTerminalWaitBanner,
@@ -182,13 +184,16 @@ function isDisplacing(chatId: string): boolean {
 type Attachment = TerminalAttachment
 
 interface AgentChatPaneProps {
-  /** The chat this tab is pointed at. NOT stable for its life: the pane re-points it. */
+  /** The chat this pane is pointed at. NOT stable for its life: the pane re-points it. */
   chatId: string
-  /** The runner this tab follows, or '' when it has none (a dormant chat). */
+  /** The runner this pane follows, or '' when it has none (a dormant chat). */
   runnerId: string
   wsId: string
-  /** The pane buffer backing this tab — the thing the pane re-points and relabels. */
-  bufferId: string
+  /** The `PaneGroup` this surface renders inside — the thing that gets
+   *  re-pointed (`paneActions.setPaneChat`) when the runner moves. Was a
+   *  buffer id until Task 1 made `chatId`/`runnerId` fields on the pane
+   *  itself; a chat has not been a buffer since. */
+  paneId: string
   isActivePane: boolean
   /**
    * Whether this tab is the ACTIVE (visible) tab in its pane — distinct from
@@ -199,7 +204,38 @@ interface AgentChatPaneProps {
    * becomes visible. An already-attached chat stays attached while hidden.
    */
   isVisible: boolean
+  /**
+   * Does an overlay chat header (ChatColumnHeader / ChatOnlyPaneHeader,
+   * pane-top-row.tsx's `variant="chat-blur" overlay`) float above this pane
+   * right now? That header paints no fill of its own and reserves no flex
+   * space — it is `position: absolute; top: 0`, so nothing about this pane's
+   * own layout otherwise knows it is there. It still owns a REAL, clickable
+   * row (44px Mac / 34px elsewhere — PaneTopRow.ROW_HEIGHT_PX), so every
+   * pinned-near-top surface here (the reviving/idle banners below, the
+   * terminal-wait banner) has to clear THAT, or its own controls render
+   * underneath the header's hit-box instead of in front of it. Pane-
+   * container's own answer: true for chatFillsPane/chatVisibleAlongsideEditor,
+   * false for the collapsed 'tabs' presentation's small in-flow
+   * ChatBranchHeader, which already reserves its own space.
+   */
+  belowOverlayHeader?: boolean
 }
+
+// PaneTopRow's own real, clickable row height (see that file's ROW_HEIGHT_PX
+// and its own doc) — this pane has no import of that component to share a
+// constant with (features/panes/utils/pane-border.ts and
+// components/layout/sidebar-peek.tsx each keep their own copy of the same
+// platform fact rather than reach across features for it).
+const HEADER_ROW_HEIGHT_PX = IS_MAC ? 44 : 34
+
+// Mirrors features/tabs/components/pane-top-row.tsx's CHAT_BLUR_EXTRA_PX
+// (56) added to this file's own HEADER_ROW_HEIGHT_PX — the FULL vertical
+// reach of the header's EdgeDissolve backdrop-filter gradient, not just
+// its clickable row. Text resting inside this zone but outside the
+// narrower headerClearancePx below still renders visibly blurred (some of
+// EdgeDissolve's mask layers carry blur(16px)-blur(64px) well past the row
+// height) even though it is not covered/unclickable.
+const CHAT_BLUR_ZONE_PX = HEADER_ROW_HEIGHT_PX + 56
 
 // A flat, opaque pane: one centred column holding the live agent terminal, with the
 // provider-switch dropdown beneath it on the same column. See the render for why this
@@ -229,11 +265,23 @@ export function AgentChatPane({
   chatId,
   runnerId,
   wsId,
-  bufferId,
+  paneId,
   isActivePane,
   isVisible,
+  belowOverlayHeader = false,
 }: AgentChatPaneProps) {
   const store = useWorkspaceStore()
+  // Extra top clearance every pinned-near-top surface below needs to clear the
+  // overlay header's own real click target, plus that surface's original
+  // breathing room (8px — the `top-2`/`mt-2` each one used to carry on its own).
+  const headerClearancePx = belowOverlayHeader ? HEADER_ROW_HEIGHT_PX + 8 : 8
+  // The TRANSCRIPT's own, larger clearance: the header's full EdgeDissolve
+  // zone (CHAT_BLUR_ZONE_PX above), not just its click target. Distinct from
+  // headerClearancePx above — that number stays correct for the opaque
+  // reviving/idle/terminal-wait banners and for composer/empty-document's own
+  // clearance (unaffected by this), which only need to clear the header's
+  // hit-box, not the full reach of its blur gradient.
+  const transcriptHeaderClearancePx = belowOverlayHeader ? CHAT_BLUR_ZONE_PX : 0
 
   // Where is MY runner? '' when it is nowhere — it exited, or a switch replaced it. A
   // chat is live exactly while a runner is placed on it, so this lookup is also what
@@ -371,6 +419,19 @@ export function AgentChatPane({
   // render to undo a value the effect had just written.
   const attachment: Attachment = known ? attachedState : { state: 'pending' }
 
+  // Whether each blank-chat signpost below is ABOUT to occupy
+  // AgentEmptyDocument's own control-bar slot this pass — named here, once,
+  // rather than re-testing the same conditions inline at both `blankSignpost`
+  // below AND wherever else needs to know it. `waitingBannerShown` mirrors
+  // `waiting && chatBlank`; the other two also gate on `presentation !==
+  // 'terminal'`, same as `blankSignpost`'s own precedence below. Exactly one
+  // of the three renders at most (waiting requires a live runner; reviving/
+  // idle both require none — never true together).
+  const waitingBannerShown = waiting && chatBlank
+  const revivingBannerShown =
+    presentation !== 'terminal' && chatBlank && attachment.state === 'reviving'
+  const idleBannerShown = presentation !== 'terminal' && chatBlank && attachment.state === 'idle'
+
   // The composer's own words for `attachment`, refined past the plain `live`
   // boolean it gets alongside this — but only on the chat side of the gate.
   // Both surfaces stay mounted (see the dormancy note by the split container
@@ -427,56 +488,34 @@ export function AgentChatPane({
     attachment.state === 'attached' && presentation === 'terminal',
   )
 
-  // Re-point the buffer at what this pane is actually showing. This is the write that
-  // makes the tab follow: pane-container feeds the buffer's chatId/runnerId straight
+  // Re-point the PANE at what this surface is actually showing. This is the write that
+  // makes the view follow: pane-container feeds the pane's chatId/runnerId straight
   // back in as our props, so the next render is already looking at the new chat.
   //
-  // It converges in one step and cannot loop — once the buffer holds the pair computed
-  // here, the effect's deps are unchanged and it does not re-run. Writing '' as the
-  // runnerId of a dormant chat is deliberate: a tab must not go on claiming a runner
-  // that no longer exists.
+  // It converges in one step and cannot loop — once the pane holds the pair computed
+  // here, the effect's deps are unchanged and it does not re-run, and `setPaneChat`'s
+  // own writes are same-value no-ops under immer. Writing null as the runnerId of a
+  // dormant chat is deliberate: a pane must not go on claiming a runner that no longer
+  // exists.
+  //
+  // `setPaneChat` (not the deleted `repointAgentChatBuffer`, which guarded on a buffer
+  // type Task 1 removed and had therefore been a permanent no-op) also archives the
+  // conversation the CLI walked OUT of into Recents when this is a real move — spec
+  // §5.5's "the view dies, the row does not."
   useEffect(() => {
     if (!known) return // nothing authoritative to re-point at yet
     if (shownChatId === chatId && liveRunnerId === runnerId) return
-    store.getState().bufferActions.repointAgentChatBuffer(bufferId, {
-      chatId: shownChatId,
-      runnerId: liveRunnerId,
-    })
-  }, [store, bufferId, known, chatId, runnerId, shownChatId, liveRunnerId])
+    windowPaneStore.getState().paneActions.setPaneChat(paneId, shownChatId, liveRunnerId || null)
+  }, [store, paneId, known, chatId, runnerId, shownChatId, liveRunnerId])
 
-  // The tab label is a snapshot taken by openContent, but the title changes AFTER the
-  // tab opens: the agent auto-titles the chat (WS `title_set`), the user renames it from
-  // the sidebar — and the tab may now be showing a DIFFERENT chat than it opened on,
-  // which has a title of its own. All three land on the shown chat's `title`, so
-  // mirroring title → buffer name here keeps the tab honest for all of them, with no
-  // store → component dependency.
-  //
-  // An untitled chat is NOT necessarily a tab that needs renaming — and the difference
-  // is the whole subtlety here. A tab opens carrying a provider placeholder ("Codex
-  // chat"), which is a perfectly good name for a chat nobody has titled yet, and blanking
-  // that would be a regression.
-  //
-  // The tab is only WRONG when it is wearing ANOTHER CHAT'S TITLE, and that happens in
-  // exactly one situation: the runner MOVED us to a fresh chat (a /clear), which has no
-  // title of its own to overwrite the old one with. Bailing on `!title` left the tab
-  // reading "reply with exactly: ORION" while showing a conversation that had nothing to
-  // do with it — caught by running it, not by a test, because the sibling test moves the
-  // runner into a chat that HAS a title.
-  //
-  // So: a title always names the tab; an empty title only renames it if we have just
-  // arrived from somewhere else.
-  const labelledFor = useRef('')
-  useEffect(() => {
-    const s = store.getState()
-    const buffer = s.bufferActions.getBufferById(bufferId)
-    if (!buffer) return
-
-    const arrivedFromAnotherChat = labelledFor.current !== '' && labelledFor.current !== shownChatId
-    labelledFor.current = shownChatId
-
-    const label = title || (arrivedFromAnotherChat ? UNTITLED_CHAT_LABEL : buffer.name)
-    if (buffer.name !== label) s.bufferActions.renameBuffer(bufferId, label)
-  }, [store, bufferId, title, shownChatId])
+  // NO TAB RELABEL HERE ANY MORE. A chat used to be a buffer whose `name` was the tab
+  // label, so a title arriving after the tab opened (the agent auto-titles the chat via
+  // WS `title_set`, the user renames it from the sidebar, or the runner MOVED us to a
+  // fresh chat with a title of its own) had to be mirrored onto that buffer. Task 17's
+  // `ChatHead` reads `agentChats.chats.find(c => c.id === chatId)?.title` straight from
+  // the store instead, so all three cases are live for free — and the third one now
+  // works, because the effect above re-points the PANE's own chatId rather than a
+  // buffer that has not existed since Task 1.
 
   // THE REVIVE BUDGET: ONE PER CHAT, PER PANE MOUNT. Every id in here has already had a
   // revive fired at it by this pane, and will never get another one unasked — whatever
@@ -494,6 +533,19 @@ export function AgentChatPane({
   // gap. Nothing may read that gap as "this chat needs reviving": it needs the CLI that
   // is already coming.
   const switchingRef = useRef(false)
+
+  // Is this pane still on screen? Both reads below can land after it is gone — a workspace
+  // switch, a closed pane — and applying one then writes into a torn-down store AND spends
+  // a chat-read-order slot, which makes a live seed elsewhere retry for a write nobody can
+  // see. Set on every mount, not just once, so StrictMode's double-effect does not leave it
+  // false for the run that survives. The hook's own reads have `cancelled` for this.
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   // THIS pane's half of the chat-wide guard above: the release for the hold it is
   // currently carrying, if any. Kept in a ref so the unmount effect can let go of a
@@ -520,44 +572,56 @@ export function AgentChatPane({
   // way the pane settles on the ACT rather than whenever a frame happens to arrive — and,
   // crucially, it settles AT ALL: a CLI that died on startup leaves the chat dormant, and
   // this read says so, where waiting for a frame that is never coming would spin forever.
+  //
+  // IT IS ALSO ONE OF TWO RACERS. The resume this follows makes the daemon publish
+  // `started`, and use-workspace-agent-chats-stream refetches the same chat off that
+  // frame — usually ISSUING FIRST, since the socket push beats the POST response. The
+  // daemon can answer that first read from before the placement it just announced, so it
+  // can land LAST carrying "dormant" and overwrite the live row this one just wrote. The
+  // pane's one revive is spent by then, so it settles on "This agent has exited" over a
+  // CLI that is alive — the confirmed live bug. Both reads therefore go through the one
+  // ordering registry, and the loser is discarded rather than applied.
   const adopt = useCallback(
     async (signal?: AbortSignal): Promise<boolean> => {
-      const chat = await getChat(wsId, shownChatId, signal)
+      const ticket = claimChatRead()
+      const fetched = await getChat(wsId, shownChatId, signal)
+      if (!mountedRef.current) return false
       const s = store.getState()
-      s.upsertAgentChat(chat)
-      s.setAgentChatWorking(chat.id, chat.working === true)
+      if (acceptChatRead(wsId, fetched.id, ticket)) {
+        s.upsertAgentChat(fetched, ticket)
+        s.setAgentChatWorking(fetched.id, fetched.working === true)
+      }
+      // Settle on the STORE, not on our own payload: when a later-issued read has already
+      // applied, that row is the newer truth and this one is a snapshot of the past.
+      // Attaching off the older answer would seed a PTY the server has already moved past.
+      const chat = store.getState().agentChats.chats.find((c) => c.id === fetched.id) ?? fetched
       // liveRunnerId ALONE is liveness — terminalSessionId is not a second vote on it.
       // A non-hotswap api-transport runner (codex) is legitimately live with nothing
       // attached: empty here means "no terminal to show right now", not "no runner".
       if (!chat.liveRunnerId) return false
-      s.bufferActions.repointAgentChatBuffer(bufferId, {
-        chatId: chat.id,
-        runnerId: chat.liveRunnerId,
-      })
+      windowPaneStore.getState().paneActions.setPaneChat(paneId, chat.id, chat.liveRunnerId)
       if (chat.terminalSessionId) seedAttach(wsId, chat.terminalSessionId)
       setAttachment({ state: 'attached', sessionId: chat.terminalSessionId || null })
       return true
     },
-    [store, wsId, bufferId, shownChatId],
+    [store, wsId, paneId, shownChatId],
   )
 
   // Re-check the aggregate after a prompt race. The prompt queue consumes only
   // this server-folded value; it never guesses busy state from a lifecycle kind.
-  //
-  // Generation-guarded like useChatMessages' own loadGeneration: this GET has
-  // no bound on how long it takes (daemon load from a subagent-heavy turn
-  // measured over 11s live), and the 5s poll below can have several of these
-  // in flight at once. An older one resolving after a newer one must not
-  // overwrite the fresher answer with a stale one.
-  const refreshGeneration = useRef(0)
+  // Ordered against every other single-chat read for the same reason adopt is.
   const refreshChatWorking = useCallback(async (): Promise<boolean> => {
-    const generation = ++refreshGeneration.current
-    const chat = await getChat(wsId, shownChatId)
-    if (generation !== refreshGeneration.current) return chat.working === true
+    const ticket = claimChatRead()
+    const fetched = await getChat(wsId, shownChatId)
     const s = store.getState()
-    s.upsertAgentChat(chat)
-    s.setAgentChatWorking(chat.id, chat.working === true)
-    return chat.working === true
+    // Torn down mid-flight: report the store's answer, write nothing, spend no slot.
+    if (!mountedRef.current) return s.agentChats.working[fetched.id] === true
+    if (!acceptChatRead(wsId, fetched.id, ticket)) {
+      return s.agentChats.working[fetched.id] === true
+    }
+    s.upsertAgentChat(fetched, ticket)
+    s.setAgentChatWorking(fetched.id, fetched.working === true)
+    return fetched.working === true
   }, [store, wsId, shownChatId])
 
   // THE REGRESSION, reported live and repeatedly: `working` is otherwise
@@ -684,6 +748,13 @@ export function AgentChatPane({
   // before its session-start hook ever fired leaves one), and the CLI itself may be gone
   // from the PATH. Both land in `idle: failed`, which is the one place the Resume button
   // still appears. It never retries by itself.
+  //
+  // A chat with no `activeProviderId` has never had ANY runner placed on it — no CLI
+  // ever reached its session-start hook, so there is no conversation on record at all.
+  // resumeChat is REFUSED OUTRIGHT for it every time; switchProviderLocked's own doc
+  // comment names this exact case as the one it already handles correctly, so that is
+  // the call a never-run chat needs — an ordinary fresh spawn, not a resume.
+  //
   // `externalSignal` lets a CALLER's own cleanup (the auto-revive effect below)
   // cancel a revive still in flight when it unmounts or re-runs — without it,
   // an effect firing this and unmounting moments later (the pane's buffer/tab
@@ -695,7 +766,13 @@ export function AgentChatPane({
   const revive = useCallback(
     async (externalSignal?: AbortSignal) => {
       attemptedRef.current.add(shownChatId) // spend the budget BEFORE awaiting anything
-      setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
+      const neverRan = activeProviderId === ''
+      const startProvider = neverRan ? providers.find((p) => p.enabled) : undefined
+      const verb = neverRan ? 'start' : 'resume'
+      setAttachment({
+        state: 'reviving',
+        message: neverRan ? 'Starting this chat…' : 'Resuming this chat…',
+      })
       revivesInFlight.current += 1
       // BOUND THE REQUEST, not the UI. The pane still moves on this request's own
       // outcome — an abort IS an outcome, and it lands in the same `fail()` every other
@@ -719,7 +796,7 @@ export function AgentChatPane({
       // closing mid-resume — see this function's own doc comment) — but ALSO
       // on every other reason the CALLER's effect re-runs, including a
       // dependency the request's own success is what just changed: adopt()
-      // (below) writes liveRunnerId into the store the instant resumeChat
+      // (below) writes liveRunnerId into the store the instant the spawn
       // answers, the attach effect below watches liveRunnerId, and its
       // cleanup — this forwarder — fires before the next render can prove
       // the request actually worked. React 18 StrictMode's dev-only
@@ -741,11 +818,16 @@ export function AgentChatPane({
       // request is actually outstanding.
       const run = (async () => {
         try {
-          await resumeChat(wsId, shownChatId, abort.signal)
+          if (neverRan) {
+            if (!startProvider) throw new Error('No agent provider is enabled')
+            await switchProvider(wsId, shownChatId, startProvider.id, abort.signal)
+          } else {
+            await resumeChat(wsId, shownChatId, abort.signal)
+          }
           // SAME signal, not a second, unbounded request — adopt()'s own
-          // getChat read sits right after resumeChat's, and without a signal
-          // of its own it could hang forever with the bound above having
-          // already fired on the (by-then-irrelevant) resumeChat request:
+          // getChat read sits right after the spawn request's, and without a
+          // signal of its own it could hang forever with the bound above
+          // having already fired on the (by-then-irrelevant) spawn request:
           // reproducing the exact "Resuming this chat…" wedge this pair of
           // requests exists to eliminate, one call later, inside its own fix.
           if (!(await adopt(abort.signal))) fail()
@@ -762,7 +844,7 @@ export function AgentChatPane({
           toastSpawnFailure(
             abort.signal.aborted ? new Error('The daemon did not answer the resume.') : err,
             name,
-            'resume',
+            verb,
           )
         } finally {
           clearTimeout(bound)
@@ -782,7 +864,7 @@ export function AgentChatPane({
         }
       }
     },
-    [wsId, shownChatId, adopt, fail, providers, chatProviderId],
+    [wsId, shownChatId, adopt, fail, providers, chatProviderId, activeProviderId],
   )
 
   // A CHAT THE LIST NEVER MENTIONS.
@@ -1343,6 +1425,41 @@ export function AgentChatPane({
     enterTerminal()
   }
 
+  // The one reason this blank chat cannot be typed into right now, if there is
+  // one — rendered INSIDE AgentEmptyDocument's own control-bar slot (the
+  // model/effort/attach/send row), in place of it, rather than as a separate
+  // row stacked above the document the way this used to sit. That old
+  // placement free-floated above the composer's own control bar instead of
+  // riding it, and a resize could visibly separate the two; this one shares
+  // AgentEmptyDocument's single `place()` transform, so there is nothing left
+  // to separate. Same three mutually exclusive states as
+  // waitingBannerShown/revivingBannerShown/idleBannerShown above, same
+  // precedence order.
+  const blankSignpost = waitingBannerShown ? (
+    <AgentTerminalWaitBanner
+      kind={waitKind ?? ''}
+      providerLabel={providers.find((p) => p.id === activeProviderId)?.displayName ?? ''}
+      onOpenTerminal={openTerminalFromBanner}
+    />
+  ) : revivingBannerShown ? (
+    <div data-testid="agent-reviving-banner">
+      <ComposerSignpost reason="reviving" message={attachment.message} onOpenTerminal={() => {}} />
+    </div>
+  ) : idleBannerShown ? (
+    <div data-testid="agent-idle-banner">
+      <ComposerSignpost
+        reason="idle"
+        message={
+          attachment.reason === 'failed'
+            ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
+            : 'This agent has exited. Resume it to pick the conversation up where you left off.'
+        }
+        onOpenTerminal={() => {}}
+        onRevive={() => void revive()}
+      />
+    </div>
+  ) : undefined
+
   // Clicking the gutters or the column's padding focuses the terminal.
   //
   // Those regions LOOK like part of the chat — they are the same bg-background, and the
@@ -1482,13 +1599,24 @@ export function AgentChatPane({
                   // around whichever one you were typing in. The caret already
                   // says that.
                   'relative min-h-0 min-w-0 shrink grow-0'
-                : cn('h-full', presentation === 'chat' ? '' : 'hidden'),
+                : // `hidden` IS THE DORMANCY MECHANISM — see the doc comment
+                  // right above this whole div for why that's load-bearing,
+                  // not cosmetic.
+                  cn('h-full', presentation !== 'chat' && 'hidden'),
             )}
             style={{
               zoom: chatZoom,
               ...(splitting ? { flexBasis: `${splitSizes[0]}%` } : undefined),
             }}
           >
+            {/* The trust/reviving/idle signpost, when this blank chat has one,
+                rides inside AgentEmptyDocument's own control-bar slot —
+                `blankSignpost` below — rather than rendering here as a
+                sibling. With messages instead of AgentEmptyDocument, the
+                composer becomes the signpost itself (AgentChatView's
+                `terminalWait`), so passing this down too would put the same
+                question on screen twice; `blankSignpost` only ever reaches
+                the blank branch inside AgentChatView. */}
             <AgentChatView
               key={`${wsId}:${shownChatId}`}
               ref={chatViewRef}
@@ -1507,7 +1635,39 @@ export function AgentChatPane({
               // genuinely active: it dispatches its queue, refreshes its catalog
               // and answers the barrier exactly as it does on its own.
               active={presentation === 'chat' || splitting}
-              visible={isVisible}
+              // Unknown chats never resolve, so this doubles as "give up polling a
+              // chat that will 404 forever" — not just tab visibility.
+              visible={isVisible && known}
+              // The daemon has confirmed shownChatId does not exist (a stale
+              // pane from a wiped/reseeded backend, or a chat deleted from
+              // under an open tab). Nothing in this pane can ever resolve, so
+              // close it rather than leave a permanent "Couldn't load" error
+              // with no way back.
+              //
+              // Gated on `known`: `wsId` here is this AgentChatPane's own
+              // AMBIENT workspace (from PaneContainer's WorkspaceStoreContext),
+              // not necessarily the chat's real owning workspace. WorkspaceHost
+              // keeps several WorkspaceViews mounted at once (keep-alive), each
+              // rendering its OWN copy of the shared pane tree — `pane.chatId`
+              // is a single window-level field (Task 26), so opening a chat
+              // makes EVERY mounted WorkspaceView's AgentChatPane try to show
+              // it, including ones whose ambient wsId is a different workspace
+              // entirely. That copy's ledger fetch 404s against the wrong scope
+              // — a routing mismatch, not evidence of deletion — and closePane
+              // mutates the shared store, so an ungated close here would wipe
+              // the chat out of the ONE copy that was rendering it correctly.
+              // `known` (agentChats.chats for THIS ambient workspace) is false
+              // both while its own chat list is still loading and, permanently,
+              // when the chat simply isn't this workspace's to show — neither
+              // is a deletion signal. Once this workspace's own list confirms
+              // the chat (`known` flips true) a later 404 is trustworthy again;
+              // a chat that never becomes known here is instead cleaned up by
+              // the vanished-chat sweep in use-workspace-agent-chats-stream.ts,
+              // which diffs THIS workspace's own list, not a foreign fetch.
+              onChatGone={() => {
+                if (!known) return
+                windowPaneStore.getState().paneActions.closePane(paneId)
+              }}
               onOpenTerminal={() => {
                 // Unchanged outside split — the chat view's own way through to the
                 // terminal, with no claim on bringing anybody back. In split there
@@ -1522,6 +1682,9 @@ export function AgentChatPane({
               }}
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
+              headerClearancePx={headerClearancePx}
+              transcriptHeaderClearancePx={transcriptHeaderClearancePx}
+              blankSignpost={blankSignpost}
               presentation={presentation}
               splitEnabled={splitEnabled}
               onSelectPresentation={chooseSurface}
@@ -1569,58 +1732,6 @@ export function AgentChatPane({
               onDeliveryPendingChange={setDeliveryPending}
               onBlankChange={setChatBlank}
             />
-
-            {/* The composer's OWN reviving/idle signpost (`revival`, above) is
-                the normal home for these now — but it lives inside the dock,
-                and the dock does not exist on a blank chat (AgentEmptyDocument
-                stands in for it there). A CLI dying before its first turn ever
-                lands is not a rare edge of that: it is the ordinary shape of
-                "opened a chat, picked a provider, the provider never came up."
-                Proven wrong once already for terminal_wait below (dropping it
-                outright broke `agent-chat-pane-terminal-wait.test.tsx`), and
-                the same test-first check for reviving/idle
-                (agent-chat-pane.test.tsx, "…for a chat with no messages yet")
-                found the identical gap — so this is the fallback for exactly
-                the window `chatBlank` covers, not a second copy of the
-                composer's own signpost: `revival` above is already `undefined`
-                whenever `chatBlank` would make this render, because
-                `AgentChatView` never got far enough to read it. */}
-            {presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && (
-              <div className="absolute inset-x-4 top-2 flex items-center justify-center gap-2 rounded-lg border bg-popover/95 px-3 py-2 text-muted-foreground text-sm shadow-sm">
-                <FlickerSpinner className="size-4 text-foreground" />
-                {attachment.message}
-              </div>
-            )}
-            {presentation !== 'terminal' && chatBlank && attachment.state === 'idle' && (
-              <div className="absolute inset-x-4 top-2 flex items-center justify-between gap-3 rounded-lg border bg-popover/95 px-3 py-2 text-sm shadow-sm">
-                <p className="min-w-0 text-muted-foreground">
-                  {attachment.reason === 'failed'
-                    ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-                    : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
-                </p>
-                <Button
-                  className="shrink-0"
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  data-testid="pane-resume"
-                  onClick={() => void revive()}
-                >
-                  Resume
-                </Button>
-              </div>
-            )}
-            {waiting && chatBlank && (
-              <div className="absolute inset-x-4 top-2 rounded-lg bg-popover shadow-sm">
-                <AgentTerminalWaitBanner
-                  kind={waitKind ?? ''}
-                  providerLabel={
-                    providers.find((p) => p.id === activeProviderId)?.displayName ?? ''
-                  }
-                  onOpenTerminal={openTerminalFromBanner}
-                />
-              </div>
-            )}
           </div>
 
           {splitting && (
@@ -1639,6 +1750,7 @@ export function AgentChatPane({
           <AgentTerminalSurface
             ref={terminalSurfaceRef}
             wsId={wsId}
+            chatId={shownChatId}
             attachment={attachment}
             presentation={presentation}
             splitting={splitting}

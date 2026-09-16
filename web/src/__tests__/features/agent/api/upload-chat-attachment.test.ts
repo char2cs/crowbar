@@ -59,7 +59,10 @@ describe('uploadChatAttachment', () => {
       contentType: 'image/png',
     })
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1/attachments')
+    // Repo-scoped, NOT workspace-scoped: chat lifecycle is the one surface that
+    // kept its project/repo nesting (see repoChatsBaseForWorkspace), and the
+    // daemon mounts this POST on its repoScoped group (chat/routes.go).
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats/c1/attachments')
     expect(init.method).toBe('POST')
     // Not a FormData: a WKWebView/Tauri custom-protocol body-loss bug drops any
     // Blob-backed fetch body (a FormData holding a File, or a bare Blob) before
@@ -161,7 +164,7 @@ describe('uploadChatAttachment', () => {
       contentType: 'image/png',
     })
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1/attachments')
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats/c1/attachments')
     expect(init.method).toBe('POST')
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' })
     expect(JSON.parse(init.body as string)).toEqual({ path: '/tmp/dropped.png', id: 'x' })

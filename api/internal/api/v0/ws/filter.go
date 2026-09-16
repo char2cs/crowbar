@@ -52,11 +52,19 @@ func PrefixMatch(
 	return true
 }
 
-// clientScope derives the connecting client's hierarchical scope prefix from the
-// request, joining the projectId/repoId/wsId path params (falling back to query
-// params) into "p/r/w" form. Trailing empty segments are trimmed, so a repo-level
-// subscription yields "p/r" and a project-level subscription yields "p". When no
-// scoping params are present it returns "" (matches all).
+// clientScope derives the connecting client's scope from the request.
+//
+// The hierarchical form joins the projectId/repoId/wsId path params (falling
+// back to query params) into "p/r/w". Trailing empty segments are trimmed, so a
+// repo-level subscription yields "p/r" and a project-level one yields "p".
+//
+// A CHAT-scoped route (/v0/chats/:chatId/...) binds none of those three, so the
+// scope is the bare chat id instead — the flat, single-segment form the
+// chat-keyed streams' FlatNamespace already uses (spec §7.1). It is read only
+// as a fallback, after the hierarchical segments have all come back empty, so a
+// route that binds both keeps its hierarchical scope unchanged.
+//
+// When neither shape is present it returns "" (matches all).
 func clientScope(
 	c *gin.Context,
 ) string {
@@ -68,6 +76,9 @@ func clientScope(
 	end := len(segs)
 	for end > 0 && segs[end-1] == "" {
 		end--
+	}
+	if end == 0 {
+		return scopeParam(c, "chatId")
 	}
 	return strings.Join(segs[:end], "/")
 }
@@ -106,7 +117,10 @@ func BuildPredicate[T any](
 	c *gin.Context,
 	def StreamDef[T],
 ) func(T) bool {
-	active := collectFilters(c, def)
+	active, unscoped := collectFilters(c, def)
+	if unscoped {
+		return func(T) bool { return false }
+	}
 	if def.FlatNamespace {
 		return func(event T) bool {
 			return matchesAll(active, event)
@@ -127,18 +141,25 @@ func BuildPredicate[T any](
 	}
 }
 
+// collectFilters compiles the client's active filters, reporting whether the
+// request left a Required filter with nothing to scope by — the one case where
+// the predicate must match NOTHING rather than everything.
 func collectFilters[T any](
 	c *gin.Context,
 	def StreamDef[T],
-) []activeFilter[T] {
+) ([]activeFilter[T], bool) {
 	var active []activeFilter[T]
 	for _, f := range def.Filters {
 		v := resolveFilterValue(c, f)
-		if v != "" {
-			active = append(active, activeFilter[T]{param: v, fd: f})
+		if v == "" && f.Required {
+			return nil, true
 		}
+		if v == "" {
+			continue
+		}
+		active = append(active, activeFilter[T]{param: v, fd: f})
 	}
-	return active
+	return active, false
 }
 
 // resolveFilterValue reads a filter Param from the PATH param first, falling
@@ -164,9 +185,23 @@ func matchesAll[T any](
 	event T,
 ) bool {
 	for _, af := range active {
-		if !af.fd.Match(af.param, af.fd.Extract(event)) {
+		if !af.matches(event) {
 			return false
 		}
 	}
 	return true
+}
+
+func (a activeFilter[T]) matches(
+	event T,
+) bool {
+	if a.fd.ExtractSet == nil {
+		return a.fd.Match(a.param, a.fd.Extract(event))
+	}
+	for _, value := range a.fd.ExtractSet(event) {
+		if a.fd.Match(a.param, value) {
+			return true
+		}
+	}
+	return false
 }

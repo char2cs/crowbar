@@ -44,7 +44,7 @@ func TestRelay_ForwardsEachLineAndWritesTheReply(t *testing.T) {
 	require.NoError(t, runMCPRelay(in, &out, post, "SEG", "P", "R", "W", "TOK"))
 
 	require.Len(t, *calls, 1)
-	require.Equal(t, "/v0/projects/P/repos/R/workspaces/W/chats/runners/SEG/mcp", (*calls)[0].path)
+	require.Equal(t, "/v0/projects/P/repos/R/chats/runners/SEG/mcp", (*calls)[0].path)
 	require.Equal(t, "TOK", (*calls)[0].body["token"])
 
 	// Exactly one line out, and it is the unwrapped rpc object.

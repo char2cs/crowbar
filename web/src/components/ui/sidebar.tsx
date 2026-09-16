@@ -253,18 +253,13 @@ export function SidebarHeader({
 }: React.ComponentProps<'div'>): React.ReactElement {
   return (
     <div
-      // `pt-1` rather than the `p-2` this had on all four sides, because the
-      // header's TOP is half of a gap the sidebar tab bar owns the other half of.
-      // The bar below the context pill is `py-1.5`, so the rhythm down the top of
-      // the sidebar is: pill wrapper `pb-1` (4px) + bar `pt-1.5` (6px) = 10px to
-      // the switcher, and bar `pb-1.5` (6px) + this `pt-1` (4px) = 10px from the
-      // switcher to whatever panel follows. It read 14px here and 6px in the
-      // Chats panel, which drew the eye to the switcher sitting closer to one
-      // neighbour than the other.
-      //
-      // It lives HERE, on the header every search panel is wrapped in, so a
-      // third panel inherits the rhythm instead of picking its own padding.
-      className={cn('flex flex-col gap-2 px-2 pt-1 pb-2 backdrop-blur-sm', className)}
+      // No vertical padding — this header sits flush against its neighbours,
+      // same as any other row. `pl-3 pr-3` (12px each) matches a depth-0 tree
+      // row's own total inset: the container's own `px-1.5` (6px, the
+      // sidebar row's `mx-1.5` gutter) plus the row's own `px-1.5`/
+      // FILE_TREE_BASE_INDENT (6px, the sidebar row's own `px-1.5` content
+      // padding) — file-explorer-tree.tsx and file-explorer-tree-item.tsx.
+      className={cn('flex flex-col gap-2 pl-3 pr-3 backdrop-blur-sm', className)}
       data-sidebar="header"
       data-slot="sidebar-header"
       {...props}

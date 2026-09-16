@@ -1,5 +1,5 @@
-// Package handlers holds the gin handlers backing the
-// .../workspaces/:wsId/agent endpoints.
+// Package handlers holds the gin handlers backing the .../repos/:repoId/chats
+// endpoints, and their re-mount under the project home group.
 package handlers
 
 import (
@@ -17,11 +17,23 @@ import (
 // It starts no processes and reads no vendor CLI. Every route served off here
 // answers whether or not a runner has ever been placed on the chat.
 type ChatUsecase interface {
-	// ListChatsByWorkspace returns every AgentChat anchored to workspaceID
-	// (Task 3: List is scoped by the :wsId path param, not global).
+	// ListChatsByWorkspace returns every AgentChat anchored to workspaceID. List
+	// calls this when its request still names a workspace (the home mount's
+	// injected :wsId); otherwise it falls back to ListChats below.
 	ListChatsByWorkspace(
 		ctx context.Context,
 		workspaceID string,
+	) ([]domain.Chat, error)
+
+	// ListChatsInRepo returns every conversation-typed row whose cwd walk lands
+	// on a workspace in repoID — what List answers once a request no longer
+	// names a workspace (Task 17), and the enforcement of the repo boundary
+	// that fallback originally went without. A row with no resolvable workspace
+	// anywhere in its ancestry belongs to no repo, so it is dropped rather than
+	// returned into whichever repo happened to ask.
+	ListChatsInRepo(
+		ctx context.Context,
+		repoID string,
 	) ([]domain.Chat, error)
 
 	GetChat(
@@ -56,6 +68,18 @@ type ChatUsecase interface {
 		ctx context.Context,
 		chatID, model, effort string,
 	) error
+
+	// Promote fills a bubble's empty workspace slot: a worktree forked from the
+	// chat's resolved fork parent, with its current provider respawned into it
+	// (model spec §4.2). The chat keeps its id, title, placement and every turn
+	// it has taken. It refuses a chat that already has a workspace
+	// (ErrAlreadyPromoted), one with no workspace-owning ancestor to fork from
+	// (ErrNoForkParent), and one that has never had a provider to respawn as
+	// (ErrNothingToPromote).
+	Promote(
+		ctx context.Context,
+		chatID string,
+	) (domain.Chat, error)
 
 	// PurgeChat hard-deletes chatID via asynx Forget, then best-effort kills the
 	// vendor CLI that was pointed at it. The chat is fully erased — gone from every
@@ -373,55 +397,82 @@ type ProviderUsecase interface {
 // this panel is not one chat: a chat's children are THREADS of it, so they go
 // with it. Only something holding the tree can know which chats those are.
 type ChatTreeUsecase interface {
-	ListInWorkspace(
+	ListInRepo(
 		ctx context.Context,
-		workspaceID string,
-	) ([]domain.ChatFolder, error)
+		repoID string,
+	) ([]domain.Chat, error)
 	Create(
 		ctx context.Context,
 		in agentusecase.CreateInput,
-	) (domain.ChatFolder, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	Rename(
 		ctx context.Context,
-		workspaceID string,
 		id string,
 		name string,
-	) (domain.ChatFolder, error)
+	) (domain.Chat, error)
 	Move(
 		ctx context.Context,
-		workspaceID string,
 		id string,
 		in agentusecase.MoveInput,
-	) (domain.ChatFolder, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	Delete(
 		ctx context.Context,
-		workspaceID string,
 		id string,
-	) ([]domain.ChatFolder, error)
+	) ([]domain.Chat, error)
 	// CreateChat mints a chat, places it under parentID (a chat, a folder, or "" for
 	// the panel root) and starts providerID's CLI on it — in that order, so a chat
 	// created as a THREAD carries the parent edge before its first CLI exists and is
 	// told what it reads on its very first session. runnerID is the crowbarSegmentID
 	// every hook from that CLI carries.
+	//
+	// worktree is model spec §4.1/§5.1's atomic create, in its three real states
+	// (agentusecase.WorktreeSpec): a plain chat, a fresh fork off the new chat's
+	// resolved fork parent, or an existing branch imported — the last two both
+	// minting the workspace and setting it on the chat in the SAME call, so the
+	// two effects are never observable apart. workspaceID is ignored for both.
 	CreateChat(
 		ctx context.Context,
 		workspaceID string,
 		providerID string,
 		parentID string,
+		worktree agentusecase.WorktreeSpec,
 	) (chatID, runnerID string, err error)
 	PlaceChat(
 		ctx context.Context,
 		workspaceID string,
 		chatID string,
 		in agentusecase.PlaceInput,
-	) (domain.Chat, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	DeleteChat(
 		ctx context.Context,
 		chatID string,
 	) (agentusecase.ChatDeletion, error)
+	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
+	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
+	// row in the subtree and the working-tree file count summed across every
+	// workspace-owning row in it.
+	DeletePreview(
+		ctx context.Context,
+		chatID string,
+	) (chatCount, fileCount int, err error)
 }
 
-// Handlers serves the .../workspaces/:wsId/agent routes from the agent usecase
+// Repos resolves the repository named by :repoId, so an IMPORTING create can
+// describe the branch it is adopting: a WorktreeImport names its repo outright
+// — the on-disk path git works in and the remote the branch is fetched from —
+// rather than inheriting them from a parent workspace an import rooted at the
+// repo does not have (see agentusecase.ImportSpec).
+//
+// It is the narrow slice this consumer needs and nothing more (law 4); the
+// container satisfies it with the real repository store (law 6).
+type Repos interface {
+	FindByKey(
+		ctx context.Context,
+		id string,
+	) (*domain.Repository, error)
+}
+
+// Handlers serves the .../repos/:repoId/chats routes from the agent usecase
 // and the Chats-panel tree usecase.
 type Handlers struct {
 	chats           ChatUsecase
@@ -430,6 +481,9 @@ type Handlers struct {
 	answers         AnswerUsecase
 	providers       ProviderUsecase
 	folders         ChatTreeUsecase
+	repos           Repos
+	worktrees       Worktrees
+	nodes           Nodes
 	broadcastFolder func(folderID, workspaceID, kind string)
 }
 
@@ -467,4 +521,50 @@ func New(
 		folders:         folders,
 		broadcastFolder: broadcastFolder,
 	}
+}
+
+// WithRepos wires the repository store an IMPORTING create reads its repo facts
+// from. Left unwired, a create asking to import is refused outright rather than
+// guessing them — see Create. Every other route is unaffected, which is why
+// this is a builder and not a New parameter: the home mount (home.Register)
+// builds these handlers for a surface where import is refused anyway, since it
+// always names a workspace to attach to.
+func (h *Handlers) WithRepos(
+	repos Repos,
+) *Handlers {
+	if repos != nil {
+		h.repos = repos
+	}
+	return h
+}
+
+// WithWorktrees wires the workspace reads a chat's own git fields are resolved
+// through (spec §5). Left unwired, every chat serializes with its worktree
+// absent — see Worktrees — which is why this is a builder rather than a New
+// parameter: it is the same optional-capability shape WithRepos already has,
+// and the surfaces that mount these handlers without it serve rows that own no
+// worktree anyway.
+func (h *Handlers) WithWorktrees(
+	worktrees Worktrees,
+) *Handlers {
+	if worktrees != nil {
+		h.worktrees = worktrees
+	}
+	return h
+}
+
+// WithNodes wires the Node read a worktree-owning chat's DTO resolves its own
+// sidebar FolderID/Order from (see Nodes, placementReader). Left unwired,
+// every worktree-owning chat serializes with FolderID/Order at their zero
+// value — the same degrade dto.WorkspacePlacementReader's own doc describes
+// for a row this fix has not reached yet — which is why this is a builder
+// rather than a New parameter, the same optional-capability shape
+// WithWorktrees already has.
+func (h *Handlers) WithNodes(
+	nodes Nodes,
+) *Handlers {
+	if nodes != nil {
+		h.nodes = nodes
+	}
+	return h
 }

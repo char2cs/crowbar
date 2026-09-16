@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/git/handlers"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -156,13 +157,22 @@ type noopWork struct{}
 func (noopWork) BeginWork(_ context.Context, _ string) {}
 func (noopWork) EndWork(_ context.Context, _ string)   {}
 
+// newRouterWithErrors wires the git handlers onto the flat chat-scoped group
+// the way router.go does, with a stand-in for chatScoped's
+// resolveChatWorktree middleware: the resolved workspace's id is the :chatId
+// path param, so the fixed "ws1" segment in the ws const below still names
+// the workspace every existing assertion in this file expects.
 func newRouterWithErrors(
 	g handlers.Git,
 	lastErrors handlers.LastErrorSetter,
 ) *gin.Engine {
 	r := gin.New()
 	h := handlers.New(g, lastErrors, noopWork{})
-	rg := r.Group("/v0/workspaces/:wsId/git")
+	rg := r.Group("/v0/chats/:chatId/git")
+	rg.Use(func(c *gin.Context) {
+		reqscope.SetWorkspace(c, domain.Workspace{ID: c.Param("chatId")})
+		c.Next()
+	})
 	rg.GET("/status", h.Status)
 	rg.GET("/diff", h.Diff)
 	rg.GET("/log", h.Log)
@@ -214,7 +224,7 @@ func do(
 	return rec
 }
 
-const ws = "/v0/workspaces/ws1/git"
+const ws = "/v0/chats/ws1/git"
 
 func TestGitReadHandlers(
 	t *testing.T,

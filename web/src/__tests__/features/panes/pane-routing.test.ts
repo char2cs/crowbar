@@ -10,12 +10,21 @@ import { createLeaf, createSplit } from '@/features/panes/utils/pane-layout'
 const BOTTOM_PANE_ID = 'bottom-pane'
 
 function makeGroup(id: string, overrides: Partial<PaneGroup> = {}): PaneGroup {
-  return { id, type: 'group', bufferIds: [], activeBufferId: null, ...overrides }
+  return {
+    id,
+    type: 'group',
+    chatId: null,
+    runnerId: null,
+    editorTabIds: [],
+    activeEditorTabId: null,
+    editorOpen: true,
+    ...overrides,
+  }
 }
 
 describe('pane routing', () => {
   it('keeps existing buffers in a locked active pane', () => {
-    const activePane = makeGroup(ROOT_PANE_ID, { bufferIds: ['buffer-a'], locked: true })
+    const activePane = makeGroup(ROOT_PANE_ID, { editorTabIds: ['buffer-a'], locked: true })
     const panes = { [ROOT_PANE_ID]: activePane }
     const rootLayout = createLeaf(ROOT_PANE_ID)
     const bottomLayout = createLeaf(BOTTOM_PANE_ID)
@@ -32,14 +41,14 @@ describe('pane routing', () => {
   })
 
   it('routes new buffers to the most recent unlocked pane in the same tree', () => {
-    const activePane = makeGroup(ROOT_PANE_ID, { bufferIds: ['buffer-a'], locked: true })
+    const activePane = makeGroup(ROOT_PANE_ID, { editorTabIds: ['buffer-a'], locked: true })
     const firstFallback = makeGroup('pane-b', {
-      bufferIds: ['buffer-b'],
-      activeBufferId: 'buffer-b',
+      editorTabIds: ['buffer-b'],
+      activeEditorTabId: 'buffer-b',
     })
     const mostRecentFallback = makeGroup('pane-c', {
-      bufferIds: ['buffer-c'],
-      activeBufferId: 'buffer-c',
+      editorTabIds: ['buffer-c'],
+      activeEditorTabId: 'buffer-c',
     })
     const rootLayout: LayoutNode = createSplit(
       'horizontal',
@@ -65,8 +74,8 @@ describe('pane routing', () => {
   })
 
   it('returns null when every pane in the active tree is locked', () => {
-    const activePane = makeGroup(ROOT_PANE_ID, { bufferIds: ['buffer-a'], locked: true })
-    const lockedFallback = makeGroup('pane-b', { bufferIds: ['buffer-b'], locked: true })
+    const activePane = makeGroup(ROOT_PANE_ID, { editorTabIds: ['buffer-a'], locked: true })
+    const lockedFallback = makeGroup('pane-b', { editorTabIds: ['buffer-b'], locked: true })
     const rootLayout: LayoutNode = createSplit(
       'horizontal',
       createLeaf(ROOT_PANE_ID),
@@ -89,12 +98,12 @@ describe('pane routing', () => {
   it('keeps routing scope within the active pane tree', () => {
     const rootPane = makeGroup(ROOT_PANE_ID)
     const bottomActivePane = makeGroup('bottom-active', {
-      bufferIds: ['terminal-a'],
-      activeBufferId: 'terminal-a',
+      editorTabIds: ['terminal-a'],
+      activeEditorTabId: 'terminal-a',
     })
     const bottomFallbackPane = makeGroup('bottom-fallback', {
-      bufferIds: ['terminal-b'],
-      activeBufferId: 'terminal-b',
+      editorTabIds: ['terminal-b'],
+      activeEditorTabId: 'terminal-b',
     })
     const rootLayout = createLeaf(ROOT_PANE_ID)
     const bottomLayout = createSplit(

@@ -72,6 +72,16 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
+	// wsToChats matters here, not just chatToWs: PushFile stamps the LIVE
+	// filesystem event with the fan-out set it resolves for the workspace, and
+	// this test's whole assertion is that a real edit's event reaches this
+	// chat-scoped subscriber — an empty set would drop it just as silently as
+	// a watcher that never started.
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-1": "w1"},
+		wsToChats:  map[string][]string{"w1": {"chat-1"}},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 
 	c := v0.New(tc.app, tc.eng)
 	r := gin.New()
@@ -79,7 +89,9 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	conn := dialWS(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/files/ws")
+	// spec §8 step 6 retired files' repo-scoped .../workspaces/:wsId/files/ws
+	// mount; the flat chat prefix is the only surface left.
+	conn := dialWS(t, srv, "/v0/chats/chat-1/files/ws")
 	c.WaitFilesRegistered()
 
 	// The ticker paces the STIMULUS, it is not the synchronisation.
@@ -119,7 +131,6 @@ type fileProbe struct {
 
 func (fileProbe) PushProject(_ dto.ProjectDTO)                 {}
 func (fileProbe) PushRepo(_ dto.RepoDTO)                       {}
-func (fileProbe) PushFolder(_ dto.FolderDTO)                   {}
 func (fileProbe) PushWorkspace(_ dto.WorkspaceDTO)             {}
 func (fileProbe) PushThread(_ dto.ThreadDTO)                   {}
 func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}
@@ -163,6 +174,10 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-1": "w1"},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 
 	probe := fileProbe{ch: make(chan domain.FileChangeEvent, 1)}
 	tc.app.Hub.Register(probe)
@@ -173,7 +188,9 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	_ = dialWS(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws")
+	// spec §8 step 6 retired editor/LSP's .../workspaces/:wsId/lsp/ws mount
+	// entirely; the flat chat prefix is the only surface left.
+	_ = dialWS(t, srv, "/v0/chats/chat-1/lsp/ws")
 	c.WaitLSPRegistered()
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "x.txt"), []byte("a"), 0o644))

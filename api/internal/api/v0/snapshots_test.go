@@ -110,86 +110,16 @@ func initGitRepo(
 	return dir
 }
 
-// TestSnapshot_Workspaces_DeliveredOnConnect proves the Workspaces
-// snapshot-on-subscribe (03 §1a): a client receives the current workspace row
-// immediately on connect (before any live Push), with the persisted hasConflicts
-// surfaced. With the agent-run concept removed, working is always false.
-func TestSnapshot_Workspaces_DeliveredOnConnect(t *testing.T) {
-	tc := newApp(t)
-	seedRepo(t, tc, "r1")
-	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
-
-	_, err := tc.app.Repositories.Workspace.Create(
-		ctx,
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "feat/x"},
-		now,
-	)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.Workspace.SyncWorkingTreeState(
-		ctx,
-		workspace.SyncInput{ID: "w1", HasConflicts: true, HasCommits: true},
-		now.Add(time.Minute),
-	)
-	require.NoError(t, err)
-
-	// Read-your-writes before subscribing. Create/Sync go through the ASYNC Send
-	// path, so the list read model the snapshot is built from settles out of
-	// band; dialling straight after the mutation races it. Lose that race and
-	// the snapshot carries nothing, readSnapshot blocks on a frame that will
-	// never come, and the whole PACKAGE dies on the 4m test timeout rather than
-	// this one test failing — which is exactly how it presented in CI.
-	tc.app.Repositories.WaitQuiescent()
-
-	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces")
-
-	got := readSnapshot(t, conn)
-	assert.Equal(t, "w1", got["id"])
-	assert.Equal(t, false, got["working"])
-	// hasConflicts was retired in W4; the working-tree conflict is now carried by
-	// status. The snapshot frame is the WorkspaceDTO wire shape (spec §9).
-	_, present := got["hasConflicts"]
-	assert.False(t, present)
-}
-
-// TestSnapshot_Workspaces_ScopePredicateFilters proves the snapshot is filtered
-// by the per-client predicate: a p2/r2-scoped client sees only its workspace.
-func TestSnapshot_Workspaces_ScopePredicateFilters(t *testing.T) {
-	tc := newApp(t)
-	seedRepoIn(t, tc, "p2", "r2")
-	ctx := context.Background()
-	now := time.Unix(1, 0).UTC()
-
-	_, err := tc.app.Repositories.Workspace.Create(
-		ctx,
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"},
-		now,
-	)
-	require.NoError(t, err)
-	_, err = tc.app.Repositories.Workspace.Create(
-		ctx,
-		workspace.CreateInput{ID: "w2", RepoID: "r2", ProjectID: "p2"},
-		now,
-	)
-	require.NoError(t, err)
-
-	// See TestSnapshot_Workspaces_DeliveredOnConnect: settle both projections
-	// before subscribing. This is the test that actually hung CI for 3m55s.
-	tc.app.Repositories.WaitQuiescent()
-
-	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p2/repos/r2/workspaces")
-
-	got := readSnapshot(t, conn)
-	assert.Equal(t, "w2", got["id"])
-}
-
-// TestSnapshot_Git_DeliveredOnConnectScoped proves the Git snapshot-on-subscribe:
-// a wsId-scoped client receives the current GitStatus of its workspace only.
+// TestSnapshot_Git_DeliveredOnConnectScoped proves the Git snapshot-on-subscribe
+// over the flat chat-scoped mount (spec §8 step 6 retired the old
+// .../workspaces/:wsId/git/status twin): a chat-scoped client receives the
+// current GitStatus of the worktree it resolves to only — gitSnapshot's BARE
+// chat-id branch (chatGitSnapshot), exercised end to end through a real
+// resolveChatWorktree resolve rather than pinned as a unit test in isolation.
 func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	tc := newApp(t)
 	seedRepo(t, tc, "rA")
+	seedRepo(t, tc, "rB")
 	ctx := context.Background()
 	now := time.Unix(1, 0).UTC()
 	repoA := initGitRepo(t)
@@ -207,17 +137,23 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 		now,
 	)
 	require.NoError(t, err)
+	// wsToChats matters here, not just chatToWs: the replay frame carries the
+	// SAME fan-out set a live push would (appendGitStatus), and gitDef's
+	// chatId filter is a Required membership match — an empty set would drop
+	// the snapshot exactly as it would drop a live frame.
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-a": "A"},
+		wsToChats:  map[string][]string{"A": {"chat-a"}},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 
 	// Settle the projections before subscribing (see
-	// TestSnapshot_Workspaces_DeliveredOnConnect). Doubly required here: the
-	// scope guard below reads the same read model, so losing the race rejects
-	// the upgrade rather than merely emptying the snapshot.
+	// TestSnapshot_Workspaces_DeliveredOnConnect): resolveChatWorktree's own
+	// resolve reads the same read model the projection settles.
 	tc.app.Repositories.WaitQuiescent()
 
-	// The URL scope must match workspace A's actual repo (rA): the scope guard
-	// now rejects a :wsId that does not belong to the :repoId in the path.
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/rA/workspaces/A/git/status")
+	conn := dialV0(t, srv, "/v0/chats/chat-a/git/status")
 
 	got := readSnapshot(t, conn)
 	assert.Equal(t, "main", got["branch"])
@@ -225,8 +161,12 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 	assert.False(t, hasWsID, "git payload is bare GitStatus")
 }
 
-// TestSnapshot_LSP_DeliveredOnConnect proves the LSP snapshot-on-subscribe: a
-// wsId-scoped client receives the engine's current diagnostics for its workspace.
+// TestSnapshot_LSP_DeliveredOnConnect proves the LSP snapshot-on-subscribe over
+// the flat chat-scoped mount (spec §8 step 6 retired editor/LSP's old
+// .../workspaces/:wsId/lsp/ws twin entirely): a chat-scoped client receives
+// the engine's current diagnostics for its OWN session — lspSnapshot's BARE
+// chat-id branch (chatLSPSnapshot) keys the engine lookup by the chat id
+// itself (spec §4.2's OWNED bucket), not by the workspace it resolves to.
 func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 	tc := newApp(t)
 	seedRepo(t, tc, "r1")
@@ -239,21 +179,26 @@ func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 		now,
 	)
 	require.NoError(t, err)
+	tc.app.Usecases.Worktree = stubChatWorktreeResolver{
+		chatToWs:   map[string]string{"chat-1": "w1"},
+		workspaces: tc.app.Repositories.Workspace,
+	}
 	tc.eng.LSP = seededLSP{
 		Engine: tc.eng.LSP,
-		diags:  map[string][]lspdomain.Diagnostic{"w1": {{Message: "boom"}}},
+		diags:  map[string][]lspdomain.Diagnostic{"chat-1": {{Message: "boom"}}},
 	}
 
 	// Settle the projections before subscribing (see
-	// TestSnapshot_Workspaces_DeliveredOnConnect); the wsId scope guard on this
-	// route reads the workspace read model too.
+	// TestSnapshot_Workspaces_DeliveredOnConnect): resolveChatWorktree's own
+	// resolve (confirming the chat has a worktree at all) reads the same read
+	// model the projection settles.
 	tc.app.Repositories.WaitQuiescent()
 
 	_, srv := serveV0(t, tc.app, tc.eng)
-	conn := dialV0(t, srv, "/v0/projects/p1/repos/r1/workspaces/w1/lsp/ws")
+	conn := dialV0(t, srv, "/v0/chats/chat-1/lsp/ws")
 
 	got := readSnapshot(t, conn)
-	assert.Equal(t, "w1", got["wsId"])
+	assert.Equal(t, "chat-1", got["wsId"])
 	diags, _ := got["diagnostics"].([]any)
 	require.Len(t, diags, 1)
 }

@@ -1,4 +1,6 @@
-import { apiFetch } from '@/lib/api'
+import { apiFetch, folderDTOFromWire, type ChatsFolderWireDTO } from '@/lib/api'
+import { workspaceBase } from '@/lib/workspace-scope-url'
+import type { FolderDTO } from '@/lib/types'
 
 /**
  * Where a row sits in the sidebar, for every level of it.
@@ -21,6 +23,10 @@ function repoBase(projectId: string, repoId: string): string {
   return `/v0/projects/${projectId}/repos/${repoId}`
 }
 
+function homeBase(projectId: string): string {
+  return `/v0/projects/${projectId}/home`
+}
+
 /** A workspace's SIDEBAR placement. `folderId` is never a fork parent. */
 export interface WorkspacePlacement {
   /** Owning folder, or '' for the repo root. Omitted leaves it where it is. */
@@ -28,16 +34,34 @@ export interface WorkspacePlacement {
   order?: number
 }
 
-export function placeWorkspace(
-  projectId: string,
-  repoId: string,
-  wsId: string,
-  placement: WorkspacePlacement,
-): Promise<void> {
-  return apiFetch(`${repoBase(projectId, repoId)}/workspaces/${wsId}`, {
+/**
+ * File a LOCKED branch's own row into a folder, at an index.
+ *
+ * Addressed to the WORKSPACE itself — `PATCH .../workspaces/:wsId/placement`
+ * (2026-09-09 sidebar-placement-unification, workspace-placement fix) — never
+ * to the chat that owns its worktree. That chat still exists and still owns
+ * every OTHER worktree verb (lock, sync, merge, reparent, ...), but a locked
+ * branch's own sidebar position is a fact about the branch, not about any
+ * conversation living inside it, and locked workspaces are not chats: routing
+ * this through the chat-addressed placement route was tried and rejected
+ * during this fix's own design (it would have meant "position" was the one
+ * thing this whole migration extracted from Chat that stayed reachable only
+ * through one).
+ *
+ * `folderId` is sent as the route's `parentId` — one field, because a
+ * folder and a locked branch's own row hang off the same sibling space
+ * within the branch's own repo. It stays named `folderId` on this side to
+ * keep the caller's guarantee that a folder can never be mistaken for a fork
+ * parent, which is a different edge written by `reparentWorkspace` next door.
+ */
+export function placeWorkspace(wsId: string, placement: WorkspacePlacement): Promise<void> {
+  return apiFetch(`${workspaceBase(wsId)}/placement`, {
     method: 'PATCH',
     headers: JSON_HEADERS,
-    body: JSON.stringify(placement),
+    body: JSON.stringify({
+      ...(placement.folderId !== undefined && { parentId: placement.folderId }),
+      ...(placement.order !== undefined && { order: placement.order }),
+    }),
   })
 }
 
@@ -50,25 +74,65 @@ export interface FolderPlacement {
   order?: number
 }
 
+/** One folder mutation's answer: the row asked about, plus every sibling a
+ *  dense renumber moved alongside it (folders and workspaces share one
+ *  sibling space). Apply both — matches `agent-api.ts`'s `createChatFolder`/
+ *  `updateChatFolder`, which read the same `{folder, shifted}` envelope off
+ *  the same backend route family. */
+interface FolderWriteResult {
+  folder: FolderDTO
+  shifted: FolderDTO[]
+}
+
+function toFolderWriteResult(
+  raw: { folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] },
+  projectId: string,
+  repoId: string,
+): FolderWriteResult {
+  return {
+    folder: folderDTOFromWire(raw.folder, projectId, repoId),
+    shifted: (raw.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, repoId)),
+  }
+}
+
 /**
- * Create a folder, and answer with its id.
+ * Create a folder, and answer with the created row plus its collateral.
  *
- * The FolderDTO itself arrives on the folders stream like every other entity —
- * the id comes back here only because filing rows INTO a new folder needs
- * something to address, and waiting for the stream first would make grouping a
- * two-round-trip gesture with a visible gap in the middle.
+ * There is no dedicated push channel for folders any more (Task 34), so this
+ * is not a seed for a later stream frame — it is the only confirmation the
+ * caller gets. `row-actions.ts`'s `performCreateFolder` applies it to
+ * `useSidebarStore` directly.
  */
 export function createFolder(
   projectId: string,
   repoId: string,
   name: string,
   parentId: string,
-): Promise<{ id: string }> {
-  return apiFetch(`${repoBase(projectId, repoId)}/folders`, {
-    method: 'POST',
-    headers: JSON_HEADERS,
-    body: JSON.stringify({ name, parentId }),
-  })
+): Promise<FolderWriteResult> {
+  return apiFetch<{ folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] }>(
+    `${repoBase(projectId, repoId)}/chats/folders`,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ name, parentId }),
+    },
+  ).then((raw) => toFolderWriteResult(raw, projectId, repoId))
+}
+
+/** {@link createFolder}, for the project-home workspace instead of a repo. */
+export function createHomeFolder(
+  projectId: string,
+  name: string,
+  parentId: string,
+): Promise<FolderWriteResult> {
+  return apiFetch<{ folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] }>(
+    `${homeBase(projectId)}/chats/folders`,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ name, parentId }),
+    },
+  ).then((raw) => toFolderWriteResult(raw, projectId, ''))
 }
 
 export function placeFolder(
@@ -76,32 +140,68 @@ export function placeFolder(
   repoId: string,
   folderId: string,
   placement: FolderPlacement,
-): Promise<void> {
-  return apiFetch(`${repoBase(projectId, repoId)}/folders/${folderId}`, {
-    method: 'PATCH',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(placement),
-  })
+): Promise<FolderWriteResult> {
+  return apiFetch<{ folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] }>(
+    `${repoBase(projectId, repoId)}/chats/folders/${folderId}`,
+    {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(placement),
+    },
+  ).then((raw) => toFolderWriteResult(raw, projectId, repoId))
 }
 
-/** Delete a folder. Its children reparent to the folder's own parent — a
- *  folder holds no worktrees, so removing one is not removing what it held. */
+/** {@link placeFolder}, for the project-home workspace instead of a repo. */
+export function placeHomeFolder(
+  projectId: string,
+  folderId: string,
+  placement: FolderPlacement,
+): Promise<FolderWriteResult> {
+  return apiFetch<{ folder: ChatsFolderWireDTO; shifted?: ChatsFolderWireDTO[] }>(
+    `${homeBase(projectId)}/chats/folders/${folderId}`,
+    {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(placement),
+    },
+  ).then((raw) => toFolderWriteResult(raw, projectId, ''))
+}
+
+/** Delete a folder, and answer with the rows its children's promotion moved.
+ *  Its children reparent to the folder's own parent — a folder holds no
+ *  worktrees, so removing one is not removing what it held. */
 export function deleteFolder(
   projectId: string,
   repoId: string,
   folderId: string,
   init?: RequestInit,
-): Promise<void> {
-  return apiFetch(`${repoBase(projectId, repoId)}/folders/${folderId}`, {
-    method: 'DELETE',
-    ...init,
-  })
+): Promise<FolderDTO[]> {
+  return apiFetch<{ shifted?: ChatsFolderWireDTO[] } | null>(
+    `${repoBase(projectId, repoId)}/chats/folders/${folderId}`,
+    { method: 'DELETE', ...init },
+  ).then((raw) => (raw?.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, repoId)))
 }
 
-/** A repo's owning project and its index within that project's section. */
+/** {@link deleteFolder}, for the project-home workspace instead of a repo. */
+export function deleteHomeFolder(
+  projectId: string,
+  folderId: string,
+  init?: RequestInit,
+): Promise<FolderDTO[]> {
+  return apiFetch<{ shifted?: ChatsFolderWireDTO[] } | null>(
+    `${homeBase(projectId)}/chats/folders/${folderId}`,
+    { method: 'DELETE', ...init },
+  ).then((raw) => (raw?.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, '')))
+}
+
+/** A repo's owning project, its index within that project's section, and the
+ *  project-home folder its own entry is filed under. */
 export interface RepoPlacement {
   projectId?: string
   order?: number
+  /** A project-home folder id, or '' for the project's home root. Omitted
+   *  leaves the repo in whichever folder it already sits in. */
+  folderId?: string
 }
 
 export function placeRepo(

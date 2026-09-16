@@ -30,7 +30,7 @@ func reviewErrorStatus(
 	return http.StatusInternalServerError
 }
 
-// Get handles GET /v0/workspaces/:wsId/review, returning the composite
+// Get handles GET /v0/chats/:chatId/review, returning the composite
 // branch-review read model for the workspace.
 //
 // The response goes through BranchReviewDTOFrom rather than the domain object.
@@ -45,7 +45,7 @@ func reviewErrorStatus(
 func (h *Handlers) Get(
 	ctx *gin.Context,
 ) {
-	review, err := h.reviewUsecase.Get(ctx.Request.Context(), ctx.Param("wsId"))
+	review, err := h.reviewUsecase.Get(ctx.Request.Context(), h.workspaceID(ctx))
 	if err != nil {
 		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return
@@ -53,7 +53,7 @@ func (h *Handlers) Get(
 	libs.WriteQueryOK(ctx, dto.BranchReviewDTOFrom(review))
 }
 
-// SetMergeStrategy handles PATCH /v0/workspaces/:wsId/review, updating the
+// SetMergeStrategy handles PATCH /v0/chats/:chatId/review, updating the
 // merge strategy for the workspace.
 func (h *Handlers) SetMergeStrategy(
 	ctx *gin.Context,
@@ -65,7 +65,7 @@ func (h *Handlers) SetMergeStrategy(
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.reviewUsecase.SetMergeStrategy(ctx.Request.Context(), ctx.Param("wsId"), body.MergeStrategy); err != nil {
+	if err := h.reviewUsecase.SetMergeStrategy(ctx.Request.Context(), h.workspaceID(ctx), body.MergeStrategy); err != nil {
 		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return
 	}

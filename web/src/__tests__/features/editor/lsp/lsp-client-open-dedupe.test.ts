@@ -27,8 +27,10 @@ function postPaths() {
 describe('LspClient didOpen/didClose dedupe (I4)', () => {
   beforeEach(() => {
     apiFetch.mockClear()
-    // §3: workspaceBase resolves the hierarchical scope from @/lib/workspace-scope.
-    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
+    // lspBaseForWorkspace resolves the OWNING CHAT from @/lib/workspace-scope
+    // (chat-scoped API spec §4.2's owned bucket) — without owningChatId here it
+    // throws before any apiFetch call is even made.
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
   })
 
   it('opens a document exactly once even when two owners open it', async () => {

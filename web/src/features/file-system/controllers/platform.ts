@@ -1,6 +1,6 @@
 import { apiFetch, isNotFoundError } from '@/lib/api'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { filesBaseForWorkspace } from '@/lib/workspace-scope-url'
 import {
   decodeFileContent,
   type FileContentPayload,
@@ -20,21 +20,39 @@ import {
 // dead. Do not reintroduce a reader that fabricates a success value — if the
 // operation cannot be performed, throw.
 
-// Backend file routes are workspace-scoped (§3 hierarchical); resolve the active
-// workspace and build its files base URL. Throws when no workspace is active so
-// callers fail loudly rather than silently dropping a save.
+// Resolve the active workspace and build its files base URL. Throws when no
+// workspace is active so callers fail loudly rather than silently dropping a
+// save.
 function filesBase(): string {
   const wsId = getActiveWorkspaceId()
   if (!wsId) throw new Error('no active workspace for file operation')
-  return filesBaseFor(wsId)
-}
-
-function filesBaseFor(wsId: string): string {
-  return `${workspaceBase(wsId)}/files`
+  return filesBaseForWorkspace(wsId)
 }
 
 export async function writeFile(path: string, content: string): Promise<void> {
   await apiFetch(`${filesBase()}/content`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  })
+}
+
+/**
+ * Write a file to an explicit workspace. Buffers are window-level now (Task
+ * 26) — a save/autosave/LSP-edit call site holds a `buffer.workspaceId` that
+ * can disagree with whichever workspace is merely ACTIVE right now (the user
+ * can switch workspaces while a different one's tab stays open, dirty, in
+ * the shared pane tree). `writeFile`'s implicit active-workspace resolution
+ * would silently write into the WRONG worktree's file in that case — mirrors
+ * `readWorkspaceFile`'s own reasoning; every real write path must use this,
+ * never `writeFile`, once a buffer's owning workspace is known.
+ */
+export async function writeWorkspaceFile(
+  wsId: string,
+  path: string,
+  content: string,
+): Promise<void> {
+  await apiFetch(`${filesBaseForWorkspace(wsId)}/content`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content }),
@@ -58,7 +76,7 @@ export async function readFile(path: string): Promise<string> {
  */
 export async function readWorkspaceFile(wsId: string, path: string): Promise<string> {
   const payload = await apiFetch<FileContentPayload>(
-    `${filesBaseFor(wsId)}/content?path=${encodeURIComponent(path)}`,
+    `${filesBaseForWorkspace(wsId)}/content?path=${encodeURIComponent(path)}`,
   )
   return decodeFileContent(payload)
 }

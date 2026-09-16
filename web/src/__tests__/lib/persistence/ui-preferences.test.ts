@@ -6,7 +6,7 @@ import { resetDB } from '@/lib/persistence/idb'
 const mockPrefs: UIPreferences = {
   theme: 'github-dark',
   fontSize: 15,
-  fontFamily: 'JetBrains Mono Variable',
+  fontFamily: 'Geist Mono Variable',
   tabSize: 2,
   wordWrap: true,
   minimap: false,

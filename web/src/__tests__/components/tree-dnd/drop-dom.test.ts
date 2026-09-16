@@ -4,10 +4,10 @@
  *
  * Two invented trees are wired up here — 'notes' and 'cards' — and neither is
  * the sidebar. That is the whole point: the sidebar's own hit test is covered
- * against its real attributes in `layout/drop-target-dom.test.ts`, so what is
- * left to prove is that a tree the core has never heard of gets identical
- * behaviour by handing in a table, and that two such trees on one page cannot
- * see each other's rows.
+ * against its real attributes in `sidebar/hooks/use-sidebar-drag.test.ts`, so
+ * what is left to prove is that a tree the core has never heard of gets
+ * identical behaviour by handing in a table, and that two such trees on one
+ * page cannot see each other's rows.
  *
  * jsdom has neither `elementsFromPoint` nor real layout, so both are stubbed.
  * The geometry IS the input, so stating it explicitly is what makes the band
@@ -29,6 +29,7 @@ import {
   createDropHitTest,
   createDropRowDom,
   type DropRowSpec,
+  type DropZone,
 } from '@/components/tree-dnd/drop-dom'
 
 /** A tree with two kinds, a scope, a label and the two structural flags. */
@@ -271,6 +272,29 @@ describe('the hit test, bound to a table and a policy', () => {
     expect(findNote(0, 0, [dragged])).toBeNull()
   })
 
+  // Reported live: dragging a chat onto a folder consistently resolved as a
+  // sibling reorder rather than nesting into it. `drag-ghost.tsx`'s
+  // `cloneGhostRows` deep-clones the DRAGGED row's own DOM — drop attributes
+  // and all — onto a floating overlay (`data-drag-ghost`) that tracks the
+  // cursor, so it sits exactly where a drop is being aimed; a clone carrying
+  // the dragged row's own kind+id is exactly the shape of thing that could
+  // turn a hit-testing quirk into a silently wrong target. This pins the hit
+  // test refusing to treat anything inside that overlay as a row, ghost
+  // clone or not, and falling through to whatever real row is underneath —
+  // never stopping (see "stops at a refusing row" above) on the ghost the
+  // way it correctly stops on a real refusing row.
+  it('never resolves to the drag ghost, and falls through to the real row underneath it', () => {
+    const ghostWrap = document.createElement('div')
+    ghostWrap.setAttribute('data-drag-ghost', '')
+    const ghostClone = mount(notes.props({ kind: 'note', id: 'dragged' }))
+    ghostWrap.appendChild(ghostClone)
+    document.body.appendChild(ghostWrap)
+    const real = mount(notes.props({ kind: 'group', id: 'g1' }))
+    stackAt(ghostClone, real)
+
+    expect(findNote(0, at(0.5), [dragged])).toMatchObject({ row: { id: 'g1', mode: 'into' } })
+  })
+
   it('draws nothing when the position lands on a mode the matrix refused', () => {
     const beforeOnly = createDropHitTest(notes, {
       allowedModes: () => REORDER_MODES,
@@ -320,5 +344,63 @@ describe('a whole-region drop zone', () => {
     stackAt(mount(notes.props({ kind: 'note', id: 'n1' })))
 
     expect(findWithTrash(0, at(0.5), [dragged])).toMatchObject({ kind: 'row' })
+  })
+})
+
+// Addendum §2's own blocker: the pane zone (use-sidebar-drag.ts's own
+// `paneZone`) already occupied `createDropHitTest`'s one `zone` slot before
+// a second whole-region target (the file explorer card's trash surface)
+// needed one too.
+describe('several whole-region drop zones at once', () => {
+  const dragged: DragSubjectBase = { kind: 'note', id: 'dragged' }
+  const ZONE_A_ATTR = 'data-zone-a'
+  const ZONE_B_ATTR = 'data-zone-b'
+  type EitherZoneHit = { kind: 'a' } | { kind: 'b' }
+  const zoneA: DropZone<DragSubjectBase, EitherZoneHit> = {
+    attr: ZONE_A_ATTR,
+    hit: () => ({ kind: 'a' }),
+  }
+  const zoneB: DropZone<DragSubjectBase, EitherZoneHit> = {
+    attr: ZONE_B_ATTR,
+    hit: () => ({ kind: 'b' }),
+  }
+  const findEither = createDropHitTest(notes, notePolicy, [zoneA, zoneB])
+
+  const makeZone = (attr: string) => {
+    const el = document.createElement('div')
+    el.setAttribute(attr, '')
+    return el
+  }
+
+  it('checked in the order given — the first zone in the array wins when both are present', () => {
+    stackAt(makeZone(ZONE_A_ATTR), makeZone(ZONE_B_ATTR))
+
+    expect(findEither(0, at(0.5), [dragged])).toEqual({ kind: 'a' })
+  })
+
+  it('a later zone in the array still resolves when the earlier one is not the topmost element', () => {
+    stackAt(makeZone(ZONE_B_ATTR))
+
+    expect(findEither(0, at(0.5), [dragged])).toEqual({ kind: 'b' })
+  })
+
+  it('per-element compositing order still governs — a row painted above both zones wins', () => {
+    stackAt(mount(notes.props({ kind: 'note', id: 'n1' })), makeZone(ZONE_A_ATTR))
+
+    expect(findEither(0, at(0.5), [dragged])).toMatchObject({ kind: 'row' })
+  })
+
+  it('a bare single zone (not an array) keeps working exactly as before — every existing caller', () => {
+    const findSingle = createDropHitTest(notes, notePolicy, zoneA)
+    stackAt(makeZone(ZONE_A_ATTR))
+
+    expect(findSingle(0, at(0.5), [dragged])).toEqual({ kind: 'a' })
+  })
+
+  it('no zone at all is still a plain row-only hit test', () => {
+    const findNone = createDropHitTest(notes, notePolicy)
+    stackAt(mount(notes.props({ kind: 'note', id: 'n1' })))
+
+    expect(findNone(0, at(0.5), [dragged])).toMatchObject({ kind: 'row' })
   })
 })

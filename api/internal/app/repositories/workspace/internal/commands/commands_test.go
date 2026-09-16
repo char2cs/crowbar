@@ -301,7 +301,7 @@ func TestTouchActivity_Validate_AcceptsExisting(t *testing.T) {
 func TestReparent_SetsParentAndForkPoint(t *testing.T) {
 	now := time.Unix(4000, 0)
 	cur := &domain.Workspace{ID: "w1", ParentID: "old", ForkPointSha: "oldsha"}
-	ws := Reparent{ID: "w1", ParentID: "new", ForkPointSha: "newsha", Now: now}.EmitEvent(cur)
+	ws := Reparent{ID: "w1", NewForkParentID: "new", ForkPointSha: "newsha", Now: now}.EmitEvent(cur)
 	assert.Equal(t, "new", ws.ParentID)
 	assert.Equal(t, "newsha", ws.ForkPointSha)
 	assert.Equal(t, now, ws.LastActivity)
@@ -313,7 +313,7 @@ func TestReparent_Validate_RejectsMissingParent(t *testing.T) {
 }
 
 func TestReparent_Validate_RejectsMissingCurrent(t *testing.T) {
-	err := Reparent{ID: "w1", ParentID: "p", ForkPointSha: "s"}.Validate(nil)
+	err := Reparent{ID: "w1", NewForkParentID: "p", ForkPointSha: "s"}.Validate(nil)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
@@ -335,12 +335,12 @@ func TestUpdateForkPoint_Validate_RejectsMissingSha(t *testing.T) {
 }
 
 func TestReparent_Validate_RejectsMissingForkPoint(t *testing.T) {
-	err := Reparent{ID: "w1", ParentID: "p"}.Validate(&domain.Workspace{ID: "w1"})
+	err := Reparent{ID: "w1", NewForkParentID: "p"}.Validate(&domain.Workspace{ID: "w1"})
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation))
 }
 
 func TestReparent_Validate_AcceptsValid(t *testing.T) {
-	err := Reparent{ID: "w1", ParentID: "p", ForkPointSha: "s"}.Validate(&domain.Workspace{ID: "w1"})
+	err := Reparent{ID: "w1", NewForkParentID: "p", ForkPointSha: "s"}.Validate(&domain.Workspace{ID: "w1"})
 	assert.NoError(t, err)
 }
 

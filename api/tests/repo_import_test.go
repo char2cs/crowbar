@@ -110,23 +110,22 @@ func TestRepoImport_ProtectedBranchesGetManagedWorktrees(t *testing.T) {
 	repoID, _ := repo["id"].(string)
 	require.NotEmpty(t, repoID)
 
-	// 3. Collect the repo's workspaces from the per-repo stream until the two
-	//    protected branches have materialised (snapshot + live frames).
+	// 3. Read the repo's workspaces back off the chat list once both protected
+	//    branches have materialised.
 	//
-	//    Join the import's post-commit reactors FIRST. Provisioning runs
-	//    asynchronously off the repo POST above, so a stream dialled here races
-	//    it: the frames for the protected branches can be broadcast before this
-	//    connection exists, and the snapshot that would otherwise carry them is
-	//    built from an independent read model that settles separately. Lose both
-	//    and the collector waits on a branch that is never coming — on Linux it
-	//    lost every time, and saw only [(default) develop] with master missing.
+	//    Join the import's post-commit reactors FIRST: provisioning runs
+	//    asynchronously off the repo POST above. The repo-scoped chat feed that
+	//    replaced the old workspaces WS carries no snapshot (agentChatDef), so a
+	//    live-frame wait dialled here would race the provisioning and could hang
+	//    forever if it lost; reading the settled projection back over REST after
+	//    QuiesceReactors is the deterministic replacement (mirrors importProject's
+	//    own "read back rather than awaited" reasoning).
 	h.QuiesceReactors()
-	wsConn := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
-	byBranch := collectWorkspacesUntil(t, wsConn, func(seen map[string]homeWorkspaceDTO) bool {
-		_, dev := seen["develop"]
-		_, mas := seen["master"]
-		return dev && mas
-	})
+	byBranch := collectWorkspacesFromChats(t, h, projectID, repoID)
+	_, sawDev := byBranch["develop"]
+	_, sawMas := byBranch["master"]
+	require.True(t, sawDev, "the held protected branch must have materialised once reactors are drained")
+	require.True(t, sawMas, "the free protected branch must have materialised once reactors are drained")
 
 	// The repo home: default, STAYS on its branch (develop), rooted at the repo folder.
 	var home homeWorkspaceDTO
@@ -256,13 +255,10 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	reposWS := h.dial("/v0/projects/" + projectID + "/repos")
 	firstRepoID := addRepo(t, h, reposWS, projectID, repoDir)
 
-	first := collectWorkspacesUntil(t,
-		h.dial("/v0/projects/"+projectID+"/repos/"+firstRepoID+"/workspaces"),
-		func(seen map[string]homeWorkspaceDTO) bool {
-			_, ok := seen["main"]
-			return ok
-		})
-	orphan := first["main"]
+	h.QuiesceReactors()
+	first := collectWorkspacesFromChats(t, h, projectID, firstRepoID)
+	orphan, ok := first["main"]
+	require.True(t, ok, "the first import must have provisioned main once reactors are drained")
 	require.Equal(t, "locked", orphan.Status, "the first import claims main as a locked workspace")
 	require.NotEmpty(t, orphan.LocalPath, "the first import gets a real managed worktree for main")
 
@@ -315,12 +311,7 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	// state, and hung forever when it did not. On Linux it never did: 0/5.
 	h.QuiesceReactors()
 
-	second := collectWorkspacesUntil(t,
-		h.dial("/v0/projects/"+projectID+"/repos/"+secondRepoID+"/workspaces"),
-		func(seen map[string]homeWorkspaceDTO) bool {
-			_, ok := seen["main"]
-			return ok
-		})
+	second := collectWorkspacesFromChats(t, h, projectID, secondRepoID)
 
 	mainRow, ok := second["main"]
 	require.True(t, ok,
@@ -414,12 +405,10 @@ func TestRepoImport_UnbornBranchRepo_DegradesGracefully(t *testing.T) {
 	require.NotEmpty(t, repoID, "the repo is still imported despite the unborn branch (degrade, not fail)")
 
 	// The repo has a home (default) workspace and was not rolled back.
-	wsConn := h.dial("/v0/projects/" + projectID + "/repos/" + repoID + "/workspaces")
-	seen := collectWorkspacesUntil(t, wsConn, func(s map[string]homeWorkspaceDTO) bool {
-		_, ok := s["(default)"]
-		return ok
-	})
-	home := seen["(default)"]
+	h.QuiesceReactors()
+	seen := collectWorkspacesFromChats(t, h, projectID, repoID)
+	home, ok := seen["(default)"]
+	require.True(t, ok, "the unborn repo must still get its home workspace")
 	assert.True(t, home.IsDefault, "the unborn repo still gets its home workspace")
 	assert.Equal(t, repoDir, home.LocalPath)
 }
@@ -493,72 +482,55 @@ func TestRegression_RepoRename_UpdatesNameAndBroadcasts(t *testing.T) {
 	assert.Equal(t, "R", renamed["avatarLabel"], "the generated avatar tracks the new name")
 }
 
-// collectWorkspacesUntil reads WorkspaceDTO frames off a workspaces WS,
-// accumulating the latest per branch, until done(seen) is true. Frames without
-// an id (e.g. control frames) are skipped.
-//
-// It blocks on real frames and carries no deadline: each WorkspaceDTO's arrival
-// is the signal that another workspace has materialised. If one never does, the
-// read parks in readUntil and `go test -timeout` names the stuck test — instead
-// of an "i/o timeout" that says nothing about which workspace was missing.
-func collectWorkspacesUntil(
+// collectWorkspacesFromChats reads the repo's worktree-owning chats back over
+// REST, keyed by branch, and is what a WS wait for provisioned rows was
+// replaced with: the repo-scoped chat feed that replaced the workspaces WS
+// carries no snapshot (agentChatDef), so a live-frame wait dialled after the
+// provisioning it wants to observe can hang forever having already missed it.
+// Callers join the async provisioning with Quiesce/QuiesceReactors FIRST — the
+// deterministic barrier — then read the settled projection here.
+func collectWorkspacesFromChats(
 	t *testing.T,
-	conn *websocket.Conn,
-	done func(map[string]homeWorkspaceDTO) bool,
+	h *harness,
+	projectID string,
+	repoID string,
 ) map[string]homeWorkspaceDTO {
 	t.Helper()
 	seen := map[string]homeWorkspaceDTO{}
-	// readUntil aborts the test from inside the loop when its bound expires, so
-	// report what DID arrive from a cleanup — otherwise the only thing on record
-	// is "no matching frame", which never says which branches the import
-	// actually produced and which one went missing.
-	t.Cleanup(func() {
-		if !t.Failed() {
-			return
+	for _, c := range listChats(t, h, projectID, repoID) {
+		if c.Worktree == nil {
+			continue
 		}
+		w := c.Worktree
+		seen[branchKey(w)] = homeWorkspaceDTO{
+			ID:         c.WorkspaceID,
+			RepoID:     repoID,
+			Branch:     w.Branch,
+			Status:     w.Status,
+			IsDefault:  w.IsDefault,
+			LocalPath:  w.LocalPath,
+			HeldByPath: w.HeldByPath,
+		}
+	}
+	if t.Failed() {
 		keys := make([]string, 0, len(seen))
 		for k := range seen {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		t.Logf("collectWorkspacesUntil saw %d workspace(s): %v", len(keys), keys)
-	})
-	for {
-		readUntil(t, conn, func(m map[string]any) bool {
-			id, _ := m["id"].(string)
-			if id == "" {
-				return false
-			}
-			seen[branchKey(m)] = homeWorkspaceDTO{
-				ID:         id,
-				RepoID:     asString(m["repoId"]),
-				Branch:     asString(m["branch"]),
-				Status:     asString(m["status"]),
-				IsDefault:  m["isDefault"] == true,
-				LocalPath:  asString(m["localPath"]),
-				HeldByPath: asString(m["heldByPath"]),
-			}
-			return true
-		})
-		if done(seen) {
-			return seen
-		}
+		t.Logf("collectWorkspacesFromChats saw %d workspace(s): %v", len(keys), keys)
 	}
+	return seen
 }
 
 // branchKey keys a workspace by branch, falling back to the default marker for the
 // repo home so it does not collide with the same-branch placeholder row (the home
 // now stays on its protected branch instead of detaching, spec §3.4).
-func branchKey(m map[string]any) string {
-	if m["isDefault"] == true {
+func branchKey(w *worktreeWire) string {
+	if w.IsDefault {
 		return "(default)"
 	}
-	return asString(m["branch"])
-}
-
-func asString(v any) string {
-	s, _ := v.(string)
-	return s
+	return w.Branch
 }
 
 // samePathResolved reports whether two filesystem paths point at the same
@@ -663,10 +635,12 @@ func TestRegression_RepoRename_KeepsWorktreesUnderTheOriginalPathSlug(t *testing
 		"the pre-rename workspace must not be stranded")
 }
 
-// createWorkspaceOnBranch runs the async workspace create and returns once the
-// repo-scoped stream has delivered the resulting WorkspaceDTO — the frame's
-// arrival is the completion signal, so the worktree is on disk by the time this
-// returns.
+// createWorkspaceOnBranch cuts a workspace on branch off the repo's default
+// branch (no parent named, exactly as the deleted POST .../workspaces did with
+// no parentId in its body). There is no HTTP route for a caller-named branch any
+// more (spec §8 step 6): the chat-scoped create only auto-derives a branch name
+// or imports one that already exists on the remote, so this goes through the
+// same usecase fixtures_test.go's createWorktree does, and for the same reason.
 func createWorkspaceOnBranch(
 	t *testing.T,
 	h *harness,
@@ -675,15 +649,5 @@ func createWorkspaceOnBranch(
 	branch string,
 ) string {
 	t.Helper()
-	base := "/v0/projects/" + projectID + "/repos/" + repoID
-	workspacesWS := h.dial(base + "/workspaces")
-	resp := h.raw(http.MethodPost, base+"/workspaces",
-		map[string]string{"branch": branch}, http.StatusAccepted)
-	_ = resp.Body.Close()
-	created := readUntil(t, workspacesWS, func(m map[string]any) bool {
-		return m["branch"] == branch && m["status"] == "new"
-	})
-	id, _ := created["id"].(string)
-	require.NotEmpty(t, id, "workspace create must broadcast an id")
-	return id
+	return createChildWorkspace(t, h, importedRepo{projectID: projectID, repoID: repoID}, branch, "")
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
@@ -113,36 +114,21 @@ type GitEngine interface {
 	) ([]gitdomain.BlameEntry, error)
 }
 
-// WorkspaceReader resolves a workspace id to its aggregate, supplying the
-// worktree path the LSP and git engines operate against. It mirrors the
-// workspace repository's Get method.
-type WorkspaceReader interface {
-	Get(
-		ctx context.Context,
-		id string,
-	) (domain.Workspace, error)
-}
-
-// Handlers serves the /v0 editor routes from the LSP host, the git engine, and
-// the workspace reader. A nil lsp or git engine surfaces as a 503 on the
-// affected route.
+// Handlers serves the /v0 editor routes from the LSP host and the git engine.
+// A nil lsp or git engine surfaces as a 503 on the affected route.
 type Handlers struct {
-	lsp      LSPEngine
-	git      GitEngine
-	wsReader WorkspaceReader
+	lsp LSPEngine
+	git GitEngine
 }
 
-// New builds the editor Handlers from the LSP host, the git engine, and the
-// workspace reader.
+// New builds the editor Handlers from the LSP host and the git engine.
 func New(
 	lsp LSPEngine,
 	git GitEngine,
-	wsReader WorkspaceReader,
 ) *Handlers {
 	return &Handlers{
-		lsp:      lsp,
-		git:      git,
-		wsReader: wsReader,
+		lsp: lsp,
+		git: git,
 	}
 }
 
@@ -174,17 +160,40 @@ func (h *Handlers) requireGit(
 	return true
 }
 
+// workspace answers which workspace this request acts on: the chat group's
+// resolveChatWorktree middleware has already resolved the chat's worktree and
+// stashed it on the context, so it is read back from reqscope. A miss means
+// the route is mounted outside that middleware, which is a wiring bug rather
+// than anything the caller did.
+func (h *Handlers) workspace(
+	c *gin.Context,
+) (domain.Workspace, bool) {
+	ws, ok := reqscope.Workspace(c)
+	if !ok {
+		libs.WriteErr(c, http.StatusInternalServerError, "chat worktree not resolved")
+		return domain.Workspace{}, false
+	}
+	return ws, true
+}
+
 func (h *Handlers) worktreePath(
 	c *gin.Context,
 ) (string, bool) {
-	row, err := h.wsReader.Get(
-		c.Request.Context(),
-		c.Param("wsId"),
-	)
-	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(c, status, msg)
+	ws, ok := h.workspace(c)
+	if !ok {
 		return "", false
 	}
-	return row.WorktreePath, true
+	return ws.WorktreePath, true
+}
+
+// lspOwnerID answers the key the LSP engine's per-session pool is addressed
+// by: the :chatId path param. Editor/LSP is spec §4.2's OWNED bucket, so the
+// resolver still finds the worktree for a CWD, but the session itself is
+// never shared with a sibling chat that happens to hold the same worktree
+// (spec law 5) — keying by chat id rather than by worktree is what gives each
+// sibling its own LSP session.
+func (h *Handlers) lspOwnerID(
+	c *gin.Context,
+) string {
+	return c.Param("chatId")
 }

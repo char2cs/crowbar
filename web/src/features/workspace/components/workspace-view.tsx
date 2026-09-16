@@ -1,14 +1,17 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { WorkspaceStoreContext } from '../stores/workspace-context'
-import { getOrCreateWorkspaceStore, setActiveWorkspaceId } from '../stores/workspace-store-registry'
+import {
+  clearActiveWorkspaceId,
+  getOrCreateWorkspaceStore,
+  setActiveWorkspaceId,
+} from '../stores/workspace-store-registry'
 import { setActiveWorkspaceStoreRef } from '../stores/workspace-store-ref'
 import { hydrateWorkspace, reconcileWorkspaceBuffersWithDisk } from '@/lib/persistence/hydrate'
 import { markStart, markEnd } from '@/lib/perf/instrumentation'
 import { resetWorkspaceScopedStores } from '../lib/reset-workspace-scoped-stores'
 import { markWorkspaceDeactivated } from '../lib/activation-freshness'
-import { WorkspaceLayoutRoot } from './workspace-layout-root'
 import { useWorkspaceEffects } from '../stores/hooks/use-workspace-effects'
-import { useOpenOnNewTab } from '../stores/hooks/use-open-on-new-tab'
+import { useWorkspaceAgentChatsStream } from '../stores/hooks/use-workspace-agent-chats-stream'
 import { useSaveKeyboard } from '@/features/keymaps/hooks/use-save-keyboard'
 import { usePaneKeyboard } from '@/features/panes/hooks/use-pane-keyboard'
 import { useSidebarTabKeyboard } from '@/features/keymaps/hooks/use-sidebar-tab-keyboard'
@@ -25,12 +28,46 @@ interface WorkspaceViewProps {
   active: boolean
 }
 
-export function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
+/**
+ * A workspace's LIFECYCLE — its store, its hydration, its streams and its
+ * active-only watchers. It renders no surface of its own: the pane tree it used
+ * to host is window-level (Task 26) and now lives once, in `WorkspaceHost`.
+ *
+ * MEMOIZED because `WorkspaceHost`'s parent (`IDEShell`) re-renders on plenty
+ * that has nothing to do with any workspace, and both props here are primitives
+ * — `wsId` is fixed for the life of the instance, so this bails out on exactly
+ * the renders that change nothing and still runs the two slots whose `active`
+ * actually flips on a workspace switch.
+ */
+export const WorkspaceView = memo(function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
   const store = getOrCreateWorkspaceStore(wsId)
   // wsId is stable for a given WorkspaceView instance — WorkspaceHost keys each
   // retained workspace by id — so this hydrates exactly once per mount and never
   // re-hydrates on a warm re-activation.
   const [hydrated, setHydrated] = useState(false)
+
+  // THE AGENT FEED, FOR AS LONG AS THIS WORKSPACE IS MOUNTED — deliberately not
+  // inside `WorkspaceActiveEffects` below, which only mounts while `active`.
+  //
+  // It seeds `agentChats.providers` (empty means "there are none" everywhere:
+  // ⌘N and New Chat do nothing without it) and `agentChats.chats`, and feeds
+  // `working`/title-settling/runner-follow. Its only previous mount point was
+  // the Chats sidebar panel, deleted as dead code in Task 8 — nothing has fed
+  // any of that since.
+  //
+  // The reason `WorkspaceActiveEffects` is gated does NOT apply here: that hook
+  // writes the GLOBAL file-system/git stores, which are keyed to the single
+  // VISIBLE workspace, so a hidden workspace's frames would clobber the active
+  // one. This one writes THIS workspace's own store (plus the machine-level
+  // provider list, identical for every workspace), so there is nothing to
+  // clobber — and three surfaces genuinely need a hidden workspace's chats to
+  // stay live: Recents aggregates every retained workspace in the project
+  // (recents-for-project.ts), spec Law 9 says "anything running has a row"
+  // whether or not you are looking at its workspace, and a pane holding a
+  // hidden workspace's chat outlives that workspace's visibility by design
+  // (Task 26). Gating this on `active` would freeze all three until the user
+  // happened to switch back.
+  useWorkspaceAgentChatsStream(wsId)
 
   // Only the active workspace publishes itself as THE active store / id. Hidden
   // workspaces stay mounted but must not steal the ref (imperative non-React
@@ -46,6 +83,9 @@ export function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
   useEffect(() => {
     if (!active) return
     setActiveWorkspaceId(wsId)
+    return () => {
+      clearActiveWorkspaceId(wsId)
+    }
   }, [wsId, active])
 
   // Clear the GLOBAL file-tree / git stores the instant this workspace becomes
@@ -122,13 +162,10 @@ export function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
     void reconcileWorkspaceBuffersWithDisk(wsId).catch(() => {})
   }, [active, hydrated, wsId])
 
-  useOpenOnNewTab(store, hydrated)
-
   if (!hydrated) return null
 
   return (
     <WorkspaceStoreContext.Provider value={store}>
-      <WorkspaceLayoutRoot />
       {/* Watchers + keyboard run ONLY while active: use-workspace-effects writes
           the GLOBAL file-system / git stores (keyed to the single visible
           workspace), so a hidden workspace's WebSocket frames would clobber the
@@ -138,7 +175,7 @@ export function WorkspaceView({ wsId, active }: WorkspaceViewProps) {
       {active && <WorkspaceActiveEffects wsId={wsId} />}
     </WorkspaceStoreContext.Provider>
   )
-}
+})
 
 function WorkspaceActiveEffects({ wsId }: Pick<WorkspaceViewProps, 'wsId'>) {
   useWorkspaceEffects(wsId)

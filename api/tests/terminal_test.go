@@ -15,8 +15,11 @@ import (
 
 // TestTerminal_CreateStreamKill proves the PTY lifecycle end to end: create a
 // session, attach over the co-located terminal WebSocket
-// (.../terminals/:sessionId/ws), write a command, read its echoed output through
-// the PTY, then kill the session (202).
+// (/v0/chats/:chatId/terminals/:sessionId/ws), write a command, read its echoed
+// output through the PTY, then kill the session (202). A terminal session is
+// owned by a chat (wsBase — /v0/chats/:chatId), not addressed by the workspace
+// it resolves to; the flat prefix's own resolveChatWorktree middleware finds
+// this worktree for the PTY's CWD.
 func TestTerminal_CreateStreamKill(t *testing.T) {
 	h := newHarness(t)
 	imported := importProject(t, h)

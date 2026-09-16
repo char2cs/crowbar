@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useCallback, useEffect, useEffectEvent, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { useEditorUIStore } from '@/features/editor/stores/ui-store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
@@ -10,7 +10,6 @@ import { SearchPopover, SearchReplaceRow, SearchReplaceToggle } from '@/componen
 import { SEARCH_TOGGLE_ICONS } from '@/components/ui/search-toggle-icons'
 
 const FindBar = () => {
-  const workspaceStore = useWorkspaceStore()
   const { isFindVisible, setIsFindVisible } = useUIState(
     useShallow((state) => ({
       isFindVisible: state.isFindVisible,
@@ -88,8 +87,8 @@ const FindBar = () => {
         return textarea.value
       }
 
-      const { panes, activePaneId, buffers } = workspaceStore.getState()
-      const activeBufferId = panes[activePaneId]?.activeBufferId ?? null
+      const { panes, activePaneId, buffers } = windowPaneStore.getState()
+      const activeBufferId = panes[activePaneId]?.activeEditorTabId ?? null
       const activeBuffer = activeBufferId
         ? buffers.find((candidate) => candidate.id === activeBufferId)
         : null
@@ -101,7 +100,7 @@ const FindBar = () => {
     if (!selectedText || selectedText.includes('\n')) return ''
 
     return selectedText
-  }, [workspaceStore])
+  }, [])
 
   // Focus input when find bar becomes visible
   useEffect(() => {

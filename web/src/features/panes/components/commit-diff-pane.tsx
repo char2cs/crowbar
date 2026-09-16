@@ -4,6 +4,13 @@ import { ReviewDiffTab } from '@/features/git/components/review-diff-tab'
 interface CommitDiffPaneProps {
   sha: string
   isActivePane?: boolean
+  /**
+   * The workspace THIS commit diff belongs to (CommitDiffContent.wsId), NOT
+   * the ambient WorkspaceStoreContext — threaded straight through to
+   * ReviewDiffTab. See review-diff-tab.tsx's `wsId` prop doc for the
+   * wrong-ambient-hidden-copy hazard this avoids.
+   */
+  wsId: string
 }
 
 /**
@@ -16,7 +23,7 @@ interface CommitDiffPaneProps {
  * exactly what reading a review costs, because it IS the review surface with a
  * different pair of trees behind it.
  */
-export function CommitDiffPane({ sha, isActivePane }: CommitDiffPaneProps) {
+export function CommitDiffPane({ sha, isActivePane, wsId }: CommitDiffPaneProps) {
   // The windowed reads are immutable for a commit, so there is nothing to
   // refetch on a timer; Refresh exists only for a failed first load, and
   // remounting the surface is the whole retry.
@@ -36,6 +43,7 @@ export function CommitDiffPane({ sha, isActivePane }: CommitDiffPaneProps) {
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <ReviewDiffTab
           key={attempt}
+          wsId={wsId}
           commit={sha}
           onRetry={retry}
           branchHeader={{ title: `Commit ${sha.substring(0, 7)}` }}

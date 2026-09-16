@@ -20,8 +20,8 @@ const editorBuffer: EditorContent = {
   isVirtual: false,
   isPinned: false,
   isPreview: false,
-  isActive: false,
   tokens: [],
+  workspaceId: 'w1',
 }
 
 function terminalBuffer(id: string, sessionId: string): TerminalContent {
@@ -32,8 +32,8 @@ function terminalBuffer(id: string, sessionId: string): TerminalContent {
     name: 'Terminal',
     isPinned: false,
     isPreview: false,
-    isActive: false,
     sessionId,
+    workspaceId: 'w1',
   }
 }
 

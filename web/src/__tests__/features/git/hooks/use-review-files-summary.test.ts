@@ -10,6 +10,11 @@ vi.mock('@/features/git/api/review-api', () => ({
 }))
 
 import { useReviewFilesSummary } from '@/features/git/hooks/use-review-files-summary'
+import {
+  __resetWorkspaceScopesForTest,
+  recordWorkspaceScope,
+  setWorkspaceScope,
+} from '@/lib/workspace-scope'
 
 function summaryFile(
   path: string,
@@ -27,6 +32,11 @@ describe('useReviewFilesSummary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getReviewFiles.mockResolvedValue([])
+    __resetWorkspaceScopesForTest()
+    // Every existing test below addresses a workspace whose owning chat id is
+    // already recorded — the race itself is covered separately below.
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws1', owningChatId: 'chat1' })
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws2', owningChatId: 'chat2' })
   })
 
   afterEach(() => {
@@ -153,5 +163,46 @@ describe('useReviewFilesSummary', () => {
 
     expect(result.current.files).toEqual([])
     expect(result.current.loaded).toBe(false)
+  })
+
+  // Regression: the route records a workspace's scope with NO chat id; only
+  // the sidebar's own async chat-list fetch later attaches owningChatId.
+  // getReviewFiles resolves through reviewBaseForWorkspace, which throws
+  // without one; firing anyway hit the throw, landed in the swallowing catch,
+  // and left the summary empty until an UNRELATED git-status-changed tick
+  // happened to retry it.
+  describe('owning chat id not yet recorded (route-vs-sidebar race)', () => {
+    it('does not fetch before an owning chat id is recorded', async () => {
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
+
+      const { result } = renderHook(() => useReviewFilesSummary('ws-race'))
+      await act(async () => {})
+
+      expect(mocks.getReviewFiles).not.toHaveBeenCalled()
+      expect(result.current.files).toEqual([])
+      expect(result.current.loaded).toBe(false)
+    })
+
+    it('fetches once the owning chat id arrives after mount', async () => {
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
+      mocks.getReviewFiles.mockResolvedValue([summaryFile('src/a.ts')])
+
+      const { result } = renderHook(() => useReviewFilesSummary('ws-race'))
+      await act(async () => {})
+      expect(mocks.getReviewFiles).not.toHaveBeenCalled()
+
+      act(() => {
+        recordWorkspaceScope({
+          projectId: 'p1',
+          repoId: 'r1',
+          wsId: 'ws-race',
+          owningChatId: 'chat-race',
+        })
+      })
+
+      await waitFor(() => expect(result.current.loaded).toBe(true))
+      expect(mocks.getReviewFiles).toHaveBeenCalledWith({ wsId: 'ws-race', commit: undefined })
+      expect(result.current.files).toHaveLength(1)
+    })
   })
 })

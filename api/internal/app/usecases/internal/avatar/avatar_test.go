@@ -138,7 +138,7 @@ func runGitNoErr(t *testing.T, dir string, args ...string) {
 // for the real CLI so its exit code/output are under the test's control —
 // there is no exported seam on ownerAvatarURL to inject a fake exec.Cmd, so
 // this is the only way to drive its `gh api ... --jq .owner.avatar_url` call.
-func writeFakeGh(t *testing.T, dir string, script string) {
+func writeFakeGh(t *testing.T, dir, script string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\n"+script+"\n"), 0o755))
 }

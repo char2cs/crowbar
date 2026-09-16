@@ -5,14 +5,12 @@ package v0
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/app"
-	workspacerepo "github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/engine"
 )
 
@@ -36,40 +34,28 @@ func terminalsTestContainers(
 
 // TestTerminalsDef_SnapshotFromEngine proves the lifecycle topic's snapshot is
 // derived from the in-memory engine registry (D6: no terminal_sessions view.db):
-// a session created in the engine surfaces as an "active" DTO carrying the
-// owning workspace's project/repo scope.
+// a session created in the engine surfaces as a DTO carrying the OWNING CHAT.
+// The subscribing client's scope is the bare chat id on the flat
+// /v0/chats/:chatId/terminals route, so that id is what the snapshot is asked
+// for and what comes back on the frame.
 func TestTerminalsDef_SnapshotFromEngine(t *testing.T) {
 	appContainer, engContainer := terminalsTestContainers(t)
 	ctx := context.Background()
 
 	worktree := t.TempDir()
-	_, err := appContainer.Repositories.Workspace.Create(
-		ctx,
-		workspacerepo.CreateInput{
-			ID:           "w1",
-			RepoID:       "r1",
-			ProjectID:    "p1",
-			Branch:       "main",
-			WorktreePath: worktree,
-		},
-		time.Now().UTC(),
-	)
-	require.NoError(t, err)
 
 	snap := terminalsSnapshot(appContainer, engContainer)
 	require.NotNil(t, snap)
-	assert.Empty(t, snap("p1/r1/w1"), "no sessions yet")
+	assert.Empty(t, snap("c1"), "no sessions yet")
 
-	sid, err := engContainer.Terminal.Create(ctx, "w1", worktree, nil)
+	sid, err := engContainer.Terminal.Create(ctx, "c1", worktree, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = engContainer.Terminal.Kill(ctx, sid) })
 
-	got := snap("p1/r1/w1")
+	got := snap("c1")
 	require.Len(t, got, 1)
 	assert.Equal(t, sid, got[0].ID)
-	assert.Equal(t, "p1", got[0].ProjectID)
-	assert.Equal(t, "r1", got[0].RepoID)
-	assert.Equal(t, "w1", got[0].WorkspaceID)
+	assert.Equal(t, "c1", got[0].ChatID)
 	// The session was created but no WS client has attached, so its real engine
 	// state is "detached" (Session.State(): "active" requires len(clients) > 0;
 	// a live PTY with no clients is "detached"). The snapshot must report that

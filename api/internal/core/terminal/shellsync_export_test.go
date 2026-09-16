@@ -243,9 +243,9 @@ func StartForegroundForTest(t *testing.T, eng Engine, sid string) {
 //
 // Callers must have invoked PinShellForTest(t) first (it is a t.Setenv, so it must run on the
 // test goroutine); the prompt this waits for would never appear if the pin had not taken.
-func NewReadyShellForTest(t *testing.T, eng Engine, ws, dir string) string {
+func NewReadyShellForTest(t *testing.T, eng Engine, chatID, dir string) string {
 	t.Helper()
-	sid, err := eng.Create(context.Background(), ws, dir, nil)
+	sid, err := eng.Create(context.Background(), chatID, dir, nil)
 	require.NoError(t, err)
 	WaitPromptForTest(t, eng, sid)
 	return sid

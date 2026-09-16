@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -94,6 +95,7 @@ func (rs *Runners) moveToNewChat(
 	created, err := rs.chats.Create(ctx, agentchat.CreateInput{
 		ID:          newChatID,
 		WorkspaceID: runner.WorkspaceID,
+		Type:        domain.ChatTypeChat,
 		Now:         time.Now(),
 	})
 	if err != nil {

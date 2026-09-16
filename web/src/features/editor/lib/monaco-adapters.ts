@@ -38,6 +38,25 @@ export const EDITOR_CREATE_OPTIONS: monacoEditor.IStandaloneEditorConstructionOp
   // showed this as the dominant cost (INP 564ms → 178ms, forced reflow 768ms → 391ms
   // once disabled). Fall back to the classic hidden-textarea input path.
   editContext: false,
+  // Monaco's own `getExtraEditorClassName()` special-cases Safari/WKWebView:
+  // it adds `enable-user-select` there instead of the `no-user-select` every
+  // other browser gets, so `.view-lines`/`.view-line`/`.lines-content` keep
+  // native `user-select: text` (viewLines.css) for Safari's dictionary-lookup
+  // gesture. In this Tauri/WKWebView app that native selection is a live gap:
+  // a drag that starts on some OTHER oversized-but-blank hit area (e.g. the
+  // empty document composer, verified live: mousedown there never calls
+  // preventDefault) and sweeps over Monaco isn't caught by Monaco's own
+  // mousedown guard (which only ever sees mousedowns that land ON it), so
+  // WebKit's native selection paints across the whole visible surface —
+  // including the padded empty space below the last line, since `.view-lines`
+  // itself is sized to fill the editor, not just its rendered lines. Forcing
+  // `no-user-select` back on (both classes end up on `.monaco-editor`; the
+  // descendant-scoped `no-user-select` rule wins for these three elements
+  // regardless) matches every non-WebKit browser, where Monaco's OWN
+  // mouse-driven selection model — unaffected by this — is all that's ever
+  // used anyway; we already disable `contextmenu`, so Safari's lookup gesture
+  // has no menu surface left to serve.
+  extraEditorClassName: 'no-user-select',
   insertSpaces: true,
   detectIndentation: false,
   // Collapse Monaco's default 10px decorations strip between the line-number

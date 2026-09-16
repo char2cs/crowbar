@@ -6,8 +6,10 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// Chats is the chat read surface a lineage read needs: the one chat being asked
-// about, and the workspace it belongs to.
+// Chats is the chat read surface a lineage read needs: the one row being asked
+// about, and the workspace it belongs to. Folder rows come back on the same
+// list now — they hold no turns, but the walk still needs to see them so it can
+// step THROUGH them.
 //
 // LoadChat and ListByWorkspace are NOT the same read, and the difference is the
 // whole reason both are here. LoadChat folds the chat from the event log, so it
@@ -34,16 +36,4 @@ type Chats interface {
 		ctx context.Context,
 		workspaceID string,
 	) ([]domain.Chat, error)
-}
-
-// Folders is the chat-folder read surface: one workspace's folder rows, needed
-// only so the walk can step THROUGH them. Nothing here ever collects a folder —
-// they hold no turns — but a lineage that could not resolve a folder's own
-// parent would stop dead at the first one and report that a filed thread
-// inherits nothing.
-type Folders interface {
-	FindWhere(
-		ctx context.Context,
-		match domain.ChatFolder,
-	) ([]domain.ChatFolder, error)
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { editorAPI } from '@/features/editor/extensions/api'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { getLineTextFromContent } from '@/features/editor/utils/position'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { LspClient } from './lsp-client'
 import { applyWorkspaceEdit, isWorkspaceEdit, offsetFromPosition } from './workspace-edit'
 import { logger } from '../utils/logger'
@@ -31,7 +32,7 @@ function getTextForRange(
   return content.slice(start, end)
 }
 
-export const useRename = (filePath: string | undefined) => {
+export const useRename = (filePath: string | undefined, paneId: string | undefined) => {
   const [renameState, setRenameState] = useState<RenameState | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -103,7 +104,22 @@ export const useRename = (filePath: string | undefined) => {
           return
         }
 
-        const { editedFiles } = await applyWorkspaceEdit(result)
+        // Resolve the workspace THIS pane's active buffer belongs to, not
+        // whichever workspace merely happens to be active right now — a
+        // rename triggered from a background/hidden pane must write into its
+        // own worktree (Task 26: buffers are window-level, one flat list).
+        const paneState = windowPaneStore.getState()
+        const activeTabId = paneId ? (paneState.panes[paneId]?.activeEditorTabId ?? null) : null
+        const activeBuffer = activeTabId
+          ? paneState.buffers.find((b) => b.id === activeTabId)
+          : null
+        const workspaceId = activeBuffer?.workspaceId
+        if (!workspaceId) {
+          logger.error('Rename', 'No owning workspace resolved for rename target')
+          return
+        }
+
+        const { editedFiles } = await applyWorkspaceEdit(result, workspaceId)
 
         logger.info(
           'Rename',
@@ -113,7 +129,7 @@ export const useRename = (filePath: string | undefined) => {
         logger.error('Rename', 'Failed to execute rename:', error)
       }
     },
-    [filePath, renameState, cancelRename],
+    [filePath, paneId, renameState, cancelRename],
   )
 
   // Listen for rename event

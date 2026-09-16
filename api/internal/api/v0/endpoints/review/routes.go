@@ -11,21 +11,40 @@ import (
 )
 
 // Register mounts the branch-review read and merge-strategy routes on the
-// supplied router group, backed by the branch-review usecase. Thread CRUD now
-// lives on the first-class /threads endpoint (W9).
+// flat chat-scoped group (spec §7.1), the only surface review is addressable
+// through: /v0/chats/:chatId/review... . Thread CRUD lives on the
+// first-class /threads endpoint (W9).
+//
+// review is spec §4.2's shared bucket: the worktree answers once, and every
+// chat holding it gets that answer, resolved from the request context by
+// chatScoped's own resolveChatWorktree middleware (see
+// handlers.Handlers.workspaceID).
+//
+// The old /projects/:projectId/repos/:repoId/workspaces/:wsId/review... mount
+// is gone (spec §8 step 6): every caller had already moved to the mount kept
+// here.
 func Register(
-	rg *gin.RouterGroup,
+	chatScoped *gin.RouterGroup,
 	reviewUsecase reviewhandlers.ReviewUsecase,
 ) {
 	h := reviewhandlers.New(reviewUsecase)
-	rg.GET("/workspaces/:wsId/review", h.Get)
-	rg.GET("/workspaces/:wsId/review/files", h.GetFiles)
+	mount(chatScoped, "/review", h)
+}
+
+// mount registers the 6-route review surface under prefix on rg.
+func mount(
+	rg *gin.RouterGroup,
+	prefix string,
+	h *reviewhandlers.Handlers,
+) {
+	rg.GET(prefix, h.Get)
+	rg.GET(prefix+"/files", h.GetFiles)
 	// The windowed diff API. /review carries the whole diff in one O(lines)
 	// payload; these three describe and serve it in pieces no one of which is —
 	// the hunk geometry of every file, one file's patch, and a server-side
 	// find-in-diff — so a million-line branch is never materialised anywhere.
-	rg.GET("/workspaces/:wsId/review/outline", h.GetOutline)
-	rg.GET("/workspaces/:wsId/review/patch", h.GetPatch)
-	rg.GET("/workspaces/:wsId/review/search", h.SearchDiff)
-	rg.PATCH("/workspaces/:wsId/review", h.SetMergeStrategy)
+	rg.GET(prefix+"/outline", h.GetOutline)
+	rg.GET(prefix+"/patch", h.GetPatch)
+	rg.GET(prefix+"/search", h.SearchDiff)
+	rg.PATCH(prefix, h.SetMergeStrategy)
 }

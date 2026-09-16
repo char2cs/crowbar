@@ -28,7 +28,7 @@ func getSearch(
 	query string,
 ) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v0/workspaces/ws1/review/search"+query, http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/v0/chats/chat1/review/search"+query, http.NoBody)
 	r.ServeHTTP(rec, req)
 	return rec
 }

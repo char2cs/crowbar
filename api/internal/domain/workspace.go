@@ -18,12 +18,22 @@ const (
 // Workspace is the git-worktree aggregate; the single source of truth for the
 // sidebar row (00 §5.3). Mutated only through Asynx commands.
 type Workspace struct {
-	ID             string                  `json:"id"`
-	RepoID         string                  `json:"repoId"`
-	ProjectID      string                  `json:"projectId"`
-	Branch         string                  `json:"branch"`
-	WorktreePath   string                  `json:"worktreePath"`
-	ForkPointSha   string                  `json:"forkPointSha"`
+	ID           string `json:"id"`
+	RepoID       string `json:"repoId"`
+	ProjectID    string `json:"projectId"`
+	Branch       string `json:"branch"`
+	WorktreePath string `json:"worktreePath"`
+	ForkPointSha string `json:"forkPointSha"`
+	// ParentID is the fork parent's workspace id. It is written at CREATION —
+	// where it is resolved once from the sidebar forest's fork-parent walk
+	// (usecases/chat/internal/tree.ForkParentID) — and afterwards only by the
+	// explicit git-lineage reparent route (POST .../workspaces/:wsId/reparent,
+	// the workspace repository's Reparent command, which RebaseOntoParent shares).
+	// It is NOT re-projected when a row moves in the chat tree: tree.Move and
+	// tree.PlaceChat write domain.Chat.ParentID and nothing else, so a sidebar
+	// drag changes organisation without changing git lineage. The three consumers
+	// that resolve it back to a workspace — merge eligibility, the diff base, the
+	// reparent leaf guard — read it exactly as they always have.
 	ParentID       string                  `json:"parentId,omitempty"`
 	Status         WorkspaceStatus         `json:"status,omitempty"`
 	MergeStrategy  gitdomain.MergeStrategy `json:"mergeStrategy"`
@@ -77,24 +87,26 @@ type Workspace struct {
 	// does. Both survive provider polls, which is the entire point: a user who
 	// unlocked main must not find it locked again a minute later.
 	LockOverride *bool `json:"lockOverride,omitempty"`
-	// FolderID is the sidebar Folder this workspace has been filed under, or ""
-	// for the repo root. It is DELIBERATELY not ParentID: that field is the fork
-	// lineage, and three things resolve it back to a workspace (merge
-	// eligibility, the diff base, the reparent leaf guard), so a folder id in
-	// there is a silent corruption rather than an error.
-	//
-	// A fork child may carry one when the folder belongs to the same visible
-	// fork-parent space. This keeps organisation independent from lineage without
-	// letting a folder visually split the chain; incompatible moves are refused
-	// server-side, and Reparent clears the field. Old persisted records without
-	// this field replay as "" (the read model is a JSON blob), exactly as Kind
-	// documents above.
-	FolderID string `json:"folderId,omitempty"`
-	// Order is this row's dense index within its sibling space — the fork
-	// parent's children, or the folder/repo root it is filed under. Folders share
-	// that space, so both kinds sort on this one field. Rows a user has never
-	// ordered all carry 0 and fall back to the CreatedAt tiebreak, which is
-	// creation order; the first drag at a level renumbers it densely from
-	// whatever was on screen.
-	Order int `json:"order"`
+}
+
+// RendersAsBranch reports whether w should draw its OWN sidebar row — a
+// locked branch, referenced directly by its own Node{Kind:workspace} row, no
+// chat proxy (2026-09-08 sidebar-placement-unification spec §2.4) — as
+// opposed to an ordinary, unlocked, ad-hoc-forked workspace, which is
+// represented 1:1 by the chat that owns it and draws no row of its own.
+//
+// Deliberately narrower than the old (now-deleted) owningChatType's
+// Locked||IsDefault||Kind==Home rule: IsDefault's own doc says the frontend
+// already opens a repo's default workspace "from the repo header by its real
+// id," not from a separate row of its own, and Kind==WorkspaceKindHome names
+// a workspace with "no branch and no git operations" at all — neither is a
+// row a live drag has ever been reported against. Locked is the one case
+// this method exists to fix (caught live: a locked branch's own placement
+// silently wrote to its owning chat's Node row instead of its own). Widening
+// this to also cover an unlocked default workspace is a real, open decision
+// — not made here, since getting it wrong risks a duplicate/ghost row
+// against that workspace's own owning chat, worse than the gap it would
+// close.
+func (w Workspace) RendersAsBranch() bool {
+	return w.Status == WorkspaceStatusLocked
 }

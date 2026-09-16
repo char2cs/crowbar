@@ -182,13 +182,17 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	rs.apiConns.drop(live.ID)
 
 	argv := append([]string{binpath.Resolve(attachArgv[0])}, attachArgv[1:]...)
+	// Keyed by the CHAT, not the runner row's workspace: the native view is a
+	// PTY this chat owns, and live.WorkspaceID is empty for a chat with no
+	// worktree of its own. tctx.Cwd stays the separately-resolved directory.
+	//
 	// os.Environ(), the same base every ordinary spawn plans from — NOT nil.
 	// CreateCommand takes the env verbatim, so nil left the native view with
 	// three variables and no PATH or HOME: measured live, every hook
 	// APIAttachArgv wires died with exit 127 and `crowbar mcp` never started,
 	// which is the exact "reports NOTHING back to Crowbar's ledger" that
 	// method's own doc says this path exists to prevent.
-	termSessID, err := rs.term.CreateCommand(ctx, live.WorkspaceID, tctx.Cwd, argv, os.Environ(),
+	termSessID, err := rs.term.CreateCommand(ctx, chatID, tctx.Cwd, argv, os.Environ(),
 		rs.onAttachExit(chatID, live.ID))
 	if err != nil {
 		// The api connection is already gone; degrade to dormant rather than leave
@@ -229,7 +233,9 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 	// resuming one that was ever actually away — view.tctx's own Context is
 	// whatever the ORIGINAL spawn assembled and would only be a stale replay
 	// of the same document on every terminal<->chat toggle if reused here.
-	rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, &engineagents.SpawnPlan{}, "")
+	// No plan to point at attach either: there is no PTY being forked here, and
+	// the native view this just replaced has already been torn down above.
+	_ = rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, "")
 	return nil
 }
 

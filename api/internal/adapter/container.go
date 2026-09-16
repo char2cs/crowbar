@@ -29,6 +29,7 @@ const (
 	agentChatDBName     = "agent_chat.db"
 	agentRunnerDBName   = "agent_runner.db"
 	agentActivityDBName = "agent_activity.db"
+	nodeDBName          = "node.db"
 )
 
 // per-type snapshot DB file names under state/events, one per aggregate type,
@@ -42,6 +43,7 @@ const (
 	agentChatSnapshotDBName     = "agent_chat_snapshots.db"
 	agentRunnerSnapshotDBName   = "agent_runner_snapshots.db"
 	agentActivitySnapshotDBName = "agent_activity_snapshots.db"
+	nodeSnapshotDBName          = "node_snapshots.db"
 )
 
 // Container is the persistence layer.
@@ -80,6 +82,13 @@ type Container struct {
 	agentRunnerEventStore      asynxModels.Store
 	agentRunnerSnapshotStore   asynxModels.SnapshotStore
 	agentRunnerStoreDB         *gormdb.DB
+	// The node plane (2026-09-08 sidebar-placement-unification) is its OWN event
+	// log, snapshot store and read model, mirroring every other per-type plane
+	// above — one entity owning every sidebar row's position, at every tree
+	// level, needs its own singleton the same way agentchat/workspace do.
+	nodeEventStore    asynxModels.Store
+	nodeSnapshotStore asynxModels.SnapshotStore
+	nodeStoreDB       *gormdb.DB
 
 	globalView *gormdb.DB
 
@@ -189,6 +198,9 @@ func newLocked(
 	agentRunnerEventStore := o.eventStore(eventsDir, agentRunnerDBName, "agent runner event store")
 	agentRunnerSnapshotStore := o.snapshotStore(eventsDir, agentRunnerSnapshotDBName, "agent runner snapshot store")
 	agentRunnerStoreDB := o.viewDB(storeDir, agentRunnerDBName, "agent runner store db")
+	nodeEventStore := o.eventStore(eventsDir, nodeDBName, "node event store")
+	nodeSnapshotStore := o.snapshotStore(eventsDir, nodeSnapshotDBName, "node snapshot store")
+	nodeStoreDB := o.viewDB(storeDir, nodeDBName, "node store db")
 	globalView := o.viewDB(stateDir, viewDBName, "global view")
 
 	if o.err != nil {
@@ -213,6 +225,9 @@ func newLocked(
 		agentRunnerEventStore:      agentRunnerEventStore,
 		agentRunnerSnapshotStore:   agentRunnerSnapshotStore,
 		agentRunnerStoreDB:         agentRunnerStoreDB,
+		nodeEventStore:             nodeEventStore,
+		nodeSnapshotStore:          nodeSnapshotStore,
+		nodeStoreDB:                nodeStoreDB,
 		globalView:                 globalView,
 		lock:                       lock,
 	}
@@ -360,6 +375,27 @@ func (c *Container) AgentActivityReadDB() *gormdb.DB {
 	return c.agentActivityStoreDB
 }
 
+// NodeES returns the node event log at state/events/node.db. This is the
+// singleton per-type handle: the app layer builds ONE axNode over it and routes
+// every node id to a shard by hash, mirroring
+// WorkspaceES/ReviewThreadES/AgentChatES.
+func (c *Container) NodeES() asynxModels.Store {
+	return c.nodeEventStore
+}
+
+// NodeSS returns the node snapshot store at state/events/node_snapshots.db —
+// the asynx v0.8 O(1) warm-read cache paired with NodeES.
+func (c *Container) NodeSS() asynxModels.SnapshotStore {
+	return c.nodeSnapshotStore
+}
+
+// NodeReadDB returns the node read-model DB at state/store/node.db, opened as a
+// read pool (decision 12). The node store projection folds evt.Aggregate into
+// it, mirroring AgentChatReadDB/WorkspaceView.
+func (c *Container) NodeReadDB() *gormdb.DB {
+	return c.nodeStoreDB
+}
+
 func (c *Container) AgentRunnerES() asynxModels.Store {
 	return c.agentRunnerEventStore
 }
@@ -413,6 +449,7 @@ func (c *Container) Close() error {
 	closeEach(&errs, "agent activity store db", &c.agentActivityStoreDB, closeViewDB)
 	closeEach(&errs, "agent chat store db", &c.agentChatStoreDB, closeViewDB)
 	closeEach(&errs, "agent runner store db", &c.agentRunnerStoreDB, closeViewDB)
+	closeEach(&errs, "node store db", &c.nodeStoreDB, closeViewDB)
 	closeEach(&errs, "global view", &c.globalView, closeViewDB)
 
 	closeEach(&errs, "workspace event store", &c.workspaceEventStore, closeEventStore)
@@ -423,6 +460,8 @@ func (c *Container) Close() error {
 	closeEach(&errs, "agent chat snapshot store", &c.agentChatSnapshotStore, closeSnapshotStore)
 	closeEach(&errs, "agent runner event store", &c.agentRunnerEventStore, closeEventStore)
 	closeEach(&errs, "agent runner snapshot store", &c.agentRunnerSnapshotStore, closeSnapshotStore)
+	closeEach(&errs, "node event store", &c.nodeEventStore, closeEventStore)
+	closeEach(&errs, "node snapshot store", &c.nodeSnapshotStore, closeSnapshotStore)
 
 	for _, cl := range c.globalClosers {
 		if err := cl.Close(); err != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -53,6 +54,19 @@ func (errRepoStore) FindAll(
 	return nil, errSnapshotFake
 }
 
+// errReviewThreadRepo is a ReviewThread repo whose ListByWorkspace always
+// fails, exercising threadsSnapshot's degrade-to-nil path.
+type errReviewThreadRepo struct {
+	reviewthread.ReviewThread
+}
+
+func (errReviewThreadRepo) ListByWorkspace(
+	_ context.Context,
+	_ string,
+) ([]domain.ReviewThread, error) {
+	return nil, errSnapshotFake
+}
+
 func newAppForSnapshot(
 	t *testing.T,
 ) *app.Container {
@@ -66,48 +80,6 @@ func newAppForSnapshot(
 	a, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
 	return a
-}
-
-// TestWorkspacesSnapshot_ScopedToRepo proves the snapshot is filtered to the
-// repo parsed from the client's subscription prefix ("p/r"): only that repo's
-// workspaces are returned, as wire DTOs (spec §9).
-func TestWorkspacesSnapshot_ScopedToRepo(t *testing.T) {
-	a := newAppForSnapshot(t)
-	ctx := context.Background()
-	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
-	seedWorkspace(t, a, "w2", "p1", "r2", "", "")
-	seedWorkspace(t, a, "w3", "p2", "r1", "", "")
-	require.NoError(t, ctx.Err())
-
-	got := workspacesSnapshot(a)("p1/r1")
-	require.Len(t, got, 1)
-	assert.Equal(t, "w1", got[0].ID)
-	assert.Equal(t, "p1", got[0].ProjectID)
-	assert.Equal(t, "r1", got[0].RepoID)
-}
-
-// TestWorkspacesSnapshot_ComputesCanMergeLocally proves the snapshot DTOs carry
-// the merge-eligibility overlay resolved from repo siblings: a child whose
-// parent is a same-repo non-locked sibling is eligible with the parent's branch
-// (spec §10).
-func TestWorkspacesSnapshot_ComputesCanMergeLocally(t *testing.T) {
-	a := newAppForSnapshot(t)
-	seedWorkspace(t, a, "parent", "p1", "r1", "main", "")
-	seedWorkspace(t, a, "child", "p1", "r1", "feat", "parent")
-
-	got := workspacesSnapshot(a)("p1/r1")
-	require.Len(t, got, 2)
-
-	byID := map[string]bool{}
-	branch := map[string]string{}
-	for _, d := range got {
-		byID[d.ID] = d.CanMergeLocally
-		branch[d.ID] = d.ParentBranch
-	}
-	assert.True(t, byID["child"])
-	assert.Equal(t, "main", branch["child"])
-	assert.False(t, byID["parent"])
-	assert.Equal(t, "", branch["parent"])
 }
 
 func seedWorkspace(
@@ -220,6 +192,31 @@ func TestRepoSnapshot_ListErrorReturnsNil(t *testing.T) {
 	assert.Nil(t, repoSnapshot(a)("p1"))
 }
 
+// TestThreadsSnapshot_NoWorkspaceSegmentReturnsNil covers the guard at the top
+// of threadsSnapshot: threads are always workspace-scoped, so a repo- or
+// project-level subscription (fewer than 3 scope segments, or an empty
+// workspace segment) must yield nil rather than attempting a global
+// enumeration of the ReviewThread aggregate.
+func TestThreadsSnapshot_NoWorkspaceSegmentReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	snap := threadsSnapshot(a)
+	require.NotNil(t, snap)
+
+	assert.Nil(t, snap(""))
+	assert.Nil(t, snap("p1"))
+	assert.Nil(t, snap("p1/r1"))
+	assert.Nil(t, snap("p1/r1/"))
+}
+
+// TestThreadsSnapshot_ListErrorReturnsNil proves a failed ListByWorkspace
+// degrades to a nil snapshot rather than failing the subscribe.
+func TestThreadsSnapshot_ListErrorReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	a.Repositories.ReviewThread = errReviewThreadRepo{}
+
+	assert.Nil(t, threadsSnapshot(a)("p1/r1/w1"))
+}
+
 func TestGitSnapshot_ListErrorReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
 	a.Repositories.Workspace = errWorkspaceRepo{}
@@ -284,7 +281,7 @@ func TestGitSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
 	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
 	seedWorkspace(t, a, "w2", "p2", "r2", "", "")
 
-	got := gitSnapshot(a)("w1")
+	got := gitSnapshot(a)("p1/r1/w1")
 
 	ids := make([]string, len(got))
 	for i, e := range got {
@@ -307,7 +304,7 @@ func TestGitSnapshot_ExcludesSameRepoSibling(t *testing.T) {
 	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
 	seedWorkspace(t, a, "w3", "p1", "r1", "", "")
 
-	got := gitSnapshot(a)("w1")
+	got := gitSnapshot(a)("p1/r1/w1")
 
 	ids := make([]string, len(got))
 	for i, e := range got {
@@ -323,46 +320,67 @@ func TestLSPSnapshot_ScopedToWorkspaceRepo(t *testing.T) {
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
 
-	assert.NotPanics(t, func() { lspSnapshot(a, eng)("w1") })
+	assert.NotPanics(t, func() { lspSnapshot(a, eng)("p1/r1/w1") })
+}
+
+// TestLSPSnapshot_UnknownChatScope_ReturnsNil covers the OTHER shape a scope
+// arrives in now: a bare id from the chat-scoped route. A chat id nothing
+// resolves to degrades to an empty replay, exactly as an unknown workspace
+// does — the subscription still opens, it simply has nothing to replay.
+func TestLSPSnapshot_UnknownChatScope_ReturnsNil(t *testing.T) {
+	a := newAppForSnapshot(t)
+	eng, err := engine.New(context.Background())
+	require.NoError(t, err)
+
+	assert.Nil(t, lspSnapshot(a, eng)("chat-does-not-exist"))
+}
+
+// TestLSPSnapshot_BareScopeIsNotReadAsAWorkspaceID pins the meaning change a
+// silent mis-read would otherwise hide, mirroring gitSnapshot's own guard.
+//
+// A bare scope reaches lspSnapshot only from /v0/chats/:chatId/lsp/ws, so it
+// is a CHAT id and has to be resolved via worktree.Resolve — it must NOT be
+// taken verbatim as a workspace id, or a real workspace id passed bare would
+// wrongly succeed.
+func TestLSPSnapshot_BareScopeIsNotReadAsAWorkspaceID(t *testing.T) {
+	a := newAppForSnapshot(t)
+	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
+	eng, err := engine.New(context.Background())
+	require.NoError(t, err)
+
+	assert.Empty(t, lspSnapshot(a, eng)("w1"),
+		"a bare id is a chat id: no chat is called w1, so there is nothing to replay")
 }
 
 func TestGitSnapshot_UnknownWorkspaceScope_ReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
-	assert.Nil(t, gitSnapshot(a)("does-not-exist"))
+	assert.Nil(t, gitSnapshot(a)("p1/r1/does-not-exist"))
 }
 
-// TestFolderSnapshot proves the Folders snapshot-on-subscribe (03 §1a) returns
-// the repo's folders in SIDEBAR ORDER as wire DTOs — the same converter the REST
-// list handler goes through, which is what makes the two incapable of
-// disagreeing. Folders in a sibling repo are excluded.
-func TestFolderSnapshot(t *testing.T) {
+// TestGitSnapshot_UnknownChatScope_ReturnsNil covers the OTHER shape a scope
+// arrives in now: a bare id from the chat-scoped route. An id no chat answers
+// to degrades to an empty replay, exactly as an unknown workspace does — the
+// subscription still opens, it simply has nothing to replay.
+func TestGitSnapshot_UnknownChatScope_ReturnsNil(t *testing.T) {
 	a := newAppForSnapshot(t)
-	ctx := context.Background()
-	require.NoError(t, a.GORM.Folders.Save(ctx, domain.Folder{
-		ID: "f2", ProjectID: "p1", RepoID: "r1", Name: "second", Order: 1,
-	}))
-	require.NoError(t, a.GORM.Folders.Save(ctx, domain.Folder{
-		ID: "f1", ProjectID: "p1", RepoID: "r1", Name: "first", Order: 0,
-	}))
-	require.NoError(t, a.GORM.Folders.Save(ctx, domain.Folder{
-		ID: "f3", ProjectID: "p1", RepoID: "r2", Name: "elsewhere",
-	}))
-
-	got := folderSnapshot(a)("p1/r1")
-	require.Len(t, got, 2, "a sibling repo's folders must be excluded")
-	assert.Equal(t, "f1", got[0].ID, "the snapshot is ordered, not insertion-ordered")
-	assert.Equal(t, "f2", got[1].ID)
+	assert.Nil(t, gitSnapshot(a)("chat-does-not-exist"))
 }
 
-// A project-level subscription carries no repo, and folders are repo-scoped:
-// answering it would mean scanning every repo in the install for a client that
-// asked for none of them.
-func TestFolderSnapshot_ProjectScopeReturnsNil(t *testing.T) {
+// TestGitSnapshot_BareScopeIsNotReadAsAWorkspaceID pins the meaning change a
+// silent mis-read would otherwise hide.
+//
+// A bare scope reaches gitSnapshot only from /v0/chats/:chatId/git/status, so
+// it is a CHAT id and has to be resolved. It used to be taken verbatim as a
+// workspace id — and if that reading survived, a chat id would simply fail to
+// match any workspace and the snapshot would look correctly empty, while a
+// WORKSPACE id passed bare would wrongly succeed. That second half is what this
+// asserts: w1 exists, and naming it bare must NOT replay it.
+func TestGitSnapshot_BareScopeIsNotReadAsAWorkspaceID(t *testing.T) {
 	a := newAppForSnapshot(t)
-	require.NoError(t, a.GORM.Folders.Save(context.Background(), domain.Folder{
-		ID: "f1", ProjectID: "p1", RepoID: "r1",
-	}))
+	seedWorkspace(t, a, "w1", "p1", "r1", "", "")
 
-	assert.Nil(t, folderSnapshot(a)("p1"))
-	assert.Nil(t, folderSnapshot(a)(""))
+	require.NotEmpty(t, gitSnapshot(a)("p1/r1/w1"),
+		"the hierarchical scope must still replay the workspace it names")
+	assert.Empty(t, gitSnapshot(a)("w1"),
+		"a bare id is a chat id: no chat is called w1, so there is nothing to replay")
 }

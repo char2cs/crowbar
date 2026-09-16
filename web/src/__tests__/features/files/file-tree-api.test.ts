@@ -12,10 +12,12 @@ import {
 } from '@/features/files/lib/file-tree-api'
 import { setWorkspaceScope } from '@/lib/workspace-scope'
 
-// §3: file routes are hierarchical; register the scope for the test wsIds.
+// Files are addressed through the chat that holds the worktree, so the api
+// resolves its base from the route-recorded scope's owningChatId. Register one
+// for each test wsId.
 beforeEach(() => {
-  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1' })
-  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-9' })
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-1', owningChatId: 'chat-1' })
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-9', owningChatId: 'chat-9' })
 })
 
 afterEach(() => vi.clearAllMocks())
@@ -34,27 +36,25 @@ describe('toAppFile', () => {
 })
 
 describe('fetchFileTree', () => {
-  it('hits the workspace-scoped root route with no path', async () => {
+  it('hits the chat-scoped root route with no path', async () => {
     ;(apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([
       { name: 'README.md', path: 'README.md', type: 'file' },
     ])
     const tree = await fetchFileTree('ws-1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/workspaces/ws-1/files/tree')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-1/files/tree')
     expect(tree[0].name).toBe('README.md')
   })
 
   it('encodes the path query for a subdirectory', async () => {
     ;(apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue([])
     await fetchFileTree('ws-1', 'src/utils')
-    expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/projects/p1/repos/r1/workspaces/ws-1/files/tree?path=src%2Futils',
-    )
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-1/files/tree?path=src%2Futils')
   })
 })
 
 describe('filesWsEndpoint', () => {
-  it('builds the wsId-scoped files topic', () => {
-    expect(filesWsEndpoint('ws-9')).toBe('/v0/projects/p1/repos/r1/workspaces/ws-9/files/ws')
+  it('builds the files topic for the chat holding the worktree', () => {
+    expect(filesWsEndpoint('ws-9')).toBe('/v0/chats/chat-9/files/ws')
   })
 })
 

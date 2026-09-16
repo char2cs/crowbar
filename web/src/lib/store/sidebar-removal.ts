@@ -32,47 +32,47 @@ const NO_IDS: ReadonlySet<string> = new Set<string>()
  */
 export interface RemovalDraft {
   /**
-   * What is going.
-   *
-   * The first four are the sidebar's rows; `chat` and `chatFolder` are the Chats
-   * panel's, which drop onto the SAME editor pane and wait out the same eight
-   * seconds here. They share this tray rather than growing a second one because
-   * a user who has just dragged something away has one place to look for it, and
-   * two trays with two undo clocks would be two answers to that.
+   * What is going: the sidebar's own four row kinds, PLUS `chat` — added
+   * back (additive, the original four are unchanged) for addendum §2's
+   * drag-to-trash, which reaches a bare conversation row the other four
+   * kinds can't address. Not the same `chat` the old Chats panel's own
+   * drafts once had (Task 22 deleted that dwell-to-remove gesture whole);
+   * this one drains on the same 8s clock every non-cascading kind already
+   * uses, through the same tray.
    */
-  kind: 'workspace' | 'folder' | 'repo' | 'project' | 'chat' | 'chatFolder'
-  /** The row itself: a workspace, folder, repo, project, chat or chat-folder id. */
+  kind: 'workspace' | 'folder' | 'repo' | 'project' | 'chat'
+  /** The row itself: a workspace, folder, repo, project or chat id. */
   id: string
-  /** What the row reads as, for the tray row and the pane's overlay. */
+  /** What the row reads as, for the tray row. */
   label: string
   projectId: string
   /** The owning repo; for a repo removal this is the repo itself, and for a
    *  project removal there is no single one, so it is ''. */
   repoId: string
   /**
-   * The workspace a chat row belongs to — what its DELETE is addressed to.
-   *
-   * '' on every sidebar row: a workspace, a repo and a project are not scoped to
-   * one, and a chat's delete route is workspace-nested. Required rather than
-   * optional so the commit path reads it as a string and never has to invent a
-   * fallback for a case its own planner cannot produce.
+   * '' for every kind except `chat`, where it is the workspace the DELETE
+   * request is scoped through (`deleteChat`'s own contract — see
+   * `space-content-actions.ts`'s old `handleTrash`, which this supersedes).
    */
   wsId: string
   /**
-   * The chat's provider artwork, as the SVG string the daemon serves.
-   *
-   * '' on every sidebar row, and on a chat whose provider has gone — the tray
-   * falls back to the chat glyph there, exactly as the sidebar row does.
-   *
-   * Carried on the draft rather than looked up by the tray, because the tray is
-   * in `components/layout` and the provider list is a workspace-store fact the
-   * agent feature owns. The panel already holds the id→icon map at the moment it
-   * builds the draft, so this costs a lookup it was doing anyway — and it is
-   * what stops the tray drawing a stand-in that does not match the row.
+   * Always '' now, for the same reason `wsId` is: only a chat draft ever
+   * carried real provider artwork here, and that kind is gone (Task 22).
    */
   providerIcon: string
   /** Every row hidden while this waits — the row and whatever it takes with it. */
   hiddenIds: readonly string[]
+  /**
+   * The id of the RENDERED row this entry's primary corresponds to, when it
+   * differs from `id` — only a 'workspace' entry needs this: `id` is the raw
+   * Workspace id, but the row itself renders under its OWNING CHAT's id
+   * (`rows-from-repo.ts`'s fold), which `hiddenIds` also lists (to hide the
+   * chat along with the workspace once committed). `descendantHiddenIds`
+   * (removal-plan.ts) must keep THIS id un-hidden too, or the fold has
+   * nothing to fold onto and the row re-keys mid-hold. Absent for every
+   * other kind, where `id` already IS the rendered row's own id.
+   */
+  primaryRowId?: string
   /** How many rows go with it beyond itself; 0 draws no count. */
   extra: number
   /**

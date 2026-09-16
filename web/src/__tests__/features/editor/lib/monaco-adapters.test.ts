@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { fileUri } from '@/features/editor/lib/editor-uri'
 
 // DOM-free: mock the light `editor.api.js` entry (what `monaco-adapters.ts`
 // imports instead of the bare `monaco-editor` specifier — see the comment
@@ -85,6 +86,19 @@ describe('monaco-adapters', () => {
     expect(EDITOR_CREATE_OPTIONS.automaticLayout).toBe(false)
   })
 
+  // Regression: on Safari/WKWebView, Monaco's own `getExtraEditorClassName()`
+  // adds `enable-user-select` instead of `no-user-select`, leaving
+  // `.view-lines`/`.view-line`/`.lines-content` natively selectable
+  // (viewLines.css). A drag starting on an unrelated, oversized-but-blank hit
+  // area elsewhere in the app (never seen by Monaco's own mousedown guard)
+  // can then sweep a native WebKit selection across the whole visible editor,
+  // including the padded empty space below the last line. Requesting
+  // `no-user-select` ourselves wins for those three elements regardless of
+  // Monaco's own WebKit-specific class (see monaco-adapters.ts comment).
+  it('EDITOR_CREATE_OPTIONS requests no-user-select to close the WKWebView native-selection gap', () => {
+    expect(EDITOR_CREATE_OPTIONS.extraEditorClassName).toBe('no-user-select')
+  })
+
   it('createModel wraps the model with a string uri and dispose()', () => {
     const model = realModelApi().createModel('hello', 'typescript', 'crowbar://editor/x')
     expect(typeof model.uri).toBe('string')
@@ -102,6 +116,6 @@ describe('monaco-adapters', () => {
   })
 
   it('langForUri derives a monaco language id from the file path', () => {
-    expect(langForUri('crowbar://editor/' + encodeURIComponent('/proj/main.ts'))).toBe('typescript')
+    expect(langForUri(fileUri('ws-1', '/proj/main.ts'))).toBe('typescript')
   })
 })

@@ -11,7 +11,7 @@ import (
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-// Completion handles POST /v0/workspaces/:wsId/lsp/completion. The data field
+// Completion handles POST /v0/chats/:chatId/lsp/completion. The data field
 // carries the raw textDocument/completion result, passed through unchanged, or
 // null when no server serves the file's language.
 func (h *Handlers) Completion(
@@ -23,7 +23,7 @@ func (h *Handlers) Completion(
 	}
 	result, err := h.lsp.Completion(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -31,7 +31,7 @@ func (h *Handlers) Completion(
 	writeRaw(c, result, err)
 }
 
-// Hover handles POST /v0/workspaces/:wsId/lsp/hover. The data field carries the
+// Hover handles POST /v0/chats/:chatId/lsp/hover. The data field carries the
 // raw textDocument/hover result, passed through unchanged, or null when absent.
 func (h *Handlers) Hover(
 	c *gin.Context,
@@ -42,7 +42,7 @@ func (h *Handlers) Hover(
 	}
 	result, err := h.lsp.Hover(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -50,7 +50,7 @@ func (h *Handlers) Hover(
 	writeRaw(c, result, err)
 }
 
-// Definition handles POST /v0/workspaces/:wsId/lsp/definition. The data field
+// Definition handles POST /v0/chats/:chatId/lsp/definition. The data field
 // carries the resolved locations as an array, empty when none resolve.
 func (h *Handlers) Definition(
 	c *gin.Context,
@@ -61,7 +61,7 @@ func (h *Handlers) Definition(
 	}
 	locations, err := h.lsp.Definition(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -69,7 +69,7 @@ func (h *Handlers) Definition(
 	writeLocations(c, locations, err)
 }
 
-// References handles POST /v0/workspaces/:wsId/lsp/references. The data field
+// References handles POST /v0/chats/:chatId/lsp/references. The data field
 // carries the reference locations as an array, empty when none resolve.
 func (h *Handlers) References(
 	c *gin.Context,
@@ -80,7 +80,7 @@ func (h *Handlers) References(
 	}
 	locations, err := h.lsp.References(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -88,7 +88,7 @@ func (h *Handlers) References(
 	writeLocations(c, locations, err)
 }
 
-// Rename handles POST /v0/workspaces/:wsId/lsp/rename. The data field carries
+// Rename handles POST /v0/chats/:chatId/lsp/rename. The data field carries
 // the resulting workspace edit.
 func (h *Handlers) Rename(
 	c *gin.Context,
@@ -107,7 +107,7 @@ func (h *Handlers) Rename(
 	}
 	edit, err := h.lsp.Rename(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Position,
@@ -121,7 +121,7 @@ func (h *Handlers) Rename(
 	libs.WriteQueryOK(c, edit)
 }
 
-// CodeAction handles POST /v0/workspaces/:wsId/lsp/codeAction. The data field
+// CodeAction handles POST /v0/chats/:chatId/lsp/codeAction. The data field
 // carries the raw textDocument/codeAction result, passed through unchanged.
 func (h *Handlers) CodeAction(
 	c *gin.Context,
@@ -140,7 +140,7 @@ func (h *Handlers) CodeAction(
 	}
 	result, err := h.lsp.CodeAction(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 		req.Range,
@@ -148,7 +148,7 @@ func (h *Handlers) CodeAction(
 	writeRaw(c, result, err)
 }
 
-// DocumentSymbol handles POST /v0/workspaces/:wsId/lsp/documentSymbol. The data
+// DocumentSymbol handles POST /v0/chats/:chatId/lsp/documentSymbol. The data
 // field carries the raw textDocument/documentSymbol result, unchanged.
 func (h *Handlers) DocumentSymbol(
 	c *gin.Context,
@@ -167,7 +167,7 @@ func (h *Handlers) DocumentSymbol(
 	}
 	result, err := h.lsp.DocumentSymbol(
 		c.Request.Context(),
-		c.Param("wsId"),
+		h.lspOwnerID(c),
 		worktreePath,
 		req.Path,
 	)

@@ -76,27 +76,69 @@ func (stubUsecase) SearchDiff(
 	return nil, false, nil
 }
 
-func TestRegisterMountsRoutes(
-	t *testing.T,
-) {
-	r := gin.New()
-	review.Register(r.Group("/v0"), stubUsecase{})
-
-	cases := []struct {
+// reviewSurface is the method+relative-path set review.Register mounts,
+// written once and asserted against BOTH live prefixes (mirroring git's
+// routes_test.go, spec §8 step 4b's reference implementation for this step).
+func reviewSurface() []struct {
+	method string
+	path   string
+} {
+	return []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces/ws1/review"},
-		{http.MethodGet, "/v0/workspaces/ws1/review/files"},
-		{http.MethodGet, "/v0/workspaces/ws1/review/outline"},
-		{http.MethodGet, "/v0/workspaces/ws1/review/patch?path=a.go"},
-		{http.MethodGet, "/v0/workspaces/ws1/review/search?q=todo"},
-		{http.MethodPatch, "/v0/workspaces/ws1/review"},
+		{http.MethodGet, ""},
+		{http.MethodGet, "/files"},
+		{http.MethodGet, "/outline"},
+		{http.MethodGet, "/patch?path=a.go"},
+		{http.MethodGet, "/search?q=todo"},
+		{http.MethodPatch, ""},
 	}
-	for _, tc := range cases {
+}
+
+// registerChatScoped wires review.Register the way router.go does: on the
+// flat chat-scoped group alone (spec §8 step 6 retired the old
+// workspace-scoped mount).
+func registerChatScoped(
+	t *testing.T,
+) *gin.Engine {
+	t.Helper()
+	r := gin.New()
+	v0 := r.Group("/v0")
+	review.Register(v0.Group("/chats/:chatId"), stubUsecase{})
+	return r
+}
+
+// TestRegisterMountsChatScopedRoutes is the route half of this step: every
+// review route is reachable at the flat /v0/chats/:chatId prefix (spec §7.1).
+func TestRegisterMountsChatScopedRoutes(
+	t *testing.T,
+) {
+	r := registerChatScoped(t)
+
+	for _, tc := range reviewSurface() {
+		path := "/v0/chats/chat1/review" + tc.path
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+		req := httptest.NewRequest(tc.method, path, http.NoBody)
 		r.ServeHTTP(rec, req)
-		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, path)
+	}
+}
+
+// TestRegisterDropsWorkspaceScopedRoutes proves spec §8 step 6's deletion is
+// real for review: the old /v0/workspaces/:wsId/review... mount, kept alive
+// alongside the chat-scoped one through the rest of this refactor, answers
+// nothing any more.
+func TestRegisterDropsWorkspaceScopedRoutes(
+	t *testing.T,
+) {
+	r := registerChatScoped(t)
+
+	for _, tc := range reviewSurface() {
+		path := "/v0/workspaces/ws1/review" + tc.path
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusNotFound, rec.Code, path)
 	}
 }

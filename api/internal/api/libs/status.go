@@ -12,9 +12,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/folder"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 	"github.com/char2cs/crowbar/api/internal/engine/fs/safepath"
@@ -41,9 +40,9 @@ import (
 //     live row, either never spawned or already exited), and
 //     repoattachments.ErrNotFound (a stored chat attachment file name with no
 //     row on disk).
-//   - 400 Bad Request    — folder.ErrFolderNameRequired and
-//     agentusecase.ErrTreeNameRequired (a folder create or rename with a blank
-//     name, in the sidebar and the Chats panel respectively),
+//   - 400 Bad Request    — agentusecase.ErrTreeNameRequired (a folder create or
+//     rename with a blank name — the sidebar's own folder-placement feature and
+//     the Chats panel share this one tree, so one sentinel now covers both),
 //     enginesearch.ErrBadPattern,
 //     enginesearch.ErrPathOutsideWorkspace, safepath.ErrPathEscapesWorkspace
 //     (a workspace-relative fs path that is absolute or traverses outside the
@@ -73,10 +72,30 @@ import (
 //     already imported — one folder belongs to exactly one project),
 //     the worktree lock / non-leaf sentinels (ErrParentLocked,
 //     ErrWorkspaceLocked, ErrRebaseNonLeaf,
-//     ErrChildHasChildren), the sidebar-placement sentinels
-//     (folder.ErrFolderCycle, folder.ErrFolderCrossRepo,
-//     folder.ErrForkChainSplit — a move that would make a row unreachable, cross
-//     a repo boundary, or split a fork chain), and the git
+//     ErrChildHasChildren, ErrWorkspaceWorking — a reparent refused over a
+//     workspace subtree that owns a currently-working chat,
+//     ErrCrossRepoWorktreeMove — a reparent of a worktree-owning row into
+//     another repo, which is a different checkout entirely, not a rebase
+//     target, model spec invariant 7), the unified
+//     tree's placement sentinels
+//     (agentusecase.ErrTreeCycle, agentusecase.ErrTreeCrossWorkspace — a move
+//     that would make a row unreachable from the tree's root, or cross a
+//     workspace boundary; agentusecase.ErrTreeCrossRepo — a folder create or
+//     move whose parent belongs to a different repo scope (or home, vs. a
+//     repo) — the folder-scoping golden rule: a folder's children may only be
+//     ones its own parent could also have;
+//     agentusecase.ErrTreeCrossContext — the same golden rule's finer grain,
+//     a folder MOVE crossing from one context (project home, a bare repo
+//     root, or one specific branch's own workspace) to a different one even
+//     within the same repo;
+//     agentusecase.ErrTreeForkChainSplit — a WORKSPACE placement filing a
+//     fork's own row outside the space its fork parent owns, which a
+//     placement never moves the git lineage to match;
+//     agentusecase.ErrTreeSubtreeWorking — a move or
+//     delete refused because a row in the subtree it takes is currently
+//     working, with no confirm-and-override path; the sidebar's own
+//     workspace-into-folder feature and the Chats panel share this one tree
+//     and these same sentinels), and the git
 //     engine's classified conflict sentinels (ErrConflict, ErrDirtyTree,
 //     ErrRejectedNonFastForward, ErrNothingToCommit, ErrStaleHunk,
 //     ErrHasChildren, ErrBranchAlreadyExists, ErrNonFastForward).
@@ -186,7 +205,6 @@ func isBadRequest(
 		errors.Is(err, safepath.ErrPathEscapesWorkspace) ||
 		errors.Is(err, apperr.ErrInvalidArgument) ||
 		errors.Is(err, fs.ErrInvalid) ||
-		errors.Is(err, folder.ErrFolderNameRequired) ||
 		errors.Is(err, agentusecase.ErrTreeNameRequired) ||
 		errors.Is(err, enginegit.ErrNoRemote)
 }
@@ -224,30 +242,43 @@ var conflictSentinels = []error{
 	apperr.ErrConflict,
 	enginesearch.ErrLocked,
 	fs.ErrExist,
-	worktree.ErrParentLocked,
-	worktree.ErrWorkspaceLocked,
-	worktree.ErrParentUnprovisioned,
+	workspace.ErrParentLocked,
+	workspace.ErrWorkspaceLocked,
+	workspace.ErrParentUnprovisioned,
 	project.ErrRepoAlreadyImported,
-	worktree.ErrRebaseNonLeaf,
-	worktree.ErrChildHasChildren,
-	worktree.ErrBranchWorkspaceExists,
-	worktree.ErrRenameTargetExists,
-	worktree.ErrRenameUnmanagedWorkspace,
+	workspace.ErrRebaseNonLeaf,
+	workspace.ErrChildHasChildren,
+	workspace.ErrBranchWorkspaceExists,
+	workspace.ErrRenameTargetExists,
+	workspace.ErrRenameUnmanagedWorkspace,
+	workspace.ErrWorkspaceWorking,
+	workspace.ErrCrossRepoWorktreeMove,
+	// Promotion's three refusals (model spec §4.2). Each says the row is not in
+	// a state where it can be promoted — already has a workspace, has no
+	// workspace-owning ancestor to fork from, has never had a provider to
+	// respawn as — rather than that the request was malformed, which is what
+	// puts them in this table and not the 400 one.
+	agentusecase.ErrAlreadyPromoted,
+	agentusecase.ErrNoForkParent,
+	agentusecase.ErrNothingToPromote,
 }
 
-// isPlacementConflict reports whether err is one of the tree-placement sentinels
-// that map to HTTP 409: a move that would make a row unreachable from its tree's
-// root, cross a repo or workspace boundary, or split a fork chain. Both trees
-// are covered — the sidebar's (folder) and the Chats panel's (the chat tree) —
-// because a refused drag is the same answer to the user either way.
+// isPlacementConflict reports whether err is one of the unified tree's
+// placement sentinels that map to HTTP 409: a move that would make a row
+// unreachable from the tree's root, cross a workspace boundary, or take a
+// subtree with a currently-working row in it (a move or a delete alike — the
+// latter has no confirm-and-override path). One tree now serves both the
+// sidebar's workspace-into-folder feature and the Chats panel, so a refused
+// drag or delete is the same answer to the user either way.
 func isPlacementConflict(
 	err error,
 ) bool {
-	return errors.Is(err, folder.ErrFolderCycle) ||
-		errors.Is(err, folder.ErrFolderCrossRepo) ||
-		errors.Is(err, folder.ErrForkChainSplit) ||
-		errors.Is(err, agentusecase.ErrTreeCycle) ||
-		errors.Is(err, agentusecase.ErrTreeCrossWorkspace)
+	return errors.Is(err, agentusecase.ErrTreeCycle) ||
+		errors.Is(err, agentusecase.ErrTreeCrossWorkspace) ||
+		errors.Is(err, agentusecase.ErrTreeCrossRepo) ||
+		errors.Is(err, agentusecase.ErrTreeCrossContext) ||
+		errors.Is(err, agentusecase.ErrTreeForkChainSplit) ||
+		errors.Is(err, agentusecase.ErrTreeSubtreeWorking)
 }
 
 // isGitConflict reports whether err is one of the git engine's classified

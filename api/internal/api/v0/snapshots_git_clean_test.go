@@ -38,6 +38,11 @@ func initCleanGitRepo(t *testing.T) string {
 // appendGitStatus's normalize branch: a clean tree's GitStatus carries a nil
 // Files slice, which must come back as [] on the wire (matching the REST DTO
 // contract), never null.
+//
+// The scope is HIERARCHICAL because that is the only shape that still resolves
+// to a workspace: a bare id is a chat id now (see gitSnapshot's doc comment and
+// TestGitSnapshot_BareScopeIsNotReadAsAWorkspaceID), so naming "w1" alone would
+// replay nothing and assert the normalize branch vacuously.
 func TestGitSnapshot_CleanWorkspace_NormalizesNilFilesToEmptyArray(t *testing.T) {
 	a := newAppForSnapshot(t)
 	repo := initCleanGitRepo(t)
@@ -49,8 +54,11 @@ func TestGitSnapshot_CleanWorkspace_NormalizesNilFilesToEmptyArray(t *testing.T)
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
+	// The workspace store projection is async (Send, not SendWait): drain it so
+	// scopedWorkspaceRows' Get sees the row.
+	a.Repositories.WaitQuiescent()
 
-	got := gitSnapshot(a)("w1")
+	got := gitSnapshot(a)("p1/r1/w1")
 
 	require.Len(t, got, 1)
 	assert.Equal(t, "main", got[0].Status.Branch)

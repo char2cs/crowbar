@@ -8,44 +8,48 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/session"
 )
 
-// entry pairs a live session with the workspace that owns it so the registry
-// can both look a session up by id and list every session for a workspace.
+// entry pairs a live session with the chat that owns it so the registry can
+// both look a session up by id and list every session for a chat.
 type entry struct {
-	session     *session.Session
-	workspaceID string
+	session *session.Session
+	chatID  string
 }
 
 // Registry is a mutex-guarded map of session ID → live session, with a
-// secondary workspace index so listings can be scoped per workspace (the
-// workspace-scoped lifecycle topic, spec §3).
+// secondary chat index so listings can be scoped per chat (the chat-scoped
+// lifecycle topic, spec 2026-09-02-chat-scoped-api-design §4.2).
+//
+// The index is keyed by CHAT, not by worktree, because a terminal belongs to
+// the chat that opened it: two sibling chats sharing one worktree must not see
+// each other's shells.
 type Registry struct {
-	mu          sync.RWMutex
-	sessions    map[string]entry
-	byWorkspace map[string]map[string]struct{}
+	mu       sync.RWMutex
+	sessions map[string]entry
+	byChat   map[string]map[string]struct{}
 }
 
 // New constructs an empty Registry.
 func New() *Registry {
 	return &Registry{
-		sessions:    make(map[string]entry),
-		byWorkspace: make(map[string]map[string]struct{}),
+		sessions: make(map[string]entry),
+		byChat:   make(map[string]map[string]struct{}),
 	}
 }
 
-// Add stores a session under id, recording the owning workspace so the session
-// is discoverable via ListByWorkspace.
+// Add stores a session under id, recording the owning chat so the session is
+// discoverable via ListByChat.
 func (r *Registry) Add(
 	id string,
-	workspaceID string,
+	chatID string,
 	s *session.Session,
 ) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.sessions[id] = entry{session: s, workspaceID: workspaceID}
-	ids := r.byWorkspace[workspaceID]
+	r.sessions[id] = entry{session: s, chatID: chatID}
+	ids := r.byChat[chatID]
 	if ids == nil {
 		ids = make(map[string]struct{})
-		r.byWorkspace[workspaceID] = ids
+		r.byChat[chatID] = ids
 	}
 	ids[id] = struct{}{}
 }
@@ -63,7 +67,7 @@ func (r *Registry) Get(
 	return e.session, true
 }
 
-// Remove deletes the session for id, dropping it from the workspace index too.
+// Remove deletes the session for id, dropping it from the chat index too.
 // It is a no-op if the id is not found.
 func (r *Registry) Remove(
 	id string,
@@ -75,10 +79,10 @@ func (r *Registry) Remove(
 		return
 	}
 	delete(r.sessions, id)
-	ids := r.byWorkspace[e.workspaceID]
+	ids := r.byChat[e.chatID]
 	delete(ids, id)
 	if len(ids) == 0 {
-		delete(r.byWorkspace, e.workspaceID)
+		delete(r.byChat, e.chatID)
 	}
 }
 
@@ -93,14 +97,14 @@ func (r *Registry) List() []string {
 	return ids
 }
 
-// ListByWorkspace returns the active session IDs owned by workspaceID. It
-// returns an empty slice when the workspace has no live sessions.
-func (r *Registry) ListByWorkspace(
-	workspaceID string,
+// ListByChat returns the active session IDs owned by chatID. It returns an
+// empty slice when the chat has no live sessions.
+func (r *Registry) ListByChat(
+	chatID string,
 ) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	ids := r.byWorkspace[workspaceID]
+	ids := r.byChat[chatID]
 	out := make([]string, 0, len(ids))
 	for id := range ids {
 		out = append(out, id)
@@ -108,16 +112,16 @@ func (r *Registry) ListByWorkspace(
 	return out
 }
 
-// WorkspaceID returns the workspace ID associated with the given session ID.
+// ChatID returns the chat ID that owns the given session ID.
 // Returns ("", false) if the session is not found.
-func (r *Registry) WorkspaceID(id string) (string, bool) {
+func (r *Registry) ChatID(id string) (string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	e, ok := r.sessions[id]
 	if !ok {
 		return "", false
 	}
-	return e.workspaceID, true
+	return e.chatID, true
 }
 
 // ErrSessionNotFound is returned when a session ID does not exist.

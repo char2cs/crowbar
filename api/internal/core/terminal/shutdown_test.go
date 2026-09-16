@@ -42,7 +42,7 @@ func TestShutdown_FlushPersistNoBufDelete(t *testing.T) {
 	const N = 3
 	sids := make([]string, N)
 	for i := range sids {
-		sids[i] = newReadyShell(t, eng, "ws-graceful-shutdown", store.dir)
+		sids[i] = newReadyShell(t, eng, "chat-graceful-shutdown", store.dir)
 	}
 
 	// Shutdown is called directly, on this goroutine. It joins the maintenance sweep and
@@ -86,11 +86,11 @@ func TestShutdown_FlushPersistNoBufDelete(t *testing.T) {
 	terminal.StopMaintenanceForTest(eng2)
 	for _, sid := range sids {
 		loadErr := eng2.LoadPlaceholder(ctx, terminal.SessionMeta{
-			SessionID:   sid,
-			WorkspaceID: "ws-graceful-shutdown",
-			CWD:         store.dir,
-			Shell:       "/bin/sh",
-			State:       "suspended",
+			SessionID: sid,
+			ChatID:    "chat-graceful-shutdown",
+			CWD:       store.dir,
+			Shell:     "/bin/sh",
+			State:     "suspended",
 		}, nil)
 		require.NoError(t, loadErr)
 		assert.True(t, eng2.SessionExists(ctx, sid),
@@ -122,11 +122,11 @@ func TestShutdown_NoDeleteForPlaceholder(t *testing.T) {
 	scrollback := []byte("old prompt output\r\n")
 
 	require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
-		SessionID:   sid,
-		WorkspaceID: "ws-ph-shutdown",
-		CWD:         store.dir,
-		Shell:       "/bin/sh",
-		State:       "suspended",
+		SessionID: sid,
+		ChatID:    "chat-ph-shutdown",
+		CWD:       store.dir,
+		Shell:     "/bin/sh",
+		State:     "suspended",
 	}, scrollback))
 
 	// Pre-write a .buf to simulate a session that was flushed on a prior run.
@@ -172,7 +172,7 @@ func TestShutdown_JoinsExitCallbacks(t *testing.T) {
 	// `cat` holds its PTY open exactly like a real vendor CLI, so this session is
 	// still alive when the shutdown comes for it — the mid-turn shape.
 	var exited atomic.Bool
-	id, err := eng.CreateCommand(ctx, "ws-exit-drain", t.TempDir(),
+	id, err := eng.CreateCommand(ctx, "chat-exit-drain", t.TempDir(),
 		[]string{"cat"}, os.Environ(), func() { exited.Store(true) })
 	require.NoError(t, err)
 	require.True(t, eng.SessionExists(ctx, id))
@@ -201,12 +201,12 @@ func TestShutdown_RefusesNewSessions(t *testing.T) {
 
 	eng.Shutdown()
 
-	_, err := eng.CreateCommand(ctx, "ws-after-shutdown", t.TempDir(),
+	_, err := eng.CreateCommand(ctx, "chat-after-shutdown", t.TempDir(),
 		[]string{"cat"}, os.Environ(), nil)
 	assert.ErrorIs(t, err, terminal.ErrShuttingDown,
 		"CreateCommand must refuse after Shutdown: a vendor CLI nothing is left to reap outlives the daemon")
 
-	_, err = eng.Create(ctx, "ws-after-shutdown", t.TempDir(), nil)
+	_, err = eng.Create(ctx, "chat-after-shutdown", t.TempDir(), nil)
 	assert.ErrorIs(t, err, terminal.ErrShuttingDown,
 		"Create must refuse after Shutdown for the same reason: the kill loop has already been and gone")
 }
@@ -234,11 +234,11 @@ func TestShutdown_RefusedRestoreKeepsPersistedState(t *testing.T) {
 	const sid = "ph-refused-restore"
 	scrollback := []byte("work the user has not read yet\r\n")
 	require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
-		SessionID:   sid,
-		WorkspaceID: "ws-refused-restore",
-		CWD:         store.dir,
-		Shell:       "/bin/sh",
-		State:       "suspended",
+		SessionID: sid,
+		ChatID:    "chat-refused-restore",
+		CWD:       store.dir,
+		Shell:     "/bin/sh",
+		State:     "suspended",
 	}, scrollback))
 	require.NoError(t, os.WriteFile(filepath.Join(store.dir, sid+".buf"), scrollback, 0o644))
 

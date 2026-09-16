@@ -64,8 +64,9 @@ func TestGit_LockedWorkspaceRejectsWrite(t *testing.T) {
 	imported := importProject(t, h)
 	base := wsBase(imported)
 
-	var detail workspaceDTO
-	h.get(base, &detail)
+	// The dedicated GET .../workspaces/:wsId detail route is gone (spec §8 step
+	// 6); worktreeOf reads the same answer off the chat list.
+	detail := worktreeOf(t, h, imported, imported.workspaceID)
 	require.Equal(t, "locked", detail.Status, "adopted main worktree must be locked")
 
 	var status gitStatusDTO

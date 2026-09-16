@@ -231,7 +231,7 @@ func TestEngine_Create_And_ListSessions(t *testing.T) {
 
 	assert.Empty(t, eng.ListSessions())
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, sid)
 
@@ -240,36 +240,36 @@ func TestEngine_Create_And_ListSessions(t *testing.T) {
 	require.NoError(t, eng.Kill(ctx, sid))
 }
 
-func TestEngine_Create_KeysSessionByWorkspace(t *testing.T) {
+func TestEngine_Create_KeysSessionByChat(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid1, err := eng.Create(ctx, "ws-a", dir, nil)
+	sid1, err := eng.Create(ctx, "chat-a", dir, nil)
 	require.NoError(t, err)
-	sid2, err := eng.Create(ctx, "ws-b", dir, nil)
+	sid2, err := eng.Create(ctx, "chat-b", dir, nil)
 	require.NoError(t, err)
 
-	assert.ElementsMatch(t, []string{sid1}, eng.ListSessionsForWorkspace("ws-a"))
-	assert.ElementsMatch(t, []string{sid2}, eng.ListSessionsForWorkspace("ws-b"))
+	assert.ElementsMatch(t, []string{sid1}, eng.ListSessionsForChat("chat-a"))
+	assert.ElementsMatch(t, []string{sid2}, eng.ListSessionsForChat("chat-b"))
 
 	require.NoError(t, eng.Kill(ctx, sid1))
 	require.NoError(t, eng.Kill(ctx, sid2))
 }
 
-func TestEngine_ListSessionsForWorkspace(t *testing.T) {
+func TestEngine_ListSessionsForChat(t *testing.T) {
 	eng := terminal.New()
 	terminal.StopMaintenanceForTest(eng)
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	assert.Empty(t, eng.ListSessionsForWorkspace("ws-a"))
+	assert.Empty(t, eng.ListSessionsForChat("chat-a"))
 
-	sid, err := eng.Create(ctx, "ws-a", dir, nil)
+	sid, err := eng.Create(ctx, "chat-a", dir, nil)
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{sid}, eng.ListSessionsForWorkspace("ws-a"))
-	assert.Empty(t, eng.ListSessionsForWorkspace("ws-other"))
+	assert.ElementsMatch(t, []string{sid}, eng.ListSessionsForChat("chat-a"))
+	assert.Empty(t, eng.ListSessionsForChat("chat-other"))
 
 	require.NoError(t, eng.Kill(ctx, sid))
 }
@@ -281,16 +281,16 @@ func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
 	dir := t.TempDir()
 
 	type ended struct {
-		wsID     string
+		chatID   string
 		sid      string
 		exitCode int
 	}
 	endedCh := make(chan ended, 1)
-	eng.OnSessionEnded(func(_ context.Context, wsID, sid string, exitCode int) {
-		endedCh <- ended{wsID: wsID, sid: sid, exitCode: exitCode}
+	eng.OnSessionEnded(func(_ context.Context, chatID, sid string, exitCode int) {
+		endedCh <- ended{chatID: chatID, sid: sid, exitCode: exitCode}
 	})
 
-	sid, err := eng.Create(ctx, "ws-a", dir, nil)
+	sid, err := eng.Create(ctx, "chat-a", dir, nil)
 	require.NoError(t, err)
 
 	// Kill triggers the PTY exit, which reapOnDone observes and reports via the
@@ -301,7 +301,7 @@ func TestEngine_OnSessionEnded_FiresOnReap(t *testing.T) {
 	// a second, weaker definition of "too slow"; a callback that never fires is a hang, and
 	// `go test -timeout` reports it with the blocked stack.
 	got := <-endedCh
-	assert.Equal(t, "ws-a", got.wsID)
+	assert.Equal(t, "chat-a", got.chatID)
 	assert.Equal(t, sid, got.sid)
 	// exitCode is -1 when killed by signal; any integer is valid here.
 	_ = got.exitCode
@@ -329,7 +329,7 @@ func TestEngine_Write(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, eng.Write(ctx, sid, []byte("echo ok\n")))
@@ -342,7 +342,7 @@ func TestEngine_Resize(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, eng.Resize(ctx, sid, 120, 40))
@@ -365,7 +365,7 @@ func TestEngine_Attach_ReceivesOutput(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 
 	conn := newMockConn()
@@ -392,7 +392,7 @@ func TestEngine_ListSessions_AfterKill(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 	require.NoError(t, eng.Kill(ctx, sid))
 
@@ -405,7 +405,7 @@ func TestEngine_Create_BadShell(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	_, err := eng.Create(ctx, "ws-bad", dir, nil)
+	_, err := eng.Create(ctx, "chat-bad", dir, nil)
 	// With no profile, it uses $SHELL or /bin/sh which is valid, so this test
 	// exercises the profile resolution path. To trigger an error we need a bad profile.
 	require.NoError(t, err) // default shell succeeds
@@ -419,7 +419,7 @@ func TestEngine_Create_InvalidShellViaProfile(t *testing.T) {
 	dir := t.TempDir()
 
 	prof := &domain.TerminalProfile{Shell: "/nonexistent/shell"}
-	_, err := eng.Create(ctx, "ws-bad", dir, prof)
+	_, err := eng.Create(ctx, "chat-bad", dir, prof)
 	assert.Error(t, err)
 }
 
@@ -429,7 +429,7 @@ func TestEngine_Attach_DeadSession(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 
 	// Kill the underlying PTY process to make the session dead,
@@ -455,7 +455,7 @@ func TestEngine_Attach_ResyncMessage(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 
 	resyncMsg, _ := json.Marshal(map[string]any{"type": "resync"})
@@ -484,7 +484,7 @@ func TestEngine_Attach_ResizeMessage(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 
 	resizeMsg, _ := json.Marshal(map[string]any{"type": "resize", "cols": 120, "rows": 40})
@@ -567,7 +567,7 @@ func TestEngine_Attach_WritePumpClosedConn(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 
 	conn := newErrConn()
@@ -630,7 +630,7 @@ func TestEngine_Create_WithStartupCommands(t *testing.T) {
 		StartupCommands: []string{"echo startup-test"},
 	}
 
-	sid, err := eng.Create(ctx, "ws-1", dir, prof)
+	sid, err := eng.Create(ctx, "chat-1", dir, prof)
 	require.NoError(t, err)
 	require.NoError(t, eng.Kill(ctx, sid))
 }
@@ -643,7 +643,7 @@ func TestEngine_SessionExists(t *testing.T) {
 
 	assert.False(t, eng.SessionExists(ctx, "nonexistent"))
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 
 	assert.True(t, eng.SessionExists(ctx, sid))
@@ -657,7 +657,7 @@ func TestEngine_Shutdown(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-1", dir, nil)
+	sid, err := eng.Create(ctx, "chat-1", dir, nil)
 	require.NoError(t, err)
 	assert.True(t, eng.SessionExists(ctx, sid))
 
@@ -696,12 +696,12 @@ func TestEngine_LoadPlaceholder_IsPlaceholder(t *testing.T) {
 
 	sid := "ph-sess-1"
 	err := eng.LoadPlaceholder(ctx, terminal.SessionMeta{
-		SessionID:   sid,
-		WorkspaceID: "ws-ph",
-		CWD:         "/tmp",
-		Shell:       "/bin/sh",
-		ProfileID:   "",
-		State:       "suspended",
+		SessionID: sid,
+		ChatID:    "chat-ph",
+		CWD:       "/tmp",
+		Shell:     "/bin/sh",
+		ProfileID: "",
+		State:     "suspended",
 	}, []byte("old scrollback"))
 	require.NoError(t, err)
 
@@ -723,10 +723,10 @@ func TestEngine_LoadPlaceholder_Idempotent(t *testing.T) {
 
 	sid := "ph-sess-idem"
 	meta := terminal.SessionMeta{
-		SessionID:   sid,
-		WorkspaceID: "ws-ph",
-		CWD:         "/tmp",
-		Shell:       "/bin/sh",
+		SessionID: sid,
+		ChatID:    "chat-ph",
+		CWD:       "/tmp",
+		Shell:     "/bin/sh",
 	}
 
 	require.NoError(t, eng.LoadPlaceholder(ctx, meta, nil))
@@ -768,11 +768,11 @@ func TestEngine_LoadPlaceholder_ThenAttach_Restores(t *testing.T) {
 	require.NoError(t, os.WriteFile(bufPath, scrollback, 0o644))
 
 	require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
-		SessionID:   sid,
-		WorkspaceID: "ws-ph-attach",
-		CWD:         dir,
-		Shell:       "/bin/sh",
-		ProfileID:   "",
+		SessionID: sid,
+		ChatID:    "chat-ph-attach",
+		CWD:       dir,
+		Shell:     "/bin/sh",
+		ProfileID: "",
 	}, scrollback))
 
 	// Attach must trigger restore transparently.
@@ -807,7 +807,7 @@ func TestEngine_Detach_PersistsScrollbackAndMeta(t *testing.T) {
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 
-	sid, err := eng.Create(ctx, "ws-detach", dir, nil)
+	sid, err := eng.Create(ctx, "chat-detach", dir, nil)
 	require.NoError(t, err)
 
 	conn := newMockConn()
@@ -841,7 +841,7 @@ func TestEngine_Suspend_WithConnectedClient_NoOp(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-susp-client", dir, nil)
+	sid, err := eng.Create(ctx, "chat-susp-client", dir, nil)
 	require.NoError(t, err)
 
 	conn := newMockConn()
@@ -894,7 +894,7 @@ func TestEngine_Suspend_MakesPlaceholder(t *testing.T) {
 
 	// The shell is parked at its prompt, hence idle, which is the precondition Suspend's
 	// eligibility gate checks. So ONE call must take — no retry loop.
-	sid := newReadyShell(t, eng, "ws-susp", dir)
+	sid := newReadyShell(t, eng, "chat-susp", dir)
 	require.NoError(t, eng.Suspend(ctx, sid))
 	require.True(t, store.hasSavedWithState(sid, "suspended"),
 		"Suspend persists the suspended meta before returning")
@@ -933,7 +933,7 @@ func TestEngine_Suspend_ThenAttach_Restores(t *testing.T) {
 	store := newFakeMetaStore(t)
 	eng.SetMetaStore(store)
 
-	sid := newReadyShell(t, eng, "ws-restore", dir)
+	sid := newReadyShell(t, eng, "chat-restore", dir)
 
 	// Attach first client, write something to populate the ring, then detach.
 	conn1 := newMockConn()
@@ -995,10 +995,10 @@ func TestEngine_DropUnrestorable_CleansUpSessionMu(t *testing.T) {
 
 	sid := "ph-unrestorable-mu"
 	require.NoError(t, eng.LoadPlaceholder(ctx, terminal.SessionMeta{
-		SessionID:   sid,
-		WorkspaceID: "ws-unrestorable-mu",
-		CWD:         t.TempDir(),
-		Shell:       "/nonexistent/shell-that-cannot-spawn",
+		SessionID: sid,
+		ChatID:    "chat-unrestorable-mu",
+		CWD:       t.TempDir(),
+		Shell:     "/nonexistent/shell-that-cannot-spawn",
 	}, nil))
 
 	// Attach triggers restore, which calls spawn with the non-existent shell.
@@ -1026,7 +1026,7 @@ func TestEngine_Kill_CleanReap(t *testing.T) {
 	endedCh := make(chan string, 1)
 	eng.OnSessionEnded(func(_ context.Context, _, sid string, _ int) { endedCh <- sid })
 
-	sid, err := eng.Create(ctx, "ws-kill", dir, nil)
+	sid, err := eng.Create(ctx, "chat-kill", dir, nil)
 	require.NoError(t, err)
 
 	// Pre-write a .buf so we can verify Kill deletes it.
@@ -1055,7 +1055,7 @@ func TestEngine_StateOf_ReturnsStateForLiveSession(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-stateof", dir, nil)
+	sid, err := eng.Create(ctx, "chat-stateof", dir, nil)
 	require.NoError(t, err)
 
 	state, ok := eng.StateOf(sid)
@@ -1085,7 +1085,7 @@ func TestEngine_StateOf_ActiveWhileAttached(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	sid, err := eng.Create(ctx, "ws-active", dir, nil)
+	sid, err := eng.Create(ctx, "chat-active", dir, nil)
 	require.NoError(t, err)
 
 	conn := newMockConn()
@@ -1121,7 +1121,7 @@ func TestEngine_OnSessionState_DetachedFiredOnLastClientLeave(t *testing.T) {
 		stateCh <- state
 	})
 
-	sid, err := eng.Create(ctx, "ws-detach-state", dir, nil)
+	sid, err := eng.Create(ctx, "chat-detach-state", dir, nil)
 	require.NoError(t, err)
 
 	conn := newMockConn()
@@ -1170,7 +1170,7 @@ func TestRegression_TerminalLifecycle_StateOf_And_OnSessionState(t *testing.T) {
 
 	// Create → should be detached (no clients). Block until the shell is at its prompt, so the
 	// Suspend later in this test meets the idle gate its eligibility check applies.
-	sid := newReadyShell(t, eng, "ws-regress", dir)
+	sid := newReadyShell(t, eng, "chat-regress", dir)
 
 	state, ok := eng.StateOf(sid)
 	assert.True(t, ok)

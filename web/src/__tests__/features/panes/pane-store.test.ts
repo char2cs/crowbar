@@ -1,244 +1,227 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  createWindowPaneStore,
+  type WindowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
+import type { EditorContent } from '@/features/panes/types/pane-content'
 
-const createMockStorage = () => {
-  const storage = new Map<string, string>()
-  return {
-    getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      storage.set(key, value)
-    },
-    removeItem: (key: string) => {
-      storage.delete(key)
-    },
-    clear: () => {
-      storage.clear()
-    },
-    key: (index: number) => Array.from(storage.keys())[index] ?? null,
-    get length() {
-      return storage.size
-    },
-  }
+// Task 26 moved panes/buffers out of the per-workspace store registry into one
+// window-level store, and Task 1 renamed the pane's tab list `bufferIds` ->
+// `editorTabIds` (a chat is no longer one of them at all: it is the pane's own
+// `chatId` field). This suite used to drive `createWorkspaceStore('test-ws')`
+// and the pre-Task-1 action names, so every case in it threw
+// `addBufferToPane is not a function` — migrated here onto the real store and
+// the real action names.
+//
+// A fresh store per test rather than the module singleton: these cases split,
+// close and merge the layout, and the singleton is shared with every other
+// suite in the run.
+
+function makeStore(): WindowPaneStore {
+  return createWindowPaneStore()
 }
 
+let store: WindowPaneStore
+
+const paneActions = () => store.getState().paneActions
+const panes = () => store.getState().panes
+
+/** A real editor buffer plus its tab in `paneId`. The buffer half matters:
+ *  `setEditorTabPreview`/`setEditorTabPinned` scope-and-mutate the TAB'S OWN
+ *  `isPreview`/`isPinned` (there are no pane-level `previewBufferId`/
+ *  `pinnedBufferIds` fields — Task 2's ruling), so a tab id with no buffer
+ *  behind it has nothing to mark. */
+function openTab(paneId: string, id: string): void {
+  const buffer: EditorContent = {
+    id,
+    type: 'editor',
+    path: `src/${id}.ts`,
+    name: `${id}.ts`,
+    workspaceId: 'test-ws',
+    content: '',
+    savedContent: '',
+    isDirty: false,
+    isVirtual: false,
+    tokens: [],
+  }
+  store.setState((state) => {
+    if (!state.buffers.some((b) => b.id === id)) state.buffers.push(buffer)
+    return state
+  })
+  paneActions().addEditorTabToPane(paneId, buffer)
+}
+
+const bufferById = (id: string) => store.getState().buffers.find((b) => b.id === id)
+
+beforeEach(() => {
+  store = makeStore()
+})
+
 describe('pane-store bottom pane integration', () => {
-  let store: WorkspaceStore
+  it('moves editor tabs between the root pane and the bottom pane', () => {
+    openTab(ROOT_PANE_ID, 'buffer-a')
+    paneActions().moveEditorTabToPane('buffer-a', ROOT_PANE_ID, BOTTOM_PANE_ID)
 
-  beforeEach(() => {
-    vi.stubGlobal('localStorage', createMockStorage())
-    vi.stubGlobal('window', {
-      __TAURI_INTERNALS__: {
-        invoke: vi.fn().mockResolvedValue([]),
-        metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main' } },
-      },
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })
-    store = createWorkspaceStore('test-ws')
-  })
+    // A pane emptied by a move is simply EMPTY now. The old "never tab-less,
+    // reseed a newTab placeholder" contract went with Task 1: a pane with zero
+    // editorTabIds renders the New Tab stage for free (pane-container.tsx), so
+    // there is no placeholder buffer left to assert.
+    expect(panes()[ROOT_PANE_ID]?.editorTabIds).toEqual([])
+    expect(panes()[ROOT_PANE_ID]?.editorOpen).toBe(false)
+    expect(panes()[BOTTOM_PANE_ID]?.editorTabIds).toEqual(['buffer-a'])
+    expect(panes()[BOTTOM_PANE_ID]?.activeEditorTabId).toBe('buffer-a')
 
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
+    paneActions().moveEditorTabToPane('buffer-a', BOTTOM_PANE_ID, ROOT_PANE_ID)
 
-  function paneActions() {
-    return store.getState().paneActions
-  }
-
-  function panes() {
-    return store.getState().panes
-  }
-
-  it('moves buffers between the root pane and the bottom pane', () => {
-    const { addBufferToPane, moveBufferToPane } = paneActions()
-
-    addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    moveBufferToPane('buffer-a', ROOT_PANE_ID, BOTTOM_PANE_ID)
-
-    // A pane is never tab-less (I6): root emptied out from the move, so it is
-    // reseeded with a fresh New Tab rather than left with zero tabs.
-    const rootAfterFirstMove = panes()[ROOT_PANE_ID]
-    expect(rootAfterFirstMove?.bufferIds).toHaveLength(1)
-    expect(
-      store.getState().buffers.find((b) => b.id === rootAfterFirstMove?.bufferIds[0])?.type,
-    ).toBe('newTab')
-    expect(panes()[BOTTOM_PANE_ID]?.bufferIds).toEqual(['buffer-a'])
-    expect(panes()[BOTTOM_PANE_ID]?.activeBufferId).toBe('buffer-a')
-
-    const seededRootNewTabId = rootAfterFirstMove!.bufferIds[0]
-    moveBufferToPane('buffer-a', BOTTOM_PANE_ID, ROOT_PANE_ID)
-
-    // Real content landing beside an existing New Tab is a plain merge (a pane
-    // may hold both real tabs and its own New Tab at once) — root keeps the
-    // New Tab it was reseeded with above AND gains 'buffer-a'.
-    expect(panes()[ROOT_PANE_ID]?.bufferIds).toEqual([seededRootNewTabId, 'buffer-a'])
-    expect(panes()[ROOT_PANE_ID]?.activeBufferId).toBe('buffer-a')
-    // Bottom, in turn, emptied out and is reseeded the same way root was above.
-    const bottomAfterSecondMove = panes()[BOTTOM_PANE_ID]
-    expect(bottomAfterSecondMove?.bufferIds).toHaveLength(1)
-    expect(
-      store.getState().buffers.find((b) => b.id === bottomAfterSecondMove?.bufferIds[0])?.type,
-    ).toBe('newTab')
+    expect(panes()[ROOT_PANE_ID]?.editorTabIds).toEqual(['buffer-a'])
+    expect(panes()[ROOT_PANE_ID]?.activeEditorTabId).toBe('buffer-a')
+    expect(panes()[BOTTOM_PANE_ID]?.editorTabIds).toEqual([])
   })
 
   it('can split the bottom root like any other pane tree', () => {
-    const { addBufferToPane, splitPane, getAllPaneGroups } = paneActions()
-
-    addBufferToPane(BOTTOM_PANE_ID, 'buffer-a')
-    const newPaneId = splitPane(BOTTOM_PANE_ID, 'horizontal')
+    openTab(BOTTOM_PANE_ID, 'buffer-a')
+    const newPaneId = paneActions().splitPane(BOTTOM_PANE_ID, 'horizontal')
 
     expect(newPaneId).not.toBeNull()
-
-    expect(getAllPaneGroups().length).toBeGreaterThanOrEqual(2)
-    expect(panes()[BOTTOM_PANE_ID]?.bufferIds).toEqual(['buffer-a'])
+    expect(paneActions().getAllPaneGroups().length).toBeGreaterThanOrEqual(2)
+    expect(panes()[BOTTOM_PANE_ID]?.editorTabIds).toEqual(['buffer-a'])
   })
 
-  it('preserves an empty source pane when moving the only buffer into a new split', () => {
-    const { addBufferToPane, splitPane, getAllPaneGroups } = paneActions()
-
-    addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    const newPaneId = splitPane(ROOT_PANE_ID, 'horizontal')
+  it('preserves an empty source pane when moving the only tab into a new split', () => {
+    openTab(ROOT_PANE_ID, 'buffer-a')
+    const newPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal')
     expect(newPaneId).not.toBeNull()
     if (!newPaneId) return
 
-    store.getState().paneActions.moveBufferToPane('buffer-a', ROOT_PANE_ID, newPaneId)
+    paneActions().moveEditorTabToPane('buffer-a', ROOT_PANE_ID, newPaneId)
 
-    const groups = getAllPaneGroups()
-    expect(groups.length).toBeGreaterThanOrEqual(1)
-    expect(panes()[newPaneId]?.bufferIds).toEqual(['buffer-a'])
+    expect(paneActions().getAllPaneGroups().length).toBeGreaterThanOrEqual(2)
+    expect(panes()[ROOT_PANE_ID]).toBeDefined() // the source survives, empty
+    expect(panes()[ROOT_PANE_ID]?.editorTabIds).toEqual([])
+    expect(panes()[newPaneId]?.editorTabIds).toEqual(['buffer-a'])
   })
 
   it('falls back to the most recently active remaining pane when closing the active pane', () => {
-    const { addBufferToPane, splitPane, setActivePane } = paneActions()
-
-    addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    const rightPaneId = splitPane(ROOT_PANE_ID, 'horizontal')
+    openTab(ROOT_PANE_ID, 'buffer-a')
+    const rightPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal')
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
-    const bottomPaneId = store.getState().paneActions.splitPane(rightPaneId, 'vertical')
+    const bottomPaneId = paneActions().splitPane(rightPaneId, 'vertical')
     expect(bottomPaneId).not.toBeNull()
     if (!bottomPaneId) return
 
-    setActivePane(ROOT_PANE_ID)
-    setActivePane(rightPaneId)
-    setActivePane(bottomPaneId)
-    store.getState().paneActions.addBufferToPane(bottomPaneId, 'buffer-b')
-    store.getState().paneActions.closePane(bottomPaneId)
+    paneActions().setActivePane(ROOT_PANE_ID)
+    paneActions().setActivePane(rightPaneId)
+    paneActions().setActivePane(bottomPaneId)
+    openTab(bottomPaneId, 'buffer-b')
+    paneActions().closePane(bottomPaneId)
 
     const newActiveId = store.getState().activePaneId
     expect([ROOT_PANE_ID, rightPaneId]).toContain(newActiveId)
-    const fallbackPane = store.getState().panes[newActiveId]
-    expect(fallbackPane?.bufferIds).toContain('buffer-b')
+    // The closed pane's tabs merge into the survivor rather than being dropped.
+    expect(panes()[newActiveId]?.editorTabIds).toContain('buffer-b')
   })
 
-  it('merges buffers into the fallback pane when closing an inactive pane', () => {
-    const { addBufferToPane, splitPane, setActivePane, getPaneById } = paneActions()
-
-    addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    const rightPaneId = splitPane(ROOT_PANE_ID, 'horizontal')
+  it('merges editor tabs into the fallback pane when closing an inactive pane', () => {
+    openTab(ROOT_PANE_ID, 'buffer-a')
+    const rightPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal')
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
-    store.getState().paneActions.addBufferToPane(rightPaneId, 'buffer-b')
-    setActivePane(ROOT_PANE_ID)
-    store.getState().paneActions.closePane(rightPaneId)
+    openTab(rightPaneId, 'buffer-b')
+    paneActions().setActivePane(ROOT_PANE_ID)
+    paneActions().closePane(rightPaneId)
 
-    const rootPane = getPaneById(ROOT_PANE_ID)
+    const rootPane = paneActions().getPaneById(ROOT_PANE_ID)
     expect(store.getState().activePaneId).toBe(ROOT_PANE_ID)
-    expect(rootPane?.bufferIds).toContain('buffer-a')
-    expect(rootPane?.bufferIds).toContain('buffer-b')
+    expect(rootPane?.editorTabIds).toContain('buffer-a')
+    expect(rootPane?.editorTabIds).toContain('buffer-b')
   })
 
-  it('activates a buffer and its pane as a single operation', () => {
-    const { addBufferToPane, splitPane, setActivePane, getPaneById } = paneActions()
-
-    addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    const rightPaneId = splitPane(ROOT_PANE_ID, 'horizontal')
+  it('activates a tab and its pane as a single operation', () => {
+    openTab(ROOT_PANE_ID, 'buffer-a')
+    const rightPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal')
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
-    store.getState().paneActions.addBufferToPane(rightPaneId, 'buffer-b')
-    setActivePane(ROOT_PANE_ID)
-    store.getState().paneActions.activatePaneBuffer(rightPaneId, 'buffer-b')
+    openTab(rightPaneId, 'buffer-b')
+    paneActions().setActivePane(ROOT_PANE_ID)
+    paneActions().activateEditorTabInPane(rightPaneId, 'buffer-b')
 
-    const state = store.getState()
-    const rightPane = getPaneById(rightPaneId)
-    expect(state.activePaneId).toBe(rightPaneId)
-    expect(state.mostRecentActivePaneIds[0]).toBe(rightPaneId)
-    expect(rightPane?.activeBufferId).toBe('buffer-b')
+    expect(store.getState().activePaneId).toBe(rightPaneId)
+    expect(store.getState().mostRecentActivePaneIds[0]).toBe(rightPaneId)
+    expect(paneActions().getPaneById(rightPaneId)?.activeEditorTabId).toBe('buffer-b')
   })
 
-  it('routes pane-local buffer cycling through pane activation metadata', () => {
-    const { addBufferToPane, splitPane, setActivePane, getPaneById } = paneActions()
-
-    addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    const rightPaneId = splitPane(ROOT_PANE_ID, 'horizontal')
+  it('routes pane-local tab cycling through pane activation metadata', () => {
+    openTab(ROOT_PANE_ID, 'buffer-a')
+    const rightPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal')
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
-    store.getState().paneActions.addBufferToPane(rightPaneId, 'buffer-b')
-    store.getState().paneActions.addBufferToPane(rightPaneId, 'buffer-c')
-    setActivePane(ROOT_PANE_ID)
-    store.getState().paneActions.activatePaneBuffer(rightPaneId, 'buffer-b')
+    openTab(rightPaneId, 'buffer-b')
+    openTab(rightPaneId, 'buffer-c')
+    paneActions().setActivePane(ROOT_PANE_ID)
+    paneActions().activateEditorTabInPane(rightPaneId, 'buffer-b')
 
-    store.getState().paneActions.switchToNextBufferInPane()
+    // switchToNext/PreviousEditorTab take the pane explicitly now (the old
+    // switchToNextBufferInPane read the active pane off the store).
+    paneActions().switchToNextEditorTab(rightPaneId)
 
-    let state = store.getState()
-    expect(state.activePaneId).toBe(rightPaneId)
-    expect(getPaneById(rightPaneId)?.activeBufferId).toBe('buffer-c')
+    expect(store.getState().activePaneId).toBe(rightPaneId)
+    expect(paneActions().getPaneById(rightPaneId)?.activeEditorTabId).toBe('buffer-c')
 
-    store.getState().paneActions.switchToPreviousBufferInPane()
+    paneActions().switchToPreviousEditorTab(rightPaneId)
 
-    state = store.getState()
-    expect(state.activePaneId).toBe(rightPaneId)
-    expect(getPaneById(rightPaneId)?.activeBufferId).toBe('buffer-b')
+    expect(store.getState().activePaneId).toBe(rightPaneId)
+    expect(paneActions().getPaneById(rightPaneId)?.activeEditorTabId).toBe('buffer-b')
   })
 
-  it('tracks preview and pinned metadata on pane groups', () => {
-    const { addBufferToPane, setPanePreviewBuffer, setPaneBufferPinned, getPaneById } =
-      paneActions()
+  it('tracks preview and pinned metadata on the tabs a pane holds', () => {
+    openTab(ROOT_PANE_ID, 'buffer-a')
+    openTab(ROOT_PANE_ID, 'buffer-b')
 
-    addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    addBufferToPane(ROOT_PANE_ID, 'buffer-b')
-    setPanePreviewBuffer(ROOT_PANE_ID, 'buffer-a')
+    paneActions().setEditorTabPreview(ROOT_PANE_ID, 'buffer-a')
 
-    let pane = getPaneById(ROOT_PANE_ID)
-    expect(pane?.previewBufferId).toBe('buffer-a')
+    // Preview is a single slot per pane: marking one clears every other tab
+    // that pane holds.
+    expect(bufferById('buffer-a')?.isPreview).toBe(true)
+    expect(bufferById('buffer-b')?.isPreview).toBe(false)
 
-    setPaneBufferPinned(ROOT_PANE_ID, 'buffer-a', true)
-    pane = getPaneById(ROOT_PANE_ID)
-    expect(pane?.pinnedBufferIds).toContain('buffer-a')
+    paneActions().setEditorTabPinned(ROOT_PANE_ID, 'buffer-a', true)
+    expect(bufferById('buffer-a')?.isPinned).toBe(true)
 
-    setPaneBufferPinned(ROOT_PANE_ID, 'buffer-a', false)
-    pane = getPaneById(ROOT_PANE_ID)
-    expect(pane?.pinnedBufferIds ?? []).not.toContain('buffer-a')
+    paneActions().setEditorTabPinned(ROOT_PANE_ID, 'buffer-a', false)
+    expect(bufferById('buffer-a')?.isPinned).toBe(false)
   })
 
-  it('clears preview metadata wherever a buffer is promoted', () => {
-    const {
-      addBufferToPane,
-      splitPane,
-      setPanePreviewBuffer,
-      clearPreviewBufferEverywhere,
-      getPaneById,
-    } = paneActions()
+  it('refuses to mark a tab the pane does not hold', () => {
+    openTab(ROOT_PANE_ID, 'buffer-a')
+    const rightPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal')
+    if (!rightPaneId) return
 
-    addBufferToPane(ROOT_PANE_ID, 'buffer-a')
-    const splitPaneId = splitPane(ROOT_PANE_ID, 'horizontal')
+    paneActions().setEditorTabPreview(rightPaneId, 'buffer-a')
+
+    expect(bufferById('buffer-a')?.isPreview).toBeUndefined()
+  })
+
+  it('clears preview metadata wherever a tab is promoted', () => {
+    openTab(ROOT_PANE_ID, 'buffer-a')
+    const splitPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal')
     expect(splitPaneId).not.toBeNull()
     if (!splitPaneId) return
 
-    store.getState().paneActions.addBufferToPane(splitPaneId, 'buffer-a')
-    setPanePreviewBuffer(ROOT_PANE_ID, 'buffer-a')
-    store.getState().paneActions.setPanePreviewBuffer(splitPaneId, 'buffer-a')
+    openTab(splitPaneId, 'buffer-b')
+    paneActions().setEditorTabPreview(ROOT_PANE_ID, 'buffer-a')
+    paneActions().setEditorTabPreview(splitPaneId, 'buffer-b')
+    expect(bufferById('buffer-a')?.isPreview).toBe(true)
+    expect(bufferById('buffer-b')?.isPreview).toBe(true)
 
-    clearPreviewBufferEverywhere('buffer-a')
+    paneActions().clearEditorTabPreviewEverywhere()
 
-    expect(getPaneById(ROOT_PANE_ID)?.previewBufferId).toBeNull()
-    expect(getPaneById(splitPaneId)?.previewBufferId).toBeNull()
+    expect(bufferById('buffer-a')?.isPreview).toBe(false)
+    expect(bufferById('buffer-b')?.isPreview).toBe(false)
   })
 })

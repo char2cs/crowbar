@@ -8,11 +8,17 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 )
 
+// newAsynx builds the shared asynx wiring every aggregate type gets. opts run
+// last, right before Build, so a caller can layer aggregate-specific config
+// (WithSchemaVersion/WithUpcaster — see workspace.go's retired-field upcaster
+// for why Workspace is the one that currently needs this) onto the same
+// defaults every other aggregate gets.
 func newAsynx[T any](
 	es asynxModels.Store,
 	ss asynxModels.SnapshotStore,
+	opts ...func(*asynx.Builder[T]),
 ) (asynx.Asynx[T], error) {
-	return asynx.New[T]().
+	b := asynx.New[T]().
 		WithEventStore(es).
 		WithSnapshotStore(ss).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
@@ -28,6 +34,9 @@ func newAsynx[T any](
 		WithPublishErrorHandler(func(ctx context.Context, evt asynxModels.Event[T], err error) {
 			slog.ErrorContext(ctx, "asynx publish error; read model may be stale until reconcile",
 				"aggregate", evt.AggregateID, "event", evt.EventName, "version", evt.Version, "err", err)
-		}).
-		Build()
+		})
+	for _, opt := range opts {
+		opt(b)
+	}
+	return b.Build()
 }

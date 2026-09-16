@@ -2,10 +2,12 @@ package tree
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
 
+	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -17,18 +19,28 @@ func (u *chatFolderUsecase) CreateChat(
 	workspaceID string,
 	providerID string,
 	parentID string,
+	worktree WorktreeSpec,
 ) (string, string, error) {
+	if worktree.Mode == WorktreeFork {
+		return u.createOwnWorktreeChat(ctx, providerID, parentID, worktree.Branch)
+	}
+	if worktree.Mode == WorktreeImport {
+		chatID, _, runnerID, err := u.createImportedWorktreeChat(ctx, providerID, parentID, worktree.Import)
+		return chatID, runnerID, err
+	}
 	if parentID == "" {
 		return u.agent.SpawnChat(ctx, workspaceID, providerID)
 	}
-	if err := u.checkNewChatParent(ctx, workspaceID, parentID); err != nil {
+	if err := u.checkNewChatParent(ctx, workspaceID, parentID, false); err != nil {
 		return "", "", err
 	}
 	chatID, err := u.agent.MintChat(ctx, workspaceID)
 	if err != nil {
 		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
 	}
-	if _, _, pErr := u.PlaceChat(ctx, workspaceID, chatID, PlaceInput{ParentID: &parentID}); pErr != nil {
+	if _, _, pErr := u.placeChat(
+		ctx, workspaceID, chatID, PlaceInput{ParentID: &parentID}, false, true,
+	); pErr != nil {
 		return "", "", u.discard(ctx, chatID, pErr)
 	}
 	runnerID, err := u.agent.StartRunner(ctx, chatID, providerID)
@@ -38,10 +50,64 @@ func (u *chatFolderUsecase) CreateChat(
 	return chatID, runnerID, nil
 }
 
+// createOwnWorktreeChat is CreateChat's ownWorktree branch. It mints the chat
+// and places it under parentID exactly as the plain-bubble path above does —
+// always in the workspace-less ("") scope, since the row IS a plain bubble
+// until agent.SpawnChatWithOwnWorktree fills its slot — then, instead of a bare
+// StartRunner, forks a fresh worktree from the chat's own resolved fork parent
+// and starts providerID's CLI in it.
+//
+// Reusing the workspace-less scope for placement (rather than inventing one
+// keyed on the not-yet-minted workspace) is deliberate: checkNewChatParent's
+// same-workspace rule then applies exactly as it already does to an ordinary
+// bubble thread, EXCEPT that this caller passes ownWorktree=true, so a parent
+// that already owns a worktree of its own — a CHAT as well as a BRANCH — is
+// also an acceptable fork point (model spec §4.1: "under a row that carries a
+// branch the new row is a worktree"). A folder or another workspace-less chat
+// remains acceptable too; only a nonexistent parent is refused.
+//
+// Placement happens BEFORE the workspace is minted, mirroring the thread
+// path's own reason: a chat's lineage — and here, the fork parent its walk
+// resolves — must be fixed before its first CLI exists.
+func (u *chatFolderUsecase) createOwnWorktreeChat(
+	ctx context.Context,
+	providerID string,
+	parentID string,
+	branch string,
+) (string, string, error) {
+	if parentID != "" {
+		if err := u.checkNewChatParent(ctx, "", parentID, true); err != nil {
+			return "", "", err
+		}
+	}
+	chatID, err := u.agent.MintChat(ctx, "")
+	if err != nil {
+		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
+	}
+	if parentID != "" {
+		if _, _, pErr := u.placeChat(
+			ctx, "", chatID, PlaceInput{ParentID: &parentID}, true, true,
+		); pErr != nil {
+			return "", "", u.discard(ctx, chatID, pErr)
+		}
+	}
+	runnerID, err := u.agent.SpawnChatWithOwnWorktree(ctx, chatID, providerID, branch)
+	if err != nil {
+		return "", "", u.discard(ctx, chatID, err)
+	}
+	return chatID, runnerID, nil
+}
+
 // checkNewChatParent refuses a destination a new chat cannot be born into, BEFORE
-// anything is minted: a row this workspace does not hold, or one belonging to
-// another. It is the same guard a move makes, minus the cycle test — a chat that
-// does not exist yet cannot be inside its own subtree.
+// anything is minted: a row that does not exist, or (for an ordinary thread) a
+// CHAT belonging to another workspace. It is the same guard a move makes, minus
+// the cycle test — a chat that does not exist yet cannot be inside its own
+// subtree.
+//
+// ownWorktree is threaded straight through to checkChatContainer: it is true
+// only for createOwnWorktreeChat's own call, and it is what lets that caller
+// name a worktree-owning CHAT parent the same-workspace rule would otherwise
+// refuse.
 //
 // It runs first so the ordinary failure costs nothing. Leaving it to PlaceChat
 // would mint a chat, broadcast it, refuse the placement and then purge it again,
@@ -50,12 +116,13 @@ func (u *chatFolderUsecase) checkNewChatParent(
 	ctx context.Context,
 	workspaceID string,
 	parentID string,
+	ownWorktree bool,
 ) error {
-	snapshot, err := u.snapshot(ctx, workspaceID)
+	snapshot, err := u.workspaceSnapshot(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
-	return u.checkContainer(ctx, snapshot, workspaceID, parentID)
+	return u.checkChatContainer(ctx, snapshot, workspaceID, parentID, ownWorktree)
 }
 
 // discard takes a just-minted chat back out when the create failed after minting
@@ -83,12 +150,40 @@ func (u *chatFolderUsecase) PlaceChat(
 	workspaceID string,
 	chatID string,
 	in PlaceInput,
-) (domain.Chat, []domain.ChatFolder, error) {
+) (domain.Chat, []domain.Chat, error) {
+	return u.placeChat(ctx, workspaceID, chatID, in, false, false)
+}
+
+// placeChat is PlaceChat's body, taking two extra arguments PlaceChat's own
+// exported signature does not carry:
+//
+//   - ownWorktree, true only for createOwnWorktreeChat's own call. That
+//     caller's placement is a second destination check on the SAME parentID
+//     checkNewChatParent already cleared (loadChat/workspaceSnapshotAround
+//     resolve a fresh snapshot, so the check is re-run rather than trusted),
+//     and it has to see the same ownWorktree signal checkNewChatParent did or
+//     it refuses the exact case Task 7 exists to allow.
+//   - firstPlacement, true for CreateChat/createOwnWorktreeChat's own calls —
+//     see replace's own doc for why a fresh mint's placement must not
+//     densify the root level it was never really a member of.
+func (u *chatFolderUsecase) placeChat(
+	ctx context.Context,
+	workspaceID string,
+	chatID string,
+	in PlaceInput,
+	ownWorktree bool,
+	firstPlacement bool,
+) (domain.Chat, []domain.Chat, error) {
 	current, err := u.loadChat(ctx, workspaceID, chatID)
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
-	snapshot, err := u.snapshotAround(ctx, workspaceID, current)
+	// A home-scoped chat's placement write goes through Node, not
+	// Chat.SetOrder/.SetPlacement (2026-09-08 sidebar-placement-unification
+	// Task 5) -- workspaceSnapshotAround marks chatID in snapshot.homeIDs
+	// (and, for its very first placement right after MintChat, snapshot.
+	// freshIDs) whenever workspaceID resolves home-scoped; see its own doc.
+	snapshot, err := u.workspaceSnapshotAround(ctx, workspaceID, current)
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
@@ -96,20 +191,23 @@ func (u *chatFolderUsecase) PlaceChat(
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
-	if mErr := u.checkMove(ctx, snapshot, workspaceID, chatID, destination); mErr != nil {
+	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination, ownWorktree); mErr != nil {
 		return domain.Chat{}, nil, mErr
+	}
+	if wErr := guardNotWorking(subtreeIDsOf(chatID, snapshot.rows), u.work); wErr != nil {
+		return domain.Chat{}, nil, wErr
 	}
 	// Read BEFORE the plan is mutated: this is the only moment the lineage the
 	// chat has been living under is still recoverable, and the comparison against
 	// what it lands on is what decides whether anything happened worth recording.
 	inherited := snapshot.chatLineage(chatID)
-	u.replace(snapshot, chatID, current.ParentID, destination, in.Order)
+	u.replace(snapshot, chatID, current.ParentID, destination, in.Order, firstPlacement)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
 	u.noteNewAncestors(ctx, chatID, inherited, snapshot.chatLineage(chatID))
-	return *snapshot.placedChat(chatID), written, nil
+	return *snapshot.placedRow(chatID), written, nil
 }
 
 // noteNewAncestors writes the move into the chat's own conversation when, and
@@ -154,6 +252,35 @@ func gained(
 	return slices.ContainsFunc(lineage, func(id string) bool { return !had[id] })
 }
 
+// DeleteChat erases chatID and every chat threaded below it, TOGETHER WITH ANY
+// WORKTREE that subtree was the last thing holding. A FOLDER id is refused as
+// not-found rather than served: the folder verb PROMOTES what it held and this one
+// CASCADES into it, so accepting a folder here would erase every chat filed
+// inside one on a route that only ever meant to delete a conversation. See
+// loadChat's own doc for the other half of the same guard.
+//
+// The worktrees go FIRST, before a single chat is purged, and that ordering is
+// the whole of the failure contract. A workspace is reachable only through the
+// chat that owns it, so the two orders fail in opposite directions: reap-then-
+// purge leaves, on failure, a chat that still exists and still owns its
+// worktree — nothing lost, the user retries — while purge-then-reap leaves a
+// real worktree on disk that nothing can ever name again, which is exactly the
+// orphan spec §0 diagnosed and the reason this cascade exists at all.
+//
+// So a failed reap FAILS THE DELETE and is returned, not logged. That is the
+// same principle Promote's own unpromote states ("the workspace is discarded
+// only once nothing owns it") applied to a verb whose chat does not survive:
+// there, the surviving chat is what must not be left pointing at a deleted
+// directory; here, nothing survives to point, so the thing that must not be
+// left is the directory itself. It differs from the rollback paths
+// (discardMintedWorkspace) only because those already have a cause to report
+// and this one does not — the reap failure IS what went wrong.
+//
+// The cost is disclosed and accepted: a chat whose worktree cannot be torn down
+// — one whose branch is locked, or whose subtree owns a working chat — cannot
+// be deleted until that is resolved. Both of those are refusals the workspace
+// delete already makes for the same reasons, so this door is no stricter than
+// the other one; it is merely no longer looser.
 func (u *chatFolderUsecase) DeleteChat(
 	ctx context.Context,
 	chatID string,
@@ -162,12 +289,21 @@ func (u *chatFolderUsecase) DeleteChat(
 	if err != nil {
 		return ChatDeletion{}, fmt.Errorf("agent chat folder: delete chat %s: %w", chatID, err)
 	}
-	snapshot, err := u.snapshotAround(ctx, current.WorkspaceID, current)
+	if current.Type == domain.ChatTypeFolder {
+		return ChatDeletion{}, fmt.Errorf("agent chat folder: %s is a folder: %w", chatID, apperr.ErrNotFound)
+	}
+	snapshot, err := u.workspaceSnapshotAround(ctx, current.WorkspaceID, current)
 	if err != nil {
 		return ChatDeletion{}, err
 	}
+	if wErr := guardNotWorking(subtreeIDsOf(chatID, snapshot.rows), u.work); wErr != nil {
+		return ChatDeletion{}, wErr
+	}
 	chats, folders := snapshot.subtree(chatID)
 	chats = append(chats, chatID)
+	if err := u.reapWorktrees(ctx, snapshot, chats); err != nil {
+		return ChatDeletion{}, err
+	}
 	if err := u.purgeAll(ctx, snapshot, chats); err != nil {
 		return ChatDeletion{}, err
 	}
@@ -182,26 +318,101 @@ func (u *chatFolderUsecase) DeleteChat(
 	return ChatDeletion{Chats: chats, Folders: folders, Shifted: shifted}, nil
 }
 
+// reapWorktrees tears down the worktree every chat in the doomed subtree owns,
+// deepest first — the order the subtree already arrives in, and the one that
+// matters: a child workspace is reaped before the cascade of its lineage parent
+// could reach it, so no reap ever runs against a row an earlier one removed.
+//
+// A workspace already gone is not an error. DeleteCascade takes a workspace's
+// git-lineage descendants with it, and those need not be the same set as the
+// chat subtree's, so a later id in this walk can legitimately have been reaped
+// by an earlier one's cascade. Treating that as a failure would refuse a delete
+// that had in fact already done exactly what was asked.
+//
+// A chat with no workspace of its own is skipped: a bubble borrows its
+// ancestor's ground and owns nothing to tear down. That is what keeps deleting
+// a thread from reaping the worktree its parent is still working in.
+//
+// A workspace some SURVIVING chat still holds is skipped for the same reason,
+// arrived at from the other side. Chat.WorkspaceID says which worktree a chat
+// is anchored to, not that it is anchored there alone, and a worktree is
+// many-chats-to-one by design — so before each teardown the doomed subtree is
+// subtracted from the workspace's full holder set (heldElsewhere), and only an
+// empty remainder authorises the cascade. Without that subtraction deleting one
+// conversation destroyed the worktree its unrelated siblings were working in
+// and left every one of them pointing at a workspace that no longer exists.
+// Those chats are still purged; they simply stop naming ground other rows need.
+//
+// Each workspace is reaped ONCE however many rows in the subtree name it. A
+// thread carries its parent's workspace id, so a chat and its threads routinely
+// name one worktree between them; asking for the same teardown twice would work
+// (the second is a tolerated not-found) but would report a cascade running that
+// is not, and would hide a genuine repeat behind an expected one.
+func (u *chatFolderUsecase) reapWorktrees(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	ids []string,
+) error {
+	doomed := doomedSet(ids)
+	reaped := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		row := snapshot.row(id)
+		if row == nil || row.WorkspaceID == "" || reaped[row.WorkspaceID] {
+			continue
+		}
+		reaped[row.WorkspaceID] = true
+		shared, err := u.heldElsewhere(ctx, row.WorkspaceID, doomed)
+		if err != nil {
+			return fmt.Errorf("agent chat folder: delete chat %s: %w", id, err)
+		}
+		if shared {
+			continue
+		}
+		err = u.reaper.DiscardChildWorkspace(ctx, row.WorkspaceID)
+		if err == nil || errors.Is(err, apperr.ErrNotFound) {
+			continue
+		}
+		return fmt.Errorf("agent chat folder: delete chat %s: reap worktree %s: %w",
+			id, row.WorkspaceID, err)
+	}
+	return nil
+}
+
 // purgeAll erases each chat in order and takes it out of the plan as it goes, so
 // the densify that follows counts only the rows that survived.
+//
+// A not-found from PurgeChat is tolerated, same reasoning as reapWorktrees'
+// own tolerance above: a row can be real at the TREE level (it has a parent,
+// an order, it renders) while never having minted a conversation aggregate
+// at all — a thread whose create never got past placement, say. Failing the
+// whole cascade on one such id turned "delete a parent with children" into
+// deleting nothing at all, parent included, the moment any one descendant
+// happened to be one of these; purging is idempotent from the caller's
+// side either way, so "already gone" is success here, not an error.
 func (u *chatFolderUsecase) purgeAll(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	ids []string,
 ) error {
 	for _, id := range ids {
-		if err := u.agent.PurgeChat(ctx, id); err != nil {
+		err := u.agent.PurgeChat(ctx, id)
+		if err != nil && !errors.Is(err, apperr.ErrNotFound) {
 			return fmt.Errorf("agent chat folder: purge chat %s: %w", id, err)
 		}
-		snapshot.dropChat(id)
+		snapshot.drop(id)
 	}
 	return nil
 }
 
-// removeAll deletes each folder caught inside a purged subtree. They are removed
-// rather than promoted because the level that would have held them is gone: a
-// folder whose only reason to exist was ordering one chat's threads has nothing
-// left to order.
+// removeAll erases each folder caught inside a purged subtree. Forget, not
+// PurgeChat: they are removed rather than promoted because the level that would
+// have held them is gone, and a folder never had a runner or a ledger for the
+// agent usecase to tear down in the first place.
+//
+// A folder is a domain.Folder+domain.Node pair now (2026-09-08
+// sidebar-placement-unification Task 5 for home-scoped, Task 8 for
+// repo-scoped too), never a Chats.Forget-able row — both halves are erased
+// here, mirroring Delete's own home/repo-scoped folder erasure (tree.go).
 func (u *chatFolderUsecase) removeAll(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -210,6 +421,9 @@ func (u *chatFolderUsecase) removeAll(
 	for _, id := range ids {
 		if err := u.folders.Delete(ctx, id); err != nil {
 			return fmt.Errorf("agent chat folder: delete %s: %w", id, err)
+		}
+		if err := u.nodes.Forget(ctx, id); err != nil {
+			return fmt.Errorf("agent chat folder: delete %s: node: %w", id, err)
 		}
 		snapshot.drop(id)
 	}
@@ -220,17 +434,28 @@ func (u *chatFolderUsecase) removeAll(
 // dense: the one it joined, and — only when it actually changed level — the one
 // it left. Leaving every level dense after every move is what makes the next
 // drop index mean what it says.
+//
+// firstPlacement skips the "level it left" densify — true only for a chat's
+// very first placement, right after MintChat (CreateChat/createOwnWorktreeChat's
+// own calls). A freshly minted chat's ParentID defaults to "", but it was never
+// actually a RENDERED member of that root level — nothing ever read it there,
+// so there is no real gap to close. Densifying anyway renumbers every OTHER
+// row already sitting at root, on every single new-thread create, whether or
+// not the row being created has anything to do with them — caught live:
+// threading off an ordinary row silently reordered unrelated top-level rows
+// elsewhere in the same project.
 func (u *chatFolderUsecase) replace(
 	snapshot *treeSnapshot,
 	id string,
 	origin string,
 	destination string,
 	requested *int,
+	firstPlacement bool,
 ) {
 	target := placementTarget(requested, snapshot, origin, destination, id)
 	snapshot.plan.SetParent(id, destination)
 	snapshot.plan.Reorder(destination, id, target)
-	if destination != origin {
+	if destination != origin && !firstPlacement {
 		snapshot.plan.Reorder(origin, "", -1)
 	}
 }

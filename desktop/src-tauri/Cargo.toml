@@ -14,7 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "unstable"] }
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api", "unstable"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 # Reveal-in-Finder: used as a library (reveal_item_in_dir) behind our own
@@ -43,6 +43,10 @@ libc = "0.2"
 
 [target."cfg(target_os = \"macos\")".dependencies]
 objc2 = "0.6"
+# NSPoint/NSRect only, for set_traffic_light_position's msg_send! calls —
+# already resolved at this exact version transitively (wry/window-vibrancy),
+# so this adds no new version to the tree.
+objc2-foundation = "0.3"
 
 [profile.release]
 panic = "abort"

@@ -9,15 +9,23 @@ import (
 
 const tcpScheme = "tcp://"
 
-// transport is the two calls this tool needs from a daemon connection. Both
-// report the HTTP status separately from err, and both return err == nil for a
-// non-2xx — decodeEnvelope is what turns a daemon refusal into a failure.
+// transport is the three calls this tool needs from a daemon connection. All
+// three report the HTTP status separately from err, and all return err == nil
+// for a non-2xx — decodeEnvelope is what turns a daemon refusal into a
+// failure. PatchJSON is used by exactly one call: renaming a freshly forked
+// chat's server-generated branch back to the seed's own fixed name (see
+// ensureFeatureChat).
 type transport interface {
 	Get(
 		ctx context.Context,
 		path string,
 	) (int, []byte, error)
 	PostJSON(
+		ctx context.Context,
+		path string,
+		body any,
+	) (int, []byte, error)
+	PatchJSON(
 		ctx context.Context,
 		path string,
 		body any,

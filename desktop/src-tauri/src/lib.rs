@@ -578,6 +578,120 @@ fn set_vibrancy_appearance(window: tauri::WebviewWindow, dark: bool) -> Result<(
     }
 }
 
+/// Pure geometry for [`set_traffic_light_position`]: given the close button's
+/// own (OS-drawn) height, the requested `y` inset, and the window's current
+/// frame height, returns the title-bar container's new `(height, origin_y)`
+/// — AppKit's frame is bottom-left-origin, so `origin_y` counts up from the
+/// window's bottom edge. Mirrors wry's own `inset_traffic_lights`
+/// (wry-0.55.1 `wkwebview/class/wry_web_view_parent.rs`) exactly. Pulled out
+/// as a pure function — no `AnyObject`, no live window — so the one bit of
+/// real arithmetic here is unit-testable without AppKit.
+#[cfg_attr(not(test), allow(dead_code))]
+fn traffic_light_container_frame(
+    close_button_height: f64,
+    y: f64,
+    window_frame_height: f64,
+) -> (f64, f64) {
+    let height = close_button_height + y;
+    (height, window_frame_height - height)
+}
+
+/// Runtime counterpart to `tauri.conf.json`'s config-time-only
+/// `trafficLightPosition` (`WebviewWindowBuilder::traffic_light_position`,
+/// see `open_window`'s doc comment for that mechanism). No tauri/wry version
+/// exposes a runtime equivalent publicly: the underlying capability exists —
+/// `tauri_runtime::Dispatch::set_traffic_light_position` — but unlike every
+/// other `Dispatch` method, `tauri::Window` never wraps it in a `pub fn`, and
+/// wry's own `inset_traffic_lights` (which that dispatch call reaches) lives
+/// in `wkwebview::class`, a module `pub(crate)` to wry itself. So this
+/// reimplements it by hand against the raw `NSWindow`, exactly as wry/tao do:
+/// resize the (invisible) title-bar container view to `close_button_height +
+/// y`, then set each button's `frame.origin.x` in turn.
+///
+/// Plain (non-async) like `set_vibrancy_appearance`, for the same reason:
+/// AppKit view mutation must run on the main thread, and a sync command runs
+/// inline on the IPC caller's thread, which for WKWebView IS the main thread.
+///
+/// `x`/`y` are logical points — the same units as `tauri.conf.json`'s static
+/// value and as `getBoundingClientRect()` on whichever frontend row computes
+/// them; no DPI scaling happens here.
+#[tauri::command]
+fn set_traffic_light_position(window: tauri::WebviewWindow, x: f64, y: f64) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::msg_send;
+        use objc2::runtime::{AnyClass, AnyObject, Bool};
+        use objc2_foundation::NSRect;
+
+        const CLOSE_BUTTON: usize = 0;
+        const MINIATURIZE_BUTTON: usize = 1;
+        const ZOOM_BUTTON: usize = 2;
+
+        unsafe {
+            // See set_vibrancy_appearance's identical guard.
+            let thread_cls = AnyClass::get(c"NSThread").ok_or("NSThread class missing")?;
+            let is_main: Bool = msg_send![thread_cls, isMainThread];
+            if !is_main.as_bool() {
+                return Err("set_traffic_light_position must run on the main thread".into());
+            }
+
+            let ns_window = window
+                .ns_window()
+                .map_err(|e| format!("ns_window() failed: {e}"))?
+                as *mut AnyObject;
+            if ns_window.is_null() {
+                return Err("ns_window is null".into());
+            }
+
+            let close: *mut AnyObject = msg_send![ns_window, standardWindowButton: CLOSE_BUTTON];
+            let miniaturize: *mut AnyObject =
+                msg_send![ns_window, standardWindowButton: MINIATURIZE_BUTTON];
+            let zoom: *mut AnyObject = msg_send![ns_window, standardWindowButton: ZOOM_BUTTON];
+            if close.is_null() || miniaturize.is_null() {
+                return Err("traffic light buttons missing".into());
+            }
+
+            let close_superview: *mut AnyObject = msg_send![close, superview];
+            if close_superview.is_null() {
+                return Err("close button has no superview".into());
+            }
+            let title_bar_container: *mut AnyObject = msg_send![close_superview, superview];
+            if title_bar_container.is_null() {
+                return Err("title bar container missing".into());
+            }
+
+            let close_frame: NSRect = msg_send![close, frame];
+            let window_frame: NSRect = msg_send![ns_window, frame];
+            let (container_height, container_origin_y) =
+                traffic_light_container_frame(close_frame.size.height, y, window_frame.size.height);
+
+            let mut container_frame: NSRect = msg_send![title_bar_container, frame];
+            container_frame.size.height = container_height;
+            container_frame.origin.y = container_origin_y;
+            let _: () = msg_send![title_bar_container, setFrame: container_frame];
+
+            let miniaturize_frame: NSRect = msg_send![miniaturize, frame];
+            let space_between = miniaturize_frame.origin.x - close_frame.origin.x;
+
+            let mut buttons = vec![close, miniaturize];
+            if !zoom.is_null() {
+                buttons.push(zoom);
+            }
+            for (i, button) in buttons.into_iter().enumerate() {
+                let mut frame: NSRect = msg_send![button, frame];
+                frame.origin.x = x + (i as f64 * space_between);
+                let _: () = msg_send![button, setFrameOrigin: frame.origin];
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (window, x, y);
+        Ok(())
+    }
+}
+
 /// Pops a native context menu built via `@tauri-apps/api/menu`'s `Menu.new()`, at
 /// (`x`, `y`) in the calling window's coordinate space.
 ///
@@ -1105,6 +1219,7 @@ pub fn run() {
             diagnostics::diagnostics_export,
             reveal_in_finder,
             set_vibrancy_appearance,
+            set_traffic_light_position,
             popup_native_context_menu,
             open_window,
         ])
@@ -1128,6 +1243,31 @@ pub fn run() {
                 shutdown_sidecar(app_handle, "app exit");
             }
         });
+}
+
+#[cfg(test)]
+mod traffic_light_container_frame_tests {
+    use super::traffic_light_container_frame;
+
+    // The known-good static config value: a 44px-tall row, flush with the
+    // window top (origin_y measured from the window's own top edge should
+    // land at 0), on an 800pt-tall window.
+    #[test]
+    fn matches_static_config_baseline() {
+        let (height, origin_y) = traffic_light_container_frame(14.0, 23.0, 800.0);
+        assert_eq!(height, 37.0);
+        // AppKit's frame is bottom-up: a container flush with the window top
+        // sits at window_height - container_height.
+        assert_eq!(origin_y, 800.0 - 37.0);
+    }
+
+    #[test]
+    fn taller_inset_grows_the_container_and_lowers_its_origin() {
+        let (short_height, short_origin_y) = traffic_light_container_frame(14.0, 23.0, 800.0);
+        let (tall_height, tall_origin_y) = traffic_light_container_frame(14.0, 33.0, 800.0);
+        assert!(tall_height > short_height);
+        assert!(tall_origin_y < short_origin_y);
+    }
 }
 
 #[cfg(test)]

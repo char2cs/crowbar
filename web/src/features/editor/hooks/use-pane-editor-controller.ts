@@ -83,14 +83,48 @@ export interface PaneEditorControllerDeps<S> {
 }
 
 /**
- * Mount + drive the retained widget for `paneId`. Effect deps are `[paneId]`
- * only (everything else is read through the latest-deps ref) so the widget is
- * mounted and the listeners are bound exactly once per pane lifetime.
+ * Mount + drive the retained widget for `paneId`. Effect deps are
+ * `[paneId, managerKey]` (everything else is read through the latest-deps
+ * ref) so the widget is mounted and the listeners are bound once per pane
+ * lifetime — UNLESS `managerKey` itself changes (by `Object.is`), which
+ * re-mounts onto whichever manager it now identifies.
+ *
+ * `managerKey` must be a value that changes IFF `deps.manager` does — pass
+ * `deps.manager` itself (or another reference that is 1:1 with it), NOT the
+ * workspace id string. Two distinct failures share this same shape: `deps.manager`
+ * can resolve to a DIFFERENT `EditorManager` instance for the same `paneId`
+ * across renders, and a workspace id string alone cannot distinguish them:
+ *
+ *  1. EditorPane falls back to the ambient workspace's manager when the
+ *     buffer's own workspace has no store yet (see its own doc), then
+ *     re-resolves to the real one once that store exists — a NEW workspace
+ *     id, so keying on the id happened to work here.
+ *  2. `destroyWorkspaceStore` (workspace-store-registry.ts) disposes a
+ *     workspace's `EditorManager` and drops the whole store from the
+ *     registry on a workspace switch; `getWorkspaceStore(workspaceId)` then
+ *     lazily creates a FRESH store (fresh `EditorManager`) the next time
+ *     something needs it — for the SAME workspace id. Keying on the id
+ *     string missed this entirely: the effect never reran, so the container
+ *     stayed registered in the disposed manager, which had just thrown away
+ *     its retained widget. Live-reported: a pane's editor rendered blank
+ *     again after its workspace's store was torn down and recreated behind
+ *     it, even though the pane itself was never unmounted.
+ *
+ * Both collapse to the same fix once `managerKey` tracks `deps.manager`'s own
+ * identity instead of proxying it through a string: mounting once and never
+ * again meant the container could stay registered in a manager that no
+ * longer matched what `deps.manager` currently pointed to, and the pane
+ * rendered a permanently empty `.editor-container` no matter how long you
+ * waited. Passing the manager reference itself re-runs this effect (unmount
+ * from the old manager, mount onto the new one, re-apply the current buffer)
+ * exactly when it actually changes — a rare, one-time correction per pane,
+ * not a steady-state cost.
  */
 export function usePaneEditorController<S>(
   paneId: string,
   containerRef: React.RefObject<HTMLElement | null>,
   deps: PaneEditorControllerDeps<S>,
+  managerKey?: unknown,
 ): void {
   // Latest deps in a ref so the mount effect never re-runs on identity changes
   // of callbacks/selectors; the once-registered listeners read through it.
@@ -152,7 +186,7 @@ export function usePaneEditorController<S>(
     let currentUri: string | null = null
     const applySwitch = () => {
       const buffer = depsRef.current.selectActiveBuffer(store.getState())
-      const nextUri = buffer ? fileUri(buffer.filePath) : null
+      const nextUri = buffer ? fileUri(buffer.workspaceId, buffer.filePath) : null
       if (nextUri === currentUri) return
       // Flush the outgoing buffer's pending edit BEFORE swapping away — and
       // before `currentBufferId` is updated — so the flush attributes to the
@@ -187,5 +221,5 @@ export function usePaneEditorController<S>(
       registry.clear(paneId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId])
+  }, [paneId, managerKey])
 }

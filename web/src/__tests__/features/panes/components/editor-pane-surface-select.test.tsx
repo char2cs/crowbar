@@ -24,12 +24,29 @@ vi.mock('@/features/editor/components/editor-surface', () => ({
   EditorSurface: () => <div data-testid="monaco-surface" />,
 }))
 
-let currentBuffer: { id: string; type: string; path: string; name: string; fileMissing?: boolean }
+let currentBuffer: {
+  id: string
+  type: string
+  path: string
+  name: string
+  fileMissing?: boolean
+  workspaceId: string
+}
 vi.mock('@/features/workspace/stores/hooks/use-buffer-store', () => ({
   useBufferById: (bufferId: string) => ({ ...currentBuffer, id: bufferId }),
 }))
+// EditorPane resolves its EditorManager by the BUFFER's own workspaceId (not
+// the ambient WorkspaceStoreContext) — see editor-pane.tsx's `workspaceStore`
+// doc — so the fake manager here is keyed by that id, not read from context.
+vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
+  getWorkspaceStore: () => ({ editorManager: {}, armEditor: async () => {} }),
+}))
+// EditorPane also reads the ambient workspace id as a FALLBACK for a buffer
+// whose own workspace has no store yet — irrelevant to this file's surface-
+// selection cases (the registry mock above always resolves), but the hook is
+// called unconditionally, so it needs a stub rather than a throwing context.
 vi.mock('@/features/workspace/stores/workspace-context', () => ({
-  useWorkspaceStore: () => ({ editorManager: {}, armEditor: async () => {} }),
+  useWorkspaceStoreContext: () => 'ambient-ws-unused',
 }))
 
 import { EditorPane } from '@/features/panes/components/editor-pane'
@@ -47,7 +64,13 @@ beforeEach(() => {
 
 describe('EditorPane surface selection', () => {
   it('renders Plate for a markdown buffer in rich view', async () => {
-    currentBuffer = { id: 'b1', type: 'editor', path: '/r/README.md', name: 'README.md' }
+    currentBuffer = {
+      id: 'b1',
+      type: 'editor',
+      path: '/r/README.md',
+      name: 'README.md',
+      workspaceId: 'w1',
+    }
     useMarkdownViewStore.setState({ views: {} }) // default rich
     render(<EditorPane {...baseProps} bufferId="b1" />)
     // The Plate surface is lazy-loaded (Suspense), so it doesn't appear on the
@@ -57,14 +80,26 @@ describe('EditorPane surface selection', () => {
   })
 
   it('renders Monaco for a markdown buffer in source view', () => {
-    currentBuffer = { id: 'b2', type: 'editor', path: '/r/README.md', name: 'README.md' }
+    currentBuffer = {
+      id: 'b2',
+      type: 'editor',
+      path: '/r/README.md',
+      name: 'README.md',
+      workspaceId: 'w1',
+    }
     useMarkdownViewStore.setState({ views: { b2: 'source' } })
     render(<EditorPane {...baseProps} bufferId="b2" />)
     expect(screen.getByTestId('monaco-surface')).toBeInTheDocument()
   })
 
   it('renders Monaco for a non-markdown buffer', () => {
-    currentBuffer = { id: 'b3', type: 'editor', path: '/r/main.ts', name: 'main.ts' }
+    currentBuffer = {
+      id: 'b3',
+      type: 'editor',
+      path: '/r/main.ts',
+      name: 'main.ts',
+      workspaceId: 'w1',
+    }
     useMarkdownViewStore.setState({ views: {} })
     render(<EditorPane {...baseProps} bufferId="b3" />)
     expect(screen.getByTestId('monaco-surface')).toBeInTheDocument()
@@ -77,7 +112,13 @@ describe('EditorPane surface selection', () => {
   // this pane keys it by buffer, file A's document stays live under file B's id
   // — and the next edit writes A's whole text into B.
   it('remounts the Plate surface when the buffer changes', async () => {
-    currentBuffer = { id: 'b1', type: 'editor', path: '/r/one.md', name: 'one.md' }
+    currentBuffer = {
+      id: 'b1',
+      type: 'editor',
+      path: '/r/one.md',
+      name: 'one.md',
+      workspaceId: 'w1',
+    }
     useMarkdownViewStore.setState({ views: {} })
     const { rerender } = render(<EditorPane {...baseProps} bufferId="b1" />)
     await screen.findByTestId('plate-surface')
@@ -93,7 +134,13 @@ describe('EditorPane surface selection', () => {
   // stayed evictable.
   it('hands the preview/promote seam to the Plate surface', async () => {
     const onPromote = vi.fn()
-    currentBuffer = { id: 'b1', type: 'editor', path: '/r/one.md', name: 'one.md' }
+    currentBuffer = {
+      id: 'b1',
+      type: 'editor',
+      path: '/r/one.md',
+      name: 'one.md',
+      workspaceId: 'w1',
+    }
     useMarkdownViewStore.setState({ views: {} })
     render(<EditorPane {...baseProps} bufferId="b1" isPreview onPromote={onPromote} />)
     await screen.findByTestId('plate-surface')

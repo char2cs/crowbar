@@ -75,8 +75,8 @@ func run(
 	return finish(ctx, d, fixture, rep)
 }
 
-// finish covers everything downstream of the imported repo: the base workspace
-// it provisions, the feature workspace forked off it, the commit that gives the
+// finish covers everything downstream of the imported repo: the base chat
+// import provisions, the feature chat forked off it, the commit that gives the
 // review surface something to render, and the threads on that commit.
 func finish(
 	ctx context.Context,
@@ -84,34 +84,34 @@ func finish(
 	fixture *gitRepo,
 	rep *report,
 ) error {
-	base, err := waitForBaseWorkspace(ctx, d, rep.repo)
+	base, err := waitForBaseChat(ctx, d, rep.repo)
 	if err != nil {
 		return err
 	}
 
-	ws, wsCreated, err := ensureWorkspace(ctx, d, rep.repo, base.ID)
+	chat, chatCreated, err := ensureFeatureChat(ctx, d, rep.repo, base.ID)
 	if err != nil {
 		return err
 	}
-	rep.workspace = ws
-	rep.note(wsCreated, "workspace "+seedFeatureBranch)
+	rep.workspace = chat
+	rep.note(chatCreated, "workspace "+seedFeatureBranch)
 
-	worktree, repaired, err := ensureWorktree(fixture, ws.LocalPath, seedFeatureBranch)
+	worktree, repaired, err := ensureWorktree(fixture, chat.Worktree.LocalPath, chat.Worktree.Branch)
 	if err != nil {
 		return err
 	}
 	if repaired {
-		rep.noteRepair("worktree for " + seedFeatureBranch + " at " + ws.LocalPath)
+		rep.noteRepair("worktree for " + seedFeatureBranch + " at " + chat.Worktree.LocalPath)
 	}
 
 	diffCreated, err := ensureBranchDiff(worktree)
 	if err != nil {
 		return err
 	}
-	rep.note(diffCreated, "review commit on "+seedFeatureBranch)
+	rep.note(diffCreated, "review commit on "+chat.Worktree.Branch)
 
-	sc := scope{projectID: rep.repo.ProjectID, repoID: rep.repo.ID, workspaceID: ws.ID}
-	threads, err := ensureThreads(ctx, d, sc, resolveAuthor(ctx, d, sc))
+	sc := scope{projectID: rep.repo.ProjectID, repoID: rep.repo.ID, workspaceID: chat.WorkspaceID}
+	threads, err := ensureThreads(ctx, d, sc, resolveAuthor(ctx, d, chat.ID))
 	if err != nil {
 		return err
 	}

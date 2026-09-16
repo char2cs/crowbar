@@ -1,0 +1,236 @@
+import { useEffect, type RefObject } from 'react'
+import {
+  DownloadSimple,
+  Folder,
+  Lock,
+  LockOpen,
+  PencilSimpleLine,
+  Trash,
+} from '@phosphor-icons/react'
+import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import {
+  performCreateFolder,
+  performCreateFolderFromChat,
+  performCreateHomeFolder,
+  performSetWorkspaceLock,
+} from '@/components/sidebar/lib/row-actions'
+import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
+import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { handleTrashRepo } from '@/components/layout/space-content-actions'
+import { toast } from '@/features/window/stores/toast-store'
+
+interface SidebarRowContextMenuProps {
+  treeRef: RefObject<HTMLElement | null>
+  /** Every visible row, to look up kind/parentId by id. */
+  rows: SidebarRow[]
+  /** Opens rename-dialog.tsx for the row. */
+  onRename: (rowId: string) => void
+  /** Opens the restored RepoImportDialog for the project-home row `repoRowId`. */
+  onImport: (repoRowId: string) => void
+}
+
+interface MenuData {
+  row: SidebarRow
+  /** Read from `useSidebarStore` at open time — `SidebarRow` carries no
+   *  `locked` field yet, so this can't come from the `rows` prop. */
+  locked: boolean
+}
+
+/**
+ * The sidebar's right-click menu — rename, lock/unlock, branch import, and
+ * "New folder", the four verbs Task 8's unification left with no home on
+ * `SidebarRow`'s four-prop surface.
+ *
+ * A SIBLING of the tree, listening for a native `contextmenu` event on
+ * `treeRef.current` rather than a hook inside the tree: with the open/closed
+ * state inside the tree component, opening this popup re-renders every row
+ * to draw a menu that isn't part of the tree at all (the deleted
+ * `row-context-menu.tsx` measured this before landing on the sibling
+ * design). Out here it re-renders itself.
+ *
+ * No multiselect: this task doesn't touch the drag/selection system, so a
+ * right-click always acts on exactly the one row under the pointer — found
+ * via `data-sidebar-row-id`, not the drag system's `readDropRow`.
+ */
+export function SidebarRowContextMenu({
+  treeRef,
+  rows,
+  onRename,
+  onImport,
+}: SidebarRowContextMenuProps) {
+  const menu = useContextMenu<MenuData>()
+  const { openAt } = menu
+
+  useEffect(() => {
+    const tree = treeRef.current
+    if (!tree) return
+    const resolveMenuData = (rowId: string): MenuData | null => {
+      const row = rows.find((r) => r.id === rowId)
+      if (!row) return null
+      // Asked in the WORKSPACE id space, which a branch row's id is not in: a
+      // locked branch is id'd by the chat that owns its workspace
+      // (`rows-from-repo.ts`), so matching the raw row id against `w.id`
+      // answered `false` for precisely the rows that ARE locked — the menu
+      // offered "Lock" on an already-locked branch and never "Unlock".
+      const repos = useSidebarStore.getState().repos
+      const wsId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
+      const locked = repos.some((repo) =>
+        repo.workspaces.some((w) => w.id === wsId && w.status === 'locked'),
+      )
+      return { row, locked }
+    }
+    const onContextMenu = (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return
+      const el = e.target.closest<HTMLElement>('[role="treeitem"]')
+      const rowId = el?.getAttribute('data-sidebar-row-id')
+      if (!rowId) return
+      const data = resolveMenuData(rowId)
+      if (!data) return
+      e.preventDefault()
+      openAt({ x: e.clientX, y: e.clientY }, data)
+    }
+    // The row's own "..." button (sidebar-row.tsx, `data-control="repo-menu"`)
+    // opens this SAME menu, anchored under the button — explicit user
+    // correction: a repo-home row used to carry a second, separate one-item
+    // menu of its own (just "Delete Repo"), which drifted out of sync with
+    // whatever this menu grew (Import branches, Rename, New folder). One row
+    // gets one menu, reachable by right-click OR by the "..." button.
+    //
+    // Capture phase, not bubble: the button sits inside the row's own
+    // `onClick`-to-open div, and every other trailing-cluster button already
+    // stops that propagation on the way up (see e.g. the Thread button's own
+    // `e.stopPropagation()`). A bubble-phase listener here would race that —
+    // whichever runs first wins — where capture always runs first, well
+    // before the row (or the button's own bubble handler, if it had one) ever
+    // sees the click, so nothing extra is needed on the button itself.
+    const onRepoMenuClick = (e: MouseEvent) => {
+      if (!(e.target instanceof HTMLElement)) return
+      const trigger = e.target.closest<HTMLElement>('[data-control="repo-menu"]')
+      if (!trigger) return
+      const el = trigger.closest<HTMLElement>('[role="treeitem"]')
+      const rowId = el?.getAttribute('data-sidebar-row-id')
+      if (!rowId) return
+      const data = resolveMenuData(rowId)
+      if (!data) return
+      e.preventDefault()
+      e.stopPropagation()
+      const rect = trigger.getBoundingClientRect()
+      openAt({ x: rect.left, y: rect.bottom + 4 }, data)
+    }
+    tree.addEventListener('contextmenu', onContextMenu)
+    tree.addEventListener('click', onRepoMenuClick, true)
+    return () => {
+      tree.removeEventListener('contextmenu', onContextMenu)
+      tree.removeEventListener('click', onRepoMenuClick, true)
+    }
+  }, [treeRef, rows, openAt])
+
+  if (!menu.isOpen || !menu.data) return null
+  const { row, locked } = menu.data
+  const isProjectHome = row.kind === 'branch' && row.parentId === null
+  const isLockedBranch = row.kind === 'branch' && locked
+
+  const items: ContextMenuItem[] = []
+
+  // A locked branch keeps its checked-out branch name — same "must stay put"
+  // reasoning the lock itself exists for (see Lock/Unlock below); offering
+  // Rename here opened the dialog for a write `performRenameWorkspaceBranch`
+  // silently refuses once the branch is locked, so the row *looked* renamable
+  // and wasn't.
+  if (!isLockedBranch) {
+    items.push({
+      id: 'rename',
+      label: 'Rename',
+      icon: <PencilSimpleLine />,
+      onClick: () => onRename(row.id),
+    })
+  }
+
+  // Lock/Unlock only for a real workspace branch row — NOT `row.ownsWorktree`,
+  // which is a "+"-button semantic (fork a workspace vs. start a thread) that
+  // a folder row also carries true (its own "+" always forks a branch). Nor
+  // the project-home row: it IS the repo's own checkout, the one branch that
+  // must stay put — the deleted row-menu-model.ts's own words, "handing it
+  // out for editing under the sidebar's rules is not what the lock is for."
+  if (row.kind === 'branch' && !isProjectHome) {
+    items.push(
+      locked
+        ? {
+            id: 'unlock',
+            label: 'Unlock',
+            icon: <LockOpen />,
+            onClick: () => void performSetWorkspaceLock(row.id, false),
+          }
+        : {
+            id: 'lock',
+            label: 'Lock',
+            icon: <Lock />,
+            onClick: () => void performSetWorkspaceLock(row.id, true),
+          },
+    )
+  }
+
+  if (isProjectHome) {
+    items.push({
+      id: 'import',
+      label: 'Import branches',
+      icon: <DownloadSimple />,
+      onClick: () => onImport(row.id),
+    })
+  }
+
+  if (row.kind === 'branch' || row.kind === 'folder' || row.kind === 'chat') {
+    // A home row is never in `useSidebarStore`'s `repos` at all (home rides
+    // no repo), so `performCreateFolder`'s repo lookup finds nothing for one
+    // and silently no-ops — needs the home-scoped create instead.
+    //
+    // Reported live: right-clicking a plain CHAT row (repo-scoped or home)
+    // offered no "New folder" at all — the ONE item that used to require a
+    // branch/folder row to already exist, so a fresh tree with none yet had
+    // no row-level path to create the first one. A bubble carries no
+    // folder-anchor of its own, so its "New folder" always root-normalises
+    // (`''`) rather than nesting under the bubble — same as clicking a
+    // repo's own home row already does for `performCreateFolder`.
+    const homeScope = resolveHomeRowScope(row.id)
+    const isChat = row.kind === 'chat'
+    items.push({
+      id: 'new-folder',
+      label: 'New folder',
+      icon: <Folder />,
+      onClick: () =>
+        void (homeScope
+          ? performCreateHomeFolder(homeScope.projectId, isChat ? '' : row.id)
+          : isChat
+            ? performCreateFolderFromChat(row.id)
+            : performCreateFolder(row.id)),
+    })
+  }
+
+  // The repo's real delete entry point — `handleTrash` refuses this ONE row
+  // (it resolves to just the repo's own default-branch workspace, not the
+  // whole repo). Same `row.repoIcon` gate as the icon swap and the "..."
+  // button itself (sidebar-row.tsx): absent until the repo's project has
+  // seeded.
+  if (isProjectHome && row.repoIcon) {
+    const repoIcon = row.repoIcon
+    items.push(
+      { id: 'delete-repo-separator', separator: true, label: '', onClick: () => {} },
+      {
+        id: 'delete-repo',
+        label: 'Delete Repo',
+        icon: <Trash />,
+        className:
+          'text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive dark:data-highlighted:bg-destructive/20',
+        onClick: () => {
+          if (!handleTrashRepo(repoIcon.repoId)) {
+            toast.error(`Can't delete ${row.label} yet`)
+          }
+        },
+      },
+    )
+  }
+
+  return <ContextMenu isOpen items={items} position={menu.position} onClose={menu.close} />
+}

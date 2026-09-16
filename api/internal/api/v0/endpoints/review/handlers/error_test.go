@@ -68,8 +68,8 @@ func TestReviewHandlers_NotFound(
 ) {
 	r := newErrRouter(errUsecase{err: apperr.ErrNotFound})
 
-	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/review", nil).Code)
-	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/workspaces/ws1/review/files", nil).Code)
+	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/chats/chat1/review", nil).Code)
+	assert.Equal(t, http.StatusNotFound, do(r, http.MethodGet, "/v0/chats/chat1/review/files", nil).Code)
 }
 
 func TestReviewHandlers_InternalError(
@@ -77,8 +77,8 @@ func TestReviewHandlers_InternalError(
 ) {
 	r := newErrRouter(errUsecase{err: errors.New("boom")})
 
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/review", nil).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/workspaces/ws1/review/files", nil).Code)
-	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPatch, "/v0/workspaces/ws1/review",
+	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/chats/chat1/review", nil).Code)
+	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodGet, "/v0/chats/chat1/review/files", nil).Code)
+	assert.Equal(t, http.StatusInternalServerError, do(r, http.MethodPatch, "/v0/chats/chat1/review",
 		map[string]any{"mergeStrategy": "merge"}).Code)
 }

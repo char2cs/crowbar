@@ -25,7 +25,7 @@
  */
 
 import type React from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 // See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
 // editor/languages singleton as the bare 'monaco-editor' specifier, without
 // eagerly bundling all built-in language contributions.
@@ -39,10 +39,13 @@ import type * as Monaco from 'monaco-editor'
 import { themeRegistry } from '@/extensions/themes/theme-registry'
 import { useSettingsStore } from '@/features/settings/store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { useStore } from 'zustand'
+import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
+import type { EditorManager } from '@/features/editor/lib/editor-manager'
+import { isHomeWorkspace } from '@/lib/workspace-scope-url'
+import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { hasTextContent, isEditorContent } from '@/features/panes/types/pane-content'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { shouldReconcileModelFromStore } from '@/features/editor/lib/pane-editor-controller'
@@ -74,7 +77,86 @@ import { createRafCoalescer, type RafCoalescer } from '../lib/raf-coalesce'
 
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
 
+// Same MutationObserver-on-`.dark`-class pattern as sidebar-build-badge.tsx's
+// `useIsDarkMode` and mermaid-theme.ts's `useMermaidThemeVersion` — kept as
+// its own tiny copy here (per those files' own precedent) rather than a
+// shared import, and needed for the identical reason: the app flips light/
+// dark by toggling a class on `document.documentElement`, not through any
+// store a React tree can subscribe to, so a REAL subscription is the only way
+// an effect finds out a mode change happened at all.
+let darkModeVersion = 0
+const darkModeListeners = new Set<() => void>()
+let darkModeObserver: MutationObserver | null = null
+
+function ensureDarkModeObserver(): void {
+  if (
+    darkModeObserver ||
+    typeof document === 'undefined' ||
+    typeof MutationObserver === 'undefined'
+  ) {
+    return
+  }
+  darkModeObserver = new MutationObserver(() => {
+    darkModeVersion++
+    darkModeListeners.forEach((listener) => listener())
+  })
+  darkModeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  })
+}
+
+function subscribeDarkMode(listener: () => void): () => void {
+  ensureDarkModeObserver()
+  darkModeListeners.add(listener)
+  return () => darkModeListeners.delete(listener)
+}
+
+function getDarkModeVersion(): number {
+  return darkModeVersion
+}
+
+function getDarkModeServerVersion(): number {
+  return 0
+}
+
+/** Bumps whenever the app's light/dark class flips — read purely to force a
+ *  dependent effect to re-run; the actual isDark read stays live-off-the-DOM
+ *  wherever it's consumed (`defineMonacoTheme`'s own CSS-first design). */
+function useDarkModeVersion(): number {
+  return useSyncExternalStore(subscribeDarkMode, getDarkModeVersion, getDarkModeServerVersion)
+}
+
 export interface PaneEditorSatelliteDeps {
+  /**
+   * The active-editor registry and Monaco manager for the BUFFER'S OWN
+   * workspace — the exact same values `EditorSurface` already resolved via
+   * its `workspaceId` prop (buffer-own-workspace-if-armed, else ambient —
+   * see that component's own doc). Passed explicitly rather than re-derived
+   * here via `useWorkspaceStore()` (ambient `WorkspaceStoreContext`): that
+   * context is scoped to the PANE'S CHAT's workspace (pane-container.tsx),
+   * which a pane's editor TAB is not required to match — a pane can hold a
+   * chat from one workspace and a file from another. Re-deriving it
+   * independently meant this hook's registry subscription (and therefore
+   * every setting it applies — font size, tabSize, wordWrap, minimap, theme
+   * refresh) silently targeted a DIFFERENT workspace's registry than the one
+   * `usePaneEditorController` actually published the swap to, so it never
+   * fired for that pane's editor at all — left running Monaco's bare
+   * defaults forever. Live-reported: two panes showing the same file at
+   * different font sizes.
+   */
+  registry: ActiveEditorRegistry
+  editorManager: EditorManager
+  /**
+   * Same workspace as `editorManager` above — the other half of a Monaco
+   * model uri (`fileUri(workspaceId, path)`). Needed for the external-edit
+   * seam below, which must build the SAME uri `usePaneEditorController`
+   * used to acquire this model, or it targets a different (or nonexistent)
+   * model in Monaco's global model table. See fileUri's own doc for the
+   * cross-workspace collision that motivated scoping the uri by workspace
+   * at all.
+   */
+  workspaceId: string
   highlightMatches?: Array<{ start: number; end: number }>
   currentHighlightIndex?: number
   lineNumberStart?: number
@@ -95,6 +177,36 @@ export interface PaneEditorSatelliteDeps {
 }
 
 /**
+ * Whether the LSP diagnostics effect below may safely call into `LspClient`.
+ *
+ * `LspClient` resolves its own workspace id via `getActiveWorkspaceId()` (not
+ * anything this hook hands it) and, for a non-home workspace, needs that
+ * workspace's OWNING CHAT id to build the chat-scoped `/lsp` URL
+ * (`lspBaseForWorkspace` — see `workspace-scope-url.ts`). That id is recorded
+ * ASYNCHRONOUSLY by the sidebar's own chat-list fetch, completely independent
+ * of (and often slower than) the workspace's own hydration — the same race
+ * `use-workspace-effects.ts` already guards for git/files. A buffer becoming a
+ * pane's active model (including tab restoration on a cold workspace
+ * activation) used to call straight into `ensureSubscribed`/`wsBase`, which
+ * throw on a null id by design; the throw propagated out of the effect body
+ * and crashed via the nearest error boundary. This makes the id a piece of
+ * REACT STATE the effect can depend on, so it waits instead of crashing, and
+ * re-runs the moment the sidebar catches up instead of losing diagnostics for
+ * that file for good.
+ */
+export function useLspScopeReady(): boolean {
+  const wsId = getActiveWorkspaceId()
+  const owningChatId = useSyncExternalStore(
+    useCallback(
+      (onChange) => (wsId ? subscribeToWorkspaceScope(wsId, onChange) : () => {}),
+      [wsId],
+    ),
+    useCallback(() => (wsId ? getOwningChatId(wsId) : null), [wsId]),
+  )
+  return !wsId || isHomeWorkspace(wsId) || owningChatId !== null
+}
+
+/**
  * Bind the retained widget's satellite concerns for `paneId`. The retained
  * editor + active model are sourced from the active-editor registry (published
  * by the controller on every swap), so this hook never reads `activeBufferId`
@@ -102,6 +214,9 @@ export interface PaneEditorSatelliteDeps {
  */
 export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatelliteDeps): void {
   const {
+    registry,
+    editorManager,
+    workspaceId,
     highlightMatches,
     currentHighlightIndex,
     lineNumberStart,
@@ -115,11 +230,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     externalApplyRef,
   } = deps
 
-  const workspaceStore = useWorkspaceStore()
-  const registry = workspaceStore.activeEditorRegistry
-  // Non-null: this hook runs inside EditorSurface, which EditorPane mounts only
-  // after awaiting `store.armEditor()`, so the manager is armed by now.
-  const editorManager = workspaceStore.editorManager!
+  const lspScopeReady = useLspScopeReady()
 
   // Active buffer CONTENT is read IMPERATIVELY (U5b) — NOT subscribed into
   // render. A render subscription here re-rendered EditorSurface on every
@@ -128,20 +239,21 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   // text and drives the external-sync + LSP-didChange effects off-render,
   // reading the new content + model imperatively when it actually changes.
   const readActiveContent = useCallback(() => {
-    const state = workspaceStore.getState()
-    const bufferId = state.panes[paneId]?.activeBufferId ?? null
+    const state = windowPaneStore.getState()
+    const bufferId = state.panes[paneId]?.activeEditorTabId ?? null
     const buffer = bufferId ? state.buffers.find((candidate) => candidate.id === bufferId) : null
     return buffer && hasTextContent(buffer) ? buffer.content : ''
-  }, [workspaceStore, paneId])
+  }, [paneId])
 
   // `languageOverride` changes RARELY (a manual language pick), so it stays a
   // render subscription — it feeds `setModelLanguage` + the LSP document
   // lifecycle, both keyed on `languageId`/`swapTick`, not on keystrokes. It
   // returns a PRIMITIVE so the snapshot is referentially stable.
-  const languageOverride = useWorkspaceStoreContext(
+  const languageOverride = useStore(
+    windowPaneStore,
     useCallback(
       (state) => {
-        const bufferId = state.panes[paneId]?.activeBufferId ?? null
+        const bufferId = state.panes[paneId]?.activeEditorTabId ?? null
         const buffer = bufferId
           ? state.buffers.find((candidate) => candidate.id === bufferId)
           : null
@@ -242,6 +354,16 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
 
   // ── Registry subscription: keep editor/model refs current + retarget ──────
   // Bumps `swapTick` to re-run the model-dependent effects on each swap.
+  //
+  // Keyed on `registry` too, not just `paneId`: `registry` is the buffer's
+  // OWN workspace's registry (see PaneEditorSatelliteDeps' own doc), and that
+  // resolution can change out from under an already-mounted pane — the same
+  // ambient-fallback-then-real-workspace race `usePaneEditorController`
+  // handles via its `managerKey` dependency. Re-subscribing on change
+  // matters, not just for correctness of WHICH registry is watched:
+  // `subscribe` calls back immediately with the registry's CURRENT context
+  // for this pane, so switching to the real registry immediately picks up
+  // whatever `usePaneEditorController` already published there.
   const [swapTick, setSwapTick] = useState(0)
   useEffect(() => {
     const unsubscribe = registry.subscribe(paneId, (ctx) => {
@@ -252,7 +374,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     })
     return unsubscribe
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId])
+  }, [paneId, registry])
 
   // ── Imperative active-content change signal (U5b) ──────────────────────────
   // A single vanilla store subscription watches THIS pane's active-buffer text
@@ -271,7 +393,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     activeContentRef.current = previous
     // Apply any change that landed between render and this effect's commit.
     externalSyncRef.current(previous)
-    return workspaceStore.subscribe(() => {
+    return windowPaneStore.subscribe(() => {
       const next = readActiveContent()
       if (next === previous) return
       previous = next
@@ -279,7 +401,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       externalSyncRef.current(next)
       lspDidChangeRef.current(next)
     })
-  }, [workspaceStore, readActiveContent])
+  }, [readActiveContent])
 
   // ── Once-per-pane: select-all command + scroll/layout/visible-range ───────
   // Bound when the editor first becomes available; reads the CURRENT model.
@@ -498,7 +620,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       // Latch the applied text so the surface ignores the model-change event this
       // edit re-fires (otherwise it would bounce straight back to the store).
       if (externalApplyRef) externalApplyRef.current = content
-      editorManager.applyExternalEdit(paneId, fileUri(path), content)
+      editorManager.applyExternalEdit(paneId, fileUri(workspaceId, path), content)
       if (selection) editor.setSelection(selection)
     }
     externalSyncRef.current = applyExternal
@@ -513,8 +635,8 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     // subscription-driven path (store content actually changed) still applies
     // genuine external edits regardless of dirty state.
     const reconcileBuffer = (() => {
-      const state = workspaceStore.getState()
-      const id = state.panes[paneId]?.activeBufferId ?? null
+      const state = windowPaneStore.getState()
+      const id = state.panes[paneId]?.activeEditorTabId ?? null
       const buf = id ? state.buffers.find((b) => b.id === id) : null
       return buf && isEditorContent(buf) ? buf : null
     })()
@@ -524,7 +646,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     return () => {
       externalSyncRef.current = () => {}
     }
-  }, [editorManager, externalApplyRef, paneId, swapTick, workspaceStore])
+  }, [editorManager, externalApplyRef, paneId, swapTick, workspaceId])
 
   // ── Settings: theme (separate so font/layout changes don't redefine theme) ─
   // Runs on mount, when theme inputs change, AND once when the editor instance
@@ -533,6 +655,32 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
   // only when that instance changes (editor created/replaced), so a tab switch
   // (swapTick bump with the SAME retained editor) is a cheap no-op.
   const themeBoundEditorRef = useRef<StandaloneEditor | null>(null)
+  // `settingsTheme`/`theme` name the COLOR theme (e.g. "crowbar") — a totally
+  // separate setting from Theme Mode (light/dark/system), which touches
+  // neither. Switching Theme Mode only ever calls `document.documentElement.
+  // classList.toggle('dark', ...)` (settings-effects.ts's `applyThemeMode`/
+  // `syncThemeWithSystem`, including the system-preference-change case), and
+  // `defineMonacoTheme` reads exactly that class as its OWN source of truth
+  // for isDark (this file's own top comment: "CSS-first ... always matches
+  // whatever .dark ... is currently applied"). A plain `editorRef.current`
+  // read inside this effect can't see that change on its own: the ref is set
+  // IMPERATIVELY by the editor-creation path, not through a React state
+  // update, so nothing here re-runs when it happens. `darkModeVersion` is a
+  // REACTIVE dependency for exactly that reason — the same shared
+  // MutationObserver-backed `useSyncExternalStore` seam `sidebar-build-
+  // badge.tsx`'s `useIsDarkMode` and mermaid-theme.ts's
+  // `useMermaidThemeVersion` already use for this identical problem — so a
+  // mode toggle forces a real re-run of this effect, landing on whatever
+  // `editorRef.current` holds AT THAT LATER TIME (by then, almost always
+  // populated), not the one captured at mount. Without it, toggling Theme
+  // Mode repaints every other pixel in the app but leaves an already-mounted
+  // editor's Monaco theme (and thus real, opaque colors like `editor.
+  // lineHighlightBackground`, not just the transparent `editor.background`)
+  // stuck on whatever was baked in at creation — caught live: a solid dark
+  // current-line highlight surviving a switch back to light, verified via
+  // console tracing that this effect's OWN mount-time runs all saw a null
+  // `editorRef.current` and, absent this dependency, never ran again.
+  const darkModeVersion = useDarkModeVersion()
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
@@ -551,7 +699,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     }
     // swapTick is intentionally a dep so this re-evaluates when the editor first
     // appears / is replaced, but the subscription rebind is gated by the ref.
-  }, [settingsTheme, theme, swapTick])
+  }, [settingsTheme, theme, swapTick, darkModeVersion])
 
   // ── Settings: all non-theme editor options (widget-level) ─────────────────
   // Keyed on actual settings values only — NOT swapTick — so a tab switch does
@@ -758,9 +906,23 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
     const model = modelRef.current
     const filePath = filePathRef.current
     if (!model || !filePath) return
+    // Wait for the owning-chat-id race in useLspScopeReady to resolve before
+    // touching LspClient — ensureSubscribed/wsBase throw on a null id. This
+    // effect re-runs (lspScopeReady is a dependency) the moment it does, so a
+    // cold activation retries the subscribe + open instead of crashing or
+    // losing diagnostics for this file for good.
+    if (!lspScopeReady) return
     const client = LspClient.getInstance()
 
-    const applyMarkers = (fp: string, diagnostics: LspDiagnostic[]) => {
+    const applyMarkers = (fp: string, diagnostics: LspDiagnostic[], diagWsId: string) => {
+      // LspClient is a single global subscription to whichever workspace is
+      // currently active — a pane showing a DIFFERENT (non-active) workspace's
+      // file stays registered as a handler the whole time, so a path match
+      // alone isn't enough: two workspaces sharing a relative path (two
+      // worktrees of the same repo) would otherwise paint one workspace's
+      // diagnostics onto the other's file. Same bleed shape as the Monaco
+      // model URI collision this session already fixed, one layer up.
+      if (diagWsId !== workspaceId) return
       if (!pathsMatch(fp, filePath)) return
       const current = modelRef.current
       if (!current) return
@@ -784,7 +946,7 @@ export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatellit
       const current = modelRef.current
       if (current) monacoEditor.setModelMarkers(current, 'crowbar-lsp', [])
     }
-  }, [languageId, swapTick])
+  }, [languageId, swapTick, lspScopeReady, workspaceId])
 
   // ── LSP re-analyze on edits (debounced, imperative — U5b) ─────────────────
   // Driven by the content-change signal, not a render dep. Each change (re)arms a

@@ -2,7 +2,6 @@ package agentjournal
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,18 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// fakeDirEntry is a minimal fs.DirEntry so appendCompletedHookDelivery can be
-// exercised directly with a name that deliberately isn't a real file on disk.
-type fakeDirEntry struct {
-	name  string
-	isDir bool
-}
-
-func (f fakeDirEntry) Name() string               { return f.name }
-func (f fakeDirEntry) IsDir() bool                { return f.isDir }
-func (f fakeDirEntry) Type() fs.FileMode          { return 0 }
-func (f fakeDirEntry) Info() (fs.FileInfo, error) { return nil, nil }
 
 func TestAppendCompletedHookDelivery_SkipsEntriesWithoutJSONSuffix(t *testing.T) {
 	// The journal directory holds only ".json" records, but pruning walks

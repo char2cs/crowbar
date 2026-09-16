@@ -57,11 +57,13 @@ func createMemStubChat(t *testing.T, h *harness, imported importedRepo) (chatID,
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "memstub"}, http.StatusCreated, &created)
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": "memstub", "workspaceId": imported.workspaceID},
+		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID)
 	h.Quiesce()
 
-	detail := getAgentChat(t, h, wsBase(imported), created.ID)
+	detail := getAgentChat(t, h, repoBase(imported), created.ID)
 	require.NotEmpty(t, detail.LiveRunnerID, "the freshly spawned chat must have a runner placed on it")
 	return created.ID, detail.LiveRunnerID
 }
@@ -74,7 +76,7 @@ func postMemStubHook(
 	runnerID, event, payload string,
 ) {
 	t.Helper()
-	_ = h.raw(http.MethodPost, wsBase(imported)+"/chats/hooks", map[string]string{
+	_ = h.raw(http.MethodPost, repoBase(imported)+"/chats/hooks", map[string]string{
 		"segment_id": runnerID, "provider": "memstub", "event": event, "payload_raw": payload,
 	}, http.StatusAccepted).Body.Close()
 }
@@ -136,7 +138,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	h := newHarness(t)
 	writeMemStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	frames := recordAgentWS(t, h, base+"/chats/ws")
 
@@ -163,6 +165,7 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	// (1) No phantom chat was minted.
 	var chats []agentChatDTO
 	h.get(base+"/chats", &chats)
+	chats = conversationsOnly(chats)
 	require.Len(t, chats, 1,
 		"an internal provider session must not mint a chat: the user opened one conversation and must "+
 			"see one chat, not a second one they never asked for")
@@ -200,10 +203,21 @@ func TestRegression_InternalProviderSessionDoesNotStealTheChat(t *testing.T) {
 	assert.Contains(t, chatHandoff(t, h, base, chat), "THE-USERS-OWN-ANSWER",
 		"the user's conversation must carry on in the chat it was always in")
 
-	// No frame for any chat other than the user's was EVER emitted — the live-signal
-	// counterpart of the chat-list assertion, over the whole recorded stream rather
-	// than a point read.
+	// No CHAT-LIFECYCLE frame for any chat other than the user's was EVER emitted —
+	// the live-signal counterpart of the chat-list assertion, over the whole
+	// recorded stream rather than a point read.
+	//
+	// worktree_state frames are excluded, and the exclusion is the point rather
+	// than a loophole: that kind is not about a conversation at all. It is the
+	// git state of a WORKSPACE, fanned out under whichever chat happens to own
+	// that worktree (v0.Container.pushChatWorktree), so the fixture's own
+	// feature/write row broadcasts one whenever its diff counts or working flag
+	// move. Counting those as "another chat appeared" would fail this test for
+	// the workspace it runs on, not for anything an internal session did.
 	for _, frame := range frames.snapshot() {
+		if frame["kind"] == "worktree_state" {
+			continue
+		}
 		if id, ok := frame["chatId"].(string); ok && id != "" {
 			assert.Equal(t, chat, id,
 				"no chat other than the user's may appear on the wire at all; frame: %v", frame)
@@ -231,7 +245,7 @@ func TestRegression_InternalSessionHooksAreDroppedNotFailed(t *testing.T) {
 		{"user_prompt", memoryPrompt},
 		{"turn_stop", memoryStop},
 	} {
-		resp := h.raw(http.MethodPost, wsBase(ws)+"/chats/hooks", map[string]string{
+		resp := h.raw(http.MethodPost, repoBase(ws)+"/chats/hooks", map[string]string{
 			"segment_id": runner, "provider": "memstub", "event": ev.event, "payload_raw": ev.payload,
 		}, http.StatusAccepted)
 		_ = resp.Body.Close()

@@ -6,6 +6,7 @@ import {
   terminalListen,
   setWindowTransparency,
   setMacOSWindowAppearance,
+  setTrafficLightPosition,
   toggleMenuBar,
 } from '@/lib/crowbar-bridge'
 
@@ -38,6 +39,10 @@ describe('crowbar-bridge', () => {
 
   it('setMacOSWindowAppearance resolves without error', async () => {
     await expect(setMacOSWindowAppearance('dark', false)).resolves.toBeUndefined()
+  })
+
+  it('setTrafficLightPosition resolves without error', async () => {
+    await expect(setTrafficLightPosition(12, 33)).resolves.toBeUndefined()
   })
 
   it('toggleMenuBar resolves without error', async () => {

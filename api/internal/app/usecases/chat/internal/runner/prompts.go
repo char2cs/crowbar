@@ -46,11 +46,10 @@ func (rs *Runners) submitPromptLocked(
 	if err != nil {
 		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: chat: %w", err)
 	}
-	chatsDir, err := rs.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	journalDir, err := rs.promptJournalDirFor(chat.ID)
 	if err != nil {
-		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: chats dir: %w", err)
+		return domain.AgentPromptSubmission{}, fmt.Errorf("agent: submit prompt: journal dir: %w", err)
 	}
-	journalDir := rs.prompts.Dir(chatsDir, chat.ID)
 	if err := rs.ReconcilePendingPromptFromLedger(ctx, chat); err != nil {
 		slog.ErrorContext(ctx, "agent: reconcile React prompt before submission (best-effort)",
 			"chat_id", chat.ID, "err", err)
@@ -227,7 +226,11 @@ func (rs *Runners) promptTarget(
 	if err != nil {
 		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: live runner: %w", err)
 	}
-	crowbarHome, _, _, worktree, err := rs.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chat.ID, chat.WorkspaceID)
+	if err != nil {
+		return engineagents.Runner{}, nil, "", err
+	}
+	crowbarHome, _, _, worktree, err := rs.ws.WorktreeDir(ctx, cwdWorkspaceID)
 	if err != nil {
 		return engineagents.Runner{}, nil, "", fmt.Errorf("agent: submit prompt: worktree dir: %w", err)
 	}
@@ -337,11 +340,11 @@ func (rs *Runners) requireNoPendingPromptDelivery(ctx context.Context, chat doma
 	if err := rs.ReconcilePendingPromptFromLedger(ctx, chat); err != nil {
 		return fmt.Errorf("agent: prompt delivery guard: reconcile ledger evidence: %w", err)
 	}
-	chatsDir, err := rs.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	journalDir, err := rs.promptJournalDirFor(chat.ID)
 	if err != nil {
-		return fmt.Errorf("agent: prompt delivery guard: chats dir: %w", err)
+		return fmt.Errorf("agent: prompt delivery guard: journal dir: %w", err)
 	}
-	pending, err := rs.prompts.HasPendingDelivery(rs.prompts.Dir(chatsDir, chat.ID))
+	pending, err := rs.prompts.HasPendingDelivery(journalDir)
 	if err != nil {
 		return fmt.Errorf("agent: prompt delivery guard: inspect journal: %w", err)
 	}
@@ -356,18 +359,12 @@ func (rs *Runners) reconcilePromptJournalsOnBoot(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("agent: boot reconcile prompt journals: list chats: %w", err)
 	}
-	dirs := make(map[string]string)
 	now := time.Now()
 	for _, chat := range chats {
-		chatsDir, ok := dirs[chat.WorkspaceID]
-		if !ok {
-			chatsDir, err = rs.ws.AgentChatsDir(ctx, chat.WorkspaceID)
-			if err != nil {
-				return fmt.Errorf("agent: boot reconcile prompt journals: chats dir for %s: %w", chat.ID, err)
-			}
-			dirs[chat.WorkspaceID] = chatsDir
+		dir, err := rs.promptJournalDirFor(chat.ID)
+		if err != nil {
+			return fmt.Errorf("agent: boot reconcile prompt journals: journal dir for %s: %w", chat.ID, err)
 		}
-		dir := rs.prompts.Dir(chatsDir, chat.ID)
 		if err := rs.prompts.RecoverOrphanedDispatches(dir, now); err != nil {
 			return fmt.Errorf("agent: boot reconcile prompt journal for %s: %w", chat.ID, err)
 		}

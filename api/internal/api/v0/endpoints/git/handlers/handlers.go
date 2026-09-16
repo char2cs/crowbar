@@ -5,6 +5,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -94,4 +97,17 @@ func New(
 		lastErrors: lastErrors,
 		working:    working,
 	}
+}
+
+// workspaceID answers which worktree this request acts on: the chat group's
+// resolveChatWorktree middleware has already resolved the chat's worktree and
+// stashed the workspace on the context, so the answer is read back from
+// reqscope — never resolved a second time per request, and never taken from a
+// URL, because no chat-scoped URL carries a workspace id to take it from
+// (spec law 1).
+func (h *Handlers) workspaceID(
+	ctx *gin.Context,
+) string {
+	ws, _ := reqscope.Workspace(ctx)
+	return ws.ID
 }

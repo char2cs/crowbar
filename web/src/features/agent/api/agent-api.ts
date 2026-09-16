@@ -1,13 +1,25 @@
 import { API_BASE, apiFetch } from '@/lib/api'
-import { workspaceBase } from '@/lib/workspace-scope-url'
+import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 
-// Workspace-scoped agentic-chat REST client. Routes nest under
-// workspaceBase(wsId)/chats (00 agentic-engine spec §2); the {success,data}
-// envelope is unwrapped by apiFetch. Modelled on features/git/api/review-api.ts.
+// Agentic-chat REST client. A chat is no longer addressed through its
+// workspace (Task 17 rescope, model spec §5.1): a non-home workspace's chats
+// nest under its REPO — .../projects/:p/repos/:r/chats — while a home
+// workspace still routes through the still-live workspaceBase(wsId)/home
+// mount, since home has no repo. The {success,data} envelope is unwrapped by
+// apiFetch. Modelled on features/git/api/review-api.ts.
 
+// Exported so callers that build their OWN chat-scoped URL — the agent-chat
+// lifecycle WS subscription (use-workspace-agent-chats-stream.ts) is the one
+// today — derive the same repo-scoped/home branch this file's own routes do,
+// rather than re-deriving it (and drifting from it, as that hook's direct
+// `workspaceBase(wsId)/chats` build had, post Task 17).
+//
+// The shape itself now lives beside the other scope-to-URL builders, because
+// the worktree LIFECYCLE verbs mount on this same repo-scoped chat prefix and
+// must not re-derive it here.
 export function chatBase(wsId: string): string {
-  return `${workspaceBase(wsId)}/chats`
+  return repoChatsBaseForWorkspace(wsId)
 }
 
 // ── Wire shapes (identical to the backend DTOs; camelCase) ──────────
@@ -124,6 +136,20 @@ export interface AgentChatFolder {
 }
 
 /**
+ * The wire shape of one .../chats/folders row: a folder-typed domain.Chat
+ * rendered through dto.AgentChatDTO, which names its display text `title` —
+ * not `name`. Only the fields a folder row carries values in; every
+ * runner-derived AgentChatDTO field is honestly empty on one and unused here.
+ */
+interface AgentChatFolderWire {
+  id: string
+  workspaceId: string
+  parentId: string
+  title: string
+  order: number
+}
+
+/**
  * The rows a dense renumber MOVED that the caller did not ask about.
  *
  * Every placement write renumbers the level it touched, so a client that applies
@@ -132,7 +158,7 @@ export interface AgentChatFolder {
  * next time anything re-renders. Apply these.
  */
 export interface FolderShift {
-  shifted: AgentChatFolder[]
+  shifted: AgentChatFolderWire[]
 }
 
 export interface AgentChatDetail extends AgentChat {
@@ -344,12 +370,12 @@ function mapChat(c: AgentChat): AgentChat {
   }
 }
 
-function mapFolder(f: AgentChatFolder): AgentChatFolder {
+function mapFolder(f: AgentChatFolderWire): AgentChatFolder {
   return {
     id: f.id,
     workspaceId: f.workspaceId,
     parentId: f.parentId ?? '',
-    name: f.name,
+    name: f.title,
     order: f.order ?? 0,
   }
 }
@@ -929,7 +955,54 @@ export async function createChat(wsId: string, provider: string, parentId = ''):
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, parentId }),
+    // The repo-scoped mount binds no :wsId (Task 17), so wsId has to travel in
+    // the body — the backend's Create falls back to body.workspaceId exactly
+    // when the URL carries none. Omitting it anchors the chat to "", and a
+    // top-level "" chat has no ancestor to resolve a cwd workspace from, so its
+    // runner spawn 404s (agentchat: not found) even though the chat minted.
+    body: JSON.stringify({ provider, parentId, workspaceId: wsId }),
+  })
+  return res.id
+}
+
+/**
+ * Create a chat AND mint a fresh workspace for it to own, atomically (model
+ * spec §4.1's "own worktree" create; backend Task 7,
+ * `chat/handlers/chats.go`'s `Create`). Used by the sidebar's "create
+ * workspace" affordance (space-content-actions.ts's `handleCreate`) in place
+ * of the old two-step `postWorkspace` (a bare, chat-less workspace) plus a
+ * later, separate chat create — this is ONE request, so the row that results
+ * already has its first conversation running.
+ *
+ * Unlike `createChat`, this names NO workspace at all — there is none to name
+ * yet — so it is built straight off project+repo rather than through
+ * `chatBase`'s workspace-scope resolution, which requires an EXISTING
+ * workspace to resolve a scope from. `workspaceId` is omitted from the body
+ * entirely: the backend's `ownWorktree` only takes effect when the request
+ * names no workspace, and an omitted key is the same "" its Go struct would
+ * bind anyway.
+ *
+ * `branch` is the name the user typed in the sidebar's inline create input
+ * (2026-09-09) — omitted (server-generated name) unless the caller has one.
+ */
+export async function createChatWithOwnWorktree(
+  projectId: string,
+  repoId: string,
+  provider: string,
+  parentId = '',
+  branch = '',
+): Promise<string> {
+  const p = encodeURIComponent(projectId)
+  const r = encodeURIComponent(repoId)
+  const res = await apiFetch<{ id: string }>(`/v0/projects/${p}/repos/${r}/chats`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider,
+      parentId,
+      ownWorktree: true,
+      ...(branch && { branch }),
+    }),
   })
   return res.id
 }
@@ -1065,6 +1138,18 @@ export async function renameChat(wsId: string, id: string, title: string): Promi
   })
 }
 
+// Fills a bubble's empty workspace slot (model spec §4.2): a new worktree
+// forked from its resolved fork parent, with its current provider respawned
+// there. No request body — the server resolves everything from the chat's
+// own id — and the response DTO is discarded here for the same reason every
+// other perform* action discards it (row-actions.ts): the daemon's own
+// broadcast/reseed is what the row actually repaints from.
+export async function promoteChat(wsId: string, id: string): Promise<void> {
+  await apiFetch<unknown>(`${chatBase(wsId)}/${encodeURIComponent(id)}/promote`, {
+    method: 'POST',
+  })
+}
+
 // Deleting a chat CASCADES to the threads hanging off it — a thread exists to
 // continue the conversation above it, and leaving it behind strands it reading a
 // context that no longer exists.
@@ -1092,7 +1177,7 @@ export async function deleteChat(wsId: string, id: string, init?: RequestInit): 
 // asked about. Apply both halves or the level paints in its old order.
 
 export async function listChatFolders(wsId: string): Promise<AgentChatFolder[]> {
-  const raw = await apiFetch<AgentChatFolder[]>(`${chatBase(wsId)}/folders`)
+  const raw = await apiFetch<AgentChatFolderWire[]>(`${chatBase(wsId)}/folders`)
   return (raw ?? []).map(mapFolder)
 }
 
@@ -1101,7 +1186,7 @@ export async function createChatFolder(
   name: string,
   parentId: string,
 ): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
-  const raw = await apiFetch<{ folder: AgentChatFolder } & Partial<FolderShift>>(
+  const raw = await apiFetch<{ folder: AgentChatFolderWire } & Partial<FolderShift>>(
     `${chatBase(wsId)}/folders`,
     {
       method: 'POST',
@@ -1118,7 +1203,7 @@ export async function updateChatFolder(
   folderId: string,
   patch: { name?: string; parentId?: string; order?: number },
 ): Promise<{ folder: AgentChatFolder; shifted: AgentChatFolder[] }> {
-  const raw = await apiFetch<{ folder: AgentChatFolder } & Partial<FolderShift>>(
+  const raw = await apiFetch<{ folder: AgentChatFolderWire } & Partial<FolderShift>>(
     `${chatBase(wsId)}/folders/${encodeURIComponent(folderId)}`,
     {
       method: 'PATCH',

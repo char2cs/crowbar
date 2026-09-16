@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { wsManager } from '@/lib/ws/manager'
 import { workspaceBase } from '@/lib/workspace-scope-url'
+import { useWorkspaceScopeReady } from '@/lib/workspace-scope'
 import { listThreads, mapThread } from '@/features/git/api/review-api'
 import type { ThreadDTO } from '@/features/git/api/review-api'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
@@ -18,7 +19,12 @@ import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace
  *  4. Cleanup: unsubscribe (and cancel any in-flight seed) on wsId change / unmount.
  */
 export function useWorkspaceThreadsStream(wsId: string): void {
+  const scopeReady = useWorkspaceScopeReady(wsId)
   useEffect(() => {
+    // workspaceBase(wsId) throws without a recorded scope — see
+    // useWorkspaceScopeReady above. Wait rather than crash; this re-runs the
+    // instant the scope is recorded (scopeReady is a dependency below).
+    if (!scopeReady) return
     let cancelled = false
 
     const seed = async () => {
@@ -57,5 +63,5 @@ export function useWorkspaceThreadsStream(wsId: string): void {
       cancelled = true
       unsubscribe()
     }
-  }, [wsId])
+  }, [wsId, scopeReady])
 }

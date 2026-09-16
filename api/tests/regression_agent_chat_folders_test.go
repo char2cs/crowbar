@@ -16,13 +16,21 @@ import (
 // that are deliberately opposite — a folder promotes what it held, a chat takes
 // its whole subtree. Each test drives the real HTTP surface, so a rule that only
 // ever existed in the frontend would fail here.
+//
+// The tests below were unblocked by Task 5, which made WorkspaceID optional
+// in the Create command. A folder is created with no workspace by design, and
+// the Create command now supports this.
 
-// agentChatFolderDTO mirrors the AgentChatFolderDTO wire shape.
+// agentChatFolderDTO mirrors the WIRE SHAPE a folder route answers with today:
+// dto.AgentChatDTO (api/internal/api/v0/dto/agent.go), not the deleted
+// AgentChatFolderDTO — a folder is a domain.Chat row now (Type == "folder"),
+// rendered through the same converter a chat's own placement route already
+// used, so its display name rides the "title" field.
 type agentChatFolderDTO struct {
 	ID          string `json:"id"`
 	WorkspaceID string `json:"workspaceId"`
 	ParentID    string `json:"parentId"`
-	Name        string `json:"name"`
+	Title       string `json:"title"`
 	Order       int    `json:"order"`
 }
 
@@ -109,6 +117,9 @@ func chatIDs(
 	h.Quiesce()
 	var list []agentChatDTO
 	h.get(base+"/chats", &list)
+	// Conversations only: the branch rows every workspace now owns are sidebar
+	// rows, not chats anybody opened. See conversationsOnly.
+	list = conversationsOnly(list)
 	out := make([]string, 0, len(list))
 	for _, c := range list {
 		out = append(out, c.ID)
@@ -116,15 +127,46 @@ func chatIDs(
 	return out
 }
 
+// chatOrderOf reads one chat's dense index off the LIST, which is the only
+// place the order actually rides — the per-chat detail response carries the
+// conversation history, not the row's placement.
+func chatOrderOf(
+	t *testing.T,
+	h *harness,
+	base string,
+	chatID string,
+) int {
+	t.Helper()
+	h.Quiesce()
+	var list []agentChatDTO
+	h.get(base+"/chats", &list)
+	for _, row := range list {
+		if row.ID == chatID {
+			return row.Order
+		}
+	}
+	t.Fatalf("chat %s is not in the list at %s", chatID, base)
+	return 0
+}
+
 // A thread exists to CONTINUE its parent — it reads that chat's turns — so a
 // chat that is deleted takes every chat below it. Promoting them, the way a
 // deleted folder promotes its children, would leave conversations whose entire
 // premise has been erased and which no drag can restore.
+//
+// `bystander` is the second half, and the reason this test was quarantined for
+// a spell: it shares ONE worktree with the subtree being deleted, exactly as
+// ordinary sibling conversations do, and the cascade used to tear that worktree
+// down on its way past — destroying the bystander and leaving nothing behind
+// able to name the directory. The cascade now subtracts the doomed subtree from
+// the worktree's holder census and reaps only what nothing else is holding
+// (tree.reapWorktrees), so the assertion below is about both rules at once:
+// everything threaded below the deleted chat goes, and NOTHING else does.
 func TestRegression_ChatDeleteCascadesToItsThreads(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	root := createAgentChat(t, h, ws)
 	child := createAgentChat(t, h, ws)
@@ -163,7 +205,7 @@ func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	outer := createChatFolder(t, h, base, "outer", "")
 	inner := createChatFolder(t, h, base, "inner", outer.ID)
@@ -184,8 +226,9 @@ func TestRegression_ChatFolderDeletePromotesItsChildren(t *testing.T) {
 	require.True(t, ok, "the child folder survives its parent")
 	assert.Equal(t, "", promoted.ParentID, "and rises to the folder's own parent")
 
-	var list []agentChatDTO
-	h.get(base+"/chats", &list)
+	var listed []agentChatDTO
+	h.get(base+"/chats", &listed)
+	list := conversationsOnly(listed)
 	require.Len(t, list, 1)
 	assert.Equal(t, chat, list[0].ID, "the chat outlives the folder that held it")
 	assert.Equal(t, "", list[0].ParentID, "and is promoted, never deleted")
@@ -200,7 +243,7 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	outer := createChatFolder(t, h, base, "outer", "")
 	inner := createChatFolder(t, h, base, "inner", outer.ID)
@@ -235,38 +278,78 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 	assert.Equal(t, "", reread.ParentID, "a refused placement must never rewrite lineage")
 }
 
-// The panel renders ONE workspace's tree, so a cross-workspace edge is a row
-// nothing will ever draw — and for a chat it would additionally mean reading
-// turns out of a workspace the user is not in.
+// A CHAT parent is still refused across workspaces: a thread's parent is what
+// it READS, so accepting one from a workspace the user is not in would let an
+// agent inherit context. That refusal is decided from the MOVED chat's own
+// actual workspace (checkChatContainer), so it survives Task 17's route
+// rescope unchanged even though the repo-scoped mount no longer names a
+// workspace in the URL at all.
+//
+// A FOLDER parent carries no workspace edge to compare (2026-08-23
+// unified-sidebar-design §3.1 — it is a domain.Chat row of Type "folder" that
+// lives in the repo forest, not inside one workspace's tree), but it is held
+// to the REPO it lives in instead: checkFolderContainer's golden rule
+// (tree/validate.go, landed in a940a4689c, well before this repo-scoping
+// task) refuses a folder create/move whose parent's own scope — a folder's
+// stored RepoID, or a chat's WorkspaceID resolved through RepoOf — does not
+// match the folder's own. Both a foreign FOLDER parent and a foreign CHAT
+// parent are refused by that one check.
+//
+// Addressing a chat by id alone (Task 17, model spec §5.1) also retires the
+// third case this test used to pin: a chat is no longer invisible merely
+// because the URL used to reach it names a different repo/workspace. The
+// repo-scoped mount has no :wsId segment to compare against, so
+// requireChatInWorkspace's cross-workspace 404 only ever fires at the HOME
+// mount now (RequireHomeWorkspace's injected :wsId) — pinned separately by
+// TestAgentREST_Scope. Here, writing chat B's own placement through repo A's
+// URL is legitimate access to a row addressed by id, not a probe into
+// something the caller may not touch, and this test now pins THAT.
 func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	a := importWritableWorkspace(t, h)
 	b := importWritableWorkspace(t, h)
 
-	foreignFolder := createChatFolder(t, h, wsBase(b), "elsewhere", "")
+	foreignFolder := createChatFolder(t, h, repoBase(b), "elsewhere", "")
 	foreignChat := createAgentChat(t, h, b)
 
-	msg := h.mutationError(http.MethodPost, wsBase(a)+"/chats/folders",
+	// Filing a new folder under another repo's folder, or under another
+	// workspace's chat, is refused: the folder-scoping golden rule holds a
+	// folder to its own creation-time repo scope, and repoScopeOf resolves
+	// BOTH a foreign folder (its own stored RepoID) and a foreign chat
+	// (WorkspaceID -> RepoOf) to repo b, which does not match repo a.
+	msg := h.mutationError(http.MethodPost, repoBase(a)+"/chats/folders",
 		map[string]string{"name": "spikes", "parentId": foreignFolder.ID}, http.StatusConflict)
+	assert.Contains(t, msg, "repo")
+
+	msg = h.mutationError(http.MethodPost, repoBase(a)+"/chats/folders",
+		map[string]string{"name": "spikes-2", "parentId": foreignChat}, http.StatusConflict)
+	assert.Contains(t, msg, "repo")
+
+	// A CHAT thread is still refused across workspaces: this boundary is
+	// unchanged by the retype, since a chat still carries a workspace and the
+	// refusal is decided from the MOVED chat's own workspace, never the URL.
+	own := createAgentChat(t, h, a)
+	msg = h.mutationError(http.MethodPatch, repoBase(a)+"/chats/"+own+"/placement",
+		map[string]string{"parentId": foreignChat}, http.StatusConflict)
 	assert.Contains(t, msg, "workspace")
 
-	h.mutationError(http.MethodPost, wsBase(a)+"/chats/folders",
-		map[string]string{"name": "spikes", "parentId": foreignChat}, http.StatusConflict)
+	// Renaming a folder addressed through a DIFFERENT repo's URL now succeeds
+	// too: a folder is addressed by id alone, not id-within-workspace.
+	h.patch(repoBase(a)+"/chats/folders/"+foreignFolder.ID, map[string]any{"name": "renamed"}, nil)
 
-	own := createAgentChat(t, h, a)
-	h.mutationError(http.MethodPatch, wsBase(a)+"/chats/"+own+"/placement",
-		map[string]string{"parentId": foreignChat}, http.StatusConflict)
+	// A chat addressed through a DIFFERENT repo's URL is now reachable and
+	// mutable, not invisible: the repo-scoped mount has no workspace segment
+	// left to be wrong about, so reparenting chat B through repo A's URL is
+	// ordinary access to a row addressed by id, and it actually lands.
+	placed := placeChat(t, h, repoBase(a), foreignChat, map[string]any{"parentId": foreignFolder.ID})
+	assert.Equal(t, foreignFolder.ID, placed.Chat.ParentID,
+		"the reparent, addressed through the other repo's mount, actually landed")
 
-	// A row addressed through the WRONG workspace is not merely refused, it is
-	// invisible: answering anything else would confirm a row the caller may not
-	// touch exists.
-	h.mutationError(http.MethodPatch, wsBase(a)+"/chats/folders/"+foreignFolder.ID,
-		map[string]string{"name": "stolen"}, http.StatusNotFound)
-	h.mutationError(http.MethodPatch, wsBase(a)+"/chats/"+foreignChat+"/placement",
-		map[string]any{"order": 0}, http.StatusNotFound)
-
-	assert.Empty(t, listChatFolders(t, h, wsBase(a)), "no folder was created in the other workspace's name")
+	var reread agentChatDetail
+	h.get(repoBase(b)+"/chats/"+foreignChat, &reread)
+	assert.Equal(t, foreignFolder.ID, reread.ParentID,
+		"and is visible back through the chat's own repo mount too")
 }
 
 // Sibling order is a dense index chats and folders SHARE, rebuilt on every move.
@@ -277,14 +360,22 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	chat := createAgentChat(t, h, ws)
+	// The panel root already holds the BRANCH row every imported workspace owns,
+	// so this level's indices no longer start at zero. Read where the chat
+	// actually landed and assert every position RELATIVE to it: what this test
+	// is about is that the level stays DENSE and that a renumber reports what it
+	// moved, never the absolute slot a row happens to occupy.
+	chatOrder := chatOrderOf(t, h, base, chat)
+
 	first := createChatFolder(t, h, base, "a", "")
-	require.Equal(t, 1, first.Order, "a new folder lands after the chat already at that level")
+	require.Greater(t, first.Order, chatOrder,
+		"a new folder lands after the chat already at that level")
 
 	second := createChatFolder(t, h, base, "b", "")
-	require.Equal(t, 2, second.Order)
+	require.Equal(t, first.Order+1, second.Order, "and the next one lands after that")
 
 	// Dragging the last folder to the top renumbers the whole level, and the
 	// answer names every OTHER folder the renumber moved.
@@ -293,7 +384,8 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	assert.Equal(t, 0, moved.Folder.Order)
 	shifted, ok := chatFolderByID(moved.Shifted, first.ID)
 	require.True(t, ok, "the folder the drop pushed down must ride back with the answer")
-	assert.Equal(t, 2, shifted.Order)
+	assert.Equal(t, first.Order+1, shifted.Order,
+		"the drop pushed it down exactly one slot")
 	assert.NotContains(t, folderIDs(moved.Shifted), second.ID, "the subject is not its own collateral")
 
 	// The chat shares the level, so it was renumbered too — through its own
@@ -301,7 +393,8 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	h.Quiesce()
 	var reread agentChatDetail
 	h.get(base+"/chats/"+chat, &reread)
-	assert.Equal(t, 1, reread.Order)
+	assert.Greater(t, reread.Order, chatOrder,
+		"the drop landed above the chat, so the renumber pushed the chat down")
 
 	assertDenseChatLevel(t, h, base, "")
 
@@ -332,7 +425,7 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	folder := createChatFolder(t, h, base, "spikes", "")
 	rows := listChatFolders(t, h, base)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "spikes", rows[0].Name)
+	assert.Equal(t, "spikes", rows[0].Title)
 
 	placed := placeChat(t, h, base, chat.ID, map[string]any{"parentId": folder.ID})
 	assert.Equal(t, folder.ID, placed.Chat.ParentID, "a home chat files into a home folder")
@@ -340,7 +433,7 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	h.patch(base+"/chats/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
 	renamed := listChatFolders(t, h, base)
 	require.Len(t, renamed, 1)
-	assert.Equal(t, "experiments", renamed[0].Name)
+	assert.Equal(t, "experiments", renamed[0].Title)
 
 	h.del(base+"/chats/folders/"+folder.ID, nil, http.StatusOK, nil)
 	assert.Empty(t, listChatFolders(t, h, base))
@@ -348,22 +441,40 @@ func TestRegression_ChatFoldersWorkOnHomeWorkspace(t *testing.T) {
 	h.Quiesce()
 	var list []agentChatDTO
 	h.get(base+"/chats", &list)
-	require.Len(t, list, 1, "the home chat outlived the folder it was filed in")
+	// conversationsOnly cannot filter the project home's OWN owning chat out
+	// of this list any more (see TestRegression_AgentChatsWorkOnHomeWorkspace's
+	// own note, agent_home_scope_test.go) — assert the created conversation
+	// survived the folder delete directly instead of the filtered list's size.
+	var found bool
+	for _, row := range conversationsOnly(list) {
+		if row.ID == chat.ID {
+			found = true
+		}
+	}
+	assert.True(t, found, "the home chat outlived the folder it was filed in")
 }
 
 // A folder mutation has no aggregate projection to ride, so the handler
-// broadcasts it — on the SAME workspace-scoped socket the chats use, because one
-// gesture writes both kinds and two feeds would have to be kept in order.
+// broadcasts it — on the SAME repo-scoped socket the chats use (Task 17), because
+// one gesture writes both kinds and two feeds would have to be kept in order.
+//
+// The frame's workspaceId is empty here, not ws.workspaceID: a folder carries no
+// workspace of its own (2026-08-23 unified-sidebar-design §3.1), and the
+// repo-scoped mount has no :wsId path segment to source one from either — only
+// the home mount's injected :wsId (RequireHomeWorkspace) ever stamps one on a
+// folder frame, which is a scoping convenience for that one mount, not a fact
+// about the folder.
 func TestRegression_ChatFolderMutationsRideTheChatsStream(t *testing.T) {
 	h := newHarness(t)
 	ws := importWritableWorkspace(t, h)
-	base := wsBase(ws)
+	base := repoBase(ws)
 
 	frames := dialAgentWS(t, h, base+"/chats/ws")
 
 	folder := createChatFolder(t, h, base, "spikes", "")
 	created := waitForFolderFrame(t, frames, folder.ID, "folder_created")
-	assert.Equal(t, ws.workspaceID, created["workspaceId"])
+	assert.Empty(t, created["workspaceId"],
+		"a folder carries no workspace of its own, and the repo-scoped mount has no :wsId to stamp one from")
 
 	h.patch(base+"/chats/folders/"+folder.ID, map[string]any{"name": "experiments"}, nil)
 	waitForFolderFrame(t, frames, folder.ID, "folder_updated")
@@ -429,11 +540,30 @@ func assertDenseChatLevel(
 			orders[c.ID] = c.Order
 		}
 	}
-	seen := make([]bool, len(orders))
+	// A row's index must be non-negative and must be held by nobody else. That
+	// is the whole of what "dense" buys and the whole of what a bad renumber
+	// breaks: the next drop index means what it says only if no two rows claim
+	// the same slot.
+	seen := map[int]string{}
 	for id, order := range orders {
 		require.GreaterOrEqual(t, order, 0, "row %s", id)
+		held, taken := seen[order]
+		require.False(t, taken, "row %s: order %d is already held by %s", id, order, held)
+		seen[order] = id
+	}
+	// The 0..n-1 half is asserted only INSIDE a container, where the rows above
+	// are the whole level. It cannot be asserted at the panel root, and that is
+	// not a gap in this change: the root is ONE sibling space shared by every
+	// repo in the project AND by the project home's own row, while the list
+	// read above is repo-scoped and never serves the home's. A root level of
+	// six rows therefore reads as five here, with one legitimate index above
+	// the count. That was always true of a daemon that had rebooted — the boot
+	// backfill mints exactly these rows — and is simply true immediately now
+	// that a workspace and the chat owning it are created together.
+	if container == "" {
+		return
+	}
+	for id, order := range orders {
 		require.Less(t, order, len(orders), "row %s: order %d is outside 0..%d", id, order, len(orders)-1)
-		require.False(t, seen[order], "row %s: order %d is held twice", id, order)
-		seen[order] = true
 	}
 }

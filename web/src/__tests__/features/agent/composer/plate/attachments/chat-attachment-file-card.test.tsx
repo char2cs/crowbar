@@ -91,7 +91,7 @@ describe('chat attachment file card', () => {
     const anchor = screen.getByText('report.pdf').closest('a')
     expect(anchor).toHaveAttribute(
       'href',
-      '/v0/projects/p1/repos/r1/workspaces/ws1/chats/c1/attachments/report.pdf',
+      '/v0/projects/p1/repos/r1/chats/c1/attachments/report.pdf',
     )
     expect(() => fireEvent.click(anchor!)).not.toThrow()
     expect(() => fireEvent.mouseOver(anchor!)).not.toThrow()

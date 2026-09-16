@@ -1,7 +1,8 @@
 import './styles.css'
 import { useCallback, useMemo, useRef } from 'react'
+import { useStore } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
-import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { exists } from '@/features/file-system/controllers/platform'
@@ -24,13 +25,14 @@ export interface MarkdownPreviewProps {
 }
 
 export function MarkdownPreview({ bufferId }: MarkdownPreviewProps) {
-  const { sourceBufferPath, sourceContent } = useWorkspaceStoreContext(
+  const { sourceBufferPath, sourceContent } = useStore(
+    windowPaneStore,
     useShallow((state) => {
       // Prefer the buffer this instance was handed: with a split, the pane
       // rendering the preview is not necessarily the ACTIVE pane, and reading
       // the active pane's buffer would show another pane's file.
       const ownBuffer = bufferId ? state.buffers.find((buffer) => buffer.id === bufferId) : null
-      const activeBufferId = state.panes[state.activePaneId]?.activeBufferId ?? null
+      const activeBufferId = state.panes[state.activePaneId]?.activeEditorTabId ?? null
       const activeBuffer =
         ownBuffer ??
         (activeBufferId ? state.buffers.find((buffer) => buffer.id === activeBufferId) : null)

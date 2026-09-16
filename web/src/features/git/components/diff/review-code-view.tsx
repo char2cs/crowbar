@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { getReviewPatch } from '@/features/git/api/review-window-api'
 import type { FileOutline, HunkShape } from '@/features/git/api/review-window-api'
 import { MAX_MATERIALIZED_LINES, PATCH_LINE_CAP, planWindow } from '@/features/git/lib/patch-window'
+import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import type { GitDiff } from '@/features/git/types/git-types'
 import type { ReviewThread } from '@/features/workspace/stores/slices/branch-review-slice'
 import { cn } from '@/utils/cn'
@@ -417,7 +418,7 @@ function parseSingleFilePatch(patch: string, cacheKey: string): FileDiffMetadata
  * Threads are the surface's only annotation, so the renderer's `LAnnotation`
  * type parameter IS `ReviewThread` — see `use-review-annotations.tsx`.
  */
-type CodeViewInstance = ReturnType<CodeViewHandle<ReviewThread>['getInstance']>
+type CodeViewInstance = ReturnType<CodeViewHandle<ReviewThread, undefined>['getInstance']>
 
 /** Why a file's header is showing something other than its diff. */
 type PatchState = 'truncated' | 'loading' | 'failed'
@@ -460,6 +461,11 @@ export interface ReviewCodeViewProps {
   commit?: string
   /** False while the pane is hidden, which suspends fetching for it. */
   isActivePane?: boolean
+  /** 'split' (default): two-column, side-by-side. 'unified': one column,
+   *  old/new lines interleaved inline. Passed straight through to
+   *  `@pierre/diffs`' own `diffStyle` option — both are already fully
+   *  implemented by DiffHunksRenderer. */
+  diffStyle?: 'split' | 'unified'
   /** Imperative handle for callers that must navigate the surface from
    *  outside it — find-in-diff resolves hits against the daemon, not the
    *  rendered window, so it cannot reach a line any other way. */
@@ -547,6 +553,7 @@ function ReviewCodeViewSurface({
   files,
   outline,
   isActivePane = true,
+  diffStyle = 'split',
   className,
   surfaceRef,
 }: ReviewCodeViewProps) {
@@ -588,7 +595,19 @@ function ReviewCodeViewSurface({
 
   const [patchStates, setPatchStates] = useState<Record<string, PatchState>>({})
 
-  const handleRef = useRef<CodeViewHandle<ReviewThread> | null>(null)
+  // PaneContainer renders only the active buffer, so a tab switch unmounts this
+  // surface entirely and a return remounts it from scratch — same as
+  // MarkdownPreview (use-preserved-scroll.ts's own doc). Keyed by wsId+commit
+  // (not just wsId) so a branch review and a commit-diff tab on the same
+  // workspace, or two different commit tabs, each keep their own offset.
+  const scrollKey = `${wsId}\u0000${commit ?? ''}`
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const markScrollerRef = useCallback((node: HTMLDivElement | null) => {
+    scrollerRef.current = node
+    if (node != null) node.dataset.reviewCodeViewScroller = ''
+  }, [])
+
+  const handleRef = useRef<CodeViewHandle<ReviewThread, undefined> | null>(null)
   const heldRef = useRef(new Map<string, HeldPatch>())
   const tokenRef = useRef(0)
   const versionRef = useRef(0)
@@ -879,12 +898,16 @@ function ReviewCodeViewSurface({
     runWindow()
   }, [runWindow, items, isActivePane])
 
+  // Restored once items exist in the DOM — before that the scroller has no
+  // room to hold an offset and it would be clamped away.
+  usePreservedScroll(scrollerRef, scrollKey, items.length > 0)
+
   useEffect(() => {
     const held = heldRef.current
     return () => held.clear()
   }, [])
 
-  const options = useMemo<CodeViewOptions<ReviewThread>>(
+  const options = useMemo<CodeViewOptions<ReviewThread, undefined>>(
     () => ({
       stickyHeaders: true,
       tokenizeMaxLineLength: REVIEW_TOKENIZE_MAX_LINE_LENGTH,
@@ -893,8 +916,9 @@ function ReviewCodeViewSurface({
       // is how a single-line one is. Both feed the same draft.
       enableLineSelection: true,
       enableGutterUtility: true,
+      diffStyle,
     }),
-    [],
+    [diffStyle],
   )
 
   return (
@@ -906,7 +930,7 @@ function ReviewCodeViewSurface({
         // document, not an update to this one.
         key={signature}
         ref={handleRef}
-        containerRef={markScroller}
+        containerRef={markScrollerRef}
         initialItems={items}
         options={options}
         onScroll={runWindow}
@@ -990,11 +1014,6 @@ function sameAnnotations(
       annotation.metadata === other.metadata
     )
   })
-}
-
-/** Tags the CodeView's own scroll container so styling and tests can find it. */
-function markScroller(node: HTMLDivElement | null): void {
-  if (node != null) node.dataset.reviewCodeViewScroller = ''
 }
 
 /**

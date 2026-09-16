@@ -36,13 +36,14 @@ import { createElement } from 'react'
 import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
+import { nanoid } from 'nanoid'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
-import type { AgentChatContent } from '@/features/panes/types/pane-content'
-import {
-  WorkspaceStoreContext,
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 const {
   getChatFn,
@@ -191,30 +192,49 @@ function seedWorkspace(chats: AgentChat[]) {
 
 type Store = ReturnType<typeof seedWorkspace>
 
-function openBuffer(store: Store, chatId: string, runnerId: string) {
-  return store
-    .getState()
-    .bufferActions.openContent({ type: 'agentChat', chatId, wsId: 'w1', name: 'Chat', runnerId })
+// A chat is a PANE, not a buffer: panes are window-level (windowPaneStore) and
+// carry chatId/runnerId as fields of their own. A Cmd+\ split is therefore TWO
+// `PaneGroup`s holding the identical chatId — which is precisely the sibling
+// relationship this file is about.
+//
+// A real `PaneGroup` carries no workspace id (pane-container reads it from the
+// ambient WorkspaceStoreContext), so the harness keeps it beside the pane.
+const paneWorkspace = new Map<string, string>()
+
+function openChatPane(_store: Store, chatId: string, runnerId: string, wsId = 'w1') {
+  const id = nanoid()
+  windowPaneStore.setState((s) => {
+    s.panes[id] = {
+      id,
+      type: 'group',
+      chatId,
+      runnerId: runnerId || null,
+      editorTabIds: [],
+      activeEditorTabId: null,
+      editorOpen: false,
+    }
+    return s
+  })
+  paneWorkspace.set(id, wsId)
+  return id
 }
 
 /** One pane. `active` is the pane with focus — only ever one of the two, which is
  *  what makes the OTHER one the sibling this file is about. */
-function PaneHost({ bufferId, active }: { bufferId: string; active: boolean }) {
-  const store = useWorkspaceStore()
-  const buf = useStore(store, (s) => s.buffers.find((b) => b.id === bufferId)) as
-    AgentChatContent | undefined
-  if (!buf) return null
+function PaneHost({ paneId, active }: { paneId: string; active: boolean }) {
+  const group = useStore(windowPaneStore, (s) => s.panes[paneId])
+  if (!group) return null
   return createElement(AgentChatPane, {
-    chatId: buf.chatId,
-    runnerId: buf.runnerId,
-    wsId: buf.wsId,
-    bufferId: buf.id,
+    chatId: group.chatId ?? '',
+    runnerId: group.runnerId ?? '',
+    wsId: paneWorkspace.get(paneId) ?? 'w1',
+    paneId: group.id,
     isActivePane: active,
     isVisible: true,
   })
 }
 
-function renderSplit(store: Store, bufferA: string, bufferB: string) {
+function renderSplit(store: Store, paneA: string, paneB: string) {
   return render(
     createElement(
       WorkspaceStoreContext.Provider,
@@ -222,8 +242,8 @@ function renderSplit(store: Store, bufferA: string, bufferB: string) {
       createElement(
         'div',
         null,
-        createElement(PaneHost, { bufferId: bufferA, active: true }),
-        createElement(PaneHost, { bufferId: bufferB, active: false }),
+        createElement(PaneHost, { paneId: paneA, active: true }),
+        createElement(PaneHost, { paneId: paneB, active: false }),
       ),
     ),
   )
@@ -237,6 +257,8 @@ function goDormant(store: Store, chatId: string) {
 }
 
 beforeEach(() => {
+  resetWindowPaneStoreForTests()
+  paneWorkspace.clear()
   for (const f of [
     getChatFn,
     resumeChatFn,
@@ -294,10 +316,10 @@ describe("AgentChatPane: a sibling pane during its neighbour's CLI displacement"
     )
 
     const store = seedWorkspace([chatRow({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-    const bufferA = openBuffer(store, 'c1', 'r1')
-    const bufferB = openBuffer(store, 'c1', 'r1')
+    const paneA = openChatPane(store, 'c1', 'r1')
+    const paneB = openChatPane(store, 'c1', 'r1')
     await act(async () => {
-      renderSplit(store, bufferA, bufferB)
+      renderSplit(store, paneA, paneB)
     })
 
     // Pane A switches provider. The daemon kills the outgoing CLI first, so the
@@ -337,10 +359,10 @@ describe("AgentChatPane: a sibling pane during its neighbour's CLI displacement"
     )
 
     const store = seedWorkspace([dormant('c1')])
-    const bufferA = openBuffer(store, 'c1', '')
-    const bufferB = openBuffer(store, 'c1', '')
+    const paneA = openChatPane(store, 'c1', '')
+    const paneB = openChatPane(store, 'c1', '')
     await act(async () => {
-      renderSplit(store, bufferA, bufferB)
+      renderSplit(store, paneA, paneB)
     })
     await act(async () => {})
     expect(resumeChatFn).toHaveBeenCalledTimes(1)

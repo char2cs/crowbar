@@ -1,4 +1,5 @@
 import type { CoreFeaturesState } from './feature'
+import type { BuildChannel } from '@/lib/build-info'
 
 export type Theme = string
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -74,12 +75,8 @@ export interface Settings {
   coreFeatures: CoreFeaturesState
   // Advanced
   showFpsOverlay: boolean
-  /**
-   * How long (minutes) a workspace stays mounted in memory after you switch
-   * away, so switching back is instant. 0 destroys it on switch (the old
-   * behaviour). Capped at RETENTION_CAP workspaces regardless of this value.
-   */
-  workspaceKeepAliveMinutes: number
+  /** Sidebar-header build indicator. 'auto' detects dev/nightly/beta/release from the build; any other value forces that state for QA, and 'off' hides it. */
+  buildBadgeOverride: 'auto' | 'off' | BuildChannel
   // Other
   maxOpenTabs: number
   //// File tree
@@ -92,4 +89,10 @@ export interface Settings {
   hiddenDirectoryPatterns: string[]
   showGitStatusInFileTree: boolean
   compactGitStatusBadges: boolean
+  //// Git
+  /** Branch Review's diff toolbar toggle (review-diff-tab.tsx) — 'split'
+   *  (side-by-side) or 'unified' (inline). A display preference, not
+   *  per-workspace data, so it lives here like sidebarPosition/theme rather
+   *  than in a workspace store. */
+  diffViewMode: 'split' | 'unified'
 }

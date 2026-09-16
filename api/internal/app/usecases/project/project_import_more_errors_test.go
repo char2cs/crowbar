@@ -30,7 +30,7 @@ func TestImportRepo_IconWriteSkipped_WhenCrowbarHomeUnavailable(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	git := mocks.NewGitEngine()
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "main", Head: "h1"}}
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:    mocks.NewProjectStore(),
 		Repos:       repos,
 		Workspaces:  mocks.NewWorkspaceRepo(),

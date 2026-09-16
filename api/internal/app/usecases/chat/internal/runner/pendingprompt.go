@@ -19,10 +19,10 @@ import (
 // forever). A record with no stored text is a pre-migration record, written
 // before PromptRequest gained a Text field: also nothing to recover.
 func (rs *Runners) PendingPrompt(
-	ctx context.Context,
+	_ context.Context,
 	chatID string,
 ) (domain.PendingPrompt, bool, error) {
-	dir, err := rs.promptJournalDirFor(ctx, chatID)
+	dir, err := rs.promptJournalDirFor(chatID)
 	if err != nil {
 		return domain.PendingPrompt{}, false, err
 	}

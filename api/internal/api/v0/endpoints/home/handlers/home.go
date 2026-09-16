@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -8,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	wsrepo "github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // Get handles GET /v0/projects/:projectId/home.
@@ -23,6 +25,35 @@ func (h *Handlers) Get(c *gin.Context) {
 	// a project-home read taken mid-agent-turn reports working=true and the
 	// home workspace's icon keeps its spinner across a refetch.
 	ws.Working = h.working.WorkingFor(ws.ID)
-	// Home workspaces carry no git-merge-eligibility context.
-	libs.WriteQueryWithStatus(c, http.StatusOK, dto.WorkspaceDTOFrom(ws, wsrepo.MergeEligibility{}))
+	owningChatID := h.resolveOwningChatID(c.Request.Context(), ws.ID)
+	// Home workspaces carry no git-merge-eligibility context, and no sidebar
+	// FolderID/Order either: PlaceWorkspace itself refuses this row (RepoOf
+	// answers "" for it — see PlaceWorkspace's own doc), so there is nothing
+	// for a Node reader to answer here beyond the "" / 0 default nil already
+	// gives.
+	libs.WriteQueryWithStatus(c, http.StatusOK,
+		dto.WorkspaceDTOFrom(c.Request.Context(), ws, wsrepo.MergeEligibility{}, owningChatID, nil))
+}
+
+// resolveOwningChatID answers wsID's real owning chat id for the wire DTO,
+// mirroring the workspaces handlers' own resolveOwningChatID: it reuses
+// domain.ResolveOwningChat over this handler's own read of the workspace's
+// chat rows, never a second, independently derived answer. An unwired chats
+// seam or an empty read degrades to "".
+func (h *Handlers) resolveOwningChatID(
+	ctx context.Context,
+	wsID string,
+) string {
+	if h.chats == nil {
+		return ""
+	}
+	rows, err := h.chats.ListChatsByWorkspace(ctx, wsID)
+	if err != nil {
+		return ""
+	}
+	owner, ok := domain.ResolveOwningChat(rows)
+	if !ok {
+		return ""
+	}
+	return owner.ID
 }

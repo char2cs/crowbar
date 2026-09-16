@@ -137,15 +137,6 @@ func (m *MockWorkspace) RenameBranch(
 	return domain.Workspace{ID: id, Branch: branch}, nil
 }
 
-func (m *MockWorkspace) SetPlacement(
-	_ context.Context,
-	id string,
-	folderID string,
-	order int,
-) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, FolderID: folderID, Order: order}, nil
-}
-
 func (m *MockWorkspace) SetProject(
 	_ context.Context,
 	id string,

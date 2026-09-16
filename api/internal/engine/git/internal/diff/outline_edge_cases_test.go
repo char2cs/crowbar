@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
+	"github.com/char2cs/crowbar/api/internal/engine/git/internal/diff"
 )
 
 // TestOutline_NoTrailingNewlineInHunk pins the "\ No newline at end of file"

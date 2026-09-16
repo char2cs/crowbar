@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
 func TestMaterializeAttachmentsForDispatch_RewritesAReferencedFile(t *testing.T) {

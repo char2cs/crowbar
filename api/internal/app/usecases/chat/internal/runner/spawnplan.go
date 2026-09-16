@@ -6,8 +6,8 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/core/config"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -29,9 +29,16 @@ type spawnPaths struct {
 
 func (rs *Runners) spawnPaths(
 	ctx context.Context,
-	workspaceID, runnerID, providerID string,
+	chatID string,
+	workspaceID string,
+	runnerID string,
+	providerID string,
 ) (spawnPaths, error) {
-	crowbarHome, projectID, repoID, worktree, err := rs.ws.WorktreeDir(ctx, workspaceID)
+	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chatID, workspaceID)
+	if err != nil {
+		return spawnPaths{}, err
+	}
+	crowbarHome, projectID, repoID, worktree, err := rs.ws.WorktreeDir(ctx, cwdWorkspaceID)
 	if err != nil {
 		return spawnPaths{}, fmt.Errorf("agent: spawn runner: worktree dir: %w", err)
 	}
@@ -40,7 +47,7 @@ func (rs *Runners) spawnPaths(
 	// (adopted checkout) workspace the worktree is the user's REAL dir outside home,
 	// so chat state (this tmp dir, the ledger) reroots under crowbar home while the
 	// CLI still runs with Cwd = worktree.
-	chatsDir, err := rs.ws.AgentChatsDir(ctx, workspaceID)
+	chatsDir, err := rs.ws.AgentChatsDir(ctx, cwdWorkspaceID)
 	if err != nil {
 		return spawnPaths{}, fmt.Errorf("agent: spawn runner: chats dir: %w", err)
 	}
@@ -71,6 +78,34 @@ func (rs *Runners) spawnPaths(
 		tmpDir:      tmpDir,
 		chatsDir:    chatsDir,
 	}, nil
+}
+
+// cwdWorkspaceID answers the workspace a cwd-dependent op resolves
+// WorktreeDir/AgentChatsDir against: workspaceID itself for an ordinary
+// workspace-owning chat, or its nearest workspace-owning ancestor's for a
+// bubble (chat.WorkspaceID == "") — ancestorCwd's own answer to where a row's
+// CLI runs (model spec: a bubble under a worktree-owning row runs in that
+// row's worktree).
+//
+// Shared by every caller that needs a real workspace to run a bubble's CLI
+// against, not only spawnPaths: promptTarget, Compact and SlashCatalog all
+// resolve a LIVE runner's own worktree the same way.
+func (rs *Runners) cwdWorkspaceID(
+	ctx context.Context,
+	chatID string,
+	workspaceID string,
+) (string, error) {
+	if workspaceID != "" {
+		return workspaceID, nil
+	}
+	ancestor, ok, err := rs.ancestorCwd.ResolveCwdWorkspaceID(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: resolve cwd workspace: %w", err)
+	}
+	if !ok {
+		return "", fmt.Errorf("agent: resolve cwd workspace: chat %s has no workspace-owning ancestor to run in", chatID)
+	}
+	return ancestor, nil
 }
 
 func (rs *Runners) renderSpawnContext(

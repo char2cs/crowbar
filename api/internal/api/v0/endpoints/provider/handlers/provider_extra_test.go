@@ -37,23 +37,11 @@ func (c configurableEngine) ProtectedBranches(
 	return c.branches, c.branchErr
 }
 
-// configurableReader lets each test dial in the workspace Get/List behavior
+// configurableReader lets each test dial in the workspace List behavior
 // needed to exercise worktreeForRepo's success and not-found branches.
 type configurableReader struct {
-	ws      domain.Workspace
-	getErr  error
 	all     []domain.Workspace
 	listErr error
-}
-
-func (c configurableReader) Get(
-	_ context.Context,
-	id string,
-) (domain.Workspace, error) {
-	if c.getErr != nil {
-		return domain.Workspace{}, c.getErr
-	}
-	return c.ws, nil
 }
 
 func (c configurableReader) List(
@@ -65,15 +53,17 @@ func (c configurableReader) List(
 	return c.all, nil
 }
 
-// TestState_WorkspaceNotFound pins that an unknown workspace id 404s before
-// any poll is attempted.
-func TestState_WorkspaceNotFound(
+// TestState_NoResolvedWorkspace_500 is the wiring-bug guard: a route mounted
+// outside chatScoped's resolveChatWorktree middleware finds no workspace on
+// reqscope and reports a 500 rather than 404ing on a URL param that no
+// chat-scoped route carries any more (Handlers.workspace).
+func TestState_NoResolvedWorkspace_500(
 	t *testing.T,
 ) {
-	r := newRouter(configurableEngine{}, configurableReader{getErr: errors.New("no such workspace")})
+	r := newRouterNoWorkspace(configurableEngine{}, configurableReader{})
 
-	rec := do(r, "/v0/workspaces/missing/provider")
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	rec := do(r, "/v0/chats/chat1/provider")
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 // TestState_PollError pins that a poll failure surfaces as a 500.
@@ -81,10 +71,9 @@ func TestState_PollError(
 	t *testing.T,
 ) {
 	eng := configurableEngine{pollErr: errors.New("auth failed")}
-	reader := configurableReader{ws: domain.Workspace{ID: "ws1", WorktreePath: "/repo", Branch: "main"}}
-	r := newRouter(eng, reader)
+	r := newRouter(eng, configurableReader{})
 
-	rec := do(r, "/v0/workspaces/ws1/provider")
+	rec := do(r, "/v0/chats/chat1/provider")
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
@@ -94,10 +83,9 @@ func TestState_Success(
 	t *testing.T,
 ) {
 	eng := configurableEngine{pollState: engineprovider.ProviderState{Protected: true}}
-	reader := configurableReader{ws: domain.Workspace{ID: "ws1", WorktreePath: "/repo", Branch: "main"}}
-	r := newRouter(eng, reader)
+	r := newRouter(eng, configurableReader{})
 
-	rec := do(r, "/v0/workspaces/ws1/provider")
+	rec := do(r, "/v0/chats/chat1/provider")
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 

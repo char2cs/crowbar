@@ -4,6 +4,7 @@ import { renderHook } from '@testing-library/react'
 // Hoisted fakes — must be declared before any vi.mock calls.
 const {
   subscribe,
+  chatBaseFn,
   listChatsFn,
   getChatFn,
   listProvidersFn,
@@ -24,12 +25,14 @@ const {
   setAgentChatStreamingPlan,
   setAgentProviders,
   hydrateAgentChatOrder,
-  closeBuffer,
-  repointAgentChatBuffer,
+  setPaneChat,
+  setActivePane,
+  forgetChat,
   toastInfo,
   toastError,
 } = vi.hoisted(() => ({
   subscribe: vi.fn(() => () => {}),
+  chatBaseFn: vi.fn(),
   listChatsFn: vi.fn(),
   getChatFn: vi.fn(),
   listProvidersFn: vi.fn(),
@@ -50,24 +53,31 @@ const {
   setAgentChatStreamingPlan: vi.fn(),
   setAgentProviders: vi.fn(),
   hydrateAgentChatOrder: vi.fn(),
-  closeBuffer: vi.fn(),
-  repointAgentChatBuffer: vi.fn(),
+  setPaneChat: vi.fn(),
+  setActivePane: vi.fn(),
+  forgetChat: vi.fn(),
   toastInfo: vi.fn(),
   toastError: vi.fn(),
 }))
 
-// Mutable fixtures the mocked store's getState() reads from — tests set them
-// directly to control the "close the deleted chat's pane tab" branch, the reseed's
+// Mutable fixtures the mocked stores' getState() reads from — tests set them
+// directly to control the "clear the deleted chat's pane" branch, the reseed's
 // reconcile (which diffs the store's current chats against the GET), and the runner
-// frames, which are resolved against the OPEN TABS (buffers) and the chat list.
-type Buf = { id: string; type: string; chatId?: string; runnerId?: string }
+// frames, which are resolved against the PANES and the chat list.
+//
+// A chat is no longer a BUFFER in a pane's tab strip: Task 1 removed 'agentChat'
+// from PaneContent and made chatId/runnerId first-class `PaneGroup` fields, and
+// Task 26 hoisted panes to one window-level store. So the old buffers+panes pair
+// collapses into a single pane map, and the writes the hook makes are
+// `paneActions.setPaneChat`/`.forgetChat`/`.setActivePane` rather than
+// `bufferActions.repointAgentChatBuffer`/`.closeBuffer`.
+type FakePane = { id: string; chatId: string | null; runnerId: string | null }
 type Chat = {
   id: string
   liveRunnerId?: string
   terminalSessionId?: string
   activeProviderId?: string
 }
-let buffers: Buf[] = []
 let storeChats: Chat[] = []
 let storeProviders: Array<{ id: string; displayName: string; icon: string }> = []
 // Mutated by the setAgentChatCompacting mock below, the same way storeChats is
@@ -75,25 +85,29 @@ let storeProviders: Array<{ id: string; displayName: string; icon: string }> = [
 // READS this back (any other frame arriving while a chat is marked compacting
 // clears it), so a write-only spy would not exercise that path at all.
 let storeCompacting: Record<string, boolean> = {}
-// The pane holding those buffers. Closing a chat tab must go through the pane
-// (removeBufferFromPane) before the buffer is dropped, or the pane is left with a
-// dangling activeBufferId and renders its EMPTY state — a live bug: deleting the
-// chat you were looking at blanked the pane even though another tab was open.
-let panes: Record<string, { id: string; bufferIds: string[] }> = {}
+let panes: Record<string, FakePane> = {}
 
-const removeBufferFromPane = vi.fn()
-const activatePaneBuffer = vi.fn()
+const openPane = (id: string, chatId: string, runnerId: string): FakePane => ({
+  id,
+  chatId,
+  runnerId: runnerId || null,
+})
+const setPanes = (...list: FakePane[]) => {
+  panes = Object.fromEntries(list.map((pane) => [pane.id, pane]))
+}
 
 vi.mock('@/lib/ws/manager', () => ({
   wsManager: { subscribe, send: vi.fn() },
 }))
 
-vi.mock('@/lib/workspace-scope-url', () => ({
-  workspaceBase: (id: string) => `/v0/ws/${id}`,
-}))
-
+// chatBase is the real repo-scoped/home URL builder (agent-api.ts, Task 17 /
+// Task 23) — the hook must go through it, not re-derive the shape itself
+// (that drift is exactly what shipped a WS 404 for every non-home
+// workspace). Faked here rather than left real so the rest of this file's
+// ~90 tests stay agnostic of the URL shape; 'chats-scope-url-shape' below
+// asserts the hook composes `${chatBase(wsId)}/ws` and nothing else.
 vi.mock('@/features/agent/api/agent-api', () => ({
-  getPendingPrompt: vi.fn().mockResolvedValue(null),
+  chatBase: (...a: unknown[]) => chatBaseFn(...a),
   listChats: (...a: unknown[]) => listChatsFn(...a),
   getChat: (...a: unknown[]) => getChatFn(...a),
   listProviders: (...a: unknown[]) => listProvidersFn(...a),
@@ -127,19 +141,42 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
       setAgentChatStreamingPlan,
       setAgentProviders,
       hydrateAgentChatOrder,
-      buffers,
-      panes,
-      bufferActions: { closeBuffer, repointAgentChatBuffer },
-      paneActions: { removeBufferFromPane, activatePaneBuffer },
     }),
   }),
 }))
 
-import { useWorkspaceAgentChatsStream } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
+// The window-level pane store (Task 26) — one for the whole window, holding
+// every `PaneGroup` and the dormant Recents arrangements.
+vi.mock('@/features/panes/stores/window-pane-store', () => ({
+  windowPaneStore: {
+    getState: () => ({
+      panes,
+      paneActions: { setPaneChat, setActivePane, forgetChat },
+    }),
+  },
+}))
+
+import {
+  useWorkspaceAgentChatsStream,
+  _resetProviderToastForTests,
+} from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
 import {
   beginProviderWrite,
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
+// Unmocked, on purpose: the ordering registry is the SEAM the hook shares with
+// agent-chat-pane, and a fake here would test the fake rather than the contract that
+// keeps one caller's stale answer off another caller's fresh one.
+//
+// It is MODULE state with no reset hook, and every case below reuses ('w1', 'c1'). That
+// is safe, and safe for a reason worth knowing before adding a case: the issue clock is
+// monotonic for the life of the process, so a ticket claimed in this case is always
+// greater than every ticket an earlier case applied, and a fresh read can never be
+// mistaken for a stale one. Do NOT add a reset that rewinds the clock — it would make
+// exactly the ordering these tests pin unrepresentable.
+import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
+import { setWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
+import { useFolderSignalStore } from '@/lib/store/folder-signal'
 
 type Frame = {
   chatId?: string
@@ -188,13 +225,19 @@ function captureCb(callIndex = 0): (frame: Frame) => void {
   return call[1]
 }
 
+// Mirrors agent-api.ts's own chatBase branching (proven correct in its own
+// unit tests) so this file's URL-composition test exercises the real two
+// shapes without re-deriving them: 'ws-home' is a project-home workspace
+// (repoId ''), everything else carries a real repo.
+const fakeChatBase = (id: string) =>
+  id === 'ws-home' ? '/v0/projects/p1/home/chats' : '/v0/projects/p1/repos/r1/chats'
+
 beforeEach(() => {
   vi.clearAllMocks()
+  _resetProviderToastForTests()
   subscribe.mockReturnValue(() => {})
-  buffers = []
+  chatBaseFn.mockImplementation(fakeChatBase)
   panes = {}
-  removeBufferFromPane.mockClear()
-  activatePaneBuffer.mockClear()
   storeChats = []
   storeProviders = []
   storeCompacting = {}
@@ -216,16 +259,22 @@ beforeEach(() => {
   setAgentProviders.mockImplementation((p: typeof storeProviders) => {
     storeProviders = p
   })
-  repointAgentChatBuffer.mockImplementation(
-    (id: string, to: { chatId: string; runnerId: string }) => {
-      const b = buffers.find((x) => x.id === id)
-      if (!b) return
-      b.chatId = to.chatId
-      b.runnerId = to.runnerId
+  // The real slice mutates the pane in place; model that, so a second frame
+  // (the idempotence cases) sees the state the first one left behind.
+  setPaneChat.mockImplementation(
+    (paneId: string, chatId: string | null, runnerId: string | null) => {
+      const pane = panes[paneId]
+      if (!pane) return
+      pane.chatId = chatId
+      pane.runnerId = runnerId
     },
   )
-  closeBuffer.mockImplementation((id: string) => {
-    buffers = buffers.filter((b) => b.id !== id)
+  forgetChat.mockImplementation((chatId: string) => {
+    for (const pane of Object.values(panes)) {
+      if (pane.chatId !== chatId) continue
+      pane.chatId = null
+      pane.runnerId = null
+    }
   })
   listChatsFn.mockResolvedValue([chat('c1')])
   getChatFn.mockImplementation((_wsId: string, id: string) =>
@@ -233,12 +282,94 @@ beforeEach(() => {
   )
   listProvidersFn.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
   listChatFoldersFn.mockResolvedValue([FOLDER])
+  // Mirrors fakeChatBase's own repo mapping so bumpFolderSignal's real
+  // getWorkspaceScope('w1') lookup (unmocked — it's a dependency-free registry)
+  // resolves the same repo the WS URL is scoped to.
+  __resetWorkspaceScopesForTest()
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1' })
+  useFolderSignalStore.setState({ generations: {} })
 })
 
 describe('useWorkspaceAgentChatsStream', () => {
-  it('subscribes to the workspace-scoped /chats/ws endpoint', () => {
+  it('subscribes to chatBase(wsId)/ws — the same repo-scoped base agent-api.ts REST calls use', () => {
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
-    expect(subscribe).toHaveBeenCalledWith('/v0/ws/w1/chats/ws', expect.any(Function))
+    expect(chatBaseFn).toHaveBeenCalledWith('w1')
+    expect(subscribe).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/chats/ws',
+      expect.any(Function),
+    )
+  })
+
+  // The gap this closes: the hook used to build `${workspaceBase(wsId)}/chats/ws`
+  // itself, independently of agent-api.ts's chatBase — so Task 17's rescope left
+  // this one WS subscription still dialing the removed `/workspaces/:wsId/chats/ws`
+  // route for every non-home workspace even after agent-api.ts's own REST calls
+  // were fixed. Going through chatBase means this can never drift from the REST
+  // routes again; chatBase's own branching is unit-tested in agent-api.test.ts.
+  it('builds the repo-scoped WS URL for a non-home workspace, and the unchanged home shape for a home one', () => {
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    expect(subscribe).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/chats/ws',
+      expect.any(Function),
+    )
+    expect((subscribe.mock.calls[0] as unknown as [string])[0]).not.toContain('/workspaces/')
+
+    // Its own scope, not 'w1''s: the hook now waits on `useWorkspaceScopeReady`
+    // (workspace-scope.ts), which is keyed per wsId.
+    setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'ws-home' })
+    renderHook(() => useWorkspaceAgentChatsStream('ws-home'))
+    expect(subscribe).toHaveBeenLastCalledWith(
+      '/v0/projects/p1/home/chats/ws',
+      expect.any(Function),
+    )
+  })
+
+  // Live-reported: WorkspaceHost force-mounts a workspace's effects the
+  // instant pane/Recents state names it — regardless of `active`, and
+  // regardless of whether the sidebar's own repo fetch has recorded that
+  // workspace's scope yet (a genuine race, most reproducible right after a
+  // cold boot). This hook used to call `chatBase(wsId)` — agent-api.ts's
+  // `repoChatsBaseForWorkspace`, which falls through to `workspaceBase` and
+  // throws for an entirely unrecorded scope — completely unguarded, tripping
+  // the ErrorBoundary with "no project/repo scope recorded for workspace …"
+  // for whichever background workspace lost that race. `chatBaseFn` stays
+  // mocked (this file's own convention — see its own doc), so these assert
+  // the hook's OWN gating rather than the real URL shape: with no scope
+  // recorded, `subscribe`/`listChatsFn`/`listProvidersFn` must never fire.
+  describe('scope readiness', () => {
+    it('does not subscribe or fetch when the workspace scope is not yet recorded', async () => {
+      __resetWorkspaceScopesForTest()
+
+      expect(() => renderHook(() => useWorkspaceAgentChatsStream('ws-unrecorded'))).not.toThrow()
+      await flush()
+
+      expect(subscribe).not.toHaveBeenCalled()
+      expect(listChatsFn).not.toHaveBeenCalled()
+      expect(listProvidersFn).not.toHaveBeenCalled()
+
+      // Restore for later tests in this file.
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1' })
+    })
+
+    it('subscribes and seeds once the scope arrives after mounting with none recorded', async () => {
+      __resetWorkspaceScopesForTest()
+
+      renderHook(() => useWorkspaceAgentChatsStream('ws-late'))
+      await flush()
+      expect(subscribe).not.toHaveBeenCalled()
+
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-late' })
+      await flush()
+
+      expect(listChatsFn).toHaveBeenCalledWith('ws-late')
+      expect(subscribe).toHaveBeenCalledWith(
+        '/v0/projects/p1/repos/r1/chats/ws',
+        expect.any(Function),
+      )
+
+      // Restore for later tests in this file.
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w1' })
+    })
   })
 
   it('seeds chats + providers on mount and populates the slice', async () => {
@@ -291,6 +422,49 @@ describe('useWorkspaceAgentChatsStream', () => {
 
       expect(setAgentProviders).not.toHaveBeenCalled()
       expect(toastError).toHaveBeenCalled()
+    })
+
+    // The hook runs for every MOUNTED workspace now (WorkspaceView, up to
+    // RETENTION_CAP = 6), and the daemon being unreachable fails all of them
+    // at once — for the same machine-level list, with the same sentence. Its
+    // only previous mount point was a single sidebar panel, so the plain toast
+    // was correct then and would stack six identical copies now.
+    it('says it ONCE per outage, not once per mounted workspace', async () => {
+      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      renderHook(() => useWorkspaceAgentChatsStream('w2'))
+      renderHook(() => useWorkspaceAgentChatsStream('w3'))
+      await flush()
+
+      expect(toastError).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-arms the announcement once the daemon answers again', async () => {
+      // w2/w3 stand in for "some other workspace mount" here — the toast dedup
+      // this test exercises is module-level, not scope-specific — so each just
+      // needs ITS OWN recorded scope for `useWorkspaceScopeReady` to let the
+      // effect run at all.
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w2' })
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w3' })
+
+      listProvidersFn.mockRejectedValue(new Error('daemon is down'))
+      const first = renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      expect(toastError).toHaveBeenCalledTimes(1)
+      first.unmount()
+
+      // Recovered...
+      listProvidersFn.mockResolvedValue(providers)
+      renderHook(() => useWorkspaceAgentChatsStream('w2'))
+      await flush()
+
+      // ...and down again: the user is told about the SECOND outage too.
+      listProvidersFn.mockRejectedValue(new Error('daemon is down again'))
+      renderHook(() => useWorkspaceAgentChatsStream('w3'))
+      await flush()
+
+      expect(toastError).toHaveBeenCalledTimes(2)
     })
 
     it('re-seeds providers when the socket reconnects', async () => {
@@ -708,7 +882,13 @@ describe('useWorkspaceAgentChatsStream', () => {
       await flush()
 
       expect(getChatFn).toHaveBeenCalledWith('w1', 'c1')
-      expect(upsertAgentChat).toHaveBeenCalledWith({ ...chat('c1'), conversations: [] })
+      // The read's own chat-read-order ticket rides along: `upsertAgentChat`'s cross-chat
+      // runner eviction needs it to tell a current claim from a superseded one, and a
+      // refetch that dropped it would silently get the unconditional old behaviour.
+      expect(upsertAgentChat).toHaveBeenCalledWith(
+        { ...chat('c1'), conversations: [] },
+        expect.any(Number),
+      )
     },
   )
 
@@ -748,9 +928,8 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(upsertAgentChat).not.toHaveBeenCalled()
   })
 
-  it('deleted removes the chat and closes its open pane tab THROUGH the pane', async () => {
-    buffers = [{ id: 'buf1', type: 'agentChat', chatId: 'c1' }]
-    panes = { p1: { id: 'p1', bufferIds: ['buf1', 'buf-other'] } }
+  it('deleted removes the chat AND clears the pane holding it (spec §9)', async () => {
+    setPanes(openPane('p1', 'c1', 'c1-r'), openPane('p2', 'other', 'other-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     const onFrame = captureCb()
@@ -758,16 +937,17 @@ describe('useWorkspaceAgentChatsStream', () => {
     onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'deleted' })
 
     expect(removeAgentChat).toHaveBeenCalledWith('c1')
-    // Removing it from the pane is what activates the adjacent tab. Dropping the
-    // buffer alone leaves the pane's activeBufferId dangling and blanks it.
-    expect(removeBufferFromPane).toHaveBeenCalledWith('p1', 'buf1')
-    expect(closeBuffer).toHaveBeenCalledWith('buf1')
-    expect(removeBufferFromPane.mock.invocationCallOrder[0]).toBeLessThan(
-      closeBuffer.mock.invocationCallOrder[0],
-    )
+    // Spec §9: deletion is the only act that removes a THING, so it is the only
+    // one that can leave a name behind — `forgetChat` clears the layout of any
+    // pane holding it and plucks it from every remembered Recents arrangement.
+    expect(forgetChat).toHaveBeenCalledWith('c1')
+    expect(panes.p1.chatId).toBeNull()
+    expect(panes.p1.runnerId).toBeNull()
+    expect(panes.p2.chatId).toBe('other')
   })
 
-  it('deleted with no open pane tab does not call closeBuffer', async () => {
+  it('deleted with no pane holding the chat leaves every other pane alone', async () => {
+    setPanes(openPane('p1', 'other', 'other-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     const onFrame = captureCb()
@@ -775,7 +955,7 @@ describe('useWorkspaceAgentChatsStream', () => {
     onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'deleted' })
 
     expect(removeAgentChat).toHaveBeenCalledWith('c1')
-    expect(closeBuffer).not.toHaveBeenCalled()
+    expect(panes.p1.chatId).toBe('other')
   })
 
   it('ignores a chat frame missing chatId', async () => {
@@ -807,24 +987,16 @@ describe('useWorkspaceAgentChatsStream', () => {
   // told apart by ONE thing — runnerId is present (`omitempty`; chat frames never
   // set it). Kind alone is ambiguous: `session_bound` exists in both vocabularies.
 
-  const openTab = (id: string, chatId: string, runnerId: string): Buf => ({
-    id,
-    type: 'agentChat',
-    chatId,
-    runnerId,
-  })
-
-  it('moved re-points the tab following that runner at the chat it ENTERED', async () => {
+  it('moved re-points the PANE following that runner at the chat it ENTERED', async () => {
     listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
-    panes = { p1: { id: 'p1', bufferIds: ['buf1'] } }
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
 
     captureCb()({ runnerId: 'c1-r', chatId: 'c2', workspaceId: 'w1', kind: 'moved' })
     await flush()
 
-    expect(repointAgentChatBuffer).toHaveBeenCalledWith('buf1', { chatId: 'c2', runnerId: 'c1-r' })
+    expect(setPaneChat).toHaveBeenCalledWith('p1', 'c2', 'c1-r')
   })
 
   // THE /resume-INTO-AN-UNSEEN-CONVERSATION BUG.
@@ -848,7 +1020,7 @@ describe('useWorkspaceAgentChatsStream', () => {
   // A snapshot read BEFORE a single-chat read must never be applied AFTER it.
   it('a STALE list seed must not clobber the chat the runner just moved into', async () => {
     listChatsFn.mockResolvedValueOnce([chat('old')]) // the mount seed: old holds runner old-r
-    buffers = [openTab('buf1', 'old', 'old-r')]
+    setPanes(openPane('p1', 'old', 'old-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
 
@@ -882,10 +1054,7 @@ describe('useWorkspaceAgentChatsStream', () => {
     await flush()
 
     // The fresh reads have landed and the tab has followed the runner into `new`.
-    expect(repointAgentChatBuffer).toHaveBeenCalledWith('buf1', {
-      chatId: 'new',
-      runnerId: 'old-r',
-    })
+    expect(setPaneChat).toHaveBeenCalledWith('p1', 'new', 'old-r')
     expect(storeChats.find((c) => c.id === 'new')?.liveRunnerId).toBe('old-r')
 
     landStaleList([
@@ -900,9 +1069,144 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(storeChats.find((c) => c.id === 'new')?.terminalSessionId).toBe('old-pty')
   })
 
+  // THE SAME RACE, ONE LEVEL DOWN: TWO SINGLE-CHAT READS OF ONE CHAT.
+  //
+  // The guard above sequences a LIST seed against per-chat reads. Nothing sequenced
+  // per-chat reads against EACH OTHER — and a spawn issues two of them, back to back,
+  // for the same chat: the runner store publishes `started` and then `session_bound`
+  // (api/internal/engine/agents/runner/internal/store: "started, session_bound, moved,
+  // exited"), and this hook refetches on both.
+  //
+  // `started`'s read goes out FIRST and can be served in the window before the runner
+  // placement is projected — the identical window the list seed's comment describes —
+  // so its payload says the chat is DORMANT. `session_bound`'s read is issued second,
+  // reads the truth, and lands first. When the first one finally arrives,
+  // `upsertAgentChat` applies it wholesale and blanks `liveRunnerId`/`terminalSessionId`
+  // on a chat with a live CLI sitting on it.
+  //
+  // Nothing refetches afterwards, so it LATCHES: the pane has already spent its one
+  // revive, so it renders "This agent has exited. Resume it…" over a CLI that is alive
+  // (typically parked at a first-run trust prompt, which is why the window is wide),
+  // and only a page reload repairs it. A read ISSUED earlier must never be APPLIED
+  // after one issued later.
+  it('a STALE single-chat read must not clobber a fresher read of the SAME chat', async () => {
+    const dormant = { ...chat('c1'), liveRunnerId: '', terminalSessionId: '' }
+    listChatsFn.mockResolvedValue([dormant])
+    setPanes(openPane('p1', 'c1', ''))
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('')
+
+    // `started`'s read: issued FIRST, answered from before the placement, held.
+    let landStale: (chat: unknown) => void = () => {}
+    getChatFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landStale = resolve as (chat: unknown) => void
+      }),
+    )
+    // `session_bound`'s read: issued SECOND, fresh, resolves first.
+    getChatFn.mockResolvedValue(chat('c1'))
+
+    const onFrame = captureCb()
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'started', runnerId: 'c1-r' })
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'session_bound', runnerId: 'c1-r' })
+    await flush()
+
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+
+    landStale(dormant)
+    await flush()
+
+    // Lose these and the pane offers to Resume an agent that never left.
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+    expect(storeChats.find((c) => c.id === 'c1')?.terminalSessionId).toBe('c1-pty')
+  })
+
+  // The other direction of the same ordering rule: a single-chat read issued BEFORE a
+  // list seed's request, and landing after it. chatWrites only ever asked "did a
+  // per-chat read land while I was in flight" — it never asked the reverse, so the
+  // stale read walked straight over the reconcile that had just repaired the list.
+  it('a STALE single-chat read must not clobber a fresher LIST seed', async () => {
+    const dormant = { ...chat('c1'), liveRunnerId: '', terminalSessionId: '' }
+    listChatsFn.mockResolvedValue([dormant])
+    setPanes(openPane('p1', 'c1', ''))
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    // The per-chat read goes out first and is held.
+    let landStale: (chat: unknown) => void = () => {}
+    getChatFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landStale = resolve as (chat: unknown) => void
+      }),
+    )
+    const onFrame = captureCb()
+    onFrame({ chatId: 'c1', workspaceId: 'w1', kind: 'started', runnerId: 'c1-r' })
+    await flush()
+
+    // …then a reconnect reseed is issued, and lands, carrying the truth.
+    listChatsFn.mockResolvedValue([chat('c1')])
+    onFrame({ reconnected: true })
+    await flush()
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+
+    landStale(dormant)
+    await flush()
+
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+  })
+
+  // THE LIVE REPORT, EXACTLY — and the reason the ordering lives in a MODULE.
+  //
+  // The two racing reads belong to DIFFERENT callers. Opening a dormant chat makes the
+  // pane resume it; the daemon places the runner and publishes `started`, which THIS hook
+  // refetches on — usually issuing FIRST, because the socket push beats the POST response.
+  // The resume's own answer then comes back and agent-chat-pane's `adopt()` reads the chat
+  // for itself: issued later, answered truthfully, and it attaches the live PTY.
+  //
+  // Then the hook's earlier read lands, carrying the snapshot from before the placement.
+  // A guard private to this hook cannot see the pane's write, so it applied it — blanking
+  // liveRunnerId under an attached, living CLI. The pane's one revive is already spent, so
+  // the effect settles on `idle: 'exited'` and renders "This agent has exited. Resume it…"
+  // with a Resume button, for a chat the daemon still reports with a real liveRunnerId
+  // (typically parked at a first-run trust prompt, which sends no further frame to repair
+  // it). Only a reload cleared it.
+  //
+  // The pane is stood in for by the two registry calls it actually makes; its own half is
+  // exercised in agent-chat-pane.test.tsx.
+  it('a STALE refetch must not clobber a row another caller read more recently', async () => {
+    const dormant = { ...chat('c1'), liveRunnerId: '', terminalSessionId: '' }
+    listChatsFn.mockResolvedValue([dormant])
+    setPanes(openPane('p1', 'c1', ''))
+    renderHook(() => useWorkspaceAgentChatsStream('w1'))
+    await flush()
+
+    // `started` arrives first, so this hook asks first — and is answered from before the
+    // placement the frame announced. Held in flight.
+    let landStale: (chat: unknown) => void = () => {}
+    getChatFn.mockReturnValueOnce(
+      new Promise((resolve) => {
+        landStale = resolve as (chat: unknown) => void
+      }),
+    )
+    captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'started', runnerId: 'c1-r' })
+    await flush()
+
+    // …then the pane's own post-resume read lands: issued later, and true.
+    const paneTicket = claimChatRead()
+    expect(acceptChatRead('w1', 'c1', paneTicket)).toBe(true)
+    upsertAgentChat(chat('c1'))
+
+    landStale(dormant)
+    await flush()
+
+    expect(storeChats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('c1-r')
+    expect(storeChats.find((c) => c.id === 'c1')?.terminalSessionId).toBe('c1-pty')
+  })
+
   it('moved ALSO invalidates the chat the runner LEFT — the frame names only the one it entered', async () => {
     listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     getChatFn.mockClear()
@@ -920,7 +1224,7 @@ describe('useWorkspaceAgentChatsStream', () => {
 
   it('moved does not refetch the vacated chat twice when the runner re-enters the chat it is already on', async () => {
     listChatsFn.mockResolvedValue([chat('c1')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     getChatFn.mockClear()
@@ -931,24 +1235,23 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(getChatFn).toHaveBeenCalledTimes(1)
   })
 
-  it('moved onto a chat that already has a tab CLOSES the evicted tab and focuses the taker', async () => {
+  it('moved onto a chat another pane already holds EMPTIES that pane and focuses the taker', async () => {
     listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
-    buffers = [openTab('taker', 'c1', 'c1-r'), openTab('evicted', 'c2', 'c2-r')]
-    panes = { p1: { id: 'p1', bufferIds: ['taker', 'evicted'] } }
+    setPanes(openPane('taker', 'c1', 'c1-r'), openPane('evicted', 'c2', 'c2-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
 
     captureCb()({ runnerId: 'c1-r', chatId: 'c2', workspaceId: 'w1', kind: 'moved' })
     await flush()
 
-    // One tab per live conversation: the tab whose runner was pushed off c2 goes,
-    // through the pane (so the pane never holds a dangling activeBufferId).
-    expect(removeBufferFromPane).toHaveBeenCalledWith('p1', 'evicted')
-    expect(closeBuffer).toHaveBeenCalledWith('evicted')
-    expect(closeBuffer).not.toHaveBeenCalledWith('taker')
-    // ...and the tab that took the conversation over is the one you are left looking at.
-    expect(repointAgentChatBuffer).toHaveBeenCalledWith('taker', { chatId: 'c2', runnerId: 'c1-r' })
-    expect(activatePaneBuffer).toHaveBeenCalledWith('p1', 'taker')
+    // Law 4, one pane per live conversation: the pane whose CLI was pushed off c2
+    // lets it go. EMPTIED, not closed — Law 6 says only closing removes a pane, and
+    // §5.4 names a chatless pane a real state (the New Tab stage).
+    expect(setPaneChat).toHaveBeenCalledWith('evicted', null, null)
+    expect(panes.evicted.chatId).toBeNull()
+    // ...and the pane that took the conversation over is the one you are left looking at.
+    expect(setPaneChat).toHaveBeenCalledWith('taker', 'c2', 'c1-r')
+    expect(setActivePane).toHaveBeenCalledWith('taker')
   })
 
   it('the eviction toast names the provider that was closed', async () => {
@@ -957,8 +1260,7 @@ describe('useWorkspaceAgentChatsStream', () => {
       { id: 'claude', displayName: 'Claude', icon: '<svg/>' },
       { id: 'codex', displayName: 'Codex', icon: '<svg/>' },
     ])
-    buffers = [openTab('taker', 'c1', 'c1-r'), openTab('evicted', 'c2', 'c2-r')]
-    panes = { p1: { id: 'p1', bufferIds: ['taker', 'evicted'] } }
+    setPanes(openPane('taker', 'c1', 'c1-r'), openPane('evicted', 'c2', 'c2-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
 
@@ -967,25 +1269,25 @@ describe('useWorkspaceAgentChatsStream', () => {
 
     expect(toastInfo).toHaveBeenCalledWith(
       'Conversation moved',
-      'Codex was closed — that conversation is now in this terminal.',
+      'Codex was closed — that conversation is now in this pane.',
     )
   })
 
-  it('a move with nothing to evict closes no tab and shows no toast', async () => {
+  it('a move with nothing to evict empties no pane and shows no toast', async () => {
     listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
-    panes = { p1: { id: 'p1', bufferIds: ['buf1'] } }
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
 
     captureCb()({ runnerId: 'c1-r', chatId: 'c2', workspaceId: 'w1', kind: 'moved' })
     await flush()
 
-    expect(closeBuffer).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalledWith('p1', null, null)
+    expect(setActivePane).not.toHaveBeenCalled()
     expect(toastInfo).not.toHaveBeenCalled()
   })
 
-  it('moved with no tab following that runner still invalidates both chats', async () => {
+  it('moved with no pane following that runner still invalidates both chats', async () => {
     listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
@@ -996,7 +1298,7 @@ describe('useWorkspaceAgentChatsStream', () => {
 
     expect(getChatFn).toHaveBeenCalledWith('w1', 'c2')
     expect(getChatFn).toHaveBeenCalledWith('w1', 'c1')
-    expect(repointAgentChatBuffer).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalled()
   })
 
   // ── displaced ──────────────────────────────────────────────────────────────
@@ -1004,10 +1306,9 @@ describe('useWorkspaceAgentChatsStream', () => {
   // has taken the CLI off its chat. The process may still be alive, so a client must
   // NOT wait for `exited` — if the kill failed, `exited` never comes.
 
-  it('displaced (empty chatId) makes the tab following that runner LET GO — no exited required', async () => {
+  it('displaced (empty chatId) makes the pane following that runner LET GO — no exited required', async () => {
     listChatsFn.mockResolvedValue([chat('c1')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
-    panes = { p1: { id: 'p1', bufferIds: ['buf1'] } }
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     getChatFn.mockClear()
@@ -1015,8 +1316,8 @@ describe('useWorkspaceAgentChatsStream', () => {
     captureCb()({ runnerId: 'c1-r', chatId: '', workspaceId: 'w1', kind: 'displaced' })
     await flush()
 
-    // The tab stops claiming the runner...
-    expect(repointAgentChatBuffer).toHaveBeenCalledWith('buf1', { chatId: 'c1', runnerId: '' })
+    // The pane KEEPS its chat and stops claiming the runner...
+    expect(setPaneChat).toHaveBeenCalledWith('p1', 'c1', null)
     // ...and the chat it held is re-read NOW (dormant, or whoever took it over) rather
     // than waiting for an `exited` that may never arrive.
     expect(getChatFn).toHaveBeenCalledWith('w1', 'c1')
@@ -1024,19 +1325,19 @@ describe('useWorkspaceAgentChatsStream', () => {
 
   it('displaced is idempotent — a dying CLI can emit it more than once', async () => {
     listChatsFn.mockResolvedValue([chat('c1')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
 
     const onFrame = captureCb()
     onFrame({ runnerId: 'c1-r', chatId: '', workspaceId: 'w1', kind: 'displaced' })
     await flush()
-    repointAgentChatBuffer.mockClear()
+    setPaneChat.mockClear()
 
     onFrame({ runnerId: 'c1-r', chatId: '', workspaceId: 'w1', kind: 'displaced' })
     await flush()
 
-    expect(repointAgentChatBuffer).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalled()
   })
 
   it('a stale displaced refetch must not clobber the replacement runner a later started frame already confirmed', async () => {
@@ -1048,7 +1349,7 @@ describe('useWorkspaceAgentChatsStream', () => {
     // naming this same chat. Each fires its own refetchOne, and resolution order is
     // not issue order.
     listChatsFn.mockResolvedValue([chat('c1')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     getChatFn.mockClear()
@@ -1092,7 +1393,7 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(storeChats.find((c) => c.id === 'c1')?.terminalSessionId).toBe('c1-pty2')
   })
 
-  it('displaced tolerates a runner the client never saw on any chat or tab', async () => {
+  it('displaced tolerates a runner the client never saw on any chat or pane', async () => {
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     getChatFn.mockClear()
@@ -1100,17 +1401,17 @@ describe('useWorkspaceAgentChatsStream', () => {
     captureCb()({ runnerId: 'ghost-r', chatId: '', workspaceId: 'w1', kind: 'displaced' })
     await flush()
 
-    expect(repointAgentChatBuffer).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalled()
     expect(getChatFn).not.toHaveBeenCalled()
   })
 
   // ── the other runner kinds ─────────────────────────────────────────────────
 
   it.each(['started', 'session_bound', 'exited'] as const)(
-    'runner %s refetches the chat it names and touches no tab',
+    'runner %s refetches the chat it names and touches no pane',
     async (kind) => {
       listChatsFn.mockResolvedValue([chat('c1')])
-      buffers = [openTab('buf1', 'c1', 'c1-r')]
+      setPanes(openPane('p1', 'c1', 'c1-r'))
       renderHook(() => useWorkspaceAgentChatsStream('w1'))
       await flush()
       getChatFn.mockClear()
@@ -1119,14 +1420,14 @@ describe('useWorkspaceAgentChatsStream', () => {
       await flush()
 
       expect(getChatFn).toHaveBeenCalledWith('w1', 'c1')
-      expect(repointAgentChatBuffer).not.toHaveBeenCalled()
-      expect(closeBuffer).not.toHaveBeenCalled()
+      expect(setPaneChat).not.toHaveBeenCalled()
+      expect(forgetChat).not.toHaveBeenCalled()
     },
   )
 
   it('an exited that follows a displaced carries no chat and is dropped', async () => {
     listChatsFn.mockResolvedValue([chat('c1')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     getChatFn.mockClear()
@@ -1137,30 +1438,30 @@ describe('useWorkspaceAgentChatsStream', () => {
     await flush()
 
     expect(getChatFn).not.toHaveBeenCalled()
-    expect(repointAgentChatBuffer).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalled()
   })
 
   it('a CHAT frame is never routed as a runner frame (runnerId is the discriminator)', async () => {
     listChatsFn.mockResolvedValue([chat('c1')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     getChatFn.mockClear()
 
     // `session_bound` exists in BOTH vocabularies. This one carries no runnerId, so it
-    // is the chat's — a refetch, and nothing done to any tab.
+    // is the chat's — a refetch, and nothing done to any pane.
     captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'session_bound' })
     await flush()
 
     expect(getChatFn).toHaveBeenCalledWith('w1', 'c1')
-    expect(repointAgentChatBuffer).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalled()
   })
 
   // ── Reconnect reconcile ────────────────────────────────────────────────────
   // The reseed after an outage is the ONLY repair for frames the socket dropped.
   // It must therefore hand the store an authoritative list (seedAgentChats
   // replaces + reseeds working) rather than a merge of upserts, and it must take the
-  // pane tab of a chat deleted during the outage with it — exactly as the `deleted`
+  // pane of a chat deleted during the outage with it — exactly as the `deleted`
   // frame handler would have, had it arrived.
 
   it('reconnect reseed reconciles the list through seedAgentChats (drops the chat deleted during the outage)', async () => {
@@ -1231,9 +1532,9 @@ describe('useWorkspaceAgentChatsStream', () => {
     expect(seedAgentChats).toHaveBeenCalledTimes(1)
   })
 
-  it('reconnect reseed closes the pane tab of a chat deleted during the outage', async () => {
+  it('reconnect reseed clears the pane of a chat deleted during the outage', async () => {
     listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
-    buffers = [{ id: 'buf-c2', type: 'agentChat', chatId: 'c2' }]
+    setPanes(openPane('p-c2', 'c2', ''))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
 
@@ -1241,19 +1542,21 @@ describe('useWorkspaceAgentChatsStream', () => {
     captureCb()({ reconnected: true })
     await flush()
 
-    expect(closeBuffer).toHaveBeenCalledWith('buf-c2')
+    expect(forgetChat).toHaveBeenCalledWith('c2')
+    expect(panes['p-c2'].chatId).toBeNull()
   })
 
-  it('reconnect reseed leaves the pane tabs of surviving chats open', async () => {
+  it('reconnect reseed leaves the panes of surviving chats alone', async () => {
     listChatsFn.mockResolvedValue([chat('c1')])
-    buffers = [{ id: 'buf-c1', type: 'agentChat', chatId: 'c1' }]
+    setPanes(openPane('p-c1', 'c1', ''))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
 
     captureCb()({ reconnected: true })
     await flush()
 
-    expect(closeBuffer).not.toHaveBeenCalled()
+    expect(forgetChat).not.toHaveBeenCalled()
+    expect(panes['p-c1'].chatId).toBe('c1')
   })
 
   it('unsubscribes on unmount', () => {
@@ -1281,7 +1584,7 @@ describe('useWorkspaceAgentChatsStream', () => {
 
   it('ignores a runner frame delivered after teardown', async () => {
     listChatsFn.mockResolvedValue([chat('c1')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
+    setPanes(openPane('p1', 'c1', 'c1-r'))
     const { unmount } = renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     const onFrame = captureCb()
@@ -1290,53 +1593,24 @@ describe('useWorkspaceAgentChatsStream', () => {
     onFrame({ runnerId: 'c1-r', chatId: '', workspaceId: 'w1', kind: 'displaced' })
     await flush()
 
-    expect(repointAgentChatBuffer).not.toHaveBeenCalled()
+    expect(setPaneChat).not.toHaveBeenCalled()
   })
 
-  it('closes a chat tab that no pane is holding', async () => {
-    // A buffer can outlive its pane placement — the tab was closed out of the
-    // pane but the buffer is still in the list. The delete has to drop it
-    // anyway, and must not ask a pane that does not hold it to remove it.
-    listChatsFn.mockResolvedValue([chat('c1')])
-    buffers = [openTab('buf1', 'c1', 'c1-r')]
-    panes = {}
-    renderHook(() => useWorkspaceAgentChatsStream('w1'))
-    await flush()
-
-    captureCb()({ chatId: 'c1', workspaceId: 'w1', kind: 'deleted' })
-    await flush()
-
-    expect(removeAgentChat).toHaveBeenCalledWith('c1')
-    expect(closeBuffer).toHaveBeenCalledWith('buf1')
-    expect(removeBufferFromPane).not.toHaveBeenCalled()
-  })
-
-  it('re-points a taker whose own tab sits in no pane, without activating one', async () => {
-    // The eviction path, with the surviving tab held by nothing: there is no
-    // pane to bring forward, and asking a pane record that does not contain it
-    // would activate some other pane's tab.
-    listChatsFn.mockResolvedValue([chat('c1'), chat('c2')])
-    buffers = [openTab('taker', 'c1', 'r1'), openTab('sitting', 'c2', 'r2')]
-    panes = { p1: { id: 'p1', bufferIds: ['sitting'] } }
-    renderHook(() => useWorkspaceAgentChatsStream('w1'))
-    await flush()
-
-    // r1 walks into c2, which `sitting` is already showing — so `sitting` is
-    // evicted and `taker` follows the runner into it.
-    captureCb()({ runnerId: 'r1', chatId: 'c2', workspaceId: 'w1', kind: 'moved' })
-    await flush()
-
-    expect(repointAgentChatBuffer).toHaveBeenCalledWith('taker', { chatId: 'c2', runnerId: 'r1' })
-    expect(closeBuffer).toHaveBeenCalledWith('sitting')
-    expect(activatePaneBuffer).not.toHaveBeenCalled()
-  })
+  // DELETED (final fix wave), both premise-only-in-the-old-model:
+  //  - 'closes a chat tab that no pane is holding' — a chat's view WAS a buffer
+  //    that could outlive its pane placement. A chat is the pane's own field now
+  //    (Task 1), so "held by no pane" and "not open" are the same state and there
+  //    is nothing left to drop separately.
+  //  - 're-points a taker whose own tab sits in no pane, without activating one' —
+  //    same reason: the taker IS a pane, so it can never sit outside one, and
+  //    `setActivePane(taker.id)` always has a real pane to focus.
 
   it('does not re-read the chat a runner LEFT when it is the one it entered', async () => {
     // /resume back into the same conversation: the frame is a real move, and the
     // chat it names is both halves of it. One read, not two.
     listChatsFn.mockResolvedValue([chat('c1')])
     storeChats = [{ id: 'c1', liveRunnerId: 'r1' }]
-    buffers = [openTab('buf1', 'c1', 'r1')]
+    setPanes(openPane('p1', 'c1', 'r1'))
     renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
     getChatFn.mockClear()
@@ -1369,19 +1643,19 @@ describe('useWorkspaceAgentChatsStream', () => {
         release = resolve
       }),
     )
-    buffers = [openTab('buf1', 'c1', 'r1')]
+    setPanes(openPane('p1', 'c1', 'r1'))
     const { unmount } = renderHook(() => useWorkspaceAgentChatsStream('w1'))
     await flush()
-    repointAgentChatBuffer.mockClear()
+    setPaneChat.mockClear()
 
     captureCb()({ runnerId: 'r1', chatId: 'c2', workspaceId: 'w1', kind: 'moved' })
     unmount()
     release({ ...chat('c2'), conversations: [] })
     await flush()
 
-    // The tab belongs to a workspace nobody is looking at any more; re-pointing it
-    // now would move a tab in a store the user has left.
-    expect(repointAgentChatBuffer).not.toHaveBeenCalled()
+    // The pane follows a workspace nobody is looking at any more; re-pointing it
+    // now would move a pane on behalf of a stream that has been torn down.
+    expect(setPaneChat).not.toHaveBeenCalled()
   })
 
   // ── Folder frames: the tree is a SECOND aggregate on this one socket ────
@@ -1416,6 +1690,34 @@ describe('useWorkspaceAgentChatsStream', () => {
         expect(seedAgentChatFolders).toHaveBeenCalledWith([FOLDER])
       },
     )
+
+    // Task 34: the sidebar's own folders pipeline has no dedicated push
+    // channel any more — it watches useFolderSignalStore's per-repo
+    // generation, bumped here, instead of a WS frame of its own.
+    it.each(['folder_created', 'folder_updated', 'folder_deleted'])(
+      'bumps the repo-scoped folder signal on %s',
+      async (kind) => {
+        renderHook(() => useWorkspaceAgentChatsStream('w1'))
+        await flush()
+        const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+        captureCb()(folderFrame(kind))
+        await flush()
+
+        expect(useFolderSignalStore.getState().generations.r1).toBe(before + 1)
+      },
+    )
+
+    it('bumps the folder signal on the reconnect sentinel too', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+      captureCb()({ reconnected: true })
+      await flush()
+
+      expect(useFolderSignalStore.getState().generations.r1).toBe(before + 1)
+    })
 
     it('leaves the chat list alone — the tree moved, the conversations did not', async () => {
       renderHook(() => useWorkspaceAgentChatsStream('w1'))
@@ -1504,10 +1806,99 @@ describe('useWorkspaceAgentChatsStream', () => {
     })
   })
 
+  // Task D: a chat is a TREE row (design spec §3.1), so the sidebar's per-repo
+  // tree subscription has to hear about a chat that appeared, was renamed, was
+  // moved or is gone — through the same signal a folder frame bumps, because
+  // both halves are one tree over one aggregate.
+  describe('the repo tree signal on chat frames', () => {
+    const chatFrame = (kind: string, over: Partial<Frame> = {}): Frame => ({
+      chatId: 'c1',
+      workspaceId: 'w1',
+      kind,
+      ...over,
+    })
+
+    it.each(['created', 'deleted', 'title_set', 'placement_set', 'order_set'])(
+      'bumps the repo-scoped tree signal on %s',
+      async (kind) => {
+        renderHook(() => useWorkspaceAgentChatsStream('w1'))
+        await flush()
+        const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+        captureCb()(chatFrame(kind))
+        await flush()
+
+        expect(useFolderSignalStore.getState().generations.r1).toBe(before + 1)
+      },
+    )
+
+    // The hottest frames on the feed. Reseeding a whole repo's chat list on each
+    // one is a request storm per agent turn — this is the guard against that.
+    it.each(['turn_started', 'turn_stopped', 'message_delta', 'terminal_wait', 'session_bound'])(
+      'does NOT bump on %s — it says nothing about the tree',
+      async (kind) => {
+        renderHook(() => useWorkspaceAgentChatsStream('w1'))
+        await flush()
+        const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+        captureCb()(chatFrame(kind))
+        await flush()
+
+        expect(useFolderSignalStore.getState().generations.r1 ?? 0).toBe(before)
+      },
+    )
+
+    // A RUNNER frame is about a process, not a row: it is routed before the
+    // chat branch is reached, so it must move no tree generation either.
+    it('does not bump on a runner frame', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+      const before = useFolderSignalStore.getState().generations.r1 ?? 0
+
+      captureCb()(chatFrame('started', { runnerId: 'r-1' }))
+      await flush()
+
+      expect(useFolderSignalStore.getState().generations.r1 ?? 0).toBe(before)
+    })
+
+    // THE CROSS-REPO GUARD. The repo id comes from this workspace's own
+    // recorded scope, never from the frame or from a broad broadcast, so a chat
+    // frame arriving on repo r1's feed can only ever move r1's generation —
+    // which is what keeps repo r2's subscription from refetching.
+    it('moves ONLY this workspace’s own repo generation', async () => {
+      renderHook(() => useWorkspaceAgentChatsStream('w1'))
+      await flush()
+
+      captureCb()(chatFrame('created'))
+      await flush()
+
+      expect(useFolderSignalStore.getState().generations.r1).toBe(1)
+      expect(useFolderSignalStore.getState().generations.r2).toBeUndefined()
+    })
+
+    // A workspace whose scope is genuinely unrecorded never gets this far any
+    // more — `useWorkspaceScopeReady` (workspace-scope.ts) now defers the
+    // whole effect, subscription included, until scope exists (see the
+    // top-level 'does not subscribe...' tests below). The real case left for
+    // `bumpTreeSignal`'s own optional-chaining to guard is a scope that DOES
+    // exist but names no repo — a project-home workspace.
+    it('bumps nothing for a home workspace, whose recorded scope has no repo to name', async () => {
+      setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'ws-home' })
+      renderHook(() => useWorkspaceAgentChatsStream('ws-home'))
+      await flush()
+
+      captureCb()(chatFrame('created'))
+      await flush()
+
+      expect(useFolderSignalStore.getState().generations).toEqual({})
+    })
+  })
+
   it('tears down and re-subscribes when wsId changes', () => {
     const unsubW1 = vi.fn()
     const unsubW2 = vi.fn()
     subscribe.mockReturnValueOnce(unsubW1).mockReturnValueOnce(unsubW2)
+    setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'w2' })
 
     const { rerender } = renderHook(({ w }: { w: string }) => useWorkspaceAgentChatsStream(w), {
       initialProps: { w: 'w1' },
@@ -1518,7 +1909,9 @@ describe('useWorkspaceAgentChatsStream', () => {
 
     expect(unsubW1).toHaveBeenCalledTimes(1)
     expect(subscribe).toHaveBeenCalledTimes(2)
-    expect((subscribe.mock.calls[1] as unknown as [string])[0]).toBe('/v0/ws/w2/chats/ws')
+    expect((subscribe.mock.calls[1] as unknown as [string])[0]).toBe(
+      '/v0/projects/p1/repos/r1/chats/ws',
+    )
   })
 })
 

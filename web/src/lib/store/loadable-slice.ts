@@ -58,6 +58,11 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
           const fresh = await cfg.fetcher(...args)
           if (seq !== latestFetch) return
           await saveCache(cfg.store, keyOf(...args), fresh)
+          // Re-checked AFTER the write, not only before it: the cache write is
+          // an await like any other, and a supersede that lands inside it would
+          // otherwise still publish here — last, on top of the winner. Same
+          // stale-write bug the guards above prevent, one await later.
+          if (seq !== latestFetch) return
           set({ data: success(fresh) })
         } catch (err) {
           if (seq !== latestFetch) return

@@ -51,7 +51,7 @@ func TestRegression_IdleSessionNoCadenceWrite(t *testing.T) {
 	// has no output still in flight" is a fact rather than an assumption. The whole test is a
 	// negative assertion about an IDLE session, so establishing genuine idleness is not a
 	// preliminary here: it is the hypothesis.
-	sid := newReadyShell(t, eng, "ws-idle", dir)
+	sid := newReadyShell(t, eng, "chat-idle", dir)
 
 	// First cadence flush: dirty==true → .buf written + meta saved, and the dirty bit is
 	// consumed. Nothing can set it again while the shell sits at its prompt, so one flush is
@@ -103,7 +103,7 @@ func TestRegression_ResizeOnlyPersistsNewSize(t *testing.T) {
 	eng.SetMetaStore(store)
 	defer eng.Shutdown()
 
-	sid := newReadyShell(t, eng, "ws-resize", dir)
+	sid := newReadyShell(t, eng, "chat-resize", dir)
 
 	// Flush the born-at-80×24 session to a clean dirty==false state with the 80×24 blob
 	// cached. One flush suffices: the shell is at its prompt, so no further output can

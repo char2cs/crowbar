@@ -38,7 +38,7 @@ func newHandoffTestSocket(t *testing.T, handler http.HandlerFunc) string {
 func TestRunHandoffDump_PrintsHandoff(t *testing.T) {
 	sock := newHandoffTestSocket(t, func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "/v0/projects/p1/repos/r1/workspaces/w1/chats/chat-1/handoff", r.URL.Path)
+		require.Equal(t, "/v0/projects/p1/repos/r1/chats/chat-1/handoff", r.URL.Path)
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"success": true,

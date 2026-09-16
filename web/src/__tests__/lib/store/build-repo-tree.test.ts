@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildRepoTree, toSidebarRepo, toSidebarWorkspace } from '@/lib/store/build-repo-tree'
+import {
+  buildRepoTree,
+  toSidebarChat,
+  toSidebarRepo,
+  toSidebarWorkspace,
+} from '@/lib/store/build-repo-tree'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const repo = (id: string, name: string, over: Partial<RepoDTO> = {}): RepoDTO => ({
@@ -220,6 +225,24 @@ describe('toSidebarWorkspace heldByPath', () => {
   })
 })
 
+/**
+ * The chat row that owns this workspace — the id the daemon resolves a
+ * placement against (`WorkspaceDTO.owningChatId`). Mapped unconditionally like
+ * every other field here: a frame that names none has to overwrite a stale id,
+ * not silently keep it.
+ */
+describe('toSidebarWorkspace owningChatId', () => {
+  it('carries the owning chat id from the DTO', () => {
+    const w = toSidebarWorkspace(ws('w1', 'r1', { owningChatId: 'c-owner' }))
+    expect(w.owningChatId).toBe('c-owner')
+  })
+
+  it('maps to "" when the frame names none — an older cached row, or one the daemon could not resolve', () => {
+    const w = toSidebarWorkspace(ws('w1', 'r1'))
+    expect(w.owningChatId).toBe('')
+  })
+})
+
 describe('toSidebarRepo defaultBranch', () => {
   it('sets defaultBranch from the isDefault workspace', () => {
     const out = toSidebarRepo(baseRepo, [
@@ -285,5 +308,36 @@ describe('folders and order', () => {
     const w = toSidebarWorkspace(ws('w1', 'r1'))
     expect(w.folderId).toBe('')
     expect(w.order).toBe(0)
+  })
+})
+
+// `type` distinguishes a workflow row from an ordinary conversation.
+// Dropping it in the reshape is what made every chat row look alike.
+describe('toSidebarChat carries the row’s type', () => {
+  it('keeps a workflow row’s type through the reshape', () => {
+    const chat = toSidebarChat({
+      id: 'b1',
+      repoId: 'r1',
+      projectId: 'p1',
+      type: 'workflow',
+      workspaceId: 'ws1',
+      parentId: '',
+      title: '',
+      order: 0,
+    })
+    expect(chat.type).toBe('workflow')
+  })
+
+  it('leaves it undefined on a row cached before the daemon emitted it', () => {
+    const chat = toSidebarChat({
+      id: 'c1',
+      repoId: 'r1',
+      projectId: 'p1',
+      workspaceId: 'ws1',
+      parentId: '',
+      title: 'Talk',
+      order: 0,
+    })
+    expect(chat.type).toBeUndefined()
   })
 })

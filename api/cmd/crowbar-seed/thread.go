@@ -48,17 +48,23 @@ func seedThreads() []seedThread {
 
 // resolveAuthor asks the daemon whose comments these are, so seeded threads are
 // attributed to the developer running the seed instead of a placeholder. The
-// identity route needs a workspace, which is why this runs last; a failure
-// degrades to a generic name rather than failing the seed.
+// identity route needs the worktree-owning chat, which is why this runs
+// after the feature chat exists; a failure degrades to a generic name rather
+// than failing the seed.
+//
+// identity is one of spec §4.2's shared-bucket surfaces: it moved off the
+// deleted /workspaces/:wsId group onto the flat /v0/chats/:chatId prefix (spec
+// §8 step 6), so it is addressed by the feature chat's own id rather than by
+// the scope threads still use.
 func resolveAuthor(
 	ctx context.Context,
 	d *daemon,
-	sc scope,
+	chatID string,
 ) string {
 	identity, err := getData[struct {
 		Login       string `json:"login"`
 		DisplayName string `json:"displayName"`
-	}](ctx, d, "resolve identity", sc.path("/identity"))
+	}](ctx, d, "resolve identity", flatChatPath(chatID, "/identity"))
 	if err != nil {
 		return fallbackReviewer
 	}

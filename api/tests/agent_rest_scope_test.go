@@ -97,6 +97,67 @@ type agentChatDTO struct {
 	// share with chat folders.
 	ParentID string `json:"parentId"`
 	Order    int    `json:"order"`
+	// Type is the row's kind in the sidebar forest. It matters to these tests
+	// because a chat list is not only conversations: every workspace owns a
+	// row now (the repo home, each locked branch, the project home), and those
+	// are sidebar rows rather than anything a user opened. See
+	// conversationsOnly.
+	Type string `json:"type"`
+	// Worktree is the git state of the worktree this row OWNS, and is absent for
+	// a row that owns none. It is decoded here for one reason: it carries
+	// owningChatId, which is the ONLY reliable way to tell an owning row from a
+	// conversation — see conversationsOnly.
+	Worktree *struct {
+		OwningChatID string `json:"owningChatId"`
+	} `json:"worktree"`
+}
+
+// conversationsOnly keeps just the rows a person actually started, dropping the
+// rows a workspace owns.
+//
+// Every one of these lists used to be conversations alone, but only by
+// accident of timing: a workspace imported during a daemon's life owned no row
+// until the NEXT boot's backfill minted one, so a test that imported and
+// listed in the same breath never saw them. Creating a workspace and the chat
+// that owns it in one call — the invariant this whole change exists to
+// establish — makes those rows appear immediately, exactly as a reboot always
+// would have. Filtering states what these assertions always meant.
+//
+// Type alone is NOT the discriminator, and believing it was is a trap worth
+// naming: an owning row is typed `chat` regardless of whether its workspace is
+// locked, default, or a home (2026-09-08 sidebar-placement-unification Task 9
+// deleted the machinery that used to retype a locked/default/home workspace's
+// owning row to `branch` — that workspace's own Node{Kind:workspace} row is
+// what the sidebar draws as a branch now, not Chat.Type). Filtering on type
+// alone therefore counted that row as a conversation and every assertion here
+// saw one more chat than the test had started.
+//
+// What actually separates them is worktree OWNERSHIP: a row whose own id is the
+// owningChatId of the worktree it carries IS that worktree's row, whatever its
+// type. A conversation started against a workspace carries no worktree object at
+// all, so it is kept.
+//
+// This still has a gap for the PROJECT HOME scope specifically: a home
+// workspace carries no git worktree at all, so its own owning chat has no
+// Worktree object either — neither check catches it there, and it is
+// wrongly kept as if it were a conversation. A documented, narrow gap Task
+// 10's own frontend cutover closes (see agent_home_scope_test.go); the two
+// home-scoped callers that would otherwise miscount work around it directly
+// rather than through this filter.
+func conversationsOnly(
+	rows []agentChatDTO,
+) []agentChatDTO {
+	out := make([]agentChatDTO, 0, len(rows))
+	for _, row := range rows {
+		if row.Type != "chat" {
+			continue
+		}
+		if row.Worktree != nil && row.Worktree.OwningChatID == row.ID {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 // agentChatConversation mirrors one agents.ChatConversation on the wire: a
@@ -116,8 +177,8 @@ type agentChatDetail struct {
 	Conversations []agentChatConversation `json:"conversations"`
 }
 
-// getAgentChat reads GET <base>/chats/:id. base is a workspace mount
-// (wsBase) or a project-home mount, both of which serve the same shape.
+// getAgentChat reads GET <base>/chats/:id. base is a repo-scoped mount
+// (repoBase) or a project-home mount, both of which serve the same shape.
 func getAgentChat(
 	t *testing.T,
 	h *harness,
@@ -139,12 +200,15 @@ func (d agentChatDetail) sessionIDs() []string {
 	return out
 }
 
-// createAgentChat creates a chat in imported's workspace via the nested
-// .../workspaces/:wsId/chats route using the livestub provider, then
-// quiesces the async read-model projection (harness.Quiesce, backed by
-// app/repositories.Container.WaitQuiescent — asynx's WaitPublish, never a
-// sleep/poll) so a subsequent plain REST List/Get against the store-backed
-// projection is guaranteed to observe it. It returns the new chat's id.
+// createAgentChat creates a chat anchored to imported's workspace via the
+// repo-scoped .../repos/:repoId/chats route (Task 17), naming the workspace
+// explicitly in the body's workspaceId — the URL alone no longer anchors a
+// create the way the retired .../workspaces/:wsId/chats route did — using the
+// livestub provider, then quiesces the async read-model projection
+// (harness.Quiesce, backed by app/repositories.Container.WaitQuiescent —
+// asynx's WaitPublish, never a sleep/poll) so a subsequent plain REST
+// List/Get against the store-backed projection is guaranteed to observe it.
+// It returns the new chat's id.
 //
 // livestub (`cat`) rather than stub (`true`) because a create only succeeds if
 // the CLI is still there when its runner row commits: a provider that exits
@@ -162,7 +226,9 @@ func createAgentChat(
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
+		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID, "create must respond with the new chat's id")
 	// QuiesceReactors, not Quiesce: creating a chat also PLACES A RUNNER on it,
 	// and that placement detaches into its own goroutine. A plain projection
@@ -174,46 +240,117 @@ func createAgentChat(
 	return created.ID
 }
 
-// TestAgentREST_Scope proves the workspace-scoped agent REST surface (Task 3):
-// List returns only the subscribing workspace's own chats, GET-by-id 404s a
-// chat anchored to a DIFFERENT workspace addressed through the wrong
-// workspace's route, and Create anchors the new chat to the :wsId path param
-// (not a body field).
+// TestAgentREST_Scope proves the agent REST surface's isolation as it actually
+// stands after Task 17's route rescope, replacing the workspace-scoped-route
+// invariant this test pinned before that rescope deliberately relaxed it
+// (model spec §5.1: "chats are addressed by id alone now").
+//
+// The HOME mount's isolation is UNCHANGED: RequireHomeWorkspace still injects
+// the resolving project's own home :wsId, so requireChatInWorkspace still 404s
+// a chat that belongs to a different project's home — proved here across TWO
+// projects, each addressed only through its own home mount.
+//
+// The repo-scoped mount's WORKSPACE isolation is GONE by design: it has no
+// :wsId path segment at all, so List spans every workspace in the repo and Get
+// resolves any chat in it by id alone, regardless of which of the repo's OWN
+// workspaces the chat actually lives in — proved here with two workspaces of
+// one repo, each holding its own chat, both listed and both individually
+// reachable through the repo's single mount.
+//
+// Its REPO isolation is not gone and never was: the list asserts, negatively,
+// that neither of the other projects' home chats appears in it. That assertion
+// is the one this test lacked while List fell back to the daemon-global chat
+// list, which is how a repo-scoped read serving every repo's chats passed here
+// unnoticed.
 func TestAgentREST_Scope(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
 
-	a := importWritableWorkspace(t, h)
-	b := importWritableWorkspace(t, h)
+	// --- home mount: per-project isolation, unaffected by Task 17 ---
+	projA := importProject(t, h)
+	projB := importProject(t, h)
+	homeA := "/v0/projects/" + projA.projectID + "/home"
+	homeB := "/v0/projects/" + projB.projectID + "/home"
 
-	chatA := createAgentChat(t, h, a)
-	chatB := createAgentChat(t, h, b)
+	var homeChatA struct {
+		ID string `json:"id"`
+	}
+	h.post(homeA+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &homeChatA)
+	require.NotEmpty(t, homeChatA.ID)
+	h.QuiesceReactors()
 
-	// List: workspace A's chat list must contain only its own chat, never B's.
+	var homeChatB struct {
+		ID string `json:"id"`
+	}
+	h.post(homeB+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &homeChatB)
+	require.NotEmpty(t, homeChatB.ID)
+	h.QuiesceReactors()
+
+	// conversationsOnly cannot filter project A's OWN home-owning chat out of
+	// this list any more (see agent_home_scope_test.go's own note) — assert
+	// the isolation property this test is actually about directly: A's own
+	// conversation is present, B's never is.
 	var listA []agentChatDTO
-	h.get(wsBase(a)+"/chats", &listA)
-	require.Len(t, listA, 1, "workspace A's chat list must contain exactly its own chat")
-	assert.Equal(t, chatA, listA[0].ID)
-	assert.Equal(t, a.workspaceID, listA[0].WorkspaceID)
+	h.get(homeA+"/chats", &listA)
+	listA = conversationsOnly(listA)
+	var sawA, sawB bool
+	for _, row := range listA {
+		switch row.ID {
+		case homeChatA.ID:
+			sawA = true
+		case homeChatB.ID:
+			sawB = true
+		}
+	}
+	assert.True(t, sawA, "project A's home chat list must contain its own chat")
+	assert.False(t, sawB, "project A's home chat list must never contain B's chat")
 
-	// Get-by-id: addressing B's chat through A's workspace route must 404 —
-	// indistinguishable from an unknown id, never leaking that the chat exists
-	// in another workspace.
-	resp := h.raw(http.MethodGet, wsBase(a)+"/chats/"+chatB, nil, http.StatusNotFound)
-	_ = resp.Body.Close()
+	homeResp := h.raw(http.MethodGet, homeA+"/chats/"+homeChatB.ID, nil, http.StatusNotFound)
+	_ = homeResp.Body.Close()
 
-	// Create: the chat created against A's route must be anchored to A's
-	// workspace id (read from the :wsId path param, not a workspaceId body
-	// field the caller could otherwise spoof).
-	var gotA agentChatDTO
-	h.get(wsBase(a)+"/chats/"+chatA, &gotA)
-	assert.Equal(t, a.workspaceID, gotA.WorkspaceID)
+	var gotHomeB agentChatDTO
+	h.get(homeB+"/chats/"+homeChatB.ID, &gotHomeB)
+	assert.Equal(t, homeChatB.ID, gotHomeB.ID, "sanity: B's own home mount still resolves its own chat")
 
-	// Sanity: B's own route still resolves its own chat (the 404 above is
-	// scope-specific, not a general breakage).
-	var gotB agentChatDTO
-	h.get(wsBase(b)+"/chats/"+chatB, &gotB)
-	assert.Equal(t, b.workspaceID, gotB.WorkspaceID)
+	// --- repo-scoped mount: cross-workspace access is now legitimate ---
+	imported := importProject(t, h)
+	mainWS := imported.workspaceID
+	otherWS := createChildWorkspace(t, h, imported, "feature/other", mainWS)
+	h.Quiesce()
+
+	chatMain := createAgentChat(t, h, imported)
+	other := imported
+	other.workspaceID = otherWS
+	chatOther := createAgentChat(t, h, other)
+
+	base := repoBase(imported)
+	var list []agentChatDTO
+	h.get(base+"/chats", &list)
+	ids := map[string]bool{}
+	for _, c := range list {
+		ids[c.ID] = true
+	}
+	assert.True(t, ids[chatMain], "the repo-scoped list carries the main workspace's own chat")
+	assert.True(t, ids[chatOther], "and the repo's OTHER workspace's chat too — one list, whole repo")
+	// The negative half, and the one this test was missing: cross-WORKSPACE
+	// access inside a repo is legitimate, cross-REPO access never was. Both home
+	// chats above live in projects with no repo at all, and asserting only what
+	// the list DOES carry is exactly how the unfiltered fallback — every chat the
+	// daemon knew, served into whichever repo asked — survived a green suite.
+	assert.False(t, ids[homeChatA.ID],
+		"another project's home chat must not appear in this repo's list")
+	assert.False(t, ids[homeChatB.ID],
+		"nor the second project's — a repo-scoped list is scoped to the repo")
+
+	var gotMain agentChatDTO
+	h.get(base+"/chats/"+chatMain, &gotMain)
+	assert.Equal(t, mainWS, gotMain.WorkspaceID)
+
+	var gotOther agentChatDTO
+	h.get(base+"/chats/"+chatOther, &gotOther)
+	assert.Equal(t, otherWS, gotOther.WorkspaceID,
+		"a chat born in a DIFFERENT workspace of this repo is still reachable through the repo's own "+
+			"mount: there is no :wsId segment left for the URL to get wrong")
 }
 
 // spawnStubChat creates a chat with the `true` provider WITHOUT asserting a status,
@@ -226,9 +363,9 @@ func spawnStubChat(
 	imported importedRepo,
 ) (int, string, string) {
 	t.Helper()
-	body, err := json.Marshal(map[string]string{"provider": "stub"})
+	body, err := json.Marshal(map[string]string{"provider": "stub", "workspaceId": imported.workspaceID})
 	require.NoError(t, err)
-	req, err := http.NewRequest(http.MethodPost, h.url+wsBase(imported)+"/chats", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, h.url+repoBase(imported)+"/chats", bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := h.server.Client().Do(req)
@@ -301,7 +438,7 @@ func TestRegression_ProviderThatExitsDuringStartupIsRefused(t *testing.T) {
 		"a CLI that exits during startup is either refused as a dependency failure or "+
 			"accepted as a chat that is already dormant — never any other status")
 	var chat agentChatDTO
-	h.get(wsBase(ws)+"/chats/"+chatID, &chat)
+	h.get(repoBase(ws)+"/chats/"+chatID, &chat)
 	assert.Empty(t, chat.LiveRunnerID,
 		"the CLI is dead, so the chat it was handed back for must read as dormant")
 	assert.Empty(t, chat.TerminalSessionID,
@@ -346,7 +483,7 @@ func TestRegression_RefusedSpawnLeavesNoChatBehind(t *testing.T) {
 		wantIDs = []string{refusedChatID}
 	}
 
-	require.Equal(t, wantIDs, chatIDs(t, h, wsBase(ws)),
+	require.Equal(t, wantIDs, chatIDs(t, h, repoBase(ws)),
 		"the chat list must agree with the answer the API gave: a refusal leaves nothing behind")
 
 	// Nor a directory of its own. Nothing under the workspace's chats dir may be
@@ -363,6 +500,6 @@ func TestRegression_RefusedSpawnLeavesNoChatBehind(t *testing.T) {
 	}
 
 	created := createAgentChat(t, h, ws)
-	require.Equal(t, append(wantIDs, created), chatIDs(t, h, wsBase(ws)),
+	require.Equal(t, append(wantIDs, created), chatIDs(t, h, repoBase(ws)),
 		"the refusal cost the workspace nothing: a working provider still creates one chat")
 }

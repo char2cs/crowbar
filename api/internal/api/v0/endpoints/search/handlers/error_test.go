@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/char2cs/crowbar/api/internal/domain"
 	enginesearch "github.com/char2cs/crowbar/api/internal/engine/search"
 )
 
@@ -34,13 +33,13 @@ func (e errSearchEngine) Replace(
 func TestSearchHandlers_BadPattern(
 	t *testing.T,
 ) {
-	r2 := newRouterWith(errSearchEngine{err: enginesearch.ErrBadPattern}, stubReader{})
+	r2 := newRouterWith(errSearchEngine{err: enginesearch.ErrBadPattern})
 
-	rec := do(r2, http.MethodPost, "/v0/workspaces/ws1/search",
+	rec := do(r2, http.MethodPost, "/v0/chats/chat1/search",
 		map[string]any{"query": "("})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	rec = do(r2, http.MethodPost, "/v0/workspaces/ws1/search/replace",
+	rec = do(r2, http.MethodPost, "/v0/chats/chat1/search/replace",
 		map[string]any{"query": "("})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -48,55 +47,49 @@ func TestSearchHandlers_BadPattern(
 func TestSearchHandlers_ReplaceErrors(
 	t *testing.T,
 ) {
-	r := newRouterWith(errSearchEngine{err: enginesearch.ErrLocked}, stubReader{})
-	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/search/replace",
+	r := newRouterWith(errSearchEngine{err: enginesearch.ErrLocked})
+	rec := do(r, http.MethodPost, "/v0/chats/chat1/search/replace",
 		map[string]any{"query": "fmt"})
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 
-	r2 := newRouterWith(errSearchEngine{err: enginesearch.ErrPathOutsideWorkspace}, stubReader{})
-	rec = do(r2, http.MethodPost, "/v0/workspaces/ws1/search/replace",
+	r2 := newRouterWith(errSearchEngine{err: enginesearch.ErrPathOutsideWorkspace})
+	rec = do(r2, http.MethodPost, "/v0/chats/chat1/search/replace",
 		map[string]any{"query": "fmt"})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// errReader always fails the workspace lookup, so Search/Replace's "workspace
-// not found" 404 path can be exercised independently of the search engine.
-type errReader struct{ err error }
-
-func (e errReader) Get(
-	_ context.Context,
-	_ string,
-) (domain.Workspace, error) {
-	return domain.Workspace{}, e.err
-}
-
-// TestSearchHandlers_UnknownWorkspace_Returns404 proves Search 404s when the
-// workspace lookup fails, BEFORE the search engine is ever consulted — a
-// stale or malformed :wsId must not reach the engine with an empty
-// WorktreePath.
-func TestSearchHandlers_UnknownWorkspace_Returns404(
+// TestSearchHandlers_UnresolvedWorkspace_Returns404 proves Search 404s when no
+// workspace was resolved onto the request, BEFORE the search engine is ever
+// consulted — an unresolved chat must not reach the engine with an empty
+// WorktreePath, which would search the daemon's own working directory.
+func TestSearchHandlers_UnresolvedWorkspace_Returns404(
 	t *testing.T,
 ) {
-	r := newRouterWith(stubEngine{}, errReader{err: errors.New("no such workspace")})
+	eng := &recordingEngine{}
+	r := newUnscopedRouterWith(eng)
 
-	rec := do(r, http.MethodPost, "/v0/workspaces/ghost/search",
+	rec := do(r, http.MethodPost, "/v0/chats/ghost/search",
 		map[string]any{"query": "fmt"})
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "workspace not found")
+	assert.Empty(t, eng.seenPaths, "the engine must not be consulted without a workspace")
 }
 
-// TestReplaceHandlers_UnknownWorkspace_Returns404 is Search's proof mirrored
-// onto Replace: the workspace lookup failing must 404 before Replace is ever
-// called.
-func TestReplaceHandlers_UnknownWorkspace_Returns404(
+// TestReplaceHandlers_UnresolvedWorkspace_Returns404 is Search's proof mirrored
+// onto Replace: an unresolved workspace must 404 before Replace is ever called.
+func TestReplaceHandlers_UnresolvedWorkspace_Returns404(
 	t *testing.T,
 ) {
-	r := newRouterWith(stubEngine{}, errReader{err: errors.New("no such workspace")})
+	eng := &recordingEngine{}
+	r := newUnscopedRouterWith(eng)
 
-	rec := do(r, http.MethodPost, "/v0/workspaces/ghost/search/replace",
+	rec := do(r, http.MethodPost, "/v0/chats/ghost/search/replace",
 		map[string]any{"query": "fmt", "replacement": "log"})
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "workspace not found")
+	assert.Empty(t, eng.seenPaths, "the engine must not be consulted without a workspace")
 }
 
 // TestSearchHandlers_EngineUnavailable_Returns503 proves Search refuses with
@@ -106,9 +99,9 @@ func TestReplaceHandlers_UnknownWorkspace_Returns404(
 func TestSearchHandlers_EngineUnavailable_Returns503(
 	t *testing.T,
 ) {
-	r := newRouterWith(nil, stubReader{})
+	r := newRouterWith(nil)
 
-	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/search",
+	rec := do(r, http.MethodPost, "/v0/chats/chat1/search",
 		map[string]any{"query": "fmt"})
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
@@ -119,9 +112,9 @@ func TestSearchHandlers_EngineUnavailable_Returns503(
 func TestReplaceHandlers_EngineUnavailable_Returns503(
 	t *testing.T,
 ) {
-	r := newRouterWith(nil, stubReader{})
+	r := newRouterWith(nil)
 
-	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/search/replace",
+	rec := do(r, http.MethodPost, "/v0/chats/chat1/search/replace",
 		map[string]any{"query": "fmt", "replacement": "log"})
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
@@ -134,9 +127,9 @@ func TestReplaceHandlers_EngineUnavailable_Returns503(
 func TestHandleSearchError_UnrecognisedErrorIsA500WithAFixedMessage(
 	t *testing.T,
 ) {
-	r := newRouterWith(errSearchEngine{err: errors.New("ripgrep: exit status 2")}, stubReader{})
+	r := newRouterWith(errSearchEngine{err: errors.New("ripgrep: exit status 2")})
 
-	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/search",
+	rec := do(r, http.MethodPost, "/v0/chats/chat1/search",
 		map[string]any{"query": "fmt"})
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
@@ -151,9 +144,9 @@ func TestHandleSearchError_UnrecognisedErrorIsA500WithAFixedMessage(
 func TestHandleReplaceError_UnrecognisedErrorIsA500WithItsOwnMessage(
 	t *testing.T,
 ) {
-	r := newRouterWith(errSearchEngine{err: errors.New("disk full mid-write")}, stubReader{})
+	r := newRouterWith(errSearchEngine{err: errors.New("disk full mid-write")})
 
-	rec := do(r, http.MethodPost, "/v0/workspaces/ws1/search/replace",
+	rec := do(r, http.MethodPost, "/v0/chats/chat1/search/replace",
 		map[string]any{"query": "fmt"})
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)

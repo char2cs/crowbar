@@ -49,7 +49,7 @@ func newProjected(
 func TestStoreProjection_CreateUpsertsRow(t *testing.T) {
 	ctx, ax, st, _ := newProjected(t)
 	_, err := ax.SendWait(ctx, accmds.Create{
-		ID: "c1", WorkspaceID: "w1", Now: time.Unix(1, 0).UTC(),
+		ID: "c1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
 
@@ -62,7 +62,7 @@ func TestStoreProjection_CreateUpsertsRow(t *testing.T) {
 func TestStoreProjection_ForgetDeletesRow(t *testing.T) {
 	ctx, ax, st, _ := newProjected(t)
 	_, err := ax.SendWait(ctx, accmds.Create{
-		ID: "c1", WorkspaceID: "w1", Now: time.Unix(1, 0).UTC(),
+		ID: "c1", WorkspaceID: "w1", Type: domain.ChatTypeChat, Now: time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
 	require.NoError(t, ax.Forget(ctx, "c1"))

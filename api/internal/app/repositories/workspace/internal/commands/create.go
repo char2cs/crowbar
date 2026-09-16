@@ -12,22 +12,13 @@ import (
 
 // CreateWorkspace creates a new workspace aggregate seeded to status "new".
 type CreateWorkspace struct {
-	ID           string
-	RepoID       string
-	ProjectID    string
-	Branch       string
-	WorktreePath string
-	ForkPointSha string
-	ParentID     string
-	// FolderID files the new row under a sidebar folder. It is placement, not
-	// lineage: ParentID above is the fork parent git acts on, and the two are
-	// separate fields so a folder can never be mistaken for one.
-	FolderID string
-	// Order is the row's slot in its sibling space. Folders and fork-root
-	// workspaces share one space, so a row left holding the zero value collides
-	// with whatever already sits at 0 — which reads as a new branch appearing at
-	// the TOP of a level it should have joined at the end.
-	Order         int
+	ID            string
+	RepoID        string
+	ProjectID     string
+	Branch        string
+	WorktreePath  string
+	ForkPointSha  string
+	ParentID      string
 	Protected     bool
 	IsDefault     bool
 	MergeStrategy gitdomain.MergeStrategy
@@ -88,8 +79,6 @@ func (c CreateWorkspace) EmitEvent(
 		WorktreePath:  c.WorktreePath,
 		ForkPointSha:  c.ForkPointSha,
 		ParentID:      c.ParentID,
-		FolderID:      c.FolderID,
-		Order:         c.Order,
 		Status:        status,
 		MergeStrategy: strategy,
 		IsDefault:     c.IsDefault,

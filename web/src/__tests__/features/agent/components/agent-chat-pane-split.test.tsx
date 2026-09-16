@@ -12,7 +12,7 @@
  * found, so with its switch off the pane has to be the pane it has always been:
  * two buttons, one live surface, the other dormant under `display:none`.
  */
-import { createElement } from 'react'
+import { createElement, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat, AgentProvider } from '@/features/agent/api/agent-api'
@@ -55,12 +55,14 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
       presentation,
       splitEnabled,
       onSelectPresentation,
+      blankSignpost,
     }: {
       active: boolean
       visible: boolean
       presentation: 'chat' | 'terminal' | 'split'
       splitEnabled: boolean
       onSelectPresentation: (next: 'chat' | 'terminal' | 'split') => void
+      blankSignpost?: ReactNode
     }) =>
       createElement(
         'div',
@@ -70,6 +72,14 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
           'data-visible': String(visible),
         },
         createElement('textarea', { 'data-testid': 'composer' }),
+        // The pane's trust/reviving/idle signpost is no longer a sibling of this
+        // view — it is handed DOWN and rendered inside AgentEmptyDocument's own
+        // control-bar slot (agent-chat-view.tsx's `blank` branch,
+        // `banner={blankSignpost}`). Every chat this file seeds is blank, so the
+        // stub takes that branch unconditionally; dropping the prop instead
+        // would hide the wait banner from a suite whose whole subject is what
+        // the banner does in a split.
+        blankSignpost,
         // The surface switcher lives in the chat's provider bar now, so the stub
         // carries the real one: it is a pane control, and this file is the pane's
         // contract for it.
@@ -174,7 +184,7 @@ async function renderPane(
           chatId: 'c1',
           runnerId: 'r1',
           wsId: 'w1',
-          bufferId: 'b1',
+          paneId: 'b1',
           isActivePane: opts.isActivePane ?? true,
           isVisible: opts.isVisible ?? true,
         }),

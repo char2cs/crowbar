@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import deepEqual from 'fast-deep-equal'
 import { getReviewFiles } from '@/features/git/api/review-api'
 import { reviewFilesSummaryToChangedFiles } from '@/features/git/utils/review-file-summary-to-git-diff'
+import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 import type { GitDiff } from '@/features/git/types/git-types'
 
 export interface UseReviewFilesSummaryResult {
@@ -55,8 +56,23 @@ export function useReviewFilesSummary(
     setFiles(EMPTY_FILES)
   }
 
+  // reviewBaseForWorkspace(wsId) — which getReviewFiles resolves through —
+  // throws without a recorded owning chat id. The sidebar's chat-list fetch
+  // that records one races WorkspaceView's own (often faster) hydration, so on
+  // a workspace that just activated this can still be null; firing anyway used
+  // to hit the throw, land in the catch below, and leave the summary empty
+  // until an unrelated git-status-changed tick happened to retry it.
+  // Subscribing makes the id a piece of React state so the effect re-runs the
+  // moment the sidebar records one — same fix as useWorkspaceEffects'
+  // useOwningChatId.
+  const owningChatId = useSyncExternalStore(
+    (onChange) => (wsId ? subscribeToWorkspaceScope(wsId, onChange) : () => {}),
+    () => (wsId ? getOwningChatId(wsId) : null),
+  )
+
   useEffect(() => {
     if (!wsId) return
+    if (owningChatId === null) return
 
     let cancelled = false
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -99,7 +115,7 @@ export function useReviewFilesSummary(
       if (debounceTimer) clearTimeout(debounceTimer)
       window.removeEventListener('git-status-changed', handler)
     }
-  }, [wsId, commit])
+  }, [wsId, commit, owningChatId])
 
   return { files, loaded }
 }

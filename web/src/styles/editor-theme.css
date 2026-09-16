@@ -1,24 +1,35 @@
-@import '@fontsource-variable/jetbrains-mono';
-@import '@fontsource-variable/jetbrains-mono/wght-italic.css';
-/* Static (non-variable) JetBrains Mono cuts. Weights 400/700 cover regular +
+@import '@fontsource-variable/geist-mono';
+@import '@fontsource-variable/geist-mono/wght-italic.css';
+/* Static (non-variable) Geist Mono cuts. Weights 400/700 cover regular +
    bold; latin + latin-ext cover the terminal's glyph needs. Italic cuts must be
    imported explicitly — without them WebKit synthesizes an oblique by shearing
    the upright glyphs (SGR 3 text in the terminal looked fake-slanted).
 
-   These stay bundled so "JetBrains Mono" remains selectable in Terminal
+   These stay bundled so "Geist Mono" remains selectable in Terminal
    settings alongside the variable cut, which is the default for both the editor
    and the terminal (see typography-defaults.ts). */
-@import '@fontsource/jetbrains-mono/latin-400.css';
-@import '@fontsource/jetbrains-mono/latin-700.css';
-@import '@fontsource/jetbrains-mono/latin-ext-400.css';
-@import '@fontsource/jetbrains-mono/latin-ext-700.css';
-@import '@fontsource/jetbrains-mono/latin-400-italic.css';
-@import '@fontsource/jetbrains-mono/latin-700-italic.css';
-@import '@fontsource/jetbrains-mono/latin-ext-400-italic.css';
-@import '@fontsource/jetbrains-mono/latin-ext-700-italic.css';
+@import '@fontsource/geist-mono/latin-400.css';
+@import '@fontsource/geist-mono/latin-700.css';
+@import '@fontsource/geist-mono/latin-ext-400.css';
+@import '@fontsource/geist-mono/latin-ext-700.css';
+@import '@fontsource/geist-mono/latin-400-italic.css';
+@import '@fontsource/geist-mono/latin-700-italic.css';
+@import '@fontsource/geist-mono/latin-ext-400-italic.css';
+@import '@fontsource/geist-mono/latin-ext-700-italic.css';
 
 :root {
-  --editor-font-family: ui-monospace, 'JetBrains Mono Variable', monospace;
+  --editor-font-family: ui-monospace, 'Geist Mono Variable', monospace;
+
+  /* `@pierre/diffs` (the branch-review diff renderer) reads its type from these
+     two custom properties on its host element rather than from any React prop —
+     unset, it silently falls back to its own hardcoded stacks ("SF Mono" for
+     code, system-ui for headers), ignoring whatever font is configured in
+     Settings. Aliasing them to the same variables the editor uses keeps Monaco
+     and branch review on one resolution path: a font-setting change updates
+     both. Custom properties inherit across the shadow boundary the diff
+     renderer draws into, so no per-component wiring is needed. */
+  --diffs-font-family: var(--editor-font-family);
+  --diffs-header-font-family: var(--app-font-family, 'CalSansUI', sans-serif);
 }
 
 /*

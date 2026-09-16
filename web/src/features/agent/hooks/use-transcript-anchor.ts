@@ -9,6 +9,27 @@ import { createFollowScroll, type FollowScroll } from '@/features/agent/hooks/li
 const STICK_SLACK = 96
 
 /**
+ * How long a settle burst must stay QUIET before eased mode arms — a wall-clock
+ * debounce, not "one frame" (what this used to be). A virtualized list's
+ * initial estimated→measured row corrections do not all land in the same
+ * animation frame: each row's real content (a long reply going through Plate)
+ * can take React a few commits — spread across several frames — to settle
+ * into its final height, and a single quiet frame between two of those
+ * commits was enough to arm eased mode early. Every correction after that
+ * then retargeted `follow-scroll.ts`'s exponential ease instead of snapping
+ * instantly — and closing even a modest few-dozen-px gap to that loop's own
+ * SETTLE_PX under TAU_MS=100 takes several hundred ms, so a handful of
+ * late corrections firing their own glides accounted for measured live: ~800ms
+ * / ~99 sampled frames of scroll churn revealing one long assistant reply, all
+ * for the "instant landing" a reopen was already supposed to be (see
+ * UseTranscriptAnchorOptions.loadingHistory's own doc). 150ms is comfortably
+ * longer than the gap between a settle burst's own corrections (a few
+ * animation frames apart) while still short enough that a genuinely fresh,
+ * already-streaming chat arms real easing almost immediately.
+ */
+const ARM_QUIET_MS = 150
+
+/**
  * How recently a real input must have happened for a scroll to be read as the
  * READER's rather than the browser's.
  *
@@ -110,6 +131,36 @@ export interface UseTranscriptAnchorOptions {
    * is always on screen, and nothing below changes for it.
    */
   visible?: boolean
+  /**
+   * How much of this container's own top edge is covered by the pane's
+   * FLOATING overlay chat header (PaneTopRow's `chat-blur overlay` variant,
+   * rendered by ChatOnlyPaneHeader/ChatColumnHeader) — for the TRANSCRIPT
+   * specifically, agent-chat-pane.tsx computes and publishes this as
+   * `--agent-transcript-header-clearance` (agent-chat-view.tsx hands it to
+   * this hook via AgentTranscript's own `headerClearancePx` prop). It is the
+   * header's FULL EdgeDissolve reach (100px Mac / 90px elsewhere —
+   * pane-top-row.tsx's ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX), NOT the same,
+   * smaller `--agent-header-clearance` AgentEmptyDocument uses for its own
+   * top-of-document math (52px / 42px — just the header's clickable row):
+   * text left resting between the two numbers is not covered, but still
+   * renders visibly blurred by the dissolve's own heavier mask layers, where
+   * an opaque banner only needs to clear the row itself.
+   *
+   * That header is `position: absolute; top: 0` with no fill and no flex
+   * space of its own, so NOTHING underneath it knows it is there unless told
+   * — which is exactly why `.scroll` carries a matching `padding-top`
+   * (transcript.css). That alone doesn't reach the one place this hook
+   * positions content at the top of the viewport by hand: `pinTurnToTop`.
+   * Without this term `tailRoom` reserves room to lift the just-sent prompt
+   * to the top of the CONTAINER, and in split view — where the overlay
+   * header is the pane's only header — that is squarely behind the frosted
+   * bar.
+   *
+   * Defaults to 0: a single, unsplit pane has no floating header, and every
+   * caller that does not mention one keeps this hook's original behaviour
+   * unchanged, pixel for pixel.
+   */
+  headerClearancePx?: number
 }
 
 export interface TranscriptAnchor {
@@ -172,9 +223,23 @@ export interface TranscriptAnchor {
  *     following the bottom.
  *
  * Returns 0 (and so releases the pin) the moment it is no longer needed.
+ *
+ * `headerClearance` is how much of the viewport's top edge the floating
+ * overlay chat header paints over (see
+ * `UseTranscriptAnchorOptions.headerClearancePx`): the top of the CONTAINER is
+ * not where a pin should land when something opaque sits on it, so the
+ * shortfall is against the VISIBLE viewport. Note the sign — leaving the pin
+ * lower means reserving LESS, not more. The handover stays seamless: the
+ * reservation still reaches zero exactly when the content below the pin fills
+ * that visible height, which is the pixel bottom-following then holds it at.
  */
-export function tailRoom(pinTop: number, contentHeight: number, viewportHeight: number): number {
-  return Math.max(0, viewportHeight - (contentHeight - pinTop))
+export function tailRoom(
+  pinTop: number,
+  contentHeight: number,
+  viewportHeight: number,
+  headerClearance = 0,
+): number {
+  return Math.max(0, viewportHeight - headerClearance - (contentHeight - pinTop))
 }
 
 /**
@@ -211,9 +276,8 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   const resyncRef = useRef<() => void>(() => {})
   // How the loadingHistory-transition effect below reaches the SAME
   // scheduleArm the ResizeObserver effect's own resync uses, rather than
-  // running a second, independent requestAnimationFrame of its own — one
-  // pending arm request at a time, always through `armFrame`, however it
-  // gets triggered.
+  // running a second, independent timer of its own — one pending arm
+  // request at a time, always through `armTimer`, however it gets triggered.
   const scheduleArmRef = useRef<() => void>(() => {})
   // How the tab-reveal effect below reaches the live `beginReveal` — the same
   // pattern, and for the same reason, as `resyncRef`/`scheduleArmRef`.
@@ -230,7 +294,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
   // caller says otherwise, reproducing this hook's original (always-eased)
   // behaviour exactly when `loadingHistory` is never mentioned.
   const easedArmed = useRef(!(options.loadingHistory ?? false))
-  const armFrame = useRef(0)
+  const armTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // How far down the content the turn currently held at the top begins, or
   // null when none is — see `pinTurnToTop`. Cleared by `applyTailRoom` itself
   // once the reply has grown past the space below it.
@@ -352,30 +416,18 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       })
     follow.current = buildFollow()
     // Re-armed by every unarmed resync below, so eased mode only engages once
-    // a FULL frame passes with nothing left to settle — a burst of initial
+    // ARM_QUIET_MS passes with nothing left to settle — a burst of initial
     // measurement corrections keeps pushing this back, the same way a burst
     // of new lines keeps retargeting the eased loop itself (follow-scroll.ts).
+    // A wall-clock debounce, not one frame — see ARM_QUIET_MS's own doc for
+    // why a single quiet frame armed early mid-burst.
     const scheduleArm = () => {
       if (easedArmed.current) return
-      cancelAnimationFrame(armFrame.current)
-      // TWO frames, not one, and the second one is the whole point. A rAF
-      // callback runs BEFORE the same frame's ResizeObserver notifications, so
-      // a one-frame wait always lands before the resync it is supposed to be
-      // waiting to NOT see: this armed itself while the settle it exists for
-      // was still running, every time — `resync` below already says so in its
-      // own comment, and the cumulative size test there was what compensated.
-      // A size test cannot compensate for a REVEAL settle, though: the growth a
-      // tab switch produces is a few hundred pixels, well under a viewport, so
-      // with the arm landing a frame early every lap after the first got eased.
-      // Waiting a second frame puts the arm after frame N+1's observer
-      // delivery, so reaching it really does mean a whole frame passed with
-      // nothing left to settle — which is what this flag has always claimed.
-      armFrame.current = requestAnimationFrame(() => {
-        armFrame.current = requestAnimationFrame(() => {
-          easedArmed.current = true
-          revealFromBottom.current = null
-        })
-      })
+      clearTimeout(armTimer.current)
+      armTimer.current = setTimeout(() => {
+        easedArmed.current = true
+        revealFromBottom.current = null
+      }, ARM_QUIET_MS)
     }
     // The two hidings a chat can come back from — `display:none` (a retained
     // workspace, seen by `resync` as a resize to 0x0) and `visibility:hidden`
@@ -450,7 +502,15 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       // `box.scrollHeight`, not `el.scrollHeight` — see `pinnedTop`'s own doc
       // for why measuring against `.scroll` itself (which also contains
       // `.scroll-spacer`) is exactly the bug this replaced.
-      const room = tailRoom(pinTop, box.scrollHeight - reserved, el.clientHeight)
+      // Read through the ref so a pane that GAINS or loses its overlay header
+      // mid-chat (a split opening beside it, an editor tab closing) reserves
+      // against the header it has now — this effect is mount-only.
+      const room = tailRoom(
+        pinTop,
+        box.scrollHeight - reserved,
+        el.clientHeight,
+        optionsRef.current.headerClearancePx ?? 0,
+      )
       // Released for good once the reply has outgrown the space: re-measuring
       // a pin nobody can see any more would keep this running for the rest of
       // the turn, and re-reserving room mid-reply would yank the reader.
@@ -521,7 +581,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       // Land, do not glide — see `pinShifted`'s own note in `applyTailRoom`.
       if (pinShifted.current) {
         pinShifted.current = false
-        el.scrollTop = target
+        if (el.scrollTop !== target) el.scrollTop = target
         return
       }
       // INSTANT while still settling (see
@@ -537,13 +597,13 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       // Measured live on a chat closed and reopened from the sidebar:
       // `scrollTop` climbing 0 -> 2471 across 43 painted frames.
       //
-      // `easedArmed` alone could never have caught that, and the reason is
-      // ordering: `scheduleArm` below defers by one `requestAnimationFrame`,
-      // and rAF callbacks run BEFORE the ResizeObserver notifications of the
-      // same frame — so the arm always lands before the next resync, and the
-      // "one quiet frame with nothing left to settle" it was written to wait
-      // for never actually happens. Eased mode was therefore armed while the
-      // row-measurement cascade was still running, every single time.
+      // `easedArmed` alone could never have caught that: while arming was a
+      // one-frame wait it landed BEFORE the very settle it exists for (a rAF
+      // callback runs ahead of the same frame's ResizeObserver delivery), so
+      // eased mode armed mid-cascade every single time. ARM_QUIET_MS's
+      // wall-clock debounce closes that hole — do not take it back to a frame
+      // count — and the size test still stands on its own: a gap this big is
+      // a reposition whether anything is armed or not.
       //
       // MEASURED FROM WHERE THE CATCH-UP BEGAN, not from where it has crawled
       // to. A settle does not arrive as one jump; it arrives as a staircase of
@@ -556,7 +616,10 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       if (target - el.scrollTop <= 1) easeFrom.current = null
       const from = easeFrom.current ?? el.scrollTop
       if (!easedArmed.current || target - from > el.clientHeight) {
-        el.scrollTop = target
+        // Skipped when already there: a resize that didn't change the ceiling
+        // (width-only, say) still reaches this branch, and a no-op write is one
+        // more scroll event this settle burst's tail doesn't need.
+        if (el.scrollTop !== target) el.scrollTop = target
         easeFrom.current = null
         scheduleArm()
         return
@@ -687,7 +750,7 @@ export function useTranscriptAnchor(options: UseTranscriptAnchorOptions = {}): T
       scheduleArmRef.current = () => {}
       pinnedTop.current = null
       pinnedRow.current = null
-      cancelAnimationFrame(armFrame.current)
+      clearTimeout(armTimer.current)
       // Wherever the reader ends up, for this exact chat's next mount this
       // session (a switch back) to restore — see
       // UseTranscriptAnchorOptions.onPositionChange.

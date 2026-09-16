@@ -185,6 +185,19 @@ describe('lastLineTop', () => {
     expect(lastLineTop(doc)).toBeCloseTo(48 + 23.8)
   })
 
+  // REGRESSION: the pane's overlay chat header floats over this document
+  // with no flex space of its own, so a genuinely empty document's fallback
+  // position has to add the SAME clearance `.doc`'s own top padding gets
+  // (composer.css's `--agent-header-clearance`) or the handle renders above
+  // where the (padded-down) first line actually sits.
+  it('adds headerClearancePx to the fallback position on a genuinely empty document', () => {
+    expect(lastLineTop(docWithParagraphs([]), 52)).toBeCloseTo(48 + 52 + 23.8)
+  })
+
+  it('ignores headerClearancePx once there is a real last line to measure', () => {
+    expect(lastLineTop(docWithParagraphs([100, 250]), 52)).toBe(250)
+  })
+
   it('ignores where the caret actually is — a selection anchored in an earlier line does not move it', () => {
     const doc = docWithParagraphs([100, 250])
     document.body.appendChild(doc)
@@ -200,6 +213,108 @@ describe('lastLineTop', () => {
       expect(lastLineTop(doc)).toBe(250)
     } finally {
       document.body.removeChild(doc)
+    }
+  })
+})
+
+describe('AgentEmptyDocument header clearance', () => {
+  // REGRESSION: the mocked editor stub carries no `[data-slate-editor]` node,
+  // so `place()` always takes the same empty-document fallback a real fresh
+  // chat does — this exercises `headerClearancePx` through the component's
+  // own effect, not just the standalone `lastLineTop` helper above.
+  it('positions the handle below the overlay header when headerClearancePx is set', () => {
+    const { container } = draw({ headerClearancePx: 52 })
+
+    const handle = container.querySelector('.dochandle') as HTMLElement
+    // 48 (doc's own top padding) + 52 (header clearance) + 23.8 (one line at
+    // 14px/1.7) + 4 (HANDLE_LEAD), rounded — see firstLineTop/HANDLE_LEAD.
+    expect(handle.style.transform).toBe('translateY(128px)')
+  })
+
+  it('matches the pre-existing placement when no overlay header is present', () => {
+    const { container } = draw()
+
+    const handle = container.querySelector('.dochandle') as HTMLElement
+    expect(handle.style.transform).toBe('translateY(76px)')
+  })
+})
+
+// REGRESSION: `selectionchange` is a DOCUMENT event, and this box listened to
+// it unconditionally to keep its handle under the last line. Monaco mirrors the
+// editor selection into a hidden textarea, so a drag-select in a code pane fires
+// one per pointer move / auto-scroll tick (~120/s) — and every mounted chat
+// composer answered each of them with `place()`: two getBoundingClientRect reads
+// (a forced layout of the whole document) followed by a style write that dirties
+// it again. Measured live in the Tauri app: 239 synthetic selectionchange events
+// produced 478 rect reads on `.doc` — two per open chat — while the person was
+// doing nothing in any chat at all. The listener must ignore selections that are
+// not inside THIS document.
+describe('AgentEmptyDocument selectionchange gating', () => {
+  const FALLBACK_TRANSFORM = 'translateY(76px)' // 48 + 23.8 + HANDLE_LEAD, rounded
+
+  /**
+   * Give the rendered `.doc` a measurable last line, so a `place()` that runs
+   * moves the handle somewhere the fallback never would — the mocked editor stub
+   * carries no `[data-slate-editor]` node of its own.
+   */
+  function giveMeasurableLastLine(container: HTMLElement, bottom: number) {
+    const doc = container.querySelector('.doc') as HTMLElement
+    vi.spyOn(doc, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect)
+    const editable = document.createElement('div')
+    editable.setAttribute('data-slate-editor', 'true')
+    const p = document.createElement('p')
+    p.textContent = 'a line'
+    vi.spyOn(p, 'getBoundingClientRect').mockReturnValue({ bottom } as DOMRect)
+    editable.appendChild(p)
+    doc.appendChild(editable)
+    return doc
+  }
+
+  function handleTransform(container: HTMLElement): string {
+    return (container.querySelector('.dochandle') as HTMLElement).style.transform
+  }
+
+  function selectContentsOf(node: Node) {
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  }
+
+  it('ignores a selectionchange whose selection is outside this document', () => {
+    const { container } = draw()
+    giveMeasurableLastLine(container, 300)
+    expect(handleTransform(container)).toBe(FALLBACK_TRANSFORM)
+
+    // A selection anchored somewhere else entirely — the shape Monaco's hidden
+    // textarea produces on every step of a drag-select.
+    const outside = document.createElement('div')
+    outside.textContent = 'elsewhere'
+    document.body.appendChild(outside)
+    try {
+      selectContentsOf(outside)
+      for (let i = 0; i < 20; i++) fireEvent(document, new Event('selectionchange'))
+
+      expect(handleTransform(container)).toBe(FALLBACK_TRANSFORM)
+    } finally {
+      document.body.removeChild(outside)
+      window.getSelection()?.removeAllRanges()
+    }
+  })
+
+  it('still re-places the handle when the selection is inside this document', () => {
+    const { container } = draw()
+    const doc = giveMeasurableLastLine(container, 300)
+    expect(handleTransform(container)).toBe(FALLBACK_TRANSFORM)
+
+    try {
+      selectContentsOf(doc)
+      fireEvent(document, new Event('selectionchange'))
+
+      expect(handleTransform(container)).toBe('translateY(304px)') // 300 + HANDLE_LEAD
+    } finally {
+      window.getSelection()?.removeAllRanges()
     }
   })
 })
@@ -261,6 +376,49 @@ describe('AgentEmptyDocument hasText tracking', () => {
     const button = screen.getByRole('button', { name: 'Send prompt' })
     expect(button).toBeEnabled()
     expect(button.className).not.toMatch(/\boff\b/)
+  })
+})
+
+// REGRESSION: the reviving/idle/trust-wait signpost used to render as its own
+// row ABOVE this whole document (agent-chat-pane.tsx), free-floating over the
+// model/effort/attach/send row rather than on it — a resize could visibly
+// separate the two, since they had independent positions. It now occupies
+// THIS component's own control-bar slot, sharing the ONE `place()` transform
+// the ordinary row rides, so there is nothing left for it to drift apart from.
+describe('AgentEmptyDocument banner overlay', () => {
+  it('renders the banner inside the handle in place of the control row when one is given', () => {
+    const { container } = draw({
+      banner: createElement('div', { 'data-testid': 'stub-signpost' }, 'Resume the provider'),
+      controls: createElement('span', { 'data-testid': 'stub-controls' }),
+    })
+
+    const handle = container.querySelector('.dochandle') as HTMLElement
+    expect(handle.querySelector('[data-testid="stub-signpost"]')).not.toBeNull()
+    expect(handle.querySelector('.grp')).toBeNull()
+    expect(handle.querySelector('[data-testid="stub-controls"]')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Send prompt' })).toBeNull()
+  })
+
+  it('renders the ordinary control row, unchanged, when no banner is given', () => {
+    const { container } = draw({
+      controls: createElement('span', { 'data-testid': 'stub-controls' }),
+    })
+
+    const handle = container.querySelector('.dochandle') as HTMLElement
+    expect(handle.querySelector('.grp')).not.toBeNull()
+    expect(handle.querySelector('[data-testid="stub-controls"]')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Send prompt' })).toBeInTheDocument()
+  })
+
+  it('positions the handle the same way whether or not a banner occupies it', () => {
+    const withoutBanner = draw()
+    const withBanner = draw({
+      banner: createElement('div', null, 'Resume the provider'),
+    })
+
+    const handleWithout = withoutBanner.container.querySelector('.dochandle') as HTMLElement
+    const handleWith = withBanner.container.querySelector('.dochandle') as HTMLElement
+    expect(handleWith.style.transform).toBe(handleWithout.style.transform)
   })
 })
 

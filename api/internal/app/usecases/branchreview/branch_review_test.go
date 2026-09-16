@@ -125,10 +125,6 @@ func (m *mockWorkspace) SetParentFromPR(ctx context.Context, id, parentID string
 	return domain.Workspace{}, nil
 }
 
-func (m *mockWorkspace) SetPlacement(_ context.Context, id, folderID string, order int) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, FolderID: folderID, Order: order}, nil
-}
-
 func (m *mockWorkspace) SetProject(_ context.Context, id, projectID string) (domain.Workspace, error) {
 	return domain.Workspace{ID: id, ProjectID: projectID}, nil
 }

@@ -74,6 +74,33 @@ func TestTCPTransportPostSendsJSONBody(t *testing.T) {
 	}
 }
 
+func TestTCPTransportPatchSendsJSONBody(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Errorf("method = %q, want PATCH", r.Method)
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &received)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"data":{"id":"c1"}}`))
+	}))
+	defer srv.Close()
+
+	status, _, err := transportFor(srv).PatchJSON(
+		context.Background(), "/v0/chats/c1/branch", map[string]any{"branch": seedFeatureBranch},
+	)
+	if err != nil {
+		t.Fatalf("PatchJSON: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", status)
+	}
+	if received["branch"] != seedFeatureBranch {
+		t.Fatalf("daemon received %+v", received)
+	}
+}
+
 // ipc.Client reports a non-2xx as a status with err == nil; the TCP transport
 // has to behave identically or the two wires diverge at the call site.
 func TestTCPTransportReportsNon2xxAsAStatusNotAnError(t *testing.T) {

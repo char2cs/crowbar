@@ -53,12 +53,42 @@ export interface SubscribeEntityStreamOptions<T> {
    * per-repo list, `(repo) => repo.projectId === projectId` for the repo list.
    */
   pruneScope?: (cached: T) => boolean
+  /**
+   * Turn ONE raw frame into the entity it is about, or null to ignore it.
+   *
+   * Every frame goes through this BEFORE the `id` check, so a feed whose frames
+   * are not entity DTOs at all can still drive this cache. That is now the
+   * normal case for `crowbar_workspaces`: a worktree is held by a chat, so its
+   * live updates ride the chat LIFECYCLE socket, where a `worktree_state` event
+   * carries the worktree nested inside it and every other kind
+   * (`turn_started`, `deleted`, `folder_created`, …) is about something else
+   * entirely and maps to null.
+   *
+   * Omitted, the frame is cast exactly as it always was.
+   */
+  mapFrame?: (raw: unknown) => T | null
+  /**
+   * A frame `mapFrame` would drop (returns null for) but that still means
+   * this scope's whole set needs re-reading, not ignoring — the same
+   * reasoning as the reconnect sentinel's own full reseed, for a frame kind
+   * this stream's per-row merge cannot express as one entity.
+   *
+   * `crowbar_workspaces`'s own `mapFrame` (workspaceDTOFromWorktreeFrame)
+   * only understands `worktree_state` frames; a Node-backed placement write
+   * (PlaceWorkspace) broadcasts `placement_set`/`folder_updated` instead —
+   * a kind nothing on this feed maps to an entity — so every frame from that
+   * PATCH was silently dropped and the cached `WorkspaceDTO.order` the
+   * sidebar sorts branch rows by never moved without a manual reload, caught
+   * live: a fork dragged past a sibling PATCHed 200, and the Node itself
+   * genuinely moved, but the panel stayed exactly where it started.
+   */
+  shouldReseed?: (raw: unknown) => boolean
 }
 
 export function subscribeEntityStream<T extends { id: string; status?: string }>(
   opts: SubscribeEntityStreamOptions<T>,
 ): () => void {
-  const { endpoint, store, seed, onChange, pruneScope } = opts
+  const { endpoint, store, seed, onChange, pruneScope, mapFrame, shouldReseed } = opts
   let disposed = false
 
   // §6 ordering: every cache mutation (seed + each live frame) is queued onto a
@@ -143,7 +173,17 @@ export function subscribeEntityStream<T extends { id: string; status?: string }>
       runSeed()
       return
     }
-    const frame = data as EntityFrame
+    if (shouldReseed?.(data)) {
+      runSeed()
+      return
+    }
+    // Mapped BEFORE the id check: on a lifecycle feed the raw frame has no `id`
+    // of its own at all, and the entity it is about is nested inside it.
+    // Tombstones are read off the MAPPED value below, so a mapper is free to
+    // produce one.
+    const mapped = mapFrame ? mapFrame(data) : (data as EntityFrame)
+    if (mapped === null) return
+    const frame = mapped as EntityFrame
     if (!frame || typeof frame.id !== 'string') return
     applyChain = applyChain
       .then(() => applyFrame(frame))

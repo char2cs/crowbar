@@ -29,7 +29,9 @@ export function resolveWritablePaneForBuffer({
 }: WritablePaneRoutingInput): PaneGroup | null {
   if (!activePane) return null
 
-  if ((bufferId && activePane.bufferIds.includes(bufferId)) || !activePane.locked) {
+  // I8 (Task 26 fix round 1): bufferIds has not existed on PaneGroup since
+  // Task 1's editorTabIds rename.
+  if ((bufferId && activePane.editorTabIds.includes(bufferId)) || !activePane.locked) {
     return activePane
   }
 

@@ -12,20 +12,6 @@ import (
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 )
 
-func TestWorkspacesDef_Lambdas(t *testing.T) {
-	def := workspacesDef(nil)
-	d := dto.WorkspaceDTO{ID: "w1", ProjectID: "p1", RepoID: "r1"}
-
-	assert.Equal(t, "p1/r1/w1", def.Namespace(d))
-
-	data, err := def.Serialize(d)
-	require.NoError(t, err)
-	assert.Contains(t, string(data), "w1")
-
-	// Prefix-based scoping replaces the projectId/repoId query Filters (spec §5).
-	assert.Empty(t, def.Filters)
-}
-
 func TestProjectsDef_NamespaceID(t *testing.T) {
 	def := projectsDef(nil)
 	d := dto.ProjectDTO{ID: "p1"}
@@ -72,30 +58,31 @@ func TestThreadsDef_FiltersScopeByProjectRepoWs(t *testing.T) {
 	assert.Equal(t, "w1", def.Filters[2].Extract(d))
 }
 
-func TestTerminalsDef_NamespaceProjectRepoWs(t *testing.T) {
+func TestTerminalsDef_NamespaceChat(t *testing.T) {
 	def := terminalsDef(nil, nil)
-	d := dto.TerminalSessionDTO{ID: "s1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
+	d := dto.TerminalSessionDTO{ID: "s1", ChatID: "c1"}
 
-	// The namespace is the workspace prefix (p/r/w), NOT the session leaf: a
-	// workspace-scoped subscription receives every session in that workspace.
-	assert.Equal(t, "p1/r1/w1", def.Namespace(d))
+	// The namespace is the OWNING CHAT, NOT the session leaf: a chat-scoped
+	// subscription receives every session that chat owns. It is flat — a bare
+	// chat id, never a hierarchical "p/r/w" path — so the hierarchical
+	// client-scope prefix must not be applied to it.
+	assert.Equal(t, "c1", def.Namespace(d))
+	assert.True(t, def.FlatNamespace)
 
 	data, err := def.Serialize(d)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "s1")
 }
 
-func TestTerminalsDef_FiltersScopeByProjectRepoWs(t *testing.T) {
+func TestTerminalsDef_FiltersScopeByChat(t *testing.T) {
 	def := terminalsDef(nil, nil)
-	d := dto.TerminalSessionDTO{ID: "s1", ProjectID: "p1", RepoID: "r1", WorkspaceID: "w1"}
+	d := dto.TerminalSessionDTO{ID: "s1", ChatID: "c1"}
 
-	require.Len(t, def.Filters, 3)
-	assert.Equal(t, "projectId", def.Filters[0].Param)
-	assert.Equal(t, "p1", def.Filters[0].Extract(d))
-	assert.Equal(t, "repoId", def.Filters[1].Param)
-	assert.Equal(t, "r1", def.Filters[1].Extract(d))
-	assert.Equal(t, "wsId", def.Filters[2].Param)
-	assert.Equal(t, "w1", def.Filters[2].Extract(d))
+	// ONE filter: the dual-served route is /v0/chats/:chatId/terminals, which
+	// binds no projectId/repoId/wsId at all, so chatId is what scopes a client.
+	require.Len(t, def.Filters, 1)
+	assert.Equal(t, "chatId", def.Filters[0].Param)
+	assert.Equal(t, "c1", def.Filters[0].Extract(d))
 }
 
 func TestTerminalsDef_SnapshotNilWithoutEngine(t *testing.T) {
@@ -106,8 +93,9 @@ func TestTerminalsDef_SnapshotNilWithoutEngine(t *testing.T) {
 func TestGitDef_Lambdas(t *testing.T) {
 	def := gitDef(nil)
 	evt := gitdomain.GitStatusEvent{
-		WsID:   "w1",
-		Status: gitdomain.GitStatus{Branch: "main"},
+		WsID:    "w1",
+		ChatIDs: []string{"chat-a", "chat-b"},
+		Status:  gitdomain.GitStatus{Branch: "main"},
 	}
 
 	assert.Equal(t, "w1", def.Namespace(evt))
@@ -116,33 +104,57 @@ func TestGitDef_Lambdas(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "main")
 	assert.NotContains(t, string(data), "wsId")
+	assert.NotContains(t, string(data), "chat-a",
+		"the fan-out set is routing, not payload: a consumer is never handed a workspace's chat roster")
 
+	// ONE filter: the chat-scoped mount is the only live route left (spec §8
+	// step 6 retired the old workspace-scoped one), matched by MEMBERSHIP
+	// against the fan-out set the event carries, and Required — a subscriber
+	// resolving no chat id gets nothing rather than every workspace.
 	require.Len(t, def.Filters, 1)
-	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
+	assert.Equal(t, "chatId", def.Filters[0].Param)
+	assert.Equal(t, []string{"chat-a", "chat-b"}, def.Filters[0].ExtractSet(evt))
+	assert.True(t, def.Filters[0].Required)
 }
 
 func TestFilesDef_Lambdas(t *testing.T) {
 	def := filesDef()
-	evt := domain.FileChangeEvent{WsID: "w1", Path: "a.go"}
+	evt := domain.FileChangeEvent{WsID: "w1", Path: "a.go", ChatIDs: []string{"chat-a", "chat-b"}}
 
 	assert.Equal(t, "w1", def.Namespace(evt))
 
 	data, err := def.Serialize(evt)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "a.go")
+	assert.NotContains(t, string(data), "chat-a",
+		"the fan-out set is routing, not payload: a consumer is never handed a workspace's chat roster")
 
-	require.Len(t, def.Filters, 1)
+	// TWO filters, for the two live mounts left (spec §8 step 6 retired the
+	// repo-scoped workspace mount): the home route resolves wsId (its own
+	// RequireHomeWorkspace injects one), the chat-scoped one resolves chatId,
+	// and each client activates only the one its own request binds.
+	require.Len(t, def.Filters, 2)
+	assert.Equal(t, "wsId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
+	assert.Equal(t, "chatId", def.Filters[1].Param)
+	assert.Equal(t, []string{"chat-a", "chat-b"}, def.Filters[1].ExtractSet(evt))
+}
+
+// TestFilesDef_CarriesNoSnapshot pins a real design answer rather than an
+// absence nobody chose: a file-change event is NEWS, not state. A connecting
+// client has already fetched the tree over REST, so there is nothing to replay
+// — which is why the chat-scoped move needed no chat-resolving snapshot source
+// of the kind gitSnapshot grew. If a snapshot is ever added here it must answer
+// the BARE chat scope too (see gitSnapshot), and this is the test that will say
+// so.
+func TestFilesDef_CarriesNoSnapshot(t *testing.T) {
+	assert.Nil(t, filesDef().Snapshot)
 }
 
 func TestAgentChatDef_Lambdas(t *testing.T) {
 	def := agentChatDef()
-	evt := dto.AgentChatEvent{ChatID: "c1", WorkspaceID: "w1", Kind: "bound"}
+	evt := dto.AgentChatEvent{ChatID: "c1", WorkspaceID: "w1", ProjectID: "p1", RepoID: "r1", Kind: "bound"}
 
-	// Scoped by workspace (Task 3), mirroring gitDef/filesDef: the namespace is
-	// the bare wsId and FlatNamespace opts out of the hierarchical
-	// projectId/repoId/wsId prefix-match, leaving the explicit Filter below as
-	// the sole scoping mechanism.
 	assert.Equal(t, "w1", def.Namespace(evt))
 	assert.True(t, def.FlatNamespace)
 
@@ -151,12 +163,49 @@ func TestAgentChatDef_Lambdas(t *testing.T) {
 	assert.Contains(t, string(data), "c1")
 	assert.Contains(t, string(data), "bound")
 
-	require.Len(t, def.Filters, 1)
+	// FOUR filters, each inactive where its param is unbound: wsId narrows the
+	// HOME mount (RequireHomeWorkspace injects a :wsId for it to resolve),
+	// projectId and repoId together narrow the REPO mount, which binds no :wsId
+	// at all and was therefore scoped by nothing before repoId existed — and
+	// still leaked every REPO-LESS frame across projects before projectId did —
+	// and chatId narrows the per-CHAT mount (/v0/chats/:chatId/ws) that replaces
+	// watching one workspace's stream, and that carries the provider poll with it.
+	require.Len(t, def.Filters, 4)
+	assert.Equal(t, "wsId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
+	assert.Equal(t, "projectId", def.Filters[1].Param)
+	assert.Equal(t, "p1", def.Filters[1].Extract(evt))
+	assert.Equal(t, "repoId", def.Filters[2].Param)
+	assert.Equal(t, "r1", def.Filters[2].Extract(evt))
+	assert.Equal(t, "chatId", def.Filters[3].Param)
+	assert.Equal(t, "c1", def.Filters[3].Extract(evt))
 
 	// No snapshot: a freshly-connected client waits for the next lifecycle
 	// event rather than replaying a "current state".
 	assert.Nil(t, def.Snapshot(""))
+}
+
+// TestMatchScopeOrUnscoped_HoldsAKnownIDAndLetsAnUnknownOneThrough pins the
+// asymmetry the projectId and repoId filters both turn on, and the reason
+// neither is ws.ExactMatch.
+//
+// A frame that KNOWS a scoping id is held to exactly that id — that is the
+// whole fix. A frame that CANNOT know it reaches everyone, because half the
+// rows on this feed have no such id to be held to: a FOLDER carries neither a
+// workspace nor a repo id, so does a bubble whose ancestry owns no workspace,
+// and so does every row in a project home, whose workspace owns no repo.
+// ExactMatch would drop those frames from every repo-scoped subscriber, which
+// silently kills the live folder feed the Chats panel repaints from.
+//
+// The hatch opening per FIELD is what made one filter insufficient: it is why a
+// repo-less frame escaped scoping altogether until the projectId filter — using
+// this same matcher on a field those rows CAN answer — bounded it.
+func TestMatchScopeOrUnscoped_HoldsAKnownIDAndLetsAnUnknownOneThrough(t *testing.T) {
+	assert.True(t, matchScopeOrUnscoped("r1", "r1"), "a frame from this repo is delivered")
+	assert.False(t, matchScopeOrUnscoped("r1", "r2"), "a frame from another repo is not")
+	assert.True(t, matchScopeOrUnscoped("r1", ""), "a frame with no repo to be held to reaches everyone")
+	assert.True(t, matchScopeOrUnscoped("p1", "p1"), "a frame from this project is delivered")
+	assert.False(t, matchScopeOrUnscoped("p1", "p2"), "a frame from another project is not")
 }
 
 func TestLSPDef_Lambdas(t *testing.T) {
@@ -169,6 +218,11 @@ func TestLSPDef_Lambdas(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "w1")
 
+	// ONE filter: the chat-scoped mount is the only live route left (spec §8
+	// step 6 retired the old workspace-scoped one). LSP has no fan-out (spec
+	// §4.2 owned bucket), so this is a plain field match, not a membership set
+	// the way gitDef's chatId filter is.
 	require.Len(t, def.Filters, 1)
+	assert.Equal(t, "chatId", def.Filters[0].Param)
 	assert.Equal(t, "w1", def.Filters[0].Extract(evt))
 }

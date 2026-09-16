@@ -150,7 +150,7 @@ func TestStageRecord_SurfacesAWriteFailureOnAReadOnlyHandle(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "readonly")
 	require.NoError(t, os.WriteFile(path, nil, 0o600))
-	ro, err := os.Open(path) //nolint:gosec // test-owned temp file
+	ro, err := os.Open(path)
 	require.NoError(t, err)
 	defer ro.Close()
 

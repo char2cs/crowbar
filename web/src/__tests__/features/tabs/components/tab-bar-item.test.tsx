@@ -7,10 +7,6 @@ vi.mock('@/features/file-explorer/components/file-explorer-icon', () => ({
   FileExplorerIcon: () => <span data-testid="file-icon" />,
 }))
 
-vi.mock('@/components/ui/crowbar-mark', () => ({
-  CrowbarMark: () => <span data-testid="crowbar-mark" />,
-}))
-
 const editorBuffer: EditorContent = {
   id: 'buf-1',
   type: 'editor',
@@ -22,8 +18,8 @@ const editorBuffer: EditorContent = {
   isVirtual: false,
   isPinned: false,
   isPreview: false,
-  isActive: false,
   tokens: [],
+  workspaceId: 'w1',
 }
 
 const shared = {
@@ -37,20 +33,39 @@ const shared = {
   handleTabPin: () => {},
 }
 
-describe('TabBarItem pill restyle', () => {
-  it('active tab is a filled rounded-full pill', () => {
+describe('TabBarItem ghost restyle', () => {
+  it('active tab is flat, not a filled rounded pill', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
     const tab = screen.getByRole('tab')
-    expect(tab).toHaveClass('rounded-full')
-    expect(tab).toHaveClass('bg-background')
-    expect(tab).toHaveClass('border-background')
+    expect(tab).not.toHaveClass('rounded-full')
+    expect(tab).not.toHaveClass('bg-background')
+    expect(tab).not.toHaveClass('border-background')
   })
 
-  it('inactive tab has ghost variant classes', () => {
+  it('inactive tab is flat with muted text, no fill', () => {
     render(<TabBarItem buffer={editorBuffer} isActive={false} {...shared} />)
     const tab = screen.getByRole('tab')
-    expect(tab).toHaveClass('rounded-full')
-    expect(tab).toHaveClass('border-transparent')
+    expect(tab).not.toHaveClass('rounded-full')
+    expect(tab).not.toHaveClass('bg-background')
+    expect(tab).toHaveClass('text-muted-foreground')
+  })
+
+  // The IDE sector's tab strip reads as the same ghost-toolbar-button family
+  // as the split-toggle/close-view/add-tab buttons in the same row — no
+  // underline bar, a persistent sidebar-element-hover fill on the active tab.
+  it('active tab carries a persistent sidebar-element-hover fill, not an underline bar', () => {
+    render(<TabBarItem buffer={editorBuffer} isActive={true} {...shared} />)
+    const tab = screen.getByRole('tab')
+    expect(tab).toHaveClass('bg-sidebar-element-hover')
+    expect(tab).toHaveClass('text-foreground')
+    expect(screen.queryByTestId('tab-underline')).not.toBeInTheDocument()
+  })
+
+  it('inactive tab has no fill and no underline bar', () => {
+    render(<TabBarItem buffer={editorBuffer} isActive={false} {...shared} />)
+    const tab = screen.getByRole('tab')
+    expect(tab).not.toHaveClass('bg-sidebar-element-hover')
+    expect(screen.queryByTestId('tab-underline')).not.toBeInTheDocument()
   })
 
   it('active tab does not have bg-foreground/85 (old pill style removed)', () => {
@@ -82,37 +97,45 @@ describe('TabBarItem pill restyle', () => {
     expect(closeBtn).not.toHaveClass('opacity-100')
   })
 
-  it('renders a New Tab with its label and no close button when uncloseable', () => {
-    const buffer = {
-      id: 'nt-1',
-      type: 'newTab' as const,
-      path: '',
-      name: 'New Tab',
-      isPinned: false,
-      isPreview: false,
-      isActive: true,
-      isUncloseable: true,
-    }
-    render(
-      <TabBarItem
-        buffer={buffer}
-        displayName="New Tab"
-        index={0}
-        isActive
-        isDraggedTab={false}
-        onDoubleClick={vi.fn()}
-        onContextMenu={vi.fn()}
-        onKeyDown={vi.fn()}
-        handleTabClose={vi.fn()}
-        handleTabPin={vi.fn()}
-      />,
-    )
-    expect(screen.getByText('New Tab')).toBeInTheDocument()
+  // Spec §7.1: there is no "Editor"/New Tab placeholder tab any more — the
+  // sole-tab-in-a-pane invariant (isUncloseable) now applies to any real
+  // editor-tab content, exercised here with a plain editor buffer.
+  it('renders an uncloseable tab with its label and no close button', () => {
+    const buffer: EditorContent = { ...editorBuffer, isUncloseable: true }
+    render(<TabBarItem buffer={buffer} isActive {...shared} />)
+    expect(screen.getByText('bar.ts')).toBeInTheDocument()
     expect(screen.queryByLabelText(/close/i)).not.toBeInTheDocument()
-    // The Crowbar mark is the New Tab icon; the file-explorer fallback icon
-    // must NOT render for this buffer type (it did, unconditionally, before
-    // the newTab case was added).
-    expect(screen.getByTestId('crowbar-mark')).toBeInTheDocument()
-    expect(screen.queryByTestId('file-icon')).not.toBeInTheDocument()
+  })
+
+  // The active+dirty tab used to render as a `rounded-full` blue pill with an
+  // alpha shadow. It now borrows the same raised-row shape/top-shadow
+  // treatment ROW_ACTIVE gives any other active row (workspace-row-base.ts),
+  // signaling "unsaved" with ONLY a blue border — every attempt to also tint
+  // the fill blue (translucent, `color-mix`, then solid `bg-primary`) was
+  // tried and rejected: the tab strip's normal muted active fill was already
+  // correct, it just needed the border to turn blue on top of it.
+  it('active+dirty tab gets a blue border on the normal muted active fill', () => {
+    const buffer: EditorContent = { ...editorBuffer, isDirty: true }
+    render(<TabBarItem buffer={buffer} isActive {...shared} />)
+    const tab = screen.getByRole('tab')
+    expect(tab).not.toHaveClass('rounded-full')
+    expect(tab).not.toHaveClass('bg-primary')
+    expect(tab).not.toHaveClass('bg-primary/12')
+    expect(tab).not.toHaveClass('text-primary-foreground')
+    expect(tab.className).not.toContain('color-mix')
+    expect(tab.style.background).toBe('')
+    expect(tab).toHaveClass('rounded-sm')
+    expect(tab).toHaveClass('border-primary')
+    expect(tab).toHaveClass('bg-sidebar-element-hover')
+    expect(tab.className).toContain('inset-shadow-[0_1px_var(--elevated-highlight)]')
+  })
+
+  it('inactive+dirty tab keeps the plain ghost shape and shows the unsaved dot', () => {
+    const buffer: EditorContent = { ...editorBuffer, isDirty: true }
+    render(<TabBarItem buffer={buffer} isActive={false} {...shared} />)
+    const tab = screen.getByRole('tab')
+    expect(tab).not.toHaveClass('rounded-full')
+    expect(tab.className).not.toContain('color-mix')
+    expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
   })
 })

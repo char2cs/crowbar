@@ -19,6 +19,7 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
+      timestamp: ${{ steps.tag.outputs.timestamp }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,6 +32,7 @@ jobs:
           TAG="v${VERSION}-beta.${BETA_NUM}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
           echo "Pre-release tag: ${TAG}"
 
   daemon:
@@ -46,6 +48,9 @@ jobs:
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          VITE_BUILD_CHANNEL: beta
+          VITE_BUILD_VERSION: ${{ needs.derive-tag.outputs.tag }}
+          VITE_BUILD_TIMESTAMP: ${{ needs.derive-tag.outputs.timestamp }}
         run: cd web && bun install --frozen-lockfile && bun run build
       - name: Stage web assets for embedding
         run: cd api && make embed-web
@@ -109,6 +114,9 @@ jobs:
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          VITE_BUILD_CHANNEL: beta
+          VITE_BUILD_VERSION: ${{ needs.derive-tag.outputs.tag }}
+          VITE_BUILD_TIMESTAMP: ${{ needs.derive-tag.outputs.timestamp }}
         run: cd web && bun install --frozen-lockfile && bun run build
       - name: Sync version into tauri.conf.json
         run: jq ".version = \"${VERSION}\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json
@@ -169,6 +177,9 @@ jobs:
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          VITE_BUILD_CHANNEL: beta
+          VITE_BUILD_VERSION: ${{ needs.derive-tag.outputs.tag }}
+          VITE_BUILD_TIMESTAMP: ${{ needs.derive-tag.outputs.timestamp }}
         run: cd web && bun install --frozen-lockfile && bun run build
       - name: Sync version into tauri.conf.json
         run: jq ".version = \"${VERSION}\"" desktop/src-tauri/tauri.conf.json > /tmp/tc.json && mv /tmp/tc.json desktop/src-tauri/tauri.conf.json

@@ -2,9 +2,39 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiFetch = vi.fn()
 vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
-vi.mock('@/lib/workspace-scope-url', () => ({ workspaceBase: (id: string) => `/v0/ws/${id}` }))
+// Only the scope REGISTRY is faked; the URL builders themselves run for real,
+// so these assertions pin the actual paths this client dials rather than a
+// stand-in shape. 'w1' carries a real repo, so chatBase builds the Task-17
+// repo-scoped shape; 'ws-home' has repoId '' (a project-home workspace) and
+// falls back to the still-live /home mount; anything else is unrecorded scope.
+vi.mock('@/lib/workspace-scope', () => ({
+  getWorkspaceScope: (id: string) => {
+    if (id === 'w1') return { projectId: 'p1', repoId: 'r1', wsId: 'w1' }
+    if (id === 'ws-home') return { projectId: 'p1', repoId: '', wsId: 'ws-home' }
+    return null
+  },
+  getOwningChatId: (id: string) => (id === 'w1' ? 'chat-w1' : null),
+}))
 
 import * as api from '@/features/agent/api/agent-api'
+
+describe('agent-api: chatBase URL shape', () => {
+  beforeEach(() => apiFetch.mockReset())
+
+  it('builds the repo-scoped chat URL for a non-home workspace', async () => {
+    apiFetch.mockResolvedValue([])
+    await api.listChats('w1')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats')
+    expect(apiFetch.mock.calls[0][0]).not.toContain('/workspaces/')
+  })
+
+  it('keeps the home mount unchanged for a home workspace', async () => {
+    apiFetch.mockResolvedValue([])
+    await api.listChats('ws-home')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/home/chats')
+    expect(apiFetch.mock.calls[0][0]).not.toContain('/repos/')
+  })
+})
 
 describe('agent-api', () => {
   beforeEach(() => apiFetch.mockReset())
@@ -22,7 +52,7 @@ describe('agent-api', () => {
       },
     ])
     const chats = await api.listChats('w1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats')
+    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats')
     // liveRunnerId + its PTY must survive the mapper — they ARE the attach contract.
     expect(chats[0]).toMatchObject({
       id: 'c1',
@@ -110,7 +140,9 @@ describe('agent-api', () => {
       ],
     })
     const chat = await api.getChat('w1', 'c1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1', { signal: undefined })
+    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats/c1', {
+      signal: undefined,
+    })
     expect(chat.liveRunnerId).toBe('r1')
     expect(chat.terminalSessionId).toBe('pty1')
     // Conversations succeed the deleted `segments`: pure append-only history, with
@@ -156,9 +188,12 @@ describe('agent-api', () => {
       ],
     })
     const page = await api.listChatMessages('w1', 'chat/1')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/chat%2F1/messages?limit=100', {
-      signal: undefined,
-    })
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/chats/chat%2F1/messages?limit=100',
+      {
+        signal: undefined,
+      },
+    )
     expect(page).toMatchObject({ cursor: 12, oldestCursor: 11, hasMore: true })
     expect(page.items.map((item) => item.sequence)).toEqual([11, 12])
   })
@@ -171,13 +206,19 @@ describe('agent-api', () => {
       limit: 25,
       signal: controller.signal,
     })
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1/messages?after=4&limit=25', {
-      signal: controller.signal,
-    })
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/v0/projects/p1/repos/r1/chats/c1/messages?after=4&limit=25',
+      {
+        signal: controller.signal,
+      },
+    )
     await api.listChatMessages('w1', 'c1', { before: 10, limit: 25 })
-    expect(apiFetch).toHaveBeenLastCalledWith('/v0/ws/w1/chats/c1/messages?before=10&limit=25', {
-      signal: undefined,
-    })
+    expect(apiFetch).toHaveBeenLastCalledWith(
+      '/v0/projects/p1/repos/r1/chats/c1/messages?before=10&limit=25',
+      {
+        signal: undefined,
+      },
+    )
   })
 
   it('submits one completed prompt with a stable client request identity', async () => {
@@ -185,7 +226,7 @@ describe('agent-api', () => {
     const result = await api.submitAgentPrompt('w1', 'c1', 'Line one\nline two', 'request-1')
     expect(result).toEqual({ runnerId: 'r2', terminalSessionId: 'pty2' })
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/ws/w1/chats/c1/prompts',
+      '/v0/projects/p1/repos/r1/chats/c1/prompts',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ text: 'Line one\nline two', clientRequestId: 'request-1' }),
@@ -197,7 +238,7 @@ describe('agent-api', () => {
     apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
     await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', '', 'opus', 'high')
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/ws/w1/chats/c1/prompts',
+      '/v0/projects/p1/repos/r1/chats/c1/prompts',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -220,7 +261,7 @@ describe('agent-api', () => {
     apiFetch.mockResolvedValue({ runnerId: 'r2', terminalSessionId: 'pty2' })
     await api.submitAgentPrompt('w1', 'c1', 'go', 'request-1', 'codex', '', '')
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/ws/w1/chats/c1/prompts',
+      '/v0/projects/p1/repos/r1/chats/c1/prompts',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -245,7 +286,7 @@ describe('agent-api', () => {
     const catalog = await api.getSlashCatalog('w1', 'c1', controller.signal)
     expect(catalog.warnings).toEqual(['one plugin failed'])
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/ws/w1/chats/c1/slash-catalog',
+      '/v0/projects/p1/repos/r1/chats/c1/slash-catalog',
       { signal: controller.signal },
       { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
     )
@@ -281,7 +322,7 @@ describe('agent-api', () => {
       apiFetch.mockResolvedValueOnce(undefined)
       await api.getPendingPrompt('w1', 'c1', controller.signal)
       expect(apiFetch).toHaveBeenCalledWith(
-        '/v0/ws/w1/chats/c1/pending-prompt',
+        '/v0/projects/p1/repos/r1/chats/c1/pending-prompt',
         { signal: controller.signal },
         { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
       )
@@ -293,13 +334,25 @@ describe('agent-api', () => {
     const id = await api.createChat('w1', 'codex')
     expect(id).toBe('c9')
     const [url, init] = apiFetch.mock.calls[0]
-    expect(url).toBe('/v0/ws/w1/chats')
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats')
     // No parent given is the workspace root, said explicitly rather than by
     // omission — one shape on the wire whether or not the chat is a thread.
     expect(init).toMatchObject({
       method: 'POST',
-      body: JSON.stringify({ provider: 'codex', parentId: '' }),
+      body: JSON.stringify({ provider: 'codex', parentId: '', workspaceId: 'w1' }),
     })
+  })
+
+  // Regression: the repo-scoped mount (Task 17) binds no :wsId, so the ONLY
+  // way the backend's Create learns which workspace to anchor a top-level
+  // chat to is body.workspaceId. Omitting it minted the chat fine but left it
+  // anchored to "" — a chat with no ancestor to resolve a cwd workspace from —
+  // and its runner spawn 404'd (confirmed live: "agentchat: not found").
+  it('createChat sends workspaceId in the body, not just the URL', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChat('w1', 'codex')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.workspaceId).toBe('w1')
   })
 
   it('createChat carries the PARENT, so the edge exists before the runner starts', async () => {
@@ -309,18 +362,61 @@ describe('agent-api', () => {
     apiFetch.mockResolvedValue({ id: 'c9' })
     await api.createChat('w1', 'codex', 'parent-chat')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
-      body: JSON.stringify({ provider: 'codex', parentId: 'parent-chat' }),
+      body: JSON.stringify({ provider: 'codex', parentId: 'parent-chat', workspaceId: 'w1' }),
     })
     // ONE call: no follow-up placement to leave an orphan at the root if it
     // failed.
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
+  // Task 8: the sidebar's "create workspace" affordance — no workspace exists
+  // yet to derive a chatBase scope from, so this is built straight off
+  // project+repo instead.
+  it('createChatWithOwnWorktree POSTs ownWorktree:true with no workspaceId, and returns the new id', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    const id = await api.createChatWithOwnWorktree('p1', 'r1', 'codex', 'home-1')
+    expect(id).toBe('c9')
+    const [url, init] = apiFetch.mock.calls[0]
+    expect(url).toBe('/v0/projects/p1/repos/r1/chats')
+    expect(init).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ provider: 'codex', parentId: 'home-1', ownWorktree: true }),
+    })
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body).not.toHaveProperty('workspaceId')
+  })
+
+  it('createChatWithOwnWorktree defaults parentId to the panel root', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChatWithOwnWorktree('p1', 'r1', 'codex')
+    expect(apiFetch.mock.calls[0][1]).toMatchObject({
+      body: JSON.stringify({ provider: 'codex', parentId: '', ownWorktree: true }),
+    })
+  })
+
+  // TestRegression: the sidebar's inline create input (2026-09-09) types a
+  // branch name before the fork happens — it has to reach the wire, not be
+  // silently dropped in favour of the server-generated name every caller
+  // before this got.
+  it('createChatWithOwnWorktree sends the caller-supplied branch name', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChatWithOwnWorktree('p1', 'r1', 'codex', 'home-1', 'feature/typed-name')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect(body).toMatchObject({ branch: 'feature/typed-name' })
+  })
+
+  it('createChatWithOwnWorktree omits branch entirely when not given', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChatWithOwnWorktree('p1', 'r1', 'codex', 'home-1')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect(body).not.toHaveProperty('branch')
+  })
+
   it('switchProvider POSTs to /switch and returns the NEW RUNNER id', async () => {
     apiFetch.mockResolvedValue({ id: 'r2' })
     const runnerId = await api.switchProvider('w1', 'c1', 'claude')
     expect(runnerId).toBe('r2')
-    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/c1/switch')
+    expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/c1/switch')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
       method: 'POST',
       body: JSON.stringify({ provider: 'claude' }),
@@ -331,22 +427,28 @@ describe('agent-api', () => {
     apiFetch.mockResolvedValue({ id: 'r9' })
     const runnerId = await api.resumeChat('w1', 'c1')
     expect(runnerId).toBe('r9')
-    expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/chats/c1/resume', { method: 'POST' }])
+    expect(apiFetch.mock.calls[0]).toEqual([
+      '/v0/projects/p1/repos/r1/chats/c1/resume',
+      { method: 'POST' },
+    ])
   })
 
   it('renameChat POSTs the title; deleteChat DELETEs; listProviders GETs', async () => {
     apiFetch.mockResolvedValue(undefined)
     await api.renameChat('w1', 'c1', 'New')
-    expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/c1/rename')
+    expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/c1/rename')
     expect(apiFetch.mock.calls[0][1]).toMatchObject({
       method: 'POST',
       body: JSON.stringify({ title: 'New' }),
     })
     await api.deleteChat('w1', 'c1')
-    expect(apiFetch.mock.calls[1]).toEqual(['/v0/ws/w1/chats/c1', { method: 'DELETE' }])
+    expect(apiFetch.mock.calls[1]).toEqual([
+      '/v0/projects/p1/repos/r1/chats/c1',
+      { method: 'DELETE' },
+    ])
     apiFetch.mockResolvedValue([{ id: 'claude', displayName: 'Claude', icon: '<svg/>' }])
     const p = await api.listProviders('w1')
-    expect(apiFetch.mock.calls[2][0]).toBe('/v0/ws/w1/chats/providers')
+    expect(apiFetch.mock.calls[2][0]).toBe('/v0/projects/p1/repos/r1/chats/providers')
     expect(p[0]).toMatchObject({ id: 'claude', displayName: 'Claude' })
   })
 
@@ -356,7 +458,7 @@ describe('agent-api', () => {
   it('setChatSelection PATCHes the whole selection', async () => {
     apiFetch.mockResolvedValue(undefined)
     await api.setChatSelection('w1', 'c1', 'gpt-5.6-luna', 'max')
-    expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/c1/selection', {
+    expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats/c1/selection', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'gpt-5.6-luna', effort: 'max' }),
@@ -699,7 +801,7 @@ describe('agent-api', () => {
     await api.answerChoice('w1', 'c1', 'k 1', { optionIds: ['allow'] })
 
     expect(apiFetch).toHaveBeenCalledWith(
-      '/v0/ws/w1/chats/c1/choices/k%201/answer',
+      '/v0/projects/p1/repos/r1/chats/c1/choices/k%201/answer',
       expect.objectContaining({ method: 'POST' }),
     )
     expect(JSON.parse(apiFetch.mock.calls[0]?.[1]?.body)).toEqual({ optionIds: ['allow'] })
@@ -741,15 +843,18 @@ describe('agent-api', () => {
 
   describe('chat folders + placement', () => {
     it('listChatFolders GETs the workspace-scoped folders list and grounds parentId/order', async () => {
+      // The wire DTO (dto.AgentChatDTO) names its text field `title`, not
+      // `name` — a fixture using `name` here would be asserting the same wire
+      // lie the production bug shared.
       apiFetch.mockResolvedValueOnce([
-        { id: 'f1', workspaceId: 'w1', name: 'Folder 1', parentId: 'f0', order: 2 },
-        { id: 'f2', workspaceId: 'w1', name: 'Folder 2' }, // parentId/order omitted
+        { id: 'f1', workspaceId: 'w1', title: 'Folder 1', parentId: 'f0', order: 2 },
+        { id: 'f2', workspaceId: 'w1', title: 'Folder 2' }, // parentId/order omitted
       ])
       const folders = await api.listChatFolders('w1')
-      expect(apiFetch).toHaveBeenCalledWith('/v0/ws/w1/chats/folders')
-      expect(folders[0]).toMatchObject({ id: 'f1', parentId: 'f0', order: 2 })
+      expect(apiFetch).toHaveBeenCalledWith('/v0/projects/p1/repos/r1/chats/folders')
+      expect(folders[0]).toMatchObject({ id: 'f1', name: 'Folder 1', parentId: 'f0', order: 2 })
       // A root/never-placed folder grounds the same way mapChat does.
-      expect(folders[1]).toMatchObject({ id: 'f2', parentId: '', order: 0 })
+      expect(folders[1]).toMatchObject({ id: 'f2', name: 'Folder 2', parentId: '', order: 0 })
     })
 
     it('listChatFolders returns [] when the backend responds with no body', async () => {
@@ -759,23 +864,23 @@ describe('agent-api', () => {
 
     it('createChatFolder POSTs {name, parentId} and unwraps {folder, shifted}', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f9', workspaceId: 'w1', name: 'New folder', parentId: '', order: 0 },
-        shifted: [{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 1 }],
+        folder: { id: 'f9', workspaceId: 'w1', title: 'New folder', parentId: '', order: 0 },
+        shifted: [{ id: 'f1', workspaceId: 'w1', title: 'F1', parentId: '', order: 1 }],
       })
       const { folder, shifted } = await api.createChatFolder('w1', 'New folder', '')
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/folders')
+      expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/folders')
       expect(apiFetch.mock.calls[0][1]).toMatchObject({
         method: 'POST',
         body: JSON.stringify({ name: 'New folder', parentId: '' }),
       })
-      expect(folder).toMatchObject({ id: 'f9', order: 0 })
+      expect(folder).toMatchObject({ id: 'f9', name: 'New folder', order: 0 })
       // The dense renumber's collateral — every sibling it displaced.
       expect(shifted).toEqual([{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 1 }])
     })
 
     it('createChatFolder defaults shifted to [] when the backend omits the field', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f9', workspaceId: 'w1', name: 'X', parentId: '', order: 0 },
+        folder: { id: 'f9', workspaceId: 'w1', title: 'X', parentId: '', order: 0 },
       })
       const { shifted } = await api.createChatFolder('w1', 'X', '')
       expect(shifted).toEqual([])
@@ -783,7 +888,7 @@ describe('agent-api', () => {
 
     it('createChatFolder defaults shifted to [] when the backend sends shifted: null', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f9', workspaceId: 'w1', name: 'X', parentId: '', order: 0 },
+        folder: { id: 'f9', workspaceId: 'w1', title: 'X', parentId: '', order: 0 },
         shifted: null,
       })
       const { shifted } = await api.createChatFolder('w1', 'X', '')
@@ -792,11 +897,11 @@ describe('agent-api', () => {
 
     it('updateChatFolder PATCHes only the named fields (a partial patch) and unwraps the same envelope', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f1', workspaceId: 'w1', name: 'Renamed', parentId: '', order: 0 },
+        folder: { id: 'f1', workspaceId: 'w1', title: 'Renamed', parentId: '', order: 0 },
         shifted: [],
       })
       const { folder } = await api.updateChatFolder('w1', 'f1', { name: 'Renamed' })
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/folders/f1')
+      expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/folders/f1')
       expect(apiFetch.mock.calls[0][1]).toMatchObject({
         method: 'PATCH',
         body: JSON.stringify({ name: 'Renamed' }),
@@ -806,7 +911,7 @@ describe('agent-api', () => {
 
     it('updateChatFolder PATCHes a re-parent + reorder patch verbatim', async () => {
       apiFetch.mockResolvedValueOnce({
-        folder: { id: 'f1', workspaceId: 'w1', name: 'F1', parentId: 'f2', order: 3 },
+        folder: { id: 'f1', workspaceId: 'w1', title: 'F1', parentId: 'f2', order: 3 },
         shifted: [],
       })
       await api.updateChatFolder('w1', 'f1', { parentId: 'f2', order: 3 })
@@ -818,13 +923,16 @@ describe('agent-api', () => {
     it('deleteChatFolder DELETEs and defaults to [] when the backend responds with a null body', async () => {
       apiFetch.mockResolvedValueOnce(null)
       const shifted = await api.deleteChatFolder('w1', 'f1')
-      expect(apiFetch.mock.calls[0]).toEqual(['/v0/ws/w1/chats/folders/f1', { method: 'DELETE' }])
+      expect(apiFetch.mock.calls[0]).toEqual([
+        '/v0/projects/p1/repos/r1/chats/folders/f1',
+        { method: 'DELETE' },
+      ])
       expect(shifted).toEqual([])
     })
 
     it('deleteChatFolder returns the promoted-children shift the delete triggered', async () => {
       apiFetch.mockResolvedValueOnce({
-        shifted: [{ id: 'f2', workspaceId: 'w1', name: 'F2', parentId: '', order: 0 }],
+        shifted: [{ id: 'f2', workspaceId: 'w1', title: 'F2', parentId: '', order: 0 }],
       })
       const shifted = await api.deleteChatFolder('w1', 'f1')
       expect(shifted).toEqual([{ id: 'f2', workspaceId: 'w1', name: 'F2', parentId: '', order: 0 }])
@@ -842,10 +950,10 @@ describe('agent-api', () => {
           createdAt: '2026-01-01T00:00:00Z',
           // parentId/order omitted on the wire chat — grounded by mapChat below.
         },
-        shifted: [{ id: 'f1', workspaceId: 'w1', name: 'F1', parentId: '', order: 3 }],
+        shifted: [{ id: 'f1', workspaceId: 'w1', title: 'F1', parentId: '', order: 3 }],
       })
       const { chat, shifted } = await api.setChatPlacement('w1', 'c1', { parentId: 'f1', order: 2 })
-      expect(apiFetch.mock.calls[0][0]).toBe('/v0/ws/w1/chats/c1/placement')
+      expect(apiFetch.mock.calls[0][0]).toBe('/v0/projects/p1/repos/r1/chats/c1/placement')
       expect(apiFetch.mock.calls[0][1]).toMatchObject({
         method: 'PATCH',
         body: JSON.stringify({ parentId: 'f1', order: 2 }),

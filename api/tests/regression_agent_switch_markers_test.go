@@ -110,7 +110,7 @@ func readInterruptions(t *testing.T, h *harness, imported importedRepo, chatID s
 	var activity struct {
 		Interruptions []interruptionDTO `json:"interruptions"`
 	}
-	h.get(wsBase(imported)+"/chats/"+chatID+"/activity", &activity)
+	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
 	return activity.Interruptions
 }
 
@@ -131,7 +131,7 @@ func TestRegression_ProviderSwitchRecordsAMarkerInterruption(t *testing.T) {
 	var result struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats/"+chatID+"/switch",
+	h.post(repoBase(imported)+"/chats/"+chatID+"/switch",
 		map[string]string{"provider": "quietstub"}, http.StatusOK, &result)
 	h.Quiesce()
 
@@ -155,7 +155,7 @@ func TestRegression_SwitchingToTheSameProviderRecordsNoMarker(t *testing.T) {
 	var result struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats/"+chatID+"/switch",
+	h.post(repoBase(imported)+"/chats/"+chatID+"/switch",
 		map[string]string{"provider": "streamstub"}, http.StatusOK, &result)
 	h.Quiesce()
 
@@ -174,7 +174,7 @@ func TestRegression_SelectionChangeRecordsModelAndEffortMarkers(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 	chatID, _ := createStubChat(t, h, imported, "switchablestub")
 
-	resp := h.raw(http.MethodPatch, wsBase(imported)+"/chats/"+chatID+"/selection",
+	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
 		map[string]string{"model": "opus", "effort": "high"}, http.StatusAccepted)
 	_ = resp.Body.Close()
 	h.Quiesce()
@@ -196,7 +196,7 @@ func TestRegression_SelectionChangeOfOnlyOneHalfRecordsOneMarker(t *testing.T) {
 	imported := importWritableWorkspace(t, h)
 	chatID, _ := createStubChat(t, h, imported, "switchablestub")
 
-	resp := h.raw(http.MethodPatch, wsBase(imported)+"/chats/"+chatID+"/selection",
+	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
 		map[string]string{"model": "", "effort": "low"}, http.StatusAccepted)
 	_ = resp.Body.Close()
 	h.Quiesce()
@@ -227,7 +227,7 @@ func TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare(t 
 
 	// "opus" is valid for switchablestub, and invalid for otherswitchablestub
 	// (which only declares "haiku") — the exact shape of the live bug.
-	resp := h.raw(http.MethodPatch, wsBase(imported)+"/chats/"+chatID+"/selection",
+	resp := h.raw(http.MethodPatch, repoBase(imported)+"/chats/"+chatID+"/selection",
 		map[string]string{"model": "opus", "effort": "high"}, http.StatusAccepted)
 	_ = resp.Body.Close()
 	h.Quiesce()
@@ -235,7 +235,7 @@ func TestRegression_SwitchingProvidersDropsAModelTheNewProviderDoesNotDeclare(t 
 	var result struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats/"+chatID+"/switch",
+	h.post(repoBase(imported)+"/chats/"+chatID+"/switch",
 		map[string]string{"provider": "otherswitchablestub"}, http.StatusOK, &result)
 	h.QuiesceReactors()
 
@@ -263,7 +263,7 @@ func readOrderedMessages(t *testing.T, h *harness, imported importedRepo, chatID
 	var page struct {
 		Items []orderedMessage `json:"items"`
 	}
-	h.get(wsBase(imported)+"/chats/"+chatID+"/messages?limit=200", &page)
+	h.get(repoBase(imported)+"/chats/"+chatID+"/messages?limit=200", &page)
 	return page.Items
 }
 
@@ -279,7 +279,7 @@ func readOrderedInterruptions(t *testing.T, h *harness, imported importedRepo, c
 	var activity struct {
 		Interruptions []orderedInterruption `json:"interruptions"`
 	}
-	h.get(wsBase(imported)+"/chats/"+chatID+"/activity", &activity)
+	h.get(repoBase(imported)+"/chats/"+chatID+"/activity", &activity)
 	return activity.Interruptions
 }
 
@@ -313,7 +313,7 @@ func TestRegression_AFailureFromBeforeTheSwitchSortsBeforeIt(t *testing.T) {
 	var result struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats/"+chatID+"/switch",
+	h.post(repoBase(imported)+"/chats/"+chatID+"/switch",
 		map[string]string{"provider": "quietstub"}, http.StatusOK, &result)
 	h.Quiesce()
 
@@ -414,7 +414,7 @@ func TestRegression_AConcurrentFailureSortsBeforeTheSwitch(t *testing.T) {
 	go func() {
 		body, _ := json.Marshal(map[string]string{"provider": "quietstub"})
 		req, err := http.NewRequest(http.MethodPost,
-			h.url+wsBase(imported)+"/chats/"+chatID+"/switch", bytes.NewReader(body))
+			h.url+repoBase(imported)+"/chats/"+chatID+"/switch", bytes.NewReader(body))
 		if err != nil {
 			switchDone <- switchResult{status: -1}
 			return

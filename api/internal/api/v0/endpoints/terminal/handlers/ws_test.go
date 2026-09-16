@@ -15,6 +15,9 @@ import (
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
+// wsSessionPath is chatPath's per-session WebSocket upgrade path.
+const wsSessionPath = chatPath + "/sess1/ws"
+
 // attachSpyEngine embeds stubEngine but signals every Attach call on a
 // channel, giving a test a deterministic barrier for "the handler reached the
 // terminal engine" instead of a sleep or a poll — the WS upgrade handshake
@@ -59,12 +62,12 @@ func (missingSessionEngine) SessionExists(
 func TestWS_UpgradesAndAttaches(t *testing.T) {
 	r := gin.New()
 	spy := newAttachSpyEngine()
-	h := handlers.New(spy, stubProfiles{}, stubReader{}, &spyBroadcaster{})
+	h := handlers.New(spy, stubProfiles{}, &spyBroadcaster{})
 	mountSessions(r, h)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/ws1/terminals/sess1/ws"
+	url := "ws" + srv.URL[len("http"):] + wsSessionPath
 	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -85,10 +88,10 @@ func TestWS_UpgradesAndAttaches(t *testing.T) {
 // attach to.
 func TestWS_404OnUnknownSession(t *testing.T) {
 	r := gin.New()
-	h := handlers.New(missingSessionEngine{}, stubProfiles{}, stubReader{}, &spyBroadcaster{})
+	h := handlers.New(missingSessionEngine{}, stubProfiles{}, &spyBroadcaster{})
 	mountSessions(r, h)
 
-	rec := doTerminal(r, http.MethodGet, wsPath+"/ghost/ws", nil)
+	rec := doTerminal(r, http.MethodGet, chatPath+"/ghost/ws", nil)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -98,7 +101,7 @@ func TestWS_404OnUnknownSession(t *testing.T) {
 func TestWS_NilEngine(t *testing.T) {
 	r := newNilEngineRouter()
 
-	rec := doTerminal(r, http.MethodGet, wsPath+"/sess1/ws", nil)
+	rec := doTerminal(r, http.MethodGet, wsSessionPath, nil)
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
@@ -109,12 +112,12 @@ func TestWS_NilEngine(t *testing.T) {
 func TestWS_RejectsCrossOriginUpgrade(t *testing.T) {
 	r := gin.New()
 	spy := newAttachSpyEngine()
-	h := handlers.New(spy, stubProfiles{}, stubReader{}, &spyBroadcaster{})
+	h := handlers.New(spy, stubProfiles{}, &spyBroadcaster{})
 	mountSessions(r, h)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	url := "ws" + srv.URL[len("http"):] + "/v0/projects/p1/repos/r1/workspaces/ws1/terminals/sess1/ws"
+	url := "ws" + srv.URL[len("http"):] + wsSessionPath
 	header := http.Header{"Origin": {"http://evil.example.com"}}
 	conn, resp, err := websocket.DefaultDialer.Dial(url, header)
 	if conn != nil {
@@ -125,6 +128,9 @@ func TestWS_RejectsCrossOriginUpgrade(t *testing.T) {
 	require.NotNil(t, resp)
 	defer resp.Body.Close()
 	assert.NotEqual(t, http.StatusSwitchingProtocols, resp.StatusCode)
+	// Attach is only reachable past a successful upgrade, and the response the
+	// dial just read was written by the same handler goroutine that would have
+	// made the call — so an empty channel here is a settled fact, not a race.
 	select {
 	case sessionID := <-spy.attached:
 		t.Fatalf("the engine must never see a connection that failed to upgrade, got Attach(%q)", sessionID)

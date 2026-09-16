@@ -33,7 +33,11 @@ func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 	if err != nil {
 		return fmt.Errorf("agent: compact: %w", err)
 	}
-	crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, chat.WorkspaceID)
+	cwdWorkspaceID, err := rs.cwdWorkspaceID(ctx, chat.ID, chat.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	crowbarHome, _, _, _, err := rs.ws.WorktreeDir(ctx, cwdWorkspaceID)
 	if err != nil {
 		return fmt.Errorf("agent: compact: worktree dir: %w", err)
 	}

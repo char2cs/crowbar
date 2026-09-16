@@ -46,10 +46,14 @@ func TestReportThreadsSpellsOutThePartialCase(t *testing.T) {
 func TestReportWriteNamesTheWorkspaceAndItsWorktree(t *testing.T) {
 	out := &strings.Builder{}
 	rep := &report{
-		out:       out,
-		project:   projectDTO{ID: "p1"},
-		repo:      repoDTO{ID: "r1", Name: seedRepoName},
-		workspace: workspaceDTO{ID: "w1", Branch: seedFeatureBranch, LocalPath: "/wt/seed"},
+		out:     out,
+		project: projectDTO{ID: "p1"},
+		repo:    repoDTO{ID: "r1", Name: seedRepoName},
+		workspace: chatDTO{
+			ID:          "chat1",
+			WorkspaceID: "w1",
+			Worktree:    &chatWorktreeDTO{Branch: seedFeatureBranch, LocalPath: "/wt/seed"},
+		},
 	}
 
 	if err := rep.write(); err != nil {

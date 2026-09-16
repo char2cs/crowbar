@@ -11,9 +11,13 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import type { SidebarTab } from '@/lib/store/sidebar'
 
 // Strip order — same order as the registry and the tab bar itself.
+//
+// SIDEBAR_TAB_CHATS now targets 'workspaces' too: the unified SidebarTree
+// covers what the Chats tab used to, so the chord still lands somewhere real
+// instead of a tab that no longer exists.
 const SIDEBAR_TAB_COMMANDS: Array<[string, SidebarTab]> = [
   [SIDEBAR_TAB_WORKSPACES, 'workspaces'],
-  [SIDEBAR_TAB_CHATS, 'chats'],
+  [SIDEBAR_TAB_CHATS, 'workspaces'],
   [SIDEBAR_TAB_FILES, 'files'],
   [SIDEBAR_TAB_GIT, 'git'],
 ]

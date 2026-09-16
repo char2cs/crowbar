@@ -89,6 +89,42 @@ describe('a repo arriving on the stream', () => {
 
     expect(ids()).toEqual(['a', 'b'])
   })
+
+  // 2026-09-09, caught live: this repo frame is exactly what PATCH
+  // .../repos/:repoId's own broadcast sends after a drag — the SAME repo,
+  // ALREADY known, with a new order. mergeRepos used to leave an
+  // already-known repo's own fields untouched (trusting a rebuild that, in
+  // practice, never carried `order` either), so a repo drag wrote
+  // successfully on the backend and then visibly did nothing until a full
+  // reload re-fetched everything from scratch.
+  it('re-sorts an ALREADY-KNOWN repo when its own order changes', () => {
+    useSidebarStore.setState({ repos: [repo('a', 0), repo('b', 1), repo('c', 2)] })
+
+    useSidebarStore.getState().mergeRepos([repo('c', -1)])
+
+    expect(ids()).toEqual(['c', 'a', 'b'])
+  })
+
+  it('applies an already-known repo’s other fields too, not just order', () => {
+    useSidebarStore.setState({ repos: [repo('a', 0)] })
+
+    useSidebarStore.getState().mergeRepos([{ ...repo('a', 0), name: 'renamed' }])
+
+    expect(useSidebarStore.getState().repos[0].name).toBe('renamed')
+  })
+
+  it('never drops workspaces a live single-repo frame carries none of', () => {
+    const existingWorkspace = { id: 'w1', branch: 'feature', age: '' }
+    useSidebarStore.setState({ repos: [{ ...repo('a', 0), workspaces: [existingWorkspace] }] })
+
+    // A live PATCH-broadcast frame always carries workspaces: [] (see
+    // toSidebarRepo's own call site in app-sync-provider.tsx) — the merge
+    // must not let that wipe out what the repo's own chat-list stream
+    // already populated.
+    useSidebarStore.getState().mergeRepos([{ ...repo('a', 5), workspaces: [] }])
+
+    expect(useSidebarStore.getState().repos[0].workspaces).toEqual([existingWorkspace])
+  })
 })
 
 describe('an optimistic reorder', () => {

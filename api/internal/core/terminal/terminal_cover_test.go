@@ -72,7 +72,7 @@ func TestAttach_PlaceholderWithBadShell_ReturnsError(t *testing.T) {
 
 	eng := New().(*terminalEngine)
 	StopMaintenanceForTest(eng)
-	eng.reg.Add("ph-bad", "ws-bad", ph)
+	eng.reg.Add("ph-bad", "chat-bad", ph)
 
 	err := eng.Attach(context.Background(), "ph-bad", &deadConn{})
 	assert.Error(t, err, "Attach on a placeholder with a bad shell must return an error")
@@ -83,7 +83,7 @@ func TestAttach_PlaceholderWithBadShell_ReturnsError(t *testing.T) {
 func TestFireEnded_NilCallback(t *testing.T) {
 	eng := New().(*terminalEngine)
 	StopMaintenanceForTest(eng)
-	eng.fireEnded(context.Background(), "ws", "s1", 0)
+	eng.fireEnded(context.Background(), "chat", "s1", 0)
 	assert.NotContains(t, eng.endedOnce, "s1")
 }
 
@@ -95,8 +95,8 @@ func TestFireEnded_FiresExactlyOnce(t *testing.T) {
 	var calls int
 	eng.OnSessionEnded(func(_ context.Context, _, _ string, _ int) { calls++ })
 
-	eng.fireEnded(context.Background(), "ws", "s1", 0)
-	eng.fireEnded(context.Background(), "ws", "s1", 0)
+	eng.fireEnded(context.Background(), "chat", "s1", 0)
+	eng.fireEnded(context.Background(), "chat", "s1", 0)
 
 	assert.Equal(t, 1, calls)
 }
@@ -107,7 +107,7 @@ func TestFireState_NilCallback(t *testing.T) {
 	eng := New().(*terminalEngine)
 	StopMaintenanceForTest(eng)
 	// Must not panic.
-	eng.fireState(context.Background(), "ws", "s1", "detached")
+	eng.fireState(context.Background(), "chat", "s1", "detached")
 }
 
 // TestFireState_FiresCallback verifies fireState invokes the registered callback
@@ -116,22 +116,22 @@ func TestFireState_FiresCallback(t *testing.T) {
 	eng := New().(*terminalEngine)
 	StopMaintenanceForTest(eng)
 	type call struct {
-		ws    string
-		sid   string
-		state string
+		chatID string
+		sid    string
+		state  string
 	}
 	ch := make(chan call, 2)
-	eng.OnSessionState(func(_ context.Context, ws, sid, state string) {
-		ch <- call{ws, sid, state}
+	eng.OnSessionState(func(_ context.Context, chatID, sid, state string) {
+		ch <- call{chatID, sid, state}
 	})
 
-	eng.fireState(context.Background(), "ws-1", "s-1", "detached")
-	eng.fireState(context.Background(), "ws-1", "s-1", "suspended")
+	eng.fireState(context.Background(), "chat-1", "s-1", "detached")
+	eng.fireState(context.Background(), "chat-1", "s-1", "suspended")
 
 	got1 := <-ch
-	assert.Equal(t, call{"ws-1", "s-1", "detached"}, got1)
+	assert.Equal(t, call{"chat-1", "s-1", "detached"}, got1)
 	got2 := <-ch
-	assert.Equal(t, call{"ws-1", "s-1", "suspended"}, got2)
+	assert.Equal(t, call{"chat-1", "s-1", "suspended"}, got2)
 }
 
 // TestRestore_CWDFallback_SpawnsInHomeWhenSavedDirGone verifies that when the
@@ -145,7 +145,7 @@ func TestRestore_CWDFallback_SpawnsInHomeWhenSavedDirGone(t *testing.T) {
 
 	goneDir := filepath.Join(t.TempDir(), "deleted-worktree") // never created
 	ph := session.NewPlaceholder("ph-cwd", "/bin/sh", goneDir, "", nil)
-	eng.reg.Add("ph-cwd", "ws-1", ph)
+	eng.reg.Add("ph-cwd", "chat-1", ph)
 
 	err := eng.restore(ctx, "ph-cwd")
 	require.NoError(t, err, "restore must succeed via the CWD fallback")
@@ -180,7 +180,7 @@ func TestRestore_BadShell_DropsPlaceholder(t *testing.T) {
 
 	realCWD := t.TempDir() // a valid dir, so the failure is the shell, not the cwd
 	ph := session.NewPlaceholder("ph-bad", "/nonexistent/shell/binary", realCWD, "", nil)
-	eng.reg.Add("ph-bad", "ws-1", ph)
+	eng.reg.Add("ph-bad", "chat-1", ph)
 
 	err := eng.restore(ctx, "ph-bad")
 	require.Error(t, err, "restore must return an error when the shell binary is missing")

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act, cleanup } from '@testing-library/react'
-import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 
 // Focused WorkspaceView lifecycle tests for keep-alive semantics:
 //  - hydrate runs once per mount, never again on a warm re-activation;
@@ -9,11 +8,11 @@ import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
 //    editing files in hidden worktrees, so without this the editors come back
 //    stale (the destroy-on-switch behaviour re-hydrated and reconciled);
 //  - the cold path does NOT double-reconcile (hydrateWorkspace already does).
-const { hydrateSpy, reconcileSpy, activeEffectsSpy, openNewTabSpy } = vi.hoisted(() => ({
+const { hydrateSpy, reconcileSpy, activeEffectsSpy, agentChatsStreamSpy } = vi.hoisted(() => ({
   hydrateSpy: vi.fn(async (_wsId: string) => ({ layout: null, editorStates: [] })),
   reconcileSpy: vi.fn(async (_wsId: string) => {}),
   activeEffectsSpy: vi.fn((_wsId: string) => {}),
-  openNewTabSpy: vi.fn(),
+  agentChatsStreamSpy: vi.fn((_wsId: string) => {}),
 }))
 
 vi.mock('@/lib/persistence/hydrate', () => ({
@@ -22,34 +21,20 @@ vi.mock('@/lib/persistence/hydrate', () => ({
 }))
 
 // getOrCreateWorkspaceStore memoizes by wsId in real life (a registry singleton
-// map) — the fake must too, or every render would hand useOpenOnNewTab a
+// map) — the fake must too, or every render would hand each effect a
 // freshly-identitied store and refire it regardless of whether `hydrated`
 // actually changed.
-//
-// `panes` mirrors production's real shape (see pane-slice's initial state):
-// ROOT_PANE_ID and BOTTOM_PANE_ID both always exist, each independently empty
-// or not — useOpenOnNewTab (I3) seeds a New Tab PER empty pane, not once per
-// workspace.
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => {
   const fakeStores = new Map<string, unknown>()
   return {
     getOrCreateWorkspaceStore: (wsId: string) => {
       if (!fakeStores.has(wsId)) {
-        fakeStores.set(wsId, {
-          __fakeStore: wsId,
-          getState: () => ({
-            buffers: [],
-            panes: {
-              [ROOT_PANE_ID]: { id: ROOT_PANE_ID, bufferIds: [] },
-              [BOTTOM_PANE_ID]: { id: BOTTOM_PANE_ID, bufferIds: [] },
-            },
-            bufferActions: { openNewTab: openNewTabSpy },
-          }),
-        })
+        fakeStores.set(wsId, { __fakeStore: wsId })
       }
       return fakeStores.get(wsId)
     },
     setActiveWorkspaceId: vi.fn(),
+    clearActiveWorkspaceId: vi.fn(),
   }
 })
 
@@ -63,6 +48,10 @@ vi.mock('@/features/workspace/components/workspace-layout-root', () => ({
 
 vi.mock('@/features/workspace/stores/hooks/use-workspace-effects', () => ({
   useWorkspaceEffects: (wsId: string) => activeEffectsSpy(wsId),
+}))
+
+vi.mock('@/features/workspace/stores/hooks/use-workspace-agent-chats-stream', () => ({
+  useWorkspaceAgentChatsStream: (wsId: string) => agentChatsStreamSpy(wsId),
 }))
 
 vi.mock('@/features/keymaps/hooks/use-save-keyboard', () => ({ useSaveKeyboard: () => {} }))
@@ -90,7 +79,7 @@ beforeEach(() => {
   hydrateSpy.mockClear()
   reconcileSpy.mockClear()
   activeEffectsSpy.mockClear()
-  openNewTabSpy.mockClear()
+  agentChatsStreamSpy.mockClear()
 })
 
 afterEach(() => {
@@ -106,18 +95,6 @@ describe('WorkspaceView keep-alive lifecycle', () => {
     expect(reconcileSpy).not.toHaveBeenCalled()
   })
 
-  it('opens a New Tab in every empty RENDERED pane once hydration lands on a workspace with nothing restored', async () => {
-    await renderView(true)
-
-    // ROOT_PANE_ID restored empty and is rendered, so it gets seeded.
-    expect(openNewTabSpy).toHaveBeenCalledWith(ROOT_PANE_ID)
-    // BOTTOM_PANE_ID is never rendered (nothing draws `bottomLayout`), so a New
-    // Tab there would be an invisible, auto-eviction-PROTECTED buffer spending
-    // one of MAX_OPEN_TABS forever — see use-open-on-new-tab.
-    expect(openNewTabSpy).not.toHaveBeenCalledWith(BOTTOM_PANE_ID)
-    expect(openNewTabSpy).toHaveBeenCalledTimes(1)
-  })
-
   it('warm re-activation: reconciles open buffers against disk, without re-hydrating', async () => {
     const { setActive } = await renderView(true)
     await setActive(false) // hide (another workspace became active)
@@ -128,7 +105,6 @@ describe('WorkspaceView keep-alive lifecycle', () => {
     expect(reconcileSpy).toHaveBeenCalledTimes(1)
     expect(reconcileSpy).toHaveBeenCalledWith('ws-a')
     expect(hydrateSpy).toHaveBeenCalledTimes(1) // still only the cold hydrate
-    expect(openNewTabSpy).toHaveBeenCalledTimes(1) // still only the cold open, not re-fired by the hide/return
   })
 
   it('runs the workspace watchers only while active', async () => {
@@ -142,5 +118,26 @@ describe('WorkspaceView keep-alive lifecycle', () => {
 
     await setActive(true)
     expect(activeEffectsSpy).toHaveBeenCalledWith('ws-a')
+  })
+
+  // The agent feed is NOT one of the active-only watchers. It seeds this
+  // workspace's providers/chats and feeds `working`, and three surfaces need
+  // that live while the workspace is hidden: the project-wide Recents band
+  // (recents-for-project.ts aggregates every retained workspace), spec Law 9
+  // ("anything running has a row"), and a window-level pane still holding this
+  // workspace's chat. Its only previous mount point was the Chats panel Task 8
+  // deleted, so nothing fed any of it at all.
+  it('runs the agent chats stream for as long as the workspace is MOUNTED, active or not', async () => {
+    const { setActive } = await renderView(true)
+    expect(agentChatsStreamSpy).toHaveBeenCalledWith('ws-a')
+
+    agentChatsStreamSpy.mockClear()
+    activeEffectsSpy.mockClear()
+    await setActive(false)
+
+    // Hidden, but still mounted: the hook is still being called every render,
+    // unlike the active-only watchers above.
+    expect(agentChatsStreamSpy).toHaveBeenCalledWith('ws-a')
+    expect(activeEffectsSpy).not.toHaveBeenCalled()
   })
 })

@@ -85,7 +85,7 @@ func seedChat(ctx context.Context, adapters *adapter.Container, opts seedOptions
 
 	now := time.Now()
 	if _, err := chatStore.Create(ctx, agentchat.CreateInput{
-		ID: chatID, WorkspaceID: opts.WorkspaceID, Now: now,
+		ID: chatID, WorkspaceID: opts.WorkspaceID, Type: domain.ChatTypeChat, Now: now,
 	}); err != nil {
 		return "", fmt.Errorf("crowbar-seed-chat: create chat: %w", err)
 	}

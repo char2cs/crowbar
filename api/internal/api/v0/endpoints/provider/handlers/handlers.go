@@ -26,16 +26,10 @@ type ProviderEngine interface {
 	) ([]string, error)
 }
 
-// WorkspaceReader is the workspace read surface the handlers need: fetch a
-// single workspace by id (used by the per-workspace provider poll) and list
-// every workspace (used to resolve a repo-scoped worktree path for the
-// protected-branch lookup until the repo aggregate carries a path of its own,
-// W11/W12).
+// WorkspaceReader is the workspace read surface the handlers need: list every
+// workspace, to resolve a repo-scoped worktree path for the protected-branch
+// lookup until the repo aggregate carries a path of its own (W11/W12).
 type WorkspaceReader interface {
-	Get(
-		ctx context.Context,
-		id string,
-	) (domain.Workspace, error)
 	List(
 		ctx context.Context,
 	) ([]domain.Workspace, error)

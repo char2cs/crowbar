@@ -56,6 +56,61 @@ func TestConcurrentSends_NoWriteMu_OCC(t *testing.T) {
 	assert.Equal(t, domain.WorkspaceStatusNew, got.Status)
 }
 
+// TestConcurrentCreateHome_OneProjectNeverGetsTwoHomeWorkspaces is the
+// regression for a live bug: two requests racing "create the home for
+// project P," with nothing serializing them, used to both read no home
+// workspace yet and both mint a fresh random id — a random id gives asynx's
+// own per-aggregate concurrency control nothing to enforce, since the two
+// calls were never contending for the same aggregate, so BOTH succeeded and
+// the project ended up with two home workspaces. Downstream, nothing ever
+// reconciled that: each caller's own response carried whichever one IT just
+// made, and the frontend that cached the loser's id could never create a
+// thread again — every attempt failing "asynx: aggregate not found."
+//
+// CreateHome now derives a DETERMINISTIC id from the project id
+// (homeWorkspaceID's own doc), so every one of these n concurrent calls
+// targets the SAME aggregate — this proves that, against the REAL asynx
+// event store (no mocks, no injected sleep needed to widen a window: a
+// deterministic id means there IS no window, only a serialized queue), not
+// a hand-rolled simulation of it.
+func TestConcurrentCreateHome_OneProjectNeverGetsTwoHomeWorkspaces(t *testing.T) {
+	ctx, repo := newRepo(t)
+	now := time.Unix(2000, 0).UTC()
+
+	const n = 20
+	ids := make([]string, n)
+	errs := make([]error, n)
+	ready := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-ready
+			ws, err := repo.CreateHome(ctx, "proj-home-race", "/projects/home-race", now)
+			ids[idx] = ws.ID
+			errs[idx] = err
+		}(i)
+	}
+	close(ready)
+	wg.Wait()
+
+	for i, err := range errs {
+		require.NoError(t, err, "call %d: CreateHome must never surface the race as an error", i)
+	}
+	first := ids[0]
+	require.NotEmpty(t, first)
+	for i, id := range ids {
+		assert.Equal(t, first, id, "call %d returned a DIFFERENT home workspace than call 0", i)
+	}
+
+	// And the READ MODEL agrees there is exactly one, not two rows that
+	// happen to share an id in the return values but not in storage.
+	rows := listQuiescent(t, ctx, repo, 1)
+	assert.Equal(t, first, rows[0].ID)
+	assert.Equal(t, domain.WorkspaceKindHome, rows[0].Kind)
+}
+
 // TestSendWithOCC_ErrorDisposition pins the terminal error-disposition contract
 // (spec §3.5, decision 10) against a fake send: ErrPipelineFailed is retried
 // exactly MaxOCCAttempts then surfaced (→ 409); ErrValidation is never retried

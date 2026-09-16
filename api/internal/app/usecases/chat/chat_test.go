@@ -20,6 +20,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/core/config"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -357,7 +358,10 @@ func TestPurgeChat_TerminateFailure_OtherError_IsBestEffort_StillPurges(t *testi
 }
 
 // TestPurgeChat_ReapsChatDirOnDisk: a standalone hard delete must remove the chat's
-// PLAINTEXT on-disk footprint (its handoff ledger), not only Forget the aggregate.
+// PLAINTEXT on-disk footprint (its prompt-delivery journal), not only Forget the
+// aggregate. The reap targets worktreepath.LedgerChatsDir — keyed by the chat's id
+// alone, not a workspace lookup (spec §1.5) — which is where SubmitPrompt et al.
+// actually write it (see TestSubmitPrompt_RejectsNULBeforeJournalOrTUITeardown).
 //
 // It does NOT remove the runner's tmp dir, which is not the chat's to remove: that dir is
 // the config of a PROCESS that is still alive (we have asked it to quit, and a SIGTERM is
@@ -369,7 +373,7 @@ func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 
 	chatID, runnerID := f.spawn(t, "claude")
 
-	chatDir := filepath.Join(f.ws.chatsDir, chatID)
+	chatDir := filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID)
 	require.NoError(t, os.MkdirAll(chatDir, 0o700))
 	turn(t, f, runnerID, "claude", "a turn, so the chat has a conversation to purge")
 
@@ -387,45 +391,23 @@ func TestPurgeChat_ReapsChatDirOnDisk(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "purge must reap the chat's on-disk dir")
 }
 
-// TestPurgeChat_ReapFailure_StillPurges: the on-disk reap is best-effort — even if the
-// chat dir cannot be resolved, the aggregate is still Forgotten and PurgeChat returns
-// nil rather than failing a delete the user asked for.
+// TestPurgeChat_ReapFailure_StillPurges: the on-disk reap is best-effort — even if
+// crowbar home cannot be resolved, the aggregate is still Forgotten and PurgeChat
+// returns nil rather than failing a delete the user asked for.
+//
+// It faults f.homeErr, not f.ws.err: the reap no longer resolves a workspace at all
+// (worktreepath.LedgerChatsDir needs only crowbar home), which is the whole point —
+// a workspace-less chat's reap must not depend on a workspace lookup either.
 func TestPurgeChat_ReapFailure_StillPurges(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, _ := f.spawn(t, "claude")
-	f.ws.err = errors.New("boom: workspace lookup for reap")
+	*f.homeErr = errors.New("boom: crowbar home lookup for reap")
 
 	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID), "a reap-path failure must not abort the purge")
 
 	_, err := f.usecase.GetChat(f.ctx, chatID)
 	assert.ErrorIs(t, err, agentchat.ErrNotFound, "the aggregate is still Forgotten")
-}
-
-// TestPurgeChat_ReapRefusesChatsDirOutsideHome pins the removal-site backstop: if
-// AgentChatsDir ever resolves a chats dir OUTSIDE crowbar home — the scenario a crafted
-// repo RemoteSlug containing "../" creates, since filepath.Join collapses ".." and can
-// escape home — the hard-delete reap must REFUSE the os.RemoveAll rather than delete a
-// path on the user's real filesystem.
-func TestPurgeChat_ReapRefusesChatsDirOutsideHome(t *testing.T) {
-	f := newFixture(t)
-
-	// Stand in for a chats dir that escaped home (what a "../"-poisoned slug would
-	// yield): a directory that is NOT under f.ws.home.
-	escaped := t.TempDir()
-	f.ws.chatsDir = escaped
-
-	chatID, _ := f.spawn(t, "claude")
-
-	sentinel := filepath.Join(escaped, chatID, "sentinel")
-	require.NoError(t, os.MkdirAll(filepath.Dir(sentinel), 0o755))
-	require.NoError(t, os.WriteFile(sentinel, []byte("x"), 0o600))
-
-	require.NoError(t, f.usecase.PurgeChat(f.ctx, chatID))
-
-	_, statErr := os.Stat(sentinel)
-	assert.NoError(t, statErr,
-		"a chats dir outside crowbar home must NEVER be removed by the purge reap")
 }
 
 // TestPurgeChat_UnknownChat_ReturnsWrappedError: PurgeChat on an id with no chat wraps
@@ -436,6 +418,24 @@ func TestPurgeChat_UnknownChat_ReturnsWrappedError(t *testing.T) {
 	err := f.usecase.PurgeChat(f.ctx, "does-not-exist")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "purge chat: get")
+}
+
+// TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound is the regression for a
+// live bug: tree.Agent's contract (Usecase is one of its implementations) is
+// apperr.ErrNotFound for "nothing to purge" — that's what purgeAll's cascade
+// tolerance checks for — but this method used to hand back only the
+// conversations package's own agentchat.ErrNotFound, wrapped. purgeAll's
+// errors.Is(err, apperr.ErrNotFound) never matched a real not-found, so
+// deleting a parent with one never-minted descendant, or a chat whose
+// aggregate never got created, failed the whole delete with the raw
+// "agentchat: not found" chain surfaced straight to the user.
+func TestPurgeChat_UnknownChat_AlsoAnswersApperrNotFound(t *testing.T) {
+	f := newFixture(t)
+
+	err := f.usecase.PurgeChat(f.ctx, "does-not-exist")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperr.ErrNotFound)
+	assert.ErrorIs(t, err, agentchat.ErrNotFound, "the original cause stays inspectable too")
 }
 
 // ─── from chatlog_test.go ─────────────────────────────────────────────
@@ -524,7 +524,13 @@ func thread(
 	f.wait()
 }
 
-// file puts a folder row in the workspace's chat-folder table.
+// file puts a folder row in the tree: a domain.Folder+domain.Node pair,
+// exactly like the tree usecase's own Create does (2026-09-08
+// sidebar-placement-unification Task 8 — a folder is never a Chat row any
+// more, home-scoped or repo-scoped alike). The lineage walk reads it back
+// through f.usecase's own wrapped ChatLineage (harness_test.go's
+// NewHomeCorrectedTreeChats wiring), the same door production reads it
+// through.
 func file(
 	t *testing.T,
 	f testFixture,
@@ -532,9 +538,9 @@ func file(
 	parentID string,
 ) {
 	t.Helper()
-	require.NoError(t, f.folders.Save(f.ctx, domain.ChatFolder{
-		ID: id, WorkspaceID: "ws1", ParentID: parentID, Name: id,
-	}))
+	f.folders.Saved = append(f.folders.Saved, domain.Folder{ID: id, Name: id})
+	_, err := f.nodes.Create(f.ctx, id, domain.NodeKindFolder, parentID, 0)
+	require.NoError(t, err)
 }
 
 // lineageBlock returns the configured thread_lineage prompt with the ids filled
@@ -642,12 +648,12 @@ func TestSpawn_AChatWithNoChatAncestorsIsToldNothingExtra(t *testing.T) {
 // believing itself standalone would then do the whole task without the context
 // it exists to continue, and nothing anywhere would say so.
 func TestSpawn_ALineageThatCannotBeReadFailsTheSpawn(t *testing.T) {
-	f := newFixture(t)
+	f, cs, _ := newFaultFixture(t)
 
 	parentID, _ := f.spawn(t, "claude")
 	threadID, _ := f.spawn(t, "claude")
 	thread(t, f, threadID, parentID)
-	f.folders.FindErr = errors.New("folder table unreadable")
+	cs.failListByWorkspace = errors.New("folder table unreadable")
 
 	_, err := f.usecase.SwitchProvider(f.ctx, threadID, "claude")
 	require.ErrorContains(t, err, "folder table unreadable")
@@ -658,8 +664,8 @@ func TestSpawn_ALineageThatCannotBeReadFailsTheSpawn(t *testing.T) {
 // aggregate is written after the CLI is live — so that spawn resolves no lineage
 // at all rather than failing on a chat that does not exist.
 func TestSpawn_MintingAChatResolvesNoLineage(t *testing.T) {
-	f := newFixture(t)
-	f.folders.FindErr = errors.New("folder table unreadable")
+	f, cs, _ := newFaultFixture(t)
+	cs.failListByWorkspace = errors.New("folder table unreadable")
 
 	_, _, err := f.usecase.SpawnChat(f.ctx, "ws1", "claude")
 	require.NoError(t, err)
@@ -914,13 +920,12 @@ func TestAssembleHandoff_UnknownChat_ReturnsError(t *testing.T) {
 // message, and which its user-prompt hook duly reports. Returns the new claude runner
 // and the exact document it was spawned with.
 //
-// claude, not codex: codex is api-transport and non-hotswap, so ITS OWN resume happens
-// over the api connection (applyAPITransport's thread/resume), and the redundant
-// hooks-only PTY spawnRunner still forks alongside it must never ALSO be handed this
-// pointer — apiOwnsResume (prompts.go) withholds it there for exactly that reason (a
-// second, disconnected "codex" conversation would otherwise answer it, confirmed live).
-// claude has no such competing connection: its PTY IS the conversation, so this
-// mechanism is still its live, correct delivery path.
+// claude, not codex: codex declares no resume_context_inject at all, so its gap never
+// rides argv on any transport — and when its api connection IS live, apiResumes
+// (resume_injection.go) additionally withholds the whole resume from the companion
+// PTY, which would otherwise answer the pointer as a second, disconnected "codex"
+// conversation (confirmed live). claude has no such competing connection: its PTY IS
+// the conversation, so this mechanism is its live, correct delivery path.
 func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, injected string) {
 	t.Helper()
 
@@ -1149,6 +1154,10 @@ func TestSetChatSelection_WritesADeclaredChoice(t *testing.T) {
 // InterruptModelChanged/InterruptEffortChanged markers this fix adds:
 // recorded independently, only when the corresponding value actually
 // changes, and never on a no-op re-application of the same selection.
+//
+// Every read here waits first: Interrupt is on the async Send path, so the
+// interruption is durable in the log before its projection folds, and a read
+// taken without the drain is a read of the row set one event ago.
 func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
@@ -1157,6 +1166,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
 		f.wait()
 
+		f.wait()
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
 		require.Len(t, ints, 2)
@@ -1178,6 +1188,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
 		f.wait()
 
+		f.wait()
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
 		assert.Len(t, ints, 2, "no new interruption for a value that did not change")
@@ -1187,6 +1198,7 @@ func TestSetChatSelection_RecordsChatSwitchInterruptions(t *testing.T) {
 		require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "low"))
 		f.wait()
 
+		f.wait()
 		ints, err := f.activity.Interruptions(f.ctx, chatID)
 		require.NoError(t, err)
 		require.Len(t, ints, 3)
@@ -1652,7 +1664,7 @@ func TestRegression_UnseededChatPermissionLevelSpawnsUnderGlobalDefaultNotGuarde
 
 	chatID := uuid.NewString()
 	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
-		ID: chatID, WorkspaceID: "ws1", Now: time.Now(),
+		ID: chatID, WorkspaceID: "ws1", Type: domain.ChatTypeChat, Now: time.Now(),
 	})
 	require.NoError(t, err)
 	f.wait()
@@ -1680,7 +1692,7 @@ func TestRegression_UnseededChatHonoursAnExplicitLevelOnItsNextRestart(t *testin
 
 	chatID := uuid.NewString()
 	_, err := f.chats.Create(f.ctx, agentchat.CreateInput{
-		ID: chatID, WorkspaceID: "ws1", Now: time.Now(),
+		ID: chatID, WorkspaceID: "ws1", Type: domain.ChatTypeChat, Now: time.Now(),
 	})
 	require.NoError(t, err)
 	f.wait()

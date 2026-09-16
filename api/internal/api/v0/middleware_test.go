@@ -10,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/worktree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -197,38 +199,122 @@ func TestRegression_ScopeGuard_SkipsWhenNoWsId(t *testing.T) {
 	assert.Equal(t, 0, reader.called, "a route with no :wsId must not trigger a workspace lookup")
 }
 
+// fakeChatWorktreeResolver stands in for the container's worktree resolver
+// (usecases.WorktreeResolver): a fixed workspace or a fixed error per call,
+// and the chat id it was last asked to resolve.
+type fakeChatWorktreeResolver struct {
+	ws       domain.Workspace
+	err      error
+	lastChat string
+	called   int
+}
+
+func (f *fakeChatWorktreeResolver) Resolve(
+	_ context.Context,
+	chatID string,
+) (domain.Workspace, error) {
+	f.called++
+	f.lastChat = chatID
+	return f.ws, f.err
+}
+
+func mountChatWorktreeGuard(resolver chatWorktreeResolver) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	grp := r.Group("/v0/chats/:chatId")
+	grp.Use(resolveChatWorktree(resolver))
+	grp.GET("/thing", func(c *gin.Context) {
+		ws, ok := reqscope.Workspace(c)
+		if !ok {
+			c.String(http.StatusInternalServerError, "no workspace in context")
+			return
+		}
+		c.String(http.StatusOK, ws.ID)
+	})
+	return r
+}
+
+// TestRegression_ChatWorktreeGuard_ResolvesAndPopulatesContext proves a
+// successful resolve stashes the workspace on the context (readable via
+// reqscope.Workspace) and lets the request proceed to the handler.
+func TestRegression_ChatWorktreeGuard_ResolvesAndPopulatesContext(t *testing.T) {
+	resolver := &fakeChatWorktreeResolver{ws: domain.Workspace{ID: "W"}}
+	r := mountChatWorktreeGuard(resolver)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/chats/chat-1/thing", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "W", w.Body.String())
+	assert.Equal(t, 1, resolver.called)
+	assert.Equal(t, "chat-1", resolver.lastChat)
+}
+
+// TestRegression_ChatWorktreeGuard_NoWorktreeInAncestry404sAndAborts proves a
+// chat with no worktree anywhere in its ancestry (worktree.ErrNoWorktreeInAncestry)
+// 404s before the handler runs.
+func TestRegression_ChatWorktreeGuard_NoWorktreeInAncestry404sAndAborts(t *testing.T) {
+	resolver := &fakeChatWorktreeResolver{err: worktree.ErrNoWorktreeInAncestry}
+	r := mountChatWorktreeGuard(resolver)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/chats/chat-bubble/thing", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestRegression_ChatWorktreeGuard_ResolverErrorIsSurfacedNotSwallowed proves
+// an unrelated resolve failure (an ancestry/workspace store error, not
+// ErrNoWorktreeInAncestry) still aborts the request with the same
+// 404-shaped envelope, rather than being swallowed and letting the request
+// proceed with no workspace in context.
+func TestRegression_ChatWorktreeGuard_ResolverErrorIsSurfacedNotSwallowed(t *testing.T) {
+	resolver := &fakeChatWorktreeResolver{err: errors.New("store unavailable")}
+	r := mountChatWorktreeGuard(resolver)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v0/chats/chat-1/thing", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.NotEqual(t, http.StatusInternalServerError, w.Code,
+		"the handler must never run on a resolve error — a run would 500 from the missing context value")
+}
+
 func mountRejectEmptyPathParams() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(rejectEmptyPathParams())
-	r.GET("/v0/workspaces/:wsId/chats", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	r.GET("/v0/chats/:chatId/activity", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	return r
 }
 
 // TestRejectEmptyPathParams_RejectsAnEmptySegment pins the fix this
 // middleware exists for: gin's radix tree happily matches
-// GET /v0/workspaces//chats against /v0/workspaces/:wsId/chats with wsId
+// GET /v0/chats//activity against /v0/chats/:chatId/activity with chatId
 // bound to "". Without this guard, an empty id would reach the handler and be
-// treated as a real (if nonsensical) workspace id.
+// treated as a real (if nonsensical) chat id.
 func TestRejectEmptyPathParams_RejectsAnEmptySegment(t *testing.T) {
 	r := mountRejectEmptyPathParams()
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/v0/workspaces//chats", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/v0/chats//activity", nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "wsId", "the 400 must name which param was empty")
+	assert.Contains(t, w.Body.String(), "chatId", "the 400 must name which param was empty")
 }
 
 // TestRejectEmptyPathParams_AllowsANonEmptySegment proves the guard is not
-// simply refusing every request through it: a normal, populated :wsId still
+// simply refusing every request through it: a normal, populated :chatId still
 // reaches the handler.
 func TestRejectEmptyPathParams_AllowsANonEmptySegment(t *testing.T) {
 	r := mountRejectEmptyPathParams()
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/v0/workspaces/w1/chats", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/v0/chats/c1/activity", nil)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)

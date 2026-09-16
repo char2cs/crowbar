@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
-import type { FolderDTO, WorkspaceDTO } from '@/lib/types'
+import type { ChatType, FolderDTO, WorkspaceDTO } from '@/lib/types'
 import {
   sortReposByOrder,
   toSidebarFolder,
@@ -41,6 +41,47 @@ export interface Folder {
  */
 export const EMPTY_FOLDERS: Folder[] = []
 
+/**
+ * A conversation row of the sidebar tree — design spec §3.1's `chat` kind.
+ *
+ * `parentId` is the ONE edge (§3.2): another chat (this one is a thread of it),
+ * a folder, or absent for the root of whatever workspace `workspaceId` names.
+ * It is deliberately not split into "fork parent" and "folder edge" the way a
+ * `Workspace`'s is — a chat has no branch, so it has no lineage a folder could
+ * split.
+ *
+ * `workspaceId` is the workspace this chat OWNS, and absent is a real answer:
+ * that is a BUBBLE, which borrows the ground of its nearest ancestor that owns
+ * one. Both kinds are tree rows; neither is Recents-only.
+ */
+export interface Chat {
+  id: string
+  repoId: string
+  /** This row's own kind (see {@link ChatType}'s own doc) — never a signal
+   *  for whether this chat owns a workspace any more (see
+   *  {@link Chat.ownsWorktree}). Undefined only on a row cached before the
+   *  daemon emitted the field. */
+  type?: ChatType
+  /** A chat id, a folder id, or undefined/'' for the root of `workspaceId`. */
+  parentId?: string
+  /** The workspace this chat RUNS IN — its own if it owns one, otherwise the
+   *  one it borrows from an ancestor. Never proof of ownership on its own: a
+   *  thread carries its parent's. See {@link Chat.ownsWorktree}. */
+  workspaceId?: string
+  /** Whether this row is the one that OWNS `workspaceId`'s worktree — i.e. this
+   *  row is a workspace, not a bubble. Carried on the chat (see
+   *  `ChatDTO.ownsWorktree`) so a row's KIND never depends on a separately
+   *  streamed `Workspace` record having already landed. Undefined on a row
+   *  cached before the field existed. */
+  ownsWorktree?: boolean
+  title: string
+  /** Sibling sort key, SHARED with folders and workspaces at the same level. */
+  order: number
+}
+
+/** Stable empty chat list — same rule as EMPTY_FOLDERS above. */
+export const EMPTY_CHATS: Chat[] = []
+
 export interface Workspace {
   id: string
   branch: string
@@ -73,6 +114,23 @@ export interface Workspace {
    *  branch is protected); drives the reconstructed reason and whether the
    *  Detach… action is offered. */
   heldByPath?: string
+  /**
+   * The CHAT row that owns this workspace, straight from the daemon
+   * (`WorkspaceDTO.owningChatId`) — never guessed here. Every placement the
+   * daemon accepts is addressed by a chat id, so this is what a create under
+   * this workspace names as its parent (`handleCreate`).
+   *
+   * It is NOT this workspace's row id. For a locked branch or a repo home the
+   * two coincide — `rows-from-repo.ts` draws those rows AS their owning
+   * `branch` row — but a regular fork's owner is an ordinary conversation that
+   * already renders as its own row beside it, so the workspace points at it
+   * rather than becoming it.
+   *
+   * `''` when the daemon resolved none; absent on a row cached before the
+   * field existed. Both mean "nothing to place by yet", and callers fall back
+   * to the row they were handed.
+   */
+  owningChatId?: string
 }
 
 export interface Repo {
@@ -83,6 +141,10 @@ export interface Repo {
    *  omit it, in which case the repo sorts after the ordered ones in arrival
    *  order (the same rule buildSidebarTree applies to a workspace's). */
   order?: number
+  /** Project-home folder this repo's own entry is filed under, undefined (or
+   *  '') for the project's home root. Lets the repo header row interleave
+   *  with the project's home chats/folders — see rows-from-repo.ts. */
+  folderId?: string
   name: string
   avatarLabel: string
   avatarColor: string
@@ -91,6 +153,13 @@ export interface Repo {
   /** Grouping folders declared inside this repo. Optional: the backend that
    *  emits them lands in parallel, and an older frame carries none. */
   folders?: Folder[]
+  /** Chat rows that resolve to this repo. Optional for the same reason
+   *  `folders?` is, and one more: they arrive on their own reseed loop
+   *  (app-sync-provider's per-repo tree subscription), so a repo whose seed has
+   *  not landed yet — or one whose section is folded away, and therefore has no
+   *  subscription open at all — legitimately has none, and every consumer must
+   *  read that as "not yet", never as "this repo has no chats". */
+  chats?: Chat[]
   /** Real id of the IsDefault workspace (the imported repo folder); the repo
    *  header opens it and the context pill labels it "default". Its branch is
    *  exposed as `defaultBranch` (below) so create-input validation can reserve
@@ -104,6 +173,14 @@ export interface Repo {
    *  locked state (e.g. the file explorer's mutation menu items) read it from
    *  here. Default workspaces adopted from protected branches are 'locked'. */
   defaultWorkspaceStatus?: WorkspaceStatus
+  /** `WorkspaceDTO.owningChatId` of the default (repo-home) workspace,
+   *  lifted here for the same reason `defaultBranch`/`defaultWorking` are:
+   *  the default workspace is never a `Workspace` tree row, so there is no
+   *  `Workspace.owningChatId` for `rows-from-repo.ts` to read directly. `''`
+   *  when the daemon resolved none yet; absent on a row cached before the
+   *  field existed — both mean "fall back to a chat that claims the row
+   *  itself" (see `resolveHomeOwnerId`). */
+  defaultOwningChatId?: string
   /** `working` of the default (repo-home) workspace. It is not a tree row, so it
    *  has no Workspace entry to carry the flag — the repo header and the context
    *  pill read it from here to spin the repo's icon during an agent turn. */
@@ -225,10 +302,20 @@ interface SidebarState {
   setActiveTab: (tab: SidebarTab) => void
   setRepos: (repos: Repo[]) => void
   /**
-   * Merge freshly fetched repos into the tree without clobbering local state:
-   * unknown repos are appended, and unknown workspaces are appended to repos
-   * that already exist. Existing entries (with their hierarchy overlays and
-   * optimistic edits) are left untouched.
+   * Merge freshly fetched repos into the tree: unknown repos are appended,
+   * and an already-known repo has its OWN fields (order, folderId, name,
+   * avatar, ...) overwritten from the incoming one — never left stale (see
+   * toSidebarRepo's own "every field present" contract) — while its
+   * `workspaces` array is merged rather than replaced, since the one real
+   * caller (app-sync-provider.tsx's onReposChange) always passes `[]` for a
+   * live single-repo frame and would otherwise wipe out every workspace
+   * this repo's own chat-list stream already populated.
+   *
+   * 2026-09-09, caught live: this used to leave an ALREADY-KNOWN repo's own
+   * fields untouched entirely, on the assumption that the rebuild the one
+   * caller also triggers right after would carry them instead — it doesn't,
+   * for order specifically, so a repo drag wrote successfully but never
+   * repainted until a full reload re-fetched everything from scratch.
    */
   mergeRepos: (repos: Repo[]) => void
   /**
@@ -321,6 +408,7 @@ function sameRepoFields(existing: Repo, incoming: Repo): boolean {
   const keys = new Set([...Object.keys(existing), ...Object.keys(incoming)])
   keys.delete('workspaces')
   keys.delete('folders')
+  keys.delete('chats')
   for (const key of keys as Set<keyof Repo>) {
     if (existing[key] !== incoming[key]) return false
   }
@@ -337,14 +425,26 @@ function reconcileRepos(existing: Repo[], incoming: Repo[]): Repo[] {
       repo.folders === undefined
         ? undefined
         : reconcileRows(current.folders ?? EMPTY_FOLDERS, repo.folders)
+    // Chats reconcile exactly as folders do, and for the same reason: their
+    // reseed loop rebuilds every row from a fresh IndexedDB read, so handing
+    // those identities straight to Zustand makes a no-op reseed look like a
+    // change to every chat row in the tree.
+    const chats =
+      repo.chats === undefined ? undefined : reconcileRows(current.chats ?? EMPTY_CHATS, repo.chats)
     if (
       workspaces === current.workspaces &&
       folders === current.folders &&
+      chats === current.chats &&
       sameRepoFields(current, repo)
     ) {
       return current
     }
-    return { ...repo, workspaces, ...(folders === undefined ? {} : { folders }) }
+    return {
+      ...repo,
+      workspaces,
+      ...(folders === undefined ? {} : { folders }),
+      ...(chats === undefined ? {} : { chats }),
+    }
   })
   return next.length === existing.length && next.every((repo, index) => repo === existing[index])
     ? existing
@@ -476,7 +576,12 @@ function recordRepoScopes(repos: Repo[]): void {
   for (const repo of repos) {
     if (!repo.projectId) continue
     for (const ws of repo.workspaces) {
-      recordWorkspaceScope({ projectId: repo.projectId, repoId: repo.id, wsId: ws.id })
+      recordWorkspaceScope({
+        projectId: repo.projectId,
+        repoId: repo.id,
+        wsId: ws.id,
+        owningChatId: ws.owningChatId,
+      })
     }
     if (repo.defaultWorkspaceId) {
       recordWorkspaceScope({
@@ -495,7 +600,12 @@ export function getInitialState() {
     collapsedWorkspaces: new Set<string>(),
     collapsedProjects: new Set<string>(),
     collapsedChatRows: new Set<string>(),
-    activeTab: 'workspaces' as SidebarTab,
+    // The card's default-visible panel is Files (scrollLeft starts at 0 in
+    // sidebar-carousel.tsx) — 'workspaces' stopped being a valid TABS entry
+    // when the carousel narrowed to Files/Git (Task 15), and nothing else
+    // ever corrects a cold-start default, so it must match the real default
+    // panel or neither tab underlines on first load.
+    activeTab: 'files' as SidebarTab,
   }
 }
 
@@ -718,10 +828,18 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
         const existing = next[idx]
         const known = new Set(existing.workspaces.map((w) => w.id))
         const added = repo.workspaces.filter((w) => !known.has(w.id))
-        if (added.length > 0) {
-          next[idx] = { ...existing, workspaces: [...existing.workspaces, ...added] }
-          changed = true
+        // The incoming repo's OWN fields are authoritative — see this
+        // action's own doc for why an already-known repo must not be left
+        // untouched. `workspaces` is the one field kept separate: a live
+        // single-repo frame always carries `[]` there, so replacing it
+        // outright would wipe every workspace this repo's own chat-list
+        // stream already populated.
+        const merged = { ...existing, ...repo, workspaces: [...existing.workspaces, ...added] }
+        if (merged.order !== existing.order || merged.folderId !== existing.folderId) {
+          resort = true
         }
+        next[idx] = merged
+        changed = true
       }
       if (!changed) return s
       return { repos: resort ? sortReposByOrder(next) : next }
@@ -730,7 +848,12 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
   applyWorkspaceDTO: (dto) =>
     set((s) => {
       if (dto.status !== 'deleted') {
-        recordWorkspaceScope({ projectId: dto.projectId, repoId: dto.repoId, wsId: dto.id })
+        recordWorkspaceScope({
+          projectId: dto.projectId,
+          repoId: dto.repoId,
+          wsId: dto.id,
+          owningChatId: dto.owningChatId,
+        })
       }
       // A 'deleted' tombstone removes the workspace from whichever repo holds
       // it — the backend owns the cascade, so we never BFS-remove locally.
@@ -765,12 +888,14 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
           defaultBranch: dto.branch,
           defaultWorking: dto.working,
           defaultWorkspaceStatus: toSidebarStatus(dto),
+          defaultOwningChatId: dto.owningChatId ?? '',
         }
         if (
           repo.defaultWorkspaceId === next.defaultWorkspaceId &&
           repo.defaultBranch === next.defaultBranch &&
           repo.defaultWorking === next.defaultWorking &&
-          repo.defaultWorkspaceStatus === next.defaultWorkspaceStatus
+          repo.defaultWorkspaceStatus === next.defaultWorkspaceStatus &&
+          repo.defaultOwningChatId === next.defaultOwningChatId
         ) {
           return s
         }

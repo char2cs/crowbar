@@ -84,6 +84,54 @@ export interface WorkspaceDTO {
   /** Dense sibling sort key within its level. Absent on frames from a daemon
    *  that predates ordering. */
   order?: number
+  /** The chat row that OWNS this workspace — the row the daemon resolves a
+   *  placement against, so it is what a create under this workspace must name
+   *  as its parent. The daemon always sends the key (`""` when it could resolve
+   *  none); absent only on a row cached before the field existed. */
+  owningChatId?: string
+}
+
+/**
+ * The worktree a chat row HOLDS, nested on `RepoChatWireDTO` — the workspace's
+ * git half, now served off the chat list instead of a resource of its own.
+ *
+ * Several chats can carry the same `workspaceId` (a thread carries its parent's)
+ * and every one of them gets this object, all naming the SAME `owningChatId`.
+ * Exactly one row therefore satisfies `row.id === row.worktree.owningChatId`,
+ * and that row is the one the worktree's `WorkspaceDTO` is built from — see
+ * `workspaceDTOFromChat` in lib/api.ts.
+ *
+ * Optional here means `omitempty` on the wire, not "a daemon that predates the
+ * field": an absent string/flag is the empty/false value, never unknown.
+ */
+export interface ChatWorktreeDTO {
+  branch: string
+  status?: WorkspaceStatusDTO
+  lastError?: string
+  working: boolean
+  isDefault?: boolean
+  added: number
+  deleted: number
+  mergeStrategy: string
+  canMergeLocally: boolean
+  mergeConflicts: boolean
+  parentBranch?: string
+  prUrl?: string
+  prTitle?: string
+  prTargetBranch?: string
+  localPath?: string
+  heldByPath?: string
+  forkPointSha?: string
+  /** The FORK parent — another workspace's id, not a sidebar placement. */
+  parentId?: string
+  /** Which chat owns this worktree. Always sent, on every row carrying it. */
+  owningChatId: string
+  /** Sidebar grouping folder this workspace belongs to, or absent for the
+   *  repo root. A SEPARATE field from parentId, which stays the fork parent. */
+  folderId?: string
+  /** Dense sibling sort key within its level. Absent on frames from a daemon
+   *  that predates ordering. */
+  order?: number
 }
 
 export interface RepoDTO {
@@ -99,6 +147,9 @@ export interface RepoDTO {
   /** Dense index within its project's sidebar section. Absent on frames from a
    *  daemon that predates ordering. */
   order?: number
+  /** Project-home folder this repo's entry is filed under, absent (root) on
+   *  frames from a daemon that predates repo placement. */
+  folderId?: string
 }
 
 export interface FolderDTO {
@@ -116,6 +167,74 @@ export interface FolderDTO {
   /** Tombstone marker on a broadcast frame: '' (or absent) for a live folder,
    *  'deleted' for a removal frame. Read-path DTOs leave it empty. */
   status?: string
+}
+
+/**
+ * A `Chat` row's own kind (Go's `domain.ChatType`, narrowed by 2026-09-08
+ * sidebar-placement-unification Task 9's `validChatType` to the two values a
+ * write path can still mint). `branch` and `folder` are gone: a locked
+ * branch, a repo home and a project home are `Node{Kind:workspace}` rows
+ * read straight off `Workspace`/`Repository` now (rows-from-repo.ts), never
+ * a `Chat` retyped to stand in for one, and a folder is `domain.Folder` (see
+ * `FolderDTO`), never `ChatTypeFolder`. Both old values may still arrive on
+ * a legacy row this migration never touched — `type` stays optional on
+ * `ChatDTO` for exactly that reason — but nothing mints either going
+ * forward, so no live code path should compare against them.
+ */
+export type ChatType = 'chat' | 'workflow'
+
+/**
+ * A conversation row of the sidebar forest — design spec §3.1's `chat` kind,
+ * the one row type the tree was built around and never emitted.
+ *
+ * Two facts decide which of §3.1's two chat rows this is: a WORKTREE chat owns
+ * `workspaceId`, a BUBBLE chat leaves it empty and borrows an ancestor's ground.
+ * Neither is a Recents-only concept — both are tree rows on equal footing with
+ * branches and folders.
+ *
+ * `repoId`/`projectId` are stamped from the URL the row was read through, as
+ * `FolderDTO`'s are: no chat row carries a repo id on the wire, and none should
+ * (api/internal/app/usecases/chat/repo_scope.go — a row's repo is the workspace
+ * its cwd walk lands on, derived server-side, never stored).
+ */
+export interface ChatDTO {
+  id: string
+  repoId: string
+  projectId: string
+  /** This row's own kind (domain.ChatType) — `'chat'` or `'workflow'` for
+   *  every row minted going forward; see {@link ChatType}'s own doc for the
+   *  two retired legacy values. Optional only because a row cached before
+   *  the daemon emitted it carries none. */
+  type?: ChatType
+  /** The workspace this chat runs in. NOT proof of ownership — a thread carries
+   *  its parent's — see {@link ChatDTO.ownsWorktree}. '' for a row that has no
+   *  worktree ground at all. */
+  workspaceId: string
+  /**
+   * Whether THIS row is the one that owns `workspaceId`'s worktree.
+   *
+   * Read off the SAME wire row the rest of this DTO comes from
+   * (`worktree.owningChatId === id` — see `chatDTOFromWire`), which is the
+   * entire point: it makes "this row is a workspace" a fact the chat carries
+   * itself, delivered atomically with it, instead of a JOIN against the
+   * separately-streamed `WorkspaceDTO`. Those two arrive on different channels
+   * (`crowbar_chats` reseeds on a folder-signal bump, `crowbar_workspaces` on
+   * its own entity stream) and are routinely skewed by a frame or more — and
+   * before this field the sidebar answered that skew by silently drawing a
+   * DIFFERENT KIND OF ROW (a chat bubble where a branch row belongs).
+   *
+   * Optional only because a row cached before the daemon emitted it carries
+   * none; `rows-from-repo.ts` falls back to the old `Workspace.owningChatId`
+   * join for those.
+   */
+  ownsWorktree?: boolean
+  /** Another CHAT (this one is a thread of it), a FOLDER, or '' for the root of
+   *  whatever workspace `workspaceId` names. */
+  parentId?: string
+  title: string
+  /** Dense sibling sort key, SHARED with folders and workspaces at the same
+   *  level — compared against FolderDTO.order / WorkspaceDTO.order. */
+  order: number
 }
 
 export interface ProjectDTO {
@@ -185,9 +304,13 @@ export interface ThreadDTO extends AgentAttribution {
 
 export interface TerminalSessionDTO {
   id: string
-  projectId: string
-  repoId: string
-  workspaceId: string
+  /**
+   * The chat that owns this session — the only id on the frame, and the
+   * lifecycle stream's topic key. A session belongs to the chat that opened it,
+   * not to the worktree it runs in, so there is no workspace/project/repo here
+   * to key or filter by.
+   */
+  chatId: string
   profileId: string
   status: 'active' | 'detached' | 'suspended' | 'ended'
   /** Process exit code; only present on "ended" frames where the exit code is known (>=0). */

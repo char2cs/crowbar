@@ -22,7 +22,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -30,6 +30,35 @@ import (
 )
 
 // ─── from switch_test.go ──────────────────────────────────────────────
+
+// TestSwitchProvider_ResolvesCwdThroughTheAncestorWalkForABubble proves the
+// LAST call site that still resolved a cwd straight off chat.WorkspaceID. Its
+// preflight (switch.go) reads WorktreeDir before anything is torn down, to
+// resolve the incoming provider's descriptor — and for a bubble that read went
+// out with the empty id.
+//
+// It matters more now than when Task 22 fixed the spawn path: Promote respawns
+// through SwitchProvider, and a bubble is the only kind of chat Promote can be
+// called on at all, so this is on the promotion path by construction.
+//
+// The assertion is on worktreeDirIDs rather than lastWorkspaceID: the switch
+// resolves a cwd twice (this preflight, then the spawn), so the LAST id is
+// "ws1" whether or not the preflight was fixed. Only the whole call list tells
+// them apart, and fakeWorkspace answers "" as happily as any real id — which is
+// exactly how this survived a green suite.
+func TestSwitchProvider_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
+	f := newFixture(t)
+	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
+	f.ws.worktreeDirIDs = nil
+
+	_, err := f.usecase.SwitchProvider(f.ctx, bubbleID, "codex")
+	require.NoError(t, err)
+	f.wait()
+
+	require.NotEmpty(t, f.ws.worktreeDirIDs)
+	assert.NotContains(t, f.ws.worktreeDirIDs, "",
+		"every cwd a bubble's switch resolves must come from its workspace-owning ancestor")
+}
 
 func TestSwitchProvider_TerminatesOutgoingCLI_AndTakesOverTheChat(t *testing.T) {
 	f := newFixture(t)
@@ -233,31 +262,33 @@ func TestSwitchProvider_SwitchBack_ResumesTheConversationWithSeparateArgvTokens(
 	assert.NotContains(t, argv, "--resume sid-claude-native")
 }
 
-// TestSwitchProvider_SwitchBack_ResumesOverAPINotTheRedundantPTY exercises the
-// codex-target switch-back path. codex is api-transport, non-hotswap:
-// applyAPITransport's own thread/resume call (apiconn.go) is what actually
-// resumes sid-codex-native — never the redundant hooks-only PTY spawnRunner
-// still forks alongside it (codex.yaml's own comment on subagent_pre explains
-// why that PTY exists at all). Handing that SAME session id to the PTY too —
-// natively as `resume {id}`, or as the resume context pointer, which for a
-// provider whose only resume channel is a user message IS a prompt the PTY
-// will act on — makes it a second writer on a thread the api connection
-// already holds. codex enforces one writer per thread (a thread-writer-lock
-// file, confirmed on disk): confirmed live, the native-id case crashes that
-// PTY outright and the switch that looked like it succeeded silently reverts;
-// confirmed live also, the pointer-without-id case doesn't crash, but the PTY
-// answers the pointer as its OWN genuine first turn, landing on this chat as
-// a second, disconnected "codex" conversation the api connection knows
-// nothing about. nativeResumeSteps/apiOwnsResume (prompts.go, spawn.go)
-// withhold both from this PTY for exactly that reason.
+// TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs
+// exercises the codex-target switch-back path with NO api connection —
+// this fixture pins CROWBAR_DISABLE_API_TRANSPORT (harness_test.go), which is
+// the same shape production degrades to whenever `codex app-server` fails to
+// fork, its socket never appears, or the handshake is refused (design spec
+// §2.2b: the session then runs over hooks alone).
+//
+// With no connection, the hooks PTY is not redundant — it is the ONLY codex,
+// and therefore the conversation. So it must carry the native `resume {id}`
+// itself: withholding it, as the descriptor-only apiOwnsResume check used to,
+// made codex mint a BRAND NEW thread and silently abandon the chat's own
+// conversation on every switch back. Live-confirmed by
+// TestAgent_SwitchBackToCodexResumesItsOwnSession
+// (tests/integration/agent/agent_gaps_test.go) against the real CLI.
+//
+// The WITHHOLDING contract — that a LIVE api connection's thread/resume makes
+// the companion PTY a second writer on a thread codex's own writer-lock
+// permits only one of — is unchanged, and is pinned directly on the decision
+// that now carries it:
+// TestBuildSpawnSteps_ApiResumes_WithholdsTheNativeResumeAndTheGap
+// (internal/runner/spawnsteps_internal_test.go).
 //
 // The api connection resuming silently, with no gap handed to it either, is a
 // real, separate, KNOWN gap this leaves in place — codex.yaml declares an
 // inject: at: context step (thread/inject_items) for exactly this, and
-// nothing calls it yet. Recorded here, not silently assumed fixed: this test
-// asserts only that the switch-back is SAFE, not that codex is told what it
-// missed.
-func TestSwitchProvider_SwitchBack_ResumesOverAPINotTheRedundantPTY(t *testing.T) {
+// nothing calls it yet.
+func TestSwitchProvider_SwitchBack_ResumesItsOwnSessionOverTheOnlyCodexThereIs(t *testing.T) {
 	f := newFixture(t)
 
 	chatID, codexRunner := f.spawn(t, "codex")
@@ -279,18 +310,23 @@ func TestSwitchProvider_SwitchBack_ResumesOverAPINotTheRedundantPTY(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, "codex", live.ProviderID)
 
-	// The api connection is what actually resumes sid-codex-native — see
+	// sid-codex-native is the session this switch-back resumes — see
 	// resumeTarget/resolvePromptDelivery's launchSessionID plumbing, persisted
 	// here as the new runner's own LaunchSessionID.
 	assert.Equal(t, "sid-codex-native", f.runner(t, newRunnerID).LaunchSessionID)
 
 	require.Equal(t, 3, f.term.callCount())
 	argv := f.term.calls[2].argv
-	assert.NotContains(t, argv, "resume",
-		"the redundant PTY must never resume the SAME thread the api connection just did: %v", argv)
+	resumeIdx := indexOf(argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0,
+		"with no api connection holding the thread, the PTY IS codex and must resume its own session: %v", argv)
+	require.Less(t, resumeIdx+1, len(argv))
+	assert.Equal(t, "sid-codex-native", argv[resumeIdx+1],
+		"the resume subcommand must name codex's own prior thread: %v", argv)
 	for _, tok := range argv {
 		assert.NotContains(t, tok, "[Crowbar]",
-			"the resume pointer must not reach this PTY either — it would answer as an unrelated second conversation: %v", argv)
+			"codex declares no resume_context_inject: its gap never rides argv as a pointer it would answer "+
+				"as an unrelated second conversation: %v", argv)
 	}
 }
 
@@ -392,11 +428,16 @@ func TestSwitchProvider_WorkspaceReaderFailure_ReturnsWrappedError(t *testing.T)
 
 	chatID, _ := f.spawn(t, "claude")
 
-	// A workspace-reader failure surfaces wrapped, not swallowed.
+	// A workspace-reader failure surfaces wrapped, not swallowed. It now
+	// surfaces at the preflight WorktreeDir read rather than the pending-prompt
+	// guard: that guard's journal dir no longer resolves a workspace at all
+	// (worktreepath.LedgerChatsDir, keyed by chat id — spec §1.5), so it clears
+	// before the switch reaches this failing read.
 	f.ws.err = errors.New("boom: workspace lookup")
 	_, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "chats dir")
+	assert.Contains(t, err.Error(), "preflight worktree dir")
+	assert.ErrorContains(t, err, "boom: workspace lookup")
 }
 
 func TestSwitchProvider_UnknownTargetProvider_ReturnsWrappedDescriptorError(t *testing.T) {
@@ -1135,8 +1176,11 @@ func TestRegression_SubmitPromptWithStagedProvider_CodexTargetUnaffectedByMerge(
 	assert.Equal(t, "back to codex now", call.argv[len(call.argv)-1],
 		"codex's replacement PTY must carry exactly the message, untouched by the "+
 			"positional-merge fix that exists only for claude's own shape: %v", call.argv)
-	assert.NotContains(t, call.argv, "resume",
-		"codex's redundant PTY must never carry a native resume either: %v", call.argv)
+	// The resume subcommand is still there — this fixture has no api connection
+	// to take the resume over (see apiResumes), so the PTY carries it. What must
+	// NOT appear is a folded-in context document ahead of the message.
+	assert.Contains(t, call.argv, "resume",
+		"with no api connection, the PTY must still resume codex's own thread: %v", call.argv)
 }
 
 // TestSwitchProvider_SwitchBackToProviderWithNoTurns_DoesNotResume: same rule on the
@@ -1192,10 +1236,11 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 	}
 
 	// Leave codex and come back: it resumes its own conversation, and Crowbar had no
-	// session store to lose in between. The resume itself happens over the api
-	// connection (applyAPITransport's thread/resume), never the redundant
-	// hooks-only PTY — see apiOwnsResume (prompts.go) — so it is codex's OWN
-	// resume, not one this test could have papered over by owning CODEX_HOME.
+	// session store to lose in between. This fixture has no api connection
+	// (CROWBAR_DISABLE_API_TRANSPORT), so the PTY is the only codex there is and
+	// carries the resume itself — see apiResumes (resume_injection.go). Either
+	// way it is codex's OWN session id, not one this test could have papered over
+	// by owning CODEX_HOME.
 	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
 	f.wait()
@@ -1206,8 +1251,12 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 
 	assert.Equal(t, "sid-codex", f.runner(t, newRunnerID).LaunchSessionID)
 	require.Equal(t, 3, f.term.callCount())
-	assert.NotContains(t, f.term.calls[2].argv, "resume",
-		"the redundant PTY must never also resume codex's own conversation")
+	argv := f.term.calls[2].argv
+	resumeIdx := indexOf(argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0, "codex must resume its own conversation: %v", argv)
+	require.Less(t, resumeIdx+1, len(argv))
+	assert.Equal(t, "sid-codex", argv[resumeIdx+1],
+		"the resumed thread must be the one codex announced before it was switched away: %v", argv)
 }
 
 // ─── from midturn_test.go ─────────────────────────────────────────────
@@ -2006,6 +2055,29 @@ func TestSlashCatalog_RefusesAChatWithNoLiveCLI(t *testing.T) {
 	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogNoLiveTUI)
 }
 
+// TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble proves
+// SlashCatalog (catalog.go) resolves a bubble's cwd through the SAME
+// ancestor walk spawnPaths uses (Task 22) — a genuinely separate call site
+// that used to resolve WorktreeDir from chat.WorkspaceID directly.
+//
+// The assertion is on f.ws.lastWorkspaceID, not merely on the call
+// succeeding: fakeWorkspace answers every id identically, including "",
+// which is exactly how the original bug went undetected through 21 tasks
+// (see spawnPaths' own test coverage history). Only checking WHICH id
+// reached the fake proves the fallback actually ran.
+func TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", nonCompactingDescriptorBody)
+	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
+
+	_, err := f.usecase.SlashCatalog(f.ctx, bubbleID)
+
+	require.ErrorIs(t, err, agentusecase.ErrSlashCatalogUnsupported,
+		"must reach the provider's OWN missing-capability refusal, not a cwd-resolution failure")
+	assert.Equal(t, "ws1", f.ws.lastWorkspaceID,
+		"must resolve the bubble's cwd through its workspace-owning ancestor, not its own empty WorkspaceID")
+}
+
 func writeCatalogDescriptor(t *testing.T, f testFixture, command string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(
@@ -2061,7 +2133,7 @@ func TestSubmitPrompt_RejectsNULBeforeJournalOrTUITeardown(t *testing.T) {
 	live, liveErr := f.liveRunnerFor(t, chatID)
 	require.NoError(t, liveErr)
 	assert.Equal(t, runnerID, live.ID)
-	_, statErr := os.Stat(filepath.Join(f.ws.chatsDir, chatID, "prompt-requests"))
+	_, statErr := os.Stat(filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests"))
 	assert.ErrorIs(t, statErr, os.ErrNotExist, "validation must precede durable dispatch intent")
 }
 
@@ -2107,16 +2179,19 @@ func TestSubmitPrompt_ResumeCodexOrdersSubcommandSessionThenPrompt(t *testing.T)
 	turn(t, f, runnerID, "codex", "the current conversation exists")
 	message := "CONTINUE FROM REACT"
 
-	// codex is api-transport, non-hotswap: the redundant hooks-only PTY this
-	// restart still forks must never ALSO resume native-session natively — see
-	// apiOwnsResume (prompts.go) — so no `resume {id} --` prefix precedes the
-	// message; native-session survives only as this replacement runner's own
-	// LaunchSessionID.
+	// codex is api-transport, non-hotswap — but this fixture has no api
+	// connection to take the resume over (apiResumes, resume_injection.go), so
+	// the PTY is the conversation and its argv must ORDER the resume subcommand,
+	// the session id and only then the message: `resume {id} -- <message>`.
 	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, message, uuid.NewString(), "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "native-session", f.runner(t, submission.RunnerID).LaunchSessionID)
 	call := f.term.calls[f.term.callCount()-1]
-	assert.NotContains(t, call.argv, "resume")
+	resumeIdx := indexOf(call.argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v", call.argv)
+	require.Less(t, resumeIdx+1, len(call.argv))
+	assert.Equal(t, "native-session", call.argv[resumeIdx+1])
+	assert.Less(t, resumeIdx, len(call.argv)-1, "the resume subcommand must precede the message")
 	assert.Equal(t, message, call.argv[len(call.argv)-1])
 }
 
@@ -2180,7 +2255,7 @@ func TestSubmitPrompt_ReplacementSpawnFailureStaysOutcomeUnknown(t *testing.T) {
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", "", "")
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown,
 		"a non-command-not-found CreateCommand error may follow a successful fork")
-	record, readErr := os.ReadFile(filepath.Join(f.ws.chatsDir, chatID, "prompt-requests", requestID+".json"))
+	record, readErr := os.ReadFile(filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests", requestID+".json"))
 	require.NoError(t, readErr)
 	assert.Contains(t, string(record), `"state":"uncertain"`,
 		"returning outcome_unknown must release the durable dispatching barrier")
@@ -2245,7 +2320,7 @@ func TestSubmitPrompt_RunnerLookupFailureAndAcceptedCrashGapAreSafe(t *testing.T
 func TestSubmitPrompt_JournalResultCommitFailureIsOutcomeUnknownAndDoesNotWedgeNewIDs(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
-	journalDir := filepath.Join(f.ws.chatsDir, chatID, "prompt-requests")
+	journalDir := filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests")
 	blockedDir := journalDir + ".blocked"
 	f.term.duringFork = func() {
 		require.NoError(t, os.Rename(journalDir, blockedDir))
@@ -2264,7 +2339,7 @@ func TestReconcileRunnersOnBoot_MarksBlankDispatchIntentUncertain(t *testing.T) 
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "codex")
 	requestID := uuid.NewString()
-	journalDir := filepath.Join(f.ws.chatsDir, chatID, "prompt-requests")
+	journalDir := filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests")
 	blockedDir := journalDir + ".blocked"
 	f.term.duringFork = func() {
 		require.NoError(t, os.Rename(journalDir, blockedDir))
@@ -2303,13 +2378,16 @@ func TestSubmitPrompt_CompletedStoppedResumedChatKeepsNativeResumeIdentity(t *te
 
 	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue after reopen", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
-	// codex is api-transport, non-hotswap: this restart's redundant hooks-only
-	// PTY must never ALSO resume durable-session natively (apiOwnsResume,
-	// prompts.go) — launch-as-resume identity survives instead as this
-	// replacement runner's own LaunchSessionID, even though old ledger turns
-	// predate the new runner's session_start.
+	// No api connection in this fixture, so the restart's PTY is the conversation
+	// and must resume durable-session itself (apiResumes, resume_injection.go) —
+	// the same identity that also persists as the replacement runner's own
+	// LaunchSessionID, even though old ledger turns predate its session_start.
 	assert.Equal(t, "durable-session", f.runner(t, submission.RunnerID).LaunchSessionID)
-	assert.NotContains(t, f.term.calls[f.term.callCount()-1].argv, "resume")
+	argv := f.term.calls[f.term.callCount()-1].argv
+	resumeIdx := indexOf(argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v", argv)
+	require.Less(t, resumeIdx+1, len(argv))
+	assert.Equal(t, "durable-session", argv[resumeIdx+1])
 }
 
 func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
@@ -2326,12 +2404,15 @@ func TestSubmitPrompt_NativeTUIResumeOfKnownSessionKeepsContext(t *testing.T) {
 
 	submission, err := f.usecase.SubmitPrompt(f.ctx, chatID, "continue immediately after native resume", uuid.NewString(), "", "", "")
 	require.NoError(t, err)
-	// codex is api-transport, non-hotswap: this restart's redundant hooks-only
-	// PTY must never ALSO resume known-session natively (apiOwnsResume,
-	// prompts.go) — the identity survives instead as this replacement
-	// runner's own LaunchSessionID.
+	// No api connection in this fixture, so the restart's PTY is the conversation
+	// and must resume known-session itself (apiResumes, resume_injection.go) —
+	// never temporary-new-session, the one it announced in between.
 	assert.Equal(t, "known-session", f.runner(t, submission.RunnerID).LaunchSessionID)
-	assert.NotContains(t, f.term.calls[f.term.callCount()-1].argv, "resume")
+	argv := f.term.calls[f.term.callCount()-1].argv
+	resumeIdx := indexOf(argv, "resume")
+	require.GreaterOrEqual(t, resumeIdx, 0, "argv %v", argv)
+	require.Less(t, resumeIdx+1, len(argv))
+	assert.Equal(t, "known-session", argv[resumeIdx+1])
 }
 
 // TestSubmitPrompt_VirginNativeSessionAfterSwitchCarriesTheFullHandoff pins the
@@ -2458,7 +2539,7 @@ func TestSubmitPrompt_ExitAfterStartupBarrierBeforeJournalCommitIsUncertain(t *t
 
 	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "exit in commit gap", requestID, "", "", "")
 	require.ErrorIs(t, err, agentusecase.ErrPromptOutcomeUnknown)
-	record, readErr := os.ReadFile(filepath.Join(f.ws.chatsDir, chatID, "prompt-requests", requestID+".json"))
+	record, readErr := os.ReadFile(filepath.Join(worktreepath.LedgerChatsDir(f.ws.home), chatID, "prompt-requests", requestID+".json"))
 	require.NoError(t, readErr)
 	assert.Contains(t, string(record), `"state":"uncertain"`,
 		"the pre-journaled runner id lets onExit correlate before markSpawned")
@@ -2744,6 +2825,30 @@ func TestCompact_AnUnknownChatSendsNothing(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, before, f.term.callCount(),
 		"an unknown chat must reach no CLI at all")
+}
+
+// TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble proves Compact
+// (compact.go) resolves a bubble's cwd through the SAME ancestor walk
+// spawnPaths uses (Task 22) — a genuinely separate call site that used to
+// resolve WorktreeDir from chat.WorkspaceID directly.
+//
+// A no-gesture refusal and a cwd-resolution failure both surface as
+// apperr.ErrNotFound here (see TestCompact_AProviderWithNoGestureIsNotFound
+// above), so the error alone cannot tell them apart — the assertion that
+// actually proves the fallback ran is on f.ws.lastWorkspaceID: fakeWorkspace
+// answers every id identically, including "", which is exactly how the
+// original bug went undetected through 21 tasks.
+func TestCompact_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", nonCompactingDescriptorBody)
+	bubbleID, _, _ := seedBubbleChat(t, f, "claude")
+
+	err := f.usecase.Compact(f.ctx, bubbleID)
+
+	require.ErrorIs(t, err, apperr.ErrNotFound,
+		"must still refuse for the provider's OWN missing gesture, exactly as an ordinary chat would")
+	assert.Equal(t, "ws1", f.ws.lastWorkspaceID,
+		"must resolve the bubble's cwd through its workspace-owning ancestor, not its own empty WorkspaceID")
 }
 
 // The same provider as compactingDescriptorBody, with compact_pre/compact_post
@@ -3039,6 +3144,26 @@ func TestReconcileRunnersOnBoot_LeavesALiveRunnerAlone(t *testing.T) {
 func TestReconcileRunnersOnBoot_EmptyIsTheNormalAnswer(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
+}
+
+// TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep pins spec §1.5's
+// worst failure mode: before this fix, the prompt-journal boot sweep resolved every
+// chat's directory through AgentChatsDir(chat.WorkspaceID), which requires a
+// resolvable workspace row. A single chat with no workspace (a "bubble" — model spec
+// §3.1) would fail that lookup and abort reconciliation for EVERY chat, not just its
+// own — one unplaced chat bricking every other chat's boot recovery.
+func TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep(t *testing.T) {
+	f := newFixture(t)
+
+	bubbleID, err := f.usecase.MintChat(f.ctx, "")
+	require.NoError(t, err)
+	f.wait()
+
+	require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx),
+		"a workspace-less chat must not fail the boot sweep for every chat")
+
+	_, err = f.usecase.GetChat(f.ctx, bubbleID)
+	require.NoError(t, err)
 }
 
 // ─── from stop_test.go ────────────────────────────────────────────────
@@ -3404,7 +3529,8 @@ func TestSpawnChat_CreatesChatAndRunner_AndSpawnsTheCLI(t *testing.T) {
 
 	require.Equal(t, 1, f.term.callCount())
 	call := f.term.calls[0]
-	assert.Equal(t, "ws1", call.workspaceID)
+	assert.Equal(t, chatID, call.chatID,
+		"the CLI's PTY session is owned by the chat that spawned it")
 	assert.Equal(t, f.ws.worktree, call.cwd)
 	assert.Equal(t, "claude", filepath.Base(call.argv[0]))
 	// A fresh SpawnChat injects the capability preamble via the descriptor's

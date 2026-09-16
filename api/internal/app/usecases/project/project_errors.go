@@ -18,3 +18,14 @@ var ErrFolderNotFound = errors.New("folder does not exist")
 // to HTTP 409 via libs.StatusAndMessage, and it is wrapped with the name of the
 // project that already has the folder so the message says where to look.
 var ErrRepoAlreadyImported = errors.New("this folder is already added as a repository")
+
+// ErrNoNodesWired is returned when an import runs on a usecase whose Node
+// surface (NodePlacements) was never wired — for a repo's own row (Task 3) and,
+// since 2026-09-08 sidebar-placement-unification Task 7, for a workspace's own
+// row too (see createOwnedWorkspace's mintWorkspaceNode).
+//
+// It refuses rather than silently persisting a row with no position —
+// mirrors ErrNoOwningChats's own reasoning: an unwired daemon fails at its
+// first import instead of producing an entity whose sidebar entry every
+// densify pass silently skips.
+var ErrNoNodesWired = errors.New("project import: no node surface wired; refusing to create a row with no position")

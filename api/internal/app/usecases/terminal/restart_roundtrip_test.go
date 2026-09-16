@@ -149,7 +149,7 @@ func rrHas(s, sub string) bool {
 //  3. Close the DB connection (simulates daemon exit releasing the file lock).
 //  4. Engine #2 (fresh engine, same real DB file): call RestorePersistedSessions;
 //     assert the session appears as a suspended placeholder via SessionExists /
-//     StateOf / ListSessionsForWorkspace.
+//     StateOf / ListSessionsForChat.
 //  5. Attach a new capture conn to engine #2; assert the replayed scrollback
 //     contains the pre-restart marker AND the session restores live in the
 //     saved CWD.
@@ -164,12 +164,13 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 		projectID   = "proj-rrt"
 		repoID      = "repo-rrt"
 		workspaceID = "ws-rrt"
+		chatID      = "chat-rrt"
 	)
 
-	// A minimal WorkspaceRepo that always returns our known workspace. Both
-	// engine phases share this same in-memory repo (the workspace state is
-	// stable across the restart).
-	wsRepo := &fakeWorkspaceRepo{
+	// A minimal WorktreeResolver mapping the owning CHAT to the workspace behind
+	// its worktree. Both engine phases share this same in-memory resolver (the
+	// chat→workspace mapping is stable across the restart).
+	worktrees := &fakeWorktreeResolver{
 		ws: domain.Workspace{
 			ID:           workspaceID,
 			ProjectID:    projectID,
@@ -188,9 +189,9 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	require.NoError(t, err, "create TerminalSession store for engine #1")
 
 	// Real SessionMetaStore that delegates to the GORM store and resolves
-	// StorageDir via crowbarHome + workspace ProjectID/RepoID.
+	// StorageDir via crowbarHome + workspace ProjectID/RepoID (leaf: the chat).
 	ms1 := terminal.NewSessionMetaStore(
-		wsRepo,
+		worktrees,
 		sessStore1,
 		func() (string, error) { return home, nil },
 	)
@@ -209,9 +210,9 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	eng1.SetMetaStore(ms1)
 
 	profiles1 := mocks.NewTerminalProfileStore()
-	uc1 := terminal.New(eng1, profiles1, wsRepo, ms1)
+	uc1 := terminal.New(eng1, profiles1, worktrees, ms1)
 
-	sessionID, err := uc1.CreateSession(ctx, workspaceID, nil)
+	sessionID, err := uc1.CreateSession(ctx, chatID, nil)
 	require.NoError(t, err, "engine #1: CreateSession must succeed")
 
 	// Attach a capture conn to receive PTY frames and verify output.
@@ -271,7 +272,7 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	})
 
 	ms2 := terminal.NewSessionMetaStore(
-		wsRepo,
+		worktrees,
 		sessStore2,
 		func() (string, error) { return home, nil },
 	)
@@ -280,7 +281,7 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	eng2.SetMetaStore(ms2)
 
 	profiles2 := mocks.NewTerminalProfileStore()
-	uc2 := terminal.New(eng2, profiles2, wsRepo, ms2)
+	uc2 := terminal.New(eng2, profiles2, worktrees, ms2)
 
 	// RestorePersistedSessions reads the REAL SQLite DB, finds the session row
 	// written by engine #1, and loads it as a PTY-less placeholder in engine #2.
@@ -296,8 +297,8 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	assert.Equal(t, "suspended", state,
 		"engine #2: restored session must be a suspended placeholder")
 
-	assert.Contains(t, eng2.ListSessionsForWorkspace(workspaceID), sessionID,
-		"engine #2: ListSessionsForWorkspace must include the restored session")
+	assert.Contains(t, eng2.ListSessionsForChat(chatID), sessionID,
+		"engine #2: ListSessionsForChat must include the restored session")
 
 	// ---- Attach to the restored session — verify scrollback replay + CWD. ----
 	//
@@ -338,8 +339,8 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 	conn2.waitForData(func(data string) bool { return rrHas(data, savedCWD) })
 
 	// Also verify the scrollback file still exists and the meta row is readable.
-	storageDir, storErr := ms2.StorageDir(ctx, workspaceID)
-	require.NoError(t, storErr, "engine #2: must resolve storage dir for workspace")
+	storageDir, storErr := ms2.StorageDir(ctx, chatID)
+	require.NoError(t, storErr, "engine #2: must resolve storage dir for the owning chat")
 	bufPath := filepath.Join(storageDir, sessionID+".buf")
 	_, statErr := os.Stat(bufPath)
 	assert.NoError(t, statErr, "scrollback .buf file must exist after restart-restore")
@@ -369,9 +370,10 @@ func TestRegression_TerminalSession_MetaRowSurvivesShutdown_RealStore(t *testing
 		projectID   = "proj-mrs"
 		repoID      = "repo-mrs"
 		workspaceID = "ws-mrs"
+		chatID      = "chat-mrs"
 	)
 
-	wsRepo := &fakeWorkspaceRepo{
+	worktrees := &fakeWorktreeResolver{
 		ws: domain.Workspace{
 			ID:           workspaceID,
 			ProjectID:    projectID,
@@ -393,7 +395,7 @@ func TestRegression_TerminalSession_MetaRowSurvivesShutdown_RealStore(t *testing
 	})
 
 	ms := terminal.NewSessionMetaStore(
-		wsRepo,
+		worktrees,
 		sessStore,
 		func() (string, error) { return home, nil },
 	)
@@ -402,9 +404,9 @@ func TestRegression_TerminalSession_MetaRowSurvivesShutdown_RealStore(t *testing
 	eng.SetMetaStore(ms)
 
 	profiles := mocks.NewTerminalProfileStore()
-	uc := terminal.New(eng, profiles, wsRepo, ms)
+	uc := terminal.New(eng, profiles, worktrees, ms)
 
-	sessionID, err := uc.CreateSession(ctx, workspaceID, nil)
+	sessionID, err := uc.CreateSession(ctx, chatID, nil)
 	require.NoError(t, err, "CreateSession must succeed")
 
 	// Attach a capture conn and wait for the initial shell prompt so the ring
@@ -431,13 +433,13 @@ func TestRegression_TerminalSession_MetaRowSurvivesShutdown_RealStore(t *testing
 	require.NotNil(t, row, "session row must exist in real SQLite store after Shutdown")
 	assert.Equal(t, "suspended", row.State,
 		"row state must be 'suspended' after Shutdown")
-	assert.Equal(t, workspaceID, row.WorkspaceID,
-		"row must carry the correct workspaceID")
+	assert.Equal(t, chatID, row.ChatID,
+		"row must carry the correct chatID")
 	assert.Equal(t, projectID, row.ProjectID,
 		"row must carry the correct projectID")
 
 	// Scrollback .buf must be present on disk.
-	storageDir, storErr := ms.StorageDir(ctx, workspaceID)
+	storageDir, storErr := ms.StorageDir(ctx, chatID)
 	require.NoError(t, storErr, "StorageDir must resolve")
 	bufPath := filepath.Join(storageDir, sessionID+".buf")
 	_, statErr := os.Stat(bufPath)
@@ -481,9 +483,10 @@ func TestRegression_CommandSession_NotPersistedAcrossRestart(t *testing.T) {
 		projectID   = "proj-cmd"
 		repoID      = "repo-cmd"
 		workspaceID = "ws-cmd"
+		chatID      = "chat-cmd"
 	)
 
-	wsRepo := &fakeWorkspaceRepo{
+	worktrees := &fakeWorktreeResolver{
 		ws: domain.Workspace{
 			ID:           workspaceID,
 			ProjectID:    projectID,
@@ -497,20 +500,20 @@ func TestRegression_CommandSession_NotPersistedAcrossRestart(t *testing.T) {
 	require.NoError(t, err)
 	sessStore1, err := storesqlite.NewFromDB[domain.TerminalSession, string](db1)
 	require.NoError(t, err)
-	ms1 := terminal.NewSessionMetaStore(wsRepo, sessStore1, func() (string, error) { return home, nil })
+	ms1 := terminal.NewSessionMetaStore(worktrees, sessStore1, func() (string, error) { return home, nil })
 
 	eng1 := engineterminal.New()
 	eng1.SetMetaStore(ms1)
-	uc1 := terminal.New(eng1, mocks.NewTerminalProfileStore(), wsRepo, ms1)
+	uc1 := terminal.New(eng1, mocks.NewTerminalProfileStore(), worktrees, ms1)
 
 	// The control: an ordinary shell terminal tab, which MUST still survive.
-	shellID, err := uc1.CreateSession(ctx, workspaceID, nil)
+	shellID, err := uc1.CreateSession(ctx, chatID, nil)
 	require.NoError(t, err, "engine #1: shell CreateSession must succeed")
 
 	// The subject: an agentic vendor CLI. `cat` stands in for claude/codex — it
 	// stays alive on its PTY, so Shutdown sees it as a LIVE session (the exact
 	// state that used to get it persisted).
-	cmdID, err := eng1.CreateCommand(ctx, workspaceID, cwd, []string{"cat"}, nil, nil)
+	cmdID, err := eng1.CreateCommand(ctx, chatID, cwd, []string{"cat"}, nil, nil)
 	require.NoError(t, err, "engine #1: CreateCommand must succeed")
 	require.True(t, eng1.SessionLive(ctx, cmdID), "precondition: the vendor CLI's PTY is live before shutdown")
 
@@ -545,11 +548,11 @@ func TestRegression_CommandSession_NotPersistedAcrossRestart(t *testing.T) {
 			_ = sqlDB.Close()
 		}
 	})
-	ms2 := terminal.NewSessionMetaStore(wsRepo, sessStore2, func() (string, error) { return home, nil })
+	ms2 := terminal.NewSessionMetaStore(worktrees, sessStore2, func() (string, error) { return home, nil })
 
 	eng2 := engineterminal.New()
 	eng2.SetMetaStore(ms2)
-	uc2 := terminal.New(eng2, mocks.NewTerminalProfileStore(), wsRepo, ms2)
+	uc2 := terminal.New(eng2, mocks.NewTerminalProfileStore(), worktrees, ms2)
 	t.Cleanup(eng2.Shutdown)
 
 	require.NoError(t, uc2.RestorePersistedSessions(ctx))

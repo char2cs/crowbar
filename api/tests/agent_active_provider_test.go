@@ -27,7 +27,9 @@ func TestRegression_AgentChatActiveProviderID(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.post(wsBase(imported)+"/chats", map[string]string{"provider": "livestub"}, http.StatusCreated, &created)
+	h.post(repoBase(imported)+"/chats",
+		map[string]string{"provider": "livestub", "workspaceId": imported.workspaceID},
+		http.StatusCreated, &created)
 	require.NotEmpty(t, created.ID, "create must respond with the new chat's id")
 	// Join the reactors so the spawned runner has actually landed before the read (a plain
 	// projection drain returns the moment the placement goroutine is spawned, before the
@@ -35,11 +37,9 @@ func TestRegression_AgentChatActiveProviderID(t *testing.T) {
 	h.QuiesceReactors()
 	chatID := created.ID
 
-	var list []struct {
-		ID               string `json:"id"`
-		ActiveProviderID string `json:"activeProviderId"`
-	}
-	h.get(wsBase(imported)+"/chats", &list)
+	var listed []agentChatDTO
+	h.get(repoBase(imported)+"/chats", &listed)
+	list := conversationsOnly(listed)
 	require.Len(t, list, 1)
 	assert.Equal(t, chatID, list[0].ID)
 	assert.Equal(t, "livestub", list[0].ActiveProviderID)
@@ -47,6 +47,6 @@ func TestRegression_AgentChatActiveProviderID(t *testing.T) {
 	var detail struct {
 		ActiveProviderID string `json:"activeProviderId"`
 	}
-	h.get(wsBase(imported)+"/chats/"+chatID, &detail)
+	h.get(repoBase(imported)+"/chats/"+chatID, &detail)
 	assert.Equal(t, "livestub", detail.ActiveProviderID)
 }

@@ -108,6 +108,17 @@ interface AgentTranscriptProps {
   initialScrollPosition?: TranscriptScrollPosition | null
   /** Called once, on unmount, with wherever the reader ended up. */
   onScrollPositionChange?: (position: TranscriptScrollPosition) => void
+  /** How much of this transcript's top edge the pane's floating overlay chat
+   *  header paints over — the same `--agent-transcript-header-clearance` the
+   *  caller (AgentChatView) publishes for `.scroll`'s own `padding-top`,
+   *  threaded in as a NUMBER because the anchor's turn-pinning is JS layout
+   *  math that CSS padding cannot reach. This is the header's FULL
+   *  EdgeDissolve reach (100px Mac / 90px elsewhere), not the narrower
+   *  `--agent-header-clearance` composer/empty-document use (52px / 42px) —
+   *  scrolled-behind text needs to clear the whole blur gradient, not just
+   *  the header's own clickable row, or it renders visibly out of focus
+   *  rather than merely covered. See `UseTranscriptAnchorOptions.headerClearancePx`. */
+  headerClearancePx?: number
 }
 
 /** The `at` of the user turn each assistant reply actually answers, keyed by
@@ -459,6 +470,7 @@ export function AgentTranscript(props: AgentTranscriptProps) {
     initialPosition: props.initialScrollPosition,
     onPositionChange: props.onScrollPositionChange,
     visible: props.visible,
+    headerClearancePx: props.headerClearancePx,
   })
   const scrollFrame = useScrollFrameSpan()
   // The dock overlays this transcript rather than sizing it (see

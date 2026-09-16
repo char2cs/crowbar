@@ -7,10 +7,14 @@ import (
 )
 
 // buildSpawnSteps assembles the ordered InjectStep list a spawn's SpawnPlan
-// renders against: extraSteps first, then the descriptor's own selection and
+// renders against: resumeSteps first, then the descriptor's own selection and
 // context steps, then finalSteps — positional user prompts are final by
 // contract (Claude's variadic --mcp-config must already be terminated by
 // later options, and codex's resume subcommand/id must precede the message).
+//
+// apiResumes (see resume_injection.go) drops resumeSteps entirely: this spawn's
+// OWN api connection is live and has already resumed the session, so the
+// companion PTY must not become a second writer on it.
 //
 // descriptor.SelectionSteps contributes an EMPTY slice for a chat with no
 // model/effort choice, or a provider declaring no such block — so this costs
@@ -22,13 +26,16 @@ import (
 // mergeLeadingPositional's own doc for why.
 func buildSpawnSteps(
 	descriptor engineagents.Agent,
-	resuming, inject bool,
+	resuming, inject, apiResumes bool,
 	sel engineagents.Selection,
-	extraSteps, finalSteps []engineagents.InjectStep,
+	resumeSteps, finalSteps []engineagents.InjectStep,
 ) []engineagents.InjectStep {
-	steps := append([]engineagents.InjectStep{}, extraSteps...)
+	steps := []engineagents.InjectStep{}
+	if !apiResumes {
+		steps = append(steps, resumeSteps...)
+	}
 	steps = append(steps, descriptor.SelectionSteps(sel)...)
-	if contextStepsAllowed(resuming, inject, descriptor) {
+	if contextStepsAllowed(resuming, inject, apiResumes) {
 		context := descriptor.ContextSteps(resuming)
 		if merged, ok := mergeLeadingPositional(context, finalSteps); ok {
 			finalSteps = merged
@@ -109,14 +116,15 @@ func argString(v any) string {
 // contextStepsAllowed is whether ContextSteps — a CLI argv, a POSITIONAL
 // PROMPT on the resume path — may be rendered at all. False exactly when the
 // redundant hooks-only PTY this same spawn's applyAPITransport call has
-// already resumed over the api connection would otherwise answer it as its
+// already resumed over a LIVE api connection would otherwise answer it as its
 // own genuine first turn (a provider whose only resume channel is a user
-// message, e.g. codex — see apiOwnsResume). Never suppressed for a FRESH
+// message, e.g. codex — see apiResumes). Never suppressed for a FRESH
 // inject: an unresumed spawn's ContextSteps is silent config, nothing for the
 // PTY to act on. resumeContextFor, just below, is this same routing decision
-// for the OTHER channel — InjectAt over the api connection itself.
-func contextStepsAllowed(resuming, inject bool, descriptor engineagents.Agent) bool {
-	return inject && (!resuming || !apiOwnsResume(descriptor))
+// for the OTHER channel — InjectAt over the api connection itself, which only
+// runs when that connection came up, so exactly one of the two carries the gap.
+func contextStepsAllowed(resuming, inject, apiResumes bool) bool {
+	return inject && (!resuming || !apiResumes)
 }
 
 // resumeContextFor is the gap document a resumed api-transport connection's

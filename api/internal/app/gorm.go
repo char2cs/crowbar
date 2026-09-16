@@ -12,20 +12,21 @@ import (
 
 // GORMStores holds the plain-CRUD repositories backed by the shared GORM DB.
 //
-// Folders is typed as the wider ScopedStore because every folder read in a
-// request path is repo-scoped: the sidebar wants one repo's rows, and a
-// whole-table FindAll would grow with the install rather than with the request.
-// AgentChatFolders is scoped for the same reason one level down: the Chats panel
-// wants ONE workspace's folders, and every install has many workspaces.
+// Folders is wired here purely additively (2026-09-08
+// sidebar-placement-unification, Task 2): nothing reads or writes it yet, and
+// the sidebar's existing folder rows are still domain.Chat rows (Type ==
+// ChatTypeFolder) until a later task in the same plan migrates them over. It
+// is plain GORM, not asynx-backed like domain.Node/Chat, per the design
+// spec's §2.2 reasoning: a folder rename is a single, low-stakes CRUD fact
+// with no drag-time densify race to guard and no motivated undo case.
 type GORMStores struct {
 	Projects                 store.Store[domain.Project, string]
 	Repositories             store.ScopedStore[domain.Repository, string]
-	Folders                  store.ScopedStore[domain.Folder, string]
-	AgentChatFolders         store.ScopedStore[domain.ChatFolder, string]
 	TerminalProfiles         store.Store[domain.TerminalProfile, string]
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
 	AgentPermissionDefault   store.Store[domain.AgentPermissionDefault, string]
+	Folders                  store.ScopedStore[domain.Folder, string]
 }
 
 func newGORMStores(
@@ -38,14 +39,6 @@ func newGORMStores(
 	repos, err := storesqlite.NewFromDB[domain.Repository, string](db)
 	if err != nil {
 		return nil, fmt.Errorf("app: repository store: %w", err)
-	}
-	folders, err := storesqlite.NewFromDB[domain.Folder, string](db)
-	if err != nil {
-		return nil, fmt.Errorf("app: folder store: %w", err)
-	}
-	chatFolders, err := storesqlite.NewFromDB[domain.ChatFolder, string](db)
-	if err != nil {
-		return nil, fmt.Errorf("app: agent chat folder store: %w", err)
 	}
 	profiles, err := storesqlite.NewFromDB[domain.TerminalProfile, string](db)
 	if err != nil {
@@ -63,14 +56,17 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: agent permission default store: %w", err)
 	}
+	folders, err := storesqlite.NewFromDB[domain.Folder, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("app: folder store: %w", err)
+	}
 	return &GORMStores{
 		Projects:                 projects,
 		Repositories:             repos,
-		Folders:                  folders,
-		AgentChatFolders:         chatFolders,
 		TerminalProfiles:         profiles,
 		TerminalSessions:         sessions,
 		AgentProviderPreferences: providerPrefs,
 		AgentPermissionDefault:   permissionDefault,
+		Folders:                  folders,
 	}, nil
 }

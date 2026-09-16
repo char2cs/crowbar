@@ -63,7 +63,7 @@ func TestRegression_CompactPreAndPostPushLiveOverTheSocket(t *testing.T) {
 	writeProviderDescriptor(t, h, "compactablestub", compactableStubProviderDescriptorYAML)
 	imported := importWritableWorkspace(t, h)
 
-	conn := h.dial(wsBase(imported) + "/chats/ws")
+	conn := h.dial(repoBase(imported) + "/chats/ws")
 	chatID, runnerID := createStubChat(t, h, imported, "compactablestub")
 	chatFrame := func(kind string) func(map[string]any) bool {
 		return func(m map[string]any) bool { return m["chatId"] == chatID && m["kind"] == kind }

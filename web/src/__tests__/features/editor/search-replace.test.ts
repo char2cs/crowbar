@@ -6,6 +6,7 @@ import {
 } from '@/features/editor/utils/search-replace'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 const createMockStorage = () => {
@@ -166,11 +167,12 @@ describe('search replace store actions', () => {
 
     // Set up active workspace store with a buffer containing the search content
     const wsStore = createWorkspaceStore('test-ws')
-    const bufferId = wsStore.getState().bufferActions.openContent({
+    const bufferId = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
       path: '/tmp/search.txt',
       name: 'search.txt',
       content: 'foo Foo FOO',
+      workspaceId: 'test-ws',
     })
     // Make it the active pane buffer
     wsStore.setState((state) => ({

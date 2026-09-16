@@ -10,6 +10,7 @@ vi.mock('@/lib/api', () => ({
 import {
   ensureHomeWorkspaceResolved,
   getKnownHomeWorkspaceIds,
+  getHomeWorkspaceId,
   useHomeWorkspaceState,
   __resetHomeWorkspaceResolverForTest,
 } from '@/features/workspace/lib/home-workspace-resolver'
@@ -22,11 +23,16 @@ beforeEach(() => {
 describe('home-workspace-resolver', () => {
   it('useHomeWorkspaceState starts unresolved (no wsId, no error) before anything is fetched', () => {
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
-    expect(result.current).toEqual({ wsId: null, error: false })
+    expect(result.current).toEqual({ wsId: null, owningChatId: null, error: false })
   })
 
   it('resolves the home workspace id once the fetch settles, and known ids include it', async () => {
-    fetchHomeWorkspaceMock.mockResolvedValueOnce({ id: 'ws-home-1', projectId: 'p1', kind: 'home' })
+    fetchHomeWorkspaceMock.mockResolvedValueOnce({
+      id: 'ws-home-1',
+      projectId: 'p1',
+      kind: 'home',
+      owningChatId: 'chat-home-1',
+    })
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
 
     act(() => {
@@ -34,13 +40,24 @@ describe('home-workspace-resolver', () => {
     })
 
     await waitFor(() => {
-      expect(result.current).toEqual({ wsId: 'ws-home-1', error: false })
+      // owningChatId is carried through because chat-scoped routes (a terminal's)
+      // are addressed by it and the home route supplies no chat id of its own.
+      expect(result.current).toEqual({
+        wsId: 'ws-home-1',
+        owningChatId: 'chat-home-1',
+        error: false,
+      })
     })
     expect(getKnownHomeWorkspaceIds()).toContain('ws-home-1')
   })
 
   it('is idempotent: a second call for the same project id does not re-fetch', async () => {
-    fetchHomeWorkspaceMock.mockResolvedValueOnce({ id: 'ws-home-1', projectId: 'p1', kind: 'home' })
+    fetchHomeWorkspaceMock.mockResolvedValueOnce({
+      id: 'ws-home-1',
+      projectId: 'p1',
+      kind: 'home',
+      owningChatId: 'chat-home-1',
+    })
 
     ensureHomeWorkspaceResolved('p1')
     ensureHomeWorkspaceResolved('p1') // in-flight — must not issue a second fetch
@@ -59,7 +76,7 @@ describe('home-workspace-resolver', () => {
     })
 
     await waitFor(() => {
-      expect(result.current).toEqual({ wsId: null, error: true })
+      expect(result.current).toEqual({ wsId: null, owningChatId: null, error: true })
     })
     expect(getKnownHomeWorkspaceIds()).not.toContain('p1')
 
@@ -82,6 +99,36 @@ describe('home-workspace-resolver', () => {
 
     await waitFor(() => {
       expect(getKnownHomeWorkspaceIds().sort()).toEqual(['ws-p1', 'ws-p2'])
+    })
+  })
+
+  describe('getHomeWorkspaceId', () => {
+    it('returns null before anything has resolved for that project', () => {
+      expect(getHomeWorkspaceId('p1')).toBeNull()
+    })
+
+    it("returns exactly the ONE project's own resolved id, not another project's", async () => {
+      fetchHomeWorkspaceMock.mockImplementation((projectId: string) =>
+        Promise.resolve({ id: `ws-${projectId}`, projectId, kind: 'home' }),
+      )
+      ensureHomeWorkspaceResolved('p1')
+      ensureHomeWorkspaceResolved('p2')
+
+      await waitFor(() => {
+        expect(getHomeWorkspaceId('p1')).toBe('ws-p1')
+      })
+      expect(getHomeWorkspaceId('p2')).toBe('ws-p2')
+      expect(getHomeWorkspaceId('p1')).not.toBe(getHomeWorkspaceId('p2'))
+    })
+
+    it('returns null for a project that errored rather than the error sentinel', async () => {
+      fetchHomeWorkspaceMock.mockRejectedValueOnce(new Error('not found'))
+      ensureHomeWorkspaceResolved('p1')
+
+      await waitFor(() => {
+        expect(getKnownHomeWorkspaceIds()).not.toContain('p1')
+      })
+      expect(getHomeWorkspaceId('p1')).toBeNull()
     })
   })
 })

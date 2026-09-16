@@ -24,9 +24,9 @@ func TestBlame_200(t *testing.T) {
 			CommitMessage: "init",
 		},
 	}}
-	r := newRouter(&fakeLSP{}, git, okWSReader())
+	r := newRouter(&fakeLSP{}, git)
 
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ws1/blame?path=main.go", nil)
+	rec := do(t, r, http.MethodGet, "/v0/chats/ws1/blame?path=main.go", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	env := decode(t, rec)
@@ -39,9 +39,9 @@ func TestBlame_200(t *testing.T) {
 }
 
 func TestBlame_EmptyArrayNotNull(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{}, &fakeGit{})
 
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ws1/blame?path=main.go", nil)
+	rec := do(t, r, http.MethodGet, "/v0/chats/ws1/blame?path=main.go", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	env := decode(t, rec)
@@ -50,9 +50,9 @@ func TestBlame_EmptyArrayNotNull(t *testing.T) {
 }
 
 func TestBlame_MissingPath_400(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, okWSReader())
+	r := newRouter(&fakeLSP{}, &fakeGit{})
 
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ws1/blame", nil)
+	rec := do(t, r, http.MethodGet, "/v0/chats/ws1/blame", nil)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	env := decode(t, rec)
@@ -60,37 +60,30 @@ func TestBlame_MissingPath_400(t *testing.T) {
 	assert.Equal(t, "path is required", env.Error)
 }
 
-func TestBlame_UnknownWorkspace_404(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errNotFound})
+// TestBlame_NoResolvedWorkspace_500 is the wiring-bug guard: a route mounted
+// outside chatScoped's resolveChatWorktree middleware finds no workspace on
+// reqscope and reports a 500 rather than silently acting on the empty string
+// (Handlers.workspace).
+func TestBlame_NoResolvedWorkspace_500(t *testing.T) {
+	r := newRouterNoWorkspace(&fakeLSP{}, &fakeGit{})
 
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ghost/blame?path=main.go", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-
-	env := decode(t, rec)
-	assert.False(t, env.Success)
-	assert.Contains(t, env.Error, "not found")
-}
-
-func TestBlame_WorkspaceReaderError_500(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{}, &fakeWSReader{err: errBoom})
-
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ws1/blame?path=main.go", nil)
+	rec := do(t, r, http.MethodGet, "/v0/chats/chat1/blame?path=main.go", nil)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.False(t, decode(t, rec).Success)
 }
 
 func TestBlame_EngineError_500(t *testing.T) {
-	r := newRouter(&fakeLSP{}, &fakeGit{err: errBoom}, okWSReader())
+	r := newRouter(&fakeLSP{}, &fakeGit{err: errBoom})
 
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ws1/blame?path=main.go", nil)
+	rec := do(t, r, http.MethodGet, "/v0/chats/ws1/blame?path=main.go", nil)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.False(t, decode(t, rec).Success)
 }
 
 func TestBlame_NilEngine_503(t *testing.T) {
-	r := newRouter(&fakeLSP{}, nil, okWSReader())
+	r := newRouter(&fakeLSP{}, nil)
 
-	rec := do(t, r, http.MethodGet, "/v0/workspaces/ws1/blame?path=main.go", nil)
+	rec := do(t, r, http.MethodGet, "/v0/chats/ws1/blame?path=main.go", nil)
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 
 	env := decode(t, rec)

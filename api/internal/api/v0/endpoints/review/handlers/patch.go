@@ -40,7 +40,7 @@ const truncatedHeader = "X-Crowbar-Diff-Truncated"
 // provide, and gets no truncation header.
 const maxBufferedPatchLines = 50000
 
-// GetPatch handles GET /v0/workspaces/:wsId/review/patch?path=&maxLines=,
+// GetPatch handles GET /v0/chats/:chatId/review/patch?path=&maxLines=,
 // serving ONE file's unified patch as text/plain.
 //
 // The patch is streamed: git's output reaches the response as it is produced,
@@ -82,7 +82,7 @@ func (h *Handlers) streamPatch(
 	ctx.Status(http.StatusOK)
 	_, _, err := h.reviewUsecase.GetPatch(
 		ctx.Request.Context(),
-		ctx.Param("wsId"),
+		h.workspaceID(ctx),
 		scopeCommit(ctx),
 		path,
 		maxLines,
@@ -105,7 +105,7 @@ func (h *Handlers) bufferedPatch(
 	var buf bytes.Buffer
 	_, truncated, err := h.reviewUsecase.GetPatch(
 		ctx.Request.Context(),
-		ctx.Param("wsId"),
+		h.workspaceID(ctx),
 		scopeCommit(ctx),
 		path,
 		maxLines,

@@ -10,9 +10,9 @@ import { getUiFontScale, normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from './ui-
 export const APPEARANCE_BOOTSTRAP_CACHE_KEY = 'crowbar.bootstrap.appearance.v2'
 
 const DEFAULT_MONO_FALLBACK =
-  '"JetBrains Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
+  '"Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
 const WINDOWS_MONO_FALLBACK =
-  '"JetBrains Mono Variable", Consolas, "Cascadia Mono", "Cascadia Code", "Courier New", ui-monospace, monospace'
+  '"Geist Mono Variable", Consolas, "Cascadia Mono", "Cascadia Code", "Courier New", ui-monospace, monospace'
 
 const DEFAULT_SANS_FALLBACK =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'

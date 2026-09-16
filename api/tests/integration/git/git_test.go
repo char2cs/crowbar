@@ -27,6 +27,7 @@ type GitSuite struct {
 	Env      *kit.Env
 	imported kit.ImportedRepo
 	wsID     string
+	chatID   string
 	worktree string
 }
 
@@ -34,15 +35,15 @@ type GitSuite struct {
 func (s *GitSuite) SetupTest() {
 	s.Env = kit.BuildEnv(s.T())
 	s.imported = s.Env.ImportRepo(s.T(), "git", "")
-	s.wsID = s.Env.CreateWorkspace(s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/git-test")
+	s.wsID, s.chatID = s.Env.CreateWorkspaceWithChat(
+		s.T(), s.imported.ProjectID, s.imported.RepoID, "feature/git-test", "",
+	)
 	s.worktree = s.Env.WorktreePath(s.imported.ProjectID, s.imported.RepoID, s.wsID)
 }
 
-// base returns the workspace-scoped route prefix.
+// base returns the chat-scoped route prefix.
 func (s *GitSuite) base() string {
-	return "/v0/projects/" + s.imported.ProjectID +
-		"/repos/" + s.imported.RepoID +
-		"/workspaces/" + s.wsID
+	return "/v0/chats/" + s.chatID
 }
 
 // TestGitSuite runs the git integration suite.

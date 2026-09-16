@@ -37,7 +37,14 @@ function contrast(a: string, b: string): number {
  */
 const DARK_BLOCK_START = css.search(/^\.dark\s*\{/m)
 
-/** Pull the dark-block value of a CSS var (last definition wins for the dark theme). */
+/**
+ * Pull the dark-block value of a CSS var (last definition wins for the dark theme).
+ * Follows ONE hop of `var(--syntax-*)` self-aliasing (e.g. `--syntax-markdown-heading:
+ * var(--syntax-function)`) so a dedicated hue that intentionally reuses another
+ * dedicated hue's color in dark mode resolves to that hue's own literal value —
+ * its contrast is independently verified under its own key, so this is resolving
+ * to a value this same test already checks, not skipping a check.
+ */
 function darkValue(name: string): string | null {
   const darkBlock = css.slice(DARK_BLOCK_START)
   const matches = [...darkBlock.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))]
@@ -45,7 +52,12 @@ function darkValue(name: string): string | null {
     // bound aliases live only in :root — resolve one hop for known aliases below
     return null
   }
-  return matches[matches.length - 1][1].trim()
+  const raw = matches[matches.length - 1][1].trim()
+  const aliasMatch = raw.match(/^var\((--syntax-[\w-]+)\)$/)
+  if (aliasMatch) {
+    return darkValue(aliasMatch[1])
+  }
+  return raw
 }
 
 /** Pull the :root-block value of a CSS var (last definition wins before the dark theme). */

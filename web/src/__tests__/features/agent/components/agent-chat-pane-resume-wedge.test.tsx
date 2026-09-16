@@ -2,13 +2,14 @@ import { StrictMode, createElement } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
+import { nanoid } from 'nanoid'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
-import type { AgentChatContent } from '@/features/panes/types/pane-content'
-import {
-  WorkspaceStoreContext,
-  useWorkspaceStore,
-} from '@/features/workspace/stores/workspace-context'
+import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 const {
   getChatFn,
@@ -147,40 +148,63 @@ function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
 
 type Store = ReturnType<typeof seedWorkspace>
 
-function openBuffer(store: Store, chatId: string, runnerId: string) {
-  return store
-    .getState()
-    .bufferActions.openContent({ type: 'agentChat', chatId, wsId: 'w1', name: 'Chat', runnerId })
+// A chat is a PANE, not a buffer: panes are window-level (windowPaneStore) and
+// carry chatId/runnerId as fields of their own. PaneHost is exactly what
+// pane-container.tsx does — read the `PaneGroup`, feed its chatId/runnerId back
+// in as props — which is the loop AgentChatPane closes by re-pointing the pane
+// through `paneActions.setPaneChat(paneId, ...)`.
+//
+// A real `PaneGroup` carries no workspace id (pane-container reads it from the
+// ambient WorkspaceStoreContext), so the harness keeps it beside the pane rather
+// than inventing a field production does not have.
+const paneWorkspace = new Map<string, string>()
+
+function openChatPane(_store: Store, chatId: string, runnerId: string, wsId = 'w1') {
+  const id = nanoid()
+  windowPaneStore.setState((s) => {
+    s.panes[id] = {
+      id,
+      type: 'group',
+      chatId,
+      runnerId: runnerId || null,
+      editorTabIds: [],
+      activeEditorTabId: null,
+      editorOpen: false,
+    }
+    return s
+  })
+  paneWorkspace.set(id, wsId)
+  return id
 }
 
-function PaneHost({ bufferId }: { bufferId: string }) {
-  const store = useWorkspaceStore()
-  const buf = useStore(store, (s) => s.buffers.find((b) => b.id === bufferId)) as
-    AgentChatContent | undefined
-  if (!buf) return null
+function PaneHost({ paneId }: { paneId: string }) {
+  const group = useStore(windowPaneStore, (s) => s.panes[paneId])
+  if (!group) return null
   return createElement(AgentChatPane, {
-    chatId: buf.chatId,
-    runnerId: buf.runnerId,
-    wsId: buf.wsId,
-    bufferId: buf.id,
+    chatId: group.chatId ?? '',
+    runnerId: group.runnerId ?? '',
+    wsId: paneWorkspace.get(paneId) ?? 'w1',
+    paneId: group.id,
     isActivePane: true,
     isVisible: true,
   })
 }
 
-async function renderPane(store: Store, bufferId: string) {
+async function renderPane(store: Store, paneId: string) {
   await act(async () => {
     render(
       createElement(
         WorkspaceStoreContext.Provider,
         { value: store },
-        createElement(PaneHost, { bufferId }),
+        createElement(PaneHost, { paneId }),
       ),
     )
   })
 }
 
 beforeEach(() => {
+  resetWindowPaneStoreForTests()
+  paneWorkspace.clear()
   for (const f of [
     getChatFn,
     resumeChatFn,
@@ -260,7 +284,7 @@ describe('AgentChatPane: a resume the daemon never answers', () => {
       try {
         resumeChatFn.mockImplementation(neverAnswers())
         const store = seedWorkspace([dormantChat({ id: 'c1' })])
-        await renderPane(store, openBuffer(store, 'c1', ''))
+        await renderPane(store, openChatPane(store, 'c1', ''))
 
         // The spinner is CORRECT here — the request really is out — and it is
         // deliberately buttonless. That is only safe because it now ends.
@@ -314,7 +338,7 @@ describe('AgentChatPane: a resume the daemon never answers', () => {
       try {
         resumeChatFn.mockImplementation(neverAnswers())
         const store = seedWorkspace([dormantChat({ id: 'c1' })])
-        await renderPane(store, openBuffer(store, 'c1', ''))
+        await renderPane(store, openChatPane(store, 'c1', ''))
 
         // Bounding the UI while leaving the request running would leak a resume per
         // wedge and let a late answer attach a runner the pane has already disowned.
@@ -350,7 +374,7 @@ describe('AgentChatPane: a resume the daemon never answers', () => {
         resumeChatFn.mockResolvedValue('r-revived') // this half answers fine
         getChatFn.mockImplementation(neverAnswers()) // adopt()'s own read never does
         const store = seedWorkspace([dormantChat({ id: 'c1' })])
-        await renderPane(store, openBuffer(store, 'c1', ''))
+        await renderPane(store, openChatPane(store, 'c1', ''))
 
         expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
         expect(screen.queryByTestId('pane-resume')).toBeNull()
@@ -378,14 +402,14 @@ describe('AgentChatPane: a resume the daemon never answers', () => {
   it('aborts the in-flight auto-revive as soon as the pane unmounts, not 120s later', async () => {
     resumeChatFn.mockImplementation(neverAnswers())
     const store = seedWorkspace([dormantChat({ id: 'c1' })])
-    const bufferId = openBuffer(store, 'c1', '')
+    const paneId = openChatPane(store, 'c1', '')
     let unmount!: () => void
     await act(async () => {
       const result = render(
         createElement(
           WorkspaceStoreContext.Provider,
           { value: store },
-          createElement(PaneHost, { bufferId }),
+          createElement(PaneHost, { paneId }),
         ),
       )
       unmount = result.unmount
@@ -414,7 +438,7 @@ describe('AgentChatPane: a resume the daemon never answers', () => {
           }),
       )
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
-      await renderPane(store, openBuffer(store, 'c1', ''))
+      await renderPane(store, openChatPane(store, 'c1', ''))
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(119_000)
@@ -495,7 +519,7 @@ describe('AgentChatPane: a resume that answers must not report the wrong outcome
         }),
     )
     const store = seedWorkspace([dormantChat({ id: 'c1' })])
-    const bufferId = openBuffer(store, 'c1', '')
+    const paneId = openChatPane(store, 'c1', '')
 
     await act(async () => {
       render(
@@ -505,7 +529,7 @@ describe('AgentChatPane: a resume that answers must not report the wrong outcome
           createElement(
             WorkspaceStoreContext.Provider,
             { value: store },
-            createElement(PaneHost, { bufferId }),
+            createElement(PaneHost, { paneId }),
           ),
         ),
       )

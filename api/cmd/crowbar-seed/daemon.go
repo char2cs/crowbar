@@ -65,6 +65,23 @@ func postData[T any](
 	return decodeEnvelope[T](what, status, respBody)
 }
 
+// patchData issues a synchronous PATCH mutation and decodes its response —
+// the branch rename this tool runs is answered in place, not fire-and-forget.
+func patchData[T any](
+	ctx context.Context,
+	d *daemon,
+	what string,
+	path string,
+	body any,
+) (T, error) {
+	status, respBody, err := d.wire.PatchJSON(ctx, path, body)
+	if err != nil {
+		var zero T
+		return zero, fmt.Errorf("seed: %s: %w", what, err)
+	}
+	return decodeEnvelope[T](what, status, respBody)
+}
+
 // waitFor polls a list endpoint until pick recognises the entity, then returns
 // it. what names the entity in the timeout error, so a failed async create is
 // reported as the thing that is missing rather than as a bare deadline.

@@ -21,8 +21,5 @@ export function sameRenderedBuffer(a: PaneContent, b: PaneContent): boolean {
   if (a.type === 'commitDiff' && b.type === 'commitDiff') {
     return a.wsId === b.wsId && a.sha === b.sha
   }
-  if (a.type === 'agentChat' && b.type === 'agentChat') {
-    return a.wsId === b.wsId && a.chatId === b.chatId
-  }
   return true
 }

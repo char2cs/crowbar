@@ -4,6 +4,7 @@ package agent_test
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,10 +27,19 @@ import (
 //
 // This drives a REAL codex process through a REAL subagent delegation (no
 // synthetic hooks, no mocked activity) and polls chat.Working and the
-// activity ledger's own "wait" tool call concurrently for the whole window,
+// activity ledger's own wait tool call concurrently for the whole window,
 // so a disagreement between "a wait call is Status==Running" and
 // "chat.Working==false" is caught the instant it happens rather than
 // inferred after the fact.
+//
+// isSubagentWaitCall, not a bare `== "wait"`: this harness pins
+// CROWBAR_DISABLE_API_TRANSPORT (newHarness), and the two transports NAME the
+// same call differently. codex.yaml maps the api shape's item.tool to "wait";
+// over hooks the identical delegation was measured live in this harness as
+// "collaborationwait_agent" (alongside "collaborationspawn_agent"), so the
+// exact-match filter silently matched nothing and the test failed claiming
+// codex had never delegated — it had. The fallback under test keys on ANY open
+// tool call, never on this name, so matching both shapes tests the same thing.
 func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 	requireCLI(t, "codex")
 	h := newHarness(t)
@@ -77,7 +87,7 @@ func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 			}
 			openWait := false
 			for _, c := range activity.ToolCalls {
-				if c.Name != "wait" {
+				if !isSubagentWaitCall(c.Name) {
 					continue
 				}
 				if c.Status == domain.ToolStatusRunning {
@@ -99,13 +109,13 @@ func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 	awaitTurnComplete(t, h, wsID, chatID, "codex")
 
 	// awaitTurnComplete releases the instant chat.Working reads false. If a
-	// "wait" call is STILL Status==Running right then, the barrier itself
+	// wait call is STILL Status==Running right then, the barrier itself
 	// released early — the same defect from the reader's side, independent
 	// of the poller above.
 	finalActivity, err := h.app.Usecases.AgentTurn.ReadActivity(context.Background(), chatID, 0, 0)
 	require.NoError(t, err)
 	for _, c := range finalActivity.ToolCalls {
-		if c.Name == "wait" {
+		if isSubagentWaitCall(c.Name) {
 			lastWaitStatus = c.Status
 		}
 	}
@@ -118,12 +128,21 @@ func TestRegression_CodexBackgroundedSubagentKeepsChatWorking(t *testing.T) {
 
 	require.Positive(t, samples, "the poller must have sampled at least once")
 	require.True(t, sawOpenWait,
-		"never observed an open 'wait' tool call — codex did not actually delegate a real subagent, "+
+		"never observed an open wait tool call — codex did not actually delegate a real subagent, "+
 			"so this run could not exercise the race at all")
 	assert.False(t, sawWorkingFalseWhileWaitOpen,
-		"chat.Working read false while a real 'wait' tool call was still Status==Running: the "+
+		"chat.Working read false while a real wait tool call was still Status==Running: the "+
 			"spinner goes dark under a genuinely live subagent")
 	assert.NotEqual(t, domain.ToolStatusRunning, lastWaitStatus,
-		"awaitTurnComplete (chat.Working==false) released while the 'wait' call was still running: "+
+		"awaitTurnComplete (chat.Working==false) released while the wait call was still running: "+
 			"the barrier itself agrees the turn is over before the subagent actually is")
+}
+
+// isSubagentWaitCall matches the "block until the delegated agent finishes"
+// tool call under either transport's name for it — "wait" (codex.yaml's api
+// mapping of item.tool) and the hooks payload's own "…wait_agent". Substring,
+// not an enumeration: the point is to find THE delegation's wait call, and the
+// behaviour under test never reads the name at all.
+func isSubagentWaitCall(name string) bool {
+	return strings.Contains(strings.ToLower(name), "wait")
 }

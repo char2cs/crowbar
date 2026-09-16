@@ -33,7 +33,7 @@ func noRefRunner(string) defaultbranch.RefRunner {
 func TestCreate_InvalidPath_PersistsNothing(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:   projects,
 		Repos:      mocks.NewRepositoryStore(),
 		Workspaces: ws,
@@ -54,7 +54,7 @@ func TestCreate_InvalidPath_PersistsNothing(t *testing.T) {
 func TestCreate_ProjectSaveError(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	projects.SaveErr = errors.New("boom")
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:   projects,
 		Repos:      mocks.NewRepositoryStore(),
 		Workspaces: mocks.NewWorkspaceRepo(),
@@ -77,7 +77,7 @@ func TestCreate_HomeWorkspaceFails_RollsBackProject(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	ws := mocks.NewWorkspaceRepo()
 	ws.CreateErr = errors.New("ws boom")
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:   projects,
 		Repos:      mocks.NewRepositoryStore(),
 		Workspaces: ws,
@@ -111,7 +111,7 @@ func TestImport_ProjectHomeWorkspaceFails_RollsBackProject(t *testing.T) {
 		return domain.Workspace{ID: in.ID}, nil
 	}
 	discoverCalled := false
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:   projects,
 		Repos:      repos,
 		Workspaces: ws,
@@ -147,7 +147,7 @@ func TestImportRepo_FolderAlreadyOwnedByAnotherProject_RefusesWithNoNewRow(t *te
 	// proj-1 already owns /shared/repo.
 	require.NoError(t, repos.Save(context.Background(), domain.Repository{ID: "r1", ProjectID: "proj-1", Path: "/shared/repo"}))
 
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:   projects,
 		Repos:      repos,
 		Workspaces: mocks.NewWorkspaceRepo(),
@@ -179,7 +179,7 @@ func TestImport_CrowbarHomeError_SkipsIconAndProtectedWorktrees(t *testing.T) {
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "feature", Head: "h1"}}
 	prov := mocks.NewProviderEngine()
 	prov.Protected = []string{"main"} // unheld -> would normally get a managed worktree
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:    mocks.NewProjectStore(),
 		Repos:       repos,
 		Workspaces:  ws,
@@ -219,7 +219,7 @@ func TestImport_CrowbarHomeIsAFile_IconAndSiblingScanBothFail(t *testing.T) {
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "feature", Head: "h1"}}
 	prov := mocks.NewProviderEngine()
 	prov.Protected = []string{"main"}
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:    mocks.NewProjectStore(),
 		Repos:       repos,
 		Workspaces:  ws,
@@ -253,7 +253,7 @@ func TestImport_AvatarFetchError_LeavesGeneratedAvatar(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
 	git := mocks.NewGitEngine()
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "main", Head: "h1"}}
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:    mocks.NewProjectStore(),
 		Repos:       repos,
 		Workspaces:  mocks.NewWorkspaceRepo(),
@@ -285,7 +285,7 @@ func TestImportRepo_ExistingRepoLookupError_StillImports(t *testing.T) {
 	git := mocks.NewGitEngine()
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/root/repoA", Branch: "main", Head: "h1"}}
 
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:   projects,
 		Repos:      repos,
 		Workspaces: mocks.NewWorkspaceRepo(),
@@ -475,7 +475,7 @@ func TestImport_ProtectedWorktreeFromOrigin_SetUpstreamFails_IsBestEffort(t *tes
 // --- validateImportPath: a Stat failure that is NOT "does not exist" ---
 
 func TestImport_StatGenericError_Surfaces(t *testing.T) {
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:   mocks.NewProjectStore(),
 		Repos:      mocks.NewRepositoryStore(),
 		Workspaces: mocks.NewWorkspaceRepo(),
@@ -512,7 +512,7 @@ func TestImportRepo_RecordsRealOriginRemoteURL(t *testing.T) {
 	git := mocks.NewGitEngine()
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "main", Head: "h1"}}
 
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:   projects,
 		Repos:      repos,
 		Workspaces: mocks.NewWorkspaceRepo(),
@@ -568,7 +568,7 @@ func TestImport_ProtectedBranchName_DisambiguatesAgainstRealSiblingDirectory(t *
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: repoDir, Branch: "main", Head: "h1"}}
 	ws := mocks.NewWorkspaceRepo()
 
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:    projects,
 		Repos:       repos,
 		Workspaces:  ws,
@@ -627,7 +627,7 @@ func newImportForCoverage(
 	git := mocks.NewGitEngine()
 	git.Worktrees = []gitengine.WorktreeEntry{{Path: "/repoA", Branch: "main", Head: "h1"}}
 	prov := mocks.NewProviderEngine()
-	uc := project.NewImport(project.ImportDeps{
+	uc := newImportUsecase(project.ImportDeps{
 		Projects:    projects,
 		Repos:       repos,
 		Workspaces:  ws,

@@ -26,7 +26,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/telemetry"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
@@ -192,8 +192,7 @@ func (c *Conversations) PurgeLocked(
 	ctx context.Context,
 	chatID string,
 ) error {
-	chat, err := c.chats.GetChat(ctx, chatID)
-	if err != nil {
+	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: get: %w", err)
 	}
 	if err := c.chats.Forget(ctx, chatID); err != nil {
@@ -229,22 +228,19 @@ func (c *Conversations) PurgeLocked(
 	// config out from under it was only ever an accident of the old layout. It goes when the
 	// PTY does (onExit), or at the next boot if the daemon died first.
 	//
-	// The removal is routed through RemoveUnderHome, which re-asserts the target is strictly
-	// under crowbar home, so even a poisoned chats dir can never reach the user's real
-	// repository.
-	chatsDir, err := c.ws.AgentChatsDir(ctx, chat.WorkspaceID)
+	// Resolved via c.home, NOT c.ws.AgentChatsDir(chat.WorkspaceID): this dir must match
+	// wherever the chat's own ledger actually lives (worktreepath.LedgerChatsDir), which is
+	// keyed by the chat's id alone because WorkspaceID is optional and mutable (spec §1.5) —
+	// a workspace lookup would error for a bubble and could target the wrong directory for a
+	// chat that has since been promoted. RemoveUnderHome re-asserts the target is strictly
+	// under crowbar home regardless.
+	home, err := c.home()
 	if err != nil {
-		slog.WarnContext(ctx, "agent: purge chat: resolve chats dir for reap (best-effort, continuing)",
+		slog.WarnContext(ctx, "agent: purge chat: resolve home for reap (best-effort, continuing)",
 			"chat_id", chatID, "err", err)
 		return nil
 	}
-	home, _, _, _, err := c.ws.WorktreeDir(ctx, chat.WorkspaceID)
-	if err != nil {
-		slog.WarnContext(ctx, "agent: purge chat: resolve home for reap guard (best-effort, continuing)",
-			"chat_id", chatID, "err", err)
-		return nil
-	}
-	worktreepath.RemoveUnderHome(ctx, home, filepath.Join(chatsDir, chatID))
+	worktreepath.RemoveUnderHome(ctx, home, filepath.Join(worktreepath.LedgerChatsDir(home), chatID))
 	return nil
 }
 
@@ -269,6 +265,7 @@ func (c *Conversations) MintChat(
 	created, err := c.chats.Create(ctx, agentchat.CreateInput{
 		ID:          chatID,
 		WorkspaceID: workspaceID,
+		Type:        domain.ChatTypeChat,
 		Now:         time.Now(),
 	})
 	if err != nil {
@@ -332,6 +329,39 @@ func lineageNoteText(
 		"Read those chats with get_chat_log. Everything above this line was said BEFORE the move, " +
 		"without any of that context: the move changes what this chat reads from now on and " +
 		"rewrites nothing it has already read."
+}
+
+// NotePromotion records, in a chat's own conversation, that it has just been
+// promoted from a bubble into its own worktree — the model spec §4.2 ledger
+// note, following lineageNoteText's own convention: a "[Crowbar] ..." system
+// turn appended AFTER the respawn it describes, so the incoming CLI's own
+// handoff (assembled from the ledger BEFORE this call) never sees it.
+//
+// Like NoteThreadLineage, it writes nothing into a chat that has said nothing
+// yet — a chat with no ledger has nothing for the note to distinguish a
+// "before" from.
+func (c *Conversations) NotePromotion(
+	ctx context.Context,
+	chatID string,
+) error {
+	chat, err := c.chats.GetChat(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: note promotion: chat: %w", err)
+	}
+	turns, err := c.ChatTurns(ctx, chatID)
+	if err != nil {
+		return fmt.Errorf("agent: note promotion: turns: %w", err)
+	}
+	if len(turns) == 0 {
+		return nil
+	}
+	return c.appendTurn(ctx, chat, lineageNoteProvider, "user", promotionNoteText())
+}
+
+func promotionNoteText() string {
+	return "[Crowbar] This chat was just promoted to its own git worktree. " +
+		"Everything above this line was said BEFORE the promotion, running with no worktree of its own; " +
+		"from this point on it runs in the new worktree the promotion created."
 }
 
 // Ancestors returns the CHAT ancestors of chatID, nearest parent first — what a

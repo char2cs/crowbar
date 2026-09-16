@@ -1,5 +1,12 @@
 import ignore from 'ignore'
-import { Check, Eye, Funnel, GitBranch, MagnifyingGlass as Search } from '@phosphor-icons/react'
+import {
+  CaretRight,
+  Check,
+  Eye,
+  Funnel,
+  GitBranch,
+  MagnifyingGlass as Search,
+} from '@phosphor-icons/react'
 import type React from 'react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDebounce } from 'use-debounce'
@@ -8,7 +15,9 @@ import { useFileClipboardStore } from '@/features/file-explorer/stores/file-expl
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {
   computeFileTreeSearchHits,
+  computeStickyScrollLayout,
   filterFileTreeForFffHits,
+  findTopVisibleItemIndex,
   getGuideAncestorRows,
   getStickyAncestorRows,
 } from '@/features/file-explorer/lib/visible-file-tree-rows'
@@ -164,12 +173,18 @@ function FileExplorerTreeComponent({
   const revealPathInTree = useFileSystemStore((state) => state.revealPathInTree)
   const isFileTreeLoading = useFileSystemStore((state) => state.isFileTreeLoading)
 
+  // The file explorer always renders the active workspace (see the fuller
+  // comment further down where this also gates git-status lookup) — every
+  // file-tree-store call below is keyed by this so a workspace's own expanded
+  // folders never leak into (or get clobbered by) another workspace's.
+  const activeWorkspaceId = getWorkspaceScope()?.wsId ?? null
+
   const handleAutoExpandDirectory = useCallback(
     (path: string) => {
-      if (useFileTreeStore.getState().isExpanded(path)) return
+      if (useFileTreeStore.getState().isExpanded(activeWorkspaceId ?? '', path)) return
       void Promise.resolve(onFileSelect(path, true))
     },
-    [onFileSelect],
+    [onFileSelect, activeWorkspaceId],
   )
 
   const showAlertDialog = useCallback((title: string, message: string) => {
@@ -251,9 +266,8 @@ function FileExplorerTreeComponent({
 
   // The git store keys workspaceGitStatus by the wsId it loaded
   // (currentWorkspaceRepoPath). rootFolderPath is the synthetic `/repos/<repoId>`
-  // mock-era prefix (a different id space), so it cannot be the match key — the
-  // file explorer always renders the active workspace, so gate on its wsId.
-  const activeWorkspaceId = getWorkspaceScope()?.wsId ?? null
+  // mock-era prefix (a different id space), so it cannot be the match key —
+  // gate on activeWorkspaceId (declared above) instead.
   const gitStatus = resolveActiveWorkspaceGitStatus(
     workspaceGitStatus,
     currentWorkspaceRepoPath,
@@ -338,12 +352,6 @@ function FileExplorerTreeComponent({
     settings.showGitignoredFilesInFileTree,
     settings.showHiddenFilesInFileTree,
   ])
-
-  useFileExplorerSync({
-    activePath,
-    updateActivePath,
-    revealPathInTree,
-  })
 
   const isTreeSearchActive = treeSearchQuery.trim().length > 0
   const isTreeSearchSettling =
@@ -435,6 +443,7 @@ function FileExplorerTreeComponent({
   }, [filter, displayedFiles, getGitStatusDecoration])
 
   const { visibleRows, rowVirtualizer } = useFileExplorerVisibleRows({
+    wsId: activeWorkspaceId ?? '',
     files: changedFilteredFiles,
     activePath,
     containerRef,
@@ -559,22 +568,51 @@ function FileExplorerTreeComponent({
     return () => window.removeEventListener('file-tree-open-search', handleFileTreeOpenSearch)
   }, [])
 
+  // Cmd/Ctrl+F fallback for when the tree itself doesn't have DOM focus — the
+  // container's own onKeyDown below only ever sees keys that bubble up FROM
+  // INSIDE it, so the instant a click opens a file (moving focus into Monaco,
+  // a totally separate subtree) or the user never focused the tree at all,
+  // that handler goes silent even though the tree is still the thing on
+  // screen (live-reported: "cmd/ctrl+F does nothing on the file explorer").
+  // A `document` listener sees every keydown regardless of where focus
+  // landed. Two guards keep it from overriding a more specific handler:
+  // `defaultPrevented` — the container's own onKeyDown below (or any other
+  // owner, e.g. an editor's own find) already calls preventDefault when IT
+  // handles the same chord, and it fires first in the bubble phase (document
+  // is the outermost ancestor) — and a live visibility check, since both
+  // Files and Git stay mounted at once in the sidebar carousel (see its own
+  // doc) and a folded/scrolled-away tree must not steal the shortcut from
+  // whatever IS on screen.
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'f') return
+      const rect = containerRef.current?.getBoundingClientRect()
+      if (!rect || rect.width === 0 || rect.height === 0) return
+      e.preventDefault()
+      setTreeSearchOpen(true)
+    }
+    document.addEventListener('keydown', handleGlobalKeyDown)
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [])
+
   // When search is active, expand all directories so the lazy loader fetches their
   // children — otherwise files in unexpanded dirs are invisible to the search.
   // The pre-search expansion state is saved and restored when search clears.
   useEffect(() => {
+    const wsId = activeWorkspaceId ?? ''
     if (debouncedTreeSearchQuery.trim()) {
       if (!savedExpandedPathsRef.current) {
-        savedExpandedPathsRef.current = new Set(useFileTreeStore.getState().expandedPaths)
+        savedExpandedPathsRef.current = new Set(useFileTreeStore.getState().getExpandedPaths(wsId))
       }
-      useFileTreeStore.getState().expandAll(filteredFiles)
+      useFileTreeStore.getState().expandAll(wsId, filteredFiles)
     } else {
       if (savedExpandedPathsRef.current) {
-        useFileTreeStore.getState().setExpandedPaths(savedExpandedPathsRef.current)
+        useFileTreeStore.getState().setExpandedPaths(wsId, savedExpandedPathsRef.current)
         savedExpandedPathsRef.current = null
       }
     }
-  }, [debouncedTreeSearchQuery, filteredFiles])
+  }, [debouncedTreeSearchQuery, filteredFiles, activeWorkspaceId])
 
   // No sticky overlays or global guides
 
@@ -937,7 +975,10 @@ function FileExplorerTreeComponent({
   return (
     <div
       className={cn(
-        'file-tree-container relative flex min-w-full flex-1 select-none flex-col overflow-auto p-0',
+        // `px-1.5` matches the sidebar's own row gutter (`ROW_BASE`'s
+        // `mx-1.5`) — a tree row has no margin of its own to create it, so
+        // the container supplies the same 6px inset on both edges instead.
+        'file-tree-container relative flex min-w-full flex-1 select-none flex-col overflow-auto px-1.5',
         dragState.dragOverPath === '__ROOT__' &&
           'border-2! border-dashed! border-secondary! bg-secondary! bg-opacity-10!',
       )}
@@ -1075,7 +1116,9 @@ function FileExplorerTreeComponent({
             if (!current) break
             e.preventDefault()
             if (isDir) {
-              const expanded = useFileTreeStore.getState().isExpanded(current.path)
+              const expanded = useFileTreeStore
+                .getState()
+                .isExpanded(activeWorkspaceId ?? '', current.path)
               if (!expanded) {
                 void toggleDirectory(current.path)
               } else {
@@ -1091,7 +1134,10 @@ function FileExplorerTreeComponent({
           case 'ArrowLeft': {
             if (!current) break
             e.preventDefault()
-            if (isDir && useFileTreeStore.getState().isExpanded(current.path)) {
+            if (
+              isDir &&
+              useFileTreeStore.getState().isExpanded(activeWorkspaceId ?? '', current.path)
+            ) {
               void toggleDirectory(current.path)
             } else {
               const sep = current.path.includes('\\') ? '\\' : '/'
@@ -1135,65 +1181,75 @@ function FileExplorerTreeComponent({
       onMouseUp={handleContainerMouseUp}
       onMouseLeave={handleContainerMouseLeave}
     >
-      <SidebarHeader onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-stretch gap-1.5">
-          <span className="relative flex min-w-0 flex-1 items-center">
-            <Search
-              aria-hidden="true"
-              className="pointer-events-none absolute start-2.5 z-10 size-3.5 text-muted-foreground/72"
-            />
-            <Input
-              nativeInput
-              ref={searchInputRef}
-              value={treeSearchQuery}
-              onChange={(e) => setTreeSearchQuery(e.target.value)}
-              size="sm"
-              placeholder="Search"
-              className="ps-5"
-              name="file-tree-filter"
-              aria-label="Filter files in tree"
-              aria-controls="file-tree-results"
-              autoCapitalize="none"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck="false"
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  closeTreeSearch()
-                  return
-                }
+      <FileExplorerSync
+        activePath={activePath}
+        updateActivePath={updateActivePath}
+        revealPathInTree={revealPathInTree}
+      />
+      {treeSearchOpen && (
+        <SidebarHeader
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-stretch gap-1.5">
+            <span className="relative flex min-w-0 flex-1 items-center">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute start-2.5 z-10 size-3.5 text-muted-foreground/72"
+              />
+              <Input
+                nativeInput
+                ref={searchInputRef}
+                value={treeSearchQuery}
+                onChange={(e) => setTreeSearchQuery(e.target.value)}
+                size="sm"
+                placeholder="Search"
+                className="ps-5"
+                name="file-tree-filter"
+                aria-label="Filter files in tree"
+                aria-controls="file-tree-results"
+                autoCapitalize="none"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck="false"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    closeTreeSearch()
+                    return
+                  }
 
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  navigateTreeSearchMatch(e.shiftKey ? -1 : 1)
-                }
-              }}
-            />
-          </span>
-          <Button
-            ref={filterButtonRef}
-            variant="outline"
-            active={hasActiveFileTreeFilters}
-            tooltip="Filter Files"
-            tooltipSide="bottom"
-            className={cn(
-              'h-7.5 w-7.5 shrink-0 self-stretch rounded-lg p-0 sm:h-6.5 sm:w-6.5',
-              // The theme's muted/accent tokens are ~4% alpha, so the default hover
-              // just makes the button translucent over the glass sidebar. Use an
-              // opaque mix of the popover base + foreground for a real muted fill.
-              'hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)] dark:hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)]',
-              'data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)] dark:data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)]',
-              hasActiveFileTreeFilters && 'text-secondary',
-            )}
-            onClick={() => setIsFileTreeFilterMenuOpen(true)}
-          >
-            <Funnel className="size-3.5" />
-          </Button>
-        </div>
-      </SidebarHeader>
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    navigateTreeSearchMatch(e.shiftKey ? -1 : 1)
+                  }
+                }}
+              />
+            </span>
+            <Button
+              ref={filterButtonRef}
+              variant="outline"
+              active={hasActiveFileTreeFilters}
+              tooltip="Filter Files"
+              tooltipSide="bottom"
+              className={cn(
+                'h-7.5 w-7.5 shrink-0 self-stretch rounded-lg p-0 sm:h-6.5 sm:w-6.5',
+                // The theme's muted/accent tokens are ~4% alpha, so the default hover
+                // just makes the button translucent over the glass sidebar. Use an
+                // opaque mix of the popover base + foreground for a real muted fill.
+                'hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)] dark:hover:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_10%)]',
+                'data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)] dark:data-pressed:bg-[color-mix(in_oklch,var(--popover),var(--foreground)_16%)]',
+                hasActiveFileTreeFilters && 'text-secondary',
+              )}
+              onClick={() => setIsFileTreeFilterMenuOpen(true)}
+            >
+              <Funnel className="size-3.5" />
+            </Button>
+          </div>
+        </SidebarHeader>
+      )}
       {!rootFolderPath ? (
         <div className="file-tree-empty-state flex flex-1 items-center justify-center">
           <SidebarEmptyActionState
@@ -1217,33 +1273,44 @@ function FileExplorerTreeComponent({
           />
         </div>
       ) : (
-        <div id="file-tree-results" className="file-tree-scroll-body p-1">
+        // Horizontal gutter comes from the container's own `px-1.5` alone
+        // (matching the sidebar row's `mx-1.5`) — a second `px-*` here would
+        // double it, so only vertical breathing room stays local.
+        <div id="file-tree-results" className="file-tree-scroll-body py-1">
           {(() => {
             const items = rowVirtualizer.getVirtualItems()
-            const paddingTop = items.length ? items[0].start : 0
             const paddingBottom = items.length
               ? rowVirtualizer.getTotalSize() - items[items.length - 1].end
               : 0
             const densityConfig = FILE_TREE_DENSITY_CONFIG[fileTreeDensity]
-            const stickyMarkerIndex =
-              items.length && visibleRows.length
-                ? Math.min(
-                    visibleRows.length - 1,
-                    Math.max(
-                      0,
-                      Math.floor((rowVirtualizer.scrollOffset ?? 0) / densityConfig.rowHeight),
-                    ),
-                  )
-                : -1
+            const stickyMarkerIndex = findTopVisibleItemIndex(
+              items,
+              rowVirtualizer.scrollOffset ?? 0,
+            )
             const stickyAncestors =
               stickyMarkerIndex >= 0 ? getStickyAncestorRows(visibleRows, stickyMarkerIndex) : []
+            const stickyStackHeight = stickyAncestors.length * densityConfig.rowHeight
+            const { paddingTop, visibleItems } = computeStickyScrollLayout(
+              items,
+              stickyMarkerIndex,
+              stickyAncestors.length,
+              densityConfig.rowHeight,
+              FILE_TREE_CONTAINER_INSET,
+            )
             const stickyAncestorsStyle = {
               '--file-tree-container-inset': `${FILE_TREE_CONTAINER_INSET}px`,
-              '--file-tree-header-height': `${FILE_TREE_HEADER_HEIGHT}px`,
+              // Only the search bar (SidebarHeader, rendered above the rows
+              // while treeSearchOpen) actually occupies FILE_TREE_HEADER_HEIGHT
+              // of space inside the scrollable container — applying it
+              // unconditionally locked the sticky ancestor ~28px below the
+              // scroll viewport's real top even with no search bar shown,
+              // overlapping (and cutting off the top of) whatever row the
+              // scroll position happened to land on. Live-reported as a
+              // folder name rendering with its first letters sheared off
+              // right under the sticky header.
+              '--file-tree-header-height': `${treeSearchOpen ? FILE_TREE_HEADER_HEIGHT : 0}px`,
               '--file-tree-sticky-row-height': `${densityConfig.rowHeight}px`,
-              '--file-tree-sticky-stack-height': `${
-                stickyAncestors.length * densityConfig.rowHeight
-              }px`,
+              '--file-tree-sticky-stack-height': `${stickyStackHeight}px`,
             } as React.CSSProperties
             return (
               <>
@@ -1274,6 +1341,17 @@ function FileExplorerTreeComponent({
                             )}
                             style={{ paddingLeft: `${stickyAncestorPaddingLeft}px` }}
                           >
+                            {/* Sticky ancestors are always expanded (that's why they're pinned
+                                while you scroll inside them), so the caret is always open. */}
+                            <span
+                              aria-hidden="true"
+                              className="flex size-3.5 shrink-0 items-center justify-center"
+                            >
+                              <CaretRight
+                                weight="bold"
+                                className="size-2.5 rotate-90 text-muted-foreground"
+                              />
+                            </span>
                             <FileExplorerIcon
                               fileName={stickyAncestor.file.name}
                               isDir={stickyAncestor.file.isDir ?? false}
@@ -1296,7 +1374,7 @@ function FileExplorerTreeComponent({
                   </div>
                 ) : null}
                 <div style={{ height: paddingTop }} />
-                {items.map((vi) => {
+                {visibleItems.map((vi) => {
                   const row = visibleRows[vi.index]
                   const previousRow = visibleRows[vi.index - 1]
                   const nextRow = visibleRows[vi.index + 1]
@@ -1362,6 +1440,36 @@ function FileExplorerTreeComponent({
       />
     </div>
   )
+}
+
+/**
+ * `useFileExplorerSync` as a LEAF, not as a call in the tree's own body.
+ *
+ * That hook returns nothing — it is two `useEffect`s that point the explorer at
+ * whatever file the active pane is showing — but it subscribes to the WINDOW's
+ * `activeEditorTabId`, which moves every time focus crosses between a pane
+ * holding an editor tab and one that doesn't (clicking between tiled chats in a
+ * single workspace view does exactly that). Called inside
+ * `FileExplorerTreeComponent`, each of those clicks re-rendered this whole
+ * virtualized tree — ~365 fibers, every visible row, its git decorations and
+ * its dropdowns — to produce identical output, because the thing that changed
+ * was never rendered here in the first place. It is the same defect
+ * `NavigationHistoryRecorder` (ide-shell.tsx) isolates one level up, and it was
+ * hidden underneath it until that one was fixed: the tree sits inside
+ * `IDEShell`, so it was being re-rendered from above anyway.
+ *
+ * Rendering it as a childless leaf keeps both effects, their timing and their
+ * props exactly as they were while confining the re-render to one fiber. It
+ * emits no DOM, so sitting inside the `role="tree"` container changes neither
+ * layout nor the accessibility tree.
+ */
+function FileExplorerSync(props: {
+  activePath?: string
+  updateActivePath?: (path: string) => void
+  revealPathInTree: (path: string) => void | Promise<void>
+}): null {
+  useFileExplorerSync(props)
+  return null
 }
 
 export const FileExplorerTree = memo(FileExplorerTreeComponent)

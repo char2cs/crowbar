@@ -23,6 +23,18 @@
  *
  * Source-level on purpose — jsdom has no layout, no compositing and no frames,
  * so nothing about this is observable by rendering.
+ *
+ * The rule is an ATTRIBUTE selector, not scoped to one component — it pins
+ * whichever elements carry `data-sidebar-carousel`, however many there are.
+ * Task 21 added a second one: `SpaceScroller` (space-scroller.tsx) is the
+ * exact same geometry (`overflow-x: scroll` + mandatory x snapping over
+ * `min-w-full` panels) as `sidebar-carousel.tsx`, sits as a SIBLING of it in
+ * ide-shell.tsx (not a descendant, so it needs its own attribute to be
+ * reachable at all), and is the surface Part G's own drag gesture — carrying
+ * a row rightward onto a pane — runs on. A carousel-shaped surface added
+ * without this attribute is invisible to the CSS rule above and silently
+ * reintroduces the exact bug it exists to prevent; the checks below guard
+ * that both known carousels still carry it.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -54,4 +66,39 @@ describe('drag-time carousel pin', () => {
     // mid-drag. Verified live: scrollLeft is still settable through a drag.
     expect(pinRuleBody()).not.toMatch(/overflow-x:\s*clip/)
   })
+})
+
+describe('every carousel-shaped scroller carries the attribute the pin rule targets', () => {
+  const CAROUSEL_SOURCES = {
+    'sidebar-carousel.tsx (Files/Git)': resolve(
+      HERE,
+      '..',
+      '..',
+      'components',
+      'layout',
+      'sidebar-carousel.tsx',
+    ),
+    'space-scroller.tsx (the unified sidebar, Task 21)': resolve(
+      HERE,
+      '..',
+      '..',
+      'components',
+      'sidebar',
+      'space-scroller.tsx',
+    ),
+  }
+
+  for (const [label, path] of Object.entries(CAROUSEL_SOURCES)) {
+    it(`${label} carries data-sidebar-carousel on its overflow-x: scroll root`, () => {
+      const source = readFileSync(path, 'utf-8')
+      // The same element, not just present anywhere in the file: the mandatory
+      // snap scroller IS the box that needs pinning, so the attribute has to
+      // sit in the same tag as the scroll classes, not on some unrelated wrapper.
+      const scrollerTag = source.match(
+        /<div[^>]*overflow-x-scroll[^>]*scroll-snap-type:x_mandatory[^>]*\/?>/s,
+      )
+      expect(scrollerTag, `${label}: could not find its scroll-snap root tag`).not.toBeNull()
+      expect(scrollerTag![0]).toMatch(/data-sidebar-carousel=(""|{[^}]*})/)
+    })
+  }
 })

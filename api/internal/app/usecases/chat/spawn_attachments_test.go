@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
 // TestSubmitPrompt_MaterializesAttachmentsAndRewritesTheDispatchedMessage pins

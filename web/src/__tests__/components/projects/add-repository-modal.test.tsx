@@ -3,11 +3,13 @@ import { vi, expect, test, beforeEach } from 'vitest'
 import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // §3/§4 subscribe-before-POST: postRepo answers 202 (void). The daemon imports
-// the repo AND auto-imports its default-branch workspace, broadcasting the
-// RepoDTO on the per-project repos stream and the WorkspaceDTO on the per-repo
-// workspaces stream. The modal subscribes both streams first (via awaitEntity
-// → wsManager), fires the single postRepo POST, resolves the new repo by path,
-// then resolves its default workspace and navigates into the IDE.
+// the repo AND auto-imports its default-branch worktree, broadcasting the
+// RepoDTO on the per-project repos stream and the worktree on the repo's CHAT
+// stream — a worktree is held by a chat, so its live half is a `worktree_state`
+// event on that feed rather than a WorkspaceDTO on a stream of its own. The
+// modal subscribes both streams first (via awaitEntity → wsManager), fires the
+// single postRepo POST, resolves the new repo by path, then resolves its
+// default workspace and navigates into the IDE.
 //
 // We mock postRepo (the 202 mutation) and the wsManager so the test can emit
 // the canonical DTO frames the modal is waiting on, plus useNavigate to assert
@@ -90,6 +92,40 @@ function workspaceDTO(over: Partial<WorkspaceDTO> & { id: string; repoId: string
   }
 }
 
+/** The chat-feed frame carrying `ws`'s worktree state. `chatId` and
+ *  `worktree.owningChatId` are named separately on purpose: a thread of the
+ *  owning chat receives the same object and is filtered out by comparing them. */
+function worktreeFrame(ws: WorkspaceDTO, chatId = `chat-${ws.id}`, owningChatId = chatId) {
+  return {
+    chatId,
+    workspaceId: ws.id,
+    repoId: ws.repoId,
+    kind: 'worktree_state',
+    working: ws.working,
+    worktree: {
+      branch: ws.branch,
+      status: ws.status,
+      lastError: ws.lastError,
+      working: ws.working,
+      isDefault: ws.isDefault,
+      added: ws.added,
+      deleted: ws.deleted,
+      mergeStrategy: ws.mergeStrategy,
+      canMergeLocally: ws.canMergeLocally,
+      mergeConflicts: ws.mergeConflicts,
+      parentBranch: ws.parentBranch,
+      prUrl: ws.prUrl,
+      prTitle: ws.prTitle,
+      prTargetBranch: ws.prTargetBranch,
+      localPath: ws.localPath,
+      heldByPath: ws.heldByPath,
+      forkPointSha: ws.forkPointSha,
+      parentId: ws.parentId,
+      owningChatId,
+    },
+  }
+}
+
 const pathInput = () => screen.getByPlaceholderText('/absolute/path/to/repo')
 
 beforeEach(async () => {
@@ -149,13 +185,13 @@ test('two-stage resolve: RepoDTO by path then default WorkspaceDTO, then navigat
   await waitFor(() => expect(subscribers.has('/v0/projects/proj-1/repos')).toBe(true))
   emit('/v0/projects/proj-1/repos', repoDTO({ id: 'repo-9', path: '/tmp/my-repo' }))
 
-  // Stage 2: the modal subscribes the per-repo workspaces stream for repo-9.
+  // Stage 2: the modal subscribes the repo's CHAT stream for repo-9.
   await waitFor(() =>
-    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/workspaces')).toBe(true),
+    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/chats/ws')).toBe(true),
   )
   emit(
-    '/v0/projects/proj-1/repos/repo-9/workspaces',
-    workspaceDTO({ id: 'ws-1', repoId: 'repo-9' }),
+    '/v0/projects/proj-1/repos/repo-9/chats/ws',
+    worktreeFrame(workspaceDTO({ id: 'ws-1', repoId: 'repo-9' })),
   )
 
   // Navigation targets /ide/:p/:r/:w with the server-assigned ids; modal closes.
@@ -176,11 +212,11 @@ test('seeds the new repo+workspace into the sidebar tree before navigating (no /
   await waitFor(() => expect(subscribers.has('/v0/projects/proj-1/repos')).toBe(true))
   emit('/v0/projects/proj-1/repos', repoDTO({ id: 'repo-9', path: '/tmp/my-repo' }))
   await waitFor(() =>
-    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/workspaces')).toBe(true),
+    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/chats/ws')).toBe(true),
   )
   emit(
-    '/v0/projects/proj-1/repos/repo-9/workspaces',
-    workspaceDTO({ id: 'ws-1', repoId: 'repo-9' }),
+    '/v0/projects/proj-1/repos/repo-9/chats/ws',
+    worktreeFrame(workspaceDTO({ id: 'ws-1', repoId: 'repo-9' })),
   )
 
   await waitFor(() => expect(navigateMock).toHaveBeenCalled())
@@ -201,19 +237,35 @@ test('ignores a deleted-status workspace frame and waits for a live one', async 
   emit('/v0/projects/proj-1/repos', repoDTO({ id: 'repo-9', path: '/tmp/my-repo' }))
 
   await waitFor(() =>
-    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/workspaces')).toBe(true),
+    expect(subscribers.has('/v0/projects/proj-1/repos/repo-9/chats/ws')).toBe(true),
   )
   // A deleted tombstone must NOT satisfy the resolve.
   emit(
-    '/v0/projects/proj-1/repos/repo-9/workspaces',
-    workspaceDTO({ id: 'ws-old', repoId: 'repo-9', status: 'deleted' }),
+    '/v0/projects/proj-1/repos/repo-9/chats/ws',
+    worktreeFrame(workspaceDTO({ id: 'ws-old', repoId: 'repo-9', status: 'deleted' })),
+  )
+  // Nor must any of the other vocabularies riding that same socket, nor a
+  // THREAD of the owning chat carrying the same worktree object.
+  emit('/v0/projects/proj-1/repos/repo-9/chats/ws', {
+    chatId: 'chat-ws-1',
+    workspaceId: 'ws-1',
+    kind: 'turn_started',
+    working: true,
+  })
+  emit(
+    '/v0/projects/proj-1/repos/repo-9/chats/ws',
+    worktreeFrame(
+      workspaceDTO({ id: 'ws-1', repoId: 'repo-9', status: 'new' }),
+      'chat-ws-1-thread',
+      'chat-ws-1',
+    ),
   )
   expect(navigateMock).not.toHaveBeenCalled()
 
-  // The live default workspace resolves it.
+  // The live default worktree, off its OWN chat, resolves it.
   emit(
-    '/v0/projects/proj-1/repos/repo-9/workspaces',
-    workspaceDTO({ id: 'ws-1', repoId: 'repo-9', status: 'new' }),
+    '/v0/projects/proj-1/repos/repo-9/chats/ws',
+    worktreeFrame(workspaceDTO({ id: 'ws-1', repoId: 'repo-9', status: 'new' })),
   )
   await waitFor(() =>
     expect(navigateMock).toHaveBeenCalledWith(

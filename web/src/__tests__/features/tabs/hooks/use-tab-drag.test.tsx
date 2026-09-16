@@ -1,117 +1,179 @@
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useTabDrag } from '@/features/tabs/hooks/use-tab-drag'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
+import type { EditorContent, PaneContent } from '@/features/panes/types/pane-content'
 
 /**
- * Dropping a tab on another pane runs two store calls back to back:
- * `moveBufferToPane` and then `activatePaneBuffer(dest, dragged.id)`. When the
- * dragged tab is a New Tab and the destination already holds one, the move
- * DELETES the dragged buffer (a New Tab is a placeholder, not content) and
- * points the destination at its own — and the follow-up activation then
- * overwrites that with the id of the buffer that no longer exists. The pane
- * renders its `!activeBuffer` fallback while the strip shows a tab in the
- * inactive style with nothing selected.
+ * A tab must only ever be reorderable within its OWN pane's own tab bar —
+ * cross-pane tab drag-and-drop is not a supported gesture at all (a dragged
+ * tab must never move into, or open in, a different pane/split). Each
+ * TabBar mounts its own `DndContext`/`SortableContext`, so `event.over`
+ * handed to this hook can only ever name a droppable from the SAME pane's
+ * tab bar — there is no `paneId` to smuggle a cross-pane drop through any
+ * more, and no DOM hit-testing side channel for it to escape via either.
+ *
+ * Previously this hook bypassed that isolation with its own manual
+ * point-based DOM hit test (`resolveDropTarget`) and called
+ * `onMoveBufferToPane` directly whenever the pointer ended up over a
+ * different pane's tab bar — the actual bug this suite now guards against.
  */
 
-const point = { clientX: 40, clientY: 12 }
-
-function dropTargetElement(paneId: string): HTMLElement {
-  const el = document.createElement('div')
-  el.setAttribute('data-tab-bar-pane-id', paneId)
-  document.body.appendChild(el)
-  return el
+function makeTab(id: string): EditorContent {
+  return {
+    id,
+    type: 'editor',
+    path: `src/${id}.ts`,
+    name: `${id}.ts`,
+    workspaceId: 'w1',
+    content: '',
+    savedContent: '',
+    isDirty: false,
+    isVirtual: false,
+    tokens: [],
+  }
 }
 
-/** jsdom has no layout engine and therefore no `elementsFromPoint` at all, so
- *  it has to be installed rather than spied on. The drop resolver only ever asks
- *  it "what is under the pointer", which is exactly what this answers. */
-function stubElementsFromPoint(elements: HTMLElement[]) {
-  ;(document as unknown as { elementsFromPoint: () => Element[] }).elementsFromPoint = () =>
-    elements
+function openTab(paneId: string, id: string): EditorContent {
+  const buffer = makeTab(id)
+  windowPaneStore.setState((state) => {
+    state.buffers.push(buffer as PaneContent)
+    return state
+  })
+  windowPaneStore.getState().paneActions.addEditorTabToPane(paneId, buffer)
+  return buffer
 }
 
-afterEach(() => {
-  document.body.innerHTML = ''
-  delete (document as unknown as { elementsFromPoint?: unknown }).elementsFromPoint
-  vi.restoreAllMocks()
+beforeEach(() => {
+  resetWindowPaneStoreForTests()
 })
 
 function setup() {
-  const store = createWorkspaceStore('w1')
-  const state = () => store.getState()
+  const state = () => windowPaneStore.getState()
 
-  const leftNewTabId = state().bufferActions.openNewTab(ROOT_PANE_ID)!
+  const leftTab = openTab(ROOT_PANE_ID, 'left-tab')
   const rightPaneId = state().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
-  const rightNewTabId = state().bufferActions.openNewTab(rightPaneId)!
+  const rightTab = openTab(rightPaneId, 'right-tab')
 
-  stubElementsFromPoint([dropTargetElement(rightPaneId)])
+  const reorderCalls: Array<[number, number]> = []
 
   const hook = renderHook(() =>
     useTabDrag({
-      paneId: ROOT_PANE_ID,
-      sortedBuffers: state().buffers.filter((b) => b.id === leftNewTabId),
+      sortedBuffers: state().buffers.filter((b) => b.id === leftTab.id),
       onTabSelect: () => {},
       onTabClick: () => {},
-      onReorderBuffers: () => {},
-      onMoveBufferToPane: (bufferId, fromPaneId, toPaneId) =>
-        state().paneActions.moveBufferToPane(bufferId, fromPaneId, toPaneId),
-      onActivatePaneBuffer: (paneId, bufferId) =>
-        state().paneActions.activatePaneBuffer(paneId, bufferId),
-      onSplitPane: (targetPaneId, direction, bufferId, placement) =>
-        state().paneActions.splitPane(targetPaneId, direction, bufferId, placement) ?? undefined,
+      onReorderBuffers: (oldIndex, newIndex) => reorderCalls.push([oldIndex, newIndex]),
+      onSplitPane: () => undefined,
     }),
   )
 
-  const drop = () => {
+  return { state, leftTabId: leftTab.id, rightPaneId, rightTabId: rightTab.id, reorderCalls, hook }
+}
+
+describe('useTabDrag — a tab can never leave its own pane via drag', () => {
+  it('ending the drag over another pane leaves the tab exactly where it started', () => {
+    const { state, leftTabId, rightPaneId, hook } = setup()
+
     act(() => {
       hook.result.current.handleDragStart({
-        active: { id: leftNewTabId },
-        activatorEvent: point,
+        active: { id: leftTabId },
+        activatorEvent: { clientX: 999, clientY: 999 },
+      } as unknown as DragStartEvent)
+    })
+    act(() => {
+      // dnd-kit's own `over` is null here on purpose: this pane's
+      // SortableContext holds only `left-tab`, so nothing else in the
+      // document — including the other pane's own tab bar — is ever a
+      // valid collision target for this drag, however far the pointer
+      // travels. There is no cross-pane droppable to name.
+      hook.result.current.handleDragEnd({
+        active: { id: leftTabId, rect: { current: { initial: null, translated: null } } },
+        over: null,
+      } as unknown as DragEndEvent)
+    })
+
+    expect(state().panes[ROOT_PANE_ID]?.editorTabIds).toContain(leftTabId)
+    expect(state().panes[rightPaneId]?.editorTabIds ?? []).not.toContain(leftTabId)
+  })
+
+  it('clears the dragged-tab state on drag end without touching any other pane', () => {
+    const { state, leftTabId, rightPaneId, rightTabId, hook } = setup()
+
+    act(() => {
+      hook.result.current.handleDragStart({
+        active: { id: leftTabId },
+        activatorEvent: { clientX: 999, clientY: 999 },
+      } as unknown as DragStartEvent)
+    })
+    expect(hook.result.current.draggedBufferId).toBe(leftTabId)
+
+    act(() => {
+      hook.result.current.handleDragEnd({
+        active: { id: leftTabId, rect: { current: { initial: null, translated: null } } },
+        over: null,
+      } as unknown as DragEndEvent)
+    })
+
+    expect(hook.result.current.draggedBufferId).toBeNull()
+    expect(state().panes[rightPaneId]?.editorTabIds).toEqual([rightTabId])
+  })
+})
+
+describe('useTabDrag — reordering within a pane’s own tab bar still works', () => {
+  it('reorders when dnd-kit resolves `over` to another tab in the SAME SortableContext', () => {
+    const tabA = openTab(ROOT_PANE_ID, 'tab-a')
+    const tabB = openTab(ROOT_PANE_ID, 'tab-b')
+    const tabC = openTab(ROOT_PANE_ID, 'tab-c')
+    const sortedBuffers = [tabA, tabB, tabC] as PaneContent[]
+
+    const reorderCalls: Array<[number, number]> = []
+    const hook = renderHook(() =>
+      useTabDrag({
+        sortedBuffers,
+        onTabSelect: () => {},
+        onTabClick: () => {},
+        onReorderBuffers: (oldIndex, newIndex) => reorderCalls.push([oldIndex, newIndex]),
+        onSplitPane: () => undefined,
+      }),
+    )
+
+    act(() => {
+      hook.result.current.handleDragStart({
+        active: { id: tabA.id },
+        activatorEvent: { clientX: 10, clientY: 10 },
       } as unknown as DragStartEvent)
     })
     act(() => {
       hook.result.current.handleDragEnd({
-        active: { id: leftNewTabId, rect: { current: { initial: null, translated: null } } },
-        over: null,
+        active: { id: tabA.id, rect: { current: { initial: null, translated: null } } },
+        over: { id: tabC.id },
       } as unknown as DragEndEvent)
     })
-  }
 
-  return { store, state, leftNewTabId, rightPaneId, rightNewTabId, drop }
-}
-
-describe('useTabDrag — dropping a New Tab on a pane that already has one', () => {
-  it('leaves the destination pointing at a buffer that still exists', () => {
-    const { state, rightPaneId, drop } = setup()
-
-    drop()
-
-    const pane = state().panes[rightPaneId]
-    expect(pane?.activeBufferId).not.toBeNull()
-    expect(state().buffers.some((b) => b.id === pane!.activeBufferId)).toBe(true)
+    expect(reorderCalls).toEqual([[0, 2]])
   })
 
-  it('leaves the destination pointing at a buffer the pane actually holds', () => {
-    const { state, rightPaneId, rightNewTabId, drop } = setup()
+  it('no-ops when the drag ends back over its own starting position', () => {
+    const { leftTabId, hook, reorderCalls } = setup()
 
-    drop()
+    act(() => {
+      hook.result.current.handleDragStart({
+        active: { id: leftTabId },
+        activatorEvent: { clientX: 10, clientY: 10 },
+      } as unknown as DragStartEvent)
+    })
+    act(() => {
+      hook.result.current.handleDragEnd({
+        active: { id: leftTabId, rect: { current: { initial: null, translated: null } } },
+        over: { id: leftTabId },
+      } as unknown as DragEndEvent)
+    })
 
-    const pane = state().panes[rightPaneId]
-    // A pane renders only buffers in its own bufferIds, so an activeBufferId
-    // outside that list draws the empty-pane fallback with a tab strip showing.
-    expect(pane?.bufferIds).toContain(pane?.activeBufferId)
-    expect(pane?.activeBufferId).toBe(rightNewTabId)
-  })
-
-  it('still drops the duplicate rather than stacking two blank tabs', () => {
-    const { state, leftNewTabId, rightPaneId, drop } = setup()
-
-    drop()
-
-    expect(state().buffers.some((b) => b.id === leftNewTabId)).toBe(false)
-    expect(state().panes[rightPaneId]?.bufferIds).toHaveLength(1)
+    expect(reorderCalls).toHaveLength(0)
   })
 })

@@ -4,11 +4,16 @@ package mocks
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	asynxModels "github.com/char2cs/asynx/models"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/node"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/file"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/branchimport"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -217,9 +222,9 @@ func (s *RepositoryStore) FindWhere(
 	return rows, nil
 }
 
-// WorkspacePlacements is a fake project.WorkspaceRelocator and folder.Workspaces:
-// it holds the workspace rows a repo or folder move has to carry along, and
-// records the placement writes made against them.
+// WorkspacePlacements is a fake project.WorkspaceRelocator: it holds the
+// workspace rows a repo move has to carry along, and records the writes made
+// against them.
 type WorkspacePlacements struct {
 	Rows    []domain.Workspace
 	ListErr error
@@ -248,25 +253,6 @@ func (s *WorkspacePlacements) ListInRepo(
 	return rows, nil
 }
 
-func (s *WorkspacePlacements) SetPlacement(
-	ctx context.Context,
-	id string,
-	folderID string,
-	order int,
-) (domain.Workspace, error) {
-	if s.SetErr != nil {
-		return domain.Workspace{}, s.SetErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == id {
-			s.Rows[i].FolderID = folderID
-			s.Rows[i].Order = order
-			return s.Rows[i], nil
-		}
-	}
-	return domain.Workspace{}, nil
-}
-
 func (s *WorkspacePlacements) SetProject(
 	ctx context.Context,
 	id string,
@@ -284,23 +270,203 @@ func (s *WorkspacePlacements) SetProject(
 	return domain.Workspace{}, nil
 }
 
-// FolderStore is a fake folder.Store backed by an in-memory slice.
-//
-// FindErr and FindByKeyErr are separate so a test can fail ONE read: the
-// cross-repo classification path resolves a single row by key after the
-// repo-scoped list has already succeeded, and collapsing the two would make that
-// branch unreachable.
+// GetHomeForProject mirrors the real workspace repository's own scan: the
+// one row in Rows whose ProjectID matches and whose Kind is
+// WorkspaceKindHome, or apperr.ErrNotFound.
+func (s *WorkspacePlacements) GetHomeForProject(
+	ctx context.Context,
+	projectID string,
+) (domain.Workspace, error) {
+	for _, w := range s.Rows {
+		if w.ProjectID == projectID && w.Kind == domain.WorkspaceKindHome {
+			return w, nil
+		}
+	}
+	return domain.Workspace{}, apperr.ErrNotFound
+}
+
+// NodePlacements is a fake project.NodePlacements: it holds every repo-kind
+// Node row minted so far and records the two placement writes SEPARATELY
+// (mirroring AgentChatPlacements's Placed/Ordered split) — a renumber may
+// write an index and must be unable to write a parent.
+type NodePlacements struct {
+	Rows      []domain.Node
+	CreateErr error
+	GetErr    error
+	ListErr   error
+	OrderErr  error
+	PlaceErr  error
+	// OrderErrForID and PlaceErrForID, when set for a given node id, fail only
+	// that id's SetOrder/SetPlacement call — separate from OrderErr/PlaceErr so
+	// a test can fail one sibling's renumber write (e.g. densifying the
+	// ORIGIN project after a cross-project repo move) while another row's
+	// write in the same operation still succeeds, mirroring
+	// RepositoryStore.SaveErrForID.
+	OrderErrForID map[string]error
+	PlaceErrForID map[string]error
+	Placed        []NodePlacementWrite
+	Ordered       []NodeOrderWrite
+	// Forgotten records every id Forget purged, in call order — so a test can
+	// prove a rolled-back import's Node row was actually taken back out, not
+	// merely that Forget was never asked to fail.
+	Forgotten []string
+	ForgetErr error
+}
+
+// NodePlacementWrite is one recorded call to SetPlacement: the node moved,
+// and where to.
+type NodePlacementWrite struct {
+	ID       string
+	ParentID string
+	Order    int
+}
+
+// NodeOrderWrite is one recorded call to SetOrder: a node a densify
+// renumbered, and the index it was given. It carries no parent, which is the
+// whole point.
+type NodeOrderWrite struct {
+	ID    string
+	Order int
+}
+
+// NewNodePlacements returns an empty NodePlacements.
+func NewNodePlacements() *NodePlacements {
+	return &NodePlacements{}
+}
+
+func (s *NodePlacements) Create(
+	ctx context.Context,
+	id string,
+	kind domain.NodeKind,
+	parentID string,
+	order int,
+) (domain.Node, error) {
+	if s.CreateErr != nil {
+		return domain.Node{}, s.CreateErr
+	}
+	for _, row := range s.Rows {
+		if row.ID == id {
+			return domain.Node{}, fmt.Errorf("node: create: exists: %w", asynxModels.ErrValidation)
+		}
+	}
+	n := domain.Node{ID: id, Kind: kind, ParentID: parentID, Order: order}
+	s.Rows = append(s.Rows, n)
+	return n, nil
+}
+
+func (s *NodePlacements) GetNode(
+	ctx context.Context,
+	id string,
+) (domain.Node, error) {
+	if s.GetErr != nil {
+		return domain.Node{}, s.GetErr
+	}
+	for _, n := range s.Rows {
+		if n.ID == id {
+			return n, nil
+		}
+	}
+	return domain.Node{}, node.ErrNotFound
+}
+
+func (s *NodePlacements) ListByParent(
+	ctx context.Context,
+	parentID string,
+) ([]domain.Node, error) {
+	if s.ListErr != nil {
+		return nil, s.ListErr
+	}
+	rows := make([]domain.Node, 0, len(s.Rows))
+	for _, n := range s.Rows {
+		if n.ParentID == parentID {
+			rows = append(rows, n)
+		}
+	}
+	return rows, nil
+}
+
+// SetOrder writes the index and leaves the parent exactly as it stands, like
+// the command it stands in for. Refuses an id with no row, mirroring the real
+// command's Validate (asynxModels.ErrValidation on current == nil) — a fake
+// that silently no-ops here instead let a real, live-caught bug (a
+// pre-existing repo/chat/folder with no Node row failing every reorder with
+// "no node: validation failed") pass every test that used this fake.
+func (s *NodePlacements) SetOrder(
+	ctx context.Context,
+	id string,
+	order int,
+) error {
+	if s.OrderErr != nil {
+		return s.OrderErr
+	}
+	if err := s.OrderErrForID[id]; err != nil {
+		return err
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			s.Rows[i].Order = order
+			s.Ordered = append(s.Ordered, NodeOrderWrite{ID: id, Order: order})
+			return nil
+		}
+	}
+	return fmt.Errorf("node: set order: no node: %w", asynxModels.ErrValidation)
+}
+
+func (s *NodePlacements) SetPlacement(
+	ctx context.Context,
+	id string,
+	parentID string,
+	order int,
+) error {
+	if s.PlaceErr != nil {
+		return s.PlaceErr
+	}
+	if err := s.PlaceErrForID[id]; err != nil {
+		return err
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == id {
+			s.Rows[i].ParentID = parentID
+			s.Rows[i].Order = order
+			s.Placed = append(s.Placed, NodePlacementWrite{ID: id, ParentID: parentID, Order: order})
+			return nil
+		}
+	}
+	return fmt.Errorf("node: set placement: no node: %w", asynxModels.ErrValidation)
+}
+
+// Forget purges the row for id from Rows, mirroring the real store's hard
+// delete, and records the call in Forgotten regardless of whether a matching
+// row existed (Forget is best-effort at the caller — see importOneRepo's
+// rollback — and the real store does not error on an unknown id either).
+func (s *NodePlacements) Forget(
+	ctx context.Context,
+	id string,
+) error {
+	if s.ForgetErr != nil {
+		return s.ForgetErr
+	}
+	s.Forgotten = append(s.Forgotten, id)
+	kept := s.Rows[:0]
+	for _, n := range s.Rows {
+		if n.ID != id {
+			kept = append(kept, n)
+		}
+	}
+	s.Rows = kept
+	return nil
+}
+
+// FolderStore is a fake store.Store[domain.Folder, string] — the plain-GORM
+// identity surface a home-scoped folder's name now lives on (2026-09-08
+// sidebar-placement-unification Task 5).
 type FolderStore struct {
-	Rows         []domain.Folder
+	Saved        []domain.Folder
 	SaveErr      error
 	FindErr      error
 	FindByKeyErr error
-	// FindWhereErr, when set, fails FindWhere independently of FindErr (which
-	// FindByKey also falls back to) — so a test can fail the tree-snapshot scan
-	// while a preceding FindByKey-based load still succeeds.
-	FindWhereErr error
-	// DeleteErr, when set, fails Delete.
-	DeleteErr error
+	DeleteErr    error
+	Deleted      []string
 }
 
 // NewFolderStore returns an empty FolderStore.
@@ -308,64 +474,20 @@ func NewFolderStore() *FolderStore {
 	return &FolderStore{}
 }
 
-func (s *FolderStore) FindByKey(
-	ctx context.Context,
-	id string,
-) (*domain.Folder, error) {
-	if s.FindByKeyErr != nil {
-		return nil, s.FindByKeyErr
-	}
-	if s.FindErr != nil {
-		return nil, s.FindErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == id {
-			row := s.Rows[i]
-			return &row, nil
-		}
-	}
-	return nil, nil
-}
-
-// FindWhere mirrors the real store's prototype-scoped query over the fields the
-// folder usecase actually narrows by.
-func (s *FolderStore) FindWhere(
-	ctx context.Context,
-	match domain.Folder,
-) ([]domain.Folder, error) {
-	if s.FindWhereErr != nil {
-		return nil, s.FindWhereErr
-	}
-	if s.FindErr != nil {
-		return nil, s.FindErr
-	}
-	rows := make([]domain.Folder, 0, len(s.Rows))
-	for _, f := range s.Rows {
-		if match.ProjectID != "" && f.ProjectID != match.ProjectID {
-			continue
-		}
-		if match.RepoID != "" && f.RepoID != match.RepoID {
-			continue
-		}
-		rows = append(rows, f)
-	}
-	return rows, nil
-}
-
 func (s *FolderStore) Save(
 	ctx context.Context,
-	folder domain.Folder,
+	item domain.Folder,
 ) error {
 	if s.SaveErr != nil {
 		return s.SaveErr
 	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == folder.ID {
-			s.Rows[i] = folder
+	for i := range s.Saved {
+		if s.Saved[i].ID == item.ID {
+			s.Saved[i] = item
 			return nil
 		}
 	}
-	s.Rows = append(s.Rows, folder)
+	s.Saved = append(s.Saved, item)
 	return nil
 }
 
@@ -376,20 +498,59 @@ func (s *FolderStore) Delete(
 	if s.DeleteErr != nil {
 		return s.DeleteErr
 	}
-	kept := s.Rows[:0]
-	for _, f := range s.Rows {
+	s.Deleted = append(s.Deleted, id)
+	kept := s.Saved[:0]
+	for _, f := range s.Saved {
 		if f.ID != id {
 			kept = append(kept, f)
 		}
 	}
-	s.Rows = kept
+	s.Saved = kept
 	return nil
+}
+
+// FindByKey returns a pointer to a COPY, deliberately — never &s.Saved[i].
+// Delete's own in-place compaction below (kept := s.Saved[:0]) reuses
+// s.Saved's backing array, so a caller holding a pointer straight INTO that
+// array (as this used to hand back) could have it silently overwritten with
+// a DIFFERENT row's data the moment Delete ran, before the caller ever read
+// it again — caught live: tree.go's own Delete resolves f via FindByKey,
+// calls folders.Delete(ctx, f.ID), THEN reads f.ID again for nodes.Forget,
+// and with the old aliasing pointer that second read could name the WRONG
+// folder whenever the deleted row was not gorm.Saved's last element.
+func (s *FolderStore) FindByKey(
+	ctx context.Context,
+	id string,
+) (*domain.Folder, error) {
+	if s.FindByKeyErr != nil {
+		return nil, s.FindByKeyErr
+	}
+	for i := range s.Saved {
+		if s.Saved[i].ID == id {
+			found := s.Saved[i]
+			return &found, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *FolderStore) FindAll(
+	ctx context.Context,
+) ([]domain.Folder, error) {
+	if s.FindErr != nil {
+		return nil, s.FindErr
+	}
+	return s.Saved, nil
 }
 
 // WorkspaceRepo is a fake of the subset of workspace.Workspace used on import.
 type WorkspaceRepo struct {
 	Created   []domain.Workspace
 	CreateErr error
+	// Deleted records the rows a rollback tombstoned, in order, so a test can
+	// tell a workspace that was taken back out from one silently left behind.
+	Deleted   []string
+	DeleteErr error
 	// CreateFn, when non-nil, is called instead of the default stub logic. The
 	// caller is responsible for appending to Created if it wants tracking.
 	CreateFn func(ctx context.Context, in workspace.CreateInput, now time.Time) (domain.Workspace, error)
@@ -432,6 +593,20 @@ func (r *WorkspaceRepo) Create(
 	}
 	r.Created = append(r.Created, ws)
 	return ws, nil
+}
+
+// Delete tombstones a created row, recording the id so a test can prove a
+// workspace that could not be attached to its owning chat was taken back out
+// rather than left orphaned.
+func (r *WorkspaceRepo) Delete(
+	_ context.Context,
+	id string,
+) error {
+	if r.DeleteErr != nil {
+		return r.DeleteErr
+	}
+	r.Deleted = append(r.Deleted, id)
+	return nil
 }
 
 // GitEngine is a fake of the git operations the import usecase consumes.
@@ -1104,9 +1279,10 @@ func (e *FsEngine) Delete(
 }
 
 // TerminalEngine is a fake of the terminal-engine surface used by the terminal
-// usecase.
+// usecase. Create's first id is the OWNING CHAT; the directory it runs in is a
+// separate lookup the usecase makes against the chat's worktree.
 type TerminalEngine struct {
-	CreateFn          func(ctx context.Context, wsID, dir string, prof *domain.TerminalProfile) (string, error)
+	CreateFn          func(ctx context.Context, chatID, dir string, prof *domain.TerminalProfile) (string, error)
 	KillFn            func(ctx context.Context, sessionID string) error
 	LoadPlaceholderFn func(ctx context.Context, m engineterminal.SessionMeta, scrollback []byte) error
 }
@@ -1118,11 +1294,11 @@ func NewTerminalEngine() *TerminalEngine {
 
 func (e *TerminalEngine) Create(
 	ctx context.Context,
-	workspaceID string,
+	chatID string,
 	workspaceDir string,
 	prof *domain.TerminalProfile,
 ) (string, error) {
-	return e.CreateFn(ctx, workspaceID, workspaceDir, prof)
+	return e.CreateFn(ctx, chatID, workspaceDir, prof)
 }
 
 func (e *TerminalEngine) Kill(
@@ -1202,103 +1378,12 @@ func (s *TerminalProfileStore) FindAll(
 	return s.Saved, nil
 }
 
-// AgentChatFolderStore is a fake chat-tree Store backed by an in-memory
-// slice.
-//
-// FindErr and FindByKeyErr are separate so a test can fail ONE read: the
-// cross-workspace classification path resolves a single row by key after the
-// workspace-scoped list has already succeeded, and collapsing the two would make
-// that branch unreachable.
-type AgentChatFolderStore struct {
-	Rows         []domain.ChatFolder
-	SaveErr      error
-	FindErr      error
-	FindByKeyErr error
-	DeleteErr    error
-}
-
-// NewAgentChatFolderStore returns an empty AgentChatFolderStore.
-func NewAgentChatFolderStore() *AgentChatFolderStore {
-	return &AgentChatFolderStore{}
-}
-
-func (s *AgentChatFolderStore) FindByKey(
-	ctx context.Context,
-	id string,
-) (*domain.ChatFolder, error) {
-	if s.FindByKeyErr != nil {
-		return nil, s.FindByKeyErr
-	}
-	if s.FindErr != nil {
-		return nil, s.FindErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == id {
-			row := s.Rows[i]
-			return &row, nil
-		}
-	}
-	return nil, nil
-}
-
-// FindWhere mirrors the real store's prototype-scoped query over the field the
-// chat-folder usecase actually narrows by.
-func (s *AgentChatFolderStore) FindWhere(
-	ctx context.Context,
-	match domain.ChatFolder,
-) ([]domain.ChatFolder, error) {
-	if s.FindErr != nil {
-		return nil, s.FindErr
-	}
-	rows := make([]domain.ChatFolder, 0, len(s.Rows))
-	for _, f := range s.Rows {
-		if match.WorkspaceID != "" && f.WorkspaceID != match.WorkspaceID {
-			continue
-		}
-		rows = append(rows, f)
-	}
-	return rows, nil
-}
-
-func (s *AgentChatFolderStore) Save(
-	ctx context.Context,
-	folder domain.ChatFolder,
-) error {
-	if s.SaveErr != nil {
-		return s.SaveErr
-	}
-	for i := range s.Rows {
-		if s.Rows[i].ID == folder.ID {
-			s.Rows[i] = folder
-			return nil
-		}
-	}
-	s.Rows = append(s.Rows, folder)
-	return nil
-}
-
-func (s *AgentChatFolderStore) Delete(
-	ctx context.Context,
-	id string,
-) error {
-	if s.DeleteErr != nil {
-		return s.DeleteErr
-	}
-	kept := s.Rows[:0]
-	for _, f := range s.Rows {
-		if f.ID != id {
-			kept = append(kept, f)
-		}
-	}
-	s.Rows = kept
-	return nil
-}
-
 // AgentChatPlacements is a fake chat-tree Chats AND Agent:
-// it holds the chat rows a Chats-panel move has to carry along, records the
-// placement writes made against them, mints and starts the ones a create asks
-// for, erases the ones a cascade purges, and records the lineage notes a move
-// asks for.
+// it holds every row the sidebar forest carries — folders and conversations
+// alike, now the same aggregate — records the placement writes made against
+// them, mints and starts the ones a create asks for, erases the ones a
+// cascade purges or a folder delete forgets, and records the lineage notes a
+// move asks for.
 //
 // Purged is kept in call order, because the cascade's whole contract is that a
 // chat is erased only once every chat below it already has been.
@@ -1308,34 +1393,93 @@ func (s *AgentChatFolderStore) Delete(
 // worse than no note, since the record it writes into the chat's conversation is
 // permanent and is what a reader would believe afterwards.
 type AgentChatPlacements struct {
-	Rows      []domain.Chat
+	Rows []domain.Chat
+	// Nodes is an OPTIONAL cross-reference to the fake NodePlacements a test
+	// wires the SAME tree.Usecase over — see parentOf's own doc. Left nil, a
+	// call site that never seeds one behaves exactly as it always has (Chat
+	// rows only).
+	Nodes     *NodePlacements
 	Purged    []string
+	Forgotten []string
 	Noted     []LineageNote
 	Spawned   []string
 	Minted    []string
 	Started   []StartCall
-	ListErr   error
-	GetErr    error
-	LoadErr   error
-	SetErr    error
-	OrderErr  error
-	PurgeErr  error
-	NoteErr   error
-	SpawnErr  error
-	MintErr   error
-	StartErr  error
-	SetCalls  int
-	MissingID string
+	// SpawnedOwnWorktree records each SpawnChatWithOwnWorktree call, in the SAME
+	// StartCall shape Started uses (including ParentAtStart) — CreateChat's
+	// ownWorktree counterpart to Started above, and provable ordering for the
+	// identical reason: the placement must land before this call, not after.
+	SpawnedOwnWorktree []StartCall
+	// OwnWorktreeBranches is the branch name each SpawnedOwnWorktree call asked
+	// for, in the same order — "" for the server-generated-name case, mirroring
+	// ImportedBranches below.
+	OwnWorktreeBranches []string
+	// SpawnedImportedWorktree records each SpawnChatWithImportedWorktree call in
+	// the same shape, and ImportedSpecs the branch each one asked for — the
+	// import counterpart of SpawnedOwnWorktree above.
+	SpawnedImportedWorktree []StartCall
+	ImportedBranches        []string
+	// AttachedWorkspaces records each AttachWorkspace call as chatID->workspaceID,
+	// in order, so a test can prove the chat existed before the workspace it owns.
+	AttachedWorkspaces []PlacementWrite
+	ListErr            error
+	GetErr             error
+	LoadErr            error
+	SetErr             error
+	OrderErr           error
+	PurgeErr           error
+	// PurgeNotFoundID makes PurgeChat answer apperr.ErrNotFound for this one
+	// id specifically (still recorded into Purged, same as a real not-found
+	// still marks the row as gone) — a chat that exists at the TREE level
+	// but never minted a conversation aggregate, the case purgeAll's own
+	// not-found tolerance exists for. Independent of PurgeErr, which fails
+	// every call unconditionally with whatever error it holds.
+	PurgeNotFoundID string
+	ForgetErr       error
+	CreateErr       error
+	TitleErr        error
+	NoteErr         error
+	SpawnErr        error
+	MintErr         error
+	StartErr        error
+	// SpawnOwnWorktreeErr fails SpawnChatWithOwnWorktree, the same way StartErr
+	// fails StartRunner.
+	SpawnOwnWorktreeErr error
+	// SpawnImportedWorktreeErr fails SpawnChatWithImportedWorktree, and
+	// AttachWorkspaceErr fails AttachWorkspace, the same way StartErr fails
+	// StartRunner.
+	SpawnImportedWorktreeErr error
+	AttachWorkspaceErr       error
+	// ImportedWorkspace is the workspace SpawnChatWithImportedWorktree hands
+	// back. Its zero value is an ordinary unlocked worktree; a test that wants
+	// the row typed as a BRANCH sets Status to locked here.
+	ImportedWorkspace domain.Workspace
+	SetCalls          int
+	MissingID         string
 	// Placed and Ordered record the two placement writes SEPARATELY, because the
 	// difference between them is the contract: a renumber may write an index and
 	// must be unable to write a parent.
 	Placed  []PlacementWrite
 	Ordered []OrderWrite
-	// Stale is the PROJECTED placement of a chat — what ListByWorkspace and
-	// GetChat answer while the read model is behind the log. A placement write
+	// Retyped records each SetType call, so a test can tell a row ADOPTED into a
+	// new kind from a fresh row minted beside the old one — the two leave the
+	// same type behind on the workspace and only this says which happened.
+	Retyped []TypeWrite
+	TypeErr error
+	// Spoken names the rows something was actually SAID in, which is what tells
+	// an owning row the backfill minted apart from somebody's conversation.
+	Spoken   map[string]bool
+	TurnsErr error
+	// Stale is the PROJECTED placement of a chat — what ListByWorkspace, ListChats
+	// and Get answer while the read model is behind the log. A placement write
 	// returns as soon as the aggregate has it, so this is the daemon's ordinary
 	// state for the microseconds after every one, not an exotic interleaving.
 	Stale map[string]domain.Chat
+	// OrderNotFoundIDs simulates a SetOrder call landing on a chat whose
+	// aggregate a CONCURRENT request has already purged — the densify read it as
+	// a sibling still needing an index, but by the time the write reaches it the
+	// row is gone. Real SetOrder reports this as apperr.ErrNotFound.
+	OrderNotFoundIDs map[string]bool
 	// NextID is the id the next MintChat hands back, so a test can name the chat a
 	// create is about to make instead of discovering it from the return value.
 	NextID string
@@ -1371,6 +1515,13 @@ type OrderWrite struct {
 	Order  int
 }
 
+// TypeWrite is one recorded call to SetType: the row whose kind was rewritten,
+// and what it became.
+type TypeWrite struct {
+	ChatID string
+	Type   domain.ChatType
+}
+
 // LineageNote is one recorded call to NoteThreadLineage: which chat was told,
 // and what it was told it now reads.
 type LineageNote struct {
@@ -1399,6 +1550,23 @@ func (s *AgentChatPlacements) ListByWorkspace(
 	return rows, nil
 }
 
+// ListChats answers every row the daemon knows — folders included, since they
+// are the same aggregate now — the read folder CRUD plans against.
+func (s *AgentChatPlacements) ListChats(
+	ctx context.Context,
+) ([]domain.Chat, error) {
+	if s.ListErr != nil {
+		return nil, s.ListErr
+	}
+	rows := make([]domain.Chat, 0, len(s.Rows))
+	for _, c := range s.Rows {
+		if c.ID != s.MissingID {
+			rows = append(rows, s.projected(c))
+		}
+	}
+	return rows, nil
+}
+
 // projected answers with the row as the READ MODEL has it, which is the row
 // itself unless a test is holding the projection behind the log.
 func (s *AgentChatPlacements) projected(
@@ -1409,6 +1577,14 @@ func (s *AgentChatPlacements) projected(
 		return row
 	}
 	return stale
+}
+
+// Get is GetChat under the tree usecase's shorter name — see EventStore.Get.
+func (s *AgentChatPlacements) Get(
+	ctx context.Context,
+	id string,
+) (domain.Chat, error) {
+	return s.GetChat(ctx, id)
 }
 
 func (s *AgentChatPlacements) GetChat(
@@ -1475,6 +1651,9 @@ func (s *AgentChatPlacements) SetOrder(
 	if s.OrderErr != nil {
 		return domain.Chat{}, s.OrderErr
 	}
+	if s.OrderNotFoundIDs[chatID] {
+		return domain.Chat{}, fmt.Errorf("set order: %w", apperr.ErrNotFound)
+	}
 	s.Ordered = append(s.Ordered, OrderWrite{ChatID: chatID, Order: order})
 	for i := range s.Rows {
 		if s.Rows[i].ID == chatID {
@@ -1483,6 +1662,81 @@ func (s *AgentChatPlacements) SetOrder(
 		}
 	}
 	return domain.Chat{}, nil
+}
+
+// SetType rewrites a row's kind and touches nothing else, like the command it
+// stands in for. Retyped records the calls so a test can prove a workspace's
+// row was ADOPTED rather than replaced.
+func (s *AgentChatPlacements) SetType(
+	ctx context.Context,
+	chatID string,
+	chatType domain.ChatType,
+) (domain.Chat, error) {
+	if s.TypeErr != nil {
+		return domain.Chat{}, s.TypeErr
+	}
+	s.Retyped = append(s.Retyped, TypeWrite{ChatID: chatID, Type: chatType})
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].Type = chatType
+			return s.Rows[i], nil
+		}
+	}
+	return domain.Chat{}, apperr.ErrNotFound
+}
+
+// Create mints a bare, unplaced row — the panel-root folder MintChat already
+// mints a bare, unplaced chat as.
+func (s *AgentChatPlacements) Create(
+	ctx context.Context,
+	in agentchat.CreateInput,
+) (domain.Chat, error) {
+	if s.CreateErr != nil {
+		return domain.Chat{}, s.CreateErr
+	}
+	row := domain.Chat{
+		ID: in.ID, Type: in.Type, WorkspaceID: in.WorkspaceID, RepoID: in.RepoID, CreatedAt: in.Now,
+	}
+	s.Rows = append(s.Rows, row)
+	return row, nil
+}
+
+func (s *AgentChatPlacements) SetTitle(
+	ctx context.Context,
+	chatID string,
+	title string,
+	source string,
+) (domain.Chat, error) {
+	if s.TitleErr != nil {
+		return domain.Chat{}, s.TitleErr
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].Title = title
+			return s.Rows[i], nil
+		}
+	}
+	return domain.Chat{}, apperr.ErrNotFound
+}
+
+// Forget erases a row outright — what a folder delete calls instead of
+// PurgeChat, since a folder never had a runner or a ledger to tear down.
+func (s *AgentChatPlacements) Forget(
+	ctx context.Context,
+	id string,
+) error {
+	if s.ForgetErr != nil {
+		return s.ForgetErr
+	}
+	s.Forgotten = append(s.Forgotten, id)
+	kept := s.Rows[:0]
+	for _, c := range s.Rows {
+		if c.ID != id {
+			kept = append(kept, c)
+		}
+	}
+	s.Rows = kept
+	return nil
 }
 
 func (s *AgentChatPlacements) PurgeChat(
@@ -1500,7 +1754,22 @@ func (s *AgentChatPlacements) PurgeChat(
 		}
 	}
 	s.Rows = kept
+	if chatID == s.PurgeNotFoundID {
+		return apperr.ErrNotFound
+	}
 	return nil
+}
+
+// HasTurns answers whether anything was said in a chat. A row no test named in
+// Spoken answers false — the state a row the backfill just minted is in.
+func (s *AgentChatPlacements) HasTurns(
+	ctx context.Context,
+	chatID string,
+) (bool, error) {
+	if s.TurnsErr != nil {
+		return false, s.TurnsErr
+	}
+	return s.Spoken[chatID], nil
 }
 
 func (s *AgentChatPlacements) NoteThreadLineage(
@@ -1525,7 +1794,7 @@ func (s *AgentChatPlacements) SpawnChat(
 	}
 	s.Spawned = append(s.Spawned, providerID)
 	id := s.NextID
-	s.Rows = append(s.Rows, domain.Chat{ID: id, WorkspaceID: workspaceID})
+	s.Rows = append(s.Rows, domain.Chat{ID: id, Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
 	return id, "runner-" + id, nil
 }
 
@@ -1537,7 +1806,7 @@ func (s *AgentChatPlacements) MintChat(
 		return "", s.MintErr
 	}
 	s.Minted = append(s.Minted, workspaceID)
-	s.Rows = append(s.Rows, domain.Chat{ID: s.NextID, WorkspaceID: workspaceID})
+	s.Rows = append(s.Rows, domain.Chat{ID: s.NextID, Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
 	return s.NextID, nil
 }
 
@@ -1557,13 +1826,327 @@ func (s *AgentChatPlacements) StartRunner(
 	return "runner-" + chatID, nil
 }
 
+// SpawnChatWithOwnWorktree fakes agentusecase.Usecase.SpawnChatWithOwnWorktree:
+// it records the call and, on success, fills the row's WorkspaceID — as the
+// real one does via WorktreeCreator.CreateChildWorkspace + Chats.SetWorkspace —
+// so a test can assert the row actually ended up owning a workspace, not merely
+// that the call happened.
+func (s *AgentChatPlacements) SpawnChatWithOwnWorktree(
+	ctx context.Context,
+	chatID string,
+	providerID string,
+	branch string,
+) (string, error) {
+	if s.SpawnOwnWorktreeErr != nil {
+		return "", s.SpawnOwnWorktreeErr
+	}
+	s.SpawnedOwnWorktree = append(s.SpawnedOwnWorktree, StartCall{
+		ChatID:        chatID,
+		ProviderID:    providerID,
+		ParentAtStart: s.parentOf(chatID),
+	})
+	s.OwnWorktreeBranches = append(s.OwnWorktreeBranches, branch)
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].WorkspaceID = "ws-child-" + chatID
+		}
+	}
+	return "runner-" + chatID, nil
+}
+
+// SpawnChatWithImportedWorktree mirrors SpawnChatWithOwnWorktree for an
+// existing branch: it records the call and the branch, fills the row's
+// workspace slot, and hands back the workspace so the caller can decide what
+// kind of row the chat is. An empty providerID starts no runner, exactly as
+// production does.
+func (s *AgentChatPlacements) SpawnChatWithImportedWorktree(
+	_ context.Context,
+	chatID string,
+	providerID string,
+	spec branchimport.Spec,
+) (domain.Workspace, string, error) {
+	if s.SpawnImportedWorktreeErr != nil {
+		return domain.Workspace{}, "", s.SpawnImportedWorktreeErr
+	}
+	s.SpawnedImportedWorktree = append(s.SpawnedImportedWorktree, StartCall{
+		ChatID:        chatID,
+		ProviderID:    providerID,
+		ParentAtStart: s.parentOf(chatID),
+	})
+	s.ImportedBranches = append(s.ImportedBranches, spec.Branch)
+	ws := s.ImportedWorkspace
+	if ws.ID == "" {
+		ws.ID = "ws-import-" + chatID
+	}
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].WorkspaceID = ws.ID
+		}
+	}
+	if providerID == "" {
+		return ws, "", nil
+	}
+	return ws, "runner-" + chatID, nil
+}
+
+// AttachWorkspace records the slot write and applies it to the held row.
+func (s *AgentChatPlacements) AttachWorkspace(
+	_ context.Context,
+	chatID string,
+	workspaceID string,
+) error {
+	if s.AttachWorkspaceErr != nil {
+		return s.AttachWorkspaceErr
+	}
+	s.AttachedWorkspaces = append(s.AttachedWorkspaces, PlacementWrite{
+		ChatID:   chatID,
+		ParentID: workspaceID,
+	})
+	for i := range s.Rows {
+		if s.Rows[i].ID == chatID {
+			s.Rows[i].WorkspaceID = workspaceID
+		}
+	}
+	return nil
+}
+
+// parentOf answers chatID's CURRENT parent for StartCall.ParentAtStart's
+// ordering proof (2026-09-08 sidebar-placement-unification Task 8 note: a
+// Node-backed chat's placement never touches Chat.ParentID at all, so this
+// checks Nodes FIRST — set it via AgentChatPlacements.Nodes for a test
+// exercising a repo-scoped (or home-scoped) placement, matching production's
+// own Node-first dispatch — falling back to the Chat row for a bubble.
 func (s *AgentChatPlacements) parentOf(
 	chatID string,
 ) string {
+	if s.Nodes != nil {
+		for _, n := range s.Nodes.Rows {
+			if n.ID == chatID {
+				return n.ParentID
+			}
+		}
+	}
 	for _, c := range s.Rows {
 		if c.ID == chatID {
 			return c.ParentID
 		}
 	}
 	return ""
+}
+
+// AgentWorkspaceGitStatus fakes the chat tree usecase's WorkspaceGitStatus
+// seam: each workspace's already-synced Added/Deleted counts, keyed by
+// workspace id, with no live git call behind it.
+type AgentWorkspaceGitStatus struct {
+	Summaries map[string][2]int
+	// Repos answers RepoOf, keyed by workspace id — the fake's stand-in for
+	// domain.Workspace.RepoID. A workspace never Set here answers "", the
+	// same value the real home workspace's RepoOf answers.
+	Repos map[string]string
+	Err   error
+	// HomeRepoMembers answers RepoIDsForHome directly, keyed by home
+	// workspace id, to the repo id set that home workspace's own project
+	// owns — a test-friendly stand-in for the real adapter's
+	// workspace-then-project-then-repos join (SDD review fix round 3). A
+	// home workspace id never Set here answers nil (no filter), matching
+	// mergeHomeForest's own "nil means do not filter" contract.
+	HomeRepoMembers map[string]map[string]bool
+	RepoIDsErr      error
+	// Branches answers RendersAsBranch, keyed by workspace id. A workspace
+	// never Set here answers false — the same default an ordinary, unlocked
+	// fork's real domain.Workspace.RendersAsBranch() gives.
+	Branches map[string]bool
+	// ForkParents answers VisibleForkParent, keyed by workspace id. A
+	// workspace never Set here answers "" — the same answer the real adapter
+	// gives for a workspace that was never forked, and for one cut straight
+	// off the repo's own default checkout.
+	ForkParents map[string]string
+}
+
+// NewAgentWorkspaceGitStatus returns an AgentWorkspaceGitStatus with no
+// workspace summaries or repos recorded.
+func NewAgentWorkspaceGitStatus() *AgentWorkspaceGitStatus {
+	return &AgentWorkspaceGitStatus{Summaries: map[string][2]int{}, Repos: map[string]string{}}
+}
+
+// SetHomeRepoMembers records homeWorkspaceID's own project's repo id set for
+// RepoIDsForHome to answer with.
+func (s *AgentWorkspaceGitStatus) SetHomeRepoMembers(homeWorkspaceID string, repoIDs ...string) {
+	if s.HomeRepoMembers == nil {
+		s.HomeRepoMembers = map[string]map[string]bool{}
+	}
+	ids := make(map[string]bool, len(repoIDs))
+	for _, id := range repoIDs {
+		ids[id] = true
+	}
+	s.HomeRepoMembers[homeWorkspaceID] = ids
+}
+
+// RepoIDsForHome implements tree.WorkspaceGitStatus.
+func (s *AgentWorkspaceGitStatus) RepoIDsForHome(
+	ctx context.Context,
+	homeWorkspaceID string,
+) (map[string]bool, error) {
+	if s.RepoIDsErr != nil {
+		return nil, s.RepoIDsErr
+	}
+	return s.HomeRepoMembers[homeWorkspaceID], nil
+}
+
+// SetRepo records workspaceID's owning repo for RepoOf to answer with.
+func (s *AgentWorkspaceGitStatus) SetRepo(workspaceID, repoID string) {
+	s.Repos[workspaceID] = repoID
+}
+
+func (s *AgentWorkspaceGitStatus) RepoOf(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	if s.Err != nil {
+		return "", s.Err
+	}
+	return s.Repos[workspaceID], nil
+}
+
+// SetBranch records whether workspaceID renders as its own sidebar row for
+// RendersAsBranch to answer with.
+func (s *AgentWorkspaceGitStatus) SetBranch(workspaceID string, renders bool) {
+	if s.Branches == nil {
+		s.Branches = map[string]bool{}
+	}
+	s.Branches[workspaceID] = renders
+}
+
+func (s *AgentWorkspaceGitStatus) RendersAsBranch(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	if s.Err != nil {
+		return false, s.Err
+	}
+	return s.Branches[workspaceID], nil
+}
+
+// SetForkParent records workspaceID's VISIBLE fork parent — already reduced
+// the way the real adapter reduces it, so "" is what a fork cut off the repo's
+// own default checkout is recorded as.
+func (s *AgentWorkspaceGitStatus) SetForkParent(workspaceID, forkParentID string) {
+	if s.ForkParents == nil {
+		s.ForkParents = map[string]string{}
+	}
+	s.ForkParents[workspaceID] = forkParentID
+}
+
+func (s *AgentWorkspaceGitStatus) VisibleForkParent(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	if s.Err != nil {
+		return "", s.Err
+	}
+	return s.ForkParents[workspaceID], nil
+}
+
+// Set records workspaceID's Added/Deleted for WorkingTreeSummary to answer
+// with. A workspace never Set here answers 0, 0 — the zero value a workspace
+// with a clean working tree would also report.
+func (s *AgentWorkspaceGitStatus) Set(
+	workspaceID string,
+	added int,
+	deleted int,
+) {
+	s.Summaries[workspaceID] = [2]int{added, deleted}
+}
+
+func (s *AgentWorkspaceGitStatus) WorkingTreeSummary(
+	ctx context.Context,
+	workspaceID string,
+) (int, int, error) {
+	if s.Err != nil {
+		return 0, 0, s.Err
+	}
+	pair := s.Summaries[workspaceID]
+	return pair[0], pair[1], nil
+}
+
+// AgentWorkspaceRoster fakes the chat tree usecase's WorkspaceRoster seam: the
+// daemon's whole workspace census, answered in the order it was seeded — which
+// is deliberately NOT sorted, since the backfill's own root-first ordering is
+// the thing under test.
+type AgentWorkspaceRoster struct {
+	Rows []domain.Workspace
+	Err  error
+}
+
+// NewAgentWorkspaceRoster returns a roster holding no workspaces.
+func NewAgentWorkspaceRoster() *AgentWorkspaceRoster {
+	return &AgentWorkspaceRoster{}
+}
+
+func (s *AgentWorkspaceRoster) List(
+	ctx context.Context,
+) ([]domain.Workspace, error) {
+	if s.Err != nil {
+		return nil, s.Err
+	}
+	return s.Rows, nil
+}
+
+// AgentWorkspaceReaper fakes the chat tree usecase's WorkspaceReaper seam: the
+// worktree teardown a cascading chat delete puts each workspace in its subtree
+// through.
+//
+// Reaped records every workspace id torn down, IN ORDER, because the order is
+// part of the contract under test: the subtree is walked deepest first so a
+// child's worktree goes before its lineage parent's cascade could reach it.
+//
+// Err fails EVERY reap; ErrFor fails one named workspace, which is what a test
+// needs to prove the failure contract — a delete that cannot tear a worktree
+// down must leave the chat, and its workspace, entirely intact.
+// Roster, when set, is the workspace census this reaper actually REMOVES from.
+// It is what lets a test assert the workspace is gone rather than merely that a
+// method was called — the difference between proving the bug is fixed and
+// proving a line of code runs.
+type AgentWorkspaceReaper struct {
+	Reaped []string
+	Roster *AgentWorkspaceRoster
+	Err    error
+	ErrFor map[string]error
+}
+
+// NewAgentWorkspaceReaper returns a reaper that tears everything down happily.
+func NewAgentWorkspaceReaper() *AgentWorkspaceReaper {
+	return &AgentWorkspaceReaper{ErrFor: map[string]error{}}
+}
+
+// NewAgentWorkspaceReaperOver returns a reaper that removes what it reaps from
+// roster, so "is it gone?" is a question about the census rather than about the
+// call log.
+func NewAgentWorkspaceReaperOver(
+	roster *AgentWorkspaceRoster,
+) *AgentWorkspaceReaper {
+	return &AgentWorkspaceReaper{ErrFor: map[string]error{}, Roster: roster}
+}
+
+func (s *AgentWorkspaceReaper) DiscardChildWorkspace(
+	ctx context.Context,
+	workspaceID string,
+) error {
+	if err, ok := s.ErrFor[workspaceID]; ok {
+		return err
+	}
+	if s.Err != nil {
+		return s.Err
+	}
+	s.Reaped = append(s.Reaped, workspaceID)
+	if s.Roster != nil {
+		kept := make([]domain.Workspace, 0, len(s.Roster.Rows))
+		for _, w := range s.Roster.Rows {
+			if w.ID != workspaceID {
+				kept = append(kept, w)
+			}
+		}
+		s.Roster.Rows = kept
+	}
+	return nil
 }

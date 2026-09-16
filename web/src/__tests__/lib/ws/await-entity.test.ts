@@ -151,6 +151,71 @@ describe('awaitEntity', () => {
     expect(unsubscribe).toHaveBeenCalledOnce()
   })
 
+  // A feed whose frames are lifecycle EVENTS rather than entity DTOs: the
+  // worktree a repo import creates is announced on the chat socket, nested
+  // inside a `worktree_state` event.
+  describe('mapFrame', () => {
+    const mapFrame = (raw: unknown): { id: string; repoId: string } | null => {
+      const f = raw as { chatId?: string; kind?: string; worktree?: Record<string, string> }
+      if (!f || f.kind !== 'worktree_state' || !f.worktree) return null
+      if (f.worktree.owningChatId !== f.chatId) return null
+      return { id: f.worktree.workspaceId, repoId: f.worktree.repoId }
+    }
+
+    const frame = (over: Record<string, unknown> = {}) => ({
+      chatId: 'c1',
+      kind: 'worktree_state',
+      worktree: { owningChatId: 'c1', workspaceId: 'ws-1', repoId: 'r1' },
+      ...over,
+    })
+
+    it('resolves with the MAPPED entity, and only after match accepts it', async () => {
+      const promise = awaitEntity<{ id: string; repoId: string }>({
+        endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+        mapFrame,
+        match: (w) => w.repoId === 'r1',
+        action: async () => {},
+        acceptExisting: true,
+      })
+      await flush()
+
+      // Every other kind on the socket maps to null and never reaches `match`.
+      emit({ chatId: 'c1', kind: 'turn_started', working: true })
+      emit({ reconnected: true })
+      // A thread of the owning chat carries the same worktree; not its row.
+      emit(frame({ chatId: 'c2' }))
+      emit(frame())
+
+      await expect(promise).resolves.toEqual({ id: 'ws-1', repoId: 'r1' })
+    })
+
+    it('still banks the snapshot burst by the MAPPED id when acceptExisting is off', async () => {
+      let release: () => void = () => {}
+      const promise = awaitEntity<{ id: string; repoId: string }>({
+        endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+        mapFrame,
+        match: (w) => w.repoId === 'r1',
+        action: () => new Promise<void>((r) => (release = r)),
+      })
+
+      // Replayed on subscribe, while the action is still in flight: banked.
+      emit(frame())
+      release()
+      await flush()
+      // The same id again after the window closes is still the banked row.
+      emit(frame())
+      await flush()
+
+      let settled = false
+      void promise.then(() => (settled = true))
+      await flush()
+      expect(settled).toBe(false)
+
+      emit(frame({ worktree: { owningChatId: 'c1', workspaceId: 'ws-2', repoId: 'r1' } }))
+      await expect(promise).resolves.toEqual({ id: 'ws-2', repoId: 'r1' })
+    })
+  })
+
   it('rejects on timeout when no matching frame arrives', async () => {
     vi.useFakeTimers()
     const promise = awaitEntity<{ id: string }>({
@@ -163,5 +228,65 @@ describe('awaitEntity', () => {
     await vi.advanceTimersByTimeAsync(5000)
     await assertion
     vi.useRealTimers()
+  })
+})
+
+// The REST seed. It exists because a feed with NO snapshot-on-subscribe cannot
+// satisfy acceptExisting at all: the chat lifecycle socket replays nothing on
+// connect, so an entity that already exists is never announced again.
+describe('awaitEntity seed (streams with no snapshot-on-subscribe)', () => {
+  // REGRESSION. Repo import awaits its default worktree on the chat feed, and
+  // that worktree is created by the repo POST in the PRECEDING await — so by the
+  // time this subscribes it already exists and no frame is ever coming. Without
+  // the seed the import hung to the 30s timeout on the common path.
+  it('resolves from the seed when no frame will ever arrive', async () => {
+    const pending = awaitEntity<{ id: string; repoId: string }>({
+      endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+      match: (w) => w.repoId === 'r1',
+      action: () => Promise.resolve(),
+      acceptExisting: true,
+      seed: async () => [{ id: 'w1', repoId: 'r1' }],
+    })
+
+    await expect(pending).resolves.toEqual({ id: 'w1', repoId: 'r1' })
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  // The socket stays authoritative for the other ordering: the worktree is still
+  // being provisioned when we subscribe, the seed comes back without it, and the
+  // frame is what resolves.
+  it('still resolves from a frame when the seed does not have it yet', async () => {
+    const pending = awaitEntity<{ id: string; repoId: string }>({
+      endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+      match: (w) => w.repoId === 'r1',
+      action: () => Promise.resolve(),
+      acceptExisting: true,
+      seed: async () => [],
+    })
+    await flush()
+
+    emit({ id: 'w2', repoId: 'r1' })
+
+    await expect(pending).resolves.toEqual({ id: 'w2', repoId: 'r1' })
+  })
+
+  // A failed read is not a failed await — the frame may still be coming, and the
+  // timeout is the real deadline. A transient 5xx must not turn a working live
+  // path into a hard failure.
+  it('survives a seed that rejects and still takes the frame', async () => {
+    const pending = awaitEntity<{ id: string; repoId: string }>({
+      endpoint: '/v0/projects/p1/repos/r1/chats/ws',
+      match: (w) => w.repoId === 'r1',
+      action: () => Promise.resolve(),
+      acceptExisting: true,
+      seed: async () => {
+        throw new Error('read failed')
+      },
+    })
+    await flush()
+
+    emit({ id: 'w3', repoId: 'r1' })
+
+    await expect(pending).resolves.toEqual({ id: 'w3', repoId: 'r1' })
   })
 })

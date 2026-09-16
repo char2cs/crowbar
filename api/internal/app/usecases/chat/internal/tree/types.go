@@ -3,46 +3,38 @@ package tree
 import (
 	"context"
 
+	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // The tree's ports and the shapes its writes take.
 
-type Store interface {
-	FindByKey(
-		ctx context.Context,
-		id string,
-	) (*domain.ChatFolder, error)
-	FindWhere(
-		ctx context.Context,
-		match domain.ChatFolder,
-	) ([]domain.ChatFolder, error)
-	Save(
-		ctx context.Context,
-		folder domain.ChatFolder,
-	) error
-	Delete(
-		ctx context.Context,
-		id string,
-	) error
-}
-
-// Chats is the chat-aggregate surface this usecase needs. It reads the
-// workspace's chats because chats and folders share one sibling space, and it
-// writes placement — which for a chat is lineage, not decoration.
+// Chats is the chat-aggregate surface this usecase needs. Folder rows and
+// conversation rows are the SAME aggregate now (Chat.Type distinguishes them),
+// so one port serves both: what used to be a separate ChatFolder table's
+// Create/FindByKey/FindWhere/Save/Delete is now these same Create/Get/List/
+// SetTitle/SetPlacement/SetOrder/Forget calls, exactly as a conversation row
+// already used them.
 //
-// Both the reads and the writes split along one line: what an operation DECIDES
-// against what it merely carries. LoadChat folds the SUBJECT from the event log,
-// because its stored parent is what a move is planned against; ListByWorkspace
-// serves the projection, which is right for the rest of the level since that is
-// read to renumber and never to decide a parent from. SetPlacement writes the
-// row the caller moved, SetOrder every other row a densify touched.
+// Get and LoadChat answer different questions. Get serves the read-model
+// projection, right for rendering a list. LoadChat folds the chat directly
+// from the event log, so it is always current — the read a placement decision
+// must be taken on, never the projection: a chat read back straight after a
+// placement can still be serving the placement it had BEFORE.
 type Chats interface {
 	ListByWorkspace(
 		ctx context.Context,
 		workspaceID string,
 	) ([]domain.Chat, error)
-	GetChat(
+	// ListChats returns every row the daemon knows, across every workspace and
+	// repo. Folder CRUD plans against it because a folder carries no workspace
+	// of its own to scope a narrower read by — the repo boundary a real
+	// ListInRepo would enforce is a walk over ParentID that does not exist yet
+	// (stage 3); this task only retypes the storage.
+	ListChats(
+		ctx context.Context,
+	) ([]domain.Chat, error)
+	Get(
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
@@ -50,17 +42,53 @@ type Chats interface {
 		ctx context.Context,
 		id string,
 	) (domain.Chat, error)
+	// Create mints a bare, unplaced row — a folder at the panel root — the same
+	// two-phase shape MintChat already uses: minted first, placed second, so a
+	// row that fails to place never sits half-created in a container it was
+	// never checked against.
+	Create(
+		ctx context.Context,
+		in agentchat.CreateInput,
+	) (domain.Chat, error)
+	SetTitle(
+		ctx context.Context,
+		chatID string,
+		title string,
+		source string,
+	) (domain.Chat, error)
 	SetPlacement(
 		ctx context.Context,
 		chatID string,
 		parentID string,
 		order int,
 	) (domain.Chat, error)
+	// SetOrder reports a chatID a concurrent delete has already purged as
+	// apperr.ErrNotFound: a densify plans a whole level from one snapshot, and a
+	// row that vanished before the write reached it needs no order any more, so
+	// writeRow treats this sentinel as nothing to do rather than a failure.
 	SetOrder(
 		ctx context.Context,
 		chatID string,
 		order int,
 	) (domain.Chat, error)
+	// SetType rewrites which KIND of row a chat is and touches nothing else —
+	// same id, same placement, same conversation. The backfill needs it because
+	// what a workspace IS can change after its owning row is minted: an ordinary
+	// worktree that is later locked owns a BRANCH row from then on, and retyping
+	// the row it already has is what keeps that workspace from acquiring a
+	// second one.
+	SetType(
+		ctx context.Context,
+		chatID string,
+		chatType domain.ChatType,
+	) (domain.Chat, error)
+	// Forget erases a row outright. A folder holds no runner and no ledger, so
+	// this is the whole of what deleting one means — unlike Agent.PurgeChat,
+	// which also tears down the CLI and the conversation a CHAT row carries.
+	Forget(
+		ctx context.Context,
+		id string,
+	) error
 }
 
 // Agent is the agent usecase as this one sees it: the collaborator that owns the
@@ -99,6 +127,58 @@ type Agent interface {
 		chatID string,
 		providerID string,
 	) (string, error)
+	// SpawnChatWithOwnWorktree is StartRunner's ownWorktree counterpart: chatID
+	// has already been minted and placed (so its lineage — and here, the fork
+	// parent its own walk resolves — is fixed before its first CLI exists,
+	// exactly like the plain thread path above), but has never had a runner. This
+	// fills its empty workspace slot with a fresh worktree forked from its
+	// resolved fork parent, then starts providerID's CLI in it — composing the
+	// SAME worktree-provisioning port Promote uses (model spec §4.2) for a chat
+	// with no existing runner to tear down and respawn.
+	//
+	// It refuses with ErrNoForkParent (see promote.go) when chatID's own walk
+	// resolves no ancestor carrying a workspace — there is nothing to fork from.
+	//
+	// branch names the fresh branch explicitly; blank keeps the server-generated
+	// name every caller before this one always got.
+	SpawnChatWithOwnWorktree(
+		ctx context.Context,
+		chatID string,
+		providerID string,
+		branch string,
+	) (runnerID string, err error)
+	// SpawnChatWithImportedWorktree is SpawnChatWithOwnWorktree's IMPORT
+	// counterpart, with the identical contract: chatID has already been minted
+	// and placed, and this fills its empty workspace slot — with a branch that
+	// ALREADY EXISTS, described by spec, rather than a fresh fork — then starts
+	// providerID's CLI in it, discarding the workspace again if anything after
+	// it fails.
+	//
+	// It returns the workspace as well as the runner because the CALLER decides
+	// what kind of row the chat is (see createImportedWorktreeChat), and a
+	// locked branch — which is what most imports produce — owns a branch row
+	// rather than an ordinary chat row. That judgement is taken from the
+	// workspace itself, so the workspace has to come back.
+	//
+	// An empty providerID starts NO runner and returns an empty runner id. That
+	// is the repo-add and batch-import case: materialising twenty branches must
+	// not launch twenty vendor CLIs, and a branch row is a row in the sidebar,
+	// not a conversation somebody is having.
+	SpawnChatWithImportedWorktree(
+		ctx context.Context,
+		chatID string,
+		providerID string,
+		spec ImportSpec,
+	) (ws domain.Workspace, runnerID string, err error)
+	// AttachWorkspace points an already-minted chat at the workspace it owns.
+	// It is the bare write behind MintOwningChat's second step (owning_chat.go),
+	// for the creation paths that build their own workspace and only need the
+	// row pointed at it.
+	AttachWorkspace(
+		ctx context.Context,
+		chatID string,
+		workspaceID string,
+	) error
 	// PurgeChat erases one chat outright — the aggregate, the CLI pointed at it,
 	// its conversation history and its on-disk ledger. This usecase decides WHICH
 	// chats a delete takes and knows nothing about how one is torn down.
@@ -106,6 +186,17 @@ type Agent interface {
 		ctx context.Context,
 		chatID string,
 	) error
+	// HasTurns reports whether anything was ever SAID in a chat. The boot
+	// backfill asks it before adopting a row into a different kind, and it is
+	// the only question that separates the two rows this package cannot
+	// otherwise tell apart: an owning row the backfill itself minted for a
+	// worktree, and an ordinary conversation that merely started inside the same
+	// workspace. Both are chat-typed and both carry the workspace id; only one
+	// of them has anybody's words in it.
+	HasTurns(
+		ctx context.Context,
+		chatID string,
+	) (bool, error)
 	// NoteThreadLineage records, in a chat's own conversation, that a move has just
 	// made it a thread of the chats named. It exists because re-parenting takes
 	// effect FROM THE MOVE ONWARD: a chat that gains an ancestor does not
@@ -119,14 +210,45 @@ type Agent interface {
 	) error
 }
 
-// CreateInput carries the fields needed to create a chat folder. ParentID is a
+// WorkspaceGitStatus is defined in home_ports.go, moved there to keep this
+// file under the package's own 500-line layering ceiling — it is not a
+// home-only port (DeletePreview needs it for every scope), but RepoIDsForHome
+// (SDD review fix round 3) is, and the two ports sit together for the same
+// reason Folders/Nodes already do.
+
+// WorkspaceReaper is the narrow write port DeleteChat needs: tearing down the
+// worktree a chat OWNED, in the same breath the chat is erased.
+//
+// Without it a delete violated the invariant this whole surface exists to hold.
+// A workspace is reachable only through the chat that owns it, so deleting that
+// chat and leaving the workspace behind produced exactly the orphan spec §0
+// diagnosed — a real worktree on disk with nothing anywhere able to name it —
+// from the opposite direction to the import path that first produced one.
+//
+// The method name is the one the port it is satisfied by already uses
+// (chat.WorktreeCreator.DiscardChildWorkspace), and deliberately so: the
+// container hands this the SAME adapter, so a delete here and a failed
+// promotion's rollback tear a workspace down through one call
+// (hierarchy.DeleteCascade) rather than two ways that could diverge. Its own
+// guards — a locked root, a subtree owning a working chat — therefore apply
+// here too, which is correct: a protected branch's worktree is no more
+// deletable through the chat door than through the workspace one.
+type WorkspaceReaper interface {
+	DiscardChildWorkspace(
+		ctx context.Context,
+		workspaceID string,
+	) error
+}
+
+// CreateInput carries the fields needed to create a folder. ParentID is a
 // chat id, another folder's id, or "" for the panel root; the new folder is
-// appended at the end of that sibling space.
+// appended at the end of that sibling space. RepoID is carried rather than a
+// workspace id because a folder owns none — see the package doc.
 type CreateInput struct {
-	ID          string
-	WorkspaceID string
-	ParentID    string
-	Name        string
+	ID       string
+	RepoID   string
+	ParentID string
+	Name     string
 }
 
 // MoveInput is a partial folder placement change: a nil field is left as it is,
@@ -152,59 +274,61 @@ type PlaceInput struct {
 // Chats and Folders are the ids that no longer exist, deepest first. They are
 // returned rather than merely logged because each one has to reach every client:
 // a purged chat rides its own aggregate frame, but a folder caught inside the
-// subtree is a plain row with no projection to announce it, so the caller
-// broadcasts those itself.
+// subtree is now the same aggregate kind, and its erasure rides its own frame
+// too — this split is kept because the CALLER still needs to know which ids were
+// conversations (torn down through the agent usecase) versus organisation only.
 type ChatDeletion struct {
 	Chats   []string
 	Folders []string
-	Shifted []domain.ChatFolder
+	Shifted []domain.Chat
 }
 
-// Usecase owns Chats-panel folder CRUD, chat placement, and the dense sibling
-// order the two kinds share. Every mutation leaves the affected levels
-// renumbered 0..n-1.
+// Usecase owns the sidebar forest's folder CRUD, chat placement, and the dense
+// sibling order every row kind shares. Every mutation leaves the affected
+// levels renumbered 0..n-1.
 type Usecase interface {
-	// ListInWorkspace returns one workspace's chat folders.
-	ListInWorkspace(
+	// ListInRepo returns a repo's folder rows. See Chats.ListChats: the repo
+	// boundary itself is not yet enforced, only the row kind is filtered.
+	ListInRepo(
 		ctx context.Context,
-		workspaceID string,
-	) ([]domain.ChatFolder, error)
+		repoID string,
+	) ([]domain.Chat, error)
 	// Create appends a new folder to the end of its parent's sibling space and
-	// densifies that level. It returns the new folder plus every OTHER folder the
+	// densifies that level. It returns the new folder plus every OTHER row the
 	// densify shifted, so the caller broadcasts the whole change rather than one
 	// row of it — the shifted rows' orders are otherwise stale in every client
-	// cache until the next reconnect. Shifted CHAT rows need no such handling:
-	// their write is an aggregate command, and the hub projection broadcasts every
-	// one.
+	// cache until the next reconnect.
 	Create(
 		ctx context.Context,
 		in CreateInput,
-	) (domain.ChatFolder, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	// Rename sets a folder's display name, leaving its placement untouched.
 	Rename(
 		ctx context.Context,
-		workspaceID string,
 		id string,
 		name string,
-	) (domain.ChatFolder, error)
+	) (domain.Chat, error)
 	// Move re-parents and/or reorders a folder, densifying both the level it left
-	// and the level it joined. It returns the moved folder plus every other folder
+	// and the level it joined. It returns the moved folder plus every other row
 	// those two densifies shifted.
+	//
+	// The move takes the folder's whole subtree with it — nothing below it is
+	// rewritten, since a child's ParentID already names it — so it is refused
+	// with ErrSubtreeWorking if any row in that subtree, folder or chat, is
+	// currently working.
 	Move(
 		ctx context.Context,
-		workspaceID string,
 		id string,
 		in MoveInput,
-	) (domain.ChatFolder, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	// Delete removes a folder and PROMOTES what it held to the folder's own
 	// parent. It never cascades: a folder holds no conversation, so deleting the
 	// chats filed under it would destroy work the user only meant to unfile. It
-	// returns every folder row the promotion and densify wrote.
+	// returns every row the promotion and densify wrote.
 	Delete(
 		ctx context.Context,
-		workspaceID string,
 		id string,
-	) ([]domain.ChatFolder, error)
+	) ([]domain.Chat, error)
 	// CreateChat mints a chat, places it under parentID, and starts providerID's
 	// vendor CLI on it — in that order, which is the whole contract.
 	//
@@ -219,18 +343,66 @@ type Usecase interface {
 	// An empty parentID is a plain new chat at the panel root, passed straight
 	// through to the unplaced spawn and unchanged in every respect.
 	//
-	// A parentID naming nothing, or a row in another workspace, is refused BEFORE
+	// A parentID naming nothing, or a chat in another workspace, is refused BEFORE
 	// anything is minted or spawned, with the errors placement already returns. A
 	// failure after the mint takes the chat back out: a create the user was told
 	// failed must not leave a chat behind.
+	//
+	// worktree is model spec §4.1/§5.1's atomic create, in the three states the
+	// create actually has (see WorktreeSpec). WorktreeFork and WorktreeImport
+	// both mint and place the new chat exactly as the plain case above
+	// (workspaceID is ignored for them — the row is a bubble until its worktree
+	// exists), then fill its workspace slot in the SAME call: a fresh fork off
+	// the resolved fork parent, or an existing branch adopted from the spec.
+	// There is never a chat-less workspace, nor a workspace-less chat waiting to
+	// be promoted, observable in between.
+	//
+	// Because such a chat has no workspace to conflict with yet, the
+	// cross-workspace refusal above does not apply to it: a parentID naming a
+	// chat that already owns a worktree of its own is an acceptable fork point,
+	// the same way a BRANCH parent already is. See createOwnWorktreeChat
+	// (chats.go), createImportedWorktreeChat (imported_chat.go), and the two
+	// agent verbs behind them.
 	CreateChat(
 		ctx context.Context,
 		workspaceID string,
 		providerID string,
 		parentID string,
+		worktree WorktreeSpec,
 	) (chatID, runnerID string, err error)
+	// ImportBranchAsChat materialises one existing branch chat-first and hands
+	// back both ids: the chat minted for it and the workspace it now owns. It
+	// starts no vendor CLI — a batch import materialises rows, not conversations
+	// — and resolves its own placement from the spec's git lineage.
+	ImportBranchAsChat(
+		ctx context.Context,
+		spec ImportSpec,
+	) (chatID, workspaceID string, err error)
+	// MintOwningChat mints and places the chat that is about to own a workspace,
+	// for a creation path that builds the workspace itself. parentWorkspaceID is
+	// the git-lineage parent; the placement it resolves is that workspace's own
+	// owning chat. See owning_chat.go for why this is three verbs rather than
+	// one call.
+	MintOwningChat(
+		ctx context.Context,
+		parentWorkspaceID string,
+	) (chatID string, err error)
+	// AttachOwningWorkspace points a chat minted by MintOwningChat at the
+	// workspace it was minted for, retyping it as a branch row when the
+	// workspace is one the sidebar draws as a branch.
+	AttachOwningWorkspace(
+		ctx context.Context,
+		chatID string,
+		ws domain.Workspace,
+	) error
+	// DiscardOwningChat takes a chat minted by MintOwningChat back out, for a
+	// caller whose own workspace creation then failed.
+	DiscardOwningChat(
+		ctx context.Context,
+		chatID string,
+	) error
 	// PlaceChat moves a chat within the tree and reorders it in its new level. It
-	// returns the placed chat plus every folder the densify shifted.
+	// returns the placed chat plus every row the densify shifted.
 	//
 	// A move that gives the chat a CHAT ancestor it did not have is also recorded
 	// in that chat's own conversation, because it takes effect from the move
@@ -240,12 +412,16 @@ type Usecase interface {
 	// workspaceID is the scope the caller is acting in, and the move is refused if
 	// the chat is not in it: a chat addressed from the wrong workspace is not this
 	// caller's row to move.
+	//
+	// The move takes the chat's whole subtree with it, and is refused with
+	// ErrSubtreeWorking if the chat or any row below it is currently working —
+	// the same refusal Move makes for a folder.
 	PlaceChat(
 		ctx context.Context,
 		workspaceID string,
 		chatID string,
 		in PlaceInput,
-	) (domain.Chat, []domain.ChatFolder, error)
+	) (domain.Chat, []domain.Chat, error)
 	// DeleteChat erases a chat AND EVERY DESCENDANT — every threaded chat below
 	// it, purged one aggregate at a time, and every folder caught inside that
 	// subtree.
@@ -256,8 +432,33 @@ type Usecase interface {
 	// premise — the context above it — has been deleted, and no drag can restore
 	// what it used to read. The subtree goes deepest first so no intermediate
 	// state ever has a chat pointing at a parent that is already gone.
+	//
+	// It is refused with ErrSubtreeWorking if the chat or any row below it is
+	// currently working, checked BEFORE anything is purged. Unlike a locked
+	// workspace, this refusal has no confirm-and-override path.
 	DeleteChat(
 		ctx context.Context,
 		chatID string,
 	) (ChatDeletion, error)
+	// PlaceWorkspace moves a workspace's own row within its repo's tree — a
+	// locked branch and an ordinary fork alike, see checkWorkspaceMove and
+	// PlaceWorkspace's own doc for why this is not gated on
+	// domain.Workspace.RendersAsBranch. It refuses with apperr.ErrNotFound
+	// only for a workspaceID with no real repo scope (a nonexistent id, or
+	// the project's own home workspace).
+	PlaceWorkspace(
+		ctx context.Context,
+		workspaceID string,
+		in PlaceInput,
+	) (domain.Chat, []domain.Chat, error)
+	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
+	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
+	// row in the subtree, and the working-tree file count summed across every
+	// workspace-owning row in it. A subtree can span more than one independent
+	// workspace now, so this is the one place that count is actually computed
+	// rather than read off a single workspace the caller already has.
+	DeletePreview(
+		ctx context.Context,
+		chatID string,
+	) (chatCount, fileCount int, err error)
 }

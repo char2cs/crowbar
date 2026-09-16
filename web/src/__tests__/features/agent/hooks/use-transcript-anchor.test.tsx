@@ -44,7 +44,9 @@ describe('useTranscriptAnchor', () => {
   const RealResizeObserver = globalThis.ResizeObserver
 
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'performance'] })
+    vi.useFakeTimers({
+      toFake: ['requestAnimationFrame', 'performance', 'setTimeout', 'clearTimeout'],
+    })
     scrollHeight = 1000
     clientHeight = 400
     boxed = true
@@ -576,7 +578,7 @@ describe('useTranscriptAnchor', () => {
       expect(scroller.scrollTop).toBe(1400) // ceiling: 1800 - 400
     })
 
-    it('arms eased follow only once loadingHistory goes false AND a full frame passes with nothing left to settle', () => {
+    it('arms eased follow only once loadingHistory goes false AND ARM_QUIET_MS passes with nothing left to settle', () => {
       const { getByTestId, rerender } = render(<Host anchorOptions={{ loadingHistory: true }} />)
       const scroller = getByTestId('scroller')
 
@@ -590,11 +592,8 @@ describe('useTranscriptAnchor', () => {
       grow(1500)
       expect(scroller.scrollTop).toBe(1100) // still instant: 1500 - 400
 
-      // Quiet now: let the pending arm frames actually fire. TWO frames, which
-      // is what "a full frame with nothing left to settle" costs — a rAF
-      // callback runs BEFORE the same frame's ResizeObserver notifications, so
-      // a one-frame wait arms before the resync it is waiting to not see.
-      vi.advanceTimersByTime(32)
+      // Quiet now: let the pending arm timer actually fire.
+      vi.advanceTimersByTime(150)
 
       // A genuinely new message streams in — now eased, not instant.
       grow(1900) // ceiling: 1900 - 400 = 1500
@@ -611,12 +610,46 @@ describe('useTranscriptAnchor', () => {
       const scroller = getByTestId('scroller')
 
       rerender(<Host anchorOptions={{ loadingHistory: false }} />)
-      vi.advanceTimersByTime(32) // the backstop's own arm frames — see above
+      vi.advanceTimersByTime(150) // the backstop's own arm timer
 
       grow(1400) // ceiling: 1400 - 400 = 1000
       vi.advanceTimersByTime(50)
       expect(scroller.scrollTop).toBeGreaterThan(600)
       expect(scroller.scrollTop).toBeLessThan(1000)
+    })
+
+    // Regression, the actual bug: a settle burst's corrections don't all land
+    // in the same animation frame — each row's real content can take React a
+    // few commits, spread across several frames, to settle. A single quiet
+    // FRAME between two corrections used to be enough to arm eased mode
+    // early, handing the REST of the burst to follow-scroll.ts's slow
+    // exponential ease (TAU_MS=100) instead of an instant snap — measured
+    // live as ~800ms / ~99 sampled scroll frames revealing one long reply.
+    // Corrections a few frames apart (well under ARM_QUIET_MS, comfortably
+    // over one frame) must all still land instantly.
+    it('does not arm eased mode between corrections that are more than one frame apart, only after a real quiet gap', () => {
+      const { getByTestId, rerender } = render(<Host anchorOptions={{ loadingHistory: true }} />)
+      const scroller = getByTestId('scroller')
+
+      rerender(<Host anchorOptions={{ loadingHistory: false }} />)
+
+      // A burst of corrections, each ~3 frames (50ms) apart — well past a
+      // single animation frame, comfortably under ARM_QUIET_MS (150ms).
+      let height = 1400
+      for (let i = 0; i < 6; i++) {
+        vi.advanceTimersByTime(50)
+        height += 40
+        grow(height)
+      }
+      // Every one of those landed instantly — none should have been eased.
+      expect(scroller.scrollTop).toBe(height - 400)
+
+      // Now genuinely quiet for the full window: the NEXT correction is eased.
+      vi.advanceTimersByTime(150)
+      grow(height + 400)
+      vi.advanceTimersByTime(50)
+      expect(scroller.scrollTop).toBeGreaterThan(height - 400)
+      expect(scroller.scrollTop).toBeLessThan(height + 400 - 400)
     })
   })
 
@@ -664,7 +697,7 @@ describe('useTranscriptAnchor', () => {
       grow(1300)
       expect(scroller.scrollTop).toBe(900)
 
-      vi.advanceTimersByTime(32) // a full frame with nothing left to settle
+      vi.advanceTimersByTime(150) // the backstop's own arm timer, genuinely quiet
 
       // A genuinely new message streaming in is eased again, as always. Under
       // a viewport of growth, so it is the ARMING being tested here and not
@@ -777,6 +810,46 @@ describe('tailRoom', () => {
   it('never reserves negative room for a reply far past the viewport', () => {
     expect(tailRoom(0, 5000, 400)).toBe(0)
   })
+
+  /*
+   * The floating overlay header (PaneTopRow's `chat-blur overlay` variant)
+   * paints over the top of the viewport without reserving a single pixel of
+   * flex space — `--agent-header-clearance` is how everything underneath is
+   * told it is there (transcript.css's `.scroll`, composer.css's `.doc`,
+   * agent-empty-document's `firstLineTop`). The pin had no such term, so
+   * "lift the prompt to the top of the viewport" meant the top of the
+   * CONTAINER, which is the middle of the frosted bar: the prompt you just
+   * sent landed behind it.
+   */
+  describe('with an overlay header floating over the top', () => {
+    it('lands the pin BELOW the header rather than behind it', () => {
+      // Same 900/1000/400 geometry as the first case, where 300px lifted the
+      // prompt to the container's top edge. The reservation is what pulls it
+      // up there, so leaving it 100px lower means reserving 100px LESS, not
+      // more — the shortfall is against the VISIBLE 300px, not the full pane.
+      // 100 is the transcript's real clearance (the full EdgeDissolve zone,
+      // ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 44 + 56 on Mac), not the 52px
+      // banners use — see CHAT_BLUR_ZONE_PX in agent-chat-pane.tsx.
+      expect(tailRoom(900, 1000, 400, 100)).toBe(200)
+    })
+
+    it('releases the pin as soon as the reply fills the VISIBLE viewport', () => {
+      // 300px of reply below the prompt already fills the 400px viewport minus
+      // the 100px the header's dissolve zone covers — there is nothing left
+      // to lift it with.
+      expect(tailRoom(700, 1000, 400, 100)).toBe(0)
+      expect(tailRoom(701, 1000, 400, 100)).toBe(1)
+    })
+
+    it('reserves nothing rather than negative room for a header taller than the pane', () => {
+      expect(tailRoom(900, 1000, 40, 100)).toBe(0)
+    })
+
+    it('is exactly the original behaviour at zero clearance — an unsplit pane', () => {
+      expect(tailRoom(900, 1000, 400, 0)).toBe(tailRoom(900, 1000, 400))
+      expect(tailRoom(500, 1000, 400, 0)).toBe(tailRoom(500, 1000, 400))
+    })
+  })
 })
 
 describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
@@ -832,8 +905,14 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
       for (const cb of [...observerCallbacks]) cb()
     })
 
-  function PinHost({ onReady }: { onReady: (anchor: TranscriptAnchor) => void }) {
-    const anchor = useTranscriptAnchor()
+  function PinHost({
+    onReady,
+    anchorOptions,
+  }: {
+    onReady: (anchor: TranscriptAnchor) => void
+    anchorOptions?: UseTranscriptAnchorOptions
+  }) {
+    const anchor = useTranscriptAnchor(anchorOptions)
     useEffect(() => {
       onReady(anchor)
     }, [anchor, onReady])
@@ -1139,6 +1218,88 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
     vi.advanceTimersByTime(1500)
 
     expect(content.style.paddingBottom).toBe('')
+  })
+
+  /*
+   * Regression, reported live in SPLIT view: the pane's chat header is a
+   * FLOATING, frosted overlay there (PaneTopRow's `chat-blur overlay` variant,
+   * rendered by ChatOnlyPaneHeader/ChatColumnHeader) — `position: absolute;
+   * top: 0`, no fill, no flex space of its own. Every other surface that
+   * pins content near the top already knows to duck under it via
+   * `--agent-header-clearance` / `headerClearancePx` (transcript.css's
+   * `.scroll` padding, composer.css's `.doc`, agent-empty-document's
+   * `firstLineTop`) — the autoscroll did not, so `pinTurnToTop` lifted the
+   * just-sent prompt to the top of the CONTAINER, which in split view is
+   * behind the blurred bar. An unsplit pane threads no clearance at all and
+   * must be pixel-for-pixel unchanged.
+   */
+  describe('with a floating overlay header (split view)', () => {
+    // The transcript's real clearance is the header's FULL EdgeDissolve zone
+    // (ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 44 + 56 on Mac — see
+    // CHAT_BLUR_ZONE_PX in agent-chat-pane.tsx), not the 52px banners clear
+    // (HEADER_ROW_HEIGHT_PX + 8): text left resting inside that wider zone
+    // still renders visibly blurred by EdgeDissolve's own mask layers, even
+    // though it is not covered/unclickable.
+    const CLEARANCE = 100
+
+    it('lands the just-sent prompt below the overlay header, not behind it', () => {
+      let anchor!: TranscriptAnchor
+      const { getByTestId } = render(
+        <PinHost onReady={(a) => (anchor = a)} anchorOptions={{ headerClearancePx: CLEARANCE }} />,
+      )
+      const scroller = getByTestId('scroller')
+      const content = getByTestId('content')
+
+      act(() => anchor.pinTurnToTop(getByTestId('pin')))
+      vi.advanceTimersByTime(1500)
+
+      // 100px of content sits below the prompt; the visible viewport is
+      // 400 - 100, so 200 is the shortfall — 100px LESS than the unsplit case
+      // reserves, which is exactly the height the header's dissolve zone covers.
+      expect(content.style.paddingBottom).toBe('200px')
+      // The prompt's top edge clears the header instead of sitting at y=0.
+      expect(scroller.scrollTop).toBe(800)
+      expect(pinTop - scroller.scrollTop).toBe(CLEARANCE)
+    })
+
+    it('leaves an unsplit pane — no overlay header, no clearance — exactly as it was', () => {
+      let anchor!: TranscriptAnchor
+      const { getByTestId } = render(
+        <PinHost onReady={(a) => (anchor = a)} anchorOptions={{ headerClearancePx: 0 }} />,
+      )
+      const scroller = getByTestId('scroller')
+      const content = getByTestId('content')
+
+      act(() => anchor.pinTurnToTop(getByTestId('pin')))
+      vi.advanceTimersByTime(1500)
+
+      expect(content.style.paddingBottom).toBe('300px')
+      expect(scroller.scrollTop).toBe(900)
+      expect(pinTop - scroller.scrollTop).toBe(0)
+    })
+
+    it('still hands over to ordinary bottom-following once the reply outgrows the visible space', () => {
+      let anchor!: TranscriptAnchor
+      const { getByTestId } = render(
+        <PinHost onReady={(a) => (anchor = a)} anchorOptions={{ headerClearancePx: CLEARANCE }} />,
+      )
+      const scroller = getByTestId('scroller')
+      const content = getByTestId('content')
+      act(() => anchor.pinTurnToTop(getByTestId('pin')))
+      vi.advanceTimersByTime(1500)
+      expect(content.style.paddingBottom).toBe('200px')
+
+      // The reply grows past the viewport: 700px now sits below the prompt.
+      scrollHeight = 1600
+      fire()
+      vi.advanceTimersByTime(1500)
+
+      // The reservation is gone and the true bottom is the target again — the
+      // header term never applies to the BOTTOM, only to what is pinned at the
+      // top, so this is identical to the unsplit hand-over.
+      expect(content.style.paddingBottom).toBe('')
+      expect(scroller.scrollTop).toBe(1200)
+    })
   })
 })
 

@@ -27,8 +27,15 @@ import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
 import { cn } from '@/lib/utils'
 
 /** The handle's own position on an empty document: the doc's top padding plus
- *  one line, matching `.doc`'s 48px / 14px × 1.7. */
-const FIRST_LINE_TOP = 48 + 23.8
+ *  one line, matching `.doc`'s 48px / 14px × 1.7. `headerClearancePx` is
+ *  `.doc`'s OWN extra top padding (composer.css's `--agent-header-clearance`,
+ *  the same value agent-chat-pane.tsx computes for its overlay header) —
+ *  when the document is genuinely empty this fallback has no rendered first
+ *  line to measure, so it has to add that same clearance itself or it would
+ *  place the handle above where the (padded-down) caret actually sits. */
+function firstLineTop(headerClearancePx: number): number {
+  return 48 + headerClearancePx + 23.8
+}
 /** The gap between the last line and the handle riding under it. */
 const HANDLE_LEAD = 4
 
@@ -38,10 +45,10 @@ const HANDLE_LEAD = 4
  * middle of a paragraph to fix a word does not walk the controls up the page
  * with it — they stay put, because the box under them is still what sends.
  */
-export function lastLineTop(doc: HTMLElement): number {
+export function lastLineTop(doc: HTMLElement, headerClearancePx = 0): number {
   const editable = doc.querySelector<HTMLElement>('[data-slate-editor]')
   const last = editable?.lastElementChild
-  if (!last || !editable?.textContent) return FIRST_LINE_TOP
+  if (!last || !editable?.textContent) return firstLineTop(headerClearancePx)
   return last.getBoundingClientRect().bottom - doc.getBoundingClientRect().top
 }
 
@@ -84,6 +91,20 @@ export interface AgentEmptyDocumentProps {
   /** A prompt has been dispatched but the ledger has not yet proven it delivered. */
   sending: boolean
   onStop: () => void
+  /** `.doc`'s own extra top padding (composer.css's `--agent-header-clearance`,
+   *  inherited from the `.agent-chat` ancestor AgentChatView sets it on) — the
+   *  overlay chat header's real height, so a truly empty document's fallback
+   *  handle position (`lastLineTop`'s only caller with nothing to measure)
+   *  agrees with where the padded-down first line actually renders. Defaults
+   *  to 0 for callers with no overlay header to clear. */
+  headerClearancePx?: number
+  /** Occupies the handle's own slot INSTEAD OF the model/effort/attach/send
+   *  row below, when this chat has a reason it cannot be typed into yet — a
+   *  trust-dialog wait, a revive in flight, or one that gave up. It rides the
+   *  exact same `place()`/`lastLineTop` transform the control row does; there
+   *  is only ever one thing in this slot, never a second row stacked above
+   *  it. `undefined` renders the normal row. */
+  banner?: ReactNode
   ref?: Ref<AgentEmptyDocumentHandle>
 }
 
@@ -119,6 +140,8 @@ export function AgentEmptyDocument({
   canStop,
   sending,
   onStop,
+  headerClearancePx = 0,
+  banner,
   ref,
 }: AgentEmptyDocumentProps) {
   const docRef = useRef<HTMLDivElement>(null)
@@ -207,9 +230,9 @@ export function AgentEmptyDocument({
     const doc = docRef.current
     const handle = handleRef.current
     if (!doc || !handle) return
-    const top = lastLineTop(doc)
+    const top = lastLineTop(doc, headerClearancePx)
     handle.style.transform = `translateY(${Math.round(top + HANDLE_LEAD)}px)`
-  }, [])
+  }, [headerClearancePx])
 
   // Same frame as the text that moved it. An effect would paint the handle at the
   // previous line for one frame, which reads as the bar lagging the content.
@@ -219,8 +242,23 @@ export function AgentEmptyDocument({
   // moves with every keystroke) even though `place` itself no longer reads
   // it — cheaper than a MutationObserver, and it already covers every way
   // the last line can change: typing, deleting, pasting, undo.
+  //
+  // `selectionchange` is a DOCUMENT event, so it also fires for selections that
+  // have nothing to do with this box — and the loudest source of those is
+  // Monaco: it mirrors the editor selection into its hidden textarea, so a
+  // drag-select emits one per pointer move / auto-scroll tick (measured live in
+  // the Tauri app: 239 events fired 478 `getBoundingClientRect` reads here, two
+  // per mounted composer). `place()` is a layout READ followed by a style WRITE,
+  // so running it on that firehose thrashes layout for the whole document from
+  // every open chat pane, while the person is doing nothing in any of them.
+  // Gate on the selection actually landing inside THIS document: every case the
+  // listener exists for (typing, deleting, pasting, undo) puts the caret here.
   useEffect(() => {
-    const onSelectionChange = () => place()
+    const onSelectionChange = () => {
+      const anchor = document.getSelection()?.anchorNode ?? null
+      if (!anchor || !docRef.current?.contains(anchor)) return
+      place()
+    }
     document.addEventListener('selectionchange', onSelectionChange)
     return () => document.removeEventListener('selectionchange', onSelectionChange)
   }, [place])
@@ -264,41 +302,47 @@ export function AgentEmptyDocument({
       </div>
       <div ref={handleRef} className="dochandle">
         <div className="inner">
-          <div className="grp">
-            <span className="side">{controls}</span>
-            <span className="side">
-              {attachmentsReady && (
-                <ComposerPlusButton
-                  onOpenExcalidraw={() => {
-                    const saved = wsId && chatId ? loadExcalidrawDesign(wsId, chatId) : null
-                    setExcalidrawInitialScene(
-                      (saved ? parseExcalidrawScene(saved) : null) ?? undefined,
-                    )
-                    setModal('excalidraw')
-                  }}
-                  onOpenAttachFile={() => setModal('attach-file')}
-                />
-              )}
-              <button
-                type="button"
-                className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
-                disabled={idle || sendingVisual}
-                aria-label={stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'}
-                title={
-                  stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'
-                }
-                onClick={stopping ? onStop : onSubmit}
-              >
-                {stopping ? (
-                  <StopIcon size={16} />
-                ) : sendingVisual ? (
-                  <FlickerSpinner className="size-4" />
-                ) : (
-                  <UpIcon size={16} />
+          {banner ? (
+            <div className="banner">{banner}</div>
+          ) : (
+            <div className="grp">
+              <span className="side">{controls}</span>
+              <span className="side">
+                {attachmentsReady && (
+                  <ComposerPlusButton
+                    onOpenExcalidraw={() => {
+                      const saved = wsId && chatId ? loadExcalidrawDesign(wsId, chatId) : null
+                      setExcalidrawInitialScene(
+                        (saved ? parseExcalidrawScene(saved) : null) ?? undefined,
+                      )
+                      setModal('excalidraw')
+                    }}
+                    onOpenAttachFile={() => setModal('attach-file')}
+                  />
                 )}
-              </button>
-            </span>
-          </div>
+                <button
+                  type="button"
+                  className={cn('send', stopping && 'halt', (idle || sendingVisual) && 'off')}
+                  disabled={idle || sendingVisual}
+                  aria-label={
+                    stopping ? 'Stop this turn' : sendingVisual ? 'Sending' : 'Send prompt'
+                  }
+                  title={
+                    stopping ? 'Stop this turn — Esc' : sendingVisual ? 'Sending…' : 'Send — Enter'
+                  }
+                  onClick={stopping ? onStop : onSubmit}
+                >
+                  {stopping ? (
+                    <StopIcon size={16} />
+                  ) : sendingVisual ? (
+                    <FlickerSpinner className="size-4" />
+                  ) : (
+                    <UpIcon size={16} />
+                  )}
+                </button>
+              </span>
+            </div>
+          )}
         </div>
       </div>
       {wsId && chatId && modal === 'attach-file' && (

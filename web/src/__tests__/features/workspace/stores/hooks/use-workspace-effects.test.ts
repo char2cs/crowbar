@@ -5,7 +5,8 @@ import {
   useWorkspaceEffects,
 } from '@/features/workspace/stores/hooks/use-workspace-effects'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
+import { setWorkspaceScope, recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   __resetActivationFreshnessForTests,
   markWorkspaceDeactivated,
@@ -14,9 +15,12 @@ import {
 import { resetWorkspaceScopedStores } from '@/features/workspace/lib/reset-workspace-scoped-stores'
 import type { AppFile } from '@/features/file-system/types/app'
 
-// §3: workspace-scoped WS endpoints are hierarchical now; record the scope so
-// workspaceBase resolves the project/repo for 'ws-test'.
-const WS_BASE = '/v0/projects/p1/repos/r1/workspaces/ws-test'
+// Both live topics are addressed by the chat that owns 'ws-test''s worktree —
+// the flat chat prefix — which is why the scope below carries an owningChatId.
+// The home workspace further down is the deliberate exception: it has files but
+// no worktree and so no chat, and keeps its own project-level base.
+const FILES_BASE = '/v0/chats/chat-test/files'
+const GIT_BASE = '/v0/chats/chat-test/git'
 
 const mockBufferActions = {
   openContent: vi.fn(() => 'buf-id'),
@@ -61,7 +65,7 @@ vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: toastEr
 beforeEach(() => {
   vi.clearAllMocks()
   __resetActivationFreshnessForTests()
-  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test' })
+  setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test', owningChatId: 'chat-test' })
   fetchFileTree.mockResolvedValue([
     { name: 'src', path: 'src', isDir: true, children: undefined },
     { name: 'README.md', path: 'README.md', isDir: false },
@@ -70,6 +74,7 @@ beforeEach(() => {
   fetchAllGitData.mockResolvedValue(null)
   // Default: no prior workspace data in the global stores (cold mount seeds).
   useFileSystemStore.setState({ rootFolderPath: null, files: [], fileTree: [] })
+  useFileTreeStore.setState({ expandedPathsByWorkspace: {} })
 })
 
 describe('useWorkspaceEffects', () => {
@@ -162,17 +167,24 @@ describe('useWorkspaceEffects', () => {
 
   it('subscribes to the files WS topic for the workspace', () => {
     renderHook(() => useWorkspaceEffects('ws-test'))
-    expect(subscribe).toHaveBeenCalledWith(`${WS_BASE}/files/ws`, expect.any(Function))
+    expect(subscribe).toHaveBeenCalledWith(`${FILES_BASE}/ws`, expect.any(Function))
   })
 
   it('subscribes to the git WS topic for the workspace', () => {
     renderHook(() => useWorkspaceEffects('ws-test'))
-    expect(subscribe).toHaveBeenCalledWith(`${WS_BASE}/git/status`, expect.any(Function))
+    expect(subscribe).toHaveBeenCalledWith(`${GIT_BASE}/status`, expect.any(Function))
   })
 
-  // The home (project-level) workspace has no git surface — the backend mounts
-  // no /home/git/* routes. The effect must skip the git stream for it (no
-  // git/status 404s) while keeping files (the file tree watcher stays).
+  // The home (project-level) workspace has no git surface: the project root is
+  // not a git worktree. Its scope deliberately records NO owning chat, so the
+  // git base could not even be built for it — the effect must skip the git
+  // stream before reaching for one, while keeping files (the tree watcher).
+  //
+  // Files is the reason this stays a real assertion rather than a formality
+  // now that files is chat-scoped too: home has no chat to be named by, so its
+  // stream must still resolve to the project's own /home/files/ws leaf. A
+  // filesBaseForWorkspace that reached for an owning chat unconditionally
+  // would throw here and take the home file tree down with it.
   it('skips the git stream for a home workspace but keeps the files stream', () => {
     setWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
     renderHook(() => useWorkspaceEffects('home-ws'))
@@ -220,7 +232,7 @@ describe('useWorkspaceEffects', () => {
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      const gitCall = calls.find(([ep]) => ep.startsWith(`${WS_BASE}/git`))
+      const gitCall = calls.find(([ep]) => ep.startsWith(GIT_BASE))
       expect(gitCall).toBeDefined()
       const onGitFrame = gitCall![1]
 
@@ -261,7 +273,7 @@ describe('useWorkspaceEffects', () => {
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      const gitCall = calls.find(([ep]) => ep.startsWith(`${WS_BASE}/git`))
+      const gitCall = calls.find(([ep]) => ep.startsWith(GIT_BASE))
       gitCall![1]({ branch: 'main', files: [] })
       await vi.advanceTimersByTimeAsync(500)
 
@@ -285,7 +297,7 @@ describe('useWorkspaceEffects', () => {
 
       renderHook(() => useWorkspaceEffects('ws-test'))
       const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-      const gitCall = calls.find(([ep]) => ep.startsWith(`${WS_BASE}/git`))
+      const gitCall = calls.find(([ep]) => ep.startsWith(GIT_BASE))
       const onGitFrame = gitCall![1]
 
       // Settle the initial frame's reload first.
@@ -305,6 +317,108 @@ describe('useWorkspaceEffects', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // ── Owning-chat-id race (cold-boot "no owning chat recorded" crash) ──────
+  // The route records a workspace's scope synchronously with NO chat id (the
+  // URL doesn't carry one — workspace-scope.ts). Only the sidebar's own,
+  // separate async chat-list fetch later attaches owningChatId via
+  // recordWorkspaceScope/setWorkspaceScope. On a cold activation whose
+  // hydration (IndexedDB-backed, often faster) wins that race, these effects
+  // used to fire before any chat id existed: gitBaseForWorkspace throws on a
+  // null one (crashing the WS subscription, caught by the pane's error
+  // boundary) and filesBaseForWorkspace's throw was swallowed by
+  // fetchFileTree's own .catch, leaving the explorer stuck empty forever.
+  // Both must wait for the id instead of firing early.
+  describe('owning chat id not yet recorded (route-vs-sidebar race)', () => {
+    it('does not subscribe to git or fetch the file tree before an owning chat id is recorded', () => {
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
+      renderHook(() => useWorkspaceEffects('ws-race'))
+
+      expect(fetchFileTree).not.toHaveBeenCalled()
+      const endpoints = (subscribe.mock.calls as unknown as [string][]).map(([ep]) => ep)
+      expect(endpoints.some((ep) => ep.includes('/git/'))).toBe(false)
+    })
+
+    it('subscribes to git and fetches the file tree once the owning chat id arrives', async () => {
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-race' })
+      renderHook(() => useWorkspaceEffects('ws-race'))
+      expect(fetchFileTree).not.toHaveBeenCalled()
+
+      recordWorkspaceScope({
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId: 'ws-race',
+        owningChatId: 'chat-race',
+      })
+
+      await waitFor(() => {
+        expect(fetchFileTree).toHaveBeenCalledWith('ws-race')
+      })
+      const endpoints = (subscribe.mock.calls as unknown as [string][]).map(([ep]) => ep)
+      expect(endpoints).toContain('/v0/chats/chat-race/git/status')
+    })
+
+    // Live-reported: "some chats on the same repo show files inside src/,
+    // others don't" — the SAME race as above, but in the separate lazy
+    // per-directory fetch effect, which (unlike the seed effect the tests
+    // above cover) never waited for chatScopeReady. Its bare `.catch(() =>
+    // {})` on a synchronous filesBaseForWorkspace throw meant a folder
+    // expanded before the owning chat id arrived silently never got
+    // children, with no retry once the id showed up.
+    it('waits for the owning chat id before fetching an already-expanded folder’s children', async () => {
+      // A wsId no earlier test in this describe block has recorded a chat id
+      // for — setWorkspaceScope merges in any PREVIOUSLY recorded
+      // owningChatId (see workspace-scope.ts's mergeScope), so reusing
+      // 'ws-race' here would silently inherit the prior test's id and skip
+      // right past the race this test exists to cover.
+      const wsId = 'ws-race-children'
+      const treeWithSrc: AppFile[] = [
+        { name: 'src', path: 'src', isDir: true, children: undefined },
+      ]
+      const srcChildren: AppFile[] = [{ name: 'index.ts', path: 'src/index.ts', isDir: false }]
+
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId })
+      useFileTreeStore.setState({ expandedPathsByWorkspace: { [wsId]: new Set(['src']) } })
+      // The root tree already sits in the shared store (left over from a
+      // warm reactivation, or a render tick ahead of this hook instance) —
+      // the seed effect's OWN chatScopeReady guard means it never put this
+      // there in this test, but the real race is exactly that: `files` can
+      // be populated by the time this effect runs even though THIS hook's
+      // owning-chat-id lookup hasn't resolved yet.
+      useFileSystemStore.setState({
+        rootFolderPath: wsId,
+        files: treeWithSrc,
+        fileTree: treeWithSrc,
+        isFileTreeLoading: false,
+      })
+      // Warm, so the SEED effect's own (already-correct) chatScopeReady wait
+      // takes its fast path once scope arrives instead of re-fetching the
+      // root too — isolating this assertion to the lazy per-directory effect.
+      markWorkspaceDeactivated(wsId, Date.now())
+
+      renderHook(() => useWorkspaceEffects(wsId))
+
+      // No owning chat id yet: the per-directory children fetch may not fire
+      // even though `files` already names 'src' as childless.
+      expect(fetchFileTree).not.toHaveBeenCalled()
+
+      fetchFileTree.mockResolvedValueOnce(srcChildren)
+      recordWorkspaceScope({
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId,
+        owningChatId: 'chat-race-children',
+      })
+
+      await waitFor(() => {
+        expect(fetchFileTree).toHaveBeenCalledWith(wsId, 'src')
+      })
+      await waitFor(() => {
+        const node = useFileSystemStore.getState().files.find((f) => f.path === 'src')
+        expect(node?.children).toEqual(srcChildren)
+      })
+    })
   })
 
   // ── Warm reactivation fast path (Task 33 Target A) ────────────────────────
@@ -405,7 +519,7 @@ describe('useWorkspaceEffects', () => {
       markWorkspaceDeactivated('ws-test')
 
       // B activates: reset points the global store at B, B seeds its own tree.
-      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-B' })
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-B', owningChatId: 'chat-B' })
       fetchFileTree.mockResolvedValueOnce(treeB)
       resetWorkspaceScopedStores('ws-B')
       const b = renderHook(() => useWorkspaceEffects('ws-B'))
@@ -415,7 +529,12 @@ describe('useWorkspaceEffects', () => {
 
       // A returns WITHIN the window. Reset normalises the store back to A with
       // an empty loading tree — the fast path must refuse it and refetch.
-      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-test' })
+      setWorkspaceScope({
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId: 'ws-test',
+        owningChatId: 'chat-test',
+      })
       fetchFileTree.mockClear()
       fetchFileTree.mockResolvedValueOnce(treeA)
       resetWorkspaceScopedStores('ws-test')
@@ -430,6 +549,66 @@ describe('useWorkspaceEffects', () => {
       })
     })
 
+    // Live-reported: a folder left expanded before switching away came back
+    // with its chevron still open but no children under it. A→B→A resets the
+    // SHARED `files` tree to a childless root list on return (previous test),
+    // and `expandedPaths` for 'ws-test' never changed reference across the
+    // whole trip (nothing toggled it) — so a lazy-fetch effect keyed only on
+    // `[wsId, expandedPaths]` never re-ran to notice the children were gone.
+    it('re-fetches an expanded folder’s children after A→B→A resets the shared tree', async () => {
+      const treeAExpandable: AppFile[] = [
+        { name: 'src', path: 'src', isDir: true, children: undefined },
+      ]
+      const srcChildren: AppFile[] = [{ name: 'index.ts', path: 'src/index.ts', isDir: false }]
+
+      useFileTreeStore.setState({ expandedPathsByWorkspace: { 'ws-test': new Set(['src']) } })
+
+      // A activates cold, seeds its root, then lazily fetches 'src' since it's expanded.
+      // Both queued up front: the lazy-fetch effect can race the root seed's
+      // own resolution and call fetchFileTree again before a later
+      // mockResolvedValueOnce would be registered.
+      fetchFileTree.mockResolvedValueOnce(treeAExpandable)
+      fetchFileTree.mockResolvedValueOnce(srcChildren)
+      resetWorkspaceScopedStores('ws-test')
+      const a = renderHook(() => useWorkspaceEffects('ws-test'))
+      await waitFor(() => expect(fetchFileTree).toHaveBeenCalledWith('ws-test', 'src'))
+      await waitFor(() => {
+        const node = useFileSystemStore.getState().files.find((f) => f.path === 'src')
+        expect(node?.children).toEqual(srcChildren)
+      })
+      a.unmount()
+      markWorkspaceDeactivated('ws-test')
+
+      // B activates: reset points the global store at B, clobbering A's tree.
+      setWorkspaceScope({ projectId: 'p1', repoId: 'r1', wsId: 'ws-B', owningChatId: 'chat-B' })
+      fetchFileTree.mockResolvedValueOnce([{ name: 'b.ts', path: 'b.ts', isDir: false }])
+      resetWorkspaceScopedStores('ws-B')
+      const b = renderHook(() => useWorkspaceEffects('ws-B'))
+      await waitFor(() => expect(useFileSystemStore.getState().rootFolderPath).toBe('ws-B'))
+      b.unmount()
+      markWorkspaceDeactivated('ws-B')
+
+      // A returns within the window. 'src' is still recorded as expanded (same
+      // Set reference — nothing toggled it), but its children are gone again.
+      setWorkspaceScope({
+        projectId: 'p1',
+        repoId: 'r1',
+        wsId: 'ws-test',
+        owningChatId: 'chat-test',
+      })
+      fetchFileTree.mockClear()
+      fetchFileTree.mockResolvedValueOnce(treeAExpandable)
+      fetchFileTree.mockResolvedValueOnce(srcChildren)
+      resetWorkspaceScopedStores('ws-test')
+      renderHook(() => useWorkspaceEffects('ws-test'))
+
+      await waitFor(() => expect(fetchFileTree).toHaveBeenCalledWith('ws-test', 'src'))
+      await waitFor(() => {
+        const node = useFileSystemStore.getState().files.find((f) => f.path === 'src')
+        expect(node?.children).toEqual(srcChildren)
+      })
+    })
+
     it('git fast path skips the 4-request seed but self-heals via the preserved frame', async () => {
       vi.useFakeTimers()
       try {
@@ -440,7 +619,7 @@ describe('useWorkspaceEffects', () => {
 
         const gitHandler = () => {
           const calls = subscribe.mock.calls as unknown as [string, (frame: unknown) => void][]
-          return calls.filter(([ep]) => ep.startsWith(`${WS_BASE}/git`)).pop()![1]
+          return calls.filter(([ep]) => ep.startsWith(GIT_BASE)).pop()![1]
         }
 
         // Cold mount: the stream pushes frame F1 → one reload; unmount preserves F1.

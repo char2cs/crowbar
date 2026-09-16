@@ -249,13 +249,13 @@ function AddProjectStep({ onChooseFolder }: { onChooseFolder: () => void }) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="text-base font-semibold text-white">Add your first project</h2>
+        <h2 className="text-base font-semibold text-white">Add your first space</h2>
         <p className="mt-3 text-sm leading-relaxed text-white/60">
-          A <span className="text-white">project</span> is the place where your repositories live.
-          They don't have to be inside the project folder — but it's a natural home for them.
+          A <span className="text-white">space</span> is the place where your repositories live.
+          They don't have to be inside the space's folder — but it's a natural home for them.
         </p>
         <p className="mt-2 text-sm leading-relaxed text-white/60">
-          Projects are also where cross-repo plans, chats, and context get saved. Think of it as the
+          Spaces are also where cross-repo plans, chats, and context get saved. Think of it as the
           shared memory for everything you're building.
         </p>
       </div>

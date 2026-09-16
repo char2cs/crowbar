@@ -19,12 +19,21 @@ import { fetchHomeWorkspace } from '@/lib/api'
  */
 export interface HomeWorkspaceState {
   wsId: string | null
+  /**
+   * The chat that owns the home workspace's worktree, as the daemon reports it.
+   *
+   * Carried because chat-scoped routes (`/v0/chats/:chatId/...`) are addressed
+   * by it, and the home route supplies no chat id of its own — unlike a repo
+   * workspace, whose owning chat arrives with the sidebar tree. Without it a
+   * terminal opened on project home has no way to build its URL.
+   */
+  owningChatId: string | null
   error: boolean
 }
 
 // Stable sentinel so useSyncExternalStore's snapshot never changes identity
 // while nothing has resolved yet (a fresh `{}` literal every call would loop).
-const UNRESOLVED: HomeWorkspaceState = { wsId: null, error: false }
+const UNRESOLVED: HomeWorkspaceState = { wsId: null, owningChatId: null, error: false }
 
 const states = new Map<string, HomeWorkspaceState>()
 const inflight = new Set<string>()
@@ -49,10 +58,14 @@ export function ensureHomeWorkspaceResolved(projectId: string): void {
   inflight.add(projectId)
   fetchHomeWorkspace(projectId)
     .then((ws) => {
-      states.set(projectId, { wsId: ws.id, error: false })
+      states.set(projectId, {
+        wsId: ws.id,
+        owningChatId: ws.owningChatId ?? null,
+        error: false,
+      })
     })
     .catch(() => {
-      states.set(projectId, { wsId: null, error: true })
+      states.set(projectId, { wsId: null, owningChatId: null, error: true })
     })
     .finally(() => {
       inflight.delete(projectId)
@@ -70,6 +83,18 @@ export function ensureHomeWorkspaceResolved(projectId: string): void {
  */
 export function getKnownHomeWorkspaceIds(): string[] {
   return [...states.values()].map((s) => s.wsId).filter((id): id is string => id !== null)
+}
+
+/**
+ * `projectId`'s own resolved home-workspace id, or `null` if it hasn't
+ * resolved (or hasn't been asked for) yet. Unlike `getKnownHomeWorkspaceIds`
+ * (deliberately flattened across every project, for WorkspaceHost's
+ * retention pruning), a caller scoped to ONE project — e.g. a project's
+ * Recents band, which must not pull in another project's home chats — needs
+ * this project's id specifically.
+ */
+export function getHomeWorkspaceId(projectId: string): string | null {
+  return states.get(projectId)?.wsId ?? null
 }
 
 function getSnapshot(projectId: string | null): HomeWorkspaceState {

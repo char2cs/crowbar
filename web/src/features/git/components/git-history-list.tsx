@@ -3,6 +3,8 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useGitStore } from '@/features/git/stores/git-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
 import { dataOf } from '@/lib/loadable'
 import type { GitCommit } from '../types/git-types'
 import { useGitDiffHandlers } from '../hooks/use-git-diff-handlers'
@@ -23,6 +25,11 @@ export function GitHistoryList() {
     onFileSelect: (path, isDir) => {
       if (isDir) return
       const rel = wsId && path.startsWith(`${wsId}/`) ? path.slice(wsId.length + 1) : path
+      // See resolveOnscreenPaneForWorkspace's doc: the file-open handler
+      // targets the stale global activePaneId otherwise, which can land the
+      // file in a different chat sharing this workspace.
+      const targetPaneId = resolveOnscreenPaneForWorkspace(wsId)
+      if (targetPaneId) windowPaneStore.getState().paneActions.setActivePane(targetPaneId)
       void useFileSystemStore.getState().handleFileOpen?.(rel, false)
     },
   })

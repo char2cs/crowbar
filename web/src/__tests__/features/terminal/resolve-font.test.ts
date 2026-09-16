@@ -7,9 +7,9 @@ import {
 
 describe('terminal font resolution', () => {
   it('keeps the configured font first and adds Nerd Font glyph fallbacks', () => {
-    const fontFamily = buildTerminalFontFamily('JetBrains Mono Variable')
+    const fontFamily = buildTerminalFontFamily('Geist Mono Variable')
 
-    expect(fontFamily.startsWith('"JetBrains Mono Variable",')).toBe(true)
+    expect(fontFamily.startsWith('"Geist Mono Variable",')).toBe(true)
     expect(fontFamily).toContain('"Symbols Nerd Font Mono"')
     expect(fontFamily).toContain('"MesloLGS NF"')
     expect(fontFamily).toMatch(/,\s*monospace$/)
@@ -17,11 +17,11 @@ describe('terminal font resolution', () => {
 
   it('deduplicates existing fallback lists without quoting CSS generic families', () => {
     const fontFamily = buildTerminalFontFamily(
-      '"JetBrains Mono Variable", "Symbols Nerd Font Mono", monospace',
+      '"Geist Mono Variable", "Symbols Nerd Font Mono", monospace',
     )
 
     expect(fontFamily.match(/"Symbols Nerd Font Mono"/g)).toHaveLength(1)
-    expect(fontFamily).toContain('"JetBrains Mono Variable"')
+    expect(fontFamily).toContain('"Geist Mono Variable"')
     expect(fontFamily).toMatch(/,\s*monospace$/)
     expect(fontFamily).not.toContain('"monospace"')
   })
@@ -29,12 +29,12 @@ describe('terminal font resolution', () => {
 
 describe('deriveStaticFontEquivalent', () => {
   it('strips a trailing "Variable" to get the static cut', () => {
-    expect(deriveStaticFontEquivalent('JetBrains Mono Variable')).toBe('JetBrains Mono')
+    expect(deriveStaticFontEquivalent('Geist Mono Variable')).toBe('Geist Mono')
     expect(deriveStaticFontEquivalent('IBM Plex Mono Variable')).toBe('IBM Plex Mono')
   })
 
   it('handles wrapping quotes', () => {
-    expect(deriveStaticFontEquivalent('"JetBrains Mono Variable"')).toBe('JetBrains Mono')
+    expect(deriveStaticFontEquivalent('"Geist Mono Variable"')).toBe('Geist Mono')
   })
 
   it('is case-insensitive on the "Variable" suffix', () => {
@@ -42,7 +42,7 @@ describe('deriveStaticFontEquivalent', () => {
   })
 
   it('returns null when there is no distinct static equivalent', () => {
-    expect(deriveStaticFontEquivalent('JetBrains Mono')).toBeNull()
+    expect(deriveStaticFontEquivalent('Geist Mono')).toBeNull()
     expect(deriveStaticFontEquivalent('Menlo')).toBeNull()
     expect(deriveStaticFontEquivalent('Variable')).toBeNull()
     expect(deriveStaticFontEquivalent('')).toBeNull()
@@ -75,28 +75,28 @@ describe('resolveTerminalFont', () => {
   it('keeps a variable font as-is instead of mapping to its static cut', async () => {
     // Both cuts available: the static-cut mapping existed only to preserve the
     // WebGL glyph atlas, so it must no longer be applied.
-    available.add('JetBrains Mono')
-    available.add('JetBrains Mono Variable')
-    const result = await resolveTerminalFont('JetBrains Mono Variable', 14)
+    available.add('Geist Mono')
+    available.add('Geist Mono Variable')
+    const result = await resolveTerminalFont('Geist Mono Variable', 14)
 
     expect(result.skipWebGL).toBe(true)
-    expect(result.fontFamily.startsWith('"JetBrains Mono Variable",')).toBe(true)
+    expect(result.fontFamily.startsWith('"Geist Mono Variable",')).toBe(true)
   })
 
   it('resolves a variable font that loads', async () => {
-    available.add('JetBrains Mono Variable')
-    const result = await resolveTerminalFont('JetBrains Mono Variable', 14)
+    available.add('Geist Mono Variable')
+    const result = await resolveTerminalFont('Geist Mono Variable', 14)
 
     expect(result.skipWebGL).toBe(true)
-    expect(result.fontFamily.startsWith('"JetBrains Mono Variable",')).toBe(true)
+    expect(result.fontFamily.startsWith('"Geist Mono Variable",')).toBe(true)
   })
 
   it('resolves a non-variable font that loads', async () => {
-    available.add('JetBrains Mono')
-    const result = await resolveTerminalFont('JetBrains Mono', 14)
+    available.add('Geist Mono')
+    const result = await resolveTerminalFont('Geist Mono', 14)
 
     expect(result.skipWebGL).toBe(true)
-    expect(result.fontFamily.startsWith('"JetBrains Mono",')).toBe(true)
+    expect(result.fontFamily.startsWith('"Geist Mono",')).toBe(true)
   })
 
   it('uses the platform fallback when nothing loads', async () => {

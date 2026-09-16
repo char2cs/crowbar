@@ -27,7 +27,7 @@ func getOutline(
 	acceptEncoding string,
 ) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v0/workspaces/ws1/review/outline", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/v0/chats/chat1/review/outline", http.NoBody)
 	if acceptEncoding != "" {
 		req.Header.Set("Accept-Encoding", acceptEncoding)
 	}

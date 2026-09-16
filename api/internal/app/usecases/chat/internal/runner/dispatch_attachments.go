@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
 // attachmentRefPattern matches a markdown link/image target pointing at the

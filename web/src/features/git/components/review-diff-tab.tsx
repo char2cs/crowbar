@@ -1,10 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { FileDashed, MagnifyingGlass } from '@phosphor-icons/react'
+import { Columns, FileDashed, MagnifyingGlass, Rows } from '@phosphor-icons/react'
 import { LoadingSpinner } from '@/components/ui/loading-spinner'
 import { Button } from '@/components/ui/button'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useReviewFilesSummary } from '@/features/git/hooks/use-review-files-summary'
 import { useReviewOutline } from '@/features/git/hooks/use-review-outline'
+import { useSettingsStore } from '@/features/settings/store'
 import type { SearchHit } from '@/features/git/api/review-window-api'
 import type { ReviewCodeViewHandle } from './diff/review-code-view'
 
@@ -17,6 +18,18 @@ const ReviewSearchBarLazy = lazy(() =>
 
 interface ReviewDiffTabProps {
   onRetry: () => void
+  /**
+   * The workspace THIS diff belongs to (BranchReviewContent.wsId /
+   * CommitDiffContent.wsId), NOT the ambient WorkspaceStoreContext.
+   * WorkspaceHost keeps every WorkspaceView it retains mounted at once for
+   * keep-alive, each rendering the same window-level pane tree under its OWN
+   * ambient context — a tab that read the ambient workspace instead of its
+   * own buffer's would fetch/display the WRONG (or empty) diff via
+   * useReviewFilesSummary/useReviewOutline in a hidden copy, scoped to
+   * whichever workspace happens to be active rather than the one this tab was
+   * opened for (same shape of bug as terminal-tab.tsx's `workspaceId` prop).
+   */
+  wsId: string
   /** Branch-review header data (branch name + base) for the shared diff header. */
   branchHeader?: { title: string; baseBranch?: string }
   isActivePane?: boolean
@@ -54,15 +67,20 @@ function CenteredState({ children }: { children: React.ReactNode }) {
  */
 export function ReviewDiffTab({
   onRetry,
+  wsId,
   branchHeader,
   isActivePane,
   commit,
   emptyMessage,
 }: ReviewDiffTabProps) {
-  const wsId = useWorkspaceStoreContext((s) => s.workspaceId)
-  const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId ?? null, commit)
-  const { outline } = useReviewOutline(wsId ?? null, commit)
+  const { files, loaded: filesLoaded } = useReviewFilesSummary(wsId, commit)
+  const { outline } = useReviewOutline(wsId, commit)
   const [searchOpen, setSearchOpen] = useState(false)
+  // A display preference, not per-tab state — persisted via the settings
+  // store (features/settings/store.ts) so it survives closing and reopening
+  // the tab, same as sidebarPosition/theme.
+  const diffStyle = useSettingsStore((s) => s.settings.diffViewMode)
+  const updateSetting = useSettingsStore((s) => s.updateSetting)
   const surfaceRef = useRef<ReviewCodeViewHandle | null>(null)
   // Mirrored into state as well as a ref: the reveal below has to run WHEN the
   // handle appears, and a ref assignment does not re-render. The surface is
@@ -131,7 +149,15 @@ export function ReviewDiffTab({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div
+      className="flex h-full min-h-0 flex-col bg-background"
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+          e.preventDefault()
+          setSearchOpen(true)
+        }
+      }}
+    >
       <div className="flex shrink-0 items-center gap-2 border-border border-b px-3 py-1.5">
         <span className="ui-text-sm min-w-0 truncate font-medium">
           {branchHeader?.title ?? 'Branch Review'}
@@ -144,6 +170,28 @@ export function ReviewDiffTab({
         <span className="ui-text-sm ml-auto shrink-0 text-muted-foreground">
           {files.length} changed {files.length === 1 ? 'file' : 'files'}
         </span>
+        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5">
+          <Button
+            variant={diffStyle === 'split' ? 'secondary' : 'ghost'}
+            size="icon-sm"
+            onClick={() => updateSetting('diffViewMode', 'split')}
+            aria-label="Side-by-side diff"
+            aria-pressed={diffStyle === 'split'}
+            title="Side-by-side"
+          >
+            <Columns />
+          </Button>
+          <Button
+            variant={diffStyle === 'unified' ? 'secondary' : 'ghost'}
+            size="icon-sm"
+            onClick={() => updateSetting('diffViewMode', 'unified')}
+            aria-label="Inline diff"
+            aria-pressed={diffStyle === 'unified'}
+            title="Inline"
+          >
+            <Rows />
+          </Button>
+        </div>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -157,7 +205,7 @@ export function ReviewDiffTab({
         </Button>
       </div>
 
-      {searchOpen && wsId && (
+      {searchOpen && (
         <Suspense fallback={null}>
           <ReviewSearchBarLazy
             wsId={wsId}
@@ -171,12 +219,13 @@ export function ReviewDiffTab({
       <div className="min-h-0 flex-1">
         <Suspense fallback={<CenteredState>{<LoadingSpinner />}</CenteredState>}>
           <ReviewCodeViewLazy
-            wsId={wsId ?? ''}
+            wsId={wsId}
             commit={commit}
             files={files}
             outline={outline}
             isActivePane={isActivePane}
             surfaceRef={attachSurface}
+            diffStyle={diffStyle}
           />
         </Suspense>
       </div>

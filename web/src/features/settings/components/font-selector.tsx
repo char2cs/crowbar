@@ -26,8 +26,8 @@ const BUNDLED_FONTS: FontInfo[] = [
     is_monospace: false,
   },
   {
-    name: 'JetBrains Mono Variable',
-    family: 'JetBrains Mono Variable',
+    name: 'Geist Mono Variable',
+    family: 'Geist Mono Variable',
     style: 'Regular',
     is_monospace: true,
   },

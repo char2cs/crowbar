@@ -99,28 +99,77 @@ func (stubFiles) Delete(
 	return nil
 }
 
-func TestRegisterMountsRoutes(
-	t *testing.T,
-) {
-	r := gin.New()
-	files.Register(r.Group("/v0"), stubFiles{}, func(_ *gin.Context) {})
-
-	cases := []struct {
+// filesSurface is the method+relative-path set files.Register mounts, written
+// once and asserted against BOTH live prefixes. The relative half is
+// deliberately prefix-free: a route that reached only one of the two mounts is
+// the failure this shape makes impossible to miss.
+//
+// /ws is in the list like any other route. It is its own leaf here rather than
+// a dual-serve of /tree the way git's status route is, so nothing distinguishes
+// it at the routing level — and a mount that dropped it would take the live
+// file-change stream with it.
+func filesSurface() []struct {
+	method string
+	path   string
+} {
+	return []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/workspaces/ws1/files/tree"},
-		{http.MethodGet, "/v0/workspaces/ws1/files/content"},
-		{http.MethodPut, "/v0/workspaces/ws1/files/content"},
-		{http.MethodPost, "/v0/workspaces/ws1/files"},
-		{http.MethodPost, "/v0/workspaces/ws1/files/copy"},
-		{http.MethodPatch, "/v0/workspaces/ws1/files"},
-		{http.MethodDelete, "/v0/workspaces/ws1/files"},
+		{http.MethodGet, "/tree"},
+		{http.MethodGet, "/content"},
+		{http.MethodPut, "/content"},
+		{http.MethodPost, ""},
+		{http.MethodPost, "/copy"},
+		{http.MethodPatch, ""},
+		{http.MethodDelete, ""},
+		{http.MethodGet, "/ws"},
 	}
-	for _, tc := range cases {
+}
+
+// registerChatScoped wires files.Register the way router.go does: on the flat
+// chat-scoped group alone (spec §8 step 6 retired the old workspace-scoped
+// mount).
+func registerChatScoped(
+	t *testing.T,
+) *gin.Engine {
+	t.Helper()
+	r := gin.New()
+	v0 := r.Group("/v0")
+	files.Register(v0.Group("/chats/:chatId"), stubFiles{}, func(_ *gin.Context) {})
+	return r
+}
+
+// TestRegisterMountsChatScopedRoutes is the route half of this step: every
+// files route is reachable at the flat /v0/chats/:chatId prefix (spec §7.1).
+func TestRegisterMountsChatScopedRoutes(
+	t *testing.T,
+) {
+	r := registerChatScoped(t)
+
+	for _, tc := range filesSurface() {
+		path := "/v0/chats/chat1/files" + tc.path
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(tc.method, tc.path, http.NoBody)
+		req := httptest.NewRequest(tc.method, path, http.NoBody)
 		r.ServeHTTP(rec, req)
-		assert.NotEqual(t, http.StatusNotFound, rec.Code, tc.path)
+		assert.NotEqual(t, http.StatusNotFound, rec.Code, path)
+	}
+}
+
+// TestRegisterDropsWorkspaceScopedRoutes proves spec §8 step 6's deletion is
+// real for files: the old /v0/workspaces/:wsId/files/... mount, kept alive
+// alongside the chat-scoped one through the rest of this refactor, answers
+// nothing any more.
+func TestRegisterDropsWorkspaceScopedRoutes(
+	t *testing.T,
+) {
+	r := registerChatScoped(t)
+
+	for _, tc := range filesSurface() {
+		path := "/v0/workspaces/ws1/files" + tc.path
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, path, http.NoBody)
+		r.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusNotFound, rec.Code, path)
 	}
 }

@@ -20,14 +20,14 @@ type outlineResponse struct {
 	Files []gitdomain.FileOutline `json:"files"`
 }
 
-// GetOutline handles GET /v0/workspaces/:wsId/review/outline, returning the
+// GetOutline handles GET /v0/chats/:chatId/review/outline, returning the
 // hunk geometry of the branch diff. It is what lets the client reserve the
 // right scroll space for every file before fetching a single patch, so it
 // answers the shape of a million-line diff without any of its content.
 func (h *Handlers) GetOutline(
 	ctx *gin.Context,
 ) {
-	files, err := h.reviewUsecase.GetOutline(ctx.Request.Context(), ctx.Param("wsId"), scopeCommit(ctx))
+	files, err := h.reviewUsecase.GetOutline(ctx.Request.Context(), h.workspaceID(ctx), scopeCommit(ctx))
 	if err != nil {
 		libs.WriteErr(ctx, reviewErrorStatus(err), err.Error())
 		return

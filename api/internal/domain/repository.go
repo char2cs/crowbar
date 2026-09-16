@@ -1,5 +1,10 @@
 package domain
 
+// Repository carries a repo's own identity and its git-adjacent facts. Its
+// SIDEBAR POSITION (what used to be Order/FolderID here, the interim Phase-A
+// fields) now lives on its own Node{Kind: NodeKindRepo, ID: repo.ID} row
+// (api/internal/app/repositories/node) — the ONE aggregate that owns every
+// sidebar row's position at every tree level, replacing this struct's own copy.
 type Repository struct {
 	ID        string `gorm:"primaryKey" json:"id"`
 	ProjectID string `json:"projectId"`
@@ -27,11 +32,6 @@ type Repository struct {
 	AvatarVersion int64  `json:"avatarVersion,omitempty"`
 	AvatarEmoji   string `json:"avatarEmoji,omitempty"`
 	RemoteURL     string `json:"remoteUrl,omitempty"`
-	// Order is the repository's dense index within its project's sidebar section.
-	// AutoMigrate adds the column; rows written before it existed default to 0 and
-	// fall back to the id tiebreak, which the first reorder replaces with a dense
-	// sequence.
-	Order int `json:"order"`
 }
 
 func (Repository) TableName() string {

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { findFileInTree } from '@/features/file-system/controllers/file-tree-utils'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
+import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { toast } from '@/features/window/stores/toast-store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { getDirName, joinPath, stripTrailingPathSeparators } from '@/utils/path-helpers'
@@ -105,10 +106,11 @@ export function useFileExplorerInlineEditing({
       // the entire tree a second time (the "folder name + whole tree" popup bug).
       if (parentPath) {
         try {
-          const current = useFileTreeStore.getState().getExpandedPaths()
+          const wsId = getWorkspaceScope()?.wsId ?? ''
+          const current = useFileTreeStore.getState().getExpandedPaths(wsId)
           const next = new Set(current)
           next.add(parentPath)
-          useFileTreeStore.getState().setExpandedPaths(next)
+          useFileTreeStore.getState().setExpandedPaths(wsId, next)
         } catch {
           /* intentionally ignored */
         }

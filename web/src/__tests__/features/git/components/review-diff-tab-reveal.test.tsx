@@ -52,7 +52,7 @@ vi.mock('@/features/git/hooks/use-review-outline', () => ({
 async function renderTab(store: ReturnType<typeof createWorkspaceStore>, commit?: string) {
   const view = render(
     <WorkspaceStoreContext.Provider value={store}>
-      <ReviewDiffTab onRetry={vi.fn()} commit={commit} />
+      <ReviewDiffTab onRetry={vi.fn()} wsId={store.getState().workspaceId} commit={commit} />
     </WorkspaceStoreContext.Provider>,
   )
   await act(async () => {

@@ -43,10 +43,13 @@ describe('useSidebarTabKeyboard', () => {
     expect(event.defaultPrevented).toBe(true)
   })
 
-  it('switches to chats on Ctrl+2 — the 2nd tab in the strip', () => {
+  // The Chats tab is gone (Task 8: the unified SidebarTree covers it under
+  // 'workspaces' now) but the chord itself is untouched, so Ctrl+2 still
+  // lands somewhere real rather than going dead.
+  it('switches to workspaces on Ctrl+2 — the old Chats chord, now folded in', () => {
     renderHook(() => useSidebarTabKeyboard())
     const event = dispatchKeydown({ key: '2', ctrlKey: true })
-    expect(setActiveTab).toHaveBeenCalledWith('chats')
+    expect(setActiveTab).toHaveBeenCalledWith('workspaces')
     expect(event.defaultPrevented).toBe(true)
   })
 

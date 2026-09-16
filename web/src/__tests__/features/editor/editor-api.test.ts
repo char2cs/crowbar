@@ -13,6 +13,10 @@ import { createWorkspaceStore } from '@/features/workspace/stores/workspace-stor
 import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import type { WorkspaceStore } from '@/features/workspace/stores/workspace-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import {
+  windowPaneStore,
+  resetWindowPaneStoreForTests,
+} from '@/features/panes/stores/window-pane-store'
 
 type EditorAPIInstance = typeof editorAPIInstance
 type EditorStateStoreHook = typeof useEditorStateStoreHook
@@ -51,29 +55,31 @@ const makeBuffer = (content: string, language = 'typescript'): EditorContent => 
   isVirtual: false,
   isPinned: false,
   isPreview: false,
-  isActive: true,
   language,
   tokens: [],
+  // Overwritten by setWorkspaceBuffer below with the real workspace id.
+  workspaceId: '',
 })
 
-/** Set the active buffer in the workspace store used by the API. */
+/** Set the active buffer editorAPI reads. Task 26: panes/buffers moved off
+ *  the per-workspace store onto the window-level singleton — `store` is kept
+ *  only so callers can still stamp the right `workspaceId` on the buffer. */
 function setWorkspaceBuffer(store: WorkspaceStore, buffer: EditorContent): void {
-  store.setState((state) => ({
-    ...state,
-    buffers: [buffer],
-    activePaneId: ROOT_PANE_ID,
-    panes: {
-      [ROOT_PANE_ID]: {
-        type: 'group',
-        id: ROOT_PANE_ID,
-        bufferIds: [buffer.id],
-        activeBufferId: buffer.id,
-        locked: false,
-        previewBufferId: null,
-        pinnedBufferIds: [],
-      },
-    },
-  }))
+  const workspaceId = store.getState().workspaceId
+  windowPaneStore.setState((state) => {
+    state.buffers = [{ ...buffer, workspaceId }]
+    state.activePaneId = ROOT_PANE_ID
+    state.panes[ROOT_PANE_ID] = {
+      id: ROOT_PANE_ID,
+      type: 'group',
+      chatId: null,
+      runnerId: null,
+      editorTabIds: [buffer.id],
+      activeEditorTabId: buffer.id,
+      editorOpen: true,
+    }
+    return state
+  })
 }
 
 describe('editor API model operations', () => {
@@ -117,6 +123,7 @@ describe('editor API model operations', () => {
     ;({ useHistoryStore } = await import('@/features/editor/stores/history-store'))
     ;({ useEditorSettingsStore } = await import('@/features/editor/stores/settings-store'))
 
+    resetWindowPaneStoreForTests()
     wsStore = createWorkspaceStore('test-ws')
     setActiveWorkspaceStoreRef(wsStore)
     setWorkspaceBuffer(wsStore, makeBuffer('alpha\nbeta'))
@@ -542,7 +549,9 @@ describe('editor API model operations', () => {
 
     editorAPI.undo()
 
-    const activeBuffer = wsStore.getState().buffers.find((b) => b.id === 'buffer_editor_api_test')
+    const activeBuffer = windowPaneStore
+      .getState()
+      .buffers.find((b) => b.id === 'buffer_editor_api_test')
     expect(activeBuffer).toMatchObject({ content: 'alpha' })
     expect(textarea.value).toBe('')
   })

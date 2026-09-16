@@ -6,8 +6,8 @@
 // HTTP+WS+SQLite stack, that provisioned worktrees land at the human-readable
 // <home>/projects/<project>/<host>/<owner>/<repo>/<branch>/ path — full remote
 // slug on disk, UUIDs banished from navigable paths — and that a case-only
-// collision is rejected while two repos differing only by host resolve to
-// distinct, non-clashing paths.
+// DIRECTORY collision is disambiguated (see TestPaths_CaseOnlyClashIsDisambiguated)
+// while two repos differing only by host resolve to distinct, non-clashing paths.
 package paths_test
 
 import (
@@ -49,22 +49,19 @@ func caseInsensitiveFS(t *testing.T, dir string) bool {
 	return err == nil
 }
 
-// wsBranchInList reports whether a non-deleted workspace on the given branch
-// exists in the repo's read-model list.
-func wsBranchInList(t *testing.T, env *kit.Env, projectID, repoID, branch string) bool {
+// worktreeByBranch finds the repo's chat-owned worktree row on the given
+// branch, via the chat-list read model that replaced the deleted workspace
+// list (spec §8 step 6): every worktree-owning chat carries its git state
+// inline, so this is the one read that answers what GET .../workspaces used
+// to.
+func worktreeByBranch(t *testing.T, env *kit.Env, projectID, repoID, branch string) (map[string]any, bool) {
 	t.Helper()
-	resp := env.GET(t, "/v0/projects/"+projectID+"/repos/"+repoID+"/workspaces")
-	kit.RequireStatus(t, resp, http.StatusOK)
-	var list []map[string]any
-	kit.DecodeEnvData(t, resp, &list)
-	for _, w := range list {
+	for _, w := range env.WorktreeChats(t, projectID, repoID) {
 		if b, _ := w["branch"].(string); b == branch {
-			if s, _ := w["status"].(string); s != "deleted" {
-				return true
-			}
+			return w, true
 		}
 	}
-	return false
+	return nil, false
 }
 
 // TestPaths_FriendlyWorktreePath proves a created workspace's git worktree lands
@@ -127,45 +124,73 @@ func TestPaths_FullSlugOnDisk_DistinctHosts(t *testing.T) {
 	require.NotEmpty(t, glWS)
 }
 
-// TestPaths_CaseOnlyClashRejected proves a git-distinct branch whose derived
-// worktree path is case-insensitively equal to an existing sibling is REJECTED
-// at creation on a case-insensitive filesystem (spec §5 "case-only clash
-// rejected"; §3.9 residual case 1, decision 13 — reject, never disambiguate).
-// The create is async and the clash predates any workspace id, so the rejection
-// is observable as the absence of the second workspace (the provisioner fails
-// before persisting a row; spec crud.go create-error path).
-func TestPaths_CaseOnlyClashRejected(t *testing.T) {
+// TestPaths_CaseOnlyClashIsDisambiguated proves a create whose derived
+// worktree DIRECTORY is case-insensitively equal to an existing (frozen)
+// sibling's lands on a disambiguated suffix instead of colliding on disk
+// (worktreepath.FreePathBranch — "fix(workspace): freeze a workspace's
+// directory at creation so a rename moves nothing", #132). That commit
+// deliberately replaced decision 13's original "reject, never disambiguate"
+// with "take the next free variant": a workspace directory is frozen at
+// creation and never follows a later branch rename (hierarchy.RenameBranch:
+// "the directory keeps its original name... the create path disambiguates a
+// name a previous workspace has frozen"), so refusing a case-only-clashing
+// name would permanently block a create on a name an unrelated, already
+// -renamed-away workspace happens to still be squatting on disk.
+//
+// Two literally case-variant branches (feature-Case / feature-case) cannot
+// coexist as git refs on a case-insensitive filesystem in the first place —
+// `git worktree add -b` for the second fails with "a branch named ... already
+// exists" before any worktree-path logic runs, because loose refs live under
+// .git/refs on the SAME filesystem. So the fixture that actually exercises
+// FreePathBranch's suffixing is the one #132's own doc comment describes: rename
+// the first workspace's branch AWAY (freeing the git ref, but never moving its
+// frozen directory — RenameBranch's whole point), then create a second,
+// entirely fresh workspace whose branch is a case-only variant of that frozen
+// directory name.
+func TestPaths_CaseOnlyClashIsDisambiguated(t *testing.T) {
 	env := kit.BuildEnv(t)
 	if !caseInsensitiveFS(t, env.HomeDir()) {
 		t.Skip("case-sensitive filesystem: case-only paths do not collide on disk")
 	}
 	imported := env.ImportRepo(t, "clash", "")
 
-	// First branch succeeds and provisions a worktree at .../feature-Case.
-	env.CreateWorkspace(t, imported.ProjectID, imported.RepoID, "feature-Case")
-	require.True(t, kit.DirExists(t, friendlyWorktree(env, imported.ProjectID, imported.RepoPath, "feature-Case")))
+	// First workspace freezes the "feature-Case" directory.
+	ws1ID, ws1ChatID := env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature-Case", "")
+	frozenPath := friendlyWorktree(env, imported.ProjectID, imported.RepoPath, "feature-Case")
+	require.True(t, kit.DirExists(t, frozenPath))
 
-	// A case-only-different branch: branchTaken is case-sensitive (distinct
-	// branch), so the request is accepted (202) and fails asynchronously in the
-	// provisioner's DetectClash — no row is ever produced.
-	resp := env.POST(t,
-		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/workspaces",
-		map[string]any{"branch": "feature-case"})
-	kit.RequireStatus(t, resp, http.StatusAccepted)
+	// Rename it away: the git ref "feature-Case" is gone (freeing it for reuse
+	// at the git level), but the directory stays frozen at .../feature-Case —
+	// RenameBranch never moves it.
+	resp := env.PATCH(t,
+		"/v0/projects/"+imported.ProjectID+"/repos/"+imported.RepoID+"/chats/"+ws1ChatID+"/branch",
+		map[string]any{"branch": "unrelated"})
+	kit.RequireStatus(t, resp, http.StatusOK)
 	resp.Body.Close()
+	require.True(t, kit.DirExists(t, frozenPath), "rename must not move the frozen directory")
+	require.Equal(t, "unrelated", kit.BranchName(t, env.WorktreePath(imported.ProjectID, imported.RepoID, ws1ID)))
 
-	// The clashing workspace must never appear in the read model. Watching for 3
-	// seconds and concluding "it never showed up" proves nothing — it only says the
-	// row had not appeared YET, and on a loaded machine a slow provisioner would make
-	// the test pass for entirely the wrong reason.
-	//
-	// The deterministic version of a NEVER is a barrier plus a plain assertion: run
-	// the async create to COMPLETION (QuiesceReactors: the command dispatched, every
-	// projection folded, every post-commit reactor joined), at which point the
-	// provisioner has already failed in DetectClash and there is no longer anything
-	// in flight that could produce the row. Its absence then is final, not merely
-	// not-yet.
-	env.QuiesceReactors()
-	require.False(t, wsBranchInList(t, env, imported.ProjectID, imported.RepoID, "feature-case"),
-		"case-only-clashing workspace must be rejected, never persisted")
+	// A brand new workspace on "feature-case" is git-distinct from anything now
+	// live (only "unrelated" exists where "feature-Case" once did), so the
+	// create itself succeeds — but its derived directory collides
+	// case-insensitively with the frozen "feature-Case", so FreePathBranch must
+	// land it on the next free suffix instead of refusing the create.
+	ws2ID, _ := env.CreateWorkspaceWithChat(t, imported.ProjectID, imported.RepoID, "feature-case", "")
+	require.NotEqual(t, ws1ID, ws2ID)
+
+	wantSuffixed := friendlyWorktree(env, imported.ProjectID, imported.RepoPath, "feature-case-2")
+	gotPath := env.WorktreePath(imported.ProjectID, imported.RepoID, ws2ID)
+	require.Equal(t, wantSuffixed, gotPath,
+		"a directory clash with a frozen sibling must be disambiguated onto the next free suffix, never refused")
+	require.True(t, kit.DirExists(t, gotPath))
+	require.NotEqual(t, frozenPath, gotPath, "the two worktrees must never share a directory")
+
+	// The disambiguation is a DIRECTORY-naming device only: the worktree it
+	// produced must still be checked out on the branch actually requested.
+	require.Equal(t, "feature-case", kit.BranchName(t, gotPath),
+		"the suffixed directory must still hold the real requested branch, not a renamed one")
+
+	row, ok := worktreeByBranch(t, env, imported.ProjectID, imported.RepoID, "feature-case")
+	require.True(t, ok, "the disambiguated worktree must still be addressable by its real branch")
+	require.Equal(t, ws2ID, row["id"])
 }

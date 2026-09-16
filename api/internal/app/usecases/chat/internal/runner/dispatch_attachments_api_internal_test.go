@@ -16,7 +16,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"

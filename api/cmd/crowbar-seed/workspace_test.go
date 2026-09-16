@@ -2,63 +2,79 @@ package main
 
 import "testing"
 
-// Import leaves two rows reporting the default branch: the isDefault "home" row
-// for the unmanaged repo folder, and the locked worktree Crowbar actually owns.
-// Only the locked one is a legal fork parent.
-func TestPickBaseWorkspaceSkipsTheHomeRow(t *testing.T) {
-	list := []workspaceDTO{
-		{ID: "home", RepoID: "r1", Branch: "main", IsDefault: true, LocalPath: "/repo"},
-		{ID: "base", RepoID: "r1", Branch: "main", Status: "locked", LocalPath: "/wt/main"},
+// Import leaves two rows reporting the default branch: the isDefault "home"
+// row for the unmanaged repo folder, and the locked worktree Crowbar
+// actually owns. Only the locked one is a legal fork parent.
+func TestPickBaseChatSkipsTheHomeRow(t *testing.T) {
+	list := []chatDTO{
+		{ID: "home", Worktree: &chatWorktreeDTO{Branch: "main", IsDefault: true, LocalPath: "/repo"}},
+		{ID: "base", Worktree: &chatWorktreeDTO{Branch: "main", Status: "locked", LocalPath: "/wt/main"}},
 	}
 
-	got, ok := pickBaseWorkspace("r1", "main")(list)
+	got, ok := pickBaseChat("main")(list)
 	if !ok {
-		t.Fatal("expected the locked main workspace to be found")
+		t.Fatal("expected the locked main chat to be found")
 	}
 	if got.ID != "base" {
-		t.Fatalf("picked %q, want the locked base workspace", got.ID)
+		t.Fatalf("picked %q, want the locked base chat", got.ID)
 	}
 }
 
-func TestPickBaseWorkspaceIgnoresDeletedRows(t *testing.T) {
-	list := []workspaceDTO{{ID: "gone", RepoID: "r1", Branch: "main", Status: statusDeleted}}
+func TestPickBaseChatIgnoresDeletedRows(t *testing.T) {
+	list := []chatDTO{{ID: "gone", Worktree: &chatWorktreeDTO{Branch: "main", Status: statusDeleted}}}
 
-	if _, ok := pickBaseWorkspace("r1", "main")(list); ok {
-		t.Fatal("a deleted workspace must never be chosen as the fork parent")
+	if _, ok := pickBaseChat("main")(list); ok {
+		t.Fatal("a deleted chat must never be chosen as the fork parent")
 	}
 }
 
-func TestPickBaseWorkspaceHonoursANonMainDefaultBranch(t *testing.T) {
-	list := []workspaceDTO{
-		{ID: "base", RepoID: "r1", Branch: "trunk", Status: "locked"},
-		{ID: "other", RepoID: "r1", Branch: "main", Status: "new"},
+func TestPickBaseChatIgnoresChatsWithNoWorktree(t *testing.T) {
+	list := []chatDTO{{ID: "bubble"}}
+
+	if _, ok := pickBaseChat("main")(list); ok {
+		t.Fatal("a chat that owns no worktree must never be chosen as the fork parent")
+	}
+}
+
+func TestPickBaseChatHonoursANonMainDefaultBranch(t *testing.T) {
+	list := []chatDTO{
+		{ID: "base", Worktree: &chatWorktreeDTO{Branch: "trunk", Status: "locked"}},
+		{ID: "other", Worktree: &chatWorktreeDTO{Branch: "main", Status: "new"}},
 	}
 
-	got, _ := pickBaseWorkspace("r1", "trunk")(list)
+	got, _ := pickBaseChat("trunk")(list)
 	if got.ID != "base" {
-		t.Fatalf("picked %q, want the trunk workspace", got.ID)
+		t.Fatalf("picked %q, want the trunk chat", got.ID)
 	}
 }
 
-// The seed commits into the workspace's worktree, so a row whose worktree is
-// not on disk yet is not usable and the poll must keep waiting.
-func TestPickFeatureWorkspaceWaitsForTheWorktreeOnDisk(t *testing.T) {
-	list := []workspaceDTO{{ID: "ws", RepoID: "r1", Branch: seedFeatureBranch, LocalPath: ""}}
+// The seed commits into the feature chat's worktree, so a row whose worktree
+// is not on disk yet is not usable and the poll must keep waiting.
+func TestPickFeatureChatWaitsForTheWorktreeOnDisk(t *testing.T) {
+	list := []chatDTO{{ID: "ws", Worktree: &chatWorktreeDTO{Branch: seedFeatureBranch, LocalPath: ""}}}
 
-	if _, ok := pickFeatureWorkspace("r1")(list); ok {
-		t.Fatal("a workspace without a worktree path must not be accepted")
+	if _, ok := pickFeatureChat(list); ok {
+		t.Fatal("a chat without a worktree path must not be accepted")
 	}
 }
 
-func TestPickFeatureWorkspaceMatchesTheSeedBranch(t *testing.T) {
-	list := []workspaceDTO{
-		{ID: "other", RepoID: "r1", Branch: "feature/unrelated", LocalPath: "/wt/other"},
-		{ID: "ws", RepoID: "r1", Branch: seedFeatureBranch, LocalPath: "/wt/seed"},
+func TestPickFeatureChatMatchesTheSeedBranch(t *testing.T) {
+	list := []chatDTO{
+		{ID: "other", Worktree: &chatWorktreeDTO{Branch: "feature/unrelated", LocalPath: "/wt/other"}},
+		{ID: "ws", Worktree: &chatWorktreeDTO{Branch: seedFeatureBranch, LocalPath: "/wt/seed"}},
 	}
 
-	got, ok := pickFeatureWorkspace("r1")(list)
+	got, ok := pickFeatureChat(list)
 	if !ok || got.ID != "ws" {
-		t.Fatalf("picked %+v, want the %s workspace", got, seedFeatureBranch)
+		t.Fatalf("picked %+v, want the %s chat", got, seedFeatureBranch)
+	}
+}
+
+func TestPickFeatureChatIgnoresDeletedRows(t *testing.T) {
+	list := []chatDTO{{ID: "gone", Worktree: &chatWorktreeDTO{Branch: seedFeatureBranch, Status: statusDeleted, LocalPath: "/wt/gone"}}}
+
+	if _, ok := pickFeatureChat(list); ok {
+		t.Fatal("a deleted feature chat must never be reused")
 	}
 }
 
@@ -87,14 +103,6 @@ func TestPickRepoRejectsAnotherProjectsRepo(t *testing.T) {
 	}
 }
 
-func TestPickBaseWorkspaceRejectsAnotherReposRows(t *testing.T) {
-	list := []workspaceDTO{{ID: "base", RepoID: "other", Branch: "main", Status: "locked"}}
-
-	if _, ok := pickBaseWorkspace("r1", "main")(list); ok {
-		t.Fatal("the fork parent must come from the seed repo")
-	}
-}
-
 func TestPickRepoMatchesOnlyTheSeedRepo(t *testing.T) {
 	list := []repoDTO{
 		{ID: "a", ProjectID: "p1", Name: "demo"},
@@ -111,6 +119,24 @@ func TestScopePathNestsUnderTheWorkspace(t *testing.T) {
 	sc := scope{projectID: "p", repoID: "r", workspaceID: "w"}
 
 	if got := sc.path("/threads"); got != "/v0/projects/p/repos/r/workspaces/w/threads" {
+		t.Fatalf("path = %q", got)
+	}
+}
+
+func TestChatsPathIsRepoScopedWithNoWorkspace(t *testing.T) {
+	if got := chatsPath("p", "r"); got != "/v0/projects/p/repos/r/chats" {
+		t.Fatalf("path = %q", got)
+	}
+}
+
+func TestChatDetailPathNamesTheChatUnderItsRepo(t *testing.T) {
+	if got := chatDetailPath("p", "r", "c"); got != "/v0/projects/p/repos/r/chats/c" {
+		t.Fatalf("path = %q", got)
+	}
+}
+
+func TestFlatChatPathCarriesNoProjectOrRepo(t *testing.T) {
+	if got := flatChatPath("c", "/identity"); got != "/v0/chats/c/identity" {
 		t.Fatalf("path = %q", got)
 	}
 }

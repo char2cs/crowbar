@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { getIdentity, type IdentityDTO } from '@/features/git/api/identity-api'
+import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
 
 // Per-workspace in-memory cache so re-renders and sibling mounts do not
 // re-fetch. The cache lives for the lifetime of the page — a full navigation
@@ -40,8 +41,23 @@ export async function resolveIdentity(wsId: string): Promise<IdentityDTO | null>
  */
 export function useCurrentIdentity(wsId: string): IdentityDTO | null {
   const [identity, setIdentity] = useState<IdentityDTO | null>(() => cache.get(wsId) ?? null)
+  // identityBaseForWorkspace(wsId) throws without a recorded owning chat id —
+  // the sidebar's chat-list fetch that records one races WorkspaceView's own
+  // (often faster) hydration. resolveIdentity already swallows that throw
+  // (.catch(() => null)), so it never crashes, but a hook that only fires
+  // once per wsId would resolve to null forever once raced. Subscribing here
+  // makes the id a piece of React state so the effect below re-runs the
+  // moment the sidebar records one, same fix as useWorkspaceEffects'
+  // useOwningChatId.
+  const owningChatId = useSyncExternalStore(
+    (onChange) => subscribeToWorkspaceScope(wsId, onChange),
+    () => getOwningChatId(wsId),
+  )
 
   useEffect(() => {
+    // Nothing to fetch yet — wait for owningChatId rather than firing a call
+    // that can only resolve to null.
+    if (owningChatId === null) return
     let cancelled = false
     // Share the cache + in-flight request used by resolveIdentity, so the
     // identity always lands here even when a sibling (e.g. a comment submit)
@@ -52,7 +68,7 @@ export function useCurrentIdentity(wsId: string): IdentityDTO | null {
     return () => {
       cancelled = true
     }
-  }, [wsId])
+  }, [wsId, owningChatId])
 
   return identity
 }

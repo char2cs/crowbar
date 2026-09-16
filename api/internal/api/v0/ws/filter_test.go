@@ -76,6 +76,18 @@ func TestBuildPredicate_DefaultFilter(t *testing.T) {
 	assert.False(t, p(row{name: "carrot", kind: "veg"}))
 }
 
+// TestBuildPredicate_DeclaredFilterWithNoValueAnywhereMatchesAll proves a
+// declared Filter with no Default degrades to "matches everything" when the
+// request carries its Param in neither the path nor the query — the case a
+// stream's route hits once it is mounted somewhere that no longer binds that
+// path param at all (e.g. the agent-chat WS's wsId Filter once its route
+// moved off .../workspaces/:wsId, Task 17), rather than refusing every event.
+func TestBuildPredicate_DeclaredFilterWithNoValueAnywhereMatchesAll(t *testing.T) {
+	p := BuildPredicate(ctxWith("", ""), def())
+	assert.True(t, p(row{name: "apple", kind: "fruit"}))
+	assert.True(t, p(row{name: "carrot", kind: "veg"}))
+}
+
 func TestGlobMatch_Wildcard(t *testing.T) {
 	assert.True(t, GlobMatch("al*", "alpha"))
 	assert.False(t, GlobMatch("al*", "beta"))

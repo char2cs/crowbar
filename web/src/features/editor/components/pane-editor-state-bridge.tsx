@@ -10,10 +10,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import {
-  useWorkspaceStore,
-  useWorkspaceStoreContext,
-} from '@/features/workspace/stores/workspace-context'
+import { useStore } from 'zustand'
+import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 
 export interface PaneEditorStateBridgeProps {
@@ -21,23 +20,37 @@ export interface PaneEditorStateBridgeProps {
   isActiveSurface: boolean
   /** Stable content-change seam from the controller (write path for value). */
   onContentChange: (value: string) => void
+  /**
+   * The active-editor registry for the BUFFER'S OWN workspace — the same
+   * value `EditorSurface` already resolved via its `workspaceId` prop.
+   * Passed explicitly rather than re-derived here via `useWorkspaceStore()`
+   * (ambient `WorkspaceStoreContext`, scoped to the PANE'S CHAT's workspace
+   * — see pane-container.tsx's `chatStore`): a pane's chat and its open file
+   * are not required to share a workspace, and when they didn't, this
+   * bridge's registry subscription silently watched the wrong workspace's
+   * registry and never fired for this pane's editor — the status bar/
+   * breadcrumb kept whatever `filePath` it started with. Same root cause as
+   * the font-size bug fixed in use-pane-editor-satellites.ts (8dcd26e8f).
+   */
+  registry: ActiveEditorRegistry
 }
 
 export function PaneEditorStateBridge({
   paneId,
   isActiveSurface,
   onContentChange,
+  registry,
 }: PaneEditorStateBridgeProps) {
   const { setContent, setFileInfo, setActiveEditorViewKey } = useEditorStateStore.use.actions()
 
-  const registry = useWorkspaceStore().activeEditorRegistry
   const [filePath, setFilePath] = useState(() => registry.get(paneId)?.filePath ?? '')
   useEffect(() => {
     return registry.subscribe(paneId, (ctx) => setFilePath(ctx?.filePath ?? ''))
   }, [registry, paneId])
 
-  const activeBufferId = useWorkspaceStoreContext(
-    useCallback((state) => state.panes[paneId]?.activeBufferId ?? null, [paneId]),
+  const activeBufferId = useStore(
+    windowPaneStore,
+    useCallback((state) => state.panes[paneId]?.activeEditorTabId ?? null, [paneId]),
   )
   const editorViewKey = activeBufferId ? `${paneId}:${activeBufferId}` : null
 

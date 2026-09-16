@@ -15,6 +15,7 @@ type stubTransport struct {
 	postStatus int
 	postBody   string
 	posts      []string
+	patches    []string
 }
 
 func (s *stubTransport) Get(
@@ -42,6 +43,26 @@ func (s *stubTransport) PostJSON(
 		return 202, nil, nil
 	}
 	return s.postStatus, []byte(s.postBody), nil
+}
+
+// PatchJSON answers from the same replies queue GET reads from, keyed on
+// path: the branch rename is a synchronous mutation whose response the
+// caller decodes exactly like a GET's, not a fire-and-forget 202.
+func (s *stubTransport) PatchJSON(
+	_ context.Context,
+	path string,
+	_ any,
+) (int, []byte, error) {
+	s.patches = append(s.patches, path)
+	queue := s.replies[path]
+	if len(queue) == 0 {
+		return 404, []byte(`{"success":false,"error":"no stub for ` + path + `"}`), nil
+	}
+	body := queue[0]
+	if len(queue) > 1 {
+		s.replies[path] = queue[1:]
+	}
+	return 200, []byte(body), nil
 }
 
 func TestEnsureProjectReusesAnExistingSeedProject(t *testing.T) {
@@ -123,24 +144,82 @@ func TestEnsureRepoReusesAnExistingSeedRepo(t *testing.T) {
 	}
 }
 
-func TestEnsureWorkspaceForksFromTheSuppliedParent(t *testing.T) {
+// The provider list must be read before the fork POST: forking always starts
+// a runner (own_worktree.go has no empty-providerID skip the import path
+// gives itself), so ensureFeatureChat needs an enabled provider to hand it.
+func TestEnsureFeatureChatForksWithAnEnabledProvider(t *testing.T) {
 	repo := repoDTO{ID: "r1", ProjectID: "p1", DefaultBranch: seedBaseBranch}
-	path := workspacesPath("p1", "r1")
-	wire := &stubTransport{replies: map[string][]string{
-		path: {
-			`{"success":true,"data":[{"id":"base","repoId":"r1","branch":"main","status":"locked"}]}`,
-			`{"success":true,"data":[{"id":"base","repoId":"r1","branch":"main","status":"locked"},` +
-				`{"id":"ws","repoId":"r1","branch":"feature/pricing-rounding",` +
-				`"parentId":"base","localPath":"/wt/seed"}]}`,
+	path := chatsPath("p1", "r1")
+	detail := chatDetailPath("p1", "r1", "chat1")
+	wire := &stubTransport{
+		replies: map[string][]string{
+			path + "/providers": {`{"success":true,"data":[{"id":"claude","enabled":true}]}`},
+			path: {
+				`{"success":true,"data":[]}`,
+				`{"success":true,"data":[{"id":"chat1","workspaceId":"ws1",` +
+					`"worktree":{"branch":"feature/pricing-rounding","localPath":"/wt/seed"}}]}`,
+			},
+			detail + "/branch": {`{"success":true,"data":{"id":"chat1"}}`},
 		},
+		postStatus: 201,
+		postBody:   `{"success":true,"data":{"id":"chat1"}}`,
+	}
+
+	got, created, err := ensureFeatureChat(context.Background(), &daemon{wire: wire}, repo, "base")
+	if err != nil {
+		t.Fatalf("ensureFeatureChat: %v", err)
+	}
+	if !created || got.ID != "chat1" || got.WorkspaceID != "ws1" {
+		t.Fatalf("created = %v, got %+v", created, got)
+	}
+	if got.Worktree == nil || got.Worktree.Branch != seedFeatureBranch || got.Worktree.LocalPath != "/wt/seed" {
+		t.Fatalf("worktree = %+v", got.Worktree)
+	}
+	if len(wire.posts) != 2 || wire.posts[0] != path || wire.posts[1] != detail+"/stop" {
+		t.Fatalf("expected a create POST then a stop POST, got %v", wire.posts)
+	}
+	if len(wire.patches) != 1 || wire.patches[0] != detail+"/branch" {
+		t.Fatalf("expected exactly one branch-rename PATCH, got %v", wire.patches)
+	}
+}
+
+func TestEnsureFeatureChatReusesAnExistingFork(t *testing.T) {
+	repo := repoDTO{ID: "r1", ProjectID: "p1", DefaultBranch: seedBaseBranch}
+	path := chatsPath("p1", "r1")
+	wire := &stubTransport{replies: map[string][]string{
+		path: {`{"success":true,"data":[{"id":"chat1","workspaceId":"ws1",` +
+			`"worktree":{"branch":"feature/pricing-rounding","localPath":"/wt/seed"}}]}`},
 	}}
 
-	got, created, err := ensureWorkspace(context.Background(), &daemon{wire: wire}, repo, "base")
+	got, created, err := ensureFeatureChat(context.Background(), &daemon{wire: wire}, repo, "base")
 	if err != nil {
-		t.Fatalf("ensureWorkspace: %v", err)
+		t.Fatalf("ensureFeatureChat: %v", err)
 	}
-	if !created || got.ID != "ws" || got.ParentID != "base" {
+	if created || got.ID != "chat1" {
 		t.Fatalf("created = %v, got %+v", created, got)
+	}
+	if len(wire.posts) != 0 || len(wire.patches) != 0 {
+		t.Fatalf("reuse must not mutate anything, got posts=%v patches=%v", wire.posts, wire.patches)
+	}
+}
+
+func TestEnsureFeatureChatFailsClearlyWithNoEnabledProvider(t *testing.T) {
+	repo := repoDTO{ID: "r1", ProjectID: "p1", DefaultBranch: seedBaseBranch}
+	path := chatsPath("p1", "r1")
+	wire := &stubTransport{replies: map[string][]string{
+		path:                {`{"success":true,"data":[]}`},
+		path + "/providers": {`{"success":true,"data":[{"id":"claude","enabled":false}]}`},
+	}}
+
+	_, _, err := ensureFeatureChat(context.Background(), &daemon{wire: wire}, repo, "base")
+	if err == nil {
+		t.Fatal("expected a clear error when no provider is enabled")
+	}
+	if !strings.Contains(err.Error(), "no enabled provider") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(wire.posts) != 0 {
+		t.Fatalf("must not attempt a create with no provider to run it, got %v", wire.posts)
 	}
 }
 
@@ -169,9 +248,7 @@ func TestEnsureThreadsSkipsAlreadySeededComments(t *testing.T) {
 }
 
 func TestResolveAuthorFallsBackWhenIdentityIsUnavailable(t *testing.T) {
-	sc := scope{projectID: "p1", repoID: "r1", workspaceID: "ws"}
-
-	got := resolveAuthor(context.Background(), &daemon{wire: &stubTransport{}}, sc)
+	got := resolveAuthor(context.Background(), &daemon{wire: &stubTransport{}}, "chat1")
 
 	if got != fallbackReviewer {
 		t.Fatalf("author = %q, want the fallback", got)
@@ -179,12 +256,11 @@ func TestResolveAuthorFallsBackWhenIdentityIsUnavailable(t *testing.T) {
 }
 
 func TestResolveAuthorPrefersTheDisplayName(t *testing.T) {
-	sc := scope{projectID: "p1", repoID: "r1", workspaceID: "ws"}
 	wire := &stubTransport{replies: map[string][]string{
-		sc.path("/identity"): {`{"success":true,"data":{"login":"ada","displayName":"Ada Lovelace"}}`},
+		flatChatPath("chat1", "/identity"): {`{"success":true,"data":{"login":"ada","displayName":"Ada Lovelace"}}`},
 	}}
 
-	got := resolveAuthor(context.Background(), &daemon{wire: wire}, sc)
+	got := resolveAuthor(context.Background(), &daemon{wire: wire}, "chat1")
 
 	if got != "Ada Lovelace" {
 		t.Fatalf("author = %q", got)
@@ -214,6 +290,14 @@ func (refusingTransport) Get(
 }
 
 func (refusingTransport) PostJSON(
+	_ context.Context,
+	_ string,
+	_ any,
+) (int, []byte, error) {
+	return 409, []byte(`{"success":false,"error":"a workspace already exists for this branch"}`), nil
+}
+
+func (refusingTransport) PatchJSON(
 	_ context.Context,
 	_ string,
 	_ any,

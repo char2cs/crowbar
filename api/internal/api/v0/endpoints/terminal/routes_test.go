@@ -12,6 +12,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal"
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -59,7 +60,7 @@ func (stubEngine) Attach(
 	return nil
 }
 
-func (stubEngine) ListSessionsForWorkspace(
+func (stubEngine) ListSessionsForChat(
 	_ string,
 ) []string {
 	return nil
@@ -125,13 +126,15 @@ func (stubProfiles) Delete(
 	return nil
 }
 
-type stubReader struct{}
-
-func (stubReader) Get(
-	_ context.Context,
-	_ string,
-) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
+// stubWorktreeScope stands in for v0's resolveChatWorktree middleware: the
+// chat-scoped group resolves the chat to a workspace and stashes it before any
+// terminal handler runs, so the mount test exercises the same wiring the router
+// builds.
+func stubWorktreeScope(
+	c *gin.Context,
+) {
+	reqscope.SetWorkspace(c, domain.Workspace{ID: "ws1"})
+	c.Next()
 }
 
 func TestRegisterMountsRoutes(
@@ -139,15 +142,15 @@ func TestRegisterMountsRoutes(
 ) {
 	r := gin.New()
 	rg := r.Group("/v0")
-	// Session lifecycle + PTY routes mount on the workspace-scoped group; the
+	// Session lifecycle + PTY routes mount on the flat chat-scoped group; the
 	// profile CRUD mounts on the top-level /v0 group (mirroring the router).
-	wsScoped := rg.Group("/projects/:projectId/repos/:repoId/workspaces/:wsId")
+	chatScoped := rg.Group("/chats/:chatId")
+	chatScoped.Use(stubWorktreeScope)
 	terminal.Register(
-		wsScoped,
+		chatScoped,
 		rg,
 		stubEngine{},
 		stubProfiles{},
-		stubReader{},
 		stubBroadcaster{},
 		noopWSHandle,
 		passthroughDispatch,
@@ -157,10 +160,10 @@ func TestRegisterMountsRoutes(
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals"},
-		{http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals"},
-		{http.MethodDelete, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals/sess1"},
-		{http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/terminals/sess1/ws"},
+		{http.MethodGet, "/v0/chats/chat1/terminals"},
+		{http.MethodPost, "/v0/chats/chat1/terminals"},
+		{http.MethodDelete, "/v0/chats/chat1/terminals/sess1"},
+		{http.MethodGet, "/v0/chats/chat1/terminals/sess1/ws"},
 		{http.MethodGet, "/v0/settings/terminal/profiles"},
 		{http.MethodGet, "/v0/settings/terminal/profiles/p1"},
 		{http.MethodPost, "/v0/settings/terminal/profiles"},

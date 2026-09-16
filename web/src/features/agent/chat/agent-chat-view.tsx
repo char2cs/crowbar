@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { KeyboardEvent, Ref } from 'react'
+import type { KeyboardEvent, ReactNode, Ref } from 'react'
 import { DndScope } from '@/features/agent/chat/dnd-scope'
 import {
   compactChat,
@@ -19,6 +19,7 @@ import {
   type SlashCatalogItem,
 } from '@/features/agent/api/agent-api'
 import { markEnd, markStart } from '@/lib/perf/instrumentation'
+import { isNotFoundError } from '@/lib/api'
 import type { PromptQueueItem } from '@/features/agent/lib/prompt-queue-persistence'
 import { SubagentShelf } from '@/features/agent/activity/subagent-shelf'
 import { AgentComposer } from '@/features/agent/composer/agent-composer'
@@ -103,6 +104,33 @@ export interface AgentChatViewProps {
    *  blocked on a prompt Crowbar cannot answer. */
   terminalWaiting?: boolean
   terminalWaitKind?: string
+  /** How far pinned-near-top content in this view must clear the pane's
+   *  floating overlay header (PaneTopRow's `chat-blur overlay` variant,
+   *  ChatOnlyPaneHeader/ChatColumnHeader) — the SAME value
+   *  agent-chat-pane.tsx already computes for its own reviving/idle/wait
+   *  banners (`headerClearancePx` there). That header paints no fill and
+   *  reserves no flex space of its own (`position: absolute; top: 0`), so
+   *  nothing below it knows the header is there unless told — the blank
+   *  chat's document needs this to keep its own pinned/unscrolled content
+   *  from rendering underneath the header's real click target. Defaults to
+   *  0 (no overlay header) for callers — tests, mostly — that don't thread a
+   *  real pane geometry through.
+   *
+   *  NOT what the transcript uses any more — see `transcriptHeaderClearancePx`
+   *  below. This number is sized to the header's own clickable row, which is
+   *  right for opaque content (a banner, the empty-document's control bar)
+   *  but 28px short of the header's actual EdgeDissolve reach: text left
+   *  resting in that gap is not covered, but still renders visibly blurred. */
+  headerClearancePx?: number
+  /** The TRANSCRIPT's own, larger clearance: the header's full EdgeDissolve
+   *  zone (agent-chat-pane.tsx's `CHAT_BLUR_ZONE_PX`, mirroring
+   *  pane-top-row.tsx's `ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX` — 100px Mac /
+   *  90px elsewhere), not just the header's clickable row `headerClearancePx`
+   *  above covers. Handed to `AgentTranscript` in place of `headerClearancePx`
+   *  so a reply resting between the two numbers clears the dissolve's own
+   *  heavier blur layers instead of rendering visibly out of focus under
+   *  them. Defaults to 0, same as `headerClearancePx`, for the same reason. */
+  transcriptHeaderClearancePx?: number
   /** Client request ids the daemon has reported as delivered-and-over. */
   settledPrompts?: string[]
   /** Retired with no proof the provider took them — the queue keeps their text.
@@ -133,6 +161,17 @@ export interface AgentChatViewProps {
    *  standing in for the dock, so the composer (and anything that lives only
    *  inside it, like a reviving/idle signpost) does not exist to be read. */
   onBlankChange?: (blank: boolean) => void
+  /** The pane's own reviving/idle/trust-wait signpost, already resolved and
+   *  rendered — `AgentEmptyDocument` has no way to know a runner's own
+   *  attach state or a terminal wait, so the pane decides which (if any) and
+   *  hands the finished node down. Occupies `AgentEmptyDocument`'s own
+   *  control-bar slot in place of the model/effort/attach/send row; the
+   *  populated-chat surface has no use for it (that state renders as
+   *  `AgentComposer`'s own signpost instead) and never receives it. */
+  blankSignpost?: ReactNode
+  /** The daemon has confirmed this chat id does not exist (404 on its own
+   *  messages) — never a transient failure, so retrying can't help. */
+  onChatGone?: () => void
   /** The EFFECTIVE provider / model / effort right now: the chat's real
    *  provider and sticky selection, or a staged pick on top of them if the
    *  picker has one (the caller owns which — see AgentChatPane's
@@ -143,6 +182,7 @@ export interface AgentChatViewProps {
    *  `onSelectionChange` below only ever updates local staged state, never
    *  the server. */
   provider: string
+  /** The chat's sticky model / effort selection. '' means unset. */
   model: string
   effort: string
   onSelectionChange: (provider: string, model: string, effort: string) => void
@@ -258,6 +298,8 @@ export function AgentChatView({
   onOpenTerminal,
   terminalWaiting = false,
   terminalWaitKind,
+  headerClearancePx = 0,
+  transcriptHeaderClearancePx = 0,
   settledPrompts,
   abandonedPrompts,
   streamingMessages,
@@ -273,6 +315,8 @@ export function AgentChatView({
   onCancelableQueueCountChange,
   onDeliveryPendingChange,
   onBlankChange,
+  blankSignpost,
+  onChatGone,
   provider: effectiveProviderId,
   model,
   effort,
@@ -750,6 +794,14 @@ export function AgentChatView({
   // effects above, and the same reason it is deferred rather than restructured.
   // react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
   useEffect(() => onBlankChange?.(blank), [blank, onBlankChange])
+  // A 404 on this chat's OWN messages is the daemon saying it has never heard
+  // of this id — never transient, so the Retry button in AgentTranscript's
+  // error state can only ever fail again. Distinct from `!known` above: that
+  // fires while the chat LIST is still loading, this fires only once THIS
+  // chat's own read has come back negative.
+  useEffect(() => {
+    if (isNotFoundError(ledger.error)) onChatGone?.()
+  }, [ledger.error, onChatGone])
   // WHICH SURFACE IS NOT KNOWN UNTIL THE FIRST PAGE LANDS, and guessing shows the
   // wrong one: an empty ledger that has not answered yet is indistinguishable
   // from a chat with history, so picking either paints a composer the reader then
@@ -809,14 +861,38 @@ export function AgentChatView({
       visible={visible}
       initialScrollPosition={initialScrollPosition}
       onScrollPositionChange={(position) => setScrollPosition(chatId, position)}
+      // The CSS var below covers `.scroll`'s own padding; the anchor's
+      // turn-pinning positions content at the top of the viewport in JS, where
+      // that padding is already scrolled away, so it needs the raw number too
+      // — the same reason AgentEmptyDocument takes it. This is
+      // `transcriptHeaderClearancePx` (the header's full dissolve-zone reach),
+      // NOT `headerClearancePx` (its narrower click-target) — AgentTranscript's
+      // own prop is still named `headerClearancePx` from its perspective, it
+      // is just fed the bigger, transcript-specific number here.
+      headerClearancePx={transcriptHeaderClearancePx}
     />
   )
+
+  // Published as CSS vars on every `.agent-chat` root below rather than props
+  // threaded through AgentTranscript/AgentEmptyDocument's own CSS: both
+  // top-clearing rules (transcript.css's `.scroll`, composer.css's `.doc`)
+  // live under `.agent-chat` and pick theirs up by inheritance for free.
+  // Two DISTINCT vars, because the two surfaces need different amounts: the
+  // transcript needs the header's full EdgeDissolve reach or scrolled-behind
+  // text renders visibly blurred; composer/empty-document only need to clear
+  // the header's own clickable row. AgentEmptyDocument still needs
+  // `headerClearancePx` as a raw NUMBER too, for the JS layout math
+  // `lastLineTop` falls back to on a truly empty document — see its own prop.
+  const headerClearanceStyle = {
+    '--agent-header-clearance': `${headerClearancePx}px`,
+    '--agent-transcript-header-clearance': `${transcriptHeaderClearancePx}px`,
+  } as React.CSSProperties
 
   if (settling) {
     return (
       <DndScope>
         <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
-          <section className="agent-chat chat" aria-label="Agent chat">
+          <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
             {transcript}
           </section>
         </ChatMarkdownAssetProvider>
@@ -828,7 +904,7 @@ export function AgentChatView({
     return (
       <DndScope>
         <ChatMarkdownAssetProvider wsId={wsId} chatId={chatId}>
-          <section className="agent-chat chat" aria-label="Agent chat">
+          <section className="agent-chat chat" aria-label="Agent chat" style={headerClearanceStyle}>
             <AgentEmptyDocument
               ref={emptyDocRef}
               wsId={wsId}
@@ -844,6 +920,8 @@ export function AgentChatView({
               canStop={live}
               sending={prompts.deliveryPending}
               onStop={handleStop}
+              headerClearancePx={headerClearancePx}
+              banner={blankSignpost}
             />
             {composerError && (
               <p className="meta" role="alert">
@@ -865,6 +943,7 @@ export function AgentChatView({
           aria-label="Agent chat"
           style={
             {
+              ...headerClearanceStyle,
               '--agent-dock-h': `${Math.round(dockHeight)}px`,
               '--agent-scrollbar-w': `${scrollbarWidth}px`,
             } as React.CSSProperties

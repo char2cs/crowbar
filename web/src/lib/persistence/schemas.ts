@@ -5,7 +5,7 @@ import type {
   ReviewThread,
   MergeStrategy,
 } from '@/features/workspace/stores/slices/branch-review-slice'
-import type { ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
+import type { ChatDTO, ProjectDTO, RepoDTO, WorkspaceDTO, ThreadDTO, FolderDTO } from '@/lib/types'
 
 export interface BranchReviewPersistedState {
   wsId: string
@@ -16,10 +16,31 @@ export interface BranchReviewPersistedState {
 }
 
 export interface WorkspaceLayout {
+  /**
+   * Task 26: the object store's `keyPath` is still literally `workspaceId`
+   * (unchanged, so no `idb.ts` version bump is needed), but the VALUE written
+   * here is now `WINDOW_SESSION_ID` — a fixed constant, not a real workspace
+   * id. Pane/buffer layout is window-level (one flat store for every
+   * workspace, see `window-pane-store.ts`), so there is exactly one row in
+   * this object store now, not one per workspace. Each individual buffer
+   * still carries its OWN `workspaceId` (`EditorTabBase.workspaceId`) — that
+   * is the real per-buffer scoping now.
+   */
   workspaceId: string
   panes: Record<string, PaneGroup>
   rootLayout: LayoutNode
   bottomLayout: LayoutNode
+  /**
+   * The open-but-not-showing views' tiling trees, keyed by view id, and which
+   * view `rootLayout` is — see `PaneSlice`. Both OPTIONAL, and absent on every
+   * record written before views owned their own trees: a layout from then
+   * carried every open view tiled into `rootLayout` together, which
+   * `restoreWindowViews` (hydrate.ts) reads correctly by splitting that one
+   * tree back apart rather than restoring the side-by-side tiling the view
+   * model exists to remove.
+   */
+  parkedViews?: Record<string, LayoutNode>
+  activeViewId?: string
   activePaneId: string
   mostRecentActivePaneIds: string[]
   buffers: PaneContent[]
@@ -132,4 +153,8 @@ export interface CrowbarDB extends DBSchema {
   // opened at a version that ran its upgrade, so adding one is a version bump —
   // see idb.ts.
   crowbar_folders: { key: string; value: FolderDTO }
+  // Sidebar chat rows (v9). Same rule as crowbar_folders above — its own
+  // version bump, because a store that never ran its upgrade branch is not an
+  // error at runtime, it is an empty list forever.
+  crowbar_chats: { key: string; value: ChatDTO }
 }

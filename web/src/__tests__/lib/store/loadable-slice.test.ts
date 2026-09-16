@@ -1,5 +1,20 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { create } from 'zustand'
+
+// The cache WRITE `fetch` awaits after its last supersede check, wrapped so one
+// test can be inside that exact window when a newer fetch is issued. Defaults
+// straight through to the real one, so every other test here is unaffected.
+const { saveCacheSpy, realSaveCache } = vi.hoisted(() => ({
+  saveCacheSpy: vi.fn(),
+  realSaveCache: { fn: null as null | ((...a: unknown[]) => Promise<void>) },
+}))
+
+vi.mock('@/lib/persistence/cache-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/persistence/cache-store')>()
+  realSaveCache.fn = actual.saveCache as (...a: unknown[]) => Promise<void>
+  return { ...actual, saveCache: (...a: unknown[]) => saveCacheSpy(...a) }
+})
+
 import { resetDB } from '@/lib/persistence/idb'
 import { saveCache } from '@/lib/persistence/cache-store'
 import { createLoadableSlice, type LoadableSlice } from '@/lib/store/loadable-slice'
@@ -7,7 +22,19 @@ import { dataOf } from '@/lib/loadable'
 
 beforeEach(() => {
   resetDB()
+  saveCacheSpy.mockReset()
+  saveCacheSpy.mockImplementation((...a: unknown[]) => realSaveCache.fn!(...a))
 })
+
+/** A promise the test resolves by hand, to hold an async step open at an exact
+ *  point. (`Promise.withResolvers` is not in this project's TS lib target.) */
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
 
 function makeStore(fetcher: (key: string) => Promise<number[]>) {
   return create<LoadableSlice<number[]>>()((set, get) =>
@@ -100,6 +127,44 @@ describe('createLoadableSlice', () => {
 
     const { loadCache } = await import('@/lib/persistence/cache-store')
     expect(await loadCache('projects-data', 'stale')).toBeUndefined()
+  })
+
+  // The same race, one await later: the guard above is checked BEFORE the cache
+  // write, and the store write happens AFTER it. A fetch superseded while that
+  // write is in flight used to publish its stale result anyway — and publish it
+  // LAST, on top of the winner. A caller that tells a fresh publication from a
+  // stale one by object IDENTITY (app-sync-provider's seed gate does, because
+  // `success(old)` and `success(new)` are the same shape) then reads a pre-write
+  // snapshot as a settled, brand-new one.
+  it('a fetch superseded while its cache write is in flight does not land its stale result', async () => {
+    const { fetcher, release, startedAt } = parkedFetcher((key) => (key === 'stale' ? [1] : [2]))
+    const store = makeStore(fetcher)
+
+    const parked = deferred()
+    const reachedWrite = deferred()
+    saveCacheSpy.mockImplementationOnce(async (...args: unknown[]) => {
+      reachedWrite.resolve()
+      await parked.promise
+      return realSaveCache.fn!(...args)
+    })
+
+    const stale = store.getState().fetch('stale')
+    await startedAt[0]
+    release[0]()
+    // A real signal, not a delay: the older fetch is now PAST its last
+    // supersede check, inside the write.
+    await reachedWrite.promise
+
+    const fresh = store.getState().fetch('fresh')
+    await startedAt[1]
+    release[1]()
+    await fresh
+    expect(dataOf(store.getState().data)).toEqual([2])
+
+    parked.resolve()
+    await stale
+
+    expect(dataOf(store.getState().data)).toEqual([2])
   })
 
   it('optimisticWrite commits on success', async () => {

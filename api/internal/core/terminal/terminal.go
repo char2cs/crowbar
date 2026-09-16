@@ -166,10 +166,18 @@ var ErrCommandNotFound = errors.New("terminal: command not found")
 
 // Engine is the full PTY session operation surface.
 type Engine interface {
-	// Create spawns a new PTY session in the given workspace directory.
+	// Create spawns a new PTY session owned by chatID, running in
+	// workspaceDir.
+	//
+	// The two arguments answer DIFFERENT questions and must not be conflated.
+	// chatID is the session's OWNER: it is what the session is registered,
+	// listed, and reaped under, and it is why a chat never sees a sibling's
+	// shells. workspaceDir is merely where the shell starts — the resolved
+	// worktree path, which sibling chats routinely SHARE. One worktree, many
+	// owners.
 	Create(
 		ctx context.Context,
-		workspaceID string,
+		chatID string,
 		workspaceDir string,
 		prof *domain.TerminalProfile,
 	) (sessionID string, err error)
@@ -184,7 +192,7 @@ type Engine interface {
 	// that is merely suspended/detached.
 	CreateCommand(
 		ctx context.Context,
-		workspaceID string,
+		chatID string,
 		cwd string,
 		argv []string,
 		env []string,
@@ -256,10 +264,11 @@ type Engine interface {
 	// ListSessions returns all active session IDs.
 	ListSessions() []string
 
-	// ListSessionsForWorkspace returns the active session IDs owned by the given
-	// workspace.
-	ListSessionsForWorkspace(
-		workspaceID string,
+	// ListSessionsForChat returns the active session IDs owned by the given
+	// chat — and ONLY that chat's. A sibling chat sharing the same worktree
+	// gets its own, disjoint answer.
+	ListSessionsForChat(
+		chatID string,
 	) []string
 
 	// OnSessionEnded registers the callback invoked when a session terminates
@@ -268,14 +277,14 @@ type Engine interface {
 	// the process exit code captured by shutdown(); -1 if unknown (killed by
 	// signal, placeholder, or daemon restart).
 	OnSessionEnded(
-		fn func(ctx context.Context, workspaceID, sessionID string, exitCode int),
+		fn func(ctx context.Context, chatID, sessionID string, exitCode int),
 	)
 
 	// OnSessionState registers the callback invoked when a session transitions
 	// to "detached" (last client disconnects or post-restore) or "suspended"
 	// (placeholder swap complete). The most recent registration wins.
 	OnSessionState(
-		fn func(ctx context.Context, workspaceID, sessionID, state string),
+		fn func(ctx context.Context, chatID, sessionID, state string),
 	)
 
 	// StateOf returns the current state string ("active", "detached", or
@@ -371,23 +380,23 @@ type Engine interface {
 // sessionRegistry is the subset of *registry.Registry the engine uses. It is an interface
 // only so a test can substitute a hooked registry that drives the engine's
 // otherwise-unreachable lookup-race guards (a List id that Get cannot resolve, a Get'able
-// session whose WorkspaceID has concurrently vanished). Production always uses
+// session whose ChatID has concurrently vanished). Production always uses
 // *registry.Registry.
 type sessionRegistry interface {
-	Add(id, workspaceID string, s *session.Session)
+	Add(id, chatID string, s *session.Session)
 	Get(id string) (*session.Session, bool)
 	Remove(id string)
 	List() []string
-	ListByWorkspace(workspaceID string) []string
-	WorkspaceID(id string) (string, bool)
+	ListByChat(chatID string) []string
+	ChatID(id string) (string, bool)
 }
 
 type terminalEngine struct {
 	reg sessionRegistry
 
 	mu         sync.RWMutex
-	onEnded    func(ctx context.Context, workspaceID, sessionID string, exitCode int)
-	onState    func(ctx context.Context, workspaceID, sessionID, state string)
+	onEnded    func(ctx context.Context, chatID, sessionID string, exitCode int)
+	onState    func(ctx context.Context, chatID, sessionID, state string)
 	endedOnce  map[string]struct{}
 	metaStore  SessionMetaStore
 	lastActive map[string]time.Time // guarded by mu; set on last-client detach
@@ -502,9 +511,9 @@ var _ Engine = (*terminalEngine)(nil)
 
 // Session limits — package-level so tests can override them.
 var (
-	softLimitPerWorkspace = 10               // max simultaneous detached sessions per workspace
-	maxTotalSessions      = 100              // global hard ceiling (count)
-	maxTotalModelBytes    = int64(256) << 20 // global hard ceiling (~serialized model bytes)
+	softLimitPerChat   = 10               // max simultaneous detached sessions per chat
+	maxTotalSessions   = 100              // global hard ceiling (count)
+	maxTotalModelBytes = int64(256) << 20 // global hard ceiling (~serialized model bytes)
 )
 
 // maintenanceTickInterval is the cadence of the background maintenance sweep. It is a
@@ -626,13 +635,13 @@ type engineBirth struct {
 }
 
 // spawn creates a live session (create or restore), registers it in the registry under
-// id/workspaceID, and starts reapOnDone. It is the single point of session birth — both
+// id/chatID, and starts reapOnDone. It is the single point of session birth — both
 // Create and restore delegate here. For the restore path it injects the on-screen Notice
 // into the model BEFORE e.reg.Add exposes the session, so the very first concurrent Attach
 // cannot observe the registered session without the notice already applied (§12 race fix).
 func (e *terminalEngine) spawn(
 	id string,
-	workspaceID string,
+	chatID string,
 	shell string,
 	cwd string,
 	profileID string,
@@ -665,14 +674,14 @@ func (e *terminalEngine) spawn(
 	if len(b.Notice) > 0 {
 		s.InjectLocal(b.Notice)
 	}
-	e.reg.Add(id, workspaceID, s)
-	go e.reapOnDone(id, workspaceID, s)
+	e.reg.Add(id, chatID, s)
+	go e.reapOnDone(id, chatID, s)
 	return s, nil
 }
 
 func (e *terminalEngine) Create(
 	_ context.Context,
-	workspaceID string,
+	chatID string,
 	workspaceDir string,
 	prof *domain.TerminalProfile,
 ) (string, error) {
@@ -682,7 +691,7 @@ func (e *terminalEngine) Create(
 	// Create births at the historical 80×24 default with the default scrollback depth; the
 	// session resolves the zero values (§9.1 step 5). FE-measured dims are a deferred wire
 	// addition — until then a fresh attach's first resize reshapes both PTY and model.
-	s, err := e.spawn(id, workspaceID, resolved.Shell, resolved.CWD, "", engineBirth{})
+	s, err := e.spawn(id, chatID, resolved.Shell, resolved.CWD, "", engineBirth{})
 	if err != nil {
 		return "", fmt.Errorf("terminal: create: %w", err)
 	}
@@ -703,7 +712,7 @@ func (e *terminalEngine) Create(
 // terminates — see the Engine interface doc for the exact contract.
 func (e *terminalEngine) CreateCommand(
 	_ context.Context,
-	workspaceID string,
+	chatID string,
 	cwd string,
 	argv []string,
 	env []string,
@@ -739,12 +748,12 @@ func (e *terminalEngine) CreateCommand(
 	if onExit != nil {
 		e.cmdCleanups.Store(id, onExit)
 	}
-	e.reg.Add(id, workspaceID, s)
+	e.reg.Add(id, chatID, s)
 	// Deliberately NOT the request context: the reaper has to outlive the call that
 	// created the session — a PTY is reaped when the process exits, which is minutes
 	// or hours after the HTTP request returned. It is joined by e.reaps, which
 	// Shutdown drains.
-	go e.reapOnDone(id, workspaceID, s) //nolint:gosec // G118: detached by design; joined by e.reaps, not by the caller's ctx.
+	go e.reapOnDone(id, chatID, s) //nolint:gosec // G118: detached by design; joined by e.reaps, not by the caller's ctx.
 	return id, nil
 }
 
@@ -795,7 +804,7 @@ func withTerminalDefaults(env []string) []string {
 // placeholder or fire ended.
 func (e *terminalEngine) reapOnDone(
 	id string,
-	workspaceID string,
+	chatID string,
 	s *session.Session,
 ) {
 	// Registered FIRST so it runs LAST (defers are LIFO): even a panic recovered by
@@ -840,14 +849,14 @@ func (e *terminalEngine) reapOnDone(
 	}
 
 	ctx := context.Background()
-	dir, _ := e.storageDir(ctx, workspaceID)
+	dir, _ := e.storageDir(ctx, chatID)
 	if dir != "" {
 		if delErr := persistence.DeleteBuf(dir, id); delErr != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "terminal: reap: delete buf %s: %v\n", id, delErr)
 		}
 	}
 	e.deleteMeta(ctx, id)
-	e.fireEnded(ctx, workspaceID, id, exitCode)
+	e.fireEnded(ctx, chatID, id, exitCode)
 
 	// Prune per-session maps so they don't grow without bound.
 	e.mu.Lock()
@@ -866,7 +875,7 @@ func (e *terminalEngine) reapOnDone(
 // exit code; -1 when unknown (killed by signal, placeholder, or daemon restart).
 func (e *terminalEngine) fireEnded(
 	ctx context.Context,
-	workspaceID string,
+	chatID string,
 	sessionID string,
 	exitCode int,
 ) {
@@ -883,14 +892,14 @@ func (e *terminalEngine) fireEnded(
 	e.endedOnce[sessionID] = struct{}{}
 	e.mu.Unlock()
 
-	fn(ctx, workspaceID, sessionID, exitCode)
+	fn(ctx, chatID, sessionID, exitCode)
 }
 
 // fireState invokes the registered OnSessionState callback if one is set.
 // It is nil-safe: if no callback has been registered the call is a no-op.
 func (e *terminalEngine) fireState(
 	ctx context.Context,
-	workspaceID string,
+	chatID string,
 	sessionID string,
 	state string,
 ) {
@@ -900,13 +909,13 @@ func (e *terminalEngine) fireState(
 	if fn == nil {
 		return
 	}
-	fn(ctx, workspaceID, sessionID, state)
+	fn(ctx, chatID, sessionID, state)
 }
 
 // OnSessionEnded registers the termination callback. The most recent
 // registration wins, mirroring the LSP engine's OnDiagnostics hook.
 func (e *terminalEngine) OnSessionEnded(
-	fn func(ctx context.Context, workspaceID, sessionID string, exitCode int),
+	fn func(ctx context.Context, chatID, sessionID string, exitCode int),
 ) {
 	e.mu.Lock()
 	e.onEnded = fn
@@ -918,7 +927,7 @@ func (e *terminalEngine) OnSessionEnded(
 // and "suspended" (placeholder swap). Does not fire for "ended" — use
 // OnSessionEnded for that.
 func (e *terminalEngine) OnSessionState(
-	fn func(ctx context.Context, workspaceID, sessionID, state string),
+	fn func(ctx context.Context, chatID, sessionID, state string),
 ) {
 	e.mu.Lock()
 	e.onState = fn
@@ -962,7 +971,7 @@ func (e *terminalEngine) LoadPlaceholder(
 		return nil
 	}
 	ph := session.NewPlaceholder(m.SessionID, m.Shell, m.CWD, m.ProfileID, scrollback)
-	e.reg.Add(m.SessionID, m.WorkspaceID, ph)
+	e.reg.Add(m.SessionID, m.ChatID, ph)
 	return nil
 }
 
@@ -996,11 +1005,11 @@ func (e *terminalEngine) deleteMeta(
 	_ = ms.Delete(ctx, sessionID)
 }
 
-// storageDir resolves the per-workspace storage directory via the injected
+// storageDir resolves the per-chat storage directory via the injected
 // store. It returns ("", nil) when metaStore is nil.
 func (e *terminalEngine) storageDir(
 	ctx context.Context,
-	workspaceID string,
+	chatID string,
 ) (string, error) {
 	e.mu.RLock()
 	ms := e.metaStore
@@ -1008,7 +1017,7 @@ func (e *terminalEngine) storageDir(
 	if ms == nil {
 		return "", nil
 	}
-	return ms.StorageDir(ctx, workspaceID)
+	return ms.StorageDir(ctx, chatID)
 }
 
 // restore spawns a live session to replace the placeholder currently at sid.
@@ -1032,10 +1041,10 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 		return nil // already restored by the goroutine that held the lock before us
 	}
 
-	ws, wsOK := e.reg.WorkspaceID(sid)
-	if !wsOK {
+	chatID, chatOK := e.reg.ChatID(sid)
+	if !chatOK {
 		unlock()
-		return fmt.Errorf("terminal: restore: workspace not found for session %s", sid)
+		return fmt.Errorf("terminal: restore: chat not found for session %s", sid)
 	}
 
 	shell := s.Shell()
@@ -1043,7 +1052,7 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 	profileID := s.ProfileID()
 
 	var rawBlob []byte
-	dir, dirErr := e.storageDir(ctx, ws)
+	dir, dirErr := e.storageDir(ctx, chatID)
 	if dirErr == nil && dir != "" {
 		rawBlob, _ = persistence.ReadBuf(dir, sid)
 	}
@@ -1056,7 +1065,7 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 	// model (never the persisted .buf) via engineBirth.Notice (§12).
 	cwd, notice := resolveRestoreCWD(cwd)
 
-	if _, err := e.spawn(sid, ws, shell, cwd, profileID, engineBirth{Blob: rawBlob, Notice: notice}); err != nil {
+	if _, err := e.spawn(sid, chatID, shell, cwd, profileID, engineBirth{Blob: rawBlob, Notice: notice}); err != nil {
 		// A refusal because the ENGINE IS SHUTTING DOWN says nothing about the
 		// session: it is perfectly restorable, we are simply not birthing anything
 		// any more (the kill loop has already walked the registry, so a session born
@@ -1079,21 +1088,21 @@ func (e *terminalEngine) restore(ctx context.Context, sid string) error {
 		// sessionMu.Delete — matching reapOnDone's and Kill's unlock-before-delete
 		// ordering so the entry is pruned while no lock is held.
 		unlock()
-		e.dropUnrestorable(ctx, ws, sid, dir)
+		e.dropUnrestorable(ctx, chatID, sid, dir)
 		e.sessionMu.Delete(sid)
 		return fmt.Errorf("terminal: restore: spawn: %w", err)
 	}
 
 	// Record restored session as detached (live but no clients yet).
 	e.saveMeta(ctx, SessionMeta{
-		SessionID:   sid,
-		WorkspaceID: ws,
-		CWD:         cwd,
-		Shell:       shell,
-		ProfileID:   profileID,
-		State:       "detached",
+		SessionID: sid,
+		ChatID:    chatID,
+		CWD:       cwd,
+		Shell:     shell,
+		ProfileID: profileID,
+		State:     "detached",
 	})
-	e.fireState(ctx, ws, sid, "detached")
+	e.fireState(ctx, chatID, sid, "detached")
 
 	unlock()
 	return nil
@@ -1138,7 +1147,7 @@ func dirExists(
 // holds the per-session lifecycle lock (sessionMu) for sid.
 func (e *terminalEngine) dropUnrestorable(
 	ctx context.Context,
-	ws string,
+	chatID string,
 	sid string,
 	dir string,
 ) {
@@ -1149,7 +1158,7 @@ func (e *terminalEngine) dropUnrestorable(
 		}
 	}
 	e.deleteMeta(ctx, sid)
-	e.fireEnded(ctx, ws, sid, -1)
+	e.fireEnded(ctx, chatID, sid, -1)
 
 	e.mu.Lock()
 	delete(e.lastActive, sid)
@@ -1192,8 +1201,8 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) er
 		return nil
 	}
 
-	ws, wsOK := e.reg.WorkspaceID(sid)
-	if !wsOK {
+	chatID, chatOK := e.reg.ChatID(sid)
+	if !chatOK {
 		return nil
 	}
 
@@ -1202,7 +1211,7 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) er
 	// Step a: capture state + persist BEFORE replacing registry or killing.
 	// FIX 2: hold flushMu across snapshot+write so this path serialises with
 	// the cadence-flush, detach-bookkeeping, and shutdown flush paths.
-	dir, _ := e.storageDir(ctx, ws)
+	dir, _ := e.storageDir(ctx, chatID)
 	fm := s.FlushMu()
 	fm.Lock()
 	var blob []byte
@@ -1224,7 +1233,7 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) er
 	fm.Unlock()
 	e.saveMeta(ctx, SessionMeta{
 		SessionID:    sid,
-		WorkspaceID:  ws,
+		ChatID:       chatID,
 		CWD:          s.CWD(),
 		Shell:        s.Shell(),
 		ProfileID:    s.ProfileID(),
@@ -1234,13 +1243,13 @@ func (e *terminalEngine) suspend(ctx context.Context, sid string, force bool) er
 
 	// Step b: replace registry entry with placeholder BEFORE killing.
 	ph := session.NewPlaceholder(sid, s.Shell(), s.CWD(), s.ProfileID(), blob)
-	e.reg.Add(sid, ws, ph)
+	e.reg.Add(sid, chatID, ph)
 
 	// Step c: kill the OLD live session.
 	s.Kill()
 
 	// Notify lifecycle subscribers that the session is now suspended.
-	e.fireState(ctx, ws, sid, "suspended")
+	e.fireState(ctx, chatID, sid, "suspended")
 
 	return nil
 }
@@ -1338,8 +1347,8 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, sessionID string, 
 	if !persistableSession(s) {
 		return
 	}
-	ws, wsOK := e.reg.WorkspaceID(sessionID)
-	if !wsOK {
+	chatID, chatOK := e.reg.ChatID(sessionID)
+	if !chatOK {
 		return
 	}
 
@@ -1348,7 +1357,7 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, sessionID string, 
 	e.lastActive[sessionID] = now
 	e.mu.Unlock()
 
-	dir, _ := e.storageDir(ctx, ws)
+	dir, _ := e.storageDir(ctx, chatID)
 	if dir != "" {
 		// Hold flushMu across snapshot+write so concurrent flush paths
 		// (cadence, suspend, shutdown) don't interleave writes.
@@ -1363,14 +1372,14 @@ func (e *terminalEngine) persistOnDetach(ctx context.Context, sessionID string, 
 	}
 	e.saveMeta(ctx, SessionMeta{
 		SessionID:    sessionID,
-		WorkspaceID:  ws,
+		ChatID:       chatID,
 		CWD:          s.CWD(),
 		Shell:        s.Shell(),
 		ProfileID:    s.ProfileID(),
 		State:        "detached",
 		LastActiveAt: now,
 	})
-	e.fireState(ctx, ws, sessionID, "detached")
+	e.fireState(ctx, chatID, sessionID, "detached")
 }
 
 // maxCoalesceBytes caps how much queued PTY output writePump merges into a
@@ -1656,7 +1665,7 @@ func (e *terminalEngine) terminateSession(
 	// session has no live PTY (IsLive() == false) so no reapOnDone goroutine is
 	// running to fire ended/cleanup after this returns.
 	isPlaceholder := !s.IsLive()
-	ws, wsOK := e.reg.WorkspaceID(sessionID)
+	chatID, chatOK := e.reg.ChatID(sessionID)
 
 	// Remove from registry eagerly so callers see it gone immediately after this returns.
 	// For live sessions, reapOnDone will also call reg.Remove (idempotent no-op) and then
@@ -1666,16 +1675,16 @@ func (e *terminalEngine) terminateSession(
 
 	// For placeholder sessions (suspended state), no reapOnDone goroutine is listening
 	// on s.Done(). Perform the cleanup and fire the ended callback inline.
-	if isPlaceholder && wsOK { //nolint:nestif // inline teardown for a PTY-less placeholder (no reapOnDone runs); the buf/meta/map cleanup ordering is load-bearing
+	if isPlaceholder && chatOK { //nolint:nestif // inline teardown for a PTY-less placeholder (no reapOnDone runs); the buf/meta/map cleanup ordering is load-bearing
 		exitCode := s.ExitCode() // -1 for placeholders (no process)
-		dir, _ := e.storageDir(ctx, ws)
+		dir, _ := e.storageDir(ctx, chatID)
 		if dir != "" {
 			if delErr := persistence.DeleteBuf(dir, sessionID); delErr != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "terminal: %s: delete buf %s: %v\n", op, sessionID, delErr)
 			}
 		}
 		e.deleteMeta(ctx, sessionID)
-		e.fireEnded(ctx, ws, sessionID, exitCode)
+		e.fireEnded(ctx, chatID, sessionID, exitCode)
 
 		// FIX 4: prune per-session maps. For live sessions, reapOnDone handles
 		// this after the PTY exits. For placeholders, this is the terminal path.
@@ -1699,11 +1708,11 @@ func (e *terminalEngine) ListSessions() []string {
 	return e.reg.List()
 }
 
-// ListSessionsForWorkspace returns the active session IDs owned by workspaceID.
-func (e *terminalEngine) ListSessionsForWorkspace(
-	workspaceID string,
+// ListSessionsForChat returns the active session IDs owned by chatID.
+func (e *terminalEngine) ListSessionsForChat(
+	chatID string,
 ) []string {
-	return e.reg.ListByWorkspace(workspaceID)
+	return e.reg.ListByChat(chatID)
 }
 
 // SessionExists reports whether a session with the given ID is currently active.
@@ -1782,19 +1791,19 @@ func (e *terminalEngine) getLastActive(id string) time.Time {
 	return e.lastActive[id]
 }
 
-// allWorkspaceIDs returns the distinct workspace IDs present in the registry.
-func (e *terminalEngine) allWorkspaceIDs() []string {
+// allChatIDs returns the distinct chat IDs present in the registry.
+func (e *terminalEngine) allChatIDs() []string {
 	all := e.reg.List()
 	seen := make(map[string]struct{}, len(all))
 	var out []string
 	for _, id := range all {
-		ws, ok := e.reg.WorkspaceID(id)
+		chatID, ok := e.reg.ChatID(id)
 		if !ok {
 			continue
 		}
-		if _, dup := seen[ws]; !dup {
-			seen[ws] = struct{}{}
-			out = append(out, ws)
+		if _, dup := seen[chatID]; !dup {
+			seen[chatID] = struct{}{}
+			out = append(out, chatID)
 		}
 	}
 	return out
@@ -1843,11 +1852,11 @@ func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 	if !persistableSession(s) {
 		return
 	}
-	ws, wsOK := e.reg.WorkspaceID(id)
-	if !wsOK {
+	chatID, chatOK := e.reg.ChatID(id)
+	if !chatOK {
 		return
 	}
-	dir, err := e.storageDir(ctx, ws)
+	dir, err := e.storageDir(ctx, chatID)
 	if err != nil || dir == "" {
 		return
 	}
@@ -1870,7 +1879,7 @@ func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 	}
 	e.saveMeta(ctx, SessionMeta{
 		SessionID:    id,
-		WorkspaceID:  ws,
+		ChatID:       chatID,
 		CWD:          s.CWD(),
 		Shell:        s.Shell(),
 		ProfileID:    s.ProfileID(),
@@ -1884,8 +1893,8 @@ func (e *terminalEngine) flushSessionOnce(ctx context.Context, id string) {
 //  1. Cadence flush — for each LIVE session with new output (dirty), persist
 //     the serialized model state and save updated meta.
 //
-//  2. Per-workspace soft limit — if a workspace has more than
-//     softLimitPerWorkspace detached sessions, idle-gated-suspend the oldest
+//  2. Per-chat soft limit — if a chat has more than
+//     softLimitPerChat detached sessions, idle-gated-suspend the oldest
 //     idle detached ones until back at/under the limit.
 //
 //  3. Global ceiling — if over maxTotalSessions or maxTotalModelBytes:
@@ -1906,14 +1915,14 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 	}
 
 	// -------------------------------------------------------------------------
-	// Phase 2: per-workspace soft limit (idle-gated only)
+	// Phase 2: per-chat soft limit (idle-gated only)
 	// -------------------------------------------------------------------------
-	for _, ws := range e.allWorkspaceIDs() {
-		wsIDs := e.reg.ListByWorkspace(ws)
+	for _, chatID := range e.allChatIDs() {
+		chatSessionIDs := e.reg.ListByChat(chatID)
 
 		var totalDetached int
 		var idleCandidates []sessionCandidate
-		for _, id := range wsIDs {
+		for _, id := range chatSessionIDs {
 			s, ok := e.reg.Get(id)
 			if !ok || !s.IsLive() {
 				continue
@@ -1933,7 +1942,7 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 			}
 		}
 
-		if totalDetached <= softLimitPerWorkspace {
+		if totalDetached <= softLimitPerChat {
 			continue
 		}
 
@@ -1941,7 +1950,7 @@ func (e *terminalEngine) runMaintenanceOnce(ctx context.Context) {
 		sort.Slice(idleCandidates, func(i, j int) bool {
 			return idleCandidates[i].lastActive.Before(idleCandidates[j].lastActive)
 		})
-		excess := totalDetached - softLimitPerWorkspace
+		excess := totalDetached - softLimitPerChat
 		for i := 0; i < excess && i < len(idleCandidates); i++ {
 			_ = e.Suspend(ctx, idleCandidates[i].id)
 		}
@@ -2104,10 +2113,10 @@ func (e *terminalEngine) evictPlaceholder(
 		unlock()
 		return
 	}
-	ws, _ := e.reg.WorkspaceID(id)
+	chatID, _ := e.reg.ChatID(id)
 	e.reg.Remove(id)
 
-	dir, _ := e.storageDir(ctx, ws)
+	dir, _ := e.storageDir(ctx, chatID)
 	if dir != "" {
 		if delErr := persistence.DeleteBuf(dir, id); delErr != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "terminal: evict: delete buf %s: %v\n", id, delErr)
@@ -2175,12 +2184,12 @@ func (e *terminalEngine) Shutdown() {
 		// Shutdown calls AFTER releasing this lock.
 		unlock := e.lockSession(id)
 		if s.IsLive() && persistableSession(s) { //nolint:nestif // graceful-shutdown flush+meta+mark sequence per live session; the ordering (persist before Kill) is the restart-restore contract
-			ws, wsOK := e.reg.WorkspaceID(id)
-			if wsOK {
+			chatID, chatOK := e.reg.ChatID(id)
+			if chatOK {
 				// a) Flush scrollback to disk (best-effort; continue on error).
 				// FIX 2: hold flushMu across snapshot+write to serialise with
 				// any concurrent cadence-flush or detach-bookkeeping flush.
-				dir, _ := e.storageDir(ctx, ws)
+				dir, _ := e.storageDir(ctx, chatID)
 				if dir != "" {
 					fm := s.FlushMu()
 					fm.Lock()
@@ -2194,7 +2203,7 @@ func (e *terminalEngine) Shutdown() {
 				// b) Persist meta with state="suspended" for restart restore.
 				e.saveMeta(ctx, SessionMeta{
 					SessionID:    id,
-					WorkspaceID:  ws,
+					ChatID:       chatID,
 					CWD:          s.CWD(),
 					Shell:        s.Shell(),
 					ProfileID:    s.ProfileID(),
