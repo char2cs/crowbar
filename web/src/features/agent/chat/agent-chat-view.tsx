@@ -108,16 +108,29 @@ export interface AgentChatViewProps {
    *  floating overlay header (PaneTopRow's `chat-blur overlay` variant,
    *  ChatOnlyPaneHeader/ChatColumnHeader) — the SAME value
    *  agent-chat-pane.tsx already computes for its own reviving/idle/wait
-   *  banners (`headerClearancePx` there), reused rather than re-derived so
-   *  there is one number for "how tall is the thing floating over me" in
-   *  this pane. That header paints no fill and reserves no flex space of
-   *  its own (`position: absolute; top: 0`), so nothing below it knows the
-   *  header is there unless told — the transcript's scroll container and
-   *  the blank chat's document both need this to keep their own
-   *  pinned/unscrolled content from rendering underneath it. Defaults to 0
-   *  (no overlay header) for callers — tests, mostly — that don't thread a
-   *  real pane geometry through. */
+   *  banners (`headerClearancePx` there). That header paints no fill and
+   *  reserves no flex space of its own (`position: absolute; top: 0`), so
+   *  nothing below it knows the header is there unless told — the blank
+   *  chat's document needs this to keep its own pinned/unscrolled content
+   *  from rendering underneath the header's real click target. Defaults to
+   *  0 (no overlay header) for callers — tests, mostly — that don't thread a
+   *  real pane geometry through.
+   *
+   *  NOT what the transcript uses any more — see `transcriptHeaderClearancePx`
+   *  below. This number is sized to the header's own clickable row, which is
+   *  right for opaque content (a banner, the empty-document's control bar)
+   *  but 28px short of the header's actual EdgeDissolve reach: text left
+   *  resting in that gap is not covered, but still renders visibly blurred. */
   headerClearancePx?: number
+  /** The TRANSCRIPT's own, larger clearance: the header's full EdgeDissolve
+   *  zone (agent-chat-pane.tsx's `CHAT_BLUR_ZONE_PX`, mirroring
+   *  pane-top-row.tsx's `ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX` — 100px Mac /
+   *  90px elsewhere), not just the header's clickable row `headerClearancePx`
+   *  above covers. Handed to `AgentTranscript` in place of `headerClearancePx`
+   *  so a reply resting between the two numbers clears the dissolve's own
+   *  heavier blur layers instead of rendering visibly out of focus under
+   *  them. Defaults to 0, same as `headerClearancePx`, for the same reason. */
+  transcriptHeaderClearancePx?: number
   /** Client request ids the daemon has reported as delivered-and-over. */
   settledPrompts?: string[]
   /** Retired with no proof the provider took them — the queue keeps their text.
@@ -286,6 +299,7 @@ export function AgentChatView({
   terminalWaiting = false,
   terminalWaitKind,
   headerClearancePx = 0,
+  transcriptHeaderClearancePx = 0,
   settledPrompts,
   abandonedPrompts,
   streamingMessages,
@@ -850,19 +864,28 @@ export function AgentChatView({
       // The CSS var below covers `.scroll`'s own padding; the anchor's
       // turn-pinning positions content at the top of the viewport in JS, where
       // that padding is already scrolled away, so it needs the raw number too
-      // — the same reason AgentEmptyDocument takes it.
-      headerClearancePx={headerClearancePx}
+      // — the same reason AgentEmptyDocument takes it. This is
+      // `transcriptHeaderClearancePx` (the header's full dissolve-zone reach),
+      // NOT `headerClearancePx` (its narrower click-target) — AgentTranscript's
+      // own prop is still named `headerClearancePx` from its perspective, it
+      // is just fed the bigger, transcript-specific number here.
+      headerClearancePx={transcriptHeaderClearancePx}
     />
   )
 
-  // Published as a CSS var on every `.agent-chat` root below rather than a
-  // prop threaded through AgentTranscript/AgentEmptyDocument's own CSS: both
-  // their top-clearing rules (transcript.css's `.scroll`, composer.css's
-  // `.doc`) live under `.agent-chat` and pick it up by inheritance for free.
-  // AgentEmptyDocument still needs the raw NUMBER too, for the JS layout math
+  // Published as CSS vars on every `.agent-chat` root below rather than props
+  // threaded through AgentTranscript/AgentEmptyDocument's own CSS: both
+  // top-clearing rules (transcript.css's `.scroll`, composer.css's `.doc`)
+  // live under `.agent-chat` and pick theirs up by inheritance for free.
+  // Two DISTINCT vars, because the two surfaces need different amounts: the
+  // transcript needs the header's full EdgeDissolve reach or scrolled-behind
+  // text renders visibly blurred; composer/empty-document only need to clear
+  // the header's own clickable row. AgentEmptyDocument still needs
+  // `headerClearancePx` as a raw NUMBER too, for the JS layout math
   // `lastLineTop` falls back to on a truly empty document — see its own prop.
   const headerClearanceStyle = {
     '--agent-header-clearance': `${headerClearancePx}px`,
+    '--agent-transcript-header-clearance': `${transcriptHeaderClearancePx}px`,
   } as React.CSSProperties
 
   if (settling) {

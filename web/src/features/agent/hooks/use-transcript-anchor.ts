@@ -134,19 +134,27 @@ export interface UseTranscriptAnchorOptions {
   /**
    * How much of this container's own top edge is covered by the pane's
    * FLOATING overlay chat header (PaneTopRow's `chat-blur overlay` variant,
-   * rendered by ChatOnlyPaneHeader/ChatColumnHeader) — the same number
-   * agent-chat-pane.tsx publishes as `--agent-header-clearance` and hands
-   * AgentEmptyDocument for its own top-of-document math.
+   * rendered by ChatOnlyPaneHeader/ChatColumnHeader) — for the TRANSCRIPT
+   * specifically, agent-chat-pane.tsx computes and publishes this as
+   * `--agent-transcript-header-clearance` (agent-chat-view.tsx hands it to
+   * this hook via AgentTranscript's own `headerClearancePx` prop). It is the
+   * header's FULL EdgeDissolve reach (100px Mac / 90px elsewhere —
+   * pane-top-row.tsx's ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX), NOT the same,
+   * smaller `--agent-header-clearance` AgentEmptyDocument uses for its own
+   * top-of-document math (52px / 42px — just the header's clickable row):
+   * text left resting between the two numbers is not covered, but still
+   * renders visibly blurred by the dissolve's own heavier mask layers, where
+   * an opaque banner only needs to clear the row itself.
    *
    * That header is `position: absolute; top: 0` with no fill and no flex
    * space of its own, so NOTHING underneath it knows it is there unless told
-   * — which is exactly why `.scroll` carries a matching `padding-top` and
-   * `.doc` a matching `padding-top` (transcript.css, composer.css). Neither
-   * of those reaches the one place this hook positions content at the top of
-   * the viewport by hand: `pinTurnToTop`. Without this term `tailRoom`
-   * reserves room to lift the just-sent prompt to the top of the CONTAINER,
-   * and in split view — where the overlay header is the pane's only header
-   * — that is squarely behind the frosted bar.
+   * — which is exactly why `.scroll` carries a matching `padding-top`
+   * (transcript.css). That alone doesn't reach the one place this hook
+   * positions content at the top of the viewport by hand: `pinTurnToTop`.
+   * Without this term `tailRoom` reserves room to lift the just-sent prompt
+   * to the top of the CONTAINER, and in split view — where the overlay
+   * header is the pane's only header — that is squarely behind the frosted
+   * bar.
    *
    * Defaults to 0: a single, unsplit pane has no floating header, and every
    * caller that does not mention one keeps this hook's original behaviour

@@ -109,10 +109,15 @@ interface AgentTranscriptProps {
   /** Called once, on unmount, with wherever the reader ended up. */
   onScrollPositionChange?: (position: TranscriptScrollPosition) => void
   /** How much of this transcript's top edge the pane's floating overlay chat
-   *  header paints over — the same `--agent-header-clearance` the caller
-   *  publishes for `.scroll`'s own `padding-top`, threaded in as a NUMBER
-   *  because the anchor's turn-pinning is JS layout math that CSS padding
-   *  cannot reach. See `UseTranscriptAnchorOptions.headerClearancePx`. */
+   *  header paints over — the same `--agent-transcript-header-clearance` the
+   *  caller (AgentChatView) publishes for `.scroll`'s own `padding-top`,
+   *  threaded in as a NUMBER because the anchor's turn-pinning is JS layout
+   *  math that CSS padding cannot reach. This is the header's FULL
+   *  EdgeDissolve reach (100px Mac / 90px elsewhere), not the narrower
+   *  `--agent-header-clearance` composer/empty-document use (52px / 42px) —
+   *  scrolled-behind text needs to clear the whole blur gradient, not just
+   *  the header's own clickable row, or it renders visibly out of focus
+   *  rather than merely covered. See `UseTranscriptAnchorOptions.headerClearancePx`. */
   headerClearancePx?: number
 }
 

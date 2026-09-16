@@ -1074,6 +1074,33 @@ describe('AgentChatPane', () => {
       expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
     })
 
+    // The transcript needs to clear the header's FULL EdgeDissolve zone
+    // (ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 100px Mac), not just the 52px
+    // click-target the banners above clear — text left resting between the
+    // two still renders visibly blurred by the dissolve's own mask layers.
+    // See CHAT_BLUR_ZONE_PX in agent-chat-pane.tsx.
+    it('hands the transcript its OWN, larger clearance — the full dissolve zone, not the banner click-target', async () => {
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderBelowOverlayHeader(store, 'c1', 'r1')
+
+      await screen.findByTestId('agent-empty-document')
+      const section = document.querySelector('.agent-chat.chat') as HTMLElement
+      expect(section.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('100px')
+    })
+
+    it('gives the transcript no extra clearance with no overlay header above', async () => {
+      listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })
+
+      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+      await renderPane(store, openChatPane(store, 'c1', 'r1'))
+
+      await screen.findByTestId('agent-empty-document')
+      const section = document.querySelector('.agent-chat.chat') as HTMLElement
+      expect(section.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('0px')
+    })
+
     it('renders the idle/exited signpost inside AgentEmptyDocument, not as an absolute overlay', async () => {
       resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
       listMessagesFn.mockResolvedValue({ cursor: 0, oldestCursor: 0, hasMore: false, items: [] })

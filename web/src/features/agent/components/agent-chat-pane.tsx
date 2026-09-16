@@ -228,6 +228,15 @@ interface AgentChatPaneProps {
 // platform fact rather than reach across features for it).
 const HEADER_ROW_HEIGHT_PX = IS_MAC ? 44 : 34
 
+// Mirrors features/tabs/components/pane-top-row.tsx's CHAT_BLUR_EXTRA_PX
+// (56) added to this file's own HEADER_ROW_HEIGHT_PX — the FULL vertical
+// reach of the header's EdgeDissolve backdrop-filter gradient, not just
+// its clickable row. Text resting inside this zone but outside the
+// narrower headerClearancePx below still renders visibly blurred (some of
+// EdgeDissolve's mask layers carry blur(16px)-blur(64px) well past the row
+// height) even though it is not covered/unclickable.
+const CHAT_BLUR_ZONE_PX = HEADER_ROW_HEIGHT_PX + 56
+
 // A flat, opaque pane: one centred column holding the live agent terminal, with the
 // provider-switch dropdown beneath it on the same column. See the render for why this
 // is NOT a card.
@@ -266,6 +275,13 @@ export function AgentChatPane({
   // overlay header's own real click target, plus that surface's original
   // breathing room (8px — the `top-2`/`mt-2` each one used to carry on its own).
   const headerClearancePx = belowOverlayHeader ? HEADER_ROW_HEIGHT_PX + 8 : 8
+  // The TRANSCRIPT's own, larger clearance: the header's full EdgeDissolve
+  // zone (CHAT_BLUR_ZONE_PX above), not just its click target. Distinct from
+  // headerClearancePx above — that number stays correct for the opaque
+  // reviving/idle/terminal-wait banners and for composer/empty-document's own
+  // clearance (unaffected by this), which only need to clear the header's
+  // hit-box, not the full reach of its blur gradient.
+  const transcriptHeaderClearancePx = belowOverlayHeader ? CHAT_BLUR_ZONE_PX : 0
 
   // Where is MY runner? '' when it is nowhere — it exited, or a switch replaced it. A
   // chat is live exactly while a runner is placed on it, so this lookup is also what
@@ -1667,6 +1683,7 @@ export function AgentChatPane({
               terminalWaiting={waiting}
               terminalWaitKind={waitKind ?? ''}
               headerClearancePx={headerClearancePx}
+              transcriptHeaderClearancePx={transcriptHeaderClearancePx}
               blankSignpost={blankSignpost}
               presentation={presentation}
               splitEnabled={splitEnabled}

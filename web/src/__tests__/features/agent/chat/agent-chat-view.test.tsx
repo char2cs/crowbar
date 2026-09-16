@@ -185,6 +185,11 @@ const baseProps = () => ({
   // have no overlay header to clear, so the component's own default (0) is
   // fine left unset.
   headerClearancePx: undefined as number | undefined,
+  // The transcript's own, LARGER clearance (the header's full EdgeDissolve
+  // zone, not just its click-target — see agent-chat-pane.tsx's
+  // CHAT_BLUR_ZONE_PX). Declared so `setup` accepts it, same reason as
+  // headerClearancePx above.
+  transcriptHeaderClearancePx: undefined as number | undefined,
   // Declared so `setup` accepts it — most suites here have no pane-level
   // signpost to hand down, so the component's own default (undefined,
   // rendering the ordinary control row) is fine left unset.
@@ -2086,6 +2091,16 @@ describe('AgentChatView scroll position', () => {
 // presentations (neither ever received this value before). `headerClearancePx`
 // is agent-chat-pane.tsx's own already-computed clearance, threaded straight
 // through as a `--agent-header-clearance` CSS var rather than re-derived here.
+//
+// SECOND REGRESSION, same header: `headerClearancePx` (52px Mac / 42px
+// elsewhere) is sized to the header's own clickable row plus breathing room —
+// right for an OPAQUE banner, but 28px short of PaneTopRow's actual
+// EdgeDissolve zone (ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 100px Mac / 90px
+// elsewhere). Text — unlike an opaque banner — left resting between the two
+// numbers is not covered, but still renders visibly blurred by the dissolve's
+// own heavier mask layers. `transcriptHeaderClearancePx` is the transcript's
+// own, larger number for exactly that reason, published as its own CSS var
+// and handed to `AgentTranscript` in place of `headerClearancePx`.
 describe('AgentChatView header clearance', () => {
   it('publishes headerClearancePx as a CSS var on the blank document surface', async () => {
     const { container } = setup({ headerClearancePx: 52 })
@@ -2110,6 +2125,32 @@ describe('AgentChatView header clearance', () => {
 
     const root = container.querySelector('.agent-chat.chat') as HTMLElement
     expect(root.style.getPropertyValue('--agent-header-clearance')).toBe('0px')
+  })
+
+  it('publishes transcriptHeaderClearancePx as its OWN, larger CSS var — distinct from headerClearancePx', async () => {
+    const { container } = setup({ headerClearancePx: 52, transcriptHeaderClearancePx: 100 })
+    await composer()
+
+    const root = container.querySelector('.agent-chat.chat') as HTMLElement
+    expect(root.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
+    expect(root.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('100px')
+  })
+
+  it('publishes transcriptHeaderClearancePx on the populated transcript surface too', async () => {
+    initialMessages = [message(1, 'user', 'Question')]
+    const { container } = setup({ headerClearancePx: 52, transcriptHeaderClearancePx: 100 })
+    await screen.findByText('Question')
+
+    const root = container.querySelector('.agent-chat.chat') as HTMLElement
+    expect(root.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('100px')
+  })
+
+  it('defaults transcriptHeaderClearancePx to no extra clearance when unset', async () => {
+    const { container } = setup()
+    await composer()
+
+    const root = container.querySelector('.agent-chat.chat') as HTMLElement
+    expect(root.style.getPropertyValue('--agent-transcript-header-clearance')).toBe('0px')
   })
 })
 

@@ -825,20 +825,24 @@ describe('tailRoom', () => {
     it('lands the pin BELOW the header rather than behind it', () => {
       // Same 900/1000/400 geometry as the first case, where 300px lifted the
       // prompt to the container's top edge. The reservation is what pulls it
-      // up there, so leaving it 52px lower means reserving 52px LESS, not
-      // more — the shortfall is against the VISIBLE 348px, not the full pane.
-      expect(tailRoom(900, 1000, 400, 52)).toBe(248)
+      // up there, so leaving it 100px lower means reserving 100px LESS, not
+      // more — the shortfall is against the VISIBLE 300px, not the full pane.
+      // 100 is the transcript's real clearance (the full EdgeDissolve zone,
+      // ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 44 + 56 on Mac), not the 52px
+      // banners use — see CHAT_BLUR_ZONE_PX in agent-chat-pane.tsx.
+      expect(tailRoom(900, 1000, 400, 100)).toBe(200)
     })
 
     it('releases the pin as soon as the reply fills the VISIBLE viewport', () => {
-      // 348px of reply below the prompt already fills the 400px viewport minus
-      // the 52px the header covers — there is nothing left to lift it with.
-      expect(tailRoom(652, 1000, 400, 52)).toBe(0)
-      expect(tailRoom(653, 1000, 400, 52)).toBe(1)
+      // 300px of reply below the prompt already fills the 400px viewport minus
+      // the 100px the header's dissolve zone covers — there is nothing left
+      // to lift it with.
+      expect(tailRoom(700, 1000, 400, 100)).toBe(0)
+      expect(tailRoom(701, 1000, 400, 100)).toBe(1)
     })
 
     it('reserves nothing rather than negative room for a header taller than the pane', () => {
-      expect(tailRoom(900, 1000, 40, 52)).toBe(0)
+      expect(tailRoom(900, 1000, 40, 100)).toBe(0)
     })
 
     it('is exactly the original behaviour at zero clearance — an unsplit pane', () => {
@@ -1230,7 +1234,13 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
    * must be pixel-for-pixel unchanged.
    */
   describe('with a floating overlay header (split view)', () => {
-    const CLEARANCE = 52 // HEADER_ROW_HEIGHT_PX (44, mac) + 8, see agent-chat-pane.tsx
+    // The transcript's real clearance is the header's FULL EdgeDissolve zone
+    // (ROW_HEIGHT_PX + CHAT_BLUR_EXTRA_PX = 44 + 56 on Mac — see
+    // CHAT_BLUR_ZONE_PX in agent-chat-pane.tsx), not the 52px banners clear
+    // (HEADER_ROW_HEIGHT_PX + 8): text left resting inside that wider zone
+    // still renders visibly blurred by EdgeDissolve's own mask layers, even
+    // though it is not covered/unclickable.
+    const CLEARANCE = 100
 
     it('lands the just-sent prompt below the overlay header, not behind it', () => {
       let anchor!: TranscriptAnchor
@@ -1244,11 +1254,11 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
       vi.advanceTimersByTime(1500)
 
       // 100px of content sits below the prompt; the visible viewport is
-      // 400 - 52, so 248 is the shortfall — 52px LESS than the unsplit case
-      // reserves, which is exactly the height the header covers.
-      expect(content.style.paddingBottom).toBe('248px')
+      // 400 - 100, so 200 is the shortfall — 100px LESS than the unsplit case
+      // reserves, which is exactly the height the header's dissolve zone covers.
+      expect(content.style.paddingBottom).toBe('200px')
       // The prompt's top edge clears the header instead of sitting at y=0.
-      expect(scroller.scrollTop).toBe(848)
+      expect(scroller.scrollTop).toBe(800)
       expect(pinTop - scroller.scrollTop).toBe(CLEARANCE)
     })
 
@@ -1277,7 +1287,7 @@ describe('useTranscriptAnchor: pinning a starting turn to the top', () => {
       const content = getByTestId('content')
       act(() => anchor.pinTurnToTop(getByTestId('pin')))
       vi.advanceTimersByTime(1500)
-      expect(content.style.paddingBottom).toBe('248px')
+      expect(content.style.paddingBottom).toBe('200px')
 
       // The reply grows past the viewport: 700px now sits below the prompt.
       scrollHeight = 1600
