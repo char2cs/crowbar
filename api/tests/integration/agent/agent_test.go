@@ -83,6 +83,29 @@ func newHarness(t *testing.T) *harness {
 	home := t.TempDir()
 	t.Setenv("CROWBAR_HOME", home)
 
+	// PIN THIS SUITE TO THE HOOKS TRANSPORT. Every test here drives a vendor CLI by
+	// TYPING INTO ITS PTY and asserts on what that CLI's own `crowbar hook` POSTs put
+	// in the ledger — the hook round trip over the unix socket is the entire reason
+	// this package exists (see the package doc).
+	//
+	// Codex's descriptor is api-transport (descriptors-v3/codex.yaml, runtime.
+	// transport: api), and an api-transport spawn forks TWO codexes: a headless
+	// `codex app-server` that owns the chat's conversation, and the disconnected
+	// companion PTY spawnRunner still manages alongside it (runner/attach.go calls
+	// that a known gap; HasLiveAPIConnection's own doc is where production tells the
+	// two apart). Left on, the app-server binds the runner to ITS OWN thread within
+	// a second of the spawn — so a turn typed into the companion PTY announces a
+	// DIFFERENT session id, move.Decide files that as MoveToNew, and the turn lands
+	// in a brand-new chat while the chat under test stays empty forever. Waiting for
+	// it is waiting for something that is being recorded somewhere else.
+	//
+	// Off, codex runs exactly as design spec §2.2b requires a provider whose api
+	// transport is unavailable to run — over hooks alone — the PTY is the ONLY codex
+	// and therefore the conversation, and the assertions mean what they say again.
+	// This is the same pin internal/app/usecases/chat/harness_test.go applies, for
+	// an adjacent reason (see apiconn.go's own comment on the variable).
+	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "1")
+
 	// Before anything can spawn a CLI: point codex's and claude's OWN homes at
 	// throwaway directories, so the trust each one records for this test's temp repo
 	// lands there instead of in the user's real config. Both trust barriers still

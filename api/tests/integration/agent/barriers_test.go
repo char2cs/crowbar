@@ -120,10 +120,11 @@ func awaitHook[T any](
 // Both vendor CLIs have since moved out from under this text, confirmed live
 // 2026-09-01 against claude 2.1.257 / codex 0.149.1:
 //
-//   - claude STILL shows this dialog, but its DEFAULT-SELECTED row flipped
-//     from "Yes, I trust this folder" to "No, exit" — the needle (the footer
-//     hint) still matches, but the blind Enter that used to accept trust now
-//     DECLINES it. See claudeTrustYesMarker below.
+//   - claude STILL shows this dialog (2.1.273 too), but its DEFAULT-SELECTED row
+//     flipped from "Yes, I trust this folder" to "No, exit" — the needle (the
+//     footer hint) still matches, but the blind Enter that used to accept trust
+//     now DECLINES it, and the dialog's first keystroke is not reliably taken
+//     once. See acknowledgeClaudeTrust.
 //   - codex no longer shows this dialog AT ALL under
 //     --dangerously-bypass-hook-trust (the flag this harness always passes) —
 //     it now goes straight to its composer. See codexReadyNeedle below.
@@ -132,42 +133,104 @@ var trustNeedle = map[string]string{
 	"codex":  "Press enter to continue",
 }
 
-// claudeTrustYesMarker is present on screen only when "Yes, I trust this
-// folder" is the currently-highlighted row of claude's trust dialog. Its
-// absence — the needle above still matched, so the dialog IS showing, just
-// with "No, exit" highlighted instead — is what tells settleCLI it must move
-// the selection before acknowledging.
+// claudeTrustYesMarker is the label of the row that ACCEPTS trust. The dialog's
+// other row is "No, exit", and claude 2.1.257+ highlights THAT one by default —
+// so which row is selected, not which rows exist, is the only thing worth reading
+// off this screen.
 //
-// This can NEVER be checked with tap.Contains: Contains matches on
-// squeeze()'d bare alphanumerics, which throws away the "❯" glyph — the ONE
-// character that distinguishes the selected row from the unselected one.
-// "Yes, I trust this folder" is on screen, unselected, from the dialog's very
-// first paint, so tap.Contains(claudeTrustYesMarker) is true before any key
-// is ever sent — confirmed live 2026-09-01: it short-circuited settleCLI's
+// It can NEVER be checked with tap.Contains: Contains matches on squeeze()'d bare
+// alphanumerics, which throws away the "❯" glyph — the ONE character that tells the
+// selected row from the unselected one. "Yes, I trust this folder" is on screen,
+// unselected, from the dialog's very first paint, so tap.Contains of it is true
+// before any key is ever sent — confirmed live 2026-09-01: it short-circuited the
 // arrow-key branch entirely, sent a blind Enter onto the untouched default
-// ("No, exit"), and produced exactly the trust-declined hang this whole
-// mechanism exists to prevent. kit.Readable strips ANSI but keeps the glyph;
-// check the selection against that instead (see claudeSelectedYes).
+// ("No, exit"), and produced exactly the trust-declined exit this mechanism exists
+// to prevent. kit.Readable strips ANSI but keeps the glyph; read the selection off
+// that instead (see claudeSelectedYes).
 //
-// The gap between "❯" and "Yes" is NOT a stable single space either: claude's
-// FULL initial paint prints it as a literal space (kit.Readable keeps it),
-// but its INCREMENTAL repaint on the arrow key moves the cursor there with a
-// column jump instead of a printed space — kit.Readable has nothing to keep,
-// so the same selected row reads "❯Yes, I trust this folder" with no gap at
-// all. Confirmed against both real captures (see claudeSelectedYesRe).
+// The gap between "❯" and the label is NOT a stable single space either: claude's
+// FULL initial paint prints it as a literal space (kit.Readable keeps it), but its
+// INCREMENTAL repaint on the arrow key moves the cursor there with a column jump
+// instead of a printed space — kit.Readable has nothing to keep, so the same
+// selected row can read "❯Yes, I trust this folder" with no gap at all. Confirmed
+// against both real captures; claudeTrustSelectionRe tolerates either.
 const claudeTrustYesMarker = "Yes, I trust this folder"
 
-// claudeSelectedYesRe matches claudeTrustYesMarker only when directly preceded
-// by the "❯" selection glyph, tolerating either gap kit.Readable can produce
-// between them (a literal space from a full paint, or none at all from an
-// incremental repaint — see claudeTrustYesMarker).
-var claudeSelectedYesRe = regexp.MustCompile(`❯\s*` + regexp.QuoteMeta(claudeTrustYesMarker))
+// claudeTrustNoMarker is the label of the row that DECLINES trust and quits. It is
+// matched — rather than merely "is Yes selected?" being asked — because the answer
+// has to come from the LAST row claude painted, and only a pattern that matches
+// BOTH rows can tell "the selection moved to No" from "nothing has repainted".
+const claudeTrustNoMarker = "No, exit"
 
-// codexReadyNeedle is codex's own composer placeholder — the ready signal
-// for the case trustNeedle can no longer detect: codex 0.149.1 (unlike
-// 0.139.0) skips its trust dialog entirely under
-// --dangerously-bypass-hook-trust and paints this directly.
-const codexReadyNeedle = "Ask Codex to do anything"
+// claudeTrustSelectionRe matches whichever trust-dialog row currently carries the
+// "❯" selection glyph, capturing its label.
+var claudeTrustSelectionRe = regexp.MustCompile(
+	`❯\s*(` + regexp.QuoteMeta(claudeTrustNoMarker) + `|` + regexp.QuoteMeta(claudeTrustYesMarker) + `)`)
+
+// claudeSelectedYes reports whether the LAST trust-dialog row claude painted with
+// the selection glyph is the one that accepts trust.
+//
+// The LAST one, for exactly the reason codexReady takes the last model row: the
+// tap's buffer is a cumulative SCROLLBACK, so once "❯ Yes, I trust this folder" has
+// been painted it is in the buffer forever and a plain MatchString keeps answering
+// true long after the selection has moved off it. That is not hypothetical — it is
+// half of the bug this function replaced. claude 2.1.273 processes the FIRST
+// keystroke written to its trust dialog TWICE (see acknowledgeClaudeTrust), so one
+// arrow-down paints "❯ Yes" and then, 130ms later, "❯ No, exit" again; a scrollback
+// match saw the first paint, declared the selection correct, and sent the
+// confirming Enter into a dialog sitting back on "No, exit".
+func claudeSelectedYes(
+	tap *kit.PTYTap,
+) bool {
+	rows := claudeTrustSelectionRe.FindAllStringSubmatch(kit.Readable(tap.Screen()), -1)
+	return len(rows) > 0 && rows[len(rows)-1][1] == claudeTrustYesMarker
+}
+
+// codexModelRowRe matches the `model:` row of codex's own startup box:
+//
+//	│ model:     loading       /model to change │   <- still starting up
+//	│ model:     gpt-6-astra   /model to change │   <- up, and ACCEPTING INPUT
+//
+// The resolved row is codex's ONLY honest ready signal, and finding that out
+// cost this suite a five-minute hang per codex test. What used to stand here
+// was codexReadyNeedle — codex's composer placeholder, "Ask Codex to do
+// anything" — on the belief (true of 0.139.0/0.149.1) that a codex painting
+// its composer had already decided not to ask about trust. Measured against
+// 0.154.0 on a bare pty, that is FALSE and dangerously so:
+//
+//	0.25s  the startup box paints, model: loading, composer placeholder shown
+//	0.5s   *then* the trust dialog opens over it ("Press enter to continue")
+//
+// So the placeholder matched, settleCLI declared the CLI settled, drive()
+// typed its prompt — which codex echoes into the composer quite happily from
+// behind the modal — and the submitting Enter was eaten by the TRUST DIALOG
+// instead. The prompt then sits in the composer forever, codex never takes a
+// turn, never fires a hook, and awaitHook (whose only wakeup source is a
+// completed hook POST) parks until the backstop.
+//
+// Measured, in a bare pty, all three ways round:
+//   - placeholder -> type -> Enter:                 never submits (Enter answers the dialog)
+//   - dialog -> Enter -> type -> Enter immediately: never submits (codex drops input while booting)
+//   - dialog -> Enter -> resolved model row -> type -> Enter: submits in ~1.6s, every time
+//
+// It is a real signal and not a guess for the same reason claude's footer is:
+// codex itself paints the model name, and it cannot know the model before it
+// has finished starting.
+var codexModelRowRe = regexp.MustCompile(`model:\s+(\S+)\s+/model to change`)
+
+// codexReady reports whether the LAST model row codex painted names a real
+// model rather than "loading".
+//
+// The LAST one, and read out of kit.Readable rather than tap.Contains, because
+// the tap's buffer is a cumulative scrollback: "model: loading" is in it
+// forever once painted, so neither its presence nor its absence says anything.
+// The most recent repaint of the row is what describes codex NOW.
+func codexReady(
+	tap *kit.PTYTap,
+) bool {
+	rows := codexModelRowRe.FindAllStringSubmatch(kit.Readable(tap.Screen()), -1)
+	return len(rows) > 0 && rows[len(rows)-1][1] != "loading"
+}
 
 // firstOfProvider reports whether this is the FIRST CLI of the given provider in
 // this harness — i.e. the one that will be shown a trust dialog — and records it.
@@ -252,10 +315,14 @@ const resumeNeedle = "Conversation interrupted"
 // it cannot be on screen unless that UI has mounted, and the UI does not mount without
 // taking the keyboard. "(shift+tab to cycle)" is the stable part — the mode NAME beside it
 // changes with the user's config ("auto mode on", "accept edits on"), the hint does not.
+// Re-confirmed live against 2.1.273, which paints:
 //
-// The fresh-claude path needs none of this and does not get it: a claude sitting on its
-// trust dialog has ALREADY mounted (the dialog IS the UI), so its keyboard is live and the
-// Enter that answers the dialog is read, not drained.
+//	⏵⏵ auto mode on (shift+tab to cycle) · ← for agents         ● high · /effort
+//
+// The FRESH-claude path needs it just as much, and a note here once said otherwise —
+// that a claude on its trust dialog has already mounted, so its keyboard is live. The
+// UI has mounted; its INPUT HANDLING has not settled, and that is a different claim.
+// See acknowledgeClaudeTrust for what the difference costs.
 const claudeReadyNeedle = "shift+tab to cycle"
 
 // settleCLI brings a freshly started vendor CLI to a state where a typed prompt will
@@ -316,51 +383,48 @@ func settleCLI(
 			if tap.Contains(needle) {
 				return sawNeedle, true
 			}
-			// codex 0.149.1 (unlike 0.139.0) skips the trust dialog entirely under
-			// --dangerously-bypass-hook-trust — see codexReadyNeedle's own doc comment.
-			if provider == "codex" && tap.Contains(codexReadyNeedle) {
+			// A codex that has RESOLVED ITS MODEL is past every modal — it cannot
+			// finish starting while a dialog is blocking. This is the arm that
+			// covers a build which genuinely asks nothing (0.149.1 did not ask at
+			// all), and it deliberately does NOT match codex's composer
+			// placeholder, which 0.154.0 paints BEFORE it opens its trust dialog.
+			// See codexModelRowRe.
+			if provider == "codex" && codexReady(tap) {
 				return sawReady, true
 			}
-			// Already bound == already past every modal: only a running CLI can have fired
-			// the SessionStart hook that binds it.
-			if r, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil &&
-				r.CurrentSession != "" {
-				return sawBound, true
+			// Already bound == already past every modal — but ONLY for a provider
+			// whose PTY *is* its conversation. Not codex: under the api transport
+			// its runner is bound within a second by the app-server's own
+			// thread/started, while the PTY this tap watches is still sitting on
+			// its trust dialog. Accepting that here is how a codex got declared
+			// settled before it had read a single keystroke.
+			if provider == "claude" {
+				if r, err := h.app.Repositories.AgentRunner.Get(context.Background(), runnerID); err == nil &&
+					r.CurrentSession != "" {
+					return sawBound, true
+				}
 			}
 			requireCLIAlive(t, h, tap, termSessID, provider, "while starting up")
 			return "", false
 		}, tap.Signal(), h.hooks.sig)
 
-	// claude 2.1.257 (unlike 2.1.207) defaults this dialog's SELECTION to
-	// "No, exit" instead of "Yes, I trust this folder" — the needle above
-	// only proves the dialog is SHOWING, not which row is highlighted, so a
-	// blind Enter now DECLINES trust for a fresh claude. Move the selection
-	// down first when it is not already on "Yes" — see claudeTrustYesMarker
-	// for why that check reads kit.Readable(tap.Screen()) rather than
-	// tap.Contains. Verified live (a bare pty, no test-harness involved)
-	// that "\x1b[B" does move claude's highlighted row.
-	claudeSelectedYes := func() bool {
-		return claudeSelectedYesRe.MatchString(kit.Readable(tap.Screen()))
+	switch {
+	case outcome != sawNeedle:
+		// No modal was ever painted — the CLI reached a ready state on its own
+		// (sawReady) or had already bound (sawBound). Nothing to acknowledge.
+	case provider == "codex":
+		acknowledgeCodexDialog(t, h, tap, termSessID, needle)
+	default:
+		acknowledgeClaudeTrust(t, h, tap, termSessID)
 	}
-	if outcome == sawNeedle && provider == "claude" && !claudeSelectedYes() {
-		if err := h.eng.Terminal.Write(context.Background(), termSessID, []byte("\x1b[B")); err != nil {
-			t.Fatalf("settleCLI: move %s's trust-dialog selection: %v", provider, err)
-		}
-		selCtx, selCancel := context.WithTimeout(context.Background(), backstop)
-		kit.Await(t, selCtx, provider+"'s trust-dialog selection to move to \"Yes\"",
-			func() (bool, bool) {
-				if claudeSelectedYes() {
-					return true, true
-				}
-				requireCLIAlive(t, h, tap, termSessID, provider, "while moving the trust-dialog selection")
-				return false, false
-			}, tap.Signal())
-		selCancel()
-	}
-	if outcome == sawNeedle {
-		if err := h.eng.Terminal.Write(context.Background(), termSessID, []byte("\r")); err != nil {
-			t.Fatalf("settleCLI: acknowledge %s's %q: %v", provider, needle, err)
-		}
+	if provider == "codex" {
+		// ANSWERING codex's dialog is not the same as being ready for a keystroke:
+		// measured on 0.154.0, a prompt typed straight after the acknowledging Enter
+		// echoes into the composer and is then never submitted, because codex is
+		// still starting up and drops the submit. Wait for the model row instead —
+		// see codexModelRowRe for the full set of measurements.
+		awaitCodexReady(t, h, tap, termSessID)
+		return
 	}
 	if provider != "claude" {
 		return
@@ -382,48 +446,14 @@ func settleCLI(
 	// No test hit this before because every existing claude driver crosses
 	// awaitSessionBound first, and that wait happens to outlast the remount.
 	//
-	// KNOWN BROKEN as of 2026-09-01, tracked separately from the selection bug
-	// above (which IS fixed and verified: settleCLI's own screen capture right
-	// after Enter shows "❯ Yes, I trust this folder" correctly selected). Two
-	// CONFIRMED, INDEPENDENT facts, both root-caused live:
-	//
-	//  1. The daemon never learns claude bound: runner.CurrentSession stays ""
-	//     forever. Root cause CONFIRMED by manually re-running claude's own
-	//     SessionStart hook command (copied verbatim out of its --settings
-	//     file, same CROWBAR_HOME) against a hung test — CurrentSession
-	//     flipped to the manually-supplied session id within 2s. So the
-	//     daemon, socket, segment and token are all reachable and correct;
-	//     claude's ORIGINAL automatic delivery attempt failed once
-	//     (transient — most likely a race with the runner row not yet being
-	//     queryable at the exact moment SessionStart fires), and NOTHING
-	//     ever retries it here. As of the hook-spool removal, retry lives
-	//     IN-PROCESS inside runHook itself (deliverHookEnvelopeWithRetry,
-	//     cmd/crowbar/hook_delivery.go) — a few hundred ms to ~1.2s of bounded
-	//     retries within the same `crowbar hook` invocation, no separate
-	//     daemon-lifetime loop and no dependency on `crowbar serve` being up.
-	//     This harness DOES invoke the real hook command, so it may already
-	//     exercise that retry — not reverified here; whether ~1.2s covers the
-	//     same window the old 1s-tick background loop happened to cover is
-	//     open. If it's still short of the race, the fix is a longer or
-	//     larger retry budget in runHook, not a moved/imported drain loop.
-	//
-	//  2. claude's OWN terminal output freezes regardless of (1): manually
-	//     firing the retry above makes CurrentSession correct immediately,
-	//     but claude still never paints another byte — confirmed by watching
-	//     for 30+ seconds after the manual retry succeeded. So claude is not
-	//     blocked on the daemon learning about it; whatever it's stuck on is
-	//     a second, independent problem. `sample`ing the live claude process
-	//     mid-hang shows its main thread genuinely idle in kevent64 (not
-	//     spinning, not crashed) with several established HTTPS connections
-	//     (Anthropic API, GitHub CDN, a googleusercontent IP) — consistent
-	//     with claude legitimately waiting on some network response, but
-	//     WHICH one, and why only in this environment, is not yet found.
-	//     Ruled out as the cause: a hanging/slow SessionStart hook alone
-	//     (tolerated fine up to several seconds in a bare-pty replay), a
-	//     hanging MCP server alone or combined with hooks (also tolerated
-	//     fine), and inherited CLAUDE_CODE_MESSAGING_SOCKET/BRIDGE_SESSION_ID
-	//     env vars from the parent Claude Code session (explicitly unset and
-	//     the hang still reproduced identically).
+	// This wait carried a long "KNOWN BROKEN as of 2026-09-01" note describing a
+	// claude that bound nothing, painted nothing for 30+ seconds and sat idle in
+	// kevent64 with live HTTPS connections. All of that was ONE symptom with one
+	// cause, found 2026-09-16 and fixed in acknowledgeClaudeTrust: the trust dialog
+	// had never actually been answered, so claude was idle waiting for a keypress —
+	// and a claude that has not been trusted fires no SessionStart at all (see
+	// trustNeedle), which is exactly "the daemon never learns claude bound". With
+	// the dialog genuinely answered, claude paints its whole REPL within 1.4s.
 	awaitComposer(t, h, tap, termSessID, provider, "while mounting its composer")
 }
 
@@ -459,6 +489,196 @@ func awaitComposer(
 				return true, true
 			}
 			requireCLIAlive(t, h, tap, termSessID, provider, when)
+			return false, false
+		}, tap.Signal())
+}
+
+// codexKeystrokeRetry bounds how long ONE acknowledging Enter is given to draw a
+// visible reaction out of codex before it is sent again. It is a RECOVERY bound
+// on a keystroke that was demonstrably thrown away, never a synchronisation
+// device: acknowledgeCodexDialog returns the instant codex paints anything, so on
+// the ordinary path (the first Enter lands) nothing here is ever waited for.
+const codexKeystrokeRetry = 2 * time.Second
+
+// claudeTrustSettle bounds how long the screen must stay UNPAINTED before a
+// keystroke sent to claude's trust dialog is treated as fully processed.
+//
+// It is a bound on a measured duplicate, not a guess about machine speed, and it
+// is generously clear of both numbers it has to cover (traced live against
+// 2.1.273, per keystroke):
+//
+//	+0.020s  the arrow's first repaint  ("❯ Yes, I trust this folder")
+//	+0.150s  the DUPLICATE repaint      ("❯ No, exit" again)
+//	+1.403s  the last frame of the whole REPL burst the confirming Enter starts,
+//	         whose largest internal gap is ~0.7s
+//
+// Nothing waits it out on the happy path once claude is past the dialog:
+// settleClaudeTrustKey returns the instant the composer footer appears.
+const claudeTrustSettle = 2 * time.Second
+
+// acknowledgeClaudeTrust answers claude's trust dialog: it moves the selection onto
+// "Yes, I trust this folder" and confirms it, RE-READING the screen after every
+// keystroke and pressing again only while claude is demonstrably still on the dialog.
+//
+// The loop is not a nudge, and neither of the two blind writes it replaced could be
+// made correct. claude 2.1.273 processes the FIRST keystroke written to its freshly
+// painted dialog TWICE — measured on a real PTY, one "\x1b[B" paints "❯ Yes" at
+// +0.020s and then "❯ No, exit" again at +0.150s, the selection wrapping 0 -> 1 -> 0.
+// A second arrow, sent once claude has settled, moves exactly one row; sending the
+// first one 20s later also moves exactly one row. So it is claude's mount-time input
+// handling, not a duplicated write: verified against Crowbar's terminal engine by
+// driving claude's theme list on a BARE pty, where one arrow always moves one row.
+//
+// That duplicate is what made both of the old halves wrong:
+//
+//   - The selection check matched the scrollback rather than the last paint, so it
+//     saw the +0.020s "❯ Yes" and declared the dialog correctly selected while it
+//     had already snapped back to "No, exit" (fixed in claudeSelectedYes).
+//   - The Enter was then sent blind, milliseconds after the arrow. Measured both
+//     ways round: sent into that window it is DISCARDED and claude sits on the
+//     dialog forever, painting nothing, binding nothing, until the backstop
+//     (this is the five-test, 300s-each failure mode); sent a few seconds later,
+//     it confirms the row actually highlighted — "No, exit" — and claude EXITS.
+//
+// Waiting for the screen to go quiet before reading the selection covers all three
+// behaviours (duplicated, dropped, taken) without caring which one happened, and
+// the Enter is only ever sent at a moment when the row under the cursor has been
+// read after claude stopped repainting it.
+func acknowledgeClaudeTrust(
+	t *testing.T,
+	h *harness,
+	tap *kit.PTYTap,
+	termSessID string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(backstop)
+	for {
+		// The composer footer is proof the dialog is GONE — claude only mounts its
+		// REPL once the folder is trusted. See claudeReadyNeedle.
+		if tap.Contains(claudeReadyNeedle) {
+			return
+		}
+		requireCLIAlive(t, h, tap, termSessID, "claude",
+			"while its trust dialog was being answered (an Enter on \"No, exit\" quits)")
+
+		key, what := []byte("\x1b[B"), "move the trust-dialog selection"
+		if claudeSelectedYes(tap) {
+			key, what = []byte("\r"), "confirm trust"
+		}
+		if err := h.eng.Terminal.Write(context.Background(), termSessID, key); err != nil {
+			t.Fatalf("settleCLI: %s: %v", what, err)
+		}
+		settleClaudeTrustKey(tap)
+
+		if time.Now().After(deadline) {
+			t.Fatalf("settleCLI: claude never left its trust dialog. Its screen was:\n%s",
+				kit.Readable(tap.Screen()))
+		}
+	}
+}
+
+// settleClaudeTrustKey blocks until a keystroke sent to claude's trust dialog has
+// finished having its effect: either claude has painted its composer footer (the
+// dialog is gone and there is nothing left to settle), or the screen has stopped
+// changing, so the LAST selection row on it is the one claude is really sitting on.
+func settleClaudeTrustKey(
+	tap *kit.PTYTap,
+) {
+	for {
+		if tap.Contains(claudeReadyNeedle) {
+			return
+		}
+		if !paintedSince(tap, tap.Mark(), claudeTrustSettle) {
+			return
+		}
+	}
+}
+
+// acknowledgeCodexDialog answers codex's on-screen dialog and MAKES SURE IT WAS
+// HEARD, re-pressing Enter until codex reacts.
+//
+// The re-press is not a nudge, and this is the one place in this suite where
+// anything is sent twice. Measured against 0.154.0, in the harness, with the
+// dialog fully painted and its "Press enter to continue" footer on screen: the
+// first Enter is SILENTLY DISCARDED, and the PTY then emits ZERO further bytes
+// for a full 60 seconds — codex's dialog is painted before its input loop takes
+// the keyboard, so a keystroke written into that window is dropped exactly the
+// way Ink drops one into claude's (see claudeReadyNeedle). A second Enter, a few
+// seconds later, is taken and codex starts up normally.
+//
+// There is nothing on screen to key that window's end on: the dialog paint is
+// the last byte codex emits until it reads input, so "the keyboard is live" has
+// no observable. Pressing again and watching for a reaction is the only honest
+// test of it — and this stops at the FIRST reaction, so a codex that heard the
+// first Enter is never typed at twice.
+func acknowledgeCodexDialog(
+	t *testing.T,
+	h *harness,
+	tap *kit.PTYTap,
+	termSessID string,
+	needle string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(backstop)
+	for {
+		mark := tap.Mark()
+		if err := h.eng.Terminal.Write(context.Background(), termSessID, []byte("\r")); err != nil {
+			t.Fatalf("settleCLI: acknowledge codex's %q: %v", needle, err)
+		}
+		if paintedSince(tap, mark, codexKeystrokeRetry) {
+			return
+		}
+		requireCLIAlive(t, h, tap, termSessID, "codex", "while its dialog was being acknowledged")
+		if time.Now().After(deadline) {
+			t.Fatalf("settleCLI: codex never reacted to an Enter on its %q dialog. Its screen was:\n%s",
+				needle, kit.Readable(tap.Screen()))
+		}
+	}
+}
+
+// paintedSince reports whether the PTY painted ANYTHING after mark, parking on
+// the tap's own output edge and giving up after within.
+func paintedSince(
+	tap *kit.PTYTap,
+	mark int,
+	within time.Duration,
+) bool {
+	expiry := time.After(within)
+	for {
+		// Arm before checking, for the same reason kit.Await does: output landing
+		// between the check and the park must not be lost.
+		edge := tap.Signal().Wait()
+		if tap.Mark() > mark {
+			return true
+		}
+		select {
+		case <-edge:
+		case <-expiry:
+			return tap.Mark() > mark
+		}
+	}
+}
+
+// awaitCodexReady blocks until codex has finished starting up — its startup box
+// naming a real model rather than "loading" — which is the point its composer
+// starts SUBMITTING what is typed into it rather than silently swallowing it.
+// It is codex's counterpart to awaitComposer, and needed for exactly the same
+// reason; see codexModelRowRe for the bare-pty measurements behind it.
+func awaitCodexReady(
+	t *testing.T,
+	h *harness,
+	tap *kit.PTYTap,
+	termSessID string,
+) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), backstop)
+	defer cancel()
+	kit.Await(t, ctx, "codex to finish starting up (ready to submit input)",
+		func() (bool, bool) {
+			if codexReady(tap) {
+				return true, true
+			}
+			requireCLIAlive(t, h, tap, termSessID, "codex", "while finishing startup")
 			return false, false
 		}, tap.Signal())
 }
