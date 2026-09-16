@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // openTauriSocket constructs `new Channel<string>()`; a minimal stand-in suffices.
+// convertFileSrc is unused by anything this file exercises, but crowbar-bridge.ts
+// imports it at module scope, so the mock must export SOMETHING or the import
+// itself fails before any test body runs.
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: class {
     onmessage: ((raw: string) => void) | null = null
   },
+  convertFileSrc: (path: string) => path,
 }))
 
 // openTauriSocket subscribes to `terminal:transport-dropped` via the dynamically
