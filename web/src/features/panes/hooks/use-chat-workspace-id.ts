@@ -110,13 +110,13 @@ function chatWorkspaceHintIn(repos: Repo[], chatId: string | null): string | nul
  */
 export function useActivePaneWorkspaceId(): string | null {
   const subscribe = useCallback((onChange: () => void) => {
-    const unsubs = [
-      windowPaneStore.subscribe(onChange),
-      useSidebarStore.subscribe(onChange),
-      subscribeWorkspaceStores(onChange),
-    ]
+    const unsubPanes = windowPaneStore.subscribe(onChange)
+    const unsubSidebar = useSidebarStore.subscribe(onChange)
+    const unsubWorkspaces = subscribeWorkspaceStores(onChange)
     return () => {
-      for (const unsub of unsubs) unsub()
+      unsubPanes()
+      unsubSidebar()
+      unsubWorkspaces()
     }
   }, [])
   const snapshot = useCallback(() => {
@@ -235,9 +235,11 @@ export function usePaneEditorWorkspaceIds(): string[] {
  */
 export function useViewWorkspaceIds(): string[] {
   const subscribe = useCallback((onChange: () => void) => {
-    const unsubs = [windowPaneStore.subscribe(onChange), subscribeWorkspaceStores(onChange)]
+    const unsubPanes = windowPaneStore.subscribe(onChange)
+    const unsubWorkspaces = subscribeWorkspaceStores(onChange)
     return () => {
-      for (const unsub of unsubs) unsub()
+      unsubPanes()
+      unsubWorkspaces()
     }
   }, [])
   const snapshot = useCallback(() => {

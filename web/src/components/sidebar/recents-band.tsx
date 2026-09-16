@@ -476,38 +476,54 @@ function RecentsMemberRow({
   // which of the four band states its entry carries.
   const working = useWorkspaceStoreById(workspaceId, (s) => s.agentChats.working[chatId] ?? false)
 
-  if (!chat) return null
+  const row: SidebarRowType | null = chat
+    ? {
+        id: chat.id,
+        parentId: null,
+        order: 0,
+        // Same fallback the tree's own row builder uses (rows-from-repo.ts) —
+        // the tree row and this one render the same chat, so they must agree
+        // on what an unnamed one is called, not one showing a placeholder and
+        // the other showing nothing at all.
+        label: chat.title || UNTITLED_CHAT_LABEL,
+        labelProvisional: !chat.title,
+        workspaceId: chat.workspaceId,
+        working,
+        hasView,
+        // `icon` (see its own doc) carries the SAME ownership fold the tree's
+        // own row builder uses — a chat that owns a workspace draws the real
+        // branch/lock/PR-status glyph here too instead of always falling back
+        // to the generic bubble. Spread AFTER the defaults below so an owning
+        // chat's `kind`/`ownsWorktree` override them; a bubble (no `icon`)
+        // keeps exactly the old defaults.
+        kind: 'chat',
+        ownsWorktree: false,
+        ...icon,
+      }
+    : null
 
-  const row: SidebarRowType = {
-    id: chat.id,
-    parentId: null,
-    order: 0,
-    // Same fallback the tree's own row builder uses (rows-from-repo.ts) — the
-    // tree row and this one render the same chat, so they must agree on what
-    // an unnamed one is called, not one showing a placeholder and the other
-    // showing nothing at all.
-    label: chat.title || UNTITLED_CHAT_LABEL,
-    labelProvisional: !chat.title,
-    workspaceId: chat.workspaceId,
-    working,
-    hasView,
-    // `icon` (see its own doc) carries the SAME ownership fold the tree's
-    // own row builder uses — a chat that owns a workspace draws the real
-    // branch/lock/PR-status glyph here too instead of always falling back to
-    // the generic bubble. Spread AFTER the defaults below so an owning
-    // chat's `kind`/`ownsWorktree` override them; a bubble (no `icon`) keeps
-    // exactly the old defaults.
-    kind: 'chat',
-    ownsWorktree: false,
-    ...icon,
-  }
-  // So `subjectsFor` can hand a real, freshly-rendered row back to a drag
-  // that grabs it — see RecentsBand's own `rowsRef` note above.
-  registerRow(row)
+  // `row` is built from `chat` above, so this also narrows `row` to
+  // non-null for everything below (TS can't see the two are correlated
+  // through the ternary alone).
+  if (!chat || !row) return null
 
   return (
     <div
       data-testid={`recents-row-${chat.id}`}
+      // So `subjectsFor` can hand a real, freshly-rendered row back to a drag
+      // that grabs it — see RecentsBand's own `rowsRef` note above. A ref
+      // callback, not a plain call in the render body: render must stay pure
+      // (React can replay or discard it without committing), so writing
+      // into the parent's `rowsRef` map has to wait until this element has
+      // actually committed — guarded on `el` so the unmount call (React
+      // invokes the OLD callback with `null` first) never re-registers a
+      // stale row. React 19 re-invokes a ref callback whenever its own
+      // identity changes — a fresh arrow every render, closing over the
+      // current `row` — so this still registers on every render that
+      // produces one, exactly like the call it replaces.
+      ref={(el) => {
+        if (el) registerRow(row)
+      }}
       className={cn(
         // Unconditional, not just `isSet &&`: a no-op outside a flex parent
         // (a resting solo row's wrapper is a plain, non-flex `group relative`

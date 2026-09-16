@@ -100,60 +100,74 @@ function recentsSlice(state: WorkspaceState) {
  * picked up until some OTHER re-render happens — see space-scroller's own
  * `SpacePanel` comment and task-30-report.md for the full disclosure.
  */
+/**
+ * The actual subscribe/dispose work for {@link useRecentsTick}, pulled out of
+ * the effect body into its own small unit: every subscription this creates is
+ * pushed onto `unsubs` right where it's created, and the one returned
+ * function drains that same array — a pairing that's easy to verify by
+ * reading this one function top to bottom, rather than threaded through a
+ * `useEffect` body alongside unrelated render-adjacent code.
+ */
+function subscribeRecentsTick(ids: string[], onTick: () => void): () => void {
+  const active = new Set(getAllActiveWorkspaceIds())
+  const unsubs: Array<() => void> = []
+  for (const id of ids) {
+    if (!active.has(id)) continue
+    const store = getOrCreateWorkspaceStore(id)
+    let prevSlice = recentsSlice(store.getState())
+    unsubs.push(
+      store.subscribe((state) => {
+        const nextSlice = recentsSlice(state)
+        if (nextSlice.working === prevSlice.working && nextSlice.chats === prevSlice.chats) {
+          return
+        }
+        prevSlice = nextSlice
+        onTick()
+      }),
+    )
+  }
+  // One window-level pane store (Task 26) — panes/dormantArrangements no
+  // longer need a per-workspace subscription loop; any project's Recents
+  // could be affected by a pane change anywhere, so this fires on every
+  // pane/dormant-arrangement mutation regardless of `workspaceIds`.
+  let prevPaneSlice = {
+    panes: windowPaneStore.getState().panes,
+    dormant: windowPaneStore.getState().dormantArrangements,
+    activeView: windowPaneStore.getState().activeViewId,
+  }
+  unsubs.push(
+    windowPaneStore.subscribe((state) => {
+      if (
+        state.panes === prevPaneSlice.panes &&
+        state.dormantArrangements === prevPaneSlice.dormant &&
+        // Recents is the VIEW SWITCHER, so which view is on screen is one of
+        // the facts it draws (`RecentsEntry.showing`) — and switching views
+        // touches neither of the other two: the panes are all still there,
+        // unchanged, just hung on a different tree. Without this the "you
+        // are here" marker stayed on whichever row happened to be showing
+        // when `panes` last changed, which is a switcher that cannot tell
+        // you where you are.
+        state.activeViewId === prevPaneSlice.activeView
+      ) {
+        return
+      }
+      prevPaneSlice = {
+        panes: state.panes,
+        dormant: state.dormantArrangements,
+        activeView: state.activeViewId,
+      }
+      onTick()
+    }),
+  )
+  return () => unsubs.forEach((u) => u())
+}
+
 function useRecentsTick(workspaceIds: string[], refreshSignal: string): void {
   const idsKey = workspaceIds.slice().sort().join(ID_DELIM)
   const [, setTick] = useState(0)
   useEffect(() => {
     const ids = idsKey ? idsKey.split(ID_DELIM) : []
-    const active = new Set(getAllActiveWorkspaceIds())
-    const unsubs = ids
-      .filter((id) => active.has(id))
-      .map((id) => {
-        const store = getOrCreateWorkspaceStore(id)
-        let prevSlice = recentsSlice(store.getState())
-        return store.subscribe((state) => {
-          const nextSlice = recentsSlice(state)
-          if (nextSlice.working === prevSlice.working && nextSlice.chats === prevSlice.chats) {
-            return
-          }
-          prevSlice = nextSlice
-          setTick((t) => t + 1)
-        })
-      })
-    // One window-level pane store (Task 26) — panes/dormantArrangements no
-    // longer need a per-workspace subscription loop; any project's Recents
-    // could be affected by a pane change anywhere, so this fires on every
-    // pane/dormant-arrangement mutation regardless of `workspaceIds`.
-    let prevPaneSlice = {
-      panes: windowPaneStore.getState().panes,
-      dormant: windowPaneStore.getState().dormantArrangements,
-      activeView: windowPaneStore.getState().activeViewId,
-    }
-    unsubs.push(
-      windowPaneStore.subscribe((state) => {
-        if (
-          state.panes === prevPaneSlice.panes &&
-          state.dormantArrangements === prevPaneSlice.dormant &&
-          // Recents is the VIEW SWITCHER, so which view is on screen is one of
-          // the facts it draws (`RecentsEntry.showing`) — and switching views
-          // touches neither of the other two: the panes are all still there,
-          // unchanged, just hung on a different tree. Without this the "you
-          // are here" marker stayed on whichever row happened to be showing
-          // when `panes` last changed, which is a switcher that cannot tell
-          // you where you are.
-          state.activeViewId === prevPaneSlice.activeView
-        ) {
-          return
-        }
-        prevPaneSlice = {
-          panes: state.panes,
-          dormant: state.dormantArrangements,
-          activeView: state.activeViewId,
-        }
-        setTick((t) => t + 1)
-      }),
-    )
-    return () => unsubs.forEach((u) => u())
+    return subscribeRecentsTick(ids, () => setTick((t) => t + 1))
   }, [idsKey, refreshSignal])
 }
 
