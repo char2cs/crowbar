@@ -40,12 +40,30 @@ func (u *chatFolderUsecase) checkFolderMove(
 	return nil
 }
 
+// workspaceMove is one workspace placement as its guards see it. A workspace
+// answers to two ids at once — the WORKSPACE that owns the git lineage, and
+// whichever Node ROW actually draws it (see PlaceWorkspace's own doc on why an
+// ordinary fork's row is its owning chat's) — and the checks below need both,
+// plus where the row is coming from as well as where it is going.
+type workspaceMove struct {
+	repoID      string
+	workspaceID string
+	nodeID      string
+	origin      string
+	destination string
+}
+
 // checkWorkspaceMove refuses a LOCKED BRANCH's own placement move (2026-09-09,
 // PlaceWorkspace) onto a container that does not exist, lies inside its own
 // subtree, or would leave its own repo scope — the identical golden rule
 // checkFolderContainer already enforces for a folder, reused as-is: repoID is
 // the branch's own RepoOf answer, playing the part folderRepoID plays for a
 // folder.
+//
+// The one boundary it owes beyond that repo scope is its own fork chain — see
+// checkForkChainSplit, which is the WORKSPACE's counterpart to the context
+// check below and the only reason this method needs the workspace id as well
+// as the row id.
 //
 // It deliberately does NOT run checkFolderContextMove, unlike checkFolderMove.
 // That finer check exists to stop a CHILD row silently crossing from one
@@ -66,20 +84,20 @@ func (u *chatFolderUsecase) checkFolderMove(
 func (u *chatFolderUsecase) checkWorkspaceMove(
 	ctx context.Context,
 	snapshot *treeSnapshot,
-	repoID string,
-	id string,
-	destination string,
+	move workspaceMove,
 ) error {
-	if destination == id {
-		return fmt.Errorf("agent chat folder: move %s onto itself: %w", id, ErrCycle)
+	if move.destination == move.nodeID {
+		return fmt.Errorf("agent chat folder: move %s onto itself: %w", move.nodeID, ErrCycle)
 	}
-	if err := u.checkFolderContainer(ctx, snapshot, repoID, destination); err != nil {
+	if err := u.checkFolderContainer(ctx, snapshot, move.repoID, move.destination); err != nil {
 		return err
 	}
-	if snapshot.plan.Reaches(destination, id) {
-		return fmt.Errorf("agent chat folder: move %s under %s: %w", id, destination, ErrCycle)
+	if snapshot.plan.Reaches(move.destination, move.nodeID) {
+		return fmt.Errorf(
+			"agent chat folder: move %s under %s: %w", move.nodeID, move.destination, ErrCycle,
+		)
 	}
-	return nil
+	return u.checkForkChainSplit(ctx, snapshot, move)
 }
 
 // checkFolderContextMove is the golden rule's fine grain: "context", in

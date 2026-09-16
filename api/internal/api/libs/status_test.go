@@ -344,6 +344,7 @@ func TestStatusAndMessage_WrappedTreeSentinels(t *testing.T) {
 	}{
 		{"cycle", agentusecase.ErrTreeCycle, http.StatusConflict},
 		{"cross workspace", agentusecase.ErrTreeCrossWorkspace, http.StatusConflict},
+		{"fork chain split", agentusecase.ErrTreeForkChainSplit, http.StatusConflict},
 		{"subtree working", agentusecase.ErrTreeSubtreeWorking, http.StatusConflict},
 		{"name required", agentusecase.ErrTreeNameRequired, http.StatusBadRequest},
 	}

@@ -1435,13 +1435,13 @@ type AgentChatPlacements struct {
 	// not-found tolerance exists for. Independent of PurgeErr, which fails
 	// every call unconditionally with whatever error it holds.
 	PurgeNotFoundID string
-	ForgetErr          error
-	CreateErr          error
-	TitleErr           error
-	NoteErr            error
-	SpawnErr           error
-	MintErr            error
-	StartErr           error
+	ForgetErr       error
+	CreateErr       error
+	TitleErr        error
+	NoteErr         error
+	SpawnErr        error
+	MintErr         error
+	StartErr        error
 	// SpawnOwnWorktreeErr fails SpawnChatWithOwnWorktree, the same way StartErr
 	// fails StartRunner.
 	SpawnOwnWorktreeErr error
@@ -1956,6 +1956,11 @@ type AgentWorkspaceGitStatus struct {
 	// never Set here answers false — the same default an ordinary, unlocked
 	// fork's real domain.Workspace.RendersAsBranch() gives.
 	Branches map[string]bool
+	// ForkParents answers VisibleForkParent, keyed by workspace id. A
+	// workspace never Set here answers "" — the same answer the real adapter
+	// gives for a workspace that was never forked, and for one cut straight
+	// off the repo's own default checkout.
+	ForkParents map[string]string
 }
 
 // NewAgentWorkspaceGitStatus returns an AgentWorkspaceGitStatus with no
@@ -2020,6 +2025,26 @@ func (s *AgentWorkspaceGitStatus) RendersAsBranch(
 		return false, s.Err
 	}
 	return s.Branches[workspaceID], nil
+}
+
+// SetForkParent records workspaceID's VISIBLE fork parent — already reduced
+// the way the real adapter reduces it, so "" is what a fork cut off the repo's
+// own default checkout is recorded as.
+func (s *AgentWorkspaceGitStatus) SetForkParent(workspaceID, forkParentID string) {
+	if s.ForkParents == nil {
+		s.ForkParents = map[string]string{}
+	}
+	s.ForkParents[workspaceID] = forkParentID
+}
+
+func (s *AgentWorkspaceGitStatus) VisibleForkParent(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	if s.Err != nil {
+		return "", s.Err
+	}
+	return s.ForkParents[workspaceID], nil
 }
 
 // Set records workspaceID's Added/Deleted for WorkingTreeSummary to answer

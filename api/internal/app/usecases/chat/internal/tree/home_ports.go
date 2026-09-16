@@ -127,4 +127,22 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		workspaceID string,
 	) (bool, error)
+	// VisibleForkParent answers the workspace whose space a fork's own row must
+	// stay inside — domain.Workspace.ParentID, reduced to "" (the repo tree's
+	// own root) when that parent draws no row of its own in that tree.
+	//
+	// The repo's DEFAULT checkout is exactly such a parent: it IS the tree's
+	// root rather than a member of it (rows-from-repo.ts says so in as many
+	// words — "the repo's default (main-worktree) workspace is not a row in
+	// repo.workspaces — it becomes this tree's one root"), so a branch cut
+	// straight off it belongs at that root and nowhere else. Answering its id
+	// here instead would refuse every top-level branch's most ordinary move.
+	//
+	// "" is equally the answer for a workspace that was never forked, and for a
+	// fork parent that no longer resolves at all: neither leaves a space behind
+	// for checkForkChainSplit to hold a row to.
+	VisibleForkParent(
+		ctx context.Context,
+		workspaceID string,
+	) (forkParentID string, err error)
 }

@@ -270,6 +270,122 @@ func TestPlaceWorkspace_RefusesWorkingSubtree(t *testing.T) {
 	assert.ErrorIs(t, err, tree.ErrSubtreeWorking)
 }
 
+// THE invariant the model names explicitly, and the reason a fork carries a
+// ParentID separate from wherever it is filed: a forked workspace renders
+// under its fork parent, and three git paths (merge eligibility, the diff
+// base, the reparent leaf check) resolve that ParentID back to a workspace. A
+// placement never rewrites it, so filing the row into an unrelated folder
+// leaves a row the sidebar simply refuses to draw where it was put — it drops
+// the incompatible edge and renders under the fork parent regardless, so the
+// drag answers 200 and visibly does nothing. Refused HERE, not merely avoided
+// by the frontend that already reparents first (drop-actions.ts).
+//
+// Restored from the deleted api/tests/regression_folders_test.go's
+// TestRegression_WorkspaceMoveRefusedWhenItWouldSplitAForkChain: 11b72c720
+// retired usecases/folder and flagged ErrForkChainSplit as having no
+// unified-tree equivalent, and nothing refused this until now.
+func TestRegression_PlaceWorkspace_RefusedWhenItWouldSplitAForkChain(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
+	seedForkUnderLockedBranch(t, chats, nodes, gitStatus)
+	seedFolder(t, uc, "spikes", "")
+
+	_, _, err := uc.PlaceWorkspace(
+		context.Background(), "ws-fork", tree.PlaceInput{ParentID: name("spikes")})
+
+	require.ErrorIs(t, err, tree.ErrForkChainSplit)
+	assert.Contains(t, err.Error(), "fork parent",
+		"the refusal has to say what is wrong, not just refuse")
+	assert.Equal(t, "branch-1", nodeRowFor(t, nodes, "fork-chat").ParentID,
+		"a refused placement must never move the row it refused")
+}
+
+// The other half of the same rule, and the reason it is an ANCHOR check
+// rather than a flat "forks may not be filed": organisation and lineage are
+// separate edges, so a folder nested inside the fork parent's own space may
+// hold the fork perfectly well — the anchor above that folder is still the
+// workspace this fork was cut from.
+func TestPlaceWorkspace_AForkMayBeFiledInAFolderInsideItsOwnForkParent(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
+	seedForkUnderLockedBranch(t, chats, nodes, gitStatus)
+	seedFolder(t, uc, "spikes", "branch-1")
+
+	_, _, err := uc.PlaceWorkspace(
+		context.Background(), "ws-fork", tree.PlaceInput{ParentID: name("spikes")})
+
+	require.NoError(t, err)
+	assert.Equal(t, "spikes", nodeRowFor(t, nodes, "fork-chat").ParentID)
+}
+
+// The case a fork-anchor check taken literally would break, and the reason
+// VisibleForkParent reduces to "" rather than answering a raw ParentID: a
+// branch cut straight off the repo's OWN default checkout has that checkout as
+// its git parent, but that workspace is the repo tree's root rather than a row
+// in it (rows-from-repo.ts) — so the root, and every folder hanging off it, is
+// exactly where such a branch belongs. Answering its id would refuse the most
+// ordinary move in the sidebar.
+func TestPlaceWorkspace_AForkCutOffTheReposOwnCheckoutStaysFreeAtTheRoot(t *testing.T) {
+	_, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
+	seedFolder(t, uc, "spikes", "")
+	gitStatus.SetRepo("branch-1", repoID)
+	gitStatus.SetBranch("branch-1", true)
+	gitStatus.SetForkParent("branch-1", "")
+
+	_, _, err := uc.PlaceWorkspace(
+		context.Background(), "branch-1", tree.PlaceInput{ParentID: name("spikes")})
+
+	require.NoError(t, err)
+	assert.Equal(t, "spikes", nodeRowFor(t, nodes, "branch-1").ParentID)
+}
+
+// A row already sitting in a split position — persisted while nothing refused
+// one — has to stay draggable among its own siblings rather than wedge, which
+// is why the guard runs only on a move that changes CONTAINERS.
+func TestPlaceWorkspace_AnAlreadySplitForkCanStillBeReordered(t *testing.T) {
+	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
+	seedFolder(t, uc, "spikes", "")
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork", ParentID: "spikes"},
+		domain.Chat{ID: "sibling", Type: domain.ChatTypeChat, WorkspaceID: workspaceID, ParentID: "spikes"},
+	)
+	nodes.Rows = append(nodes.Rows,
+		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "spikes", Order: 0},
+		domain.Node{ID: "sibling", Kind: domain.NodeKindChat, ParentID: "spikes", Order: 1},
+	)
+	gitStatus.SetRepo("ws-fork", repoID)
+	gitStatus.SetBranch("ws-fork", false)
+	gitStatus.SetForkParent("ws-fork", "ws-branch-1")
+
+	_, _, err := uc.PlaceWorkspace(context.Background(), "ws-fork", tree.PlaceInput{Order: index(1)})
+
+	require.NoError(t, err)
+	assert.Equal(t, "spikes", nodeRowFor(t, nodes, "fork-chat").ParentID)
+	assert.Equal(t, 1, nodeRowFor(t, nodes, "fork-chat").Order)
+}
+
+// seedForkUnderLockedBranch builds the one fixture the fork-chain cases share:
+// an ordinary, unlocked fork ("ws-fork", drawn by its owning chat "fork-chat")
+// cut off a LOCKED branch ("ws-branch-1", drawn by its own row "branch-1") and
+// currently filed directly under it.
+func seedForkUnderLockedBranch(
+	t *testing.T,
+	chats *mocks.AgentChatPlacements,
+	nodes *mocks.NodePlacements,
+	gitStatus *mocks.AgentWorkspaceGitStatus,
+) {
+	t.Helper()
+	chats.Rows = append(chats.Rows,
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "fork-chat", Type: domain.ChatTypeChat, WorkspaceID: "ws-fork", ParentID: "branch-1"},
+	)
+	nodes.Rows = append(nodes.Rows,
+		domain.Node{ID: "fork-chat", Kind: domain.NodeKindChat, ParentID: "branch-1", Order: 0})
+	gitStatus.SetRepo("ws-branch-1", repoID)
+	gitStatus.SetBranch("ws-branch-1", true)
+	gitStatus.SetRepo("ws-fork", repoID)
+	gitStatus.SetBranch("ws-fork", false)
+	gitStatus.SetForkParent("ws-fork", "ws-branch-1")
+}
+
 // newWorkspacePlacementUsecase builds the tree usecase with the Nodes fake
 // and the fake WorkspaceGitStatus both exposed, for the PlaceWorkspace tests
 // above that need to seed a Node row directly and/or configure

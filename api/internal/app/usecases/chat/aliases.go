@@ -252,6 +252,10 @@ var (
 	// (project home, a bare repo root, or one specific branch's own
 	// workspace) to a different one, even within the same repo.
 	ErrTreeCrossContext = tree.ErrCrossContext
+	// ErrTreeForkChainSplit is a WORKSPACE placement that would file a fork's
+	// own row outside the space its fork parent owns — organisation carrying a
+	// row away from a git lineage the placement does not move with it.
+	ErrTreeForkChainSplit = tree.ErrForkChainSplit
 	// ErrTreeSubtreeWorking is a move or delete refused because the row or a
 	// row in the subtree it takes is currently working.
 	ErrTreeSubtreeWorking = tree.ErrSubtreeWorking

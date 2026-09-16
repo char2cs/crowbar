@@ -646,6 +646,31 @@ func (w workspaceGitStatusReader) RendersAsBranch(
 	return ws.RendersAsBranch(), nil
 }
 
+// VisibleForkParent implements agentusecase.TreeWorkspaceGitStatus. The
+// reduction to "" lives here, over the aggregate that carries the two fields
+// it reads, rather than in the tree package: a fork parent that draws no row
+// of its own is the repo's DEFAULT checkout (which IS that tree's root — see
+// the port's own doc) or a project HOME workspace, and both are answered off
+// domain.Workspace directly. A parent id that no longer resolves is reduced
+// the same way, for the same reason: there is no space left to hold a row to.
+func (w workspaceGitStatusReader) VisibleForkParent(
+	ctx context.Context,
+	workspaceID string,
+) (string, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	if ws.ParentID == "" {
+		return "", nil
+	}
+	parent, err := w.workspace.Get(ctx, ws.ParentID)
+	if err != nil || parent.IsDefault || parent.Kind == domain.WorkspaceKindHome {
+		return "", nil
+	}
+	return ws.ParentID, nil
+}
+
 // worktreeChildCreator adapts the worktree hierarchy usecase into the agent
 // usecase's WorktreeCreator seam (internal/app/usecases/chat.WorktreeCreator):
 // Promote names only the fork parent it forks from, and this fills in the rest

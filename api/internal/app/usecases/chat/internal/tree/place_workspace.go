@@ -89,7 +89,13 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
-	if mErr := u.checkWorkspaceMove(ctx, snapshot, repoID, nodeID, destination); mErr != nil {
+	if mErr := u.checkWorkspaceMove(ctx, snapshot, workspaceMove{
+		repoID:      repoID,
+		workspaceID: workspaceID,
+		nodeID:      nodeID,
+		origin:      current.ParentID,
+		destination: destination,
+	}); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
 	if wErr := guardNotWorking(subtreeIDsOf(nodeID, snapshot.rows), u.work); wErr != nil {

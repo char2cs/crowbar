@@ -34,6 +34,20 @@ var ErrCrossRepo = errors.New("usecases: a folder and its parent must share the 
 // across. Handlers map it to 409.
 var ErrCrossContext = errors.New("usecases: a folder cannot move to a different context")
 
+// ErrForkChainSplit is returned when a WORKSPACE placement would file a fork's
+// own row outside the space its fork parent owns — a folder, or another
+// branch's subtree, whose own fork anchor is a different workspace than the one
+// this workspace was cut from. Organisation and git lineage are separate edges,
+// so a folder may freely organise a fork UNDER its own parent; carrying it
+// anywhere else does not take the lineage with it. domain.Workspace.ParentID
+// stays where it was — three git paths still resolve it back to a workspace
+// (merge eligibility, the diff base, the reparent leaf guard) — and the sidebar
+// settles the contradiction by dropping the placement and drawing the row under
+// its fork parent regardless, so the drag answers 200 and visibly does nothing.
+// Changing what a fork hangs off is the reparent route's job. Handlers map it
+// to 409.
+var ErrForkChainSplit = errors.New("usecases: a workspace cannot be filed away from its fork parent")
+
 // ErrNotAContainer is returned when a move or create names a REPO as its
 // parent/folder id. A repo's own Node row rides through this package's
 // planning snapshot purely so it densifies correctly alongside its home

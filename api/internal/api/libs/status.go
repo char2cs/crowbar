@@ -88,6 +88,9 @@ import (
 //     a folder MOVE crossing from one context (project home, a bare repo
 //     root, or one specific branch's own workspace) to a different one even
 //     within the same repo;
+//     agentusecase.ErrTreeForkChainSplit — a WORKSPACE placement filing a
+//     fork's own row outside the space its fork parent owns, which a
+//     placement never moves the git lineage to match;
 //     agentusecase.ErrTreeSubtreeWorking — a move or
 //     delete refused because a row in the subtree it takes is currently
 //     working, with no confirm-and-override path; the sidebar's own
@@ -274,6 +277,7 @@ func isPlacementConflict(
 		errors.Is(err, agentusecase.ErrTreeCrossWorkspace) ||
 		errors.Is(err, agentusecase.ErrTreeCrossRepo) ||
 		errors.Is(err, agentusecase.ErrTreeCrossContext) ||
+		errors.Is(err, agentusecase.ErrTreeForkChainSplit) ||
 		errors.Is(err, agentusecase.ErrTreeSubtreeWorking)
 }
 
