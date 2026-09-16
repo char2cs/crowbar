@@ -126,11 +126,20 @@ export function SpaceHeader({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-expanded={!folded}
-      aria-label={`${folded ? 'Expand' : 'Collapse'} ${project.name}`}
       data-testid="space-header-row"
+      // No `role`/`tabIndex`/`onClick` here on purpose: this used to be
+      // `role="button"` wrapping the WHOLE row, including the overflow menu
+      // and thread button below — a `<button>` (or Base UI's own trigger,
+      // same difference to a screen reader) nested inside another element
+      // ARIA presents as one atomic button, which swallows the nested
+      // controls' own semantics (`html-no-nested-interactive`: AT can no
+      // longer reach them independently, and a real nested `<button>`
+      // clicked via a synthesized AT "activate" gesture can double-fire
+      // both). The fold toggle now lives on the label `<button>` below — a
+      // true sibling of the overflow/thread controls, not their ancestor —
+      // so this div stays a plain, non-interactive flex container with no
+      // click/keyboard behavior of its own to mis-scope.
+      //
       // `mt-0` overrides ROW_BASE's `my-0.5` top half (via twMerge — the
       // bottom half stays, spacing this row from whatever follows). This is
       // the FIRST row in the column, directly under SidebarProjectHeader —
@@ -142,22 +151,6 @@ export function SpaceHeader({
       onMouseLeave={() => setActive(false)}
       onFocus={() => setActive(true)}
       onBlur={() => setActive(false)}
-      onClick={() => {
-        // A click inside the inline editor (or on the space it just
-        // vacated before React re-renders) must not fold the space.
-        if (renaming) return
-        onToggleFold()
-      }}
-      onKeyDown={(e) => {
-        // Same guard as SidebarRow (sidebar-row.tsx): a keydown on the nested
-        // overflow button bubbles here too, and without this check Enter/Space
-        // on that button would fire onToggleFold instead of its own onClick.
-        if (e.target !== e.currentTarget) return
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onToggleFold()
-        }
-      }}
     >
       <span
         data-testid="space-glyph"
@@ -207,22 +200,40 @@ export function SpaceHeader({
           onCancel={() => setRenaming(false)}
         />
       ) : (
-        /* Clicks bubble straight to the row, opening/closing the fold,
-           exactly as every other renameable row's double-click does
-           (sidebar-row.tsx, and the deleted project-home-row.tsx before
-           it): `dblclick` is delivered only after both of its `click`
-           events, so a rename click folds and unfolds the space on its
-           way to opening the editor — harmless, since it ends up back
-           where it started. */
-        <span
-          className="min-w-0 flex-1 truncate"
+        // The row's own fold toggle now lives HERE, as an independent
+        // sibling of the overflow/thread controls below, rather than the
+        // outer div being one big `role="button"` around all three (see its
+        // own doc above). `aria-expanded`/`aria-label` moved down with it —
+        // this is the control they actually describe.
+        //
+        // `stopPropagation` keeps this click from bubbling any further than
+        // it needs to (an ancestor further up the tree, not this row —
+        // there is no row-level click handler left to double-fire). Two
+        // `click`s still precede a `dblclick` (delivered only after both
+        // land) — same as every other renameable row's double-click
+        // (sidebar-row.tsx, and the deleted project-home-row.tsx before
+        // it): this button's own `onClick` still runs for both, folding and
+        // unfolding on its way to opening the editor. Harmless — it ends up
+        // back where it started.
+        <button
+          type="button"
+          aria-expanded={!folded}
+          aria-label={`${folded ? 'Expand' : 'Collapse'} ${project.name}`}
+          className={cn(
+            'min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left outline-none',
+            'focus-visible:ring-1 focus-visible:ring-ring',
+          )}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleFold()
+          }}
           onDoubleClick={(e) => {
             e.stopPropagation()
             setRenaming(true)
           }}
         >
           {project.name}
-        </span>
+        </button>
       )}
 
       {(active || menuOpen) && (

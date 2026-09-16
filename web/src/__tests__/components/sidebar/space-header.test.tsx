@@ -160,7 +160,34 @@ describe('SpaceHeader', () => {
     expect(screen.getByTestId('chevron')).toHaveClass('rotate-180')
   })
 
-  it('clicking the header calls onToggleFold', () => {
+  // The row's own container (`space-header-row`) is a plain, non-interactive
+  // div now — no `role`, no `onClick` of its own — precisely so it cannot
+  // present as one giant button swallowing the overflow/thread controls'
+  // independent semantics (`html-no-nested-interactive`). The fold toggle is
+  // a real, independently-focusable `<button>` (the label) instead, so this
+  // asserts THAT control does the job, not a bare click on the container.
+  it('clicking the header (its label button) calls onToggleFold', () => {
+    const onToggle = vi.fn()
+    render(
+      <SpaceHeader
+        project={makeProject('p1')}
+        folded={false}
+        onToggleFold={onToggle}
+        onCreateThread={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
+        onDeleteSpace={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse p1' }))
+    expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+
+  // The container itself must NOT carry its own click behavior — that would
+  // be exactly the reintroduced bug (a clickable ancestor wrapping the
+  // overflow/thread buttons). A bare click on the row's own box, missing
+  // every actual control, does nothing.
+  it('a bare click on the row container (missing every real control) does not toggle', () => {
     const onToggle = vi.fn()
     render(
       <SpaceHeader
@@ -174,7 +201,7 @@ describe('SpaceHeader', () => {
       />,
     )
     fireEvent.click(screen.getByTestId('space-header-row'))
-    expect(onToggle).toHaveBeenCalledTimes(1)
+    expect(onToggle).not.toHaveBeenCalled()
   })
 
   it('clicking the thread button calls onCreateThread, not onToggleFold', () => {
