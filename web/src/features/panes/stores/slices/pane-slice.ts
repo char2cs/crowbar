@@ -655,9 +655,10 @@ export const createPaneSlice: StateCreator<
         // closing the last pane of a tree RESEEDS the canonical empty stage
         // under the very same id and view (see `closePane`'s null branch), so
         // a "find the next member" loop would never terminate on it.
-        const memberIds = Object.values(get().panes)
-          .filter((p) => viewIdOf(p) === viewId)
-          .map((p) => p.id)
+        const memberIds: string[] = []
+        for (const p of Object.values(get().panes)) {
+          if (viewIdOf(p) === viewId) memberIds.push(p.id)
+        }
         for (const paneId of memberIds) {
           if (!get().panes[paneId]) continue
           get().paneActions.closePane(paneId)
@@ -820,13 +821,14 @@ export const createPaneSlice: StateCreator<
             // moment `deriveRecentsEntries` next re-derives, the very bug
             // this closes.
             if (state.dormantArrangements.some((e) => e.chatIds.includes(closedChatId))) {
-              state.dormantArrangements = state.dormantArrangements
-                .map((e) =>
-                  e.chatIds.includes(closedChatId)
-                    ? { ...e, chatIds: e.chatIds.filter((id) => id !== closedChatId) }
-                    : e,
-                )
-                .filter((e) => e.chatIds.length > 0)
+              const nextArrangements: RecentsEntry[] = []
+              for (const e of state.dormantArrangements) {
+                const next = e.chatIds.includes(closedChatId)
+                  ? { ...e, chatIds: e.chatIds.filter((id) => id !== closedChatId) }
+                  : e
+                if (next.chatIds.length > 0) nextArrangements.push(next)
+              }
+              state.dormantArrangements = nextArrangements
             }
           }
 
@@ -1076,8 +1078,9 @@ export const createPaneSlice: StateCreator<
           if (!Array.isArray(state.buffers)) return
           // Preview is a single-slot concept per pane: mark `tabId`'s content
           // as the preview and clear every other tab this pane holds.
+          const bufferById = new Map(state.buffers.map((b) => [b.id, b]))
           for (const id of pane.editorTabIds) {
-            const buf = state.buffers.find((b) => b.id === id)
+            const buf = bufferById.get(id)
             if (buf) buf.isPreview = id === tabId
           }
         })
@@ -1261,13 +1264,15 @@ export const createPaneSlice: StateCreator<
               (e) => e.chatIds.length > 1 && e.chatIds.includes(chatId),
             )
           if (strippable) {
-            state.dormantArrangements = state.dormantArrangements
-              .map((e) =>
+            const nextArrangements: RecentsEntry[] = []
+            for (const e of state.dormantArrangements) {
+              const next =
                 e.chatIds.length > 1 && e.chatIds.includes(chatId)
                   ? { ...e, chatIds: e.chatIds.filter((id) => id !== chatId) }
-                  : e,
-              )
-              .filter((e) => e.chatIds.length > 0)
+                  : e
+              if (next.chatIds.length > 0) nextArrangements.push(next)
+            }
+            state.dormantArrangements = nextArrangements
           }
 
           // An eviction (`use-workspace-agent-chats-stream.ts`'s `followRunner`
@@ -1288,11 +1293,13 @@ export const createPaneSlice: StateCreator<
 
       removeChatFromDormantArrangement(entryId, chatId) {
         set((state) => {
-          state.dormantArrangements = state.dormantArrangements
-            .map((e) =>
-              e.id === entryId ? { ...e, chatIds: e.chatIds.filter((id) => id !== chatId) } : e,
-            )
-            .filter((e) => e.chatIds.length > 0)
+          const nextArrangements: RecentsEntry[] = []
+          for (const e of state.dormantArrangements) {
+            const next =
+              e.id === entryId ? { ...e, chatIds: e.chatIds.filter((id) => id !== chatId) } : e
+            if (next.chatIds.length > 0) nextArrangements.push(next)
+          }
+          state.dormantArrangements = nextArrangements
         })
       },
 
@@ -1309,9 +1316,12 @@ export const createPaneSlice: StateCreator<
             clearedPaneIds.push(pane.id)
           }
           if (state.dormantArrangements.some((e) => e.chatIds.includes(chatId))) {
-            state.dormantArrangements = state.dormantArrangements
-              .map((e) => ({ ...e, chatIds: e.chatIds.filter((id) => id !== chatId) }))
-              .filter((e) => e.chatIds.length > 0)
+            const nextArrangements: RecentsEntry[] = []
+            for (const e of state.dormantArrangements) {
+              const next = { ...e, chatIds: e.chatIds.filter((id) => id !== chatId) }
+              if (next.chatIds.length > 0) nextArrangements.push(next)
+            }
+            state.dormantArrangements = nextArrangements
           }
 
           // Spec §9: "If the last pane held something deleted it takes the
@@ -1340,13 +1350,15 @@ export const createPaneSlice: StateCreator<
             // (a single-chat entry is deliberately left alone — see
             // `setPaneChat`'s own note — so it just recomputes to 'live' at
             // its existing slot).
-            state.dormantArrangements = state.dormantArrangements
-              .map((e) =>
+            const nextArrangements: RecentsEntry[] = []
+            for (const e of state.dormantArrangements) {
+              const next =
                 e.chatIds.length > 1 && e.chatIds.includes(standing)
                   ? { ...e, chatIds: e.chatIds.filter((id) => id !== standing) }
-                  : e,
-              )
-              .filter((e) => e.chatIds.length > 0)
+                  : e
+              if (next.chatIds.length > 0) nextArrangements.push(next)
+            }
+            state.dormantArrangements = nextArrangements
           }
 
           // Whatever the deletion left chatless goes with it — the pane that

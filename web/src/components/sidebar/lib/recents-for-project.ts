@@ -8,6 +8,7 @@ import { deriveRecentsEntries } from './recents-entries'
 import { chatIconIndex } from './rows-from-repo'
 import type { Repo } from '@/lib/store/sidebar'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
+import type { RecentsEntry } from '@/features/panes/types/recents-entry'
 
 // Re-exported under its original name for existing importers/tests — the
 // canonical declaration lives in recents-band.tsx (the render contract every
@@ -67,9 +68,8 @@ export function workspaceIdsForProject(repos: readonly Repo[], projectId: string
  * to different projects' workspaces at once).
  */
 export function recentsForProject(repos: readonly Repo[], projectId: string): RecentsBandEntry[] {
-  const projectWsIds = getAllActiveWorkspaceIds().filter((wsId) =>
-    workspaceIdsForProject(repos, projectId).includes(wsId),
-  )
+  const projectWsIdSet = new Set(workspaceIdsForProject(repos, projectId))
+  const projectWsIds = getAllActiveWorkspaceIds().filter((wsId) => projectWsIdSet.has(wsId))
   // The tree's own icon fields (rows-from-repo.ts's `chatIconIndex`) for
   // every workspace-owning chat in THIS project's repos — see
   // `RecentsBandEntry.chatIcons`'s own doc on why `recents-band.tsx` needs
@@ -108,9 +108,11 @@ export function recentsForProject(repos: readonly Repo[], projectId: string): Re
   // spanning two projects used to leak in whole to both projects' bands the
   // instant any single member belonged there. A member that isn't this
   // project's is simply not this project's business to draw.
-  const projectDormant = dormantArrangements
-    .map((e) => ({ ...e, chatIds: e.chatIds.filter((id) => chatWorkspace.has(id)) }))
-    .filter((e) => e.chatIds.length > 0)
+  const projectDormant: RecentsEntry[] = []
+  for (const e of dormantArrangements) {
+    const chatIds = e.chatIds.filter((id) => chatWorkspace.has(id))
+    if (chatIds.length > 0) projectDormant.push({ ...e, chatIds })
+  }
 
   return deriveRecentsEntries(
     projectPanes,

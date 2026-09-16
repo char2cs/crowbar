@@ -314,7 +314,8 @@ export function WorkspaceHost({
   // view; a pane can still be showing there (spec: panes are window-level),
   // so `paneWsIds` force-appends regardless of the route.
   const forced = activeWsId ? [activeWsId, ...paneWsIds] : paneWsIds
-  const missing = forced.filter((id) => !mountedIds.includes(id))
+  const mountedIdSet = new Set(mountedIds)
+  const missing = forced.filter((id) => !mountedIdSet.has(id))
   const renderIds = missing.length ? [...mountedIds, ...new Set(missing)] : mountedIds
 
   return (

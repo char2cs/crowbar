@@ -38,9 +38,8 @@ export function focusRecent(
   // finding "the pane holding one of this entry's chats" no longer needs the
   // entry's own workspace's store at all (there is only one pane store).
   const { paneActions } = windowPaneStore.getState()
-  const pane = paneActions
-    .getAllPaneGroups()
-    .find((p) => p.chatId != null && entry.chatIds.includes(p.chatId))
+  const chatIds = new Set(entry.chatIds)
+  const pane = paneActions.getAllPaneGroups().find((p) => p.chatId != null && chatIds.has(p.chatId))
   if (pane) paneActions.setActivePane(pane.id)
 
   const found = resolveRow(repos, entry.workspaceId)
@@ -68,9 +67,8 @@ export function closeRecent(entry: RecentsBandEntry): void {
   // that record's id rather than the live view's. `closeView` then ends every
   // pane in it, including one holding only editor tabs, which a
   // chatIds-driven loop would have left behind holding the view open.
-  const member = paneActions
-    .getAllPaneGroups()
-    .find((p) => p.chatId != null && entry.chatIds.includes(p.chatId))
+  const chatIds = new Set(entry.chatIds)
+  const member = paneActions.getAllPaneGroups().find((p) => p.chatId != null && chatIds.has(p.chatId))
   if (member) {
     paneActions.closeView(viewIdOf(member))
     return

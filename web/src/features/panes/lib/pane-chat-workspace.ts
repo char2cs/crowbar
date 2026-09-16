@@ -90,17 +90,18 @@ export function isKnownChatId(chatId: string): boolean {
 export function resolveOnscreenPaneForWorkspace(wsId: string): string | null {
   const state = windowPaneStore.getState()
   const onscreenIds = getAllLeafIds(state.rootLayout)
+  const onscreenIdSet = new Set(onscreenIds)
   const belongsToWorkspace = (paneId: string): boolean => {
     const chatId = state.panes[paneId]?.chatId
     return !!chatId && resolveChatWorkspaceId(chatId) === wsId
   }
 
-  if (onscreenIds.includes(state.activePaneId) && belongsToWorkspace(state.activePaneId)) {
+  if (onscreenIdSet.has(state.activePaneId) && belongsToWorkspace(state.activePaneId)) {
     return null
   }
 
   const recent = state.mostRecentActivePaneIds.find(
-    (id) => onscreenIds.includes(id) && belongsToWorkspace(id),
+    (id) => onscreenIdSet.has(id) && belongsToWorkspace(id),
   )
   return recent ?? onscreenIds.find(belongsToWorkspace) ?? null
 }

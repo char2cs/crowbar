@@ -21,10 +21,11 @@ const EMPTY_IDS: string[] = []
  */
 function useEditorHostPaneIds(): string[] {
   const key = useStore(windowPaneStore, (s) => {
+    const bufferTypeById = new Map(s.buffers.map((b) => [b.id, b.type]))
     const ids: string[] = []
     for (const paneId of Object.keys(s.panes)) {
       const pane = s.panes[paneId]
-      if (pane.editorTabIds.some((id) => s.buffers.find((b) => b.id === id)?.type === 'editor')) {
+      if (pane.editorTabIds.some((id) => bufferTypeById.get(id) === 'editor')) {
         ids.push(paneId)
       }
     }

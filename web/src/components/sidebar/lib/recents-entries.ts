@@ -85,9 +85,13 @@ export function deriveRecentsEntries(
     // the reopened chat at its old slot plus a second row for the chat that
     // joined it, which is exactly the "Recents shows panes, not views"
     // this whole model replaces.
+    const chatIdSet = new Set(chatIds)
     for (const id of [...chatIds]) {
       for (const mate of viewMates.get(id) ?? []) {
-        if (!claimed.has(mate) && !chatIds.includes(mate)) chatIds.push(mate)
+        if (!claimed.has(mate) && !chatIdSet.has(mate)) {
+          chatIds.push(mate)
+          chatIdSet.add(mate)
+        }
       }
     }
     for (const id of chatIds) claimed.add(id)

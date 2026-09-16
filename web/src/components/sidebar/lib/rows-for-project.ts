@@ -9,5 +9,10 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
  * it arrives, same as it already did in the flat, all-repos tree.
  */
 export function rowsForProject(repos: readonly Repo[], projectId: string): SidebarRow[] {
-  return repos.filter((r) => r.projectId === projectId).flatMap(rowsFromRepo)
+  const rows: SidebarRow[] = []
+  for (const r of repos) {
+    if (r.projectId !== projectId) continue
+    rows.push(...rowsFromRepo(r))
+  }
+  return rows
 }

@@ -403,7 +403,8 @@ export async function performImportBranches(
   if (branches.length === 0) return
   const projectId = projectIdForRepo(repoId)
   if (!projectId) return
-  const toLock = lockedBranches.filter((b) => branches.includes(b))
+  const branchSet = new Set(branches)
+  const toLock = lockedBranches.filter((b) => branchSet.has(b))
   const startLocking = armImportLockWatch(repoId, toLock)
   try {
     await importBranches(projectId, repoId, branches)

@@ -165,9 +165,10 @@ function planTreeRowDrop(
   const containerKind = containerNode?.kind ?? 'root'
 
   const lifted = new Set(subjects.map((s) => wsSpace(s.id)))
-  const rest = membersOf(roots, containerId)
-    .map((n) => n.id)
-    .filter((id) => !lifted.has(id))
+  const rest: string[] = []
+  for (const n of membersOf(roots, containerId)) {
+    if (!lifted.has(n.id)) rest.push(n.id)
+  }
   const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, targetId, mode)
 
   const calls: RowPlacementCall[] = []
@@ -435,9 +436,10 @@ function planHomeFolderDrop(
   const containerId = requested !== '' && !containerNode ? '' : requested
 
   const lifted = new Set(subjects.map((s) => s.id))
-  const rest = membersOf(roots, containerId)
-    .map((n) => n.id)
-    .filter((id) => !lifted.has(id))
+  const rest: string[] = []
+  for (const n of membersOf(roots, containerId)) {
+    if (!lifted.has(n.id)) rest.push(n.id)
+  }
   const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, targetId, mode)
 
   const calls: RowPlacementCall[] = []
