@@ -109,6 +109,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
   terminalListLive: vi.fn(async () => [] as string[]),
   terminalResize: vi.fn(async () => {}),
   onTransportDrop: () => () => {},
+  isTauri: () => false,
 }))
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({

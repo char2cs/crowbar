@@ -191,7 +191,7 @@ describe('lastLineTop', () => {
   // (composer.css's `--agent-header-clearance`) or the handle renders above
   // where the (padded-down) first line actually sits.
   it('adds headerClearancePx to the fallback position on a genuinely empty document', () => {
-    expect(lastLineTop(docWithParagraphs([]), 52)).toBeCloseTo(48 + 52 + 27.2)
+    expect(lastLineTop(docWithParagraphs([]), 52)).toBeCloseTo(48 + 52 + 23.8)
   })
 
   it('ignores headerClearancePx once there is a real last line to measure', () => {
@@ -226,16 +226,16 @@ describe('AgentEmptyDocument header clearance', () => {
     const { container } = draw({ headerClearancePx: 52 })
 
     const handle = container.querySelector('.dochandle') as HTMLElement
-    // 48 (doc's own top padding) + 52 (header clearance) + 27.2 (one line) + 4
-    // (HANDLE_LEAD), rounded — see firstLineTop/HANDLE_LEAD.
-    expect(handle.style.transform).toBe('translateY(131px)')
+    // 48 (doc's own top padding) + 52 (header clearance) + 23.8 (one line at
+    // 14px/1.7) + 4 (HANDLE_LEAD), rounded — see firstLineTop/HANDLE_LEAD.
+    expect(handle.style.transform).toBe('translateY(128px)')
   })
 
   it('matches the pre-existing placement when no overlay header is present', () => {
     const { container } = draw()
 
     const handle = container.querySelector('.dochandle') as HTMLElement
-    expect(handle.style.transform).toBe('translateY(79px)')
+    expect(handle.style.transform).toBe('translateY(76px)')
   })
 })
 
@@ -250,7 +250,7 @@ describe('AgentEmptyDocument header clearance', () => {
 // doing nothing in any chat at all. The listener must ignore selections that are
 // not inside THIS document.
 describe('AgentEmptyDocument selectionchange gating', () => {
-  const FALLBACK_TRANSFORM = 'translateY(79px)' // 48 + 27.2 + HANDLE_LEAD, rounded
+  const FALLBACK_TRANSFORM = 'translateY(76px)' // 48 + 23.8 + HANDLE_LEAD, rounded
 
   /**
    * Give the rendered `.doc` a measurable last line, so a `place()` that runs

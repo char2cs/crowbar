@@ -300,14 +300,18 @@ describe('SidebarTree', () => {
 
     const label = screen.getByText('Fix the thing')
     expect(label.className).not.toContain('text-muted-foreground')
-    const row = label.closest('[role="treeitem"]')
-    expect(row?.className).toContain('bg-sidebar-element-idle')
+    const row = label.closest('[role="treeitem"]') as HTMLElement
+    // Exact token match, not a substring: ROW_INACTIVE also carries
+    // `hover:bg-sidebar-element-idle`, and a bare `toContain` can't tell
+    // that hover-scoped variant apart from the always-on ground this row
+    // is actually asserting.
+    expect(row).toHaveClass('bg-sidebar-element-idle')
     // The folder row's chat never opened anywhere — no false-positive.
     const folderLabel = screen.getByText('Bugs')
     expect(folderLabel.className).not.toContain('text-muted-foreground')
-    expect(folderLabel.closest('[role="treeitem"]')?.className).not.toContain(
-      'bg-sidebar-element-idle',
-    )
+    const folderRow = folderLabel.closest('[role="treeitem"]') as HTMLElement
+    expect(folderRow).not.toHaveClass('bg-sidebar-element-idle')
+    expect(folderRow).toHaveClass('hover:bg-sidebar-element-idle')
   })
 
   it('does not grey or ground a chat row whose chat is not open in any pane', () => {
@@ -323,9 +327,12 @@ describe('SidebarTree', () => {
 
     const label = screen.getByText('Fix the thing')
     expect(label.className).not.toContain('text-muted-foreground')
-    expect(label.closest('[role="treeitem"]')?.className).not.toContain(
-      'bg-sidebar-element-idle',
-    )
+    const row = label.closest('[role="treeitem"]') as HTMLElement
+    // Same exact-token distinction as above: the row's hover-only ground
+    // (`hover:bg-sidebar-element-idle`, ROW_INACTIVE) is fine here — only
+    // the always-on ground (ROW_HAS_VIEW_IDLE) would be a false grounding.
+    expect(row).not.toHaveClass('bg-sidebar-element-idle')
+    expect(row).toHaveClass('hover:bg-sidebar-element-idle')
   })
 })
 

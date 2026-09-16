@@ -41,6 +41,7 @@ vi.mock('@/lib/crowbar-bridge', () => ({
       if (i >= 0) dropCallbacks.splice(i, 1)
     }
   },
+  isTauri: () => false,
 }))
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
