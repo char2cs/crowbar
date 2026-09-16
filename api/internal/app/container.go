@@ -84,7 +84,16 @@ func New(
 	// One eager axWorkspace singleton over the per-type event log, routing every
 	// workspace id to a shard by hash (decision 1) — replaces the per-entity
 	// AsynxFactory the repository used to resolve per workspace.
-	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES(), adapters.WorkspaceSS())
+	// SchemaVersion/StripRetiredPlacementFields: real production workspaces
+	// dragged or reordered before the sidebar-placement-unification migration
+	// carry /order and /folderId patches domain.Workspace no longer has fields
+	// for — see StripRetiredPlacementFields's own doc.
+	axWorkspace, err := newAsynx[domain.Workspace](adapters.WorkspaceES(), adapters.WorkspaceSS(),
+		func(b *asynx.Builder[domain.Workspace]) {
+			b.WithSchemaVersion(workspace.SchemaVersion).
+				WithUpcaster(1, workspace.StripRetiredPlacementFields)
+		},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("app: asynx workspace: %w", err)
 	}
