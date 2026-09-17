@@ -184,19 +184,29 @@ export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
 }
 
 /**
- * One repo's workspaces, read off its CHAT list.
+ * One repo's workspaces, straight off the real GET .../workspaces resource.
  *
- * There is no workspace resource to list any more: a worktree is held by a chat,
- * so the git half rides each chat row as `worktree` and this derives the
- * `WorkspaceDTO`s from it. Several rows can carry ONE worktree (a thread carries
- * its parent's workspaceId), so the mapping keeps only the owning row — see
- * `workspaceDTOFromChat` — and the result is still one DTO per worktree.
+ * This USED to derive WorkspaceDTOs from the chat list (a worktree rides each
+ * chat row as `worktree`) on the theory that there was no workspace resource
+ * left to list — every worktree is held by SOME chat, so deriving from chats
+ * was "just" a join. That theory breaks for a workspace with NO chat at all: a
+ * repo's own default checkout before anyone has chatted in it, or any locked
+ * tracking branch nobody ever opened a conversation in. Neither has a chat row
+ * to derive from, so the old join silently produced zero rows for them — not
+ * just missing branches, but a missing REPO HEADER (rows-from-repo.ts mints
+ * that from the default workspace) — reproduced live against real production
+ * data: an entire repo, and a repo's own other locked branches, absent from
+ * the sidebar.
+ *
+ * The live half (an open chat's `worktree_state` frames, `workspaceDTOFromChat`
+ * below) is unaffected — it only ever refreshes a workspace already in the
+ * store, never discovers one — so it is untouched.
  */
 export async function fetchWorkspaces(projectId: string, repoId: string): Promise<WorkspaceDTO[]> {
-  const rows = await apiFetch<RepoChatWireDTO[]>(`/v0/projects/${projectId}/repos/${repoId}/chats`)
-  return (rows ?? [])
-    .map((row) => workspaceDTOFromChat(row, projectId, repoId))
-    .filter((ws): ws is WorkspaceDTO => ws !== null)
+  const rows = await apiFetch<WorkspaceDTO[]>(
+    `/v0/projects/${projectId}/repos/${repoId}/workspaces`,
+  )
+  return rows ?? []
 }
 
 /**
