@@ -203,7 +203,9 @@ export function fetchRepos(projectId: string): Promise<RepoDTO[]> {
  * store, never discovers one — so it is untouched.
  */
 export async function fetchWorkspaces(projectId: string, repoId: string): Promise<WorkspaceDTO[]> {
-  const rows = await apiFetch<WorkspaceDTO[]>(`/v0/projects/${projectId}/repos/${repoId}/workspaces`)
+  const rows = await apiFetch<WorkspaceDTO[]>(
+    `/v0/projects/${projectId}/repos/${repoId}/workspaces`,
+  )
   return rows ?? []
 }
 
