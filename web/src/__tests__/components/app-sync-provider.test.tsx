@@ -58,6 +58,7 @@ const project = (id: string): Project => ({
 
 interface StreamOptions {
   endpoint: string
+  seed?: () => Promise<unknown>
   onChange?: (change: EntityChange) => void
 }
 
@@ -133,7 +134,11 @@ beforeEach(() => {
     collapsedRepos: new Set<string>(),
     collapsedProjects: new Set<string>(),
   })
-  useFolderSignalStore.setState({ generations: {} })
+  // seededWorkspaceRepoIds reset too: several tests below reuse the ids
+  // 'r1'/'r2' across `it` blocks, and this set is never removed from once an
+  // id is added (folder-signal.ts's own doc), so a later test's "fresh"
+  // repo would otherwise inherit an earlier test's seeded state.
+  useFolderSignalStore.setState({ generations: {}, seededWorkspaceRepoIds: new Set() })
   vi.spyOn(useProjectDataStore.getState(), 'fetch').mockResolvedValue(undefined)
   vi.spyOn(useProjectDataStore.getState(), 'startSync').mockReturnValue(() => {})
   vi.spyOn(useWorkspaceListStore.getState(), 'fetch').mockResolvedValue(undefined)
@@ -340,9 +345,11 @@ describe('AppSyncProvider subscribes by visibility', () => {
     expect(endpoints().filter((e) => e === '/v0/projects/p2/repos').length).toBe(openedCount)
   })
 
-  // A repo's worktrees ride its CHAT stream now — a worktree is held by a chat,
-  // so `.../chats/ws` is where its `worktree_state` frames arrive; there is no
-  // `.../workspaces` stream left to open.
+  // A repo's worktrees seed off the real GET .../workspaces resource and then
+  // ride the repo's CHAT stream for live updates — a worktree a chat owns
+  // gets its `worktree_state` frames on `.../chats/ws`, which is the one
+  // endpoint this suite can see opening/closing (fetchWorkspaces itself is
+  // asserted directly in read-hierarchical.test.ts).
   it("subscribes a visible project's repo worktree streams, and not a collapsed repo's", async () => {
     render(
       <AppSyncProvider>
@@ -358,6 +365,15 @@ describe('AppSyncProvider subscribes by visibility', () => {
     expect(endpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
     expect(endpoints()).toContain('/v0/projects/p1/repos/r2/chats/ws')
 
+    // Let both seeds land — desiredKeys' neverSeededWorkspaces bypass only
+    // applies until a repo's workspace list has actually come back once
+    // (folder-signal.ts). Without this, r2 would never be eligible to close
+    // below no matter how it collapses.
+    await act(async () => {
+      await streamFor('/v0/projects/p1/repos/r1/chats/ws')!.options.seed!()
+      await streamFor('/v0/projects/p1/repos/r2/chats/ws')!.options.seed!()
+    })
+
     act(() => {
       useSidebarStore.getState().toggleRepo('r2')
     })
@@ -365,6 +381,34 @@ describe('AppSyncProvider subscribes by visibility', () => {
 
     expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
     expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r2/chats/ws')
+  })
+
+  // TestRegression: a repo that starts COLLAPSED — every repo besides the one
+  // you were last working in, on a fresh boot — used to never open its
+  // workspaces stream at all, because it followed the exact same
+  // `showsRows` gate the tree (folders+chats) stream uses. rowsFromRepo mints
+  // a repo's own HEADER row from its default workspace, so that repo rendered
+  // NOTHING — not a hidden body, a missing repo. Reproduced live against real
+  // production data: every repo besides the active one absent from the
+  // sidebar. neverSeededWorkspaces (desiredKeys, folder-signal.ts) fetches it
+  // once regardless of collapse; the PRECEDING test proves that bypass turns
+  // itself back off once seeded, so this one only needs to prove it fires at
+  // all for a repo collapsed from the start.
+  it('still fetches a repo’s workspaces once even if it starts collapsed', async () => {
+    useSidebarStore.setState({ collapsedRepos: new Set(['r1']) })
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+
+    act(() => {
+      useSidebarStore.getState().setRepos([repo('r1', 'p1')])
+    })
+    await settle()
+
+    expect(endpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
   })
 
   // Task 34: folders no longer open a WS subscription at all (their dedicated
@@ -464,6 +508,14 @@ describe('AppSyncProvider subscribes by visibility', () => {
     })
     await settle(SUBSCRIPTION_GRACE_MS)
     expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
+
+    // Let the seed land — see the identical note in the "not a collapsed
+    // repo's" test above. Without this, r1 would stay open below for the
+    // wrong reason (neverSeededWorkspaces) rather than the one this test
+    // actually means to prove (defaultWorking).
+    await act(async () => {
+      await streamFor('/v0/projects/p1/repos/r1/chats/ws')!.options.seed!()
+    })
 
     act(() => {
       useSidebarStore.getState().setRepos([repo('r1', 'p1', { defaultWorking: false })])
