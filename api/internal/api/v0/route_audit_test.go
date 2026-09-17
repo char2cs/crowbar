@@ -261,6 +261,18 @@ func extraRoutes() []string {
 		"DELETE /v0/projects/:projectId/icon",
 		"PUT /v0/projects/:projectId/icon/emoji",
 		"GET " + repo + "/branches",
+		// Every workspace row in the repo, chat or no chat — restored after
+		// live-reproduced evidence that the chat-scoped API redesign's own
+		// assumption (§8 step 6, "list and detail became the chat DTO's own
+		// worktree field") does not hold for a workspace with NO chat at
+		// all: a repo's own default checkout, or any locked tracking branch
+		// nobody has chatted in, had no chat to derive a DTO from and so
+		// never appeared in the sidebar — not just missing content, but a
+		// missing REPO HEADER, since that row is minted from the default
+		// workspace. See handlers.Workspaces (worktree.go) and
+		// TestRouteAudit_NoWorkspaceGroupRoutes's own note on why this is
+		// the one route of the original thirteen NOT staying deleted.
+		"GET " + repo + "/workspaces",
 		// A route that shipped without ever being declared here — the exact drift
 		// this audit exists to catch, caught late because the audit is behind the
 		// `integration` build tag and so does not run in the default
@@ -627,11 +639,23 @@ func TestRouteAudit_NoLegacyWsRoutes(t *testing.T) {
 }
 
 // TestRouteAudit_NoWorkspaceGroupRoutes is the proof the chat-scoped API spec's
-// §8 step 6 deletion is real: not one of the thirteen routes the `workspaces`
-// endpoint group mounted is registered any more. Every one had a chat-keyed
-// replacement live and in use before it went (the .../chats/:id verbs and the
-// chat DTO's own worktree field), so a re-mount here is a regression, not a
-// fallback.
+// §8 step 6 deletion is real for TWELVE of the thirteen routes the original
+// `workspaces` endpoint group mounted. Every one of those twelve had a
+// chat-keyed replacement live and in use before it went (the .../chats/:id
+// verbs and the chat DTO's own worktree field), so a re-mount of any of them
+// here is a regression, not a fallback.
+//
+// The thirteenth, GET .../repos/:repoId/workspaces (the LIST), is deliberately
+// back (extraRoutes(), handlers.Workspaces in worktree.go): live evidence
+// against real production data showed the chat-derived replacement's own
+// assumption does not hold when a workspace has NO chat at all — a repo's own
+// default checkout, or any locked tracking branch nobody has chatted in, had
+// nothing to derive a DTO from and simply never existed on the frontend,
+// taking the repo's own header row with it (rows-from-repo.ts mints that from
+// the default workspace). The chat-keyed detail route (GET .../chats/:id,
+// whose DTO carries the worktree) still covers everything this list's OWN
+// twin, GET .../workspaces/:wsId, used to answer alone, so only the LIST half
+// needed reviving.
 //
 // It also pins what deliberately SURVIVES a deletion the original spec text
 // expected to take with it. GET /home serves a genuinely distinct concept — a
@@ -646,7 +670,6 @@ func TestRouteAudit_NoWorkspaceGroupRoutes(t *testing.T) {
 	const repo = "/v0/projects/:projectId/repos/:repoId"
 	const ws = repo + "/workspaces/:wsId"
 	deleted := []string{
-		"GET " + repo + "/workspaces",
 		"GET " + ws,
 		"POST " + repo + "/workspaces",
 		"POST " + repo + "/workspaces/import",
@@ -660,13 +683,18 @@ func TestRouteAudit_NoWorkspaceGroupRoutes(t *testing.T) {
 		"POST " + ws + "/retry-provision",
 		"POST " + ws + "/detach-holder",
 	}
-	require.Len(t, deleted, 13, "the group mounted thirteen routes; all thirteen must be checked")
+	require.Len(t, deleted, 12, "the group mounted thirteen routes; twelve stay deleted (the LIST route came back)")
 	for _, r := range deleted {
 		_, ok := got[r]
 		assert.Falsef(t, ok, "deleted workspaces-group route is still registered: %s", r)
 	}
 
-	// The chat-keyed replacements every one of those was retired in favour of.
+	// The one route of the original thirteen that came back, deliberately.
+	_, listRestored := got["GET "+repo+"/workspaces"]
+	assert.True(t, listRestored, "the workspace LIST route must be registered — see this test's own doc")
+
+	// The chat-keyed replacements every one of the twelve still-deleted routes
+	// was retired in favour of.
 	for _, r := range []string{
 		"POST " + repo + "/chats",
 		"GET " + repo + "/chats",

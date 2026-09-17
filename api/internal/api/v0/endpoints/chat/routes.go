@@ -111,6 +111,13 @@ func Register(
 
 	repoScoped.POST("/chats", h.Create)
 	repoScoped.GET("/chats", h.List)
+	// Every workspace row in this repo, chat or no chat — restores the
+	// resource fetchWorkspaces's own doc (web/src/lib/api.ts) says was
+	// retired in favour of deriving workspaces from the chat list. A repo's
+	// own default checkout and any never-chatted-in locked branch have no
+	// chat to derive from, so that path alone can never surface them (see
+	// Workspaces' own doc, worktree.go).
+	repoScoped.GET("/workspaces", h.Workspaces)
 	repoScoped.GET("/chats/:id", h.Get)
 	repoScoped.GET("/chats/:id/messages", h.Messages)
 	repoScoped.POST("/chats/:id/prompts", h.SubmitPrompt)

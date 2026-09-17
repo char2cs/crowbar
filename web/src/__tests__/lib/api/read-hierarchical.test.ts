@@ -228,68 +228,62 @@ describe('workspaceDTOFromWorktreeFrame', () => {
 })
 
 describe('fetchWorkspaces', () => {
-  it('GETs the repo CHAT list and derives the WorkspaceDTOs from it', async () => {
-    fetchMock.mockResolvedValue(jsonResponse([chatRow({ worktree: worktree() })]))
+  const dto = (over: Partial<WorkspaceDTO> = {}): WorkspaceDTO => ({
+    id: 'w1',
+    repoId: 'r1',
+    projectId: 'p1',
+    branch: 'feature/x',
+    parentId: '',
+    forkPointSha: '',
+    status: 'new',
+    working: false,
+    lastError: '',
+    isDefault: false,
+    added: 0,
+    deleted: 0,
+    mergeStrategy: 'squash',
+    canMergeLocally: true,
+    mergeConflicts: false,
+    parentBranch: '',
+    prUrl: '',
+    prTitle: '',
+    prTargetBranch: '',
+    localPath: '',
+    heldByPath: '',
+    owningChatId: 'c1',
+    folderId: '',
+    order: 0,
+    ...over,
+  })
+
+  it('GETs the real .../workspaces resource and returns it as-is', async () => {
+    const workspaces = [dto()]
+    fetchMock.mockResolvedValue(jsonResponse(workspaces))
     const result = await fetchWorkspaces('p1', 'r1')
     const [url] = fetchMock.mock.calls[0] as [string]
-    expect(url).toBe('/v0/projects/p1/repos/r1/chats')
-    expect(result).toEqual([
-      {
-        id: 'w1',
-        repoId: 'r1',
-        projectId: 'p1',
-        branch: 'feature/x',
-        parentId: '',
-        forkPointSha: '',
-        status: 'new',
-        working: false,
-        lastError: '',
-        isDefault: false,
-        added: 0,
-        deleted: 0,
-        mergeStrategy: 'squash',
-        canMergeLocally: true,
-        mergeConflicts: false,
-        parentBranch: '',
-        prUrl: '',
-        prTitle: '',
-        prTargetBranch: '',
-        localPath: '',
-        heldByPath: '',
-        owningChatId: 'c1',
-        folderId: '',
-        order: 0,
-      } satisfies WorkspaceDTO,
-    ])
+    expect(url).toBe('/v0/projects/p1/repos/r1/workspaces')
+    expect(result).toEqual(workspaces)
   })
 
-  it('yields ONE workspace per worktree even when several chats share it', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse([
-        chatRow({ worktree: worktree() }),
-        // A thread of c1 — same workspace, same worktree object, same owner.
-        chatRow({ id: 'c2', parentId: 'c1', type: 'chat', worktree: worktree() }),
-        // A second thread, two levels down. Still c1's worktree.
-        chatRow({ id: 'c3', parentId: 'c2', type: 'chat', worktree: worktree() }),
-        // A bubble that holds nothing.
-        chatRow({ id: 'c4', workspaceId: '', type: 'chat' }),
-        // A second worktree, with its own owning row.
-        chatRow({
-          id: 'c5',
-          workspaceId: 'w2',
-          type: 'chat',
-          worktree: worktree({ branch: 'feature/y', owningChatId: 'c5' }),
-        }),
-      ]),
-    )
-
+  // TestRegression: fetchWorkspaces used to derive WorkspaceDTOs from the
+  // repo's chat list, on the theory that every worktree worth showing has a
+  // chat to derive it from. That theory breaks for a workspace with NO chat
+  // at all — a repo's own default checkout before anyone has chatted in it,
+  // or a locked tracking branch nobody ever opened a conversation in — which
+  // had no chat row to derive from and so never appeared anywhere, taking the
+  // repo's own header row with it (rows-from-repo.ts mints that from the
+  // default workspace). Reproduced live against real production data. The
+  // real resource has no such blind spot: it reports the workspace with
+  // owningChatId: '', which rows-from-repo.ts already renders as an unfolded
+  // branch row.
+  it('includes a workspace with no owning chat at all', async () => {
+    const workspaces = [dto({ id: 'w1', isDefault: true, owningChatId: '' })]
+    fetchMock.mockResolvedValue(jsonResponse(workspaces))
     const result = await fetchWorkspaces('p1', 'r1')
-    expect(result.map((ws) => ws.id)).toEqual(['w1', 'w2'])
-    expect(result.map((ws) => ws.owningChatId)).toEqual(['c1', 'c5'])
-    expect(result.map((ws) => ws.branch)).toEqual(['feature/x', 'feature/y'])
+    expect(result).toEqual(workspaces)
   })
 
-  it('returns an empty list when the repo has no chats at all', async () => {
+  it('returns an empty list when the repo has no workspaces at all', async () => {
     fetchMock.mockResolvedValue(jsonResponse(null))
     await expect(fetchWorkspaces('p1', 'r1')).resolves.toEqual([])
   })

@@ -4,6 +4,9 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/gin-gonic/gin"
+
+	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -264,4 +267,70 @@ func (s *worktreeScope) owner(
 	}
 	s.owners[c.WorkspaceID] = owner
 	return owner
+}
+
+// Workspaces handles GET .../repos/:repoId/workspaces: every workspace row in
+// the repo, chat or no chat.
+//
+// This is the resource fetchWorkspaces's own doc (web/src/lib/api.ts) says
+// does not exist any more — workspaces have been derived from the chat list
+// since the chat-scoped API redesign, on the assumption that every worktree
+// worth showing has a chat to derive it from. That assumption breaks for a
+// repo's own default/main checkout and for any locked tracking branch nobody
+// has ever chatted in: no chat, no derived DTO, no row — not just missing
+// content but a missing REPO HEADER, since rows-from-repo.ts mints that from
+// the default workspace. Caught live: an entire repo (and a repo's own other
+// locked branches) silently absent from the sidebar the instant it had no
+// chats, reproduced against a real production data set.
+//
+// Reuses the exact same worktreeScope/WorkspaceDTOFrom machinery
+// repoWorktrees already built for the chat-derived path — same eligibility
+// resolution, same placement overlay, same DTO shape — so a workspace looks
+// identical whether the client learns of it through a chat or through this
+// route directly. ownerOf resolves each row's owning chat id the same way
+// worktreeScope.owner does, minus the "start from a known chat" shortcut: a
+// workspace with no chats at all — the exact row this route exists to
+// surface — legitimately owns none, and reports "" rather than a fabricated
+// id.
+func (h *Handlers) Workspaces(
+	ctx *gin.Context,
+) {
+	rctx := ctx.Request.Context()
+	projectID, repoID := ctx.Param("projectId"), ctx.Param("repoId")
+
+	if h.worktrees == nil {
+		libs.WriteQueryOK(ctx, []dto.WorkspaceDTO{})
+		return
+	}
+	rows, err := h.worktrees.ListInRepo(rctx, projectID, repoID)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+
+	owners := map[string]string{}
+	ownerOf := func(w domain.Workspace) string {
+		if owner, ok := owners[w.ID]; ok {
+			return owner
+		}
+		owner := ""
+		if chatRows, cErr := h.chats.ListChatsByWorkspace(rctx, w.ID); cErr == nil {
+			if resolved, found := domain.ResolveOwningChat(chatRows); found {
+				owner = resolved.ID
+			}
+		}
+		owners[w.ID] = owner
+		return owner
+	}
+
+	libs.WriteQueryOK(ctx, dto.WorkspaceDTOList(
+		rctx,
+		rows,
+		func(w domain.Workspace) workspace.MergeEligibility {
+			return h.worktrees.MergeEligibilityFor(rctx, w, rows)
+		},
+		ownerOf,
+		h.placementReader(),
+	))
 }
