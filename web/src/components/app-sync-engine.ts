@@ -266,6 +266,11 @@ export function useAppSyncEngine(): void {
       if (disposed) return
       if (change.kind === 'seed') {
         scheduleRebuild()
+        // A repo that was seeded only because it had never been (see
+        // desiredKeys' neverSeededWorkspaces) may now be collapsed AND
+        // already seeded — reconcile so its subscription can close on this
+        // same tick rather than waiting on some unrelated store mutation.
+        reconcile()
         return
       }
       // THE hot path. A workspace frame carries a complete DTO, so it can be
@@ -449,12 +454,13 @@ export function useAppSyncEngine(): void {
       if (kind === 'hometree') {
         return subscribeHomeTree(projectId)
       }
-      // A repo's worktrees, read and pushed through its CHATS. There is no
-      // workspace resource left to subscribe: a worktree is held by a chat, so
-      // the seed is the chat list (`fetchWorkspaces` derives the DTOs from it)
-      // and the live half is the repo-wide chat lifecycle feed, whose
-      // `worktree_state` frames carry the worktree nested inside them. Every
-      // other kind on that socket maps to null and is ignored.
+      // A repo's worktrees: the seed reads the real GET .../workspaces
+      // resource directly (fetchWorkspaces, api.ts — restored after chat
+      // derivation left a chatless workspace, including a repo's own default
+      // checkout, unreachable), and the live half is the repo-wide chat
+      // lifecycle feed, whose `worktree_state` frames carry the worktree
+      // nested inside them for the workspaces a chat DOES own. Every other
+      // kind on that socket maps to null and is ignored.
       //
       // This feed resolves no single workspace, so — exactly as the old
       // repo-level workspace LIST stream did not — it never starts the daemon's
@@ -463,7 +469,14 @@ export function useAppSyncEngine(): void {
       return subscribeEntityStream<WorkspaceDTO>({
         endpoint: `/v0/projects/${projectId}/repos/${repoId}/chats/ws`,
         store: 'crowbar_workspaces',
-        seed: () => fetchWorkspaces(projectId, repoId),
+        seed: async () => {
+          const rows = await fetchWorkspaces(projectId, repoId)
+          // AFTER a successful fetch, not before: desiredKeys' own
+          // neverSeededWorkspaces bypass must keep applying for every
+          // attempt until one actually lands.
+          useFolderSignalStore.getState().markWorkspacesSeeded(repoId)
+          return rows
+        },
         mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repoId),
         shouldReseed: isStructuralChatFolderFrame,
         onChange: onWorkspacesChange,
@@ -532,14 +545,32 @@ export function useAppSyncEngine(): void {
         // would freeze it on, which is worse than not showing it at all.
         const hasLiveWorkToReport = repo.defaultWorking === true
         const showsRows = !collapsedRepos.has(repo.id) || holdsActiveWorkspace
-        if (showsRows || hasLiveWorkToReport) {
+        // A repo whose workspace list has NEVER come back also ignores
+        // collapse, once: rowsFromRepo mints that repo's own HEADER row from
+        // its default workspace, so a repo that starts collapsed (persisted
+        // `collapsedRepos` — every repo besides the one you were last in)
+        // must still fetch its workspaces at least once, or it renders
+        // NOTHING at all, header included (folder-signal.ts's
+        // seededWorkspaceRepoIds doc). Fetching once is cheap now — a single
+        // GET .../workspaces (see fetchWorkspaces, api.ts), not the old
+        // per-chat derivation this exemption would have made too costly to
+        // widen. Once seeded it stops applying, so a repo the user collapses
+        // AFTER seeding still drops its live connection exactly as before —
+        // see the "not a collapsed repo's" test.
+        const neverSeededWorkspaces = !useFolderSignalStore
+          .getState()
+          .seededWorkspaceRepoIds.has(repo.id)
+        if (showsRows || hasLiveWorkToReport || neverSeededWorkspaces) {
           keys.add(workspacesKey(projectId, repo.id))
         }
         // Folders and chat rows are pure structure — they carry no spinner, no
         // status, nothing a collapsed repo still paints — so they stop at
         // `showsRows` rather than following the workspace stream's live-work
         // exemption above. (A chat row deliberately carries no `working` either;
-        // see rows-from-repo.ts.)
+        // see rows-from-repo.ts.) Deliberately NOT widened by
+        // neverSeededWorkspaces: a repo's HEADER needs the workspace list, but
+        // its full tree (folders + every chat) stays exactly as lazy as
+        // "costs nothing for a repo nobody has expanded yet" already requires.
         if (showsRows) keys.add(treeKey(projectId, repo.id))
       }
       return keys

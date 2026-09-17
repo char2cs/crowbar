@@ -56,6 +56,29 @@ interface FolderSignalState {
    *  the SAME set when the repo is already known, so a reseed that changes
    *  nothing costs no subscriber a render. */
   markTreeSeeded: (repoId: string) => void
+  /**
+   * Repos whose WORKSPACE list has come back from the daemon at least once —
+   * the separate signal `app-sync-engine.ts`'s `desiredKeys()` consults so a
+   * repo that starts COLLAPSED (persisted `collapsedRepos`, e.g. every repo
+   * besides the one you were last working in) still fetches its workspaces
+   * exactly once, regardless of collapse.
+   *
+   * Without this, a collapsed repo's `workspaces` subscription never opens at
+   * all (it follows the same `showsRows` gate the tree subscription uses),
+   * so `repo.workspaces` stays empty forever and `rows-from-repo.ts` never
+   * mints even that repo's OWN header row (minted from its default
+   * workspace) — not a hidden body, a missing repo. Reproduced live: every
+   * repo besides the currently-active one absent from the sidebar.
+   *
+   * Deliberately a SEPARATE set from `seededRepoIds` above: that one tracks
+   * the tree (folders+chats) reseed loop, a genuinely different subscription
+   * with its own (still fully collapse-gated) cost tradeoff — this signal
+   * only widens the workspaces gate, once, per repo.
+   */
+  seededWorkspaceRepoIds: ReadonlySet<string>
+  /** Record that `repoId`'s workspace list has been read. Idempotent, same
+   *  shape as `markTreeSeeded`. */
+  markWorkspacesSeeded: (repoId: string) => void
 }
 
 export const useFolderSignalStore = create<FolderSignalState>()(
@@ -71,6 +94,13 @@ export const useFolderSignalStore = create<FolderSignalState>()(
         state.seededRepoIds.has(repoId)
           ? state
           : { seededRepoIds: new Set([...state.seededRepoIds, repoId]) },
+      ),
+    seededWorkspaceRepoIds: NO_REPOS,
+    markWorkspacesSeeded: (repoId) =>
+      set((state) =>
+        state.seededWorkspaceRepoIds.has(repoId)
+          ? state
+          : { seededWorkspaceRepoIds: new Set([...state.seededWorkspaceRepoIds, repoId]) },
       ),
   })),
 )

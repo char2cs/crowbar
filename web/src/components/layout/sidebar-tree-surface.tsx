@@ -95,9 +95,22 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   // else here still reads the FULL `repos` — resolving, opening and dropping a
   // row are questions about the repo, not about its rows.
   const seededRepoIds = useFolderSignalStore((s) => s.seededRepoIds)
+  // A repo whose WORKSPACES have seeded (folder-signal.ts's
+  // seededWorkspaceRepoIds — app-sync-engine.ts fetches this once regardless
+  // of collapse now) is admitted too, even before its TREE has. Its own
+  // header/branch rows are safe to draw from workspace data alone: a
+  // WorkspaceDTO's `owningChatId` is already backend-resolved (dto.
+  // WorkspaceDTOFrom), so a row's id is the SAME one this tree would settle
+  // on once chats/folders also arrive — never the "id changes under you"
+  // case the comment above warns about, which is about a row whose identity
+  // can ONLY be resolved by scanning chats. Without this, a collapsed repo's
+  // rows never draw at all: not a hidden body, a missing repo — reproduced
+  // live against real production data. Loose/extra chats and thread
+  // nesting (which genuinely do need the tree) simply wait, same as before.
+  const seededWorkspaceRepoIds = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
   const treeRepos = useMemo(
-    () => repos.filter((r) => seededRepoIds.has(r.id)),
-    [repos, seededRepoIds],
+    () => repos.filter((r) => seededRepoIds.has(r.id) || seededWorkspaceRepoIds.has(r.id)),
+    [repos, seededRepoIds, seededWorkspaceRepoIds],
   )
   // Every row across every project — SidebarRowContextMenu/RenameDialog look
   // up a row by id regardless of which project's panel drew it (a row's id
