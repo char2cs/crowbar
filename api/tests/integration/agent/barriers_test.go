@@ -568,7 +568,7 @@ func acknowledgeClaudeTrust(
 		if err := h.eng.Terminal.Write(context.Background(), termSessID, key); err != nil {
 			t.Fatalf("settleCLI: %s: %v", what, err)
 		}
-		settleClaudeTrustKey(tap)
+		settleClaudeTrustKey(tap, deadline)
 
 		if time.Now().After(deadline) {
 			t.Fatalf("settleCLI: claude never left its trust dialog. Its screen was:\n%s",
@@ -581,11 +581,23 @@ func acknowledgeClaudeTrust(
 // finished having its effect: either claude has painted its composer footer (the
 // dialog is gone and there is nothing left to settle), or the screen has stopped
 // changing, so the LAST selection row on it is the one claude is really sitting on.
+//
+// Bounded by deadline (the same one acknowledgeClaudeTrust already computes): a
+// claude that keeps repainting SOMETHING within every claudeTrustSettle window —
+// observed live, a persistent status/telemetry animation on some builds — never
+// goes quiet, and paintedSince alone would then loop here forever, past the
+// caller's own deadline check on line below it, which never gets a turn to run.
+// Returning once the deadline passes hands control back to that check instead of
+// silently absorbing it.
 func settleClaudeTrustKey(
 	tap *kit.PTYTap,
+	deadline time.Time,
 ) {
 	for {
 		if tap.Contains(claudeReadyNeedle) {
+			return
+		}
+		if time.Now().After(deadline) {
 			return
 		}
 		if !paintedSince(tap, tap.Mark(), claudeTrustSettle) {
