@@ -49,8 +49,16 @@ function findTopLeftPaneTopRow(): DOMRect | null {
  * the call, so a window that had sidebar-right in a previous session (a
  * runtime move persists — there is no "reset to config" on the OS side)
  * still lands back on it.
+ *
+ * `themeKey` must change on every real theme switch (e.g. `${theme}:${themeMode}`).
+ * Applying a theme pins the vibrancy view's NSAppearance (set_vibrancy_appearance),
+ * and AppKit relayouts the title bar's standard-button frames as a side effect of
+ * that — undoing whatever this hook last set. Re-running on theme change reapplies
+ * over that native reset; it does not touch the MutationObserver above, which
+ * exists only for the separate cold-boot case (pane tree not mounted yet) and
+ * still disconnects once it finds a row, on every effect run alike.
  */
-export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right'): void {
+export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right', themeKey: string): void {
   useEffect(() => {
     if (!IS_MAC) return
 
@@ -83,5 +91,5 @@ export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right'): void 
       window.removeEventListener('resize', apply)
       observer?.disconnect()
     }
-  }, [sidebarPosition])
+  }, [sidebarPosition, themeKey])
 }

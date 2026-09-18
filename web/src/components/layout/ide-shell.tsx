@@ -51,9 +51,14 @@ export function IDEShell() {
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const sidebarSide = sidebarPosition === 'right' ? 'right' : 'left'
+  const theme = useSettingsStore((state) => state.settings.theme)
+  const themeMode = useSettingsStore((state) => state.settings.themeMode)
   // macOS only, and only meaningful once the pane/sidebar chrome below is on
   // screen to measure — see the hook's own doc for the geometry it re-derives.
-  useMacTrafficLightSync(sidebarSide)
+  // themeKey re-runs the sync after every theme switch: applying a theme pins
+  // the native vibrancy view's appearance, which resets the traffic lights as
+  // a side effect (see the hook's own doc).
+  useMacTrafficLightSync(sidebarSide, `${theme}:${themeMode}`)
   const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
 
   // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the

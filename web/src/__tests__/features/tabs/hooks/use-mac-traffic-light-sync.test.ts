@@ -42,7 +42,7 @@ describe('useMacTrafficLightSync', () => {
   })
 
   it('sidebar-left restores the exact static config value, even with no pane row mounted', async () => {
-    renderHook(() => useMacTrafficLightSync('left'))
+    renderHook(() => useMacTrafficLightSync('left', 'crowbar:dark'))
     await act(async () => {})
 
     expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 23 })
@@ -51,7 +51,7 @@ describe('useMacTrafficLightSync', () => {
   it("sidebar-right translates the static value by the top-left row's own live offset", async () => {
     addPaneTopRow({ left: 0, top: 10, width: 400, height: 44 })
 
-    renderHook(() => useMacTrafficLightSync('right'))
+    renderHook(() => useMacTrafficLightSync('right', 'crowbar:dark'))
     await act(async () => {})
 
     // Static (12, 23) tuned for a rect.top=0 row; this row sits 10px lower,
@@ -63,7 +63,7 @@ describe('useMacTrafficLightSync', () => {
     // Present, but nowhere near the window's top-left corner.
     addPaneTopRow({ left: 500, top: 300, width: 400, height: 44 })
 
-    renderHook(() => useMacTrafficLightSync('right'))
+    renderHook(() => useMacTrafficLightSync('right', 'crowbar:dark'))
     await act(async () => {})
 
     expect(invoke).not.toHaveBeenCalled()
@@ -71,7 +71,7 @@ describe('useMacTrafficLightSync', () => {
 
   it('re-applies on window resize', async () => {
     addPaneTopRow({ left: 0, top: 10, width: 400, height: 44 })
-    renderHook(() => useMacTrafficLightSync('right'))
+    renderHook(() => useMacTrafficLightSync('right', 'crowbar:dark'))
     await act(async () => {})
     invoke.mockClear()
 
@@ -85,7 +85,7 @@ describe('useMacTrafficLightSync', () => {
   it('retries once a pane-top-row mounts after cold boot, with no row present yet', async () => {
     // Cold-boot regression: sidebarPosition can rehydrate to 'right' before
     // the pane tree has mounted anything at all.
-    renderHook(() => useMacTrafficLightSync('right'))
+    renderHook(() => useMacTrafficLightSync('right', 'crowbar:dark'))
     await act(async () => {})
 
     expect(invoke).not.toHaveBeenCalled()
@@ -106,7 +106,7 @@ describe('useMacTrafficLightSync', () => {
     addPaneTopRow({ left: 0, top: 0, width: 0, height: 0 })
     addPaneTopRow({ left: 0, top: 10, width: 400, height: 44 })
 
-    renderHook(() => useMacTrafficLightSync('right'))
+    renderHook(() => useMacTrafficLightSync('right', 'crowbar:dark'))
     await act(async () => {})
 
     expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 33 })
@@ -114,13 +114,30 @@ describe('useMacTrafficLightSync', () => {
 
   it('re-applies when sidebarPosition flips from right back to left', async () => {
     addPaneTopRow({ left: 0, top: 10, width: 400, height: 44 })
-    const { rerender } = renderHook(({ side }) => useMacTrafficLightSync(side), {
+    const { rerender } = renderHook(({ side }) => useMacTrafficLightSync(side, 'crowbar:dark'), {
       initialProps: { side: 'right' as 'left' | 'right' },
     })
     await act(async () => {})
     invoke.mockClear()
 
     rerender({ side: 'left' })
+    await act(async () => {})
+
+    expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 23 })
+  })
+
+  it('re-applies the same position after a theme switch, undoing the native reset', async () => {
+    // Regression: switching Theme Mode pins the vibrancy view's NSAppearance
+    // (set_vibrancy_appearance), and AppKit resets the standard button frames
+    // as a side effect. Without themeKey in the dependency array, this effect
+    // never re-ran and the traffic lights stayed stuck at their OS default.
+    const { rerender } = renderHook(({ themeKey }) => useMacTrafficLightSync('left', themeKey), {
+      initialProps: { themeKey: 'crowbar:system' },
+    })
+    await act(async () => {})
+    invoke.mockClear()
+
+    rerender({ themeKey: 'crowbar:dark' })
     await act(async () => {})
 
     expect(invoke).toHaveBeenCalledWith('set_traffic_light_position', { x: 12, y: 23 })
