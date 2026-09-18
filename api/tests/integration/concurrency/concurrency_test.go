@@ -150,16 +150,31 @@ func (s *ConcurrencySuite) httpGitStatusClean(
 func (s *ConcurrencySuite) TestConcurrency_ParallelWorkspaceCreatesDoNotRaceBroadcaster() {
 	t := s.T()
 	const n = 30
+	// A start barrier, not just a tight dispatch loop (same reasoning as the
+	// home-resolve race below): lining every goroutine up on one channel close
+	// is what actually forces the overlap this test exists to catch, rather
+	// than hoping ordinary scheduling staggers them into it.
+	ready := make(chan struct{})
 	var wg sync.WaitGroup
 	for i := range n {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
+			<-ready
 			branch := fmt.Sprintf("feature/fanout-%d", idx)
-			s.Env.CreateWorkspaceWithChat(t, s.imported.ProjectID, s.imported.RepoID, branch, "")
+			// Concurrent, not CreateWorkspaceWithChat: that variant's trailing
+			// Quiesce() sets the shared chat dispatcher's waiting flag, which
+			// asynx uses to refuse EVERY other in-flight Dispatch for its
+			// duration (Dispatcher.WaitIdle) — safe for one caller, but N
+			// siblings racing that flag concurrently intermittently refused
+			// each other's own mint/attach/place commands with
+			// ErrDispatcherClosed, which is what this test exists to catch.
+			s.Env.CreateWorkspaceWithChatConcurrent(t, s.imported.ProjectID, s.imported.RepoID, branch, "")
 		}(i)
 	}
+	close(ready)
 	wg.Wait()
+	s.Env.Quiesce()
 }
 
 // TestConcurrency_ParallelHomeResolvesProvisionExactlyOneWorkspace is the

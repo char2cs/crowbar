@@ -1187,6 +1187,26 @@ func (e *Env) createWorkspace(
 	parentID string,
 ) (wsID string, chatID string) {
 	t.Helper()
+	return e.createWorkspaceQuiesced(t, projectID, repoID, branch, parentID, true)
+}
+
+// createWorkspaceQuiesced is createWorkspace with the trailing e.Quiesce()
+// made optional. Quiesce calls WaitPublish on the shared per-type asynx
+// dispatcher, which refuses every OTHER in-flight Dispatch for the duration
+// (see asynx's Dispatcher.waiting) — safe for one caller at a time, but a
+// concurrent-fanout caller running N of these at once has N siblings each
+// briefly blocking every other's in-flight command with ErrDispatcherClosed.
+// quiesce=false lets a fanout caller skip that and settle once after its own
+// WaitGroup, instead of each goroutine racing its siblings' dispatches.
+func (e *Env) createWorkspaceQuiesced(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	branch string,
+	parentID string,
+	quiesce bool,
+) (wsID string, chatID string) {
+	t.Helper()
 	ctx := context.Background()
 	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
 	require.NoError(t, err, "createWorkspace: read repo %s", repoID)
@@ -1232,7 +1252,9 @@ func (e *Env) createWorkspace(
 
 	// The create's own writes are asynx commands; drain them so a caller that
 	// reads the row (or dials its chat) next sees it rather than racing it.
-	e.Quiesce()
+	if quiesce {
+		e.Quiesce()
+	}
 	return ws.ID, mintedChatID
 }
 
@@ -1248,6 +1270,22 @@ func (e *Env) CreateWorkspaceWithChat(
 ) (string, string) {
 	t.Helper()
 	return e.createWorkspace(t, projectID, repoID, branch, parentID)
+}
+
+// CreateWorkspaceWithChatConcurrent is CreateWorkspaceWithChat for a caller
+// running many of these at once (see createWorkspaceQuiesced's own doc):
+// no per-call Quiesce, so N siblings never refuse each other's in-flight
+// dispatch. Call e.Quiesce() once after the fanout's WaitGroup if the caller
+// needs the read model settled.
+func (e *Env) CreateWorkspaceWithChatConcurrent(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	branch string,
+	parentID string,
+) (string, string) {
+	t.Helper()
+	return e.createWorkspaceQuiesced(t, projectID, repoID, branch, parentID, false)
 }
 
 // ImportedRepo bundles the ids a full project+repo import yields: the project,
