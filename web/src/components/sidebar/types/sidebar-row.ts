@@ -54,15 +54,40 @@ export interface SidebarRow {
   status?: WorkspaceStatus
   /**
    * Whether the workspace this row owns has no on-disk worktree at all —
-   * `lib/workspace/placeholder.ts`'s `isPlaceholderWorkspace`, the same test
-   * `placeholder-toast-watcher.tsx` uses to fire the "Couldn't set up ..."
-   * toast. `RowGlyph` renders the warning glyph ahead of the `status` switch
-   * for this — a placeholder is locked, but it needs the user's attention,
-   * not the "protected, immutable" lock. Present under the same condition as
-   * `status`; absent means either "known not to be one" or "not a real
-   * workspace-owning row" — never treated as true.
+   * `lib/workspace/placeholder.ts`'s `placeholderKind` !== 'none'. Gates every
+   * verb that needs a directory to run in (Thread/Fork,
+   * `sidebar-row-actions.tsx`). Present under the same condition as `status`;
+   * absent means either "known not to be one" or "not a real workspace-owning
+   * row" — never treated as true.
    */
   isPlaceholder?: boolean
+  /**
+   * The narrower half of `isPlaceholder`: Crowbar TRIED to give this row a
+   * worktree and could not ('unprovisioned') — as opposed to the repo's own
+   * main folder simply having its own default branch checked out
+   * ('own-checkout'), which is the resting state of every import and needs no
+   * alarm. `RowGlyph` draws the amber warning glyph off THIS, not off
+   * `isPlaceholder`, and `placeholder-toast-watcher.tsx` fires its "Couldn't
+   * set up …" toast on the same split — flagging the own-checkout case warned
+   * forever about nothing, and pointed at a Retry `RetryProvision` refuses
+   * outright (`ErrBranchStillHeld`).
+   */
+  needsProvisioning?: boolean
+  /**
+   * The worktree that currently holds this row's branch, when this row has no
+   * worktree of its own (`Workspace.heldByPath`). Non-empty is exactly when
+   * Detach… is a real verb for this row — for BOTH placeholder kinds, since
+   * the repo's own checkout is detachable too (spec §3.5, with consent) — so
+   * `sidebar-row-actions.tsx` gates the control on it rather than on
+   * `isPlaceholder`, which is deliberately false for that case.
+   */
+  heldByPath?: string
+  /**
+   * What to tell the user about a row with no worktree —
+   * `placeholderReason`'s line, carried onto the row so the glyph can title
+   * itself with it. '' / absent when there is nothing to say.
+   */
+  placeholderReason?: string
   /**
    * The repo's own identity, present only on the repo's own home row (the
    * repo's default-workspace row, `rows-from-repo.ts`'s one root push — its

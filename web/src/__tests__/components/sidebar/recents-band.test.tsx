@@ -645,7 +645,13 @@ describe('RecentsBand', () => {
       state: 'dormant',
       workspaceId: 'ws-1',
       chatIcons: {
-        'chat-1': { kind: 'branch', ownsWorktree: true, status: 'new', isPlaceholder: true },
+        'chat-1': {
+          kind: 'branch',
+          ownsWorktree: true,
+          status: 'new',
+          isPlaceholder: true,
+          needsProvisioning: true,
+        },
       },
     }
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)

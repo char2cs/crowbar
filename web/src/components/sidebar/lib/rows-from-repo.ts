@@ -7,7 +7,7 @@ import {
 } from '@/lib/store/sidebar'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import { isPlaceholderWorkspace } from '@/lib/workspace/placeholder'
+import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -174,6 +174,9 @@ export type ChatIconFields = Pick<
   | 'locked'
   | 'status'
   | 'isPlaceholder'
+  | 'needsProvisioning'
+  | 'heldByPath'
+  | 'placeholderReason'
 >
 
 /**
@@ -181,15 +184,27 @@ export type ChatIconFields = Pick<
  * the fields `walkTreeIntoRows`'s workspace-node branch stamps below,
  * factored out so `chatIconIndex` (Recents' own icon fallback, below) can
  * produce the identical shape without re-deriving it.
+ *
+ * `ownDefaultBranch` is the owning repo's own `defaultBranch` — the one fact a
+ * `Workspace` cannot tell about itself and the whole of what separates "the
+ * repo's own main folder has this branch" from "Crowbar could not set this
+ * branch up" (`placeholderKind`'s own doc).
  */
-function workspaceIconFields(workspace: Workspace): Omit<ChatIconFields, 'kind' | 'ownsWorktree'> {
+function workspaceIconFields(
+  workspace: Workspace,
+  ownDefaultBranch: string | undefined,
+): Omit<ChatIconFields, 'kind' | 'ownsWorktree'> {
+  const kind = placeholderKind(workspace, ownDefaultBranch)
   return {
     branchName: workspace.branch,
     added: workspace.added,
     deleted: workspace.deleted,
     locked: workspace.status === 'locked',
     status: workspace.status,
-    isPlaceholder: isPlaceholderWorkspace(workspace),
+    isPlaceholder: kind !== 'none',
+    needsProvisioning: kind === 'unprovisioned',
+    heldByPath: kind === 'none' ? undefined : workspace.heldByPath || undefined,
+    placeholderReason: placeholderReason(workspace, kind) || undefined,
   }
 }
 
@@ -223,7 +238,7 @@ export function chatIconIndex(repos: readonly Repo[]): Map<string, ChatIconField
       index.set(chatId, {
         kind: 'branch',
         ownsWorktree: true,
-        ...(workspace ? workspaceIconFields(workspace) : {}),
+        ...(workspace ? workspaceIconFields(workspace, repo.defaultBranch) : {}),
       })
     }
   }
@@ -377,7 +392,16 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
   )
   const folded = foldWorkspaceOwners(roots, ownerChats)
 
-  walkTreeIntoRows(rows, folded, homeRowId, ownerOfChat, chatTitleById, true, homeId)
+  walkTreeIntoRows(
+    rows,
+    folded,
+    homeRowId,
+    ownerOfChat,
+    chatTitleById,
+    true,
+    homeId,
+    repo.defaultBranch,
+  )
 
   return rows
 }
@@ -428,6 +452,12 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
  * `chat` bubble or a `folder` passes it through unchanged, exactly like
  * `foldersCanFork`, since neither introduces a worktree of its own for a
  * nested folder to belong to instead.
+ *
+ * `ownDefaultBranch` is the THIRD fact of that kind: which branch this tree's
+ * repo already has checked out in its own main folder, so a worktree-less row
+ * on that branch reads as the repo's own checkout rather than as a failed
+ * provision (`placeholderKind`). Undefined from `rows-from-home.ts`, whose
+ * tree rides no repo and therefore owns no checkout to be held by.
  */
 export function walkTreeIntoRows(
   rows: SidebarRow[],
@@ -437,6 +467,7 @@ export function walkTreeIntoRows(
   chatTitleById: ReadonlyMap<string, string>,
   foldersCanFork: boolean,
   ancestorWorkspaceId: string | null,
+  ownDefaultBranch: string | undefined,
 ): void {
   nodes.forEach((node, index) => {
     if (node.kind === 'chat') {
@@ -482,6 +513,7 @@ export function walkTreeIntoRows(
           chatTitleById,
           foldersCanFork,
           ownedWorkspaceId,
+          ownDefaultBranch,
         )
         return
       }
@@ -555,6 +587,7 @@ export function walkTreeIntoRows(
         chatTitleById,
         foldersCanFork,
         ancestorWorkspaceId,
+        ownDefaultBranch,
       )
       return
     }
@@ -624,7 +657,7 @@ export function walkTreeIntoRows(
         workspaceId: node.workspace.id,
         working: node.workspace.working ?? false,
         hasView: false,
-        ...workspaceIconFields(node.workspace),
+        ...workspaceIconFields(node.workspace, ownDefaultBranch),
       })
       // Children hang off the row's OWN id, which is now the owning chat's
       // (when one was resolved) — a thread the daemon filed under the
@@ -641,6 +674,7 @@ export function walkTreeIntoRows(
         chatTitleById,
         foldersCanFork,
         node.workspace.id,
+        ownDefaultBranch,
       )
       return
     }
@@ -652,6 +686,7 @@ export function walkTreeIntoRows(
       chatTitleById,
       foldersCanFork,
       ancestorWorkspaceId,
+      ownDefaultBranch,
     )
   })
 }

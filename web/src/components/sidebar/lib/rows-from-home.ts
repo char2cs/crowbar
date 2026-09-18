@@ -96,7 +96,18 @@ export function rowsFromHome(
   // so every home folder — nested or not — resolves to this one constant,
   // which is exactly right: there is only ever the one home worktree-less
   // space for a home folder's Thread button to run in.
-  walkTreeIntoRows(rows, folded, null, ownerOfChat, chatTitleById, false, homeWorkspaceId)
+  // `undefined` default branch for the same reason: no repo means no main
+  // folder holding a branch, so no row here can be the repo's own checkout.
+  walkTreeIntoRows(
+    rows,
+    folded,
+    null,
+    ownerOfChat,
+    chatTitleById,
+    false,
+    homeWorkspaceId,
+    undefined,
+  )
 
   return rows
 }

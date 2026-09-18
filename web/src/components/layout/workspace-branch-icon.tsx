@@ -7,9 +7,14 @@ interface WorkspaceBranchIconProps {
   status: WorkspaceStatus
   /** True while an agent/long-running op is in flight — renders the spinner. */
   working?: boolean
-  /** True for a placeholder (locked + no localPath) — renders the warning glyph
-   *  ahead of the locked→Lock case (spec §3.3). */
+  /** True for a workspace Crowbar could not provision — renders the warning
+   *  glyph ahead of the locked→Lock case (spec §3.3). */
   isPlaceholder?: boolean
+  /** Why this row has no worktree (`placeholderReason`), rendered as the
+   *  glyph's `<title>` so the mark is readable on hover. Without it the amber
+   *  triangle stated a problem and named none: an `aria-label` alone reaches
+   *  a screen reader and nobody else. */
+  reason?: string
   /** Glyph box size, matching `sidebar-row.tsx`'s own `RowGlyph` sizing
    *  (`size-4` ordinarily, `size-5` for the project-home row's large glyph).
    *  Every icon below used to hardcode `size-4`, which was exactly right for
@@ -35,6 +40,7 @@ export function WorkspaceBranchIcon({
   status,
   working,
   isPlaceholder,
+  reason,
   size = 'size-4',
   invertedGround,
 }: WorkspaceBranchIconProps) {
@@ -49,6 +55,7 @@ export function WorkspaceBranchIcon({
       <Warning
         role="img"
         aria-label="Branch needs provisioning"
+        alt={reason}
         className={cn(size, 'shrink-0 text-amber-500')}
         weight="fill"
       />
@@ -60,6 +67,10 @@ export function WorkspaceBranchIcon({
       return (
         <Lock
           aria-hidden="true"
+          // A locked branch held by the repo's own checkout draws this same
+          // Lock as a managed one — the reason is the only thing telling them
+          // apart, so it goes on the glyph rather than nowhere.
+          alt={reason}
           className={cn(
             size,
             'shrink-0 text-foreground',

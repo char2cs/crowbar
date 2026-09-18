@@ -1,27 +1,64 @@
 import type { Workspace } from '@/lib/store/sidebar'
 
 /**
- * A placeholder workspace is one that has no on-disk worktree: its branch could
- * not be materialised, most often because a live worktree already has it checked
- * out (spec §3.3). The missing localPath IS the signal — status is deliberately
- * not part of it. Protected-branch placeholders are seeded `locked` to inherit
- * the protection guards, but an IMPORTED feature branch must stay unlocked
- * (locked survives provisioning and would block merge/rename/delete forever), so
- * requiring `locked` here left every failed import row unrecognised: no reason,
- * no Retry/Detach…, and no toast.
+ * Why a workspace has no on-disk worktree.
+ *
+ * - `none` — it has one; nothing to say.
+ * - `own-checkout` — the repo's OWN main folder has this branch checked out.
+ *   That is the resting state of every imported repo (`adoptRepoHome` adopts
+ *   repo.Path in place, on whatever branch it sits on, and provisioning then
+ *   resolves `holder.HeldByHome` for that same branch), and handing the branch
+ *   over is OPTIONAL — spec §3.5's detach-with-consent, not a failure. It has
+ *   to be told apart from the case below, or every repo wears a permanent
+ *   "couldn't set up" alarm for being in the state it is supposed to be in.
+ * - `unprovisioned` — Crowbar tried and could not: another worktree holds the
+ *   branch, or the worktree create itself failed. This is the one that needs
+ *   the user's attention.
+ *
+ * The missing localPath IS the "no worktree" signal — status is deliberately
+ * not part of it. Protected-branch rows are seeded `locked` to inherit the
+ * protection guards, but an IMPORTED feature branch must stay unlocked (locked
+ * survives provisioning and would block merge/rename/delete forever), so
+ * requiring `locked` here left every failed import row unrecognised.
+ *
+ * `ownDefaultBranch` is `Repo.defaultBranch` — the branch of the repo's own
+ * default workspace, which IS its main folder's checkout. Undefined for a
+ * caller with no repo at all (project home), which can own no worktree and
+ * therefore never reaches `own-checkout`. Compared by BRANCH, not by path:
+ * `heldByPath` comes from `git worktree list` fully symlink-resolved while
+ * `Repo.localPath` is the folder the user handed the importer, so the two are
+ * routinely different spellings of the same directory (`/var` vs
+ * `/private/var` on macOS).
  */
-export function isPlaceholderWorkspace(ws: Workspace): boolean {
-  return !ws.localPath
+export type PlaceholderKind = 'none' | 'own-checkout' | 'unprovisioned'
+
+export function placeholderKind(
+  ws: Workspace,
+  ownDefaultBranch: string | undefined,
+): PlaceholderKind {
+  if (ws.localPath) return 'none'
+  if (ownDefaultBranch && ws.branch === ownDefaultBranch) return 'own-checkout'
+  return 'unprovisioned'
 }
 
 /**
- * Reconstruct the human-readable reason a placeholder exists. A live holder is
- * the actionable case and wins, because it names the checkout the user has to
- * detach. Otherwise fall back to the cause the daemon recorded on the row — a
- * failure with no holder has no reconstructable reason, and the generic line
- * would hide the only explanation there is (spec §3.3/§4/B7).
+ * The human-readable reason, matched to what the user can actually do about it.
+ *
+ * `own-checkout` states the fact and offers the one verb that works — Detach.
+ * It never says "couldn't": nothing failed, and `RetryProvision` refuses this
+ * case outright (`ErrBranchStillHeld`), so promising a Retry here would point
+ * at a remedy coded never to succeed.
+ *
+ * For a real failure a live holder wins over a recorded cause, because it names
+ * the checkout the user has to detach; a failure with no holder has no
+ * reconstructable reason, so the cause the daemon recorded is the only
+ * explanation there is (spec §3.3/§4/B7).
  */
-export function placeholderReason(ws: Workspace): string {
+export function placeholderReason(ws: Workspace, kind: PlaceholderKind): string {
+  if (kind === 'none') return ''
+  if (kind === 'own-checkout') {
+    return `\`${ws.branch}\` is checked out at ${ws.heldByPath} — detach it to hand this branch to Crowbar.`
+  }
   if (ws.heldByPath) {
     return `\`${ws.branch}\` is checked out at ${ws.heldByPath} — detach it to let Crowbar manage this branch.`
   }

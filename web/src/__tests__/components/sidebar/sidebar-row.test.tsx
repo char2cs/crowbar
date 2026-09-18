@@ -446,6 +446,10 @@ describe('SidebarRow', () => {
         locked: true,
         status: 'locked',
         isPlaceholder: true,
+        // The narrower half: Crowbar TRIED and could not. The repo's own
+        // checkout holding its own default branch is `isPlaceholder` too and
+        // must NOT draw this glyph (rows-from-repo-own-default-branch.test.ts).
+        needsProvisioning: true,
       }
       const html = iconMarkup(<SidebarRow row={placeholderRow} depth={0} onOpen={vi.fn()} />)
       const expected = iconMarkup(

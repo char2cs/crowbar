@@ -409,6 +409,8 @@ describe('recentsForProject', () => {
         locked: false,
         status: 'pr-open',
         isPlaceholder: true, // no localPath on the fixture
+        needsProvisioning: true, // ...and not the repo's own default branch
+        placeholderReason: "Crowbar couldn't set up `feature/x`. Retry to provision it.",
       },
     })
   })

@@ -692,10 +692,11 @@ function RowGlyph({
   // stamped under the identical condition as `locked`, rows-from-repo.ts)
   // draws the SAME icon the workspace switcher already does: locked, a PR
   // state (open/merged/closed/conflicts), deleted — or, ahead of all of
-  // those, the amber warning glyph for a placeholder that could not be
-  // provisioned at all (`isPlaceholder`, the identical test
+  // those, the amber warning glyph for a branch Crowbar could not provision
+  // (`needsProvisioning`, the identical test
   // `placeholder-toast-watcher.tsx` fires its "Couldn't set up ..." toast
-  // from). A row whose Workspace half has not landed yet (`walkTreeIntoRows`'s
+  // from — NOT `isPlaceholder`, which is also true for the repo's own
+  // checkout holding its own default branch and would alarm forever). A row whose Workspace half has not landed yet (`walkTreeIntoRows`'s
   // "no Workspace record" push — see that push's own comment) carries no
   // `status` and falls through to the locked/plain-branch guess below,
   // exactly as every row did before this delegated anywhere.
@@ -703,7 +704,8 @@ function RowGlyph({
     return (
       <WorkspaceBranchIcon
         status={row.status}
-        isPlaceholder={row.isPlaceholder}
+        isPlaceholder={row.needsProvisioning}
+        reason={row.placeholderReason}
         size={size}
         invertedGround={activeGround}
       />
