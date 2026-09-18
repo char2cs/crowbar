@@ -194,6 +194,29 @@ describe('AgentSelectionPicker', () => {
     expect(within(effortSection).getByText('Ultra')).toBeInTheDocument()
   })
 
+  // Regression: an unconfirmed effort ("Default", or any string absent from
+  // the model's own levels) used to clamp to index 0 and draw the thumb
+  // sitting on "Low" — a level nobody picked or the provider ever reported,
+  // read live as the slider looking pre-filled when nothing was known.
+  it('draws no thumb/fill for an effort the current model does not declare', () => {
+    render(
+      <AgentSelectionPicker
+        provider={codex}
+        providers={[claude, codex]}
+        model="gpt-5.6-sol"
+        effort="Default"
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    openMenu()
+    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
+    expect(slider).not.toHaveAttribute('aria-valuenow')
+    expect(slider.querySelector('.bg-primary')).not.toBeInTheDocument()
+    // The tick row and its labels still render — a real pick is still
+    // possible, only nothing is highlighted as already chosen.
+    expect(screen.getByRole('button', { name: 'Low' })).toBeInTheDocument()
+  })
+
   // Regression: the first cut of this control only responded to a click on
   // the track or a tick label underneath it — it LOOKED like a slider but
   // could not be dragged, which is not a slider. Pressing and moving across

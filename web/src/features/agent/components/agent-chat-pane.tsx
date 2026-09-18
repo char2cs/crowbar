@@ -337,16 +337,14 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.effort ?? '',
   )
-  // What the live runner actually spawned as — absent on a dormant chat.
-  // Never fed into stagedSelection/effective*: that pair is the NEXT launch's
-  // request, this is the CURRENT one's already-resolved fact.
+  // What the live runner actually spawned MODEL as — absent on a dormant
+  // chat. Never fed into stagedSelection/effective*: that pair is the NEXT
+  // launch's request, this is the CURRENT one's already-resolved fact.
+  // Effort has no equivalent read here: AgentChatView derives its displayed
+  // effort per-turn off the ledger instead (see its own `latestTurnEffort`).
   const launchModel = useStore(
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.launchModel ?? '',
-  )
-  const launchEffort = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.launchEffort ?? '',
   )
   const providers = useStore(store, (s) => s.agentChats.providers)
   // The provider this chat last ran under — what a failed revive has to NAME ("Claude
@@ -1737,7 +1735,6 @@ export function AgentChatPane({
               model={effectiveModel}
               effort={effectiveEffort}
               launchModel={launchModel}
-              launchEffort={launchEffort}
               onSelectionChange={stageSelection}
               onSelectionCommitted={commitSelection}
               onQueueCountChange={setQueuedPromptCount}
