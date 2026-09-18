@@ -416,23 +416,3 @@ func TestListInRepo_Home_IsolatesFromRepoScoped(t *testing.T) {
 	assert.Equal(t, created.ID, rows[0].ID)
 	assert.Equal(t, "home", rows[0].Title)
 }
-
-// DeletePreview resolves a home-scoped folder id too. A real gap this task's
-// own migration opened and closed within it: delete_preview.go's bare
-// Chats.LoadChat(chatID) read (unchanged since before this task) would
-// refuse ANY home folder id as not-found the moment it stopped being a Chat
-// row -- fixed by trying Folders first, mirroring Rename/Move/Delete's own
-// dispatch.
-func TestDeletePreview_Home_ResolvesAHomeFolderRoot(t *testing.T) {
-	chats, _, _, uc := newHomeUsecase(t)
-	ctx := context.Background()
-	folder, _, err := uc.Create(ctx, tree.CreateInput{Name: "docs"})
-	require.NoError(t, err)
-	chats.Rows = append(chats.Rows,
-		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, ParentID: folder.ID, WorkspaceID: homeWorkspaceID})
-
-	chatCount, fileCount, err := uc.DeletePreview(ctx, folder.ID)
-	require.NoError(t, err)
-	assert.Equal(t, 1, chatCount, "the folder itself is not a chat")
-	assert.Equal(t, 0, fileCount, "the chat inside owns no workspace of its own here")
-}

@@ -211,10 +211,7 @@ type Agent interface {
 }
 
 // WorkspaceGitStatus is defined in home_ports.go, moved there to keep this
-// file under the package's own 500-line layering ceiling — it is not a
-// home-only port (DeletePreview needs it for every scope), but RepoIDsForHome
-// (SDD review fix round 3) is, and the two ports sit together for the same
-// reason Folders/Nodes already do.
+// file under the package's own 500-line layering ceiling.
 
 // WorkspaceReaper is the narrow write port DeleteChat needs: tearing down the
 // worktree a chat OWNED, in the same breath the chat is erased.
@@ -468,14 +465,4 @@ type Usecase interface {
 		workspaceID string,
 		in PlaceInput,
 	) (domain.Chat, []domain.Chat, error)
-	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
-	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
-	// row in the subtree, and the working-tree file count summed across every
-	// workspace-owning row in it. A subtree can span more than one independent
-	// workspace now, so this is the one place that count is actually computed
-	// rather than read off a single workspace the caller already has.
-	DeletePreview(
-		ctx context.Context,
-		chatID string,
-	) (chatCount, fileCount int, err error)
 }

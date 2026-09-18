@@ -578,27 +578,13 @@ func (r agentChatReader) ListChats(
 
 // workspaceGitStatusReader adapts the workspace usecase into the chat tree
 // usecase's WorkspaceGitStatus seam (internal/app/usecases/chat/internal/tree.
-// WorkspaceGitStatus): DeletePreview needs each workspace-owning row's file
-// counts, and Get's Added/Deleted are the SAME already-synced numbers the
-// sidebar itself renders — never a live git call recomputed per row on every
-// preview.
+// WorkspaceGitStatus): the read-model facts about a workspace the tree places
+// rows by, never a live git call.
 type workspaceGitStatusReader struct {
 	workspace workspace.Usecase
 	// repos is used ONLY by RepoIDsForHome (SDD review fix round 3) — every
 	// other method here predates it and never touches it.
 	repos store.ScopedStore[domain.Repository, string]
-}
-
-// WorkingTreeSummary implements agentusecase.TreeWorkspaceGitStatus.
-func (w workspaceGitStatusReader) WorkingTreeSummary(
-	ctx context.Context,
-	workspaceID string,
-) (int, int, error) {
-	ws, err := w.workspace.Get(ctx, workspaceID)
-	if err != nil {
-		return 0, 0, err
-	}
-	return ws.Added, ws.Deleted, nil
 }
 
 // RepoOf implements agentusecase.TreeWorkspaceGitStatus.

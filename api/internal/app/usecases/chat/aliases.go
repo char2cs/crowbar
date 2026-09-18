@@ -81,8 +81,7 @@ type (
 	TreeChats = tree.Chats
 	// TreeAgent is what the tree asks to erase each chat a cascade decided must go.
 	TreeAgent = tree.Agent
-	// TreeWorkspaceGitStatus is DeletePreview's read onto each workspace-owning
-	// row's already-synced uncommitted file counts.
+	// TreeWorkspaceGitStatus is the tree's read seam onto the workspace layer.
 	TreeWorkspaceGitStatus = tree.WorkspaceGitStatus
 	// TreeWorkspaceReaper is the teardown a cascading chat delete puts each
 	// worktree in its subtree through, so a workspace never outlives the chat
@@ -157,7 +156,7 @@ func NewToolMetrics() *ToolMetrics { return tools.NewMetrics() }
 // NewTree builds the sidebar forest's tree usecase. work is the chat
 // usecase's own in-flight tracker (see Usecase.Work) — the tree's move and
 // delete verbs refuse over a subtree that is still working, and there is
-// exactly one tracker to ask. workspaces is DeletePreview's seam onto the
+// exactly one tracker to ask. workspaces is the tree's read seam onto the
 // workspace layer.
 func NewTree(
 	chats TreeChats,

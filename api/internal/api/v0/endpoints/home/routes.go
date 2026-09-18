@@ -161,7 +161,6 @@ func registerAgent(
 	home.PATCH("/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
 	home.POST("/chats/:id/promote", h.RequireHomeWorkspace, ah.Promote)
 	home.DELETE("/chats/:id", h.RequireHomeWorkspace, ah.Delete)
-	home.GET("/chats/:id/delete-preview", h.RequireHomeWorkspace, ah.DeletePreview)
 	// Chat FOLDERS, mounted here for the reason the chats above are: the project
 	// home is the surface that accumulates the most chats, so it is the one that
 	// most needs somewhere to put them. Mounting them only on the workspace group

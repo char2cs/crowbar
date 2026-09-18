@@ -335,10 +335,6 @@ func extraRoutes() []string {
 		"POST " + repo + "/chats/:id/rename",
 		"GET " + repo + "/chats/:id/handoff",
 		"DELETE " + repo + "/chats/:id",
-		// The chat's dry-run delete preview (backend addendum §1): the file
-		// count a confirm dialog names, summed across every workspace the
-		// subtree spans, before the caller commits to the delete above.
-		"GET " + repo + "/chats/:id/delete-preview",
 		// Chat placement: where a chat hangs in the Chats tree and where it sits
 		// among its siblings. A route of its own rather than a field on the chat
 		// PATCH-equivalents, because it writes something different in kind — a
@@ -502,9 +498,6 @@ func extraRoutes() []string {
 		"POST " + home + "/chats/:id/rename",
 		"GET " + home + "/chats/:id/handoff",
 		"DELETE " + home + "/chats/:id",
-		// The home mount's own dry-run delete preview, for the same reason as
-		// the repo block's above.
-		"GET " + home + "/chats/:id/delete-preview",
 		"POST " + home + "/chats/hooks",
 		"GET " + home + "/chats/providers",
 		"GET " + home + "/chats/ws",

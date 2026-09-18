@@ -1937,10 +1937,9 @@ func (s *AgentChatPlacements) parentOf(
 }
 
 // AgentWorkspaceGitStatus fakes the chat tree usecase's WorkspaceGitStatus
-// seam: each workspace's already-synced Added/Deleted counts, keyed by
-// workspace id, with no live git call behind it.
+// seam: the read-model facts about each workspace, keyed by workspace id,
+// with no live git call behind it.
 type AgentWorkspaceGitStatus struct {
-	Summaries map[string][2]int
 	// Repos answers RepoOf, keyed by workspace id — the fake's stand-in for
 	// domain.Workspace.RepoID. A workspace never Set here answers "", the
 	// same value the real home workspace's RepoOf answers.
@@ -2030,7 +2029,7 @@ func (s *AgentWorkspaceGitStatus) DefaultWorkspaceOf(
 // NewAgentWorkspaceGitStatus returns an AgentWorkspaceGitStatus with no
 // workspace summaries or repos recorded.
 func NewAgentWorkspaceGitStatus() *AgentWorkspaceGitStatus {
-	return &AgentWorkspaceGitStatus{Summaries: map[string][2]int{}, Repos: map[string]string{}}
+	return &AgentWorkspaceGitStatus{Repos: map[string]string{}}
 }
 
 // SetHomeRepoMembers records homeWorkspaceID's own project's repo id set for
@@ -2090,8 +2089,7 @@ func (s *AgentWorkspaceGitStatus) Exists(
 	}
 	_, inRepos := s.Repos[workspaceID]
 	_, inBranches := s.Branches[workspaceID]
-	_, inSummaries := s.Summaries[workspaceID]
-	return inRepos || inBranches || inSummaries, nil
+	return inRepos || inBranches, nil
 }
 
 func (s *AgentWorkspaceGitStatus) RepoOf(
@@ -2141,28 +2139,6 @@ func (s *AgentWorkspaceGitStatus) VisibleForkParent(
 		return "", s.Err
 	}
 	return s.ForkParents[workspaceID], nil
-}
-
-// Set records workspaceID's Added/Deleted for WorkingTreeSummary to answer
-// with. A workspace never Set here answers 0, 0 — the zero value a workspace
-// with a clean working tree would also report.
-func (s *AgentWorkspaceGitStatus) Set(
-	workspaceID string,
-	added int,
-	deleted int,
-) {
-	s.Summaries[workspaceID] = [2]int{added, deleted}
-}
-
-func (s *AgentWorkspaceGitStatus) WorkingTreeSummary(
-	ctx context.Context,
-	workspaceID string,
-) (int, int, error) {
-	if s.Err != nil {
-		return 0, 0, s.Err
-	}
-	pair := s.Summaries[workspaceID]
-	return pair[0], pair[1], nil
 }
 
 // AgentWorkspaceRoster fakes the chat tree usecase's WorkspaceRoster seam: the

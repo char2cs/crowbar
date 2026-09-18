@@ -116,13 +116,6 @@ func (stubChatTree) DeleteChat(
 	return agentusecase.ChatDeletion{}, nil
 }
 
-func (stubChatTree) DeletePreview(
-	_ context.Context,
-	_ string,
-) (int, int, error) {
-	return 0, 0, nil
-}
-
 func (stubChatTree) MintOwningChat(
 	_ context.Context,
 	_ string,
@@ -404,7 +397,6 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/chats/c1/handoff"},
 		{http.MethodPatch, base + "/chats/c1/placement"},
 		{http.MethodDelete, base + "/chats/c1"},
-		{http.MethodGet, base + "/chats/c1/delete-preview"},
 		{http.MethodPut, base + "/chats/c1/permission-level"},
 		{http.MethodGet, base + "/chats/folders"},
 		{http.MethodPost, base + "/chats/folders"},

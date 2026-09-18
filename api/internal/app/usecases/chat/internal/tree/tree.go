@@ -87,7 +87,7 @@ func WithRepoAnnouncer(fn RepoAnnouncer) Option {
 // subtree it takes by asking it directly, so the answer can never lag behind
 // what a hook just announced.
 //
-// workspaces is DeletePreview's seam onto the workspace layer; reaper is
+// workspaces is the tree's read seam onto the workspace layer; reaper is
 // DeleteChat's, and it is REQUIRED rather than optional for the reason
 // ChatTreeUsecase itself is: a delete wired without it
 // would erase a chat and silently strand the worktree it owned, which is the

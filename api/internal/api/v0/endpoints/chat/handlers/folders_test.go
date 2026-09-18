@@ -21,17 +21,14 @@ import (
 // fakeChatTree records each call and returns canned results, so the handlers'
 // HTTP contract can be pinned without a store.
 type fakeChatTree struct {
-	list         []domain.Chat
-	created      domain.Chat
-	renamed      domain.Chat
-	moved        domain.Chat
-	placed       domain.Chat
-	shifted      []domain.Chat
-	deletion     agentusecase.ChatDeletion
-	previewChats int
-	previewFiles int
-	gotPreviewID string
-	err          error
+	list     []domain.Chat
+	created  domain.Chat
+	renamed  domain.Chat
+	moved    domain.Chat
+	placed   domain.Chat
+	shifted  []domain.Chat
+	deletion agentusecase.ChatDeletion
+	err      error
 
 	gotCreate  agentusecase.CreateInput
 	gotMove    agentusecase.MoveInput
@@ -170,14 +167,6 @@ func (f *fakeChatTree) DeleteChat(
 ) (agentusecase.ChatDeletion, error) {
 	f.gotPurge = chatID
 	return f.deletion, f.err
-}
-
-func (f *fakeChatTree) DeletePreview(
-	_ context.Context,
-	chatID string,
-) (int, int, error) {
-	f.gotPreviewID = chatID
-	return f.previewChats, f.previewFiles, f.err
 }
 
 func (f *fakeChatTree) MintOwningChat(
