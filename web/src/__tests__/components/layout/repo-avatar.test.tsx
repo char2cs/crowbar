@@ -50,4 +50,14 @@ describe('RepoAvatarImg', () => {
     expect(screen.getByRole('img')).toBeInTheDocument()
     expect(screen.queryByText('FB')).not.toBeInTheDocument()
   })
+
+  // A left-as-inline <img> keeps the browser's default `vertical-align:
+  // baseline`, which sits it against the sibling label's text baseline
+  // instead of centering it in the flex row that wraps it — reported live
+  // as a project/repo avatar sitting visibly above its own name. `block`
+  // takes it out of that inline baseline math entirely.
+  it('renders block so the flex row centers it, not the text baseline', () => {
+    render(<RepoAvatarImg src="/icon?v=1" alt="repo" fallback={<span>FB</span>} />)
+    expect(screen.getByRole('img').className.split(' ')).toContain('block')
+  })
 })

@@ -30,7 +30,12 @@ function RepoAvatarImgAttempt({ src, alt, className, fallback }: RepoAvatarImgPr
       src={src}
       alt={alt}
       draggable={false}
-      className={className}
+      // `block`, not the default inline: an inline <img> keeps its own
+      // vertical-align (baseline by default), which sits it against the
+      // sibling text's baseline instead of centering it in the flex row
+      // that wraps it — every other icon variant here (emoji, letter
+      // fallback) is already an inline-flex span for the same reason.
+      className={cn('block', className)}
       onError={() => setErrored(true)}
     />
   )
