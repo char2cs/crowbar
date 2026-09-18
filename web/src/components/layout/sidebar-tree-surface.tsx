@@ -47,7 +47,7 @@ interface SidebarTreeSurfaceProps {
 
 /**
  * SpaceScroller's real mount point, plus the chrome (RemovalTray,
- * RenameDialog, RepoImportDialog, SidebarRowContextMenu) it needs mounted
+ * RepoImportDialog, SidebarRowContextMenu) it needs mounted
  * once alongside it — split out of `ide-shell.tsx` itself
  * rather than inlined there, on purpose: `ide-shell.tsx`'s OWN comment on
  * `sidebarWorkspacePath` (a few lines up from where this used to be wired)
@@ -112,7 +112,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     () => repos.filter((r) => seededRepoIds.has(r.id) || seededWorkspaceRepoIds.has(r.id)),
     [repos, seededRepoIds, seededWorkspaceRepoIds],
   )
-  // Every row across every project — SidebarRowContextMenu/RenameDialog look
+  // Every row across every project — SidebarRowContextMenu looks
   // up a row by id regardless of which project's panel drew it (a row's id
   // is never ambiguous by project), so the chrome mounted once below needs
   // the whole set, not any one project's slice.

@@ -9,6 +9,7 @@ import {
 } from '@phosphor-icons/react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
 import {
   performCreateFolder,
   performCreateFolderFromChat,
@@ -25,8 +26,6 @@ interface SidebarRowContextMenuProps {
   treeRef: RefObject<HTMLElement | null>
   /** Every visible row, to look up kind/parentId by id. */
   rows: SidebarRow[]
-  /** Opens rename-dialog.tsx for the row. */
-  onRename: (rowId: string) => void
   /** Opens the restored RepoImportDialog for the project-home row `repoRowId`. */
   onImport: (repoRowId: string) => void
 }
@@ -54,12 +53,7 @@ interface MenuData {
  * right-click always acts on exactly the one row under the pointer — found
  * via `data-sidebar-row-id`, not the drag system's `readDropRow`.
  */
-export function SidebarRowContextMenu({
-  treeRef,
-  rows,
-  onRename,
-  onImport,
-}: SidebarRowContextMenuProps) {
+export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowContextMenuProps) {
   const menu = useContextMenu<MenuData>()
   const { openAt } = menu
 
@@ -138,16 +132,24 @@ export function SidebarRowContextMenu({
   const items: ContextMenuItem[] = []
 
   // A locked branch keeps its checked-out branch name — same "must stay put"
-  // reasoning the lock itself exists for (see Lock/Unlock below); offering
-  // Rename here opened the dialog for a write `performRenameWorkspaceBranch`
+  // reasoning the lock itself exists for (see Lock/Unlock below); starting a
+  // rename here would arm an editor for a write `performRenameWorkspaceBranch`
   // silently refuses once the branch is locked, so the row *looked* renamable
   // and wasn't.
+  //
+  // Starts the SAME inline editor double-click already does
+  // (sidebar-inline-rename.ts), not a modal — renaming is inline everywhere in
+  // this app, the context menu is just a second entry point into it. Reaches
+  // it directly rather than through a prop: this component fires for a row
+  // wherever it renders (a tree row or its Recents mirror share one id), and
+  // the store — not this menu — is what already knows which of the two
+  // instances actually draws the input.
   if (!isLockedBranch) {
     items.push({
       id: 'rename',
       label: 'Rename',
       icon: <PencilSimpleLine />,
-      onClick: () => onRename(row.id),
+      onClick: () => useSidebarInlineRenameStore.getState().startRenaming(row.id),
     })
   }
 

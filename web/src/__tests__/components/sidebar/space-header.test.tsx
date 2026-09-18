@@ -356,9 +356,7 @@ describe('SpaceHeader', () => {
   // not a duplicate of the row rename path.
   //
   // Task 11: this is a REAL inline `<input>` replacing the name in place —
-  // develop's actual behavior — not the modal `RenameDialog` Task 4 wrongly
-  // built. `RenameDialog` itself is untouched; this row just no longer opens
-  // it on double-click.
+  // develop's actual behavior — not a modal dialog.
   describe('double-click-to-rename', () => {
     it('double-clicking the project name replaces it with a focused input, not a dialog', () => {
       render(

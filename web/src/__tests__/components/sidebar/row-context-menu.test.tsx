@@ -4,6 +4,10 @@ import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import {
+  getInitialInlineRenameState,
+  useSidebarInlineRenameStore,
+} from '@/lib/store/sidebar-inline-rename'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
@@ -130,12 +134,9 @@ let rows: SidebarRow[] = []
 function renderMenu() {
   const treeRef = { current: document.createElement('div') }
   document.body.appendChild(treeRef.current)
-  const onRename = vi.fn()
   const onImport = vi.fn()
-  render(
-    <SidebarRowContextMenu treeRef={treeRef} rows={rows} onRename={onRename} onImport={onImport} />,
-  )
-  return { treeRef, onRename, onImport }
+  render(<SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={onImport} />)
+  return { treeRef, onImport }
 }
 
 function rightClick(tree: HTMLElement, rowId: string) {
@@ -196,6 +197,7 @@ const homeThreadRow: SidebarRow = {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ ...getInitialState(), repos: [REPO] })
+  useSidebarInlineRenameStore.setState(getInitialInlineRenameState())
   useHomeTreeStore.setState({
     trees: {
       'proj-1': {
@@ -370,11 +372,12 @@ describe('SidebarRowContextMenu', () => {
     expect(sidebarPlacement.createHomeFolder).toHaveBeenCalledWith('proj-1', 'New folder', '')
   })
 
-  it('clicking Rename calls onRename with the row id and closes the menu', () => {
-    const { treeRef, onRename } = renderMenu()
+  it('clicking Rename starts inline rename for the row id, not a modal', () => {
+    const { treeRef } = renderMenu()
     rightClick(treeRef.current, 'folder-1')
     fireEvent.click(screen.getByText('Rename'))
-    expect(onRename).toHaveBeenCalledWith('folder-1')
+    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('folder-1')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('clicking Import branches calls onImport with the project-home row id', () => {

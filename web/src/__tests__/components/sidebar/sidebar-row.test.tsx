@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Folder, FolderOpen, GitBranch, GitPullRequest, Lock, Warning } from '@phosphor-icons/react'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
@@ -940,10 +940,15 @@ describe('SidebarRow', () => {
   // modal Task 4 wrongly built. Driven by `sidebar-inline-rename.ts`'s store
   // (set by the delegated dblclick listener in sidebar-tree-chrome.tsx), read
   // here the same way a real double-click would leave it.
+  // `startRenaming` decides, at the moment it is called, whether a
+  // tree-rendered instance of the row is in the DOM (`sidebar-inline-rename.ts`'s
+  // own doc) — so every test here starts renaming AFTER the row is mounted,
+  // matching how a real double-click or Rename click actually fires (never on
+  // a row that hasn't rendered yet).
   describe('inline rename', () => {
     it('renders the real, focused input in place of the label when this row is the one renaming', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       const input = screen.getByRole('textbox') as HTMLInputElement
       expect(input).toHaveValue('Fix the thing')
@@ -951,15 +956,15 @@ describe('SidebarRow', () => {
     })
 
     it('a different row renaming leaves this row showing its plain label', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('some-other-row')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('some-other-row'))
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
       expect(screen.getByText('Fix the thing')).toBeInTheDocument()
     })
 
     it('confirming (Enter) calls performRenameRow with the row id and stops renaming', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'New title' } })
       fireEvent.keyDown(input, { key: 'Enter' })
@@ -968,8 +973,8 @@ describe('SidebarRow', () => {
     })
 
     it('Escape cancels with no call to performRenameRow', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'New title' } })
       fireEvent.keyDown(input, { key: 'Escape' })
@@ -978,8 +983,8 @@ describe('SidebarRow', () => {
     })
 
     it('blur without Enter/Escape commits the rename, matching develop', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'Blurred title' } })
       fireEvent.blur(input)
@@ -987,22 +992,21 @@ describe('SidebarRow', () => {
     })
 
     it('unchanged value does not call performRenameRow', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
       expect(rowActions.performRenameRow).not.toHaveBeenCalled()
     })
 
     it('clicking inside the input does not fire onOpen', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       const onOpen = vi.fn()
       render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       fireEvent.click(screen.getByRole('textbox'))
       expect(onOpen).not.toHaveBeenCalled()
     })
 
     it('a branch row renames with a monospace input, matching its label', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(
         <SidebarRow
           row={{ ...baseRow, kind: 'branch', parentId: 'p1', ownsWorktree: true }}
@@ -1010,28 +1014,37 @@ describe('SidebarRow', () => {
           onOpen={vi.fn()}
         />,
       )
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       expect(screen.getByRole('textbox')).toHaveClass('font-mono')
     })
 
     // A chat that is the live pane (row.hasView) renders through TWO
     // SidebarRow instances at once — its tree row, and a second one
-    // recents-band.tsx's RecentsMemberRow builds for the same chat id.
-    // Both used to read the SAME `renamingRowId === row.id` with no
-    // notion of which DOM instance was actually double-clicked: starting
-    // a rename flipped BOTH into rename mode, the second one's own
-    // mount-time focus()+select() stole focus from the first (jsdom fires
-    // real focus/blur here, same as a browser), and that unhandled blur
-    // committed the unchanged value — cancelling the rename before it was
-    // ever visible. `inlineRenameDisabled` is what recents-band.tsx now
-    // sets on its own instance to keep this from happening.
+    // recents-band.tsx's RecentsMemberRow builds for the same chat id,
+    // marked with the real `data-sidebar-recents-row` flag `dragProps`
+    // carries in production (`use-sidebar-drag.ts`'s `inRecents`). Both used
+    // to read the SAME `renamingRowId === row.id` with no notion of which
+    // DOM instance was actually double-clicked: starting a rename flipped
+    // BOTH into rename mode, the second one's own mount-time focus()+select()
+    // stole focus from the first (jsdom fires real focus/blur here, same as a
+    // browser), and that unhandled blur committed the unchanged value —
+    // cancelling the rename before it was ever visible. `startRenaming` now
+    // checks the DOM for a non-Recents instance and only that one renders —
+    // `inlineRenameDisabled` is what tells the Recents instance it is not it.
     it('a second same-id instance (Recents mirroring a live pane) does not steal focus and cancel the tree row rename', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(
         <>
           <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />
-          <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} inlineRenameDisabled />
+          <SidebarRow
+            row={baseRow}
+            depth={0}
+            onOpen={vi.fn()}
+            inlineRenameDisabled
+            dragProps={{ 'data-sidebar-recents-row': '' }}
+          />
         </>,
       )
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox') as HTMLInputElement
       expect(input).toHaveFocus()
       expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('row-1')
@@ -1049,18 +1062,50 @@ describe('SidebarRow', () => {
     it('scrolls the editor into view so a rename started from the Recents copy is not invisible', () => {
       const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
       try {
-        useSidebarInlineRenameStore.getState().startRenaming('row-1')
         render(
           <>
             <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />
-            <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} inlineRenameDisabled />
+            <SidebarRow
+              row={baseRow}
+              depth={0}
+              onOpen={vi.fn()}
+              inlineRenameDisabled
+              dragProps={{ 'data-sidebar-recents-row': '' }}
+            />
           </>,
         )
+        act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
         expect(scrollIntoView).toHaveBeenCalledTimes(1)
         expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('textbox'))
       } finally {
         scrollIntoView.mockRestore()
       }
+    })
+
+    // Live-reproduced: a Recents entry for a row whose TREE copy is not
+    // mounted at all — its repo/folder ancestor collapsed, not merely
+    // scrolled away — used to have nowhere to draw the editor at all, since
+    // `inlineRenameDisabled` always refused it regardless of whether a tree
+    // copy actually existed. This is the actual reason `RenameDialog` used
+    // to exist as a fallback. `startRenaming` now finds no non-Recents
+    // instance in the DOM and lets this, the only mounted instance, draw it.
+    it('a Recents-only row (its tree copy is not mounted at all) renames itself', () => {
+      render(
+        <SidebarRow
+          row={baseRow}
+          depth={0}
+          onOpen={vi.fn()}
+          inlineRenameDisabled
+          dragProps={{ 'data-sidebar-recents-row': '' }}
+        />,
+      )
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      const input = screen.getByRole('textbox') as HTMLInputElement
+      expect(input).toHaveValue('Fix the thing')
+      fireEvent.change(input, { target: { value: 'New title' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
     })
   })
 })
