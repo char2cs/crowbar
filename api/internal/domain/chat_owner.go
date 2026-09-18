@@ -21,16 +21,41 @@ package domain
 func ResolveOwningChat(
 	rows []Chat,
 ) (Chat, bool) {
-	if len(rows) == 0 {
+	candidates := ownerCandidates(rows)
+	if len(candidates) == 0 {
 		return Chat{}, false
 	}
-	owner := rows[0]
-	for _, row := range rows[1:] {
+	owner := candidates[0]
+	for _, row := range candidates[1:] {
 		if !preferredOwner(owner, row) {
 			owner = row
 		}
 	}
 	return owner, true
+}
+
+// ownerCandidates narrows rows to the ones that can own the workspace: every
+// row that RECORDS ownership when any does, otherwise every legacy row except
+// a thread filed directly under the workspace's own row — that thread was
+// created inside the workspace, never for it.
+func ownerCandidates(
+	rows []Chat,
+) []Chat {
+	var recorded, legacy []Chat
+	for _, row := range rows {
+		switch {
+		case row.OwnsWorkspace:
+			recorded = append(recorded, row)
+		case row.WorkspaceID != "" && row.ParentID == row.WorkspaceID:
+			continue
+		default:
+			legacy = append(legacy, row)
+		}
+	}
+	if len(recorded) > 0 {
+		return recorded
+	}
+	return legacy
 }
 
 // preferredOwner reports whether held keeps the workspace against

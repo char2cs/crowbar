@@ -95,18 +95,32 @@ func (u *chatFolderUsecase) globalSnapshotAround(
 	ctx context.Context,
 	subject domain.Chat,
 ) (*treeSnapshot, error) {
+	scope, err := u.scopeForSubject(ctx, subject)
+	if err != nil {
+		return nil, err
+	}
+	return u.globalSnapshotIn(ctx, subject, scope)
+}
+
+// globalSnapshotIn is globalSnapshotAround with the root's scope already
+// resolved — for a folder create, whose subject does not exist yet.
+func (u *chatFolderUsecase) globalSnapshotIn(
+	ctx context.Context,
+	subject domain.Chat,
+	scope forestScope,
+) (*treeSnapshot, error) {
 	rows, err := u.chats.ListChats(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: %w", err)
 	}
-	merged, homeIDs, err := u.mergeForest(ctx, rows, true, nil, nil)
+	merged, homeIDs, foreign, err := u.mergeForest(ctx, rows, scope, nil)
 	if err != nil {
 		return nil, err
 	}
 	subjectIsNodeBacked := subject.ID != "" &&
 		(subject.Type == domain.ChatTypeFolder || subject.Type == domain.ChatTypeBranch ||
 			subject.Type == workspaceAnchorType)
-	return buildHomeSnapshot(merged, subject, homeIDs, subjectIsNodeBacked), nil
+	return buildHomeSnapshot(merged, subject, homeIDs, foreign, subjectIsNodeBacked), nil
 }
 
 // workspaceSnapshot reads one workspace's rows, PLUS every folder, as of a
@@ -172,11 +186,12 @@ func (u *chatFolderUsecase) workspaceSnapshotAround(
 		return nil, fmt.Errorf("agent chat folder: snapshot: chats: %w", err)
 	}
 	if workspaceID == "" {
-		merged, nodeIDs, err := u.mergeForest(ctx, rows, false, nil, nil)
+		merged, nodeIDs, foreign, err := u.mergeForest(ctx, rows, u.scopeForBubble(ctx, subject), nil)
 		if err != nil {
 			return nil, err
 		}
-		snap := newTreeSnapshot(corrected(merged, subject))
+		delete(foreign, subject.ID)
+		snap := newTreeSnapshotScoped(corrected(merged, subject), foreign)
 		snap.homeIDs = nodeIDs
 		return snap, nil
 	}
@@ -325,11 +340,12 @@ func placementTarget(
 	origin string,
 	destination string,
 	id string,
+	firstPlacement bool,
 ) int {
 	if requested != nil {
 		return *requested
 	}
-	if origin == destination {
+	if origin == destination && !firstPlacement {
 		return snapshot.plan.IndexOf(destination, id)
 	}
 	return snapshot.plan.NextSlot(destination)

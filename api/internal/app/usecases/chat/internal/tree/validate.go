@@ -200,6 +200,9 @@ func (u *chatFolderUsecase) nearestWorkspaceAnchor(
 		if err != nil {
 			return "", fmt.Errorf("resolve %s: %w", id, err)
 		}
+		if row.Type == workspaceAnchorType {
+			return id, nil // a live workspace with no Node row yet (resolveRow's last tier)
+		}
 		id = row.ParentID
 	}
 	return "", nil
@@ -218,7 +221,11 @@ func (u *chatFolderUsecase) nearestWorkspaceAnchor(
 // a workspace's own Node{Kind:workspace} row (see workspaceAnchorView): the
 // placement id MintOwningChat/importPlacement resolve a new row's ParentID
 // to (owning_chat.go, 2026-09-08 sidebar-placement-unification Task 9) names
-// no Chat or Folder aggregate at all, only that Node row.
+// no Chat or Folder aggregate at all, only that Node row. Last, a live
+// workspace with NO Node row at all (created before Node rows existed — no
+// backfill) answers as a root anchor; the first write under it mints the
+// row (writeHomeNode's freshIDs), the same posture ensureWorkspaceAnchor
+// takes on the create path.
 func (u *chatFolderUsecase) resolveRow(
 	ctx context.Context,
 	snapshot *treeSnapshot,
@@ -243,7 +250,11 @@ func (u *chatFolderUsecase) resolveRow(
 		row := workspaceAnchorView(id, n)
 		return &row, nil
 	}
-	return nil, err // the ORIGINAL Chats.Get failure -- neither a folder nor a workspace's own Node row answers to id either.
+	if live, lerr := u.workspaces.Exists(ctx, id); lerr == nil && live {
+		row := workspaceAnchorView(id, domain.Node{ID: id, Kind: domain.NodeKindWorkspace})
+		return &row, nil
+	}
+	return nil, err // the ORIGINAL Chats.Get failure -- neither a folder, a workspace's own Node row nor a live workspace answers to id.
 }
 
 // checkFolderContainer validates a folder's parent id: "" is the panel root

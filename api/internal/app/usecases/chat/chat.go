@@ -193,8 +193,9 @@ type Usecase struct {
 	// one. May be nil (a caller with neither wired, e.g. a narrow test
 	// double); every consumer degrades to the pre-Task-8 Chat-only walk
 	// rather than failing.
-	folders TreeFolders
-	nodes   TreeNodes
+	folders   TreeFolders
+	nodes     TreeNodes
+	repoRoots TreeRepoRoots
 	// answers is the desk of relays currently BLOCKED on a human. It is in memory
 	// because a slot describes a live hook process holding a live provider gate
 	// open; see answers.go.

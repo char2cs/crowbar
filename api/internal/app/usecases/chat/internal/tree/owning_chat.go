@@ -144,6 +144,9 @@ func (u *chatFolderUsecase) owningChatOf(
 	if workspaceID == "" {
 		return "", nil
 	}
+	if err := u.ensureWorkspaceAnchor(ctx, workspaceID); err != nil {
+		return "", err
+	}
 	if _, err := u.nodes.GetNode(ctx, workspaceID); err != nil {
 		return "", nil
 	}

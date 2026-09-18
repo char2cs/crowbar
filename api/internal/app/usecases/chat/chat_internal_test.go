@@ -143,8 +143,9 @@ func newWiringFixture(t *testing.T) *Usecase {
 		// unconditional) — mirrored here rather than left nil, exactly like
 		// every other port this fixture wires (see Installed's own doc for
 		// the one deliberate exception).
-		Folders: mocks.NewFolderStore(),
-		Nodes:   mocks.NewNodePlacements(),
+		Folders:   mocks.NewFolderStore(),
+		Nodes:     mocks.NewNodePlacements(),
+		RepoRoots: mocks.NewAgentWorkspaceGitStatus(),
 	})
 }
 

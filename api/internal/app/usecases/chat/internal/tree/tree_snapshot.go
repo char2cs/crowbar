@@ -34,7 +34,16 @@ type treeSnapshot struct {
 	// freshIDs is homeIDs' subset that has no Node row yet — writeRow mints
 	// one via Nodes.Create instead of SetOrder/SetPlacement. Always non-nil.
 	freshIDs map[string]bool
+	// foreign marks base rows at the bare root that belong to another
+	// level sharing "" (another workspace's root chats). They are planned
+	// under foreignRoot instead, so a root densify never counts or writes
+	// them, while every walk still resolves through them.
+	foreign map[string]bool
 }
+
+// foreignRoot is the plan-only container the out-of-scope root rows hang
+// under; nothing is ever placed there and nothing is ever written back with it.
+const foreignRoot = "\x00foreign-root"
 
 // newTreeSnapshot builds the snapshot over one read of Chat rows — either one
 // workspace's (chat placement) or the wider set folder CRUD plans against (see
@@ -42,11 +51,21 @@ type treeSnapshot struct {
 func newTreeSnapshot(
 	rows []domain.Chat,
 ) *treeSnapshot {
+	return newTreeSnapshotScoped(rows, nil)
+}
+
+// newTreeSnapshotScoped is newTreeSnapshot with the rows foreign to this
+// snapshot's root level named — see treeSnapshot.foreign.
+func newTreeSnapshotScoped(
+	rows []domain.Chat,
+	foreign map[string]bool,
+) *treeSnapshot {
 	t := &treeSnapshot{
 		rows:     rows,
 		at:       make(map[string]int, len(rows)),
 		homeIDs:  map[string]bool{},
 		freshIDs: map[string]bool{},
+		foreign:  foreign,
 	}
 	for i, row := range rows {
 		t.at[row.ID] = i
@@ -62,14 +81,34 @@ func newTreeSnapshot(
 func (t *treeSnapshot) nodes() []tree.Node {
 	nodes := make([]tree.Node, 0, len(t.rows))
 	for _, row := range t.rows {
+		parentID := row.ParentID
+		if t.foreign[row.ID] {
+			parentID = foreignRoot
+		}
 		nodes = append(nodes, tree.Node{
 			ID:        row.ID,
-			ParentID:  row.ParentID,
+			ParentID:  parentID,
 			Order:     row.Order,
 			CreatedAt: row.CreatedAt,
+			Rank:      rankOf(row),
 		})
 	}
 	return nodes
+}
+
+// rankOf is the tie rank of a Chat-shaped row — see tree.Node.Rank.
+func rankOf(
+	row domain.Chat,
+) int {
+	switch row.Type {
+	case domain.ChatTypeFolder:
+		return tree.RankFolder
+	case nodePhantomType:
+		return tree.RankRepo
+	case workspaceAnchorType:
+		return tree.RankWorkspace
+	}
+	return tree.RankChat
 }
 
 func (t *treeSnapshot) row(
@@ -104,7 +143,7 @@ func (t *treeSnapshot) add(
 ) {
 	t.at[row.ID] = len(t.rows)
 	t.rows = append(t.rows, row)
-	t.plan.Add(tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order})
+	t.plan.Add(tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, Rank: rankOf(row)})
 }
 
 // drop removes a row from the snapshot and from the plan. The index map is
@@ -163,7 +202,7 @@ func (t *treeSnapshot) isChat(
 	id string,
 ) bool {
 	row := t.row(id)
-	return row != nil && row.Type == domain.ChatTypeChat
+	return row != nil && row.IsChat()
 }
 
 // chatLineage returns the CHAT ancestors of id as THE PLAN currently has them,

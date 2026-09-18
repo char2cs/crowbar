@@ -88,9 +88,9 @@ func (r *Resolver) lookups(
 	chats := make(map[string]bool, len(rows)+1)
 	for _, row := range rows {
 		parents[row.ID] = row.ParentID
-		chats[row.ID] = row.Type == domain.ChatTypeChat
+		chats[row.ID] = row.IsChat()
 	}
 	parents[chat.ID] = chat.ParentID
-	chats[chat.ID] = chat.Type == domain.ChatTypeChat
+	chats[chat.ID] = chat.IsChat()
 	return parents, chats, nil
 }

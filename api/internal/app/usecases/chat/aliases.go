@@ -98,6 +98,9 @@ type (
 	// TreeNodes is the position surface a home-scoped chat or folder's
 	// placement goes through instead of Chat.SetOrder/.SetPlacement.
 	TreeNodes = tree.Nodes
+	// TreeRepoRoots answers a repo's default checkout for a walk that reaches
+	// the panel root through a repo-scoped folder — see tree.RepoRoots.
+	TreeRepoRoots = tree.RepoRoots
 
 	// CreateInput, MoveInput and PlaceInput are the three writes the panel makes.
 	CreateInput = tree.CreateInput
@@ -165,8 +168,20 @@ func NewTree(
 	holders TreeWorkspaceHolders,
 	folders TreeFolders,
 	nodes TreeNodes,
+	opts ...TreeOption,
 ) TreeUsecase {
-	return tree.New(chats, agent, work, workspaces, reaper, holders, folders, nodes)
+	return tree.New(chats, agent, work, workspaces, reaper, holders, folders, nodes, opts...)
+}
+
+// TreeOption/TreeRepoAnnouncer/WithTreeRepoAnnouncer re-export the tree's
+// collateral repo announce for the composition root — see tree.RepoAnnouncer.
+type (
+	TreeOption        = tree.Option
+	TreeRepoAnnouncer = tree.RepoAnnouncer
+)
+
+func WithTreeRepoAnnouncer(fn TreeRepoAnnouncer) TreeOption {
+	return tree.WithRepoAnnouncer(fn)
 }
 
 // Work exposes the in-flight turn tracker this usecase's own components

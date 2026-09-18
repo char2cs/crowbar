@@ -249,6 +249,9 @@ type CreateInput struct {
 	RepoID   string
 	ParentID string
 	Name     string
+	// HomeID is the home workspace a project-home folder (RepoID == "")
+	// belongs to — see domain.Folder.HomeID.
+	HomeID string
 }
 
 // MoveInput is a partial folder placement change: a nil field is left as it is,
@@ -293,6 +296,19 @@ type Usecase interface {
 		ctx context.Context,
 		repoID string,
 	) ([]domain.Chat, error)
+	// ListInHome returns ONE project's home folder rows: those recorded
+	// against homeID, plus legacy home folders that recorded no home.
+	ListInHome(
+		ctx context.Context,
+		homeID string,
+	) ([]domain.Chat, error)
+	// FolderScope answers a folder's stored identity (its repo or home
+	// scope), or apperr.ErrNotFound — the fact a mount checks before it
+	// lets a caller rename, move or delete the row.
+	FolderScope(
+		ctx context.Context,
+		id string,
+	) (domain.Folder, error)
 	// Create appends a new folder to the end of its parent's sibling space and
 	// densifies that level. It returns the new folder plus every OTHER row the
 	// densify shifted, so the caller broadcasts the whole change rather than one
@@ -340,8 +356,9 @@ type Usecase interface {
 	// identical path ("new chat in this folder"); only the lineage it resolves
 	// differs, which is the folder rule doing its job rather than a second case.
 	//
-	// An empty parentID is a plain new chat at the panel root, passed straight
-	// through to the unplaced spawn and unchanged in every respect.
+	// An empty parentID is a plain new chat at the panel root: still minted
+	// and PLACED (a Node row at the level's next free slot) before its CLI
+	// starts, so the level stays dense and a repo drag can count it.
 	//
 	// A parentID naming nothing, or a chat in another workspace, is refused BEFORE
 	// anything is minted or spawned, with the errors placement already returns. A

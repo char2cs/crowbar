@@ -52,3 +52,21 @@ func TestResolveOwningChat(t *testing.T) {
 		assert.Equal(t, older.ID, owner.ID, "the earlier row wins, matching the rest of the tree's tiebreak")
 	})
 }
+
+// A thread started INSIDE a workspace shares its WorkspaceID with the owner,
+// and in a workspace that had no owner yet the oldest-wins heuristic promoted
+// that thread to owner — its row then folded into the branch/header row and
+// vanished from the sidebar. Ownership is a recorded fact now.
+func TestRegression_ResolveOwningChat_PrefersTheRecordedOwnerOverAnOlderThread(t *testing.T) {
+	thread := domain.Chat{ID: "thread", Type: domain.ChatTypeChat, WorkspaceID: "ws", CreatedAt: time.Unix(0, 0).UTC()}
+	owner := domain.Chat{ID: "owner", Type: domain.ChatTypeChat, WorkspaceID: "ws", OwnsWorkspace: true, CreatedAt: time.Unix(100, 0).UTC()}
+	got, ok := domain.ResolveOwningChat([]domain.Chat{thread, owner})
+	require.True(t, ok)
+	assert.Equal(t, "owner", got.ID)
+}
+
+func TestRegression_ResolveOwningChat_NeverPicksAThreadFiledUnderTheWorkspaceItself(t *testing.T) {
+	thread := domain.Chat{ID: "thread", Type: domain.ChatTypeChat, WorkspaceID: "ws", ParentID: "ws"}
+	_, ok := domain.ResolveOwningChat([]domain.Chat{thread})
+	assert.False(t, ok, "a thread under the workspace's own row is not its owner")
+}

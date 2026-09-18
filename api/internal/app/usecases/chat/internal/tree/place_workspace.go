@@ -89,6 +89,9 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
+	if err := u.ensureWorkspaceAnchor(ctx, destination); err != nil {
+		return domain.Chat{}, nil, err
+	}
 	if mErr := u.checkWorkspaceMove(ctx, snapshot, workspaceMove{
 		repoID:      repoID,
 		workspaceID: workspaceID,

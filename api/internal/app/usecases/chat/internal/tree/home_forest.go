@@ -90,25 +90,6 @@ func workspaceAnchorView(
 // domain.ChatType.
 const nodePhantomType domain.ChatType = "__node_phantom__"
 
-// isHomeWorkspace answers whether workspaceID is a project's home workspace —
-// RepoOf resolving "" is the SAME convention repoScopeOf/checkFolderContainer
-// already use elsewhere in this package. A bubble ("") is never home: it is
-// mid-creation, ownerless (see workspaceSnapshotAround's own doc), and never
-// resolves through RepoOf at all.
-func (u *chatFolderUsecase) isHomeWorkspace(
-	ctx context.Context,
-	workspaceID string,
-) (bool, error) {
-	if workspaceID == "" {
-		return false, nil
-	}
-	repoID, err := u.workspaces.RepoOf(ctx, workspaceID)
-	if err != nil {
-		return false, fmt.Errorf("agent chat folder: resolve workspace %s: %w", workspaceID, err)
-	}
-	return repoID == "", nil
-}
-
 // correctHomePlacement overrides a Node-backed chat row's ParentID/Order with
 // its live Node row — home-scoped since Task 5, repo-scoped too since Task 8
 // (any chat whose workspace is neither the bubble scope nor unresolvable).
@@ -209,10 +190,9 @@ func (u *chatFolderUsecase) correctHomePlacement(
 func (u *chatFolderUsecase) mergeForest(
 	ctx context.Context,
 	baseRows []domain.Chat,
-	includeRepoPhantoms bool,
-	repoMemberIDs map[string]bool,
+	scope forestScope,
 	extraSeeds []string,
-) ([]domain.Chat, map[string]bool, error) {
+) ([]domain.Chat, map[string]bool, map[string]bool, error) {
 	byID := make(map[string]int, len(baseRows))
 	for i, row := range baseRows {
 		byID[row.ID] = i
@@ -235,16 +215,16 @@ func (u *chatFolderUsecase) mergeForest(
 		queried[parent] = true
 		children, err := u.nodes.ListByParent(ctx, parent)
 		if err != nil {
-			return nil, nil, fmt.Errorf("agent chat folder: node forest: %w", err)
+			return nil, nil, nil, fmt.Errorf("agent chat folder: node forest: %w", err)
 		}
 		for _, n := range children {
 			if nodeSeen[n.ID] {
 				continue
 			}
 			nodeSeen[n.ID] = true
-			included, childID, err := u.mergeHomeNode(ctx, n, byID, &baseRows, includeRepoPhantoms, repoMemberIDs)
+			included, childID, err := u.mergeHomeNode(ctx, n, byID, &baseRows, scope)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			if included {
 				homeIDs[n.ID] = true
@@ -254,7 +234,9 @@ func (u *chatFolderUsecase) mergeForest(
 			}
 		}
 	}
-	return baseRows, homeIDs, nil
+	// Decided over the CORRECTED rows: a Node-backed chat's raw ParentID is
+	// frozen at "", and only its live Node says where it really sits.
+	return baseRows, homeIDs, u.foreignAtRoot(ctx, baseRows, scope), nil
 }
 
 // mergeHomeNode handles ONE Node mergeForest's BFS discovered, factored out
@@ -272,9 +254,17 @@ func (u *chatFolderUsecase) mergeHomeNode(
 	n domain.Node,
 	byID map[string]int,
 	baseRows *[]domain.Chat,
-	includeRepoPhantoms bool,
-	repoMemberIDs map[string]bool,
+	scope forestScope,
 ) (included bool, childID string, err error) {
+	if n.ParentID == "" {
+		var row *domain.Chat
+		if i, ok := byID[n.ID]; ok {
+			row = &(*baseRows)[i]
+		}
+		if !u.rootMember(ctx, n, scope, row) {
+			return false, "", nil
+		}
+	}
 	switch n.Kind {
 	case domain.NodeKindFolder:
 		f, ferr := u.folders.FindByKey(ctx, n.ID)
@@ -303,13 +293,10 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		*baseRows = append(*baseRows, domain.Chat{ID: n.ID, ParentID: n.ParentID, Order: n.Order})
 		return true, n.ID, nil
 	case domain.NodeKindRepo:
-		if !includeRepoPhantoms {
+		if !scope.home {
 			// A repo is never a legitimate sibling INSIDE a repo's own
-			// internal tree -- see mergeForest's own doc.
+			// internal tree -- see forestScope's own doc.
 			return false, "", nil
-		}
-		if repoMemberIDs != nil && !repoMemberIDs[n.ID] {
-			return false, "", nil // another project's repo sharing the bare root -- see mergeForest's doc
 		}
 		*baseRows = append(*baseRows, domain.Chat{
 			ID: n.ID, Type: nodePhantomType, ParentID: n.ParentID, Order: n.Order,
@@ -323,15 +310,7 @@ func (u *chatFolderUsecase) mergeHomeNode(
 		// second, duplicate row for the same worktree. RendersAsBranch is
 		// the one live check that tells the two apart.
 		renders, err := u.workspaces.RendersAsBranch(ctx, n.ID)
-		if err != nil {
-			// A resolution failure degrades to "not a branch row" rather
-			// than failing the whole merge — the same posture
-			// repoMemberIDsForHome already takes for an unresolvable
-			// project: excluding a row this walk cannot vouch for is safer
-			// than including one un-checked.
-			return false, "", nil
-		}
-		if !renders {
+		if err != nil || !renders {
 			return false, "", nil
 		}
 		*baseRows = append(*baseRows, workspaceAnchorView(n.ID, n))
@@ -362,18 +341,21 @@ func (u *chatFolderUsecase) homeSnapshotAround(
 	rows []domain.Chat,
 	subject domain.Chat,
 ) (*treeSnapshot, error) {
-	var repoMemberIDs map[string]bool
+	scope, err := u.scopeForWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
 	if home {
-		repoMemberIDs = u.repoMemberIDsForHome(ctx, workspaceID)
+		rows = withoutHomeOwner(rows)
 	}
 	// subject.ParentID is the ONE container this call actually needs
 	// densified — see mergeForest's own doc on why nothing else discovers
 	// it when that container is a locked branch's own owning-chat row.
-	merged, homeIDs, err := u.mergeForest(ctx, rows, home, repoMemberIDs, []string{subject.ParentID})
+	merged, homeIDs, foreign, err := u.mergeForest(ctx, rows, scope, []string{subject.ParentID})
 	if err != nil {
 		return nil, err
 	}
-	return buildHomeSnapshot(merged, subject, homeIDs, subject.ID != ""), nil
+	return buildHomeSnapshot(merged, subject, homeIDs, foreign, subject.ID != ""), nil
 }
 
 // repoMemberIDsForHome resolves the SAME project's repo id set
@@ -406,13 +388,15 @@ func buildHomeSnapshot(
 	merged []domain.Chat,
 	subject domain.Chat,
 	homeIDs map[string]bool,
+	foreign map[string]bool,
 	subjectIsHome bool,
 ) *treeSnapshot {
 	_, discovered := homeIDs[subject.ID]
 	if subjectIsHome {
 		homeIDs[subject.ID] = true
 	}
-	snap := newTreeSnapshot(corrected(merged, subject))
+	delete(foreign, subject.ID)
+	snap := newTreeSnapshotScoped(corrected(merged, subject), foreign)
 	snap.homeIDs = homeIDs
 	if subjectIsHome && !discovered {
 		snap.freshIDs[subject.ID] = true
@@ -443,6 +427,18 @@ func buildHomeSnapshot(
 // and PlaceWorkspace already make (ensureSubjectWritten, place_workspace.go),
 // now applied a third time for the identical reason.
 func (u *chatFolderUsecase) writeHomeNode(
+	ctx context.Context,
+	snapshot *treeSnapshot,
+	row *domain.Chat,
+) (*domain.Chat, error) {
+	written, err := u.writeHomeNodeRow(ctx, snapshot, row)
+	if err == nil && row.Type == nodePhantomType && u.announceRepo != nil {
+		u.announceRepo(ctx, row.ID, row.ParentID, row.Order)
+	}
+	return written, err
+}
+
+func (u *chatFolderUsecase) writeHomeNodeRow(
 	ctx context.Context,
 	snapshot *treeSnapshot,
 	row *domain.Chat,

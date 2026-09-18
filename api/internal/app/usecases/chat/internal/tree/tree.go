@@ -55,6 +55,22 @@ type chatFolderUsecase struct {
 	// (home_ports.go).
 	folders Folders
 	nodes   Nodes
+	// announceRepo tells a live client about a repo header row a densify
+	// shifted as collateral — a repo's Node write has no hub projection of
+	// its own, unlike a chat's. nil announces nothing.
+	announceRepo RepoAnnouncer
+}
+
+// RepoAnnouncer announces one repo's DECIDED placement, for the composition
+// root to fan out as a RepoDTO.
+type RepoAnnouncer func(ctx context.Context, repoID, parentID string, order int)
+
+// Option configures New beyond its required ports.
+type Option func(*chatFolderUsecase)
+
+// WithRepoAnnouncer wires the collateral repo announce — see RepoAnnouncer.
+func WithRepoAnnouncer(fn RepoAnnouncer) Option {
+	return func(u *chatFolderUsecase) { u.announceRepo = fn }
 }
 
 // New builds the tree usecase over the chat row repository and the agent
@@ -94,8 +110,9 @@ func New(
 	holders WorkspaceHolders,
 	folders Folders,
 	nodes Nodes,
+	opts ...Option,
 ) Usecase {
-	return &chatFolderUsecase{
+	u := &chatFolderUsecase{
 		chats:      chats,
 		agent:      agent,
 		work:       work,
@@ -105,6 +122,10 @@ func New(
 		folders:    folders,
 		nodes:      nodes,
 	}
+	for _, opt := range opts {
+		opt(u)
+	}
+	return u
 }
 
 // ListInRepo returns repoID's own folder rows — "" for project home, a real
@@ -117,13 +138,28 @@ func (u *chatFolderUsecase) ListInRepo(
 	ctx context.Context,
 	repoID string,
 ) ([]domain.Chat, error) {
+	return u.listFolders(ctx, func(f domain.Folder) bool { return f.RepoID == repoID })
+}
+
+// ListInHome implements Usecase.
+func (u *chatFolderUsecase) ListInHome(
+	ctx context.Context,
+	homeID string,
+) ([]domain.Chat, error) {
+	return u.listFolders(ctx, func(f domain.Folder) bool { return f.InHome(homeID) })
+}
+
+func (u *chatFolderUsecase) listFolders(
+	ctx context.Context,
+	keep func(domain.Folder) bool,
+) ([]domain.Chat, error) {
 	all, err := u.folders.FindAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("agent chat folder: list in repo: %w", err)
+		return nil, fmt.Errorf("agent chat folder: list folders: %w", err)
 	}
 	out := make([]domain.Chat, 0, len(all))
 	for _, f := range all {
-		if f.RepoID != repoID {
+		if !keep(f) {
 			continue
 		}
 		row := homeFolderView(f, domain.Node{})
@@ -133,6 +169,21 @@ func (u *chatFolderUsecase) ListInRepo(
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+// FolderScope implements Usecase.
+func (u *chatFolderUsecase) FolderScope(
+	ctx context.Context,
+	id string,
+) (domain.Folder, error) {
+	f, err := u.folders.FindByKey(ctx, id)
+	if err != nil {
+		return domain.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, err)
+	}
+	if f == nil {
+		return domain.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
+	}
+	return *f, nil
 }
 
 // Create mints a new folder, home-scoped (RepoID == "") or repo-scoped
@@ -152,7 +203,8 @@ func (u *chatFolderUsecase) Create(
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
-	snapshot, err := u.globalSnapshot(ctx)
+	folder := domain.Folder{Name: name, RepoID: in.RepoID, HomeID: in.HomeID}
+	snapshot, err := u.globalSnapshotIn(ctx, domain.Chat{}, u.scopeForFolder(ctx, folder))
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
@@ -163,7 +215,8 @@ func (u *chatFolderUsecase) Create(
 	if id == "" {
 		id = uuid.NewString()
 	}
-	if err := u.folders.Save(ctx, domain.Folder{ID: id, Name: name, RepoID: in.RepoID}); err != nil {
+	folder.ID = id
+	if err := u.folders.Save(ctx, folder); err != nil {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: create %s: %w", id, err)
 	}
 	target := snapshot.plan.NextSlot(in.ParentID)
@@ -266,6 +319,9 @@ func (u *chatFolderUsecase) Move(
 	destination := current.ParentID
 	if in.ParentID != nil {
 		destination = *in.ParentID
+	}
+	if err := u.ensureWorkspaceAnchor(ctx, destination); err != nil {
+		return domain.Chat{}, nil, err
 	}
 	if mErr := u.checkFolderMove(ctx, snapshot, f.RepoID, f.ID, destination); mErr != nil {
 		return domain.Chat{}, nil, mErr

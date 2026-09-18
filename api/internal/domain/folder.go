@@ -10,6 +10,16 @@ type Folder struct {
 	ID     string `gorm:"primaryKey"`
 	Name   string
 	RepoID string
+	// HomeID is a project-home folder's own home workspace — the scope that
+	// keeps one project's home folders out of another's. "" on a repo-scoped
+	// folder, and on a home folder written before the field existed.
+	HomeID string
+}
+
+// InHome reports whether f is a home folder visible from homeID: its own, or
+// a legacy one that never recorded a home.
+func (f Folder) InHome(homeID string) bool {
+	return f.RepoID == "" && (f.HomeID == "" || f.HomeID == homeID)
 }
 
 func (Folder) TableName() string {

@@ -1961,6 +1961,27 @@ type AgentWorkspaceGitStatus struct {
 	// gives for a workspace that was never forked, and for one cut straight
 	// off the repo's own default checkout.
 	ForkParents map[string]string
+	// Defaults answers DefaultWorkspaceOf, keyed by repo id.
+	Defaults map[string]string
+}
+
+// SetDefault records repoID's default checkout for DefaultWorkspaceOf.
+func (s *AgentWorkspaceGitStatus) SetDefault(repoID, workspaceID string) {
+	if s.Defaults == nil {
+		s.Defaults = map[string]string{}
+	}
+	s.Defaults[repoID] = workspaceID
+}
+
+// DefaultWorkspaceOf implements tree.RepoRoots.
+func (s *AgentWorkspaceGitStatus) DefaultWorkspaceOf(
+	ctx context.Context,
+	repoID string,
+) (string, error) {
+	if s.Err != nil {
+		return "", s.Err
+	}
+	return s.Defaults[repoID], nil
 }
 
 // NewAgentWorkspaceGitStatus returns an AgentWorkspaceGitStatus with no
@@ -1996,6 +2017,21 @@ func (s *AgentWorkspaceGitStatus) RepoIDsForHome(
 // SetRepo records workspaceID's owning repo for RepoOf to answer with.
 func (s *AgentWorkspaceGitStatus) SetRepo(workspaceID, repoID string) {
 	s.Repos[workspaceID] = repoID
+}
+
+// Exists implements tree.WorkspaceGitStatus: a workspace is live once any
+// setter here has named it.
+func (s *AgentWorkspaceGitStatus) Exists(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	if s.Err != nil {
+		return false, s.Err
+	}
+	_, inRepos := s.Repos[workspaceID]
+	_, inBranches := s.Branches[workspaceID]
+	_, inSummaries := s.Summaries[workspaceID]
+	return inRepos || inBranches || inSummaries, nil
 }
 
 func (s *AgentWorkspaceGitStatus) RepoOf(

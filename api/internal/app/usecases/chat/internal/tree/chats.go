@@ -28,11 +28,10 @@ func (u *chatFolderUsecase) CreateChat(
 		chatID, _, runnerID, err := u.createImportedWorktreeChat(ctx, providerID, parentID, worktree.Import)
 		return chatID, runnerID, err
 	}
-	if parentID == "" {
-		return u.agent.SpawnChat(ctx, workspaceID, providerID)
-	}
-	if err := u.checkNewChatParent(ctx, workspaceID, parentID, false); err != nil {
-		return "", "", err
+	if parentID != "" {
+		if err := u.checkNewChatParent(ctx, workspaceID, parentID, false); err != nil {
+			return "", "", err
+		}
 	}
 	chatID, err := u.agent.MintChat(ctx, workspaceID)
 	if err != nil {
@@ -118,11 +117,44 @@ func (u *chatFolderUsecase) checkNewChatParent(
 	parentID string,
 	ownWorktree bool,
 ) error {
+	if err := u.ensureWorkspaceAnchor(ctx, parentID); err != nil {
+		return err
+	}
 	snapshot, err := u.workspaceSnapshot(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
 	return u.checkChatContainer(ctx, snapshot, workspaceID, parentID, ownWorktree)
+}
+
+// ensureWorkspaceAnchor mints the Node{Kind:workspace} row a live workspace
+// created before Node rows existed never got, the first time a row is filed
+// under it — the sidebar names a chatless workspace by its own id, and every
+// container check and fork walk resolves that id through Node. No backfill:
+// the mint rides the first write under the row, like a Node-less repo's.
+func (u *chatFolderUsecase) ensureWorkspaceAnchor(
+	ctx context.Context,
+	id string,
+) error {
+	if id == "" {
+		return nil
+	}
+	if _, err := u.nodes.GetNode(ctx, id); err == nil {
+		return nil
+	}
+	if _, err := u.chats.Get(ctx, id); err == nil {
+		return nil
+	}
+	if f, err := u.folders.FindByKey(ctx, id); err == nil && f != nil {
+		return nil
+	}
+	if live, err := u.workspaces.Exists(ctx, id); err != nil || !live {
+		return nil // not a workspace either: the container check reports it
+	}
+	if _, err := u.nodes.Create(ctx, id, domain.NodeKindWorkspace, "", 0); err != nil {
+		return fmt.Errorf("agent chat folder: parent %s: mint workspace node: %w", id, err)
+	}
+	return nil
 }
 
 // discard takes a just-minted chat back out when the create failed after minting
@@ -190,6 +222,9 @@ func (u *chatFolderUsecase) placeChat(
 	destination := current.ParentID
 	if in.ParentID != nil {
 		destination = *in.ParentID
+	}
+	if err := u.ensureWorkspaceAnchor(ctx, destination); err != nil {
+		return domain.Chat{}, nil, err
 	}
 	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination, ownWorktree); mErr != nil {
 		return domain.Chat{}, nil, mErr
@@ -452,7 +487,7 @@ func (u *chatFolderUsecase) replace(
 	requested *int,
 	firstPlacement bool,
 ) {
-	target := placementTarget(requested, snapshot, origin, destination, id)
+	target := placementTarget(requested, snapshot, origin, destination, id, firstPlacement)
 	snapshot.plan.SetParent(id, destination)
 	snapshot.plan.Reorder(destination, id, target)
 	if destination != origin && !firstPlacement {

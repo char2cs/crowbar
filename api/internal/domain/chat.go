@@ -18,12 +18,17 @@ import "time"
 // left is never written to at all. That is what makes the torn cross-aggregate
 // write that bricked a chat unrepresentable.
 type Chat struct {
-	ID          string    `json:"id"`
-	Type        ChatType  `json:"type"`
-	WorkspaceID string    `json:"workspaceId"`
-	Title       string    `json:"title"`
-	TitleLocked bool      `json:"titleLocked"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          string   `json:"id"`
+	Type        ChatType `json:"type"`
+	WorkspaceID string   `json:"workspaceId"`
+	// OwnsWorkspace records that this row is the one that OWNS WorkspaceID —
+	// minted for it, forked it, or was promoted into it — as against a thread
+	// that merely runs inside the same worktree. Rows from before this field
+	// carry false and fall back to ResolveOwningChat's heuristic.
+	OwnsWorkspace bool      `json:"ownsWorkspace,omitempty"`
+	Title         string    `json:"title"`
+	TitleLocked   bool      `json:"titleLocked"`
+	CreatedAt     time.Time `json:"createdAt"`
 
 	// RepoID is a FOLDER's (Type == ChatTypeFolder) own repo scope: "" for a
 	// project-home folder, a real repo id otherwise. It exists only because a

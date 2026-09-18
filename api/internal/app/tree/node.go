@@ -23,7 +23,20 @@ type Node struct {
 	ParentID  string
 	Order     int
 	CreatedAt time.Time
+	// Rank breaks an Order tie by row KIND before CreatedAt: a level nobody
+	// has dragged is drawn folders, then chats, then repo headers, and a
+	// densify must count it in that same sequence or the first drop lands
+	// slots off. See RankOf.
+	Rank int
 }
+
+// Row kinds in the order a tied level is drawn.
+const (
+	RankFolder = iota
+	RankChat
+	RankRepo
+	RankWorkspace
+)
 
 func compareNodes(
 	a Node,
@@ -31,6 +44,9 @@ func compareNodes(
 ) int {
 	if a.Order != b.Order {
 		return a.Order - b.Order
+	}
+	if a.Rank != b.Rank {
+		return a.Rank - b.Rank
 	}
 	if !a.CreatedAt.Equal(b.CreatedAt) {
 		return a.CreatedAt.Compare(b.CreatedAt)

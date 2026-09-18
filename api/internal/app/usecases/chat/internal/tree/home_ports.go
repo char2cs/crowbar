@@ -107,6 +107,18 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		workspaceID string,
 	) (repoID string, err error)
+	// DefaultWorkspaceOf answers repoID's default checkout — whose root chats
+	// sit at the repo's root level beside its folders and locked branches.
+	DefaultWorkspaceOf(
+		ctx context.Context,
+		repoID string,
+	) (string, error)
+	// Exists reports whether workspaceID names a live workspace — the probe
+	// ensureWorkspaceAnchor needs before minting a legacy row's anchor Node.
+	Exists(
+		ctx context.Context,
+		workspaceID string,
+	) (bool, error)
 	// RepoIDsForHome answers every repo id belonging to the SAME project as
 	// home workspace homeWorkspaceID — this package's own counterpart to
 	// project.go's repoIDSet. See mergeHomeForest's own doc (home_forest.go)

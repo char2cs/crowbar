@@ -87,7 +87,7 @@ func (u *Usecase) Promote(
 	if chat.WorkspaceID != "" {
 		return domain.Chat{}, fmt.Errorf("promote %s: %w", chatID, ErrAlreadyPromoted)
 	}
-	forkParentID, ok, err := tree.ResolveForkParent(ctx, u.chats, u.folders, u.nodes, chatID)
+	forkParentID, ok, err := tree.ResolveForkParent(ctx, u.chats, u.folders, u.nodes, u.repoRoots, chatID)
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("promote: resolve fork parent: %w", err)
 	}
