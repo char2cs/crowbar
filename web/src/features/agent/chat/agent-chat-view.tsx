@@ -185,9 +185,10 @@ export interface AgentChatViewProps {
   /** The chat's sticky model / effort selection. '' means unset. */
   model: string
   effort: string
-  /** What the LIVE runner actually spawned as — '' on a dormant chat. Shown
-   *  in place of the (interactive) selection above once the chat is live,
-   *  since a request and its resolved argv can differ. */
+  /** What the LIVE runner actually spawned as — '' on a dormant chat. Wins
+   *  over the sticky selection above once the chat is live (still shown in
+   *  the same interactive picker), since a request and its resolved argv
+   *  can differ. */
   launchModel?: string
   launchEffort?: string
   onSelectionChange: (provider: string, model: string, effort: string) => void
@@ -1010,7 +1011,6 @@ export function AgentChatView({
               switchDisabled={switchDisabled}
               model={live && launchModel ? launchModel : model}
               effort={live && launchEffort ? launchEffort : effort}
-              readOnly={live}
               telemetry={telemetry}
               presentation={presentation}
               splitEnabled={splitEnabled && provider?.hotswap === true}
