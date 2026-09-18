@@ -40,7 +40,7 @@ func (u *chatFolderUsecase) DeleteChat(
 	}
 	chats, folders := snapshot.subtree(chatID)
 	chats = append(chats, chatID)
-	orphaned, err := u.reapWorktrees(ctx, snapshot, chats)
+	orphaned, err := u.reapWorktrees(ctx, snapshot, chatID, chats)
 	if err != nil {
 		return ChatDeletion{}, err
 	}
@@ -71,9 +71,21 @@ func (u *chatFolderUsecase) DeleteChat(
 // Returns the workspaces the subtree owned but could not reap because a
 // surviving chat still holds them, so the caller can mint each a fresh owner
 // (remintOwners) instead of leaving the next read to elect a survivor.
+//
+// rootID is the chat DeleteChat was actually asked to delete, as opposed to a
+// descendant reached only via the cascade — the two must not answer a locked
+// workspace the same way. A locked DESCENDANT is kept and reminted a fresh
+// owner: the cascade caught it incidentally, and letting it survive is the
+// whole point of "skip a locked child" (TestWorktree_deleteCascadeSkipsLockedChild).
+// A locked ROOT is what the caller explicitly asked to delete — silently
+// keeping ITS workspace and reporting 202 would tell the caller their delete
+// succeeded when nothing about the thing they targeted was removed
+// (TestRegression_DeleteLockedWorkspaceRejected expects 409, not a
+// quietly-orphaned survivor).
 func (u *chatFolderUsecase) reapWorktrees(
 	ctx context.Context,
 	snapshot *treeSnapshot,
+	rootID string,
 	ids []string,
 ) ([]string, error) {
 	doomed := doomedSet(ids)
@@ -101,12 +113,16 @@ func (u *chatFolderUsecase) reapWorktrees(
 		if err == nil || errors.Is(err, apperr.ErrNotFound) {
 			continue
 		}
-		// A LOCKED child is kept, same as one a surviving chat still holds
+		// A LOCKED DESCENDANT is kept, same as one a surviving chat still holds
 		// (the `shared` branch above): DiscardChildWorkspace's own DeleteCascade
 		// correctly refuses to erase a locked root, and that refusal must not
 		// fail the whole delete — it means this one worktree survives the
 		// cascade and needs a fresh owner, not that the cascade itself failed.
-		if errors.Is(err, workspace.ErrWorkspaceLocked) {
+		//
+		// A locked ROOT — id == rootID, the chat the caller actually asked to
+		// delete — is the opposite: nothing about their request should read as
+		// having succeeded. Fall through to the normal error return below.
+		if errors.Is(err, workspace.ErrWorkspaceLocked) && id != rootID {
 			if u.ownsWorktree(ctx, snapshot, *row) {
 				orphaned = append(orphaned, row.WorkspaceID)
 			}
