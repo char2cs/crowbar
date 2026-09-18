@@ -2,7 +2,7 @@ import { getEntity, upsertEntity } from '@/lib/persistence/entity-cache'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useSidebarStore } from '@/lib/store/sidebar'
-import type { ChatDTO, FolderDTO, RepoDTO } from '@/lib/types'
+import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // A placement PATCH answers with the daemon's already-committed rows and no
 // push channel confirms them, so the caller applies the response itself. Every
@@ -56,6 +56,17 @@ export async function applyChatPlacement(
   shifted: readonly RowPlacement[] = [],
 ): Promise<string | null> {
   const written = await Promise.all([chat, ...shifted].map(writePlacementThrough))
+  applyWrittenRows(written)
+  const movedRepoId =
+    useSidebarStore.getState().repos.find((r) => r.chats?.some((c) => c.id === chat.id))?.id ?? null
+  if (movedRepoId) useFolderSignalStore.getState().bump(movedRepoId)
+  return movedRepoId
+}
+
+/** Apply cache-written chat/folder rows to the store. A row the cache does
+ *  not know (cold cache) is patched onto whichever chat or folder the store
+ *  holds under that id. */
+function applyWrittenRows(written: readonly CachedRow[]): void {
   const placements = new Map<string, RowPlacement>()
   const folders: FolderDTO[] = []
   for (const entry of written) {
@@ -63,28 +74,77 @@ export async function applyChatPlacement(
     else if (entry.kind === 'chat') placements.set(entry.dto.id, entry.dto)
     else placements.set(entry.row.id, entry.row)
   }
-
-  let movedRepoId: string | null = null
-  useSidebarStore.setState((s) => {
-    const repos = s.repos.map((repo) => {
-      if (!repo.chats?.some((c) => placements.has(c.id))) return repo
-      if (repo.chats.some((c) => c.id === chat.id)) movedRepoId = repo.id
+  useSidebarStore.setState((s) => ({
+    repos: s.repos.map((repo) => {
+      const touchesChat = repo.chats?.some((c) => placements.has(c.id))
+      const touchesFolder = repo.folders?.some((f) => placements.has(f.id))
+      if (!touchesChat && !touchesFolder) return repo
       return {
         ...repo,
-        chats: repo.chats.map((c) => {
+        chats: repo.chats?.map((c) => {
           const placement = placements.get(c.id)
           return placement
             ? { ...c, parentId: placement.parentId || undefined, order: placement.order }
             : c
         }),
+        folders: repo.folders?.map((f) => {
+          const placement = placements.get(f.id)
+          return placement
+            ? { ...f, parentId: placement.parentId || undefined, order: placement.order }
+            : f
+        }),
       }
-    })
-    return { repos }
-  })
+    }),
+  }))
   const applyFolder = useSidebarStore.getState().applyFolderDTO
   folders.forEach(applyFolder)
-  if (movedRepoId) useFolderSignalStore.getState().bump(movedRepoId)
-  return movedRepoId
+}
+
+/**
+ * Apply a workspace's own placement PATCH answer — the moved row's decided
+ * folderId/order and every chat/folder sibling it shifted — to the cache and
+ * the store, then bump the repo's tree signal. A branch row's order comes off
+ * its WorkspaceDTO, which no placement frame refreshes, so this is the only
+ * way the dragged row moves before a reload.
+ */
+export async function applyWorkspacePlacement(
+  wsId: string,
+  placement: { parentId: string; order: number },
+  shifted: readonly RowPlacement[] = [],
+): Promise<void> {
+  const [cached, written] = await Promise.all([
+    getEntity<WorkspaceDTO>('crowbar_workspaces', wsId),
+    Promise.all(shifted.map(writePlacementThrough)),
+  ])
+  if (cached) {
+    await upsertEntity('crowbar_workspaces', {
+      ...cached,
+      folderId: placement.parentId,
+      order: placement.order,
+    })
+  }
+  useSidebarStore.getState().applyPlacement({
+    workspaces: [{ id: wsId, folderId: placement.parentId, order: placement.order }],
+  })
+  applyWrittenRows(written)
+  const repoId = useSidebarStore
+    .getState()
+    .repos.find((r) => r.workspaces.some((w) => w.id === wsId))?.id
+  if (repoId) useFolderSignalStore.getState().bump(repoId)
+}
+
+/** Apply a repo's re-read workspace rows to the cache, then merge their
+ *  placement into the store — the siblings a workspace densify shifted are
+ *  announced nowhere else. */
+export async function applyWorkspacePlacements(rows: readonly WorkspaceDTO[]): Promise<void> {
+  await Promise.all(rows.map((row) => upsertEntity('crowbar_workspaces', row)))
+  useSidebarStore.getState().applyPlacement({
+    workspaces: rows.map((row) => ({
+      id: row.id,
+      folderId: row.folderId ?? '',
+      order: row.order ?? 0,
+    })),
+  })
 }
 
 /**

@@ -18,7 +18,6 @@ import { readVisibleRepoTree } from '@/lib/store/project-visibility'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { ChatDTO, Project, RepoDTO } from '@/lib/types'
 
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
@@ -61,7 +60,6 @@ beforeEach(async () => {
   useHomeTreeStore.setState({ trees: {} })
   useProjectStore.setState({ activeProjectId: 'p1' })
   useProjectDataStore.setState({ data: success([project]) })
-  useSidebarStore.setState({ collapsedProjects: new Set<string>() })
   await upsertEntity('crowbar_repos', repoDTO)
   // Created c-z first, then c-m, then c-a: id order is the reverse of creation.
   await upsertEntity('crowbar_chats', chatDTO('c-z', '2026-01-01T00:00:00Z'))

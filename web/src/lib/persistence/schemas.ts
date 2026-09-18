@@ -79,21 +79,13 @@ export interface UIPreferences {
 
 export interface SidebarUI {
   /**
-   * RETIRED. Written by the pre-restyle tree's repo/branch chevrons; the
-   * restyled tree folds through `collapsedChatRows` only. A record still
-   * carrying either is ignored on read (hydrate.ts) — no migration.
+   * RETIRED. Written by the pre-restyle tree's repo/branch chevrons and its
+   * project-row fold; the restyled tree folds through `collapsedChatRows` only
+   * (the SpaceHeader fold is panel-local). A record still carrying any of them
+   * never gates visibility (project-visibility.ts) — no migration.
    */
   collapsedRepos?: string[]
   collapsedWorkspaces?: string[]
-  /**
-   * Projects the user has folded away — an absent value replays as
-   * "everything open", which is the product default (see `collapsedProjects`
-   * in lib/store/sidebar.ts).
-   *
-   * A record written by an earlier build carries `expandedProjects` instead.
-   * It is simply ignored: pre-production, a stale layout falls back gracefully
-   * and is rewritten on the next toggle. No migration code.
-   */
   collapsedProjects?: string[]
   /**
    * Chats-panel rows the user has folded — folder ids and chat ids in ONE list,

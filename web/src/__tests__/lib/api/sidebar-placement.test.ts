@@ -130,6 +130,29 @@ describe('placeWorkspace', () => {
     expect(init.method).toBe('PATCH')
   })
 
+  // The moved row's decided placement, and every sibling the densify
+  // shifted, is the only confirmation a branch drag gets (no workspace frame
+  // carries a placement) — it used to be thrown away.
+  it('answers the moved row and the shifted siblings, never void', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        workspace: { id: 'ws-1', parentId: 'f-rev', order: 2 },
+        shifted: [{ id: 'f1', parentId: 'f-rev', title: 'F1', order: 3 }],
+      }),
+    )
+
+    expect(await placeWorkspace('ws-1', { folderId: 'f-rev', order: 2 })).toEqual({
+      workspace: { id: 'ws-1', parentId: 'f-rev', order: 2 },
+      shifted: [{ id: 'f1', parentId: 'f-rev', order: 3 }],
+    })
+  })
+
+  it('defaults shifted to [] when the backend omits the field', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ workspace: { id: 'ws-1', parentId: '', order: 0 } }))
+
+    expect((await placeWorkspace('ws-1', { order: 0 })).shifted).toEqual([])
+  })
+
   // A folder and a locked branch's own row share ONE sibling space within
   // the branch's own repo, so the route names the destination `parentId`.
   it('sends the folder as parentId, the field the placement route reads', async () => {

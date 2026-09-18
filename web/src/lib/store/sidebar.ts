@@ -251,22 +251,8 @@ interface SidebarState {
    */
   repos: Repo[]
   /**
-   * Projects the user has explicitly folded away: unknown means OPEN.
-   *
-   * Showing every project at once is the feature — a fresh install must render
-   * the whole sidebar, not a column of closed rows — so the default cannot be
-   * "collapsed". Collapse is how the cost is bought back rather than avoided: a
-   * project's repo + workspace WebSocket streams are subscribed only while it
-   * is visible (see lib/store/project-visibility.ts), so folding one away is a
-   * real teardown, not just a tidier list.
-   *
-   * The ACTIVE project stays visible regardless of this set — the app needs its
-   * repo scope whether or not the row is folded.
-   */
-  collapsedProjects: Set<string>
-  /**
    * Chats-panel rows the user has folded — folder ids and chat ids together,
-   * since both kinds hold children. Same polarity as `collapsedProjects`.
+   * since both kinds hold children; unknown means OPEN.
    *
    * It lives HERE, in a store the workspace switch does not touch, rather than
    * in the panel: the panel is keyed by workspace id so a switch remounts it
@@ -289,7 +275,6 @@ interface SidebarState {
    * beforehand so a refusal is one call to undo.
    */
   applyPlacement: (placement: SidebarPlacement) => void
-  toggleProject: (projectId: string) => void
   /** Fold a Chats-panel row away, or open it again. */
   toggleChatRow: (rowId: string) => void
   /**
@@ -598,7 +583,6 @@ function recordRepoScopes(repos: Repo[]): void {
 export function getInitialState() {
   return {
     repos: [],
-    collapsedProjects: new Set<string>(),
     collapsedChatRows: new Set<string>(),
     // The card's default-visible panel is Files (scrollLeft starts at 0 in
     // sidebar-carousel.tsx) — 'workspaces' stopped being a valid TABS entry
@@ -609,24 +593,12 @@ export function getInitialState() {
   }
 }
 
-/** The two sets `sidebar-ui` holds; both fold-away lists. */
-type CollapseSets = Pick<SidebarState, 'collapsedProjects' | 'collapsedChatRows'>
+/** The one set `sidebar-ui` still holds (schemas.ts lists the retired keys). */
+type CollapseSets = Pick<SidebarState, 'collapsedChatRows'>
 
-/**
- * Apply one collapse change and write the WHOLE record.
- *
- * One writer for both sets, so a toggle can never persist its own list over a
- * record whose other one it forgot to carry.
- */
-function persist<K extends keyof CollapseSets>(
-  state: CollapseSets,
-  change: Pick<CollapseSets, K>,
-): Pick<CollapseSets, K> {
-  const next = { ...state, ...change }
-  void saveSidebarUI({
-    collapsedProjects: [...next.collapsedProjects],
-    collapsedChatRows: [...next.collapsedChatRows],
-  })
+/** Apply one collapse change and write the record. */
+function persist(change: CollapseSets): CollapseSets {
+  void saveSidebarUI({ collapsedChatRows: [...change.collapsedChatRows] })
   return change
 }
 
@@ -753,18 +725,11 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
       return repos === s.repos ? s : { repos }
     }),
 
-  toggleProject: (projectId) =>
-    set((s) => {
-      const next = new Set(s.collapsedProjects)
-      next.has(projectId) ? next.delete(projectId) : next.add(projectId)
-      return persist(s, { collapsedProjects: next })
-    }),
-
   toggleChatRow: (rowId) =>
     set((s) => {
       const next = new Set(s.collapsedChatRows)
       next.has(rowId) ? next.delete(rowId) : next.add(rowId)
-      return persist(s, { collapsedChatRows: next })
+      return persist({ collapsedChatRows: next })
     }),
 
   openChatRow: (rowId) =>
@@ -772,7 +737,7 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
       if (!s.collapsedChatRows.has(rowId)) return s
       const next = new Set(s.collapsedChatRows)
       next.delete(rowId)
-      return persist(s, { collapsedChatRows: next })
+      return persist({ collapsedChatRows: next })
     }),
 
   setActiveTab: (tab) => set({ activeTab: tab }),

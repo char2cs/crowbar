@@ -362,6 +362,21 @@ describe('a tied level sorts the way the daemon sorts it', () => {
     ])
   })
 
+  // The daemon compares time.Time; the wire form is RFC3339Nano with a local
+  // offset and trimmed fraction zeros, so the ISO STRING order is not the
+  // instant order ('Z' sorts above every digit; two offsets straddle a DST
+  // change). Compared as instants, or a tied level's first drop index names a
+  // different slot on each side.
+  it('breaks a tie on the INSTANT, not the ISO string', () => {
+    const level = [
+      { id: 'a', order: 0, createdAt: '2026-11-01T01:30:00-07:00' },
+      { id: 'b', order: 0, createdAt: '2026-11-01T01:15:00-08:00' },
+      { id: 'c', order: 0, createdAt: '2026-09-17T20:36:46.53Z' },
+      { id: 'd', order: 0, createdAt: '2026-09-17T20:36:46.5Z' },
+    ]
+    expect(sortByPlacement(level).map((row) => row.id)).toEqual(['d', 'c', 'a', 'b'])
+  })
+
   it('applies to a repo’s workspaces as they are grouped from the cache', () => {
     const tree = buildRepoTree(
       [repo('r1', 'alpha')],

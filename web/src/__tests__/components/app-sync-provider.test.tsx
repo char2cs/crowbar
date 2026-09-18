@@ -44,6 +44,8 @@ import { idle, success } from '@/lib/loadable'
 import { useProjectStore } from '@/lib/store/projects'
 import { useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
+import { hydrateSidebar } from '@/lib/persistence/hydrate'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import type { EntityChange } from '@/lib/ws/entity-stream'
@@ -126,13 +128,10 @@ beforeEach(() => {
   fetchFolders.mockResolvedValue([])
   fetchRepoChats.mockResolvedValue([])
   useProjectStore.setState({ activeProjectId: 'p1' })
-  // Two KNOWN projects. Visibility is now "every known project minus the folded
-  // ones", so p2 starts open and a `toggleProject` folds it away.
+  // Two KNOWN projects. Visibility is "every known project", so p2 is open
+  // from the start and only leaves the set when the list stops carrying it.
   useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
-  useSidebarStore.setState({
-    repos: [],
-    collapsedProjects: new Set<string>(),
-  })
+  useSidebarStore.setState({ repos: [] })
   // seededWorkspaceRepoIds reset too: several tests below reuse the ids
   // 'r1'/'r2' across `it` blocks, and this set is never removed from once an
   // id is added (folder-signal.ts's own doc), so a later test's "fresh"
@@ -221,8 +220,16 @@ describe('AppSyncProvider subscribes by visibility', () => {
     expect(endpoints()).toContain('/v0/projects/p2/repos')
   })
 
-  it('does not subscribe a project that has been folded away', async () => {
-    useSidebarStore.setState({ collapsedProjects: new Set(['p2']) })
+  // REGRESSION (restyle v2), same class as the retired `collapsedRepos` gate:
+  // the pre-restyle tree persisted `collapsedProjects` and it gated every
+  // stream of a folded project. The restyled sidebar has no writer for it, so
+  // a project the OLD build folded rendered blank whenever it was not active,
+  // with nothing able to un-fold it. The set is never consulted now.
+  it('subscribes a project the old build persisted as folded', async () => {
+    vi.useRealTimers()
+    await saveSidebarUI({ collapsedProjects: ['p2'], collapsedChatRows: [] })
+    await hydrateSidebar()
+    vi.useFakeTimers()
     render(
       <AppSyncProvider>
         <div />
@@ -230,11 +237,11 @@ describe('AppSyncProvider subscribes by visibility', () => {
     )
     await settle()
     expect(endpoints()).toContain('/v0/projects/p1/repos')
-    expect(endpoints()).not.toContain('/v0/projects/p2/repos')
+    expect(endpoints()).toContain('/v0/projects/p2/repos')
   })
 
-  it('re-opening a project subscribes exactly one repo stream', async () => {
-    useSidebarStore.setState({ collapsedProjects: new Set(['p2']) })
+  it('a project returning to the list subscribes exactly one repo stream', async () => {
+    useProjectDataStore.setState({ data: success([project('p1')]) })
     render(
       <AppSyncProvider>
         <div />
@@ -244,7 +251,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
     const before = endpoints().length
 
     act(() => {
-      useSidebarStore.getState().toggleProject('p2')
+      useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
     })
     await settle()
 
@@ -277,7 +284,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
     expect(endpoints()).toContain('/v0/projects/p3/repos')
   })
 
-  it('collapsing a project tears its stream down — but only after the grace period', async () => {
+  it('a project leaving the list tears its stream down — but only after the grace period', async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -287,10 +294,10 @@ describe('AppSyncProvider subscribes by visibility', () => {
     const p2 = streamFor('/v0/projects/p2/repos')!
 
     act(() => {
-      useSidebarStore.getState().toggleProject('p2')
+      useProjectDataStore.setState({ data: success([project('p1')]) })
     })
     await settle()
-    // Still live: a collapse/expand tap must not thrash the socket.
+    // Still live: a list flicker must not thrash the socket.
     expect(p2.unsubscribe).not.toHaveBeenCalled()
 
     await settle(SUBSCRIPTION_GRACE_MS)
@@ -299,7 +306,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
     expect(streamFor('/v0/projects/p1/repos')!.unsubscribe).not.toHaveBeenCalled()
   })
 
-  it('does not rebuild the cached tree just because a project or repo closed', async () => {
+  it('does not rebuild the cached tree just because a project left the list', async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -309,19 +316,21 @@ describe('AppSyncProvider subscribes by visibility', () => {
     act(() => {
       useSidebarStore.getState().setRepos([repo('r1', 'p1')])
     })
-    await settle()
+    // The mocked read never publishes, so the repo's tree-open claim retries
+    // its rebuild a bounded number of times; let that chain drain first.
+    await settle(SUBSCRIPTION_GRACE_MS)
     const rebuild = useWorkspaceListStore.getState().fetch as ReturnType<typeof vi.fn>
     rebuild.mockClear()
 
     act(() => {
-      useSidebarStore.getState().toggleProject('p2')
+      useProjectDataStore.setState({ data: success([project('p1')]) })
     })
     await settle()
 
     expect(rebuild).not.toHaveBeenCalled()
   })
 
-  it('re-opening inside the grace period keeps the same stream (no reseed)', async () => {
+  it('a project back on the list inside the grace period keeps the same stream (no reseed)', async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -331,11 +340,11 @@ describe('AppSyncProvider subscribes by visibility', () => {
     const openedCount = endpoints().filter((e) => e === '/v0/projects/p2/repos').length
 
     act(() => {
-      useSidebarStore.getState().toggleProject('p2')
+      useProjectDataStore.setState({ data: success([project('p1')]) })
     })
     await settle()
     act(() => {
-      useSidebarStore.getState().toggleProject('p2')
+      useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
     })
     await settle(SUBSCRIPTION_GRACE_MS * 2)
 
@@ -370,7 +379,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
   // collapsedChatRows and never wrote or cleared that set, so a repo the old
   // build had collapsed drew its header + branches yet never loaded threads or
   // folders. There is no per-repo gate any more: a visible repo always streams.
-  it('folding a PROJECT tears its repo streams down after the grace period', async () => {
+  it('a project leaving the list tears its repo streams down after the grace period', async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -388,7 +397,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
     })
 
     act(() => {
-      useSidebarStore.getState().toggleProject('p2')
+      useProjectDataStore.setState({ data: success([project('p1')]) })
     })
     await settle(SUBSCRIPTION_GRACE_MS)
 
@@ -403,7 +412,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
   // fetchFolders fire (or not). The reseed mechanism itself is covered in
   // app-sync-provider-folders.test.tsx; these tests only cover WHEN it is
   // wired up — the same visibility rule the workspace streams already prove.
-  it("fetches every visible repo's folders and chats, and stops reacting to its signal once its project folds", async () => {
+  it("fetches every visible repo's folders and chats, and stops reacting to its signal once its project leaves the list", async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -421,7 +430,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
     expect(fetchRepoChats).toHaveBeenCalledWith('p2', 'r2')
 
     act(() => {
-      useSidebarStore.getState().toggleProject('p2')
+      useProjectDataStore.setState({ data: success([project('p1')]) })
     })
     await settle(SUBSCRIPTION_GRACE_MS)
     fetchFolders.mockClear()

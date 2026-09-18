@@ -126,7 +126,6 @@ beforeEach(() => {
   // The restyled tree's own fold set is empty — nothing on screen is folded.
   useSidebarStore.setState({
     repos: [],
-    collapsedProjects: new Set<string>(),
     collapsedChatRows: new Set<string>(),
   })
   useFolderSignalStore.setState({

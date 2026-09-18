@@ -28,6 +28,22 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeOwningChatId: () => null,
 }))
 
+/** Record `chatId` as the chat owning `ws-1`'s worktree — what lets it re-parent. */
+function recordOwnerOfWs1(chatId: string): void {
+  useSidebarStore.setState((s) => ({
+    repos: s.repos.map((r) =>
+      r.id === 'repo-1'
+        ? {
+            ...r,
+            workspaces: r.workspaces.map((w) =>
+              w.id === 'ws-1' ? { ...w, owningChatId: chatId } : w,
+            ),
+          }
+        : r,
+    ),
+  }))
+}
+
 function makeRow(over: Partial<SidebarRow> & { id: string }): SidebarRow {
   return {
     kind: 'branch',
@@ -112,7 +128,8 @@ describe('SIDEBAR_DROP_POLICY', () => {
   })
 
   it('a same-repo drag is allowed in full', () => {
-    const subject = makeRow({ id: 'ws-1' })
+    recordOwnerOfWs1('chat-ws-1')
+    const subject = makeRow({ id: 'chat-ws-1', workspaceId: 'ws-1' })
     const target = makeRow({ id: 'home-1' })
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(ALL_MODES)
   })
@@ -298,6 +315,31 @@ describe('SIDEBAR_DROP_POLICY', () => {
       after: false,
       into: false,
     })
+  })
+
+  // A fork whose owning chat is not recorded yet (its row is id'd by the
+  // workspace) cannot be reparented — that verb is chat-addressed and would
+  // only throw — so it reorders among its own siblings, like a locked row.
+  it('a fork with no owning chat recorded reorders among its siblings but cannot re-parent', () => {
+    const subject = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
+    const sibling = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
+    const otherContainer = makeRow({
+      id: 'folder-1',
+      kind: 'folder',
+      workspaceId: null,
+      parentId: null,
+    })
+
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sibling)).toEqual(REORDER_MODES)
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherContainer)).toEqual(NO_MODES)
+  })
+
+  it('a fork whose owning chat IS recorded may still re-parent', () => {
+    recordOwnerOfWs1('chat-ws-1')
+    const subject = makeRow({ id: 'chat-ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
+    const target = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
+
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], target)).toEqual(ALL_MODES)
   })
 
   it('a folder row resolves through the folders array, not workspaceId', () => {
@@ -662,6 +704,57 @@ describe('SIDEBAR_DROP_POLICY', () => {
       expect(
         SIDEBAR_DROP_POLICY.allowedModes([homeChatRow], homeFolderRow('home-folder-1')),
       ).toEqual(ALL_MODES)
+    })
+
+    // A repo's own header row shares the home root with a home folder — a
+    // real sibling to reorder past (the reverse drag already was), never a
+    // container to file into.
+    describe('relative to a repo header row', () => {
+      const repoHeader = (id: string, projectId: string, repoId: string) =>
+        makeRow({
+          id,
+          kind: 'branch',
+          repoIcon: { repoId, projectId, name: repoId, avatarLabel: 'A', avatarColor: 'c' },
+        })
+
+      beforeEach(() => {
+        getHomeWorkspaceId.mockReturnValue('home-ws-1')
+        useHomeTreeStore.setState({
+          trees: {
+            'proj-1': {
+              chats: [],
+              folders: [{ id: 'home-folder-1', repoId: '', name: 'Notes', order: 0 }],
+            },
+          },
+        })
+      })
+
+      it('reorders (never nests) a home folder past a repo header in the SAME project', () => {
+        expect(
+          SIDEBAR_DROP_POLICY.allowedModes(
+            [homeFolderRow('home-folder-1')],
+            repoHeader('home-1', 'proj-1', 'repo-1'),
+          ),
+        ).toEqual(REORDER_MODES)
+      })
+
+      it('refuses a home folder dropped beside a DIFFERENT project’s repo header', () => {
+        expect(
+          SIDEBAR_DROP_POLICY.allowedModes(
+            [homeFolderRow('home-folder-1')],
+            repoHeader('home-3', 'proj-2', 'repo-3'),
+          ),
+        ).toEqual(NO_MODES)
+      })
+
+      it('refuses a home folder dropped beside an ORDINARY branch row inside a repo', () => {
+        expect(
+          SIDEBAR_DROP_POLICY.allowedModes(
+            [homeFolderRow('home-folder-1')],
+            makeRow({ id: 'ws-1', parentId: 'home-1' }),
+          ),
+        ).toEqual(NO_MODES)
+      })
     })
   })
 

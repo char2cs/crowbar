@@ -17,7 +17,7 @@ import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
 
 interface SidebarTreeProps {
   /** One project's rows, flat, parentId-linked. */
-  rows: SidebarRowType[]
+  rows: readonly SidebarRowType[]
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void

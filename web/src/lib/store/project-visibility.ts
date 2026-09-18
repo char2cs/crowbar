@@ -8,7 +8,7 @@ import {
 } from '@/lib/store/build-repo-tree'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { EMPTY_PROJECTS, useProjectDataStore, useProjectStore } from '@/lib/store/projects'
-import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import type { Repo } from '@/lib/store/sidebar'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 // ---------------------------------------------------------------------------
@@ -24,15 +24,16 @@ import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 // cannot see.
 //
 // So the axis changed from "which project is active" to "which projects are
-// visible": every project the user has NOT folded away, plus the active one.
-// Cost is then proportional to what is on screen. A collapsed project costs
-// exactly one row (its name, from the always-subscribed /v0/projects stream)
-// and nothing else — nothing is withheld, because a collapsed project shows
-// only its own row by definition.
+// visible": every project the /v0/projects list has delivered, plus the active
+// one. Cost is then proportional to what exists, and a project only starts
+// costing streams once its row actually lands.
 //
-// Note the polarity: open is the default. Showing every project at once is the
-// point of the redesign, so collapse is an explicit act that buys the cost
-// back, not the resting state that avoids paying it.
+// The pre-restyle tree also folded whole projects away (`collapsedProjects`),
+// and that set once gated visibility here. The restyled sidebar has no writer
+// for it — the SpaceHeader fold is panel-local — so a project the OLD build
+// persisted as folded would otherwise render blank whenever it is not active,
+// with nothing in the UI able to un-fold it. The key is retired: it is never
+// consulted, same as `collapsedRepos` (see schemas.ts).
 // ---------------------------------------------------------------------------
 
 /**
@@ -46,9 +47,8 @@ const EMPTY_REPOS: Repo[] = []
 
 /**
  * The projects whose repos + workspaces should be subscribed and rendered:
- * every known project the user has not folded away, plus the active one (which
- * stays visible even when its own row is collapsed — the app needs its repo
- * scope either way).
+ * every known project, plus the active one (which stays visible before the
+ * list lands — the app needs its repo scope either way).
  *
  * "Known" is the always-on `/v0/projects` stream, so a project only starts
  * costing streams once its row actually exists. Before that list lands the set
@@ -58,12 +58,9 @@ const EMPTY_REPOS: Repo[] = []
  * builders only, never from a render path.
  */
 export function getVisibleProjectIds(): Set<string> {
-  const collapsed = useSidebarStore.getState().collapsedProjects
   const projects = dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS
   const visible = new Set<string>()
-  for (const project of projects) {
-    if (!collapsed.has(project.id)) visible.add(project.id)
-  }
+  for (const project of projects) visible.add(project.id)
   const activeProjectId = useProjectStore.getState().activeProjectId
   if (activeProjectId) visible.add(activeProjectId)
   return visible
@@ -73,9 +70,9 @@ export function getVisibleProjectIds(): Set<string> {
  * Build the sidebar repo tree from the entity cache, scoped to the visible
  * projects. The cache is deliberately cross-project and long-lived (each
  * project's repo stream prunes only its own scope, and rows survive across
- * sessions), which is exactly what makes expanding a project instant and
- * offline-capable — but it also means an unfiltered read would surface repos
- * from projects the user has collapsed away.
+ * sessions), which is exactly what makes a project instant and offline-capable
+ * — but it also means an unfiltered read would surface repos from a project
+ * the list no longer carries.
  */
 export async function readVisibleRepoTree(): Promise<Repo[]> {
   const [repos, workspaces, folders, chats] = await Promise.all([

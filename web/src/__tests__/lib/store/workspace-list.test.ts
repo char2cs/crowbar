@@ -4,7 +4,6 @@ import { resetDB } from '@/lib/persistence/idb'
 import { dataOf, idle, success } from '@/lib/loadable'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const project = (id: string): Project => ({
@@ -51,12 +50,11 @@ beforeEach(() => {
   resetDB()
   globalThis.indexedDB = new IDBFactory()
   // The entity cache is cross-project; the sidebar tree is scoped to the VISIBLE
-  // projects. Make one active (always visible) so the tree isn't empty, start
-  // from nothing collapsed, and start with the project list still unlanded so
-  // each test says explicitly which projects are KNOWN.
+  // projects. Make one active (always visible) so the tree isn't empty, and
+  // start with the project list still unlanded so each test says explicitly
+  // which projects are KNOWN.
   useProjectStore.setState({ activeProjectId: 'p1' })
   useProjectDataStore.setState({ data: idle() })
-  useSidebarStore.setState({ collapsedProjects: new Set<string>() })
 })
 
 describe('useWorkspaceListStore', () => {
@@ -112,12 +110,11 @@ describe('useWorkspaceListStore', () => {
     expect(repos.map((r) => r.projectId).sort()).toEqual(['p1', 'p2'])
   })
 
-  it('fetch drops a project once it is folded away', async () => {
+  it('fetch drops a project once the list no longer carries it', async () => {
     await seedTwoProjects()
 
     useProjectStore.setState({ activeProjectId: 'p1' })
-    useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
-    useSidebarStore.getState().toggleProject('p2')
+    useProjectDataStore.setState({ data: success([project('p1')]) })
     const { useWorkspaceListStore } = await import('@/lib/store/workspace-list')
     await useWorkspaceListStore.getState().fetch()
 

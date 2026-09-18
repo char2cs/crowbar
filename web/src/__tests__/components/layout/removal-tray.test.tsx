@@ -205,10 +205,7 @@ beforeEach(() => {
   useWorkspaceListStore.setState({ data: idle() })
   useProjectDataStore.setState({ data: success([project]) })
   useRemovalTrayStore.setState(getInitialRemovalState())
-  useSidebarStore.setState({
-    repos: [repo()],
-    collapsedProjects: new Set<string>(),
-  })
+  useSidebarStore.setState({ repos: [repo()] })
   // Rows are only built for a repo whose tree has been read back — see
   // SidebarTreeSurface's own gate.
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set(['r1']) })

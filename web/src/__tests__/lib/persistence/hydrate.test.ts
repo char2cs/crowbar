@@ -562,7 +562,6 @@ describe('hydrateSidebar', () => {
     globalThis.indexedDB = new IDBFactory()
     useSidebarStore.setState({
       repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
-      collapsedProjects: new Set<string>(),
       collapsedChatRows: new Set<string>(),
       activeTab: 'workspaces',
     })
@@ -570,7 +569,6 @@ describe('hydrateSidebar', () => {
 
   it('does nothing when IDB is empty', async () => {
     await hydrateSidebar()
-    expect(useSidebarStore.getState().collapsedProjects.size).toBe(0)
     expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
   })
 
@@ -618,16 +616,21 @@ describe('hydrateSidebar', () => {
     expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
   })
 
-  it('restores collapsedProjects from IDB', async () => {
+  // REGRESSION (restyle v2): the old build's project-row fold persisted this
+  // set and project-visibility gated a folded project's streams on it; the
+  // restyled sidebar has no writer, so a project it folded rendered blank
+  // whenever it was not active. The key is retired like collapsedRepos.
+  it('ignores the retired collapsedProjects key a previous build persisted', async () => {
     await saveSidebarUI({
       collapsedRepos: [],
       collapsedWorkspaces: [],
       collapsedProjects: ['p2', 'p3'],
+      collapsedChatRows: ['f1'],
     })
     await hydrateSidebar()
-    const { collapsedProjects } = useSidebarStore.getState()
-    expect(collapsedProjects.has('p2')).toBe(true)
-    expect(collapsedProjects.has('p3')).toBe(true)
+    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
+    expect(state.collapsedProjects).toBeUndefined()
+    expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(true)
   })
 
   it('restores collapsedChatRows from IDB', async () => {
@@ -645,21 +648,6 @@ describe('hydrateSidebar', () => {
     expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
   })
 
-  it('replays a record written before projects were collapsible as "all open"', async () => {
-    useSidebarStore.setState({ collapsedProjects: new Set(['stale']) })
-    const db = await getDB()
-    // A record with no collapsedProjects key at all — either a build that
-    // predates collapsible projects, or one that wrote the old inverted
-    // `expandedProjects`. Both replay as "nothing collapsed", which is the
-    // product default: a fresh install shows every project open.
-    await db.put(
-      'sidebar-ui',
-      { collapsedRepos: ['crowbar'], expandedProjects: ['p9'], updatedAt: Date.now() } as never,
-      'global',
-    )
-    await hydrateSidebar()
-    expect(useSidebarStore.getState().collapsedProjects.size).toBe(0)
-  })
 })
 
 /**

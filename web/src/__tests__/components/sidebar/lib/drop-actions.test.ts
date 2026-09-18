@@ -16,13 +16,22 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 // A repo header drop re-reads the project's repos after its PATCH (see the
 // `repoHome` case) — answered with the decided placement here, never a
 // network round trip.
-const { fetchRepos } = vi.hoisted(() => ({ fetchRepos: vi.fn() }))
+const { fetchRepos, fetchWorkspaces } = vi.hoisted(() => ({
+  fetchRepos: vi.fn(),
+  fetchWorkspaces: vi.fn(),
+}))
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   fetchRepos: (...args: unknown[]) => fetchRepos(...args),
+  fetchWorkspaces: (...args: unknown[]) => fetchWorkspaces(...args),
 }))
 vi.mock('@/lib/api/sidebar-placement', () => ({
-  placeWorkspace: vi.fn().mockResolvedValue(undefined),
+  // Echoes the call back as the {workspace, shifted} envelope the real
+  // .../workspaces/:wsId/placement PATCH answers with.
+  placeWorkspace: vi.fn(async (wsId: string, placement: { folderId?: string; order?: number }) => ({
+    workspace: { id: wsId, parentId: placement.folderId ?? '', order: placement.order ?? 0 },
+    shifted: [],
+  })),
   // Echoes the call's own args back as the {folder, shifted} envelope the
   // real .../chats/folders PATCH answers with (Task 34) — fireRowPlacementCall
   // applies `folder` straight to the sidebar store, so this has to resolve to
@@ -258,6 +267,7 @@ beforeEach(() => {
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
   useProjectDataStore.setState({ data: idle() })
+  fetchWorkspaces.mockResolvedValue([])
   setActiveWorkspaceId('ws-1')
   // Default: the reparent POST's background job "succeeds" and its
   // confirming WS frame lands essentially at once — most tests below care
@@ -294,6 +304,36 @@ describe('performSidebarDrop — reordering (no lineage change)', () => {
       order: 0,
     })
     expect(reparentWorkspace).not.toHaveBeenCalled()
+  })
+
+  // Caught live: a locked branch dragged past a sibling PATCHed 200 and
+  // nothing moved until a reload. A branch row's order comes off its
+  // WorkspaceDTO, which no placement frame refreshes; the PATCH answer (the
+  // moved row + shifted folders) used to be discarded, and a shifted
+  // workspace-anchor sibling is announced nowhere — so the drop applies the
+  // answer itself and re-reads the repo's workspaces for the rest.
+  it('applies the PATCH answer and re-reads the repo’s workspaces so shifted siblings repaint', async () => {
+    vi.mocked(placeWorkspace).mockResolvedValueOnce({
+      workspace: { id: 'ws-c', parentId: '', order: 0 },
+      shifted: [{ id: 'folder-1', parentId: '', order: 4 }],
+    })
+    fetchWorkspaces.mockResolvedValue([
+      { id: 'ws-a', repoId: 'repo-1', projectId: 'proj-1', branch: 'a', folderId: '', order: 1 },
+      { id: 'ws-b', repoId: 'repo-1', projectId: 'proj-1', branch: 'b', folderId: '', order: 2 },
+      { id: 'ws-c', repoId: 'repo-1', projectId: 'proj-1', branch: 'c', folderId: '', order: 0 },
+    ])
+
+    await performSidebarDrop(
+      [branchRow('ws-c')],
+      branchRow('ws-a', { parentId: 'home-1' }),
+      'before',
+    )
+
+    expect(fetchWorkspaces).toHaveBeenCalledWith('proj-1', 'repo-1')
+    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'repo-1')!
+    const orderOf = (id: string) => repo.workspaces.find((w) => w.id === id)?.order
+    expect([orderOf('ws-c'), orderOf('ws-a'), orderOf('ws-b')]).toEqual([0, 1, 2])
+    expect(repo.folders?.find((f) => f.id === 'folder-1')?.order).toBe(4)
   })
 
   it('reorders a folder among its siblings the same way', async () => {
@@ -584,8 +624,9 @@ describe('performSidebarDrop — waits for a real reparent confirmation, not jus
 describe('performSidebarDrop — multi-row moves', () => {
   it('fires each call in order, awaiting the previous one before the next starts', async () => {
     let resolveFirst!: () => void
-    const pending = new Promise<void>((resolve) => {
-      resolveFirst = resolve
+    const pending = new Promise<Awaited<ReturnType<typeof placeWorkspace>>>((resolve) => {
+      resolveFirst = () =>
+        resolve({ workspace: { id: 'ws-b', parentId: '', order: 0 }, shifted: [] })
     })
     vi.mocked(placeWorkspace).mockImplementationOnce(() => pending)
 
@@ -824,6 +865,40 @@ describe('performSidebarDrop — chats', () => {
     expect(setChatPlacement).toHaveBeenCalledWith('ws-x', 'chat-b', {
       parentId: 'chat-a',
       order: 0,
+    })
+  })
+
+  // The gap under an EXPANDED parent is the slot before its first child —
+  // where the drop line is drawn, and what every other planner already
+  // means by 'after' there. A chat used to be filed as a sibling after the
+  // whole subtree instead.
+  describe('"after" an expanded chat with threads', () => {
+    beforeEach(() => {
+      seedRepoChats([
+        repoChat('chat-a', { order: 0 }),
+        repoChat('chat-t', { parentId: 'chat-a', order: 0 }),
+        repoChat('chat-b', { order: 1 }),
+      ])
+    })
+
+    it('files the chat as its FIRST child', async () => {
+      await performSidebarDrop([rootChatRow('chat-b')], rootChatRow('chat-a'), 'after')
+
+      expect(setChatPlacement).toHaveBeenCalledWith('ws-x', 'chat-b', {
+        parentId: 'chat-a',
+        order: 0,
+      })
+    })
+
+    it('is a plain sibling reorder once that parent is COLLAPSED', async () => {
+      useSidebarStore.setState({ collapsedChatRows: new Set(['chat-a']) })
+
+      await performSidebarDrop([rootChatRow('chat-b')], rootChatRow('chat-a'), 'after')
+
+      expect(setChatPlacement).toHaveBeenCalledWith('ws-x', 'chat-b', {
+        parentId: 'ws-x',
+        order: 1,
+      })
     })
   })
 
@@ -1231,6 +1306,60 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
       useHomeTreeStore.getState().trees['proj-1']?.folders.find((f) => f.id === 'home-folder-a')
         ?.parentId,
     ).toBe('home-folder-b')
+  })
+
+  // A repo's header row is a real root-level sibling of a home folder, and
+  // never a container for one: 'after' the EXPANDED header (its branches
+  // showing) is the slot after it among the root rows, not "first child" —
+  // which used to file the folder at index 0 of the root instead.
+  describe('relative to a repo header row', () => {
+    const repoHeader = branchRow('home-1', {
+      parentId: null,
+      workspaceId: 'home-1',
+      repoIcon: {
+        repoId: 'repo-1',
+        projectId: 'proj-1',
+        name: 'repo-1',
+        avatarLabel: 'R',
+        avatarColor: 'bg-indigo-700',
+      },
+    })
+
+    beforeEach(() => {
+      // Root rows as drawn: repo-1's header (order 0), then home-folder-a.
+      useHomeTreeStore.setState({
+        trees: {
+          'proj-1': {
+            chats: [HOME_OWNING_CHAT],
+            folders: [{ id: 'home-folder-a', repoId: '', name: 'a', order: 1 }],
+          },
+        },
+      })
+    })
+
+    it('lands BEFORE the header at the root', async () => {
+      await performSidebarDrop([homeFolderRow('home-folder-a')], repoHeader, 'before')
+
+      expect(placeHomeFolder).toHaveBeenCalledWith('proj-1', 'home-folder-a', {
+        parentId: '',
+        order: 0,
+      })
+    })
+
+    it('lands AFTER the expanded header at the root, never as its first child', async () => {
+      await performSidebarDrop([homeFolderRow('home-folder-a')], repoHeader, 'after')
+
+      expect(placeHomeFolder).toHaveBeenCalledWith('proj-1', 'home-folder-a', {
+        parentId: '',
+        order: 1,
+      })
+    })
+
+    it('never files a folder INTO a repo header', async () => {
+      await performSidebarDrop([homeFolderRow('home-folder-a')], repoHeader, 'into')
+
+      expect(placeHomeFolder).not.toHaveBeenCalled()
+    })
   })
 })
 

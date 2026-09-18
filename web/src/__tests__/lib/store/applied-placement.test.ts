@@ -6,11 +6,13 @@ import {
   applyChatPlacement,
   applyFolderPlacements,
   applyRepoPlacements,
+  applyWorkspacePlacement,
+  applyWorkspacePlacements,
 } from '@/lib/store/applied-placement'
 import { toSidebarChat, toSidebarFolder, toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
-import type { ChatDTO, FolderDTO, RepoDTO } from '@/lib/types'
+import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const repoDTO = (id: string, order: number): RepoDTO => ({
   id,
@@ -110,6 +112,87 @@ describe('applyFolderPlacements', () => {
       ['f2', 1],
     ])
     expect(useFolderSignalStore.getState().generations['r1']).toBe(1)
+  })
+})
+
+const workspaceDTO = (id: string, order: number, folderId = ''): WorkspaceDTO => ({
+  id,
+  repoId: 'r1',
+  projectId: 'p1',
+  branch: id,
+  parentId: '',
+  forkPointSha: '',
+  status: 'new',
+  working: false,
+  lastError: '',
+  added: 0,
+  deleted: 0,
+  mergeStrategy: '',
+  canMergeLocally: false,
+  mergeConflicts: false,
+  parentBranch: '',
+  prUrl: '',
+  prTitle: '',
+  prTargetBranch: '',
+  folderId,
+  order,
+})
+
+describe('applyWorkspacePlacement', () => {
+  beforeEach(async () => {
+    await upsertEntity('crowbar_workspaces', workspaceDTO('ws-a', 0))
+    await upsertEntity('crowbar_workspaces', workspaceDTO('ws-b', 1))
+    useSidebarStore
+      .getState()
+      .setRepos([
+        toSidebarRepo(
+          repoDTO('r1', 0),
+          [workspaceDTO('ws-a', 0), workspaceDTO('ws-b', 1)],
+          [toSidebarFolder(folderDTO('f1', 2))],
+          [],
+        ),
+      ])
+  })
+
+  it('writes the moved workspace through the cache, applies it and its shifted folder to the store, then bumps', async () => {
+    await applyWorkspacePlacement('ws-b', { parentId: '', order: 0 }, [
+      { id: 'f1', parentId: '', order: 3 },
+    ])
+
+    const cached = await getAllEntities<WorkspaceDTO>('crowbar_workspaces')
+    expect(byId(cached, 'ws-b')).toEqual(workspaceDTO('ws-b', 0))
+    const repo = useSidebarStore.getState().repos[0]
+    expect(byId(repo.workspaces, 'ws-b')).toMatchObject({ folderId: '', order: 0 })
+    expect(byId(repo.folders ?? [], 'f1')).toMatchObject({ order: 3 })
+    expect(useFolderSignalStore.getState().generations['r1']).toBe(1)
+  })
+
+  it('still applies a shifted folder the cache has never seen', async () => {
+    await applyWorkspacePlacement('ws-b', { parentId: 'f1', order: 0 }, [
+      { id: 'f-cold', parentId: '', order: 5 },
+    ])
+    expect(byId(useSidebarStore.getState().repos[0].workspaces, 'ws-b')).toMatchObject({
+      folderId: 'f1',
+      order: 0,
+    })
+  })
+})
+
+describe('applyWorkspacePlacements', () => {
+  it('replaces the cached workspace rows before merging their placement into the store', async () => {
+    useSidebarStore
+      .getState()
+      .setRepos([
+        toSidebarRepo(repoDTO('r1', 0), [workspaceDTO('ws-a', 0), workspaceDTO('ws-b', 1)]),
+      ])
+
+    await applyWorkspacePlacements([workspaceDTO('ws-a', 1, 'f1'), workspaceDTO('ws-b', 0)])
+
+    const cached = await getAllEntities<WorkspaceDTO>('crowbar_workspaces')
+    expect(byId(cached, 'ws-a')).toEqual(workspaceDTO('ws-a', 1, 'f1'))
+    const repo = useSidebarStore.getState().repos[0]
+    expect(byId(repo.workspaces, 'ws-a')).toMatchObject({ folderId: 'f1', order: 1 })
+    expect(byId(repo.workspaces, 'ws-b')).toMatchObject({ folderId: '', order: 0 })
   })
 })
 

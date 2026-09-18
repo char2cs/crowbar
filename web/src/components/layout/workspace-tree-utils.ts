@@ -1,6 +1,7 @@
 import { indexFromParents, type TreeIndex } from './keep-set'
 import type { Workspace } from '@/lib/store/sidebar'
 import type { ChatType } from '@/lib/types'
+import { createdInstant } from '@/lib/store/created-instant'
 
 // 2026-09-08 sidebar-placement-unification Task 10: this file needed no
 // change. There is no wire-level `Node` shape to cut over to — verified
@@ -230,11 +231,13 @@ export function buildSidebarTree(
         ? node.chat.order
         : node.workspace.order) ?? NO_ORDER
   const createdOf = (node: SidebarTreeNode) =>
-    (node.kind === 'folder'
-      ? node.folder.createdAt
-      : node.kind === 'chat'
-        ? node.chat.createdAt
-        : node.workspace.createdAt) ?? ''
+    createdInstant(
+      node.kind === 'folder'
+        ? node.folder.createdAt
+        : node.kind === 'chat'
+          ? node.chat.createdAt
+          : node.workspace.createdAt,
+    )
   const kindRank = { folder: 0, workspace: 1, chat: 2 } as const
   const sortSiblings = (list: SidebarTreeNode[]) => {
     list.sort((a, b) => {
@@ -242,9 +245,8 @@ export function buildSidebarTree(
       if (byOrder !== 0) return byOrder
       const byKind = kindRank[a.kind] - kindRank[b.kind]
       if (byKind !== 0) return byKind
-      const createdA = createdOf(a)
-      const createdB = createdOf(b)
-      if (createdA !== createdB) return createdA < createdB ? -1 : 1
+      const byCreated = createdOf(a) - createdOf(b)
+      if (byCreated !== 0) return byCreated
       return (arrival.get(a.id) ?? 0) - (arrival.get(b.id) ?? 0)
     })
     for (const child of list) sortSiblings(child.children)

@@ -8,6 +8,7 @@ import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { hideRowsForInFlightCreates } from '@/components/sidebar/lib/rows-from-pending'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import {
   ensureHomeWorkspaceResolved,
@@ -261,11 +262,8 @@ function SpacePanel({
   // cascade goes.
   const removalEntries = useRemovalTrayStore((s) => s.entries)
   const hiddenIds = useMemo(() => descendantHiddenIds(removalEntries), [removalEntries])
-  // Read here (rather than only in `sidebar-tree-surface.tsx`, which already
-  // merges pending rows into `repoRows`) because `homeRows` below is built
-  // straight off `useHomeTreeStore`, outside that merge entirely — the
-  // `unconfirmedRealIds` filter a few lines down needs to see every pending
-  // entry regardless of which store its own real row will eventually land in.
+  // Read here (not only in `sidebar-tree-surface.tsx`) because `homeRows`
+  // below is built off `useHomeTreeStore`, outside that merge entirely.
   const pendingEntries = usePendingCreatesStore((s) => s.entries)
   // A repo header row already in `repoRows` (rowsFromRepo's own push) carries
   // its own real `parentId`/`order` straight off the wire — Task 3 put a
@@ -286,31 +284,10 @@ function SpacePanel({
           removalEntries,
         )
       : []
-  // A create's mint and its placement are two sequential backend writes, not
-  // one (space-content-actions.ts's `waitForHomeChat`/`chatHasLanded`/
-  // `forkHasLanded`, all three, own the full doc on this) — so the REAL row
-  // for a create still in flight can reach `homeRows`/`repoRows` above
-  // already existing but not yet at its real placement, landing wherever its
-  // stale/default parentId currently says (typically root). Filtered out
-  // here rather than left to render and self-correct: the correctly-PLACED
-  // pending row (`repoRows`'s own `rowsFromPending` merge, and home's own
-  // pending entries riding the same prop — see sidebar-tree-surface.tsx's
-  // `rowsForProjectFn`) is already standing in at the right spot, so hiding
-  // the real row until its placement is CONFIRMED (the same instant its
-  // pending entry clears, per those three predicates) means it only ever
-  // appears once, already correct — never rendered wrong first. `realId` is
-  // attached the moment each create's own request resolves (before that
-  // wait even begins), so this excludes it from the very first paint that
-  // could otherwise show it, not just from paints after the bug was already
-  // visible.
-  const unconfirmedRealIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const entry of pendingEntries) if (entry.realId) ids.add(entry.realId)
-    return ids
-  }, [pendingEntries])
-  const rows = unconfirmedRealIds.size
-    ? [...homeRows, ...repoRows].filter((r) => !unconfirmedRealIds.has(r.id))
-    : [...homeRows, ...repoRows]
+  // The pending row is the ONE stand-in for a create in flight — its real row
+  // reseeds in (at root, before its placement write) long before the POST
+  // answers, so it is hidden until the entry clears (rows-from-pending.ts).
+  const rows = hideRowsForInFlightCreates([...homeRows, ...repoRows], pendingEntries, projectId)
   const navigate = useNavigate()
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both
   // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll

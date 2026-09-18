@@ -25,15 +25,15 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 //
 //   /v0/projects                            always — one stream, a handful of rows
 //   a project's repos                       while that project is visible
-//                                           (not folded away, or the active one)
+//                                           (known to /v0/projects, or the active one)
 //   a repo's worktrees                      while its project is visible
 //   a repo's tree rows (folders + chats)    while its project is visible
 //
-// Cost is then proportional to what is on screen instead of to how much work
-// you have: a collapsed project costs one cached row and nothing else, and
-// expanding one renders instantly from the IndexedDB entity cache while its
-// seed GET is still in flight. Teardown waits out a short grace period so a
-// collapse/expand tap doesn't thrash the socket, and every stream is held under
+// Cost is then proportional to what exists instead of to how much work you
+// have: a project that leaves the list costs one cached row and nothing else,
+// and one returning renders instantly from the IndexedDB entity cache while
+// its seed GET is still in flight. Teardown waits out a short grace period so
+// a list flicker doesn't thrash the socket, and every stream is held under
 // its own key so adding or dropping one never disturbs the others.
 //
 // On mount we
@@ -471,8 +471,7 @@ export function useAppSyncEngine(): void {
           seed: () => fetchRepos(projectId),
           onChange: onReposChange,
           // Authoritative over THIS project's repos only — crowbar_repos holds
-          // other projects' repos too, including collapsed ones we still want
-          // cached for an instant expand.
+          // other projects' repos too, cached for an instant return.
           pruneScope: (repo) => repo.projectId === projectId,
         })
       }
@@ -599,7 +598,7 @@ export function useAppSyncEngine(): void {
       if (disposed) return
 
       // 2. Project list: GET seed + live WS stream. Always on — it is one
-      //    stream over a handful of rows, and it is what a collapsed project's
+      //    stream over a handful of rows, and it is what every project's
       //    row is drawn from.
       void useProjectDataStore.getState().fetch()
       rootUnsubscribes.push(useProjectDataStore.getState().startSync())
@@ -608,14 +607,13 @@ export function useAppSyncEngine(): void {
       //    mounts at the root BEFORE any project exists (fresh start / OOBE), so
       //    visibility usually arrives AFTER mount — reconcile now, and again on
       //    every project-, project-list- or sidebar-store change (active project
-      //    switched, the project list landing, a project folded away, a repo
-      //    collapsed, a repo seeded into the tree). Without this, importing the
-      //    first project never populates the entity cache and the sidebar stays
-      //    empty.
+      //    switched, the project list landing, a repo seeded into the tree).
+      //    Without this, importing the first project never populates the
+      //    entity cache and the sidebar stays empty.
       //
       //    The project-LIST subscription is what makes "open by default" work:
-      //    visibility is now "every known project minus the folded ones", so the
-      //    set only grows when `/v0/projects` delivers. Its own `lastSignature`
+      //    visibility is "every known project plus the active one", so the set
+      //    only grows when `/v0/projects` delivers. Its own `lastSignature`
       //    guard keeps the extra wake-ups free.
       scheduleRebuild()
       reconcile()

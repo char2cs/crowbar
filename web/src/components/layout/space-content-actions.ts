@@ -11,7 +11,11 @@ import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { toast } from '@/features/window/stores/toast-store'
-import { openChatInOwnPane } from '@/components/sidebar/lib/drop-actions'
+import {
+  openChatInOwnPane,
+  renderedProjectRows,
+  visibleRepos,
+} from '@/components/sidebar/lib/drop-actions'
 import { resolveHomeRowScope, getHomeTree, useHomeTreeStore } from '@/lib/store/home-tree'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import { getHomeOwningChatId } from '@/features/workspace/lib/home-workspace-resolver'
@@ -389,13 +393,8 @@ export function handleTrash(id: string): boolean {
  * Trashes a whole PROJECT via the same removal tray a row's trash uses —
  * spec §9: "every row that owns something carries a trash: chats,
  * workspaces, folders, repos, and the space header for the project."
- *
- * Deliberately not routed through `DeleteConfirmDialog` the way a row's
- * trash is: `planRemoval`'s project draft already hides the project's row
- * AND every repo under it, and `RemovalTray` pops `RemovalConfirmDialog`
- * for exactly the two cascading kinds (`repo`, `project`) before it commits
- * — so a project already gets the "confirm names what goes" step, from the
- * surface that owns it, and a second dialog in front would ask twice.
+ * `RemovalTray` pops `RemovalConfirmDialog` for the two cascading kinds
+ * (`repo`, `project`) before it commits, so no dialog is needed up front.
  *
  * Returns whether anything was actually held, so the caller can say
  * something rather than silently doing nothing (`draftFor` returns null for
@@ -441,6 +440,20 @@ export function handleTrashRepo(repoId: string): boolean {
 // flight per (kind, parentId) closes the hole at its source rather than papering over
 // the mess it leaves behind.
 const createInFlight = new Set<string>()
+
+/** The panel's rows as drawn at click time: the slot a create appends at is
+ *  the daemon's NextSlot — every kind under `parentId`, repo headers included
+ *  at the home root — and the ids `hideRowsForInFlightCreates` keeps. */
+function panelRowsAtClick(
+  projectId: string,
+  parentId: string,
+): { order: number; rowIdsAtClick: string[] } {
+  const rows = renderedProjectRows(visibleRepos(), projectId)
+  return {
+    order: rows.filter((r) => (r.parentId ?? '') === parentId).length,
+    rowIdsAtClick: rows.map((r) => r.id),
+  }
+}
 
 /** Fails the pending row with the daemon's own reason, toasted and logged so it is diagnosable. */
 function failCreate(tempId: string, err: unknown, fallback: string): void {
@@ -645,16 +658,8 @@ export function handleCreate(
       createInFlight.delete(inFlightKey)
     }
     // The new thread's OWN tree position, once real: nested under the
-    // clicked chat's own id, after every thread already there — the same
-    // rule the repo-scoped thread branch below follows.
-    const homeTree = getHomeTree(homeRow.projectId)
-    const siblingRows = rowsFromHome(
-      homeRow.homeWorkspaceId,
-      homeTree.chats,
-      homeTree.folders,
-      getHomeOwningChatId(homeRow.projectId) ?? undefined,
-    )
-    const order = siblingRows.filter((r) => r.parentId === parentId && r.kind === 'chat').length
+    // clicked chat's own id, after every row already there.
+    const { order, rowIdsAtClick } = panelRowsAtClick(homeRow.projectId, parentId)
     const tempId = `pending-${crypto.randomUUID()}`
     usePendingCreatesStore.getState().addCreating({
       tempId,
@@ -664,6 +669,7 @@ export function handleCreate(
       order,
       workspaceId: homeRow.homeWorkspaceId,
       ownsWorktree: false,
+      rowIdsAtClick,
     })
     // `parentId` (the THIRD arg — the clicked chat's own id) EXPLICITLY, not
     // left to default to root: home has no workspace nodes at all for the
@@ -845,7 +851,7 @@ export function handleCreate(
     release()
     return
   }
-  const order = siblingRows.filter((r) => r.parentId === parentId && r.kind === 'chat').length
+  const { order, rowIdsAtClick } = panelRowsAtClick(projectId, parentId)
   const tempId = `pending-${crypto.randomUUID()}`
   usePendingCreatesStore.getState().addCreating({
     tempId,
@@ -855,6 +861,7 @@ export function handleCreate(
     order,
     workspaceId: wsId,
     ownsWorktree: false,
+    rowIdsAtClick,
   })
   // `release` fires the moment the REQUEST itself settles, not once the row
   // has visually landed: `createInFlight`'s whole job is stopping a rapid
@@ -910,7 +917,13 @@ export function confirmPendingCreateName(tempId: string, name: string): void {
   const armed = armedBranchCreates.get(tempId)
   if (!armed) return
   armedBranchCreates.delete(tempId)
-  usePendingCreatesStore.getState().confirmNaming(tempId, name)
+  usePendingCreatesStore
+    .getState()
+    .confirmNaming(
+      tempId,
+      name,
+      panelRowsAtClick(armed.projectId, armed.placementParentId).rowIdsAtClick,
+    )
   // `armed.release` fires the moment the REQUEST itself settles — see the
   // identical reasoning on the thread path above; the same hang risk applies
   // here, and a stuck naming lock would leave every later "+" click on this
@@ -998,13 +1011,7 @@ export async function handleCreateHomeThread(
   const release = (): void => {
     createInFlight.delete(inFlightKey)
   }
-  const tree = getHomeTree(projectId)
-  const order = rowsFromHome(
-    homeWorkspaceId,
-    tree.chats,
-    tree.folders,
-    getHomeOwningChatId(projectId) ?? undefined,
-  ).filter((r) => r.parentId === null).length
+  const { order, rowIdsAtClick } = panelRowsAtClick(projectId, '')
   const tempId = `pending-${crypto.randomUUID()}`
   usePendingCreatesStore.getState().addCreating({
     tempId,
@@ -1014,6 +1021,7 @@ export async function handleCreateHomeThread(
     order,
     workspaceId: homeWorkspaceId,
     ownsWorktree: false,
+    rowIdsAtClick,
   })
   let chatId: string
   try {

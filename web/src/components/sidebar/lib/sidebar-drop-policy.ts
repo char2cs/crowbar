@@ -10,7 +10,10 @@ import {
 } from '@/components/tree-dnd/drop-core'
 import { isWorkspaceLockedInSidebar, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
-import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
+import {
+  owningChatIdOfWorkspace,
+  workspaceIdOfBranchRow,
+} from '@/components/sidebar/lib/branch-row-id'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { foldWorkspaceOwners, resolveOwnerChats } from '@/components/sidebar/lib/rows-from-repo'
@@ -283,9 +286,16 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
     const subjectHomeScopes = subjects.map((s) => resolveHomeRowScope(s.id))
     if (subjectHomeScopes.some((s) => s !== null)) {
       if (subjectHomeScopes.some((s) => s === null)) return NO_MODES
+      const projectId = subjectHomeScopes[0]!.projectId
+      if (subjectHomeScopes.some((s) => s!.projectId !== projectId)) return NO_MODES
+      // A repo's own header row shares the home root with a folder — a real
+      // sibling to reorder past (its container is always root or a home
+      // folder, its own placement invariant), never a container for one.
+      if (target.kind === 'branch') {
+        return target.repoIcon?.projectId === projectId ? REORDER_MODES : NO_MODES
+      }
       const targetHome = resolveHomeRowScope(target.id)
-      if (!targetHome) return NO_MODES
-      if (subjectHomeScopes.some((s) => s!.projectId !== targetHome.projectId)) return NO_MODES
+      if (!targetHome || targetHome.projectId !== projectId) return NO_MODES
       return ALL_MODES
     }
   }
@@ -381,8 +391,17 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   }
 
   const hasLocked = subjects.some((s) => isWorkspaceLockedInSidebar(repos, s.workspaceId))
-  if (hasLocked) {
-    const sameParent = subjects.every((s) => s.parentId === target.parentId)
+  // A fork with no owning chat recorded yet cannot re-parent either: that
+  // verb is chat-addressed (workspace-scope-url.ts) and would only throw.
+  const hasNoOwner = subjects.some(
+    (s) =>
+      s.kind === 'branch' &&
+      !!s.workspaceId &&
+      owningChatIdOfWorkspace(repos, s.workspaceId) === null,
+  )
+  if (hasLocked || hasNoOwner) {
+    // A hit-tested target reads '' off the DOM for a root row; a real row says null.
+    const sameParent = subjects.every((s) => (s.parentId ?? '') === (target.parentId ?? ''))
     if (!sameParent) return NO_MODES
     return resolvesToFirstChild(target, 'after')
       ? { before: true, after: false, into: false }

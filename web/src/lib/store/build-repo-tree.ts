@@ -1,4 +1,5 @@
 import { assetURL } from '@/lib/api'
+import { createdInstant } from '@/lib/store/created-instant'
 import type { Chat, Folder, Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
@@ -135,9 +136,8 @@ export function compareByPlacement(
 ): number {
   const byOrder = (a.order ?? NO_ORDER) - (b.order ?? NO_ORDER)
   if (byOrder !== 0) return byOrder
-  const createdA = a.createdAt ?? ''
-  const createdB = b.createdAt ?? ''
-  if (createdA !== createdB) return createdA < createdB ? -1 : 1
+  const byCreated = createdInstant(a.createdAt) - createdInstant(b.createdAt)
+  if (byCreated !== 0) return byCreated
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 }
 

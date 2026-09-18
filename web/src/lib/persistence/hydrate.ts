@@ -279,13 +279,9 @@ export async function hydrateSidebar(): Promise<void> {
   ])
 
   if (sidebarUI) {
-    // `collapsedRepos`/`collapsedWorkspaces` are retired keys the pre-restyle
-    // tree wrote (see schemas.ts) — never replayed, every repo opens.
+    // `collapsedRepos`/`collapsedWorkspaces`/`collapsedProjects` are retired
+    // keys the pre-restyle tree wrote (see schemas.ts) — never replayed.
     useSidebarStore.setState({
-      // Absent on a record written before projects were collapsible — replays
-      // as "nothing collapsed", i.e. every project open, which is the product
-      // default (see sidebar.ts `collapsedProjects`).
-      collapsedProjects: new Set(sidebarUI.collapsedProjects ?? []),
       // Absent on a record written before the Chats panel was collapsible —
       // replays as "nothing folded", the product default (see schemas.ts).
       collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
