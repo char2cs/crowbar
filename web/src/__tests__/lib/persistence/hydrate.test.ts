@@ -647,7 +647,6 @@ describe('hydrateSidebar', () => {
     await hydrateSidebar()
     expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
   })
-
 })
 
 /**
