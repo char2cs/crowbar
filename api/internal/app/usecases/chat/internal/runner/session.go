@@ -48,7 +48,7 @@ func (rs *Runners) HandleSessionStart(
 		if err != nil || !ok {
 			return err
 		}
-		if _, err := rs.runnerStore.BindSession(ctx, runner.ID, ev.SessionID, known, time.Now()); err != nil {
+		if _, err := rs.runnerStore.BindSession(ctx, runner.ID, ev.SessionID, known, time.Now(), ev.Model, ev.Effort); err != nil {
 			return fmt.Errorf("agent: ingest hook: bind session: %w", err)
 		}
 		// A bind takes a conversation, so it obeys I3 exactly as a move does: whoever else is
@@ -69,7 +69,7 @@ func (rs *Runners) HandleSessionStart(
 		rs.evictHolderOf(ctx, runner, ev.SessionID)
 		return nil
 	case engineagents.MoveToNew:
-		return rs.moveToNewChat(ctx, runner, ev.SessionID)
+		return rs.moveToNewChat(ctx, runner, ev.SessionID, ev.Model, ev.Effort)
 	case engineagents.MoveToKnown:
 		// The destination is resolved from append-only history, which can outlive the chat
 		// it names: PurgeChat's history drop is best-effort, and deleting a Crowbar chat
@@ -81,7 +81,7 @@ func (rs *Runners) HandleSessionStart(
 		if err != nil || !ok {
 			return err
 		}
-		return rs.moveToKnownChat(ctx, runner, d.ChatID, ev.SessionID)
+		return rs.moveToKnownChat(ctx, runner, d.ChatID, ev.SessionID, ev.Model, ev.Effort)
 	}
 	return nil
 }
@@ -90,6 +90,8 @@ func (rs *Runners) moveToNewChat(
 	ctx context.Context,
 	runner engineagents.Runner,
 	sessionID string,
+	model string,
+	effort string,
 ) error {
 	newChatID := uuid.NewString()
 	created, err := rs.chats.Create(ctx, agentchat.CreateInput{
@@ -103,7 +105,7 @@ func (rs *Runners) moveToNewChat(
 	}
 	rs.work.Set(newChatID, created.Working)
 	rs.seedPermissionLevel(ctx, newChatID)
-	if _, err := rs.runnerStore.Move(ctx, runner.ID, newChatID, sessionID, false, time.Now()); err != nil {
+	if _, err := rs.runnerStore.Move(ctx, runner.ID, newChatID, sessionID, false, time.Now(), model, effort); err != nil {
 		return fmt.Errorf("agent: ingest hook: move to new chat: %w", err)
 	}
 	// This is the third placement site, and the ONLY one that evicts nobody. That is not an
@@ -133,8 +135,10 @@ func (rs *Runners) moveToKnownChat(
 	runner engineagents.Runner,
 	toChatID string,
 	sessionID string,
+	model string,
+	effort string,
 ) error {
-	if _, err := rs.runnerStore.Move(ctx, runner.ID, toChatID, sessionID, true, time.Now()); err != nil {
+	if _, err := rs.runnerStore.Move(ctx, runner.ID, toChatID, sessionID, true, time.Now(), model, effort); err != nil {
 		return fmt.Errorf("agent: ingest hook: move to known chat: %w", err)
 	}
 	// Whatever it was mid-way through on the chat it just left is over there (see

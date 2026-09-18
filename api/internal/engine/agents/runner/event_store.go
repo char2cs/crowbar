@@ -88,19 +88,24 @@ type EventStore interface {
 	// staying put. now is when the conversation OPENED and is required (a zero one
 	// is rejected): the history projection stamps FirstSeenAt from it, and the
 	// runner's spawn time cannot stand in — a long-lived CLI opens conversations
-	// hours after it started.
+	// hours after it started. model/effort are the session-start payload's own
+	// report of what it resolved to, when its descriptor maps one; "" leaves the
+	// runner's existing LaunchModel/LaunchEffort untouched (see commands.BindSession).
 	BindSession(
 		ctx context.Context,
 		runnerID string,
 		sessionID string,
 		resumable bool,
 		now time.Time,
+		model string,
+		effort string,
 	) (agents.Runner, error)
 	// Move repoints a runner at a different chat and conversation — the /clear and
 	// /resume path. One write, one aggregate: the torn cross-aggregate write that
 	// bricked a chat in production has no way to happen here. The PTY, the provider
 	// and the runner id all travel unchanged, which is why the terminal never
 	// remounts on a /clear. now is required, for the same reason as BindSession.
+	// model/effort — see BindSession's own doc.
 	Move(
 		ctx context.Context,
 		runnerID string,
@@ -108,6 +113,8 @@ type EventStore interface {
 		sessionID string,
 		resumable bool,
 		now time.Time,
+		model string,
+		effort string,
 	) (agents.Runner, error)
 	// Displace takes a runner OFF its chat and conversation, leaving its row — and
 	// saying NOTHING about whether the process is alive. It is a PLACEMENT fact, the
@@ -338,12 +345,16 @@ func (r *eventSourced) BindSession(
 	sessionID string,
 	resumable bool,
 	now time.Time,
+	model string,
+	effort string,
 ) (agents.Runner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.BindSession{
 		RunnerID:  runnerID,
 		SessionID: sessionID,
 		Resumable: resumable,
 		Now:       now,
+		Model:     model,
+		Effort:    effort,
 	})
 	if err != nil {
 		return agents.Runner{}, fmt.Errorf("agentrunner: bind session: %w", err)
@@ -358,6 +369,8 @@ func (r *eventSourced) Move(
 	sessionID string,
 	resumable bool,
 	now time.Time,
+	model string,
+	effort string,
 ) (agents.Runner, error) {
 	evt, err := r.sendWithOCC(ctx, commands.Move{
 		RunnerID:  runnerID,
@@ -365,6 +378,8 @@ func (r *eventSourced) Move(
 		SessionID: sessionID,
 		Resumable: resumable,
 		Now:       now,
+		Model:     model,
+		Effort:    effort,
 	})
 	if err != nil {
 		return agents.Runner{}, fmt.Errorf("agentrunner: move: %w", err)

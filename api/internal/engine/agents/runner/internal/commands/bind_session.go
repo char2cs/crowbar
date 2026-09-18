@@ -18,6 +18,15 @@ type BindSession struct {
 	SessionID string
 	Resumable bool
 	Now       time.Time
+	// Model and Effort are what the provider's OWN session-start payload
+	// reported, when its descriptor maps one (e.g. claude.yaml's session_start
+	// -> model) — the one moment some CLIs ever say which concrete model they
+	// resolved to, since none expose it queryable afterwards. Empty means the
+	// provider's hook carries none; the aggregate's existing LaunchModel/
+	// LaunchEffort (set at spawn, possibly "" for "provider's own default")
+	// are left untouched rather than being clobbered blank.
+	Model  string
+	Effort string
 }
 
 func (c BindSession) AggregateID() string  { return c.RunnerID }
@@ -48,5 +57,11 @@ func (c BindSession) EmitEvent(current *agents.Runner) agents.Runner {
 	next.CurrentSession = c.SessionID
 	next.CurrentSessionSince = c.Now
 	next.CurrentSessionResumable = c.Resumable
+	if c.Model != "" {
+		next.LaunchModel = c.Model
+	}
+	if c.Effort != "" {
+		next.LaunchEffort = c.Effort
+	}
 	return next
 }

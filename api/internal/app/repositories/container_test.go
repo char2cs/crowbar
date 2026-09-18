@@ -618,7 +618,7 @@ func createAgentChat(
 		Now:             time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
-	_, err = runners.BindSession(ctx, chatID+"-runner", "sess-"+chatID, false, time.Unix(2, 0).UTC())
+	_, err = runners.BindSession(ctx, chatID+"-runner", "sess-"+chatID, false, time.Unix(2, 0).UTC(), "", "")
 	require.NoError(t, err)
 }
 

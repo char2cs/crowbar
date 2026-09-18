@@ -993,7 +993,7 @@ func TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpa
 	// activity table existed: a real session id, first seen long ago, with no turn ever
 	// recorded under it in agent_turns (nothing here ever calls turn()).
 	weeksAgo := time.Now().Add(-21 * 24 * time.Hour)
-	_, err := f.runners.BindSession(f.ctx, runnerID, "sid-legacy-session", true, weeksAgo)
+	_, err := f.runners.BindSession(f.ctx, runnerID, "sid-legacy-session", true, weeksAgo, "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -1082,7 +1082,7 @@ func TestRegression_SwitchProvider_AbandonedSessionInAnActiveChat_SpawnsFreshNot
 	// claude announces a session but the user switches away before it ever
 	// turns — backdated past sessionAnnounceCrashWindow, exactly like a real
 	// idle minute between switching away and switching back.
-	_, err = f.runners.BindSession(f.ctx, claudeRunner, "sid-claude-abandoned", true, time.Now().Add(-time.Minute))
+	_, err = f.runners.BindSession(f.ctx, claudeRunner, "sid-claude-abandoned", true, time.Now().Add(-time.Minute), "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -1120,7 +1120,7 @@ func TestRegression_SubmitPromptWithStagedProvider_AbandonedSessionSpawnsFreshNo
 	claudeRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
 	f.wait()
-	_, err = f.runners.BindSession(f.ctx, claudeRunner, "sid-claude-abandoned", true, time.Now().Add(-time.Minute))
+	_, err = f.runners.BindSession(f.ctx, claudeRunner, "sid-claude-abandoned", true, time.Now().Add(-time.Minute), "", "")
 	require.NoError(t, err)
 	f.wait()
 
