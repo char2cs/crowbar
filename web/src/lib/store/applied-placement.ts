@@ -24,10 +24,12 @@ export interface RowPlacement {
 type CachedRow =
   | { kind: 'chat'; dto: ChatDTO }
   | { kind: 'folder'; dto: FolderDTO }
+  | { kind: 'workspace'; dto: WorkspaceDTO }
   | { kind: 'unknown'; row: RowPlacement }
 
-/** A chat's `shifted` siblings share its level and may be chats or folders;
- *  the cache is keyed by one id space, so whichever store holds the id wins. */
+/** A row's `shifted` siblings share its level and may be chats, folders or
+ *  locked branches (their workspace id); the cache is keyed by one id space,
+ *  so whichever store holds the id wins. */
 async function writePlacementThrough(row: RowPlacement): Promise<CachedRow> {
   const parentId = row.parentId ?? ''
   const chat = await getEntity<ChatDTO>('crowbar_chats', row.id)
@@ -41,6 +43,12 @@ async function writePlacementThrough(row: RowPlacement): Promise<CachedRow> {
     const dto = { ...folder, parentId, order: row.order }
     await upsertEntity('crowbar_folders', dto)
     return { kind: 'folder', dto }
+  }
+  const workspace = await getEntity<WorkspaceDTO>('crowbar_workspaces', row.id)
+  if (workspace) {
+    const dto = { ...workspace, folderId: parentId, order: row.order }
+    await upsertEntity('crowbar_workspaces', dto)
+    return { kind: 'workspace', dto }
   }
   return { kind: 'unknown', row }
 }
@@ -63,17 +71,32 @@ export async function applyChatPlacement(
   return movedRepoId
 }
 
-/** Apply cache-written chat/folder rows to the store. A row the cache does
- *  not know (cold cache) is patched onto whichever chat or folder the store
- *  holds under that id. */
+/** Apply cache-written rows to the store. A row the cache does not know
+ *  (cold cache) is patched onto whichever chat, folder or workspace the
+ *  store holds under that id. */
 function applyWrittenRows(written: readonly CachedRow[]): void {
   const placements = new Map<string, RowPlacement>()
   const folders: FolderDTO[] = []
+  const workspaces: { id: string; folderId: string; order: number }[] = []
   for (const entry of written) {
     if (entry.kind === 'folder') folders.push(entry.dto)
     else if (entry.kind === 'chat') placements.set(entry.dto.id, entry.dto)
-    else placements.set(entry.row.id, entry.row)
+    else if (entry.kind === 'workspace') {
+      workspaces.push({
+        id: entry.dto.id,
+        folderId: entry.dto.folderId ?? '',
+        order: entry.dto.order ?? 0,
+      })
+    } else {
+      placements.set(entry.row.id, entry.row)
+      workspaces.push({
+        id: entry.row.id,
+        folderId: entry.row.parentId ?? '',
+        order: entry.row.order,
+      })
+    }
   }
+  if (workspaces.length) useSidebarStore.getState().applyPlacement({ workspaces })
   useSidebarStore.setState((s) => ({
     repos: s.repos.map((repo) => {
       const touchesChat = repo.chats?.some((c) => placements.has(c.id))
@@ -133,31 +156,24 @@ export async function applyWorkspacePlacement(
   if (repoId) useFolderSignalStore.getState().bump(repoId)
 }
 
-/** Apply a repo's re-read workspace rows to the cache, then merge their
- *  placement into the store — the siblings a workspace densify shifted are
- *  announced nowhere else. */
-export async function applyWorkspacePlacements(rows: readonly WorkspaceDTO[]): Promise<void> {
-  await Promise.all(rows.map((row) => upsertEntity('crowbar_workspaces', row)))
-  useSidebarStore.getState().applyPlacement({
-    workspaces: rows.map((row) => ({
-      id: row.id,
-      folderId: row.folderId ?? '',
-      order: row.order ?? 0,
-    })),
-  })
-}
-
 /**
- * Apply a folder write's `{folder, shifted}` answer — a create, rename or
- * placement — to the cache and the store, then bump `repoId`'s tree signal.
+ * Apply a folder write's answer — a create, rename or placement: the folder
+ * rows it wrote, and the siblings of any other kind (`shiftedRows`, a locked
+ * branch by its workspace id) it renumbered — to the cache and the store,
+ * then bump `repoId`'s tree signal.
  */
 export async function applyFolderPlacements(
   repoId: string,
   folders: readonly FolderDTO[],
+  shiftedRows: readonly RowPlacement[] = [],
 ): Promise<void> {
-  await Promise.all(folders.map((folder) => upsertEntity('crowbar_folders', folder)))
+  const [, written] = await Promise.all([
+    Promise.all(folders.map((folder) => upsertEntity('crowbar_folders', folder))),
+    Promise.all(shiftedRows.map(writePlacementThrough)),
+  ])
   const apply = useSidebarStore.getState().applyFolderDTO
   folders.forEach(apply)
+  applyWrittenRows(written)
   useFolderSignalStore.getState().bump(repoId)
 }
 

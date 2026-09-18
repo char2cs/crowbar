@@ -108,12 +108,16 @@ export interface FolderPlacement {
 
 /** One folder mutation's answer: the row asked about, plus every sibling a
  *  dense renumber moved alongside it (folders and workspaces share one
- *  sibling space). Apply both — matches `agent-api.ts`'s `createChatFolder`/
- *  `updateChatFolder`, which read the same `{folder, shifted}` envelope off
- *  the same backend route family. */
+ *  sibling space). Apply all of it — matches `agent-api.ts`'s
+ *  `createChatFolder`/`updateChatFolder`, which read the same
+ *  `{folder, shifted}` envelope off the same backend route family. */
 interface FolderWriteResult {
   folder: FolderDTO
+  /** The shifted FOLDER siblings. */
   shifted: FolderDTO[]
+  /** The shifted siblings of any other kind — a locked branch by its
+   *  workspace id — as bare placements. */
+  shiftedRows: PlacedRow[]
 }
 
 function toFolderWriteResult(
@@ -121,10 +125,16 @@ function toFolderWriteResult(
   projectId: string,
   repoId: string,
 ): FolderWriteResult {
-  return {
-    folder: folderDTOFromWire(raw.folder, projectId, repoId),
-    shifted: (raw.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, repoId)),
+  const shifted: FolderDTO[] = []
+  const shiftedRows: PlacedRow[] = []
+  for (const row of raw.shifted ?? []) {
+    if (row.type === undefined || row.type === 'folder') {
+      shifted.push(folderDTOFromWire(row, projectId, repoId))
+    } else {
+      shiftedRows.push(toPlacedRow(row))
+    }
   }
+  return { folder: folderDTOFromWire(raw.folder, projectId, repoId), shifted, shiftedRows }
 }
 
 /**

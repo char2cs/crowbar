@@ -30,23 +30,13 @@ type workspacePlacementDTO struct {
 }
 
 // placeWorkspaceResponse is the body of PATCH .../workspaces/:wsId/placement:
-// the moved branch's own row, and the FOLDER rows the densify shifted
-// alongside it — the same shifted-siblings contract placeChatResponse
-// carries (folders.go), for the same reason: a drop renumbers a whole
-// sibling level, and a client told only about the row it dragged holds stale
-// orders for every sibling until its next reconnect.
-//
-// A shifted REPO or WORKSPACE-ANCHOR sibling is absent here on the same
-// terms persist's own doc already discloses for a repo-phantom sibling
-// (plan.go): its write is a Node command, not a Chat aggregate command, so it
-// carries no hub-projection broadcast of its own and persist's own `written`
-// filter never includes it — a real, pre-existing, disclosed gap in what
-// THIS HTTP response can report back to the caller that dragged it. The
-// LIVE-UPDATE half of that same gap (caught live, 2026-09-09: a locked
-// branch dragged past a sibling PATCHed 200 and never moved on screen) is
-// closed in PlaceWorkspace itself, which now announces the moved branch's
-// own row and every FOLDER row here on the chats WS regardless of what this
-// struct can carry back in the response body.
+// the moved branch's own row, and the folder and locked-branch rows the
+// densify shifted alongside it — the same shifted-siblings contract
+// placeChatResponse carries (folders.go), for the same reason: a drop
+// renumbers a whole sibling level, and a client told only about the row it
+// dragged holds stale orders for every sibling until its next reconnect. A
+// shifted chat sibling is reported through its own aggregate frame, and a
+// shifted repo header through the repo stream (writeHomeNode's announce).
 type placeWorkspaceResponse struct {
 	Workspace workspacePlacementDTO `json:"workspace"`
 	Shifted   []dto.AgentChatDTO    `json:"shifted"`
@@ -75,11 +65,8 @@ func (h *Handlers) PlaceWorkspace(
 		libs.WriteErr(ctx, status, msg)
 		return
 	}
-	// The moved branch's own row, and every FOLDER row the densify shifted —
-	// see placeWorkspaceResponse's own doc: neither used to be announced at
-	// all, this route's write being a Node command with no hub projection of
-	// its own (same gap PlaceChat's identical call already closes for a
-	// chat's own drag).
+	// The moved branch's own row and every Node-written sibling the densify
+	// shifted: this route's write has no hub projection of its own.
 	for _, row := range shifted {
 		h.broadcastFolder(row.ID, wsID, "folder_updated")
 	}

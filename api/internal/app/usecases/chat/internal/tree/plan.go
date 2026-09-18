@@ -226,13 +226,13 @@ func corrected(
 	return append(rows, subject)
 }
 
-// persist writes exactly the rows the plan touched and returns the FOLDER rows
-// among them, which the caller has to broadcast itself. The CHAT rows still
-// need no such handling: their write is an aggregate command, so the hub
-// projection broadcasts each one on the way through — true of a folder row's
-// write now too, but the wire contract this feeds is a folder-only list, so a
-// densified chat sibling stays reported through its own channel instead of
-// this one.
+// persist writes exactly the rows the plan touched and returns the rows no
+// projection announces — folders and workspace anchors, whose write is a
+// Node command — for the caller to broadcast itself. A chat row's write is
+// an aggregate command the hub projection broadcasts on the way through, so
+// a densified chat sibling stays reported through its own channel; a repo
+// phantom is announced by writeHomeNode itself. An anchor is reported as
+// the branch row it draws as, never as the package-private anchor type.
 //
 // A row in snapshot.freshIDs is force-included even when the generic
 // tree.Tree plan reports it as NOT dirty: a home-scoped chat's very first
@@ -257,8 +257,14 @@ func (u *chatFolderUsecase) persist(
 		if err != nil {
 			return err
 		}
-		if row != nil && row.Type == domain.ChatTypeFolder {
+		switch {
+		case row == nil:
+		case row.Type == domain.ChatTypeFolder:
 			written = append(written, *row)
+		case row.Type == workspaceAnchorType:
+			anchor := *row
+			anchor.Type = domain.ChatTypeBranch
+			written = append(written, anchor)
 		}
 		return nil
 	}

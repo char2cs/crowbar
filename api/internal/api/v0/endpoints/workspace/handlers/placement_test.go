@@ -204,3 +204,32 @@ func TestRegression_PlaceWorkspace_AnnouncesShiftedFolderSiblingsToo(t *testing.
 	assert.Equal(t, folderFrame{folderID: "f0", workspaceID: "branch-1", kind: "folder_updated"}, (*frames)[0])
 	assert.Equal(t, folderFrame{folderID: "branch-1", workspaceID: "branch-1", kind: "placement_set"}, (*frames)[1])
 }
+
+// A shifted LOCKED-BRANCH sibling (its workspace-anchor Node row, reported
+// by persist as the branch row it draws as) is announced and answered the
+// same way a folder sibling is: nothing else carries its new order.
+func TestRegression_PlaceWorkspace_AnnouncesShiftedAnchorSiblingsToo(t *testing.T) {
+	placer := &fakePlacer{
+		placed:  domain.Chat{ID: "branch-1", Order: 0},
+		shifted: []domain.Chat{{ID: "ws-branch-2", Type: domain.ChatTypeBranch, Order: 1}},
+	}
+	r, frames := newRouterWithFrames(placer)
+
+	rec := do(r, http.MethodPatch, base, map[string]any{"order": 0})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, *frames, 2)
+	assert.Equal(t, folderFrame{folderID: "ws-branch-2", workspaceID: "branch-1", kind: "folder_updated"}, (*frames)[0])
+	var body struct {
+		Data struct {
+			Shifted []struct {
+				ID    string `json:"id"`
+				Order int    `json:"order"`
+			} `json:"shifted"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Data.Shifted, 1)
+	assert.Equal(t, "ws-branch-2", body.Data.Shifted[0].ID)
+	assert.Equal(t, 1, body.Data.Shifted[0].Order)
+}

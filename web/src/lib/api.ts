@@ -235,6 +235,9 @@ export async function fetchWorkspaces(projectId: string, repoId: string): Promis
  */
 export interface ChatsFolderWireDTO {
   id: string
+  /** The row's kind: a folder, or — among a write's `shifted` siblings — a
+   *  locked branch reported by its workspace id. Absent means folder. */
+  type?: string
   parentId: string
   title: string
   order: number

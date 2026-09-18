@@ -99,10 +99,12 @@ export async function performRenameFolder(folderId: string, name: string): Promi
   if (!repo?.projectId || !folder) return
   if (folder.name === name) return
   try {
-    const { folder: updated, shifted } = await placeFolder(repo.projectId, repo.id, folderId, {
-      name,
-    })
-    await applyFolderPlacements(repo.id, [updated, ...shifted])
+    const {
+      folder: updated,
+      shifted,
+      shiftedRows,
+    } = await placeFolder(repo.projectId, repo.id, folderId, { name })
+    await applyFolderPlacements(repo.id, [updated, ...shifted], shiftedRows)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to rename folder')
   }
@@ -534,13 +536,13 @@ export async function performCreateFolder(rowId: string): Promise<void> {
     // Applied directly for the same reason performRenameFolder does: no
     // dedicated push channel exists for folders any more, so the response IS
     // the confirmation.
-    const { folder, shifted } = await createFolder(
+    const { folder, shifted, shiftedRows } = await createFolder(
       projectId,
       repo.id,
       NEW_FOLDER_NAME,
       folderParentId,
     )
-    await applyFolderPlacements(repo.id, [folder, ...shifted])
+    await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to create folder')
   }
@@ -566,8 +568,13 @@ export async function performCreateFolderFromChat(chatId: string): Promise<void>
   const projectId = repo?.projectId
   if (!repo || !projectId) return
   try {
-    const { folder, shifted } = await createFolder(projectId, repo.id, NEW_FOLDER_NAME, '')
-    await applyFolderPlacements(repo.id, [folder, ...shifted])
+    const { folder, shifted, shiftedRows } = await createFolder(
+      projectId,
+      repo.id,
+      NEW_FOLDER_NAME,
+      '',
+    )
+    await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to create folder')
   }

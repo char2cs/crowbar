@@ -23,9 +23,7 @@ import {
   applyChatPlacement,
   applyFolderPlacements,
   applyWorkspacePlacement,
-  applyWorkspacePlacements,
 } from '@/lib/store/applied-placement'
-import { fetchWorkspaces } from '@/lib/api'
 import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
 import { chatNotLoadedYet } from '@/components/sidebar/lib/row-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
@@ -590,16 +588,6 @@ function planRowDrop(
   return planTreeRowDrop(subjects, target, mode)
 }
 
-/** {@link refreshRepoPlacements}'s workspace mirror: one GET of the repo's
- *  workspaces settles every anchor sibling a densify shifted. */
-async function refreshWorkspacePlacements(projectId: string, repoId: string): Promise<void> {
-  try {
-    await applyWorkspacePlacements(await fetchWorkspaces(projectId, repoId))
-  } catch (err) {
-    console.error(`drop-actions: workspace placement re-read failed for repo ${repoId}`, err)
-  }
-}
-
 async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
   switch (call.kind) {
     case 'reparent': {
@@ -614,15 +602,13 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
     }
     case 'workspace': {
       // A branch row's order is read off its WorkspaceDTO, which no placement
-      // frame refreshes — the answer is applied directly, and the repo's
-      // workspaces re-read for the shifted anchor siblings the answer cannot
-      // carry (persist reports folder rows only).
+      // frame refreshes — the answer (the moved row and every shifted
+      // folder/branch sibling) is applied directly.
       const { workspace, shifted } = await placeWorkspace(call.wsId, {
         ...(call.folderId !== undefined && { folderId: call.folderId }),
         order: call.order,
       })
       await applyWorkspacePlacement(call.wsId, workspace, shifted)
-      await refreshWorkspacePlacements(call.projectId, call.repoId)
       return
     }
     case 'folder': {
@@ -630,11 +616,13 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       // dedicated push channel for folders any more (Task 34), so this
       // response is the only confirmation the drop gets — written through to
       // the cache every rebuild reads before the store (applied-placement.ts).
-      const { folder, shifted } = await placeFolder(call.projectId, call.repoId, call.folderId, {
-        parentId: call.parentId,
-        order: call.order,
-      })
-      await applyFolderPlacements(call.repoId, [folder, ...shifted])
+      const { folder, shifted, shiftedRows } = await placeFolder(
+        call.projectId,
+        call.repoId,
+        call.folderId,
+        { parentId: call.parentId, order: call.order },
+      )
+      await applyFolderPlacements(call.repoId, [folder, ...shifted], shiftedRows)
       return
     }
     case 'homeFolder': {

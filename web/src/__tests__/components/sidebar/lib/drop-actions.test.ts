@@ -308,20 +308,18 @@ describe('performSidebarDrop — reordering (no lineage change)', () => {
 
   // Caught live: a locked branch dragged past a sibling PATCHed 200 and
   // nothing moved until a reload. A branch row's order comes off its
-  // WorkspaceDTO, which no placement frame refreshes; the PATCH answer (the
-  // moved row + shifted folders) used to be discarded, and a shifted
-  // workspace-anchor sibling is announced nowhere — so the drop applies the
-  // answer itself and re-reads the repo's workspaces for the rest.
-  it('applies the PATCH answer and re-reads the repo’s workspaces so shifted siblings repaint', async () => {
+  // WorkspaceDTO, which no placement frame refreshes, so the drop applies
+  // the PATCH answer itself: the moved row and every shifted sibling —
+  // folders and the locked branches it renumbered past, by workspace id.
+  it('applies the PATCH answer — the moved row and its shifted folder and branch siblings — with no re-read', async () => {
     vi.mocked(placeWorkspace).mockResolvedValueOnce({
       workspace: { id: 'ws-c', parentId: '', order: 0 },
-      shifted: [{ id: 'folder-1', parentId: '', order: 4 }],
+      shifted: [
+        { id: 'folder-1', parentId: '', order: 4 },
+        { id: 'ws-a', parentId: '', order: 1 },
+        { id: 'ws-b', parentId: '', order: 2 },
+      ],
     })
-    fetchWorkspaces.mockResolvedValue([
-      { id: 'ws-a', repoId: 'repo-1', projectId: 'proj-1', branch: 'a', folderId: '', order: 1 },
-      { id: 'ws-b', repoId: 'repo-1', projectId: 'proj-1', branch: 'b', folderId: '', order: 2 },
-      { id: 'ws-c', repoId: 'repo-1', projectId: 'proj-1', branch: 'c', folderId: '', order: 0 },
-    ])
 
     await performSidebarDrop(
       [branchRow('ws-c')],
@@ -329,7 +327,7 @@ describe('performSidebarDrop — reordering (no lineage change)', () => {
       'before',
     )
 
-    expect(fetchWorkspaces).toHaveBeenCalledWith('proj-1', 'repo-1')
+    expect(fetchWorkspaces).not.toHaveBeenCalled()
     const repo = useSidebarStore.getState().repos.find((r) => r.id === 'repo-1')!
     const orderOf = (id: string) => repo.workspaces.find((w) => w.id === id)?.order
     expect([orderOf('ws-c'), orderOf('ws-a'), orderOf('ws-b')]).toEqual([0, 1, 2])

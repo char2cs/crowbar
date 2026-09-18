@@ -82,6 +82,24 @@ describe('placeFolder', () => {
     })
     expect(folder.name).toBe('Renamed')
   })
+
+  // A locked branch shares the folder's level; the daemon reports it among
+  // `shifted` as the branch row it draws as (its workspace id). It is never a
+  // folder — routed to `shiftedRows`, so no ghost folder is ever applied.
+  it('splits a shifted locked-branch sibling out of the folder rows', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        folder: { id: 'f1', parentId: '', title: 'F1', order: 0 },
+        shifted: [
+          { id: 'f2', type: 'folder', parentId: '', title: 'F2', order: 1 },
+          { id: 'ws-locked', type: 'branch', parentId: '', title: '', order: 2 },
+        ],
+      }),
+    )
+    const { shifted, shiftedRows } = await placeFolder('p1', 'r1', 'f1', { order: 0 })
+    expect(shifted.map((f) => f.id)).toEqual(['f2'])
+    expect(shiftedRows).toEqual([{ id: 'ws-locked', parentId: '', order: 2 }])
+  })
 })
 
 describe('deleteFolder', () => {
