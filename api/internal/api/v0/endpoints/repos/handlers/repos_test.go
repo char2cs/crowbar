@@ -47,8 +47,15 @@ func (f *fakeStore) FindAll(
 
 func (f *fakeStore) FindByKey(
 	_ context.Context,
-	_ string,
+	id string,
 ) (*domain.Repository, error) {
+	if f.byKey == nil && f.byKeErr == nil {
+		for i := range f.all {
+			if f.all[i].ID == id {
+				return &f.all[i], nil
+			}
+		}
+	}
 	return f.byKey, f.byKeErr
 }
 

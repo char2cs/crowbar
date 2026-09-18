@@ -25,22 +25,24 @@ import (
 // fakeUpdater records the UpdateRepo call and returns a canned repo/error so the
 // Patch handler's HTTP contract can be pinned without a real usecase.
 type fakeUpdater struct {
-	repo   domain.Repository
-	err    error
-	gotID  string
-	got    project.RepoUpdate
-	called bool
+	repo    domain.Repository
+	node    domain.Node
+	shifted []domain.Node
+	err     error
+	gotID   string
+	got     project.RepoUpdate
+	called  bool
 }
 
 func (f *fakeUpdater) UpdateRepo(
 	_ context.Context,
 	repoID string,
 	in project.RepoUpdate,
-) (domain.Repository, error) {
+) (project.RepoUpdated, error) {
 	f.called = true
 	f.gotID = repoID
 	f.got = in
-	return f.repo, f.err
+	return project.RepoUpdated{Repo: f.repo, Node: f.node, Shifted: f.shifted}, f.err
 }
 
 // patchRouter mounts PATCH .../repos/:repoId on a handler whose broadcast
@@ -115,15 +117,14 @@ func (f fakeNodeReader) GetNode(_ context.Context, id string) (domain.Node, erro
 
 // TestPatchRepo_OrderOnlyNeedsNoName pins that the PATCH is genuinely partial: a
 // reorder carries no name, and the old name-is-required rule would have 400'd
-// every drag. Order now reaches the broadcast via the repo's own Node row (not
-// domain.Repository), so this wires a fakeNodeReader to pin it.
+// every drag. Order reaches the broadcast from the placement the usecase
+// DECIDED (project.RepoUpdated.Node), never a Node read-model re-read.
 func TestPatchRepo_OrderOnlyNeedsNoName(t *testing.T) {
-	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1"}}
+	upd := &fakeUpdater{repo: domain.Repository{ID: "r1", ProjectID: "p1"}, node: domain.Node{ID: "r1", Order: 2}}
 	var frames []dto.RepoDTO
 	h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, func(d dto.RepoDTO) {
 		frames = append(frames, d)
 	}).WithUpdater(upd).
-		WithNodes(fakeNodeReader{"r1": domain.Node{ID: "r1", Order: 2}}).
 		WithIconStorage(func() (string, error) { return t.TempDir(), nil }, nil)
 	r := gin.New()
 	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
@@ -300,4 +301,42 @@ func TestPatchRepo_ProjectMoveSurvivesAnUnresolvableHome(t *testing.T) {
 
 	require.Equal(t, http.StatusNoContent, rec.Code)
 	require.Len(t, frames, 1, "the committed move is still broadcast")
+}
+
+// The broadcast must carry the placement the write DECIDED, not whatever the
+// Node read model happens to hold when the handler asks it: the projection
+// folds asynchronously after SetOrder returns, so a read here can serve the
+// pre-write order (297/300 runs against the real store). And every OTHER repo
+// the densify shifted must be announced too, or a live sidebar keeps their
+// stale orders (tied against the subject's) until a reload.
+func TestRegression_PatchRepo_BroadcastsTheDecidedPlacementAndEveryShiftedRepo(t *testing.T) {
+	upd := &fakeUpdater{
+		repo:    domain.Repository{ID: "r1", ProjectID: "p1"},
+		node:    domain.Node{ID: "r1", Kind: domain.NodeKindRepo, ParentID: "", Order: 0},
+		shifted: []domain.Node{{ID: "r2", Kind: domain.NodeKindRepo, Order: 1}, {ID: "c1", Kind: domain.NodeKindChat, Order: 2}},
+	}
+	var frames []dto.RepoDTO
+	store := &fakeStore{all: []domain.Repository{{ID: "r1", ProjectID: "p1"}, {ID: "r2", ProjectID: "p1", Name: "two"}}}
+	h := repohandlers.NewWithDeps(store, nil, nil, func(d dto.RepoDTO) {
+		frames = append(frames, d)
+	}).WithUpdater(upd).
+		// The projection still serves the PRE-write order.
+		WithNodes(fakeNodeReader{"r1": domain.Node{ID: "r1", Order: 3}, "r2": domain.Node{ID: "r2", Order: 0}}).
+		WithIconStorage(func() (string, error) { return t.TempDir(), nil }, nil)
+	r := gin.New()
+	r.PATCH("/v0/projects/:projectId/repos/:repoId", h.Patch)
+
+	rec := doPatch(r, "/v0/projects/p1/repos/r1", map[string]any{"order": 0})
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	byID := map[string]dto.RepoDTO{}
+	for _, f := range frames {
+		byID[f.ID] = f
+	}
+	require.Contains(t, byID, "r1")
+	assert.Equal(t, 0, byID["r1"].Order, "the subject's frame carries the decided order, not the stale projection")
+	require.Contains(t, byID, "r2", "a repo shifted as collateral must be announced")
+	assert.Equal(t, 1, byID["r2"].Order)
+	assert.Equal(t, "two", byID["r2"].Name)
+	assert.NotContains(t, byID, "c1", "a chat rides its own channel")
 }

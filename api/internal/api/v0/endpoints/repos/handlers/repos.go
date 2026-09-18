@@ -194,7 +194,7 @@ type RepoUpdater interface {
 		ctx context.Context,
 		repoID string,
 		in project.RepoUpdate,
-	) (domain.Repository, error)
+	) (project.RepoUpdated, error)
 }
 
 // Handlers serves the /v0/repos routes from the repository GORM store. Domain
@@ -650,15 +650,36 @@ func (h *Handlers) Patch(
 	if !ok {
 		return
 	}
-	repo, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update)
+	updated, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	h.relocateEntityDir(c, c.Param("projectId"), repo)
-	h.broadcast(dto.RepoDTOFrom(repo, h.placementOf(c.Request.Context(), repo.ID)))
+	h.relocateEntityDir(c, c.Param("projectId"), updated.Repo)
+	// The DECIDED placement, never a re-read: the Node projection folds after
+	// the write returns, so a read here can still serve the old order.
+	h.broadcast(dto.RepoDTOFrom(updated.Repo, dto.RepoPlacement{FolderID: updated.Node.ParentID, Order: updated.Node.Order}))
+	h.broadcastShiftedRepos(c.Request.Context(), updated.Shifted)
 	c.Status(http.StatusNoContent)
+}
+
+// broadcastShiftedRepos announces every OTHER repo a placement renumbered as
+// collateral; chat/folder rows ride their own channel.
+func (h *Handlers) broadcastShiftedRepos(
+	ctx context.Context,
+	shifted []domain.Node,
+) {
+	for _, n := range shifted {
+		if n.Kind != domain.NodeKindRepo {
+			continue
+		}
+		repo, err := h.store.FindByKey(ctx, n.ID)
+		if err != nil || repo == nil {
+			continue
+		}
+		h.broadcast(dto.RepoDTOFrom(*repo, dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}))
+	}
 }
 
 // relocateEntityDir follows a repo that changed projects with its entity

@@ -4,6 +4,7 @@ package handlers
 
 import (
 	"context"
+	"sync"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -401,6 +402,14 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		repoID string,
 	) ([]domain.Chat, error)
+	ListInHome(
+		ctx context.Context,
+		homeID string,
+	) ([]domain.Chat, error)
+	FolderScope(
+		ctx context.Context,
+		id string,
+	) (domain.Folder, error)
 	Create(
 		ctx context.Context,
 		in agentusecase.CreateInput,
@@ -455,6 +464,19 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) (chatCount, fileCount int, err error)
+	// MintOwningChat and AttachOwningWorkspace are the chat-first mint every
+	// workspace create goes through, exposed here so a workspace served
+	// without an owner (created before the mint existed — no backfill) gets
+	// one the first time a client reads it. See ensureOwner (worktree.go).
+	MintOwningChat(
+		ctx context.Context,
+		parentWorkspaceID string,
+	) (chatID string, err error)
+	AttachOwningWorkspace(
+		ctx context.Context,
+		chatID string,
+		ws domain.Workspace,
+	) error
 }
 
 // Repos resolves the repository named by :repoId, so an IMPORTING create can
@@ -485,6 +507,9 @@ type Handlers struct {
 	worktrees       Worktrees
 	nodes           Nodes
 	broadcastFolder func(folderID, workspaceID, kind string)
+	// ownerMint serializes ensureOwner's mint (worktree.go) so two concurrent
+	// reads of one chatless workspace cannot each mint it an owner.
+	ownerMint sync.Mutex
 }
 
 // New builds the agent Handlers from the five agent concerns, the Chats-panel

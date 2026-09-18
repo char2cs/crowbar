@@ -49,6 +49,8 @@ type fakeChatTree struct {
 	// OwnWorktree=false a plain chat does.
 	gotWorktree     agentusecase.WorktreeSpec
 	createChatCalls int
+	gotHomeID       string
+	folder          domain.Folder
 }
 
 func (f *fakeChatTree) ListInRepo(
@@ -57,6 +59,26 @@ func (f *fakeChatTree) ListInRepo(
 ) ([]domain.Chat, error) {
 	f.gotRepoID = repoID
 	return f.list, f.err
+}
+
+func (f *fakeChatTree) ListInHome(
+	_ context.Context,
+	homeID string,
+) ([]domain.Chat, error) {
+	f.gotHomeID = homeID
+	return f.list, f.err
+}
+
+// FolderScope answers f.folder when its ID matches, else a folder in the
+// repo mount's own scope, so the pre-existing repo-mount tests pass the guard.
+func (f *fakeChatTree) FolderScope(
+	_ context.Context,
+	id string,
+) (domain.Folder, error) {
+	if f.folder.ID == id {
+		return f.folder, nil
+	}
+	return domain.Folder{ID: id, RepoID: "r1"}, nil
 }
 
 func (f *fakeChatTree) Create(
@@ -156,6 +178,21 @@ func (f *fakeChatTree) DeletePreview(
 ) (int, int, error) {
 	f.gotPreviewID = chatID
 	return f.previewChats, f.previewFiles, f.err
+}
+
+func (f *fakeChatTree) MintOwningChat(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	return "", f.err
+}
+
+func (f *fakeChatTree) AttachOwningWorkspace(
+	_ context.Context,
+	_ string,
+	_ domain.Workspace,
+) error {
+	return f.err
 }
 
 // folderFrame is one chat-folder frame the handlers pushed on the Chats socket.
@@ -610,4 +647,67 @@ func decodeFolderResponse(
 	}
 	require.NoError(t, json.Unmarshal(raw, &env))
 	return env.Data
+}
+
+// A home mount (repoId "", wsId = the project's home workspace) must only see
+// and touch its OWN project's home folders: the folder list ignoring the
+// project let A render B's folders, and PATCH/DELETE by bare id let A rename
+// or remove them.
+func homeParams(
+	extra ...gin.Param,
+) gin.Params {
+	return append(gin.Params{{Key: "repoId", Value: ""}, {Key: "wsId", Value: "home-A"}}, extra...)
+}
+
+func TestRegression_ListFolders_OnTheHomeMountListsThatHomeOnly(t *testing.T) {
+	tree := &fakeChatTree{list: []domain.Chat{{ID: "f-A", Type: domain.ChatTypeFolder}}}
+	var frames []folderFrame
+	ctx, rec := newTestContext(t, http.MethodGet, "/home/chats/folders", nil)
+	ctx.Params = homeParams()
+
+	newFolderHandlers(tree, &frames).ListFolders(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "home-A", tree.gotHomeID, "the home mount lists by its injected home workspace")
+}
+
+func TestRegression_PatchFolder_RefusesAnotherProjectsHomeFolder(t *testing.T) {
+	tree := &fakeChatTree{
+		moved:  domain.Chat{ID: "f-B", Type: domain.ChatTypeFolder},
+		folder: domain.Folder{ID: "f-B", RepoID: "", HomeID: "home-B"},
+	}
+	var frames []folderFrame
+	ctx, rec := newTestContext(t, http.MethodPatch, "/home/chats/folders/f-B", []byte(`{"name":"stolen"}`))
+	ctx.Params = homeParams(gin.Param{Key: "folderId", Value: "f-B"})
+
+	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Zero(t, tree.renames)
+	assert.Zero(t, tree.moves)
+}
+
+func TestRegression_DeleteFolder_RefusesAnotherProjectsHomeFolder(t *testing.T) {
+	tree := &fakeChatTree{folder: domain.Folder{ID: "f-B", RepoID: "", HomeID: "home-B"}}
+	var frames []folderFrame
+	ctx, rec := newTestContext(t, http.MethodDelete, "/home/chats/folders/f-B", nil)
+	ctx.Params = homeParams(gin.Param{Key: "folderId", Value: "f-B"})
+
+	newFolderHandlers(tree, &frames).DeleteFolder(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, tree.gotID, "nothing may be deleted")
+}
+
+func TestRegression_CreateFolder_OnTheHomeMountRecordsItsHome(t *testing.T) {
+	tree := &fakeChatTree{created: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "docs"}}
+	var frames []folderFrame
+	ctx, rec := newTestContext(t, http.MethodPost, "/home/chats/folders", []byte(`{"name":"docs"}`))
+	ctx.Params = homeParams()
+
+	newFolderHandlers(tree, &frames).CreateFolder(ctx)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, "", tree.gotCreate.RepoID)
+	assert.Equal(t, "home-A", tree.gotCreate.HomeID)
 }

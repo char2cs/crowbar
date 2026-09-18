@@ -51,6 +51,12 @@ func Register(
 	agentProviders chathandlers.ProviderUsecase,
 	agentFolders chathandlers.ChatTreeUsecase,
 	agentBroadcastFolder func(folderID, workspaceID, kind string),
+	// agentWorktrees/agentNodes give the home chat list the same worktree
+	// enrichment a repo's has: the home workspace rides no repo and has no
+	// git surface, but its OWNER row still has to say it owns the home
+	// worktree, or the client cannot tell it from an ordinary home chat.
+	agentWorktrees chathandlers.Worktrees,
+	agentNodes chathandlers.Nodes,
 	agentWS gin.HandlerFunc,
 	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
@@ -61,7 +67,7 @@ func Register(
 	ah := chathandlers.New(
 		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
 		agentFolders, agentBroadcastFolder,
-	)
+	).WithWorktrees(agentWorktrees).WithNodes(agentNodes)
 	home := projectScoped.Group("/home")
 
 	home.GET("", h.Get)

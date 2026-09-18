@@ -149,12 +149,18 @@ type worktreeScope struct {
 // own: the caller asked for the chat list, and a chat whose git state cannot be
 // resolved is still a chat worth listing. The alternative — failing the whole
 // list — would blank the panel over one unreadable row.
+//
+// The home mount binds no :repoId, and repoID "" lists exactly the project's
+// home workspace (it rides no repo), so the home owner's row carries
+// worktree.owningChatId == its own id the same way a repo's does. Without
+// that the client had no marker to keep the owner off the tree, and it drew
+// as an "Untitled chat" ghost row above every real home chat.
 func (h *Handlers) repoWorktrees(
 	ctx context.Context,
 	projectID string,
 	repoID string,
 ) func(domain.Chat) *dto.ChatWorktreeDTO {
-	if h.worktrees == nil || repoID == "" {
+	if h.worktrees == nil {
 		return nil
 	}
 	siblings, err := h.worktrees.ListInRepo(ctx, projectID, repoID)
@@ -247,11 +253,10 @@ func (s *worktreeScope) project(
 // branch-typed one", say) would be a second authority, drifting the first time
 // that rule changed.
 //
-// An unresolvable read degrades to c's own id rather than to "": every row this
-// runs for carries a workspace, so SOME chat owns it, and naming this one is
-// true in the common case and never a claim about a row that does not exist —
-// where "" would strip a client of the identity it needs to address the
-// worktree at all.
+// A workspace no chat owns yet (created before the chat-first mint existed)
+// gets its owner minted here (ensureOwner) rather than answered as c's own
+// id: c may be a THREAD started inside the workspace, and naming it the owner
+// folded that thread into the branch row it was filed under.
 func (s *worktreeScope) owner(
 	ctx context.Context,
 	c domain.Chat,
@@ -259,14 +264,60 @@ func (s *worktreeScope) owner(
 	if owner, ok := s.owners[c.WorkspaceID]; ok {
 		return owner
 	}
-	owner := c.ID
-	if rows, err := s.handlers.chats.ListChatsByWorkspace(ctx, c.WorkspaceID); err == nil {
-		if resolved, found := domain.ResolveOwningChat(rows); found {
-			owner = resolved.ID
-		}
-	}
+	owner := s.handlers.ensureOwner(ctx, s.index[c.WorkspaceID])
 	s.owners[c.WorkspaceID] = owner
 	return owner
+}
+
+// ensureOwner answers the chat that owns ws, minting one when none does.
+//
+// Every workspace created since the chat-first mint (MintOwningChat +
+// AttachOwningWorkspace) has an owner from birth; one created before it — a
+// production default checkout, an adopted locked branch, an older fork — has
+// none, and every worktree verb, the files/git/terminal surfaces and the
+// delete cascade are chat-keyed, so such a row was a dead end the client
+// could not even address. There is no boot backfill by design; the mint
+// rides the first READ instead, the same "degrade the read, mint on first
+// touch" posture a Node-less repo or workspace anchor takes. Serialized
+// under one lock so two concurrent lists cannot mint two owners.
+//
+// "" only when nothing can be minted: no tree usecase wired (tests), or the
+// mint failed — the row is still served, exactly as before.
+func (h *Handlers) ensureOwner(
+	ctx context.Context,
+	ws domain.Workspace,
+) string {
+	resolve := func() (string, bool) {
+		rows, err := h.chats.ListChatsByWorkspace(ctx, ws.ID)
+		if err != nil {
+			return "", false
+		}
+		owner, ok := domain.ResolveOwningChat(rows)
+		return owner.ID, ok
+	}
+	if owner, ok := resolve(); ok {
+		return owner
+	}
+	if ws.ID == "" || h.folders == nil || ws.Status == domain.WorkspaceStatusDeleted {
+		return ""
+	}
+	h.ownerMint.Lock()
+	defer h.ownerMint.Unlock()
+	if owner, ok := resolve(); ok {
+		return owner
+	}
+	chatID, err := h.folders.MintOwningChat(ctx, ws.ParentID)
+	if err != nil {
+		slog.WarnContext(ctx, "chat: mint the owning chat of a chatless workspace",
+			"workspace_id", ws.ID, "err", err)
+		return ""
+	}
+	if err := h.folders.AttachOwningWorkspace(ctx, chatID, ws); err != nil {
+		slog.WarnContext(ctx, "chat: attach a minted owning chat to its workspace",
+			"workspace_id", ws.ID, "chat_id", chatID, "err", err)
+		return ""
+	}
+	return chatID
 }
 
 // Workspaces handles GET .../repos/:repoId/workspaces: every workspace row in
@@ -288,10 +339,9 @@ func (s *worktreeScope) owner(
 // resolution, same placement overlay, same DTO shape — so a workspace looks
 // identical whether the client learns of it through a chat or through this
 // route directly. ownerOf resolves each row's owning chat id the same way
-// worktreeScope.owner does, minus the "start from a known chat" shortcut: a
-// workspace with no chats at all — the exact row this route exists to
-// surface — legitimately owns none, and reports "" rather than a fabricated
-// id.
+// worktreeScope.owner does: a workspace with no chats at all — the exact row
+// this route exists to surface — gets its owner minted on this first read
+// (ensureOwner), so no provisioned workspace is ever served unaddressable.
 func (h *Handlers) Workspaces(
 	ctx *gin.Context,
 ) {
@@ -314,12 +364,7 @@ func (h *Handlers) Workspaces(
 		if owner, ok := owners[w.ID]; ok {
 			return owner
 		}
-		owner := ""
-		if chatRows, cErr := h.chats.ListChatsByWorkspace(rctx, w.ID); cErr == nil {
-			if resolved, found := domain.ResolveOwningChat(chatRows); found {
-				owner = resolved.ID
-			}
-		}
+		owner := h.ensureOwner(rctx, w)
 		owners[w.ID] = owner
 		return owner
 	}

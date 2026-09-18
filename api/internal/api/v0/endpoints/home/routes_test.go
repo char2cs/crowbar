@@ -43,6 +43,7 @@ func TestHomeMountsEveryAgentRoute(t *testing.T) {
 			nil, nil, noopWS,
 			nil, nil, nil, nil, nil, // the five agent concerns
 			nil, nil, // chat-folder usecase + broadcast
+			nil, nil, // worktrees + nodes
 			noopWS, // agent WS
 			func(rest, _ gin.HandlerFunc) gin.HandlerFunc { return rest },
 		)
