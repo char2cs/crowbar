@@ -168,4 +168,26 @@ The investigation below was read-only and produced only a design doc. **That des
 
 **Two deliberate scope limits to raise later if wanted:** the bottom panel (`bottomLayout`/`BOTTOM_PANE_ID`) and reopen-closed-tab (`closedBuffersHistory`) are still GLOBAL, unscoped window-level state — a project switch leaves both untouched. The request was about the main content pane specifically; say the word and either can be project-scoped the same way.
 
+**§10 open-question resolutions used for this implementation** (product owner's answers, not re-litigated):
+
+| Q | Answer |
+| --- | --- |
+| Q1 — does switching keep other projects' chats running? | YES, per the doc's own law 3 — park, never close. |
+| Q2 — a gesture to move a view to another project? | NO such gesture added, matching the original request. |
+| Q3 — same repo imported into two projects? | OUT OF SCOPE, import path unchanged; each Repo row's chats still resolve to exactly one project, so law 1 holds regardless. |
+| Q4 — do inactive parked views stay warm forever? | YES, unchanged — already the doc's §7 answer ("adds no memory"); no unload verb or eviction added. |
+| Q5 — empty project with no view ever opened? | ONE shared empty stage (law 6), not a per-project one. |
+| Q6 — multi-window? | Not designed for; `activeProjectId` is a single value matching today's single-window reality, a deliberate scope limit. |
+| Q7 — bottom panel (`bottomLayout`/`BOTTOM_PANE_ID`)? | OUT OF SCOPE, left a global unscoped drawer — flagged above for the user to ask for explicitly. |
+| Q8 — `closedBuffersHistory` (reopen-closed-tab)? | OUT OF SCOPE, left one flat window-level list — same reasoning as Q7. |
+
+**Fix round (post-implementation live verify).** Driving the real partition surfaced two sidebar-side leaks that did not cross the pane boundary itself but visibly contradicted it:
+
+- `recents-band-shows-another-projects-chats` — a project's Recents band could render another project's chats as inert ghost rows (`recentsForProject` trusted `chat.workspaceId` without re-checking it against `projectWsIdSet`). Fixed in `7e8867dad`: re-check the owner against the set already in scope before adding it to the band. New test `recents-for-project.test.ts` (17/17 passing).
+- `sidebar-carousel-scrolls-without-switching-project` — the sidebar carousel could settle on a different project's panel than the one the content pane was showing, because `handleScroll` only synced `activeProjectId` when a swipe/touch gesture had armed intent; any other scroll (e.g. Tab-focus `scrollIntoView` on a row in the inactive panel) snapped the carousel without switching anything. Pre-existing on `develop` (predates this branch), made materially worse by the new partition. Fixed in `43f49ffb5`: an unarmed settle bounces back to the active project's panel, exempting a programmatic smooth-scroll still in flight so a real switch still glides. Extended `space-scroller.test.tsx` (26/26 passing across both space-scroller test files).
+
+**Re-verified live**, both fixes, through the Tauri app on this worktree's dev instance: after a full reload, each project's Recents band shows only its own rows across a full A→B→A switch cycle; a forced unarmed scroll of the carousel region now bounces back to the active project's panel synchronously, with the route never diverging from the content pane. Zero regressions in either fix's own test suite.
+
+**Commit SHAs for this pass, in order:** `23f6e05fc` (doc: land approved design), `b2218577c` (feat: view belongs to one project), `9a0a41e80` (feat: hydrate-time filing/adoption), `280afa96a` (feat: refuse cross-project drop/merge, close deleted project's views), `f2779973a` (doc: record R4 as built), `7e8867dad` (fix: Recents leak), `43f49ffb5` (fix: carousel/active-project divergence).
+
 ---
