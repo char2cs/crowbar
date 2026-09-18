@@ -42,6 +42,17 @@ export interface RowScope {
 }
 
 /**
+ * A drop TARGET as the live hit test reconstructs it — a `SidebarRow` plus the
+ * one fact only the DOM can say: whether this row is the Recents band's copy
+ * of a chat or the tree's (`use-sidebar-drag.ts`'s `RowDragExtra.inRecents`,
+ * published as `data-sidebar-recents-row`). The two render the same chat with
+ * the same id and the same `parentId: null`, and spec §8.1 gives a drop on one
+ * a different meaning than the same drop on the other, so the matrix has to be
+ * told which it is looking at.
+ */
+export type DropTargetRow = SidebarRow & { inRecents?: boolean }
+
+/**
  * A row's owning repo/project, or null if nothing in the live store claims
  * this id — a race, or a row kind (`workflow`) with no producer feeding
  * `repos` yet. Every rule below refuses rather than guesses when this comes
@@ -196,7 +207,7 @@ export function levelWorkspaceOfBranchRow(
  *
  * A CHAT row is exempt from all of that — see the branch below.
  */
-export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow): AllowedModes {
+export function allowedModes(subjects: readonly SidebarRow[], target: DropTargetRow): AllowedModes {
   if (subjects.length === 0) return NO_MODES
   if (subjects.some((s) => s.working)) return NO_MODES
   // Never drop a row onto itself.
@@ -205,6 +216,22 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   // rather than guess which class wins (carried over from both old policies).
   const kind = subjects[0].kind
   if (subjects.some((s) => s.kind !== kind)) return NO_MODES
+
+  // A RECENTS row is not a tree row, and none of the scope rules below apply
+  // to it: the band is the project's view switcher, its order is local
+  // per-viewer state (`pane-slice.ts`'s `recentsOrder`), and it deliberately
+  // spans every workspace and repo in the project at once. Sending a drop
+  // aimed at one through the repo/workspace walk below refused most of the
+  // band outright — a Recents row whose chat owns a workspace wears
+  // `kind: 'branch'` for its glyph (`chatIconIndex`), so a home chat dragged
+  // onto it hit the branch-level check, and the same row dragged onto a home
+  // chat resolved no repo scope at all. Live-reported as "rows on Recents
+  // cannot be reordered". Spec §8.1 gives every mode a meaning here: the
+  // middle opens into that view, above/below moves the slot. A folder (or an
+  // unwired `workflow` row) names no chat, so it still refuses.
+  if (target.inRecents) {
+    return kind === 'chat' || kind === 'branch' ? ALL_MODES : NO_MODES
+  }
 
   // One `getState()` per drag frame, shared by every branch below — see
   // `resolveRowRepo`'s own note about this running on every pointermove.
@@ -445,7 +472,7 @@ export function edgeBandFor(kind: string): number {
   return kind === 'folder' ? EDGE_BAND_CONTAINER : EDGE_BAND_HEAVY
 }
 
-export const SIDEBAR_DROP_POLICY: DropPolicy<SidebarRow, SidebarRow> = {
+export const SIDEBAR_DROP_POLICY: DropPolicy<SidebarRow, DropTargetRow> = {
   allowedModes,
   edgeBandFor,
 }

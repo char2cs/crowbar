@@ -2167,6 +2167,74 @@ describe('performSidebarDrop — targetInRecents', () => {
     expect(windowPaneStore.getState().recentsOrder).toEqual([paneC, paneB, ROOT_PANE_ID])
   })
 
+  // REGRESSION (live-reported: "rows on recents cannot be reorder"). Recents
+  // draws a workspace-owning chat with the tree's real branch/lock glyph, and
+  // `chatIconIndex`'s fields carry `kind: 'branch'` into the row with them —
+  // so the band's rows are NOT all `kind: 'chat'`. Filtering for that kind
+  // dropped every such row on the floor, as subject and as target alike, with
+  // no toast and no write: the drag animated and the band never moved.
+  describe('a Recents row whose chat owns a workspace (kind: branch)', () => {
+    /** `ws-x` with its owning chat recorded, so a branch-kind row for
+     *  `chat-b` resolves to that chat the same way the tree's own copy does. */
+    function ownedByChatB(): void {
+      useSidebarStore.setState((s) => ({
+        repos: s.repos.map((r) =>
+          r.id === 'repo-2'
+            ? {
+                ...r,
+                workspaces: [
+                  { id: 'ws-x', branch: 'x', age: '', order: 0, owningChatId: 'chat-b' },
+                ],
+              }
+            : r,
+        ),
+      }))
+    }
+
+    /** Two independent views, `chat-a` in root and `chat-b` in its own —
+     *  the two Recents rows a reorder needs. Returns the second pane's id. */
+    function twoLiveViews(): string {
+      const store = getOrCreateWorkspaceStore('ws-x')
+      store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+      const otherPane = windowPaneStore.getState().paneActions.addPane()!
+      windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
+      return otherPane
+    }
+
+    const ownerRow = chatRow('chat-b', 'ws-x', { kind: 'branch', ownsWorktree: true })
+
+    it('moves to the slot when DRAGGED past a plain chat entry', async () => {
+      ownedByChatB()
+      const otherPane = twoLiveViews()
+
+      await performSidebarDrop([ownerRow], chatRow('chat-a', 'ws-x'), 'before', true)
+
+      expect(setChatPlacement).not.toHaveBeenCalled()
+      expect(windowPaneStore.getState().recentsOrder).toEqual([otherPane, ROOT_PANE_ID])
+    })
+
+    it('takes a drop as the TARGET of a reorder', async () => {
+      ownedByChatB()
+      const otherPane = twoLiveViews()
+
+      await performSidebarDrop([chatRow('chat-a', 'ws-x')], ownerRow, 'before', true)
+
+      expect(setChatPlacement).not.toHaveBeenCalled()
+      expect(windowPaneStore.getState().recentsOrder).toEqual([ROOT_PANE_ID, otherPane])
+    })
+
+    it('merges into the view when dropped on its middle', async () => {
+      ownedByChatB()
+      const otherPane = twoLiveViews()
+
+      await performSidebarDrop([chatRow('chat-a', 'ws-x')], ownerRow, 'into', true)
+
+      expect(liveViewOf('chat-a')).toBe(liveViewOf('chat-b'))
+      expect(windowPaneStore.getState().panes[otherPane]?.chatId).toBe('chat-b')
+    })
+  })
+
   // REGRESSION: a home chat's Recents entry carries the project-HOME
   // workspace, which `resolveRowRepo` (repo id spaces only) never resolves —
   // so a drop above/below one returned before ever reordering the band.

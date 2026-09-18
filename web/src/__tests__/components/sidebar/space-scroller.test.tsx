@@ -4,6 +4,8 @@ import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { handleCreateHomeThread } from '@/components/layout/space-content-actions'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { getWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
@@ -949,6 +951,77 @@ describe('SpaceScroller', () => {
       expect(getWorkspaceScope('home-ws-1')).toEqual(
         expect.objectContaining({ projectId: 'p1', repoId: '' }),
       )
+    })
+  })
+
+  // REGRESSION (live-reported: "rows on recents cannot be reorder"). The
+  // band's own re-render signal (`subscribeRecentsTick`) watched panes,
+  // dormant arrangements and the active view — but not `recentsOrder`, the
+  // one input to `deriveRecentsEntries` a reorder actually writes. The drop
+  // landed, the order was persisted, and the rows went on drawing in the old
+  // order until something unrelated re-rendered the panel.
+  describe('the dragged Recents order (spec §8.1)', () => {
+    const DORMANT = [
+      { id: 'e1', chatIds: ['chat-a'], state: 'dormant' as const },
+      { id: 'e2', chatIds: ['chat-b'], state: 'dormant' as const },
+    ]
+
+    function renderBand() {
+      useHomeTreeStore.setState({
+        trees: {
+          p1: {
+            chats: [
+              { id: 'chat-a', repoId: '', workspaceId: 'home-ws-1', title: 'Chat A', order: 0 },
+              { id: 'chat-b', repoId: '', workspaceId: 'home-ws-1', title: 'Chat B', order: 1 },
+            ],
+            folders: [],
+          },
+        },
+      })
+      render(
+        <SpaceScroller
+          projects={[makeProject('p1')]}
+          activeProjectId="p1"
+          onActiveProjectChange={vi.fn()}
+          rowsForProject={() => []}
+          // The real derivation, so the order under test is the one
+          // production computes — only the inputs are fixtures.
+          recentsForProject={() =>
+            deriveRecentsEntries([], {}, DORMANT, windowPaneStore.getState().recentsOrder).map(
+              (entry) => ({ ...entry, localId: entry.id, workspaceId: 'home-ws-1' }),
+            )
+          }
+          onOpen={vi.fn()}
+          onTrash={vi.fn()}
+          onCreate={vi.fn()}
+          onFocusRecent={vi.fn()}
+          onCloseRecent={vi.fn()}
+          onCloseChatRecent={vi.fn()}
+          onDrop={onDrop}
+          onPaneDrop={onPaneDrop}
+          onTrashProject={vi.fn()}
+        />,
+      )
+    }
+
+    const bandOrder = () =>
+      [...screen.getByTestId('recents-band').querySelectorAll('[data-testid^="recents-row-"]')].map(
+        (el) => el.getAttribute('data-testid'),
+      )
+
+    it('re-renders the band when a reorder writes recentsOrder, with no other state changing', () => {
+      windowPaneStore.setState({ recentsOrder: [] })
+      renderBand()
+      expect(bandOrder()).toEqual(['recents-row-chat-a', 'recents-row-chat-b'])
+
+      act(() => {
+        windowPaneStore
+          .getState()
+          .paneActions.reorderRecentsEntry('e2', 'e1', 'before', ['e1', 'e2'])
+      })
+
+      expect(windowPaneStore.getState().recentsOrder).toEqual(['e2', 'e1'])
+      expect(bandOrder()).toEqual(['recents-row-chat-b', 'recents-row-chat-a'])
     })
   })
 })

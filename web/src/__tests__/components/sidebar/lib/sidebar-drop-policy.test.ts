@@ -893,4 +893,56 @@ describe('SIDEBAR_DROP_POLICY', () => {
       ).toEqual(NO_MODES)
     })
   })
+
+  // REGRESSION (live-reported: "rows on recents cannot be reorder"). The band
+  // spans every workspace and repo of one project, and a row whose chat owns a
+  // workspace wears `kind: 'branch'` there for its glyph — so the tree's
+  // repo/workspace scope rules refused most pairings the band can produce, and
+  // the drag never even drew an indicator, let alone committed.
+  describe('a target in the Recents band (spec §8.1)', () => {
+    const recentsRow = (id: string, over: Partial<SidebarRow> = {}) =>
+      ({
+        ...makeRow({ id, kind: 'chat', ownsWorktree: false, workspaceId: null, ...over }),
+        inRecents: true,
+      }) as SidebarRow & { inRecents: true }
+
+    it('lets a chat entry reorder past a workspace-owning entry, and back', () => {
+      const owner = recentsRow('chat-owner', {
+        kind: 'branch',
+        ownsWorktree: true,
+        workspaceId: 'ws-1',
+      })
+      const plain = recentsRow('chat-plain', { workspaceId: 'ws-2' })
+
+      expect(SIDEBAR_DROP_POLICY.allowedModes([plain], owner)).toEqual(ALL_MODES)
+      expect(SIDEBAR_DROP_POLICY.allowedModes([owner], plain)).toEqual(ALL_MODES)
+    })
+
+    it('lets two workspace-owning entries from DIFFERENT repos reorder past each other', () => {
+      const fromRepo1 = recentsRow('chat-a', {
+        kind: 'branch',
+        ownsWorktree: true,
+        workspaceId: 'ws-1',
+      })
+      const fromRepo2 = recentsRow('chat-b', {
+        kind: 'branch',
+        ownsWorktree: true,
+        workspaceId: 'ws-2',
+      })
+
+      expect(SIDEBAR_DROP_POLICY.allowedModes([fromRepo1], fromRepo2)).toEqual(ALL_MODES)
+    })
+
+    it('still refuses a folder — a Recents slot names a chat, and a folder names none', () => {
+      const folder = makeRow({ id: 'folder-1', kind: 'folder', workspaceId: null })
+      expect(SIDEBAR_DROP_POLICY.allowedModes([folder], recentsRow('chat-plain'))).toEqual(NO_MODES)
+    })
+
+    it('still refuses a WORKING row, and a row dropped onto itself', () => {
+      const working = recentsRow('chat-a', { working: true })
+      expect(SIDEBAR_DROP_POLICY.allowedModes([working], recentsRow('chat-b'))).toEqual(NO_MODES)
+      const row = recentsRow('chat-a')
+      expect(SIDEBAR_DROP_POLICY.allowedModes([row], row)).toEqual(NO_MODES)
+    })
+  })
 })

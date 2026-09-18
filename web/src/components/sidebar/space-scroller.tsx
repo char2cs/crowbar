@@ -135,12 +135,21 @@ function subscribeRecentsTick(ids: string[], onTick: () => void): () => void {
     panes: windowPaneStore.getState().panes,
     dormant: windowPaneStore.getState().dormantArrangements,
     activeView: windowPaneStore.getState().activeViewId,
+    order: windowPaneStore.getState().recentsOrder,
   }
   unsubs.push(
     windowPaneStore.subscribe((state) => {
       if (
         state.panes === prevPaneSlice.panes &&
         state.dormantArrangements === prevPaneSlice.dormant &&
+        // The band's DRAGGED order (`recentsOrder`, spec §8.1) — the one input
+        // to `deriveRecentsEntries` that changes without any pane changing.
+        // Left out, a reorder wrote the new order and the band went on
+        // drawing the old one until something unrelated happened to
+        // re-render it: the drop landed, the rows did not move, and a reload
+        // was the only way to see it — live-reported as "rows on Recents
+        // cannot be reordered", one of that report's two causes.
+        state.recentsOrder === prevPaneSlice.order &&
         // Recents is the VIEW SWITCHER, so which view is on screen is one of
         // the facts it draws (`RecentsEntry.showing`) — and switching views
         // touches neither of the other two: the panes are all still there,
@@ -156,6 +165,7 @@ function subscribeRecentsTick(ids: string[], onTick: () => void): () => void {
         panes: state.panes,
         dormant: state.dormantArrangements,
         activeView: state.activeViewId,
+        order: state.recentsOrder,
       }
       onTick()
     }),
