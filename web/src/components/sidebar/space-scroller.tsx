@@ -486,6 +486,12 @@ export function SpaceScroller({
     if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
     isUserGesture.current = true
   }
+  // The panel index a smooth, programmatic scroll is currently travelling to.
+  // That animation fires scroll events the whole way and none of them is a
+  // user gesture, so the re-align below would cancel the animation it is
+  // chasing by jumping straight to its destination — the switch would snap
+  // instead of glide.
+  const settlingToIndex = useRef<number | null>(null)
 
   // Re-align scroll when the container is resized. Each panel is min-w-full,
   // so scrollLeft must stay at projectIndex * containerWidth.
@@ -500,6 +506,7 @@ export function SpaceScroller({
       // the browser has already clamped scrollLeft to 0. Leave it - the
       // resize that reopens the sidebar re-aligns it.
       if (el.clientWidth === 0) return
+      settlingToIndex.current = null
       el.scrollLeft = index * el.clientWidth
     })
     ro.observe(el)
@@ -513,15 +520,39 @@ export function SpaceScroller({
     const index = projects.findIndex((p) => p.id === activeProjectId)
     if (index === -1) return
     isUserGesture.current = false
-    el.scrollTo({ left: index * el.clientWidth, behavior: 'smooth' })
+    const left = index * el.clientWidth
+    // Already there: scrollTo fires no scroll event, so arming would leave the
+    // re-align disarmed for good.
+    if (el.scrollLeft === left) {
+      settlingToIndex.current = null
+      return
+    }
+    settlingToIndex.current = index
+    el.scrollTo({ left, behavior: 'smooth' })
   }, [activeProjectId, projects])
 
-  // Sync activeProjectId when the user swipes/wheels.
+  // Sync activeProjectId when the user swipes/wheels — and hold the settled
+  // panel and the active project together when anything else scrolls us.
   function handleScroll() {
-    if (!isUserGesture.current) return
     const el = containerRef.current
     if (!el || el.clientWidth === 0) return
     const index = Math.round(el.scrollLeft / el.clientWidth)
+    if (!isUserGesture.current) {
+      if (settlingToIndex.current !== null) {
+        if (settlingToIndex.current === index) settlingToIndex.current = null
+        return
+      }
+      // Not a swipe, and nothing programmatic is in flight: focus's own
+      // scrollIntoView (every row holds tabbable buttons, in EVERY panel), an
+      // edge-scroll, a WebKit snap. `overflow-x: scroll` + mandatory x
+      // snapping + min-w-full panels turns any of them into a whole panel,
+      // leaving the sidebar naming one space while the content area shows
+      // another — the exact divergence project-scoped panes exists to kill.
+      // Bounce back rather than switch a project the user never asked for.
+      const active = projects.findIndex((p) => p.id === activeProjectId)
+      if (active !== -1 && active !== index) el.scrollLeft = active * el.clientWidth
+      return
+    }
     const project = projects[index]
     if (project && project.id !== activeProjectId) {
       onActiveProjectChange(project.id)
