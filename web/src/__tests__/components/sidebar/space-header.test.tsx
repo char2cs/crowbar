@@ -160,6 +160,32 @@ describe('SpaceHeader', () => {
     expect(screen.getByTestId('chevron')).toHaveClass('rotate-180')
   })
 
+  // Caught live: the fold button sized to its own text line-height inside
+  // the h-9 row, leaving an 8px dead band top and bottom that shared the
+  // row's hover ground but had no click handler — clicking near the row's
+  // own border, still visibly inside it, silently did nothing.
+  // `getBoundingClientRect` is meaningless in jsdom (no real layout), so
+  // this pins the actual mechanism instead: the button must stretch across
+  // the row's full cross-axis and re-center its own text, not merely occupy
+  // whatever the row's default `align-items: center` would give a
+  // block-level child.
+  it('fold button stretches to the row’s full height, not just its own text', () => {
+    render(
+      <SpaceHeader
+        project={makeProject('p1')}
+        folded={false}
+        onToggleFold={vi.fn()}
+        onCreateThread={vi.fn()}
+        onImportRepo={vi.fn()}
+        onCreateFolder={vi.fn()}
+        onDeleteSpace={vi.fn()}
+      />,
+    )
+    const foldButton = screen.getByRole('button', { name: 'Collapse p1' })
+    expect(foldButton).toHaveClass('self-stretch')
+    expect(foldButton).toHaveClass('items-center')
+  })
+
   // The row's own container (`space-header-row`) is a plain, non-interactive
   // div now — no `role`, no `onClick` of its own — precisely so it cannot
   // present as one giant button swallowing the overflow/thread controls'
