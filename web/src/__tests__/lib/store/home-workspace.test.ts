@@ -26,6 +26,8 @@ vi.mock('@/lib/api', () => ({
 }))
 
 const { useHomeWorkspaceStore, subscribeHomeWorkspace } = await import('@/lib/store/home-workspace')
+const { ensureHomeWorkspaceResolved, getHomeWorkspaceId, __resetHomeWorkspaceResolverForTest } =
+  await import('@/features/workspace/lib/home-workspace-resolver')
 
 function emit(data: unknown): void {
   subscribers.forEach((cb) => cb(data))
@@ -126,6 +128,26 @@ describe('subscribeHomeWorkspace', () => {
     emit({ reconnected: true })
 
     await whenWorking(true)
+    dispose()
+  })
+
+  // REGRESSION: the resolver every sidebar surface reads its home id from used
+  // to cache a failed GET /home for the whole session. A daemon respawn is the
+  // one signal that reaches this tracker without a remount, so it re-resolves.
+  it('re-resolves a home id the resolver failed to fetch, on the reconnect sentinel', async () => {
+    __resetHomeWorkspaceResolverForTest()
+    fetchHomeWorkspaceSpy.mockRejectedValueOnce(new Error('daemon starting'))
+    ensureHomeWorkspaceResolved('p1')
+    await vi.waitFor(() => expect(fetchHomeWorkspaceSpy).toHaveBeenCalledTimes(1))
+    expect(getHomeWorkspaceId('p1')).toBeNull()
+
+    fetchHomeWorkspaceSpy.mockResolvedValue(homeDTO(false))
+    const dispose = subscribeHomeWorkspace('p1')
+    await whenWorking(false)
+    expect(getHomeWorkspaceId('p1')).toBeNull()
+
+    emit({ reconnected: true })
+    await vi.waitFor(() => expect(getHomeWorkspaceId('p1')).toBe('home-1'))
     dispose()
   })
 

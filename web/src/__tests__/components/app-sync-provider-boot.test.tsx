@@ -219,7 +219,6 @@ beforeEach(async () => {
   useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
   useSidebarStore.setState({
     repos: [],
-    collapsedRepos: new Set<string>(),
     collapsedProjects: new Set<string>(),
   })
   useFolderSignalStore.setState({ generations: {} })

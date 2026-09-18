@@ -65,6 +65,8 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
       state.activeViewId === prev.activeViewId &&
       state.activePaneId === prev.activePaneId &&
       state.mostRecentActivePaneIds === prev.mostRecentActivePaneIds &&
+      state.dormantArrangements === prev.dormantArrangements &&
+      state.recentsOrder === prev.recentsOrder &&
       state.buffers === prev.buffers
     ) {
       return
@@ -89,6 +91,8 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
         activeViewId: current.activeViewId,
         activePaneId: current.activePaneId,
         mostRecentActivePaneIds: current.mostRecentActivePaneIds,
+        dormantArrangements: current.dormantArrangements,
+        recentsOrder: current.recentsOrder,
         buffers: persistable.buffers,
         sidebarWidth: 0,
         rightSidebarWidth: 0,

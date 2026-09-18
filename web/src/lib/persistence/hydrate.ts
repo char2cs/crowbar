@@ -73,6 +73,8 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
     parkedViews: views.parkedViews,
     activeViewId: views.activeViewId,
     bottomLayout: layout.bottomLayout,
+    dormantArrangements: layout.dormantArrangements ?? [],
+    recentsOrder: layout.recentsOrder ?? [],
     buffers,
   })
 }
@@ -277,9 +279,9 @@ export async function hydrateSidebar(): Promise<void> {
   ])
 
   if (sidebarUI) {
+    // `collapsedRepos`/`collapsedWorkspaces` are retired keys the pre-restyle
+    // tree wrote (see schemas.ts) — never replayed, every repo opens.
     useSidebarStore.setState({
-      collapsedRepos: new Set(sidebarUI.collapsedRepos),
-      collapsedWorkspaces: new Set(sidebarUI.collapsedWorkspaces ?? []),
       // Absent on a record written before projects were collapsible — replays
       // as "nothing collapsed", i.e. every project open, which is the product
       // default (see sidebar.ts `collapsedProjects`).

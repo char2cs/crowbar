@@ -131,7 +131,6 @@ beforeEach(() => {
   useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
   useSidebarStore.setState({
     repos: [],
-    collapsedRepos: new Set<string>(),
     collapsedProjects: new Set<string>(),
   })
   // seededWorkspaceRepoIds reset too: several tests below reuse the ids
@@ -315,7 +314,6 @@ describe('AppSyncProvider subscribes by visibility', () => {
     rebuild.mockClear()
 
     act(() => {
-      useSidebarStore.getState().toggleRepo('r1')
       useSidebarStore.getState().toggleProject('p2')
     })
     await settle()
@@ -350,7 +348,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
   // gets its `worktree_state` frames on `.../chats/ws`, which is the one
   // endpoint this suite can see opening/closing (fetchWorkspaces itself is
   // asserted directly in read-hierarchical.test.ts).
-  it("subscribes a visible project's repo worktree streams, and not a collapsed repo's", async () => {
+  it("subscribes every visible project's repo worktree streams", async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -359,56 +357,43 @@ describe('AppSyncProvider subscribes by visibility', () => {
     await settle()
 
     act(() => {
-      useSidebarStore.getState().setRepos([repo('r1', 'p1'), repo('r2', 'p1')])
+      useSidebarStore.getState().setRepos([repo('r1', 'p1'), repo('r2', 'p2')])
     })
     await settle()
     expect(endpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
-    expect(endpoints()).toContain('/v0/projects/p1/repos/r2/chats/ws')
+    expect(endpoints()).toContain('/v0/projects/p2/repos/r2/chats/ws')
+  })
 
-    // Let both seeds land — desiredKeys' neverSeededWorkspaces bypass only
-    // applies until a repo's workspace list has actually come back once
-    // (folder-signal.ts). Without this, r2 would never be eligible to close
-    // below no matter how it collapses.
+  // REGRESSION (restyle v2): the previous build persisted a `collapsedRepos`
+  // set (every repo but the one you were last in) that gated a repo's
+  // workspaces AND tree streams. The restyled tree folds through
+  // collapsedChatRows and never wrote or cleared that set, so a repo the old
+  // build had collapsed drew its header + branches yet never loaded threads or
+  // folders. There is no per-repo gate any more: a visible repo always streams.
+  it('folding a PROJECT tears its repo streams down after the grace period', async () => {
+    render(
+      <AppSyncProvider>
+        <div />
+      </AppSyncProvider>,
+    )
+    await settle()
+
+    act(() => {
+      useSidebarStore.getState().setRepos([repo('r1', 'p1'), repo('r2', 'p2')])
+    })
+    await settle()
     await act(async () => {
       await streamFor('/v0/projects/p1/repos/r1/chats/ws')!.options.seed!()
-      await streamFor('/v0/projects/p1/repos/r2/chats/ws')!.options.seed!()
+      await streamFor('/v0/projects/p2/repos/r2/chats/ws')!.options.seed!()
     })
 
     act(() => {
-      useSidebarStore.getState().toggleRepo('r2')
+      useSidebarStore.getState().toggleProject('p2')
     })
     await settle(SUBSCRIPTION_GRACE_MS)
 
     expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
-    expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r2/chats/ws')
-  })
-
-  // TestRegression: a repo that starts COLLAPSED — every repo besides the one
-  // you were last working in, on a fresh boot — used to never open its
-  // workspaces stream at all, because it followed the exact same
-  // `showsRows` gate the tree (folders+chats) stream uses. rowsFromRepo mints
-  // a repo's own HEADER row from its default workspace, so that repo rendered
-  // NOTHING — not a hidden body, a missing repo. Reproduced live against real
-  // production data: every repo besides the active one absent from the
-  // sidebar. neverSeededWorkspaces (desiredKeys, folder-signal.ts) fetches it
-  // once regardless of collapse; the PRECEDING test proves that bypass turns
-  // itself back off once seeded, so this one only needs to prove it fires at
-  // all for a repo collapsed from the start.
-  it('still fetches a repo’s workspaces once even if it starts collapsed', async () => {
-    useSidebarStore.setState({ collapsedRepos: new Set(['r1']) })
-    render(
-      <AppSyncProvider>
-        <div />
-      </AppSyncProvider>,
-    )
-    await settle()
-
-    act(() => {
-      useSidebarStore.getState().setRepos([repo('r1', 'p1')])
-    })
-    await settle()
-
-    expect(endpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
+    expect(liveEndpoints()).not.toContain('/v0/projects/p2/repos/r2/chats/ws')
   })
 
   // Task 34: folders no longer open a WS subscription at all (their dedicated
@@ -418,7 +403,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
   // fetchFolders fire (or not). The reseed mechanism itself is covered in
   // app-sync-provider-folders.test.tsx; these tests only cover WHEN it is
   // wired up — the same visibility rule the workspace streams already prove.
-  it("fetches an expanded repo's folders, and stops reacting to its signal once it collapses", async () => {
+  it("fetches every visible repo's folders and chats, and stops reacting to its signal once its project folds", async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -427,14 +412,16 @@ describe('AppSyncProvider subscribes by visibility', () => {
     await settle()
 
     act(() => {
-      useSidebarStore.getState().setRepos([repo('r1', 'p1'), repo('r2', 'p1')])
+      useSidebarStore.getState().setRepos([repo('r1', 'p1'), repo('r2', 'p2')])
     })
     await settle()
     expect(fetchFolders).toHaveBeenCalledWith('p1', 'r1')
-    expect(fetchFolders).toHaveBeenCalledWith('p1', 'r2')
+    expect(fetchFolders).toHaveBeenCalledWith('p2', 'r2')
+    expect(fetchRepoChats).toHaveBeenCalledWith('p1', 'r1')
+    expect(fetchRepoChats).toHaveBeenCalledWith('p2', 'r2')
 
     act(() => {
-      useSidebarStore.getState().toggleRepo('r2')
+      useSidebarStore.getState().toggleProject('p2')
     })
     await settle(SUBSCRIPTION_GRACE_MS)
     fetchFolders.mockClear()
@@ -446,30 +433,10 @@ describe('AppSyncProvider subscribes by visibility', () => {
     await settle()
 
     expect(fetchFolders).toHaveBeenCalledWith('p1', 'r1')
-    expect(fetchFolders).not.toHaveBeenCalledWith('p1', 'r2')
+    expect(fetchFolders).not.toHaveBeenCalledWith('p2', 'r2')
   })
 
-  it('costs nothing for a repo nobody has expanded yet', async () => {
-    // Folders follow the lazy rule the workspace streams established: cost is
-    // proportional to what is on screen, so a collapsed repo is never fetched
-    // at all.
-    useSidebarStore.setState({ collapsedRepos: new Set(['r1']) })
-    render(
-      <AppSyncProvider>
-        <div />
-      </AppSyncProvider>,
-    )
-    await settle()
-    act(() => {
-      useSidebarStore.getState().setRepos([repo('r1', 'p1')])
-    })
-    await settle()
-    expect(fetchFolders).not.toHaveBeenCalledWith('p1', 'r1')
-  })
-
-  it('does not keep reacting to a collapsed repo’s folder signal for a working agent', async () => {
-    // The workspace stream stays up so the avatar spinner can stop; a folder
-    // reports nothing live, so it has no reason to.
+  it('keeps a repo subscribed while its repo-home agent is working, and after', async () => {
     render(
       <AppSyncProvider>
         <div />
@@ -478,41 +445,10 @@ describe('AppSyncProvider subscribes by visibility', () => {
     await settle()
     act(() => {
       useSidebarStore.getState().setRepos([repo('r1', 'p1', { defaultWorking: true })])
-      useSidebarStore.getState().toggleRepo('r1')
-    })
-    await settle(SUBSCRIPTION_GRACE_MS)
-
-    expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
-    fetchFolders.mockClear()
-
-    act(() => {
-      useFolderSignalStore.getState().bump('r1')
-    })
-    await settle()
-    expect(fetchFolders).not.toHaveBeenCalled()
-  })
-
-  it('keeps a collapsed repo subscribed while its repo-home agent is working', async () => {
-    // `defaultWorking` is the one live signal a collapsed repo still renders
-    // (the spinner on its avatar). Dropping the stream mid-turn would freeze it
-    // on forever, which is worse than not showing it at all.
-    render(
-      <AppSyncProvider>
-        <div />
-      </AppSyncProvider>,
-    )
-    await settle()
-    act(() => {
-      useSidebarStore.getState().setRepos([repo('r1', 'p1', { defaultWorking: true })])
-      useSidebarStore.getState().toggleRepo('r1')
     })
     await settle(SUBSCRIPTION_GRACE_MS)
     expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
 
-    // Let the seed land — see the identical note in the "not a collapsed
-    // repo's" test above. Without this, r1 would stay open below for the
-    // wrong reason (neverSeededWorkspaces) rather than the one this test
-    // actually means to prove (defaultWorking).
     await act(async () => {
       await streamFor('/v0/projects/p1/repos/r1/chats/ws')!.options.seed!()
     })
@@ -521,7 +457,7 @@ describe('AppSyncProvider subscribes by visibility', () => {
       useSidebarStore.getState().setRepos([repo('r1', 'p1', { defaultWorking: false })])
     })
     await settle(SUBSCRIPTION_GRACE_MS)
-    expect(liveEndpoints()).not.toContain('/v0/projects/p1/repos/r1/chats/ws')
+    expect(liveEndpoints()).toContain('/v0/projects/p1/repos/r1/chats/ws')
   })
 })
 

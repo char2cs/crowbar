@@ -67,7 +67,7 @@ describe('home-workspace-resolver', () => {
     expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(1)
   })
 
-  it('surfaces an error without caching a wsId, and does not auto-retry on a later call', async () => {
+  it('surfaces an error without caching a wsId, and re-fetches on the next call', async () => {
     fetchHomeWorkspaceMock.mockRejectedValueOnce(new Error('not found'))
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
 
@@ -80,14 +80,17 @@ describe('home-workspace-resolver', () => {
     })
     expect(getKnownHomeWorkspaceIds()).not.toContain('p1')
 
-    // A resolved (even errored) project id is cached — see the `states.has`
-    // guard — so a later call is a no-op rather than retrying on its own.
-    // That matches the pre-existing behavior this replaces (HomeRoute's old
-    // per-mount fetch also never retried a failed lookup on its own); this
-    // resolver's job is caching the common (success) path, not a retry policy.
+    // A failure is not terminal: the whole sidebar rides on this id, so one
+    // lost GET at cold start must heal on the next mount rather than blank the
+    // project's home for the session.
     fetchHomeWorkspaceMock.mockResolvedValueOnce({ id: 'ws-home-2', projectId: 'p1', kind: 'home' })
-    ensureHomeWorkspaceResolved('p1')
-    expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(1)
+    act(() => {
+      ensureHomeWorkspaceResolved('p1')
+    })
+    expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(2)
+    await waitFor(() => {
+      expect(result.current).toEqual({ wsId: 'ws-home-2', owningChatId: null, error: false })
+    })
   })
 
   it('tracks multiple projects independently', async () => {

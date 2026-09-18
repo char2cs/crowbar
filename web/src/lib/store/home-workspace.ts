@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { fetchHomeWorkspace } from '@/lib/api'
 import { wsManager } from '@/lib/ws/manager'
+import { ensureHomeWorkspaceResolved } from '@/features/workspace/lib/home-workspace-resolver'
 import type { WorkspaceDTO } from '@/lib/types'
 
 // The project-home workspace is the ONE workspace the live workspaces entity
@@ -81,6 +82,9 @@ export function subscribeHomeWorkspace(projectId: string): () => void {
     // started and stopped while the socket was down, so re-read unconditionally.
     if (frame && typeof frame === 'object' && 'reconnected' in frame) {
       void read()
+      // A daemon respawn is also the moment a resolver that lost its first
+      // GET /home can heal without a remount (a no-op once resolved).
+      ensureHomeWorkspaceResolved(projectId)
       return
     }
     const kind = (frame as { kind?: string } | null)?.kind

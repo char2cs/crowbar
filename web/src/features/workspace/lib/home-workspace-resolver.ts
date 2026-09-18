@@ -49,12 +49,15 @@ function subscribe(listener: () => void): () => void {
 }
 
 /**
- * Kick off (once per project id, ever) resolving the home workspace. Safe to
- * call unconditionally from an effect on every render while on the home
- * route — a no-op once resolved or while already in flight.
+ * Kick off resolving the home workspace. Safe to call unconditionally from an
+ * effect on every render while on the home route — a no-op once resolved or
+ * while already in flight. A FAILED resolve is not terminal: the error state
+ * stays visible until the next call re-fetches, so one lost GET at cold start
+ * (daemon still replaying, sidecar respawn) cannot blank a project's home for
+ * the whole session.
  */
 export function ensureHomeWorkspaceResolved(projectId: string): void {
-  if (states.has(projectId) || inflight.has(projectId)) return
+  if (states.get(projectId)?.wsId || inflight.has(projectId)) return
   inflight.add(projectId)
   fetchHomeWorkspace(projectId)
     .then((ws) => {
@@ -95,6 +98,13 @@ export function getKnownHomeWorkspaceIds(): string[] {
  */
 export function getHomeWorkspaceId(projectId: string): string | null {
   return states.get(projectId)?.wsId ?? null
+}
+
+/** The chat that owns `projectId`'s home workspace, as GET /home reported it,
+ *  or `null` before it resolved. The home chat list carries no marker for it,
+ *  so this is what `rowsFromHome` needs to keep the owner off the tree. */
+export function getHomeOwningChatId(projectId: string): string | null {
+  return states.get(projectId)?.owningChatId ?? null
 }
 
 function getSnapshot(projectId: string | null): HomeWorkspaceState {

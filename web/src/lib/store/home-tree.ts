@@ -1,8 +1,14 @@
 import { create } from 'zustand'
 import { wsManager } from '@/lib/ws/manager'
-import { fetchHomeChats, fetchHomeFolders } from '@/lib/api'
-import { toSidebarChat, toSidebarFolder } from '@/lib/store/build-repo-tree'
-import { EMPTY_CHATS, EMPTY_FOLDERS, type Chat, type Folder } from '@/lib/store/sidebar'
+import { fetchHomeChats, fetchHomeFolders, fetchRepos } from '@/lib/api'
+import { toSidebarChat, toSidebarFolder, toSidebarRepo } from '@/lib/store/build-repo-tree'
+import {
+  EMPTY_CHATS,
+  EMPTY_FOLDERS,
+  useSidebarStore,
+  type Chat,
+  type Folder,
+} from '@/lib/store/sidebar'
 import { NON_STRUCTURAL_CHAT_KINDS } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 
@@ -127,6 +133,33 @@ export function removeHomeFolder(projectId: string, folderId: string): void {
  * `app-sync-provider.tsx`'s `desiredKeys`), not only the active one — a
  * project's home row must render exactly as reliably as its repos do.
  */
+/** Frame kinds that MOVED a home row. A home level interleaves chats,
+ *  folders and repo headers on one order, so a placement here renumbers
+ *  repo headers too. */
+const PLACEMENT_KINDS: ReadonlySet<string> = new Set([
+  'placement_set',
+  'order_set',
+  'folder_updated',
+])
+
+/**
+ * Re-read a project's repos and merge their placement into the sidebar store.
+ *
+ * Belt and braces for the repo headers sharing a home level: the daemon
+ * broadcasts every repo a placement shifted, but a frame that races the Node
+ * projection (or is simply missed) leaves a header at a stale order until an
+ * unrelated reseed — one GET of the project's repos settles it. Called on
+ * every placement frame below and straight after a repo header's own drop.
+ */
+export async function refreshRepoPlacements(projectId: string): Promise<void> {
+  try {
+    const repos = await fetchRepos(projectId)
+    useSidebarStore.getState().mergeRepos(repos.map((dto) => toSidebarRepo(dto, [])))
+  } catch (err) {
+    console.error(`home-tree: repo placement re-read failed for project ${projectId}`, err)
+  }
+}
+
 export function subscribeHomeTree(projectId: string): () => void {
   let disposed = false
   let latestRead = 0
@@ -160,7 +193,9 @@ export function subscribeHomeTree(projectId: string): () => void {
       return
     }
     const kind = (frame as { kind?: string } | null)?.kind
-    if (kind !== undefined && !NON_STRUCTURAL_CHAT_KINDS.has(kind)) void reseed()
+    if (kind === undefined) return
+    if (!NON_STRUCTURAL_CHAT_KINDS.has(kind)) void reseed()
+    if (PLACEMENT_KINDS.has(kind)) void refreshRepoPlacements(projectId)
   })
 
   return () => {

@@ -6,7 +6,6 @@ import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
 import { subscribeHomeWorkspace } from '@/lib/store/home-workspace'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { dataOf } from '@/lib/loadable'
 import {
   fetchFolders,
@@ -28,11 +27,8 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 //   /v0/projects                            always — one stream, a handful of rows
 //   a project's repos                       while that project is visible
 //                                           (not folded away, or the active one)
-//   a repo's worktrees (via its chats)      while that repo is expanded, holds the
-//                                           active workspace, or has live work to
-//                                           report on its header
-//   a repo's tree rows (folders + chats)    while that repo is expanded or holds
-//                                           the active workspace
+//   a repo's worktrees                      while its project is visible
+//   a repo's tree rows (folders + chats)    while its project is visible
 //
 // Cost is then proportional to what is on screen instead of to how much work
 // you have: a collapsed project costs one cached row and nothing else, and
@@ -533,45 +529,15 @@ export function useAppSyncEngine(): void {
       const activeProjectId = useProjectStore.getState().activeProjectId
       if (activeProjectId) keys.add(homeKey(activeProjectId))
 
-      const { repos, collapsedRepos } = useSidebarStore.getState()
-      const activeRepoId = getWorkspaceScope()?.repoId
+      // Every visible repo draws its whole tree (the restyled sidebar folds
+      // rows via collapsedChatRows, which hides nothing the streams feed), so
+      // each one keeps both its workspaces and its folders+chats streams open.
+      const { repos } = useSidebarStore.getState()
       for (const repo of repos) {
         const projectId = repo.projectId
         if (!projectId || !visibleProjects.has(projectId)) continue
-        const holdsActiveWorkspace = repo.id === activeRepoId
-        // `defaultWorking` is the one live signal a COLLAPSED repo still
-        // renders (the spinner on its avatar). Keeping the stream while a turn
-        // is in flight is what lets that spinner stop; dropping it mid-turn
-        // would freeze it on, which is worse than not showing it at all.
-        const hasLiveWorkToReport = repo.defaultWorking === true
-        const showsRows = !collapsedRepos.has(repo.id) || holdsActiveWorkspace
-        // A repo whose workspace list has NEVER come back also ignores
-        // collapse, once: rowsFromRepo mints that repo's own HEADER row from
-        // its default workspace, so a repo that starts collapsed (persisted
-        // `collapsedRepos` — every repo besides the one you were last in)
-        // must still fetch its workspaces at least once, or it renders
-        // NOTHING at all, header included (folder-signal.ts's
-        // seededWorkspaceRepoIds doc). Fetching once is cheap now — a single
-        // GET .../workspaces (see fetchWorkspaces, api.ts), not the old
-        // per-chat derivation this exemption would have made too costly to
-        // widen. Once seeded it stops applying, so a repo the user collapses
-        // AFTER seeding still drops its live connection exactly as before —
-        // see the "not a collapsed repo's" test.
-        const neverSeededWorkspaces = !useFolderSignalStore
-          .getState()
-          .seededWorkspaceRepoIds.has(repo.id)
-        if (showsRows || hasLiveWorkToReport || neverSeededWorkspaces) {
-          keys.add(workspacesKey(projectId, repo.id))
-        }
-        // Folders and chat rows are pure structure — they carry no spinner, no
-        // status, nothing a collapsed repo still paints — so they stop at
-        // `showsRows` rather than following the workspace stream's live-work
-        // exemption above. (A chat row deliberately carries no `working` either;
-        // see rows-from-repo.ts.) Deliberately NOT widened by
-        // neverSeededWorkspaces: a repo's HEADER needs the workspace list, but
-        // its full tree (folders + every chat) stays exactly as lazy as
-        // "costs nothing for a repo nobody has expanded yet" already requires.
-        if (showsRows) keys.add(treeKey(projectId, repo.id))
+        keys.add(workspacesKey(projectId, repo.id))
+        keys.add(treeKey(projectId, repo.id))
       }
       return keys
     }

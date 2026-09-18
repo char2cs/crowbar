@@ -246,8 +246,8 @@ export interface PaneSlice {
   /** Recents' own persisted order (spec §5.6/§8.1) — entry ids, written ONLY
    *  by `reorderRecentsEntry`. Empty until the first drag; `deriveRecentsEntries`
    *  falls back to its existing append order for any id not named here. Same
-   *  durability as `dormantArrangements` — in-memory for the session, not
-   *  written to disk. */
+   *  durability as `dormantArrangements` — both ride the persisted
+   *  WorkspaceLayout (window-pane-store.ts) and survive a reload. */
   recentsOrder: string[]
   paneActions: PaneActions
 }

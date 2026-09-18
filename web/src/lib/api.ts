@@ -11,7 +11,7 @@ import type {
 import type { PRLink } from '@/lib/import/parent-plan'
 import { useChaosStore } from '@/lib/store/chaos'
 import { getOwningChatId } from '@/lib/workspace-scope'
-import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
@@ -50,6 +50,20 @@ export class ApiError extends Error {
 
 export function isNotFoundError(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404
+}
+
+/**
+ * The desktop proxy's own answer when nothing is listening on the daemon
+ * socket (api_proxy.rs: a 503 carrying this header, text/plain, no envelope)
+ * — the daemon is starting or respawning, not refusing. Named so UI copy can
+ * say so; deliberately NOT retried in apiFetchRaw, the proxy already spent
+ * the idempotent-read connect budget.
+ */
+const PROXY_HEADER = 'x-crowbar-proxy'
+const DAEMON_UNAVAILABLE_CODE = 'daemon_unavailable'
+
+export function isDaemonUnavailableError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === DAEMON_UNAVAILABLE_CODE
 }
 
 /** Tunable transient-retry policy for {@link apiFetch}. A `fetch()` *rejection*
@@ -137,6 +151,9 @@ export async function apiFetchRaw(
     // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
     // must never be retried.
     if (!res.ok) {
+      if (res.headers?.get(PROXY_HEADER) === 'daemon-unavailable') {
+        throw new ApiError('the daemon is not running yet', res.status, DAEMON_UNAVAILABLE_CODE)
+      }
       const errorBody = await res.json().catch(() => null)
       throw new ApiError(
         errorBody?.error ?? `${res.status} ${res.statusText}`,
@@ -477,7 +494,7 @@ export async function fetchWorkspace(
   wsId: string,
 ): Promise<WorkspaceDTO> {
   const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
   const row = await apiFetch<RepoChatWireDTO>(
     `/v0/projects/${projectId}/repos/${repoId}/chats/${chatId}`,
   )

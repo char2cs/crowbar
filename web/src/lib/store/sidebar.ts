@@ -244,11 +244,8 @@ interface SidebarState {
    * no longer just the active project's. Each carries its own `projectId`.
    */
   repos: Repo[]
-  collapsedRepos: Set<string>
-  collapsedWorkspaces: Set<string>
   /**
-   * Projects the user has explicitly folded away. Same polarity as
-   * `collapsedRepos`/`collapsedWorkspaces` above: unknown means OPEN.
+   * Projects the user has explicitly folded away: unknown means OPEN.
    *
    * Showing every project at once is the feature — a fresh install must render
    * the whole sidebar, not a column of closed rows — so the default cannot be
@@ -263,7 +260,7 @@ interface SidebarState {
   collapsedProjects: Set<string>
   /**
    * Chats-panel rows the user has folded — folder ids and chat ids together,
-   * since both kinds hold children. Same polarity as the three sets above.
+   * since both kinds hold children. Same polarity as `collapsedProjects`.
    *
    * It lives HERE, in a store the workspace switch does not touch, rather than
    * in the panel: the panel is keyed by workspace id so a switch remounts it
@@ -286,8 +283,6 @@ interface SidebarState {
    * beforehand so a refusal is one call to undo.
    */
   applyPlacement: (placement: SidebarPlacement) => void
-  toggleRepo: (repoId: string) => void
-  toggleWorkspace: (wsId: string) => void
   toggleProject: (projectId: string) => void
   /** Fold a Chats-panel row away, or open it again. */
   toggleChatRow: (rowId: string) => void
@@ -588,6 +583,7 @@ function recordRepoScopes(repos: Repo[]): void {
         projectId: repo.projectId,
         repoId: repo.id,
         wsId: repo.defaultWorkspaceId,
+        owningChatId: repo.defaultOwningChatId || undefined,
       })
     }
   }
@@ -596,8 +592,6 @@ function recordRepoScopes(repos: Repo[]): void {
 export function getInitialState() {
   return {
     repos: [],
-    collapsedRepos: new Set<string>(),
-    collapsedWorkspaces: new Set<string>(),
     collapsedProjects: new Set<string>(),
     collapsedChatRows: new Set<string>(),
     // The card's default-visible panel is Files (scrollLeft starts at 0 in
@@ -609,18 +603,14 @@ export function getInitialState() {
   }
 }
 
-/** The four sets `sidebar-ui` holds; every one of them a fold-away list. */
-type CollapseSets = Pick<
-  SidebarState,
-  'collapsedRepos' | 'collapsedWorkspaces' | 'collapsedProjects' | 'collapsedChatRows'
->
+/** The two sets `sidebar-ui` holds; both fold-away lists. */
+type CollapseSets = Pick<SidebarState, 'collapsedProjects' | 'collapsedChatRows'>
 
 /**
  * Apply one collapse change and write the WHOLE record.
  *
- * One writer for all four sets, so a toggle can never persist its own list over
- * a record whose other three it forgot to carry — which four independent call
- * sites assembling the same four arrays is one edit away from at any time.
+ * One writer for both sets, so a toggle can never persist its own list over a
+ * record whose other one it forgot to carry.
  */
 function persist<K extends keyof CollapseSets>(
   state: CollapseSets,
@@ -628,8 +618,6 @@ function persist<K extends keyof CollapseSets>(
 ): Pick<CollapseSets, K> {
   const next = { ...state, ...change }
   void saveSidebarUI({
-    collapsedRepos: [...next.collapsedRepos],
-    collapsedWorkspaces: [...next.collapsedWorkspaces],
     collapsedProjects: [...next.collapsedProjects],
     collapsedChatRows: [...next.collapsedChatRows],
   })
@@ -757,20 +745,6 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
       }
 
       return repos === s.repos ? s : { repos }
-    }),
-
-  toggleRepo: (repoId) =>
-    set((s) => {
-      const next = new Set(s.collapsedRepos)
-      next.has(repoId) ? next.delete(repoId) : next.add(repoId)
-      return persist(s, { collapsedRepos: next })
-    }),
-
-  toggleWorkspace: (wsId) =>
-    set((s) => {
-      const next = new Set(s.collapsedWorkspaces)
-      next.has(wsId) ? next.delete(wsId) : next.add(wsId)
-      return persist(s, { collapsedWorkspaces: next })
     }),
 
   toggleProject: (projectId) =>

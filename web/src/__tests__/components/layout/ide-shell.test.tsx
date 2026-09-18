@@ -61,9 +61,7 @@ vi.mock('@/features/settings/components/settings-dialog', () => ({
 const { sidebarState } = vi.hoisted(() => ({
   sidebarState: {
     repos: [] as unknown[],
-    collapsedRepos: new Set(),
     deleteWorkspace: vi.fn(),
-    toggleRepo: vi.fn(),
   },
 }))
 vi.mock('@/lib/store/sidebar', () => {

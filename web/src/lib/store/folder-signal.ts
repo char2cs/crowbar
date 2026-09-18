@@ -47,7 +47,7 @@ interface FolderSignalState {
    * apart. `rows-from-repo.ts` is the one that must: a workspace's row is
    * identified by the chat that owns it, so asking during the window would
    * either hand out an id that changes when the seed lands — and a row id is
-   * the React key, the `collapsedWorkspaces` key and the selection key — or
+   * the React key, the `collapsedChatRows` key and the selection key — or
    * fail on data that is merely late.
    */
   seededRepoIds: ReadonlySet<string>
@@ -57,23 +57,13 @@ interface FolderSignalState {
    *  nothing costs no subscriber a render. */
   markTreeSeeded: (repoId: string) => void
   /**
-   * Repos whose WORKSPACE list has come back from the daemon at least once —
-   * the separate signal `app-sync-engine.ts`'s `desiredKeys()` consults so a
-   * repo that starts COLLAPSED (persisted `collapsedRepos`, e.g. every repo
-   * besides the one you were last working in) still fetches its workspaces
-   * exactly once, regardless of collapse.
-   *
-   * Without this, a collapsed repo's `workspaces` subscription never opens at
-   * all (it follows the same `showsRows` gate the tree subscription uses),
-   * so `repo.workspaces` stays empty forever and `rows-from-repo.ts` never
-   * mints even that repo's OWN header row (minted from its default
-   * workspace) — not a hidden body, a missing repo. Reproduced live: every
-   * repo besides the currently-active one absent from the sidebar.
+   * Repos whose WORKSPACE list has come back from the daemon at least once.
+   * `sidebar-tree-surface.tsx` admits such a repo to the tree before its
+   * folders+chats seed lands: its header/branch rows draw from workspace data
+   * alone, with final ids (a WorkspaceDTO's `owningChatId` is backend-resolved).
    *
    * Deliberately a SEPARATE set from `seededRepoIds` above: that one tracks
-   * the tree (folders+chats) reseed loop, a genuinely different subscription
-   * with its own (still fully collapse-gated) cost tradeoff — this signal
-   * only widens the workspaces gate, once, per repo.
+   * the tree (folders+chats) reseed loop, a different subscription.
    */
   seededWorkspaceRepoIds: ReadonlySet<string>
   /** Record that `repoId`'s workspace list has been read. Idempotent, same

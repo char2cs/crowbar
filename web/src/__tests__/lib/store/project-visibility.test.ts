@@ -19,7 +19,10 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import type { FolderDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({ getHomeWorkspaceId }))
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
+  getHomeWorkspaceId,
+  getHomeOwningChatId: () => null,
+}))
 
 const repoDTO = (id: string, projectId: string): RepoDTO => ({
   id,

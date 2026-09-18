@@ -165,7 +165,8 @@ export function resetDB(): void {
 // or the daemon's persisted model changes incompatibly.
 // ---------------------------------------------------------------------------
 
-export const CROWBAR_CACHE_VERSION = '1'
+// '2': chat/workspace/repo DTOs gained ownsWorktree/type/owningChatId/folderId.
+export const CROWBAR_CACHE_VERSION = '2'
 
 const CACHE_VERSION_KEY = 'crowbar:cache-version'
 

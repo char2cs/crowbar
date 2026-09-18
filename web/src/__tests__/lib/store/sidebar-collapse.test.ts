@@ -28,8 +28,6 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({
-    collapsedRepos: new Set<string>(),
-    collapsedWorkspaces: new Set<string>(),
     collapsedProjects: new Set<string>(),
     collapsedChatRows: new Set<string>(),
   })
@@ -40,11 +38,9 @@ describe('collapsedProjects', () => {
     expect(useSidebarStore.getState().collapsedProjects.size).toBe(0)
   })
 
-  it('shares its polarity with every other collapse set', () => {
-    // All four sets say the same thing: membership means folded away.
+  it('shares its polarity with the other collapse set', () => {
+    // Both sets say the same thing: membership means folded away.
     const initial = useSidebarStore.getState()
-    expect(initial.collapsedRepos.size).toBe(0)
-    expect(initial.collapsedWorkspaces.size).toBe(0)
     expect(initial.collapsedProjects.size).toBe(0)
     expect(initial.collapsedChatRows.size).toBe(0)
   })
@@ -69,42 +65,23 @@ describe('collapsedProjects', () => {
     expect(useSidebarStore.getState().collapsedProjects).not.toBe(before)
   })
 
-  it('persists collapsed projects alongside every other collapse set', () => {
+  it('persists collapsed projects alongside the other collapse set', () => {
     useSidebarStore.getState().toggleProject('p2')
     expect(saveSidebarUI).toHaveBeenCalledWith({
-      collapsedRepos: [],
-      collapsedWorkspaces: [],
       collapsedProjects: ['p2'],
       collapsedChatRows: [],
     })
   })
 
   // The record is written whole by ONE writer, so no toggle can persist its own
-  // list over a record whose other three it forgot to carry.
-  it('every toggle carries the other three sets through', () => {
+  // list over a record whose other one it forgot to carry. The retired
+  // collapsedRepos/collapsedWorkspaces keys are never written again.
+  it('every toggle carries the other set through', () => {
     useSidebarStore.getState().toggleProject('p2')
     saveSidebarUI.mockClear()
 
-    useSidebarStore.getState().toggleRepo('r1')
-    expect(saveSidebarUI).toHaveBeenLastCalledWith({
-      collapsedRepos: ['r1'],
-      collapsedWorkspaces: [],
-      collapsedProjects: ['p2'],
-      collapsedChatRows: [],
-    })
-
-    useSidebarStore.getState().toggleWorkspace('w1')
-    expect(saveSidebarUI).toHaveBeenLastCalledWith({
-      collapsedRepos: ['r1'],
-      collapsedWorkspaces: ['w1'],
-      collapsedProjects: ['p2'],
-      collapsedChatRows: [],
-    })
-
     useSidebarStore.getState().toggleChatRow('f1')
     expect(saveSidebarUI).toHaveBeenLastCalledWith({
-      collapsedRepos: ['r1'],
-      collapsedWorkspaces: ['w1'],
       collapsedProjects: ['p2'],
       collapsedChatRows: ['f1'],
     })
@@ -157,8 +134,6 @@ describe('collapsedChatRows', () => {
   it('persists the fold', () => {
     useSidebarStore.getState().toggleChatRow('f1')
     expect(saveSidebarUI).toHaveBeenLastCalledWith({
-      collapsedRepos: [],
-      collapsedWorkspaces: [],
       collapsedProjects: [],
       collapsedChatRows: ['f1'],
     })
