@@ -51,6 +51,11 @@ test('setRepos records a scope for every workspace, including the default', () =
   })
 })
 
+test("setRepos records the default workspace's owning chat off the repo, not only a tree row's", () => {
+  useSidebarStore.getState().setRepos([{ ...REPOS[0], defaultOwningChatId: 'chat-home' }])
+  expect(getWorkspaceScope('ws-home')?.owningChatId).toBe('chat-home')
+})
+
 test('recording scopes from sidebar data does not steal the active workspace', () => {
   setWorkspaceScope({ projectId: 'proj-1', repoId: 'repo-1', wsId: 'ws-active' })
   useSidebarStore.getState().setRepos(REPOS)

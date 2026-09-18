@@ -48,6 +48,21 @@ describe('rowsFromHome', () => {
     expect(rows.map((r) => r.id)).toEqual(['c-1'])
   })
 
+  // REGRESSION: a legacy home whose GET /home elected the user's earliest
+  // conversation as its owner hid that conversation from the tree. The wire
+  // row's own marker is authoritative: a named chat that says it does NOT own
+  // the worktree is drawn, and only a marked owner (or none) is kept off.
+  it('draws a chat the resolver named but the list marks as not owning the worktree', () => {
+    const conversation = makeTestChat({
+      id: 'c-plan',
+      title: 'plan the release',
+      workspaceId: HOME_WS_ID,
+      ownsWorktree: false,
+    })
+    const rows = rowsFromHome(HOME_WS_ID, [conversation, homeOwningChat()], [], 'c-plan')
+    expect(rows.map((r) => r.id)).toEqual(['c-plan'])
+  })
+
   // Task 9: the owning chat is minted chat-first, atomically, at creation —
   // there is no boot backfill left to race, so a caller catching this window
   // (its own creation landed, its chat/folder tree's first seed has not)

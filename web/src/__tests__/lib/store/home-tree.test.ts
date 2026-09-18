@@ -27,6 +27,7 @@ vi.mock('@/lib/api', () => ({
   fetchHomeChats: (projectId: string) => fetchHomeChatsSpy(projectId) as unknown,
   fetchHomeFolders: (projectId: string) => fetchHomeFoldersSpy(projectId) as unknown,
   fetchRepos: (projectId: string) => fetchReposSpy(projectId) as unknown,
+  fetchHomeWorkspace: vi.fn().mockResolvedValue({ id: 'ws-home', owningChatId: 'c-home' }),
   assetURL: (path: string) => path,
 }))
 

@@ -69,6 +69,9 @@ const onPaneDrop = vi.fn()
 // which every rendered row here depends on).
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getAllActiveWorkspaceIds: () => [],
+  // Nothing is mounted here: a Recents member row falls back to the sidebar's
+  // own chat record (`useRecentsChat`).
+  getWorkspaceStore: () => undefined,
   getOrCreateWorkspaceStore: () => ({
     getState: () => ({
       panes: {},

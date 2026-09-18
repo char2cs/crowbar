@@ -34,11 +34,15 @@ export function chatBase(chatId: string): string {
  * that already hold a chat id (an agent chat pane) should use chatBase directly
  * — this is the bridge for callers that only hold a workspace id.
  *
- * Throws when no owning chat is recorded, matching workspaceBase's
+ * The project HOME keeps its own `/home/terminals` mount (the same exception
+ * `filesBaseForWorkspace` makes, for the same reason): a home shell must never
+ * depend on the home's owner chat having resolved. Every worktree-backed
+ * workspace throws when no owning chat is recorded, matching workspaceBase's
  * fail-loudly-rather-than-404 contract; there is no workspace-scoped terminal
  * route left to fall back to.
  */
 export function terminalsBaseForWorkspace(wsId: string): string {
+  if (isHomeWorkspace(wsId)) return `${workspaceBase(wsId)}/terminals`
   const chatId = getOwningChatId(wsId)
   if (!chatId) throw new OwningChatNotRecordedError(wsId)
   return `${chatBase(chatId)}/terminals`

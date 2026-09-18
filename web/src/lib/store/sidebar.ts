@@ -31,6 +31,8 @@ export interface Folder {
   parentId?: string
   name: string
   order: number
+  /** ISO creation time — the daemon's `order` tiebreak (see `compareByPlacement`). */
+  createdAt?: string
 }
 
 /**
@@ -77,6 +79,8 @@ export interface Chat {
   title: string
   /** Sibling sort key, SHARED with folders and workspaces at the same level. */
   order: number
+  /** ISO creation time — the daemon's `order` tiebreak (see `compareByPlacement`). */
+  createdAt?: string
 }
 
 /** Stable empty chat list — same rule as EMPTY_FOLDERS above. */
@@ -92,6 +96,8 @@ export interface Workspace {
   /** Sibling sort key within its level. Backend-supplied and dense; older frames
    *  omit it, in which case consumers fall back to arrival order. */
   order?: number
+  /** ISO creation time — the daemon's `order` tiebreak (see `compareByPlacement`). */
+  createdAt?: string
   status?: WorkspaceStatus
   added?: number
   deleted?: number

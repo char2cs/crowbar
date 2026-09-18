@@ -17,7 +17,9 @@ import {
 } from '@/components/sidebar/lib/branch-row-id'
 import { watchReparent } from '@/components/sidebar/lib/reparent-settle'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import { dataOf } from '@/lib/loadable'
+import { applyChatPlacement, applyFolderPlacements } from '@/lib/store/applied-placement'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { applyPendingRemovals, descendantHiddenIds } from '@/components/layout/removal-plan'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
@@ -31,11 +33,13 @@ import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
 import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
 import { resolveHomeOwnerId, rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
-import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { homeOwnerRowId, rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
 import {
   refreshRepoPlacements,
   useHomeTreeStore,
+  applyHomeChatPlacement,
   applyHomeFolders,
   resolveHomeRowScope,
 } from '@/lib/store/home-tree'
@@ -143,9 +147,6 @@ function renderedProjectRows(repos: readonly Repo[], projectId: string): Sidebar
   ]
 }
 
-// Mirrors `sidebar-tree.tsx`'s `byOrder`: stable, so ties keep arrival order.
-const byOrder = (a: SidebarRow, b: SidebarRow) => a.order - b.order
-
 /** `containerId`'s members in the order `SidebarTree` draws them, minus the lifted rows. */
 function renderedSiblings(
   rows: readonly SidebarRow[],
@@ -154,15 +155,22 @@ function renderedSiblings(
 ): string[] {
   return rows
     .filter((r) => (r.parentId ?? '') === containerId && !lifted.has(r.id))
-    .sort(byOrder)
+    .sort(compareSidebarRows)
     .map((r) => r.id)
 }
 
-/** The project whose panel draws `wsId`'s rows — a repo workspace, or a project's home. */
+/** The project whose panel draws `wsId`'s rows — a repo workspace, or a project's home.
+ *  Home is asked of the resolver (the source a Recents row's workspace is
+ *  stamped from), across every project known, not only those with a tree loaded. */
 function projectOfWorkspace(repos: readonly Repo[], wsId: string): string | null {
   const scope = resolveRowRepo(repos, wsId)
   if (scope?.projectId) return scope.projectId
-  for (const projectId of Object.keys(useHomeTreeStore.getState().trees)) {
+  const projectIds = new Set<string>([
+    ...(dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS).map((p) => p.id),
+    ...Object.keys(useHomeTreeStore.getState().trees),
+    ...repos.flatMap((r) => (r.projectId ? [r.projectId] : [])),
+  ])
+  for (const projectId of projectIds) {
     if (getHomeWorkspaceId(projectId) === wsId) return projectId
   }
   return null
@@ -408,10 +416,10 @@ function planHomeFolderDrop(
 ): RowPlacementCall[] {
   const tree = useHomeTreeStore.getState().trees[projectId]
   if (!tree) return []
-  const homeRowId = resolveHomeOwnerId(
+  const homeRowId = homeOwnerRowId(
     homeWorkspaceId,
-    getHomeOwningChatId(projectId) ?? undefined,
     tree.chats,
+    getHomeOwningChatId(projectId) ?? undefined,
   )
   const roots = buildSidebarTree(
     [],
@@ -571,18 +579,13 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
     case 'folder': {
       // Applied directly, same as row-actions.ts's folder writes: there is no
       // dedicated push channel for folders any more (Task 34), so this
-      // response is the only confirmation the drop gets. `bump` also writes
-      // the `crowbar_folders` cache every tree rebuild reads from — without
-      // it the move survives only until the next unrelated rebuild reverts
-      // it (see row-actions.ts's performRenameFolder for the full story).
+      // response is the only confirmation the drop gets — written through to
+      // the cache every rebuild reads before the store (applied-placement.ts).
       const { folder, shifted } = await placeFolder(call.projectId, call.repoId, call.folderId, {
         parentId: call.parentId,
         order: call.order,
       })
-      const apply = useSidebarStore.getState().applyFolderDTO
-      apply(folder)
-      shifted.forEach(apply)
-      useFolderSignalStore.getState().bump(call.repoId)
+      await applyFolderPlacements(call.repoId, [folder, ...shifted])
       return
     }
     case 'homeFolder': {
@@ -610,30 +613,19 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       // catch it up. Applied directly now, the same "already the daemon's
       // own committed state, arriving over the request instead of a
       // stream" reasoning `performRenameFolder` documents for its own case.
-      const { chat } = await setChatPlacement(call.workspaceId, call.chatId, {
+      const { chat, shifted } = await setChatPlacement(call.workspaceId, call.chatId, {
         parentId: call.parentId,
         order: call.order,
       })
-      let movedRepoId: string | null = null
-      useSidebarStore.setState((s) => {
-        const repos = s.repos.map((repo) => {
-          if (!repo.chats?.some((c) => c.id === chat.id)) return repo
-          movedRepoId = repo.id
-          return {
-            ...repo,
-            chats: repo.chats.map((c) =>
-              c.id === chat.id ? { ...c, parentId: chat.parentId, order: chat.order } : c,
-            ),
-          }
-        })
-        return { repos }
-      })
-      // `folder-signal.ts`'s own doc: "ONE signal for folders and chats, not
-      // two... the meaning is the repo's tree" — the same bump the folder
-      // case above uses, so the next unrelated reseed (any repo's
-      // `defaultWorking` flipping, say) reads this move back rather than
-      // silently reverting it the way an un-bumped direct-apply would.
-      if (movedRepoId) useFolderSignalStore.getState().bump(movedRepoId)
+      // A home chat lives in `useHomeTreeStore`, never in a repo: its own
+      // response is applied there (the reseed its frame triggers is the
+      // backstop); every other chat writes through the entity cache first.
+      const home = resolveHomeRowScope(chat.id)
+      if (home) {
+        applyHomeChatPlacement(home.projectId, chat, shifted)
+        return
+      }
+      await applyChatPlacement(chat, shifted)
       return
     }
     case 'repoHome':

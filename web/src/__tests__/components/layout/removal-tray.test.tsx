@@ -90,7 +90,6 @@ import { deleteFolder } from '@/lib/api/sidebar-placement'
 import { idle, success } from '@/lib/loadable'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
 import { useProjectDataStore } from '@/lib/store/projects'
-import { useHomeWorkspaceStore } from '@/lib/store/home-workspace'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { getInitialRemovalState, useRemovalTrayStore } from '@/lib/store/sidebar-removal'
@@ -204,7 +203,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   router.pathname = '/'
   useWorkspaceListStore.setState({ data: idle() })
-  useHomeWorkspaceStore.setState({ workspace: null })
   useProjectDataStore.setState({ data: success([project]) })
   useRemovalTrayStore.setState(getInitialRemovalState())
   useSidebarStore.setState({

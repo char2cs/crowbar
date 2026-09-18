@@ -105,6 +105,8 @@ import {
   placeRepo,
 } from '@/lib/api/sidebar-placement'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { useProjectDataStore } from '@/lib/store/projects'
+import { idle, success } from '@/lib/loadable'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
@@ -255,6 +257,7 @@ beforeEach(() => {
   useSidebarStore.setState({ ...getInitialState(), repos: [makeRepo()] })
   useRemovalTrayStore.setState(getInitialRemovalState())
   useHomeTreeStore.setState({ trees: {} })
+  useProjectDataStore.setState({ data: idle() })
   setActiveWorkspaceId('ws-1')
   // Default: the reparent POST's background job "succeeds" and its
   // confirming WS frame lands essentially at once — most tests below care
@@ -430,9 +433,11 @@ describe('performSidebarDrop — folder edge for a workspace container that owns
       ],
     })
 
+    // The tree draws ws-a by its owner's id (rows-from-repo.ts folds on the
+    // DTO's `owningChatId` alone), so its children's rows carry that parent.
     await performSidebarDrop(
       [branchRow('ws-fork')],
-      branchRow('ws-e', { parentId: 'ws-a' }),
+      branchRow('ws-e', { parentId: 'chat-a' }),
       'before',
     )
 
@@ -2047,6 +2052,39 @@ describe('performSidebarDrop — targetInRecents', () => {
           folders: [],
         },
       },
+    })
+    getOrCreateWorkspaceStore('ws-x')
+      .getState()
+      .seedAgentChats([chat('chat-a', 'ws-x')])
+    getOrCreateWorkspaceStore('home-ws-2')
+      .getState()
+      .seedAgentChats([chat('home-chat', 'home-ws-2')])
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+    const homePane = windowPaneStore.getState().paneActions.addPane()!
+    windowPaneStore.getState().paneActions.setPaneChat(homePane, 'home-chat', 'runner-2')
+
+    await performSidebarDrop(
+      [chatRow('chat-a', 'ws-x')],
+      chatRow('home-chat', 'home-ws-2'),
+      'after',
+      true,
+    )
+
+    expect(setChatPlacement).not.toHaveBeenCalled()
+    expect(windowPaneStore.getState().recentsOrder).toEqual([homePane, ROOT_PANE_ID])
+  })
+
+  // REGRESSION: a home chat's Recents entry is stamped from the resolver
+  // (`workspaceIdsForProject`), not the home tree — its project has to
+  // resolve the same way, or a drop beside it is a silent no-op whenever the
+  // tree store has no entry for that project yet.
+  it('reorders beside a HOME chat entry whose project has no home tree loaded', async () => {
+    getHomeWorkspaceId.mockImplementation((projectId: string) =>
+      projectId === 'proj-2' ? 'home-ws-2' : null,
+    )
+    useHomeTreeStore.setState({ trees: {} })
+    useProjectDataStore.setState({
+      data: success([{ id: 'proj-2', name: 'p2', path: '', lastActivity: new Date() }]),
     })
     getOrCreateWorkspaceStore('ws-x')
       .getState()

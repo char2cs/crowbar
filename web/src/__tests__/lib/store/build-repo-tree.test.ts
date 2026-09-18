@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRepoTree,
+  sortByPlacement,
   toSidebarChat,
   toSidebarRepo,
   toSidebarWorkspace,
@@ -339,5 +340,37 @@ describe('toSidebarChat carries the row’s type', () => {
       order: 0,
     })
     expect(chat.type).toBeUndefined()
+  })
+})
+
+describe('a tied level sorts the way the daemon sorts it', () => {
+  it('breaks an order tie by createdAt, then id — never by arrival', () => {
+    const level = [
+      { id: 'b', order: 0, createdAt: '2026-01-03T00:00:00Z' },
+      { id: 'z', order: 0, createdAt: '2026-01-01T00:00:00Z' },
+      { id: 'c', order: 1, createdAt: '2026-01-01T00:00:00Z' },
+      { id: 'a', order: 0, createdAt: '2026-01-03T00:00:00Z' },
+      { id: 'y', order: 0 },
+    ]
+    expect(sortByPlacement(level).map((row) => row.id)).toEqual(['y', 'z', 'a', 'b', 'c'])
+    expect(sortByPlacement(level.slice().reverse()).map((row) => row.id)).toEqual([
+      'y',
+      'z',
+      'a',
+      'b',
+      'c',
+    ])
+  })
+
+  it('applies to a repo’s workspaces as they are grouped from the cache', () => {
+    const tree = buildRepoTree(
+      [repo('r1', 'alpha')],
+      [
+        ws('w-a', 'r1', { createdAt: '2026-01-03T00:00:00Z' }),
+        ws('w-m', 'r1', { createdAt: '2026-01-02T00:00:00Z' }),
+        ws('w-z', 'r1', { createdAt: '2026-01-01T00:00:00Z' }),
+      ],
+    )
+    expect(tree[0].workspaces.map((w) => w.id)).toEqual(['w-z', 'w-m', 'w-a'])
   })
 })

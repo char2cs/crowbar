@@ -7,6 +7,9 @@ export interface SidebarRow {
   kind: SidebarRowKind
   parentId: string | null
   order: number
+  /** ISO creation time — the daemon's `order` tiebreak, so a tied level is
+   *  drawn in the sequence a drop index is counted (`compareSidebarRows`). */
+  createdAt?: string
   label: string
   labelProvisional?: boolean
   ownsWorktree: boolean

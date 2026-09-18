@@ -1,6 +1,11 @@
 import { dataOf } from '@/lib/loadable'
 import { getAllEntities } from '@/lib/persistence/entity-cache'
-import { buildRepoTree, toSidebarChat, toSidebarFolder } from '@/lib/store/build-repo-tree'
+import {
+  buildRepoTree,
+  sortByPlacement,
+  toSidebarChat,
+  toSidebarFolder,
+} from '@/lib/store/build-repo-tree'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import { EMPTY_PROJECTS, useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
@@ -103,14 +108,17 @@ export async function readVisibleRepoTree(): Promise<Repo[]> {
   // twice, once correctly under its project's home and once falsely as a
   // sibling of a repo's own branches, the same leniency bug `handleTrash`
   // already guards against for deletion.
+  //
+  // Sorted BEFORE conversion, while the rows still carry `createdAt`: the tree
+  // breaks an `order` tie by arrival, and the cache's own arrival is key order.
   const repoFolders: ReturnType<typeof toSidebarFolder>[] = []
-  for (const folder of folders) {
+  for (const folder of sortByPlacement(folders)) {
     if (!resolveHomeRowScope(folder.id)) repoFolders.push(toSidebarFolder(folder))
   }
   return buildRepoTree(
     repos.filter((repo) => visible.has(repo.projectId)),
     workspaces,
     repoFolders,
-    chats.map(toSidebarChat),
+    sortByPlacement(chats).map(toSidebarChat),
   )
 }

@@ -87,6 +87,15 @@ describe('terminalsBaseForWorkspace', () => {
     expect(() => terminalsBaseForWorkspace('ws-2')).toThrow(/no owning chat/)
   })
 
+  // REGRESSION: a home shell used to need the home's owner chat resolved; a
+  // legacy home that had none (or lost it) could never open a terminal. The
+  // daemon serves /home/terminals project-scoped, exactly like /home/files.
+  it('keeps the project home on its own /home/terminals mount, owner or not', () => {
+    recordWorkspaceScope({ projectId: 'p1', repoId: '', wsId: 'home-ws' })
+
+    expect(terminalsBaseForWorkspace('home-ws')).toBe('/v0/projects/p1/home/terminals')
+  })
+
   it('leaves the hierarchical workspaceBase alone for the routes that still nest', () => {
     // The editor/LSP routes have not moved yet, and the home group never will
     // (it is deleted, not re-keyed) — this proves the chat-scoped cutovers did

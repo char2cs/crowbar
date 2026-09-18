@@ -1,16 +1,15 @@
 import { create } from 'zustand'
 import { wsManager } from '@/lib/ws/manager'
 import { fetchHomeChats, fetchHomeFolders, fetchRepos } from '@/lib/api'
-import { toSidebarChat, toSidebarFolder, toSidebarRepo } from '@/lib/store/build-repo-tree'
-import {
-  EMPTY_CHATS,
-  EMPTY_FOLDERS,
-  useSidebarStore,
-  type Chat,
-  type Folder,
-} from '@/lib/store/sidebar'
+import { toSidebarChat, toSidebarFolder } from '@/lib/store/build-repo-tree'
+import { applyRepoPlacements, type RowPlacement } from '@/lib/store/applied-placement'
+import { EMPTY_CHATS, EMPTY_FOLDERS, type Chat, type Folder } from '@/lib/store/sidebar'
 import { NON_STRUCTURAL_CHAT_KINDS } from '@/features/workspace/stores/hooks/use-workspace-agent-chats-stream'
-import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
+import {
+  ensureHomeWorkspaceResolved,
+  getHomeOwningChatId,
+  getHomeWorkspaceId,
+} from '@/features/workspace/lib/home-workspace-resolver'
 
 /**
  * A project's home-workspace chat rows and folders — the same two aggregates
@@ -116,16 +115,40 @@ export function removeHomeFolder(projectId: string, folderId: string): void {
 }
 
 /**
+ * Direct-apply a home chat placement — the moved chat plus every sibling the
+ * daemon's dense renumber shifted (chats and folders alike; the response
+ * names them by id only, so each is matched against whichever half of the
+ * tree holds it). The reseed the same PATCH's frame triggers is the
+ * backstop, not the primary path — same reasoning as `applyHomeFolders`.
+ */
+export function applyHomeChatPlacement(
+  projectId: string,
+  chat: RowPlacement,
+  shifted: readonly RowPlacement[] = [],
+): void {
+  const store = useHomeTreeStore.getState()
+  const current = store.trees[projectId] ?? EMPTY_HOME_TREE
+  const placements = new Map([chat, ...shifted].map((row) => [row.id, row]))
+  const place = <T extends { id: string; parentId?: string; order: number }>(row: T): T => {
+    const placement = placements.get(row.id)
+    return placement
+      ? { ...row, parentId: placement.parentId || undefined, order: placement.order }
+      : row
+  }
+  store.setTree(projectId, {
+    chats: current.chats.map(place),
+    folders: current.folders.map(place),
+  })
+}
+
+/**
  * Keep `projectId`'s home tree seeded: a GET on open, then a reseed on every
  * STRUCTURAL frame the home chat lifecycle feed carries — mirroring
  * `app-sync-provider.tsx`'s `openRepoTreeSubscription`, and for the identical
  * reason: the daemon's folders resource has no push channel of its own
  * (Task 34's plan closed it), and a chat's only live-update path is this
- * same id-only lifecycle feed, already mounted per project for the
- * working-spinner (`home-workspace.ts`'s `subscribeHomeWorkspace`, which
- * listens on the SAME endpoint for a disjoint kind set — `wsManager`
- * multiplexes multiple subscribers onto one socket, so this opens no second
- * connection).
+ * same id-only lifecycle feed (`wsManager` multiplexes every subscriber onto
+ * one socket, so this opens no second connection).
  *
  * Unlike a repo's tree, this is not gated behind "some workspace of this
  * repo is mounted": home rides no repo, so there is no cheaper signal to
@@ -153,8 +176,7 @@ const PLACEMENT_KINDS: ReadonlySet<string> = new Set([
  */
 export async function refreshRepoPlacements(projectId: string): Promise<void> {
   try {
-    const repos = await fetchRepos(projectId)
-    useSidebarStore.getState().mergeRepos(repos.map((dto) => toSidebarRepo(dto, [])))
+    await applyRepoPlacements(await fetchRepos(projectId))
   } catch (err) {
     console.error(`home-tree: repo placement re-read failed for project ${projectId}`, err)
   }
@@ -163,23 +185,31 @@ export async function refreshRepoPlacements(projectId: string): Promise<void> {
 export function subscribeHomeTree(projectId: string): () => void {
   let disposed = false
   let latestRead = 0
+  // Last-known halves: the two reads settle independently, so one failed GET
+  // keeps whatever the other (or an earlier reseed) already landed.
+  let chats: Chat[] | undefined
+  let folders: Folder[] | undefined
 
   async function reseed(): Promise<void> {
     const seq = ++latestRead
-    try {
-      const [chats, folders] = await Promise.all([
-        fetchHomeChats(projectId),
-        fetchHomeFolders(projectId),
-      ])
-      if (disposed || seq !== latestRead) return
-      useHomeTreeStore.getState().setTree(projectId, {
-        chats: chats.map(toSidebarChat),
-        folders: folders.map(toSidebarFolder),
-      })
-    } catch (err) {
-      // A transient failure leaves the last known tree in place; the next
-      // structural frame (or reconnect reseed) retries.
-      console.error(`home-tree: reseed failed for project ${projectId}`, err)
+    const [chatsRead, foldersRead] = await Promise.allSettled([
+      fetchHomeChats(projectId),
+      fetchHomeFolders(projectId),
+    ])
+    if (disposed || seq !== latestRead) return
+    if (chatsRead.status === 'fulfilled') chats = chatsRead.value.map(toSidebarChat)
+    else console.error(`home-tree: chats reseed failed for project ${projectId}`, chatsRead.reason)
+    if (foldersRead.status === 'fulfilled') folders = foldersRead.value.map(toSidebarFolder)
+    else {
+      console.error(`home-tree: folders reseed failed for project ${projectId}`, foldersRead.reason)
+    }
+    if (chats === undefined && folders === undefined) return
+    useHomeTreeStore.getState().setTree(projectId, { chats: chats ?? [], folders: folders ?? [] })
+    // A daemon that answered the tree but refused GET /home earlier (a 503
+    // with the socket up), or answered it without an owner, heals on the
+    // same structural frame.
+    if (getHomeWorkspaceId(projectId) === null || getHomeOwningChatId(projectId) === null) {
+      ensureHomeWorkspaceResolved(projectId)
     }
   }
 
@@ -187,8 +217,11 @@ export function subscribeHomeTree(projectId: string): () => void {
   const unsubscribe = wsManager.subscribe(`/v0/projects/${projectId}/home/chats/ws`, (frame) => {
     if (disposed) return
     // The reconnect sentinel: structural frames may have been missed while
-    // the socket was down, so reseed unconditionally.
+    // the socket was down, so reseed unconditionally. This subscription is
+    // held for every VISIBLE project, so it is also where a resolver that
+    // lost its first GET /home heals (a no-op once resolved).
     if (frame && typeof frame === 'object' && 'reconnected' in frame) {
+      ensureHomeWorkspaceResolved(projectId)
       void reseed()
       return
     }

@@ -54,20 +54,24 @@ function subscribe(listener: () => void): () => void {
  * while already in flight. A FAILED resolve is not terminal: the error state
  * stays visible until the next call re-fetches, so one lost GET at cold start
  * (daemon still replaying, sidecar respawn) cannot blank a project's home for
- * the whole session.
+ * the whole session. A resolve that latched NO owning chat is not terminal
+ * either: the daemon mints one on GET /home, so the next call re-reads.
  */
 export function ensureHomeWorkspaceResolved(projectId: string): void {
-  if (states.get(projectId)?.wsId || inflight.has(projectId)) return
+  const current = states.get(projectId)
+  if ((current?.wsId && current.owningChatId) || inflight.has(projectId)) return
   inflight.add(projectId)
   fetchHomeWorkspace(projectId)
     .then((ws) => {
       states.set(projectId, {
         wsId: ws.id,
-        owningChatId: ws.owningChatId ?? null,
+        owningChatId: ws.owningChatId || null,
         error: false,
       })
     })
     .catch(() => {
+      // A re-read for the owner keeps the workspace it already knows.
+      if (states.get(projectId)?.wsId) return
       states.set(projectId, { wsId: null, owningChatId: null, error: true })
     })
     .finally(() => {

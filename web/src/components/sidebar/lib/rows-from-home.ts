@@ -48,6 +48,24 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
  * its own real `order`/`parentId` into the same flat row list this returns,
  * the same way a chat or folder row already does.
  */
+/**
+ * The one home chat kept OFF the tree: the home worktree's owner. Unlike a
+ * repo's header, this id never becomes a row, so it can afford to be
+ * stricter than `resolveHomeOwnerId`: a chat GET /home names that the list
+ * itself marks as NOT owning the worktree is a conversation (a legacy
+ * election, a stale resolver read), and hiding it would lose the user's
+ * chat — it is drawn, and the list's own marker (or nothing) decides.
+ */
+export function homeOwnerRowId(
+  homeWorkspaceId: string,
+  chats: readonly Chat[],
+  owningChatId?: string,
+): string {
+  const named = owningChatId ? chats.find((c) => c.id === owningChatId) : undefined
+  if (named?.ownsWorktree === false) return resolveHomeOwnerId(homeWorkspaceId, undefined, chats)
+  return resolveHomeOwnerId(homeWorkspaceId, owningChatId, chats)
+}
+
 export function rowsFromHome(
   homeWorkspaceId: string,
   chats: Chat[] = EMPTY_CHATS,
@@ -61,8 +79,8 @@ export function rowsFromHome(
 
   // `owningChatId` is what GET /home named (home-workspace-resolver.ts);
   // the chat list's own marker is the fallback, exactly as a repo's header
-  // reads `repo.defaultOwningChatId` first.
-  const homeRowId = resolveHomeOwnerId(homeWorkspaceId, owningChatId, chats)
+  // reads `repo.defaultOwningChatId` first — see `homeOwnerRowId`.
+  const homeRowId = homeOwnerRowId(homeWorkspaceId, chats, owningChatId)
 
   const roots = buildSidebarTree(
     [],

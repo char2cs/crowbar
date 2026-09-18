@@ -4,7 +4,6 @@ import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
-import { subscribeHomeWorkspace } from '@/lib/store/home-workspace'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
 import { dataOf } from '@/lib/loadable'
 import {
@@ -63,12 +62,10 @@ const REBUILD_BATCH_MS = 16
 const MAX_SUPERSEDED_RETRIES = 2
 
 const KEY_SEP = '|'
-/** The project-home workspace tracker for the ACTIVE project (see below). */
-const homeKey = (projectId: string): string => `home${KEY_SEP}${projectId}`
 /** One project's home-workspace tree rows (chats + folders) — open for every
- *  VISIBLE project, unlike `homeKey` above: a project's home row has to
- *  render exactly as reliably as its repos do, and repos are not restricted
- *  to the active project either. See `home-tree.ts`'s own doc. */
+ *  VISIBLE project: a project's home row has to render exactly as reliably
+ *  as its repos do, and repos are not restricted to the active project
+ *  either. See `home-tree.ts`'s own doc. */
 const homeTreeKey = (projectId: string): string => `hometree${KEY_SEP}${projectId}`
 /** A project's repo list stream. */
 const reposKey = (projectId: string): string => `repos${KEY_SEP}${projectId}`
@@ -310,7 +307,11 @@ export function useAppSyncEngine(): void {
     // side and serves only this repo's.
     function openRepoTreeSubscription(projectId: string, repoId: string): () => void {
       let closed = false
-      let generation = 0
+      /** The reseed in flight, if any — a signal arriving mid-read coalesces
+       *  into it (and queues one more) instead of superseding it: discarding
+       *  the first GET's result only widened the stale window by a round trip. */
+      let inFlight: Promise<void> | null = null
+      let rerun = false
 
       /**
        * Replace THIS repo's rows in one entity store, leaving every other
@@ -318,8 +319,8 @@ export function useAppSyncEngine(): void {
        * because these stores are deliberately cross-repo and pruning wholesale
        * would wipe the siblings on each reseed.
        *
-       * `live` is re-checked after every await: a reseed superseded mid-flight
-       * must not finish writing a snapshot the newer one has already replaced.
+       * `live` is re-checked after every await: a reseed closed mid-flight
+       * must not finish writing a snapshot nobody holds any more.
        */
       async function replaceRepoScope<T extends { id: string; repoId: string }>(
         store: 'crowbar_folders' | 'crowbar_chats',
@@ -360,9 +361,8 @@ export function useAppSyncEngine(): void {
         }
       }
 
-      async function reseed(): Promise<void> {
-        const gen = ++generation
-        const live = () => !disposed && !closed && gen === generation
+      async function readTree(): Promise<void> {
+        const live = () => !disposed && !closed
         const wrote = await Promise.all([
           reseedHalf('folders', 'crowbar_folders', () => fetchFolders(projectId, repoId), live),
           reseedHalf('chats', 'crowbar_chats', () => fetchRepoChats(projectId, repoId), live),
@@ -380,7 +380,21 @@ export function useAppSyncEngine(): void {
         if (wrote.some(Boolean) && live()) scheduleRebuild()
       }
 
-      void reseed()
+      function reseed(): void {
+        if (inFlight) {
+          rerun = true
+          return
+        }
+        inFlight = readTree().finally(() => {
+          inFlight = null
+          if (rerun && !disposed && !closed) {
+            rerun = false
+            reseed()
+          }
+        })
+      }
+
+      reseed()
       const unsubscribeSignal = useFolderSignalStore.subscribe(
         // Keyed by THIS repo's own generation — the cross-repo guard on the
         // read side, matching the bump side's own workspace-scoped repo id: a
@@ -388,7 +402,7 @@ export function useAppSyncEngine(): void {
         // subscriber is never woken and B never refetches.
         (state) => state.generations[repoId] ?? 0,
         () => {
-          if (!disposed && !closed) void reseed()
+          if (!disposed && !closed) reseed()
         },
       )
 
@@ -413,10 +427,10 @@ export function useAppSyncEngine(): void {
         (frame) => {
           if (disposed || closed) return
           if (frame && typeof frame === 'object' && 'reconnected' in frame) {
-            void reseed()
+            reseed()
             return
           }
-          if (isStructuralChatFolderFrame(frame)) void reseed()
+          if (isStructuralChatFolderFrame(frame)) reseed()
         },
       )
 
@@ -427,11 +441,29 @@ export function useAppSyncEngine(): void {
       }
     }
 
+    /**
+     * GET .../workspaces mints a workspace's owning chat on first read, and
+     * its created frame can land before this repo's chat socket is open — so
+     * the chat list may not hold an owner the workspace rows already name.
+     * A missing owner is a real signal to re-read the tree, not a timer.
+     */
+    async function reseedChatsForUnlistedOwners(
+      repoId: string,
+      rows: readonly WorkspaceDTO[],
+    ): Promise<void> {
+      const owners = rows.map((ws) => ws.owningChatId).filter((id): id is string => !!id)
+      if (owners.length === 0) return
+      const cached = await getAllEntities<{ id: string; repoId: string }>('crowbar_chats')
+      if (disposed) return
+      const listed = new Set<string>()
+      for (const c of cached) if (c.repoId === repoId) listed.add(c.id)
+      if (owners.some((id) => !listed.has(id))) useFolderSignalStore.getState().bump(repoId)
+    }
+
     // -- keyed subscription registry ---------------------------------------
 
     function openSubscription(key: string): () => void {
       const [kind, projectId, repoId] = key.split(KEY_SEP)
-      if (kind === 'home') return subscribeHomeWorkspace(projectId)
       if (kind === 'repos') {
         return subscribeEntityStream<RepoDTO>({
           endpoint: `/v0/projects/${projectId}/repos`,
@@ -471,6 +503,7 @@ export function useAppSyncEngine(): void {
           // neverSeededWorkspaces bypass must keep applying for every
           // attempt until one actually lands.
           useFolderSignalStore.getState().markWorkspacesSeeded(repoId)
+          await reseedChatsForUnlistedOwners(repoId, rows)
           return rows
         },
         mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repoId),
@@ -521,14 +554,6 @@ export function useAppSyncEngine(): void {
         keys.add(homeTreeKey(projectId))
       }
 
-      // The project-home workspace rides no repo, so the per-repo workspace
-      // streams can never carry it (see home-workspace.ts). It is tracked
-      // separately, and only for the ACTIVE project: useHomeWorkspaceStore has
-      // a single slot, so subscribing several projects' home workspaces would
-      // have them overwrite each other.
-      const activeProjectId = useProjectStore.getState().activeProjectId
-      if (activeProjectId) keys.add(homeKey(activeProjectId))
-
       // Every visible repo draws its whole tree (the restyled sidebar folds
       // rows via collapsedChatRows, which hides nothing the streams feed), so
       // each one keeps both its workspaces and its folders+chats streams open.
@@ -557,13 +582,8 @@ export function useAppSyncEngine(): void {
       const isOpening = [...desired].some((key) => !lastDesired.has(key))
       lastDesired = desired
 
-      // Close first, open second. The home tracker clears the shared
-      // single-slot store on teardown, so closing the outgoing project's after
-      // opening the incoming one would wipe the value we just fetched.
       for (const key of [...subscriptions.keys()]) {
-        if (desired.has(key)) continue
-        if (key.startsWith(`home${KEY_SEP}`)) closeNow(key)
-        else scheduleClose(key)
+        if (!desired.has(key)) scheduleClose(key)
       }
       for (const key of desired) ensureOpen(key)
       // Closing a section must be a render-only operation. Its cached rows are

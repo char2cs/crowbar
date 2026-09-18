@@ -238,6 +238,8 @@ export interface ChatsFolderWireDTO {
   parentId: string
   title: string
   order: number
+  /** ISO creation time — the daemon's `order` tiebreak (tree.compareNodes). */
+  createdAt?: string
 }
 
 /** `ChatsFolderWireDTO` -> the sidebar's own `FolderDTO`, filling in the
@@ -256,6 +258,7 @@ export function folderDTOFromWire(
     parentId: row.parentId,
     name: row.title,
     order: row.order,
+    createdAt: row.createdAt,
   }
 }
 
@@ -302,6 +305,9 @@ export interface RepoChatWireDTO {
   parentId: string
   title: string
   order: number
+  /** ISO creation time — the daemon's `order` tiebreak (tree.compareNodes),
+   *  so a level nobody has dragged draws in the sequence a drop is counted. */
+  createdAt?: string
   /** The row's own kind. Always sent by the daemon (dto.AgentChatDTO.Type is
    *  never omitted — "" is not a real ChatType), so an absent value here only
    *  ever means a frame older than the field. */
@@ -352,6 +358,7 @@ function workspaceDTOFromWorktree(
     owningChatId: worktree.owningChatId,
     folderId: worktree.folderId ?? '',
     order: worktree.order ?? 0,
+    createdAt: worktree.createdAt,
   }
 }
 
@@ -452,6 +459,7 @@ export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId:
     parentId: row.parentId,
     title: row.title,
     order: row.order ?? 0,
+    createdAt: row.createdAt,
   }
 }
 

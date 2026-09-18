@@ -8,6 +8,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 import type { Repo, Workspace } from '@/lib/store/sidebar'
 
 // Task 26: panes/dormantArrangements are window-level now (one flat store
@@ -82,7 +83,56 @@ beforeEach(() => {
   activeIds.current = []
   storeStates.current = new Map()
   homeIds.current = new Map()
+  useHomeTreeStore.setState({ trees: {} })
   resetWindowPaneStoreForTests()
+})
+
+// REGRESSION: a persisted dormant entry survives the reload in the layout
+// record, but the band only drew chats a MOUNTED workspace store knew about —
+// after a reload nothing is mounted until the user opens something, so the
+// band came back empty. The sidebar's own chat lists (a repo's `chats`, the
+// project's home tree) know every chat and its workspace without a store.
+describe('recentsForProject after a reload (no workspace store mounted)', () => {
+  it('still draws a dormant entry from the repo chat list, minting no store', () => {
+    activeIds.current = []
+    vi.mocked(getOrCreateWorkspaceStore).mockClear()
+    windowPaneStore.setState({
+      dormantArrangements: [{ id: 'entry-a', chatIds: ['chat-a'], state: 'dormant' }],
+    })
+    const repos = [
+      makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'a' })],
+        chats: [{ id: 'chat-a', repoId: 'r1', title: 'Fix it', order: 0, workspaceId: 'ws-1' }],
+      }),
+    ]
+
+    const entries = recentsForProject(repos, 'p1')
+
+    expect(entries.map((e) => [e.id, e.state, e.workspaceId])).toEqual([
+      ['entry-a', 'dormant', 'ws-1'],
+    ])
+    expect(entries[0].chatWorkspaces).toEqual({ 'chat-a': 'ws-1' })
+    expect(getOrCreateWorkspaceStore).not.toHaveBeenCalled()
+  })
+
+  it('still draws a dormant home chat from the project home tree', () => {
+    activeIds.current = []
+    homeIds.current.set('p1', 'home-ws-p1')
+    useHomeTreeStore.getState().setTree('p1', {
+      chats: [{ id: 'chat-h', repoId: '', title: 'Plan', order: 0 }],
+      folders: [],
+    })
+    windowPaneStore.setState({
+      dormantArrangements: [{ id: 'entry-h', chatIds: ['chat-h'], state: 'dormant' }],
+    })
+
+    const entries = recentsForProject([makeTestRepo({ id: 'r1', projectId: 'p1' })], 'p1')
+
+    expect(entries.map((e) => [e.id, e.workspaceId])).toEqual([['entry-h', 'home-ws-p1']])
+    expect(getOrCreateWorkspaceStore).not.toHaveBeenCalled()
+  })
 })
 
 describe('workspaceIdsForProject', () => {
