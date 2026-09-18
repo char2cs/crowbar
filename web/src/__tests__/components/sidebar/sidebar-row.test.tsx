@@ -142,7 +142,11 @@ describe('SidebarRow', () => {
   // non-home) branch row a trash too, same as a chat or folder — see
   // sidebar-row.test.tsx's own remove-control coverage below for the two
   // rows it's withheld from (a locked branch, the project home).
-  it('trailing controls on a branch row are thread, fork, remove, chevron', () => {
+  //
+  // Order per the trailing-cluster spec (sidebar-row-actions.tsx): repo-menu,
+  // Remove, Thread, Branch, Dropdown — this row never gets repo-menu, so
+  // Remove leads.
+  it('trailing controls on a branch row are remove, thread, fork, chevron', () => {
     render(
       <SidebarRow
         row={deletableRow}
@@ -155,9 +159,9 @@ describe('SidebarRow', () => {
     )
     const controls = screen.getAllByRole('button')
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual([
+      'remove',
       'thread',
       'fork',
-      'remove',
       'fold',
     ])
   })
@@ -810,7 +814,7 @@ describe('SidebarRow', () => {
     // a right-click on this row opens.
   })
 
-  it('a chat row shows thread, remove, and fold — never fork', () => {
+  it('a chat row shows remove, thread, and fold — never fork', () => {
     render(
       <SidebarRow
         row={baseRow}
@@ -823,8 +827,8 @@ describe('SidebarRow', () => {
     )
     const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual([
-      'thread',
       'remove',
+      'thread',
       'fold',
     ])
   })

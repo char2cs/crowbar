@@ -25,10 +25,12 @@ interface SidebarRowActionsProps {
 }
 
 /**
- * `SidebarRow`'s trailing action cluster — repo-menu, Thread, Fork,
- * remove/close, fold, left to right — split out because which buttons show
- * varies entirely by `row.kind` and which handler props the caller passed,
- * with none of it touching the glyph/label rendering above it in the row.
+ * `SidebarRow`'s trailing action cluster — repo-menu, Remove, Thread, Fork,
+ * close, fold, left to right (Remove renders only when repo-menu doesn't;
+ * that menu carries its own "Delete Repo" instead) — split out because which
+ * buttons show varies entirely by `row.kind` and which handler props the
+ * caller passed, with none of it touching the glyph/label rendering above it
+ * in the row.
  */
 export function SidebarRowActions({
   row,
@@ -46,6 +48,11 @@ export function SidebarRowActions({
   // threaded as two more handler props through every tree that draws a row —
   // neither verb needs anything the tree knows.
   const openDetach = useDetachModalStore((s) => s.open)
+  // Single source of truth for "does this row get the tree-dots menu" — used
+  // both to gate that button and to gate Remove's fold-into-it below, so the
+  // two can never drift apart the way two separately-written copies of
+  // `isProjectHome && row.repoIcon` could.
+  const showRepoMenu = isProjectHome && Boolean(row.repoIcon)
   return (
     <>
       {/* A holder means Detach… is the only verb that works: RetryProvision
@@ -114,7 +121,7 @@ export function SidebarRowActions({
           sync with the right-click menu's own Rename/Import
           branches/New folder. `row.repoIcon` gates it the same way the icon
           swap above does: absent until the repo's project has seeded. */}
-      {isProjectHome && row.repoIcon && (
+      {showRepoMenu && (
         <button
           type="button"
           data-control="repo-menu"
@@ -125,8 +132,45 @@ export function SidebarRowActions({
         </button>
       )}
 
-      {/* Trailing cluster order, explicit product spec: Thread, Branch
-          (Fork), remove (X), Dropdown (fold) — left to right.
+      {/* Spec §9: "every row that owns something carries a trash: chats,
+          workspaces, folders, repos, and the space header for the
+          project." A locked branch and the repo's own project-home row
+          are the two `handleTrash` itself refuses (space-content-actions.ts's
+          own doc) — surfacing a toast rather than pretending to succeed —
+          so those are excluded here rather than offered a dead click. Same
+          token+glyph Recents' own close button uses (recents-band.tsx),
+          not a hard-coded destructive-red trash icon. Calls the identical
+          `handleTrash` the (removed) drag-to-trash gesture used to.
+
+          Gated on `!showRepoMenu`, not `!isProjectHome`: a row that gets the
+          tree-dots menu gets its removal verb IN that menu ("Delete Repo",
+          row-context-menu.tsx) instead of a second, standalone button — one
+          delete affordance per row, never two. */}
+      {onTrash &&
+        !showRepoMenu &&
+        (row.kind === 'chat' ||
+          row.kind === 'folder' ||
+          (row.kind === 'branch' && !row.locked)) && (
+          <button
+            type="button"
+            data-control="remove"
+            className={subActionClass}
+            aria-label={`Remove ${row.label}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              e.currentTarget.blur()
+              onTrash(row.id)
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <X aria-hidden="true" className="size-3" weight="bold" />
+          </button>
+        )}
+
+      {/* Trailing cluster order, explicit product spec: repo-menu (tree
+          dots), Remove, Thread, Branch (Fork), Dropdown (fold) — left to
+          right, whichever apply; an absent button leaves no gap, it is
+          plain conditional JSX, not a reserved slot.
 
           Addendum §1 (revises spec §3.1): Fork and Thread are two separate
           buttons, not one contextual "+" that picked between them off
@@ -204,36 +248,6 @@ export function SidebarRowActions({
               the thread button's own weight rather than `"fill"`, which
               reads too heavy at this size next to it). */}
             <GitBranch aria-hidden="true" className="size-3" weight="bold" />
-          </button>
-        )}
-
-      {/* Spec §9: "every row that owns something carries a trash: chats,
-          workspaces, folders, repos, and the space header for the
-          project." A locked branch and the repo's own project-home row
-          are the two `handleTrash` itself refuses (space-content-actions.ts's
-          own doc) — surfacing a toast rather than pretending to succeed —
-          so those are excluded here rather than offered a dead click. Same
-          token+glyph Recents' own close button uses (recents-band.tsx),
-          not a hard-coded destructive-red trash icon. Calls the identical
-          `handleTrash` the (removed) drag-to-trash gesture used to. */}
-      {onTrash &&
-        !isProjectHome &&
-        (row.kind === 'chat' ||
-          row.kind === 'folder' ||
-          (row.kind === 'branch' && !row.locked)) && (
-          <button
-            type="button"
-            data-control="remove"
-            className={subActionClass}
-            aria-label={`Remove ${row.label}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              e.currentTarget.blur()
-              onTrash(row.id)
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <X aria-hidden="true" className="size-3" weight="bold" />
           </button>
         )}
 

@@ -19,11 +19,11 @@ const provisioned: SidebarRowType = {
   isPlaceholder: false,
 }
 
-function controlsOf(row: SidebarRowType): string[] {
+function controlsOf(row: SidebarRowType, isProjectHome = false): string[] {
   const { container } = render(
     <SidebarRowActions
       row={row}
-      isProjectHome={false}
+      isProjectHome={isProjectHome}
       expanded={false}
       subActionClass=""
       onCreate={vi.fn()}
@@ -58,5 +58,34 @@ describe('SidebarRowActions', () => {
   it('leaves a placeholder branch row its remedy, remove and fold', () => {
     const controls = controlsOf({ ...provisioned, locked: false, isPlaceholder: true })
     expect(controls).toEqual(['retry-provision', 'remove', 'fold'])
+  })
+
+  // Explicit product spec: repo-menu, Remove, Thread, Branch, Dropdown — left
+  // to right. An ordinary row never gets repo-menu, so Remove leads.
+  it('orders Remove before Thread and Fork on an ordinary unlocked branch row', () => {
+    const controls = controlsOf({ ...provisioned, locked: false })
+    expect(controls).toEqual(['remove', 'thread', 'fork', 'fold'])
+  })
+
+  // The one row kind that DOES get repo-menu folds Remove into it ("Delete
+  // Repo" in row-context-menu.tsx) instead of drawing a second, standalone
+  // delete affordance.
+  it('shows repo-menu instead of a standalone Remove on a project-home row', () => {
+    const controls = controlsOf(
+      {
+        ...provisioned,
+        locked: false,
+        repoIcon: {
+          repoId: 'repo-1',
+          projectId: 'project-1',
+          name: 'repo',
+          avatarLabel: 'R',
+          avatarColor: '#000',
+        },
+      },
+      true,
+    )
+    expect(controls).toEqual(['repo-menu', 'thread', 'fork', 'fold'])
+    expect(controls).not.toContain('remove')
   })
 })
