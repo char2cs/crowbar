@@ -142,4 +142,41 @@ describe('a pending thread row is placed where the daemon will append it', () =>
     // c1, the crowbar repo header and f1 share the home root; the owner is not a row.
     expect(entry.order).toBe(3)
   })
+
+  // The repo-header fork, which is the level the two sides used to disagree
+  // about: the daemon numbered an owning row minted under a repo's default
+  // checkout in a scope of its own (owning_chat.go placeOwningRow) and handed
+  // it 0, while this count read the RENDERED siblings — the locked default
+  // branch and the repo's folders — and predicted 2. Both sides count the repo
+  // root now; this pins the client half of that agreement.
+  it('counts the repo root a fork off the repo header actually lands in', () => {
+    useSidebarStore.setState({
+      repos: [
+        repo({
+          workspaces: [
+            { id: 'ws-main', branch: 'main', age: '', order: 0, owningChatId: 'c-main' },
+          ],
+          folders: [{ id: 'f1', repoId: 'r1', name: 'notes', order: 1 }],
+          chats: [
+            { id: 'c-home', repoId: 'r1', workspaceId: 'home-1', title: '', order: 0 },
+            {
+              id: 'c-main',
+              repoId: 'r1',
+              workspaceId: 'ws-main',
+              ownsWorktree: true,
+              title: 'main',
+              order: 0,
+            },
+          ],
+        }),
+      ],
+    })
+
+    handleCreate('c-home', 'workspace', vi.fn())
+
+    const [entry] = usePendingCreatesStore.getState().entries
+    expect(entry).toMatchObject({ kind: 'branch', parentId: 'c-home' })
+    // The locked `main` row and the repo folder already sit at the repo root.
+    expect(entry.order).toBe(2)
+  })
 })

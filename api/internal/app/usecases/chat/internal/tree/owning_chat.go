@@ -83,20 +83,69 @@ func (u *chatFolderUsecase) placeOwningRow(
 	chatID string,
 	parentChatID string,
 ) error {
-	rows, err := u.chats.ListChats(ctx)
+	order, err := u.owningRowSlot(ctx, chatID, parentChatID)
 	if err != nil {
-		return fmt.Errorf("agent chat folder: place owning row: %w", err)
-	}
-	order := 0
-	for _, row := range rows {
-		if row.ID != chatID && row.ParentID == parentChatID {
-			order++
-		}
+		return err
 	}
 	if _, err := u.chats.SetPlacement(ctx, chatID, parentChatID, order); err != nil {
 		return fmt.Errorf("agent chat folder: place owning row %s: %w", chatID, err)
 	}
 	return nil
+}
+
+// owningRowSlot answers the first free index in the level parentID names.
+//
+// A WORKSPACE parent goes through the same scope/plan machinery every other
+// writer counts against, because the level a workspace names is not always its
+// own id: a repo's DEFAULT checkout names the repo ROOT (levelAliases folds it
+// and its owning chat onto ""), whose members are that repo's locked branches
+// and folders — Node-backed rows a ParentID scan over Chat rows cannot see at
+// all. Counting the literal bucket numbered a fork off a repo header in a
+// scope of its own, so it claimed 0 among rows already numbered 0..N and drew
+// above a locked branch nobody asked it to precede.
+//
+// Any other container — the panel root a repo import's own rows are born at,
+// or an explicit chat/folder parent an importer named — has no workspace to
+// resolve a level from, and keeps the direct count.
+//
+// The row being placed is dropped from the plan first: MintChat has already
+// filed it at the root as a workspace-less bubble, which is a member of every
+// scope, so counting it would leave a hole in the level it is joining.
+func (u *chatFolderUsecase) owningRowSlot(
+	ctx context.Context,
+	chatID string,
+	parentID string,
+) (int, error) {
+	live, err := u.workspaces.Exists(ctx, parentID)
+	if err != nil || !live {
+		return u.rowsFiledUnder(ctx, chatID, parentID)
+	}
+	snapshot, sErr := u.workspaceSnapshotAround(ctx, parentID, domain.Chat{}, parentID)
+	if sErr != nil {
+		return 0, sErr
+	}
+	snapshot.drop(chatID)
+	return snapshot.plan.NextSlot(snapshot.canonical(parentID)), nil
+}
+
+// rowsFiledUnder counts the Chat rows already filed under parentID, chatID
+// excluded.
+func (u *chatFolderUsecase) rowsFiledUnder(
+	ctx context.Context,
+	chatID string,
+	parentID string,
+) (int, error) {
+	rows, err := u.chats.ListChats(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("agent chat folder: place owning row: %w", err)
+	}
+	order := 0
+	for _, row := range rows {
+		if row.ID != chatID && row.ParentID == parentID {
+			order++
+		}
+	}
+	return order, nil
 }
 
 // AttachOwningWorkspace points a minted owning chat at the workspace it was
