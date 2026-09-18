@@ -64,7 +64,7 @@ function fuzzyScore(query: string, text: string): number {
   return qi === q.length ? score + 1 : 0
 }
 
-function effortLabel(level: string): string {
+export function effortLabel(level: string): string {
   return level === 'xhigh' ? 'XHigh' : level.charAt(0).toUpperCase() + level.slice(1)
 }
 

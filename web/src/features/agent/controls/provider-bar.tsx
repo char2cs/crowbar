@@ -11,6 +11,9 @@ interface ProviderBarProps {
   switchDisabled?: boolean
   model: string
   effort: string
+  /** The chat is live: draw what it actually launched as, plainly, instead of
+   *  an interactive picker for a launch that already happened. */
+  readOnly?: boolean
   telemetry: AgentTelemetry | null
   presentation: ChatPresentation
   splitEnabled: boolean
@@ -54,6 +57,7 @@ export function ProviderBar({
   switchDisabled,
   model,
   effort,
+  readOnly,
   telemetry,
   presentation,
   splitEnabled,
@@ -75,6 +79,7 @@ export function ProviderBar({
           providers={providers ?? []}
           model={model}
           effort={effort}
+          readOnly={readOnly}
           presentation={presentation}
           splitEnabled={splitEnabled}
           showSwitcher={showSwitcher}

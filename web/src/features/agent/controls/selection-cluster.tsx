@@ -1,5 +1,6 @@
+import { ProviderIcon } from '@/components/ui/provider-icon'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
-import { AgentSelectionPicker } from '@/features/agent/controls/agent-selection-picker'
+import { AgentSelectionPicker, effortLabel } from '@/features/agent/controls/agent-selection-picker'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 
@@ -8,6 +9,10 @@ export interface SelectionClusterProps {
   providers: AgentProvider[]
   model: string
   effort: string
+  /** The chat is live: draw model/effort as plain text (what it actually
+   *  launched as) instead of the interactive picker — a launch that already
+   *  happened is not a choice left to make. */
+  readOnly?: boolean
   presentation: ChatPresentation
   splitEnabled: boolean
   /** Draw the surface switcher. Exactly one exists on a pane. */
@@ -16,6 +21,34 @@ export interface SelectionClusterProps {
   switchDisabled?: boolean
   onSelectionChange: (provider: string, model: string, effort: string) => void
   onSelectPresentation: (next: ChatPresentation) => void
+}
+
+/** The read-only twin of AgentSelectionPicker's own trigger — same glyph
+ *  order (provider, model, effort), no chevron, nothing to click. A provider
+ *  with no model/effort catalogue still names itself here (unlike the picker,
+ *  which renders nothing for one — there is no pick to offer, but a started
+ *  chat still has a provider worth showing). */
+function LaunchLabel({
+  provider,
+  model,
+  effort,
+}: {
+  provider?: AgentProvider
+  model: string
+  effort: string
+}) {
+  return (
+    <span
+      className="chip max-w-56"
+      title={`${provider?.displayName ?? 'Agent'} — what this chat launched as.`}
+    >
+      {provider && <ProviderIcon svg={provider.icon} className="size-3" />}
+      {model && <b className="font-semibold text-foreground">{model}</b>}
+      {model && effort && <span className="opacity-50">&middot;</span>}
+      {effort && <span className="truncate">{effortLabel(effort)}</span>}
+      {!model && <span className="truncate">{provider?.displayName ?? 'Agent'}</span>}
+    </span>
+  )
 }
 
 /**
@@ -34,6 +67,7 @@ export function SelectionCluster({
   providers,
   model,
   effort,
+  readOnly,
   presentation,
   splitEnabled,
   showSwitcher,
@@ -46,15 +80,20 @@ export function SelectionCluster({
     <span className="selpos">
       {/* Provider + model + effort as one merged control — picking a model
           already picks its provider, so there is nothing left to split into
-          a separate provider chip ahead of it. */}
-      <AgentSelectionPicker
-        provider={provider}
-        providers={providers}
-        model={model}
-        effort={effort}
-        disabled={switchDisabled}
-        onSelectionChange={onSelectionChange}
-      />
+          a separate provider chip ahead of it. Read-only once live: this
+          launch already happened, so there is nothing left to pick. */}
+      {readOnly ? (
+        <LaunchLabel provider={provider} model={model} effort={effort} />
+      ) : (
+        <AgentSelectionPicker
+          provider={provider}
+          providers={providers}
+          model={model}
+          effort={effort}
+          disabled={switchDisabled}
+          onSelectionChange={onSelectionChange}
+        />
+      )}
       {showSwitcher && <span className="sep" />}
       {showSwitcher && (
         <ViewSwitcher

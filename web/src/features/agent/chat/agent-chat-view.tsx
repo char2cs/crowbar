@@ -185,6 +185,11 @@ export interface AgentChatViewProps {
   /** The chat's sticky model / effort selection. '' means unset. */
   model: string
   effort: string
+  /** What the LIVE runner actually spawned as — '' on a dormant chat. Shown
+   *  in place of the (interactive) selection above once the chat is live,
+   *  since a request and its resolved argv can differ. */
+  launchModel?: string
+  launchEffort?: string
   onSelectionChange: (provider: string, model: string, effort: string) => void
   /** A staged pick this file just sent WAS ACCEPTED — see
    *  usePromptQueue's `onSelectionCommitted` for the exact contract. */
@@ -320,6 +325,8 @@ export function AgentChatView({
   provider: effectiveProviderId,
   model,
   effort,
+  launchModel = '',
+  launchEffort = '',
   onSelectionChange,
   onSelectionCommitted,
   presentation,
@@ -1001,8 +1008,9 @@ export function AgentChatView({
               provider={effectiveProvider}
               providers={providers}
               switchDisabled={switchDisabled}
-              model={model}
-              effort={effort}
+              model={live && launchModel ? launchModel : model}
+              effort={live && launchEffort ? launchEffort : effort}
+              readOnly={live}
               telemetry={telemetry}
               presentation={presentation}
               splitEnabled={splitEnabled && provider?.hotswap === true}
