@@ -203,12 +203,21 @@ export function IDEShell() {
   // BUG-003: when landing directly on a workspace route, the header project
   // button showed "Select project" — the active project was never derived from
   // the route. Keep the active project in sync with the route's projectId.
+  //
+  // THE ONE WRITER of the pane store's own `activeProjectId` too (the
+  // project-scoped panes design's trap 4): the route is already the one place
+  // a project change becomes state, and a second writer — a click handler
+  // racing this effect — is exactly how the sidebar's own project-switch bugs
+  // happened. `setActiveProject` no-ops on an unchanged id, so calling it
+  // unconditionally here is free; parking the space you left and bringing this
+  // one's own last view forward is all downstream of that single write.
   const workspaceProjectId = activeProjectIdFromRoute
   useEffect(() => {
     if (!workspaceProjectId) return
     if (useProjectStore.getState().activeProjectId !== workspaceProjectId) {
       useProjectStore.getState().setActiveProject(workspaceProjectId)
     }
+    windowPaneStore.getState().paneActions.setActiveProject(workspaceProjectId)
   }, [workspaceProjectId])
 
   // See the hook's own doc for the "viewing a project that no longer exists"

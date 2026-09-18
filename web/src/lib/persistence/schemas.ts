@@ -51,6 +51,15 @@ export interface WorkspaceLayout {
    */
   dormantArrangements?: RecentsEntry[]
   recentsOrder?: string[]
+  /**
+   * Which PROJECT each view belongs to, and which view each project was last
+   * showing — see `PaneSlice`. Both OPTIONAL, and absent on every record
+   * written before views carried a project: `hydrate.ts` resolves what it can
+   * from the views' own chats and leaves the rest for the first
+   * `setActiveProject` to adopt (the design's §8), so there is no migration.
+   */
+  viewProjects?: Record<string, string>
+  activeViewByProject?: Record<string, string>
   buffers: PaneContent[]
   sidebarWidth: number
   rightSidebarWidth: number

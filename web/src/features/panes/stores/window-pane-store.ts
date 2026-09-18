@@ -22,6 +22,9 @@ export type WindowPaneSnapshot = Partial<
     | 'fullscreenPaneId'
     | 'mostRecentActivePaneIds'
     | 'dormantArrangements'
+    | 'viewProjects'
+    | 'activeViewByProject'
+    | 'activeProjectId'
     | 'buffers'
   >
 >
@@ -67,6 +70,11 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
       state.mostRecentActivePaneIds === prev.mostRecentActivePaneIds &&
       state.dormantArrangements === prev.dormantArrangements &&
       state.recentsOrder === prev.recentsOrder &&
+      // Project-scoped panes trap 5: a field left out of THIS comparison is a
+      // field that silently never persists, because a change that touches
+      // nothing else returns above without ever arming the timer.
+      state.viewProjects === prev.viewProjects &&
+      state.activeViewByProject === prev.activeViewByProject &&
       state.buffers === prev.buffers
     ) {
       return
@@ -93,6 +101,11 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
         mostRecentActivePaneIds: current.mostRecentActivePaneIds,
         dormantArrangements: current.dormantArrangements,
         recentsOrder: current.recentsOrder,
+        // Which project each view belongs to, and where each project was
+        // last looking. `activeProjectId` is deliberately NOT here: the route
+        // is what says where "now" is at boot (pane-slice.ts's own doc).
+        viewProjects: current.viewProjects,
+        activeViewByProject: current.activeViewByProject,
         buffers: persistable.buffers,
         sidebarWidth: 0,
         rightSidebarWidth: 0,
@@ -143,6 +156,9 @@ export function resetWindowPaneStoreForTests(target: WindowPaneStore = windowPan
     mostRecentActivePaneIds: fresh.mostRecentActivePaneIds,
     dormantArrangements: fresh.dormantArrangements,
     recentsOrder: fresh.recentsOrder,
+    viewProjects: fresh.viewProjects,
+    activeViewByProject: fresh.activeViewByProject,
+    activeProjectId: fresh.activeProjectId,
     buffers: fresh.buffers,
     closedBuffersHistory: fresh.closedBuffersHistory,
     pendingClose: fresh.pendingClose,
