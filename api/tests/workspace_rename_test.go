@@ -164,6 +164,10 @@ func TestRegression_RenameWorkspaceBranch_RenamesGitAndRecordAndMovesNothing(t *
 
 	var out map[string]any
 	h.patch(repoBase+"/chats/"+childChatID+"/branch", map[string]string{"branch": "feature/x"}, &out)
+	// The record update lands via an asynchronously-settling projection (same
+	// reason the sibling delete test below quiesces) — reading back before it
+	// settles intermittently caught the pre-rename branch under load.
+	h.QuiesceReactors()
 
 	// 1. The record carries the new branch and the SAME path.
 	after := renamedWorkspace(t, h, imported, childID)

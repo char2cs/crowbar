@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -98,6 +99,17 @@ func (u *chatFolderUsecase) reapWorktrees(
 		}
 		err = u.reaper.DiscardChildWorkspace(ctx, row.WorkspaceID)
 		if err == nil || errors.Is(err, apperr.ErrNotFound) {
+			continue
+		}
+		// A LOCKED child is kept, same as one a surviving chat still holds
+		// (the `shared` branch above): DiscardChildWorkspace's own DeleteCascade
+		// correctly refuses to erase a locked root, and that refusal must not
+		// fail the whole delete — it means this one worktree survives the
+		// cascade and needs a fresh owner, not that the cascade itself failed.
+		if errors.Is(err, workspace.ErrWorkspaceLocked) {
+			if u.ownsWorktree(ctx, snapshot, *row) {
+				orphaned = append(orphaned, row.WorkspaceID)
+			}
 			continue
 		}
 		return nil, fmt.Errorf("agent chat folder: delete chat %s: reap worktree %s: %w",
