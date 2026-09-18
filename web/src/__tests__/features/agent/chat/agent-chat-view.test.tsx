@@ -1475,6 +1475,30 @@ describe('AgentChatView model + effort selection', () => {
     expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', 'go', expect.any(String), '', '', '')
   })
 
+  // The picker must never sit blank just because nothing has been picked yet
+  // — `models` is descriptor order (the provider's own ranking), so its first
+  // entry is what actually runs; `efforts['']` is that default model's own
+  // catalogue, already resolved server-side. Display-only: the previous test
+  // proves the ACTUAL send still carries '' (let the provider decide), this
+  // one proves the composer doesn't lie about that by showing nothing.
+  it('shows the provider catalogue default, not blank, when nothing has been picked yet', async () => {
+    setup({ providers: selectable, model: '', effort: '' })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-sol, effort low',
+    )
+  })
+
+  it('lets a real sticky selection win over the catalogue default', async () => {
+    setup({ providers: selectable, model: 'gpt-5.6-luna', effort: 'high' })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-luna, effort high',
+    )
+  })
+
   // The reported effort used to render here; it is gone from the transcript
   // entirely now, replaced everywhere by the turnbar (provider icon + copy).
   it('shows turn actions on an assistant reply, whatever the provider reported', async () => {

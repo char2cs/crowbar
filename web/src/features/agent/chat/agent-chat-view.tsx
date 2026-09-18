@@ -550,6 +550,15 @@ export function AgentChatView({
   // slash catalog) stays on the REAL, live `provider`/`providerId`: a staged
   // pick has not taken effect yet, so there is no live CLI to probe or label.
   const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
+  // Last-resort fallback for a chat with no sticky pick and no launch report
+  // yet (the empty, never-sent composer): `models` is DESCRIPTOR ORDER, the
+  // provider's own ranking (AgentProvider's own doc), so its first entry IS
+  // the provider's default — no separate "default" flag to declare or keep
+  // in sync. `efforts['']` is already the backend-resolved catalogue for
+  // exactly this "no model selected" case, so its first entry is that
+  // default model's default effort, by the same ordering rule.
+  const defaultModel = effectiveProvider?.models?.[0] ?? ''
+  const defaultEffort = effectiveProvider?.efforts?.['']?.[0] ?? ''
   // The provider's stop reason occupies the BAR, so the transcript must not also
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
@@ -821,8 +830,8 @@ export function AgentChatView({
     <SelectionCluster
       provider={effectiveProvider}
       providers={providers}
-      model={model}
-      effort={effort}
+      model={model || defaultModel}
+      effort={effort || defaultEffort}
       presentation={presentation}
       splitEnabled={splitEnabled && provider?.hotswap === true}
       showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
@@ -1009,8 +1018,8 @@ export function AgentChatView({
               provider={effectiveProvider}
               providers={providers}
               switchDisabled={switchDisabled}
-              model={live && launchModel ? launchModel : model}
-              effort={live && launchEffort ? launchEffort : effort}
+              model={(live && launchModel) || model || defaultModel}
+              effort={(live && launchEffort) || effort || defaultEffort}
               telemetry={telemetry}
               presentation={presentation}
               splitEnabled={splitEnabled && provider?.hotswap === true}
