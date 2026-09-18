@@ -177,6 +177,15 @@ type NodeCreator interface {
 	) (domain.Node, error)
 }
 
+// OwnerResolver answers the chat that owns a workspace, minting one when
+// none records ownership — the chat handlers' EnsureOwner.
+type OwnerResolver interface {
+	EnsureOwner(
+		ctx context.Context,
+		ws domain.Workspace,
+	) string
+}
+
 // Handlers serves all /home/* routes.
 type Handlers struct {
 	workspaces HomeWorkspaces
@@ -185,6 +194,7 @@ type Handlers struct {
 	termEng    TerminalEngine
 	working    WorkSignal
 	chats      ChatResolver
+	owners     OwnerResolver
 	nodes      NodeCreator
 }
 
@@ -213,6 +223,17 @@ func (h *Handlers) WithChats(
 ) *Handlers {
 	if chats != nil {
 		h.chats = chats
+	}
+	return h
+}
+
+// WithOwners wires the owner resolver Get answers WorkspaceDTO.OwningChatID
+// through, so a home no chat records ownership of gets one minted on read.
+func (h *Handlers) WithOwners(
+	owners OwnerResolver,
+) *Handlers {
+	if owners != nil {
+		h.owners = owners
 	}
 	return h
 }

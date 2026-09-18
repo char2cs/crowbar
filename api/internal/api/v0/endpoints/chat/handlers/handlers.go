@@ -467,7 +467,7 @@ type ChatTreeUsecase interface {
 	// MintOwningChat and AttachOwningWorkspace are the chat-first mint every
 	// workspace create goes through, exposed here so a workspace served
 	// without an owner (created before the mint existed — no backfill) gets
-	// one the first time a client reads it. See ensureOwner (worktree.go).
+	// one the first time a client reads it. See EnsureOwner (worktree.go).
 	MintOwningChat(
 		ctx context.Context,
 		parentWorkspaceID string,
@@ -507,7 +507,7 @@ type Handlers struct {
 	worktrees       Worktrees
 	nodes           Nodes
 	broadcastFolder func(folderID, workspaceID, kind string)
-	// ownerMint serializes ensureOwner's mint (worktree.go) so two concurrent
+	// ownerMint serializes EnsureOwner's mint (worktree.go) so two concurrent
 	// reads of one chatless workspace cannot each mint it an owner.
 	ownerMint sync.Mutex
 }

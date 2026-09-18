@@ -107,6 +107,11 @@ func TestPatchRepo_BroadcastsRenamedDTO(t *testing.T) {
 // off the repo's own Node row without standing up the real repository.
 type fakeNodeReader map[string]domain.Node
 
+func (f fakeNodeReader) Forget(_ context.Context, id string) error {
+	delete(f, id)
+	return nil
+}
+
 func (f fakeNodeReader) GetNode(_ context.Context, id string) (domain.Node, error) {
 	n, ok := f[id]
 	if !ok {

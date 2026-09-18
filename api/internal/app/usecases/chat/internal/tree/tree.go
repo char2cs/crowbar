@@ -34,6 +34,7 @@ package tree
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 
@@ -141,12 +142,89 @@ func (u *chatFolderUsecase) ListInRepo(
 	return u.listFolders(ctx, func(f domain.Folder) bool { return f.RepoID == repoID })
 }
 
-// ListInHome implements Usecase.
+// ListInHome implements Usecase. A home folder written before HomeID
+// existed is adopted on this read: by the home its rows already attribute it
+// to, else by the first home that lists it — never by every home at once.
 func (u *chatFolderUsecase) ListInHome(
 	ctx context.Context,
 	homeID string,
 ) ([]domain.Chat, error) {
-	return u.listFolders(ctx, func(f domain.Folder) bool { return f.InHome(homeID) })
+	return u.listFolders(ctx, func(f domain.Folder) bool {
+		if f.RepoID == "" && f.HomeID == "" {
+			f = u.adoptHomeFolder(ctx, f, homeID)
+		}
+		return f.InHome(homeID)
+	})
+}
+
+// adoptHomeFolder stamps a legacy home folder with the home it belongs to:
+// the one its ancestors or members already name, or homeID when nothing does.
+func (u *chatFolderUsecase) adoptHomeFolder(
+	ctx context.Context,
+	f domain.Folder,
+	homeID string,
+) domain.Folder {
+	home := u.homeOfFolder(ctx, f.ID, homeID, map[string]bool{})
+	if home == "" {
+		home = homeID
+	}
+	f.HomeID = home
+	if err := u.folders.Save(ctx, f); err != nil {
+		slog.WarnContext(ctx, "agent chat folder: adopt legacy home folder",
+			"folder_id", f.ID, "home_id", home, "err", err)
+	}
+	return f
+}
+
+// homeOfFolder derives a home folder's home from the rows around it: a
+// chat above or beneath it names its workspace, a folder names its home, a
+// repo beneath it belongs to homeID's project or not.
+func (u *chatFolderUsecase) homeOfFolder(
+	ctx context.Context,
+	id string,
+	homeID string,
+	seen map[string]bool,
+) string {
+	seen[id] = true
+	if n, err := u.nodes.GetNode(ctx, id); err == nil && n.ParentID != "" {
+		if home := u.homeOfRow(ctx, n.ParentID, homeID, seen); home != "" {
+			return home
+		}
+	}
+	children, err := u.nodes.ListByParent(ctx, id)
+	if err != nil {
+		return ""
+	}
+	for _, child := range children {
+		if home := u.homeOfRow(ctx, child.ID, homeID, seen); home != "" {
+			return home
+		}
+	}
+	return ""
+}
+
+func (u *chatFolderUsecase) homeOfRow(
+	ctx context.Context,
+	id string,
+	homeID string,
+	seen map[string]bool,
+) string {
+	if seen[id] {
+		return ""
+	}
+	if c, err := u.chats.Get(ctx, id); err == nil {
+		return c.WorkspaceID
+	}
+	if f, err := u.folders.FindByKey(ctx, id); err == nil && f != nil {
+		if f.HomeID != "" {
+			return f.HomeID
+		}
+		return u.homeOfFolder(ctx, f.ID, homeID, seen)
+	}
+	if u.repoMemberIDsForHome(ctx, homeID)[id] {
+		return homeID
+	}
+	return ""
 }
 
 func (u *chatFolderUsecase) listFolders(
@@ -219,7 +297,7 @@ func (u *chatFolderUsecase) Create(
 	if err := u.folders.Save(ctx, folder); err != nil {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: create %s: %w", id, err)
 	}
-	target := snapshot.plan.NextSlot(in.ParentID)
+	target := snapshot.plan.NextSlot(snapshot.canonical(in.ParentID))
 	snapshot.add(domain.Chat{
 		ID:       id,
 		Type:     domain.ChatTypeFolder,
@@ -230,7 +308,7 @@ func (u *chatFolderUsecase) Create(
 	})
 	snapshot.homeIDs[id] = true
 	snapshot.freshIDs[id] = true
-	snapshot.plan.Reorder(in.ParentID, id, target)
+	snapshot.plan.Reorder(snapshot.canonical(in.ParentID), id, target)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Chat{}, nil, u.discardFolder(ctx, id, err)
@@ -326,7 +404,7 @@ func (u *chatFolderUsecase) Move(
 	if mErr := u.checkFolderMove(ctx, snapshot, f.RepoID, f.ID, destination); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
-	if wErr := guardNotWorking(subtreeIDsOf(f.ID, snapshot.rows), u.work); wErr != nil {
+	if wErr := guardNotWorking(snapshot.subtreeIDs(f.ID), u.work); wErr != nil {
 		return domain.Chat{}, nil, wErr
 	}
 	u.replace(snapshot, f.ID, current.ParentID, destination, in.Order, false)
@@ -361,7 +439,7 @@ func (u *chatFolderUsecase) Delete(
 	if err != nil {
 		return nil, err
 	}
-	if wErr := guardNotWorking(subtreeIDsOf(f.ID, snapshot.rows), u.work); wErr != nil {
+	if wErr := guardNotWorking(snapshot.subtreeIDs(f.ID), u.work); wErr != nil {
 		return nil, wErr
 	}
 	if err := u.folders.Delete(ctx, f.ID); err != nil {
@@ -370,8 +448,8 @@ func (u *chatFolderUsecase) Delete(
 	if err := u.nodes.Forget(ctx, f.ID); err != nil {
 		return nil, fmt.Errorf("agent chat folder: delete %s: node: %w", f.ID, err)
 	}
-	snapshot.plan.Reparent(f.ID, current.ParentID)
+	snapshot.plan.Reparent(f.ID, snapshot.canonical(current.ParentID))
 	snapshot.drop(f.ID)
-	snapshot.plan.Reorder(current.ParentID, "", -1)
+	snapshot.plan.Reorder(snapshot.canonical(current.ParentID), "", -1)
 	return u.persist(ctx, snapshot)
 }

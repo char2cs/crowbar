@@ -75,10 +75,10 @@ type EventStore interface {
 	) (domain.Node, error)
 	// SetOrder writes a node's index within the sibling space it is already in
 	// and leaves its parent alone — the write a DENSIFY owes, as against a move.
-	// On the ordinary async Send path: a single drag renumbers a whole level, so
-	// blocking each of these on its projection would serialise the drag behind
-	// the read model. See commands.SetOrder's own doc for the race this split
-	// exists to avoid.
+	// On the SendWait path: a placement answers and broadcasts the decided
+	// order, and the client's own re-read right behind it must not serve the
+	// pre-write projection (caught live: the dragged row landed, then snapped
+	// back). A drag writes a handful of rows; the wait costs nothing visible.
 	SetOrder(
 		ctx context.Context,
 		id string,
@@ -86,7 +86,7 @@ type EventStore interface {
 	) error
 	// SetPlacement writes where a node sits in the tree: the row it hangs off
 	// and its dense index within that sibling space — the one row actually
-	// dragged. On the ordinary async Send path, for the same reason SetOrder is.
+	// dragged. On the SendWait path, for the same reason SetOrder is.
 	SetPlacement(
 		ctx context.Context,
 		id string,
@@ -190,14 +190,6 @@ func occSend(
 	return asynxModels.Event[domain.Node]{}, lastErr
 }
 
-// sendWithOCC dispatches cmd to the singleton axNode with OCC retry.
-func (r *eventSourced) sendWithOCC(
-	ctx context.Context,
-	cmd asynxModels.Command[domain.Node],
-) (asynxModels.Event[domain.Node], error) {
-	return occSend(ctx, r.ax.Send, cmd)
-}
-
 // Create is deliberately the ONLY command on the SendWait path — see the
 // EventStore interface doc.
 func (r *eventSourced) Create(
@@ -249,7 +241,7 @@ func (r *eventSourced) SetOrder(
 	id string,
 	order int,
 ) error {
-	if _, err := r.sendWithOCC(ctx, commands.SetOrder{ID: id, Order: order}); err != nil {
+	if _, err := occSend(ctx, r.ax.SendWait, commands.SetOrder{ID: id, Order: order}); err != nil {
 		return fmt.Errorf("node: set order: %w", err)
 	}
 	return nil
@@ -261,7 +253,7 @@ func (r *eventSourced) SetPlacement(
 	parentID string,
 	order int,
 ) error {
-	if _, err := r.sendWithOCC(ctx, commands.SetPlacement{ID: id, ParentID: parentID, Order: order}); err != nil {
+	if _, err := occSend(ctx, r.ax.SendWait, commands.SetPlacement{ID: id, ParentID: parentID, Order: order}); err != nil {
 		return fmt.Errorf("node: set placement: %w", err)
 	}
 	return nil

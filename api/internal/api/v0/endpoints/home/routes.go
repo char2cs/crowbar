@@ -62,12 +62,15 @@ func Register(
 ) {
 	// agentChats already satisfies homehandlers.ChatResolver (ListChatsByWorkspace) —
 	// no new dependency to thread through Register, only to wire in here.
-	h := homehandlers.New(workspaces, projects, files, termEng, working).WithChats(agentChats).WithNodes(nodes)
-	th := threadhandlers.New(threadStore, threadBroadcast)
 	ah := chathandlers.New(
 		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
 		agentFolders, agentBroadcastFolder,
 	).WithWorktrees(agentWorktrees).WithNodes(agentNodes)
+	// GET /home resolves its owner through the SAME EnsureOwner the home chat
+	// list does, under the same mint lock.
+	h := homehandlers.New(workspaces, projects, files, termEng, working).
+		WithChats(agentChats).WithOwners(ah).WithNodes(nodes)
+	th := threadhandlers.New(threadStore, threadBroadcast)
 	home := projectScoped.Group("/home")
 
 	home.GET("", h.Get)

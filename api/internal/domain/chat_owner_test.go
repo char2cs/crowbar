@@ -70,3 +70,24 @@ func TestRegression_ResolveOwningChat_NeverPicksAThreadFiledUnderTheWorkspaceIts
 	_, ok := domain.ResolveOwningChat([]domain.Chat{thread})
 	assert.False(t, ok, "a thread under the workspace's own row is not its owner")
 }
+
+// A legacy home (owner never minted, or purged) holds only the user's own
+// conversations. The oldest-wins fallback elected the earliest of them as the
+// home's owner, and the sidebar hid it. A minted owner never carries a title;
+// a conversation that has been chatted in does.
+func TestRegression_ResolveOwningChat_NeverElectsATitledConversationAsLegacyOwner(t *testing.T) {
+	c1 := domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: "home", Title: "plan the release", TitleLocked: true, CreatedAt: time.Unix(0, 0).UTC()}
+	c2 := domain.Chat{ID: "c2", Type: domain.ChatTypeChat, WorkspaceID: "home", Title: "triage bugs", CreatedAt: time.Unix(100, 0).UTC()}
+	_, ok := domain.ResolveOwningChat([]domain.Chat{c1, c2})
+	assert.False(t, ok, "a titled conversation is never a legacy owner")
+
+	untitled := domain.Chat{ID: "u", Type: domain.ChatTypeChat, WorkspaceID: "home", CreatedAt: time.Unix(200, 0).UTC()}
+	got, ok := domain.ResolveOwningChat([]domain.Chat{c1, untitled})
+	require.True(t, ok)
+	assert.Equal(t, "u", got.ID, "an untitled legacy row still resolves")
+
+	branch := domain.Chat{ID: "b", Type: domain.ChatTypeBranch, WorkspaceID: "home", Title: "main"}
+	got, ok = domain.ResolveOwningChat([]domain.Chat{c1, branch})
+	require.True(t, ok)
+	assert.Equal(t, "b", got.ID, "a legacy branch row keeps winning whatever its title")
+}

@@ -1905,6 +1905,7 @@ func (s *AgentChatPlacements) AttachWorkspace(
 	for i := range s.Rows {
 		if s.Rows[i].ID == chatID {
 			s.Rows[i].WorkspaceID = workspaceID
+			s.Rows[i].OwnsWorkspace = workspaceID != ""
 		}
 	}
 	return nil

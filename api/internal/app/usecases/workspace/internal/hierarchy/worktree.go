@@ -1519,7 +1519,9 @@ func (u *hierarchyUsecase) DeleteCascade(
 	}
 	index := indexByID(all)
 	root, ok := index[rootID]
-	if !ok {
+	// A tombstone awaiting its reactor is already gone: a second delete
+	// event would run the teardown twice.
+	if !ok || root.Status == domain.WorkspaceStatusDeleted {
 		return fmt.Errorf("delete cascade: workspace %s: %w", rootID, apperr.ErrNotFound)
 	}
 	if root.Status == domain.WorkspaceStatusLocked {
@@ -1530,6 +1532,9 @@ func (u *hierarchyUsecase) DeleteCascade(
 	}
 	order := cascade.Plan(rootID, nodesFrom(all))
 	for _, id := range order {
+		if index[id].Status == domain.WorkspaceStatusDeleted {
+			continue
+		}
 		if removeErr := u.removeOne(ctx, index[id], ""); removeErr != nil {
 			return fmt.Errorf("delete cascade: remove %s: %w", id, removeErr)
 		}

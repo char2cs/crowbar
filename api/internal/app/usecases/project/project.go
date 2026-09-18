@@ -243,8 +243,12 @@ type projectUsecase struct {
 	// degrading to silence like every other optional dependency here: a repo
 	// reorder still WRITES correctly with it nil, it just leaves a live
 	// client's chat siblings stale until their next reseed.
-	broadcastChat func(id, workspaceID, kind string)
+	broadcastChat HomeRowAnnouncer
 }
+
+// HomeRowAnnouncer announces one shifted home row on the chats WS by its
+// own kind: a chat frame for a chat, a folder frame for a folder.
+type HomeRowAnnouncer func(id, workspaceID string, kind domain.NodeKind, event string)
 
 // New builds a Usecase from the project and repository GORM stores, the
 // workspace relocator a cross-project repo move needs, the home-folder
@@ -257,12 +261,12 @@ type projectUsecase struct {
 // narrow CHAT-kind siblings to this project and falls back to including
 // them all, rather than failing the request outright.
 //
-// broadcastChat is the chats-WS announce callback (Hub.BroadcastAgentChatFolder
-// in production) a repo reorder needs for exactly the same reason PlaceChat
-// does (see that handler's own comment): every home-scope sibling's write now
-// rides Node, which has no aggregate-command hub projection of its own, so
-// nothing tells a live client a CHAT/FOLDER row it did not drag also moved as
-// collateral of the repo it did drag.
+// broadcastChat is the chats-WS announce callback a repo reorder needs for
+// exactly the same reason PlaceChat does (see that handler's own comment):
+// every home-scope sibling's write now rides Node, which has no
+// aggregate-command hub projection of its own, so nothing tells a live
+// client a CHAT/FOLDER row it did not drag also moved as collateral of the
+// repo it did drag.
 func New(
 	projects store.Store[domain.Project, string],
 	repos store.ScopedStore[domain.Repository, string],
@@ -270,7 +274,7 @@ func New(
 	folders Folders,
 	nodes NodePlacements,
 	homeChats HomeChats,
-	broadcastChat func(id, workspaceID, kind string),
+	broadcastChat HomeRowAnnouncer,
 ) Usecase {
 	return &projectUsecase{
 		projects:      projects,
@@ -849,7 +853,7 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 		// rows moving as collateral of a REPO drag instead.
 		if row.ID != subject.ID && u.broadcastChat != nil && homeWorkspaceID != "" &&
 			(row.Kind == domain.NodeKindChat || row.Kind == domain.NodeKindFolder) {
-			u.broadcastChat(row.ID, homeWorkspaceID, "order_set")
+			u.broadcastChat(row.ID, homeWorkspaceID, row.Kind, "order_set")
 		}
 	}
 	// A legacy root chat whose slot did not move (place reports no change, so

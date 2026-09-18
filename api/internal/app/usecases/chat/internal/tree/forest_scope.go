@@ -36,8 +36,11 @@ type forestScope struct {
 	workspaceID string
 }
 
-// scopeForWorkspace resolves the scope a workspace's own rows sit in: home
-// for a project-home workspace, its repo otherwise, a bubble's for "".
+// scopeForWorkspace resolves the scope a workspace's rows sit in: home for
+// a project-home workspace, a bubble's for "", and for any repo workspace
+// the REPO ROOT — the one level the bare root stands for in that tree, whose
+// own chats are the default checkout's. A branch's inner level is its
+// anchor's container, never the root.
 func (u *chatFolderUsecase) scopeForWorkspace(
 	ctx context.Context,
 	workspaceID string,
@@ -55,7 +58,7 @@ func (u *chatFolderUsecase) scopeForWorkspace(
 			repoMemberIDs: u.repoMemberIDsForHome(ctx, workspaceID),
 		}, nil
 	}
-	return forestScope{repoID: repoID, workspaceID: workspaceID}, nil
+	return u.scopeForFolder(ctx, domain.Folder{RepoID: repoID}), nil
 }
 
 // scopeForFolder resolves a folder's scope off its own stored identity. A
@@ -128,20 +131,14 @@ func (u *chatFolderUsecase) rootMember(
 	ctx context.Context,
 	n domain.Node,
 	scope forestScope,
+	aliases levelAliases,
 	row *domain.Chat,
 ) bool {
 	switch n.Kind {
 	case domain.NodeKindChat:
-		return row != nil && u.chatAtRoot(ctx, *row, scope)
+		return row != nil && u.chatAtRoot(ctx, *row, scope, aliases)
 	case domain.NodeKindFolder:
-		f, err := u.folders.FindByKey(ctx, n.ID)
-		if err != nil || f == nil {
-			return false
-		}
-		if scope.repoID != "" {
-			return f.RepoID == scope.repoID
-		}
-		return f.InHome(scope.homeID)
+		return u.folderAtRoot(ctx, n.ID, scope)
 	case domain.NodeKindRepo:
 		return scope.home && (scope.repoMemberIDs == nil || scope.repoMemberIDs[n.ID])
 	case domain.NodeKindWorkspace:
@@ -154,6 +151,26 @@ func (u *chatFolderUsecase) rootMember(
 	return false
 }
 
+// folderAtRoot is rootMember's folder case: a repo folder of the scope's
+// repo, or a home folder of its home — adopting a legacy one on the way.
+func (u *chatFolderUsecase) folderAtRoot(
+	ctx context.Context,
+	id string,
+	scope forestScope,
+) bool {
+	f, err := u.folders.FindByKey(ctx, id)
+	if err != nil || f == nil {
+		return false
+	}
+	if scope.repoID != "" {
+		return f.RepoID == scope.repoID
+	}
+	if f.RepoID == "" && f.HomeID == "" && scope.homeID != "" {
+		*f = u.adoptHomeFolder(ctx, *f, scope.homeID)
+	}
+	return f.InHome(scope.homeID)
+}
+
 // foreignAtRoot names the base rows sitting at the bare root that are not
 // scope's own: a global read (ListChats) carries every workspace's root chats,
 // and only the level being planned may count them as siblings. They stay in
@@ -164,70 +181,128 @@ func (u *chatFolderUsecase) foreignAtRoot(
 	ctx context.Context,
 	rows []domain.Chat,
 	scope forestScope,
+	aliases levelAliases,
 ) map[string]bool {
 	foreign := map[string]bool{}
 	for _, row := range rows {
-		if row.ParentID == "" && row.Type != nodePhantomType && row.Type != workspaceAnchorType &&
-			row.Type != domain.ChatTypeFolder && !u.chatAtRoot(ctx, row, scope) {
+		if aliases.canonical(row.ParentID) == "" && row.Type != nodePhantomType &&
+			row.Type != workspaceAnchorType && row.Type != domain.ChatTypeFolder &&
+			!u.chatAtRoot(ctx, row, scope, aliases) {
 			foreign[row.ID] = true
 		}
 	}
 	return foreign
 }
 
-// chatAtRoot answers whether a chat sitting at the bare root belongs to
-// scope's level: the scope's own workspace, or — when the scope names none
-// — any workspace of the scope's repo (home). A bubble owns no workspace to
-// name a level by and stays a root member wherever it is asked about.
+// chatAtRoot answers whether a chat sitting at the root level belongs to
+// scope's level: the scope's own workspace's chats, or a fork's own row (the
+// chat that owns a workspace of the scope's repo). A chat that owns a level
+// the sidebar draws as something else — the header's, a locked branch's, the
+// home's — takes no slot anywhere; its level is the one it names. A bubble
+// owns no workspace to name a level by and is a member of the bubble scope
+// alone.
 func (u *chatFolderUsecase) chatAtRoot(
 	ctx context.Context,
 	row domain.Chat,
 	scope forestScope,
+	aliases levelAliases,
 ) bool {
 	if row.WorkspaceID == "" {
 		return true
 	}
-	if scope.workspaceID != "" {
-		return row.WorkspaceID == scope.workspaceID
+	if scope.zero() {
+		return false
+	}
+	if aliases.canonical(row.ID) != row.ID {
+		return false
+	}
+	if row.WorkspaceID == scope.workspaceID {
+		return true
+	}
+	if aliases.canonical(row.WorkspaceID) != row.ID && scope.workspaceID != "" {
+		return false
 	}
 	repoID, err := u.workspaces.RepoOf(ctx, row.WorkspaceID)
 	return err == nil && repoID == scope.repoID
 }
 
-// withoutHomeOwner drops the chat that owns the home workspace itself: it is
-// the workspace's own addressable row, not a row the top level draws, so it
-// takes no slot there.
-func withoutHomeOwner(
-	rows []domain.Chat,
-) []domain.Chat {
-	owner, ok := domain.ResolveOwningChat(rows)
-	if !ok {
-		return rows
-	}
-	out := make([]domain.Chat, 0, len(rows))
-	for _, row := range rows {
-		if row.ID != owner.ID {
-			out = append(out, row)
-		}
-	}
-	return out
+// zero reports the bubble scope: no level at all.
+func (s forestScope) zero() bool {
+	return !s.home && s.repoID == "" && s.workspaceID == ""
 }
 
-// isHomeWorkspace answers whether workspaceID is a project's home workspace —
-// RepoOf resolving "" is the SAME convention repoScopeOf/checkFolderContainer
-// already use elsewhere in this package. A bubble ("") is never home: it is
-// mid-creation, ownerless (see workspaceSnapshotAround's own doc), and never
-// resolves through RepoOf at all.
-func (u *chatFolderUsecase) isHomeWorkspace(
+// levelAliases maps every id a row can be filed under to the id of the row
+// the sidebar draws that level as. A workspace's own anchor Node and the
+// chat that owns it name ONE level: the header's (the default checkout) and
+// the home's is the root, ""; a locked branch's is its anchor; an ordinary
+// fork's is its chat. Rows keep whichever of the two ids they were filed
+// under; only the plan counts them together.
+type levelAliases map[string]string
+
+func (a levelAliases) canonical(
+	id string,
+) string {
+	if c, ok := a[id]; ok {
+		return c
+	}
+	return id
+}
+
+// levelAliasesOf resolves the alias set over rows: every workspace some row
+// names, with the chat that RECORDS owning it (or a legacy branch row) —
+// never a heuristic winner, which could be the very thread being placed.
+func (u *chatFolderUsecase) levelAliasesOf(
 	ctx context.Context,
-	workspaceID string,
-) (bool, error) {
-	if workspaceID == "" {
-		return false, nil
+	rows []domain.Chat,
+) levelAliases {
+	holders := map[string][]domain.Chat{}
+	for _, row := range rows {
+		if row.WorkspaceID != "" && row.Type != workspaceAnchorType &&
+			(row.OwnsWorkspace || row.Type == domain.ChatTypeBranch) {
+			holders[row.WorkspaceID] = append(holders[row.WorkspaceID], row)
+		}
 	}
-	repoID, err := u.workspaces.RepoOf(ctx, workspaceID)
+	aliases := levelAliases{}
+	defaults := map[string]string{}
+	for wsID, group := range holders {
+		ownerID := ""
+		if owner, ok := domain.ResolveOwningChat(group); ok {
+			ownerID = owner.ID
+		}
+		u.aliasLevel(ctx, aliases, defaults, wsID, ownerID)
+	}
+	return aliases
+}
+
+// aliasLevel records the level wsID and its owner ownerID name together.
+func (u *chatFolderUsecase) aliasLevel(
+	ctx context.Context,
+	aliases levelAliases,
+	defaults map[string]string,
+	wsID string,
+	ownerID string,
+) {
+	repoID, err := u.workspaces.RepoOf(ctx, wsID)
 	if err != nil {
-		return false, fmt.Errorf("agent chat folder: resolve workspace %s: %w", workspaceID, err)
+		return
 	}
-	return repoID == "", nil
+	if repoID != "" {
+		if _, seen := defaults[repoID]; !seen {
+			defaults[repoID], _ = u.workspaces.DefaultWorkspaceOf(ctx, repoID)
+		}
+	}
+	switch {
+	case repoID == "" || defaults[repoID] == wsID:
+		aliases[wsID] = ""
+		if ownerID != "" {
+			aliases[ownerID] = ""
+		}
+	case ownerID == "":
+	default:
+		if renders, err := u.workspaces.RendersAsBranch(ctx, wsID); err == nil && renders {
+			aliases[ownerID] = wsID
+		} else {
+			aliases[wsID] = ownerID
+		}
+	}
 }

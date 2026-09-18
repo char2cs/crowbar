@@ -2,12 +2,10 @@ package tree
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
 
-	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -210,15 +208,6 @@ func (u *chatFolderUsecase) placeChat(
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
-	// A home-scoped chat's placement write goes through Node, not
-	// Chat.SetOrder/.SetPlacement (2026-09-08 sidebar-placement-unification
-	// Task 5) -- workspaceSnapshotAround marks chatID in snapshot.homeIDs
-	// (and, for its very first placement right after MintChat, snapshot.
-	// freshIDs) whenever workspaceID resolves home-scoped; see its own doc.
-	snapshot, err := u.workspaceSnapshotAround(ctx, workspaceID, current)
-	if err != nil {
-		return domain.Chat{}, nil, err
-	}
 	destination := current.ParentID
 	if in.ParentID != nil {
 		destination = *in.ParentID
@@ -226,10 +215,27 @@ func (u *chatFolderUsecase) placeChat(
 	if err := u.ensureWorkspaceAnchor(ctx, destination); err != nil {
 		return domain.Chat{}, nil, err
 	}
+	// A home-scoped chat's placement write goes through Node, not
+	// Chat.SetOrder/.SetPlacement (2026-09-08 sidebar-placement-unification
+	// Task 5) -- workspaceSnapshotAround marks chatID in snapshot.homeIDs
+	// (and, for its very first placement right after MintChat, snapshot.
+	// freshIDs) whenever workspaceID resolves home-scoped; see its own doc.
+	// The destination is seeded so its existing children are counted.
+	snapshot, err := u.workspaceSnapshotAround(ctx, workspaceID, current, destination)
+	if err != nil {
+		return domain.Chat{}, nil, err
+	}
+	nodeBacked := ownWorktree && destination != ""
+	if nodeBacked {
+		// A fork reads its position through Node once it owns a workspace
+		// (correctHomePlacement), so its first placement is minted there too.
+		snapshot.homeIDs[chatID] = true
+		snapshot.freshIDs[chatID] = true
+	}
 	if mErr := u.checkChatMove(ctx, snapshot, workspaceID, chatID, destination, ownWorktree); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
-	if wErr := guardNotWorking(subtreeIDsOf(chatID, snapshot.rows), u.work); wErr != nil {
+	if wErr := guardNotWorking(snapshot.subtreeIDs(chatID), u.work); wErr != nil {
 		return domain.Chat{}, nil, wErr
 	}
 	// Read BEFORE the plan is mutated: this is the only moment the lineage the
@@ -241,8 +247,15 @@ func (u *chatFolderUsecase) placeChat(
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
+	placed := *snapshot.placedRow(chatID)
+	if nodeBacked {
+		// The write-once-at-creation copy the fork-parent walk reads.
+		if _, err := u.chats.SetPlacement(ctx, chatID, placed.ParentID, placed.Order); err != nil {
+			return domain.Chat{}, nil, fmt.Errorf("agent chat folder: place %s: %w", chatID, err)
+		}
+	}
 	u.noteNewAncestors(ctx, chatID, inherited, snapshot.chatLineage(chatID))
-	return *snapshot.placedRow(chatID), written, nil
+	return placed, written, nil
 }
 
 // noteNewAncestors writes the move into the chat's own conversation when, and
@@ -287,184 +300,6 @@ func gained(
 	return slices.ContainsFunc(lineage, func(id string) bool { return !had[id] })
 }
 
-// DeleteChat erases chatID and every chat threaded below it, TOGETHER WITH ANY
-// WORKTREE that subtree was the last thing holding. A FOLDER id is refused as
-// not-found rather than served: the folder verb PROMOTES what it held and this one
-// CASCADES into it, so accepting a folder here would erase every chat filed
-// inside one on a route that only ever meant to delete a conversation. See
-// loadChat's own doc for the other half of the same guard.
-//
-// The worktrees go FIRST, before a single chat is purged, and that ordering is
-// the whole of the failure contract. A workspace is reachable only through the
-// chat that owns it, so the two orders fail in opposite directions: reap-then-
-// purge leaves, on failure, a chat that still exists and still owns its
-// worktree — nothing lost, the user retries — while purge-then-reap leaves a
-// real worktree on disk that nothing can ever name again, which is exactly the
-// orphan spec §0 diagnosed and the reason this cascade exists at all.
-//
-// So a failed reap FAILS THE DELETE and is returned, not logged. That is the
-// same principle Promote's own unpromote states ("the workspace is discarded
-// only once nothing owns it") applied to a verb whose chat does not survive:
-// there, the surviving chat is what must not be left pointing at a deleted
-// directory; here, nothing survives to point, so the thing that must not be
-// left is the directory itself. It differs from the rollback paths
-// (discardMintedWorkspace) only because those already have a cause to report
-// and this one does not — the reap failure IS what went wrong.
-//
-// The cost is disclosed and accepted: a chat whose worktree cannot be torn down
-// — one whose branch is locked, or whose subtree owns a working chat — cannot
-// be deleted until that is resolved. Both of those are refusals the workspace
-// delete already makes for the same reasons, so this door is no stricter than
-// the other one; it is merely no longer looser.
-func (u *chatFolderUsecase) DeleteChat(
-	ctx context.Context,
-	chatID string,
-) (ChatDeletion, error) {
-	current, err := u.chats.LoadChat(ctx, chatID)
-	if err != nil {
-		return ChatDeletion{}, fmt.Errorf("agent chat folder: delete chat %s: %w", chatID, err)
-	}
-	if current.Type == domain.ChatTypeFolder {
-		return ChatDeletion{}, fmt.Errorf("agent chat folder: %s is a folder: %w", chatID, apperr.ErrNotFound)
-	}
-	snapshot, err := u.workspaceSnapshotAround(ctx, current.WorkspaceID, current)
-	if err != nil {
-		return ChatDeletion{}, err
-	}
-	if wErr := guardNotWorking(subtreeIDsOf(chatID, snapshot.rows), u.work); wErr != nil {
-		return ChatDeletion{}, wErr
-	}
-	chats, folders := snapshot.subtree(chatID)
-	chats = append(chats, chatID)
-	if err := u.reapWorktrees(ctx, snapshot, chats); err != nil {
-		return ChatDeletion{}, err
-	}
-	if err := u.purgeAll(ctx, snapshot, chats); err != nil {
-		return ChatDeletion{}, err
-	}
-	if err := u.removeAll(ctx, snapshot, folders); err != nil {
-		return ChatDeletion{}, err
-	}
-	snapshot.plan.Reorder(current.ParentID, "", -1)
-	shifted, err := u.persist(ctx, snapshot)
-	if err != nil {
-		return ChatDeletion{}, err
-	}
-	return ChatDeletion{Chats: chats, Folders: folders, Shifted: shifted}, nil
-}
-
-// reapWorktrees tears down the worktree every chat in the doomed subtree owns,
-// deepest first — the order the subtree already arrives in, and the one that
-// matters: a child workspace is reaped before the cascade of its lineage parent
-// could reach it, so no reap ever runs against a row an earlier one removed.
-//
-// A workspace already gone is not an error. DeleteCascade takes a workspace's
-// git-lineage descendants with it, and those need not be the same set as the
-// chat subtree's, so a later id in this walk can legitimately have been reaped
-// by an earlier one's cascade. Treating that as a failure would refuse a delete
-// that had in fact already done exactly what was asked.
-//
-// A chat with no workspace of its own is skipped: a bubble borrows its
-// ancestor's ground and owns nothing to tear down. That is what keeps deleting
-// a thread from reaping the worktree its parent is still working in.
-//
-// A workspace some SURVIVING chat still holds is skipped for the same reason,
-// arrived at from the other side. Chat.WorkspaceID says which worktree a chat
-// is anchored to, not that it is anchored there alone, and a worktree is
-// many-chats-to-one by design — so before each teardown the doomed subtree is
-// subtracted from the workspace's full holder set (heldElsewhere), and only an
-// empty remainder authorises the cascade. Without that subtraction deleting one
-// conversation destroyed the worktree its unrelated siblings were working in
-// and left every one of them pointing at a workspace that no longer exists.
-// Those chats are still purged; they simply stop naming ground other rows need.
-//
-// Each workspace is reaped ONCE however many rows in the subtree name it. A
-// thread carries its parent's workspace id, so a chat and its threads routinely
-// name one worktree between them; asking for the same teardown twice would work
-// (the second is a tolerated not-found) but would report a cascade running that
-// is not, and would hide a genuine repeat behind an expected one.
-func (u *chatFolderUsecase) reapWorktrees(
-	ctx context.Context,
-	snapshot *treeSnapshot,
-	ids []string,
-) error {
-	doomed := doomedSet(ids)
-	reaped := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		row := snapshot.row(id)
-		if row == nil || row.WorkspaceID == "" || reaped[row.WorkspaceID] {
-			continue
-		}
-		reaped[row.WorkspaceID] = true
-		shared, err := u.heldElsewhere(ctx, row.WorkspaceID, doomed)
-		if err != nil {
-			return fmt.Errorf("agent chat folder: delete chat %s: %w", id, err)
-		}
-		if shared {
-			continue
-		}
-		err = u.reaper.DiscardChildWorkspace(ctx, row.WorkspaceID)
-		if err == nil || errors.Is(err, apperr.ErrNotFound) {
-			continue
-		}
-		return fmt.Errorf("agent chat folder: delete chat %s: reap worktree %s: %w",
-			id, row.WorkspaceID, err)
-	}
-	return nil
-}
-
-// purgeAll erases each chat in order and takes it out of the plan as it goes, so
-// the densify that follows counts only the rows that survived.
-//
-// A not-found from PurgeChat is tolerated, same reasoning as reapWorktrees'
-// own tolerance above: a row can be real at the TREE level (it has a parent,
-// an order, it renders) while never having minted a conversation aggregate
-// at all — a thread whose create never got past placement, say. Failing the
-// whole cascade on one such id turned "delete a parent with children" into
-// deleting nothing at all, parent included, the moment any one descendant
-// happened to be one of these; purging is idempotent from the caller's
-// side either way, so "already gone" is success here, not an error.
-func (u *chatFolderUsecase) purgeAll(
-	ctx context.Context,
-	snapshot *treeSnapshot,
-	ids []string,
-) error {
-	for _, id := range ids {
-		err := u.agent.PurgeChat(ctx, id)
-		if err != nil && !errors.Is(err, apperr.ErrNotFound) {
-			return fmt.Errorf("agent chat folder: purge chat %s: %w", id, err)
-		}
-		snapshot.drop(id)
-	}
-	return nil
-}
-
-// removeAll erases each folder caught inside a purged subtree. Forget, not
-// PurgeChat: they are removed rather than promoted because the level that would
-// have held them is gone, and a folder never had a runner or a ledger for the
-// agent usecase to tear down in the first place.
-//
-// A folder is a domain.Folder+domain.Node pair now (2026-09-08
-// sidebar-placement-unification Task 5 for home-scoped, Task 8 for
-// repo-scoped too), never a Chats.Forget-able row — both halves are erased
-// here, mirroring Delete's own home/repo-scoped folder erasure (tree.go).
-func (u *chatFolderUsecase) removeAll(
-	ctx context.Context,
-	snapshot *treeSnapshot,
-	ids []string,
-) error {
-	for _, id := range ids {
-		if err := u.folders.Delete(ctx, id); err != nil {
-			return fmt.Errorf("agent chat folder: delete %s: %w", id, err)
-		}
-		if err := u.nodes.Forget(ctx, id); err != nil {
-			return fmt.Errorf("agent chat folder: delete %s: node: %w", id, err)
-		}
-		snapshot.drop(id)
-	}
-	return nil
-}
-
 // replace moves one row to its destination and leaves BOTH affected levels
 // dense: the one it joined, and — only when it actually changed level — the one
 // it left. Leaving every level dense after every move is what makes the next
@@ -488,9 +323,15 @@ func (u *chatFolderUsecase) replace(
 	firstPlacement bool,
 ) {
 	target := placementTarget(requested, snapshot, origin, destination, id, firstPlacement)
-	snapshot.plan.SetParent(id, destination)
-	snapshot.plan.Reorder(destination, id, target)
-	if destination != origin && !firstPlacement {
-		snapshot.plan.Reorder(origin, "", -1)
+	level, from := snapshot.canonical(destination), snapshot.canonical(origin)
+	snapshot.plan.SetParent(id, level)
+	snapshot.plan.Reorder(level, id, target)
+	if level != from && !firstPlacement {
+		snapshot.plan.Reorder(from, "", -1)
+	}
+	if row := snapshot.row(id); row != nil && row.ParentID != destination {
+		// Filed under the other id of the same level: stored as asked.
+		row.ParentID = destination
+		snapshot.restated[id] = true
 	}
 }

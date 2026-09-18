@@ -26,6 +26,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -159,7 +160,7 @@ func New(
 	homeFunc := func() (string, error) { return crowbarHome, nil }
 	ucs, err := usecases.New(
 		repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h),
-		h.BroadcastAgentChatFolder,
+		announceHomeRow(h),
 		announceRepoPlacement(h, gormStores.Repositories),
 	)
 	if err != nil {
@@ -849,6 +850,20 @@ func sweepTargets(
 			})
 		}
 		return targets
+	}
+}
+
+// announceHomeRow fans a home row a repo drag shifted out on the chats WS
+// by its own kind: a chat frame names the chat, a folder frame the folder.
+func announceHomeRow(
+	h *hub.Hub,
+) project.HomeRowAnnouncer {
+	return func(id, workspaceID string, kind domain.NodeKind, event string) {
+		if kind == domain.NodeKindChat {
+			h.BroadcastAgentChat(id, workspaceID, event, false)
+			return
+		}
+		h.BroadcastAgentChatFolder(id, workspaceID, event)
 	}
 }
 

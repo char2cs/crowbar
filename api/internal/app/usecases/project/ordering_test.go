@@ -302,11 +302,15 @@ func TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat(t *testing.
 	workspaces.Rows = []domain.Workspace{
 		{ID: "home-ws-A", ProjectID: "pA", Kind: domain.WorkspaceKindHome},
 	}
-	type frame struct{ id, workspaceID, kind string }
+	type frame struct {
+		id, workspaceID string
+		kind            domain.NodeKind
+		event           string
+	}
 	var frames []frame
 	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil,
-		func(id, workspaceID, kind string) {
-			frames = append(frames, frame{id, workspaceID, kind})
+		func(id, workspaceID string, kind domain.NodeKind, event string) {
+			frames = append(frames, frame{id, workspaceID, kind, event})
 		},
 	)
 	ctx := context.Background()
@@ -322,7 +326,8 @@ func TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat(t *testing.
 	assert.Equal(t, 0, nodeRow(t, nodes, "repo-A").Order, "the repo itself moved to the top")
 	assert.Equal(t, 1, nodeRow(t, nodes, "chat-1").Order, "the chat was pushed down as collateral")
 	require.Len(t, frames, 1, "the collaterally-shifted chat must be announced")
-	assert.Equal(t, frame{id: "chat-1", workspaceID: "home-ws-A", kind: "order_set"}, frames[0])
+	assert.Equal(t, frame{id: "chat-1", workspaceID: "home-ws-A", kind: domain.NodeKindChat, event: "order_set"}, frames[0],
+		"announced as a CHAT, never as a folder frame carrying the chat id")
 }
 
 // TestUpdateRepo_HomeChatsNotWiredDegradesToTheOldUnscopedBehaviour documents

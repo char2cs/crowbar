@@ -76,6 +76,26 @@ func (u *projectUsecase) homeLevel(
 	if folderID != "" {
 		return rows, homeWorkspaceID, nil
 	}
+	return u.withNodelessRows(ctx, rows, repoIDs, chats, seen, exclude), homeWorkspaceID, nil
+}
+
+// withNodelessRows appends the root rows that predate Node rows — a repo,
+// or a home chat created before the root minted one — at the root the
+// sidebar draws them at; their first move mints the row.
+func (u *projectUsecase) withNodelessRows(
+	ctx context.Context,
+	rows []homeRow,
+	repoIDs map[string]bool,
+	chats []domain.Chat,
+	seen map[string]bool,
+	exclude string,
+) []homeRow {
+	for id := range repoIDs {
+		if seen[id] || id == exclude {
+			continue
+		}
+		rows = append(rows, homeRow{Node: domain.Node{ID: id, Kind: domain.NodeKindRepo}, fresh: true})
+	}
 	for _, c := range chats {
 		if seen[c.ID] || c.ID == exclude || c.ParentID != "" {
 			continue
@@ -89,7 +109,7 @@ func (u *projectUsecase) homeLevel(
 			createdAt: c.CreatedAt,
 		})
 	}
-	return rows, homeWorkspaceID, nil
+	return rows
 }
 
 // homeMember is homeLevel's per-kind membership rule for one Node row.

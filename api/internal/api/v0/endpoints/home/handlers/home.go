@@ -25,7 +25,7 @@ func (h *Handlers) Get(c *gin.Context) {
 	// a project-home read taken mid-agent-turn reports working=true and the
 	// home workspace's icon keeps its spinner across a refetch.
 	ws.Working = h.working.WorkingFor(ws.ID)
-	owningChatID := h.resolveOwningChatID(c.Request.Context(), ws.ID)
+	owningChatID := h.resolveOwningChatID(c.Request.Context(), ws)
 	// Home workspaces carry no git-merge-eligibility context, and no sidebar
 	// FolderID/Order either: PlaceWorkspace itself refuses this row (RepoOf
 	// answers "" for it — see PlaceWorkspace's own doc), so there is nothing
@@ -35,19 +35,23 @@ func (h *Handlers) Get(c *gin.Context) {
 		dto.WorkspaceDTOFrom(c.Request.Context(), ws, wsrepo.MergeEligibility{}, owningChatID, nil))
 }
 
-// resolveOwningChatID answers wsID's real owning chat id for the wire DTO,
-// mirroring the workspaces handlers' own resolveOwningChatID: it reuses
-// domain.ResolveOwningChat over this handler's own read of the workspace's
-// chat rows, never a second, independently derived answer. An unwired chats
-// seam or an empty read degrades to "".
+// resolveOwningChatID answers the home workspace's real owning chat id for
+// the wire DTO: the chat handlers' own EnsureOwner when wired, which mints an
+// owner for a home none records one for — a home read over zero chats is
+// otherwise the one read that never mints, and the first thread started
+// there became the lone candidate. Without it, the same heuristic the
+// workspaces handlers use; an unwired chats seam degrades to "".
 func (h *Handlers) resolveOwningChatID(
 	ctx context.Context,
-	wsID string,
+	ws domain.Workspace,
 ) string {
+	if h.owners != nil {
+		return h.owners.EnsureOwner(ctx, ws)
+	}
 	if h.chats == nil {
 		return ""
 	}
-	rows, err := h.chats.ListChatsByWorkspace(ctx, wsID)
+	rows, err := h.chats.ListChatsByWorkspace(ctx, ws.ID)
 	if err != nil {
 		return ""
 	}

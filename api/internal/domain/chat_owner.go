@@ -35,9 +35,11 @@ func ResolveOwningChat(
 }
 
 // ownerCandidates narrows rows to the ones that can own the workspace: every
-// row that RECORDS ownership when any does, otherwise every legacy row except
-// a thread filed directly under the workspace's own row — that thread was
-// created inside the workspace, never for it.
+// row that RECORDS ownership when any does, otherwise every legacy row that
+// still looks like a minted owner — a branch row, or an untitled chat not
+// filed under the workspace's own row. A titled conversation was chatted
+// in, and a thread under the workspace's row was created inside it, never
+// for it.
 func ownerCandidates(
 	rows []Chat,
 ) []Chat {
@@ -46,7 +48,11 @@ func ownerCandidates(
 		switch {
 		case row.OwnsWorkspace:
 			recorded = append(recorded, row)
+		case row.Type == ChatTypeBranch:
+			legacy = append(legacy, row)
 		case row.WorkspaceID != "" && row.ParentID == row.WorkspaceID:
+			continue
+		case row.Title != "" || row.TitleLocked:
 			continue
 		default:
 			legacy = append(legacy, row)

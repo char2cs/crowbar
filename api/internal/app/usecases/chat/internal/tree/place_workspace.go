@@ -101,7 +101,7 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	}); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
-	if wErr := guardNotWorking(subtreeIDsOf(nodeID, snapshot.rows), u.work); wErr != nil {
+	if wErr := guardNotWorking(snapshot.subtreeIDs(nodeID), u.work); wErr != nil {
 		return domain.Chat{}, nil, wErr
 	}
 	u.replace(snapshot, nodeID, current.ParentID, destination, in.Order, false)

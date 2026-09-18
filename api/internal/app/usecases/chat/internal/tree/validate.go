@@ -31,7 +31,7 @@ func (u *chatFolderUsecase) checkFolderMove(
 	if err := u.checkFolderContainer(ctx, snapshot, folderRepoID, destination); err != nil {
 		return err
 	}
-	if snapshot.plan.Reaches(destination, id) {
+	if snapshot.plan.Reaches(snapshot.canonical(destination), id) {
 		return fmt.Errorf("agent chat folder: move %s under %s: %w", id, destination, ErrCycle)
 	}
 	if err := u.checkFolderContextMove(ctx, snapshot, id, destination); err != nil {
@@ -92,7 +92,7 @@ func (u *chatFolderUsecase) checkWorkspaceMove(
 	if err := u.checkFolderContainer(ctx, snapshot, move.repoID, move.destination); err != nil {
 		return err
 	}
-	if snapshot.plan.Reaches(move.destination, move.nodeID) {
+	if snapshot.plan.Reaches(snapshot.canonical(move.destination), move.nodeID) {
 		return fmt.Errorf(
 			"agent chat folder: move %s under %s: %w", move.nodeID, move.destination, ErrCycle,
 		)
@@ -343,7 +343,7 @@ func (u *chatFolderUsecase) checkChatMove(
 	if err := u.checkChatContainer(ctx, snapshot, workspaceID, destination, ownWorktree); err != nil {
 		return err
 	}
-	if snapshot.plan.Reaches(destination, id) {
+	if snapshot.plan.Reaches(snapshot.canonical(destination), id) {
 		return fmt.Errorf("agent chat folder: move %s under %s: %w", id, destination, ErrCycle)
 	}
 	return nil

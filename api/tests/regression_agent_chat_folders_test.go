@@ -544,6 +544,9 @@ func assertDenseChatLevel(
 	var chats []agentChatDTO
 	h.get(base+"/chats", &chats)
 	for _, c := range chats {
+		if c.Worktree != nil && c.Worktree.OwningChatID == c.ID {
+			continue // the workspace's own row: the header, never a member of its level
+		}
 		if c.ParentID == container && (container != "" || c.WorkspaceID == workspaceID) {
 			orders[c.ID] = c.Order
 		}

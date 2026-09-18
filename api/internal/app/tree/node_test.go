@@ -66,3 +66,17 @@ func TestMembers_SortsUndatedRowsAheadOfDatedOnes(t *testing.T) {
 
 	assert.Equal(t, []string{"undated", "dated"}, ids(plan.Members("")))
 }
+
+// The sidebar draws a tied level folders, then branches, then chats, with a
+// project's repo headers after its home rows — a densify that counted chats
+// ahead of branches (or repos ahead of chats) put the first drop slots off.
+func TestMembers_BreaksATieByKindInTheSidebarsDrawnSequence(t *testing.T) {
+	plan := tree.New([]tree.Node{
+		{ID: "chat", Rank: tree.RankChat, CreatedAt: at(1)},
+		{ID: "workspace", Rank: tree.RankWorkspace, CreatedAt: at(2)},
+		{ID: "folder", Rank: tree.RankFolder, CreatedAt: at(3)},
+		{ID: "repo", Rank: tree.RankRepo, CreatedAt: at(4)},
+	})
+
+	assert.Equal(t, []string{"folder", "workspace", "chat", "repo"}, ids(plan.Members("")))
+}

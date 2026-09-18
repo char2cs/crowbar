@@ -113,14 +113,14 @@ func (u *chatFolderUsecase) globalSnapshotIn(
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: %w", err)
 	}
-	merged, homeIDs, foreign, err := u.mergeForest(ctx, rows, scope, nil)
+	f, err := u.mergeForest(ctx, rows, scope, []string{subject.ParentID})
 	if err != nil {
 		return nil, err
 	}
 	subjectIsNodeBacked := subject.ID != "" &&
 		(subject.Type == domain.ChatTypeFolder || subject.Type == domain.ChatTypeBranch ||
 			subject.Type == workspaceAnchorType)
-	return buildHomeSnapshot(merged, subject, homeIDs, foreign, subjectIsNodeBacked), nil
+	return buildHomeSnapshot(f, subject, subjectIsNodeBacked), nil
 }
 
 // workspaceSnapshot reads one workspace's rows, PLUS every folder, as of a
@@ -176,30 +176,36 @@ func (u *chatFolderUsecase) workspaceSnapshot(
 // is Node-backed. isHomeWorkspace's answer decides ONLY whether repo
 // phantoms participate (see mergeForest's own doc) — the merge itself runs
 // either way.
+//
+// seeds names containers the walk must reach whether or not anything read
+// already names them — the destination of the placement being planned, so a
+// first placement counts the children already filed there (a fork's
+// owning-chat container is otherwise unreachable from the bubble scope, and
+// an unlocked anchor from any scope) and lands at the next slot, not 0.
 func (u *chatFolderUsecase) workspaceSnapshotAround(
 	ctx context.Context,
 	workspaceID string,
 	subject domain.Chat,
+	seeds ...string,
 ) (*treeSnapshot, error) {
-	rows, err := u.chats.ListByWorkspace(ctx, workspaceID)
+	// Every row the daemon knows, not one workspace's: a level is drawn
+	// across workspaces (a repo root holds the default checkout's chats AND
+	// every fork's own row), and the scope decides who counts.
+	rows, err := u.chats.ListChats(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("agent chat folder: snapshot: chats: %w", err)
 	}
 	if workspaceID == "" {
-		merged, nodeIDs, foreign, err := u.mergeForest(ctx, rows, u.scopeForBubble(ctx, subject), nil)
+		f, err := u.mergeForest(ctx, rows, u.scopeForBubble(ctx, subject), seeds)
 		if err != nil {
 			return nil, err
 		}
-		delete(foreign, subject.ID)
-		snap := newTreeSnapshotScoped(corrected(merged, subject), foreign)
-		snap.homeIDs = nodeIDs
+		delete(f.foreign, subject.ID)
+		snap := newTreeSnapshotScoped(corrected(f.rows, subject), f.foreign, f.aliases)
+		snap.homeIDs, snap.freshIDs = f.homeIDs, f.fresh
 		return snap, nil
 	}
-	home, err := u.isHomeWorkspace(ctx, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	return u.homeSnapshotAround(ctx, workspaceID, home, rows, subject)
+	return u.homeSnapshotAround(ctx, workspaceID, rows, subject, seeds...)
 }
 
 // corrected replaces the projected row for subject with the log-folded one, or
@@ -295,7 +301,7 @@ func (u *chatFolderUsecase) writeRow(
 	if snapshot.homeIDs[id] {
 		return u.writeHomeNode(ctx, snapshot, row)
 	}
-	if !snapshot.plan.Reparented(id) {
+	if !snapshot.reparented(id) {
 		updated, err := u.chats.SetOrder(ctx, id, row.Order)
 		if err != nil {
 			// A densify plans from one snapshot, but SetOrder lands on the live
@@ -345,10 +351,10 @@ func placementTarget(
 	if requested != nil {
 		return *requested
 	}
-	if origin == destination && !firstPlacement {
-		return snapshot.plan.IndexOf(destination, id)
+	if snapshot.canonical(origin) == snapshot.canonical(destination) && !firstPlacement {
+		return snapshot.plan.IndexOf(snapshot.canonical(destination), id)
 	}
-	return snapshot.plan.NextSlot(destination)
+	return snapshot.plan.NextSlot(snapshot.canonical(destination))
 }
 
 func cleanName(

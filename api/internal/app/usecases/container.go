@@ -166,7 +166,7 @@ func New(
 	engines *engine.Container,
 	crowbarHome func() (string, error),
 	threadBroadcast agentusecase.ToolThreadBroadcast,
-	broadcastAgentChatFolder func(id, workspaceID, kind string),
+	announceHomeRow project.HomeRowAnnouncer,
 	announceRepo agentusecase.TreeRepoAnnouncer,
 ) (*Container, error) {
 	projectUsecase := project.New(
@@ -185,7 +185,7 @@ func New(
 		// Announces a repo reorder's COLLATERAL chat/folder siblings on the
 		// same chats WS their own drag would use — see project.New's own doc
 		// and placeRepoAmongHomeSiblings.
-		broadcastAgentChatFolder,
+		announceHomeRow,
 	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,

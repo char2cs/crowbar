@@ -254,7 +254,7 @@ func (s *worktreeScope) project(
 // that rule changed.
 //
 // A workspace no chat owns yet (created before the chat-first mint existed)
-// gets its owner minted here (ensureOwner) rather than answered as c's own
+// gets its owner minted here (EnsureOwner) rather than answered as c's own
 // id: c may be a THREAD started inside the workspace, and naming it the owner
 // folded that thread into the branch row it was filed under.
 func (s *worktreeScope) owner(
@@ -264,12 +264,12 @@ func (s *worktreeScope) owner(
 	if owner, ok := s.owners[c.WorkspaceID]; ok {
 		return owner
 	}
-	owner := s.handlers.ensureOwner(ctx, s.index[c.WorkspaceID])
+	owner := s.handlers.EnsureOwner(ctx, s.index[c.WorkspaceID])
 	s.owners[c.WorkspaceID] = owner
 	return owner
 }
 
-// ensureOwner answers the chat that owns ws, minting one when none does.
+// EnsureOwner answers the chat that owns ws, minting one when none does.
 //
 // Every workspace created since the chat-first mint (MintOwningChat +
 // AttachOwningWorkspace) has an owner from birth; one created before it — a
@@ -281,22 +281,25 @@ func (s *worktreeScope) owner(
 // touch" posture a Node-less repo or workspace anchor takes. Serialized
 // under one lock so two concurrent lists cannot mint two owners.
 //
+// A legacy winner (resolved by heuristic, recording nothing) is recorded on
+// the spot, so the answer is the same fact on every later read and WS frame.
+//
 // "" only when nothing can be minted: no tree usecase wired (tests), or the
 // mint failed — the row is still served, exactly as before.
-func (h *Handlers) ensureOwner(
+func (h *Handlers) EnsureOwner(
 	ctx context.Context,
 	ws domain.Workspace,
 ) string {
-	resolve := func() (string, bool) {
+	resolve := func() (domain.Chat, bool) {
 		rows, err := h.chats.ListChatsByWorkspace(ctx, ws.ID)
 		if err != nil {
-			return "", false
+			return domain.Chat{}, false
 		}
-		owner, ok := domain.ResolveOwningChat(rows)
-		return owner.ID, ok
+		return domain.ResolveOwningChat(rows)
 	}
 	if owner, ok := resolve(); ok {
-		return owner
+		h.recordOwner(ctx, owner, ws)
+		return owner.ID
 	}
 	if ws.ID == "" || h.folders == nil || ws.Status == domain.WorkspaceStatusDeleted {
 		return ""
@@ -304,7 +307,8 @@ func (h *Handlers) ensureOwner(
 	h.ownerMint.Lock()
 	defer h.ownerMint.Unlock()
 	if owner, ok := resolve(); ok {
-		return owner
+		h.recordOwner(ctx, owner, ws)
+		return owner.ID
 	}
 	chatID, err := h.folders.MintOwningChat(ctx, ws.ParentID)
 	if err != nil {
@@ -318,6 +322,21 @@ func (h *Handlers) ensureOwner(
 		return ""
 	}
 	return chatID
+}
+
+// recordOwner makes a heuristically resolved legacy owner a recorded one.
+func (h *Handlers) recordOwner(
+	ctx context.Context,
+	owner domain.Chat,
+	ws domain.Workspace,
+) {
+	if owner.OwnsWorkspace || h.folders == nil || ws.ID == "" {
+		return
+	}
+	if err := h.folders.AttachOwningWorkspace(ctx, owner.ID, ws); err != nil {
+		slog.WarnContext(ctx, "chat: record a legacy owning chat",
+			"workspace_id", ws.ID, "chat_id", owner.ID, "err", err)
+	}
 }
 
 // Workspaces handles GET .../repos/:repoId/workspaces: every workspace row in
@@ -341,7 +360,7 @@ func (h *Handlers) ensureOwner(
 // route directly. ownerOf resolves each row's owning chat id the same way
 // worktreeScope.owner does: a workspace with no chats at all — the exact row
 // this route exists to surface — gets its owner minted on this first read
-// (ensureOwner), so no provisioned workspace is ever served unaddressable.
+// (EnsureOwner), so no provisioned workspace is ever served unaddressable.
 func (h *Handlers) Workspaces(
 	ctx *gin.Context,
 ) {
@@ -364,7 +383,7 @@ func (h *Handlers) Workspaces(
 		if owner, ok := owners[w.ID]; ok {
 			return owner
 		}
-		owner := h.ensureOwner(rctx, w)
+		owner := h.EnsureOwner(rctx, w)
 		owners[w.ID] = owner
 		return owner
 	}
