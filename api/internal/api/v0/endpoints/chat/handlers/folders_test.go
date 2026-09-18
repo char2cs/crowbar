@@ -195,6 +195,13 @@ func (f *fakeChatTree) AttachOwningWorkspace(
 	return f.err
 }
 
+func (f *fakeChatTree) DiscardOwningChat(
+	_ context.Context,
+	_ string,
+) error {
+	return f.err
+}
+
 // folderFrame is one chat-folder frame the handlers pushed on the Chats socket.
 type folderFrame struct {
 	folderID    string

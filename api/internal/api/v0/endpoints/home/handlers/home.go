@@ -55,7 +55,7 @@ func (h *Handlers) resolveOwningChatID(
 	if err != nil {
 		return ""
 	}
-	owner, ok := domain.ResolveOwningChat(rows)
+	owner, ok := domain.ResolveOwningChat(rows, true)
 	if !ok {
 		return ""
 	}

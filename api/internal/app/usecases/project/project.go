@@ -396,7 +396,7 @@ func (u *projectUsecase) UpdateRepo(
 	// reorder within the same container is covered by the densify above; this
 	// only fires for an actual move.
 	if origin != repo.ProjectID || originFolder != targetFolder {
-		left, err := u.densifyReposExcluding(ctx, origin, originFolder, repoID)
+		left, err := u.densifyHomeLevel(ctx, origin, originFolder, repoID)
 		if err != nil {
 			return RepoUpdated{}, err
 		}
@@ -605,30 +605,6 @@ func (u *projectUsecase) densifyRepos(
 	subject *domain.Node,
 	subjectExists bool,
 ) ([]domain.Node, error) {
-	return u.densifyReposScoped(ctx, projectID, folderID, subject, subjectExists, "")
-}
-
-// densifyReposExcluding is densifyRepos with no subject to include, but a
-// specific id to drop even if Node's read model has not yet folded its
-// departure — used to close the gap in the container a repo just LEFT, where
-// there is nothing to place, only a stray reference to defend against.
-func (u *projectUsecase) densifyReposExcluding(
-	ctx context.Context,
-	projectID string,
-	folderID string,
-	exclude string,
-) ([]domain.Node, error) {
-	return u.densifyReposScoped(ctx, projectID, folderID, nil, false, exclude)
-}
-
-func (u *projectUsecase) densifyReposScoped(
-	ctx context.Context,
-	projectID string,
-	folderID string,
-	subject *domain.Node,
-	subjectExists bool,
-	exclude string,
-) ([]domain.Node, error) {
 	memberIDs, err := u.repoIDSet(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -637,7 +613,7 @@ func (u *projectUsecase) densifyReposScoped(
 	if err != nil {
 		return nil, fmt.Errorf("project: reorder repos: list nodes: %w", err)
 	}
-	rows := densifyRows(memberIDs, nodes, subject, exclude)
+	rows := densifyRows(memberIDs, nodes, subject)
 	subjectID := ""
 	if subject != nil {
 		subjectID = subject.ID
@@ -673,22 +649,19 @@ func (u *projectUsecase) densifyReposScoped(
 	return decided, nil
 }
 
-// densifyRows builds densifyReposScoped's candidate row list: every node
-// belonging to projectID (memberIDs) and sitting in folderID's sibling space
-// (nodes, from Node.ListByParent), minus exclude (a row known to have LEFT
-// even if the read model has not yet folded that) and minus subject's own
-// stale copy — subject, when given, is appended in its place as the
-// authoritative one (see densifyReposScoped's own doc for the race this
-// defends against).
+// densifyRows builds densifyRepos' candidate row list: every node belonging
+// to projectID (memberIDs) and sitting in folderID's sibling space (nodes,
+// from Node.ListByParent), minus subject's own stale copy — subject, when
+// given, is appended in its place as the authoritative one (see
+// densifyRepos' own doc for the race this defends against).
 func densifyRows(
 	memberIDs map[string]bool,
 	nodes []domain.Node,
 	subject *domain.Node,
-	exclude string,
 ) []domain.Node {
 	rows := make([]domain.Node, 0, len(nodes)+1)
 	for _, n := range nodes {
-		if !memberIDs[n.ID] || n.ID == exclude {
+		if !memberIDs[n.ID] {
 			continue
 		}
 		if subject != nil && n.ID == subject.ID {
@@ -832,41 +805,10 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 	rows := append(siblings, homeRow{Node: subject, fresh: !subjectExists})
 	slots := homeIndex(rows)
 	reparented := subject.ParentID != folderID
-	written := make(map[string]bool, len(slots))
-	var decided []domain.Node
-	for _, moved := range place(slots, subject.ID, &target) {
-		row := rows[moved.at]
-		written[row.ID] = true
-		decided = append(decided, domain.Node{ID: row.ID, Kind: row.Kind, ParentID: folderID, Order: moved.order})
-		if row.fresh {
-			if err := u.mintNode(ctx, row.ID, row.Kind, folderID, moved.order); err != nil {
-				return nil, err
-			}
-		} else {
-			reparenting := row.ID == subject.ID && reparented
-			if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
-				return nil, err
-			}
-		}
-		// The moved chat/folder rows only, not the repo subject: PlaceChat's
-		// own announce covers a chat/folder's OWN drag, this covers the same
-		// rows moving as collateral of a REPO drag instead.
-		if row.ID != subject.ID && u.broadcastChat != nil && homeWorkspaceID != "" &&
-			(row.Kind == domain.NodeKindChat || row.Kind == domain.NodeKindFolder) {
-			u.broadcastChat(row.ID, homeWorkspaceID, row.Kind, "order_set")
-		}
-	}
-	// A legacy root chat whose slot did not move (place reports no change, so
-	// its order IS its final index) still becomes Node-backed: the level was
-	// touched, and the next read must find every row on one surface.
-	for _, row := range rows {
-		if !row.fresh || written[row.ID] || row.ID == subject.ID {
-			continue
-		}
-		written[row.ID] = true
-		if err := u.mintNode(ctx, row.ID, row.Kind, folderID, row.Order); err != nil {
-			return nil, err
-		}
+	decided, written, err := u.writeHomeLevel(ctx, rows, place(slots, subject.ID, &target),
+		folderID, homeWorkspaceID, subject.ID, reparented)
+	if err != nil {
+		return nil, err
 	}
 	n, err := u.ensureSubjectWritten(ctx, slots, subject.ID, subjectExists, reparented, folderID, &target, written)
 	if err != nil {
@@ -876,6 +818,75 @@ func (u *projectUsecase) placeRepoAmongHomeSiblings(
 		decided = append(decided, *n)
 	}
 	return decided, nil
+}
+
+// densifyHomeLevel closes the gap a repo left in (projectID, folderID) over
+// the level's full member set — repos, home chats and home folders alike —
+// so the rows that stay keep their drawn order. exclude is the row known to
+// have LEFT even if Node's read model has not yet folded its departure.
+func (u *projectUsecase) densifyHomeLevel(
+	ctx context.Context,
+	projectID string,
+	folderID string,
+	exclude string,
+) ([]domain.Node, error) {
+	rows, homeWorkspaceID, err := u.homeLevel(ctx, projectID, folderID, exclude)
+	if err != nil {
+		return nil, err
+	}
+	decided, _, err := u.writeHomeLevel(ctx, rows, place(homeIndex(rows), "", nil),
+		folderID, homeWorkspaceID, "", false)
+	return decided, err
+}
+
+// writeHomeLevel writes every move a home-level pass decided, mints the
+// fresh rows the level touched and announces the chats/folders it shifted.
+func (u *projectUsecase) writeHomeLevel(
+	ctx context.Context,
+	rows []homeRow,
+	moves []move,
+	folderID string,
+	homeWorkspaceID string,
+	subjectID string,
+	reparented bool,
+) ([]domain.Node, map[string]bool, error) {
+	written := make(map[string]bool, len(rows))
+	var decided []domain.Node
+	for _, moved := range moves {
+		row := rows[moved.at]
+		written[row.ID] = true
+		decided = append(decided, domain.Node{ID: row.ID, Kind: row.Kind, ParentID: folderID, Order: moved.order})
+		if row.fresh {
+			if err := u.mintNode(ctx, row.ID, row.Kind, folderID, moved.order); err != nil {
+				return nil, nil, err
+			}
+		} else {
+			reparenting := row.ID == subjectID && reparented
+			if err := u.writeNode(ctx, row.ID, folderID, moved.order, reparenting); err != nil {
+				return nil, nil, err
+			}
+		}
+		// The moved chat/folder rows only, not the repo subject: PlaceChat's
+		// own announce covers a chat/folder's OWN drag, this covers the same
+		// rows moving as collateral of a REPO drag instead.
+		if row.ID != subjectID && u.broadcastChat != nil && homeWorkspaceID != "" &&
+			(row.Kind == domain.NodeKindChat || row.Kind == domain.NodeKindFolder) {
+			u.broadcastChat(row.ID, homeWorkspaceID, row.Kind, "order_set")
+		}
+	}
+	// A legacy root chat whose slot did not move (place reports no change, so
+	// its order IS its final index) still becomes Node-backed: the level was
+	// touched, and the next read must find every row on one surface.
+	for _, row := range rows {
+		if !row.fresh || written[row.ID] || row.ID == subjectID {
+			continue
+		}
+		written[row.ID] = true
+		if err := u.mintNode(ctx, row.ID, row.Kind, folderID, row.Order); err != nil {
+			return nil, nil, err
+		}
+	}
+	return decided, written, nil
 }
 
 // Reorder sets a project's sidebar index and densifies the whole list. Projects

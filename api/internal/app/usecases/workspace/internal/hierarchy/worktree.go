@@ -1527,6 +1527,9 @@ func (u *hierarchyUsecase) DeleteCascade(
 	if root.Status == domain.WorkspaceStatusLocked {
 		return ErrWorkspaceLocked
 	}
+	if root.IsDefault {
+		return ErrWorkspaceIsDefault
+	}
 	if workingErr := u.guardNotWorking(ctx, rootID); workingErr != nil {
 		return workingErr
 	}

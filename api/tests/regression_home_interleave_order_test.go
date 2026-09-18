@@ -179,3 +179,49 @@ func TestRegression_HomeChatDragCountsInvisibleWorkspaceAnchors(t *testing.T) {
 	assert.Equal(t, mainBefore.Order, mainAfter.Order, "a home-level chat drag must not renumber a repo's locked branch")
 	assert.Equal(t, secondBefore.Order, secondAfter.Order, "a home-level chat drag must not renumber a repo's locked branch")
 }
+
+// Filing a repo INTO a home folder closed the gap it left over repo rows
+// only: the repo that stayed was renumbered against its repo siblings alone
+// and collided with — or jumped past — the untouched chats sharing the level.
+func TestRegression_RepoFiledIntoHomeFolderLeavesTheRootDense(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importProject(t, h)
+	projectID := imported.projectID
+	repoA := imported.repoID
+	repoB := addSecondRepo(t, h, projectID)
+	base := "/v0/projects/" + projectID + "/home"
+
+	c1 := createHomeChat(t, h, projectID)
+	c2 := createHomeChat(t, h, projectID)
+	folder := createChatFolder(t, h, base, "F", "")
+
+	// A dense, interleaved root: [c1, repoA, c2, repoB, F].
+	for i, id := range []string{c1, c2} {
+		h.patch(base+"/chats/"+id+"/placement", map[string]any{"parentId": "", "order": i * 2}, nil)
+		h.Quiesce()
+	}
+	_ = h.raw(http.MethodPatch, "/v0/projects/"+projectID+"/repos/"+repoA, map[string]any{"order": 1}, http.StatusNoContent).Body.Close()
+	h.Quiesce()
+	_ = h.raw(http.MethodPatch, "/v0/projects/"+projectID+"/repos/"+repoB, map[string]any{"order": 3}, http.StatusNoContent).Body.Close()
+	h.Quiesce()
+	h.patch(base+"/chats/folders/"+folder.ID, map[string]any{"parentId": "", "order": 4}, nil)
+	h.Quiesce()
+	chats, repos := homeChatOrders(t, h, projectID), repoOrders(t, h, projectID)
+	folders := listChatFolders(t, h, base)
+	f, _ := chatFolderByID(folders, folder.ID)
+	t.Logf("before: c1=%d A=%d c2=%d B=%d F=%d", chats[c1].Order, repos[repoA].Order, chats[c2].Order, repos[repoB].Order, f.Order)
+	require.Equal(t, []int{0, 1, 2, 3, 4}, []int{chats[c1].Order, repos[repoA].Order, chats[c2].Order, repos[repoB].Order, f.Order})
+
+	// File repoA into F.
+	_ = h.raw(http.MethodPatch, "/v0/projects/"+projectID+"/repos/"+repoA,
+		map[string]any{"folderId": folder.ID, "order": 0}, http.StatusNoContent).Body.Close()
+	h.Quiesce()
+
+	chats, repos = homeChatOrders(t, h, projectID), repoOrders(t, h, projectID)
+	f, _ = chatFolderByID(listChatFolders(t, h, base), folder.ID)
+	t.Logf("after: c1=%d c2=%d B=%d F=%d (A in folder: %q)", chats[c1].Order, chats[c2].Order, repos[repoB].Order, f.Order, repos[repoA].FolderID)
+	assert.Equal(t, folder.ID, repos[repoA].FolderID)
+	assert.Equal(t, []int{0, 1, 2, 3}, []int{chats[c1].Order, chats[c2].Order, repos[repoB].Order, f.Order},
+		"the level repoA left must stay dense in its drawn order [c1, c2, repoB, F]")
+}

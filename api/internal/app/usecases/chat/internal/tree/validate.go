@@ -247,11 +247,11 @@ func (u *chatFolderUsecase) resolveRow(
 		return &row, nil
 	}
 	if n, nerr := u.nodes.GetNode(ctx, id); nerr == nil && n.Kind == domain.NodeKindWorkspace {
-		row := workspaceAnchorView(id, n)
+		row := u.anchorView(ctx, id, n)
 		return &row, nil
 	}
 	if live, lerr := u.workspaces.Exists(ctx, id); lerr == nil && live {
-		row := workspaceAnchorView(id, domain.Node{ID: id, Kind: domain.NodeKindWorkspace})
+		row := u.anchorView(ctx, id, domain.Node{ID: id, Kind: domain.NodeKindWorkspace})
 		return &row, nil
 	}
 	return nil, err // the ORIGINAL Chats.Get failure -- neither a folder, a workspace's own Node row nor a live workspace answers to id.

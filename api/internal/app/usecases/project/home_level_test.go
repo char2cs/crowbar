@@ -106,3 +106,59 @@ func TestRegression_UpdateRepo_IgnoresAnotherProjectsHomeFolder(t *testing.T) {
 	assert.Equal(t, 0, nodeRow(t, nodes, "folder-B").Order, "project B's home folder is not a sibling")
 	assert.Equal(t, 0, nodeRow(t, nodes, "repo-folder").Order, "a repo-internal folder is not a sibling")
 }
+
+// A home chat filed into a Chats-panel folder from before Node rows has no
+// Node and a frozen ParentID naming a folder that no longer exists. The
+// sidebar draws it at the top level; the repo writer skipped every chat with
+// a non-empty ParentID, so a repo could never be placed past it.
+func TestRegression_UpdateRepo_CountsAChatFiledUnderAGhostParent(t *testing.T) {
+	_, nodes, homeChats, _, uc := newHomeLevelFixture(t)
+	homeChats.Rows = []domain.Chat{
+		{ID: "owner", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, OwnsWorkspace: true},
+		{ID: "ghost-filed", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, ParentID: "retired-folder", CreatedAt: time.Unix(1, 0)},
+		{ID: "c2", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, CreatedAt: time.Unix(2, 0)},
+	}
+	nodes.Rows = []domain.Node{
+		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 1},
+		{ID: "c2", Kind: domain.NodeKindChat, Order: 2},
+	}
+
+	// Drawn [ghost-filed, repo-A, c2]; the repo to the very top.
+	_, err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{Order: index(0)})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, nodeRow(t, nodes, "repo-A").Order)
+	assert.Equal(t, 1, nodeRow(t, nodes, "ghost-filed").Order, "the ghost-filed chat is counted at the root and minted there")
+	assert.Equal(t, "", nodeRow(t, nodes, "ghost-filed").ParentID)
+	assert.Equal(t, 2, nodeRow(t, nodes, "c2").Order)
+}
+
+// Filing a repo INTO a home folder closed the gap it left over repo rows
+// only: the remaining repo was renumbered against its repo siblings alone
+// and collided with the untouched chats and folder sharing the level.
+func TestRegression_UpdateRepo_LeavingTheRootDensifiesTheWholeLevel(t *testing.T) {
+	repos, nodes, homeChats, folders, uc := newHomeLevelFixture(t)
+	require.NoError(t, repos.Save(context.Background(), domain.Repository{ID: "repo-B", ProjectID: "pA"}))
+	homeChats.Rows = []domain.Chat{
+		{ID: "owner", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, OwnsWorkspace: true},
+		{ID: "c1", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, CreatedAt: time.Unix(1, 0)},
+		{ID: "c2", WorkspaceID: "home-ws-A", Type: domain.ChatTypeChat, CreatedAt: time.Unix(2, 0)},
+	}
+	folders.Saved = []domain.Folder{{ID: "F", RepoID: "", HomeID: "home-ws-A"}}
+	nodes.Rows = []domain.Node{
+		{ID: "c1", Kind: domain.NodeKindChat, Order: 0},
+		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 1},
+		{ID: "c2", Kind: domain.NodeKindChat, Order: 2},
+		{ID: "repo-B", Kind: domain.NodeKindRepo, Order: 3},
+		{ID: "F", Kind: domain.NodeKindFolder, Order: 4},
+	}
+
+	_, err := uc.UpdateRepo(context.Background(), "repo-A", project.RepoUpdate{FolderID: name("F"), Order: index(0)})
+	require.NoError(t, err)
+
+	assert.Equal(t, "F", nodeRow(t, nodes, "repo-A").ParentID)
+	assert.Equal(t, 0, nodeRow(t, nodes, "c1").Order)
+	assert.Equal(t, 1, nodeRow(t, nodes, "c2").Order, "c2 closes the gap the repo left")
+	assert.Equal(t, 2, nodeRow(t, nodes, "repo-B").Order, "repo-B stays after c2")
+	assert.Equal(t, 3, nodeRow(t, nodes, "F").Order)
+}

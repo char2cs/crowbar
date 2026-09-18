@@ -94,7 +94,7 @@ func (r nodePlacementReader) Placement(
 	nodeID := workspaceID
 	if ws, err := r.wt.Get(ctx, workspaceID); err == nil && !ws.RendersAsBranch() {
 		if rows, cErr := r.chats.ListChatsByWorkspace(ctx, workspaceID); cErr == nil {
-			if owner, ok := domain.ResolveOwningChat(rows); ok {
+			if owner, ok := domain.ResolveOwningChat(rows, ws.SharedGround()); ok {
 				nodeID = owner.ID
 			}
 		}
@@ -295,7 +295,7 @@ func (h *Handlers) EnsureOwner(
 		if err != nil {
 			return domain.Chat{}, false
 		}
-		return domain.ResolveOwningChat(rows)
+		return domain.ResolveOwningChat(rows, ws.SharedGround())
 	}
 	if owner, ok := resolve(); ok {
 		h.recordOwner(ctx, owner, ws)
@@ -310,6 +310,8 @@ func (h *Handlers) EnsureOwner(
 		h.recordOwner(ctx, owner, ws)
 		return owner.ID
 	}
+	// A client abort mid-read must not tear the two-step write apart.
+	ctx = context.WithoutCancel(ctx)
 	chatID, err := h.folders.MintOwningChat(ctx, ws.ParentID)
 	if err != nil {
 		slog.WarnContext(ctx, "chat: mint the owning chat of a chatless workspace",
@@ -319,6 +321,10 @@ func (h *Handlers) EnsureOwner(
 	if err := h.folders.AttachOwningWorkspace(ctx, chatID, ws); err != nil {
 		slog.WarnContext(ctx, "chat: attach a minted owning chat to its workspace",
 			"workspace_id", ws.ID, "chat_id", chatID, "err", err)
+		if dErr := h.folders.DiscardOwningChat(ctx, chatID); dErr != nil {
+			slog.WarnContext(ctx, "chat: discard the owning chat a failed attach left behind",
+				"workspace_id", ws.ID, "chat_id", chatID, "err", dErr)
+		}
 		return ""
 	}
 	return chatID

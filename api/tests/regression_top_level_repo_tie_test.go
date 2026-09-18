@@ -11,12 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// K3, legacy data with TWO repos: the sidebar draws a tied (all order 0)
-// level in the sequence GET .../repos delivers it (import order) and indexes a
-// drop against that sequence, so the backend's tie-break over the rows that
-// stay behind must be that same sequence. A repo Node carries no CreatedAt, so
-// both writers fall through to the id — which is the import order only by
-// coin flip. The chat then lands beside the wrong repo and the two repos swap.
+// K3, legacy data with TWO repos: a tied (all order 0) level is drawn by the
+// sidebar's compareSidebarRows (row-order.ts) and indexed against that
+// sequence, so the backend's tie-break over the rows that stay behind must be
+// that same sequence. A repo Node carries no CreatedAt, so both writers fall
+// through to the REPO id — and the sidebar ties a repo header on
+// `repoIcon.repoId` too, never on the owning-chat id the row is drawn by.
+// RepoDTOList's (order, id) sort is therefore exactly the displayed sequence,
+// and this test derives `displayed` from it. Before the fix the chat landed
+// beside the wrong repo and the two repos swapped.
 func TestRegression_TopLevelChatPastTiedRepos_LandsWhereIndicated(t *testing.T) {
 	h := newHarness(t)
 	writePromoteStubProviderDescriptor(t, h)
@@ -60,8 +63,9 @@ func TestRegression_TopLevelChatPastTiedRepos_LandsWhereIndicated(t *testing.T) 
 	}
 	h.Quiesce()
 
-	// The sidebar draws tied repos in the sequence GET .../repos answers them
-	// AFTER the tie (RepoDTOList sorts (order, id)), so that read is the display.
+	// The sidebar draws tied repos in repo-id order (compareSidebarRows ties a
+	// header on repoIcon.repoId), which is GET .../repos' (order, id) sort
+	// AFTER the tie — so that read is the display.
 	var listed []struct {
 		ID string `json:"id"`
 	}

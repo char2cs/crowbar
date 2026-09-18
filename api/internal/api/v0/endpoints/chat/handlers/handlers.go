@@ -477,6 +477,12 @@ type ChatTreeUsecase interface {
 		chatID string,
 		ws domain.Workspace,
 	) error
+	// DiscardOwningChat is MintOwningChat's compensating half, for an attach
+	// that failed.
+	DiscardOwningChat(
+		ctx context.Context,
+		chatID string,
+	) error
 }
 
 // Repos resolves the repository named by :repoId, so an IMPORTING create can

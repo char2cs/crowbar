@@ -3,6 +3,7 @@ package tree
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -69,9 +70,14 @@ const workspaceAnchorType domain.ChatType = "__workspace_anchor__"
 // branch is widened to workspaceAnchorType for the same reason it already
 // accepts ChatTypeFolder/ChatTypeBranch, rather than relying only on the
 // WorkspaceID coincidence.
+//
+// createdAt is the WORKSPACE's creation time — a Node carries none, and the
+// sidebar ties a branch row on its workspace's createdAt, so an anchor read
+// from its Node alone sorted a tied level differently on each side.
 func workspaceAnchorView(
 	workspaceID string,
 	n domain.Node,
+	createdAt time.Time,
 ) domain.Chat {
 	return domain.Chat{
 		ID:          workspaceID,
@@ -79,7 +85,18 @@ func workspaceAnchorView(
 		WorkspaceID: workspaceID,
 		ParentID:    n.ParentID,
 		Order:       n.Order,
+		CreatedAt:   createdAt,
 	}
+}
+
+// anchorView is workspaceAnchorView with the workspace's own creation time.
+func (u *chatFolderUsecase) anchorView(
+	ctx context.Context,
+	workspaceID string,
+	n domain.Node,
+) domain.Chat {
+	createdAt, _ := u.workspaces.CreatedAtOf(ctx, workspaceID)
+	return workspaceAnchorView(workspaceID, n, createdAt)
 }
 
 // nodePhantomType marks a repo's own Node row as it rides through this
@@ -109,6 +126,9 @@ func (u *chatFolderUsecase) correctHomePlacement(
 	}
 	n, err := u.nodes.GetNode(ctx, row.ID)
 	if err != nil {
+		if row.ParentID != "" && !u.rowExists(ctx, row.ParentID) {
+			row.ParentID = "" // a retired Chats-panel folder: drawn at the root
+		}
 		return row, nil
 	}
 	row.ParentID = n.ParentID
@@ -247,28 +267,17 @@ func (u *chatFolderUsecase) mergeForest(
 	}
 	f := forest{rows: baseRows, homeIDs: homeIDs, fresh: map[string]bool{}, aliases: aliases}
 	f.addNodelessRepos(scope, nodeSeen)
+	u.addNodelessAnchors(ctx, &f, scope, nodeSeen)
+	rerooted := u.rerootDanglingChats(ctx, &f, nodeSeen)
 	// Decided over the CORRECTED rows: a Node-backed chat's raw ParentID is
 	// frozen at "", and only its live Node says where it really sits.
 	f.foreign = u.foreignAtRoot(ctx, f.rows, scope, aliases)
-	return f, nil
-}
-
-// addNodelessRepos appends a fresh phantom for every repo of a home scope
-// that has no Node row yet.
-func (f *forest) addNodelessRepos(
-	scope forestScope,
-	nodeSeen map[string]bool,
-) {
-	if !scope.home {
-		return
-	}
-	for id := range scope.repoMemberIDs {
-		if nodeSeen[id] {
-			continue
+	for _, id := range rerooted {
+		if !f.foreign[id] {
+			f.homeIDs[id], f.fresh[id] = true, true
 		}
-		f.rows = append(f.rows, domain.Chat{ID: id, Type: nodePhantomType})
-		f.homeIDs[id], f.fresh[id] = true, true
 	}
+	return f, nil
 }
 
 // forest is mergeForest's answer: the merged rows and the facts the
@@ -305,6 +314,10 @@ func (u *chatFolderUsecase) mergeHomeNode(
 			row = &(*baseRows)[i]
 		}
 		if !u.rootMember(ctx, n, scope, aliases, row) {
+			if n.Kind == domain.NodeKindWorkspace && n.ID == scope.workspaceID {
+				// The header's anchor still holds the threads filed under it.
+				return false, n.ID, nil
+			}
 			return false, "", nil
 		}
 	}
@@ -365,7 +378,7 @@ func (u *chatFolderUsecase) mergeAnchorNode(
 	if err != nil || !renders {
 		return false
 	}
-	*baseRows = append(*baseRows, workspaceAnchorView(n.ID, n))
+	*baseRows = append(*baseRows, u.anchorView(ctx, n.ID, n))
 	return true
 }
 

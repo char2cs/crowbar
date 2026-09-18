@@ -88,8 +88,10 @@ func (u *chatFolderUsecase) reapWorktrees(
 		if err != nil {
 			return nil, fmt.Errorf("agent chat folder: delete chat %s: %w", id, err)
 		}
-		if shared {
-			if u.ownsWorktree(snapshot, *row) {
+		// The repo's main checkout is never a child worktree: only deleting
+		// the repo takes it, so its owner's delete leaves it for a fresh one.
+		if shared || u.isDefaultCheckout(ctx, row.WorkspaceID) {
+			if u.ownsWorktree(ctx, snapshot, *row) {
 				orphaned = append(orphaned, row.WorkspaceID)
 			}
 			continue
@@ -104,9 +106,23 @@ func (u *chatFolderUsecase) reapWorktrees(
 	return orphaned, nil
 }
 
+// isDefaultCheckout reports whether wsID is its repo's main checkout.
+func (u *chatFolderUsecase) isDefaultCheckout(
+	ctx context.Context,
+	wsID string,
+) bool {
+	repoID, err := u.workspaces.RepoOf(ctx, wsID)
+	if err != nil || repoID == "" {
+		return false
+	}
+	def, err := u.workspaces.DefaultWorkspaceOf(ctx, repoID)
+	return err == nil && def == wsID
+}
+
 // ownsWorktree reports whether row is the chat that owns its workspace, by
 // record or by the same resolution every wire surface makes.
 func (u *chatFolderUsecase) ownsWorktree(
+	ctx context.Context,
 	snapshot *treeSnapshot,
 	row domain.Chat,
 ) bool {
@@ -119,7 +135,7 @@ func (u *chatFolderUsecase) ownsWorktree(
 			holders = append(holders, r)
 		}
 	}
-	owner, ok := domain.ResolveOwningChat(holders)
+	owner, ok := domain.ResolveOwningChat(holders, u.sharedGround(ctx, row.WorkspaceID))
 	return ok && owner.ID == row.ID
 }
 

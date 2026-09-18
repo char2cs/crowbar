@@ -518,7 +518,7 @@ func (c *Container) enrichFrame(
 ) dto.WorkspaceDTO {
 	ws.Working = c.WorkingFor(ws.ID)
 	elig := c.eligibilityFor(ctx, ws)
-	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws.ID), c.nodePlacement(ctx, ws))
+	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws), c.nodePlacement(ctx, ws))
 }
 
 // nodePlacement adapts this container's own Node store to
@@ -549,7 +549,7 @@ func (c *Container) nodePlacement(
 	}
 	nodeID := ws.ID
 	if !ws.RendersAsBranch() {
-		if owner := c.owningChatIDFor(ctx, ws.ID); owner != "" {
+		if owner := c.owningChatIDFor(ctx, ws); owner != "" {
 			nodeID = owner
 		}
 	}
@@ -591,16 +591,16 @@ func (r nodePlacementReader) Placement(
 // pending.
 func (c *Container) owningChatIDFor(
 	ctx context.Context,
-	wsID string,
+	ws domain.Workspace,
 ) string {
 	if c.AgentChat == nil {
 		return ""
 	}
-	rows, err := c.AgentChat.ListByWorkspace(ctx, wsID)
+	rows, err := c.AgentChat.ListByWorkspace(ctx, ws.ID)
 	if err != nil {
 		return ""
 	}
-	owner, ok := domain.ResolveOwningChat(rows)
+	owner, ok := domain.ResolveOwningChat(rows, ws.SharedGround())
 	if !ok {
 		return ""
 	}

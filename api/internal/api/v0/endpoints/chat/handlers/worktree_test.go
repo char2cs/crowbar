@@ -278,3 +278,52 @@ func TestGet_ByIdCarriesTheWorktreeToo(t *testing.T) {
 	assert.Equal(t, 9, envelope.Data.Worktree.Added)
 	assert.Equal(t, "c1", envelope.Data.Worktree.OwningChatID)
 }
+
+// mintingTree is fakeChatTree with a mint that succeeds and an attach that
+// fails — the shape a request context cancelled between the two (the client
+// reloading mid-GET) leaves behind.
+type mintingTree struct {
+	fakeChatTree
+	minted   int
+	discards int
+}
+
+func (m *mintingTree) MintOwningChat(
+	_ context.Context,
+	_ string,
+) (string, error) {
+	m.minted++
+	return "minted-1", nil
+}
+
+func (m *mintingTree) AttachOwningWorkspace(
+	_ context.Context,
+	_ string,
+	_ domain.Workspace,
+) error {
+	return errors.New("context canceled")
+}
+
+func (m *mintingTree) DiscardOwningChat(
+	_ context.Context,
+	_ string,
+) error {
+	m.discards++
+	return nil
+}
+
+// EnsureOwner is the one chat-first mint with no compensating discard: every
+// other caller of MintOwningChat rolls the chat back when the step after it
+// fails (owning_chat.go's contract). Here a failed attach leaves a placed,
+// workspace-less "Untitled chat" under the parent row — and the next read
+// mints another one.
+func TestRegression_EnsureOwner_DiscardsTheMintedChatWhenAttachFails(t *testing.T) {
+	tree := &mintingTree{}
+	h := handlers.New(&fakeAgentUsecase{}, &fakeAgentUsecase{}, &fakeAgentUsecase{}, &fakeAgentUsecase{}, &fakeAgentUsecase{}, tree, nil)
+
+	owner := h.EnsureOwner(context.Background(), domain.Workspace{ID: "ws-legacy", ParentID: "ws-main"})
+
+	assert.Equal(t, "", owner)
+	require.Equal(t, 1, tree.minted)
+	assert.Equal(t, 1, tree.discards, "the minted chat must not outlive the failed attach")
+}

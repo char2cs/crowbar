@@ -142,7 +142,8 @@ func (u *chatFolderUsecase) rootMember(
 	case domain.NodeKindRepo:
 		return scope.home && (scope.repoMemberIDs == nil || scope.repoMemberIDs[n.ID])
 	case domain.NodeKindWorkspace:
-		if scope.repoID == "" {
+		// The level's own default checkout is its header, never a member.
+		if scope.repoID == "" || n.ID == scope.workspaceID {
 			return false
 		}
 		repoID, err := u.workspaces.RepoOf(ctx, n.ID)
@@ -266,12 +267,29 @@ func (u *chatFolderUsecase) levelAliasesOf(
 	defaults := map[string]string{}
 	for wsID, group := range holders {
 		ownerID := ""
-		if owner, ok := domain.ResolveOwningChat(group); ok {
+		if owner, ok := domain.ResolveOwningChat(group, u.sharedGround(ctx, wsID)); ok {
 			ownerID = owner.ID
 		}
 		u.aliasLevel(ctx, aliases, defaults, wsID, ownerID)
 	}
 	return aliases
+}
+
+// sharedGround is domain.Workspace.SharedGround answered through the port; a
+// workspace the port cannot place is treated as shared, never hijacked.
+func (u *chatFolderUsecase) sharedGround(
+	ctx context.Context,
+	wsID string,
+) bool {
+	repoID, err := u.workspaces.RepoOf(ctx, wsID)
+	if err != nil || repoID == "" {
+		return true
+	}
+	if def, dErr := u.workspaces.DefaultWorkspaceOf(ctx, repoID); dErr == nil && def == wsID {
+		return true
+	}
+	renders, rErr := u.workspaces.RendersAsBranch(ctx, wsID)
+	return rErr != nil || renders
 }
 
 // aliasLevel records the level wsID and its owner ownerID name together.

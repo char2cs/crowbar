@@ -97,11 +97,14 @@ func (u *projectUsecase) withNodelessRows(
 		rows = append(rows, homeRow{Node: domain.Node{ID: id, Kind: domain.NodeKindRepo}, fresh: true})
 	}
 	for _, c := range chats {
-		if seen[c.ID] || c.ID == exclude || c.ParentID != "" {
+		if seen[c.ID] || c.ID == exclude {
 			continue
 		}
 		if _, gErr := u.nodes.GetNode(ctx, c.ID); gErr == nil {
 			continue // Node-backed, filed elsewhere
+		}
+		if c.ParentID != "" && u.homeRowExists(ctx, c.ParentID, chats) {
+			continue // filed under a live row of the home
 		}
 		rows = append(rows, homeRow{
 			Node:      domain.Node{ID: c.ID, Kind: domain.NodeKindChat, Order: c.Order},
@@ -110,6 +113,29 @@ func (u *projectUsecase) withNodelessRows(
 		})
 	}
 	return rows
+}
+
+// homeRowExists reports whether id names a row a home chat can be filed
+// under; a pre-Node Chats-panel folder id names nothing, and the sidebar
+// draws such a chat at the root.
+func (u *projectUsecase) homeRowExists(
+	ctx context.Context,
+	id string,
+	chats []domain.Chat,
+) bool {
+	for _, c := range chats {
+		if c.ID == id {
+			return true
+		}
+	}
+	if _, err := u.nodes.GetNode(ctx, id); err == nil {
+		return true
+	}
+	if u.folders == nil {
+		return false
+	}
+	f, err := u.folders.FindByKey(ctx, id)
+	return err == nil && f != nil
 }
 
 // homeMember is homeLevel's per-kind membership rule for one Node row.
@@ -140,7 +166,7 @@ func (u *projectUsecase) homeMember(
 func withoutHomeOwner(
 	chats []domain.Chat,
 ) []domain.Chat {
-	owner, ok := domain.ResolveOwningChat(chats)
+	owner, ok := domain.ResolveOwningChat(chats, true)
 	if !ok {
 		return chats
 	}

@@ -178,7 +178,7 @@ func (u *chatFolderUsecase) adoptHomeFolder(
 
 // homeOfFolder derives a home folder's home from the rows around it: a
 // chat above or beneath it names its workspace, a folder names its home, a
-// repo beneath it belongs to homeID's project or not.
+// repo beneath it names its own project's home — whoever is listing.
 func (u *chatFolderUsecase) homeOfFolder(
 	ctx context.Context,
 	id string,
@@ -221,8 +221,8 @@ func (u *chatFolderUsecase) homeOfRow(
 		}
 		return u.homeOfFolder(ctx, f.ID, homeID, seen)
 	}
-	if u.repoMemberIDsForHome(ctx, homeID)[id] {
-		return homeID
+	if home, err := u.workspaces.HomeOfRepo(ctx, id); err == nil {
+		return home
 	}
 	return ""
 }
@@ -385,10 +385,9 @@ func (u *chatFolderUsecase) Move(
 	if f == nil {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
 	}
-	n, err := u.nodes.GetNode(ctx, f.ID)
-	if err != nil {
-		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: move %s: node: %w", f.ID, err)
-	}
+	// A folder minted before Node rows existed has none; the plan marks it
+	// fresh and this move mints it at the decided slot.
+	n, _ := u.nodes.GetNode(ctx, f.ID)
 	current := homeFolderView(*f, n)
 	snapshot, err := u.globalSnapshotAround(ctx, current)
 	if err != nil {
@@ -430,10 +429,7 @@ func (u *chatFolderUsecase) Delete(
 	if f == nil {
 		return nil, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
 	}
-	n, err := u.nodes.GetNode(ctx, f.ID)
-	if err != nil {
-		return nil, fmt.Errorf("agent chat folder: delete %s: node: %w", f.ID, err)
-	}
+	n, nErr := u.nodes.GetNode(ctx, f.ID)
 	current := homeFolderView(*f, n)
 	snapshot, err := u.globalSnapshotAround(ctx, current)
 	if err != nil {
@@ -445,8 +441,10 @@ func (u *chatFolderUsecase) Delete(
 	if err := u.folders.Delete(ctx, f.ID); err != nil {
 		return nil, fmt.Errorf("agent chat folder: delete %s: %w", f.ID, err)
 	}
-	if err := u.nodes.Forget(ctx, f.ID); err != nil {
-		return nil, fmt.Errorf("agent chat folder: delete %s: node: %w", f.ID, err)
+	if nErr == nil {
+		if err := u.nodes.Forget(ctx, f.ID); err != nil {
+			return nil, fmt.Errorf("agent chat folder: delete %s: node: %w", f.ID, err)
+		}
 	}
 	snapshot.plan.Reparent(f.ID, snapshot.canonical(current.ParentID))
 	snapshot.drop(f.ID)

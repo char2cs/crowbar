@@ -648,7 +648,9 @@ func (e *Env) OwningChatID(
 
 	rows, err := e.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
 	require.NoError(t, err, "OwningChatID: list the chats holding %s", wsID)
-	owner, ok := domain.ResolveOwningChat(rows)
+	ws, err := e.app.Usecases.Workspace.Get(ctx, wsID)
+	require.NoError(t, err, "OwningChatID: read workspace %s", wsID)
+	owner, ok := domain.ResolveOwningChat(rows, ws.SharedGround())
 	require.Truef(
 		t,
 		ok,

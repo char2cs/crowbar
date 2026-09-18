@@ -138,6 +138,13 @@ func (stubChatTree) AttachOwningWorkspace(
 	return nil
 }
 
+func (stubChatTree) DiscardOwningChat(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
+}
+
 // stubUsecase is a VALUE receiver stub throughout, so recording goes through a
 // pointer field rather than through the receiver.
 type stubUsecase struct {

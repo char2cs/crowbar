@@ -2,6 +2,7 @@ package tree
 
 import (
 	"context"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree/internal/lineage"
@@ -164,7 +165,7 @@ func workspaceAnchorsReachable(
 			if err != nil || n.Kind != domain.NodeKindWorkspace {
 				break
 			}
-			found = append(found, workspaceAnchorView(id, n))
+			found = append(found, workspaceAnchorView(id, n, time.Time{}))
 			id = n.ParentID
 		}
 	}

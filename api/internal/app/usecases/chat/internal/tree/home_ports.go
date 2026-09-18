@@ -2,6 +2,7 @@ package tree
 
 import (
 	"context"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -128,6 +129,13 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		homeWorkspaceID string,
 	) (map[string]bool, error)
+	// HomeOfRepo answers the home workspace of the project repoID belongs
+	// to, "" for an unknown repo — which home a legacy folder holding that
+	// repo's header row belongs to, whoever is asking.
+	HomeOfRepo(
+		ctx context.Context,
+		repoID string,
+	) (string, error)
 	// RendersAsBranch answers domain.Workspace.RendersAsBranch for
 	// workspaceID — the one fact mergeForest needs to decide whether a
 	// NodeKindWorkspace row it discovers is a genuine sidebar row (a locked
@@ -139,6 +147,21 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		workspaceID string,
 	) (bool, error)
+	// CreatedAtOf answers when workspaceID was created — the timestamp the
+	// sidebar ties a branch row on (rows-from-repo.ts stamps the row with the
+	// WORKSPACE's createdAt), so a tied level sorts the same on both sides.
+	CreatedAtOf(
+		ctx context.Context,
+		workspaceID string,
+	) (time.Time, error)
+	// BranchRowsOf answers the workspaces of repoID the sidebar draws as
+	// branch rows of their own (RendersAsBranch), the default checkout
+	// excluded: the members a repo-root densify must count whether or not
+	// each has a Node row yet.
+	BranchRowsOf(
+		ctx context.Context,
+		repoID string,
+	) ([]string, error)
 	// VisibleForkParent answers the workspace whose space a fork's own row must
 	// stay inside — domain.Workspace.ParentID, reduced to "" (the repo tree's
 	// own root) when that parent draws no row of its own in that tree.

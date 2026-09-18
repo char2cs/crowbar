@@ -3,6 +3,7 @@ package usecases
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
@@ -650,6 +651,62 @@ func (w workspaceGitStatusReader) RendersAsBranch(
 		return false, err
 	}
 	return ws.RendersAsBranch(), nil
+}
+
+// HomeOfRepo implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) HomeOfRepo(
+	ctx context.Context,
+	repoID string,
+) (string, error) {
+	repo, err := w.repos.FindByKey(ctx, repoID)
+	if err != nil || repo == nil {
+		return "", err
+	}
+	rows, err := w.workspace.List(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, ws := range rows {
+		if ws.Kind == domain.WorkspaceKindHome && ws.ProjectID == repo.ProjectID &&
+			ws.Status != domain.WorkspaceStatusDeleted {
+			return ws.ID, nil
+		}
+	}
+	return "", nil
+}
+
+// CreatedAtOf implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) CreatedAtOf(
+	ctx context.Context,
+	workspaceID string,
+) (time.Time, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return ws.CreatedAt, nil
+}
+
+// BranchRowsOf implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) BranchRowsOf(
+	ctx context.Context,
+	repoID string,
+) ([]string, error) {
+	repo, err := w.repos.FindByKey(ctx, repoID)
+	if err != nil || repo == nil {
+		return nil, err
+	}
+	rows, err := w.workspace.ListInRepo(ctx, repo.ProjectID, repoID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, ws := range rows {
+		if ws.RendersAsBranch() && !ws.IsDefault {
+			ids = append(ids, ws.ID)
+		}
+	}
+	return ids, nil
 }
 
 // Exists implements agentusecase.TreeWorkspaceGitStatus.

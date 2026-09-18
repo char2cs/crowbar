@@ -5,6 +5,7 @@ package mocks
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -1964,6 +1965,47 @@ type AgentWorkspaceGitStatus struct {
 	ForkParents map[string]string
 	// Defaults answers DefaultWorkspaceOf, keyed by repo id.
 	Defaults map[string]string
+	// CreatedAts answers CreatedAtOf, keyed by workspace id; a workspace never
+	// Set here answers the zero time.
+	CreatedAts map[string]time.Time
+}
+
+// SetCreatedAt records workspaceID's creation time for CreatedAtOf.
+func (s *AgentWorkspaceGitStatus) SetCreatedAt(workspaceID string, at time.Time) {
+	if s.CreatedAts == nil {
+		s.CreatedAts = map[string]time.Time{}
+	}
+	s.CreatedAts[workspaceID] = at
+}
+
+// CreatedAtOf implements tree.WorkspaceGitStatus.
+func (s *AgentWorkspaceGitStatus) CreatedAtOf(
+	ctx context.Context,
+	workspaceID string,
+) (time.Time, error) {
+	if s.Err != nil {
+		return time.Time{}, s.Err
+	}
+	return s.CreatedAts[workspaceID], nil
+}
+
+// BranchRowsOf implements tree.WorkspaceGitStatus off the Repos, Branches and
+// Defaults the other setters recorded.
+func (s *AgentWorkspaceGitStatus) BranchRowsOf(
+	ctx context.Context,
+	repoID string,
+) ([]string, error) {
+	if s.Err != nil {
+		return nil, s.Err
+	}
+	var ids []string
+	for wsID, renders := range s.Branches {
+		if renders && s.Repos[wsID] == repoID && s.Defaults[repoID] != wsID {
+			ids = append(ids, wsID)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 // SetDefault records repoID's default checkout for DefaultWorkspaceOf.
@@ -2002,6 +2044,23 @@ func (s *AgentWorkspaceGitStatus) SetHomeRepoMembers(homeWorkspaceID string, rep
 		ids[id] = true
 	}
 	s.HomeRepoMembers[homeWorkspaceID] = ids
+}
+
+// HomeOfRepo implements tree.WorkspaceGitStatus, as the reverse of the
+// HomeRepoMembers SetHomeRepoMembers recorded.
+func (s *AgentWorkspaceGitStatus) HomeOfRepo(
+	ctx context.Context,
+	repoID string,
+) (string, error) {
+	if s.RepoIDsErr != nil {
+		return "", s.RepoIDsErr
+	}
+	for homeID, members := range s.HomeRepoMembers {
+		if members[repoID] {
+			return homeID, nil
+		}
+	}
+	return "", nil
 }
 
 // RepoIDsForHome implements tree.WorkspaceGitStatus.
