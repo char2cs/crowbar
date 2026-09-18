@@ -291,6 +291,32 @@ func (c *Container) WaitQuiescent() {
 	c.axNode.WaitPublish()
 }
 
+// QuiesceReactors is WaitQuiescent for a mutation whose effect lands OUTSIDE the
+// aggregate — a delete cascade, a pull's child resync: every projection drained AND
+// every post-commit reactor the drained events admitted run to completion, round
+// after round until a round admits none. asynx's WaitPublish REFUSES any dispatch
+// made while it waits, so a reactor must never be producing during a drain: the
+// door is held (drain.Gate.Hold) so a reactor admitted by a drained handler parks,
+// the ones already running are waited out first, and the parked ones run only
+// between rounds. ctx is the caller's escape hatch, not a synchronisation device.
+func (c *Container) QuiesceReactors(
+	ctx context.Context,
+) {
+	gate := c.drainGate
+	gate.Hold()
+	defer gate.Release()
+	for {
+		gate.WaitRunning(ctx)
+		c.WaitQuiescent()
+		gate.WaitRunning(ctx)
+		if gate.Parked() == 0 || ctx.Err() != nil {
+			return
+		}
+		gate.Release()
+		gate.Hold()
+	}
+}
+
 // wireCallbacks registers the app-level cross-aggregate reactions on the singleton
 // asynx instances (spec §3.6), mirroring quiver's container wireCallbacks. It
 // creates and stores the shared drain WaitGroup + cancelable drain context every

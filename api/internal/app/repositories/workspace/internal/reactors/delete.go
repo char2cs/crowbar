@@ -160,6 +160,10 @@ func (r *deleteReactor) run(
 	bg := context.WithoutCancel(ctx)
 	bg, cancel := context.WithTimeout(bg, r.timeout)
 	defer cancel()
+	// Parked while a quiesce drains the bus (drain.Gate.Hold); never in production.
+	if !r.gate.Proceed(bg) {
+		return
+	}
 	r.purge(bg, wsID)
 }
 
