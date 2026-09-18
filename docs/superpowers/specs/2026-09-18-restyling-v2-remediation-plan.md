@@ -114,3 +114,52 @@ Everything above is "gates green," which is necessary and has already been wrong
 5. **The "needs provisioning" triangle** noted under B — confirm whether it's a real state bug or stale UI. **DONE, this pass: it is a real state-classification bug**, not stale UI — see `provisioning-triangle-on-own-default-branch` in §3.1, now fixed and live-verified.
 
 Only after this passes does the branch merge to `develop` (as its own PR, on request) and get considered for a nightly.
+
+---
+
+## 5. Batch 2 (2026-09-18, reported live)
+
+Four new reports from live production use, dispatched to parallel workers after §3.1's sweep. Three (R1-R3) are code fixes, live-verified on the dev instance; R4 was investigation-and-design only, per its brief, and produced no application code.
+
+### R1. Rename modal existed — FIXED, live-verified
+
+**Root cause, two layers.** (1) An earlier commit (`a13664b6c`) made double-click-to-rename go inline everywhere, but the right-click context menu's "Rename" item was left wired to the old `RenameDialog` modal — the one remaining entry point into a modal in an app whose law is inline-only rename. (2) The real reason the modal existed at all: a chat/branch row rendering in Recents while its tree ancestor is collapsed has **no tree-mounted DOM copy**, and the pre-existing `inlineRenameDisabled` flag on the Recents copy unconditionally refused to draw the input there, assuming a tree copy was always available to take over. When it wasn't, renaming had nowhere to render — which is what `RenameDialog` was actually papering over.
+
+**Fix:** right-click Rename now calls `useSidebarInlineRenameStore.getState().startRenaming(row.id)` directly (`row-context-menu.tsx`, `sidebar-tree-chrome.tsx`), removing the `onRename`/`modalRenamingRowId` plumbing. `sidebar-inline-rename.ts` gained a `renamingRole: 'tree' | 'recents'` resolved once at call time by checking the DOM for a mounted tree instance; `sidebar-row.tsx`'s render gate now keys off that role instead of unconditionally refusing the Recents copy. `rename-dialog.tsx` and its test are deleted — fully dead code once the context menu stopped routing to it. Commit `7aff0e0b4`.
+
+**LIVE-VERIFIED:** with a repo section collapsed so a Recents row had zero tree-mounted copies, a real dblclick on the row's label rendered a real focused `<input>` in place (no `[role="dialog"]` anywhere), Escape cancelled cleanly, and an ordinary already-tree-mounted row still inline-renamed exactly as before. The right-click `NSMenu` itself could not be driven live (native-menu bridge-wedge risk, §4.2), so its `onClick` is confirmed by source read (identical call to the dblclick path already verified live) plus unit coverage in `row-context-menu.test.tsx`/`sidebar-tree-chrome.test.tsx`. `grep -rn RenameDialog web/src` now returns zero matches.
+
+### R2. Cross-project folder leak — ALREADY FIXED, confirmed not reproducible
+
+This is the same legacy-data bug §2.2 already fixed (`Folder.HomeID` empty on pre-migration rows, `3760391b4`/`9d77be815`), not a new gap. Checked specifically whether the **create** path — the affected surface the user actually hit — stamps `HomeID`/`ProjectID` at mint time for every entry point: there is exactly one folder-minting path in the daemon (`handlers.CreateFolder` → `chatFolderUsecase.Create`), it stamps `HomeID` from the route's resolved workspace id on every call, the scope-less route variant is refused 400 by the router before it can mint a legacy-shaped row, and both frontend creators pass a row-derived `projectId`, never an ambient one.
+
+**LIVE-VERIFIED, twice.** Integration pass: created a folder scoped to project A via the daemon API, confirmed project B's `GET .../home/chats/folders` returns empty, confirmed A lists it, confirmed the stored row's `home_id` is A's home workspace id. Re-verify pass (independent): created a folder via the actual UI affordance (space header's "Create a folder"), confirmed via API it appears only under its own project and via DOM query that exactly one instance exists in the whole document, positioned under the correct project panel. Mechanism cross-check: temporarily reverting the `HomeID` stamp in `tree.go` reproduces the exact reported symptom (a new regression test fails with "must not be listed by another project", and the other project's read steals the row outright); reverted back to clean. One pre-existing, deliberate gap left untouched and documented: a **fully unattributed legacy folder** (no chats/repos naming its project) is adopted by whichever project lists first — there is no signal anywhere in the data to attribute it correctly, so any rule here is a policy call for the user, not a silent redesign.
+
+**Fix:** no behavior change; added the missing mint-time regression coverage — `api/tests/regression_home_folder_create_scope_test.go` (`TestRegression_HomeFolderCreatedInOneProjectAppearsInAnother`, `TestRegression_FolderCreateWithNoScopeMintsAHomelessRow`). Commit `2f9b7684c`.
+
+### R3. Recents rows cannot be reordered — FIXED, live-verified, broader than the originally-named case
+
+**Root cause, two independent, compounding bugs — broader than the plan's earlier narrow note about a home-chat reorder target.**
+
+1. **Drop never armed.** A Recents row that owns its workspace (carries the tree's real branch glyph) is `kind: 'branch'`, not `kind: 'chat'` — `recents-band.tsx` spreads `ChatIconFields` onto it for the icon, and those fields carry the branch kind with them. `sidebar-drop-policy.ts`'s `allowedModes` sent every Recents pairing through the tree's repo/workspace-scope walk, which refuses most cross-workspace/cross-repo pairings by design — exactly the pairings the Recents band, which deliberately spans the whole project, produces. `drop-actions.ts`'s `performRecentsDrop` additionally filtered on `kind === 'chat'` outright, silently dropping any workspace-owning row even on the rare pairing that got past the policy check.
+2. **Write never repainted.** `space-scroller.tsx`'s `subscribeRecentsTick` — the band's only re-render signal — compared `panes`, `dormantArrangements` and `activeViewId`, but never `recentsOrder`, the one field a reorder actually writes. A reorder that landed left the band showing the stale order until an unrelated re-render happened to arrive.
+
+Confirmed frontend-only per the user's explicit constraint: `recentsOrder` lives only in `window-pane-store.ts` (locally persisted), no backend call existed for this and none was added.
+
+**Fix:** `sidebar-drop-policy.ts` gained an explicit Recents-target rule (all modes for a chat/branch-kind subject, none for folder/workflow) ahead of the tree-scope walk. `drop-actions.ts`'s `performRecentsDrop` now resolves the acting chat via `paneChatSubject` (which re-resolves a branch row's owning chat) instead of filtering on row `kind`. `space-scroller.tsx`'s tick comparator now watches `recentsOrder`. Commit `02d312642`.
+
+**LIVE-VERIFIED**, raw PointerEvent drags against a live 4-entry Recents band, both before the fix (confirmed dark: indicator never painted, `recentsOrder` never changed) and after (webview reload to pick up the change): an ordinary chat entry reordered past another ordinary chat entry, and — the case the fix specifically targeted — reordered both directions across a workspace-owning (`kind: 'branch'`) entry, each time with the correct drop indicator, an immediate DOM re-render (no reload needed), and order surviving a subsequent reload. Daemon log tailed across every drag: zero non-GET traffic, confirming the fix stayed frontend-only.
+
+### R4. Project-scoped panes (Zen-style Spaces/tabs) — DESIGN ONLY, no code written
+
+Per its brief, read-only investigation plus a new design doc; nothing under `web/src` or `api/` was touched for this item.
+
+**What was read:** Zen Browser's fork source (`/Users/char2cs/Projects/Cloned/desktop/src`, its `ZenWorkspaces`/`ZenSpaceManager` module) and Crowbar's own pane architecture (`window-pane-store.ts`, `pane-slice.ts`, `space-scroller.tsx`, `split-view-root.tsx`).
+
+**Recommendation: hard partition, tagged at the view — not a filtered view.** Zen tags each tab with its owning `zen-workspace-id` and reparents it into that space's container; an inactive space is hidden (never unmounted). Crowbar's `SplitViewRoot` already does the hiding half (one view-id-keyed list, `showing`/`display:none`/`inert` toggled per view) — what's missing is only an eligibility rule for which views the active project may show. A filtered-view design was rejected: a pane's project is only derivable via chat→workspace→repo→project, which is unanswerable right after a reload or for an empty stage, and the codebase already made the opposite call once (tagging `viewId` explicitly rather than inferring grouping per render).
+
+**Proposed shape:** add `viewProjects`, `activeViewByProject` and `activeProjectId` to the pane store; enforce "the active view always belongs to the active project" in `activateView`, the single write path every reveal already funnels through — `SplitViewRoot` needs no change, and no Go/backend changes are required.
+
+**Design doc (untracked, left for the user to review — not part of this plan):** `docs/superpowers/specs/2026-09-18-project-scoped-panes-design.md`. It lists eight open questions the user should answer before implementation starts, including whether a project switch keeps other projects' chats running (parked, not closed), whether any gesture should be able to move a view between projects at all (the data model says no — a view's project is derived from its chat's workspace/repo, not assignable), whether the same chat can appear in two projects (no, given tonight's home-folder scoping fixes — chat→workspace→repo→project is single-valued), how per-project "no view open yet" should render, and how multi-window's single persisted layout row interacts with a per-window active project.
+
+---
