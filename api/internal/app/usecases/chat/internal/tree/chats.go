@@ -26,6 +26,9 @@ func (u *chatFolderUsecase) CreateChat(
 		chatID, _, runnerID, err := u.createImportedWorktreeChat(ctx, providerID, parentID, worktree.Import)
 		return chatID, runnerID, err
 	}
+	if err := u.checkWorkspaceProvisioned(ctx, workspaceID); err != nil {
+		return "", "", err
+	}
 	if parentID != "" {
 		if err := u.checkNewChatParent(ctx, workspaceID, parentID, false); err != nil {
 			return "", "", err
@@ -93,6 +96,27 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 		return "", "", u.discard(ctx, chatID, err)
 	}
 	return chatID, runnerID, nil
+}
+
+// checkWorkspaceProvisioned refuses a create into a workspace with no worktree
+// on disk, BEFORE anything is minted — see ErrWorkspaceUnprovisioned.
+//
+// A read that fails, and the workspace-less ("") scope a bubble and an
+// ownWorktree create are both born in, pass: the guard refuses only what it
+// positively knows is a placeholder, the same degrade every other probe in
+// this package makes rather than blocking a create on a lookup.
+func (u *chatFolderUsecase) checkWorkspaceProvisioned(
+	ctx context.Context,
+	workspaceID string,
+) error {
+	if workspaceID == "" {
+		return nil
+	}
+	provisioned, err := u.workspaces.Provisioned(ctx, workspaceID)
+	if err != nil || provisioned {
+		return nil
+	}
+	return fmt.Errorf("%w (workspace %s)", ErrWorkspaceUnprovisioned, workspaceID)
 }
 
 // checkNewChatParent refuses a destination a new chat cannot be born into, BEFORE

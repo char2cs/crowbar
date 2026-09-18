@@ -704,6 +704,20 @@ func (w workspaceGitStatusReader) Exists(
 	return err == nil, nil
 }
 
+// Provisioned implements agentusecase.TreeWorkspaceGitStatus. An id that does
+// not resolve answers true — see the port's own doc: a failed read is not
+// evidence of a placeholder, and this guard only ever refuses.
+func (w workspaceGitStatusReader) Provisioned(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return true, nil
+	}
+	return ws.WorktreePath != "", nil
+}
+
 // DefaultWorkspaceOf implements agentusecase.TreeRepoRoots: repoID's default
 // checkout, "" when the repo has none.
 func (w workspaceGitStatusReader) DefaultWorkspaceOf(

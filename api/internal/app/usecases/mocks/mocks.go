@@ -1967,6 +1967,10 @@ type AgentWorkspaceGitStatus struct {
 	// CreatedAts answers CreatedAtOf, keyed by workspace id; a workspace never
 	// Set here answers the zero time.
 	CreatedAts map[string]time.Time
+	// Placeholders inverts Provisioned, keyed by workspace id: a workspace
+	// never Set here is provisioned, matching the real adapter's own
+	// permissive default for a row it cannot resolve.
+	Placeholders map[string]bool
 }
 
 // SetCreatedAt records workspaceID's creation time for CreatedAtOf.
@@ -2090,6 +2094,27 @@ func (s *AgentWorkspaceGitStatus) Exists(
 	_, inRepos := s.Repos[workspaceID]
 	_, inBranches := s.Branches[workspaceID]
 	return inRepos || inBranches, nil
+}
+
+// Provisioned implements tree.WorkspaceGitStatus. Provisioned unless
+// SetPlaceholder named the row: the guard that reads this only ever refuses,
+// so the default has to be the permissive one.
+func (s *AgentWorkspaceGitStatus) Provisioned(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	if s.Err != nil {
+		return false, s.Err
+	}
+	return !s.Placeholders[workspaceID], nil
+}
+
+// SetPlaceholder records workspaceID as a worktree-less row for Provisioned.
+func (s *AgentWorkspaceGitStatus) SetPlaceholder(workspaceID string) {
+	if s.Placeholders == nil {
+		s.Placeholders = map[string]bool{}
+	}
+	s.Placeholders[workspaceID] = true
 }
 
 func (s *AgentWorkspaceGitStatus) RepoOf(

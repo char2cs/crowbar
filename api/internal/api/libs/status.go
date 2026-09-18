@@ -265,6 +265,9 @@ var conflictSentinels = []error{
 	agentusecase.ErrAlreadyPromoted,
 	agentusecase.ErrNoForkParent,
 	agentusecase.ErrNothingToPromote,
+	// A create into a workspace with no worktree on disk. Same family as
+	// workspace.ErrParentUnprovisioned above, seen from the create side.
+	agentusecase.ErrTreeWorkspaceUnprovisioned,
 }
 
 // isPlacementConflict reports whether err is one of the unified tree's

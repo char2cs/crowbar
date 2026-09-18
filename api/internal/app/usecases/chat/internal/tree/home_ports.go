@@ -111,6 +111,15 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		workspaceID string,
 	) (bool, error)
+	// Provisioned reports whether workspaceID has a worktree on disk at all
+	// (domain.Workspace.WorktreePath != ""). A placeholder has none, and a
+	// chat created in it has nowhere to run — see ErrWorkspaceUnprovisioned.
+	// An unresolvable id answers true: this is a refusal probe, and a read
+	// that failed is not evidence the row is a placeholder.
+	Provisioned(
+		ctx context.Context,
+		workspaceID string,
+	) (bool, error)
 	// RepoIDsForHome answers every repo id belonging to the SAME project as
 	// home workspace homeWorkspaceID — this package's own counterpart to
 	// project.go's repoIDSet. See mergeHomeForest's own doc (home_forest.go)

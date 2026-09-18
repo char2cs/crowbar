@@ -273,6 +273,10 @@ var (
 	// ErrTreeSubtreeWorking is a move or delete refused because the row or a
 	// row in the subtree it takes is currently working.
 	ErrTreeSubtreeWorking = tree.ErrSubtreeWorking
+	// ErrTreeWorkspaceUnprovisioned is a create into a workspace that has no
+	// worktree on disk — a placeholder, which the chat would have nowhere to
+	// run in.
+	ErrTreeWorkspaceUnprovisioned = tree.ErrWorkspaceUnprovisioned
 )
 
 // Fanout shapes repository lifecycle announcements into frontend frames.
