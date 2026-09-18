@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-api'
+import { CHAT_TITLE_PENDING_LABEL } from '@/features/agent/hooks/use-chat-title'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { ChatBranchHeader } from '@/features/tabs/components/chat-branch-header'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -86,6 +87,25 @@ function renderHeader({
   )
 }
 
+/** A store whose chat list simply does not carry `chat-1` — a pane restored
+ *  from a saved layout, or a list that raced it. */
+function renderHeaderWithoutChatRecord() {
+  const store = createWorkspaceStore('w1')
+  store.setState((s) => ({
+    ...s,
+    agentChats: { ...s.agentChats, chats: [], listSeeded: true },
+  }))
+  useSidebarStore.setState({ repos: [makeRepo([makeWorkspace()])] })
+
+  return render(
+    createElement(
+      WorkspaceStoreContext.Provider,
+      { value: store },
+      createElement(ChatBranchHeader, { chatId: 'chat-1', wsId: 'w1' }),
+    ),
+  )
+}
+
 afterEach(() => {
   useSidebarStore.setState({ repos: [] })
   vi.clearAllMocks()
@@ -105,6 +125,25 @@ describe('ChatBranchHeader', () => {
   it('falls back to UNTITLED_CHAT_LABEL for an empty title', () => {
     renderHeader({ title: '' })
     expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
+  })
+
+  // Live-reported: the pane header read "Untitled chat" for a chat the sidebar
+  // and the daemon both called "repochat-RN", and only a reload fixed it — the
+  // header's `?.title || UNTITLED_CHAT_LABEL` made "this store has not got the
+  // record" indistinguishable from "this chat has no name". A gap must look
+  // like a gap.
+  it('shows the pending mark, not UNTITLED_CHAT_LABEL, for a chat the store has no record of', () => {
+    renderHeaderWithoutChatRecord()
+    const title = screen.getByTestId('chat-branch-header-title')
+    expect(title).toHaveAttribute('data-title-pending', 'true')
+    expect(title).toHaveTextContent(CHAT_TITLE_PENDING_LABEL)
+    expect(screen.queryByText(UNTITLED_CHAT_LABEL)).not.toBeInTheDocument()
+  })
+
+  it('offers no rename for a chat the store has no record of — there is no title to edit', () => {
+    renderHeaderWithoutChatRecord()
+    fireEvent.doubleClick(screen.getByTestId('chat-branch-header'))
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
 
   it("renders the workspace's branch name and change counts on a second line", () => {

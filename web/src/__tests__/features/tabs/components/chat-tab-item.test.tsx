@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentChat } from '@/features/agent/api/agent-api'
+import { CHAT_TITLE_PENDING_LABEL } from '@/features/agent/hooks/use-chat-title'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { ChatTabItem } from '@/features/tabs/components/chat-tab-item'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
@@ -65,6 +66,28 @@ describe('ChatTabItem', () => {
       ),
     )
     expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
+  })
+
+  // Same masquerade the pane header was live-reported for: the tab shared the
+  // `?.title || UNTITLED_CHAT_LABEL` read, so a store missing the record named
+  // the chat "Untitled chat" as if that were its real name.
+  it('shows the pending mark, not UNTITLED_CHAT_LABEL, for a chat the store has no record of', () => {
+    const store = createWorkspaceStore('w1')
+    store.setState((s) => ({
+      ...s,
+      agentChats: { ...s.agentChats, chats: [], listSeeded: true },
+    }))
+    render(
+      createElement(
+        WorkspaceStoreContext.Provider,
+        { value: store },
+        createElement(ChatTabItem, { chatId: 'chat-1', isActive: false, onSelect: () => {} }),
+      ),
+    )
+    const title = screen.getByTestId('chat-tab-item-title')
+    expect(title).toHaveAttribute('data-title-pending', 'true')
+    expect(title).toHaveTextContent(CHAT_TITLE_PENDING_LABEL)
+    expect(screen.queryByText(UNTITLED_CHAT_LABEL)).not.toBeInTheDocument()
   })
 
   it('fires onSelect when clicked', () => {
