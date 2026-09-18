@@ -13,6 +13,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
 	noderepo "github.com/char2cs/crowbar/api/internal/app/repositories/node"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -268,6 +269,9 @@ var conflictSentinels = []error{
 	// A create into a workspace with no worktree on disk. Same family as
 	// workspace.ErrParentUnprovisioned above, seen from the create side.
 	agentusecase.ErrTreeWorkspaceUnprovisioned,
+	// The same row opened for review: there is no tree to diff. It used to reach
+	// git with an empty working directory and answer 500 with raw git text.
+	branchreview.ErrWorkspaceUnprovisioned,
 }
 
 // isPlacementConflict reports whether err is one of the unified tree's
