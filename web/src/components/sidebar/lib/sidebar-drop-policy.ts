@@ -314,16 +314,25 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   // header with anything else already refused above (mixed kinds are
   // impossible here since every subject shares `kind`, but a multi-REPO
   // selection is not a thing this drag supports).
+  const repos = useSidebarStore.getState().repos
+
   if (kind === 'branch' && subjects.length === 1 && subjects[0].repoIcon) {
     const repoIcon = subjects[0].repoIcon
     if (target.kind === 'branch') {
       // Another repo's own header row always sits at a container ('' or a
       // home folder) a repo may legally land in — that is its OWN placement
       // invariant, enforced the identical way when IT was filed there — so
-      // no further container check is needed here.
-      return target.repoIcon && target.repoIcon.projectId === repoIcon.projectId
-        ? REORDER_MODES
-        : NO_MODES
+      // no further container check is needed here. `target.repoIcon` is
+      // never populated by the live per-frame hit test — drop-dom.ts's
+      // `read()` only reconstructs what `SIDEBAR_DRAG_ROW_SPEC` declares, and
+      // it never declares `repoIcon` — so resolve whether target IS a repo's
+      // own header row the same way `rows-from-repo.ts` minted it: its id
+      // translates (via `workspaceIdOfBranchRow`) to that repo's
+      // `defaultWorkspaceId`. A plain `resolveRowRepo` isn't enough here —
+      // it would match ANY branch in the same repo, not only its header row.
+      const targetWorkspaceId = workspaceIdOfBranchRow(repos, target.id) ?? target.id
+      const targetRepo = repos.find((r) => r.defaultWorkspaceId === targetWorkspaceId)
+      return targetRepo && targetRepo.projectId === repoIcon.projectId ? REORDER_MODES : NO_MODES
     }
     const targetHome = resolveHomeRowScope(target.id)
     if (!targetHome || targetHome.projectId !== repoIcon.projectId) return NO_MODES
@@ -346,8 +355,6 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
       into: target.kind === 'folder',
     }
   }
-
-  const repos = useSidebarStore.getState().repos
 
   // `resolveRowRepo` is deliberately chat-blind (its own doc: resolving a
   // chat there would hand a DRAGGED chat the same-repo rule §8.3 exempts it
