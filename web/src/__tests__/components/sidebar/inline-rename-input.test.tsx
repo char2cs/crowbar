@@ -109,6 +109,22 @@ describe('InlineRenameInput', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
+  // The editor can mount on a row that is scrolled out of the sidebar's
+  // shared scroller (a rename started from Recents draws on the tree copy;
+  // the context menu can rename a scrolled-away row). Focus alone does not
+  // bring it back, so the caret landed in an invisible input.
+  it('scrolls itself into view on mount, not only focuses', () => {
+    const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
+    try {
+      render(<InlineRenameInput defaultValue="feature-x" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('textbox'))
+      expect(scrollIntoView.mock.calls[0][0]).toEqual({ block: 'nearest' })
+    } finally {
+      scrollIntoView.mockRestore()
+    }
+  })
+
   it('carries font-mono only when mono is set', () => {
     const { rerender } = render(
       <InlineRenameInput defaultValue="a" onConfirm={vi.fn()} onCancel={vi.fn()} />,

@@ -1039,6 +1039,29 @@ describe('SidebarRow', () => {
       fireEvent.keyDown(input, { key: 'Enter' })
       expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
     })
+
+    // Regression, reported live: double-clicking a Recents row's label started
+    // the rename on the row's TREE copy (`inlineRenameDisabled`, above), which
+    // shares one scroller with Recents and is normally scrolled far out of
+    // view — so nothing visibly happened and the keystrokes went to an input
+    // the user could not see. Same silent failure for the context menu's
+    // Rename on any row the tree has scrolled away from.
+    it('scrolls the editor into view so a rename started from the Recents copy is not invisible', () => {
+      const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
+      try {
+        useSidebarInlineRenameStore.getState().startRenaming('row-1')
+        render(
+          <>
+            <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />
+            <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} inlineRenameDisabled />
+          </>,
+        )
+        expect(scrollIntoView).toHaveBeenCalledTimes(1)
+        expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('textbox'))
+      } finally {
+        scrollIntoView.mockRestore()
+      }
+    })
   })
 })
 
