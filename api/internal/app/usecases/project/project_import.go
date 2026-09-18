@@ -213,6 +213,15 @@ type RefRunnerFactory func(
 	repoPath string,
 ) defaultbranch.RefRunner
 
+// HomeSlots is the one read the import needs off the project usecase: the
+// next free index at a project's home root.
+type HomeSlots interface {
+	NextHomeSlot(
+		ctx context.Context,
+		projectID string,
+	) (int, error)
+}
+
 // ImportDeps wires the import usecase's collaborators.
 type ImportDeps struct {
 	Projects   Store
@@ -226,7 +235,10 @@ type ImportDeps struct {
 	// repo's own sidebar position, at the same point its Repository row is
 	// persisted — see NodePlacements.
 	Nodes NodePlacements
-	Now   func() time.Time
+	// HomeSlots answers where a new repo's Node is minted at its project's
+	// home root (see Usecase.NextHomeSlot). nil mints at 0.
+	HomeSlots HomeSlots
+	Now       func() time.Time
 	// Stat probes the import path before anything is persisted, so a failed
 	// import leaves no project behind. Defaults to os.Stat when nil; tests
 	// stub it to avoid touching the real filesystem.
@@ -482,7 +494,13 @@ func (u *projectImport) importOneRepo(
 	if u.deps.Nodes == nil {
 		return domain.Repository{}, ErrNoNodesWired
 	}
-	if _, err := u.deps.Nodes.Create(ctx, repo.ID, domain.NodeKindRepo, "", 0); err != nil {
+	slot := 0
+	if u.deps.HomeSlots != nil {
+		if next, sErr := u.deps.HomeSlots.NextHomeSlot(ctx, project.ID); sErr == nil {
+			slot = next
+		}
+	}
+	if _, err := u.deps.Nodes.Create(ctx, repo.ID, domain.NodeKindRepo, "", slot); err != nil {
 		return domain.Repository{}, fmt.Errorf("project import: mint repo node: %w", err)
 	}
 	// Resolve protected branches once: it decides whether the home must detach
