@@ -349,7 +349,38 @@ func (u *hierarchyUsecase) CreateChild(
 		u.discardWorkspaceRow(ctx, ws.ID, "create child")
 		return domain.Workspace{}, nErr
 	}
+	// The new worktree took the branch off the repo home, so the home row must
+	// stop claiming it — otherwise two rows report the same branch and the home's
+	// is the one git has already moved off it. Runs only here, past every
+	// rollback: a clear on a path that still unwinds would outlive the detach it
+	// records.
+	u.clearDetachedHomeBranch(ctx, detached, in.RepoID, in.Branch)
 	return ws, nil
+}
+
+// clearDetachedHomeBranch blanks the repo home row's branch after a create
+// detached the home to claim it (spec §3.5/§3.7's own rule, which DetachHolder
+// applies for the consented detach). Best-effort: the worktree and its row are
+// already committed, so a failure here is logged, never fatal.
+func (u *hierarchyUsecase) clearDetachedHomeBranch(
+	ctx context.Context,
+	detached bool,
+	repoID string,
+	branch string,
+) {
+	if !detached {
+		return
+	}
+	homeID, ok, err := u.repoHomeWorkspaceID(ctx, repoID)
+	if err != nil || !ok {
+		slog.WarnContext(ctx, "create child: could not find the repo home to clear its branch",
+			"repo", repoID, "branch", branch, "err", err)
+		return
+	}
+	if _, cErr := u.workspaces.ClearBranch(ctx, homeID); cErr != nil {
+		slog.WarnContext(ctx, "create child: could not clear the detached home's branch",
+			"repo", repoID, "branch", branch, "err", cErr)
+	}
 }
 
 // createDirectRow is CreateChild's no-worktree branch: a virtual/test repo
