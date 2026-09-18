@@ -244,7 +244,17 @@ export function IconPopover({
     <Popover onOpenChange={onOpenChange}>
       <PopoverTrigger
         aria-label={`Edit ${name} icon`}
-        className="group/entity-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md outline-none"
+        // `align-middle`: callers that toggle this trigger's visibility by
+        // wrapping it in a bare `<span>` (space-header.tsx's chevron/icon
+        // swap, kept mounted rather than ternary'd to avoid closing the
+        // popover mid-hover) make that span this button's inline formatting
+        // context. An `inline-flex` box with no `vertical-align` set defaults
+        // to `baseline` there, sitting a few px above the row's true center
+        // even though the button centers ITS OWN children correctly — caught
+        // live as an uploaded project/repo icon sitting visibly high next to
+        // its name. Meaningless (and harmless) once a caller's own wrapper is
+        // itself a flex/grid container, so this is safe for every trigger.
+        className="group/entity-icon relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md align-middle outline-none"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
