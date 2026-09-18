@@ -112,7 +112,17 @@ export function recentsForProject(repos: readonly Repo[], projectId: string): Re
   }
   for (const wsId of projectWsIds) {
     const { agentChats } = getOrCreateWorkspaceStore(wsId).getState()
-    for (const chat of agentChats.chats) chatWorkspace.set(chat.id, chat.workspaceId || wsId)
+    for (const chat of agentChats.chats) {
+      // `chat.workspaceId` is preferred above, but it is the chat's OWN claim
+      // and can name a workspace outside this project entirely: a store
+      // mounted during a cross-project navigation gets seeded wholesale with
+      // whatever chat list the caller had. Re-checking it against the set both
+      // filters below assume keeps a foreign chat from minting a band row that
+      // renders but can never be opened.
+      const owner = chat.workspaceId || wsId
+      if (!projectWsIdSet.has(owner)) continue
+      chatWorkspace.set(chat.id, owner)
+    }
     Object.assign(working, agentChats.working)
   }
 

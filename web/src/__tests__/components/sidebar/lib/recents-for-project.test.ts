@@ -199,6 +199,47 @@ describe('recentsForProject', () => {
     expect(entries.some((e) => e.chatIds.includes('chat-2'))).toBe(false)
   })
 
+  // REGRESSION: live-reported as project A's band drawing project B's two
+  // chats as rows that did nothing when clicked. `listChats` assigns
+  // `agentChats.chats` wholesale, so a store mounted during a cross-project
+  // navigation can carry the project you came FROM; the seeding loop then
+  // stamped each chat with its own `workspaceId` — B's home ws — and both
+  // `chatWorkspace.has(...)` filters below happily matched it.
+  it("drops a foreign chat riding one of THIS project's workspace stores", () => {
+    homeIds.current.set('p2', 'ws-b-home')
+    activeIds.current = ['ws-1']
+    storeStates.current.set('ws-1', {
+      agentChats: {
+        chats: [
+          { id: 'chat-1', workspaceId: 'ws-1' },
+          { id: 'chat-foreign', workspaceId: 'ws-b-home' },
+        ],
+        working: {},
+      },
+    })
+    seedLivePane('chat-1')
+    seedLivePane('chat-foreign')
+    windowPaneStore.setState({
+      dormantArrangements: [
+        { id: 'entry-mixed', chatIds: ['chat-1', 'chat-foreign'], state: 'dormant' },
+      ],
+    })
+    const repos = [
+      makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'a' })],
+      }),
+      makeTestRepo({ id: 'r2', projectId: 'p2' }),
+    ]
+
+    const entries = recentsForProject(repos, 'p1')
+
+    expect(entries.flatMap((e) => e.chatIds)).not.toContain('chat-foreign')
+    expect(entries.some((e) => e.chatIds.includes('chat-1'))).toBe(true)
+    expect(entries.find((e) => e.id === 'entry-mixed')?.chatIds).toEqual(['chat-1'])
+  })
+
   it('aggregates across MULTIPLE workspaces under the same project', () => {
     activeIds.current = ['ws-1', 'ws-2']
     storeStates.current.set('ws-1', { agentChats: { chats: [{ id: 'chat-1' }], working: {} } })
