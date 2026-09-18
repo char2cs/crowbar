@@ -226,17 +226,20 @@ func TestRegression_RenameWorkspaceBranch_DeleteHitsOnlyItsOwnDirectory(t *testi
 
 	// Deleting a workspace is DELETE on its OWNING CHAT now (spec §8 step 6): the
 	// cascade reaps the worktree the chat holds (worktree/hierarchy.DeleteCascade,
-	// run inline from DeleteChat's reap) and broadcasts a worktree_state frame
-	// carrying status:"deleted" once the tombstone is folded — before the async
-	// physical purge. renamedChatID still names the same chat: renaming a branch
-	// never changes which chat owns the worktree.
-	conn := repoChatsWS(h, imported)
+	// run inline from DeleteChat's reap) before the 202, and the physical purge
+	// runs in the async delete reactor. renamedChatID still names the same chat:
+	// renaming a branch never changes which chat owns the worktree.
+	//
+	// The barrier is QuiesceReactors, not the status:"deleted" stream frame (that
+	// contract is pinned by TestRegression_WorkspaceDeleteBroadcastsDeletedStatus):
+	// a frame can be missed, a joined reactor cannot, and the read-back below is
+	// the proof the delete landed.
 	resp := h.raw(http.MethodDelete, repoBase+"/chats/"+renamedChatID, nil, http.StatusAccepted)
 	_ = resp.Body.Close()
-	readUntilWorktree(t, conn, func(m map[string]any) bool {
-		return m["id"] == renamedID && m["status"] == "deleted"
-	})
 	h.QuiesceReactors()
+	for _, w := range listWorkspaces(t, h, imported.projectID, imported.repoID) {
+		require.NotEqual(t, renamedID, w.ID, "the deleted workspace must be gone from the list")
+	}
 
 	assert.DirExists(t, reuse.LocalPath,
 		"deleting one workspace must not remove another's worktree")
