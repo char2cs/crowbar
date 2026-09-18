@@ -129,7 +129,10 @@ export function SidebarRowContextMenu({
 
   if (!menu.isOpen || !menu.data) return null
   const { row, locked } = menu.data
-  const isProjectHome = row.kind === 'branch' && row.parentId === null
+  // The repo header is identified by the row itself, never by its parent: a
+  // repo's entry may be filed into a project-home folder and is still the repo.
+  const repoIcon = row.repoIcon
+  const isProjectHome = repoIcon !== undefined
   const isLockedBranch = row.kind === 'branch' && locked
 
   const items: ContextMenuItem[] = []
@@ -210,11 +213,8 @@ export function SidebarRowContextMenu({
 
   // The repo's real delete entry point — `handleTrash` refuses this ONE row
   // (it resolves to just the repo's own default-branch workspace, not the
-  // whole repo). Same `row.repoIcon` gate as the icon swap and the "..."
-  // button itself (sidebar-row.tsx): absent until the repo's project has
-  // seeded.
-  if (isProjectHome && row.repoIcon) {
-    const repoIcon = row.repoIcon
+  // whole repo).
+  if (repoIcon) {
     items.push(
       { id: 'delete-repo-separator', separator: true, label: '', onClick: () => {} },
       {

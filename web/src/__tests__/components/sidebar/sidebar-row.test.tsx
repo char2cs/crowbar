@@ -42,6 +42,16 @@ const baseRow: SidebarRowType = {
   hasView: false,
 }
 
+/** What rows-from-repo.ts stamps on the ONE header row per repo — the
+ *  field that makes a branch row the repo's project-home row. */
+const headerIcon: NonNullable<SidebarRowType['repoIcon']> = {
+  repoId: 'r1',
+  projectId: 'p1',
+  name: 'crowbar',
+  avatarLabel: 'C',
+  avatarColor: 'bg-indigo-700',
+}
+
 /**
  * A non-home branch row — used by the trailing-cluster cases below, which are
  * about the CLUSTER (which controls, in what order, with what treatment), not
@@ -247,10 +257,19 @@ describe('SidebarRow', () => {
     expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
   })
 
-  it('a project-home row (branch, no parent) gets the 20px glyph exception', () => {
+  // The repo header row is identified by the repo icon it carries, not by
+  // sitting at the root: a header filed into a home folder keeps its parent
+  // AND its identity (sidebar-row-repo-header-in-folder.test.tsx).
+  it('a project-home row (branch carrying repoIcon) gets the 20px glyph exception', () => {
     const { container } = render(
       <SidebarRow
-        row={{ ...baseRow, kind: 'branch', parentId: null, ownsWorktree: true }}
+        row={{
+          ...baseRow,
+          kind: 'branch',
+          parentId: null,
+          ownsWorktree: true,
+          repoIcon: headerIcon,
+        }}
         depth={0}
         onOpen={vi.fn()}
       />,
@@ -260,16 +279,21 @@ describe('SidebarRow', () => {
 
   // Regression, caught live: recents-band.tsx renders every row with
   // `parentId: null` (§5.1, "no parentage") and — once a Recents row could
-  // carry `kind: 'branch'` for a workspace-owning chat's real icon — that
-  // alone satisfied the SAME `kind === 'branch' && parentId === null` check
-  // above, so an ordinary chat's Recents mirror wore the repo header's 20px
-  // glyph exception. `inlineRenameDisabled` is the one signal that already
-  // meant "this instance is Recents' mirror, not the tree's own row" (see
-  // its own doc) — it must also suppress isProjectHome.
-  it('a branch row with no parent does NOT get the project-home treatment when it is a Recents mirror (inlineRenameDisabled)', () => {
+  // carry `kind: 'branch'` for a workspace-owning chat's real icon — an
+  // ordinary chat's Recents mirror wore the repo header's 20px glyph
+  // exception. `inlineRenameDisabled` is the one signal that already meant
+  // "this instance is Recents' mirror, not the tree's own row" (see its own
+  // doc) — it must also suppress isProjectHome.
+  it('a branch row does NOT get the project-home treatment when it is a Recents mirror (inlineRenameDisabled)', () => {
     const { container } = render(
       <SidebarRow
-        row={{ ...baseRow, kind: 'branch', parentId: null, ownsWorktree: true }}
+        row={{
+          ...baseRow,
+          kind: 'branch',
+          parentId: null,
+          ownsWorktree: true,
+          repoIcon: headerIcon,
+        }}
         depth={0}
         onOpen={vi.fn()}
         inlineRenameDisabled
@@ -362,19 +386,19 @@ describe('SidebarRow', () => {
       expect(html).toBe(expected)
     })
 
-    it('renders the Lock glyph on the repo/project-home row when its own repoIcon has not seeded', () => {
-      const homeRow: SidebarRowType = {
+    it('renders the Lock glyph on a locked branch sitting at the repo root (no repoIcon: not the header)', () => {
+      const rootLocked: SidebarRowType = {
         ...baseRow,
         kind: 'branch',
-        id: 'home-branch-row',
+        id: 'root-locked-row',
         parentId: null,
-        workspaceId: 'ws-home',
+        workspaceId: 'ws-release',
         ownsWorktree: true,
-        branchName: 'main',
+        branchName: 'release/1.x',
         locked: true,
       }
-      const html = iconMarkup(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} />)
-      const expected = iconMarkup(<Lock aria-hidden="true" className="size-5" weight="fill" />)
+      const html = iconMarkup(<SidebarRow row={rootLocked} depth={0} onOpen={vi.fn()} />)
+      const expected = iconMarkup(<Lock aria-hidden="true" className="size-4" weight="fill" />)
       expect(html).toBe(expected)
     })
 
@@ -648,7 +672,14 @@ describe('SidebarRow', () => {
 
     const hidden: SidebarRowType[] = [
       { ...baseRow, kind: 'branch', parentId: 'parent-1', branchName: 'my-feature', locked: true },
-      { ...baseRow, kind: 'branch', parentId: null, branchName: 'develop', ownsWorktree: true },
+      {
+        ...baseRow,
+        kind: 'branch',
+        parentId: null,
+        branchName: 'develop',
+        ownsWorktree: true,
+        repoIcon: headerIcon,
+      },
     ]
     for (const row of hidden) {
       const { unmount } = render(
@@ -1024,5 +1055,31 @@ describe('a pending row awaiting its branch name', () => {
   it('shows the branch-name placeholder on the naming input', () => {
     render(<SidebarRow row={namingRow} depth={0} onOpen={vi.fn()} />)
     expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'branch-name')
+  })
+})
+
+// A create the daemon refused carries its reason on the entry
+// (`pending-creates.ts`'s `setError` stores `err.message`) — the row must
+// say it, not just "failed": a 404 "parent … not found" and a 409 "no fork
+// parent" need different fixes, and a bare badge is indistinguishable from
+// a network drop.
+describe('a pending row whose create failed', () => {
+  const failedRow: SidebarRowType = {
+    ...baseRow,
+    kind: 'branch',
+    ownsWorktree: true,
+    label: 'test/test',
+    pending: {
+      tempId: 'pending-1',
+      status: 'error',
+      error: 'agent chat folder: parent ws-1: apperr: not found',
+    },
+  }
+
+  it('surfaces the daemon’s own reason, not only a "failed" badge', () => {
+    render(<SidebarRow row={failedRow} depth={0} onOpen={vi.fn()} />)
+    expect(screen.getByText('failed')).toBeInTheDocument()
+    const reason = /parent ws-1: apperr: not found/
+    expect(screen.queryByText(reason) ?? screen.queryByTitle(reason)).not.toBeNull()
   })
 })

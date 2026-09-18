@@ -399,6 +399,22 @@ describe('SidebarRowContextMenu', () => {
     expect(screen.queryByText('Delete Repo')).not.toBeInTheDocument()
   })
 
+  // A repo's entry can be filed into a project-home folder (`repo.folderId`,
+  // rows-from-repo.ts's header push) — it is still the repo, so its menu is
+  // the repo header's, not a plain branch row's. Identity was keyed on
+  // `parentId === null`, so the filed header lost Import/Delete Repo and
+  // gained a Lock that `performSetWorkspaceLock` silently no-ops for.
+  it('a repo header filed into a home folder keeps the repo menu: Import and Delete Repo, never Lock', () => {
+    rows = [...rowsFromRepo({ ...REPO, folderId: HOME_FOLDER_ROW_ID }), homeFolderRow]
+    expect(rows.find((r) => r.id === HOME_ROW_ID)?.parentId).toBe(HOME_FOLDER_ROW_ID)
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, HOME_ROW_ID)
+    expect(screen.getByText('Import branches')).toBeInTheDocument()
+    expect(screen.getByText('Delete Repo')).toBeInTheDocument()
+    expect(screen.queryByText('Lock')).not.toBeInTheDocument()
+    expect(screen.queryByText('Unlock')).not.toBeInTheDocument()
+  })
+
   describe('the repo-home row\'s own "..." button (sidebar-row.tsx, data-control="repo-menu")', () => {
     it('opens the exact same menu a right-click on the row opens', () => {
       const { treeRef } = renderMenu()

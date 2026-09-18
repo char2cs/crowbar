@@ -23,7 +23,10 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 // resolved home row belongs to — a real async fetch+cache round trip these
 // tests have no reason to exercise.
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({ getHomeWorkspaceId }))
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
+  getHomeWorkspaceId,
+  getHomeOwningChatId: () => null,
+}))
 
 function makeRow(over: Partial<SidebarRow> & { id: string }): SidebarRow {
   return {
@@ -411,10 +414,112 @@ describe('SIDEBAR_DROP_POLICY', () => {
     // (drop-actions.ts) computes that index over the SAME combined tree
     // that renders it. "Into" still refuses: a branch is not one of a
     // chat's threads, and that half of the old refusal stays correct.
-    it('lets a chat reorder past a branch row, but never thread into one', () => {
+    it('lets a chat reorder past a branch row on its own level, but never thread into one', () => {
+      // ws-1 sits under repo-1's header: its level is the repo's own checkout.
       expect(
-        SIDEBAR_DROP_POLICY.allowedModes([chatRow('chat-a')], makeRow({ id: 'ws-1' })),
+        SIDEBAR_DROP_POLICY.allowedModes(
+          [chatRow('chat-a', { workspaceId: 'home-1' })],
+          makeRow({ id: 'ws-1', parentId: 'home-1' }),
+        ),
       ).toEqual(REORDER_MODES)
+    })
+
+    // Regression: the indicator offered before/after on ANY branch row, so a
+    // home chat dragged beside a repo's locked branch promised a move the
+    // daemon then refused 409 ("a chat and its chat parent must be in the
+    // same workspace") as a raw Go error toast.
+    describe('a chat may only reorder past a branch row whose level is its own workspace', () => {
+      beforeEach(() => {
+        getHomeWorkspaceId.mockImplementation((projectId: string) =>
+          projectId === 'proj-1' ? 'home-ws-1' : null,
+        )
+        useHomeTreeStore.setState({
+          trees: {
+            'proj-1': {
+              folders: [],
+              chats: [
+                {
+                  id: 'home-chat',
+                  repoId: '',
+                  workspaceId: 'home-ws-1',
+                  title: 'h',
+                  order: 0,
+                },
+              ],
+            },
+          },
+        })
+      })
+
+      const repoHeader = (id: string, repoId: string) =>
+        makeRow({
+          id,
+          repoIcon: {
+            repoId,
+            projectId: 'proj-1',
+            name: repoId,
+            avatarLabel: 'R',
+            avatarColor: 'bg-indigo-700',
+          },
+        })
+
+      it('refuses a home chat beside a repo-internal locked branch', () => {
+        expect(
+          SIDEBAR_DROP_POLICY.allowedModes(
+            [chatRow('home-chat', { workspaceId: 'home-ws-1' })],
+            makeRow({ id: 'ws-locked', parentId: 'home-1' }),
+          ),
+        ).toEqual(NO_MODES)
+      })
+
+      it('allows a home chat beside a repo header — both sit at project home', () => {
+        expect(
+          SIDEBAR_DROP_POLICY.allowedModes(
+            [chatRow('home-chat', { workspaceId: 'home-ws-1' })],
+            repoHeader('home-1', 'repo-1'),
+          ),
+        ).toEqual(REORDER_MODES)
+      })
+
+      it('refuses a repo chat beside a repo header — that level is project home', () => {
+        expect(
+          SIDEBAR_DROP_POLICY.allowedModes(
+            [chatRow('chat-a', { workspaceId: 'home-1' })],
+            repoHeader('home-1', 'repo-1'),
+          ),
+        ).toEqual(NO_MODES)
+      })
+
+      it('refuses a repo chat beside a DIFFERENT repo’s locked branch', () => {
+        expect(
+          SIDEBAR_DROP_POLICY.allowedModes(
+            [chatRow('chat-a', { workspaceId: 'home-2' })],
+            makeRow({ id: 'ws-locked', parentId: 'home-1' }),
+          ),
+        ).toEqual(NO_MODES)
+      })
+
+      it('allows a locked branch’s thread beside a fork filed under that same branch', () => {
+        useSidebarStore.setState((s) => ({
+          repos: s.repos.map((r) =>
+            r.id === 'repo-1'
+              ? {
+                  ...r,
+                  workspaces: [
+                    ...r.workspaces,
+                    { id: 'ws-fork', branch: 'fork', age: '', parentId: 'ws-locked' },
+                  ],
+                }
+              : r,
+          ),
+        }))
+        expect(
+          SIDEBAR_DROP_POLICY.allowedModes(
+            [chatRow('thread-a', { workspaceId: 'ws-locked' })],
+            makeRow({ id: 'ws-fork', parentId: 'ws-locked' }),
+          ),
+        ).toEqual(REORDER_MODES)
+      })
     })
 
     // The literal "can't group chats into a folder" gap, caught live: a

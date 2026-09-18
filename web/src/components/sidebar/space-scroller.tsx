@@ -209,7 +209,7 @@ function SpacePanel({
   // different workspace entirely; conflating the two was a real bug, a
   // "New thread on the project" button that silently created the thread
   // under a REPO instead, caught live).
-  const { wsId: homeWorkspaceId } = useHomeWorkspaceState(projectId)
+  const { wsId: homeWorkspaceId, owningChatId: homeOwningChatId } = useHomeWorkspaceState(projectId)
   useEffect(() => {
     ensureHomeWorkspaceResolved(projectId)
   }, [projectId])
@@ -281,6 +281,7 @@ function SpacePanel({
             homeWorkspaceId,
             homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
             homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
+            homeOwningChatId ?? undefined,
           ),
           removalEntries,
         )

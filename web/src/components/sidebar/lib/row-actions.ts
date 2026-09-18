@@ -20,6 +20,18 @@ import { toast } from '@/features/window/stores/toast-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
+import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
+
+/**
+ * Every worktree verb is addressed through the chat that owns the workspace
+ * (workspace-scope-url.ts), and the daemon mints that chat on the first read
+ * of a workspace that has none — so a row without one is a row whose list
+ * has not landed yet, never a dead end. Said so, instead of the raw scope
+ * error the throw below carries.
+ */
+export function chatNotLoadedYet(verb: string, branch: string | undefined): string {
+  return `Can't ${verb} ${branch ?? 'this branch'} yet — its chat is still loading`
+}
 
 /** What a folder is called until the user says otherwise (matches the
  *  deleted workspace-tree-context.tsx's NEW_FOLDER_NAME). */
@@ -55,6 +67,10 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
   try {
     await renameWorkspaceBranch(projectId, repo.id, wsId, branch)
   } catch (err) {
+    if (err instanceof OwningChatNotRecordedError) {
+      toast.error(chatNotLoadedYet('rename', ws.branch))
+      return
+    }
     toast.error(err instanceof Error ? err.message : 'Failed to rename branch')
   }
 }
@@ -373,6 +389,11 @@ export async function performSetWorkspaceLock(
     await setWorkspaceLock(wsId, locked)
     useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
+    if (err instanceof OwningChatNotRecordedError) {
+      const branch = repo.workspaces.find((w) => w.id === wsId)?.branch
+      toast.error(chatNotLoadedYet(locked === false ? 'unlock' : 'lock', branch))
+      return
+    }
     toast.error(err instanceof Error ? err.message : 'Failed to update lock')
   }
 }

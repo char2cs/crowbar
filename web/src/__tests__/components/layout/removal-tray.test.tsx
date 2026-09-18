@@ -209,8 +209,6 @@ beforeEach(() => {
   useRemovalTrayStore.setState(getInitialRemovalState())
   useSidebarStore.setState({
     repos: [repo()],
-    collapsedRepos: new Set<string>(),
-    collapsedWorkspaces: new Set<string>(),
     collapsedProjects: new Set<string>(),
   })
   // Rows are only built for a repo whose tree has been read back — see

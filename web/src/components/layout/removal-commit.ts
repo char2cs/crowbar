@@ -108,7 +108,7 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
         owningChatIdOfWorkspace(useSidebarStore.getState().repos, entry.id) ??
         getOwningChatId(entry.id)
       if (!owningChatId) {
-        return Promise.reject(new Error(`no owning chat recorded for workspace ${entry.id}`))
+        return Promise.reject(new Error('its chat is still loading — try again in a moment'))
       }
       return deleteChat(entry.id, owningChatId, ...opts).then(() => {
         bumpRepoTree(entry.repoId)

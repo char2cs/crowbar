@@ -14,7 +14,9 @@ import { toast } from '@/features/window/stores/toast-store'
 import { openChatInOwnPane } from '@/components/sidebar/lib/drop-actions'
 import { resolveHomeRowScope, getHomeTree, useHomeTreeStore } from '@/lib/store/home-tree'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { getHomeOwningChatId } from '@/features/workspace/lib/home-workspace-resolver'
 import { rowsFromRepo, resolveHomeOwnerId } from '@/components/sidebar/lib/rows-from-repo'
+import { chatNotLoadedYet } from '@/components/sidebar/lib/row-actions'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
 
 /** What `id` resolves to: its owning repo, and the subject a drag/removal call needs. */
@@ -318,7 +320,11 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
     void navigateThenOpenChat(navigate, params, owningChatId)
     return
   }
-  void navigate({ to: '/ide/$projectId/$repoId/$wsId', params })
+  // No owner recorded yet: the daemon mints one on the first read of the
+  // workspace list, so this is a list still landing, never a row to navigate
+  // to — a bare workspace route would spin forever on a chat-keyed explorer.
+  const branch = found.repo.workspaces.find((w) => w.id === found.subject.id)?.branch
+  toast.error(chatNotLoadedYet('open', branch))
 }
 
 /**
@@ -436,6 +442,14 @@ export function handleTrashRepo(repoId: string): boolean {
 // the mess it leaves behind.
 const createInFlight = new Set<string>()
 
+/** Fails the pending row with the daemon's own reason, toasted and logged so it is diagnosable. */
+function failCreate(tempId: string, err: unknown, fallback: string): void {
+  const reason = err instanceof Error ? err.message : fallback
+  usePendingCreatesStore.getState().setError(tempId, reason)
+  toast.error(fallback, reason)
+  console.error(`${fallback}:`, err)
+}
+
 /**
  * Resolves once `predicate` matches the live sidebar store, or never — the
  * same "no ceiling, self-clears the moment the real row's own reseed lands"
@@ -532,8 +546,29 @@ function forkHasLanded(chatId: string, parentId: string): (repos: readonly Repo[
  *  describes for a fork's two-aggregate mint, fixed here the same way rather
  *  than a new one invented for it. */
 function waitForHomeChat(projectId: string, chatId: string, parentId: string): Promise<void> {
-  const landed = (): boolean =>
-    getHomeTree(projectId).chats.some((c) => c.id === chatId && c.parentId === parentId)
+  return waitForHomeTree(projectId, (chats) =>
+    chats.some((c) => c.id === chatId && c.parentId === parentId),
+  )
+}
+
+/** A root home row's wire `parentId` is `""` OR the home workspace id, so wait on the rendered slot. */
+function waitForRootHomeChat(
+  projectId: string,
+  homeWorkspaceId: string,
+  chatId: string,
+): Promise<void> {
+  return waitForHomeTree(projectId, (chats) =>
+    rowsFromHome(
+      homeWorkspaceId,
+      chats,
+      getHomeTree(projectId).folders,
+      getHomeOwningChatId(projectId) ?? undefined,
+    ).some((r) => r.id === chatId && r.parentId === null),
+  )
+}
+
+function waitForHomeTree(projectId: string, landedIn: (chats: Chat[]) => boolean): Promise<void> {
+  const landed = (): boolean => landedIn(getHomeTree(projectId).chats)
   return new Promise((resolve) => {
     if (landed()) {
       resolve()
@@ -612,7 +647,13 @@ export function handleCreate(
     // The new thread's OWN tree position, once real: nested under the
     // clicked chat's own id, after every thread already there — the same
     // rule the repo-scoped thread branch below follows.
-    const siblingRows = rowsFromHome(homeRow.homeWorkspaceId, getHomeTree(homeRow.projectId).chats)
+    const homeTree = getHomeTree(homeRow.projectId)
+    const siblingRows = rowsFromHome(
+      homeRow.homeWorkspaceId,
+      homeTree.chats,
+      homeTree.folders,
+      getHomeOwningChatId(homeRow.projectId) ?? undefined,
+    )
     const order = siblingRows.filter((r) => r.parentId === parentId && r.kind === 'chat').length
     const tempId = `pending-${crypto.randomUUID()}`
     usePendingCreatesStore.getState().addCreating({
@@ -643,9 +684,7 @@ export function handleCreate(
       })
       .catch((err: unknown) => {
         release()
-        usePendingCreatesStore
-          .getState()
-          .setError(tempId, err instanceof Error ? err.message : 'Failed to start chat')
+        failCreate(tempId, err, 'Failed to start chat')
       })
     return
   }
@@ -856,9 +895,7 @@ export function handleCreate(
     })
     .catch((err: unknown) => {
       release()
-      usePendingCreatesStore
-        .getState()
-        .setError(tempId, err instanceof Error ? err.message : 'Failed to start chat')
+      failCreate(tempId, err, 'Failed to start chat')
     })
 }
 
@@ -914,9 +951,7 @@ export function confirmPendingCreateName(tempId: string, name: string): void {
     })
     .catch((err: unknown) => {
       armed.release()
-      usePendingCreatesStore
-        .getState()
-        .setError(tempId, err instanceof Error ? err.message : 'Failed to create workspace')
+      failCreate(tempId, err, 'Failed to create workspace')
     })
 }
 
@@ -955,13 +990,44 @@ export async function handleCreateHomeThread(
 ): Promise<void> {
   const provider = enabledProvider()
   if (!provider) return
+  // Same lifecycle as `handleCreate`'s home branch — without the guard and pending row, a
+  // click that showed nothing got clicked again and minted a second chat and runner.
+  const inFlightKey = `thread:home:${projectId}`
+  if (createInFlight.has(inFlightKey)) return
+  createInFlight.add(inFlightKey)
+  const release = (): void => {
+    createInFlight.delete(inFlightKey)
+  }
+  const tree = getHomeTree(projectId)
+  const order = rowsFromHome(
+    homeWorkspaceId,
+    tree.chats,
+    tree.folders,
+    getHomeOwningChatId(projectId) ?? undefined,
+  ).filter((r) => r.parentId === null).length
+  const tempId = `pending-${crypto.randomUUID()}`
+  usePendingCreatesStore.getState().addCreating({
+    tempId,
+    kind: 'chat',
+    projectId,
+    parentId: '',
+    order,
+    workspaceId: homeWorkspaceId,
+    ownsWorktree: false,
+  })
   let chatId: string
   try {
     chatId = await createChat(homeWorkspaceId, provider.id)
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to start chat')
+    release()
+    failCreate(tempId, err, 'Failed to start chat')
     return
   }
+  release()
+  usePendingCreatesStore.getState().attachRealId(tempId, chatId)
+  void waitForRootHomeChat(projectId, homeWorkspaceId, chatId).then(() =>
+    usePendingCreatesStore.getState().clear(tempId),
+  )
   await openHomeChat(projectId, homeWorkspaceId, chatId, navigate)
 }
 

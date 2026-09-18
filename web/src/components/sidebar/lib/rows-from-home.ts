@@ -25,8 +25,8 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
  * identical row shape a repo's does, just rooted at `null` (the tree's own
  * top level) instead of a repo's own home-row id.
  *
- * `homeWorkspaceId`'s owning chat (see `resolveHomeOwnerId`'s own doc — the
- * same wire concept a repo's home row draws off, minted chat-first at
+ * `homeWorkspaceId`'s owning chat (`owningChatId`, as GET /home reports it —
+ * the same wire concept a repo's home row draws off, minted chat-first at
  * creation, never a boot backfill) is excluded from the walk rather than
  * drawn as a row: it carries no title of its own and exists only to be the
  * ground every other home chat/folder is filed against, the same way a
@@ -52,13 +52,17 @@ export function rowsFromHome(
   homeWorkspaceId: string,
   chats: Chat[] = EMPTY_CHATS,
   folders: Folder[] = EMPTY_FOLDERS,
+  owningChatId?: string,
 ): SidebarRow[] {
   const rows: SidebarRow[] = []
   const chatTitleById = new Map(chats.map((c) => [c.id, c.title]))
   const ownerChats = resolveOwnerChats([], chats)
   const ownerOfChat = resolveOwnerOfChat(ownerChats, chats)
 
-  const homeRowId = resolveHomeOwnerId(homeWorkspaceId, undefined, chats)
+  // `owningChatId` is what GET /home named (home-workspace-resolver.ts);
+  // the chat list's own marker is the fallback, exactly as a repo's header
+  // reads `repo.defaultOwningChatId` first.
+  const homeRowId = resolveHomeOwnerId(homeWorkspaceId, owningChatId, chats)
 
   const roots = buildSidebarTree(
     [],

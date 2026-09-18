@@ -12,6 +12,7 @@ import { isWorkspaceLockedInSidebar, useSidebarStore, type Repo } from '@/lib/st
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { foldWorkspaceOwners, resolveOwnerChats } from '@/components/sidebar/lib/rows-from-repo'
 import { buildSidebarTree, indexSidebarTree } from '@/components/layout/workspace-tree-utils'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -83,8 +84,10 @@ export function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope 
  * §8.3's cross-repo exemption). Used only for a chat as a drop TARGET, never
  * as a subject — by the time `allowedModes` reaches here the subject can
  * never be a chat itself (that kind returns earlier, unconditionally).
+ * Exported for `drop-actions.ts`'s `planTreeRowDrop`, which has to resolve
+ * the same chat target this matrix already allowed a branch/folder past.
  */
-function resolveChatRepo(repos: readonly Repo[], chatId: string): RowScope | null {
+export function resolveChatRepo(repos: readonly Repo[], chatId: string): RowScope | null {
   const repo = repos.find((r) => r.chats?.some((c) => c.id === chatId))
   return repo ? { repoId: repo.id, projectId: repo.projectId } : null
 }
@@ -120,6 +123,28 @@ function nearestBranchAnchor(repo: Repo, id: string): string {
     cursor = parentById.get(cursor) ?? ''
   }
   return ''
+}
+
+/**
+ * The workspace whose chat level a reorder past a BRANCH row lands in: the
+ * project's home for a repo header, else the nearest branch anchor above the
+ * row's container (the bare repo root is the repo's own checkout). A chat
+ * placement is workspace-scoped, so a chat may only reorder past a branch
+ * row whose level is its own — every other pairing is a cross-workspace
+ * edge the daemon refuses (`checkChatContainer`). Null when the row
+ * resolves nowhere.
+ */
+export function levelWorkspaceOfBranchRow(
+  repos: readonly Repo[],
+  target: SidebarRow,
+): string | null {
+  if (target.repoIcon) return getHomeWorkspaceId(target.repoIcon.projectId)
+  const scope = resolveRowRepo(repos, target.id)
+  const repo = scope && repos.find((r) => r.id === scope.repoId)
+  if (!repo) return null
+  const anchor = nearestBranchAnchor(repo, target.parentId ?? '')
+  if (anchor === '') return repo.defaultWorkspaceId ?? null
+  return workspaceIdOfBranchRow(repos, anchor) ?? anchor
 }
 
 /**
@@ -233,11 +258,16 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
     // Caught live as "can't put a chat right at the bottom of the list"
     // whenever a branch row happened to sit there — refusing before/after
     // here, unconditionally, is what made every one of those the literal
-    // end of the list a chat could never reach. The finer same-workspace/
-    // same-repo check stays the backend's own (checkChatMove/
-    // checkChatContainer) — this is only the client-side pre-filter, and
-    // "into" stays refused exactly as it already was.
-    if (target.kind === 'branch') return REORDER_MODES
+    // end of the list a chat could never reach. Only past a branch row on
+    // the chat's OWN level, though: a home chat beside a repo-internal
+    // locked branch is a cross-workspace edge the daemon refuses 409, and
+    // an indicator that promised it surfaced that refusal as a raw error
+    // toast (caught live). "into" stays refused exactly as it already was.
+    if (target.kind === 'branch') {
+      const level = levelWorkspaceOfBranchRow(useSidebarStore.getState().repos, target)
+      if (level === null || subjects.some((s) => s.workspaceId !== level)) return NO_MODES
+      return REORDER_MODES
+    }
     return ALL_MODES
   }
 

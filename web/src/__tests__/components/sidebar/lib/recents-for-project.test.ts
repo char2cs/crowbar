@@ -37,6 +37,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId: (projectId: string) => homeIds.current.get(projectId) ?? null,
+  getHomeOwningChatId: () => null,
 }))
 
 function makeTestWorkspace(over: Partial<Workspace> & { id: string; branch: string }): Workspace {

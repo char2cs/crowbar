@@ -198,23 +198,17 @@ export function SidebarRow({
   if (row.removal) {
     return <RemovingSidebarRow row={row} depth={depth} removal={row.removal} />
   }
-  // The project-home row is `branch` with no parent — the sidebar's one 20px
-  // glyph exception outside the project header itself (spec §3.1), and also
-  // the one row spec §9 calls a protected branch: "the repo's own ground …
-  // not workspaces you made". In the TREE it's the only row this shape can
-  // occur on (rows-from-repo.ts gives exactly one row a null parentId, the
-  // repo's default worktree) — but `!inlineRenameDisabled` is a REQUIRED
-  // second guard now that a chat's Recents mirror can also carry `kind:
-  // 'branch'` (a workspace-owning chat's real icon, recents-band.tsx's own
-  // `chatIcons`): Recents gives every row `parentId: null` (§5.1, "no
-  // parentage") regardless of kind, so without this a workspace-owning
-  // chat's OWN Recents row was misread as the repo's header — the 20px glyph
-  // and repo-icon click-to-edit affordances leaking onto an ordinary chat
-  // pill (caught live). `inlineRenameDisabled` is already the one signal
-  // that means "this SidebarRow instance is Recents' mirror, not the tree's
-  // own row" (see that prop's own doc) — the real project-home row is only
-  // ever drawn by the tree, so it is never also true here.
-  const isProjectHome = row.kind === 'branch' && row.parentId === null && !inlineRenameDisabled
+  // The project-home (repo header) row is the `branch` row that carries the
+  // repo's own icon — the sidebar's one 20px glyph exception outside the
+  // project header itself (spec §3.1), and also the one row spec §9 calls a
+  // protected branch. Keyed on `repoIcon`, not on `parentId === null`: a
+  // header filed into a home folder keeps its parent, and must keep its
+  // identity (icon picker, overflow menu, no Lock/Remove). `rows-from-repo.ts`
+  // stamps `repoIcon` on exactly that one row per repo. `!inlineRenameDisabled`
+  // stays as a second guard: it is the one signal that means "this SidebarRow
+  // instance is Recents' mirror, not the tree's own row" (see that prop's own
+  // doc), and Recents' `chatIcons` rows never carry `repoIcon` either.
+  const isProjectHome = row.kind === 'branch' && row.repoIcon !== undefined && !inlineRenameDisabled
   const expanded = !folded
   // §3.5/§4.2: any bubble (no worktree of its own) that isn't currently
   // working can promote itself into one, straight from its own glyph — a
@@ -508,7 +502,20 @@ function PendingSidebarRow({
 
         {isError && (
           <>
-            <span className="text-xs text-destructive">failed</span>
+            <span
+              className="pointer-events-auto shrink-0 text-xs text-destructive"
+              title={pending.error}
+            >
+              failed
+            </span>
+            {pending.error && (
+              <span
+                className="pointer-events-auto min-w-0 max-w-[50%] truncate text-xs text-muted-foreground"
+                title={pending.error}
+              >
+                {pending.error}
+              </span>
+            )}
             <button
               type="button"
               aria-label="Dismiss"
