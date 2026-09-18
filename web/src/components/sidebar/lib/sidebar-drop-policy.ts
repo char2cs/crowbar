@@ -96,6 +96,25 @@ export function resolveChatRepo(repos: readonly Repo[], chatId: string): RowScop
 }
 
 /**
+ * The repo whose OWN header row `rowId` is, or null for any other row.
+ *
+ * Never `row.repoIcon`: a live drag's target is rebuilt every pointermove off
+ * the DOM attributes `SIDEBAR_DRAG_ROW_SPEC` declares (`drop-dom.ts`'s
+ * `read()`), and `repoIcon` is not one of them, so reading it here answers
+ * `undefined` for a repo header row every single time a real drag asks —
+ * while a hand-built `SidebarRow` in a test answers correctly, which is how
+ * three separate rules shipped refusing a legal drop. Resolved instead the
+ * way `rows-from-repo.ts` minted the row: its id translates (via
+ * `workspaceIdOfBranchRow`) to that repo's `defaultWorkspaceId`.
+ * `resolveRowRepo` is not enough — it matches ANY row in the repo, not only
+ * its header.
+ */
+export function repoOfHeaderRow(repos: readonly Repo[], rowId: string): Repo | null {
+  const workspaceId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
+  return repos.find((r) => r.defaultWorkspaceId === workspaceId) ?? null
+}
+
+/**
  * The nearest workspace-kind row's id in `id`'s ancestor chain — `id`'s own
  * row included — mirroring the backend's own golden-rule "context" walk
  * (`nearestWorkspaceAnchor`, usecases/chat/internal/tree/validate.go): a
@@ -141,7 +160,8 @@ export function levelWorkspaceOfBranchRow(
   repos: readonly Repo[],
   target: SidebarRow,
 ): string | null {
-  if (target.repoIcon) return getHomeWorkspaceId(target.repoIcon.projectId)
+  const headerRepo = repoOfHeaderRow(repos, target.id)
+  if (headerRepo) return headerRepo.projectId ? getHomeWorkspaceId(headerRepo.projectId) : null
   const scope = resolveRowRepo(repos, target.id)
   const repo = scope && repos.find((r) => r.id === scope.repoId)
   if (!repo) return null
@@ -185,6 +205,10 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   // rather than guess which class wins (carried over from both old policies).
   const kind = subjects[0].kind
   if (subjects.some((s) => s.kind !== kind)) return NO_MODES
+
+  // One `getState()` per drag frame, shared by every branch below — see
+  // `resolveRowRepo`'s own note about this running on every pointermove.
+  const repos = useSidebarStore.getState().repos
 
   // A CHAT IS NOT REPO-SCOPED, so the repo/project walk below does not apply to
   // it — and applying it anyway is what silently refused every single
@@ -267,7 +291,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
     // an indicator that promised it surfaced that refusal as a raw error
     // toast (caught live). "into" stays refused exactly as it already was.
     if (target.kind === 'branch') {
-      const level = levelWorkspaceOfBranchRow(useSidebarStore.getState().repos, target)
+      const level = levelWorkspaceOfBranchRow(repos, target)
       if (level === null || subjects.some((s) => s.workspaceId !== level)) return NO_MODES
       return REORDER_MODES
     }
@@ -292,7 +316,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
       // sibling to reorder past (its container is always root or a home
       // folder, its own placement invariant), never a container for one.
       if (target.kind === 'branch') {
-        return target.repoIcon?.projectId === projectId ? REORDER_MODES : NO_MODES
+        return repoOfHeaderRow(repos, target.id)?.projectId === projectId ? REORDER_MODES : NO_MODES
       }
       const targetHome = resolveHomeRowScope(target.id)
       if (!targetHome || targetHome.projectId !== projectId) return NO_MODES
@@ -314,24 +338,14 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   // header with anything else already refused above (mixed kinds are
   // impossible here since every subject shares `kind`, but a multi-REPO
   // selection is not a thing this drag supports).
-  const repos = useSidebarStore.getState().repos
-
   if (kind === 'branch' && subjects.length === 1 && subjects[0].repoIcon) {
     const repoIcon = subjects[0].repoIcon
     if (target.kind === 'branch') {
       // Another repo's own header row always sits at a container ('' or a
       // home folder) a repo may legally land in — that is its OWN placement
       // invariant, enforced the identical way when IT was filed there — so
-      // no further container check is needed here. `target.repoIcon` is
-      // never populated by the live per-frame hit test — drop-dom.ts's
-      // `read()` only reconstructs what `SIDEBAR_DRAG_ROW_SPEC` declares, and
-      // it never declares `repoIcon` — so resolve whether target IS a repo's
-      // own header row the same way `rows-from-repo.ts` minted it: its id
-      // translates (via `workspaceIdOfBranchRow`) to that repo's
-      // `defaultWorkspaceId`. A plain `resolveRowRepo` isn't enough here —
-      // it would match ANY branch in the same repo, not only its header row.
-      const targetWorkspaceId = workspaceIdOfBranchRow(repos, target.id) ?? target.id
-      const targetRepo = repos.find((r) => r.defaultWorkspaceId === targetWorkspaceId)
+      // no further container check is needed here.
+      const targetRepo = repoOfHeaderRow(repos, target.id)
       return targetRepo && targetRepo.projectId === repoIcon.projectId ? REORDER_MODES : NO_MODES
     }
     const targetHome = resolveHomeRowScope(target.id)
