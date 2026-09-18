@@ -20,7 +20,14 @@ import { createPaneBeside } from './pane-split-actions'
  *
  *   - **already up anywhere → go TO it** (§8.2's "it never opens twice"),
  *     checked against every pane, including one in a view currently off
- *     screen (`setActivePane` brings that whole view over).
+ *     screen (`setActivePane` brings that whole view over) — EXCEPT one in
+ *     another PROJECT's parked view, which is law 5 of the project-scoped
+ *     panes design: reaching it is a route + space switch, never a reveal in
+ *     place. `setActivePane` enforces that itself (it records the view as
+ *     that project's own, so the route-driven switch lands on this exact
+ *     pane, and changes nothing on this screen); this function must still
+ *     return here rather than fall through, or §8.2 would be broken by
+ *     opening the same chat a second time in the space the user is in.
  *   - **an EMPTY pane in the showing view → it fills that one** (the active
  *     pane first, so it lands where the user is already looking).
  *   - **otherwise → a brand-new VIEW** (`addPane`), which takes the screen

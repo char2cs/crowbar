@@ -6,6 +6,8 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { openChatIdInOwnView } from '@/features/panes/utils/pane-command-actions'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import { isKnownChatId, resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
+import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
+import { viewIdOf } from '@/features/panes/lib/pane-views'
 import {
   levelWorkspaceOfBranchRow,
   resolveChatRepo,
@@ -1043,11 +1045,25 @@ export function openChatInOwnPane(subject: SidebarRow): void {
 export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
   const resolved = paneChatSubject(subject)
   if (!resolved) return
-  const { panes, paneActions } = windowPaneStore.getState()
+  const { panes, paneActions, viewProjects } = windowPaneStore.getState()
   const chatId = resolved.chatId
 
   const target = panes[paneId]
   if (!target) return
+
+  // LAW 4 (project-scoped panes §6.5): content never crosses a project.
+  // Belt-and-braces — the geometry already makes this nearly unreachable,
+  // since the only draggable rows are the active project's panel's and the
+  // only pane tree on screen is the active project's — so an UNRESOLVABLE
+  // project on either side is allowed through rather than refused: a sidebar
+  // one frame behind must not break an ordinary same-project drop.
+  const targetProject = viewProjects[viewIdOf(target)]
+  const subjectProject = resolveChatProjectId(chatId, resolved.workspaceId)
+  if (targetProject && subjectProject && targetProject !== subjectProject) {
+    toast.error('That chat belongs to a different space')
+    return
+  }
+
   const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
 
   // Middle of an EMPTY pane: a plain open, exactly where you dropped it. No
