@@ -290,4 +290,39 @@ describe('AgentSelectionPicker', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'sonnet' }))
     expect(onSelectionChange).toHaveBeenCalledTimes(1)
   })
+
+  it('marks the current model as picked (a checkmark) and no other row', () => {
+    render(
+      <AgentSelectionPicker
+        provider={claude}
+        providers={[claude, codex]}
+        model="opus"
+        effort="high"
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    openMenu()
+    const opusRow = screen.getByRole('menuitem', { name: 'opus' })
+    const sonnetRow = screen.getByRole('menuitem', { name: 'sonnet' })
+    expect(opusRow.querySelector('svg')).toBeTruthy()
+    expect(sonnetRow.querySelector('svg')).toBeNull()
+  })
+
+  it('shows nothing selected when model/effort are unset — the "unfired hook" state, not a bug', () => {
+    render(
+      <AgentSelectionPicker
+        provider={claude}
+        providers={[claude, codex]}
+        model=""
+        effort=""
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    const trigger = screen.getByRole('button', { name: /Agent:/ })
+    expect(trigger).toHaveAccessibleName('Agent: Claude, model unset, effort unset')
+    openMenu()
+    for (const name of ['sonnet', 'opus', 'haiku']) {
+      expect(screen.getByRole('menuitem', { name }).querySelector('svg')).toBeNull()
+    }
+  })
 })
