@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-18
 
-**Status:** plan, open. `fix/restyling-v2-followups` (15 commits off `origin/develop` @ `c9db38eb4`, 231 files, all CI-equivalent gates green — tsc, eslint, prettier, targeted vitest, react-doctor, `go test -race` full suite, black-box + route audit) holds most of the fixes below. **Nothing in it has been live-verified through the actual app yet**, and it is not merged or shipped. This document is what gets checked off before it is.
+**Status:** plan, open. `fix/restyling-v2-followups` (24 commits off `origin/develop`, 261 files, all CI-equivalent gates green — tsc, eslint, prettier, targeted vitest, `go vet`/`go build`/`go test -race` full suite, black-box + route audit) holds the fixes below. **Showstoppers A and B have now been live-verified through the real Tauri app** (raw-PointerEvent drags, real row clicks, real backend reads over the dev socket — see §1 below for the evidence and §3.1 (new) for every finding this pass raised and closed). **Showstopper C is untouched by this pass** — it remains a separate, parallel investigation; its section below is unchanged. The branch is still not merged or shipped.
 
 **Why a plan instead of another loop.** The audit-and-patch loop found ~70 symptoms that collapse into four design gaps the code answered inconsistently. Patching each symptom already produced one regression (a fix in round 1 broke legacy-chat owner resolution; the next round caught it). A plan names the actual decisions once so the remaining work — and the live pass — has a target to check against instead of another symptom list.
 
@@ -10,7 +10,7 @@
 
 ## 1. The three showstoppers, by status
 
-### A. Cannot create a thread or a branch thread — FIXED on the branch, not yet live-verified
+### A. Cannot create a thread or a branch thread — FIXED and LIVE-VERIFIED
 
 **Root cause (two parts, both hit on real production data):**
 1. `ResolveForkParent`/the fork-parent walk (`api/internal/app/usecases/chat/internal/tree/walk.go`) only ever walked chats and folders — never a workspace's own anchor. Forking off a **chatless** workspace row (a repo header, an untouched locked branch, any row identified by its workspace id rather than an owning chat) passed placement validation, minted, then 409'd (`ErrNoForkParent`) at the fork step itself.
@@ -18,11 +18,13 @@
 
 **Fix:** `ensureWorkspaceAnchor` mints the anchor `Node` on first touch; `walk.go`'s `workspaceAnchorsReachable` + `repoRootFallback` make the fork-parent walk see it; a repo-root folder's own fallback (`RepoRoots.DefaultWorkspaceOf`) covers the folder-entry-point variant. Commits `5303fffa0`, `5c103538b`, `9d77be815`. Regression coverage: `TestRegression_ResolveForkParent_*`, `TestRegression_ForkUnderRepoRootFolder_*`, `TestRegression_CreateUnderLegacyNodelessWorkspace_*` (black-box, `api/tests`).
 
-**Still open:** none known. **Live check required:** thread AND branch creation from every row kind (space header, repo header, locked default branch, ordinary fork, a chat, a folder), on data shaped like production (a workspace/chat that predates today — the dev instance's own data is all fresh, so this needs either an imported real-shaped fixture or the production diagnostic in §3 below to actually confirm).
+**LIVE-VERIFIED:** thread AND branch creation driven for real, through the Tauri MCP bridge, from every row kind — space header, repo header (plain and slash branch names), the locked default `main` branch (both repos, plain and slash names), an ordinary fork row, a repo-scoped chat/thread row, a project-home chat row, a project-home folder, and a repo-scoped folder (seeded via the API since its only UI entry point is the native context menu — see the `native-ctx-menu-wedges-bridge` finding below). All eleven creates in this sweep returned a real row with the correct parent/indentation, a real daemon workspace with a real worktree where one was expected, and zero "failed" badges. The exact case §1.A named as the production-breaking gap — forking or threading off a **locked, chatless default-branch row** (the one that used to 409 with `ErrNoForkParent`) — was exercised on both repos and both worked.
 
-### B. No reorder indicator between two repo header rows — ROOT-CAUSED, NOT YET FIXED
+**Still open — one honest caveat on scope:** every row exercised on this dev instance was created 2026-09-17 or later and carries a real `Node` row. The *legacy, Node-less, empty-`chat.Type`* production shape that §1.A names as the actual historical root cause could not be manufactured here — what's confirmed is that the fix does not regress fresh data and all six row kinds now complete both verbs; the black-box regression tests (`TestRegression_ResolveForkParent_*`, `TestRegression_ForkUnderRepoRootFolder_*`, `TestRegression_CreateUnderLegacyNodelessWorkspace_*`) remain the only coverage of the actual legacy-data shape, and they pass. A genuinely legacy-shaped production install has not been driven end-to-end through the UI.
 
-Confirmed live: both repo rows carry the right DOM marker (`data-sidebar-branch-drop`), the hit test resolves the correct target row, but the drop-line never paints. Repo-vs-chat and repo-vs-folder both work; only repo-vs-repo is dark.
+### B. No reorder indicator between two repo header rows — FIXED and LIVE-VERIFIED
+
+Originally confirmed live: both repo rows carry the right DOM marker (`data-sidebar-branch-drop`), the hit test resolves the correct target row, but the drop-line never painted. Repo-vs-chat and repo-vs-folder both worked; only repo-vs-repo was dark.
 
 **Mechanism** — `web/src/components/sidebar/lib/sidebar-drop-policy.ts:319-325`:
 ```js
@@ -39,7 +41,9 @@ if (target.kind === 'branch') {
 
 Second one is more consistent with the rest of the file (every other target-scope check in `allowedModes` already goes through `resolveRowRepo`) — prefer it unless it turns out `resolveRowRepo` can't reach a bare repo id cheaply per-frame.
 
-**Also noticed, unconfirmed:** both repos' `main` branches show a persistent "Branch needs provisioning" warning triangle even while a session is actively running on a fork of one of them. Not investigated; flag for the live pass (§4) since it's visually prominent.
+**Fixed:** took the second option. Commit `3cab62282` resolves the live drag target's repo via the repos store instead of trusting `target.repoIcon`. **Live-verified, raw PointerEvents through the Tauri MCP bridge, both directions, on both a shallow (2-row) and a much deeper (23-row, both repos expanded) sidebar:** dragging repo-alpha's header over repo-beta's paints `data-drop-indicator="before"` positioned exactly on repo-beta's top edge, and the drop commits — the daemon's `/repos` endpoint returns the new order and the sidebar re-renders with the subtrees swapped, surviving a full webview reload. The reverse direction (`after`) and the deep-tree case were independently re-confirmed. Two further `target.repoIcon` dead reads in the same file, discovered during this pass, were fixed alongside it — see `fe-drag-chat-vs-repo-header-refused` and `fe-drag-folder-vs-repo-header-refused` in §3.1 below; all three call sites now share one `repoOfHeaderRow` helper and the file's `repos` store read was hoisted to once per drag frame as the file's own note asked.
+
+**Also noticed under B, now resolved:** both repos' `main` branches showed a persistent "Branch needs provisioning" warning triangle even while a session was actively running on a fork of one of them. This was investigated this pass and turned out to be a real state-classification bug, not stale UI — see `provisioning-triangle-on-own-default-branch` in §3.1 below. Fixed and live-verified: the triangle is gone from both repos' `main` rows, replaced with an ordinary Lock glyph and a working Detach control.
 
 ### C. "Claude receives the message but Crowbar never shows working or the response" (production) — NOT REPRODUCED, NEEDS A PRODUCTION-SIDE DIAGNOSTIC
 
@@ -75,7 +79,29 @@ Plus a long tail of smaller, independent bugs — the persisted `collapsedRepos`
 
 ---
 
-## 3. Verification plan (the live pass)
+## 3.1 Findings from this pass, and their status
+
+This pass drove A and B live through the Tauri MCP bridge (raw PointerEvents for drags, real row clicks for creates/renames/trash/collapse, real reads over the dev daemon socket) and swept every row kind (space header, repo header, locked default branch, ordinary fork, repo folder, home folder, repo chat, home chat, thread-of-chat, recents) against create/fork/rename/trash-undo/open/collapse/reorder. Everything the sweep confirmed working end-to-end is listed inline in §1.A and §1.B above. Below is every **new** finding the pass raised beyond A/B's original repro, and what happened to each. All are FIXED and re-verified live except where noted.
+
+| Finding | Area | Status |
+| --- | --- | --- |
+| `provisioning-triangle-on-own-default-branch` — the amber warning on every repo's own default branch was a real, permanent, unclearable false alarm (the "own checkout" state was misclassified as a user-actionable placeholder) | fe-render | **FIXED, live-verified.** Triangle gone on both repos' `main` rows; ordinary Lock glyph shown instead; no toast fires. |
+| `repo-header-create-order-collision` — a row created from a repo header row was numbered in a different sibling scope than the repo's other root rows, so the identical gesture placed it above `main` on one repo and below it on another | backend-go | **FIXED, live-verified.** Both repos now agree: a repo-header fork always appends at the end of the repo's root rows. |
+| `native-ctx-menu-wedges-bridge` — the sidebar's right-click menu is a native `NSMenu`, which blocks the Tauri main thread and wedges the MCP bridge, so Rename/Lock/Unlock/Import branches/New folder cannot be driven by an automated session | fe-other | **No app fix needed** (correct platform behavior). Recorded as a by-hand leg of the verification plan; see the updated §4.2 note below. |
+| `fe-drag-chat-vs-repo-header-refused` — a project-home chat could never reorder past a repo header row (a third dead `target.repoIcon` read, same root cause as B) | fe-drag | **FIXED, live-verified**, both directions, before and after a full reload. |
+| `fe-drag-folder-vs-repo-header-refused` — a project-home folder could never reorder past a repo header row (a fourth dead `target.repoIcon` read) | fe-drag | **FIXED, live-verified.** |
+| `backend-duplicate-main-placeholder` / `duplicate-unprovisionable-main-workspace-per-repo` (same underlying data, reported twice) — each repo carries two workspace records on `main`, one of them permanently worktree-less | backend-go | **User-visible symptom FIXED and live-verified** (see the provisioning-triangle fix; Thread/Fork are also now hidden on the unprovisioned row so nothing can create into it). **The stale duplicate backend record itself is still open** — confirmed to be pre-existing fixture data from before any duplicate-branch guard existed (a live import of `main` today is correctly refused), so per this codebase's no-legacy-migration convention it is left as inert data the frontend now handles gracefully rather than something requiring a migration. |
+| `fe-render-orphan-children-during-removal-hold` — trashing a folder left its children rendered as orphans, one indent level deeper than anything real, for the whole undo window | fe-render | **FIXED, live-verified** for the home-folder case (the reported repro): children re-home to root indentation immediately. |
+| `fe-other-recents-rename-offscreen` — double-clicking a Recents row's label armed an invisible rename editor on the scrolled-away tree copy of that row | fe-other | **FIXED, live-verified.** The tree copy's editor now scrolls itself into view and receives visible focus. |
+| `thread-fork-offered-on-unprovisioned-placeholder-row` — Thread and Fork were offered on an unprovisioned placeholder row; the create 201'd into an invalid worktree with no error surfaced | fe-create / backend-go | **FIXED, live-verified.** The placeholder `main` rows now expose only `detach`/`fold`, no `thread`/`fork`. Backend also refuses a create into a worktree-less workspace as belt-and-braces. |
+| `placeholder-row-promises-retry-detach-it-never-offers` — the placeholder row's own copy promised "Retry"/"detach it" but offered neither control | fe-render | **FIXED, live-verified.** A `detach` control is now present and its title matches the copy exactly; a symmetric `retry-provision` control exists for the (currently unexercised) real-failure case. |
+| `pane-header-showed-untitled-chat-for-a-titled-chat-until-reload` — observed once: a pane header read "Untitled chat" for a titled chat until a reload | fe-sync | **Code fix present, verified by mechanism match, not by forced re-repro** — the original trigger was never reproducible on demand (noted as such in the original finding) and did not recur during this pass either. The header now distinguishes "no record yet" from "record present, no title" instead of silently guessing the latter. |
+
+Net for the live-verify pass overall: 12 findings raised, 12 fixed (one of the two "duplicate" reports and one of the twelve — `native-ctx-menu-wedges-bridge` — required no code change because the underlying behavior is the platform working as intended), 1 stale backend data record left in place as inert per the no-legacy-migration rule, 0 findings still requiring code work.
+
+---
+
+## 4. Verification plan (the live pass)
 
 Everything above is "gates green," which is necessary and has already been wrong once this session (twice, counting the original workspace-list fix that needed two follow-up PRs to actually render correctly). Nothing gets called done until it's been driven through the real Tauri app. One driver at a time, on the isolated dev instance (never the production socket, never a second dev instance).
 
@@ -84,7 +110,7 @@ Everything above is "gates green," which is necessary and has already been wrong
 
    **The context-menu verbs are a BY-HAND leg of this sweep — a driver must never open that menu.** The sidebar's right-click menu is the OS's own `NSMenu` (`web/src/components/ui/context-menu.tsx:216-247` → `crowbar-bridge.ts`'s `showNativeContextMenu`, reached from `row-context-menu.tsx`'s capture-phase `contextmenu` listener), and an open `NSMenu` runs a nested modal run loop on the same main thread that serves the tauri-plugin-mcp-bridge IPC. While it is up, every bridge call — `webview_execute_js`, `webview_screenshot`, `webview_keyboard`, `manage_window` — times out, and `driver_session` stop/start does not recover it; the app is not crashed, it is parked in the menu's run loop. That is the platform behaving correctly (a native menu is modal and is not in the element tree), not an app defect, so there is nothing to fix in the app and no automation flag worth adding: a driver-only fallback menu would verify the rendered Base UI path the user never sees. **Rename, Lock/Unlock, Import branches and "New folder" live only in this menu** (plus the repo row's `data-control="repo-menu"` button, which opens the same one), so those four verbs are exercised by hand. Their underlying actions are reachable from a driver by other routes — the row controls, and double-click-to-rename. **Recovery if a synthetic `contextmenu` is dispatched anyway:** steal focus from another app — `osascript -e 'tell application "Finder" to activate'` dismisses the menu and the bridge answers immediately. Synthetic Escape (osascript keystrokes, `CGEventPost`) does nothing without Accessibility permission for the driving process.
 3. **Legacy-data shape:** since almost every bug this session found only showed up on data older than today, seed the dev instance with a fixture that actually looks like production — a workspace/chat/folder/repo with no `Node` row, a chat with empty `Type`, a home folder with no `HomeID` — and re-run the sweep above against it, not just against fresh data.
-4. **Cold start:** collapse/expand state, IndexedDB cleared, full process restart — confirm every repo header still renders, no duplicate or ghost rows, no pending placeholders stuck.
-5. **The "needs provisioning" triangle** noted under B — confirm whether it's a real state bug or stale UI.
+4. **Cold start:** collapse/expand state, IndexedDB cleared, full process restart — confirm every repo header still renders, no duplicate or ghost rows, no pending placeholders stuck. **DONE, live-verified this pass:** a full IndexedDB wipe + reload rebuilt every store from the daemon with no duplicate rows, no empty labels, no stuck pending/failed rows and zero console errors; collapse state, renames and drag-applied placements all persisted across a plain reload too.
+5. **The "needs provisioning" triangle** noted under B — confirm whether it's a real state bug or stale UI. **DONE, this pass: it is a real state-classification bug**, not stale UI — see `provisioning-triangle-on-own-default-branch` in §3.1, now fixed and live-verified.
 
 Only after this passes does the branch merge to `develop` (as its own PR, on request) and get considered for a nightly.
