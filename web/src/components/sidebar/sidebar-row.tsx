@@ -564,7 +564,15 @@ function RemovingSidebarRow({
 }) {
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
-      <div className={cn(ROW_BASE, ROW_INACTIVE, 'relative')}>
+      {/* `data-sidebar-row-id` is the row's identity, not one of its
+          affordances, and a held row is still on screen with its children
+          still drawn under it — dropping the attribute made a held FOLDER
+          read as a row that does not exist, leaving its children parented to
+          an id nothing published (and taking the right-click menu with it:
+          `row-context-menu.tsx` resolves a row by this attribute alone). The
+          drag attributes stay off: a row on its way out is deliberately not a
+          drop target. */}
+      <div data-sidebar-row-id={row.id} className={cn(ROW_BASE, ROW_INACTIVE, 'relative')}>
         <span className={ROW_GLYPH_BOX}>
           <RowGlyph row={row} large={false} expanded={false} />
         </span>

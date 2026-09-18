@@ -29,7 +29,11 @@ import { chatNotLoadedYet } from '@/components/sidebar/lib/row-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { hideRowsForInFlightCreates } from '@/components/sidebar/lib/rows-from-pending'
-import { applyPendingRemovals, descendantHiddenIds } from '@/components/layout/removal-plan'
+import {
+  applyPendingRemovals,
+  descendantHiddenIds,
+  renderedHiddenIds,
+} from '@/components/layout/removal-plan'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
 import {
   placeWorkspace,
@@ -119,12 +123,26 @@ function insertIndex(rest: string[], targetId: string, mode: 'before' | 'after')
   return mode === 'after' ? at + 1 : at
 }
 
-/** The repos as the tree draws them — removal-tray-filtered, like
- *  `SidebarTreeSurface` feeds `rowsFromRepo`. */
+/**
+ * The repos as the tree draws them — removal-tray-filtered, like
+ * `SidebarTreeSurface` feeds `rowsFromRepo`.
+ *
+ * Through `renderedHiddenIds`, not the tray store's raw `hiddenIds`: the two
+ * differ by every LIVE entry's own primary row, which stays on screen
+ * transformed in place (`RemovingSidebarRow`). Reading the raw set modelled a
+ * tree the user is not looking at — a held FOLDER was gone from it with its
+ * children re-homed to the folder's parent (`applyPendingRemovals`), while the
+ * rendered tree still drew the folder with those children nested under it, so
+ * every sibling index a drop computed during an eight-second hold was counted
+ * over a different list than the one it was aimed at. The raw set is still the
+ * base, so rows committed but not yet tombstoned stay hidden here exactly as
+ * they are on screen.
+ */
 export function visibleRepos(): Repo[] {
+  const tray = useRemovalTrayStore.getState()
   return applyPendingRemovals(
     useSidebarStore.getState().repos,
-    useRemovalTrayStore.getState().hiddenIds,
+    renderedHiddenIds(tray.hiddenIds, tray.entries),
   )
 }
 
