@@ -413,35 +413,32 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     [],
   )
 
-  const onPointerDownDrag = useCallback(
-    (row: SidebarRow, e: React.PointerEvent) => {
-      if (e.button !== 0) return
-      if (draggingRef.current) return // ignore a second pointer mid-drag
-      // No `row.working` refusal here any more (live-reported: it blocked
-      // picking a working chat up AT ALL, split included). §8.3's "may not be
-      // dragged" is about REORDERING — moving a row re-points the ground
-      // under it, mirroring the backend's own `guardNotWorking` — and that is
-      // still enforced where a reorder is actually decided:
-      // `SIDEBAR_DROP_POLICY.allowedModes` refuses every mode for a working
-      // subject over a ROW target. A drop onto a PANE never touches tree
-      // placement (`performSidebarPaneDrop`/`openChatIntoPane` just open a
-      // split view), so a working chat has no less claim to that than an idle one.
-      // Block the text selection from the PRESS: `selectstart` fires before the
-      // threshold promotes the press into a drag, so arming this at drag start
-      // is arming it after the only event it could have cancelled.
-      document.addEventListener('selectstart', preventDefault)
-      // No pointer capture yet — capturing here swallows the dblclick that opens
-      // the rename editor.
-      pendingRef.current = {
-        row,
-        startX: e.clientX,
-        startY: e.clientY,
-        target: e.currentTarget as HTMLElement,
-        pointerId: e.pointerId,
-      }
-    },
-    [],
-  )
+  const onPointerDownDrag = useCallback((row: SidebarRow, e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    if (draggingRef.current) return // ignore a second pointer mid-drag
+    // No `row.working` refusal here any more (live-reported: it blocked
+    // picking a working chat up AT ALL, split included). §8.3's "may not be
+    // dragged" is about REORDERING — moving a row re-points the ground
+    // under it, mirroring the backend's own `guardNotWorking` — and that is
+    // still enforced where a reorder is actually decided:
+    // `SIDEBAR_DROP_POLICY.allowedModes` refuses every mode for a working
+    // subject over a ROW target. A drop onto a PANE never touches tree
+    // placement (`performSidebarPaneDrop`/`openChatIntoPane` just open a
+    // split view), so a working chat has no less claim to that than an idle one.
+    // Block the text selection from the PRESS: `selectstart` fires before the
+    // threshold promotes the press into a drag, so arming this at drag start
+    // is arming it after the only event it could have cancelled.
+    document.addEventListener('selectstart', preventDefault)
+    // No pointer capture yet — capturing here swallows the dblclick that opens
+    // the rename editor.
+    pendingRef.current = {
+      row,
+      startX: e.clientX,
+      startY: e.clientY,
+      target: e.currentTarget as HTMLElement,
+      pointerId: e.pointerId,
+    }
+  }, [])
 
   useEffect(() => {
     /**

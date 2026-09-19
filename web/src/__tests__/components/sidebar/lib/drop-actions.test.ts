@@ -506,7 +506,9 @@ describe('performSidebarDrop — folder nested under a workspace container that 
             { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' },
             { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
           ],
-          folders: [{ id: 'folder-nested', repoId: 'repo-1', name: 'Nested', parentId: 'chat-a', order: 0 }],
+          folders: [
+            { id: 'folder-nested', repoId: 'repo-1', name: 'Nested', parentId: 'chat-a', order: 0 },
+          ],
         },
       ],
     })
