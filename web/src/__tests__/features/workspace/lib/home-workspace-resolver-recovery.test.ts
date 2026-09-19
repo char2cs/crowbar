@@ -58,6 +58,11 @@ describe('home-workspace-resolver recovers from a failed resolve', () => {
     })
     expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(getHomeWorkspaceId('p1')).toBe('ws-home-1'))
-    expect(result.current).toEqual({ wsId: 'ws-home-1', owningChatId: 'chat-home-1', error: false })
+    expect(result.current).toEqual({
+      wsId: 'ws-home-1',
+      owningChatId: 'chat-home-1',
+      localPath: null,
+      error: false,
+    })
   })
 })

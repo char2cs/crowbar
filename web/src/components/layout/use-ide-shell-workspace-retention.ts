@@ -48,6 +48,7 @@ export function useIdeShellWorkspaceRetention(
   activeProjectIdFromRoute: string | undefined,
   activeRepoIdFromRoute: string | undefined,
   isHomeRoute: boolean,
+  homeWorkspacePath: string | null = null,
 ): IdeShellWorkspaceRetention {
   // The chat the ACTIVE PANE is showing, and the workspace that chat belongs
   // to — resolved before `effectiveActiveWorkspaceId` below, which now leans
@@ -144,10 +145,30 @@ export function useIdeShellWorkspaceRetention(
   // IDE shell — sidebar provider, carousel, offscreen panels and workspace host
   // included. Returning the resolved path lets Zustand bail out unless the
   // active workspace's actual filesystem scope changed.
-  const sidebarWorkspaceId = activePaneWorkspaceId ?? activeWorkspaceId
-  // For the home route there is no repoId, so fall back to any repo under the
-  // active project, then to the project's own path (the home workspace root).
+  // Falls back to `homeWorkspaceId` too now (matching `effectiveActiveWorkspaceId`
+  // above) — a project-home chat's pane can resolve straight to the home
+  // workspace before any repo-scoped store even exists for it, and this used to
+  // stop one step short of that, at `activeWorkspaceId` (undefined on the home
+  // route, which has no repoId/wsId segments of its own).
+  // Falls back to `homeWorkspaceId` too now (matching `effectiveActiveWorkspaceId`
+  // above) — a project-home chat's pane can resolve straight to the home
+  // workspace before any repo-scoped store even exists for it, and this used to
+  // stop one step short of that, at `activeWorkspaceId` (undefined on the home
+  // route, which has no repoId/wsId segments of its own).
+  const sidebarWorkspaceId = activePaneWorkspaceId ?? activeWorkspaceId ?? homeWorkspaceId
   const sidebarWorkspacePath = useSidebarStore((s) => {
+    // The home workspace is never one of `s.repos`' own workspaces (it rides
+    // no repo — home-workspace-resolver.ts), so resolve its REAL on-disk path
+    // directly (GET /home's own `localPath`) rather than falling through the
+    // repo scan below and landing on some OTHER repo's directory as a
+    // stand-in for "the project's root".
+    if (sidebarWorkspaceId && sidebarWorkspaceId === homeWorkspaceId) {
+      return (
+        homeWorkspacePath ??
+        s.repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ??
+        ''
+      )
+    }
     if (sidebarWorkspaceId) {
       for (const repo of s.repos) {
         if (repo.defaultWorkspaceId === sidebarWorkspaceId) return repo.localPath ?? ''
@@ -155,8 +176,14 @@ export function useIdeShellWorkspaceRetention(
         if (ws) return ws.localPath || repo.localPath || ''
       }
     }
+    // Nothing resolved yet (e.g. `homeWorkspaceId` itself is still in flight)
+    // — same home-path-first fallback, for the home route only.
     if (!isHomeRoute) return ''
-    return s.repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ?? ''
+    return (
+      homeWorkspacePath ??
+      s.repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ??
+      ''
+    )
   })
 
   return {

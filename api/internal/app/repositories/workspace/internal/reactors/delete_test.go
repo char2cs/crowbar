@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -328,6 +329,55 @@ func TestDeleteReactor_Purge_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists)
 	assert.Equal(t, 1, rmCount, "an absent worktree must not be rm'd again")
+}
+
+// TestDeleteReactor_TransientRemoveWorktreeError_RetriesUntilSuccess proves
+// purgeUntilDone's retry: a transient rm failure (a busy store, a
+// momentarily-EBUSY rm) must not abandon the physical purge until the
+// daemon's next restart — the reactor retries the whole idempotent sequence,
+// driven through the real onEvent/run path, until it succeeds within its
+// bounded timeout.
+func TestDeleteReactor_TransientRemoveWorktreeError_RetriesUntilSuccess(t *testing.T) {
+	ctx, ax := newAx(t)
+	st := newStore(t)
+	require.NoError(t, projections.RegisterStore(st, ax))
+
+	paths := newFakePaths()
+	require.NoError(t, paths.Put(ctx, "w1", "/wt/w1"))
+
+	var attempts atomic.Int32
+	rmCh := make(chan string, 1)
+	rmWorktree := func(path string) error {
+		if attempts.Add(1) <= 2 {
+			return errors.New("transiently busy")
+		}
+		rmCh <- path
+		return nil
+	}
+	gate := drain.New()
+
+	require.NoError(t, RegisterDeleteReactor(
+		ax, st, paths,
+		func(context.Context, string) error { return nil },
+		rmWorktree, gate,
+		WithGatePollInterval(2*time.Millisecond),
+	))
+
+	createWorkspace(t, ctx, ax, "w1", "/wt/w1")
+	_, err := ax.SendWait(ctx, wscmds.Delete{ID: "w1"})
+	require.NoError(t, err)
+
+	// rmWorktree pushes the removed path onto rmCh only once it stops erroring:
+	// a genuine completion signal, so block on it directly.
+	path := <-rmCh
+	assert.Equal(t, "/wt/w1", path)
+	gate.WaitIdle(context.Background())
+
+	assert.GreaterOrEqual(t, attempts.Load(), int32(3), "must retry past the transient failures")
+	exists, err := ax.Exists(ctx, "w1")
+	require.NoError(t, err)
+	assert.False(t, exists, "the aggregate must still end up Forgotten once the transient error clears")
+	assert.Equal(t, []string{"w1"}, paths.deletes())
 }
 
 // TestDeleteReactor_Gate_TimesOutWithoutPurge asserts that if the deleted row is

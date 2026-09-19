@@ -68,6 +68,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { viewIdOf } from '@/features/panes/lib/pane-views'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -1411,6 +1412,61 @@ describe('starting a thread on a real workspace', () => {
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  // Live-reported: "Creating a thread works, but the autoopen just go
+  // straight into that thread, to then come back to the latest chat I had
+  // opened." Root cause: the pane store's `activeProjectId` starts null every
+  // load and is set for the first time by ide-shell.tsx's route-driven
+  // effect calling `setActiveProject` — which can commit AFTER a thread
+  // created in that gap has already opened its own brand-new view (this
+  // handler's `addPane` path, reached because the active pane already holds
+  // a chat). `setActiveProject`'s bootstrap used to trust a persisted
+  // `activeViewByProject` pointer unconditionally and swap the just-opened
+  // thread back out for whatever chat that pointer named. See
+  // `pane-slice.project-scope.test.ts`'s §8 case for the underlying
+  // store-level mechanism this pins end-to-end through the real create flow.
+  it('a thread opened while an existing chat occupies the pane survives a delayed project bootstrap', async () => {
+    resetWindowPaneStoreForTests()
+    useSidebarStore.setState({
+      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    setActiveWorkspaceId('ws-a')
+    // The chat the user is already "in" — the active pane is occupied, so
+    // the new thread must open into a brand-new view (addPane), not fill
+    // this one in place.
+    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'existing-chat', null)
+    // hydrate.ts's own answer for last session, landed before ide-shell.tsx's
+    // bootstrap effect has run even once this session — `activeProjectId` is
+    // still null at this point, exactly as it is right after hydrate.
+    windowPaneStore.setState((s) => ({
+      viewProjects: { ...s.viewProjects, [ROOT_PANE_ID]: 'p1' },
+      activeViewByProject: { ...s.activeViewByProject, p1: ROOT_PANE_ID },
+    }))
+    const navigate = vi.fn()
+
+    handleCreate('ws-a', 'thread', navigate)
+    await Promise.resolve()
+
+    const newPane = Object.values(windowPaneStore.getState().panes).find(
+      (p) => p.chatId === 'chat-1',
+    )
+    expect(newPane).toBeDefined()
+    expect(windowPaneStore.getState().activeViewId).toBe(viewIdOf(newPane!))
+
+    // The route resolves and ide-shell.tsx's effect finally fires — the
+    // first `setActiveProject` call this session.
+    windowPaneStore.getState().paneActions.setActiveProject('p1')
+
+    // The thread that was already, correctly, on screen must still be
+    // showing — not silently reverted to the existing chat.
+    expect(windowPaneStore.getState().activeViewId).toBe(viewIdOf(newPane!))
+    const activePane = windowPaneStore.getState().panes[windowPaneStore.getState().activePaneId]
+    expect(activePane?.chatId).toBe('chat-1')
   })
 
   it('navigates to the workspace first when it is not yet the active one, then opens the new thread', async () => {

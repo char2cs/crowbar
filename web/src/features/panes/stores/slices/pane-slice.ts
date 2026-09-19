@@ -1601,7 +1601,31 @@ export const createPaneSlice: StateCreator<
           state.activeProjectId = projectId
           // §8: the window has just learned where it is. Anything hydrate
           // could not file joins this project rather than staying unreachable.
-          if (first) adoptUntaggedViews(state, projectId)
+          if (first) {
+            adoptUntaggedViews(state, projectId)
+            // THE RACE, live-reported: "Creating a thread works, but the
+            // autoopen just go straight into that thread, to then come back
+            // to the latest chat I had opened." This bootstrap is the FIRST
+            // call this session, fired from ide-shell.tsx's route-driven
+            // effect — which can commit AFTER a real action already landed
+            // on this store (a freshly created thread's own
+            // addPane/setPaneChat, `activeProjectId` still null at that
+            // point) parked whatever was showing and put a brand-new,
+            // still-untagged view on screen. `adoptUntaggedViews` just filed
+            // that view into THIS project, so there is no real "switch" for
+            // the `remembered` lookup below to return from — trusting a
+            // persisted pointer that predates the new view would silently
+            // swap it back out. A real, non-empty view already on screen and
+            // now eligible wins; only when nothing is genuinely showing yet
+            // (the boot empty stage) does `remembered` get a say.
+            if (
+              !isEmptyStage(state, { kind: 'root' }) &&
+              viewIsEligible(state, state.activeViewId)
+            ) {
+              rememberActiveView(state)
+              return
+            }
+          }
 
           // Zen's `_handleTabSelection`: the space's own last-showing view
           // first...

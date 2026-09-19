@@ -484,6 +484,46 @@ describe('performSidebarDrop — folder edge for a workspace container that owns
   })
 })
 
+// TestRegression: a FOLDER's own `parentId` carries the SAME owning-chat id
+// the case above pins for a bare workspace container — `performCreateFolder`
+// sends the row id (a locked branch's, or an ordinary fork's, own CHAT id) as
+// `parentId` when a folder is filed directly under one. `workspaceAnchor`
+// (the fork-lineage walk `planTreeRowDrop` runs before every workspace/branch
+// drop) only ever checked a container id against raw workspace ids and other
+// folder ids, so a folder nested directly under such a row broke that walk:
+// `cursor` became the owning chat's id, matched neither set, and the walk
+// fell straight through to "" (bare root) instead of the real workspace. A
+// fork already living under that exact branch, dropped into a folder nested
+// under it, therefore read as leaving its fork parent and was silently
+// REBASED onto the repo's default checkout before the placement even ran.
+describe('performSidebarDrop — folder nested under a workspace container that owns a chat', () => {
+  it('filing a fork into a folder under its OWN locked fork parent is a placement only — no reparent', async () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          ...makeRepo(),
+          workspaces: [
+            { id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' },
+            { id: 'ws-fork', branch: 'fork', age: '', order: 0, parentId: 'ws-a' },
+          ],
+          folders: [
+            { id: 'folder-nested', repoId: 'repo-1', name: 'Nested', parentId: 'chat-a', order: 0 },
+          ],
+        },
+      ],
+    })
+
+    await performSidebarDrop(
+      [branchRow('ws-fork')],
+      folderRow('folder-nested', { parentId: 'chat-a' }),
+      'into',
+    )
+
+    expect(reparentWorkspace).not.toHaveBeenCalled()
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', { folderId: 'folder-nested', order: 0 })
+  })
+})
+
 describe('performSidebarDrop — crossing a fork parent', () => {
   it('reparents before placing when the destination is under a different fork parent', async () => {
     // ws-fork currently hangs off ws-a; dropped INTO ws-b it must rebase.

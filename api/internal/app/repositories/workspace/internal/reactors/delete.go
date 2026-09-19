@@ -164,36 +164,63 @@ func (r *deleteReactor) run(
 	if !r.gate.Proceed(bg) {
 		return
 	}
-	r.purge(bg, wsID)
+	r.purgeUntilDone(bg, wsID)
 }
 
-func (r *deleteReactor) purge(
+// purgeUntilDone retries purge on a transient failure in any of its steps
+// until it fully completes or ctx's deadline passes. Every step purge runs is
+// individually idempotent (it's what lets the boot orphan-sweep re-drive the
+// same cascade verbatim after a crash), so re-running the whole sequence after
+// a blip is safe: a step that already landed is a no-op the second time.
+// Without this, a single transient hiccup — a busy store, a momentarily-EBUSY
+// rm — abandons the physical purge until the daemon's next restart instead of
+// its next tick.
+func (r *deleteReactor) purgeUntilDone(
 	ctx context.Context,
 	wsID string,
 ) {
+	for {
+		if r.purge(ctx, wsID) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(r.pollInterval):
+		}
+	}
+}
+
+// purge runs the workspace's physical teardown once and reports whether every
+// step completed. The caller (purgeUntilDone) retries on false.
+func (r *deleteReactor) purge(
+	ctx context.Context,
+	wsID string,
+) bool {
 	if !r.awaitTombstone(ctx, wsID) {
 		slog.WarnContext(ctx, "workspace delete reactor: tombstone not observed before deadline; deferring to boot sweep", "id", wsID)
-		return
+		return false
 	}
 	path, ok := r.resolvePath(ctx, wsID)
 	if !ok {
-		return
+		return false
 	}
 	if err := r.reviewThreadForget(ctx, wsID); err != nil {
 		// The injected callback is the composed cross-aggregate forget cascade
 		// (review threads + agent chats — see repositories.Container.forgetDependents),
 		// so this label stays generic; the wrapped err names the half that failed.
 		slog.ErrorContext(ctx, "workspace delete reactor: delete cascade", "id", wsID, "err", err)
-		return
+		return false
 	}
 	if !r.removeWorktree(path, wsID) {
-		return
+		return false
 	}
 	if err := r.pathsStore.Delete(ctx, wsID); err != nil {
 		slog.ErrorContext(ctx, "workspace delete reactor: delete id-path row", "id", wsID, "err", err)
-		return
+		return false
 	}
 	r.forget(ctx, wsID)
+	return true
 }
 
 func (r *deleteReactor) awaitTombstone(

@@ -195,17 +195,27 @@ func (h *Handlers) PatchFolder(
 	})
 }
 
-// applyFolderPatch runs the rename first and the placement second. A PATCH that
-// carries neither still goes through Move, which is a no-op placement whose only
-// job here is to return the row's real state.
+// applyFolderPatch runs the rename first and the placement second, so a drag
+// that both renames and moves a folder in one gesture still lands as one
+// answer. A PATCH carrying ONLY a name returns Rename's own row directly
+// instead of falling through to Move: Move's guardNotWorking refuses ANY
+// placement touching a working subtree, which is correct for an actual
+// reparent/reorder but is not what a bare rename is — nothing is being
+// placed. Falling through anyway refused a rename whenever a chat filed
+// under the folder happened to be working, even though what the folder is
+// CALLED has no bearing on any chat inside it (caught live).
 func (h *Handlers) applyFolderPatch(
 	ctx context.Context,
 	id string,
 	body patchFolderRequest,
 ) (domain.Chat, []domain.Chat, error) {
 	if body.Name != nil {
-		if _, err := h.folders.Rename(ctx, id, *body.Name); err != nil {
+		renamed, err := h.folders.Rename(ctx, id, *body.Name)
+		if err != nil {
 			return domain.Chat{}, nil, err
+		}
+		if body.ParentID == nil && body.Order == nil {
+			return renamed, nil, nil
 		}
 	}
 	return h.folders.Move(ctx, id, agentusecase.MoveInput{ParentID: body.ParentID, Order: body.Order})

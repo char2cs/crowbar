@@ -63,10 +63,6 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
  */
 export const SIDEBAR_DRAG_THRESHOLD_PX = 8
 
-/** How long the working-chat drag refusal (spec §8.3) stays up before it
- *  clears itself, if nothing sooner does (a fresh pointerdown anywhere). */
-const WORKING_DRAG_REFUSAL_MS = 1600
-
 /** Facts a row's own tree-walk knows that `SidebarRow` itself does not carry —
  *  handed to {@link SidebarDrag.dragProps} alongside the row so the hit test
  *  can resolve first-child re-parents and the subtree cycle guard below. */
@@ -321,62 +317,6 @@ function publishPaneZonePreview(hit: SidebarPaneHit | null): void {
   setInternalTabDragHoverTarget({ paneId: hit?.paneId ?? null, zone: hit?.zone ?? null })
 }
 
-/**
- * Spec §8.3's refusal, painted straight onto the DOM rather than through a
- * new store field or CSS rule — the same imperative-write budget every other
- * per-frame effect in this file already spends (the ghost, the drop line,
- * `paintPaneHit`). "The rest of the sidebar dims, the dragged row goes red,
- * and a short line says why": the scroller is the caller's own scroll
- * region (the only "rest of the sidebar" this hook has a handle on), the row
- * is found the same way the ghost clone finds it (`rowDom.elementFor`), and
- * the line is a small fixed note positioned off the row's own rect. Returns
- * the cleanup that undoes all three; the caller owns when that fires (a
- * timeout, or the next pointerdown anywhere).
- */
-function paintWorkingDragRefusal(scroller: HTMLElement | null, rowEl: HTMLElement): () => void {
-  const prevOpacity = scroller?.style.opacity ?? ''
-  const prevTransition = scroller?.style.transition ?? ''
-  if (scroller) {
-    scroller.style.transition = 'opacity 120ms ease-out'
-    scroller.style.opacity = '0.4'
-  }
-
-  const prevOutline = rowEl.style.outline
-  const prevBg = rowEl.style.backgroundColor
-  rowEl.style.outline = '1.5px solid var(--destructive)'
-  rowEl.style.outlineOffset = '-1.5px'
-  rowEl.style.backgroundColor = 'color-mix(in srgb, var(--destructive) 14%, transparent)'
-
-  const rect = rowEl.getBoundingClientRect()
-  const note = document.createElement('div')
-  note.setAttribute('data-row-drag-refusal', '')
-  note.textContent = "Can't drag — still working"
-  note.style.cssText = [
-    'position:fixed',
-    'z-index:80',
-    'pointer-events:none',
-    'font-size:11px',
-    'font-weight:500',
-    'padding:3px 6px',
-    'border-radius:6px',
-    'background:var(--destructive)',
-    'color:var(--destructive-foreground)',
-    `left:${rect.left}px`,
-    `top:${rect.bottom + 4}px`,
-  ].join(';')
-  document.body.appendChild(note)
-
-  return () => {
-    if (scroller) {
-      scroller.style.opacity = prevOpacity
-      scroller.style.transition = prevTransition
-    }
-    rowEl.style.outline = prevOutline
-    rowEl.style.backgroundColor = prevBg
-    note.remove()
-  }
-}
-
 export interface UseSidebarDragOptions {
   /** The tree/band's own scroll container — what an edge-held drag scrolls. */
   scrollRef: React.RefObject<HTMLElement | null>
@@ -458,37 +398,6 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     target: HTMLElement
     pointerId: number
   } | null>(null)
-  // §8.3's refusal — cleanup (style/note reversal) plus the timer/listener
-  // that clear it, so a second refusal (or a real drag starting) can tear
-  // down whatever the last one left painted before starting fresh.
-  const refusalRef = useRef<(() => void) | null>(null)
-
-  const clearWorkingDragRefusal = useCallback(() => {
-    refusalRef.current?.()
-    refusalRef.current = null
-  }, [])
-
-  const showWorkingDragRefusal = useCallback(
-    (row: SidebarRow) => {
-      clearWorkingDragRefusal()
-      const rowEl = rowDom.elementFor(row)
-      if (!rowEl) return
-      const undoPaint = paintWorkingDragRefusal(optionsRef.current.scrollRef.current, rowEl)
-      const timer = window.setTimeout(() => clearWorkingDragRefusal(), WORKING_DRAG_REFUSAL_MS)
-      // Any next interaction clears it early too — a refusal that outlives
-      // the click that dismissed it would read as stuck rather than timed.
-      const onNextPointerDown = () => clearWorkingDragRefusal()
-      window.addEventListener('pointerdown', onNextPointerDown, { capture: true, once: true })
-      refusalRef.current = () => {
-        window.clearTimeout(timer)
-        window.removeEventListener('pointerdown', onNextPointerDown, { capture: true })
-        undoPaint()
-      }
-    },
-    [clearWorkingDragRefusal],
-  )
-
-  useEffect(() => () => clearWorkingDragRefusal(), [clearWorkingDragRefusal])
 
   const attachDropLine = useCallback((el: HTMLDivElement | null) => {
     dropLineRef.current = el
@@ -504,36 +413,32 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     [],
   )
 
-  const onPointerDownDrag = useCallback(
-    (row: SidebarRow, e: React.PointerEvent) => {
-      if (e.button !== 0) return
-      if (draggingRef.current) return // ignore a second pointer mid-drag
-      // §8.3: "a working chat may not be dragged... the rest of the sidebar
-      // dims, the dragged row goes red, and a short line says why." Refused
-      // at the pickup itself, before a drag is ever armed — the drop policy
-      // (`SIDEBAR_DROP_POLICY.allowedModes`) already refuses a working
-      // subject too, but that only ever fires once a drag is already in the
-      // air, which is one gesture too late for "may not be dragged".
-      if (row.working) {
-        showWorkingDragRefusal(row)
-        return
-      }
-      // Block the text selection from the PRESS: `selectstart` fires before the
-      // threshold promotes the press into a drag, so arming this at drag start
-      // is arming it after the only event it could have cancelled.
-      document.addEventListener('selectstart', preventDefault)
-      // No pointer capture yet — capturing here swallows the dblclick that opens
-      // the rename editor.
-      pendingRef.current = {
-        row,
-        startX: e.clientX,
-        startY: e.clientY,
-        target: e.currentTarget as HTMLElement,
-        pointerId: e.pointerId,
-      }
-    },
-    [showWorkingDragRefusal],
-  )
+  const onPointerDownDrag = useCallback((row: SidebarRow, e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    if (draggingRef.current) return // ignore a second pointer mid-drag
+    // No `row.working` refusal here any more (live-reported: it blocked
+    // picking a working chat up AT ALL, split included). §8.3's "may not be
+    // dragged" is about REORDERING — moving a row re-points the ground
+    // under it, mirroring the backend's own `guardNotWorking` — and that is
+    // still enforced where a reorder is actually decided:
+    // `SIDEBAR_DROP_POLICY.allowedModes` refuses every mode for a working
+    // subject over a ROW target. A drop onto a PANE never touches tree
+    // placement (`performSidebarPaneDrop`/`openChatIntoPane` just open a
+    // split view), so a working chat has no less claim to that than an idle one.
+    // Block the text selection from the PRESS: `selectstart` fires before the
+    // threshold promotes the press into a drag, so arming this at drag start
+    // is arming it after the only event it could have cancelled.
+    document.addEventListener('selectstart', preventDefault)
+    // No pointer capture yet — capturing here swallows the dblclick that opens
+    // the rename editor.
+    pendingRef.current = {
+      row,
+      startX: e.clientX,
+      startY: e.clientY,
+      target: e.currentTarget as HTMLElement,
+      pointerId: e.pointerId,
+    }
+  }, [])
 
   useEffect(() => {
     /**
@@ -565,11 +470,6 @@ export function useSidebarDrag(options: UseSidebarDragOptions): SidebarDrag {
     }
 
     function beginDrag(e: MouseEvent): void {
-      // A real drag starting supersedes any refusal flash still up from a
-      // moment ago — read/cleared straight off the ref, like everything
-      // else this once-subscribed effect touches.
-      refusalRef.current?.()
-      refusalRef.current = null
       const pending = pendingRef.current!
       pendingRef.current = null
       // Only if the row is still in the tree: a row deleted on the wire

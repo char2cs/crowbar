@@ -581,9 +581,10 @@ with two diagonal tests so corners resolve to the nearer edge.
 
 ### 8.3 Refusals
 
-- A **working** chat may not be dragged. Moving a row re-points the ground under
-  it. The rest of the sidebar dims, the dragged row goes red, and a short line
-  says why.
+- A **working** chat may not be **reordered or reparented** — moving a row
+  re-points the ground under it. It may still be dragged onto a pane to open a
+  split: that never touches tree placement, so a working chat has no less
+  claim to a split than an idle one.
 - **Cross-repo drag** is legal **only** for a chat with no worktree.
 - **Reparenting and deleting both take the whole subtree**, always.
 - A bubble always has a parent — the project is the god parent of them all.
