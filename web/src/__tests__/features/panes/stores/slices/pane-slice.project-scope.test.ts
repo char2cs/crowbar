@@ -276,6 +276,43 @@ describe('project-scoped panes', () => {
       expect(store.getState().activeViewId).toBe(viewId)
     })
 
+    // Live-reported: "Creating a thread works, but the autoopen just go
+    // straight into that thread, to then come back to the latest chat I had
+    // opened." `hydrateWindowPaneLayout` (hydrate.ts) writes
+    // `viewProjects`/`activeViewByProject` straight from IndexedDB BEFORE the
+    // app ever renders, but `activeProjectId` is deliberately left out of
+    // that restore (window-pane-store.ts's own doc: "the route is what says
+    // where 'now' is at boot") — it stays null until ide-shell.tsx's
+    // route-driven effect calls `setActiveProject` for the first time. A real
+    // user action (opening a freshly created thread — `openChatIdInOwnView`'s
+    // own addPane/setPaneChat) can land on this store in that gap, before the
+    // route has resolved a project id at all.
+    it('a real, already-showing untagged view survives the bootstrap over a stale remembered pointer', () => {
+      // Hydrate's own answer for last session: project-a was last showing
+      // `old`, holding `chat-old`.
+      const old = openChatInNewView(store, 'chat-old')
+      store.setState((s) => {
+        s.viewProjects[old.viewId] = 'project-a'
+        s.activeViewByProject['project-a'] = old.viewId
+      })
+
+      // The user's real action, landing on the store BEFORE ide-shell.tsx's
+      // bootstrap effect has fired even once this session — `activeProjectId`
+      // is still null here, exactly like the gap between hydrate and the
+      // route resolving a project.
+      const fresh = openChatInNewView(store, 'chat-new-thread')
+      expect(store.getState().activeViewId).toBe(fresh.viewId)
+      expect(store.getState().parkedViews[old.viewId]).toBeDefined()
+
+      // The bootstrap finally runs.
+      store.getState().paneActions.setActiveProject('project-a')
+
+      // The thread that was already, correctly, on screen must still be
+      // showing — not silently reverted to the stale remembered pointer.
+      expect(store.getState().activeViewId).toBe(fresh.viewId)
+      expect(store.getState().panes[fresh.paneId]?.chatId).toBe('chat-new-thread')
+    })
+
     it('adoption never files the empty stage — it belongs to nobody (law 6)', () => {
       store.getState().paneActions.setActiveProject('project-a')
 
