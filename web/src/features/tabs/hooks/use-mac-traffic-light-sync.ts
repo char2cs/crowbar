@@ -101,21 +101,22 @@ export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right', themeK
       return true
     }
 
-    function startColdBootRetry(): MutationObserver {
-      // Cold boot: settings can rehydrate to 'right' and re-fire this effect
-      // before the pane tree (its own async mount) has put a pane-top-row at
-      // the top-left corner. Without a retry the window is stuck at the
-      // config-time (left) position forever — watch the DOM until one shows
-      // up instead of only reacting to resize.
-      const obs = new MutationObserver(() => {
-        if (apply()) obs.disconnect()
-      })
-      obs.observe(document.body, { childList: true, subtree: true })
-      return obs
-    }
-
     let observer: MutationObserver | null = null
     let cancelInitialApply: (() => void) | null = null
+
+    // Cold boot: settings can rehydrate to 'right' and re-fire this effect
+    // before the pane tree (its own async mount) has put a pane-top-row at
+    // the top-left corner. Without a retry the window is stuck at the
+    // config-time (left) position forever — watch the DOM until one shows
+    // up instead of only reacting to resize. Assigns `observer` directly
+    // (rather than returning it) so the cleanup below is the only place
+    // that ever holds the reference that disconnects it.
+    function armColdBootRetry(): void {
+      observer = new MutationObserver(() => {
+        if (apply()) observer?.disconnect()
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    }
 
     if (sidebarPosition === 'right') {
       // Live-measured, unlike the static left-side constants above — a theme
@@ -124,10 +125,10 @@ export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right', themeK
       // can still be in flight the instant this effect fires, which would read
       // the row's PRE-switch box. Give it two frames before the first read.
       cancelInitialApply = afterTwoFrames(() => {
-        if (!apply()) observer = startColdBootRetry()
+        if (!apply()) armColdBootRetry()
       })
     } else if (!apply()) {
-      observer = startColdBootRetry()
+      armColdBootRetry()
     }
 
     window.addEventListener('resize', apply)
