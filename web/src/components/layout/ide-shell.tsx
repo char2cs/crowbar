@@ -82,9 +82,11 @@ export function IDEShell() {
   // below can keep the resulting workspace mounted-but-hidden via its normal
   // keep-alive retention, so a repeat visit is a warm slot reveal.
   const homeProjectId = homeRouteMatch ? activeProjectIdFromRoute : undefined
-  const { wsId: homeWorkspaceId, owningChatId: homeOwningChatId } = useHomeWorkspaceState(
-    homeProjectId ?? null,
-  )
+  const {
+    wsId: homeWorkspaceId,
+    owningChatId: homeOwningChatId,
+    localPath: homeWorkspacePath,
+  } = useHomeWorkspaceState(homeProjectId ?? null)
   useEffect(() => {
     if (homeProjectId) ensureHomeWorkspaceResolved(homeProjectId)
   }, [homeProjectId])
@@ -113,6 +115,7 @@ export function IDEShell() {
       activeProjectIdFromRoute,
       activeRepoIdFromRoute,
       Boolean(homeRouteMatch),
+      homeWorkspacePath,
     )
   const allProjects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
   // The tree's only entry point for a SECOND space (spec §3 ruling): a

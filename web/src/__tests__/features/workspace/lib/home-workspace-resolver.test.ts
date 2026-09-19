@@ -23,15 +23,21 @@ beforeEach(() => {
 describe('home-workspace-resolver', () => {
   it('useHomeWorkspaceState starts unresolved (no wsId, no error) before anything is fetched', () => {
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
-    expect(result.current).toEqual({ wsId: null, owningChatId: null, error: false })
+    expect(result.current).toEqual({
+      wsId: null,
+      owningChatId: null,
+      localPath: null,
+      error: false,
+    })
   })
 
-  it('resolves the home workspace id once the fetch settles, and known ids include it', async () => {
+  it('resolves the home workspace id AND its on-disk path once the fetch settles, and known ids include it', async () => {
     fetchHomeWorkspaceMock.mockResolvedValueOnce({
       id: 'ws-home-1',
       projectId: 'p1',
       kind: 'home',
       owningChatId: 'chat-home-1',
+      localPath: '/Users/mateo/projects/rabbyte-labs',
     })
     const { result } = renderHook(() => useHomeWorkspaceState('p1'))
 
@@ -42,9 +48,12 @@ describe('home-workspace-resolver', () => {
     await waitFor(() => {
       // owningChatId is carried through because chat-scoped routes (a terminal's)
       // are addressed by it and the home route supplies no chat id of its own.
+      // localPath is the real on-disk project root — the editor pane/file
+      // explorer resolve it from here, never from a borrowed repo path.
       expect(result.current).toEqual({
         wsId: 'ws-home-1',
         owningChatId: 'chat-home-1',
+        localPath: '/Users/mateo/projects/rabbyte-labs',
         error: false,
       })
     })
@@ -76,7 +85,12 @@ describe('home-workspace-resolver', () => {
     })
 
     await waitFor(() => {
-      expect(result.current).toEqual({ wsId: null, owningChatId: null, error: true })
+      expect(result.current).toEqual({
+        wsId: null,
+        owningChatId: null,
+        localPath: null,
+        error: true,
+      })
     })
     expect(getKnownHomeWorkspaceIds()).not.toContain('p1')
 
@@ -89,7 +103,12 @@ describe('home-workspace-resolver', () => {
     })
     expect(fetchHomeWorkspaceMock).toHaveBeenCalledTimes(2)
     await waitFor(() => {
-      expect(result.current).toEqual({ wsId: 'ws-home-2', owningChatId: null, error: false })
+      expect(result.current).toEqual({
+        wsId: 'ws-home-2',
+        owningChatId: null,
+        localPath: null,
+        error: false,
+      })
     })
   })
 

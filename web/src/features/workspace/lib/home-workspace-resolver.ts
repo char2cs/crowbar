@@ -28,12 +28,29 @@ export interface HomeWorkspaceState {
    * terminal opened on project home has no way to build its URL.
    */
   owningChatId: string | null
+  /**
+   * The home workspace's own on-disk directory (`WorkspaceDTO.localPath`,
+   * same field a repo workspace carries), so a project-home-scoped surface
+   * (the sidebar's file explorer, the editor pane) can resolve the real
+   * project root the instant `GET /home` answers — instead of waiting for
+   * some OTHER signal (a chat getting registered into a workspace store,
+   * which used to only happen once the user sent a message) to make the
+   * active-pane resolution chain fall through to this workspace at all.
+   * `null` before the first successful resolve, or if the daemon ever
+   * answers without one.
+   */
+  localPath: string | null
   error: boolean
 }
 
 // Stable sentinel so useSyncExternalStore's snapshot never changes identity
 // while nothing has resolved yet (a fresh `{}` literal every call would loop).
-const UNRESOLVED: HomeWorkspaceState = { wsId: null, owningChatId: null, error: false }
+const UNRESOLVED: HomeWorkspaceState = {
+  wsId: null,
+  owningChatId: null,
+  localPath: null,
+  error: false,
+}
 
 const states = new Map<string, HomeWorkspaceState>()
 const inflight = new Set<string>()
@@ -66,13 +83,14 @@ export function ensureHomeWorkspaceResolved(projectId: string): void {
       states.set(projectId, {
         wsId: ws.id,
         owningChatId: ws.owningChatId || null,
+        localPath: ws.localPath || null,
         error: false,
       })
     })
     .catch(() => {
       // A re-read for the owner keeps the workspace it already knows.
       if (states.get(projectId)?.wsId) return
-      states.set(projectId, { wsId: null, owningChatId: null, error: true })
+      states.set(projectId, { wsId: null, owningChatId: null, localPath: null, error: true })
     })
     .finally(() => {
       inflight.delete(projectId)
@@ -109,6 +127,13 @@ export function getHomeWorkspaceId(projectId: string): string | null {
  *  so this is what `rowsFromHome` needs to keep the owner off the tree. */
 export function getHomeOwningChatId(projectId: string): string | null {
   return states.get(projectId)?.owningChatId ?? null
+}
+
+/** `projectId`'s home workspace's own on-disk directory, or `null` before it
+ *  resolved. The real project root — never a stand-in borrowed from one of
+ *  the project's repos. */
+export function getHomeWorkspacePath(projectId: string): string | null {
+  return states.get(projectId)?.localPath ?? null
 }
 
 function getSnapshot(projectId: string | null): HomeWorkspaceState {

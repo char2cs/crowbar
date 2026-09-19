@@ -94,25 +94,43 @@ export function GitPanel() {
         </div>
       )}
 
-      {/* Spec 6.3 #2 — "Review this branch", carrying the changed-file count,
-          opens the branch review in the editor view. */}
-      <button
-        type="button"
-        className="mx-1.5 flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground hover:bg-accent"
-        onClick={() => openBranchReviewForActiveWorkspace()}
-      >
-        <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-left">Review this branch</span>
-        <span className="shrink-0 text-muted-foreground">{changedLabel}</span>
-      </button>
+      {/* No workspace to show git for at all (project home, or the route/pane
+          hasn't resolved one yet) — never fall through to the sections below,
+          which would otherwise render `useSidebarChangedFiles`'s stale-status
+          fallback: a workspace-scoped git store with no wsId to key its
+          "which workspace is this?" question against just keeps whatever
+          OTHER workspace's status/branch/changed-files it last fetched,
+          cross-chat and cross-project. "Git has no meaning without a repo"
+          (sidebar-carousel.tsx) — so it shows nothing instead of stale data. */}
+      {!wsId && (
+        <div className="flex flex-1 items-center justify-center px-4 text-center text-[13px] text-muted-foreground">
+          No repository open
+        </div>
+      )}
 
-      {/* Spec 6.3 #3 — "Changed — n files", then the changed list. */}
-      <div className="ui-text-xs shrink-0 px-3.5 pt-2 pb-1 text-muted-foreground">
-        Changed — {changedLabel}
-      </div>
-      <ScrollArea className="flex-1">
-        <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
-      </ScrollArea>
+      {wsId && (
+        <>
+          {/* Spec 6.3 #2 — "Review this branch", carrying the changed-file
+              count, opens the branch review in the editor view. */}
+          <button
+            type="button"
+            className="mx-1.5 flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground hover:bg-accent"
+            onClick={() => openBranchReviewForActiveWorkspace()}
+          >
+            <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-left">Review this branch</span>
+            <span className="shrink-0 text-muted-foreground">{changedLabel}</span>
+          </button>
+
+          {/* Spec 6.3 #3 — "Changed — n files", then the changed list. */}
+          <div className="ui-text-xs shrink-0 px-3.5 pt-2 pb-1 text-muted-foreground">
+            Changed — {changedLabel}
+          </div>
+          <ScrollArea className="flex-1">
+            <ChangedFilesTree files={files} repoPath={repoPath} onFileOpen={handleFileOpen} />
+          </ScrollArea>
+        </>
+      )}
 
       {/* History (the commit log) below the required three sections, folded —
           see the note above. */}
