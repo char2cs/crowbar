@@ -1,0 +1,26 @@
+# Linux desktop dev/verification box — bring up with:
+#   docker compose -f docker/dev-linux/docker-compose.yml up --build
+# then open http://localhost:6080/vnc.html
+#
+# Unrelated to docker/docker-compose.yml, which packages the headless Go
+# api/ server for production — this one is a disposable dev sandbox.
+services:
+  dev-linux:
+    build:
+      context: ../..
+      dockerfile: docker/dev-linux/Dockerfile
+    image: crowbar-dev-linux:latest
+    ports:
+      # Bind to loopback only — this box has no VNC auth by default.
+      - "127.0.0.1:6080:6080"
+    volumes:
+      # Mount the repo so the toolchains installed in the image can build it.
+      - ../..:/workspace
+      # Named volumes so cargo/go/bun caches survive container rebuilds.
+      - crowbar-dev-linux-cargo:/usr/local/cargo/registry
+      - crowbar-dev-linux-go:/root/go/pkg/mod
+    shm_size: "1gb"
+
+volumes:
+  crowbar-dev-linux-cargo:
+  crowbar-dev-linux-go:
