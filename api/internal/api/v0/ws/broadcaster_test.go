@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -316,6 +317,8 @@ func TestBroadcaster_Snapshot_PrecedesLive(t *testing.T) {
 // parked on b.mu.RLock while snapshotFor holds it — a far better diagnosis than
 // any duration a 30-second guess could have produced.
 func TestBroadcaster_Snapshot_DoesNotBlockConcurrentPush(t *testing.T) {
+	firstSnapshotted := make(chan struct{})
+	var firstOnce sync.Once
 	running := make(chan struct{})
 	release := make(chan struct{})
 	// Deferred, so the parked snapshot goroutine is always freed — including when
@@ -326,6 +329,7 @@ func TestBroadcaster_Snapshot_DoesNotBlockConcurrentPush(t *testing.T) {
 	def := itemDef()
 	def.Snapshot = func(_ string) []item {
 		if !armed.Load() {
+			firstOnce.Do(func() { close(firstSnapshotted) })
 			return nil
 		}
 		close(running)
@@ -334,9 +338,16 @@ func TestBroadcaster_Snapshot_DoesNotBlockConcurrentPush(t *testing.T) {
 	}
 	b, srv := setup(t, def)
 
-	// First client connects with snapshot disarmed (empty snapshot).
+	// First client connects with snapshot disarmed (empty snapshot). Waiting on
+	// WaitRegistered here is not enough: register() runs (and closes that signal)
+	// BEFORE Handle calls Upgrade/snapshotFor, so a scheduling delay could let
+	// this goroutine reach Snapshot() only after armed flips below — parking it
+	// on <-release forever, since its own connection's writePump/readPump (which
+	// start only after snapshotFor returns) would then never run, hanging the
+	// readItem(first) read at the bottom of this test. Waiting for the unarmed
+	// snapshot call to have actually happened closes that window.
 	first := dial(t, srv, "/items?kind=fruit")
-	b.WaitRegistered()
+	<-firstSnapshotted
 
 	// Arm the snapshot, then connect a second client whose snapshot blocks.
 	armed.Store(true)
