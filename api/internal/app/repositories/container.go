@@ -291,6 +291,32 @@ func (c *Container) WaitQuiescent() {
 	c.axNode.WaitPublish()
 }
 
+// QuiesceReactors is WaitQuiescent for a mutation whose effect lands OUTSIDE the
+// aggregate — a delete cascade, a pull's child resync: every projection drained AND
+// every post-commit reactor the drained events admitted run to completion, round
+// after round until a round admits none. asynx's WaitPublish REFUSES any dispatch
+// made while it waits, so a reactor must never be producing during a drain: the
+// door is held (drain.Gate.Hold) so a reactor admitted by a drained handler parks,
+// the ones already running are waited out first, and the parked ones run only
+// between rounds. ctx is the caller's escape hatch, not a synchronisation device.
+func (c *Container) QuiesceReactors(
+	ctx context.Context,
+) {
+	gate := c.drainGate
+	gate.Hold()
+	defer gate.Release()
+	for {
+		gate.WaitRunning(ctx)
+		c.WaitQuiescent()
+		gate.WaitRunning(ctx)
+		if gate.Parked() == 0 || ctx.Err() != nil {
+			return
+		}
+		gate.Release()
+		gate.Hold()
+	}
+}
+
 // wireCallbacks registers the app-level cross-aggregate reactions on the singleton
 // asynx instances (spec §3.6), mirroring quiver's container wireCallbacks. It
 // creates and stores the shared drain WaitGroup + cancelable drain context every
@@ -518,7 +544,7 @@ func (c *Container) enrichFrame(
 ) dto.WorkspaceDTO {
 	ws.Working = c.WorkingFor(ws.ID)
 	elig := c.eligibilityFor(ctx, ws)
-	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws.ID), c.nodePlacement(ctx, ws))
+	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws), c.nodePlacement(ctx, ws))
 }
 
 // nodePlacement adapts this container's own Node store to
@@ -549,7 +575,7 @@ func (c *Container) nodePlacement(
 	}
 	nodeID := ws.ID
 	if !ws.RendersAsBranch() {
-		if owner := c.owningChatIDFor(ctx, ws.ID); owner != "" {
+		if owner := c.owningChatIDFor(ctx, ws); owner != "" {
 			nodeID = owner
 		}
 	}
@@ -591,16 +617,16 @@ func (r nodePlacementReader) Placement(
 // pending.
 func (c *Container) owningChatIDFor(
 	ctx context.Context,
-	wsID string,
+	ws domain.Workspace,
 ) string {
 	if c.AgentChat == nil {
 		return ""
 	}
-	rows, err := c.AgentChat.ListByWorkspace(ctx, wsID)
+	rows, err := c.AgentChat.ListByWorkspace(ctx, ws.ID)
 	if err != nil {
 		return ""
 	}
-	owner, ok := domain.ResolveOwningChat(rows)
+	owner, ok := domain.ResolveOwningChat(rows, ws.SharedGround())
 	if !ok {
 		return ""
 	}

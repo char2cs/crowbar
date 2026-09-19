@@ -81,6 +81,15 @@ func GetHomePath() string {
 	return resolveHome()
 }
 
+// DefaultHomePath returns the home template from metadata.yaml with "~"
+// expanded, ignoring CROWBAR_HOME even when it is set. Callers that need to
+// tell an actual isolation override apart from an env var that merely spells
+// out this same default (a hook/handoff callback's --home flag always carries
+// a concrete value, never a blank one) compare their home against this.
+func DefaultHomePath() string {
+	return defaultHome()
+}
+
 // GetStateDirPath returns the resolved absolute path to the state directory,
 // where the global event_stream.db and view.db live. It is computed from its
 // own template, independent of the events/store templates.

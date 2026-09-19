@@ -34,6 +34,35 @@ describe('rowsFromHome', () => {
     expect(rows.find((r) => r.id === HOME_ROW_ID)).toBeUndefined()
   })
 
+  // What `/v0/projects/:p/home/chats` really sends: the owner row carries
+  // `workspaceId` but NO worktree marker (`chatDTOFromWire` can only set
+  // `ownsWorktree` off `worktree.owningChatId`, and the home list is built
+  // with a nil worktree closure), so the owner is only knowable from the
+  // resolver's own `GET /home` answer — the same id `rowsFromRepo` gets as
+  // `repo.defaultOwningChatId`. Without it the owner drew as a draggable
+  // top-level "Untitled chat" ghost row above every real home chat.
+  it('the owner is not drawn when its wire row has no ownsWorktree marker but the resolver named it', () => {
+    const wireOwner = makeTestChat({ id: HOME_ROW_ID, title: '', workspaceId: HOME_WS_ID })
+    const thread = makeTestChat({ id: 'c-1', title: 'chat-one', workspaceId: HOME_WS_ID })
+    const rows = rowsFromHome(HOME_WS_ID, [wireOwner, thread], [], HOME_ROW_ID)
+    expect(rows.map((r) => r.id)).toEqual(['c-1'])
+  })
+
+  // REGRESSION: a legacy home whose GET /home elected the user's earliest
+  // conversation as its owner hid that conversation from the tree. The wire
+  // row's own marker is authoritative: a named chat that says it does NOT own
+  // the worktree is drawn, and only a marked owner (or none) is kept off.
+  it('draws a chat the resolver named but the list marks as not owning the worktree', () => {
+    const conversation = makeTestChat({
+      id: 'c-plan',
+      title: 'plan the release',
+      workspaceId: HOME_WS_ID,
+      ownsWorktree: false,
+    })
+    const rows = rowsFromHome(HOME_WS_ID, [conversation, homeOwningChat()], [], 'c-plan')
+    expect(rows.map((r) => r.id)).toEqual(['c-plan'])
+  })
+
   // Task 9: the owning chat is minted chat-first, atomically, at creation —
   // there is no boot backfill left to race, so a caller catching this window
   // (its own creation landed, its chat/folder tree's first seed has not)

@@ -2,23 +2,41 @@ import { toast } from '@/features/window/stores/toast-store'
 import { resolvesToFirstChild, type DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { openChatIdInOwnView } from '@/features/panes/utils/pane-command-actions'
 import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
 import { isKnownChatId, resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
-import { resolveRowRepo } from '@/components/sidebar/lib/sidebar-drop-policy'
+import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
+import { viewIdOf } from '@/features/panes/lib/pane-views'
+import {
+  levelWorkspaceOfBranchRow,
+  resolveChatRepo,
+  resolveRowRepo,
+} from '@/components/sidebar/lib/sidebar-drop-policy'
 import {
   owningChatIdOfWorkspace,
   workspaceIdOfBranchRow,
 } from '@/components/sidebar/lib/branch-row-id'
 import { watchReparent } from '@/components/sidebar/lib/reparent-settle'
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
+import { dataOf } from '@/lib/loadable'
+import {
+  applyChatPlacement,
+  applyFolderPlacements,
+  applyWorkspacePlacement,
+} from '@/lib/store/applied-placement'
+import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
+import { chatNotLoadedYet } from '@/components/sidebar/lib/row-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { applyPendingRemovals } from '@/components/layout/removal-plan'
+import { usePendingCreatesStore } from '@/lib/store/pending-creates'
+import { hideRowsForInFlightCreates } from '@/components/sidebar/lib/rows-from-pending'
+import {
+  applyPendingRemovals,
+  descendantHiddenIds,
+  renderedHiddenIds,
+} from '@/components/layout/removal-plan'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
-import { buildChatTree } from '@/features/agent/tree/lib/chat-rows'
 import {
   placeWorkspace,
   placeFolder,
@@ -28,12 +46,22 @@ import {
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
 import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
-import { resolveHomeOwnerId } from '@/components/sidebar/lib/rows-from-repo'
-import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { resolveHomeOwnerId, rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import { homeOwnerRowId, rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
-import { useHomeTreeStore, applyHomeFolders, resolveHomeRowScope } from '@/lib/store/home-tree'
+import {
+  refreshRepoPlacements,
+  useHomeTreeStore,
+  applyHomeChatPlacement,
+  applyHomeFolders,
+  resolveHomeRowScope,
+} from '@/lib/store/home-tree'
 import { toSidebarFolder } from '@/lib/store/build-repo-tree'
-import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
+import {
+  getHomeOwningChatId,
+  getHomeWorkspaceId,
+} from '@/features/workspace/lib/home-workspace-resolver'
 
 /** One request `performSidebarDrop` fires, in the order it must land — the
  *  scoped-down `PlacementCall` from `drop-plan.ts` (git show 9ad89156), minus
@@ -65,11 +93,6 @@ type RowPlacementCall =
  *  can re-home a chat to another workspace's own aggregate (see `planChatDrop`). */
 const UNSUPPORTED = 'unsupported' as const
 
-/** `buildChatTree`'s fold/search inputs don't affect `.siblings` at all (it
- *  is derived straight from the raw chat/folder set) — this call only ever
- *  wants that field, so every other input is this one stable empty. */
-const EMPTY_ID_SET: ReadonlySet<string> = new Set()
-
 function findNode(nodes: SidebarTreeNode[], id: string): SidebarTreeNode | undefined {
   for (const node of nodes) {
     if (node.id === id) return node
@@ -77,12 +100,6 @@ function findNode(nodes: SidebarTreeNode[], id: string): SidebarTreeNode | undef
     if (hit) return hit
   }
   return undefined
-}
-
-/** Which sibling space a container owns. '' is the repo root. */
-function membersOf(roots: SidebarTreeNode[], containerId: string): SidebarTreeNode[] {
-  if (containerId === '') return roots
-  return findNode(roots, containerId)?.children ?? []
 }
 
 /** The workspace whose fork-child space owns `containerId` — '' for a
@@ -109,9 +126,89 @@ function insertIndex(rest: string[], targetId: string, mode: 'before' | 'after')
 }
 
 /**
+ * The repos as the tree draws them — removal-tray-filtered, like
+ * `SidebarTreeSurface` feeds `rowsFromRepo`.
+ *
+ * Through `renderedHiddenIds`, not the tray store's raw `hiddenIds`: the two
+ * differ by every LIVE entry's own primary row, which stays on screen
+ * transformed in place (`RemovingSidebarRow`). Reading the raw set modelled a
+ * tree the user is not looking at — a held FOLDER was gone from it with its
+ * children re-homed to the folder's parent (`applyPendingRemovals`), while the
+ * rendered tree still drew the folder with those children nested under it, so
+ * every sibling index a drop computed during an eight-second hold was counted
+ * over a different list than the one it was aimed at. The raw set is still the
+ * base, so rows committed but not yet tombstoned stay hidden here exactly as
+ * they are on screen.
+ */
+export function visibleRepos(): Repo[] {
+  const tray = useRemovalTrayStore.getState()
+  return applyPendingRemovals(
+    useSidebarStore.getState().repos,
+    renderedHiddenIds(tray.hiddenIds, tray.entries),
+  )
+}
+
+/**
+ * The exact rows one project's panel draws — `SpacePanel`'s own
+ * `[...homeRows, ...repoRows]`. Every sibling index below is computed over
+ * these, never over a per-workspace store (populated only while that
+ * workspace's pane is mounted, so empty for the common repo-pane-open,
+ * home-not-mounted drag — every reorder then wrote `order: 0`) or a hand-
+ * merged chat/folder/repo list (which id'd a repo header by its workspace
+ * while the row carries its owning chat's id, so the target was never found
+ * and the index clamped to the end).
+ */
+export function renderedProjectRows(repos: readonly Repo[], projectId: string): SidebarRow[] {
+  const homeWorkspaceId = getHomeWorkspaceId(projectId)
+  const homeTree = homeWorkspaceId ? useHomeTreeStore.getState().trees[projectId] : undefined
+  const hidden = descendantHiddenIds(useRemovalTrayStore.getState().entries)
+  const rows = [
+    ...(homeWorkspaceId && homeTree
+      ? rowsFromHome(
+          homeWorkspaceId,
+          homeTree.chats.filter((c) => !hidden.has(c.id)),
+          homeTree.folders.filter((f) => !hidden.has(f.id)),
+          getHomeOwningChatId(projectId) ?? undefined,
+        )
+      : []),
+    ...rowsForProject(repos, projectId),
+  ]
+  return [...hideRowsForInFlightCreates(rows, usePendingCreatesStore.getState().entries, projectId)]
+}
+
+/** `containerId`'s members in the order `SidebarTree` draws them, minus the lifted rows. */
+function renderedSiblings(
+  rows: readonly SidebarRow[],
+  containerId: string,
+  lifted: ReadonlySet<string>,
+): string[] {
+  return rows
+    .filter((r) => (r.parentId ?? '') === containerId && !lifted.has(r.id))
+    .sort(compareSidebarRows)
+    .map((r) => r.id)
+}
+
+/** The project whose panel draws `wsId`'s rows — a repo workspace, or a project's home.
+ *  Home is asked of the resolver (the source a Recents row's workspace is
+ *  stamped from), across every project known, not only those with a tree loaded. */
+function projectOfWorkspace(repos: readonly Repo[], wsId: string): string | null {
+  const scope = resolveRowRepo(repos, wsId)
+  if (scope?.projectId) return scope.projectId
+  const projectIds = new Set<string>([
+    ...(dataOf(useProjectDataStore.getState().data) ?? EMPTY_PROJECTS).map((p) => p.id),
+    ...Object.keys(useHomeTreeStore.getState().trees),
+    ...repos.flatMap((r) => (r.projectId ? [r.projectId] : [])),
+  ])
+  for (const projectId of projectIds) {
+    if (getHomeWorkspaceId(projectId) === wsId) return projectId
+  }
+  return null
+}
+
+/**
  * A `branch`/`folder` drop — adapts `drop-plan.ts`'s `planRowDrop` (git show
  * 9ad89156) to `SidebarRow`. Kept: the container/fork-lineage math
- * (`findNode`/`membersOf`/`workspaceAnchor`/`resolvesToFirstChild`) and the
+ * (`findNode`/`workspaceAnchor`/`resolvesToFirstChild`) and the
  * folder-edge-vs-fork-parent precedence. Dropped: `project`/`repo` subjects
  * (out of this drag's scope now — see `SIDEBAR_DROP_POLICY`) and the
  * `writes`/`capturePlacement` optimistic half (this plan's no-optimistic-
@@ -123,16 +220,19 @@ function planTreeRowDrop(
   target: SidebarRow,
   mode: DropMode,
 ): RowPlacementCall[] {
-  const { repos: rawRepos, collapsedChatRows } = useSidebarStore.getState()
+  const { collapsedChatRows } = useSidebarStore.getState()
   // The tree the user actually sees (and dropped into) is removal-tray-
-  // filtered — `SidebarTreeSurface` feeds `rowsFromRepo` this same
-  // `applyPendingRemovals` view, not the raw store. Planning against the raw
-  // repos during an in-progress hold can count a held (about-to-vanish)
-  // sibling in `rest`/`insertIndex`'s math, or report a target as having
-  // children it no longer visibly has — silently upgrading a plain reorder
-  // into a first-child reparent the drag indicator never promised.
-  const repos = applyPendingRemovals(rawRepos, useRemovalTrayStore.getState().hiddenIds)
-  const scope = resolveRowRepo(repos, target.id)
+  // filtered. Planning against the raw repos during an in-progress hold can
+  // count a held (about-to-vanish) sibling in `rest`/`insertIndex`'s math,
+  // or report a target as having children it no longer visibly has —
+  // silently upgrading a plain reorder into a first-child reparent the drag
+  // indicator never promised.
+  const repos = visibleRepos()
+  // `resolveRowRepo` is chat-blind by design; a CHAT sibling is still a
+  // legal target for a branch/folder to reorder past (`allowedModes`).
+  const scope =
+    resolveRowRepo(repos, target.id) ??
+    (target.kind === 'chat' ? resolveChatRepo(repos, target.id) : null)
   const repo = scope && repos.find((r) => r.id === scope.repoId)
   if (!repo || !scope?.projectId) return []
   const { repoId, projectId } = scope
@@ -147,28 +247,33 @@ function planTreeRowDrop(
   const targetId = wsSpace(target.id)
 
   const roots = buildSidebarTree(repo.workspaces, repo.folders ?? [])
-  // The repo's own checkout (`rows-from-repo.ts`'s tree root) is a row but
-  // never a node in `roots` — its rendered children ARE `roots` itself.
-  const isHomeTarget = targetId === repo.defaultWorkspaceId
-  const targetNode = isHomeTarget ? undefined : findNode(roots, targetId)
-  const hasChildren = isHomeTarget ? roots.length > 0 : (targetNode?.children.length ?? 0) > 0
+  // `roots` holds no chats — it exists for the fork-lineage math only. What
+  // the target holds, and which siblings a reorder indexes into, come from
+  // the rows the tree draws: a level interleaves branches, folders AND
+  // chats on one order, so an index over `roots` alone is off by every chat
+  // sibling the row actually has.
+  const repoRows = rowsFromRepo(repo)
+  const hasChildren = repoRows.some((r) => r.parentId === target.id)
   // Keyed by the ROW id, not the translated one — the collapse set holds what
   // the tree draws (`SidebarTreeSurface`/`toggleChatRow`), which is the row.
   const expanded = !collapsedChatRows.has(target.id)
   const firstChild =
     mode !== 'into' &&
     resolvesToFirstChild({ kind: target.kind, id: target.id, expanded, hasChildren }, mode)
-  const requested =
-    mode === 'into' || firstChild ? targetId : target.parentId ? wsSpace(target.parentId) : ''
+  const requestedRow = mode === 'into' || firstChild ? target.id : (target.parentId ?? '')
+  const requested = requestedRow === '' ? '' : wsSpace(requestedRow)
   const containerNode = requested === '' ? undefined : findNode(roots, requested)
   const containerId = requested !== '' && !containerNode ? '' : requested
   const containerKind = containerNode?.kind ?? 'root'
+  // The repo root's members hang off the header ROW (`rows-from-repo.ts`),
+  // which is not a node in `roots` — hence the row-space translation.
+  const homeRowId = repo.defaultWorkspaceId
+    ? resolveHomeOwnerId(repo.defaultWorkspaceId, repo.defaultOwningChatId, repo.chats ?? [])
+    : ''
+  const containerRowId = containerId === '' ? homeRowId : requestedRow
 
-  const lifted = new Set(subjects.map((s) => wsSpace(s.id)))
-  const rest: string[] = []
-  for (const n of membersOf(roots, containerId)) {
-    if (!lifted.has(n.id)) rest.push(n.id)
-  }
+  const lifted = new Set(subjects.map((s) => s.id))
+  const rest = renderedSiblings(repoRows, containerRowId, lifted).map(wsSpace)
   const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, targetId, mode)
 
   const calls: RowPlacementCall[] = []
@@ -243,8 +348,12 @@ function planTreeRowDrop(
     // (never gated on the subject's OWN prior `ws.folderId`) since a
     // never-yet-touched or previously-corrupted row needs the SAME correction
     // a properly-placed sibling already carries, not a same-as-before no-op.
+    // A CHATLESS branch is addressed by its own workspace id — the Node row
+    // the daemon minted for it (`workspaceAnchorView`) — never bare ''.
     const directFolderId =
-      containerKind === 'workspace' ? (owningChatIdOfWorkspace(repos, containerId) ?? '') : folderId
+      containerKind === 'workspace'
+        ? (owningChatIdOfWorkspace(repos, containerId) ?? containerId)
+        : folderId
     calls.push({
       kind: 'workspace',
       projectId,
@@ -263,131 +372,64 @@ function planTreeRowDrop(
  * itself, workspace-scoped (`setChatPlacement`, `@/features/agent/api/agent-
  * api`) — not `placeWorkspace`/`placeFolder`, which address `lib/store/
  * sidebar.ts`'s `Workspace`/`Folder` and know nothing about a chat.
- */
-/**
- * A chat reordering PAST a BRANCH row (a repo's own header, a locked
- * branch, or an ordinary fork folded to look like one) — `allowedModes`
- * only ever calls this for `mode !== 'into'` (see sidebar-drop-policy.ts's
- * own doc on why "into" stays refused), so this only ever computes a
- * before/after index.
  *
- * The one thing `planChatDrop`'s own `buildChatTree`-based sibling read
- * cannot see is a BRANCH sibling: that read is scoped to one workspace's own
- * {chats, folders} (`getOrCreateWorkspaceStore(...).agentChats`), and a
- * branch row is neither — it is a Workspace or a Repository, never a Chat.
- * `rowsForProject`/`rowsFromHome` are reused here because they are the SAME
- * pipeline that already renders this exact combined level (repo header rows
- * interleaved with project-home chats/folders, and a repo's own locked
- * branches interleaved with its own top-level chats/folders) — recomputing
- * an equivalent sibling order any other way risks disagreeing with what is
- * actually on screen.
- *
- * Caught live: refusing this reorder outright used to be "can't put a chat
- * right at the bottom of the tree list" whenever a branch row happened to
- * occupy that position.
+ * A chat may land relative to another chat, a folder (a real placement —
+ * `Chat.parentId` is "a chat id, a folder id, or the root"), or PAST a
+ * branch row it shares a level with (a repo header among project-home
+ * rows, a locked branch among a repo's own root rows) — never INTO a branch,
+ * which is not something a chat can become a thread of; `allowedModes`
+ * refuses that mode and this is the backstop. The sibling index is computed
+ * over the rows the panel draws (`renderedProjectRows`), the only source
+ * that holds all three kinds on one order.
  */
-function planChatDropOntoBranch(
-  subjects: SidebarRow[],
-  target: SidebarRow,
-  mode: DropMode,
-): RowPlacementCall[] | typeof UNSUPPORTED {
-  // `allowedModes` never returns `into: true` for a branch target — see
-  // sidebar-drop-policy.ts's own doc — so this only ever reorders.
-  if (mode === 'into') return []
-  const repos = applyPendingRemovals(
-    useSidebarStore.getState().repos,
-    useRemovalTrayStore.getState().hiddenIds,
-  )
-  const scope = resolveRowRepo(repos, target.id)
-  if (!scope?.projectId) return []
-  const projectId = scope.projectId
-  const destWorkspaceId = subjects[0].workspaceId
-  if (!destWorkspaceId) return []
-  if (subjects.some((s) => s.workspaceId !== destWorkspaceId)) return UNSUPPORTED
-
-  const containerId = target.parentId ?? ''
-  const homeWorkspaceId = getHomeWorkspaceId(projectId)
-  const homeTree = homeWorkspaceId ? useHomeTreeStore.getState().trees[projectId] : undefined
-  const rows: SidebarRow[] = [
-    ...(homeWorkspaceId && homeTree
-      ? rowsFromHome(homeWorkspaceId, homeTree.chats, homeTree.folders)
-      : []),
-    ...rowsForProject(repos, projectId),
-  ]
-  const lifted = new Set(subjects.map((s) => s.id))
-  const rest = rows
-    .filter((r) => (r.parentId ?? '') === containerId && !lifted.has(r.id))
-    .sort((a, b) => a.order - b.order)
-    .map((r) => r.id)
-  const at = insertIndex(rest, target.id, mode)
-
-  return subjects.map((subject, i) => ({
-    kind: 'chat' as const,
-    workspaceId: destWorkspaceId,
-    chatId: subject.id,
-    parentId: containerId,
-    order: at + i,
-  }))
-}
-
 function planChatDrop(
   subjects: SidebarRow[],
   target: SidebarRow,
   mode: DropMode,
 ): RowPlacementCall[] | typeof UNSUPPORTED {
-  if (target.kind === 'branch') return planChatDropOntoBranch(subjects, target, mode)
-  // A chat CAN be filed into a folder — `Chat.parentId` is "a chat id, a
-  // folder id, or the root" (lib/store/sidebar.ts's own doc), and a folder
-  // groups every row kind in its level, chats included (buildSidebarTree:
-  // "a level interleaves folders, branches and chats"). This used to refuse
-  // any folder target outright — the literal "can't group chats into a
-  // folder" gap, caught live, not a backend limitation: the placement route
-  // already accepts a folder id as `parentId`.
-  if (target.kind !== 'chat' && target.kind !== 'folder') return []
-  // A folder carries no `workspaceId` of its own (pure organisation, no
-  // ground — rows-from-repo.ts) — the dragged chat's OWN workspace is the
-  // only ground a drop onto one can mean, and every subject is already
-  // required to share it (checked right below), so it stands in whenever the
-  // target itself has none to offer.
+  if (target.kind !== 'chat' && target.kind !== 'folder' && target.kind !== 'branch') return []
+  if (target.kind === 'branch' && mode === 'into') return []
+  // A folder/branch carries no chat workspace of its own — the dragged
+  // chat's OWN workspace is the only ground such a drop can mean, and every
+  // subject is required to share it (checked right below).
   const destWorkspaceId = target.kind === 'chat' ? target.workspaceId : subjects[0].workspaceId
   if (!destWorkspaceId) return []
   // `setChatPlacement` is scoped to one workspace's own chat tree — there is
   // no field on it that re-homes a chat to a different workspace's aggregate.
   if (subjects.some((s) => s.workspaceId !== destWorkspaceId)) return UNSUPPORTED
 
-  const { chats, folders } = getOrCreateWorkspaceStore(destWorkspaceId).getState().agentChats
-  // The real sibling order — dense `order` ascending, folders sorted above
-  // chats on a tie, chats newest-first below that (`compareSiblings`) — is
-  // NOT a plain `[...chats, ...folders]` concat; that puts every folder
-  // after every chat regardless of where either actually sits. `siblings`
-  // is `chat-rows.ts`'s own already-built, already-documented source for
-  // "what a drop indexes into... a dropped row lands among its REAL
-  // siblings" — reused here rather than re-derived.
-  const { siblings } = buildChatTree({
-    chats,
-    folders,
-    collapsed: EMPTY_ID_SET,
-    shown: EMPTY_ID_SET,
-    foldedAway: EMPTY_ID_SET,
-    query: '',
-  })
-  // This function is reached ONLY for a TREE target now — `performSidebarDrop`
-  // below branches a Recents-sourced drop (`targetInRecents`) off to
-  // `performRecentsDrop` before this is ever called, since a drop over a
-  // Recents row means something completely different (§8.1: "into that view,
-  // opened" / "it moves to that slot" — a live pane write and Recents' own
-  // persisted order, neither of which is a tree placement at all). What
-  // follows is exactly the tree's own "make the subject one of the target's
-  // threads" placement, unconditionally — the ambiguity this comment used to
-  // describe (Recents rows render at depth 0 with `parentId: null`, same as a
-  // root-level tree bubble, so 'before'/'after' here used to silently mean
-  // "move to the tree root" for a Recents drag) is gone along with the need
-  // to guess: a TREE row genuinely at the root behaves the same as it always
-  // did, and a Recents row never reaches this branch at all any more.
-  const containerId = mode === 'into' ? target.id : (target.parentId ?? '')
+  const repos = visibleRepos()
+  if (target.kind === 'branch' && levelWorkspaceOfBranchRow(repos, target) !== destWorkspaceId) {
+    return UNSUPPORTED
+  }
+  const projectId =
+    resolveHomeRowScope(target.id)?.projectId ??
+    resolveRowRepo(repos, target.id)?.projectId ??
+    projectOfWorkspace(repos, destWorkspaceId)
+  if (!projectId) return []
+
+  const rows = renderedProjectRows(repos, projectId)
+  // 'after' an EXPANDED chat/folder is the slot before its first child — where
+  // the line is drawn (`resolvesToFirstChild`). Never for a branch target: its
+  // children are another workspace's level, which a chat cannot join.
+  const firstChild =
+    target.kind !== 'branch' &&
+    resolvesToFirstChild(
+      {
+        kind: target.kind,
+        id: target.id,
+        expanded: !useSidebarStore.getState().collapsedChatRows.has(target.id),
+        hasChildren: rows.some((r) => r.parentId === target.id),
+      },
+      mode,
+    )
+  // A Recents-sourced drop never reaches here (`performSidebarDrop` branches
+  // it off to `performRecentsDrop` first), so a root-level target genuinely
+  // means the tree root.
+  const containerId = mode === 'into' || firstChild ? target.id : (target.parentId ?? '')
   const lifted = new Set(subjects.map((s) => s.id))
-  const rest = (siblings.get(containerId) ?? []).filter((id) => !lifted.has(id))
-  const at = mode === 'into' ? rest.length : insertIndex(rest, target.id, mode)
+  const rest = renderedSiblings(rows, containerId, lifted)
+  const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, target.id, mode)
 
   return subjects.map((subject, i) => ({
     kind: 'chat' as const,
@@ -418,28 +460,36 @@ function planHomeFolderDrop(
 ): RowPlacementCall[] {
   const tree = useHomeTreeStore.getState().trees[projectId]
   if (!tree) return []
-  const homeRowId = resolveHomeOwnerId(homeWorkspaceId, undefined, tree.chats)
+  // A repo header is a root sibling to reorder past, never a container.
+  if (target.kind === 'branch' && mode === 'into') return []
+  const homeRowId = homeOwnerRowId(
+    homeWorkspaceId,
+    tree.chats,
+    getHomeOwningChatId(projectId) ?? undefined,
+  )
   const roots = buildSidebarTree(
     [],
     tree.folders,
     tree.chats.filter((c) => c.id !== homeRowId),
   )
   const targetId = target.id
-  const targetNode = findNode(roots, targetId)
-  const hasChildren = (targetNode?.children.length ?? 0) > 0
+  // Siblings come from the rows the panel draws, not `roots`: at the home
+  // root a repo's own header row is a real sibling `roots` never holds.
+  const rows = renderedProjectRows(visibleRepos(), projectId)
+  const hasChildren = rows.some((r) => r.parentId === target.id)
   const expanded = !useSidebarStore.getState().collapsedChatRows.has(target.id)
+  // Only a home chat/folder (a node of `roots`) has a first-child slot: an
+  // expanded repo header's children are its own branches, not home rows.
   const firstChild =
     mode !== 'into' &&
+    findNode(roots, targetId) !== undefined &&
     resolvesToFirstChild({ kind: target.kind, id: target.id, expanded, hasChildren }, mode)
   const requested = mode === 'into' || firstChild ? targetId : target.parentId || ''
   const containerNode = requested === '' ? undefined : findNode(roots, requested)
   const containerId = requested !== '' && !containerNode ? '' : requested
 
   const lifted = new Set(subjects.map((s) => s.id))
-  const rest: string[] = []
-  for (const n of membersOf(roots, containerId)) {
-    if (!lifted.has(n.id)) rest.push(n.id)
-  }
+  const rest = renderedSiblings(rows, containerId, lifted)
   const at = mode === 'into' ? rest.length : firstChild ? 0 : insertIndex(rest, targetId, mode)
 
   const calls: RowPlacementCall[] = []
@@ -477,51 +527,6 @@ function targetProjectHomeScope(target: SidebarRow): { projectId: string } | nul
 }
 
 /**
- * The sibling id order one project-home CONTAINER holds right now — every
- * home chat, home folder, and OTHER repo's header row filed under it — sorted
- * the same loose way `buildSidebarTree` sorts one level (own `order`, ties
- * broken by arrival), so `insertIndex` below can place a dragged repo among
- * them precisely.
- *
- * A merge across two aggregates (`domain.Chat` for the chats/folders,
- * `domain.Repository` for the repos) rather than one shared table, so this
- * reads both stores directly instead of reusing `buildSidebarTree` (which
- * only ever takes one workspace/folder/chat family at a time). `excludeRepoId`
- * drops the repo being dragged out of its own current slot before it is
- * re-inserted, same as `lifted` does in every sibling computation above.
- */
-function projectHomeContainerSiblings(
-  projectId: string,
-  containerId: string,
-  homeWorkspaceId: string,
-  excludeRepoId: string,
-): string[] {
-  const tree = useHomeTreeStore.getState().trees[projectId]
-  const homeRowId = tree ? resolveHomeOwnerId(homeWorkspaceId, undefined, tree.chats) : null
-  const entries: { id: string; order: number; arrival: number }[] = []
-  let arrival = 0
-  for (const c of tree?.chats ?? []) {
-    if (c.id === homeRowId || (c.parentId || '') !== containerId) continue
-    entries.push({ id: c.id, order: c.order ?? 0, arrival: arrival++ })
-  }
-  for (const f of tree?.folders ?? []) {
-    if ((f.parentId || '') !== containerId) continue
-    entries.push({ id: f.id, order: f.order ?? 0, arrival: arrival++ })
-  }
-  for (const r of useSidebarStore.getState().repos) {
-    if (r.projectId !== projectId || (r.folderId || '') !== containerId) continue
-    // Excluded by the REPO's own id, not its row id (`defaultWorkspaceId`) —
-    // the two live in different id spaces, and comparing the wrong one left
-    // the dragged repo counted among its own siblings, off-by-one-ing every
-    // insert index past it.
-    if (!r.defaultWorkspaceId || r.id === excludeRepoId) continue
-    entries.push({ id: r.defaultWorkspaceId, order: r.order ?? 0, arrival: arrival++ })
-  }
-  entries.sort((a, b) => a.order - b.order || a.arrival - b.arrival)
-  return entries.map((e) => e.id)
-}
-
-/**
  * A repo's own header row, dropped. `planTreeRowDrop`'s workspace branch has
  * nothing to address it with — it owns no fork lineage of its own to
  * reparent, and it is not a member of `repo.workspaces` for `placeWorkspace`
@@ -545,19 +550,19 @@ function planRepoHomeDrop(
   if (mode === 'into' && target.kind !== 'folder') return []
   const scope = targetProjectHomeScope(target)
   if (!scope) return []
-  const homeWorkspaceId = getHomeWorkspaceId(scope.projectId)
-  if (!homeWorkspaceId) return []
+  if (!getHomeWorkspaceId(scope.projectId)) return []
   const containerId = mode === 'into' ? target.id : (target.parentId ?? '')
   // A repo may only land at project-home root or inside a home FOLDER, never
   // inside a chat's own thread space — SIDEBAR_DROP_POLICY is the real gate
   // (it checks this exact container before a drop is ever offered), this is
   // the same defensive backstop every other plan function in this file keeps.
   if (containerId !== '' && resolveHomeRowScope(containerId)?.kind !== 'folder') return []
-  const rest = projectHomeContainerSiblings(
-    scope.projectId,
+  // Lifted by its ROW id (the header row is id'd by the checkout's owning
+  // chat when it has one), the same id space `target.id` is looked up in.
+  const rest = renderedSiblings(
+    renderedProjectRows(visibleRepos(), scope.projectId),
     containerId,
-    homeWorkspaceId,
-    repoIcon.repoId,
+    new Set([subject.id]),
   )
   const at = mode === 'into' ? rest.length : insertIndex(rest, target.id, mode)
   return [
@@ -615,26 +620,29 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       await reparentWorkspace(call.wsId, call.parentId)
       return wait()
     }
-    case 'workspace':
-      return placeWorkspace(call.wsId, {
+    case 'workspace': {
+      // A branch row's order is read off its WorkspaceDTO, which no placement
+      // frame refreshes — the answer (the moved row and every shifted
+      // folder/branch sibling) is applied directly.
+      const { workspace, shifted } = await placeWorkspace(call.wsId, {
         ...(call.folderId !== undefined && { folderId: call.folderId }),
         order: call.order,
       })
+      await applyWorkspacePlacement(call.wsId, workspace, shifted)
+      return
+    }
     case 'folder': {
       // Applied directly, same as row-actions.ts's folder writes: there is no
       // dedicated push channel for folders any more (Task 34), so this
-      // response is the only confirmation the drop gets. `bump` also writes
-      // the `crowbar_folders` cache every tree rebuild reads from — without
-      // it the move survives only until the next unrelated rebuild reverts
-      // it (see row-actions.ts's performRenameFolder for the full story).
-      const { folder, shifted } = await placeFolder(call.projectId, call.repoId, call.folderId, {
-        parentId: call.parentId,
-        order: call.order,
-      })
-      const apply = useSidebarStore.getState().applyFolderDTO
-      apply(folder)
-      shifted.forEach(apply)
-      useFolderSignalStore.getState().bump(call.repoId)
+      // response is the only confirmation the drop gets — written through to
+      // the cache every rebuild reads before the store (applied-placement.ts).
+      const { folder, shifted, shiftedRows } = await placeFolder(
+        call.projectId,
+        call.repoId,
+        call.folderId,
+        { parentId: call.parentId, order: call.order },
+      )
+      await applyFolderPlacements(call.repoId, [folder, ...shifted], shiftedRows)
       return
     }
     case 'homeFolder': {
@@ -662,38 +670,29 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       // catch it up. Applied directly now, the same "already the daemon's
       // own committed state, arriving over the request instead of a
       // stream" reasoning `performRenameFolder` documents for its own case.
-      const { chat } = await setChatPlacement(call.workspaceId, call.chatId, {
+      const { chat, shifted } = await setChatPlacement(call.workspaceId, call.chatId, {
         parentId: call.parentId,
         order: call.order,
       })
-      let movedRepoId: string | null = null
-      useSidebarStore.setState((s) => {
-        const repos = s.repos.map((repo) => {
-          if (!repo.chats?.some((c) => c.id === chat.id)) return repo
-          movedRepoId = repo.id
-          return {
-            ...repo,
-            chats: repo.chats.map((c) =>
-              c.id === chat.id ? { ...c, parentId: chat.parentId, order: chat.order } : c,
-            ),
-          }
-        })
-        return { repos }
-      })
-      // `folder-signal.ts`'s own doc: "ONE signal for folders and chats, not
-      // two... the meaning is the repo's tree" — the same bump the folder
-      // case above uses, so the next unrelated reseed (any repo's
-      // `defaultWorking` flipping, say) reads this move back rather than
-      // silently reverting it the way an un-bumped direct-apply would.
-      if (movedRepoId) useFolderSignalStore.getState().bump(movedRepoId)
+      // A home chat lives in `useHomeTreeStore`, never in a repo: its own
+      // response is applied there (the reseed its frame triggers is the
+      // backstop); every other chat writes through the entity cache first.
+      const home = resolveHomeRowScope(chat.id)
+      if (home) {
+        applyHomeChatPlacement(home.projectId, chat, shifted)
+        return
+      }
+      await applyChatPlacement(chat, shifted)
       return
     }
     case 'repoHome':
-      // No direct-apply here, unlike the folder cases above: a repo's DTO
-      // rides the same `repos` broadcast channel every OTHER repo write
-      // already confirms through (rename, project move) — this is one more
-      // field on that same write, not a new confirmation path to build.
-      return placeRepo(call.projectId, call.repoId, { folderId: call.folderId, order: call.order })
+      // The PATCH answers 204; the repo's DTO (and every repo it shifted)
+      // rides the `repos` broadcast. Re-read the project's repos as well so
+      // the drop never depends on that broadcast alone — a frame that races
+      // the Node projection left the header where it started until reload.
+      await placeRepo(call.projectId, call.repoId, { folderId: call.folderId, order: call.order })
+      await refreshRepoPlacements(call.projectId)
+      return
   }
 }
 
@@ -712,22 +711,30 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
  * now answers "which workspace does this chat belong to" for the render path
  * too, so it no longer has to be.
  */
-function openRecentsEntryThenMerge(target: SidebarRow, dragged: readonly SidebarRow[]): void {
+function openRecentsEntryThenMerge(
+  target: SidebarRow,
+  targetChatId: string,
+  dragged: readonly SidebarRow[],
+): void {
   const findPaneFor = (chatId: string) =>
     Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === chatId)?.id
 
-  let targetPaneId = findPaneFor(target.id)
+  let targetPaneId = findPaneFor(targetChatId)
   if (!targetPaneId) {
     // Literally "the same 'makes its own view' a click already does" — so it
     // calls the click's own function rather than re-deriving it from a drop
     // aimed at the active pane, which would have merged the target into
     // whatever was already there before the dragged rows even arrived.
     openChatInOwnPane(target)
-    targetPaneId = findPaneFor(target.id)
+    targetPaneId = findPaneFor(targetChatId)
   }
   if (!targetPaneId) return
   for (const subject of dragged) {
-    if (subject.id === target.id) continue // dropped onto itself — nothing to merge
+    // Dropped onto itself — nothing to merge. Compared by resolved CHAT id,
+    // not row id: a Recents row whose chat owns a workspace is a `branch` row
+    // (see `performRecentsDrop`), and the tree's copy of that same chat can
+    // name it by workspace id instead.
+    if (paneChatSubject(subject)?.chatId === targetChatId) continue
     openChatIntoPane(subject, targetPaneId, 'center')
   }
 }
@@ -735,7 +742,9 @@ function openRecentsEntryThenMerge(target: SidebarRow, dragged: readonly Sidebar
 /**
  * Above/below a Recents entry (spec §8.1: "it moves to that slot") — the
  * drag-reorder `planChatDrop`'s own doc used to flag as real remaining work.
- * `subjects`/`target` are chat ROWS (their `.id` is a chat id), but
+ * `subjectChatIds`/`targetChatId` are the CHAT ids the dragged rows name
+ * (resolved by `performRecentsDrop`, which a Recents row's `kind` cannot
+ * answer on its own — see there), but
  * `pane-slice.ts`'s persisted order is keyed by ENTRY id (a pane id, a
  * merged-set nanoid, or a bare chat id for a working-no-view row — never a
  * chat id on its own, since a SET's members share one slot); both are
@@ -745,21 +754,26 @@ function openRecentsEntryThenMerge(target: SidebarRow, dragged: readonly Sidebar
  * slot of their own.
  */
 function reorderRecentsEntries(
-  subjects: readonly SidebarRow[],
+  subjectChatIds: readonly string[],
   target: SidebarRow,
+  targetChatId: string,
   mode: 'before' | 'after',
 ): void {
   const repos = useSidebarStore.getState().repos
-  const scope = resolveRowRepo(repos, target.workspaceId ?? '')
-  if (!scope?.projectId) return
-  const entries = recentsForProject(repos, scope.projectId)
+  // A home chat's entry carries the project-HOME workspace, which no repo
+  // claims — resolved home-aware, or every drop beside one was a silent no-op.
+  const projectId =
+    resolveHomeRowScope(targetChatId)?.projectId ??
+    projectOfWorkspace(repos, target.workspaceId ?? '')
+  if (!projectId) return
+  const entries = recentsForProject(repos, projectId)
   const naturalOrder = entries.map((e) => e.id)
-  const targetEntry = entries.find((e) => e.chatIds.includes(target.id))
+  const targetEntry = entries.find((e) => e.chatIds.includes(targetChatId))
   if (!targetEntry) return
 
   const moved = new Set<string>()
-  for (const subject of subjects) {
-    const sourceEntry = entries.find((e) => e.chatIds.includes(subject.id))
+  for (const chatId of subjectChatIds) {
+    const sourceEntry = entries.find((e) => e.chatIds.includes(chatId))
     if (!sourceEntry || sourceEntry.id === targetEntry.id || moved.has(sourceEntry.id)) continue
     moved.add(sourceEntry.id)
     windowPaneStore
@@ -773,19 +787,33 @@ function reorderRecentsEntries(
  * table gives this geometry a different meaning than the same drop over a
  * tree row: the middle opens the dragged chat(s) into that view, and
  * above/below reorders the band itself rather than writing a tree
- * placement. `SIDEBAR_DROP_POLICY` already refuses a mixed chat/non-chat
- * pairing, so both sides are guaranteed `kind: 'chat'` by the time this
- * runs; the checks below are a defensive backstop, not the real gate.
+ * placement.
+ *
+ * A Recents row is ALWAYS a chat — the band renders nothing else — but its
+ * `kind` is not always `'chat'`: `recents-band.tsx` spreads `chatIconIndex`'s
+ * fields onto the row so a chat that owns a workspace draws the tree's real
+ * branch/lock/PR glyph, and `kind: 'branch'` rides along with them. Filtering
+ * on `kind === 'chat'` here therefore dropped every such row on the floor,
+ * both as a subject and as a target — and since a workspace-owning chat is the
+ * common Recents row in a real install, that read as "Recents rows can't be
+ * reordered" (live-reported). `paneChatSubject` is the resolver this file
+ * already uses for the same question one gesture over (a row dropped onto a
+ * pane): it answers with the chat a row names for both kinds, and null for a
+ * folder or a workspace row with no chat behind it.
  */
 function performRecentsDrop(subjects: SidebarRow[], target: SidebarRow, mode: DropMode): void {
-  if (target.kind !== 'chat') return
-  const chatSubjects = subjects.filter((s) => s.kind === 'chat')
-  if (chatSubjects.length === 0) return
+  const targetChatId = paneChatSubject(target)?.chatId
+  if (!targetChatId) return
+  const subjectChatIds = subjects.flatMap((s) => {
+    const chatId = paneChatSubject(s)?.chatId
+    return chatId ? [chatId] : []
+  })
+  if (subjectChatIds.length === 0) return
   if (mode === 'into') {
-    openRecentsEntryThenMerge(target, chatSubjects)
+    openRecentsEntryThenMerge(target, targetChatId, subjects)
     return
   }
-  reorderRecentsEntries(chatSubjects, target, mode)
+  reorderRecentsEntries(subjectChatIds, target, targetChatId, mode)
 }
 
 /**
@@ -826,6 +854,13 @@ export async function performSidebarDrop(
       await fireRowPlacementCall(call)
     }
   } catch (err) {
+    // A reparent is chat-addressed; a fork whose owner is not recorded yet
+    // is "still loading", the same copy every other verb uses (row-actions.ts).
+    if (err instanceof OwningChatNotRecordedError) {
+      const row = subjects.find((s) => s.workspaceId === err.wsId)
+      toast.error(chatNotLoadedYet('move', row?.branchName ?? row?.label))
+      return
+    }
     // `guardReparent` (Go, hierarchy/worktree.go) correctly refuses a
     // reparent onto a branch row the sidebar can show before its worktree is
     // ever actually checked out on disk — but the raw reason reaches here
@@ -1010,11 +1045,25 @@ export function openChatInOwnPane(subject: SidebarRow): void {
 export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
   const resolved = paneChatSubject(subject)
   if (!resolved) return
-  const { panes, paneActions } = windowPaneStore.getState()
+  const { panes, paneActions, viewProjects } = windowPaneStore.getState()
   const chatId = resolved.chatId
 
   const target = panes[paneId]
   if (!target) return
+
+  // LAW 4 (project-scoped panes §6.5): content never crosses a project.
+  // Belt-and-braces — the geometry already makes this nearly unreachable,
+  // since the only draggable rows are the active project's panel's and the
+  // only pane tree on screen is the active project's — so an UNRESOLVABLE
+  // project on either side is allowed through rather than refused: a sidebar
+  // one frame behind must not break an ordinary same-project drop.
+  const targetProject = viewProjects[viewIdOf(target)]
+  const subjectProject = resolveChatProjectId(chatId, resolved.workspaceId)
+  if (targetProject && subjectProject && targetProject !== subjectProject) {
+    toast.error('That chat belongs to a different space')
+    return
+  }
+
   const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
 
   // Middle of an EMPTY pane: a plain open, exactly where you dropped it. No

@@ -502,16 +502,13 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 
 	// The async delete reactor cascades: review threads forgotten (rows gone),
 	// worktree removed, workspace aggregate Forgotten (read-model row gone). The
-	// reactor detaches into a drainWG-tracked goroutine (its terminal Forget is a
-	// SendWait that cannot run on the bus goroutine), so draining the projection
-	// queues alone would not cover it. First WaitQuiescent so the delete event is
-	// dispatched — the reactor has entered the drain gate (onEvent) and the store
-	// projection has written the tombstone the reactor gates on — then block on the gate
-	// going idle for the cascade to finish, then WaitQuiescent again to settle the
-	// follow-on Forget/DeleteThread projections. Every step is a real signal.
-	c.WaitQuiescent()
-	c.Drain().Gate.WaitIdle(context.Background())
-	c.WaitQuiescent()
+	// reactor detaches into a gate-tracked goroutine, so draining the projection
+	// queues alone would not cover it — and draining WHILE it runs would refuse
+	// its own dispatches (asynx WaitPublish): QuiesceReactors holds the door,
+	// drains, then runs the reactor and folds what it dispatched. Caught live
+	// under -race: the old drain-then-join chain let the reactor's Forget land
+	// inside the drain and answer "dispatcher closed", leaving the tombstone.
+	c.QuiesceReactors(context.Background())
 
 	threads, err = c.ReviewThread.ListByWorkspace(ctx, "w1")
 	require.NoError(t, err)
@@ -552,9 +549,7 @@ func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	// event is dispatched (reactor joined drainWG + tombstone written), block on the
 	// reactor drain for the goroutine to finish, then WaitQuiescent to settle the
 	// terminal Forget projection that drops the row. Deterministic, no polling.
-	c.WaitQuiescent()
-	c.Drain().Gate.WaitIdle(context.Background())
-	c.WaitQuiescent()
+	c.QuiesceReactors(context.Background())
 
 	rows, err := c.Workspace.List(ctx)
 	require.NoError(t, err)
@@ -623,7 +618,7 @@ func createAgentChat(
 		Now:             time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
-	_, err = runners.BindSession(ctx, chatID+"-runner", "sess-"+chatID, false, time.Unix(2, 0).UTC())
+	_, err = runners.BindSession(ctx, chatID+"-runner", "sess-"+chatID, false, time.Unix(2, 0).UTC(), "", "")
 	require.NoError(t, err)
 }
 
@@ -664,9 +659,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats(t *testing.T) {
 	// drainWG, block on the reactor's own drain WaitGroup for the cascade
 	// goroutine to finish, then WaitQuiescent again to settle the follow-on
 	// Forget projections.
-	c.WaitQuiescent()
-	c.Drain().Gate.WaitIdle(context.Background())
-	c.WaitQuiescent()
+	c.QuiesceReactors(context.Background())
 
 	// chat1's PTY was terminated before it was Forgotten.
 	assert.Equal(t, []string{"term-1"}, term.terminated())
@@ -708,9 +701,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsChatConversations(t *testi
 	require.Equal(t, "chat1", mustChatForSession(t, ctx, c, "w1", "sess-chat1"))
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
-	c.WaitQuiescent()
-	c.Drain().Gate.WaitIdle(context.Background())
-	c.WaitQuiescent()
+	c.QuiesceReactors(context.Background())
 
 	_, err = c.AgentRunner.ChatForSession(ctx, "w1", "sess-chat1")
 	assert.ErrorIs(t, err, agentrunner.ErrNotFound,
@@ -752,9 +743,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ForgetsAgentChats_NilTerminateSes
 	c.WaitQuiescent()
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
-	c.WaitQuiescent()
-	c.Drain().Gate.WaitIdle(context.Background())
-	c.WaitQuiescent()
+	c.QuiesceReactors(context.Background())
 
 	_, err = c.AgentChat.GetChat(ctx, "chat1")
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
@@ -830,9 +819,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ReapsAgentChatFiles(t *testing.T)
 	c.WaitQuiescent()
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
-	c.WaitQuiescent()
-	c.Drain().Gate.WaitIdle(context.Background())
-	c.WaitQuiescent()
+	c.QuiesceReactors(context.Background())
 
 	assert.ElementsMatch(t, []string{"chat1", "chat2"}, reap.reaped())
 
@@ -870,9 +857,7 @@ func TestContainer_WireCallbacks_DeleteCascade_ReapFailure_IsBestEffort(t *testi
 	c.WaitQuiescent()
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
-	c.WaitQuiescent()
-	c.Drain().Gate.WaitIdle(context.Background())
-	c.WaitQuiescent()
+	c.QuiesceReactors(context.Background())
 
 	// Both chats' reap was attempted (chat1's failed) ...
 	assert.ElementsMatch(t, []string{"chat1", "chat2"}, reap.reaped())
@@ -905,9 +890,7 @@ func TestContainer_WireCallbacks_DeleteCascade_TerminateFailure_IsBestEffort(t *
 	c.WaitQuiescent()
 
 	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
-	c.WaitQuiescent()
-	c.Drain().Gate.WaitIdle(context.Background())
-	c.WaitQuiescent()
+	c.QuiesceReactors(context.Background())
 
 	// Both PTYs were attempted (chat1's failed) ...
 	assert.ElementsMatch(t, []string{"term-1", "term-2"}, term.terminated())

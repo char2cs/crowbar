@@ -4,6 +4,8 @@ import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { handleCreateHomeThread } from '@/components/layout/space-content-actions'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { getWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
@@ -69,6 +71,9 @@ const onPaneDrop = vi.fn()
 // which every rendered row here depends on).
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   getAllActiveWorkspaceIds: () => [],
+  // Nothing is mounted here: a Recents member row falls back to the sidebar's
+  // own chat record (`useRecentsChat`).
+  getWorkspaceStore: () => undefined,
   getOrCreateWorkspaceStore: () => ({
     getState: () => ({
       panes: {},
@@ -109,6 +114,17 @@ function makeRow(id: string, label: string, over: Partial<SidebarRow> = {}): Sid
 }
 
 const noRecents = () => [] as RecentsBandEntry[]
+
+/**
+ * jsdom lays nothing out, so `clientWidth` is 0 and the scroller's
+ * panel-index arithmetic (`scrollLeft / clientWidth`) can't identify a panel.
+ * `scrollLeft` itself is left a real, WRITABLE property — the re-align below
+ * assigns to it, and a `value:`-defined one would throw under ESM strict mode
+ * instead of recording the bounce.
+ */
+function givePanelGeometry(el: HTMLElement, panelWidth: number): void {
+  Object.defineProperty(el, 'clientWidth', { value: panelWidth, configurable: true })
+}
 
 describe('SpaceScroller', () => {
   beforeEach(() => {
@@ -172,8 +188,8 @@ describe('SpaceScroller', () => {
     )
     const el = screen.getByTestId('space-scroll-region')
     fireEvent.wheel(el, { deltaX: 100 })
-    Object.defineProperty(el, 'clientWidth', { value: 400, configurable: true })
-    Object.defineProperty(el, 'scrollLeft', { value: 400, configurable: true })
+    givePanelGeometry(el, 400)
+    el.scrollLeft = 400
     fireEvent.scroll(el)
     expect(onChange).toHaveBeenCalled()
   })
@@ -208,10 +224,123 @@ describe('SpaceScroller', () => {
     )
     const el = screen.getByTestId('space-scroll-region')
     fireEvent.wheel(el, { deltaX: 0, deltaY: 100 })
-    Object.defineProperty(el, 'clientWidth', { value: 400, configurable: true })
-    Object.defineProperty(el, 'scrollLeft', { value: 400, configurable: true })
+    givePanelGeometry(el, 400)
+    el.scrollLeft = 400
     fireEvent.scroll(el)
     expect(onChange).not.toHaveBeenCalled()
+  })
+
+  // Regression: the carousel could SETTLE on a panel the content area was not
+  // showing. Only a horizontal wheel and a touchstart arm the swipe flag, but
+  // `overflow-x: scroll` + mandatory x snapping + min-w-full panels means
+  // anything else that moves scrollLeft — most ordinarily the browser
+  // scrolling a focused element into view, and every panel is full of
+  // tabbable row buttons — drags a whole panel into view while the route, the
+  // content pane and the pane store's activeProjectId all stay behind. The
+  // sidebar then names one space while the screen shows another.
+  it('bounces back when something other than a swipe settles on another panel', () => {
+    const onChange = vi.fn()
+    const projects = [makeProject('p1'), makeProject('p2')]
+    render(
+      <SpaceScroller
+        projects={projects}
+        activeProjectId="p1"
+        onActiveProjectChange={onChange}
+        rowsForProject={() => []}
+        recentsForProject={noRecents}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        onFocusRecent={vi.fn()}
+        onCloseRecent={vi.fn()}
+        onCloseChatRecent={vi.fn()}
+        onDrop={onDrop}
+        onPaneDrop={onPaneDrop}
+        onTrashProject={vi.fn()}
+      />,
+    )
+    const el = screen.getByTestId('space-scroll-region')
+    givePanelGeometry(el, 400)
+
+    // No wheel, no touch — exactly what focus's own scrollIntoView does.
+    el.scrollLeft = 400
+    fireEvent.scroll(el)
+
+    expect(el.scrollLeft).toBe(0)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("leaves a settled scroll alone when it is already the active project's panel", () => {
+    const projects = [makeProject('p1'), makeProject('p2')]
+    render(
+      <SpaceScroller
+        projects={projects}
+        activeProjectId="p2"
+        onActiveProjectChange={vi.fn()}
+        rowsForProject={() => []}
+        recentsForProject={noRecents}
+        onOpen={vi.fn()}
+        onTrash={vi.fn()}
+        onCreate={vi.fn()}
+        onFocusRecent={vi.fn()}
+        onCloseRecent={vi.fn()}
+        onCloseChatRecent={vi.fn()}
+        onDrop={onDrop}
+        onPaneDrop={onPaneDrop}
+        onTrashProject={vi.fn()}
+      />,
+    )
+    const el = screen.getByTestId('space-scroll-region')
+    givePanelGeometry(el, 400)
+
+    el.scrollLeft = 400
+    fireEvent.scroll(el)
+
+    expect(el.scrollLeft).toBe(400)
+  })
+
+  // The bounce must not fight the switch animation it is chasing: a
+  // programmatic smooth scroll fires scroll events the whole way across, none
+  // of them a user gesture, and re-aligning on an intermediate one would jump
+  // straight to the destination — the switch would snap instead of glide.
+  it('does not interrupt the smooth scroll of a switch already in flight', () => {
+    const projects = [makeProject('p1'), makeProject('p2'), makeProject('p3')]
+    const props = {
+      projects,
+      onActiveProjectChange: vi.fn(),
+      rowsForProject: () => [],
+      recentsForProject: noRecents,
+      onOpen: vi.fn(),
+      onTrash: vi.fn(),
+      onCreate: vi.fn(),
+      onFocusRecent: vi.fn(),
+      onCloseRecent: vi.fn(),
+      onCloseChatRecent: vi.fn(),
+      onDrop,
+      onPaneDrop,
+      onTrashProject: vi.fn(),
+    }
+    const { rerender } = render(<SpaceScroller {...props} activeProjectId="p1" />)
+    const el = screen.getByTestId('space-scroll-region')
+    givePanelGeometry(el, 400)
+
+    rerender(<SpaceScroller {...props} activeProjectId="p3" />)
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledWith({
+      left: 800,
+      behavior: 'smooth',
+    })
+
+    // Mid-flight, passing over p2's panel.
+    el.scrollLeft = 400
+    fireEvent.scroll(el)
+    expect(el.scrollLeft).toBe(400)
+
+    // Arrived. The next stray scroll is re-aligned again, not ignored.
+    el.scrollLeft = 800
+    fireEvent.scroll(el)
+    el.scrollLeft = 0
+    fireEvent.scroll(el)
+    expect(el.scrollLeft).toBe(800)
   })
 
   // Addendum §1/§2: the row no longer carries a trash button at all (deleting
@@ -946,6 +1075,77 @@ describe('SpaceScroller', () => {
       expect(getWorkspaceScope('home-ws-1')).toEqual(
         expect.objectContaining({ projectId: 'p1', repoId: '' }),
       )
+    })
+  })
+
+  // REGRESSION (live-reported: "rows on recents cannot be reorder"). The
+  // band's own re-render signal (`subscribeRecentsTick`) watched panes,
+  // dormant arrangements and the active view — but not `recentsOrder`, the
+  // one input to `deriveRecentsEntries` a reorder actually writes. The drop
+  // landed, the order was persisted, and the rows went on drawing in the old
+  // order until something unrelated re-rendered the panel.
+  describe('the dragged Recents order (spec §8.1)', () => {
+    const DORMANT = [
+      { id: 'e1', chatIds: ['chat-a'], state: 'dormant' as const },
+      { id: 'e2', chatIds: ['chat-b'], state: 'dormant' as const },
+    ]
+
+    function renderBand() {
+      useHomeTreeStore.setState({
+        trees: {
+          p1: {
+            chats: [
+              { id: 'chat-a', repoId: '', workspaceId: 'home-ws-1', title: 'Chat A', order: 0 },
+              { id: 'chat-b', repoId: '', workspaceId: 'home-ws-1', title: 'Chat B', order: 1 },
+            ],
+            folders: [],
+          },
+        },
+      })
+      render(
+        <SpaceScroller
+          projects={[makeProject('p1')]}
+          activeProjectId="p1"
+          onActiveProjectChange={vi.fn()}
+          rowsForProject={() => []}
+          // The real derivation, so the order under test is the one
+          // production computes — only the inputs are fixtures.
+          recentsForProject={() =>
+            deriveRecentsEntries([], {}, DORMANT, windowPaneStore.getState().recentsOrder).map(
+              (entry) => ({ ...entry, localId: entry.id, workspaceId: 'home-ws-1' }),
+            )
+          }
+          onOpen={vi.fn()}
+          onTrash={vi.fn()}
+          onCreate={vi.fn()}
+          onFocusRecent={vi.fn()}
+          onCloseRecent={vi.fn()}
+          onCloseChatRecent={vi.fn()}
+          onDrop={onDrop}
+          onPaneDrop={onPaneDrop}
+          onTrashProject={vi.fn()}
+        />,
+      )
+    }
+
+    const bandOrder = () =>
+      [...screen.getByTestId('recents-band').querySelectorAll('[data-testid^="recents-row-"]')].map(
+        (el) => el.getAttribute('data-testid'),
+      )
+
+    it('re-renders the band when a reorder writes recentsOrder, with no other state changing', () => {
+      windowPaneStore.setState({ recentsOrder: [] })
+      renderBand()
+      expect(bandOrder()).toEqual(['recents-row-chat-a', 'recents-row-chat-b'])
+
+      act(() => {
+        windowPaneStore
+          .getState()
+          .paneActions.reorderRecentsEntry('e2', 'e1', 'before', ['e1', 'e2'])
+      })
+
+      expect(windowPaneStore.getState().recentsOrder).toEqual(['e2', 'e1'])
+      expect(bandOrder()).toEqual(['recents-row-chat-b', 'recents-row-chat-a'])
     })
   })
 })

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { RecentsBand, type RecentsBandEntry } from '@/components/sidebar/recents-band'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
 
 // Task 21's drag wiring — a null scrollRef and no-op commit callbacks are
 // enough for every test below, none of which exercises a live drag.
@@ -32,18 +33,57 @@ const { stores } = vi.hoisted(() => ({
   },
 }))
 
-// `RecentsBand` now resolves each chat via `useWorkspaceStoreById(workspaceId,
-// ...)` — no ambient `WorkspaceStoreContext.Provider` needed — since a
-// project's Recents can span more than one workspace's store (spec §4). The
-// mock is keyed by workspaceId, so a test can prove an entry is resolved
-// against ITS OWN workspace's data rather than one shared fixture.
-vi.mock('@/features/workspace/stores/hooks/use-workspace-store-by-id', () => ({
-  useWorkspaceStoreById: (wsId: string, sel: (s: unknown) => unknown) =>
-    sel({ agentChats: stores.current.get(wsId) ?? { chats: [], working: {} } }),
+// `RecentsBand` resolves each chat via the REGISTERED workspace store for its
+// workspaceId (`useRecentsChat` — no ambient `WorkspaceStoreContext.Provider`
+// needed), since a project's Recents can span more than one workspace's store
+// (spec §4). The mock is keyed by workspaceId, so a test can prove an entry is
+// resolved against ITS OWN workspace's data rather than one shared fixture;
+// a workspace absent from it has no store, exactly like an unopened one.
+vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/features/workspace/stores/workspace-store-registry')
+  >()),
+  getWorkspaceStore: (wsId: string) => {
+    const agentChats = stores.current.get(wsId)
+    if (!agentChats) return undefined
+    return { subscribe: () => () => {}, getState: () => ({ agentChats }) }
+  },
 }))
 
 beforeEach(() => {
   stores.current = new Map([['ws-1', { chats: DEFAULT_CHATS, working: {} }]])
+  useSidebarStore.setState(getInitialState())
+})
+
+// REGRESSION: after a reload a persisted dormant entry names a chat whose
+// workspace store nobody has mounted yet; the row used to resolve only
+// through that store and drew nothing. The sidebar's own chat record is
+// enough to draw it, and no store is minted for it.
+describe('RecentsBand after a reload', () => {
+  it('draws a dormant member from the sidebar chat list when its workspace has no store', () => {
+    stores.current = new Map()
+    useSidebarStore.setState({
+      repos: [
+        {
+          id: 'r1',
+          projectId: 'p1',
+          name: 'crowbar',
+          avatarLabel: 'C',
+          avatarColor: 'bg-indigo-700',
+          workspaces: [],
+          chats: [
+            { id: 'chat-9', repoId: 'r1', title: 'Remembered', order: 0, workspaceId: 'ws-9' },
+          ],
+        },
+      ],
+    })
+    const entries: RecentsBandEntry[] = [
+      { id: 'e9', localId: 'e9', chatIds: ['chat-9'], state: 'dormant', workspaceId: 'ws-9' },
+    ]
+    render(<RecentsBand entries={entries} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)
+    expect(screen.getByTestId('recents-row-chat-9')).toBeInTheDocument()
+    expect(screen.getByText('Remembered')).toBeInTheDocument()
+  })
 })
 
 /** Convenience: point 'ws-1' at a fresh chat/working fixture pair. */
@@ -605,7 +645,13 @@ describe('RecentsBand', () => {
       state: 'dormant',
       workspaceId: 'ws-1',
       chatIcons: {
-        'chat-1': { kind: 'branch', ownsWorktree: true, status: 'new', isPlaceholder: true },
+        'chat-1': {
+          kind: 'branch',
+          ownsWorktree: true,
+          status: 'new',
+          isPlaceholder: true,
+          needsProvisioning: true,
+        },
       },
     }
     render(<RecentsBand entries={[entry]} onFocus={vi.fn()} onClose={vi.fn()} {...DRAG_PROPS} />)

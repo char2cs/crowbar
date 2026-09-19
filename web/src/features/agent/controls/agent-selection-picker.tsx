@@ -164,7 +164,13 @@ function EffortSlider({
   effort: string
   onPick: (level: string) => void
 }) {
-  const effortIndex = Math.max(0, levels.indexOf(effort))
+  // -1 (nothing known/confirmed yet — see AgentChatView's `latestTurnEffort`)
+  // must NOT clamp to 0: that silently drew the thumb sitting on "Low" for a
+  // level nobody picked or confirmed, live-reported as the slider looking
+  // pre-filled when it was not.
+  const knownIndex = levels.indexOf(effort)
+  const hasKnownEffort = knownIndex !== -1
+  const effortIndex = Math.max(0, knownIndex)
   const effortPct = levels.length > 1 ? Math.round((effortIndex / (levels.length - 1)) * 100) : 0
 
   // A real slider: press ANYWHERE on the track (thumb included — it sits
@@ -233,7 +239,7 @@ function EffortSlider({
           aria-label="Reasoning effort"
           aria-valuemin={0}
           aria-valuemax={levels.length - 1}
-          aria-valuenow={effortIndex}
+          aria-valuenow={hasKnownEffort ? effortIndex : undefined}
           aria-valuetext={effortLabel(effort)}
           tabIndex={0}
           onPointerDown={onTrackPointerDown}
@@ -250,14 +256,18 @@ function EffortSlider({
           }}
           className="relative h-1 cursor-grab touch-none rounded-full bg-muted active:cursor-grabbing"
         >
-          <div
-            className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-primary transition-[width]"
-            style={{ width: `${effortPct}%` }}
-          />
-          <div
-            className="-translate-y-1/2 -translate-x-1/2 pointer-events-none absolute top-1/2 size-4 rounded-full border-2 border-primary bg-popover shadow-[0_1px_3px_oklch(0_0_0/28%)] transition-[left]"
-            style={{ left: `${effortPct}%` }}
-          />
+          {hasKnownEffort && (
+            <>
+              <div
+                className="pointer-events-none absolute inset-y-0 left-0 rounded-full bg-primary transition-[width]"
+                style={{ width: `${effortPct}%` }}
+              />
+              <div
+                className="-translate-y-1/2 -translate-x-1/2 pointer-events-none absolute top-1/2 size-4 rounded-full border-2 border-primary bg-popover shadow-[0_1px_3px_oklch(0_0_0/28%)] transition-[left]"
+                style={{ left: `${effortPct}%` }}
+              />
+            </>
+          )}
         </div>
       </div>
       <div className="mt-2.5 flex justify-between">

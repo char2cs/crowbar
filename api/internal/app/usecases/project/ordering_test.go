@@ -302,11 +302,15 @@ func TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat(t *testing.
 	workspaces.Rows = []domain.Workspace{
 		{ID: "home-ws-A", ProjectID: "pA", Kind: domain.WorkspaceKindHome},
 	}
-	type frame struct{ id, workspaceID, kind string }
+	type frame struct {
+		id, workspaceID string
+		kind            domain.NodeKind
+		event           string
+	}
 	var frames []frame
 	uc := project.New(mocks.NewProjectStore(), repos, workspaces, mocks.NewFolderStore(), nodes, nil,
-		func(id, workspaceID, kind string) {
-			frames = append(frames, frame{id, workspaceID, kind})
+		func(id, workspaceID string, kind domain.NodeKind, event string) {
+			frames = append(frames, frame{id, workspaceID, kind, event})
 		},
 	)
 	ctx := context.Background()
@@ -322,7 +326,8 @@ func TestRegression_UpdateRepo_AnnouncesACollaterallyShiftedHomeChat(t *testing.
 	assert.Equal(t, 0, nodeRow(t, nodes, "repo-A").Order, "the repo itself moved to the top")
 	assert.Equal(t, 1, nodeRow(t, nodes, "chat-1").Order, "the chat was pushed down as collateral")
 	require.Len(t, frames, 1, "the collaterally-shifted chat must be announced")
-	assert.Equal(t, frame{id: "chat-1", workspaceID: "home-ws-A", kind: "order_set"}, frames[0])
+	assert.Equal(t, frame{id: "chat-1", workspaceID: "home-ws-A", kind: domain.NodeKindChat, event: "order_set"}, frames[0],
+		"announced as a CHAT, never as a folder frame carrying the chat id")
 }
 
 // TestUpdateRepo_HomeChatsNotWiredDegradesToTheOldUnscopedBehaviour documents
@@ -370,7 +375,8 @@ func TestUpdateRepo_ProjectMoveCarriesTheWorkspaces(t *testing.T) {
 		{ID: "other", ProjectID: "p1", RepoID: "kept"},
 	}
 
-	got, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
+	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{ProjectID: name("p2")})
+	got := updated.Repo
 	require.NoError(t, err)
 	assert.Equal(t, "p2", got.ProjectID)
 
@@ -606,7 +612,8 @@ func TestUpdateRepo_EmptyUpdateIsANoOp(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}))
 
-	got, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{})
+	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{})
+	got := updated.Repo
 	require.NoError(t, err)
 	assert.Equal(t, "widget", got.Name)
 }
@@ -783,7 +790,8 @@ func TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmp
 	repos := &repositoryStoreMissingAfterSave{row: domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}}
 	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
 
-	got, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("renamed")})
+	updated, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("renamed")})
+	got := updated.Repo
 
 	require.NoError(t, err, "a vanished post-save re-fetch must not fail an update that already succeeded")
 	assert.Equal(t, "renamed", got.Name, "the caller gets back the row it just wrote")

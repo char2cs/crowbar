@@ -118,7 +118,14 @@ func compareFolderDTOs(
 func (h *Handlers) ListFolders(
 	ctx *gin.Context,
 ) {
-	rows, err := h.folders.ListInRepo(ctx.Request.Context(), ctx.Param("repoId"))
+	repoID := ctx.Param("repoId")
+	var rows []domain.Chat
+	var err error
+	if repoID == "" {
+		rows, err = h.folders.ListInHome(ctx.Request.Context(), ctx.Param("wsId"))
+	} else {
+		rows, err = h.folders.ListInRepo(ctx.Request.Context(), repoID)
+	}
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -138,11 +145,15 @@ func (h *Handlers) CreateFolder(
 		return
 	}
 	wsID := ctx.Param("wsId")
-	created, shifted, err := h.folders.Create(ctx.Request.Context(), agentusecase.CreateInput{
+	in := agentusecase.CreateInput{
 		RepoID:   ctx.Param("repoId"),
 		ParentID: body.ParentID,
 		Name:     body.Name,
-	})
+	}
+	if in.RepoID == "" {
+		in.HomeID = wsID
+	}
+	created, shifted, err := h.folders.Create(ctx.Request.Context(), in)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -168,6 +179,9 @@ func (h *Handlers) PatchFolder(
 		return
 	}
 	wsID := ctx.Param("wsId")
+	if !h.folderInScope(ctx) {
+		return
+	}
 	updated, shifted, err := h.applyFolderPatch(ctx.Request.Context(), ctx.Param("folderId"), body)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
@@ -207,6 +221,9 @@ func (h *Handlers) DeleteFolder(
 ) {
 	wsID := ctx.Param("wsId")
 	id := ctx.Param("folderId")
+	if !h.folderInScope(ctx) {
+		return
+	}
 	promoted, err := h.folders.Delete(ctx.Request.Context(), id)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
@@ -284,6 +301,29 @@ func (h *Handlers) PlaceChat(
 		Chat:    dto.AgentChatDTOFrom(placed, rt, h.chatWorktree(ctx.Request.Context(), placed)),
 		Shifted: h.folderDTOList(ctx, shifted),
 	})
+}
+
+// folderInScope refuses, as not-found, a :folderId a HOME mount does not
+// own: every project's home mount shares the one RepoID == "" bucket, so a
+// bare id would let project A rename or delete project B's folder. A repo
+// mount stays id-addressed (TestRegression_ChatTreeRefusesCrossWorkspaceParentage).
+func (h *Handlers) folderInScope(
+	ctx *gin.Context,
+) bool {
+	if ctx.Param("repoId") != "" {
+		return true
+	}
+	f, err := h.folders.FolderScope(ctx.Request.Context(), ctx.Param("folderId"))
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return false
+	}
+	if !f.InHome(ctx.Param("wsId")) {
+		libs.WriteErr(ctx, http.StatusNotFound, "folder "+f.ID+" is not in this project's home")
+		return false
+	}
+	return true
 }
 
 // announceFolders fans one frame per folder row a mutation wrote out on the

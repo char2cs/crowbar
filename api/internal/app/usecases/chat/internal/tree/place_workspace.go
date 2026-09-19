@@ -60,7 +60,7 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	var current domain.Chat
 	if renders, rErr := u.workspaces.RendersAsBranch(ctx, workspaceID); rErr == nil && !renders {
 		if rows, cErr := u.chats.ListByWorkspace(ctx, workspaceID); cErr == nil {
-			if owner, ok := domain.ResolveOwningChat(rows); ok {
+			if owner, ok := domain.ResolveOwningChat(rows, u.sharedGround(ctx, workspaceID)); ok {
 				nodeID = owner.ID
 				// The REAL chat, not a synthetic workspaceAnchorType stand-in:
 				// an ordinary fork already has an honest domain.Chat (its own
@@ -79,7 +79,7 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 		if nErr != nil {
 			n = domain.Node{}
 		}
-		current = workspaceAnchorView(nodeID, n)
+		current = u.anchorView(ctx, nodeID, n)
 	}
 	snapshot, err := u.globalSnapshotAround(ctx, current)
 	if err != nil {
@@ -88,6 +88,9 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	destination := current.ParentID
 	if in.ParentID != nil {
 		destination = *in.ParentID
+	}
+	if err := u.ensureWorkspaceAnchor(ctx, destination); err != nil {
+		return domain.Chat{}, nil, err
 	}
 	if mErr := u.checkWorkspaceMove(ctx, snapshot, workspaceMove{
 		repoID:      repoID,
@@ -98,7 +101,7 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	}); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
-	if wErr := guardNotWorking(subtreeIDsOf(nodeID, snapshot.rows), u.work); wErr != nil {
+	if wErr := guardNotWorking(snapshot.subtreeIDs(nodeID), u.work); wErr != nil {
 		return domain.Chat{}, nil, wErr
 	}
 	u.replace(snapshot, nodeID, current.ParentID, destination, in.Order, false)

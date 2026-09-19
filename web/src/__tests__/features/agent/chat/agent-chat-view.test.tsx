@@ -1475,6 +1475,69 @@ describe('AgentChatView model + effort selection', () => {
     expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', 'go', expect.any(String), '', '', '')
   })
 
+  // The MODEL half of the picker must never sit blank just because nothing
+  // has been picked yet — `models` is descriptor order (the provider's own
+  // ranking), so its first entry is what actually runs. Display-only: the
+  // earlier test proves the ACTUAL send still carries '' (let the provider
+  // decide), this one proves the composer doesn't lie about that by showing
+  // nothing. EFFORT gets no such fallback: unlike model it is not fixed at
+  // spawn, so a catalogue guess would assert a level nobody confirmed — see
+  // the tests below instead.
+  it('shows the provider catalogue default for model when nothing has been picked yet', async () => {
+    setup({ providers: selectable, model: '', effort: '' })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-sol, effort Default',
+    )
+  })
+
+  // MODEL: a real sticky pick wins over the catalogue default. EFFORT: it does
+  // NOT — 'high' here is only a REQUEST the provider is free to run under a
+  // different level than, so it stays "Default" until a real turn reports
+  // one (AgentChatView's `latestTurnEffort`). Showing the sticky value would
+  // present a guess as confirmed fact, exactly the complaint this replaces.
+  it('lets a sticky MODEL win over the catalogue default, but not a sticky effort', async () => {
+    setup({ providers: selectable, model: 'gpt-5.6-luna', effort: 'high' })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-luna, effort Default',
+    )
+  })
+
+  // Effort is not fixed for the session the way model is (no restart_tui for
+  // it) — a provider can and does report a DIFFERENT level turn to turn, so
+  // the picker must track the newest report, not freeze on the first one.
+  it('tracks the latest turn effort as new turns close, not the first one', async () => {
+    initialMessages = [
+      { ...message(1, 'assistant', 'first reply'), effort: 'high' },
+      { ...message(2, 'assistant', 'second reply'), effort: 'medium' },
+    ]
+    setup({ providers: selectable })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-sol, effort medium',
+    )
+  })
+
+  // A turn that closes with no effort field at all (a provider/event that
+  // never reports one) must not blank out what the PREVIOUS turn already
+  // confirmed — only a turn that actually reports a level may change it.
+  it('keeps the last known effort when a later turn reports none at all', async () => {
+    initialMessages = [
+      { ...message(1, 'assistant', 'first reply'), effort: 'high' },
+      message(2, 'assistant', 'second reply'),
+    ]
+    setup({ providers: selectable })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-sol, effort high',
+    )
+  })
+
   // The reported effort used to render here; it is gone from the transcript
   // entirely now, replaced everywhere by the turnbar (provider icon + copy).
   it('shows turn actions on an assistant reply, whatever the provider reported', async () => {

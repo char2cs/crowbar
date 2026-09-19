@@ -211,10 +211,7 @@ type Agent interface {
 }
 
 // WorkspaceGitStatus is defined in home_ports.go, moved there to keep this
-// file under the package's own 500-line layering ceiling — it is not a
-// home-only port (DeletePreview needs it for every scope), but RepoIDsForHome
-// (SDD review fix round 3) is, and the two ports sit together for the same
-// reason Folders/Nodes already do.
+// file under the package's own 500-line layering ceiling.
 
 // WorkspaceReaper is the narrow write port DeleteChat needs: tearing down the
 // worktree a chat OWNED, in the same breath the chat is erased.
@@ -249,6 +246,9 @@ type CreateInput struct {
 	RepoID   string
 	ParentID string
 	Name     string
+	// HomeID is the home workspace a project-home folder (RepoID == "")
+	// belongs to — see domain.Folder.HomeID.
+	HomeID string
 }
 
 // MoveInput is a partial folder placement change: a nil field is left as it is,
@@ -293,6 +293,19 @@ type Usecase interface {
 		ctx context.Context,
 		repoID string,
 	) ([]domain.Chat, error)
+	// ListInHome returns ONE project's home folder rows: those recorded
+	// against homeID, plus legacy home folders that recorded no home.
+	ListInHome(
+		ctx context.Context,
+		homeID string,
+	) ([]domain.Chat, error)
+	// FolderScope answers a folder's stored identity (its repo or home
+	// scope), or apperr.ErrNotFound — the fact a mount checks before it
+	// lets a caller rename, move or delete the row.
+	FolderScope(
+		ctx context.Context,
+		id string,
+	) (domain.Folder, error)
 	// Create appends a new folder to the end of its parent's sibling space and
 	// densifies that level. It returns the new folder plus every OTHER row the
 	// densify shifted, so the caller broadcasts the whole change rather than one
@@ -340,8 +353,9 @@ type Usecase interface {
 	// identical path ("new chat in this folder"); only the lineage it resolves
 	// differs, which is the folder rule doing its job rather than a second case.
 	//
-	// An empty parentID is a plain new chat at the panel root, passed straight
-	// through to the unplaced spawn and unchanged in every respect.
+	// An empty parentID is a plain new chat at the panel root: still minted
+	// and PLACED (a Node row at the level's next free slot) before its CLI
+	// starts, so the level stays dense and a repo drag can count it.
 	//
 	// A parentID naming nothing, or a chat in another workspace, is refused BEFORE
 	// anything is minted or spawned, with the errors placement already returns. A
@@ -451,14 +465,4 @@ type Usecase interface {
 		workspaceID string,
 		in PlaceInput,
 	) (domain.Chat, []domain.Chat, error)
-	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
-	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
-	// row in the subtree, and the working-tree file count summed across every
-	// workspace-owning row in it. A subtree can span more than one independent
-	// workspace now, so this is the one place that count is actually computed
-	// rather than read off a single workspace the caller already has.
-	DeletePreview(
-		ctx context.Context,
-		chatID string,
-	) (chatCount, fileCount int, err error)
 }

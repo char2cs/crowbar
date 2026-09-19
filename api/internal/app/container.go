@@ -17,6 +17,7 @@ import (
 	asynxModels "github.com/char2cs/asynx/models"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
+	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/hub"
@@ -25,6 +26,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine"
@@ -158,7 +160,8 @@ func New(
 	homeFunc := func() (string, error) { return crowbarHome, nil }
 	ucs, err := usecases.New(
 		repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h),
-		h.BroadcastAgentChatFolder,
+		announceHomeRow(h),
+		announceRepoPlacement(h, gormStores.Repositories),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
@@ -847,5 +850,35 @@ func sweepTargets(
 			})
 		}
 		return targets
+	}
+}
+
+// announceHomeRow fans a home row a repo drag shifted out on the chats WS
+// by its own kind: a chat frame names the chat, a folder frame the folder.
+func announceHomeRow(
+	h *hub.Hub,
+) project.HomeRowAnnouncer {
+	return func(id, workspaceID string, kind domain.NodeKind, event string) {
+		if kind == domain.NodeKindChat {
+			h.BroadcastAgentChat(id, workspaceID, event, false)
+			return
+		}
+		h.BroadcastAgentChatFolder(id, workspaceID, event)
+	}
+}
+
+// announceRepoPlacement fans a repo header row's DECIDED placement out as a
+// RepoDTO — for a repo the chat tree renumbered as collateral of a chat or
+// folder drag, whose Node write no projection announces.
+func announceRepoPlacement(
+	h *hub.Hub,
+	repos store.ScopedStore[domain.Repository, string],
+) func(ctx context.Context, repoID, parentID string, order int) {
+	return func(ctx context.Context, repoID, parentID string, order int) {
+		repo, err := repos.FindByKey(ctx, repoID)
+		if err != nil || repo == nil {
+			return
+		}
+		h.BroadcastRepo(dto.RepoDTOFrom(*repo, dto.RepoPlacement{FolderID: parentID, Order: order}))
 	}
 }

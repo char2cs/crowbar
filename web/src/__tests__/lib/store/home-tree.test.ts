@@ -22,13 +22,18 @@ vi.mock('@/lib/ws/manager', () => ({
 
 const fetchHomeChatsSpy = vi.fn()
 const fetchHomeFoldersSpy = vi.fn()
+const fetchReposSpy = vi.fn()
 vi.mock('@/lib/api', () => ({
   fetchHomeChats: (projectId: string) => fetchHomeChatsSpy(projectId) as unknown,
   fetchHomeFolders: (projectId: string) => fetchHomeFoldersSpy(projectId) as unknown,
+  fetchRepos: (projectId: string) => fetchReposSpy(projectId) as unknown,
+  fetchHomeWorkspace: vi.fn().mockResolvedValue({ id: 'ws-home', owningChatId: 'c-home' }),
+  assetURL: (path: string) => path,
 }))
 
 const { useHomeTreeStore, getHomeTree, subscribeHomeTree, applyHomeFolders, removeHomeFolder } =
   await import('@/lib/store/home-tree')
+const { useSidebarStore, getInitialState } = await import('@/lib/store/sidebar')
 
 function emit(data: unknown): void {
   subscribers.forEach((cb) => cb(data))
@@ -55,7 +60,10 @@ beforeEach(() => {
   unsubscribeSpy.mockClear()
   fetchHomeChatsSpy.mockReset()
   fetchHomeFoldersSpy.mockReset()
+  fetchReposSpy.mockReset()
+  fetchReposSpy.mockResolvedValue([])
   useHomeTreeStore.setState({ trees: {} })
+  useSidebarStore.setState(getInitialState())
 })
 
 describe('subscribeHomeTree', () => {
@@ -117,6 +125,55 @@ describe('subscribeHomeTree', () => {
     emit({ chatId: 'c1', workspaceId: 'home-1', kind: 'created' })
 
     await whenChatsLength('p1', 1)
+    dispose()
+  })
+
+  // REGRESSION (K3): a home chat placement renumbers the REPO headers sharing
+  // its level server-side, but the repos channel only announces what the
+  // daemon decided to broadcast — so the client re-reads the project's repos
+  // itself on a placement frame rather than trusting a single subject frame.
+  it('re-reads the project repos on a placement frame, so shifted repo headers move too', async () => {
+    fetchHomeChatsSpy.mockResolvedValue([])
+    fetchHomeFoldersSpy.mockResolvedValue([])
+    useSidebarStore.getState().setRepos([
+      {
+        id: 'r1',
+        projectId: 'p1',
+        name: 'repo-alpha',
+        avatarLabel: 'R',
+        avatarColor: 'bg-indigo-700',
+        order: 0,
+        workspaces: [{ id: 'ws-1', branch: 'main', age: '' }],
+      },
+    ])
+    const dispose = subscribeHomeTree('p1')
+    await whenChatsLength('p1', 0)
+    expect(fetchReposSpy).not.toHaveBeenCalled()
+
+    fetchReposSpy.mockResolvedValue([
+      { id: 'r1', projectId: 'p1', name: 'repo-alpha', path: '/r1', order: 3, folderId: '' },
+    ])
+    emit({ chatId: 'c1', workspaceId: 'home-1', kind: 'placement_set' })
+
+    await vi.waitFor(() => {
+      expect(useSidebarStore.getState().repos.find((r) => r.id === 'r1')?.order).toBe(3)
+    })
+    expect(fetchReposSpy).toHaveBeenCalledWith('p1')
+    // The merge keeps what the repos stream already populated.
+    expect(useSidebarStore.getState().repos[0].workspaces).toHaveLength(1)
+    dispose()
+  })
+
+  it('does not re-read repos on a frame that moves no row (a create, a turn)', async () => {
+    fetchHomeChatsSpy.mockResolvedValue([])
+    fetchHomeFoldersSpy.mockResolvedValue([])
+    const dispose = subscribeHomeTree('p1')
+    await whenChatsLength('p1', 0)
+
+    emit({ chatId: 'c1', workspaceId: 'home-1', kind: 'turn_started' })
+    emit({ chatId: 'c1', workspaceId: 'home-1', kind: 'created' })
+    await vi.waitFor(() => expect(fetchHomeChatsSpy).toHaveBeenCalledTimes(2))
+    expect(fetchReposSpy).not.toHaveBeenCalled()
     dispose()
   })
 

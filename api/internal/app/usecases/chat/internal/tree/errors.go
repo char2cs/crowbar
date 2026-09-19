@@ -67,3 +67,15 @@ var ErrNotAContainer = errors.New("usecases: a repo cannot be filed into")
 // other; it is refused at the usecase boundary so the API and any future caller
 // share one rule. Handlers map it to 400.
 var ErrNameRequired = errors.New("usecases: chat folder name is required")
+
+// ErrWorkspaceUnprovisioned is returned when a create names a workspace that
+// has no worktree on disk — a PLACEHOLDER (hierarchy.ErrParentUnprovisioned's
+// own subject, seen from the create side): a branch another checkout holds, or
+// one whose materialisation failed. The chat would have nowhere to run, and
+// the failure surfaced nowhere: the create answered 201, the runner spawned,
+// the sidebar drew an ordinary new row and pane, and only the daemon log knew
+// ("agents: catalog worktree is invalid" on every read of it). Refused before
+// anything is minted, so the create-row error path shows the real reason.
+// Handlers map it to 409 — the row is not in a state where this can be done,
+// not a malformed request.
+var ErrWorkspaceUnprovisioned = errors.New("usecases: this branch has no worktree yet")

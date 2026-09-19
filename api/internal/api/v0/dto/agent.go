@@ -144,6 +144,14 @@ type AgentChatDTO struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 
+	// LaunchModel and LaunchEffort are what the LIVE runner actually spawned as —
+	// AgentRunner.LaunchModel/LaunchEffort, Crowbar's own record of the resolved
+	// argv, which can differ from Model/Effort above (a provider or an
+	// organization's own config can rewrite a request). '' exactly when
+	// LiveRunnerID is: a dormant chat has no live spawn to report.
+	LaunchModel  string `json:"launchModel,omitempty"`
+	LaunchEffort string `json:"launchEffort,omitempty"`
+
 	// Worktree is the git state of the worktree this chat OWNS — branch, diff
 	// counts, lock status, merge and PR state — and is present exactly when
 	// WorkspaceID is non-empty (spec §5). It is what lets one read of the chat
@@ -174,7 +182,7 @@ func AgentChatDTOFrom(
 		ID:               c.ID,
 		WorkspaceID:      c.WorkspaceID,
 		Title:            c.Title,
-		Type:             c.Type,
+		Type:             c.EffectiveType(),
 		ActiveProviderID: activeProviderID(rt),
 		Working:          c.Working,
 		ParentID:         c.ParentID,
@@ -187,6 +195,8 @@ func AgentChatDTOFrom(
 	if rt.LiveRunner != nil {
 		out.LiveRunnerID = rt.LiveRunner.ID
 		out.TerminalSessionID = rt.LiveRunner.TerminalSession
+		out.LaunchModel = rt.LiveRunner.LaunchModel
+		out.LaunchEffort = rt.LiveRunner.LaunchEffort
 		switch {
 		// A live native-view session overrides the runner's own — it is what the
 		// user switched to, not the redundant hooks-only PTY an api-transport

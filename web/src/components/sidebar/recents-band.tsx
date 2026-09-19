@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { Separator } from '@/components/ui/separator'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
-import { useWorkspaceStoreById } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
+import { useRecentsChat } from '@/components/sidebar/lib/use-recents-chat'
 import { ROW_ACTIVE } from '@/components/layout/workspace-row-base'
 import { DragGhost, DragGhostRows } from '@/components/layout/drag-ghost'
 import { DropIndicator } from '@/components/layout/drop-indicator'
@@ -31,10 +31,9 @@ export type { RecentsEntry, RecentsEntryState }
  * it entirely. That worked in this file's own tests only because they mock
  * the hook away; mounted for real (this task), a project's Recents can span
  * more than the active workspace (spec §4: "Recents is per space"), so there
- * is no single ambient store to read from anyway. `useWorkspaceStoreById`
- * (the same registry-by-id mechanism `merge-popover.tsx`/the git sidebar
- * already use for the identical "no per-workspace context mounted here"
- * problem) reads any workspace's store directly, keyed by this tag.
+ * is no single ambient store to read from anyway. `useRecentsChat` reads
+ * the workspace's store by this tag when one is mounted, and the sidebar's
+ * own chat record when none is (a persisted dormant entry after a reload).
  */
 export interface RecentsBandEntry extends RecentsEntry {
   /**
@@ -468,13 +467,11 @@ function RecentsMemberRow({
   drag: SidebarDrag
   registerRow: (row: SidebarRowType) => void
 }) {
-  const chat = useWorkspaceStoreById(workspaceId, (s) =>
-    s.agentChats.chats.find((c) => c.id === chatId),
-  )
-  // Per-chat, narrow selector (copied verbatim from the tree's own pattern) —
-  // the spinner rides the member wherever it lands (§5.6), independent of
-  // which of the four band states its entry carries.
-  const working = useWorkspaceStoreById(workspaceId, (s) => s.agentChats.working[chatId] ?? false)
+  // The workspace store when one is mounted (live title, and the spinner
+  // that rides the member wherever it lands, §5.6), else the sidebar's own
+  // chat record — a persisted dormant entry has no store after a reload.
+  const chat = useRecentsChat(workspaceId, chatId)
+  const working = chat?.working ?? false
 
   const row: SidebarRowType | null = chat
     ? {

@@ -1,4 +1,5 @@
 import { assetURL } from '@/lib/api'
+import { createdInstant } from '@/lib/store/created-instant'
 import type { Chat, Folder, Repo, Workspace, WorkspaceStatus } from '@/lib/store/sidebar'
 import type { ChatDTO, FolderDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
@@ -81,6 +82,7 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     age: '',
     localPath: ws.localPath || undefined,
     owningChatId: ws.owningChatId ?? '',
+    createdAt: ws.createdAt,
   }
 }
 
@@ -96,6 +98,7 @@ export function toSidebarFolder(folder: FolderDTO): Folder {
     parentId: folder.parentId || undefined,
     name: folder.name,
     order: folder.order ?? 0,
+    createdAt: folder.createdAt,
   }
 }
 
@@ -117,7 +120,31 @@ export function toSidebarChat(chat: ChatDTO): Chat {
     ...(chat.ownsWorktree === undefined ? {} : { ownsWorktree: chat.ownsWorktree }),
     title: chat.title,
     order: chat.order ?? 0,
+    createdAt: chat.createdAt,
   }
+}
+
+/** Missing order sorts last. */
+const NO_ORDER = Number.MAX_SAFE_INTEGER
+
+/** The daemon's sibling sort (tree/node.go compareNodes: order, createdAt, id),
+ *  so an undragged level is drawn in the sequence a drop index is counted in —
+ *  the cache yields by key, and an arrival tiebreak would draw it in id order. */
+export function compareByPlacement(
+  a: { id: string; order?: number; createdAt?: string },
+  b: { id: string; order?: number; createdAt?: string },
+): number {
+  const byOrder = (a.order ?? NO_ORDER) - (b.order ?? NO_ORDER)
+  if (byOrder !== 0) return byOrder
+  const byCreated = createdInstant(a.createdAt) - createdInstant(b.createdAt)
+  if (byCreated !== 0) return byCreated
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
+export function sortByPlacement<T extends { id: string; order?: number; createdAt?: string }>(
+  rows: readonly T[],
+): T[] {
+  return [...rows].sort(compareByPlacement)
 }
 
 export function toSidebarRepo(
@@ -126,7 +153,7 @@ export function toSidebarRepo(
   folders: Folder[] = [],
   chats: Chat[] = [],
 ): Repo {
-  const repoWs = workspaces.filter((ws) => ws.repoId === repo.id)
+  const repoWs = sortByPlacement(workspaces.filter((ws) => ws.repoId === repo.id))
   const repoFolders = folders.filter((folder) => folder.repoId === repo.id)
   // The cross-repo guard, and the reason a chat row carries a repoId at all:
   // the entity cache is deliberately cross-repo and long-lived, so an
@@ -182,10 +209,6 @@ export function toSidebarRepo(
   }
 }
 
-/** Missing order sorts last, and ties keep arrival order via the index tiebreak
- *  — the same rule buildSidebarTree applies to a level of workspaces. */
-const NO_ORDER = Number.MAX_SAFE_INTEGER
-
 /**
  * Repos in sidebar order.
  *
@@ -195,17 +218,12 @@ const NO_ORDER = Number.MAX_SAFE_INTEGER
  * a bucket lands in the flat array carries nothing; the project list decides
  * that (see applyPlacement).
  *
- * The arrival tiebreak is explicit rather than leaning on Array.sort's
- * stability, so a level nobody has dragged yet — every repo still holding 0 —
- * keeps the order it was delivered in instead of reshuffling per frame.
+ * Ties break the way the daemon breaks them (compareByPlacement — a repo row
+ * carries no createdAt, so by id), so a level nobody has dragged yet — every
+ * repo still holding 0 — never reshuffles between a frame and a cache rebuild.
  */
 export function sortReposByOrder(repos: readonly Repo[]): Repo[] {
-  const arrival = new Map(repos.map((repo, i) => [repo.id, i]))
-  return [...repos].sort(
-    (a, b) =>
-      (a.order ?? NO_ORDER) - (b.order ?? NO_ORDER) ||
-      (arrival.get(a.id) ?? 0) - (arrival.get(b.id) ?? 0),
-  )
+  return sortByPlacement(repos)
 }
 
 // buildRepoTree groups the workspace list under their repos to produce the

@@ -11,7 +11,7 @@ import type {
 import type { PRLink } from '@/lib/import/parent-plan'
 import { useChaosStore } from '@/lib/store/chaos'
 import { getOwningChatId } from '@/lib/workspace-scope'
-import { worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
+import { OwningChatNotRecordedError, worktreeVerbBaseForWorkspace } from '@/lib/workspace-scope-url'
 
 const crowbar = (window as unknown as { __CROWBAR__?: { api?: string } }).__CROWBAR__
 export const API_BASE: string = crowbar?.api ?? import.meta.env.VITE_API_URL ?? ''
@@ -50,6 +50,20 @@ export class ApiError extends Error {
 
 export function isNotFoundError(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404
+}
+
+/**
+ * The desktop proxy's own answer when nothing is listening on the daemon
+ * socket (api_proxy.rs: a 503 carrying this header, text/plain, no envelope)
+ * — the daemon is starting or respawning, not refusing. Named so UI copy can
+ * say so; deliberately NOT retried in apiFetchRaw, the proxy already spent
+ * the idempotent-read connect budget.
+ */
+const PROXY_HEADER = 'x-crowbar-proxy'
+const DAEMON_UNAVAILABLE_CODE = 'daemon_unavailable'
+
+export function isDaemonUnavailableError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === DAEMON_UNAVAILABLE_CODE
 }
 
 /** Tunable transient-retry policy for {@link apiFetch}. A `fetch()` *rejection*
@@ -137,6 +151,9 @@ export async function apiFetchRaw(
     // it is terminal (a 404 is meaningful; a 500 is a genuine server error) and
     // must never be retried.
     if (!res.ok) {
+      if (res.headers?.get(PROXY_HEADER) === 'daemon-unavailable') {
+        throw new ApiError('the daemon is not running yet', res.status, DAEMON_UNAVAILABLE_CODE)
+      }
       const errorBody = await res.json().catch(() => null)
       throw new ApiError(
         errorBody?.error ?? `${res.status} ${res.statusText}`,
@@ -218,9 +235,14 @@ export async function fetchWorkspaces(projectId: string, repoId: string): Promis
  */
 export interface ChatsFolderWireDTO {
   id: string
+  /** The row's kind: a folder, or — among a write's `shifted` siblings — a
+   *  locked branch reported by its workspace id. Absent means folder. */
+  type?: string
   parentId: string
   title: string
   order: number
+  /** ISO creation time — the daemon's `order` tiebreak (tree.compareNodes). */
+  createdAt?: string
 }
 
 /** `ChatsFolderWireDTO` -> the sidebar's own `FolderDTO`, filling in the
@@ -239,6 +261,7 @@ export function folderDTOFromWire(
     parentId: row.parentId,
     name: row.title,
     order: row.order,
+    createdAt: row.createdAt,
   }
 }
 
@@ -285,6 +308,9 @@ export interface RepoChatWireDTO {
   parentId: string
   title: string
   order: number
+  /** ISO creation time — the daemon's `order` tiebreak (tree.compareNodes),
+   *  so a level nobody has dragged draws in the sequence a drop is counted. */
+  createdAt?: string
   /** The row's own kind. Always sent by the daemon (dto.AgentChatDTO.Type is
    *  never omitted — "" is not a real ChatType), so an absent value here only
    *  ever means a frame older than the field. */
@@ -335,6 +361,7 @@ function workspaceDTOFromWorktree(
     owningChatId: worktree.owningChatId,
     folderId: worktree.folderId ?? '',
     order: worktree.order ?? 0,
+    createdAt: worktree.createdAt,
   }
 }
 
@@ -435,6 +462,7 @@ export function chatDTOFromWire(row: RepoChatWireDTO, projectId: string, repoId:
     parentId: row.parentId,
     title: row.title,
     order: row.order ?? 0,
+    createdAt: row.createdAt,
   }
 }
 
@@ -477,7 +505,7 @@ export async function fetchWorkspace(
   wsId: string,
 ): Promise<WorkspaceDTO> {
   const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
   const row = await apiFetch<RepoChatWireDTO>(
     `/v0/projects/${projectId}/repos/${repoId}/chats/${chatId}`,
   )

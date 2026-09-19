@@ -27,6 +27,11 @@ type Move struct {
 	SessionID string
 	Resumable bool
 	Now       time.Time
+	// Model and Effort — see BindSession's own doc. A move lands on a
+	// DIFFERENT chat's runner row, so the destination's prior LaunchModel/
+	// LaunchEffort (if any) are what "untouched" preserves here.
+	Model  string
+	Effort string
 }
 
 func (c Move) AggregateID() string  { return c.RunnerID }
@@ -63,5 +68,11 @@ func (c Move) EmitEvent(current *agents.Runner) agents.Runner {
 	next.CurrentSession = c.SessionID
 	next.CurrentSessionSince = c.Now
 	next.CurrentSessionResumable = c.Resumable
+	if c.Model != "" {
+		next.LaunchModel = c.Model
+	}
+	if c.Effort != "" {
+		next.LaunchEffort = c.Effort
+	}
 	return next
 }

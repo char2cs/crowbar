@@ -10,8 +10,12 @@ import {
 } from '@/components/tree-dnd/drop-core'
 import { isWorkspaceLockedInSidebar, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
-import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
+import {
+  owningChatIdOfWorkspace,
+  workspaceIdOfBranchRow,
+} from '@/components/sidebar/lib/branch-row-id'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
+import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { foldWorkspaceOwners, resolveOwnerChats } from '@/components/sidebar/lib/rows-from-repo'
 import { buildSidebarTree, indexSidebarTree } from '@/components/layout/workspace-tree-utils'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
@@ -36,6 +40,17 @@ export interface RowScope {
   repoId: string
   projectId: string | undefined
 }
+
+/**
+ * A drop TARGET as the live hit test reconstructs it — a `SidebarRow` plus the
+ * one fact only the DOM can say: whether this row is the Recents band's copy
+ * of a chat or the tree's (`use-sidebar-drag.ts`'s `RowDragExtra.inRecents`,
+ * published as `data-sidebar-recents-row`). The two render the same chat with
+ * the same id and the same `parentId: null`, and spec §8.1 gives a drop on one
+ * a different meaning than the same drop on the other, so the matrix has to be
+ * told which it is looking at.
+ */
+export type DropTargetRow = SidebarRow & { inRecents?: boolean }
 
 /**
  * A row's owning repo/project, or null if nothing in the live store claims
@@ -83,10 +98,31 @@ export function resolveRowRepo(repos: readonly Repo[], rowId: string): RowScope 
  * §8.3's cross-repo exemption). Used only for a chat as a drop TARGET, never
  * as a subject — by the time `allowedModes` reaches here the subject can
  * never be a chat itself (that kind returns earlier, unconditionally).
+ * Exported for `drop-actions.ts`'s `planTreeRowDrop`, which has to resolve
+ * the same chat target this matrix already allowed a branch/folder past.
  */
-function resolveChatRepo(repos: readonly Repo[], chatId: string): RowScope | null {
+export function resolveChatRepo(repos: readonly Repo[], chatId: string): RowScope | null {
   const repo = repos.find((r) => r.chats?.some((c) => c.id === chatId))
   return repo ? { repoId: repo.id, projectId: repo.projectId } : null
+}
+
+/**
+ * The repo whose OWN header row `rowId` is, or null for any other row.
+ *
+ * Never `row.repoIcon`: a live drag's target is rebuilt every pointermove off
+ * the DOM attributes `SIDEBAR_DRAG_ROW_SPEC` declares (`drop-dom.ts`'s
+ * `read()`), and `repoIcon` is not one of them, so reading it here answers
+ * `undefined` for a repo header row every single time a real drag asks —
+ * while a hand-built `SidebarRow` in a test answers correctly, which is how
+ * three separate rules shipped refusing a legal drop. Resolved instead the
+ * way `rows-from-repo.ts` minted the row: its id translates (via
+ * `workspaceIdOfBranchRow`) to that repo's `defaultWorkspaceId`.
+ * `resolveRowRepo` is not enough — it matches ANY row in the repo, not only
+ * its header.
+ */
+export function repoOfHeaderRow(repos: readonly Repo[], rowId: string): Repo | null {
+  const workspaceId = workspaceIdOfBranchRow(repos, rowId) ?? rowId
+  return repos.find((r) => r.defaultWorkspaceId === workspaceId) ?? null
 }
 
 /**
@@ -123,6 +159,29 @@ function nearestBranchAnchor(repo: Repo, id: string): string {
 }
 
 /**
+ * The workspace whose chat level a reorder past a BRANCH row lands in: the
+ * project's home for a repo header, else the nearest branch anchor above the
+ * row's container (the bare repo root is the repo's own checkout). A chat
+ * placement is workspace-scoped, so a chat may only reorder past a branch
+ * row whose level is its own — every other pairing is a cross-workspace
+ * edge the daemon refuses (`checkChatContainer`). Null when the row
+ * resolves nowhere.
+ */
+export function levelWorkspaceOfBranchRow(
+  repos: readonly Repo[],
+  target: SidebarRow,
+): string | null {
+  const headerRepo = repoOfHeaderRow(repos, target.id)
+  if (headerRepo) return headerRepo.projectId ? getHomeWorkspaceId(headerRepo.projectId) : null
+  const scope = resolveRowRepo(repos, target.id)
+  const repo = scope && repos.find((r) => r.id === scope.repoId)
+  if (!repo) return null
+  const anchor = nearestBranchAnchor(repo, target.parentId ?? '')
+  if (anchor === '') return repo.defaultWorkspaceId ?? null
+  return workspaceIdOfBranchRow(repos, anchor) ?? anchor
+}
+
+/**
  * Which of before/after/into this drag may do to this target.
  *
  * Same-project rule generalizes `drop-rules.ts`'s same-repo rule (its
@@ -148,7 +207,7 @@ function nearestBranchAnchor(repo: Repo, id: string): string {
  *
  * A CHAT row is exempt from all of that — see the branch below.
  */
-export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow): AllowedModes {
+export function allowedModes(subjects: readonly SidebarRow[], target: DropTargetRow): AllowedModes {
   if (subjects.length === 0) return NO_MODES
   if (subjects.some((s) => s.working)) return NO_MODES
   // Never drop a row onto itself.
@@ -157,6 +216,26 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   // rather than guess which class wins (carried over from both old policies).
   const kind = subjects[0].kind
   if (subjects.some((s) => s.kind !== kind)) return NO_MODES
+
+  // A RECENTS row is not a tree row, and none of the scope rules below apply
+  // to it: the band is the project's view switcher, its order is local
+  // per-viewer state (`pane-slice.ts`'s `recentsOrder`), and it deliberately
+  // spans every workspace and repo in the project at once. Sending a drop
+  // aimed at one through the repo/workspace walk below refused most of the
+  // band outright — a Recents row whose chat owns a workspace wears
+  // `kind: 'branch'` for its glyph (`chatIconIndex`), so a home chat dragged
+  // onto it hit the branch-level check, and the same row dragged onto a home
+  // chat resolved no repo scope at all. Live-reported as "rows on Recents
+  // cannot be reordered". Spec §8.1 gives every mode a meaning here: the
+  // middle opens into that view, above/below moves the slot. A folder (or an
+  // unwired `workflow` row) names no chat, so it still refuses.
+  if (target.inRecents) {
+    return kind === 'chat' || kind === 'branch' ? ALL_MODES : NO_MODES
+  }
+
+  // One `getState()` per drag frame, shared by every branch below — see
+  // `resolveRowRepo`'s own note about this running on every pointermove.
+  const repos = useSidebarStore.getState().repos
 
   // A CHAT IS NOT REPO-SCOPED, so the repo/project walk below does not apply to
   // it — and applying it anyway is what silently refused every single
@@ -233,11 +312,16 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
     // Caught live as "can't put a chat right at the bottom of the list"
     // whenever a branch row happened to sit there — refusing before/after
     // here, unconditionally, is what made every one of those the literal
-    // end of the list a chat could never reach. The finer same-workspace/
-    // same-repo check stays the backend's own (checkChatMove/
-    // checkChatContainer) — this is only the client-side pre-filter, and
-    // "into" stays refused exactly as it already was.
-    if (target.kind === 'branch') return REORDER_MODES
+    // end of the list a chat could never reach. Only past a branch row on
+    // the chat's OWN level, though: a home chat beside a repo-internal
+    // locked branch is a cross-workspace edge the daemon refuses 409, and
+    // an indicator that promised it surfaced that refusal as a raw error
+    // toast (caught live). "into" stays refused exactly as it already was.
+    if (target.kind === 'branch') {
+      const level = levelWorkspaceOfBranchRow(repos, target)
+      if (level === null || subjects.some((s) => s.workspaceId !== level)) return NO_MODES
+      return REORDER_MODES
+    }
     return ALL_MODES
   }
 
@@ -253,9 +337,16 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
     const subjectHomeScopes = subjects.map((s) => resolveHomeRowScope(s.id))
     if (subjectHomeScopes.some((s) => s !== null)) {
       if (subjectHomeScopes.some((s) => s === null)) return NO_MODES
+      const projectId = subjectHomeScopes[0]!.projectId
+      if (subjectHomeScopes.some((s) => s!.projectId !== projectId)) return NO_MODES
+      // A repo's own header row shares the home root with a folder — a real
+      // sibling to reorder past (its container is always root or a home
+      // folder, its own placement invariant), never a container for one.
+      if (target.kind === 'branch') {
+        return repoOfHeaderRow(repos, target.id)?.projectId === projectId ? REORDER_MODES : NO_MODES
+      }
       const targetHome = resolveHomeRowScope(target.id)
-      if (!targetHome) return NO_MODES
-      if (subjectHomeScopes.some((s) => s!.projectId !== targetHome.projectId)) return NO_MODES
+      if (!targetHome || targetHome.projectId !== projectId) return NO_MODES
       return ALL_MODES
     }
   }
@@ -281,9 +372,8 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
       // home folder) a repo may legally land in — that is its OWN placement
       // invariant, enforced the identical way when IT was filed there — so
       // no further container check is needed here.
-      return target.repoIcon && target.repoIcon.projectId === repoIcon.projectId
-        ? REORDER_MODES
-        : NO_MODES
+      const targetRepo = repoOfHeaderRow(repos, target.id)
+      return targetRepo && targetRepo.projectId === repoIcon.projectId ? REORDER_MODES : NO_MODES
     }
     const targetHome = resolveHomeRowScope(target.id)
     if (!targetHome || targetHome.projectId !== repoIcon.projectId) return NO_MODES
@@ -306,8 +396,6 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
       into: target.kind === 'folder',
     }
   }
-
-  const repos = useSidebarStore.getState().repos
 
   // `resolveRowRepo` is deliberately chat-blind (its own doc: resolving a
   // chat there would hand a DRAGGED chat the same-repo rule §8.3 exempts it
@@ -351,8 +439,17 @@ export function allowedModes(subjects: readonly SidebarRow[], target: SidebarRow
   }
 
   const hasLocked = subjects.some((s) => isWorkspaceLockedInSidebar(repos, s.workspaceId))
-  if (hasLocked) {
-    const sameParent = subjects.every((s) => s.parentId === target.parentId)
+  // A fork with no owning chat recorded yet cannot re-parent either: that
+  // verb is chat-addressed (workspace-scope-url.ts) and would only throw.
+  const hasNoOwner = subjects.some(
+    (s) =>
+      s.kind === 'branch' &&
+      !!s.workspaceId &&
+      owningChatIdOfWorkspace(repos, s.workspaceId) === null,
+  )
+  if (hasLocked || hasNoOwner) {
+    // A hit-tested target reads '' off the DOM for a root row; a real row says null.
+    const sameParent = subjects.every((s) => (s.parentId ?? '') === (target.parentId ?? ''))
     if (!sameParent) return NO_MODES
     return resolvesToFirstChild(target, 'after')
       ? { before: true, after: false, into: false }
@@ -375,7 +472,7 @@ export function edgeBandFor(kind: string): number {
   return kind === 'folder' ? EDGE_BAND_CONTAINER : EDGE_BAND_HEAVY
 }
 
-export const SIDEBAR_DROP_POLICY: DropPolicy<SidebarRow, SidebarRow> = {
+export const SIDEBAR_DROP_POLICY: DropPolicy<SidebarRow, DropTargetRow> = {
   allowedModes,
   edgeBandFor,
 }

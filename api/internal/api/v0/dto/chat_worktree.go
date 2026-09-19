@@ -1,6 +1,8 @@
 package dto
 
 import (
+	"time"
+
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 )
@@ -73,6 +75,9 @@ type ChatWorktreeDTO struct {
 	// actually redraw, rather than reverting on the next chat-list refetch.
 	FolderID string `json:"folderId"`
 	Order    int    `json:"order"`
+	// CreatedAt is the daemon's order tiebreak (tree.compareNodes) — carried so
+	// a client draws an undragged level in the sequence a placement counts.
+	CreatedAt time.Time `json:"createdAt"`
 	// OwningChatID names which chat OWNS this worktree, and it is the one field
 	// here that is not a fact about git.
 	//
@@ -126,5 +131,6 @@ func ChatWorktreeFrom(
 		OwningChatID:    w.OwningChatID,
 		FolderID:        w.FolderID,
 		Order:           w.Order,
+		CreatedAt:       w.CreatedAt,
 	}
 }

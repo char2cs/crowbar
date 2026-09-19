@@ -194,11 +194,7 @@ beforeEach(async () => {
 
   useProjectStore.setState({ activeProjectId: 'p1' })
   useProjectDataStore.setState({ data: success([project('p1')]) })
-  useSidebarStore.setState({
-    repos: [],
-    collapsedRepos: new Set<string>(),
-    collapsedProjects: new Set<string>(),
-  })
+  useSidebarStore.setState({ repos: [] })
   useFolderSignalStore.setState({ generations: {}, seededRepoIds: new Set() })
   // Seeded with REAL timers still active — fake-indexeddb's open/transaction
   // completion relies on scheduling that vi.useFakeTimers() would otherwise

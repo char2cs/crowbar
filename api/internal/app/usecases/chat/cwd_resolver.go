@@ -20,11 +20,12 @@ type cwdResolver struct {
 	chats   agentchat.EventStore
 	folders TreeFolders
 	nodes   TreeNodes
+	roots   TreeRepoRoots
 }
 
 func (r cwdResolver) ResolveCwdWorkspaceID(
 	ctx context.Context,
 	chatID string,
 ) (string, bool, error) {
-	return tree.ResolveCwdWorkspaceID(ctx, r.chats, r.folders, r.nodes, chatID)
+	return tree.ResolveCwdWorkspaceID(ctx, r.chats, r.folders, r.nodes, r.roots, chatID)
 }

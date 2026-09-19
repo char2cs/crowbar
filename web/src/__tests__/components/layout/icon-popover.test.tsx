@@ -75,6 +75,21 @@ describe('IconPopover — real (non-staged) mode is unchanged', () => {
 
     expect(apiFetch).toHaveBeenCalledExactlyOnceWith('/v0/projects/p1/icon', { method: 'DELETE' })
   })
+
+  // A caller (space-header.tsx) toggles this trigger's visibility by wrapping
+  // it in a bare, unstyled `<span>` rather than unmounting it — that span is
+  // an inline formatting context, so the trigger's own `inline-flex` box is
+  // subject to `vertical-align: baseline` there unless it opts out. Caught
+  // live: an uploaded project/repo icon sitting a few px above its name.
+  // `align-middle` is meaningless (and harmless) once a caller's wrapper is
+  // itself flex/grid, so asserting its presence here can't regress a caller
+  // that never needed it.
+  it('the trigger opts out of inline baseline alignment for bare-span callers', () => {
+    render(<IconPopover {...baseProps} base="/v0/projects/p1" />)
+    expect(screen.getByRole('button', { name: 'Edit my-project icon' }).className).toContain(
+      'align-middle',
+    )
+  })
 })
 
 describe('IconPopover — onStage mode stages locally instead of mutating the network', () => {

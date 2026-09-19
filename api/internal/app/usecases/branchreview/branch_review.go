@@ -20,6 +20,13 @@ import (
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
+// ErrWorkspaceUnprovisioned is returned when a review read targets a workspace
+// with no worktree on disk — a placeholder whose branch another checkout still
+// holds, or one whose materialisation failed. There is nothing to diff, and the
+// empty path is not a directory git may be pointed at. Handlers map it to 409:
+// the row is not in a state where this can be done, not a bad request.
+var ErrWorkspaceUnprovisioned = errors.New("usecases: this branch has no worktree yet")
+
 // asNotFound maps an engine-level not-found signal (asynx Get on a missing
 // aggregate, or a command rejected because the target aggregate does not exist)
 // to the shared apperr.ErrNotFound sentinel, leaving genuine internal failures

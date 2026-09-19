@@ -8,6 +8,7 @@ import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore, removeHomeFolder, applyHomeFolders } from '@/lib/store/home-tree'
 import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import { useRemovalTrayStore, type RemovalEntry } from '@/lib/store/sidebar-removal'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toast } from '@/features/window/stores/toast-store'
 
 /**
@@ -108,7 +109,7 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
         owningChatIdOfWorkspace(useSidebarStore.getState().repos, entry.id) ??
         getOwningChatId(entry.id)
       if (!owningChatId) {
-        return Promise.reject(new Error(`no owning chat recorded for workspace ${entry.id}`))
+        return Promise.reject(new Error('its chat is still loading — try again in a moment'))
       }
       return deleteChat(entry.id, owningChatId, ...opts).then(() => {
         bumpRepoTree(entry.repoId)
@@ -159,6 +160,13 @@ function sendRemoval(entry: RemovalEntry, init?: RequestInit): Promise<void> {
     case 'repo':
       return deleteRepo(entry.projectId, entry.repoId, ...opts)
     case 'project':
+      // A space owns its content's lifetime (project-scoped panes §8, Zen's
+      // `#deleteWorkspaceOwnedTabs`): its views go through the real
+      // `closeView` teardown — every member's CLI stopped, every workspace
+      // evicted — rather than being left parked where nothing can ever reach
+      // or close them again. Before the DELETE, while the chats are still
+      // resolvable.
+      windowPaneStore.getState().paneActions.closeViewsForProject(entry.projectId)
       return deleteProject(entry.projectId, ...opts)
     case 'chat':
       // No local tombstone (unlike folder's own special case): a chat DOES

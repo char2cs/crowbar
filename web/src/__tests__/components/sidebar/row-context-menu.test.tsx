@@ -4,6 +4,10 @@ import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { useSidebarStore, getInitialState, type Repo } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import {
+  getInitialInlineRenameState,
+  useSidebarInlineRenameStore,
+} from '@/lib/store/sidebar-inline-rename'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
@@ -130,12 +134,9 @@ let rows: SidebarRow[] = []
 function renderMenu() {
   const treeRef = { current: document.createElement('div') }
   document.body.appendChild(treeRef.current)
-  const onRename = vi.fn()
   const onImport = vi.fn()
-  render(
-    <SidebarRowContextMenu treeRef={treeRef} rows={rows} onRename={onRename} onImport={onImport} />,
-  )
-  return { treeRef, onRename, onImport }
+  render(<SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={onImport} />)
+  return { treeRef, onImport }
 }
 
 function rightClick(tree: HTMLElement, rowId: string) {
@@ -196,6 +197,7 @@ const homeThreadRow: SidebarRow = {
 beforeEach(() => {
   vi.clearAllMocks()
   useSidebarStore.setState({ ...getInitialState(), repos: [REPO] })
+  useSidebarInlineRenameStore.setState(getInitialInlineRenameState())
   useHomeTreeStore.setState({
     trees: {
       'proj-1': {
@@ -370,11 +372,12 @@ describe('SidebarRowContextMenu', () => {
     expect(sidebarPlacement.createHomeFolder).toHaveBeenCalledWith('proj-1', 'New folder', '')
   })
 
-  it('clicking Rename calls onRename with the row id and closes the menu', () => {
-    const { treeRef, onRename } = renderMenu()
+  it('clicking Rename starts inline rename for the row id, not a modal', () => {
+    const { treeRef } = renderMenu()
     rightClick(treeRef.current, 'folder-1')
     fireEvent.click(screen.getByText('Rename'))
-    expect(onRename).toHaveBeenCalledWith('folder-1')
+    expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('folder-1')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('clicking Import branches calls onImport with the project-home row id', () => {
@@ -397,6 +400,22 @@ describe('SidebarRowContextMenu', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, FORK_ROW_ID)
     expect(screen.queryByText('Delete Repo')).not.toBeInTheDocument()
+  })
+
+  // A repo's entry can be filed into a project-home folder (`repo.folderId`,
+  // rows-from-repo.ts's header push) — it is still the repo, so its menu is
+  // the repo header's, not a plain branch row's. Identity was keyed on
+  // `parentId === null`, so the filed header lost Import/Delete Repo and
+  // gained a Lock that `performSetWorkspaceLock` silently no-ops for.
+  it('a repo header filed into a home folder keeps the repo menu: Import and Delete Repo, never Lock', () => {
+    rows = [...rowsFromRepo({ ...REPO, folderId: HOME_FOLDER_ROW_ID }), homeFolderRow]
+    expect(rows.find((r) => r.id === HOME_ROW_ID)?.parentId).toBe(HOME_FOLDER_ROW_ID)
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, HOME_ROW_ID)
+    expect(screen.getByText('Import branches')).toBeInTheDocument()
+    expect(screen.getByText('Delete Repo')).toBeInTheDocument()
+    expect(screen.queryByText('Lock')).not.toBeInTheDocument()
+    expect(screen.queryByText('Unlock')).not.toBeInTheDocument()
   })
 
   describe('the repo-home row\'s own "..." button (sidebar-row.tsx, data-control="repo-menu")', () => {

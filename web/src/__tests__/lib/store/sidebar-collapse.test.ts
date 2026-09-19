@@ -1,17 +1,11 @@
 /**
- * Contract pin for every set the sidebar folds away: rows are OPEN by default,
- * and folding one is an explicit, persisted act.
+ * Contract pin for the one set the sidebar folds away: rows are OPEN by
+ * default, and folding one is an explicit, persisted act.
  *
- * Four sets share one record and one writer — repos, workspaces, projects, and
- * the Chats panel's rows.
- *
- * The polarity is the whole test. Showing every project at once is the feature —
- * a fresh install must render the sidebar the mock shows, not a column of closed
- * rows — so "unknown project" has to mean "open". Collapse is how the cost is
- * bought back (a folded project's repo + workspace streams are torn down, see
- * project-visibility.ts), not the resting state that avoids paying it. An empty
- * set that meant "nothing subscribed" would invert the product decision without
- * anything failing.
+ * `collapsedProjects`/`collapsedRepos`/`collapsedWorkspaces` are retired keys
+ * the pre-restyle tree wrote: the store has no field for them and the record
+ * is written without them (see project-visibility-retired-collapsed-projects
+ * .test.ts and hydrate.test.ts).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -27,88 +21,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useSidebarStore.setState({
-    collapsedRepos: new Set<string>(),
-    collapsedWorkspaces: new Set<string>(),
-    collapsedProjects: new Set<string>(),
-    collapsedChatRows: new Set<string>(),
-  })
-})
-
-describe('collapsedProjects', () => {
-  it('starts empty — every project is OPEN by default', () => {
-    expect(useSidebarStore.getState().collapsedProjects.size).toBe(0)
-  })
-
-  it('shares its polarity with every other collapse set', () => {
-    // All four sets say the same thing: membership means folded away.
-    const initial = useSidebarStore.getState()
-    expect(initial.collapsedRepos.size).toBe(0)
-    expect(initial.collapsedWorkspaces.size).toBe(0)
-    expect(initial.collapsedProjects.size).toBe(0)
-    expect(initial.collapsedChatRows.size).toBe(0)
-  })
-
-  it('toggleProject collapses, then re-opens', () => {
-    useSidebarStore.getState().toggleProject('p2')
-    expect(useSidebarStore.getState().collapsedProjects.has('p2')).toBe(true)
-    useSidebarStore.getState().toggleProject('p2')
-    expect(useSidebarStore.getState().collapsedProjects.has('p2')).toBe(false)
-  })
-
-  it('toggleProject leaves other projects alone', () => {
-    useSidebarStore.getState().toggleProject('p2')
-    useSidebarStore.getState().toggleProject('p3')
-    useSidebarStore.getState().toggleProject('p2')
-    expect([...useSidebarStore.getState().collapsedProjects]).toEqual(['p3'])
-  })
-
-  it('hands out a NEW Set so subscribers see the change', () => {
-    const before = useSidebarStore.getState().collapsedProjects
-    useSidebarStore.getState().toggleProject('p2')
-    expect(useSidebarStore.getState().collapsedProjects).not.toBe(before)
-  })
-
-  it('persists collapsed projects alongside every other collapse set', () => {
-    useSidebarStore.getState().toggleProject('p2')
-    expect(saveSidebarUI).toHaveBeenCalledWith({
-      collapsedRepos: [],
-      collapsedWorkspaces: [],
-      collapsedProjects: ['p2'],
-      collapsedChatRows: [],
-    })
-  })
-
-  // The record is written whole by ONE writer, so no toggle can persist its own
-  // list over a record whose other three it forgot to carry.
-  it('every toggle carries the other three sets through', () => {
-    useSidebarStore.getState().toggleProject('p2')
-    saveSidebarUI.mockClear()
-
-    useSidebarStore.getState().toggleRepo('r1')
-    expect(saveSidebarUI).toHaveBeenLastCalledWith({
-      collapsedRepos: ['r1'],
-      collapsedWorkspaces: [],
-      collapsedProjects: ['p2'],
-      collapsedChatRows: [],
-    })
-
-    useSidebarStore.getState().toggleWorkspace('w1')
-    expect(saveSidebarUI).toHaveBeenLastCalledWith({
-      collapsedRepos: ['r1'],
-      collapsedWorkspaces: ['w1'],
-      collapsedProjects: ['p2'],
-      collapsedChatRows: [],
-    })
-
-    useSidebarStore.getState().toggleChatRow('f1')
-    expect(saveSidebarUI).toHaveBeenLastCalledWith({
-      collapsedRepos: ['r1'],
-      collapsedWorkspaces: ['w1'],
-      collapsedProjects: ['p2'],
-      collapsedChatRows: ['f1'],
-    })
-  })
+  useSidebarStore.setState({ collapsedChatRows: new Set<string>() })
 })
 
 /**
@@ -154,14 +67,15 @@ describe('collapsedChatRows', () => {
     expect(useSidebarStore.getState().collapsedChatRows).not.toBe(before)
   })
 
+  it('never writes a retired key back into the record', () => {
+    useSidebarStore.getState().toggleChatRow('f1')
+    const record = saveSidebarUI.mock.calls[0][0] as Record<string, unknown>
+    expect(Object.keys(record)).toEqual(['collapsedChatRows'])
+  })
+
   it('persists the fold', () => {
     useSidebarStore.getState().toggleChatRow('f1')
-    expect(saveSidebarUI).toHaveBeenLastCalledWith({
-      collapsedRepos: [],
-      collapsedWorkspaces: [],
-      collapsedProjects: [],
-      collapsedChatRows: ['f1'],
-    })
+    expect(saveSidebarUI).toHaveBeenLastCalledWith({ collapsedChatRows: ['f1'] })
   })
 
   // "+ in here" files something INSIDE the row, so it opens it. A toggle there

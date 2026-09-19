@@ -171,6 +171,8 @@ func (c *Container) Register(
 		c.app.Usecases.AgentProvider,
 		c.app.Usecases.AgentChatFolder,
 		c.app.Hub.BroadcastAgentChatFolder,
+		chatWorktrees{app: c.app},
+		c.app.Repositories.Node,
 		c.agentChats.Handle,
 		ws.DualServe,
 	)
@@ -256,9 +258,9 @@ func (c *Container) Register(
 		c.app.GORM.Repositories,
 		// The git fields a worktree-owning chat carries on its own DTO (spec §5),
 		// so ONE read of the chat list answers everything the workspace list used
-		// to. The home group deliberately mounts these handlers WITHOUT it: the
-		// project home is a bare project-level row with no repo and no git surface
-		// at all, so there is no worktree there to describe.
+		// to. The home group mounts the same adapter: the project home has no
+		// git surface, but its owner row still has to say it owns the home
+		// worktree (see chathandlers.repoWorktrees).
 		chatWorktrees{app: c.app},
 		// A worktree-owning chat's own sidebar FolderID/Order (2026-09-09
 		// sidebar-placement-unification, workspace-placement fix) — the SAME

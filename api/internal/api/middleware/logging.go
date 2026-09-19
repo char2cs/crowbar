@@ -22,6 +22,10 @@ func Logger() gin.HandlerFunc {
 		}
 		start := time.Now()
 		c.Next()
+		if errs := c.Errors.Errors(); len(errs) > 0 {
+			log.Printf("%s %s %d %s: %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), time.Since(start), strings.Join(errs, "; "))
+			return
+		}
 		log.Printf("%s %s %d %s", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), time.Since(start))
 	}
 }

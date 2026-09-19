@@ -45,6 +45,9 @@ type Deps struct {
 	// round) — see Usecase's own doc for why. May be left nil.
 	Folders TreeFolders
 	Nodes   TreeNodes
+	// RepoRoots finishes those same walks for a row filed in a repo-root
+	// folder, which has no workspace-owning row above it. May be left nil.
+	RepoRoots TreeRepoRoots
 	// ProviderPrefs is the global (per user/machine) provider priority+enabled table.
 	ProviderPrefs store.Store[domain.AgentProviderPreference, string]
 	// PermissionPrefs is the global default permission level a new chat is
@@ -120,6 +123,7 @@ func New(d Deps) *Usecase {
 		work:        sh.work,
 		folders:     d.Folders,
 		nodes:       d.Nodes,
+		repoRoots:   d.RepoRoots,
 	}
 	// The tool surface's four self-ports, filled in here because the usecase does
 	// not exist when the caller builds the Deps.
@@ -184,7 +188,7 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Agents:        d.Agents,
 		Terminal:      d.Terminal,
 		Workspace:     d.Workspace,
-		AncestorCwd:   cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes},
+		AncestorCwd:   cwdResolver{chats: d.Chats, folders: d.Folders, nodes: d.Nodes, roots: d.RepoRoots},
 		Home:          d.Home,
 		Spawns:        sh.spawns,
 		InflightTurns: sh.turns,

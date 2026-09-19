@@ -359,10 +359,14 @@ func TestRegression_ChatTreeRefusesCrossWorkspaceParentage(t *testing.T) {
 func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	h := newHarness(t)
 	writeLiveStubProviderDescriptor(t, h)
-	ws := importWritableWorkspace(t, h)
+	ws := importProjectHomeHoldsDefault(t, h)
 	base := repoBase(ws)
 
-	chat := createAgentChat(t, h, ws)
+	// The repo's ROOT level is the default checkout's: its root chats sit
+	// beside the repo's root folders and locked branches. A chat in any other
+	// workspace hangs under that workspace's own row instead, so it is the
+	// default checkout's chat that shares this level with the folders.
+	chat := createChatWithProvider(t, h, base, "livestub", ws.workspaceID, "")
 	// The panel root already holds the BRANCH row every imported workspace owns,
 	// so this level's indices no longer start at zero. Read where the chat
 	// actually landed and assert every position RELATIVE to it: what this test
@@ -396,14 +400,14 @@ func TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted(t *testing.T) {
 	assert.Greater(t, reread.Order, chatOrder,
 		"the drop landed above the chat, so the renumber pushed the chat down")
 
-	assertDenseChatLevel(t, h, base, "")
+	assertDenseChatLevel(t, h, base, "", ws.workspaceID)
 
 	// A chat drop is the other half of the same gesture, and it renumbers the same
 	// shared level — so it reports the folders it moved.
 	placed := placeChat(t, h, base, chat, map[string]any{"order": 0})
 	assert.Equal(t, 0, placed.Chat.Order)
 	assert.NotEmpty(t, placed.Shifted, "a chat drop reports the folders it renumbered")
-	assertDenseChatLevel(t, h, base, "")
+	assertDenseChatLevel(t, h, base, "", ws.workspaceID)
 }
 
 // The project home accumulates more chats than any worktree workspace, so it is
@@ -519,11 +523,15 @@ func folderIDs(
 // assertDenseChatLevel pins the whole point of the index: every row at a level —
 // chat or folder, because they share it — holds a distinct 0..n-1 slot, so the
 // next drop index means what it says.
+// workspaceID names whose root chats belong to container "": the level a
+// chat filed nowhere sits in is its own workspace's root, so two workspaces'
+// root chats never share a level even though both carry parentId "".
 func assertDenseChatLevel(
 	t *testing.T,
 	h *harness,
 	base string,
 	container string,
+	workspaceID string,
 ) {
 	t.Helper()
 	h.Quiesce()
@@ -536,7 +544,10 @@ func assertDenseChatLevel(
 	var chats []agentChatDTO
 	h.get(base+"/chats", &chats)
 	for _, c := range chats {
-		if c.ParentID == container {
+		if c.Worktree != nil && c.Worktree.OwningChatID == c.ID {
+			continue // the workspace's own row: the header, never a member of its level
+		}
+		if c.ParentID == container && (container != "" || c.WorkspaceID == workspaceID) {
 			orders[c.ID] = c.Order
 		}
 	}

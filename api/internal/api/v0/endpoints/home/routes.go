@@ -51,17 +51,26 @@ func Register(
 	agentProviders chathandlers.ProviderUsecase,
 	agentFolders chathandlers.ChatTreeUsecase,
 	agentBroadcastFolder func(folderID, workspaceID, kind string),
+	// agentWorktrees/agentNodes give the home chat list the same worktree
+	// enrichment a repo's has: the home workspace rides no repo and has no
+	// git surface, but its OWNER row still has to say it owns the home
+	// worktree, or the client cannot tell it from an ordinary home chat.
+	agentWorktrees chathandlers.Worktrees,
+	agentNodes chathandlers.Nodes,
 	agentWS gin.HandlerFunc,
 	dispatch func(rest, wsHandler gin.HandlerFunc) gin.HandlerFunc,
 ) {
 	// agentChats already satisfies homehandlers.ChatResolver (ListChatsByWorkspace) —
 	// no new dependency to thread through Register, only to wire in here.
-	h := homehandlers.New(workspaces, projects, files, termEng, working).WithChats(agentChats).WithNodes(nodes)
-	th := threadhandlers.New(threadStore, threadBroadcast)
 	ah := chathandlers.New(
 		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
 		agentFolders, agentBroadcastFolder,
-	)
+	).WithWorktrees(agentWorktrees).WithNodes(agentNodes)
+	// GET /home resolves its owner through the SAME EnsureOwner the home chat
+	// list does, under the same mint lock.
+	h := homehandlers.New(workspaces, projects, files, termEng, working).
+		WithChats(agentChats).WithOwners(ah).WithNodes(nodes)
+	th := threadhandlers.New(threadStore, threadBroadcast)
 	home := projectScoped.Group("/home")
 
 	home.GET("", h.Get)
@@ -152,7 +161,6 @@ func registerAgent(
 	home.PATCH("/chats/:id/placement", h.RequireHomeWorkspace, ah.PlaceChat)
 	home.POST("/chats/:id/promote", h.RequireHomeWorkspace, ah.Promote)
 	home.DELETE("/chats/:id", h.RequireHomeWorkspace, ah.Delete)
-	home.GET("/chats/:id/delete-preview", h.RequireHomeWorkspace, ah.DeletePreview)
 	// Chat FOLDERS, mounted here for the reason the chats above are: the project
 	// home is the surface that accumulates the most chats, so it is the one that
 	// most needs somewhere to put them. Mounting them only on the workspace group

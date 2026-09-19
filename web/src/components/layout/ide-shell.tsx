@@ -51,9 +51,14 @@ export function IDEShell() {
   const isSettingsOpen = useUIState((s) => s.isSettingsOpen)
   const sidebarPosition = useSettingsStore((state) => state.settings.sidebarPosition)
   const sidebarSide = sidebarPosition === 'right' ? 'right' : 'left'
+  const theme = useSettingsStore((state) => state.settings.theme)
+  const themeMode = useSettingsStore((state) => state.settings.themeMode)
   // macOS only, and only meaningful once the pane/sidebar chrome below is on
   // screen to measure — see the hook's own doc for the geometry it re-derives.
-  useMacTrafficLightSync(sidebarSide)
+  // themeKey re-runs the sync after every theme switch: applying a theme pins
+  // the native vibrancy view's appearance, which resets the traffic lights as
+  // a side effect (see the hook's own doc).
+  useMacTrafficLightSync(sidebarSide, `${theme}:${themeMode}`)
   const { sidebarOpen, setSidebarOpen, preferredWidth, commitPreferredWidth } = useSidebarPanel()
 
   // §7: the TanStack /ide/:projectId/:repoId/:wsId route params are the
@@ -203,12 +208,21 @@ export function IDEShell() {
   // BUG-003: when landing directly on a workspace route, the header project
   // button showed "Select project" — the active project was never derived from
   // the route. Keep the active project in sync with the route's projectId.
+  //
+  // THE ONE WRITER of the pane store's own `activeProjectId` too (the
+  // project-scoped panes design's trap 4): the route is already the one place
+  // a project change becomes state, and a second writer — a click handler
+  // racing this effect — is exactly how the sidebar's own project-switch bugs
+  // happened. `setActiveProject` no-ops on an unchanged id, so calling it
+  // unconditionally here is free; parking the space you left and bringing this
+  // one's own last view forward is all downstream of that single write.
   const workspaceProjectId = activeProjectIdFromRoute
   useEffect(() => {
     if (!workspaceProjectId) return
     if (useProjectStore.getState().activeProjectId !== workspaceProjectId) {
       useProjectStore.getState().setActiveProject(workspaceProjectId)
     }
+    windowPaneStore.getState().paneActions.setActiveProject(workspaceProjectId)
   }, [workspaceProjectId])
 
   // See the hook's own doc for the "viewing a project that no longer exists"

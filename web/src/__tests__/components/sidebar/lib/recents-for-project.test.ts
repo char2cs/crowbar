@@ -8,6 +8,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { useHomeTreeStore } from '@/lib/store/home-tree'
 import type { Repo, Workspace } from '@/lib/store/sidebar'
 
 // Task 26: panes/dormantArrangements are window-level now (one flat store
@@ -37,6 +38,7 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
 
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeWorkspaceId: (projectId: string) => homeIds.current.get(projectId) ?? null,
+  getHomeOwningChatId: () => null,
 }))
 
 function makeTestWorkspace(over: Partial<Workspace> & { id: string; branch: string }): Workspace {
@@ -81,7 +83,56 @@ beforeEach(() => {
   activeIds.current = []
   storeStates.current = new Map()
   homeIds.current = new Map()
+  useHomeTreeStore.setState({ trees: {} })
   resetWindowPaneStoreForTests()
+})
+
+// REGRESSION: a persisted dormant entry survives the reload in the layout
+// record, but the band only drew chats a MOUNTED workspace store knew about —
+// after a reload nothing is mounted until the user opens something, so the
+// band came back empty. The sidebar's own chat lists (a repo's `chats`, the
+// project's home tree) know every chat and its workspace without a store.
+describe('recentsForProject after a reload (no workspace store mounted)', () => {
+  it('still draws a dormant entry from the repo chat list, minting no store', () => {
+    activeIds.current = []
+    vi.mocked(getOrCreateWorkspaceStore).mockClear()
+    windowPaneStore.setState({
+      dormantArrangements: [{ id: 'entry-a', chatIds: ['chat-a'], state: 'dormant' }],
+    })
+    const repos = [
+      makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'a' })],
+        chats: [{ id: 'chat-a', repoId: 'r1', title: 'Fix it', order: 0, workspaceId: 'ws-1' }],
+      }),
+    ]
+
+    const entries = recentsForProject(repos, 'p1')
+
+    expect(entries.map((e) => [e.id, e.state, e.workspaceId])).toEqual([
+      ['entry-a', 'dormant', 'ws-1'],
+    ])
+    expect(entries[0].chatWorkspaces).toEqual({ 'chat-a': 'ws-1' })
+    expect(getOrCreateWorkspaceStore).not.toHaveBeenCalled()
+  })
+
+  it('still draws a dormant home chat from the project home tree', () => {
+    activeIds.current = []
+    homeIds.current.set('p1', 'home-ws-p1')
+    useHomeTreeStore.getState().setTree('p1', {
+      chats: [{ id: 'chat-h', repoId: '', title: 'Plan', order: 0 }],
+      folders: [],
+    })
+    windowPaneStore.setState({
+      dormantArrangements: [{ id: 'entry-h', chatIds: ['chat-h'], state: 'dormant' }],
+    })
+
+    const entries = recentsForProject([makeTestRepo({ id: 'r1', projectId: 'p1' })], 'p1')
+
+    expect(entries.map((e) => [e.id, e.workspaceId])).toEqual([['entry-h', 'home-ws-p1']])
+    expect(getOrCreateWorkspaceStore).not.toHaveBeenCalled()
+  })
 })
 
 describe('workspaceIdsForProject', () => {
@@ -146,6 +197,47 @@ describe('recentsForProject', () => {
     expect(entries[0].workspaceId).toBe('ws-1')
     expect(entries[0].chatIds).toEqual(['chat-1'])
     expect(entries.some((e) => e.chatIds.includes('chat-2'))).toBe(false)
+  })
+
+  // REGRESSION: live-reported as project A's band drawing project B's two
+  // chats as rows that did nothing when clicked. `listChats` assigns
+  // `agentChats.chats` wholesale, so a store mounted during a cross-project
+  // navigation can carry the project you came FROM; the seeding loop then
+  // stamped each chat with its own `workspaceId` — B's home ws — and both
+  // `chatWorkspace.has(...)` filters below happily matched it.
+  it("drops a foreign chat riding one of THIS project's workspace stores", () => {
+    homeIds.current.set('p2', 'ws-b-home')
+    activeIds.current = ['ws-1']
+    storeStates.current.set('ws-1', {
+      agentChats: {
+        chats: [
+          { id: 'chat-1', workspaceId: 'ws-1' },
+          { id: 'chat-foreign', workspaceId: 'ws-b-home' },
+        ],
+        working: {},
+      },
+    })
+    seedLivePane('chat-1')
+    seedLivePane('chat-foreign')
+    windowPaneStore.setState({
+      dormantArrangements: [
+        { id: 'entry-mixed', chatIds: ['chat-1', 'chat-foreign'], state: 'dormant' },
+      ],
+    })
+    const repos = [
+      makeTestRepo({
+        id: 'r1',
+        projectId: 'p1',
+        workspaces: [makeTestWorkspace({ id: 'ws-1', branch: 'a' })],
+      }),
+      makeTestRepo({ id: 'r2', projectId: 'p2' }),
+    ]
+
+    const entries = recentsForProject(repos, 'p1')
+
+    expect(entries.flatMap((e) => e.chatIds)).not.toContain('chat-foreign')
+    expect(entries.some((e) => e.chatIds.includes('chat-1'))).toBe(true)
+    expect(entries.find((e) => e.id === 'entry-mixed')?.chatIds).toEqual(['chat-1'])
   })
 
   it('aggregates across MULTIPLE workspaces under the same project', () => {
@@ -358,6 +450,8 @@ describe('recentsForProject', () => {
         locked: false,
         status: 'pr-open',
         isPlaceholder: true, // no localPath on the fixture
+        needsProvisioning: true, // ...and not the repo's own default branch
+        placeholderReason: "Crowbar couldn't set up `feature/x`. Retry to provision it.",
       },
     })
   })

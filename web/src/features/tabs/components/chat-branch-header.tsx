@@ -10,7 +10,7 @@ import {
   ROW_SUBLABEL_ADD,
   ROW_SUBLABEL_DEL,
 } from '@/components/layout/workspace-row-base'
-import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -42,9 +42,10 @@ interface ChatBranchHeaderProps {
  * a chat's name has one write path regardless of which surface edits it.
  */
 export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderProps) {
-  const title = useWorkspaceStoreContext(
-    (s) => s.agentChats.chats.find((c) => c.id === chatId)?.title || UNTITLED_CHAT_LABEL,
-  )
+  // `null` = this store has no record for the chat — a gap, not a name, so the
+  // header shows the pending mark and offers no rename (there is no current
+  // title to edit from).
+  const title = useChatTitle(chatId)
   const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
   const workspace = useSidebarStore((s) => {
     if (!wsId) return null
@@ -68,7 +69,9 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
     <div
       data-testid="chat-branch-header"
       className={cn('flex items-center gap-1.5 text-[13px]', className)}
-      onDoubleClick={() => setRenaming(true)}
+      onDoubleClick={() => {
+        if (title !== null) setRenaming(true)
+      }}
     >
       <span data-testid="chat-branch-header-glyph" className={ROW_GLYPH_BOX}>
         {working ? (
@@ -87,7 +90,7 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
         )}
       </span>
 
-      {renaming ? (
+      {renaming && title !== null ? (
         <InlineRenameInput
           defaultValue={title}
           onConfirm={(name) => {
@@ -98,7 +101,7 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
         />
       ) : workspace?.branch ? (
         <span className="flex min-w-0 flex-1 flex-col justify-center">
-          <span className="truncate">{title}</span>
+          <ChatTitle title={title} className="truncate" />
           <span className={ROW_SUBLABEL}>
             {workspace.branch}
             {(added > 0 || deleted > 0) && ' -- '}
@@ -108,8 +111,22 @@ export function ChatBranchHeader({ chatId, wsId, className }: ChatBranchHeaderPr
           </span>
         </span>
       ) : (
-        <span className="min-w-0 flex-1 truncate">{title}</span>
+        <ChatTitle title={title} className="min-w-0 flex-1 truncate" />
       )}
     </div>
+  )
+}
+
+/** The name line. A `null` title is the store's gap, drawn as the pending mark
+ *  and marked as such, never as a chat that happens to be untitled. */
+function ChatTitle({ title, className }: { title: string | null; className: string }) {
+  return (
+    <span
+      data-testid="chat-branch-header-title"
+      data-title-pending={title === null ? 'true' : undefined}
+      className={className}
+    >
+      {title ?? CHAT_TITLE_PENDING_LABEL}
+    </span>
   )
 }

@@ -13,10 +13,11 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { selectChatHasView } from '@/features/panes/stores/slices/pane-slice'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
+import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
 
 interface SidebarTreeProps {
   /** One project's rows, flat, parentId-linked. */
-  rows: SidebarRowType[]
+  rows: readonly SidebarRowType[]
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
@@ -27,8 +28,6 @@ interface SidebarTreeProps {
   onDrop: (subjects: SidebarRowType[], target: SidebarRowType, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRowType[], paneId: string, zone: SidebarPaneZone) => void
 }
-
-const byOrder = (a: SidebarRowType, b: SidebarRowType) => a.order - b.order
 
 /**
  * `renderRow` below is a plain recursive function called inside `.map()`/
@@ -148,8 +147,8 @@ export function SidebarTree({
     if (siblings) siblings.push(row)
     else childrenByParent.set(parentId, [row])
   }
-  roots.sort(byOrder)
-  for (const siblings of childrenByParent.values()) siblings.sort(byOrder)
+  roots.sort(compareSidebarRows)
+  for (const siblings of childrenByParent.values()) siblings.sort(compareSidebarRows)
 
   // Single-row drags only — the new unified tree has no multiselect yet
   // (Task 8 left `sidebar-selection.ts` orphaned), so a drag always carries

@@ -4,6 +4,7 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { getHomeTree } from '@/lib/store/home-tree'
 import { deriveRecentsEntries } from './recents-entries'
 import { chatIconIndex } from './rows-from-repo'
 import type { Repo } from '@/lib/store/sidebar'
@@ -91,11 +92,37 @@ export function recentsForProject(repos: readonly Repo[], projectId: string): Re
   // workspace's id — live-reported as a thread's Recents row focusing the
   // right pane but navigating (and scoping the file explorer) to a
   // completely different workspace of the same repo.
+  //
+  // Seeded from the SIDEBAR's own chat lists first — every repo's `chats`
+  // and the project's home tree — so a persisted dormant entry survives a
+  // reload: its chat's workspace store is not mounted until someone opens it
+  // again, and reading only the live registry left the band empty until
+  // then. The active-store loop then overlays what is live (and `working`).
   const chatWorkspace = new Map<string, string>()
   const working: Record<string, boolean> = {}
+  for (const repo of projectRepos) {
+    for (const chat of repo.chats ?? []) {
+      if (chat.workspaceId) chatWorkspace.set(chat.id, chat.workspaceId)
+    }
+  }
+  const homeId = getHomeWorkspaceId(projectId)
+  for (const chat of getHomeTree(projectId).chats) {
+    const wsId = chat.workspaceId || homeId
+    if (wsId) chatWorkspace.set(chat.id, wsId)
+  }
   for (const wsId of projectWsIds) {
     const { agentChats } = getOrCreateWorkspaceStore(wsId).getState()
-    for (const chat of agentChats.chats) chatWorkspace.set(chat.id, chat.workspaceId || wsId)
+    for (const chat of agentChats.chats) {
+      // `chat.workspaceId` is preferred above, but it is the chat's OWN claim
+      // and can name a workspace outside this project entirely: a store
+      // mounted during a cross-project navigation gets seeded wholesale with
+      // whatever chat list the caller had. Re-checking it against the set both
+      // filters below assume keeps a foreign chat from minting a band row that
+      // renders but can never be opened.
+      const owner = chat.workspaceId || wsId
+      if (!projectWsIdSet.has(owner)) continue
+      chatWorkspace.set(chat.id, owner)
+    }
     Object.assign(working, agentChats.working)
   }
 

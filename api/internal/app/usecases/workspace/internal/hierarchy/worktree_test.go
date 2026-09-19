@@ -2123,6 +2123,23 @@ func TestDeleteCascade_RejectsLockedRootStatus(t *testing.T) {
 	assert.Empty(t, g.calls)
 }
 
+// The repo's main checkout is served with an owning chat and every worktree
+// verb is chat-keyed, so deleting that owner reached DeleteCascade with the
+// unlocked main checkout as root and `git worktree remove` ran on the repo's
+// own folder.
+func TestRegression_DeleteCascade_RefusesTheDefaultCheckout(t *testing.T) {
+	all := []domain.Workspace{
+		{ID: "root", RepoID: "r", IsDefault: true, Status: domain.WorkspaceStatusNew, Branch: "main", WorktreePath: "/repo"},
+	}
+	g := &fakeGit{}
+	ws := &fakeWorkspace{
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+	}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
+	require.ErrorIs(t, uc.DeleteCascade(context.Background(), "root"), hierarchy.ErrWorkspaceIsDefault)
+	assert.Empty(t, g.calls)
+}
+
 // TestDeleteCascade_RefusesAWorkingChat closes invariant 9's own "no bypass"
 // hole: DeleteCascade is the verb behind the live DELETE .../workspaces/:wsId
 // route (the sidebar's removal tray) and behind merge --deleteSource, and it

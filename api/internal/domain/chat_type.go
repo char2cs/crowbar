@@ -23,3 +23,17 @@ const (
 	ChatTypeFolder   ChatType = "folder"
 	ChatTypeWorkflow ChatType = "workflow"
 )
+
+// IsChat reports whether c is an ordinary conversation. A row minted before
+// Type existed replays with "" (no event ever wrote one), and is a chat.
+func (c Chat) IsChat() bool {
+	return c.Type == "" || c.Type == ChatTypeChat
+}
+
+// EffectiveType is Type with the pre-Type legacy "" normalised to chat.
+func (c Chat) EffectiveType() ChatType {
+	if c.Type == "" {
+		return ChatTypeChat
+	}
+	return c.Type
+}

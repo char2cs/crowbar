@@ -5,6 +5,7 @@ package mocks
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	asynxModels "github.com/char2cs/asynx/models"
@@ -1905,6 +1906,7 @@ func (s *AgentChatPlacements) AttachWorkspace(
 	for i := range s.Rows {
 		if s.Rows[i].ID == chatID {
 			s.Rows[i].WorkspaceID = workspaceID
+			s.Rows[i].OwnsWorkspace = workspaceID != ""
 		}
 	}
 	return nil
@@ -1935,10 +1937,9 @@ func (s *AgentChatPlacements) parentOf(
 }
 
 // AgentWorkspaceGitStatus fakes the chat tree usecase's WorkspaceGitStatus
-// seam: each workspace's already-synced Added/Deleted counts, keyed by
-// workspace id, with no live git call behind it.
+// seam: the read-model facts about each workspace, keyed by workspace id,
+// with no live git call behind it.
 type AgentWorkspaceGitStatus struct {
-	Summaries map[string][2]int
 	// Repos answers RepoOf, keyed by workspace id — the fake's stand-in for
 	// domain.Workspace.RepoID. A workspace never Set here answers "", the
 	// same value the real home workspace's RepoOf answers.
@@ -1961,12 +1962,78 @@ type AgentWorkspaceGitStatus struct {
 	// gives for a workspace that was never forked, and for one cut straight
 	// off the repo's own default checkout.
 	ForkParents map[string]string
+	// Defaults answers DefaultWorkspaceOf, keyed by repo id.
+	Defaults map[string]string
+	// CreatedAts answers CreatedAtOf, keyed by workspace id; a workspace never
+	// Set here answers the zero time.
+	CreatedAts map[string]time.Time
+	// Placeholders inverts Provisioned, keyed by workspace id: a workspace
+	// never Set here is provisioned, matching the real adapter's own
+	// permissive default for a row it cannot resolve.
+	Placeholders map[string]bool
+}
+
+// SetCreatedAt records workspaceID's creation time for CreatedAtOf.
+func (s *AgentWorkspaceGitStatus) SetCreatedAt(workspaceID string, at time.Time) {
+	if s.CreatedAts == nil {
+		s.CreatedAts = map[string]time.Time{}
+	}
+	s.CreatedAts[workspaceID] = at
+}
+
+// CreatedAtOf implements tree.WorkspaceGitStatus.
+func (s *AgentWorkspaceGitStatus) CreatedAtOf(
+	ctx context.Context,
+	workspaceID string,
+) (time.Time, error) {
+	if s.Err != nil {
+		return time.Time{}, s.Err
+	}
+	return s.CreatedAts[workspaceID], nil
+}
+
+// BranchRowsOf implements tree.WorkspaceGitStatus off the Repos, Branches and
+// Defaults the other setters recorded.
+func (s *AgentWorkspaceGitStatus) BranchRowsOf(
+	ctx context.Context,
+	repoID string,
+) ([]string, error) {
+	if s.Err != nil {
+		return nil, s.Err
+	}
+	var ids []string
+	for wsID, renders := range s.Branches {
+		if renders && s.Repos[wsID] == repoID && s.Defaults[repoID] != wsID {
+			ids = append(ids, wsID)
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// SetDefault records repoID's default checkout for DefaultWorkspaceOf.
+func (s *AgentWorkspaceGitStatus) SetDefault(repoID, workspaceID string) {
+	if s.Defaults == nil {
+		s.Defaults = map[string]string{}
+	}
+	s.Defaults[repoID] = workspaceID
+}
+
+// DefaultWorkspaceOf implements tree.RepoRoots.
+func (s *AgentWorkspaceGitStatus) DefaultWorkspaceOf(
+	ctx context.Context,
+	repoID string,
+) (string, error) {
+	if s.Err != nil {
+		return "", s.Err
+	}
+	return s.Defaults[repoID], nil
 }
 
 // NewAgentWorkspaceGitStatus returns an AgentWorkspaceGitStatus with no
 // workspace summaries or repos recorded.
 func NewAgentWorkspaceGitStatus() *AgentWorkspaceGitStatus {
-	return &AgentWorkspaceGitStatus{Summaries: map[string][2]int{}, Repos: map[string]string{}}
+	return &AgentWorkspaceGitStatus{Repos: map[string]string{}}
 }
 
 // SetHomeRepoMembers records homeWorkspaceID's own project's repo id set for
@@ -1980,6 +2047,23 @@ func (s *AgentWorkspaceGitStatus) SetHomeRepoMembers(homeWorkspaceID string, rep
 		ids[id] = true
 	}
 	s.HomeRepoMembers[homeWorkspaceID] = ids
+}
+
+// HomeOfRepo implements tree.WorkspaceGitStatus, as the reverse of the
+// HomeRepoMembers SetHomeRepoMembers recorded.
+func (s *AgentWorkspaceGitStatus) HomeOfRepo(
+	ctx context.Context,
+	repoID string,
+) (string, error) {
+	if s.RepoIDsErr != nil {
+		return "", s.RepoIDsErr
+	}
+	for homeID, members := range s.HomeRepoMembers {
+		if members[repoID] {
+			return homeID, nil
+		}
+	}
+	return "", nil
 }
 
 // RepoIDsForHome implements tree.WorkspaceGitStatus.
@@ -1996,6 +2080,41 @@ func (s *AgentWorkspaceGitStatus) RepoIDsForHome(
 // SetRepo records workspaceID's owning repo for RepoOf to answer with.
 func (s *AgentWorkspaceGitStatus) SetRepo(workspaceID, repoID string) {
 	s.Repos[workspaceID] = repoID
+}
+
+// Exists implements tree.WorkspaceGitStatus: a workspace is live once any
+// setter here has named it.
+func (s *AgentWorkspaceGitStatus) Exists(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	if s.Err != nil {
+		return false, s.Err
+	}
+	_, inRepos := s.Repos[workspaceID]
+	_, inBranches := s.Branches[workspaceID]
+	return inRepos || inBranches, nil
+}
+
+// Provisioned implements tree.WorkspaceGitStatus. Provisioned unless
+// SetPlaceholder named the row: the guard that reads this only ever refuses,
+// so the default has to be the permissive one.
+func (s *AgentWorkspaceGitStatus) Provisioned(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	if s.Err != nil {
+		return false, s.Err
+	}
+	return !s.Placeholders[workspaceID], nil
+}
+
+// SetPlaceholder records workspaceID as a worktree-less row for Provisioned.
+func (s *AgentWorkspaceGitStatus) SetPlaceholder(workspaceID string) {
+	if s.Placeholders == nil {
+		s.Placeholders = map[string]bool{}
+	}
+	s.Placeholders[workspaceID] = true
 }
 
 func (s *AgentWorkspaceGitStatus) RepoOf(
@@ -2045,28 +2164,6 @@ func (s *AgentWorkspaceGitStatus) VisibleForkParent(
 		return "", s.Err
 	}
 	return s.ForkParents[workspaceID], nil
-}
-
-// Set records workspaceID's Added/Deleted for WorkingTreeSummary to answer
-// with. A workspace never Set here answers 0, 0 — the zero value a workspace
-// with a clean working tree would also report.
-func (s *AgentWorkspaceGitStatus) Set(
-	workspaceID string,
-	added int,
-	deleted int,
-) {
-	s.Summaries[workspaceID] = [2]int{added, deleted}
-}
-
-func (s *AgentWorkspaceGitStatus) WorkingTreeSummary(
-	ctx context.Context,
-	workspaceID string,
-) (int, int, error) {
-	if s.Err != nil {
-		return 0, 0, s.Err
-	}
-	pair := s.Summaries[workspaceID]
-	return pair[0], pair[1], nil
 }
 
 // AgentWorkspaceRoster fakes the chat tree usecase's WorkspaceRoster seam: the

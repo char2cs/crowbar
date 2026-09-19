@@ -185,6 +185,13 @@ export interface AgentChatViewProps {
   /** The chat's sticky model / effort selection. '' means unset. */
   model: string
   effort: string
+  /** What the LIVE runner actually spawned MODEL as — '' on a dormant chat.
+   *  Wins over the sticky selection above once the chat is live (still shown
+   *  in the same interactive picker), since a request and its resolved argv
+   *  can differ. Effort has no equivalent prop: it is not fixed at spawn the
+   *  way model is, so its displayed value is read per-turn off the ledger
+   *  instead — see `latestTurnEffort` below. */
+  launchModel?: string
   onSelectionChange: (provider: string, model: string, effort: string) => void
   /** A staged pick this file just sent WAS ACCEPTED — see
    *  usePromptQueue's `onSelectionCommitted` for the exact contract. */
@@ -320,6 +327,7 @@ export function AgentChatView({
   provider: effectiveProviderId,
   model,
   effort,
+  launchModel = '',
   onSelectionChange,
   onSelectionCommitted,
   presentation,
@@ -542,6 +550,27 @@ export function AgentChatView({
   // slash catalog) stays on the REAL, live `provider`/`providerId`: a staged
   // pick has not taken effect yet, so there is no live CLI to probe or label.
   const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
+  // Last-resort fallback for a chat with no sticky pick and no launch report
+  // yet (the empty, never-sent composer): `models` is DESCRIPTOR ORDER, the
+  // provider's own ranking (AgentProvider's own doc), so its first entry IS
+  // the provider's default — no separate "default" flag to declare or keep
+  // in sync.
+  const defaultModel = effectiveProvider?.models?.[0] ?? ''
+  // Effort has no such fixed fallback: unlike model (pinned for the whole
+  // session, restart_tui), a provider can change its OWN reasoning effort
+  // turn to turn, and Crowbar only learns which one it actually used from
+  // that turn's own report (AgentChatMessage.effort — close_turn.go sets it
+  // from the provider's turn_stop hook, never guessed at session start).
+  // Showing a catalogue-order guess here would assert a level nobody
+  // confirmed; the literal word is the honest placeholder until one has.
+  const latestTurnEffort = useMemo(() => {
+    for (let i = ledger.messages.length - 1; i >= 0; i--) {
+      const reported = ledger.messages[i].effort
+      if (reported) return reported
+    }
+    return ''
+  }, [ledger.messages])
+  const effortDisplay = latestTurnEffort || 'Default'
   // The provider's stop reason occupies the BAR, so the transcript must not also
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
@@ -813,8 +842,8 @@ export function AgentChatView({
     <SelectionCluster
       provider={effectiveProvider}
       providers={providers}
-      model={model}
-      effort={effort}
+      model={model || defaultModel}
+      effort={effortDisplay}
       presentation={presentation}
       splitEnabled={splitEnabled && provider?.hotswap === true}
       showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
@@ -1001,8 +1030,8 @@ export function AgentChatView({
               provider={effectiveProvider}
               providers={providers}
               switchDisabled={switchDisabled}
-              model={model}
-              effort={effort}
+              model={(live && launchModel) || model || defaultModel}
+              effort={effortDisplay}
               telemetry={telemetry}
               presentation={presentation}
               splitEnabled={splitEnabled && provider?.hotswap === true}

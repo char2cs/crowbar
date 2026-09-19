@@ -7,7 +7,7 @@ import {
 } from '@/lib/store/sidebar'
 import { buildSidebarTree, type SidebarTreeNode } from '@/components/layout/workspace-tree-utils'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import { isPlaceholderWorkspace } from '@/lib/workspace/placeholder'
+import { placeholderKind, placeholderReason } from '@/lib/workspace/placeholder'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
 /**
@@ -81,15 +81,21 @@ function isProvisionalBranchName(branch: string | undefined): boolean {
  * the exact regression `walkTreeIntoRows`'s own chat branch exists to render
  * instead (see `removal-countdown-rows.test.ts`'s "still draws a branch row
  * off the chat alone").
+ *
+ * The owner need NOT be in `chats` yet: the DTO is authoritative, and every
+ * action path (`workspaceIdOfBranchRow`, `handleCreate`, `forkHasLanded`)
+ * already addresses the row by `ws.owningChatId` unconditionally. Folding on
+ * the same rule keeps the rendered id and the placement id one id — the
+ * daemon mints the owner on the first GET /workspaces, and its chat row can
+ * land a structural frame later than the workspace row does.
  */
 export function resolveOwnerChats(
   workspaces: readonly Workspace[],
-  chats: readonly Chat[],
+  _chats: readonly Chat[],
 ): Map<string, string> {
-  const chatIds = new Set(chats.map((c) => c.id))
   const ownerChats = new Map<string, string>()
   for (const ws of workspaces) {
-    if (ws.owningChatId && chatIds.has(ws.owningChatId)) ownerChats.set(ws.id, ws.owningChatId)
+    if (ws.owningChatId) ownerChats.set(ws.id, ws.owningChatId)
   }
   return ownerChats
 }
@@ -146,11 +152,11 @@ export function resolveOwnerOfChat(
  *      workspace it owns, so nothing is spliced back into its old spot.
  *   2. `mergeWorkspaces` relabels every workspace node with a resolved owner
  *      to that owner's id, appending the owner's own (stripped) children
- *      onto its own. A workspace with no resolvable owner — its owning chat
- *      has not arrived, or names a chat this repo has not seeded — is left
- *      completely untouched, exactly as `buildSidebarTree` built it: still a
- *      `branch` row (see `walkTreeIntoRows`'s workspace branch), just missing
- *      the title/decoration only the chat half carries.
+ *      onto its own (none yet when the owner's chat row has not seeded). A
+ *      workspace with no owner at all is left completely untouched, exactly
+ *      as `buildSidebarTree` built it: still a `branch` row (see
+ *      `walkTreeIntoRows`'s workspace branch), just missing the
+ *      title/decoration only the chat half carries.
  */
 /**
  * The icon-relevant subset of `SidebarRow` — what `RowGlyph` (sidebar-row.tsx)
@@ -168,6 +174,9 @@ export type ChatIconFields = Pick<
   | 'locked'
   | 'status'
   | 'isPlaceholder'
+  | 'needsProvisioning'
+  | 'heldByPath'
+  | 'placeholderReason'
 >
 
 /**
@@ -175,15 +184,27 @@ export type ChatIconFields = Pick<
  * the fields `walkTreeIntoRows`'s workspace-node branch stamps below,
  * factored out so `chatIconIndex` (Recents' own icon fallback, below) can
  * produce the identical shape without re-deriving it.
+ *
+ * `ownDefaultBranch` is the owning repo's own `defaultBranch` — the one fact a
+ * `Workspace` cannot tell about itself and the whole of what separates "the
+ * repo's own main folder has this branch" from "Crowbar could not set this
+ * branch up" (`placeholderKind`'s own doc).
  */
-function workspaceIconFields(workspace: Workspace): Omit<ChatIconFields, 'kind' | 'ownsWorktree'> {
+function workspaceIconFields(
+  workspace: Workspace,
+  ownDefaultBranch: string | undefined,
+): Omit<ChatIconFields, 'kind' | 'ownsWorktree'> {
+  const kind = placeholderKind(workspace, ownDefaultBranch)
   return {
     branchName: workspace.branch,
     added: workspace.added,
     deleted: workspace.deleted,
     locked: workspace.status === 'locked',
     status: workspace.status,
-    isPlaceholder: isPlaceholderWorkspace(workspace),
+    isPlaceholder: kind !== 'none',
+    needsProvisioning: kind === 'unprovisioned',
+    heldByPath: kind === 'none' ? undefined : workspace.heldByPath || undefined,
+    placeholderReason: placeholderReason(workspace, kind) || undefined,
   }
 }
 
@@ -217,7 +238,7 @@ export function chatIconIndex(repos: readonly Repo[]): Map<string, ChatIconField
       index.set(chatId, {
         kind: 'branch',
         ownsWorktree: true,
-        ...(workspace ? workspaceIconFields(workspace) : {}),
+        ...(workspace ? workspaceIconFields(workspace, repo.defaultBranch) : {}),
       })
     }
   }
@@ -371,7 +392,16 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
   )
   const folded = foldWorkspaceOwners(roots, ownerChats)
 
-  walkTreeIntoRows(rows, folded, homeRowId, ownerOfChat, chatTitleById, true, homeId)
+  walkTreeIntoRows(
+    rows,
+    folded,
+    homeRowId,
+    ownerOfChat,
+    chatTitleById,
+    true,
+    homeId,
+    repo.defaultBranch,
+  )
 
   return rows
 }
@@ -422,6 +452,12 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
  * `chat` bubble or a `folder` passes it through unchanged, exactly like
  * `foldersCanFork`, since neither introduces a worktree of its own for a
  * nested folder to belong to instead.
+ *
+ * `ownDefaultBranch` is the THIRD fact of that kind: which branch this tree's
+ * repo already has checked out in its own main folder, so a worktree-less row
+ * on that branch reads as the repo's own checkout rather than as a failed
+ * provision (`placeholderKind`). Undefined from `rows-from-home.ts`, whose
+ * tree rides no repo and therefore owns no checkout to be held by.
  */
 export function walkTreeIntoRows(
   rows: SidebarRow[],
@@ -431,6 +467,7 @@ export function walkTreeIntoRows(
   chatTitleById: ReadonlyMap<string, string>,
   foldersCanFork: boolean,
   ancestorWorkspaceId: string | null,
+  ownDefaultBranch: string | undefined,
 ): void {
   nodes.forEach((node, index) => {
     if (node.kind === 'chat') {
@@ -455,6 +492,7 @@ export function walkTreeIntoRows(
           kind: 'branch',
           parentId,
           order,
+          createdAt: node.chat.createdAt,
           label: node.chat.title || UNTITLED_CHAT_LABEL,
           labelProvisional: !node.chat.title,
           ownsWorktree: true,
@@ -475,6 +513,7 @@ export function walkTreeIntoRows(
           chatTitleById,
           foldersCanFork,
           ownedWorkspaceId,
+          ownDefaultBranch,
         )
         return
       }
@@ -483,6 +522,7 @@ export function walkTreeIntoRows(
         kind: 'chat',
         parentId,
         order,
+        createdAt: node.chat.createdAt,
         // A chat is born unnamed and every surface has to call that the same
         // thing (see UNTITLED_CHAT_LABEL) — the tree row and the pane tab
         // disagreeing reads as two different chats.
@@ -547,6 +587,7 @@ export function walkTreeIntoRows(
         chatTitleById,
         foldersCanFork,
         ancestorWorkspaceId,
+        ownDefaultBranch,
       )
       return
     }
@@ -556,6 +597,7 @@ export function walkTreeIntoRows(
         kind: 'folder',
         parentId,
         order: node.folder.order ?? index,
+        createdAt: node.folder.createdAt,
         label: node.folder.name,
         // A folder's own "+" forks a branch — but only when it sits under a
         // real repo. A project-home folder has no worktree to fork at all
@@ -580,10 +622,9 @@ export function walkTreeIntoRows(
       // this row's real identity by the time `walk` sees it; the id space
       // the daemon places every create under either way (rule 8's fork
       // button reads it straight off `Workspace.owningChatId`, matching
-      // `space-content-actions.ts`'s `handleCreate`). A workspace that
-      // folded no owner (an absent `owningChatId`, or one naming a chat
-      // this repo has not seeded) is left exactly as `buildSidebarTree`
-      // built it: `node.id` is still its own workspace id.
+      // `space-content-actions.ts`'s `handleCreate`). A workspace with no
+      // `owningChatId` at all is left exactly as `buildSidebarTree` built
+      // it: `node.id` is still its own workspace id.
       //
       // `node.workspace.id`, never `node.id`, for the row's OWN
       // `workspaceId` field below — the two can now disagree by design.
@@ -592,9 +633,10 @@ export function walkTreeIntoRows(
       // Rule 6: a folded row's title IS the chat's, with branch/diff moved
       // to the second line (`branchName`/`added`/`deleted` below) — a
       // locked branch stays branch-labelled (addendum rules 1-4's "Folder
-      // mechanism": unchanged, not a chat by another name). A workspace
-      // that folded no owner has no chat title to borrow either.
-      const chatTitle = hasOwner ? (chatTitleById.get(node.id) ?? '') : undefined
+      // mechanism": unchanged, not a chat by another name). An owner whose
+      // chat row has not seeded yet (undefined, not '') degrades to the
+      // branch name rather than "Untitled chat".
+      const chatTitle = hasOwner ? chatTitleById.get(node.id) : undefined
       const label =
         chatTitle !== undefined && !locked
           ? chatTitle || UNTITLED_CHAT_LABEL
@@ -608,13 +650,14 @@ export function walkTreeIntoRows(
         kind: 'branch',
         parentId,
         order: node.workspace.order ?? index,
+        createdAt: node.workspace.createdAt,
         label,
         labelProvisional,
         ownsWorktree: true,
         workspaceId: node.workspace.id,
         working: node.workspace.working ?? false,
         hasView: false,
-        ...workspaceIconFields(node.workspace),
+        ...workspaceIconFields(node.workspace, ownDefaultBranch),
       })
       // Children hang off the row's OWN id, which is now the owning chat's
       // (when one was resolved) — a thread the daemon filed under the
@@ -631,6 +674,7 @@ export function walkTreeIntoRows(
         chatTitleById,
         foldersCanFork,
         node.workspace.id,
+        ownDefaultBranch,
       )
       return
     }
@@ -642,6 +686,7 @@ export function walkTreeIntoRows(
       chatTitleById,
       foldersCanFork,
       ancestorWorkspaceId,
+      ownDefaultBranch,
     )
   })
 }

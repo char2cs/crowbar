@@ -44,19 +44,30 @@ const emptyTreeSHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 //
 // Being a diff of two immutable trees is also why a commit-scoped read is
 // cacheable regardless of the working tree — see cacheableOutlineKey.
+//
+// A PLACEHOLDER workspace — one whose branch has no worktree on disk — is
+// refused here, the single point every review read resolves its ref through,
+// and after the commit shape is checked so a malformed argument stays a 400.
+// Its empty WorktreePath was passed straight to git as the working directory,
+// so `git merge-base` ran in whatever directory the daemon itself was started
+// in and answered with that repo's refs or a raw `fatal: Not a valid object
+// name <branch>` 500. There is no tree to diff and no safe directory to ask.
 func (u *branchReviewUsecase) resolveScopeRef(
 	ctx context.Context,
 	ws domain.Workspace,
 	commit string,
 ) (string, error) {
-	if commit == "" {
-		return u.resolveDiffRef(ctx, ws)
-	}
-	if !commitSHAPattern.MatchString(commit) {
+	if commit != "" && !commitSHAPattern.MatchString(commit) {
 		return "", fmt.Errorf(
 			"branch review: %w: commit must be a hex object name",
 			apperr.ErrInvalidArgument,
 		)
+	}
+	if ws.WorktreePath == "" {
+		return "", fmt.Errorf("branch review: %w (%s)", ErrWorkspaceUnprovisioned, ws.Branch)
+	}
+	if commit == "" {
+		return u.resolveDiffRef(ctx, ws)
 	}
 	return commitRange(ctx, u.git, ws.WorktreePath, commit), nil
 }

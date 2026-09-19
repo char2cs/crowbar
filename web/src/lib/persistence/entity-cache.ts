@@ -29,6 +29,15 @@ export async function upsertEntity<T extends { id: string }>(
   }
 }
 
+export async function getEntity<T>(store: EntityStoreName, id: string): Promise<T | undefined> {
+  try {
+    const db = await getDB()
+    return (await db.get(store, id)) as T | undefined
+  } catch {
+    return undefined
+  }
+}
+
 export async function getAllEntities<T>(store: EntityStoreName): Promise<T[]> {
   try {
     const db = await getDB()

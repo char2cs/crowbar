@@ -179,7 +179,8 @@ func TestProjectUsecase_UpdateRepo_RefetchFailsFallsBackToInMemoryRow(t *testing
 		return nil, errors.New("refetch boom")
 	}
 
-	got, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("renamed")})
+	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("renamed")})
+	got := updated.Repo
 	require.NoError(t, err, "a failed best-effort re-fetch must not fail the whole update")
 	assert.Equal(t, "renamed", got.Name, "the caller still gets back the row UpdateRepo itself just built")
 }

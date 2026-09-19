@@ -223,6 +223,38 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.buffers).toHaveLength(1)
     expect(state.buffers[0]).toMatchObject({ id: 'buf-1', content: 'saved' })
   })
+
+  it('restores the dormant Recents rows and the dragged Recents order', async () => {
+    const { layout } = await seedDB(WINDOW_SESSION_ID)
+    const db = await getDB()
+    await db.put('workspace-layout', {
+      ...layout,
+      dormantArrangements: [{ id: 'entry-a', chatIds: ['chat-a'], state: 'dormant' }],
+      recentsOrder: ['entry-b', 'entry-a'],
+    })
+
+    await hydrateWindowPaneLayout()
+
+    const state = windowPaneStore.getState()
+    expect(state.dormantArrangements).toEqual([
+      { id: 'entry-a', chatIds: ['chat-a'], state: 'dormant' },
+    ])
+    expect(state.recentsOrder).toEqual(['entry-b', 'entry-a'])
+  })
+
+  it('replays a record written before Recents was persisted as an empty band', async () => {
+    windowPaneStore.setState({
+      dormantArrangements: [{ id: 'stale', chatIds: ['chat-x'], state: 'dormant' }],
+      recentsOrder: ['stale'],
+    })
+    await seedDB(WINDOW_SESSION_ID)
+
+    await hydrateWindowPaneLayout()
+
+    const state = windowPaneStore.getState()
+    expect(state.dormantArrangements).toEqual([])
+    expect(state.recentsOrder).toEqual([])
+  })
 })
 
 describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)', () => {
@@ -530,23 +562,32 @@ describe('hydrateSidebar', () => {
     globalThis.indexedDB = new IDBFactory()
     useSidebarStore.setState({
       repos: HYDRATE_TEST_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
-      collapsedRepos: new Set<string>(),
-      collapsedWorkspaces: new Set<string>(),
+      collapsedChatRows: new Set<string>(),
       activeTab: 'workspaces',
     })
   })
 
   it('does nothing when IDB is empty', async () => {
     await hydrateSidebar()
-    expect(useSidebarStore.getState().collapsedRepos.size).toBe(0)
+    expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
   })
 
-  it('restores collapsedRepos from IDB', async () => {
-    await saveSidebarUI({ collapsedRepos: ['crowbar', 'quiver-core'], collapsedWorkspaces: [] })
+  // REGRESSION (restyle v2): the previous build's tree collapsed every repo
+  // but the active one and persisted that set; the restyled tree folds via
+  // `collapsedChatRows` and never writes it, yet the sync engine still gated
+  // a repo's chats/folders on it. Over an existing profile those repos drew
+  // header + branch rows and never loaded a thread. The retired key replays
+  // as "every repo open", the product default.
+  it('ignores the retired collapsedRepos key a previous build persisted', async () => {
+    await saveSidebarUI({
+      collapsedRepos: ['crowbar', 'quiver-core'],
+      collapsedWorkspaces: [],
+      collapsedChatRows: ['f1'],
+    })
     await hydrateSidebar()
-    const { collapsedRepos } = useSidebarStore.getState()
-    expect(collapsedRepos.has('crowbar')).toBe(true)
-    expect(collapsedRepos.has('quiver-core')).toBe(true)
+    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
+    expect(state.collapsedRepos).toBeUndefined()
+    expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(true)
   })
 
   it('overlays parentId values from IDB onto repos', async () => {
@@ -567,24 +608,29 @@ describe('hydrateSidebar', () => {
     expect(repo.workspaces.find((w) => w.id === 'ws1')?.parentId).toBeUndefined()
   })
 
-  it('restores collapsedWorkspaces from IDB', async () => {
+  it('ignores the retired collapsedWorkspaces key a previous build persisted', async () => {
     await saveSidebarUI({ collapsedRepos: [], collapsedWorkspaces: ['ws3', 'ws1'] })
     await hydrateSidebar()
-    const { collapsedWorkspaces } = useSidebarStore.getState()
-    expect(collapsedWorkspaces.has('ws3')).toBe(true)
-    expect(collapsedWorkspaces.has('ws1')).toBe(true)
+    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
+    expect(state.collapsedWorkspaces).toBeUndefined()
+    expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
   })
 
-  it('restores collapsedProjects from IDB', async () => {
+  // REGRESSION (restyle v2): the old build's project-row fold persisted this
+  // set and project-visibility gated a folded project's streams on it; the
+  // restyled sidebar has no writer, so a project it folded rendered blank
+  // whenever it was not active. The key is retired like collapsedRepos.
+  it('ignores the retired collapsedProjects key a previous build persisted', async () => {
     await saveSidebarUI({
       collapsedRepos: [],
       collapsedWorkspaces: [],
       collapsedProjects: ['p2', 'p3'],
+      collapsedChatRows: ['f1'],
     })
     await hydrateSidebar()
-    const { collapsedProjects } = useSidebarStore.getState()
-    expect(collapsedProjects.has('p2')).toBe(true)
-    expect(collapsedProjects.has('p3')).toBe(true)
+    const state = useSidebarStore.getState() as unknown as Record<string, unknown>
+    expect(state.collapsedProjects).toBeUndefined()
+    expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(true)
   })
 
   it('restores collapsedChatRows from IDB', async () => {
@@ -600,22 +646,6 @@ describe('hydrateSidebar', () => {
     await saveSidebarUI({ collapsedRepos: ['crowbar'], collapsedWorkspaces: [] })
     await hydrateSidebar()
     expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
-  })
-
-  it('replays a record written before projects were collapsible as "all open"', async () => {
-    useSidebarStore.setState({ collapsedProjects: new Set(['stale']) })
-    const db = await getDB()
-    // A record with no collapsedProjects key at all — either a build that
-    // predates collapsible projects, or one that wrote the old inverted
-    // `expandedProjects`. Both replay as "nothing collapsed", which is the
-    // product default: a fresh install shows every project open.
-    await db.put(
-      'sidebar-ui',
-      { collapsedRepos: ['crowbar'], expandedProjects: ['p9'], updatedAt: Date.now() } as never,
-      'global',
-    )
-    await hydrateSidebar()
-    expect(useSidebarStore.getState().collapsedProjects.size).toBe(0)
   })
 })
 

@@ -1,6 +1,7 @@
 import { indexFromParents, type TreeIndex } from './keep-set'
 import type { Workspace } from '@/lib/store/sidebar'
 import type { ChatType } from '@/lib/types'
+import { createdInstant } from '@/lib/store/created-instant'
 
 // 2026-09-08 sidebar-placement-unification Task 10: this file needed no
 // change. There is no wire-level `Node` shape to cut over to — verified
@@ -27,6 +28,8 @@ export interface SidebarFolder {
   /** A workspace id, another folder id, or undefined for the repo root. */
   parentId?: string
   order?: number
+  /** ISO creation time — the `order` tiebreak. */
+  createdAt?: string
 }
 
 /**
@@ -62,6 +65,8 @@ export interface SidebarChat {
   workspaceId?: string
   title: string
   order?: number
+  /** ISO creation time — the `order` tiebreak. */
+  createdAt?: string
 }
 
 export type SidebarTreeNode =
@@ -69,7 +74,7 @@ export type SidebarTreeNode =
   | { kind: 'folder'; id: string; folder: SidebarFolder; children: SidebarTreeNode[] }
   | { kind: 'chat'; id: string; chat: SidebarChat; children: SidebarTreeNode[] }
 
-/** Missing order sorts last, and ties keep arrival order via the index tiebreak. */
+/** Missing order sorts last. */
 const NO_ORDER = Number.MAX_SAFE_INTEGER
 
 /**
@@ -213,17 +218,37 @@ export function buildSidebarTree(
 
   // One sibling space, one sort key: a level interleaves folders, branches and
   // chats and they all sort on the SAME dense `order` (spec §3.1; the backend's
-  // AgentChatDTO.order says so in as many words).
+  // AgentChatDTO.order says so in as many words). Ties break the way the
+  // daemon breaks them (tree/node.go compareNodes): kind (folders, branches,
+  // chats), then creation time — so a level nobody has dragged is drawn in
+  // the sequence a drop index is counted. Arrival is the last resort for rows
+  // that predate `createdAt`: a daemon-fed list arrives in the daemon's own
+  // sequence, a cache-fed one pre-sorted (`readVisibleRepoTree`).
   const orderOf = (node: SidebarTreeNode) =>
     (node.kind === 'folder'
       ? node.folder.order
       : node.kind === 'chat'
         ? node.chat.order
         : node.workspace.order) ?? NO_ORDER
-  const sortSiblings = (list: SidebarTreeNode[]) => {
-    list.sort(
-      (a, b) => orderOf(a) - orderOf(b) || (arrival.get(a.id) ?? 0) - (arrival.get(b.id) ?? 0),
+  const createdOf = (node: SidebarTreeNode) =>
+    createdInstant(
+      node.kind === 'folder'
+        ? node.folder.createdAt
+        : node.kind === 'chat'
+          ? node.chat.createdAt
+          : node.workspace.createdAt,
     )
+  const kindRank = { folder: 0, workspace: 1, chat: 2 } as const
+  const sortSiblings = (list: SidebarTreeNode[]) => {
+    list.sort((a, b) => {
+      const byOrder = orderOf(a) - orderOf(b)
+      if (byOrder !== 0) return byOrder
+      const byKind = kindRank[a.kind] - kindRank[b.kind]
+      if (byKind !== 0) return byKind
+      const byCreated = createdOf(a) - createdOf(b)
+      if (byCreated !== 0) return byCreated
+      return (arrival.get(a.id) ?? 0) - (arrival.get(b.id) ?? 0)
+    })
     for (const child of list) sortSiblings(child.children)
   }
   sortSiblings(roots)

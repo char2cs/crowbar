@@ -441,6 +441,34 @@ export function descendantHiddenIds(entries: readonly RemovalEntry[]): Set<strin
 }
 
 /**
+ * The tray store's own `hiddenIds`, corrected by the same rule
+ * {@link descendantHiddenIds} applies — for a caller that needs BOTH halves of
+ * what the tree draws.
+ *
+ * The store's set outlives the tray row on purpose: a committed entry leaves
+ * `entries` immediately while its rows stay hidden until the daemon's
+ * tombstones arrive (see `sidebar-removal.ts`'s own doc), so a caller that
+ * wants "what is on screen" cannot simply derive it from `entries`. But while
+ * an entry IS live, its primary row is on screen — transformed in place — and
+ * the raw set hides it, which for a held FOLDER means
+ * {@link applyPendingRemovals} re-homes children the tree still draws nested
+ * under it.
+ */
+export function renderedHiddenIds(
+  hiddenIds: ReadonlySet<string>,
+  entries: readonly RemovalEntry[],
+): ReadonlySet<string> {
+  if (hiddenIds.size === 0 || entries.length === 0) return hiddenIds
+  const out = new Set(hiddenIds)
+  for (const entry of entries) {
+    if (entry.kind === 'repo' || entry.kind === 'project') continue
+    out.delete(entry.id)
+    if (entry.primaryRowId) out.delete(entry.primaryRowId)
+  }
+  return out
+}
+
+/**
  * Marks the row(s) matching a held entry with `row.removal`, so
  * `sidebar-row.tsx` can render it transformed in place.
  *

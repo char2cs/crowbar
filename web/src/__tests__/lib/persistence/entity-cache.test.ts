@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { resetDB } from '@/lib/persistence/idb'
-import { upsertEntity, getAllEntities, removeEntity } from '@/lib/persistence/entity-cache'
+import {
+  upsertEntity,
+  getAllEntities,
+  getEntity,
+  removeEntity,
+} from '@/lib/persistence/entity-cache'
 import type { ProjectDTO, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 beforeEach(() => {
@@ -22,6 +27,19 @@ describe('entity-cache', () => {
     const all = await getAllEntities<ProjectDTO>('crowbar_projects')
     expect(all).toHaveLength(1)
     expect(all[0]).toEqual(project)
+  })
+
+  it('getEntity reads one row by id, and undefined for an id the store lacks', async () => {
+    const project: ProjectDTO = {
+      id: 'p1',
+      name: 'crowbar',
+      path: '/tmp/crowbar',
+      status: '',
+      lastActivity: '2026-06-19T00:00:00Z',
+    }
+    await upsertEntity('crowbar_projects', project)
+    expect(await getEntity<ProjectDTO>('crowbar_projects', 'p1')).toEqual(project)
+    expect(await getEntity<ProjectDTO>('crowbar_projects', 'p2')).toBeUndefined()
   })
 
   it('upsert overwrites an existing entity with the same id', async () => {

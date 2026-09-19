@@ -52,6 +52,16 @@ export interface PendingCreateEntry {
    * than rendering it wrong first and fixing it a moment later.
    */
   realId?: string
+  /**
+   * Every row id the project's panel drew when the "+" was clicked. The
+   * daemon's `created`/`placement_set` frames fire off the mint, BEFORE the
+   * runner/worktree finish and the POST answers with `realId` — so the real
+   * row reseeds into the tree while `realId` is still unknown. Until it
+   * attaches, `hideRowsForInFlightCreates` (rows-from-pending.ts) hides any
+   * row the panel did not already hold, which is the only way to tell the
+   * row that arrived FOR this create apart from one that was there before.
+   */
+  rowIdsAtClick?: readonly string[]
 }
 
 interface PendingCreatesState {
@@ -64,8 +74,9 @@ interface PendingCreatesState {
    *  `armedBranchCreates` entry that entry's OWN close would otherwise leak —
    *  state this store knows nothing about. */
   startNaming: (entry: Omit<PendingCreateEntry, 'status' | 'label' | 'error'>) => void
-  /** Confirms a naming entry into 'creating' with the typed label. */
-  confirmNaming: (tempId: string, label: string) => void
+  /** Confirms a naming entry into 'creating' with the typed label — and the
+   *  panel's rows as of NOW, since the request fires here, not at arming. */
+  confirmNaming: (tempId: string, label: string, rowIdsAtClick?: readonly string[]) => void
   /** Adds a thread create straight into 'creating' — no naming step. */
   addCreating: (entry: Omit<PendingCreateEntry, 'status' | 'label' | 'error'>) => void
   /** Attaches the real row's id once the create's own request resolves — see
@@ -87,10 +98,10 @@ export const usePendingCreatesStore = create<PendingCreatesState>()((set) => ({
   ...getInitialPendingCreatesState(),
   startNaming: (entry) =>
     set((s) => ({ entries: [...s.entries, { ...entry, status: 'naming', label: '' }] })),
-  confirmNaming: (tempId, label) =>
+  confirmNaming: (tempId, label, rowIdsAtClick) =>
     set((s) => ({
       entries: s.entries.map((e) =>
-        e.tempId === tempId ? { ...e, status: 'creating', label } : e,
+        e.tempId === tempId ? { ...e, status: 'creating', label, rowIdsAtClick } : e,
       ),
     })),
   addCreating: (entry) =>

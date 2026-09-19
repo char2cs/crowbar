@@ -82,6 +82,24 @@ describe('placeFolder', () => {
     })
     expect(folder.name).toBe('Renamed')
   })
+
+  // A locked branch shares the folder's level; the daemon reports it among
+  // `shifted` as the branch row it draws as (its workspace id). It is never a
+  // folder — routed to `shiftedRows`, so no ghost folder is ever applied.
+  it('splits a shifted locked-branch sibling out of the folder rows', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        folder: { id: 'f1', parentId: '', title: 'F1', order: 0 },
+        shifted: [
+          { id: 'f2', type: 'folder', parentId: '', title: 'F2', order: 1 },
+          { id: 'ws-locked', type: 'branch', parentId: '', title: '', order: 2 },
+        ],
+      }),
+    )
+    const { shifted, shiftedRows } = await placeFolder('p1', 'r1', 'f1', { order: 0 })
+    expect(shifted.map((f) => f.id)).toEqual(['f2'])
+    expect(shiftedRows).toEqual([{ id: 'ws-locked', parentId: '', order: 2 }])
+  })
 })
 
 describe('deleteFolder', () => {
@@ -128,6 +146,29 @@ describe('placeWorkspace', () => {
     expect(url).toBe('/v0/projects/p1/repos/r1/workspaces/ws-1/placement')
     expect(url).not.toContain('/chats/')
     expect(init.method).toBe('PATCH')
+  })
+
+  // The moved row's decided placement, and every sibling the densify
+  // shifted, is the only confirmation a branch drag gets (no workspace frame
+  // carries a placement) — it used to be thrown away.
+  it('answers the moved row and the shifted siblings, never void', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        workspace: { id: 'ws-1', parentId: 'f-rev', order: 2 },
+        shifted: [{ id: 'f1', parentId: 'f-rev', title: 'F1', order: 3 }],
+      }),
+    )
+
+    expect(await placeWorkspace('ws-1', { folderId: 'f-rev', order: 2 })).toEqual({
+      workspace: { id: 'ws-1', parentId: 'f-rev', order: 2 },
+      shifted: [{ id: 'f1', parentId: 'f-rev', order: 3 }],
+    })
+  })
+
+  it('defaults shifted to [] when the backend omits the field', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ workspace: { id: 'ws-1', parentId: '', order: 0 } }))
+
+    expect((await placeWorkspace('ws-1', { order: 0 })).shifted).toEqual([])
   })
 
   // A folder and a locked branch's own row share ONE sibling space within

@@ -34,6 +34,7 @@ package tree
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 
@@ -55,6 +56,22 @@ type chatFolderUsecase struct {
 	// (home_ports.go).
 	folders Folders
 	nodes   Nodes
+	// announceRepo tells a live client about a repo header row a densify
+	// shifted as collateral — a repo's Node write has no hub projection of
+	// its own, unlike a chat's. nil announces nothing.
+	announceRepo RepoAnnouncer
+}
+
+// RepoAnnouncer announces one repo's DECIDED placement, for the composition
+// root to fan out as a RepoDTO.
+type RepoAnnouncer func(ctx context.Context, repoID, parentID string, order int)
+
+// Option configures New beyond its required ports.
+type Option func(*chatFolderUsecase)
+
+// WithRepoAnnouncer wires the collateral repo announce — see RepoAnnouncer.
+func WithRepoAnnouncer(fn RepoAnnouncer) Option {
+	return func(u *chatFolderUsecase) { u.announceRepo = fn }
 }
 
 // New builds the tree usecase over the chat row repository and the agent
@@ -70,7 +87,7 @@ type chatFolderUsecase struct {
 // subtree it takes by asking it directly, so the answer can never lag behind
 // what a hook just announced.
 //
-// workspaces is DeletePreview's seam onto the workspace layer; reaper is
+// workspaces is the tree's read seam onto the workspace layer; reaper is
 // DeleteChat's, and it is REQUIRED rather than optional for the reason
 // ChatTreeUsecase itself is: a delete wired without it
 // would erase a chat and silently strand the worktree it owned, which is the
@@ -94,8 +111,9 @@ func New(
 	holders WorkspaceHolders,
 	folders Folders,
 	nodes Nodes,
+	opts ...Option,
 ) Usecase {
-	return &chatFolderUsecase{
+	u := &chatFolderUsecase{
 		chats:      chats,
 		agent:      agent,
 		work:       work,
@@ -105,6 +123,10 @@ func New(
 		folders:    folders,
 		nodes:      nodes,
 	}
+	for _, opt := range opts {
+		opt(u)
+	}
+	return u
 }
 
 // ListInRepo returns repoID's own folder rows — "" for project home, a real
@@ -117,13 +139,105 @@ func (u *chatFolderUsecase) ListInRepo(
 	ctx context.Context,
 	repoID string,
 ) ([]domain.Chat, error) {
+	return u.listFolders(ctx, func(f domain.Folder) bool { return f.RepoID == repoID })
+}
+
+// ListInHome implements Usecase. A home folder written before HomeID
+// existed is adopted on this read: by the home its rows already attribute it
+// to, else by the first home that lists it — never by every home at once.
+func (u *chatFolderUsecase) ListInHome(
+	ctx context.Context,
+	homeID string,
+) ([]domain.Chat, error) {
+	return u.listFolders(ctx, func(f domain.Folder) bool {
+		if f.RepoID == "" && f.HomeID == "" {
+			f = u.adoptHomeFolder(ctx, f, homeID)
+		}
+		return f.InHome(homeID)
+	})
+}
+
+// adoptHomeFolder stamps a legacy home folder with the home it belongs to:
+// the one its ancestors or members already name, or homeID when nothing does.
+func (u *chatFolderUsecase) adoptHomeFolder(
+	ctx context.Context,
+	f domain.Folder,
+	homeID string,
+) domain.Folder {
+	home := u.homeOfFolder(ctx, f.ID, homeID, map[string]bool{})
+	if home == "" {
+		home = homeID
+	}
+	f.HomeID = home
+	if err := u.folders.Save(ctx, f); err != nil {
+		slog.WarnContext(ctx, "agent chat folder: adopt legacy home folder",
+			"folder_id", f.ID, "home_id", home, "err", err)
+	}
+	return f
+}
+
+// homeOfFolder derives a home folder's home from the rows around it: a
+// chat above or beneath it names its workspace, a folder names its home, a
+// repo beneath it names its own project's home — whoever is listing.
+func (u *chatFolderUsecase) homeOfFolder(
+	ctx context.Context,
+	id string,
+	homeID string,
+	seen map[string]bool,
+) string {
+	seen[id] = true
+	if n, err := u.nodes.GetNode(ctx, id); err == nil && n.ParentID != "" {
+		if home := u.homeOfRow(ctx, n.ParentID, homeID, seen); home != "" {
+			return home
+		}
+	}
+	children, err := u.nodes.ListByParent(ctx, id)
+	if err != nil {
+		return ""
+	}
+	for _, child := range children {
+		if home := u.homeOfRow(ctx, child.ID, homeID, seen); home != "" {
+			return home
+		}
+	}
+	return ""
+}
+
+func (u *chatFolderUsecase) homeOfRow(
+	ctx context.Context,
+	id string,
+	homeID string,
+	seen map[string]bool,
+) string {
+	if seen[id] {
+		return ""
+	}
+	if c, err := u.chats.Get(ctx, id); err == nil {
+		return c.WorkspaceID
+	}
+	if f, err := u.folders.FindByKey(ctx, id); err == nil && f != nil {
+		if f.HomeID != "" {
+			return f.HomeID
+		}
+		return u.homeOfFolder(ctx, f.ID, homeID, seen)
+	}
+	if home, err := u.workspaces.HomeOfRepo(ctx, id); err == nil {
+		return home
+	}
+	return ""
+}
+
+func (u *chatFolderUsecase) listFolders(
+	ctx context.Context,
+	keep func(domain.Folder) bool,
+) ([]domain.Chat, error) {
 	all, err := u.folders.FindAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("agent chat folder: list in repo: %w", err)
+		return nil, fmt.Errorf("agent chat folder: list folders: %w", err)
 	}
 	out := make([]domain.Chat, 0, len(all))
 	for _, f := range all {
-		if f.RepoID != repoID {
+		if !keep(f) {
 			continue
 		}
 		row := homeFolderView(f, domain.Node{})
@@ -133,6 +247,21 @@ func (u *chatFolderUsecase) ListInRepo(
 		out = append(out, row)
 	}
 	return out, nil
+}
+
+// FolderScope implements Usecase.
+func (u *chatFolderUsecase) FolderScope(
+	ctx context.Context,
+	id string,
+) (domain.Folder, error) {
+	f, err := u.folders.FindByKey(ctx, id)
+	if err != nil {
+		return domain.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, err)
+	}
+	if f == nil {
+		return domain.Folder{}, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
+	}
+	return *f, nil
 }
 
 // Create mints a new folder, home-scoped (RepoID == "") or repo-scoped
@@ -152,7 +281,8 @@ func (u *chatFolderUsecase) Create(
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
-	snapshot, err := u.globalSnapshot(ctx)
+	folder := domain.Folder{Name: name, RepoID: in.RepoID, HomeID: in.HomeID}
+	snapshot, err := u.globalSnapshotIn(ctx, domain.Chat{}, u.scopeForFolder(ctx, folder))
 	if err != nil {
 		return domain.Chat{}, nil, err
 	}
@@ -163,10 +293,11 @@ func (u *chatFolderUsecase) Create(
 	if id == "" {
 		id = uuid.NewString()
 	}
-	if err := u.folders.Save(ctx, domain.Folder{ID: id, Name: name, RepoID: in.RepoID}); err != nil {
+	folder.ID = id
+	if err := u.folders.Save(ctx, folder); err != nil {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: create %s: %w", id, err)
 	}
-	target := snapshot.plan.NextSlot(in.ParentID)
+	target := snapshot.plan.NextSlot(snapshot.canonical(in.ParentID))
 	snapshot.add(domain.Chat{
 		ID:       id,
 		Type:     domain.ChatTypeFolder,
@@ -177,7 +308,7 @@ func (u *chatFolderUsecase) Create(
 	})
 	snapshot.homeIDs[id] = true
 	snapshot.freshIDs[id] = true
-	snapshot.plan.Reorder(in.ParentID, id, target)
+	snapshot.plan.Reorder(snapshot.canonical(in.ParentID), id, target)
 	written, err := u.persist(ctx, snapshot)
 	if err != nil {
 		return domain.Chat{}, nil, u.discardFolder(ctx, id, err)
@@ -254,10 +385,9 @@ func (u *chatFolderUsecase) Move(
 	if f == nil {
 		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
 	}
-	n, err := u.nodes.GetNode(ctx, f.ID)
-	if err != nil {
-		return domain.Chat{}, nil, fmt.Errorf("agent chat folder: move %s: node: %w", f.ID, err)
-	}
+	// A folder minted before Node rows existed has none; the plan marks it
+	// fresh and this move mints it at the decided slot.
+	n, _ := u.nodes.GetNode(ctx, f.ID)
 	current := homeFolderView(*f, n)
 	snapshot, err := u.globalSnapshotAround(ctx, current)
 	if err != nil {
@@ -267,10 +397,13 @@ func (u *chatFolderUsecase) Move(
 	if in.ParentID != nil {
 		destination = *in.ParentID
 	}
+	if err := u.ensureWorkspaceAnchor(ctx, destination); err != nil {
+		return domain.Chat{}, nil, err
+	}
 	if mErr := u.checkFolderMove(ctx, snapshot, f.RepoID, f.ID, destination); mErr != nil {
 		return domain.Chat{}, nil, mErr
 	}
-	if wErr := guardNotWorking(subtreeIDsOf(f.ID, snapshot.rows), u.work); wErr != nil {
+	if wErr := guardNotWorking(snapshot.subtreeIDs(f.ID), u.work); wErr != nil {
 		return domain.Chat{}, nil, wErr
 	}
 	u.replace(snapshot, f.ID, current.ParentID, destination, in.Order, false)
@@ -296,26 +429,25 @@ func (u *chatFolderUsecase) Delete(
 	if f == nil {
 		return nil, fmt.Errorf("agent chat folder: %s: %w", id, apperr.ErrNotFound)
 	}
-	n, err := u.nodes.GetNode(ctx, f.ID)
-	if err != nil {
-		return nil, fmt.Errorf("agent chat folder: delete %s: node: %w", f.ID, err)
-	}
+	n, nErr := u.nodes.GetNode(ctx, f.ID)
 	current := homeFolderView(*f, n)
 	snapshot, err := u.globalSnapshotAround(ctx, current)
 	if err != nil {
 		return nil, err
 	}
-	if wErr := guardNotWorking(subtreeIDsOf(f.ID, snapshot.rows), u.work); wErr != nil {
+	if wErr := guardNotWorking(snapshot.subtreeIDs(f.ID), u.work); wErr != nil {
 		return nil, wErr
 	}
 	if err := u.folders.Delete(ctx, f.ID); err != nil {
 		return nil, fmt.Errorf("agent chat folder: delete %s: %w", f.ID, err)
 	}
-	if err := u.nodes.Forget(ctx, f.ID); err != nil {
-		return nil, fmt.Errorf("agent chat folder: delete %s: node: %w", f.ID, err)
+	if nErr == nil {
+		if err := u.nodes.Forget(ctx, f.ID); err != nil {
+			return nil, fmt.Errorf("agent chat folder: delete %s: node: %w", f.ID, err)
+		}
 	}
-	snapshot.plan.Reparent(f.ID, current.ParentID)
+	snapshot.plan.Reparent(f.ID, snapshot.canonical(current.ParentID))
 	snapshot.drop(f.ID)
-	snapshot.plan.Reorder(current.ParentID, "", -1)
+	snapshot.plan.Reorder(snapshot.canonical(current.ParentID), "", -1)
 	return u.persist(ctx, snapshot)
 }

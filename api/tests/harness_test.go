@@ -201,17 +201,12 @@ func (h *harness) Quiesce() {
 }
 
 // QuiesceReactors is Quiesce PLUS the join of every post-commit REACTOR the
-// mutation set in motion, then a final fold of what those reactors dispatched.
-// It mirrors kit.Env.QuiesceReactors (see its doc comment for why all three steps
-// are load-bearing) and is the barrier for the async cascades — above all DELETE —
-// whose effect lands outside the aggregate and is therefore invisible to a plain
-// projection drain: a reactor detaches into its own goroutine, so WaitQuiescent
-// sees its handler "complete" the moment the goroutine is spawned, long before
-// the purge it spawned has finished.
+// mutation set in motion, then a fold of what those reactors dispatched. It
+// mirrors kit.Env.QuiesceReactors and is the barrier for the async cascades —
+// above all DELETE — whose effect lands outside the aggregate and is therefore
+// invisible to a plain projection drain.
 func (h *harness) QuiesceReactors() {
-	h.app.Repositories.WaitQuiescent()
-	h.app.Repositories.Drain().Gate.WaitIdle(context.Background())
-	h.app.Repositories.WaitQuiescent()
+	h.app.Repositories.QuiesceReactors(context.Background())
 }
 
 // get issues GET path, asserts the success envelope, and decodes data into out.

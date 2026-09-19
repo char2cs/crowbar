@@ -46,5 +46,6 @@ func (c SetWorkspace) EmitEvent(
 ) domain.Chat {
 	chat := *current
 	chat.WorkspaceID = c.WorkspaceID
+	chat.OwnsWorkspace = c.WorkspaceID != ""
 	return chat
 }

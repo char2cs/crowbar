@@ -720,11 +720,13 @@ func (s *fakeRunnerStore) Move(
 	runnerID, toChatID, sessionID string,
 	resumable bool,
 	now time.Time,
+	model string,
+	effort string,
 ) (engineagents.Runner, error) {
 	if s.failMove != nil {
 		return engineagents.Runner{}, s.failMove
 	}
-	r, err := s.EventStore.Move(ctx, runnerID, toChatID, sessionID, resumable, now)
+	r, err := s.EventStore.Move(ctx, runnerID, toChatID, sessionID, resumable, now, model, effort)
 	if s.afterMove != nil {
 		s.afterMove()
 	}
@@ -1348,7 +1350,7 @@ func indexOf(ss []string, target string) int {
 // reaches this directly.
 func (f testFixture) runnersMove(t *testing.T, runnerID, chatID, sessionID string) error {
 	t.Helper()
-	_, err := f.runners.Move(f.ctx, runnerID, chatID, sessionID, false, time.Now())
+	_, err := f.runners.Move(f.ctx, runnerID, chatID, sessionID, false, time.Now(), "", "")
 	f.wait()
 	return err
 }

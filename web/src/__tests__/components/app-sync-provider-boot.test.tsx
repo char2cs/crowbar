@@ -46,6 +46,8 @@ import { success } from '@/lib/loadable'
 import { resetDB } from '@/lib/persistence/idb'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
+import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
+import { hydrateSidebar } from '@/lib/persistence/hydrate'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import type { FolderDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
@@ -214,14 +216,9 @@ beforeEach(async () => {
     Promise.resolve(repoId === 'r1' ? [folderDTO('f1', 'r1', projectId, { name: 'spikes' })] : []),
   )
   useProjectStore.setState({ activeProjectId: 'p1' })
-  // p2 is KNOWN and therefore open: every project the list delivers is visible
-  // until the user folds it away.
+  // p2 is KNOWN and therefore open: every project the list delivers is visible.
   useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
-  useSidebarStore.setState({
-    repos: [],
-    collapsedRepos: new Set<string>(),
-    collapsedProjects: new Set<string>(),
-  })
+  useSidebarStore.setState({ repos: [] })
   useFolderSignalStore.setState({ generations: {} })
   vi.spyOn(useProjectDataStore.getState(), 'fetch').mockResolvedValue(undefined)
   vi.spyOn(useProjectDataStore.getState(), 'startSync').mockReturnValue(() => {})
@@ -461,33 +458,15 @@ describe('AppSyncProvider boot, end to end', () => {
     expect(workspaceIdsOf('r1')).toEqual(['w1'])
   })
 
-  it('collapsing a project keeps its rows cached for an instant re-open', async () => {
+  // REGRESSION (restyle v2): the pre-restyle tree persisted `collapsedProjects`
+  // and it gated a folded project's streams and rows; the restyled sidebar has
+  // no writer for it, so a project the OLD build folded booted blank whenever
+  // it was not active. The retired set must not withhold a project's tree.
+  it('fills a project the old build persisted as folded, from seeds alone', async () => {
+    await saveSidebarUI({ collapsedProjects: ['p2'], collapsedChatRows: [] })
+    await hydrateSidebar()
     await boot()
-    await waitFor(() => expect(repoIds()).toEqual(['r1', 'r2']))
-    const cached = useSidebarStore.getState().repos.find((repo) => repo.id === 'r2')
-
-    await act(async () => {
-      useSidebarStore.getState().toggleProject('p2')
-    })
-    expect(useSidebarStore.getState().collapsedProjects.has('p2')).toBe(true)
+    await waitFor(() => expect(workspaceIdsOf('r2')).toEqual(['w2']))
     expect(repoIds()).toEqual(['r1', 'r2'])
-    expect(useSidebarStore.getState().repos.find((repo) => repo.id === 'r2')).toBe(cached)
-    // ...and the active project's rows are still there.
-    expect(workspaceIdsOf('r1')).toEqual(['w1'])
-  })
-
-  it('re-opening a project exposes the already-cached rows synchronously', async () => {
-    await boot()
-    const cached = useSidebarStore.getState().repos.find((repo) => repo.id === 'r2')
-    await act(async () => {
-      useSidebarStore.getState().toggleProject('p2')
-    })
-
-    await act(async () => {
-      useSidebarStore.getState().toggleProject('p2')
-    })
-    expect(useSidebarStore.getState().collapsedProjects.has('p2')).toBe(false)
-    expect(repoIds()).toEqual(['r1', 'r2'])
-    expect(useSidebarStore.getState().repos.find((repo) => repo.id === 'r2')).toBe(cached)
   })
 })

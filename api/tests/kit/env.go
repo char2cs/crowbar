@@ -648,7 +648,9 @@ func (e *Env) OwningChatID(
 
 	rows, err := e.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
 	require.NoError(t, err, "OwningChatID: list the chats holding %s", wsID)
-	owner, ok := domain.ResolveOwningChat(rows)
+	ws, err := e.app.Usecases.Workspace.Get(ctx, wsID)
+	require.NoError(t, err, "OwningChatID: read workspace %s", wsID)
+	owner, ok := domain.ResolveOwningChat(rows, ws.SharedGround())
 	require.Truef(
 		t,
 		ok,
@@ -1185,6 +1187,26 @@ func (e *Env) createWorkspace(
 	parentID string,
 ) (wsID string, chatID string) {
 	t.Helper()
+	return e.createWorkspaceQuiesced(t, projectID, repoID, branch, parentID, true)
+}
+
+// createWorkspaceQuiesced is createWorkspace with the trailing e.Quiesce()
+// made optional. Quiesce calls WaitPublish on the shared per-type asynx
+// dispatcher, which refuses every OTHER in-flight Dispatch for the duration
+// (see asynx's Dispatcher.waiting) — safe for one caller at a time, but a
+// concurrent-fanout caller running N of these at once has N siblings each
+// briefly blocking every other's in-flight command with ErrDispatcherClosed.
+// quiesce=false lets a fanout caller skip that and settle once after its own
+// WaitGroup, instead of each goroutine racing its siblings' dispatches.
+func (e *Env) createWorkspaceQuiesced(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	branch string,
+	parentID string,
+	quiesce bool,
+) (wsID string, chatID string) {
+	t.Helper()
 	ctx := context.Background()
 	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
 	require.NoError(t, err, "createWorkspace: read repo %s", repoID)
@@ -1230,7 +1252,9 @@ func (e *Env) createWorkspace(
 
 	// The create's own writes are asynx commands; drain them so a caller that
 	// reads the row (or dials its chat) next sees it rather than racing it.
-	e.Quiesce()
+	if quiesce {
+		e.Quiesce()
+	}
 	return ws.ID, mintedChatID
 }
 
@@ -1246,6 +1270,22 @@ func (e *Env) CreateWorkspaceWithChat(
 ) (string, string) {
 	t.Helper()
 	return e.createWorkspace(t, projectID, repoID, branch, parentID)
+}
+
+// CreateWorkspaceWithChatConcurrent is CreateWorkspaceWithChat for a caller
+// running many of these at once (see createWorkspaceQuiesced's own doc):
+// no per-call Quiesce, so N siblings never refuse each other's in-flight
+// dispatch. Call e.Quiesce() once after the fanout's WaitGroup if the caller
+// needs the read model settled.
+func (e *Env) CreateWorkspaceWithChatConcurrent(
+	t *testing.T,
+	projectID string,
+	repoID string,
+	branch string,
+	parentID string,
+) (string, string) {
+	t.Helper()
+	return e.createWorkspaceQuiesced(t, projectID, repoID, branch, parentID, false)
 }
 
 // ImportedRepo bundles the ids a full project+repo import yields: the project,
@@ -1281,35 +1321,12 @@ func (e *Env) Quiesce() {
 // mutation set in motion. It is the barrier for the async cascades whose whole
 // effect lands outside the aggregate — above all DELETE, which converges only
 // when the read-model row is gone AND the worktree is physically gone from disk.
-//
-// Quiesce alone is NOT enough for those, and the gap is structural rather than a
-// matter of degree. A reactor is an asynx SUBSCRIBER that immediately detaches:
-// its handler does `drainWG.Add(1); go run(...)` and returns. WaitPublish
-// therefore observes the handler as complete the moment it has spawned the
-// goroutine — while the purge it spawned has not yet Forgotten the aggregate or
-// rm'd the worktree. The detached goroutine is joined by exactly one thing, the
-// container's drain WaitGroup, which is the same one the daemon's graceful
-// shutdown waits on. So this is the production drain, used as a test barrier.
-//
-// The three steps are a CHAIN, and each is needed:
-//
-//  1. WaitQuiescent — dispatch the command and fold its projections. This must be
-//     first for two reasons: it is what gets the deleted event to the reactor, so
-//     the reactor's Add(1) has happened before anything waits on the WaitGroup
-//     (waiting first would find a zero counter and synchronise with nothing); and
-//     it lands the tombstone in the read model, which is precisely what the
-//     reactor's own gate is waiting to see.
-//  2. Drain().Gate.WaitIdle(context.Background()) — join the detached purge: rm the worktree, Forget the
-//     aggregate, cascade to dependents.
-//  3. WaitQuiescent again — the purge's Forget is ITSELF an asynx command, and the
-//     read-model row is dropped by that command's PROJECTION. So the reactor
-//     finishing is not the end of the chain: without this last fold, the row the
-//     delete is supposed to remove is still sitting there. (Found the hard way:
-//     step 3 is exactly the assertion that failed without it.)
+// A reactor detaches into its own goroutine, so Quiesce alone sees its handler
+// "complete" the moment that goroutine is spawned; see
+// repositories.Container.QuiesceReactors for the round-by-round barrier, and
+// for why a reactor is never let past the drain gate WHILE a drain waits.
 func (e *Env) QuiesceReactors() {
-	e.app.Repositories.WaitQuiescent()
-	e.app.Repositories.Drain().Gate.WaitIdle(context.Background())
-	e.app.Repositories.WaitQuiescent()
+	e.app.Repositories.QuiesceReactors(context.Background())
 }
 
 // ImportRepo creates a real git repo at the supplied path (or inits a fresh one

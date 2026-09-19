@@ -41,7 +41,10 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 // the real resolver needs an async fetch+cache round trip these tests have
 // no reason to exercise; `handleCreateHomeThread`'s own tests never needed
 // this mock since they take `homeWorkspaceId` as a direct argument instead.
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({ getHomeWorkspaceId }))
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
+  getHomeWorkspaceId,
+  getHomeOwningChatId: () => null,
+}))
 
 import {
   resolveChatRow,
@@ -134,14 +137,16 @@ describe('resolveRow', () => {
 })
 
 describe('handleOpen', () => {
-  it('navigates into a workspace row', () => {
+  // A workspace row whose owning chat has not been recorded yet is a list
+  // still landing (the daemon mints an owner on the first read of a chatless
+  // workspace), so it says so instead of navigating to a route whose
+  // chat-keyed explorer could never load.
+  it('says the chat is still loading, and does not navigate, for a workspace row with no owning chat yet', () => {
     const navigate = vi.fn()
     const repos = [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })]
     handleOpen('ws-a', repos, navigate)
-    expect(navigate).toHaveBeenCalledWith({
-      to: '/ide/$projectId/$repoId/$wsId',
-      params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-a' },
-    })
+    expect(navigate).not.toHaveBeenCalled()
+    expect(toastError).toHaveBeenCalledWith("Can't open alpha yet — its chat is still loading")
   })
 
   it('toggles a folder instead of navigating', () => {
@@ -691,6 +696,14 @@ describe('a project-home chat row resolves Thread through its home workspace, an
 // chat row only once something ELSE later starts a conversation in it. One
 // call now produces both at once (model spec §4.1, "one command replaces
 // every create path").
+//
+// The parentId these send is a WORKSPACE id ('home-1', the repo's default
+// checkout) when the fixture records no owning chat for it. The daemon
+// accepts that shape as-is: it resolves the id through the workspace's own
+// anchor row (validate.go resolveRow / walk.go's fork-parent walk), answers
+// 201, and the new fork's git parent IS that workspace, its branch the one
+// typed here (api/tests TestRegression_SidebarForkWithWorkspaceIdAsParent).
+// No wire change on this side.
 describe('creating a workspace off the repo-home row', () => {
   it('calls the atomic own-worktree endpoint, not postWorkspace', async () => {
     useAgentProvidersStore.setState({
@@ -714,7 +727,9 @@ describe('creating a workspace off the repo-home row', () => {
   })
 
   // The clicked row's own id is the fallback, not the rule — see the regular-fork
-  // block below, where the workspace names a real owning chat to place by.
+  // block below, where the workspace names a real owning chat to place by. The
+  // fallback is a workspace id the daemon accepts as a fork parent (201, fork
+  // cut off 'ws-a' with the typed branch) — see the describe's own note.
   it('falls back to the clicked row id for a workspace that names no owning chat', async () => {
     useAgentProvidersStore.setState({
       status: 'ready',
@@ -1130,6 +1145,155 @@ describe('handleCreateHomeThread', () => {
 
     expect(toastError).toHaveBeenCalledOnce()
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  // The space header's Thread button is the ONE create path with no
+  // `createInFlight` key and no pending row: nothing on screen changes until
+  // the round trip lands, so a second click mints a second chat — the exact
+  // double-mint `handleCreate`'s own guard exists to stop (its doc: "a user
+  // who saw nothing happen clicked again").
+  it('a second click while the first create is still in flight mints nothing extra', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    let settle!: (id: string) => void
+    createChat.mockImplementationOnce(() => new Promise<string>((r) => (settle = r)))
+
+    const first = handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+    const second = handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+    settle('chat-1')
+    await Promise.all([first, second])
+
+    expect(createChat).toHaveBeenCalledOnce()
+  })
+
+  it('draws a pending root row the instant it is clicked and clears it once the chat lands at root', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [{ id: 'c-old', repoId: '', workspaceId: 'home-ws-1', title: 'Old', order: 0 }],
+          folders: [],
+        },
+      },
+    })
+    let settle!: (id: string) => void
+    createChat.mockImplementationOnce(() => new Promise<string>((r) => (settle = r)))
+
+    const done = handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+
+    const [entry] = usePendingCreatesStore.getState().entries
+    expect(entry).toMatchObject({
+      kind: 'chat',
+      projectId: 'p1',
+      parentId: '',
+      order: 1,
+      workspaceId: 'home-ws-1',
+      status: 'creating',
+    })
+
+    settle('chat-1')
+    await done
+    expect(usePendingCreatesStore.getState().entries[0]?.realId).toBe('chat-1')
+
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [
+            { id: 'c-old', repoId: '', workspaceId: 'home-ws-1', title: 'Old', order: 0 },
+            { id: 'chat-1', repoId: '', workspaceId: 'home-ws-1', title: '', order: 1 },
+          ],
+          folders: [],
+        },
+      },
+    })
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries).toEqual([])
+  })
+
+  it('a refused create leaves the pending row in error carrying the daemon’s reason, and says it', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    createChat.mockRejectedValueOnce(new Error('agent chat: parent ws-1: apperr: not found'))
+
+    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
+
+    expect(usePendingCreatesStore.getState().entries[0]).toMatchObject({
+      status: 'error',
+      error: 'agent chat: parent ws-1: apperr: not found',
+    })
+    expect(toastError).toHaveBeenCalledWith(
+      expect.any(String),
+      'agent chat: parent ws-1: apperr: not found',
+    )
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+})
+
+// A create the daemon refused used to leave only a bare "failed" badge — the
+// reason it stored on the entry was never toasted or logged, so a 404 "parent
+// not found" and a 409 "no fork parent" were indistinguishable from a network
+// drop, on screen and in the desktop log alike.
+describe('a refused create says why', () => {
+  beforeEach(() => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+  })
+
+  it('thread: toasts and logs the daemon’s own reason', async () => {
+    useSidebarStore.setState({
+      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    createChat.mockRejectedValueOnce(new Error('agent chat: parent ws-a: apperr: not found'))
+
+    handleCreate('ws-a', 'thread', vi.fn())
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries[0]).toMatchObject({
+      status: 'error',
+      error: 'agent chat: parent ws-a: apperr: not found',
+    })
+    expect(toastError).toHaveBeenCalledWith(
+      expect.any(String),
+      'agent chat: parent ws-a: apperr: not found',
+    )
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  it('fork: toasts and logs the daemon’s own reason', async () => {
+    useSidebarStore.setState({
+      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    createChatWithOwnWorktree.mockRejectedValueOnce(new Error('agent chat: no fork parent'))
+
+    handleCreate('ws-a', 'workspace', vi.fn())
+    confirmArmedBranchName('test/test')
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(usePendingCreatesStore.getState().entries[0]).toMatchObject({
+      status: 'error',
+      label: 'test/test',
+      error: 'agent chat: no fork parent',
+    })
+    expect(toastError).toHaveBeenCalledWith(expect.any(String), 'agent chat: no fork parent')
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
   })
 })
 

@@ -1,5 +1,6 @@
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { applyFolderPlacements } from '@/lib/store/applied-placement'
 import { applyHomeFolders, getHomeTree, resolveHomeRowScope } from '@/lib/store/home-tree'
 import { toSidebarFolder } from '@/lib/store/build-repo-tree'
 import {
@@ -20,6 +21,18 @@ import { toast } from '@/features/window/stores/toast-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { isChatWorking } from '@/features/workspace/stores/workspace-store-registry'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
+import { OwningChatNotRecordedError } from '@/lib/workspace-scope-url'
+
+/**
+ * Every worktree verb is addressed through the chat that owns the workspace
+ * (workspace-scope-url.ts), and the daemon mints that chat on the first read
+ * of a workspace that has none — so a row without one is a row whose list
+ * has not landed yet, never a dead end. Said so, instead of the raw scope
+ * error the throw below carries.
+ */
+export function chatNotLoadedYet(verb: string, branch: string | undefined): string {
+  return `Can't ${verb} ${branch ?? 'this branch'} yet — its chat is still loading`
+}
 
 /** What a folder is called until the user says otherwise (matches the
  *  deleted workspace-tree-context.tsx's NEW_FOLDER_NAME). */
@@ -55,6 +68,10 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
   try {
     await renameWorkspaceBranch(projectId, repo.id, wsId, branch)
   } catch (err) {
+    if (err instanceof OwningChatNotRecordedError) {
+      toast.error(chatNotLoadedYet('rename', ws.branch))
+      return
+    }
     toast.error(err instanceof Error ? err.message : 'Failed to rename branch')
   }
 }
@@ -71,16 +88,8 @@ export async function performRenameWorkspaceBranch(wsId: string, branch: string)
  * closed), so the PATCH's `{folder, shifted}` answer is the only confirmation
  * this edit ever gets. Applying it is not optimistic — it is the daemon's own
  * already-committed state, arriving over the request instead of a stream.
- *
- * The direct `applyFolderDTO` write is instant visual feedback only — it
- * touches `useSidebarStore`, never the `crowbar_folders` IndexedDB cache that
- * every tree REBUILD reads from exclusively (`readVisibleRepoTree`). Without
- * the `bump` below, the very next rebuild — which fires for reasons that have
- * nothing to do with this edit, e.g. any repo's `defaultWorking` flipping —
- * would silently revert it, because the cache was never told. `bump` routes
- * through the same reseed mechanism `app-sync-provider.tsx` already built for
- * "another window's change eventually catches up," which writes the cache
- * authoritatively; the acting window now uses it too, immediately.
+ * `applyFolderPlacements` writes the entity cache every rebuild reads BEFORE
+ * the store, so no rebuild can revert it.
  */
 export async function performRenameFolder(folderId: string, name: string): Promise<void> {
   const repo = useSidebarStore
@@ -90,13 +99,12 @@ export async function performRenameFolder(folderId: string, name: string): Promi
   if (!repo?.projectId || !folder) return
   if (folder.name === name) return
   try {
-    const { folder: updated, shifted } = await placeFolder(repo.projectId, repo.id, folderId, {
-      name,
-    })
-    const apply = useSidebarStore.getState().applyFolderDTO
-    apply(updated)
-    shifted.forEach(apply)
-    useFolderSignalStore.getState().bump(repo.id)
+    const {
+      folder: updated,
+      shifted,
+      shiftedRows,
+    } = await placeFolder(repo.projectId, repo.id, folderId, { name })
+    await applyFolderPlacements(repo.id, [updated, ...shifted], shiftedRows)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to rename folder')
   }
@@ -373,6 +381,11 @@ export async function performSetWorkspaceLock(
     await setWorkspaceLock(wsId, locked)
     useFolderSignalStore.getState().bump(repo.id)
   } catch (err) {
+    if (err instanceof OwningChatNotRecordedError) {
+      const branch = repo.workspaces.find((w) => w.id === wsId)?.branch
+      toast.error(chatNotLoadedYet(locked === false ? 'unlock' : 'lock', branch))
+      return
+    }
     toast.error(err instanceof Error ? err.message : 'Failed to update lock')
   }
 }
@@ -522,19 +535,14 @@ export async function performCreateFolder(rowId: string): Promise<void> {
   try {
     // Applied directly for the same reason performRenameFolder does: no
     // dedicated push channel exists for folders any more, so the response IS
-    // the confirmation. `bump` (see performRenameFolder's doc) writes
-    // `crowbar_folders` too — without it, the new row survives only until the
-    // next unrelated tree rebuild silently drops it again.
-    const { folder, shifted } = await createFolder(
+    // the confirmation.
+    const { folder, shifted, shiftedRows } = await createFolder(
       projectId,
       repo.id,
       NEW_FOLDER_NAME,
       folderParentId,
     )
-    const apply = useSidebarStore.getState().applyFolderDTO
-    apply(folder)
-    shifted.forEach(apply)
-    useFolderSignalStore.getState().bump(repo.id)
+    await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to create folder')
   }
@@ -560,11 +568,13 @@ export async function performCreateFolderFromChat(chatId: string): Promise<void>
   const projectId = repo?.projectId
   if (!repo || !projectId) return
   try {
-    const { folder, shifted } = await createFolder(projectId, repo.id, NEW_FOLDER_NAME, '')
-    const apply = useSidebarStore.getState().applyFolderDTO
-    apply(folder)
-    shifted.forEach(apply)
-    useFolderSignalStore.getState().bump(repo.id)
+    const { folder, shifted, shiftedRows } = await createFolder(
+      projectId,
+      repo.id,
+      NEW_FOLDER_NAME,
+      '',
+    )
+    await applyFolderPlacements(repo.id, [folder, ...shifted], shiftedRows)
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to create folder')
   }

@@ -2,6 +2,7 @@ package tree
 
 import (
 	"context"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -78,25 +79,16 @@ type Nodes interface {
 	) error
 }
 
-// WorkspaceGitStatus is the narrow read port DeletePreview needs off the
-// workspace usecase: each workspace's own already-synced Added/Deleted
-// working-tree counts (00 §5.3) — the same numbers the sidebar itself
-// renders, never a live git call. A preview runs before every idle delete
-// confirm, so it has to stay as cheap as the read model it draws from.
-//
-// It is not a home-only port (DeletePreview needs it for every scope) — it
-// lives in this file only because RepoIDsForHome (below) is, and moving the
-// whole interface here keeps types.go under this package's own 500-line
+// WorkspaceGitStatus is the narrow read port the tree needs off the
+// workspace usecase: the facts about a workspace (its repo, its default
+// checkout, whether it draws a branch row) that decide where its rows sit.
+// It lives in this file only because RepoIDsForHome (below) is, and moving
+// the whole interface here keeps types.go under this package's own 500-line
 // layering ceiling.
 type WorkspaceGitStatus interface {
-	WorkingTreeSummary(
-		ctx context.Context,
-		workspaceID string,
-	) (added, deleted int, err error)
 	// RepoOf answers the repo a workspace belongs to — "" for the project-home
-	// workspace, a real repo id otherwise (domain.Workspace.RepoID, straight
-	// off the same Get the adapter already makes for WorkingTreeSummary, no
-	// new dependency). checkFolderContainer's golden rule uses it to resolve
+	// workspace, a real repo id otherwise (domain.Workspace.RepoID).
+	// checkFolderContainer's golden rule uses it to resolve
 	// the scope on the OTHER side of a folder-under-workspace-owning-row
 	// containment check: a folder's own scope is its stored RepoID (or, for a
 	// folder-under-folder check, the parent folder's own RepoID — no lookup
@@ -107,6 +99,27 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		workspaceID string,
 	) (repoID string, err error)
+	// DefaultWorkspaceOf answers repoID's default checkout — whose root chats
+	// sit at the repo's root level beside its folders and locked branches.
+	DefaultWorkspaceOf(
+		ctx context.Context,
+		repoID string,
+	) (string, error)
+	// Exists reports whether workspaceID names a live workspace — the probe
+	// ensureWorkspaceAnchor needs before minting a legacy row's anchor Node.
+	Exists(
+		ctx context.Context,
+		workspaceID string,
+	) (bool, error)
+	// Provisioned reports whether workspaceID has a worktree on disk at all
+	// (domain.Workspace.WorktreePath != ""). A placeholder has none, and a
+	// chat created in it has nowhere to run — see ErrWorkspaceUnprovisioned.
+	// An unresolvable id answers true: this is a refusal probe, and a read
+	// that failed is not evidence the row is a placeholder.
+	Provisioned(
+		ctx context.Context,
+		workspaceID string,
+	) (bool, error)
 	// RepoIDsForHome answers every repo id belonging to the SAME project as
 	// home workspace homeWorkspaceID — this package's own counterpart to
 	// project.go's repoIDSet. See mergeHomeForest's own doc (home_forest.go)
@@ -116,6 +129,13 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		homeWorkspaceID string,
 	) (map[string]bool, error)
+	// HomeOfRepo answers the home workspace of the project repoID belongs
+	// to, "" for an unknown repo — which home a legacy folder holding that
+	// repo's header row belongs to, whoever is asking.
+	HomeOfRepo(
+		ctx context.Context,
+		repoID string,
+	) (string, error)
 	// RendersAsBranch answers domain.Workspace.RendersAsBranch for
 	// workspaceID — the one fact mergeForest needs to decide whether a
 	// NodeKindWorkspace row it discovers is a genuine sidebar row (a locked
@@ -127,6 +147,21 @@ type WorkspaceGitStatus interface {
 		ctx context.Context,
 		workspaceID string,
 	) (bool, error)
+	// CreatedAtOf answers when workspaceID was created — the timestamp the
+	// sidebar ties a branch row on (rows-from-repo.ts stamps the row with the
+	// WORKSPACE's createdAt), so a tied level sorts the same on both sides.
+	CreatedAtOf(
+		ctx context.Context,
+		workspaceID string,
+	) (time.Time, error)
+	// BranchRowsOf answers the workspaces of repoID the sidebar draws as
+	// branch rows of their own (RendersAsBranch), the default checkout
+	// excluded: the members a repo-root densify must count whether or not
+	// each has a Node row yet.
+	BranchRowsOf(
+		ctx context.Context,
+		repoID string,
+	) ([]string, error)
 	// VisibleForkParent answers the workspace whose space a fork's own row must
 	// stay inside — domain.Workspace.ParentID, reduced to "" (the repo tree's
 	// own root) when that parent draws no row of its own in that tree.

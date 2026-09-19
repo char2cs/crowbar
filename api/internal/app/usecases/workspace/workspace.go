@@ -53,6 +53,7 @@ var (
 	ErrCrossRepoWorktreeMove        = hierarchy.ErrCrossRepoWorktreeMove
 	ErrSelfParent                   = hierarchy.ErrSelfParent
 	ErrWorkspaceLocked              = hierarchy.ErrWorkspaceLocked
+	ErrWorkspaceIsDefault           = hierarchy.ErrWorkspaceIsDefault
 	ErrBranchWorkspaceExists        = hierarchy.ErrBranchWorkspaceExists
 	ErrParentUnprovisioned          = hierarchy.ErrParentUnprovisioned
 	ErrRenameUnmanagedWorkspace     = hierarchy.ErrRenameUnmanagedWorkspace

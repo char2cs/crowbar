@@ -34,6 +34,26 @@ export interface WorkspacePlacement {
   order?: number
 }
 
+/** One row's decided placement, as a placement PATCH reports it. */
+export interface PlacedRow {
+  id: string
+  /** A chat id, a folder id, or '' for the root. */
+  parentId: string
+  order: number
+}
+
+/** {@link placeWorkspace}'s answer: the moved row (its `id` is the Node the
+ *  daemon addressed — a locked branch's own workspace, or an ordinary fork's
+ *  owning chat) plus every sibling the dense renumber shifted. Apply both. */
+export interface WorkspaceWriteResult {
+  workspace: PlacedRow
+  shifted: PlacedRow[]
+}
+
+function toPlacedRow(raw: { id: string; parentId?: string; order?: number }): PlacedRow {
+  return { id: raw.id, parentId: raw.parentId ?? '', order: raw.order ?? 0 }
+}
+
 /**
  * File a LOCKED branch's own row into a folder, at an index.
  *
@@ -53,16 +73,28 @@ export interface WorkspacePlacement {
  * within the branch's own repo. It stays named `folderId` on this side to
  * keep the caller's guarantee that a folder can never be mistaken for a fork
  * parent, which is a different edge written by `reparentWorkspace` next door.
+ *
+ * Answers the decided placement: no workspace frame carries one, so this is
+ * the only confirmation the drop gets (`drop-actions.ts` applies it).
  */
-export function placeWorkspace(wsId: string, placement: WorkspacePlacement): Promise<void> {
-  return apiFetch(`${workspaceBase(wsId)}/placement`, {
+export function placeWorkspace(
+  wsId: string,
+  placement: WorkspacePlacement,
+): Promise<WorkspaceWriteResult> {
+  return apiFetch<{
+    workspace: { id: string; parentId?: string; order?: number }
+    shifted?: { id: string; parentId?: string; order?: number }[]
+  }>(`${workspaceBase(wsId)}/placement`, {
     method: 'PATCH',
     headers: JSON_HEADERS,
     body: JSON.stringify({
       ...(placement.folderId !== undefined && { parentId: placement.folderId }),
       ...(placement.order !== undefined && { order: placement.order }),
     }),
-  })
+  }).then((raw) => ({
+    workspace: toPlacedRow(raw.workspace),
+    shifted: (raw.shifted ?? []).map(toPlacedRow),
+  }))
 }
 
 /** A folder's name and placement; every field is optional and only what is
@@ -76,12 +108,16 @@ export interface FolderPlacement {
 
 /** One folder mutation's answer: the row asked about, plus every sibling a
  *  dense renumber moved alongside it (folders and workspaces share one
- *  sibling space). Apply both — matches `agent-api.ts`'s `createChatFolder`/
- *  `updateChatFolder`, which read the same `{folder, shifted}` envelope off
- *  the same backend route family. */
+ *  sibling space). Apply all of it — matches `agent-api.ts`'s
+ *  `createChatFolder`/`updateChatFolder`, which read the same
+ *  `{folder, shifted}` envelope off the same backend route family. */
 interface FolderWriteResult {
   folder: FolderDTO
+  /** The shifted FOLDER siblings. */
   shifted: FolderDTO[]
+  /** The shifted siblings of any other kind — a locked branch by its
+   *  workspace id — as bare placements. */
+  shiftedRows: PlacedRow[]
 }
 
 function toFolderWriteResult(
@@ -89,10 +125,16 @@ function toFolderWriteResult(
   projectId: string,
   repoId: string,
 ): FolderWriteResult {
-  return {
-    folder: folderDTOFromWire(raw.folder, projectId, repoId),
-    shifted: (raw.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, repoId)),
+  const shifted: FolderDTO[] = []
+  const shiftedRows: PlacedRow[] = []
+  for (const row of raw.shifted ?? []) {
+    if (row.type === undefined || row.type === 'folder') {
+      shifted.push(folderDTOFromWire(row, projectId, repoId))
+    } else {
+      shiftedRows.push(toPlacedRow(row))
+    }
   }
+  return { folder: folderDTOFromWire(raw.folder, projectId, repoId), shifted, shiftedRows }
 }
 
 /**

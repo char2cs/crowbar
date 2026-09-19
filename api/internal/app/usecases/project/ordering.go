@@ -3,7 +3,9 @@ package project
 import (
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -13,6 +15,10 @@ type slot struct {
 	at    int
 	id    string
 	order int
+	// rank and createdAt break an order tie the same way the chat writer
+	// does (tree.compareNodes): row kind, then creation time, then id.
+	rank      int
+	createdAt time.Time
 }
 
 // move names a row that has to be written back, by its position in the caller's
@@ -63,6 +69,12 @@ func sortSlots(
 	slices.SortFunc(slots, func(a, b slot) int {
 		if a.order != b.order {
 			return a.order - b.order
+		}
+		if a.rank != b.rank {
+			return a.rank - b.rank
+		}
+		if !a.createdAt.Equal(b.createdAt) {
+			return a.createdAt.Compare(b.createdAt)
 		}
 		return strings.Compare(a.id, b.id)
 	})
@@ -125,9 +137,24 @@ func nodeIndex(
 ) []slot {
 	slots := make([]slot, 0, len(rows))
 	for i, row := range rows {
-		slots = append(slots, slot{at: i, id: row.ID, order: row.Order})
+		slots = append(slots, slot{at: i, id: row.ID, order: row.Order, rank: rankOfKind(row.Kind)})
 	}
 	return slots
+}
+
+// rankOfKind is tree.Node.Rank for a Node kind.
+func rankOfKind(
+	kind domain.NodeKind,
+) int {
+	switch kind {
+	case domain.NodeKindFolder:
+		return tree.RankFolder
+	case domain.NodeKindChat:
+		return tree.RankChat
+	case domain.NodeKindWorkspace:
+		return tree.RankWorkspace
+	}
+	return tree.RankRepo
 }
 
 func projectIndex(

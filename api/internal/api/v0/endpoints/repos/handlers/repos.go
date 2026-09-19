@@ -175,11 +175,16 @@ type RepoImporter interface {
 	) error
 }
 
-// NodeReader is the narrow read-only Node surface the repos handlers need to
-// fill in a RepoDTO's own sidebar position (Order/FolderID) — see domain.Node
-// and dto.RepoPlacement. Every WRITE to a repo's position goes through
-// RepoUpdater (project.Usecase.UpdateRepo) instead; this is display-only.
+// NodeReader is the narrow Node surface the repos handlers need: reading a
+// RepoDTO's own sidebar position (Order/FolderID — see domain.Node and
+// dto.RepoPlacement), and forgetting the row when the repo goes. Every other
+// WRITE to a repo's position goes through RepoUpdater
+// (project.Usecase.UpdateRepo) instead.
 type NodeReader interface {
+	Forget(
+		ctx context.Context,
+		id string,
+	) error
 	GetNode(
 		ctx context.Context,
 		id string,
@@ -194,7 +199,7 @@ type RepoUpdater interface {
 		ctx context.Context,
 		repoID string,
 		in project.RepoUpdate,
-	) (domain.Repository, error)
+	) (project.RepoUpdated, error)
 }
 
 // Handlers serves the /v0/repos routes from the repository GORM store. Domain
@@ -650,15 +655,36 @@ func (h *Handlers) Patch(
 	if !ok {
 		return
 	}
-	repo, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update)
+	updated, err := h.updater.UpdateRepo(c.Request.Context(), c.Param("repoId"), update)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(c, status, msg)
 		return
 	}
-	h.relocateEntityDir(c, c.Param("projectId"), repo)
-	h.broadcast(dto.RepoDTOFrom(repo, h.placementOf(c.Request.Context(), repo.ID)))
+	h.relocateEntityDir(c, c.Param("projectId"), updated.Repo)
+	// The DECIDED placement, never a re-read: the Node projection folds after
+	// the write returns, so a read here can still serve the old order.
+	h.broadcast(dto.RepoDTOFrom(updated.Repo, dto.RepoPlacement{FolderID: updated.Node.ParentID, Order: updated.Node.Order}))
+	h.broadcastShiftedRepos(c.Request.Context(), updated.Shifted)
 	c.Status(http.StatusNoContent)
+}
+
+// broadcastShiftedRepos announces every OTHER repo a placement renumbered as
+// collateral; chat/folder rows ride their own channel.
+func (h *Handlers) broadcastShiftedRepos(
+	ctx context.Context,
+	shifted []domain.Node,
+) {
+	for _, n := range shifted {
+		if n.Kind != domain.NodeKindRepo {
+			continue
+		}
+		repo, err := h.store.FindByKey(ctx, n.ID)
+		if err != nil || repo == nil {
+			continue
+		}
+		h.broadcast(dto.RepoDTOFrom(*repo, dto.RepoPlacement{FolderID: n.ParentID, Order: n.Order}))
+	}
 }
 
 // relocateEntityDir follows a repo that changed projects with its entity
@@ -759,6 +785,13 @@ func (h *Handlers) DeleteRepo(
 		// a repo was deleted.
 		if err := h.store.Delete(ctx, repoID); err != nil {
 			return
+		}
+		// The header's slot goes with the row, or a ghost keeps counting in
+		// whatever home container it was filed in.
+		if h.nodes != nil {
+			if err := h.nodes.Forget(ctx, repoID); err != nil {
+				slog.WarnContext(ctx, "delete repo: forget node row", "repo", repoID, "err", err)
+			}
 		}
 		h.broadcast(dto.RepoDTO{ID: repoID, ProjectID: projectID, Status: "deleted"})
 		// repoPath was read BEFORE the row was deleted, which is what lets this

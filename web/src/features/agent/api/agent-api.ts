@@ -89,6 +89,14 @@ export interface AgentChat {
   model?: string
   effort?: string
   /**
+   * What the LIVE runner actually spawned as — Crowbar's own record of the
+   * resolved argv, which can differ from model/effort above (a provider or an
+   * organization's own config can rewrite a request). Absent exactly when
+   * liveRunnerId is: a dormant chat has no live spawn to report.
+   */
+  launchModel?: string
+  launchEffort?: string
+  /**
    * Set exactly while this chat's CLI is blocked on a prompt Crowbar CANNOT
    * answer — a workspace-trust dialog, a first-run setup screen, a login — that
    * reaches the daemon through no hook. Absent otherwise, which is the common
@@ -362,6 +370,14 @@ function mapChat(c: AgentChat): AgentChat {
     // an omitted field and a cleared one must not be two different things.
     model: c.model ?? '',
     effort: c.effort ?? '',
+    // Same grounding, and the same reason mapChat exists at all: an explicit
+    // field list is how launchModel/launchEffort ALREADY being on the wire and
+    // on the AgentChat type still never reached the store — this function
+    // narrows to exactly what it lists, silently, and these two were missing
+    // from it. Confirmed live: the daemon's own response carried a real
+    // launchModel while every chat in the running app kept showing "unset".
+    launchModel: c.launchModel ?? '',
+    launchEffort: c.launchEffort ?? '',
     // NOT grounded to a value: absent IS the answer here (nothing is blocking
     // this chat), so it stays undefined rather than becoming a falsy object that
     // every reader would then have to interrogate. `kind` inside it IS grounded,

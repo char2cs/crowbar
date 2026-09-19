@@ -55,6 +55,21 @@ func (stubChatTree) ListInRepo(
 	return nil, nil
 }
 
+func (stubChatTree) ListInHome(
+	_ context.Context,
+	_ string,
+) ([]domain.Chat, error) {
+	return nil, nil
+}
+
+// FolderScope answers a folder in the repo these routes are mounted under.
+func (stubChatTree) FolderScope(
+	_ context.Context,
+	id string,
+) (domain.Folder, error) {
+	return domain.Folder{ID: id, RepoID: "r1"}, nil
+}
+
 func (stubChatTree) Create(
 	_ context.Context,
 	_ agentusecase.CreateInput,
@@ -101,11 +116,26 @@ func (stubChatTree) DeleteChat(
 	return agentusecase.ChatDeletion{}, nil
 }
 
-func (stubChatTree) DeletePreview(
+func (stubChatTree) MintOwningChat(
 	_ context.Context,
 	_ string,
-) (int, int, error) {
-	return 0, 0, nil
+) (string, error) {
+	return "", nil
+}
+
+func (stubChatTree) AttachOwningWorkspace(
+	_ context.Context,
+	_ string,
+	_ domain.Workspace,
+) error {
+	return nil
+}
+
+func (stubChatTree) DiscardOwningChat(
+	_ context.Context,
+	_ string,
+) error {
+	return nil
 }
 
 // stubUsecase is a VALUE receiver stub throughout, so recording goes through a
@@ -367,7 +397,6 @@ func TestRegisterMountsRoutes(
 		{http.MethodGet, base + "/chats/c1/handoff"},
 		{http.MethodPatch, base + "/chats/c1/placement"},
 		{http.MethodDelete, base + "/chats/c1"},
-		{http.MethodGet, base + "/chats/c1/delete-preview"},
 		{http.MethodPut, base + "/chats/c1/permission-level"},
 		{http.MethodGet, base + "/chats/folders"},
 		{http.MethodPost, base + "/chats/folders"},

@@ -1,6 +1,20 @@
 import { getOwningChatId, getWorkspaceScope } from '@/lib/workspace-scope'
 
 /**
+ * Thrown by every chat-addressed URL builder below when no owning chat is
+ * recorded for the workspace — a scope-recording gap, never a 404 to guess
+ * at. The daemon mints an owner on the first read of a workspace that has
+ * none, so callers that catch this can say "still loading" (row-actions.ts's
+ * chatNotLoadedYet) rather than surface the raw message.
+ */
+export class OwningChatNotRecordedError extends Error {
+  constructor(readonly wsId: string) {
+    super(`no owning chat recorded for workspace ${wsId}`)
+    this.name = 'OwningChatNotRecordedError'
+  }
+}
+
+/**
  * Build the flat chat-scoped API/WS base: `/v0/chats/:chatId`.
  *
  * Chat ids are globally unique, so this prefix carries no project/repo nesting
@@ -20,13 +34,17 @@ export function chatBase(chatId: string): string {
  * that already hold a chat id (an agent chat pane) should use chatBase directly
  * — this is the bridge for callers that only hold a workspace id.
  *
- * Throws when no owning chat is recorded, matching workspaceBase's
+ * The project HOME keeps its own `/home/terminals` mount (the same exception
+ * `filesBaseForWorkspace` makes, for the same reason): a home shell must never
+ * depend on the home's owner chat having resolved. Every worktree-backed
+ * workspace throws when no owning chat is recorded, matching workspaceBase's
  * fail-loudly-rather-than-404 contract; there is no workspace-scoped terminal
  * route left to fall back to.
  */
 export function terminalsBaseForWorkspace(wsId: string): string {
+  if (isHomeWorkspace(wsId)) return `${workspaceBase(wsId)}/terminals`
   const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
   return `${chatBase(chatId)}/terminals`
 }
 
@@ -54,7 +72,7 @@ export function terminalsBaseForWorkspace(wsId: string): string {
  */
 export function lspBaseForWorkspace(wsId: string): string {
   const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
   return `${chatBase(chatId)}/lsp`
 }
 
@@ -76,7 +94,7 @@ export function lspBaseForWorkspace(wsId: string): string {
  */
 export function gitBaseForWorkspace(wsId: string): string {
   const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
   return `${chatBase(chatId)}/git`
 }
 
@@ -93,7 +111,7 @@ export function gitBaseForWorkspace(wsId: string): string {
  */
 export function reviewBaseForWorkspace(wsId: string): string {
   const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
   return `${chatBase(chatId)}/review`
 }
 
@@ -108,7 +126,7 @@ export function reviewBaseForWorkspace(wsId: string): string {
  */
 export function identityBaseForWorkspace(wsId: string): string {
   const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
   return `${chatBase(chatId)}/identity`
 }
 
@@ -136,7 +154,7 @@ export function identityBaseForWorkspace(wsId: string): string {
 export function filesBaseForWorkspace(wsId: string): string {
   if (isHomeWorkspace(wsId)) return `${workspaceBase(wsId)}/files`
   const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
   return `${chatBase(chatId)}/files`
 }
 
@@ -180,7 +198,7 @@ export function repoChatsBaseForWorkspace(wsId: string): string {
  */
 export function worktreeVerbBaseForWorkspace(wsId: string): string {
   const chatId = getOwningChatId(wsId)
-  if (!chatId) throw new Error(`no owning chat recorded for workspace ${wsId}`)
+  if (!chatId) throw new OwningChatNotRecordedError(wsId)
   return `${repoChatsBaseForWorkspace(wsId)}/${encodeURIComponent(chatId)}`
 }
 

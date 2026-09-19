@@ -1,7 +1,6 @@
 import { useEffect, useState, type RefObject } from 'react'
 import { SidebarRowContextMenu } from '@/components/sidebar/row-context-menu'
-import { RenameDialog } from '@/components/sidebar/rename-dialog'
-import { performRenameRow, performImportBranches } from '@/components/sidebar/lib/row-actions'
+import { performImportBranches } from '@/components/sidebar/lib/row-actions'
 import { useSidebarInlineRenameStore } from '@/lib/store/sidebar-inline-rename'
 import { resolveRow } from './space-content-actions'
 import type { Repo } from '@/lib/store/sidebar'
@@ -26,34 +25,34 @@ interface SidebarTreeChromeProps {
  * The sidebar chrome that used to live inside `SidebarTreePanel`, mounted
  * ONCE here rather than once per `SpaceScroller` panel — a second dialog
  * per project would duplicate the one the user is actually looking at.
- * Carries over `RenameDialog`, `RepoImportDialog` and
- * `SidebarRowContextMenu` verbatim; none of their own logic changed, only
- * where they mount. The "New Project" entry point that used to live here
- * too moved to a trailing `+` mark, now in `SidebarFooter` (spec §4.1,
- * relocated by task-10 of the sidebar-restyle-recovery-batch2), with its
- * modal state lifted to `IDEShell` alongside it.
+ * Carries over `RepoImportDialog` and `SidebarRowContextMenu` verbatim;
+ * none of their own logic changed, only where they mount. The "New Project"
+ * entry point that used to live here too moved to a trailing `+` mark, now
+ * in `SidebarFooter` (spec §4.1, relocated by task-10 of the
+ * sidebar-restyle-recovery-batch2), with its modal state lifted to
+ * `IDEShell` alongside it.
  *
  * `RemovalTray` no longer mounts here — addendum §2 step 4 moved it into
  * `SidebarCarousel`, at the top of the file explorer card, since that is
- * now where a held row renders.
+ * now where a held row renders. `RenameDialog` doesn't either any more:
+ * the right-click menu's Rename item now starts the same inline editor
+ * double-click does (`row-context-menu.tsx`), instead of a modal — this app
+ * has exactly one rename gesture, not two.
  */
 export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromeProps) {
-  // The right-click menu's "Rename" item still opens this modal — untouched
-  // by Task 11. Branch-import needs a dialog too, for the same
-  // row-context-menu-can't-fire-it-directly reason.
-  const [modalRenamingRowId, setModalRenamingRowId] = useState<string | null>(null)
   const [importRepoRowId, setImportRepoRowId] = useState<string | null>(null)
-  const modalRenamingLabel = rows.find((r) => r.id === modalRenamingRowId)?.label ?? ''
   const importRepo = importRepoRowId != null ? resolveRow(repos, importRepoRowId)?.repo : undefined
 
   // Double-click-to-rename, restored from the deleted tree's per-row inline
   // editors (git history: cf422bc5) — as a REAL inline `<input>` in place of
-  // the row's label (sidebar-row.tsx), matching `develop`'s actual behavior,
-  // not the modal above. This listener only starts the inline-rename store
+  // the row's label (sidebar-row.tsx), matching `develop`'s actual behavior.
+  // This listener only starts the inline-rename store
   // (sidebar-inline-rename.ts); the row that reads `renamingRowId` off it and
   // actually draws the input lives several components away (SpaceScroller's
   // own tree), so the two can't share a prop chain — a store, not this
-  // component's own state, is what lets both sides reach the same value.
+  // component's own state, is what lets both sides reach the same value. The
+  // right-click menu's Rename item (`row-context-menu.tsx`) starts the exact
+  // same store action, for the exact same reason.
   //
   // A native `dblclick` listener on the same `treeRef` ancestor
   // SidebarRowContextMenu's own `contextmenu` listener already uses, for the
@@ -85,22 +84,7 @@ export function SidebarTreeChrome({ treeRef, rows, repos }: SidebarTreeChromePro
 
   return (
     <>
-      <SidebarRowContextMenu
-        treeRef={treeRef}
-        rows={rows}
-        onRename={setModalRenamingRowId}
-        onImport={setImportRepoRowId}
-      />
-      <RenameDialog
-        open={modalRenamingRowId != null}
-        initialValue={modalRenamingLabel}
-        onOpenChange={(open) => {
-          if (!open) setModalRenamingRowId(null)
-        }}
-        onConfirm={(name) => {
-          if (modalRenamingRowId) void performRenameRow(modalRenamingRowId, name)
-        }}
-      />
+      <SidebarRowContextMenu treeRef={treeRef} rows={rows} onImport={setImportRepoRowId} />
       <RepoImportDialog
         projectId={importRepo?.projectId ?? ''}
         repoId={importRepo?.id ?? ''}

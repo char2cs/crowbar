@@ -81,8 +81,7 @@ type (
 	TreeChats = tree.Chats
 	// TreeAgent is what the tree asks to erase each chat a cascade decided must go.
 	TreeAgent = tree.Agent
-	// TreeWorkspaceGitStatus is DeletePreview's read onto each workspace-owning
-	// row's already-synced uncommitted file counts.
+	// TreeWorkspaceGitStatus is the tree's read seam onto the workspace layer.
 	TreeWorkspaceGitStatus = tree.WorkspaceGitStatus
 	// TreeWorkspaceReaper is the teardown a cascading chat delete puts each
 	// worktree in its subtree through, so a workspace never outlives the chat
@@ -98,6 +97,9 @@ type (
 	// TreeNodes is the position surface a home-scoped chat or folder's
 	// placement goes through instead of Chat.SetOrder/.SetPlacement.
 	TreeNodes = tree.Nodes
+	// TreeRepoRoots answers a repo's default checkout for a walk that reaches
+	// the panel root through a repo-scoped folder — see tree.RepoRoots.
+	TreeRepoRoots = tree.RepoRoots
 
 	// CreateInput, MoveInput and PlaceInput are the three writes the panel makes.
 	CreateInput = tree.CreateInput
@@ -154,7 +156,7 @@ func NewToolMetrics() *ToolMetrics { return tools.NewMetrics() }
 // NewTree builds the sidebar forest's tree usecase. work is the chat
 // usecase's own in-flight tracker (see Usecase.Work) — the tree's move and
 // delete verbs refuse over a subtree that is still working, and there is
-// exactly one tracker to ask. workspaces is DeletePreview's seam onto the
+// exactly one tracker to ask. workspaces is the tree's read seam onto the
 // workspace layer.
 func NewTree(
 	chats TreeChats,
@@ -165,8 +167,20 @@ func NewTree(
 	holders TreeWorkspaceHolders,
 	folders TreeFolders,
 	nodes TreeNodes,
+	opts ...TreeOption,
 ) TreeUsecase {
-	return tree.New(chats, agent, work, workspaces, reaper, holders, folders, nodes)
+	return tree.New(chats, agent, work, workspaces, reaper, holders, folders, nodes, opts...)
+}
+
+// TreeOption/TreeRepoAnnouncer/WithTreeRepoAnnouncer re-export the tree's
+// collateral repo announce for the composition root — see tree.RepoAnnouncer.
+type (
+	TreeOption        = tree.Option
+	TreeRepoAnnouncer = tree.RepoAnnouncer
+)
+
+func WithTreeRepoAnnouncer(fn TreeRepoAnnouncer) TreeOption {
+	return tree.WithRepoAnnouncer(fn)
 }
 
 // Work exposes the in-flight turn tracker this usecase's own components
@@ -259,6 +273,10 @@ var (
 	// ErrTreeSubtreeWorking is a move or delete refused because the row or a
 	// row in the subtree it takes is currently working.
 	ErrTreeSubtreeWorking = tree.ErrSubtreeWorking
+	// ErrTreeWorkspaceUnprovisioned is a create into a workspace that has no
+	// worktree on disk — a placeholder, which the chat would have nowhere to
+	// run in.
+	ErrTreeWorkspaceUnprovisioned = tree.ErrWorkspaceUnprovisioned
 )
 
 // Fanout shapes repository lifecycle announcements into frontend frames.

@@ -46,7 +46,10 @@ export function SelectionCluster({
     <span className="selpos">
       {/* Provider + model + effort as one merged control — picking a model
           already picks its provider, so there is nothing left to split into
-          a separate provider chip ahead of it. */}
+          a separate provider chip ahead of it. Stays interactive after the
+          chat has launched too, so the user can still switch — it just shows
+          what the live runner actually resolved to (AgentChatView passes the
+          launch* values once live), not only the sticky request. */}
       <AgentSelectionPicker
         provider={provider}
         providers={providers}

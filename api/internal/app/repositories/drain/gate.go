@@ -33,6 +33,13 @@ type Gate struct {
 	// idle is non-nil only while somebody is waiting for n to reach 0, and is CLOSED
 	// (not sent on) so any number of waiters wake and a late waiter never blocks.
 	idle chan struct{}
+
+	// hold is non-nil while a quiesce holds the door: a goroutine admitted meanwhile
+	// parks in Proceed until it is closed. parked counts those, and settled wakes
+	// WaitRunning whenever n-parked can have reached 0.
+	hold    chan struct{}
+	parked  int
+	settled chan struct{}
 }
 
 // New returns an open gate.
@@ -66,6 +73,104 @@ func (g *Gate) Leave() {
 	if g.n == 0 && g.idle != nil {
 		close(g.idle)
 		g.idle = nil
+	}
+	g.wakeSettled()
+}
+
+// wakeSettled releases WaitRunning's waiters once nothing admitted is still running.
+// Called with g.mu held.
+func (g *Gate) wakeSettled() {
+	if g.n == g.parked && g.settled != nil {
+		close(g.settled)
+		g.settled = nil
+	}
+}
+
+// Hold parks every goroutine admitted from now on at Proceed until Release. It is the
+// quiesce barrier's half of the bargain with asynx's WaitPublish, which REFUSES any
+// dispatch made while it waits: a reactor admitted by a handler that wait is draining
+// must not start producing into it, so it is held at the door and let go after.
+func (g *Gate) Hold() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.hold == nil {
+		g.hold = make(chan struct{})
+	}
+}
+
+// Release lets every parked goroutine go, and stops parking new ones. The parked
+// count drops here, with the door, so a WaitRunning can never mistake a goroutine
+// that is about to run for one still at the door.
+func (g *Gate) Release() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.hold != nil {
+		close(g.hold)
+		g.hold = nil
+		g.parked = 0
+	}
+}
+
+// Proceed is an admitted goroutine's first call: it returns at once while the gate is
+// open, and parks while a Hold is in force. It reports false once ctx is done, in
+// which case the caller must NOT do the work — the boot sweep re-drives it.
+func (g *Gate) Proceed(
+	ctx context.Context,
+) bool {
+	g.mu.Lock()
+	hold := g.hold
+	if hold == nil {
+		g.mu.Unlock()
+		return true
+	}
+	g.parked++
+	g.wakeSettled()
+	g.mu.Unlock()
+
+	select {
+	case <-hold:
+		return true
+	case <-ctx.Done():
+	}
+
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.hold == hold {
+		g.parked-- // still held: this one leaves the door on its own
+	}
+	return false
+}
+
+// Parked reports how many admitted goroutines are waiting at the door.
+func (g *Gate) Parked() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return g.parked
+}
+
+// WaitRunning blocks until every admitted goroutine has either left or parked: nothing
+// the gate let through is producing any more. Unlike WaitIdle it does not wait for
+// parked goroutines, which is what lets a quiesce drain the bus with the door held.
+func (g *Gate) WaitRunning(
+	ctx context.Context,
+) {
+	g.mu.Lock()
+	if g.n == g.parked {
+		g.mu.Unlock()
+		return
+	}
+	if g.settled == nil {
+		g.settled = make(chan struct{})
+	}
+	settled := g.settled
+	g.mu.Unlock()
+
+	select {
+	case <-settled:
+	case <-ctx.Done():
 	}
 }
 

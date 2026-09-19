@@ -52,6 +52,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
     projectId === 'p1' ? { wsId: 'home-ws-1', owningChatId: null, error: false } : UNRESOLVED,
   ensureHomeWorkspaceResolved: vi.fn(),
   getHomeWorkspaceId: (projectId: string) => (projectId === 'p1' ? 'home-ws-1' : null),
+  getHomeOwningChatId: () => null,
 }))
 
 import { SidebarTreeSurface } from '@/components/layout/sidebar-tree-surface'

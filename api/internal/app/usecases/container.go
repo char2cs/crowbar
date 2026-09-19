@@ -3,6 +3,7 @@ package usecases
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	"github.com/char2cs/crowbar/api/internal/app/repositories"
@@ -166,7 +167,8 @@ func New(
 	engines *engine.Container,
 	crowbarHome func() (string, error),
 	threadBroadcast agentusecase.ToolThreadBroadcast,
-	broadcastAgentChatFolder func(id, workspaceID, kind string),
+	announceHomeRow project.HomeRowAnnouncer,
+	announceRepo agentusecase.TreeRepoAnnouncer,
 ) (*Container, error) {
 	projectUsecase := project.New(
 		gormStores.Projects,
@@ -184,7 +186,7 @@ func New(
 		// Announces a repo reorder's COLLATERAL chat/folder siblings on the
 		// same chats WS their own drag would use — see project.New's own doc
 		// and placeRepoAmongHomeSiblings.
-		broadcastAgentChatFolder,
+		announceHomeRow,
 	)
 	workspaceUsecase := workspace.New(
 		repos.Workspace,
@@ -214,7 +216,7 @@ func New(
 		repos.Workspace,
 		engines.Provider,
 	)
-	projectImport := newProjectImport(repos, gormStores, engines, crowbarHome)
+	projectImport := newProjectImport(repos, gormStores, engines, crowbarHome, projectUsecase)
 	projectDelete := project.NewDelete(project.DeleteDeps{
 		Projects:    gormStores.Projects,
 		Repos:       gormStores.Repositories,
@@ -229,7 +231,7 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -338,6 +340,7 @@ func newAgentWiring(
 	review agentusecase.ToolReviewReader,
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	workspaceUsecase workspace.Usecase,
+	announceRepo agentusecase.TreeRepoAnnouncer,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -391,8 +394,9 @@ func newAgentWiring(
 		// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
 		// (2026-09-08 sidebar-placement-unification Task 8's own review fix
 		// round) — see agentusecase.Deps' own doc.
-		Folders: gormStores.Folders,
-		Nodes:   repos.Node,
+		Folders:   gormStores.Folders,
+		Nodes:     repos.Node,
+		RepoRoots: workspaceGitStatusReader{workspace: workspaceUsecase, repos: gormStores.Repositories},
 	})
 	// The chat→worktree resolver, built here because it reads the chat forest
 	// off the usecase above and because the tree below needs its inverse. The
@@ -425,6 +429,7 @@ func newAgentWiring(
 		// repo-scoped folders/chats are untouched by these, still Chat-backed.
 		gormStores.Folders,
 		repos.Node,
+		agentusecase.WithTreeRepoAnnouncer(announceRepo),
 	)
 	return agentWiring{
 		chat:     chat,
@@ -443,6 +448,7 @@ func newProjectImport(
 	gormStores GORMStores,
 	engines *engine.Container,
 	crowbarHome func() (string, error),
+	homeSlots project.HomeSlots,
 ) project.ImportUsecase {
 	return project.NewImport(project.ImportDeps{
 		Projects:    gormStores.Projects,
@@ -453,6 +459,7 @@ func newProjectImport(
 		Discover:    discover.Repos,
 		RefRunner:   newRefRunner,
 		Nodes:       repos.Node,
+		HomeSlots:   homeSlots,
 		Now:         nowFunc,
 		CrowbarHome: crowbarHome,
 	})
@@ -571,27 +578,13 @@ func (r agentChatReader) ListChats(
 
 // workspaceGitStatusReader adapts the workspace usecase into the chat tree
 // usecase's WorkspaceGitStatus seam (internal/app/usecases/chat/internal/tree.
-// WorkspaceGitStatus): DeletePreview needs each workspace-owning row's file
-// counts, and Get's Added/Deleted are the SAME already-synced numbers the
-// sidebar itself renders — never a live git call recomputed per row on every
-// preview.
+// WorkspaceGitStatus): the read-model facts about a workspace the tree places
+// rows by, never a live git call.
 type workspaceGitStatusReader struct {
 	workspace workspace.Usecase
 	// repos is used ONLY by RepoIDsForHome (SDD review fix round 3) — every
 	// other method here predates it and never touches it.
 	repos store.ScopedStore[domain.Repository, string]
-}
-
-// WorkingTreeSummary implements agentusecase.TreeWorkspaceGitStatus.
-func (w workspaceGitStatusReader) WorkingTreeSummary(
-	ctx context.Context,
-	workspaceID string,
-) (int, int, error) {
-	ws, err := w.workspace.Get(ctx, workspaceID)
-	if err != nil {
-		return 0, 0, err
-	}
-	return ws.Added, ws.Deleted, nil
 }
 
 // RepoOf implements agentusecase.TreeWorkspaceGitStatus.
@@ -644,6 +637,107 @@ func (w workspaceGitStatusReader) RendersAsBranch(
 		return false, err
 	}
 	return ws.RendersAsBranch(), nil
+}
+
+// HomeOfRepo implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) HomeOfRepo(
+	ctx context.Context,
+	repoID string,
+) (string, error) {
+	repo, err := w.repos.FindByKey(ctx, repoID)
+	if err != nil || repo == nil {
+		return "", err
+	}
+	rows, err := w.workspace.List(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, ws := range rows {
+		if ws.Kind == domain.WorkspaceKindHome && ws.ProjectID == repo.ProjectID &&
+			ws.Status != domain.WorkspaceStatusDeleted {
+			return ws.ID, nil
+		}
+	}
+	return "", nil
+}
+
+// CreatedAtOf implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) CreatedAtOf(
+	ctx context.Context,
+	workspaceID string,
+) (time.Time, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return ws.CreatedAt, nil
+}
+
+// BranchRowsOf implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) BranchRowsOf(
+	ctx context.Context,
+	repoID string,
+) ([]string, error) {
+	repo, err := w.repos.FindByKey(ctx, repoID)
+	if err != nil || repo == nil {
+		return nil, err
+	}
+	rows, err := w.workspace.ListInRepo(ctx, repo.ProjectID, repoID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, ws := range rows {
+		if ws.RendersAsBranch() && !ws.IsDefault {
+			ids = append(ids, ws.ID)
+		}
+	}
+	return ids, nil
+}
+
+// Exists implements agentusecase.TreeWorkspaceGitStatus.
+func (w workspaceGitStatusReader) Exists(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	_, err := w.workspace.Get(ctx, workspaceID)
+	return err == nil, nil
+}
+
+// Provisioned implements agentusecase.TreeWorkspaceGitStatus. An id that does
+// not resolve answers true — see the port's own doc: a failed read is not
+// evidence of a placeholder, and this guard only ever refuses.
+func (w workspaceGitStatusReader) Provisioned(
+	ctx context.Context,
+	workspaceID string,
+) (bool, error) {
+	ws, err := w.workspace.Get(ctx, workspaceID)
+	if err != nil {
+		return true, nil
+	}
+	return ws.WorktreePath != "", nil
+}
+
+// DefaultWorkspaceOf implements agentusecase.TreeRepoRoots: repoID's default
+// checkout, "" when the repo has none.
+func (w workspaceGitStatusReader) DefaultWorkspaceOf(
+	ctx context.Context,
+	repoID string,
+) (string, error) {
+	repo, err := w.repos.FindByKey(ctx, repoID)
+	if err != nil || repo == nil {
+		return "", err
+	}
+	rows, err := w.workspace.ListInRepo(ctx, repo.ProjectID, repoID)
+	if err != nil {
+		return "", err
+	}
+	for _, ws := range rows {
+		if ws.IsDefault {
+			return ws.ID, nil
+		}
+	}
+	return "", nil
 }
 
 // VisibleForkParent implements agentusecase.TreeWorkspaceGitStatus. The

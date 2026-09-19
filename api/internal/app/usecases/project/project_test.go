@@ -187,7 +187,8 @@ func TestProjectUsecase_UpdateRepo_UpdatesNameAndAvatar(t *testing.T) {
 		ID: "r1", ProjectID: "p1", Name: "widget", AvatarLabel: "W", AvatarColor: "avatar-slate",
 	})
 
-	got, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
+	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
+	got := updated.Repo
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed Repo", got.Name)
 	assert.Equal(t, "R", got.AvatarLabel, "the fallback avatar letter tracks the new name")
@@ -205,7 +206,8 @@ func TestProjectUsecase_UpdateRepo_LeavesThePathSlugAlone(t *testing.T) {
 		ID: "r1", ProjectID: "p1", Name: "widget", PathSlug: "widget",
 	})
 
-	got, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
+	updated, err := uc.UpdateRepo(ctx, "r1", project.RepoUpdate{Name: name("Renamed Repo")})
+	got := updated.Repo
 	require.NoError(t, err)
 	assert.Equal(t, "widget", got.PathSlug, "the on-disk identity survives the rename")
 

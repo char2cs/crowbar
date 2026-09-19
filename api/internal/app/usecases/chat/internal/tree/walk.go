@@ -2,11 +2,23 @@ package tree
 
 import (
 	"context"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree/internal/lineage"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
+
+// RepoRoots answers a repo's default checkout: where a row that reaches the
+// panel root through a REPO-scoped folder runs — a repo-root folder applies
+// its parent's logic, and its parent is the repo header, i.e. that checkout.
+// nil degrades to the plain walk, which then answers nothing for such a row.
+type RepoRoots interface {
+	DefaultWorkspaceOf(
+		ctx context.Context,
+		repoID string,
+	) (string, error)
+}
 
 // CwdWorkspaceID answers where rowID's CLI runs: the WorkspaceID of the
 // nearest ancestor-or-self that carries one. An unprovisioned row along the
@@ -23,11 +35,28 @@ func CwdWorkspaceID(
 	chats map[string]domain.Chat,
 	rowID string,
 ) (string, bool) {
+	id, _, ok := cwdWalk(t, chats, rowID)
+	return id, ok
+}
+
+// cwdWalk is CwdWorkspaceID's body, also reporting the repo scope of the
+// outermost repo-scoped folder the walk crossed when it found no workspace —
+// the one fact a caller with a RepoRoots port needs to finish the answer.
+func cwdWalk(
+	t tree.Tree,
+	chats map[string]domain.Chat,
+	rowID string,
+) (workspaceID string, repoID string, ok bool) {
 	seen := map[string]bool{}
 	for id := rowID; id != "" && !seen[id]; {
 		seen[id] = true
-		if c, ok := chats[id]; ok && c.WorkspaceID != "" {
-			return c.WorkspaceID, true
+		if c, ok := chats[id]; ok {
+			if c.WorkspaceID != "" {
+				return c.WorkspaceID, "", true
+			}
+			if c.Type == domain.ChatTypeFolder && c.RepoID != "" {
+				repoID = c.RepoID
+			}
 		}
 		node, ok := t.Node(id)
 		if !ok {
@@ -35,7 +64,24 @@ func CwdWorkspaceID(
 		}
 		id = node.ParentID
 	}
-	return "", false
+	return "", repoID, false
+}
+
+// repoRootFallback finishes a walk that found no workspace but crossed a
+// repo-scoped folder: the answer is that repo's default checkout.
+func repoRootFallback(
+	ctx context.Context,
+	roots RepoRoots,
+	repoID string,
+) (string, bool) {
+	if roots == nil || repoID == "" {
+		return "", false
+	}
+	id, err := roots.DefaultWorkspaceOf(ctx, repoID)
+	if err != nil || id == "" {
+		return "", false
+	}
+	return id, true
 }
 
 // CwdWorkspaceIDs answers CwdWorkspaceID for EVERY row in one pass, keyed by
@@ -55,25 +101,75 @@ func CwdWorkspaceIDs(
 	ctx context.Context,
 	folders Folders,
 	nodes Nodes,
+	roots RepoRoots,
 	rows []domain.Chat,
 ) map[string]string {
+	forest, byID := buildForest(ctx, folders, nodes, rows)
+	out := make(map[string]string, len(rows))
+	for _, row := range rows {
+		id, repoID, ok := cwdWalk(forest, byID, row.ID)
+		if !ok {
+			id, ok = repoRootFallback(ctx, roots, repoID)
+		}
+		if ok {
+			out[row.ID] = id
+		}
+	}
+	return out
+}
+
+// buildForest folds every reachable folder and workspace-anchor row into rows
+// and builds the tree plus id->row map every walk here needs.
+func buildForest(
+	ctx context.Context,
+	folders Folders,
+	nodes Nodes,
+	rows []domain.Chat,
+) (tree.Tree, map[string]domain.Chat) {
 	if folderRows, err := foldersReachableFromRoots(ctx, folders, nodes, rows); err == nil {
 		rows = append(rows, folderRows...)
 	}
+	rows = append(rows, workspaceAnchorsReachable(ctx, nodes, rows)...)
 	treeNodes := make([]tree.Node, len(rows))
 	byID := make(map[string]domain.Chat, len(rows))
 	for i, row := range rows {
 		treeNodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
 		byID[row.ID] = row
 	}
-	forest := tree.New(treeNodes)
-	out := make(map[string]string, len(rows))
+	return tree.New(treeNodes), byID
+}
+
+// workspaceAnchorsReachable discovers every workspace's own Node{Kind:
+// workspace} row some row in rows hangs off, directly or through other
+// anchors, rendered as the workspaceAnchorView the validation snapshot already
+// uses — a row placed under a chatless workspace (the frontend names the
+// workspace id itself, there being no chat to name) otherwise walks into an
+// id the forest has no node for and resolves nothing.
+func workspaceAnchorsReachable(
+	ctx context.Context,
+	nodes Nodes,
+	rows []domain.Chat,
+) []domain.Chat {
+	if nodes == nil {
+		return nil
+	}
+	known := make(map[string]bool, len(rows))
 	for _, row := range rows {
-		if id, ok := CwdWorkspaceID(forest, byID, row.ID); ok {
-			out[row.ID] = id
+		known[row.ID] = true
+	}
+	var found []domain.Chat
+	for _, row := range rows {
+		for id := row.ParentID; id != "" && !known[id]; {
+			known[id] = true
+			n, err := nodes.GetNode(ctx, id)
+			if err != nil || n.Kind != domain.NodeKindWorkspace {
+				break
+			}
+			found = append(found, workspaceAnchorView(id, n, time.Time{}))
+			id = n.ParentID
 		}
 	}
-	return out
+	return found
 }
 
 // ForkParentID answers what a new branch under rowID forks from: the same
@@ -134,17 +230,8 @@ func freshForest(
 	if err != nil {
 		return nil, nil, err
 	}
-	rows = corrected(rows, subject)
-	if folderRows, ferr := foldersReachableFromRoots(ctx, folders, nodes, rows); ferr == nil {
-		rows = append(rows, folderRows...)
-	}
-	treeNodes := make([]tree.Node, len(rows))
-	byID := make(map[string]domain.Chat, len(rows))
-	for i, row := range rows {
-		treeNodes[i] = tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order, CreatedAt: row.CreatedAt}
-		byID[row.ID] = row
-	}
-	return tree.New(treeNodes), byID, nil
+	t, byID := buildForest(ctx, folders, nodes, corrected(rows, subject))
+	return t, byID, nil
 }
 
 // ResolveForkParent is ForkParentID over freshForest's log-corrected read of
@@ -155,13 +242,21 @@ func ResolveForkParent(
 	chats Chats,
 	folders Folders,
 	nodes Nodes,
+	roots RepoRoots,
 	rowID string,
 ) (string, bool, error) {
 	t, byID, err := freshForest(ctx, chats, folders, nodes, rowID)
 	if err != nil {
 		return "", false, err
 	}
-	id, ok := ForkParentID(t, byID, rowID)
+	node, ok := t.Node(rowID)
+	if !ok {
+		return "", false, nil
+	}
+	id, repoID, ok := cwdWalk(t, byID, node.ParentID)
+	if !ok {
+		id, ok = repoRootFallback(ctx, roots, repoID)
+	}
 	return id, ok, nil
 }
 
@@ -172,13 +267,17 @@ func ResolveCwdWorkspaceID(
 	chats Chats,
 	folders Folders,
 	nodes Nodes,
+	roots RepoRoots,
 	rowID string,
 ) (string, bool, error) {
 	t, byID, err := freshForest(ctx, chats, folders, nodes, rowID)
 	if err != nil {
 		return "", false, err
 	}
-	id, ok := CwdWorkspaceID(t, byID, rowID)
+	id, repoID, ok := cwdWalk(t, byID, rowID)
+	if !ok {
+		id, ok = repoRootFallback(ctx, roots, repoID)
+	}
 	return id, ok, nil
 }
 
@@ -265,7 +364,7 @@ func ChatLineage(
 			return node.ParentID
 		},
 		func(id string) bool {
-			return chats[id].Type == domain.ChatTypeChat
+			return chats[id].IsChat()
 		},
 	)
 }

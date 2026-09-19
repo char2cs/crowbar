@@ -84,6 +84,9 @@ export interface WorkspaceDTO {
   /** Dense sibling sort key within its level. Absent on frames from a daemon
    *  that predates ordering. */
   order?: number
+  /** ISO creation time — the daemon's `order` tiebreak (tree.compareNodes), so
+   *  an undragged level draws in the sequence a placement index counts. */
+  createdAt?: string
   /** The chat row that OWNS this workspace — the row the daemon resolves a
    *  placement against, so it is what a create under this workspace must name
    *  as its parent. The daemon always sends the key (`""` when it could resolve
@@ -132,6 +135,8 @@ export interface ChatWorktreeDTO {
   /** Dense sibling sort key within its level. Absent on frames from a daemon
    *  that predates ordering. */
   order?: number
+  /** ISO creation time — see WorkspaceDTO.createdAt. */
+  createdAt?: string
 }
 
 export interface RepoDTO {
@@ -164,6 +169,8 @@ export interface FolderDTO {
   /** Dense sibling sort key. Folders and workspaces share one sibling space, so
    *  this is compared against WorkspaceDTO.order at the same level. */
   order: number
+  /** ISO creation time, the `order` tiebreak — see WorkspaceDTO.createdAt. */
+  createdAt?: string
   /** Tombstone marker on a broadcast frame: '' (or absent) for a live folder,
    *  'deleted' for a removal frame. Read-path DTOs leave it empty. */
   status?: string
@@ -235,6 +242,8 @@ export interface ChatDTO {
   /** Dense sibling sort key, SHARED with folders and workspaces at the same
    *  level — compared against FolderDTO.order / WorkspaceDTO.order. */
   order: number
+  /** ISO creation time, the `order` tiebreak — see WorkspaceDTO.createdAt. */
+  createdAt?: string
 }
 
 export interface ProjectDTO {

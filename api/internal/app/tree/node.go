@@ -23,7 +23,22 @@ type Node struct {
 	ParentID  string
 	Order     int
 	CreatedAt time.Time
+	// Rank breaks an Order tie by row KIND before CreatedAt, in the sequence
+	// the sidebar draws a level nobody has dragged (workspace-tree-utils.ts
+	// buildSidebarTree: folders, branches, chats; a project's top level then
+	// appends repo headers after its home rows). A densify must count a tied
+	// level in that same sequence or the first drop lands slots off.
+	Rank int
 }
+
+// Row kinds in the order a tied level is drawn. A workspace-OWNING chat is
+// drawn as its branch row, so it ranks as a workspace, not a chat.
+const (
+	RankFolder = iota
+	RankWorkspace
+	RankChat
+	RankRepo
+)
 
 func compareNodes(
 	a Node,
@@ -31,6 +46,9 @@ func compareNodes(
 ) int {
 	if a.Order != b.Order {
 		return a.Order - b.Order
+	}
+	if a.Rank != b.Rank {
+		return a.Rank - b.Rank
 	}
 	if !a.CreatedAt.Equal(b.CreatedAt) {
 		return a.CreatedAt.Compare(b.CreatedAt)

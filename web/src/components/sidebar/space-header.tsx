@@ -215,12 +215,22 @@ export function SpaceHeader({
         // it): this button's own `onClick` still runs for both, folding and
         // unfolding on its way to opening the editor. Harmless — it ends up
         // back where it started.
+        //
+        // `self-stretch` + `flex items-center`: a plain inline/block button
+        // sizes to its own line-height (~20px) inside this `h-9` (36px) row,
+        // leaving an 8px dead band above and below it that LOOKS like part
+        // of the row (same hover ground, same border) but has no click
+        // handler — caught live as "the bottom border just inside the
+        // button but outside the text doesn't work." Stretching the button
+        // to the row's full cross-axis height and re-centering the text
+        // inside it closes that gap without growing the row or reviving the
+        // old row-level `role="button"` this file's own history removed.
         <button
           type="button"
           aria-expanded={!folded}
           aria-label={`${folded ? 'Expand' : 'Collapse'} ${project.name}`}
           className={cn(
-            'min-w-0 flex-1 cursor-pointer truncate rounded-sm text-left outline-none',
+            'flex min-w-0 flex-1 cursor-pointer items-center self-stretch truncate rounded-sm text-left outline-none',
             'focus-visible:ring-1 focus-visible:ring-ring',
           )}
           onClick={(e) => {

@@ -409,7 +409,16 @@ const (
 // occBackoff sleeps a capped full-jitter exponential backoff for the 0-based retry
 // attempt, returning ctx.Err() early if the context is cancelled first. math/rand/v2
 // is goroutine-safe, so concurrent contenders draw independent jitter.
+//
+// Cancellation is checked both before the timer starts and again after the select
+// wakes: select breaks ties between two ready channels at random, so a context
+// cancelled just before this call — with nothing left to make ctx.Done() the only
+// ready case — could otherwise lose that toss to a timer.C that also fires by the
+// time select runs, letting one more send attempt slip out after the caller gave up.
 func occBackoff(ctx context.Context, attempt int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	window := occBackoffBase << attempt // occBackoffBase · 2^attempt
 	if window > occBackoffCap || window <= 0 {
 		window = occBackoffCap
@@ -420,6 +429,9 @@ func occBackoff(ctx context.Context, attempt int) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return nil
 	}
 }

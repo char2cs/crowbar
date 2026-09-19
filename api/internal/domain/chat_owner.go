@@ -1,5 +1,13 @@
 package domain
 
+// SharedGround reports whether many conversations legitimately run in w
+// without any of them owning it: the repo's default checkout, a locked
+// branch, or the project home. An ordinary fork is private ground — the
+// earliest row anchored to it is, by construction, the one that forked it.
+func (w Workspace) SharedGround() bool {
+	return w.IsDefault || w.RepoID == "" || w.RendersAsBranch()
+}
+
 // ResolveOwningChat picks the chat that owns a workspace from its candidate
 // rows — typically everything ListChatsByWorkspace(workspaceID) returns — for
 // every wire-facing surface that still addresses a workspace's worktree
@@ -18,19 +26,62 @@ package domain
 // workspace itself (see the chat-first create in usecases/chat's
 // MintOwningChat), so it is always the earliest candidate for its
 // WorkspaceID.
+//
+// sharedGround is Workspace.SharedGround for the workspace the rows hold:
+// there a titled legacy row is a user's conversation, never a minted owner;
+// on private ground (an ordinary fork) the conversation that forked the
+// branch has been chatted in, and is still its owner.
 func ResolveOwningChat(
 	rows []Chat,
+	sharedGround bool,
 ) (Chat, bool) {
-	if len(rows) == 0 {
+	candidates := ownerCandidates(rows, sharedGround)
+	if len(candidates) == 0 {
 		return Chat{}, false
 	}
-	owner := rows[0]
-	for _, row := range rows[1:] {
+	owner := candidates[0]
+	for _, row := range candidates[1:] {
 		if !preferredOwner(owner, row) {
 			owner = row
 		}
 	}
 	return owner, true
+}
+
+// ownerCandidates narrows rows to the ones that can own the workspace: every
+// row that RECORDS ownership when any does, otherwise every legacy row that
+// is not provably a thread — one filed under the workspace's own row or under
+// another row of the same workspace was created inside it, never for it. On
+// shared ground a titled conversation is excluded too.
+func ownerCandidates(
+	rows []Chat,
+	sharedGround bool,
+) []Chat {
+	sameWorkspace := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		sameWorkspace[row.ID] = true
+	}
+	var recorded, legacy []Chat
+	for _, row := range rows {
+		switch {
+		case row.OwnsWorkspace:
+			recorded = append(recorded, row)
+		case row.Type == ChatTypeBranch:
+			legacy = append(legacy, row)
+		case row.WorkspaceID != "" && row.ParentID == row.WorkspaceID:
+			continue
+		case row.ParentID != "" && sameWorkspace[row.ParentID]:
+			continue
+		case sharedGround && (row.Title != "" || row.TitleLocked):
+			continue
+		default:
+			legacy = append(legacy, row)
+		}
+	}
+	if len(recorded) > 0 {
+		return recorded
+	}
+	return legacy
 }
 
 // preferredOwner reports whether held keeps the workspace against

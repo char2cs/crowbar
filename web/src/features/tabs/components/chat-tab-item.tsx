@@ -1,5 +1,5 @@
 import { Tab } from '@/components/ui/tabs'
-import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
+import { CHAT_TITLE_PENDING_LABEL, useChatTitle } from '@/features/agent/hooks/use-chat-title'
 import { AgentChatGlyph } from '@/features/agent/shared/agent-chat-glyph'
 import { useWorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
 
@@ -23,9 +23,9 @@ interface ChatTabItemProps {
  * different name or glyph for the same chat.
  */
 export function ChatTabItem({ chatId, isActive, onSelect }: ChatTabItemProps) {
-  const title = useWorkspaceStoreContext(
-    (s) => s.agentChats.chats.find((c) => c.id === chatId)?.title || UNTITLED_CHAT_LABEL,
-  )
+  // `null` = the store holds no record for this chat; the tab says so rather
+  // than borrowing an untitled chat's words.
+  const title = useChatTitle(chatId)
   const working = useWorkspaceStoreContext((s) => s.agentChats.working[chatId] ?? false)
   const providerIcon = useWorkspaceStoreContext((s) => {
     const chat = s.agentChats.chats.find((c) => c.id === chatId)
@@ -45,7 +45,13 @@ export function ChatTabItem({ chatId, isActive, onSelect }: ChatTabItemProps) {
       className="h-8 shrink-0 gap-1.5 px-2.5 text-[13px]"
     >
       <AgentChatGlyph providerIcon={providerIcon} working={working} className="size-3.5" />
-      <span className="max-w-[160px] truncate">{title}</span>
+      <span
+        data-testid="chat-tab-item-title"
+        data-title-pending={title === null ? 'true' : undefined}
+        className="max-w-[160px] truncate"
+      >
+        {title ?? CHAT_TITLE_PENDING_LABEL}
+      </span>
     </Tab>
   )
 }

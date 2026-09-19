@@ -102,8 +102,6 @@ const FIXTURE_REPOS: Repo[] = [
 beforeEach(() => {
   useSidebarStore.setState({
     repos: FIXTURE_REPOS.map((r) => ({ ...r, workspaces: [...r.workspaces] })),
-    collapsedRepos: new Set<string>(),
-    collapsedWorkspaces: new Set<string>(),
     activeTab: 'workspaces',
   })
 })
@@ -124,13 +122,6 @@ test('deleteWorkspace removes from repo', () => {
   useSidebarStore.getState().deleteWorkspace('ws3')
   const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
   expect(repo.workspaces.some((w) => w.id === 'ws3')).toBe(false)
-})
-
-test('toggleRepo flips collapsed state', () => {
-  useSidebarStore.getState().toggleRepo('crowbar')
-  expect(useSidebarStore.getState().collapsedRepos.has('crowbar')).toBe(true)
-  useSidebarStore.getState().toggleRepo('crowbar')
-  expect(useSidebarStore.getState().collapsedRepos.has('crowbar')).toBe(false)
 })
 
 test('setRepos is silent when a cache rebuild only recreated object identities', () => {
@@ -395,38 +386,4 @@ test('applyWorkspaceDTO keeps the tree identity when a default frame changes not
   const after = useSidebarStore.getState().repos
   useSidebarStore.getState().applyWorkspaceDTO({ ...frame })
   expect(useSidebarStore.getState().repos).toBe(after)
-})
-
-import { loadSidebarUI } from '@/lib/persistence/sidebar-ui'
-import { IDBFactory } from 'fake-indexeddb'
-import { resetDB } from '@/lib/persistence/idb'
-import { describe } from 'vitest'
-
-describe('toggleRepo persistence', () => {
-  beforeEach(() => {
-    resetDB()
-    globalThis.indexedDB = new IDBFactory()
-    useSidebarStore.setState({
-      repos: [],
-      collapsedRepos: new Set<string>(),
-      collapsedWorkspaces: new Set<string>(),
-      activeTab: 'workspaces',
-    })
-  })
-
-  test('writes collapsed state to IDB after toggling on', async () => {
-    useSidebarStore.getState().toggleRepo('crowbar')
-    await new Promise((r) => setTimeout(r, 20))
-    const saved = await loadSidebarUI()
-    expect(saved?.collapsedRepos).toContain('crowbar')
-  })
-
-  test('removes repo from IDB after toggling off', async () => {
-    useSidebarStore.getState().toggleRepo('crowbar')
-    await new Promise((r) => setTimeout(r, 20))
-    useSidebarStore.getState().toggleRepo('crowbar')
-    await new Promise((r) => setTimeout(r, 20))
-    const saved = await loadSidebarUI()
-    expect(saved?.collapsedRepos).not.toContain('crowbar')
-  })
 })

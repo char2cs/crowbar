@@ -8,6 +8,7 @@ import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { hideRowsForInFlightCreates } from '@/components/sidebar/lib/rows-from-pending'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import {
   ensureHomeWorkspaceResolved,
@@ -134,12 +135,21 @@ function subscribeRecentsTick(ids: string[], onTick: () => void): () => void {
     panes: windowPaneStore.getState().panes,
     dormant: windowPaneStore.getState().dormantArrangements,
     activeView: windowPaneStore.getState().activeViewId,
+    order: windowPaneStore.getState().recentsOrder,
   }
   unsubs.push(
     windowPaneStore.subscribe((state) => {
       if (
         state.panes === prevPaneSlice.panes &&
         state.dormantArrangements === prevPaneSlice.dormant &&
+        // The band's DRAGGED order (`recentsOrder`, spec §8.1) — the one input
+        // to `deriveRecentsEntries` that changes without any pane changing.
+        // Left out, a reorder wrote the new order and the band went on
+        // drawing the old one until something unrelated happened to
+        // re-render it: the drop landed, the rows did not move, and a reload
+        // was the only way to see it — live-reported as "rows on Recents
+        // cannot be reordered", one of that report's two causes.
+        state.recentsOrder === prevPaneSlice.order &&
         // Recents is the VIEW SWITCHER, so which view is on screen is one of
         // the facts it draws (`RecentsEntry.showing`) — and switching views
         // touches neither of the other two: the panes are all still there,
@@ -155,6 +165,7 @@ function subscribeRecentsTick(ids: string[], onTick: () => void): () => void {
         panes: state.panes,
         dormant: state.dormantArrangements,
         activeView: state.activeViewId,
+        order: state.recentsOrder,
       }
       onTick()
     }),
@@ -209,7 +220,7 @@ function SpacePanel({
   // different workspace entirely; conflating the two was a real bug, a
   // "New thread on the project" button that silently created the thread
   // under a REPO instead, caught live).
-  const { wsId: homeWorkspaceId } = useHomeWorkspaceState(projectId)
+  const { wsId: homeWorkspaceId, owningChatId: homeOwningChatId } = useHomeWorkspaceState(projectId)
   useEffect(() => {
     ensureHomeWorkspaceResolved(projectId)
   }, [projectId])
@@ -261,11 +272,8 @@ function SpacePanel({
   // cascade goes.
   const removalEntries = useRemovalTrayStore((s) => s.entries)
   const hiddenIds = useMemo(() => descendantHiddenIds(removalEntries), [removalEntries])
-  // Read here (rather than only in `sidebar-tree-surface.tsx`, which already
-  // merges pending rows into `repoRows`) because `homeRows` below is built
-  // straight off `useHomeTreeStore`, outside that merge entirely — the
-  // `unconfirmedRealIds` filter a few lines down needs to see every pending
-  // entry regardless of which store its own real row will eventually land in.
+  // Read here (not only in `sidebar-tree-surface.tsx`) because `homeRows`
+  // below is built off `useHomeTreeStore`, outside that merge entirely.
   const pendingEntries = usePendingCreatesStore((s) => s.entries)
   // A repo header row already in `repoRows` (rowsFromRepo's own push) carries
   // its own real `parentId`/`order` straight off the wire — Task 3 put a
@@ -281,35 +289,15 @@ function SpacePanel({
             homeWorkspaceId,
             homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
             homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
+            homeOwningChatId ?? undefined,
           ),
           removalEntries,
         )
       : []
-  // A create's mint and its placement are two sequential backend writes, not
-  // one (space-content-actions.ts's `waitForHomeChat`/`chatHasLanded`/
-  // `forkHasLanded`, all three, own the full doc on this) — so the REAL row
-  // for a create still in flight can reach `homeRows`/`repoRows` above
-  // already existing but not yet at its real placement, landing wherever its
-  // stale/default parentId currently says (typically root). Filtered out
-  // here rather than left to render and self-correct: the correctly-PLACED
-  // pending row (`repoRows`'s own `rowsFromPending` merge, and home's own
-  // pending entries riding the same prop — see sidebar-tree-surface.tsx's
-  // `rowsForProjectFn`) is already standing in at the right spot, so hiding
-  // the real row until its placement is CONFIRMED (the same instant its
-  // pending entry clears, per those three predicates) means it only ever
-  // appears once, already correct — never rendered wrong first. `realId` is
-  // attached the moment each create's own request resolves (before that
-  // wait even begins), so this excludes it from the very first paint that
-  // could otherwise show it, not just from paints after the bug was already
-  // visible.
-  const unconfirmedRealIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const entry of pendingEntries) if (entry.realId) ids.add(entry.realId)
-    return ids
-  }, [pendingEntries])
-  const rows = unconfirmedRealIds.size
-    ? [...homeRows, ...repoRows].filter((r) => !unconfirmedRealIds.has(r.id))
-    : [...homeRows, ...repoRows]
+  // The pending row is the ONE stand-in for a create in flight — its real row
+  // reseeds in (at root, before its placement write) long before the POST
+  // answers, so it is hidden until the entry clears (rows-from-pending.ts).
+  const rows = hideRowsForInFlightCreates([...homeRows, ...repoRows], pendingEntries, projectId)
   const navigate = useNavigate()
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both
   // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll
@@ -498,6 +486,12 @@ export function SpaceScroller({
     if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return
     isUserGesture.current = true
   }
+  // The panel index a smooth, programmatic scroll is currently travelling to.
+  // That animation fires scroll events the whole way and none of them is a
+  // user gesture, so the re-align below would cancel the animation it is
+  // chasing by jumping straight to its destination — the switch would snap
+  // instead of glide.
+  const settlingToIndex = useRef<number | null>(null)
 
   // Re-align scroll when the container is resized. Each panel is min-w-full,
   // so scrollLeft must stay at projectIndex * containerWidth.
@@ -512,6 +506,7 @@ export function SpaceScroller({
       // the browser has already clamped scrollLeft to 0. Leave it - the
       // resize that reopens the sidebar re-aligns it.
       if (el.clientWidth === 0) return
+      settlingToIndex.current = null
       el.scrollLeft = index * el.clientWidth
     })
     ro.observe(el)
@@ -525,15 +520,39 @@ export function SpaceScroller({
     const index = projects.findIndex((p) => p.id === activeProjectId)
     if (index === -1) return
     isUserGesture.current = false
-    el.scrollTo({ left: index * el.clientWidth, behavior: 'smooth' })
+    const left = index * el.clientWidth
+    // Already there: scrollTo fires no scroll event, so arming would leave the
+    // re-align disarmed for good.
+    if (el.scrollLeft === left) {
+      settlingToIndex.current = null
+      return
+    }
+    settlingToIndex.current = index
+    el.scrollTo({ left, behavior: 'smooth' })
   }, [activeProjectId, projects])
 
-  // Sync activeProjectId when the user swipes/wheels.
+  // Sync activeProjectId when the user swipes/wheels — and hold the settled
+  // panel and the active project together when anything else scrolls us.
   function handleScroll() {
-    if (!isUserGesture.current) return
     const el = containerRef.current
     if (!el || el.clientWidth === 0) return
     const index = Math.round(el.scrollLeft / el.clientWidth)
+    if (!isUserGesture.current) {
+      if (settlingToIndex.current !== null) {
+        if (settlingToIndex.current === index) settlingToIndex.current = null
+        return
+      }
+      // Not a swipe, and nothing programmatic is in flight: focus's own
+      // scrollIntoView (every row holds tabbable buttons, in EVERY panel), an
+      // edge-scroll, a WebKit snap. `overflow-x: scroll` + mandatory x
+      // snapping + min-w-full panels turns any of them into a whole panel,
+      // leaving the sidebar naming one space while the content area shows
+      // another — the exact divergence project-scoped panes exists to kill.
+      // Bounce back rather than switch a project the user never asked for.
+      const active = projects.findIndex((p) => p.id === activeProjectId)
+      if (active !== -1 && active !== index) el.scrollLeft = active * el.clientWidth
+      return
+    }
     const project = projects[index]
     if (project && project.id !== activeProjectId) {
       onActiveProjectChange(project.id)

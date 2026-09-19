@@ -4,6 +4,7 @@ package handlers
 
 import (
 	"context"
+	"sync"
 
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -401,6 +402,14 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		repoID string,
 	) ([]domain.Chat, error)
+	ListInHome(
+		ctx context.Context,
+		homeID string,
+	) ([]domain.Chat, error)
+	FolderScope(
+		ctx context.Context,
+		id string,
+	) (domain.Folder, error)
 	Create(
 		ctx context.Context,
 		in agentusecase.CreateInput,
@@ -447,14 +456,25 @@ type ChatTreeUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) (agentusecase.ChatDeletion, error)
-	// DeletePreview answers what DeleteChat (a chat root) or Delete's cascading
-	// successor (a folder root) is ABOUT to take, without taking it: every CHAT
-	// row in the subtree and the working-tree file count summed across every
-	// workspace-owning row in it.
-	DeletePreview(
+	// MintOwningChat and AttachOwningWorkspace are the chat-first mint every
+	// workspace create goes through, exposed here so a workspace served
+	// without an owner (created before the mint existed — no backfill) gets
+	// one the first time a client reads it. See EnsureOwner (worktree.go).
+	MintOwningChat(
+		ctx context.Context,
+		parentWorkspaceID string,
+	) (chatID string, err error)
+	AttachOwningWorkspace(
 		ctx context.Context,
 		chatID string,
-	) (chatCount, fileCount int, err error)
+		ws domain.Workspace,
+	) error
+	// DiscardOwningChat is MintOwningChat's compensating half, for an attach
+	// that failed.
+	DiscardOwningChat(
+		ctx context.Context,
+		chatID string,
+	) error
 }
 
 // Repos resolves the repository named by :repoId, so an IMPORTING create can
@@ -485,6 +505,9 @@ type Handlers struct {
 	worktrees       Worktrees
 	nodes           Nodes
 	broadcastFolder func(folderID, workspaceID, kind string)
+	// ownerMint serializes EnsureOwner's mint (worktree.go) so two concurrent
+	// reads of one chatless workspace cannot each mint it an owner.
+	ownerMint sync.Mutex
 }
 
 // New builds the agent Handlers from the five agent concerns, the Chats-panel

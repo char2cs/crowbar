@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
@@ -286,12 +288,17 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	readUntil(t, reposWS, func(m map[string]any) bool {
 		return m["id"] == firstRepoID && m["status"] == "deleted"
 	})
-	h.QuiesceReactors()
-	// --force, so this does not have to wait for the delete's teardown. The
-	// tombstone now arrives as soon as the repo ROW is gone and the worktrees are
-	// removed behind it, so the branch is still checked out at this moment;
-	// --force lets a second worktree hold it anyway. Polling for the old
-	// directory to disappear instead worked, and cost the suite a minute.
+	// The tombstone above fires BEFORE removeRepoWorkspaces even runs (DeleteRepo
+	// broadcasts "deleted" first so a loaded machine still admits the delete
+	// promptly, then tears the workspace down off the request path — see its own
+	// doc comment). A single QuiesceReactors call made right here can therefore
+	// observe nothing dispatched yet and return having drained none of the
+	// cascade: waitWorkspaceGone below is what actually joins it.
+	waitWorkspaceGone(t, h, orphan.ID)
+	// --force because the cascade above only guarantees the ROW (and the git
+	// teardown that precedes it) is gone, not that a later step (e.g. a
+	// best-effort branch delete) left "main" in any particular state; --force
+	// lets a second worktree claim it regardless.
 	holderPath := filepath.Join(h.home, "projects", projectID, "orphan-holder")
 	runGit(t, repoDir, "worktree", "add", "--force", holderPath, "main")
 	require.DirExists(t, holderPath,
@@ -373,6 +380,42 @@ func addRepo(
 	repoID, _ := repo["id"].(string)
 	require.NotEmpty(t, repoID)
 	return repoID
+}
+
+// waitWorkspaceGone blocks until wsID's aggregate is gone, using QuiesceReactors
+// as the real signal — never a sleep.
+//
+// A repo DELETE's tombstone frame (the signal callers like the caller above
+// synchronize on) is broadcast BEFORE the workspace cascade that removes wsID
+// even runs: DeleteRepo's handler fires it first so a loaded machine still
+// admits the delete promptly, then tears worktrees down off the request path
+// (its own doc comment). That cascade is a plain detached goroutine, invisible
+// to asynx's dispatch tracking until its OWN final step — dropping wsID's row —
+// is dispatched. A single QuiesceReactors call made right after the tombstone
+// can therefore observe nothing in flight yet and return having drained none of
+// it (confirmed by instrumenting the handler with an artificial delay: the
+// cascade kept running, and logging, long after QuiesceReactors returned and
+// the whole test had already exited).
+//
+// Each retry here is a real, unbounded wait on asynx's own dispatch drain, not
+// a timed guess: once the cascade's row-drop is actually in flight,
+// QuiesceReactors blocks on it like any other reactor. The deadline is a
+// FAILURE BOUND for the cascade never running at all, mirroring readUntil's own.
+func waitWorkspaceGone(
+	t *testing.T,
+	h *harness,
+	wsID string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(45 * time.Second)
+	for {
+		h.QuiesceReactors()
+		if _, err := h.app.Repositories.Workspace.Get(context.Background(), wsID); err != nil {
+			return
+		}
+		require.True(t, time.Now().Before(deadline),
+			"workspace %s was not removed by the repo delete cascade within 45s", wsID)
+	}
 }
 
 // TestRepoImport_UnbornBranchRepo_DegradesGracefully proves the git-safety

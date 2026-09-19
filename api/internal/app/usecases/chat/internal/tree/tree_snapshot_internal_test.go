@@ -19,7 +19,7 @@ func newTestUsecase(t *testing.T) *chatFolderUsecase {
 	t.Helper()
 	fake := mocks.NewAgentChatPlacements()
 	return &chatFolderUsecase{
-		chats: fake, agent: fake,
+		chats: fake, agent: fake, workspaces: mocks.NewAgentWorkspaceGitStatus(),
 		folders: mocks.NewFolderStore(), nodes: mocks.NewNodePlacements(),
 	}
 }

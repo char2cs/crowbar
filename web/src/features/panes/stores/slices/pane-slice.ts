@@ -191,6 +191,31 @@ export interface PaneActions {
     mode: 'before' | 'after',
     naturalOrder: readonly string[],
   ): void
+  /**
+   * The screen has moved to a different PROJECT (project-scoped panes §6.4).
+   *
+   * Parks whatever is showing under its own view id, remembers it as the
+   * project being left, and brings this project's own last-showing view
+   * forward — Zen's `lastSelectedWorkspaceTabs`, so a switch back is a return
+   * rather than a reset. A project with nothing open gets the one shared
+   * empty stage (law 6).
+   *
+   * ONE WRITER (trap 4): `ide-shell.tsx`'s route effect, the same place the
+   * route already becomes `useProjectStore.activeProjectId`. Never called
+   * from a click handler — two writers is how the sidebar's own
+   * project-switch bugs happened.
+   *
+   * The FIRST call also adopts every view nothing could file into this
+   * project (§8, Zen's `_shouldShowTab` adoption rule) — that is the whole
+   * compat story for a layout persisted before views carried a project.
+   */
+  setActiveProject(projectId: string): void
+  /**
+   * §8: a DELETED project takes its views with it, through the real
+   * `closeView` teardown (each member's CLI stopped, its workspace evicted) —
+   * never orphaned in `parkedViews`, where nothing can reach them again.
+   */
+  closeViewsForProject(projectId: string): void
 }
 
 export interface PaneSlice {
@@ -246,9 +271,35 @@ export interface PaneSlice {
   /** Recents' own persisted order (spec §5.6/§8.1) — entry ids, written ONLY
    *  by `reorderRecentsEntry`. Empty until the first drag; `deriveRecentsEntries`
    *  falls back to its existing append order for any id not named here. Same
-   *  durability as `dormantArrangements` — in-memory for the session, not
-   *  written to disk. */
+   *  durability as `dormantArrangements` — both ride the persisted
+   *  WorkspaceLayout (window-pane-store.ts) and survive a reload. */
   recentsOrder: string[]
+  /**
+   * LAW 1: the project a VIEW belongs to, written when the view is minted and
+   * never re-derived from the view's contents in a render path (trap 2 — a
+   * pane's project is a chat→workspace→repo→project walk whose failure mode
+   * right after a reload is a blank screen, which is why this is a tag and
+   * not a filter).
+   *
+   * A view id absent here is UNTAGGED and belongs to nobody: the shared empty
+   * stage (law 6), or a persisted view nothing could file, which the first
+   * `setActiveProject` adopts (§8).
+   *
+   * Persisted — see window-pane-store.ts's shallow-compare guard (trap 5).
+   */
+  viewProjects: Record<string, string>
+  /**
+   * Zen's `lastSelectedWorkspaceTabs`: which view each project was last
+   * showing, so switching back is a RETURN, not a reset. Persisted alongside
+   * `viewProjects`.
+   */
+  activeViewByProject: Record<string, string>
+  /**
+   * The project the screen is currently in. Not persisted — the route is what
+   * says where "now" is at boot, and `setActiveProject` is its one writer
+   * (trap 4).
+   */
+  activeProjectId: string | null
   paneActions: PaneActions
 }
 
@@ -399,14 +450,91 @@ function showParkedView(state: WindowPaneState, viewId: string): void {
   ]
 }
 
+/**
+ * LAW 2 + LAW 6: whether the active project may SHOW `viewId`.
+ *
+ * An untagged view belongs to nobody — the shared empty stage holds no chat,
+ * so it leaks nothing and any project may show it — and a window that has not
+ * yet been told which project it is in (`activeProjectId === null`, before the
+ * route's first effect) refuses nothing.
+ */
+function viewIsEligible(state: PaneSlice, viewId: string): boolean {
+  const project = state.viewProjects[viewId]
+  if (!project || !state.activeProjectId) return true
+  return project === state.activeProjectId
+}
+
 /** The parked view to fall back to when the showing one ends — most recently
- *  active first, so closing a view reveals the one you were in before it. */
+ *  active first, so closing a view reveals the one you were in before it.
+ *  Never another project's (law 2): closing this project's last view lands on
+ *  the empty stage, not on a space you are not in. */
 function nextParkedViewId(state: WindowPaneState): string | undefined {
   for (const paneId of state.mostRecentActivePaneIds) {
     const slot = locatePane(state, paneId)
-    if (slot?.kind === 'parked') return slot.viewId
+    if (slot?.kind === 'parked' && viewIsEligible(state, slot.viewId)) return slot.viewId
   }
-  return Object.keys(state.parkedViews)[0]
+  return Object.keys(state.parkedViews).find((viewId) => viewIsEligible(state, viewId))
+}
+
+/**
+ * LAW 6: put the ONE shared empty stage on screen — no chat, so no project, so
+ * no tag and no owner.
+ *
+ * Minted under `ROOT_PANE_ID` when that id is free. Trap 3: `ROOT_PANE_ID` is
+ * both a pane id AND a view id, and a chat opened straight into the root pane
+ * makes it a real view that can be sitting PARKED right now — writing a fresh
+ * empty group over `panes[ROOT_PANE_ID]` would gut that parked arrangement, so
+ * a fresh id is used instead.
+ */
+function showEmptyStage(state: WindowPaneState): void {
+  const id = state.panes[ROOT_PANE_ID] ? nanoid() : ROOT_PANE_ID
+  state.panes[id] = { ...makeRootLeaf(), id, viewId: id }
+  state.rootLayout = createLeaf(id)
+  state.activeViewId = id
+  state.activePaneId = id
+  state.mostRecentActivePaneIds = [id, ...state.mostRecentActivePaneIds.filter((x) => x !== id)]
+}
+
+/** Zen's `lastSelectedWorkspaceTabs`: remember the showing view as its own
+ *  project's, so coming back to that project is a return rather than a reset.
+ *  A no-op for the untagged empty stage — it is nobody's to remember. */
+function rememberActiveView(state: WindowPaneState): void {
+  const project = state.viewProjects[state.activeViewId]
+  if (project) state.activeViewByProject[project] = state.activeViewId
+}
+
+/** Tags for views no pane carries any more, and the per-project pointers that
+ *  named them — dropped together, so a closed view leaves nothing behind
+ *  (§6.4's `closeView`/`closePane` row). */
+function pruneViewTags(state: WindowPaneState): void {
+  const live = new Set<string>()
+  for (const pane of Object.values(state.panes)) live.add(viewIdOf(pane))
+  for (const viewId of Object.keys(state.viewProjects)) {
+    if (!live.has(viewId)) delete state.viewProjects[viewId]
+  }
+  for (const [project, viewId] of Object.entries(state.activeViewByProject)) {
+    if (!live.has(viewId)) delete state.activeViewByProject[project]
+  }
+}
+
+/**
+ * §8's adoption rule, Zen's `_shouldShowTab` branch: a view nothing could file
+ * joins the project that is active when the window first learns where it is.
+ *
+ * One branch at hydrate, not a backfill — a mis-filed view is one gesture to
+ * recover and costs nothing, a refused (invisible, unreachable) one is not.
+ * The empty stage is skipped: law 6, it belongs to nobody.
+ */
+function adoptUntaggedViews(state: WindowPaneState, projectId: string): void {
+  const trees: Array<[string, LayoutNode]> = [
+    [state.activeViewId, state.rootLayout],
+    ...Object.entries(state.parkedViews),
+  ]
+  for (const [viewId, tree] of trees) {
+    if (state.viewProjects[viewId]) continue
+    if (!getAllLeafIds(tree).some((id) => !isPaneEmpty(state.panes[id]))) continue
+    state.viewProjects[viewId] = projectId
+  }
 }
 
 /** Nothing in it at all — no chat, no editor tabs. The one state spec §5.4
@@ -504,6 +632,10 @@ function dropEmptiedPanes(state: WindowPaneState): void {
       }
     }
   }
+  // Views dropped above (an off-screen one that emptied out) take their
+  // project tag and any pointer to them with them.
+  pruneViewTags(state)
+  rememberActiveView(state)
 }
 
 /**
@@ -563,6 +695,12 @@ export const createPaneSlice: StateCreator<
     fullscreenPaneId: null,
     dormantArrangements: [],
     recentsOrder: [],
+    // The boot stage is the empty stage, which belongs to no project (law 6),
+    // so it carries no tag — and nothing knows which project the window is in
+    // until the route's first effect says so.
+    viewProjects: {},
+    activeViewByProject: {},
+    activeProjectId: null,
 
     paneActions: {
       splitPane(paneId, direction, bufferId?, placement = 'after') {
@@ -630,6 +768,10 @@ export const createPaneSlice: StateCreator<
           state.activeViewId = id
           state.activePaneId = id
           state.mostRecentActivePaneIds = [id, ...state.mostRecentActivePaneIds]
+          // LAW 1: the view is minted here, so its project is stamped here.
+          if (state.activeProjectId) state.viewProjects[id] = state.activeProjectId
+          rememberActiveView(state)
+          pruneViewTags(state)
           newPaneId = id
         })
         return newPaneId
@@ -639,8 +781,19 @@ export const createPaneSlice: StateCreator<
         set((state) => {
           if (viewId === state.activeViewId) return
           if (!state.parkedViews[viewId]) return
+          const project = state.viewProjects[viewId]
+          if (project && state.activeProjectId && project !== state.activeProjectId) {
+            // LAW 2, enforced at the one write path for `activeViewId`: this
+            // view belongs to another space. LAW 5 says reaching it is a route
+            // + project switch, never a reveal in place — so remember it as
+            // that project's view (the switch will land ON it) and leave the
+            // screen exactly as it is.
+            state.activeViewByProject[project] = viewId
+            return
+          }
           parkShowingView(state)
           showParkedView(state, viewId)
+          rememberActiveView(state)
         })
       },
 
@@ -671,6 +824,12 @@ export const createPaneSlice: StateCreator<
           const source = state.panes[sourcePaneId]
           const target = state.panes[targetPaneId]
           if (!source || !target) return
+          // LAW 4: content never crosses a project. A merge is the one gesture
+          // that puts two chats in one view, so it is the one place two
+          // projects could end up sharing a view — refused outright.
+          const sourceProject = state.viewProjects[viewIdOf(source)]
+          const targetProject = state.viewProjects[viewIdOf(target)]
+          if (sourceProject && targetProject && sourceProject !== targetProject) return
           // Both slots resolved BEFORE anything moves — `paneSlot` locates a
           // pane by walking the trees, and the lift below changes them.
           const sourceSlot = paneSlot(state, sourcePaneId)
@@ -743,6 +902,9 @@ export const createPaneSlice: StateCreator<
             sourcePaneId,
             ...state.mostRecentActivePaneIds.filter((id) => id !== sourcePaneId),
           ]
+          // The view the pane LEFT may have dissolved — its tag goes with it.
+          pruneViewTags(state)
+          rememberActiveView(state)
         })
       },
 
@@ -767,7 +929,12 @@ export const createPaneSlice: StateCreator<
           // this one carries `viewId === paneId`, so reusing it here would
           // leave the two still grouped.
           const ownViewId = nanoid()
+          // §6.4: a detached view INHERITS the source view's project, never
+          // the active one — detaching a pane out of a parked view must not
+          // move it into whatever space the screen happens to be in.
+          const inherited = state.viewProjects[viewIdOf(state.panes[paneId])]
           state.panes[paneId].viewId = ownViewId
+          if (inherited) state.viewProjects[ownViewId] = inherited
           if (remainder === null) {
             // It was the whole tree after all — nothing to move, just retag.
             if (slot.kind === 'parked') {
@@ -776,6 +943,8 @@ export const createPaneSlice: StateCreator<
             } else if (slot.kind === 'root') {
               state.activeViewId = ownViewId
             }
+            pruneViewTags(state)
+            rememberActiveView(state)
             return
           }
           if (slot.kind === 'root') {
@@ -786,6 +955,8 @@ export const createPaneSlice: StateCreator<
           state.rootLayout = createLeaf(paneId)
           state.activeViewId = ownViewId
           state.activePaneId = paneId
+          pruneViewTags(state)
+          rememberActiveView(state)
         })
       },
 
@@ -896,6 +1067,10 @@ export const createPaneSlice: StateCreator<
             (id) => id !== paneId,
           )
           if (state.fullscreenPaneId === paneId) state.fullscreenPaneId = null
+          // §6.4: a view that just ended drops its `viewProjects` entry and
+          // any `activeViewByProject` pointer that named it.
+          pruneViewTags(state)
+          rememberActiveView(state)
         })
 
         // "All of Crowbar's chats should die once the user has closed their
@@ -931,6 +1106,21 @@ export const createPaneSlice: StateCreator<
           // and this costs nothing.
           const slot = locatePane(state, paneId)
           if (slot?.kind === 'parked') {
+            const project = state.viewProjects[slot.viewId]
+            if (project && state.activeProjectId && project !== state.activeProjectId) {
+              // LAW 2 again, on the path every "go to that chat" gesture
+              // actually takes. The pane is in another space's parked view:
+              // remember it as that project's view AND as its most recently
+              // active pane, so the route's own project switch lands on this
+              // exact pane (law 5) — but nothing crosses onto this screen and
+              // `activePaneId` never names a pane no showing tree holds.
+              state.activeViewByProject[project] = slot.viewId
+              state.mostRecentActivePaneIds = [
+                paneId,
+                ...state.mostRecentActivePaneIds.filter((id) => id !== paneId),
+              ]
+              return
+            }
             parkShowingView(state)
             showParkedView(state, slot.viewId)
           }
@@ -939,6 +1129,7 @@ export const createPaneSlice: StateCreator<
             paneId,
             ...state.mostRecentActivePaneIds.filter((id) => id !== paneId),
           ]
+          rememberActiveView(state)
         })
       },
 
@@ -1237,6 +1428,17 @@ export const createPaneSlice: StateCreator<
 
           pane.chatId = chatId
           pane.runnerId = runnerId
+          // LAW 1, for the one view a caller does NOT mint: the shared empty
+          // stage. It carries no tag while it is empty (law 6) — the moment a
+          // chat lands in it, it stops being a fallback and becomes a real
+          // view of the space the user is in, so it is tagged here. Already-
+          // tagged views (every `addPane`/`detachPaneToOwnView` one) are left
+          // alone: a pane swapping chats never changes which space it is in.
+          if (movedIn && state.activeProjectId) {
+            const view = viewIdOf(pane)
+            if (!state.viewProjects[view]) state.viewProjects[view] = state.activeProjectId
+            if (view === state.activeViewId) rememberActiveView(state)
+          }
           // Spec §8.2: "whatever goes up leaves every arrangement that was
           // remembering it, and the arrangement you leave is remembered MINUS
           // whatever you took out of it... An arrangement left with nobody in
@@ -1386,6 +1588,58 @@ export const createPaneSlice: StateCreator<
                 : targetIndex
           withoutSource.splice(insertAt, 0, entryId)
           state.recentsOrder = withoutSource
+        })
+      },
+
+      setActiveProject(projectId) {
+        set((state) => {
+          if (state.activeProjectId === projectId) return
+          const first = state.activeProjectId === null
+          // Remember where we are LEAVING from before the pointer moves, so
+          // coming back to that project returns to this exact view.
+          if (!first) rememberActiveView(state)
+          state.activeProjectId = projectId
+          // §8: the window has just learned where it is. Anything hydrate
+          // could not file joins this project rather than staying unreachable.
+          if (first) adoptUntaggedViews(state, projectId)
+
+          // Zen's `_handleTabSelection`: the space's own last-showing view
+          // first...
+          const remembered = state.activeViewByProject[projectId]
+          if (remembered && state.parkedViews[remembered]) {
+            parkShowingView(state)
+            showParkedView(state, remembered)
+            rememberActiveView(state)
+            return
+          }
+          // ...else whatever is already on screen, if this project may show
+          // it (its own view, or the untagged empty stage — law 6)...
+          if (viewIsEligible(state, state.activeViewId)) {
+            rememberActiveView(state)
+            return
+          }
+          // ...else any other view of this project (its remembered one was
+          // closed), and finally the shared empty stage.
+          const fallback = nextParkedViewId(state)
+          parkShowingView(state)
+          if (fallback) showParkedView(state, fallback)
+          else showEmptyStage(state)
+          rememberActiveView(state)
+        })
+      },
+
+      closeViewsForProject(projectId) {
+        // Through `closeView` — one `closePane` per member — so each chat gets
+        // the full teardown (`stopChat` + workspace eviction), exactly as if
+        // the user had closed it. Snapshotted first: closing views mutates
+        // `viewProjects` as it goes.
+        const doomed: string[] = []
+        for (const [viewId, owner] of Object.entries(get().viewProjects)) {
+          if (owner === projectId) doomed.push(viewId)
+        }
+        for (const viewId of doomed) get().paneActions.closeView(viewId)
+        set((state) => {
+          delete state.activeViewByProject[projectId]
         })
       },
     },

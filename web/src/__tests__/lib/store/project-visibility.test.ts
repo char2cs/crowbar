@@ -1,11 +1,12 @@
 /**
  * Contract pin: which projects cost streams.
  *
- * Visibility is "every KNOWN project minus the folded ones, plus the active
- * one". Both halves matter. Open-by-default is the product decision — the
- * sidebar shows every project — and "known" (the always-on /v0/projects stream)
- * is what stops that decision from meaning "subscribe the world at boot": a
- * project only starts costing streams once its row actually exists.
+ * Visibility is "every KNOWN project, plus the active one". Open-by-default is
+ * the product decision — the sidebar shows every project — and "known" (the
+ * always-on /v0/projects stream) is what stops that decision from meaning
+ * "subscribe the world at boot": a project only starts costing streams once its
+ * row actually exists. The pre-restyle `collapsedProjects` fold is retired and
+ * never gates visibility (see project-visibility-retired-collapsed-projects).
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
@@ -15,11 +16,15 @@ import { idle, success } from '@/lib/loadable'
 import { getVisibleProjectIds, readVisibleRepoTree } from '@/lib/store/project-visibility'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
-import { useSidebarStore } from '@/lib/store/sidebar'
+import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
+import { hydrateSidebar } from '@/lib/persistence/hydrate'
 import type { FolderDTO, Project, RepoDTO, WorkspaceDTO } from '@/lib/types'
 
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({ getHomeWorkspaceId }))
+vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
+  getHomeWorkspaceId,
+  getHomeOwningChatId: () => null,
+}))
 
 const repoDTO = (id: string, projectId: string): RepoDTO => ({
   id,
@@ -82,7 +87,6 @@ beforeEach(async () => {
   useHomeTreeStore.setState({ trees: {} })
   useProjectStore.setState({ activeProjectId: 'p1' })
   useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
-  useSidebarStore.setState({ collapsedProjects: new Set<string>() })
   // Two projects, each with one repo and one workspace, in the cross-project cache.
   await upsertEntity('crowbar_repos', repoDTO('r1', 'p1'))
   await upsertEntity('crowbar_repos', repoDTO('r2', 'p2'))
@@ -96,16 +100,14 @@ describe('getVisibleProjectIds', () => {
     expect([...getVisibleProjectIds()].sort()).toEqual(['p1', 'p2'])
   })
 
-  it('drops a project once it is folded away', () => {
-    useSidebarStore.getState().toggleProject('p2')
+  it('drops a project once the list no longer carries it', () => {
+    useProjectDataStore.setState({ data: success([project('p1')]) })
     expect([...getVisibleProjectIds()]).toEqual(['p1'])
   })
 
-  it('keeps the ACTIVE project visible even when its own row is folded', () => {
-    // The app needs the active project's repo scope whether or not the section
-    // is open; collapsing the row must not tear the live workspace's stream out
-    // from under it.
-    useSidebarStore.getState().toggleProject('p1')
+  it('ignores the retired collapsedProjects fold — nothing in the UI can undo it', async () => {
+    await saveSidebarUI({ collapsedProjects: ['p1', 'p2'], collapsedChatRows: [] })
+    await hydrateSidebar()
     expect([...getVisibleProjectIds()].sort()).toEqual(['p1', 'p2'])
   })
 
@@ -161,23 +163,23 @@ describe('readVisibleRepoTree', () => {
     expect(folders.find((f) => f.id === 'f1')!.parentId).toBeUndefined()
   })
 
-  it('excludes a project that has been folded away', async () => {
-    useSidebarStore.getState().toggleProject('p2')
+  it('excludes a project the list no longer carries', async () => {
+    useProjectDataStore.setState({ data: success([project('p1')]) })
     expect((await readVisibleRepoTree()).map((r) => r.id)).toEqual(['r1'])
   })
 
-  it('brings a project’s repos back when it is re-opened', async () => {
-    useSidebarStore.getState().toggleProject('p2')
+  it('brings a project’s repos back when the list carries it again', async () => {
+    useProjectDataStore.setState({ data: success([project('p1')]) })
     expect((await readVisibleRepoTree()).map((r) => r.id)).toEqual(['r1'])
-    useSidebarStore.getState().toggleProject('p2')
+    useProjectDataStore.setState({ data: success([project('p1'), project('p2')]) })
     expect((await readVisibleRepoTree()).map((r) => r.id).sort()).toEqual(['r1', 'r2'])
   })
 
   it('renders a non-active project from the cache alone — no fetch involved', async () => {
-    // The rows come straight out of IndexedDB, which is what makes expanding a
-    // project instant and offline-capable.
+    // The rows come straight out of IndexedDB, which is what makes a project
+    // instant and offline-capable.
     useProjectStore.setState({ activeProjectId: '' })
-    useSidebarStore.getState().toggleProject('p1')
+    useProjectDataStore.setState({ data: success([project('p2')]) })
     const tree = await readVisibleRepoTree()
     expect(tree.map((r) => r.id)).toEqual(['r2'])
     expect(tree[0].workspaces.map((w) => w.id)).toEqual(['w2'])

@@ -9,7 +9,10 @@ import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
+import {
+  getHomeOwningChatId,
+  getHomeWorkspaceId,
+} from '@/features/workspace/lib/home-workspace-resolver'
 import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import {
@@ -44,7 +47,7 @@ interface SidebarTreeSurfaceProps {
 
 /**
  * SpaceScroller's real mount point, plus the chrome (RemovalTray,
- * RenameDialog, RepoImportDialog, SidebarRowContextMenu) it needs mounted
+ * RepoImportDialog, SidebarRowContextMenu) it needs mounted
  * once alongside it — split out of `ide-shell.tsx` itself
  * rather than inlined there, on purpose: `ide-shell.tsx`'s OWN comment on
  * `sidebarWorkspacePath` (a few lines up from where this used to be wired)
@@ -89,30 +92,27 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   // arrive on their own reseed loop — independent of the repo and workspace
   // streams that put `repos` above into the store. Drawing during that window
   // would give every row an id that changes the moment the seed lands, and a
-  // row id is the React key, the `collapsedWorkspaces` key and the selection
+  // row id is the React key, the `collapsedChatRows` key and the selection
   // key: the tree would silently drop the user's folds and selection a beat
   // after painting. So a repo's rows appear once, with final ids. Everything
   // else here still reads the FULL `repos` — resolving, opening and dropping a
   // row are questions about the repo, not about its rows.
   const seededRepoIds = useFolderSignalStore((s) => s.seededRepoIds)
   // A repo whose WORKSPACES have seeded (folder-signal.ts's
-  // seededWorkspaceRepoIds — app-sync-engine.ts fetches this once regardless
-  // of collapse now) is admitted too, even before its TREE has. Its own
+  // seededWorkspaceRepoIds) is admitted too, even before its TREE has. Its own
   // header/branch rows are safe to draw from workspace data alone: a
   // WorkspaceDTO's `owningChatId` is already backend-resolved (dto.
   // WorkspaceDTOFrom), so a row's id is the SAME one this tree would settle
   // on once chats/folders also arrive — never the "id changes under you"
   // case the comment above warns about, which is about a row whose identity
-  // can ONLY be resolved by scanning chats. Without this, a collapsed repo's
-  // rows never draw at all: not a hidden body, a missing repo — reproduced
-  // live against real production data. Loose/extra chats and thread
+  // can ONLY be resolved by scanning chats. Loose/extra chats and thread
   // nesting (which genuinely do need the tree) simply wait, same as before.
   const seededWorkspaceRepoIds = useFolderSignalStore((s) => s.seededWorkspaceRepoIds)
   const treeRepos = useMemo(
     () => repos.filter((r) => seededRepoIds.has(r.id) || seededWorkspaceRepoIds.has(r.id)),
     [repos, seededRepoIds, seededWorkspaceRepoIds],
   )
-  // Every row across every project — SidebarRowContextMenu/RenameDialog look
+  // Every row across every project — SidebarRowContextMenu looks
   // up a row by id regardless of which project's panel drew it (a row's id
   // is never ambiguous by project), so the chrome mounted once below needs
   // the whole set, not any one project's slice.
@@ -144,6 +144,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
             homeWorkspaceId,
             homeTree.chats.filter((c) => !hiddenIds.has(c.id)),
             homeTree.folders.filter((f) => !hiddenIds.has(f.id)),
+            getHomeOwningChatId(project.id) ?? undefined,
           ),
           removalEntries,
         )

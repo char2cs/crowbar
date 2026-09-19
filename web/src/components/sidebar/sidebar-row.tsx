@@ -74,21 +74,21 @@ interface SidebarRowProps {
   isNestTarget?: boolean
   /** Arms a press-and-hold-to-drag on this row (Task 21's `useSidebarDrag`). */
   onPointerDownDrag?: (e: React.PointerEvent) => void
-  /** A chat that is the live pane (`row.hasView`) renders through TWO
-   *  `SidebarRow` instances at once — its own tree row, and a second one
-   *  `RecentsMemberRow` builds for the same chat id (§5: "what is up").
-   *  `sidebar-inline-rename.ts`'s store is keyed only by row id, with no
-   *  notion of which DOM instance is "the" one being edited — so without
-   *  this, double-clicking either one flips BOTH into rename mode. Two
-   *  `InlineRenameInput`s then mount, the second one's own focus+select
-   *  effect steals focus from the first, and that unhandled blur commits
-   *  (matching develop — see `inline-rename-input.tsx`'s `handleBlur`) with
-   *  the unchanged value, cancelling the rename before it's ever visible.
-   *  Recents already renders `SidebarRow` with reduced affordances of its
-   *  own (no trash, no create, no fold — see `recents-band.tsx`), so opting
-   *  its instance out of inline-rename here rather than teaching the store
-   *  which instance "wins" keeps the tree as the one place a chat's name is
-   *  actually edited. */
+  /** Marks this instance as Recents' mirror of a row that may ALSO render in
+   *  the tree (a live-pane chat, `RecentsMemberRow`'s own copy of it — §5:
+   *  "what is up" — or a branch row Recents shows while its repo happens to
+   *  be expanded too). Both instances share one row id, and
+   *  `sidebar-inline-rename.ts`'s store resolves the collision itself now:
+   *  `startRenaming` checks the DOM once, when the edit starts, for a
+   *  tree-rendered instance of that id, and only that one instance's
+   *  `renamingRole` matches — the tree wins when it's mounted (develop's own
+   *  rule: the tree is where a name is actually edited), and this Recents
+   *  copy only draws the editor when NO tree copy is mounted at all (its row
+   *  folded away under a collapsed repo/project, not merely off-screen —
+   *  live-reproduced, and the actual reason a modal used to stand in here
+   *  instead of the real inline editor). Without this flag at all, both
+   *  instances would answer to the same id with no way to tell them apart;
+   *  the store's role check is what actually decides which one draws. */
   inlineRenameDisabled?: boolean
   /** True only for the tree's own render path (sidebar-tree.tsx). A row with
    *  `row.hasView` gets the idle ground (`ROW_HAS_VIEW_IDLE`) instead of a
@@ -179,7 +179,16 @@ export function SidebarRow({
   // vary the hook count render to render for that one instance. Harmless to
   // run early: the two returns below render an entirely different component,
   // which never reads this value at all.
-  const isThisRowRenaming = useSidebarInlineRenameStore((s) => s.renamingRowId === row.id)
+  // Includes `renamingRole` in the selector itself (not just `renamingRowId`)
+  // so this instance only answers true when the STORE — not a static
+  // per-caller flag — decided this is the one that draws the editor; see
+  // `inlineRenameDisabled`'s own doc below for why a shared id can resolve to
+  // either this instance or its tree/Recents counterpart.
+  const isThisRowRenaming = useSidebarInlineRenameStore(
+    (s) =>
+      s.renamingRowId === row.id &&
+      (inlineRenameDisabled ? s.renamingRole === 'recents' : s.renamingRole !== 'recents'),
+  )
   // A create still in flight (pending-creates.ts) draws through this SAME row
   // shape rather than a separate placeholder component, at the exact slot
   // the finished create lands in — none of the interactive state below (open,
@@ -198,23 +207,17 @@ export function SidebarRow({
   if (row.removal) {
     return <RemovingSidebarRow row={row} depth={depth} removal={row.removal} />
   }
-  // The project-home row is `branch` with no parent — the sidebar's one 20px
-  // glyph exception outside the project header itself (spec §3.1), and also
-  // the one row spec §9 calls a protected branch: "the repo's own ground …
-  // not workspaces you made". In the TREE it's the only row this shape can
-  // occur on (rows-from-repo.ts gives exactly one row a null parentId, the
-  // repo's default worktree) — but `!inlineRenameDisabled` is a REQUIRED
-  // second guard now that a chat's Recents mirror can also carry `kind:
-  // 'branch'` (a workspace-owning chat's real icon, recents-band.tsx's own
-  // `chatIcons`): Recents gives every row `parentId: null` (§5.1, "no
-  // parentage") regardless of kind, so without this a workspace-owning
-  // chat's OWN Recents row was misread as the repo's header — the 20px glyph
-  // and repo-icon click-to-edit affordances leaking onto an ordinary chat
-  // pill (caught live). `inlineRenameDisabled` is already the one signal
-  // that means "this SidebarRow instance is Recents' mirror, not the tree's
-  // own row" (see that prop's own doc) — the real project-home row is only
-  // ever drawn by the tree, so it is never also true here.
-  const isProjectHome = row.kind === 'branch' && row.parentId === null && !inlineRenameDisabled
+  // The project-home (repo header) row is the `branch` row that carries the
+  // repo's own icon — the sidebar's one 20px glyph exception outside the
+  // project header itself (spec §3.1), and also the one row spec §9 calls a
+  // protected branch. Keyed on `repoIcon`, not on `parentId === null`: a
+  // header filed into a home folder keeps its parent, and must keep its
+  // identity (icon picker, overflow menu, no Lock/Remove). `rows-from-repo.ts`
+  // stamps `repoIcon` on exactly that one row per repo. `!inlineRenameDisabled`
+  // stays as a second guard: it is the one signal that means "this SidebarRow
+  // instance is Recents' mirror, not the tree's own row" (see that prop's own
+  // doc), and Recents' `chatIcons` rows never carry `repoIcon` either.
+  const isProjectHome = row.kind === 'branch' && row.repoIcon !== undefined && !inlineRenameDisabled
   const expanded = !folded
   // §3.5/§4.2: any bubble (no worktree of its own) that isn't currently
   // working can promote itself into one, straight from its own glyph — a
@@ -235,15 +238,13 @@ export function SidebarRow({
   const promotable =
     row.kind === 'chat' && !row.ownsWorktree && !row.working && row.canFork !== false
   // Double-click-to-rename (sidebar-tree-chrome.tsx's delegated `dblclick`
-  // listener) starts this row's turn in `sidebar-inline-rename.ts`'s store —
-  // real inline editing in place, matching `develop`, not the modal Task 4
-  // wrongly opened. A narrow selector: this row only cares whether IT is the
-  // one renaming, not who else might be (`isThisRowRenaming` itself, read
+  // listener) and the right-click menu's Rename item (row-context-menu.tsx)
+  // both start this row's turn in `sidebar-inline-rename.ts`'s store — real
+  // inline editing in place, matching `develop`, never a modal. The role
+  // check already happened inside `isThisRowRenaming`'s own selector (read
   // unconditionally at the top of this function — see that hook call's own
-  // doc). `inlineRenameDisabled` (see its own doc above) keeps a second
-  // same-id instance — Recents mirroring a live pane — from ALSO answering
-  // yes and fighting the tree row for focus.
-  const renaming = !inlineRenameDisabled && isThisRowRenaming
+  // doc), so this is just that value.
+  const renaming = isThisRowRenaming
   // Rule 6: a `branch` row that owns a real, unlocked workspace draws its
   // OWNING CHAT's title on the label line now (`rows-from-repo.ts`'s own
   // `label`/`branchName` split), with the branch name and change counts moved
@@ -508,7 +509,20 @@ function PendingSidebarRow({
 
         {isError && (
           <>
-            <span className="text-xs text-destructive">failed</span>
+            <span
+              className="pointer-events-auto shrink-0 text-xs text-destructive"
+              title={pending.error}
+            >
+              failed
+            </span>
+            {pending.error && (
+              <span
+                className="pointer-events-auto min-w-0 max-w-[50%] truncate text-xs text-muted-foreground"
+                title={pending.error}
+              >
+                {pending.error}
+              </span>
+            )}
             <button
               type="button"
               aria-label="Dismiss"
@@ -557,7 +571,15 @@ function RemovingSidebarRow({
 }) {
   return (
     <div className={ROW_INDENT_TRANSITION} style={{ marginInlineStart: depth * ROW_INDENT_STEP }}>
-      <div className={cn(ROW_BASE, ROW_INACTIVE, 'relative')}>
+      {/* `data-sidebar-row-id` is the row's identity, not one of its
+          affordances, and a held row is still on screen with its children
+          still drawn under it — dropping the attribute made a held FOLDER
+          read as a row that does not exist, leaving its children parented to
+          an id nothing published (and taking the right-click menu with it:
+          `row-context-menu.tsx` resolves a row by this attribute alone). The
+          drag attributes stay off: a row on its way out is deliberately not a
+          drop target. */}
+      <div data-sidebar-row-id={row.id} className={cn(ROW_BASE, ROW_INACTIVE, 'relative')}>
         <span className={ROW_GLYPH_BOX}>
           <RowGlyph row={row} large={false} expanded={false} />
         </span>
@@ -677,10 +699,11 @@ function RowGlyph({
   // stamped under the identical condition as `locked`, rows-from-repo.ts)
   // draws the SAME icon the workspace switcher already does: locked, a PR
   // state (open/merged/closed/conflicts), deleted — or, ahead of all of
-  // those, the amber warning glyph for a placeholder that could not be
-  // provisioned at all (`isPlaceholder`, the identical test
+  // those, the amber warning glyph for a branch Crowbar could not provision
+  // (`needsProvisioning`, the identical test
   // `placeholder-toast-watcher.tsx` fires its "Couldn't set up ..." toast
-  // from). A row whose Workspace half has not landed yet (`walkTreeIntoRows`'s
+  // from — NOT `isPlaceholder`, which is also true for the repo's own
+  // checkout holding its own default branch and would alarm forever). A row whose Workspace half has not landed yet (`walkTreeIntoRows`'s
   // "no Workspace record" push — see that push's own comment) carries no
   // `status` and falls through to the locked/plain-branch guess below,
   // exactly as every row did before this delegated anywhere.
@@ -688,7 +711,8 @@ function RowGlyph({
     return (
       <WorkspaceBranchIcon
         status={row.status}
-        isPlaceholder={row.isPlaceholder}
+        isPlaceholder={row.needsProvisioning}
+        reason={row.placeholderReason}
         size={size}
         invertedGround={activeGround}
       />

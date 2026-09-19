@@ -328,3 +328,16 @@ describe('buildSidebarTree — chats', () => {
     expect(node?.kind === 'chat' && node.chat).toEqual(full)
   })
 })
+
+// Same instant-vs-string rule as build-repo-tree's compareByPlacement: the
+// daemon compares time.Time, and Go's RFC3339Nano wire form (local offset,
+// trimmed fraction zeros) does not string-sort in instant order.
+test('a tied level breaks on the createdAt INSTANT, not the ISO string', () => {
+  const tree = buildSidebarTree([
+    ws('a', { order: 0, createdAt: '2026-11-01T01:30:00-07:00' }),
+    ws('b', { order: 0, createdAt: '2026-11-01T01:15:00-08:00' }),
+    ws('c', { order: 0, createdAt: '2026-09-17T20:36:46.53Z' }),
+    ws('d', { order: 0, createdAt: '2026-09-17T20:36:46.5Z' }),
+  ])
+  expect(tree.map((n) => n.id)).toEqual(['d', 'c', 'a', 'b'])
+})

@@ -71,20 +71,22 @@ func TestPlaceChat_ABubbleDoesNotSeeEveryFolderTwice(t *testing.T) {
 		"the root holds two folders, so a bubble joining it takes slot 2")
 }
 
-// A chat with nowhere in particular to go takes the unplaced spawn, untouched.
-// There is no edge to write, so there is no gap to open between minting and
-// starting, and a plain new chat must be created in exactly the order it always
-// was.
-func TestCreateChat_AtTheRootTakesTheUnplacedSpawn(t *testing.T) {
-	chats, uc := newUsecase(t)
+// A chat with nowhere in particular to go is still PLACED — at the root, in
+// the next free slot, with a Node row of its own — before its CLI starts. A
+// root chat that skipped placement held no Node row, so the repo drag that
+// counts Node rows alone could never be placed past it (K3).
+func TestCreateChat_AtTheRootIsPlacedAtTheNextSlot(t *testing.T) {
+	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	chats.NextID = "c-new"
 
 	chatID, runnerID, err := uc.CreateChat(context.Background(), workspaceID, "claude", "", tree.WorktreeSpec{Mode: tree.WorktreeNone})
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, "runner-c-new", runnerID)
-	assert.Equal(t, []string{"claude"}, chats.Spawned)
-	assert.Empty(t, chats.Minted, "the split create is for a chat that has somewhere to be placed")
+	assert.Equal(t, []string{workspaceID}, chats.Minted, "minted in its workspace, then placed")
+	require.Len(t, chats.Started, 1)
+	assert.Equal(t, "", nodeRowFor(t, nodes, "c-new").ParentID)
+	assert.Empty(t, chats.Spawned, "the unplaced spawn is no longer a create path")
 }
 
 // THE ORDERING. A chat created under another chat must carry the parent edge

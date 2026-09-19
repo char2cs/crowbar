@@ -84,6 +84,19 @@ func socketPath(
 		return path, nil
 	}
 	if override := os.Getenv(metadata.HomeEnvVar); override != "" {
+		// A caller that merely SPELLS OUT the plain default home (every in-PTY
+		// callback's --home flag always carries a concrete value, never a blank
+		// one — see applyHomeOverride) is not asking for dev-instance isolation;
+		// it wants the one real daemon, at the one literal socket the app itself
+		// binds when it never sets CROWBAR_HOME at all. Hashing it anyway sent
+		// every hook/rename/handoff callback in production to a temp-dir socket
+		// nothing ever listens on — a silent, total transport failure, caught
+		// live 2026-09-18 (zero POST .../chats/hooks in 30+ hours of daemon
+		// uptime). Only a home that actually DIFFERS from the default is a real
+		// override needing its own isolated socket.
+		if filepath.Clean(override) == filepath.Clean(metadata.DefaultHomePath()) {
+			return literalSocketPath(override)
+		}
 		//nolint:gosec // G703: CROWBAR_HOME is operator-controlled config, not untrusted input.
 		if err := os.MkdirAll(override, 0o700); err != nil {
 			return "", err
@@ -94,11 +107,18 @@ func socketPath(
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".crowbar")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	return literalSocketPath(filepath.Join(home, ".crowbar"))
+}
+
+// literalSocketPath is the one true production socket: crowbar.sock directly
+// under crowbarHome — an already-resolved crowbar home directory (e.g.
+// ~/.crowbar, NOT the raw OS home) — the same path the daemon binds when
+// launched with no explicit --host and no CROWBAR_HOME override at all.
+func literalSocketPath(crowbarHome string) (string, error) {
+	if err := os.MkdirAll(crowbarHome, 0o700); err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, defaultSocketName), nil
+	return filepath.Join(crowbarHome, defaultSocketName), nil
 }
 
 // overrideSocketPath returns the socket path for a CROWBAR_HOME override: a

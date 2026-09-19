@@ -34,6 +34,11 @@ var ErrSelfParent = errors.New("usecases: cannot reparent a workspace onto itsel
 // of failing midway with a raw git error. Handlers map it to HTTP 409.
 var ErrWorkspaceLocked = errors.New("workspace is locked")
 
+// ErrWorkspaceIsDefault is returned when a cascade delete targets a repo's
+// main checkout: it is never a child worktree, and only deleting the repo
+// takes it. Handlers map it to HTTP 409.
+var ErrWorkspaceIsDefault = errors.New("workspace is the repository's main checkout")
+
 // ErrBranchWorkspaceExists is returned when a create would produce a second
 // workspace for a branch that a non-deleted workspace already holds in the repo.
 // A branch can be checked out in at most one worktree, so the repo keeps at most

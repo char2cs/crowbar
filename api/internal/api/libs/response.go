@@ -10,6 +10,7 @@
 package libs
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -102,6 +103,7 @@ func WriteErr(
 	status int,
 	message string,
 ) {
+	noteFailure(c, status, message)
 	c.JSON(
 		status,
 		Envelope{
@@ -121,6 +123,7 @@ func WriteErrCode(
 	code string,
 	message string,
 ) {
+	noteFailure(c, status, message)
 	c.JSON(
 		status,
 		Envelope{
@@ -129,4 +132,16 @@ func WriteErrCode(
 			Code:    code,
 		},
 	)
+}
+
+// noteFailure hands a 5xx's message to gin's error list so the access log can
+// print the cause; the envelope is otherwise the only place it ever existed.
+func noteFailure(
+	c *gin.Context,
+	status int,
+	message string,
+) {
+	if status >= http.StatusInternalServerError {
+		_ = c.Error(errors.New(message))
+	}
 }

@@ -49,22 +49,29 @@ function subscribe(listener: () => void): () => void {
 }
 
 /**
- * Kick off (once per project id, ever) resolving the home workspace. Safe to
- * call unconditionally from an effect on every render while on the home
- * route — a no-op once resolved or while already in flight.
+ * Kick off resolving the home workspace. Safe to call unconditionally from an
+ * effect on every render while on the home route — a no-op once resolved or
+ * while already in flight. A FAILED resolve is not terminal: the error state
+ * stays visible until the next call re-fetches, so one lost GET at cold start
+ * (daemon still replaying, sidecar respawn) cannot blank a project's home for
+ * the whole session. A resolve that latched NO owning chat is not terminal
+ * either: the daemon mints one on GET /home, so the next call re-reads.
  */
 export function ensureHomeWorkspaceResolved(projectId: string): void {
-  if (states.has(projectId) || inflight.has(projectId)) return
+  const current = states.get(projectId)
+  if ((current?.wsId && current.owningChatId) || inflight.has(projectId)) return
   inflight.add(projectId)
   fetchHomeWorkspace(projectId)
     .then((ws) => {
       states.set(projectId, {
         wsId: ws.id,
-        owningChatId: ws.owningChatId ?? null,
+        owningChatId: ws.owningChatId || null,
         error: false,
       })
     })
     .catch(() => {
+      // A re-read for the owner keeps the workspace it already knows.
+      if (states.get(projectId)?.wsId) return
       states.set(projectId, { wsId: null, owningChatId: null, error: true })
     })
     .finally(() => {
@@ -95,6 +102,13 @@ export function getKnownHomeWorkspaceIds(): string[] {
  */
 export function getHomeWorkspaceId(projectId: string): string | null {
   return states.get(projectId)?.wsId ?? null
+}
+
+/** The chat that owns `projectId`'s home workspace, as GET /home reported it,
+ *  or `null` before it resolved. The home chat list carries no marker for it,
+ *  so this is what `rowsFromHome` needs to keep the owner off the tree. */
+export function getHomeOwningChatId(projectId: string): string | null {
+  return states.get(projectId)?.owningChatId ?? null
 }
 
 function getSnapshot(projectId: string | null): HomeWorkspaceState {

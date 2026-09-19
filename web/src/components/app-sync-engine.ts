@@ -4,9 +4,7 @@ import { useProjectDataStore, useProjectStore } from '@/lib/store/projects'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { getVisibleProjectIds } from '@/lib/store/project-visibility'
 import { toSidebarRepo } from '@/lib/store/build-repo-tree'
-import { subscribeHomeWorkspace } from '@/lib/store/home-workspace'
 import { subscribeHomeTree } from '@/lib/store/home-tree'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { dataOf } from '@/lib/loadable'
 import {
   fetchFolders,
@@ -27,18 +25,15 @@ import type { RepoDTO, WorkspaceDTO } from '@/lib/types'
 //
 //   /v0/projects                            always — one stream, a handful of rows
 //   a project's repos                       while that project is visible
-//                                           (not folded away, or the active one)
-//   a repo's worktrees (via its chats)      while that repo is expanded, holds the
-//                                           active workspace, or has live work to
-//                                           report on its header
-//   a repo's tree rows (folders + chats)    while that repo is expanded or holds
-//                                           the active workspace
+//                                           (known to /v0/projects, or the active one)
+//   a repo's worktrees                      while its project is visible
+//   a repo's tree rows (folders + chats)    while its project is visible
 //
-// Cost is then proportional to what is on screen instead of to how much work
-// you have: a collapsed project costs one cached row and nothing else, and
-// expanding one renders instantly from the IndexedDB entity cache while its
-// seed GET is still in flight. Teardown waits out a short grace period so a
-// collapse/expand tap doesn't thrash the socket, and every stream is held under
+// Cost is then proportional to what exists instead of to how much work you
+// have: a project that leaves the list costs one cached row and nothing else,
+// and one returning renders instantly from the IndexedDB entity cache while
+// its seed GET is still in flight. Teardown waits out a short grace period so
+// a list flicker doesn't thrash the socket, and every stream is held under
 // its own key so adding or dropping one never disturbs the others.
 //
 // On mount we
@@ -67,12 +62,10 @@ const REBUILD_BATCH_MS = 16
 const MAX_SUPERSEDED_RETRIES = 2
 
 const KEY_SEP = '|'
-/** The project-home workspace tracker for the ACTIVE project (see below). */
-const homeKey = (projectId: string): string => `home${KEY_SEP}${projectId}`
 /** One project's home-workspace tree rows (chats + folders) — open for every
- *  VISIBLE project, unlike `homeKey` above: a project's home row has to
- *  render exactly as reliably as its repos do, and repos are not restricted
- *  to the active project either. See `home-tree.ts`'s own doc. */
+ *  VISIBLE project: a project's home row has to render exactly as reliably
+ *  as its repos do, and repos are not restricted to the active project
+ *  either. See `home-tree.ts`'s own doc. */
 const homeTreeKey = (projectId: string): string => `hometree${KEY_SEP}${projectId}`
 /** A project's repo list stream. */
 const reposKey = (projectId: string): string => `repos${KEY_SEP}${projectId}`
@@ -314,7 +307,11 @@ export function useAppSyncEngine(): void {
     // side and serves only this repo's.
     function openRepoTreeSubscription(projectId: string, repoId: string): () => void {
       let closed = false
-      let generation = 0
+      /** The reseed in flight, if any — a signal arriving mid-read coalesces
+       *  into it (and queues one more) instead of superseding it: discarding
+       *  the first GET's result only widened the stale window by a round trip. */
+      let inFlight: Promise<void> | null = null
+      let rerun = false
 
       /**
        * Replace THIS repo's rows in one entity store, leaving every other
@@ -322,8 +319,8 @@ export function useAppSyncEngine(): void {
        * because these stores are deliberately cross-repo and pruning wholesale
        * would wipe the siblings on each reseed.
        *
-       * `live` is re-checked after every await: a reseed superseded mid-flight
-       * must not finish writing a snapshot the newer one has already replaced.
+       * `live` is re-checked after every await: a reseed closed mid-flight
+       * must not finish writing a snapshot nobody holds any more.
        */
       async function replaceRepoScope<T extends { id: string; repoId: string }>(
         store: 'crowbar_folders' | 'crowbar_chats',
@@ -364,9 +361,8 @@ export function useAppSyncEngine(): void {
         }
       }
 
-      async function reseed(): Promise<void> {
-        const gen = ++generation
-        const live = () => !disposed && !closed && gen === generation
+      async function readTree(): Promise<void> {
+        const live = () => !disposed && !closed
         const wrote = await Promise.all([
           reseedHalf('folders', 'crowbar_folders', () => fetchFolders(projectId, repoId), live),
           reseedHalf('chats', 'crowbar_chats', () => fetchRepoChats(projectId, repoId), live),
@@ -384,7 +380,21 @@ export function useAppSyncEngine(): void {
         if (wrote.some(Boolean) && live()) scheduleRebuild()
       }
 
-      void reseed()
+      function reseed(): void {
+        if (inFlight) {
+          rerun = true
+          return
+        }
+        inFlight = readTree().finally(() => {
+          inFlight = null
+          if (rerun && !disposed && !closed) {
+            rerun = false
+            reseed()
+          }
+        })
+      }
+
+      reseed()
       const unsubscribeSignal = useFolderSignalStore.subscribe(
         // Keyed by THIS repo's own generation — the cross-repo guard on the
         // read side, matching the bump side's own workspace-scoped repo id: a
@@ -392,7 +402,7 @@ export function useAppSyncEngine(): void {
         // subscriber is never woken and B never refetches.
         (state) => state.generations[repoId] ?? 0,
         () => {
-          if (!disposed && !closed) void reseed()
+          if (!disposed && !closed) reseed()
         },
       )
 
@@ -417,10 +427,10 @@ export function useAppSyncEngine(): void {
         (frame) => {
           if (disposed || closed) return
           if (frame && typeof frame === 'object' && 'reconnected' in frame) {
-            void reseed()
+            reseed()
             return
           }
-          if (isStructuralChatFolderFrame(frame)) void reseed()
+          if (isStructuralChatFolderFrame(frame)) reseed()
         },
       )
 
@@ -431,11 +441,29 @@ export function useAppSyncEngine(): void {
       }
     }
 
+    /**
+     * GET .../workspaces mints a workspace's owning chat on first read, and
+     * its created frame can land before this repo's chat socket is open — so
+     * the chat list may not hold an owner the workspace rows already name.
+     * A missing owner is a real signal to re-read the tree, not a timer.
+     */
+    async function reseedChatsForUnlistedOwners(
+      repoId: string,
+      rows: readonly WorkspaceDTO[],
+    ): Promise<void> {
+      const owners = rows.map((ws) => ws.owningChatId).filter((id): id is string => !!id)
+      if (owners.length === 0) return
+      const cached = await getAllEntities<{ id: string; repoId: string }>('crowbar_chats')
+      if (disposed) return
+      const listed = new Set<string>()
+      for (const c of cached) if (c.repoId === repoId) listed.add(c.id)
+      if (owners.some((id) => !listed.has(id))) useFolderSignalStore.getState().bump(repoId)
+    }
+
     // -- keyed subscription registry ---------------------------------------
 
     function openSubscription(key: string): () => void {
       const [kind, projectId, repoId] = key.split(KEY_SEP)
-      if (kind === 'home') return subscribeHomeWorkspace(projectId)
       if (kind === 'repos') {
         return subscribeEntityStream<RepoDTO>({
           endpoint: `/v0/projects/${projectId}/repos`,
@@ -443,8 +471,7 @@ export function useAppSyncEngine(): void {
           seed: () => fetchRepos(projectId),
           onChange: onReposChange,
           // Authoritative over THIS project's repos only — crowbar_repos holds
-          // other projects' repos too, including collapsed ones we still want
-          // cached for an instant expand.
+          // other projects' repos too, cached for an instant return.
           pruneScope: (repo) => repo.projectId === projectId,
         })
       }
@@ -475,6 +502,7 @@ export function useAppSyncEngine(): void {
           // neverSeededWorkspaces bypass must keep applying for every
           // attempt until one actually lands.
           useFolderSignalStore.getState().markWorkspacesSeeded(repoId)
+          await reseedChatsForUnlistedOwners(repoId, rows)
           return rows
         },
         mapFrame: (raw) => workspaceDTOFromWorktreeFrame(raw, projectId, repoId),
@@ -525,53 +553,15 @@ export function useAppSyncEngine(): void {
         keys.add(homeTreeKey(projectId))
       }
 
-      // The project-home workspace rides no repo, so the per-repo workspace
-      // streams can never carry it (see home-workspace.ts). It is tracked
-      // separately, and only for the ACTIVE project: useHomeWorkspaceStore has
-      // a single slot, so subscribing several projects' home workspaces would
-      // have them overwrite each other.
-      const activeProjectId = useProjectStore.getState().activeProjectId
-      if (activeProjectId) keys.add(homeKey(activeProjectId))
-
-      const { repos, collapsedRepos } = useSidebarStore.getState()
-      const activeRepoId = getWorkspaceScope()?.repoId
+      // Every visible repo draws its whole tree (the restyled sidebar folds
+      // rows via collapsedChatRows, which hides nothing the streams feed), so
+      // each one keeps both its workspaces and its folders+chats streams open.
+      const { repos } = useSidebarStore.getState()
       for (const repo of repos) {
         const projectId = repo.projectId
         if (!projectId || !visibleProjects.has(projectId)) continue
-        const holdsActiveWorkspace = repo.id === activeRepoId
-        // `defaultWorking` is the one live signal a COLLAPSED repo still
-        // renders (the spinner on its avatar). Keeping the stream while a turn
-        // is in flight is what lets that spinner stop; dropping it mid-turn
-        // would freeze it on, which is worse than not showing it at all.
-        const hasLiveWorkToReport = repo.defaultWorking === true
-        const showsRows = !collapsedRepos.has(repo.id) || holdsActiveWorkspace
-        // A repo whose workspace list has NEVER come back also ignores
-        // collapse, once: rowsFromRepo mints that repo's own HEADER row from
-        // its default workspace, so a repo that starts collapsed (persisted
-        // `collapsedRepos` — every repo besides the one you were last in)
-        // must still fetch its workspaces at least once, or it renders
-        // NOTHING at all, header included (folder-signal.ts's
-        // seededWorkspaceRepoIds doc). Fetching once is cheap now — a single
-        // GET .../workspaces (see fetchWorkspaces, api.ts), not the old
-        // per-chat derivation this exemption would have made too costly to
-        // widen. Once seeded it stops applying, so a repo the user collapses
-        // AFTER seeding still drops its live connection exactly as before —
-        // see the "not a collapsed repo's" test.
-        const neverSeededWorkspaces = !useFolderSignalStore
-          .getState()
-          .seededWorkspaceRepoIds.has(repo.id)
-        if (showsRows || hasLiveWorkToReport || neverSeededWorkspaces) {
-          keys.add(workspacesKey(projectId, repo.id))
-        }
-        // Folders and chat rows are pure structure — they carry no spinner, no
-        // status, nothing a collapsed repo still paints — so they stop at
-        // `showsRows` rather than following the workspace stream's live-work
-        // exemption above. (A chat row deliberately carries no `working` either;
-        // see rows-from-repo.ts.) Deliberately NOT widened by
-        // neverSeededWorkspaces: a repo's HEADER needs the workspace list, but
-        // its full tree (folders + every chat) stays exactly as lazy as
-        // "costs nothing for a repo nobody has expanded yet" already requires.
-        if (showsRows) keys.add(treeKey(projectId, repo.id))
+        keys.add(workspacesKey(projectId, repo.id))
+        keys.add(treeKey(projectId, repo.id))
       }
       return keys
     }
@@ -591,13 +581,8 @@ export function useAppSyncEngine(): void {
       const isOpening = [...desired].some((key) => !lastDesired.has(key))
       lastDesired = desired
 
-      // Close first, open second. The home tracker clears the shared
-      // single-slot store on teardown, so closing the outgoing project's after
-      // opening the incoming one would wipe the value we just fetched.
       for (const key of [...subscriptions.keys()]) {
-        if (desired.has(key)) continue
-        if (key.startsWith(`home${KEY_SEP}`)) closeNow(key)
-        else scheduleClose(key)
+        if (!desired.has(key)) scheduleClose(key)
       }
       for (const key of desired) ensureOpen(key)
       // Closing a section must be a render-only operation. Its cached rows are
@@ -613,7 +598,7 @@ export function useAppSyncEngine(): void {
       if (disposed) return
 
       // 2. Project list: GET seed + live WS stream. Always on — it is one
-      //    stream over a handful of rows, and it is what a collapsed project's
+      //    stream over a handful of rows, and it is what every project's
       //    row is drawn from.
       void useProjectDataStore.getState().fetch()
       rootUnsubscribes.push(useProjectDataStore.getState().startSync())
@@ -622,14 +607,13 @@ export function useAppSyncEngine(): void {
       //    mounts at the root BEFORE any project exists (fresh start / OOBE), so
       //    visibility usually arrives AFTER mount — reconcile now, and again on
       //    every project-, project-list- or sidebar-store change (active project
-      //    switched, the project list landing, a project folded away, a repo
-      //    collapsed, a repo seeded into the tree). Without this, importing the
-      //    first project never populates the entity cache and the sidebar stays
-      //    empty.
+      //    switched, the project list landing, a repo seeded into the tree).
+      //    Without this, importing the first project never populates the
+      //    entity cache and the sidebar stays empty.
       //
       //    The project-LIST subscription is what makes "open by default" work:
-      //    visibility is now "every known project minus the folded ones", so the
-      //    set only grows when `/v0/projects` delivers. Its own `lastSignature`
+      //    visibility is "every known project plus the active one", so the set
+      //    only grows when `/v0/projects` delivers. Its own `lastSignature`
       //    guard keeps the extra wake-ups free.
       scheduleRebuild()
       reconcile()

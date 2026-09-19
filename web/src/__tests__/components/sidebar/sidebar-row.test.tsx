@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Folder, FolderOpen, GitBranch, GitPullRequest, Lock, Warning } from '@phosphor-icons/react'
 import { SidebarRow } from '@/components/sidebar/sidebar-row'
@@ -40,6 +40,16 @@ const baseRow: SidebarRowType = {
   workspaceId: null,
   working: false,
   hasView: false,
+}
+
+/** What rows-from-repo.ts stamps on the ONE header row per repo — the
+ *  field that makes a branch row the repo's project-home row. */
+const headerIcon: NonNullable<SidebarRowType['repoIcon']> = {
+  repoId: 'r1',
+  projectId: 'p1',
+  name: 'crowbar',
+  avatarLabel: 'C',
+  avatarColor: 'bg-indigo-700',
 }
 
 /**
@@ -132,7 +142,11 @@ describe('SidebarRow', () => {
   // non-home) branch row a trash too, same as a chat or folder — see
   // sidebar-row.test.tsx's own remove-control coverage below for the two
   // rows it's withheld from (a locked branch, the project home).
-  it('trailing controls on a branch row are thread, fork, remove, chevron', () => {
+  //
+  // Order per the trailing-cluster spec (sidebar-row-actions.tsx): repo-menu,
+  // Remove, Thread, Branch, Dropdown — this row never gets repo-menu, so
+  // Remove leads.
+  it('trailing controls on a branch row are remove, thread, fork, chevron', () => {
     render(
       <SidebarRow
         row={deletableRow}
@@ -145,9 +159,9 @@ describe('SidebarRow', () => {
     )
     const controls = screen.getAllByRole('button')
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual([
+      'remove',
       'thread',
       'fork',
-      'remove',
       'fold',
     ])
   })
@@ -247,10 +261,19 @@ describe('SidebarRow', () => {
     expect(screen.getByRole('button', { name: /thread/i })).toBeInTheDocument()
   })
 
-  it('a project-home row (branch, no parent) gets the 20px glyph exception', () => {
+  // The repo header row is identified by the repo icon it carries, not by
+  // sitting at the root: a header filed into a home folder keeps its parent
+  // AND its identity (sidebar-row-repo-header-in-folder.test.tsx).
+  it('a project-home row (branch carrying repoIcon) gets the 20px glyph exception', () => {
     const { container } = render(
       <SidebarRow
-        row={{ ...baseRow, kind: 'branch', parentId: null, ownsWorktree: true }}
+        row={{
+          ...baseRow,
+          kind: 'branch',
+          parentId: null,
+          ownsWorktree: true,
+          repoIcon: headerIcon,
+        }}
         depth={0}
         onOpen={vi.fn()}
       />,
@@ -260,16 +283,21 @@ describe('SidebarRow', () => {
 
   // Regression, caught live: recents-band.tsx renders every row with
   // `parentId: null` (§5.1, "no parentage") and — once a Recents row could
-  // carry `kind: 'branch'` for a workspace-owning chat's real icon — that
-  // alone satisfied the SAME `kind === 'branch' && parentId === null` check
-  // above, so an ordinary chat's Recents mirror wore the repo header's 20px
-  // glyph exception. `inlineRenameDisabled` is the one signal that already
-  // meant "this instance is Recents' mirror, not the tree's own row" (see
-  // its own doc) — it must also suppress isProjectHome.
-  it('a branch row with no parent does NOT get the project-home treatment when it is a Recents mirror (inlineRenameDisabled)', () => {
+  // carry `kind: 'branch'` for a workspace-owning chat's real icon — an
+  // ordinary chat's Recents mirror wore the repo header's 20px glyph
+  // exception. `inlineRenameDisabled` is the one signal that already meant
+  // "this instance is Recents' mirror, not the tree's own row" (see its own
+  // doc) — it must also suppress isProjectHome.
+  it('a branch row does NOT get the project-home treatment when it is a Recents mirror (inlineRenameDisabled)', () => {
     const { container } = render(
       <SidebarRow
-        row={{ ...baseRow, kind: 'branch', parentId: null, ownsWorktree: true }}
+        row={{
+          ...baseRow,
+          kind: 'branch',
+          parentId: null,
+          ownsWorktree: true,
+          repoIcon: headerIcon,
+        }}
         depth={0}
         onOpen={vi.fn()}
         inlineRenameDisabled
@@ -362,19 +390,19 @@ describe('SidebarRow', () => {
       expect(html).toBe(expected)
     })
 
-    it('renders the Lock glyph on the repo/project-home row when its own repoIcon has not seeded', () => {
-      const homeRow: SidebarRowType = {
+    it('renders the Lock glyph on a locked branch sitting at the repo root (no repoIcon: not the header)', () => {
+      const rootLocked: SidebarRowType = {
         ...baseRow,
         kind: 'branch',
-        id: 'home-branch-row',
+        id: 'root-locked-row',
         parentId: null,
-        workspaceId: 'ws-home',
+        workspaceId: 'ws-release',
         ownsWorktree: true,
-        branchName: 'main',
+        branchName: 'release/1.x',
         locked: true,
       }
-      const html = iconMarkup(<SidebarRow row={homeRow} depth={0} onOpen={vi.fn()} />)
-      const expected = iconMarkup(<Lock aria-hidden="true" className="size-5" weight="fill" />)
+      const html = iconMarkup(<SidebarRow row={rootLocked} depth={0} onOpen={vi.fn()} />)
+      const expected = iconMarkup(<Lock aria-hidden="true" className="size-4" weight="fill" />)
       expect(html).toBe(expected)
     })
 
@@ -422,6 +450,10 @@ describe('SidebarRow', () => {
         locked: true,
         status: 'locked',
         isPlaceholder: true,
+        // The narrower half: Crowbar TRIED and could not. The repo's own
+        // checkout holding its own default branch is `isPlaceholder` too and
+        // must NOT draw this glyph (rows-from-repo-own-default-branch.test.ts).
+        needsProvisioning: true,
       }
       const html = iconMarkup(<SidebarRow row={placeholderRow} depth={0} onOpen={vi.fn()} />)
       const expected = iconMarkup(
@@ -648,7 +680,14 @@ describe('SidebarRow', () => {
 
     const hidden: SidebarRowType[] = [
       { ...baseRow, kind: 'branch', parentId: 'parent-1', branchName: 'my-feature', locked: true },
-      { ...baseRow, kind: 'branch', parentId: null, branchName: 'develop', ownsWorktree: true },
+      {
+        ...baseRow,
+        kind: 'branch',
+        parentId: null,
+        branchName: 'develop',
+        ownsWorktree: true,
+        repoIcon: headerIcon,
+      },
     ]
     for (const row of hidden) {
       const { unmount } = render(
@@ -775,7 +814,7 @@ describe('SidebarRow', () => {
     // a right-click on this row opens.
   })
 
-  it('a chat row shows thread, remove, and fold — never fork', () => {
+  it('a chat row shows remove, thread, and fold — never fork', () => {
     render(
       <SidebarRow
         row={baseRow}
@@ -788,8 +827,8 @@ describe('SidebarRow', () => {
     )
     const controls = screen.getAllByRole('button').filter((b) => b.hasAttribute('data-control'))
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual([
-      'thread',
       'remove',
+      'thread',
       'fold',
     ])
   })
@@ -905,10 +944,15 @@ describe('SidebarRow', () => {
   // modal Task 4 wrongly built. Driven by `sidebar-inline-rename.ts`'s store
   // (set by the delegated dblclick listener in sidebar-tree-chrome.tsx), read
   // here the same way a real double-click would leave it.
+  // `startRenaming` decides, at the moment it is called, whether a
+  // tree-rendered instance of the row is in the DOM (`sidebar-inline-rename.ts`'s
+  // own doc) — so every test here starts renaming AFTER the row is mounted,
+  // matching how a real double-click or Rename click actually fires (never on
+  // a row that hasn't rendered yet).
   describe('inline rename', () => {
     it('renders the real, focused input in place of the label when this row is the one renaming', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       const input = screen.getByRole('textbox') as HTMLInputElement
       expect(input).toHaveValue('Fix the thing')
@@ -916,15 +960,15 @@ describe('SidebarRow', () => {
     })
 
     it('a different row renaming leaves this row showing its plain label', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('some-other-row')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('some-other-row'))
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
       expect(screen.getByText('Fix the thing')).toBeInTheDocument()
     })
 
     it('confirming (Enter) calls performRenameRow with the row id and stops renaming', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'New title' } })
       fireEvent.keyDown(input, { key: 'Enter' })
@@ -933,8 +977,8 @@ describe('SidebarRow', () => {
     })
 
     it('Escape cancels with no call to performRenameRow', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'New title' } })
       fireEvent.keyDown(input, { key: 'Escape' })
@@ -943,8 +987,8 @@ describe('SidebarRow', () => {
     })
 
     it('blur without Enter/Escape commits the rename, matching develop', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox')
       fireEvent.change(input, { target: { value: 'Blurred title' } })
       fireEvent.blur(input)
@@ -952,22 +996,21 @@ describe('SidebarRow', () => {
     })
 
     it('unchanged value does not call performRenameRow', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
       expect(rowActions.performRenameRow).not.toHaveBeenCalled()
     })
 
     it('clicking inside the input does not fire onOpen', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       const onOpen = vi.fn()
       render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       fireEvent.click(screen.getByRole('textbox'))
       expect(onOpen).not.toHaveBeenCalled()
     })
 
     it('a branch row renames with a monospace input, matching its label', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(
         <SidebarRow
           row={{ ...baseRow, kind: 'branch', parentId: 'p1', ownsWorktree: true }}
@@ -975,31 +1018,95 @@ describe('SidebarRow', () => {
           onOpen={vi.fn()}
         />,
       )
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       expect(screen.getByRole('textbox')).toHaveClass('font-mono')
     })
 
     // A chat that is the live pane (row.hasView) renders through TWO
     // SidebarRow instances at once — its tree row, and a second one
-    // recents-band.tsx's RecentsMemberRow builds for the same chat id.
-    // Both used to read the SAME `renamingRowId === row.id` with no
-    // notion of which DOM instance was actually double-clicked: starting
-    // a rename flipped BOTH into rename mode, the second one's own
-    // mount-time focus()+select() stole focus from the first (jsdom fires
-    // real focus/blur here, same as a browser), and that unhandled blur
-    // committed the unchanged value — cancelling the rename before it was
-    // ever visible. `inlineRenameDisabled` is what recents-band.tsx now
-    // sets on its own instance to keep this from happening.
+    // recents-band.tsx's RecentsMemberRow builds for the same chat id,
+    // marked with the real `data-sidebar-recents-row` flag `dragProps`
+    // carries in production (`use-sidebar-drag.ts`'s `inRecents`). Both used
+    // to read the SAME `renamingRowId === row.id` with no notion of which
+    // DOM instance was actually double-clicked: starting a rename flipped
+    // BOTH into rename mode, the second one's own mount-time focus()+select()
+    // stole focus from the first (jsdom fires real focus/blur here, same as a
+    // browser), and that unhandled blur committed the unchanged value —
+    // cancelling the rename before it was ever visible. `startRenaming` now
+    // checks the DOM for a non-Recents instance and only that one renders —
+    // `inlineRenameDisabled` is what tells the Recents instance it is not it.
     it('a second same-id instance (Recents mirroring a live pane) does not steal focus and cancel the tree row rename', () => {
-      useSidebarInlineRenameStore.getState().startRenaming('row-1')
       render(
         <>
           <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />
-          <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} inlineRenameDisabled />
+          <SidebarRow
+            row={baseRow}
+            depth={0}
+            onOpen={vi.fn()}
+            inlineRenameDisabled
+            dragProps={{ 'data-sidebar-recents-row': '' }}
+          />
         </>,
       )
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
       const input = screen.getByRole('textbox') as HTMLInputElement
       expect(input).toHaveFocus()
       expect(useSidebarInlineRenameStore.getState().renamingRowId).toBe('row-1')
+      fireEvent.change(input, { target: { value: 'New title' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
+    })
+
+    // Regression, reported live: double-clicking a Recents row's label started
+    // the rename on the row's TREE copy (`inlineRenameDisabled`, above), which
+    // shares one scroller with Recents and is normally scrolled far out of
+    // view — so nothing visibly happened and the keystrokes went to an input
+    // the user could not see. Same silent failure for the context menu's
+    // Rename on any row the tree has scrolled away from.
+    it('scrolls the editor into view so a rename started from the Recents copy is not invisible', () => {
+      const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
+      try {
+        render(
+          <>
+            <SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />
+            <SidebarRow
+              row={baseRow}
+              depth={0}
+              onOpen={vi.fn()}
+              inlineRenameDisabled
+              dragProps={{ 'data-sidebar-recents-row': '' }}
+            />
+          </>,
+        )
+        act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+        expect(scrollIntoView).toHaveBeenCalledTimes(1)
+        expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('textbox'))
+      } finally {
+        scrollIntoView.mockRestore()
+      }
+    })
+
+    // Live-reproduced: a Recents entry for a row whose TREE copy is not
+    // mounted at all — its repo/folder ancestor collapsed, not merely
+    // scrolled away — used to have nowhere to draw the editor at all, since
+    // `inlineRenameDisabled` always refused it regardless of whether a tree
+    // copy actually existed. This is the actual reason `RenameDialog` used
+    // to exist as a fallback. `startRenaming` now finds no non-Recents
+    // instance in the DOM and lets this, the only mounted instance, draw it.
+    it('a Recents-only row (its tree copy is not mounted at all) renames itself', () => {
+      render(
+        <SidebarRow
+          row={baseRow}
+          depth={0}
+          onOpen={vi.fn()}
+          inlineRenameDisabled
+          dragProps={{ 'data-sidebar-recents-row': '' }}
+        />,
+      )
+      act(() => useSidebarInlineRenameStore.getState().startRenaming('row-1'))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      const input = screen.getByRole('textbox') as HTMLInputElement
+      expect(input).toHaveValue('Fix the thing')
       fireEvent.change(input, { target: { value: 'New title' } })
       fireEvent.keyDown(input, { key: 'Enter' })
       expect(rowActions.performRenameRow).toHaveBeenCalledWith('row-1', 'New title')
@@ -1024,5 +1131,31 @@ describe('a pending row awaiting its branch name', () => {
   it('shows the branch-name placeholder on the naming input', () => {
     render(<SidebarRow row={namingRow} depth={0} onOpen={vi.fn()} />)
     expect(screen.getByRole('textbox')).toHaveAttribute('placeholder', 'branch-name')
+  })
+})
+
+// A create the daemon refused carries its reason on the entry
+// (`pending-creates.ts`'s `setError` stores `err.message`) — the row must
+// say it, not just "failed": a 404 "parent … not found" and a 409 "no fork
+// parent" need different fixes, and a bare badge is indistinguishable from
+// a network drop.
+describe('a pending row whose create failed', () => {
+  const failedRow: SidebarRowType = {
+    ...baseRow,
+    kind: 'branch',
+    ownsWorktree: true,
+    label: 'test/test',
+    pending: {
+      tempId: 'pending-1',
+      status: 'error',
+      error: 'agent chat folder: parent ws-1: apperr: not found',
+    },
+  }
+
+  it('surfaces the daemon’s own reason, not only a "failed" badge', () => {
+    render(<SidebarRow row={failedRow} depth={0} onOpen={vi.fn()} />)
+    expect(screen.getByText('failed')).toBeInTheDocument()
+    const reason = /parent ws-1: apperr: not found/
+    expect(screen.queryByText(reason) ?? screen.queryByTitle(reason)).not.toBeNull()
   })
 })

@@ -194,6 +194,29 @@ describe('AgentSelectionPicker', () => {
     expect(within(effortSection).getByText('Ultra')).toBeInTheDocument()
   })
 
+  // Regression: an unconfirmed effort ("Default", or any string absent from
+  // the model's own levels) used to clamp to index 0 and draw the thumb
+  // sitting on "Low" — a level nobody picked or the provider ever reported,
+  // read live as the slider looking pre-filled when nothing was known.
+  it('draws no thumb/fill for an effort the current model does not declare', () => {
+    render(
+      <AgentSelectionPicker
+        provider={codex}
+        providers={[claude, codex]}
+        model="gpt-5.6-sol"
+        effort="Default"
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    openMenu()
+    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
+    expect(slider).not.toHaveAttribute('aria-valuenow')
+    expect(slider.querySelector('.bg-primary')).not.toBeInTheDocument()
+    // The tick row and its labels still render — a real pick is still
+    // possible, only nothing is highlighted as already chosen.
+    expect(screen.getByRole('button', { name: 'Low' })).toBeInTheDocument()
+  })
+
   // Regression: the first cut of this control only responded to a click on
   // the track or a tick label underneath it — it LOOKED like a slider but
   // could not be dragged, which is not a slider. Pressing and moving across
@@ -289,5 +312,40 @@ describe('AgentSelectionPicker', () => {
     openMenu()
     fireEvent.click(screen.getByRole('menuitem', { name: 'sonnet' }))
     expect(onSelectionChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks the current model as picked (a checkmark) and no other row', () => {
+    render(
+      <AgentSelectionPicker
+        provider={claude}
+        providers={[claude, codex]}
+        model="opus"
+        effort="high"
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    openMenu()
+    const opusRow = screen.getByRole('menuitem', { name: 'opus' })
+    const sonnetRow = screen.getByRole('menuitem', { name: 'sonnet' })
+    expect(opusRow.querySelector('svg')).toBeTruthy()
+    expect(sonnetRow.querySelector('svg')).toBeNull()
+  })
+
+  it('shows nothing selected when model/effort are unset — the "unfired hook" state, not a bug', () => {
+    render(
+      <AgentSelectionPicker
+        provider={claude}
+        providers={[claude, codex]}
+        model=""
+        effort=""
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    const trigger = screen.getByRole('button', { name: /Agent:/ })
+    expect(trigger).toHaveAccessibleName('Agent: Claude, model unset, effort unset')
+    openMenu()
+    for (const name of ['sonnet', 'opus', 'haiku']) {
+      expect(screen.getByRole('menuitem', { name }).querySelector('svg')).toBeNull()
+    }
   })
 })

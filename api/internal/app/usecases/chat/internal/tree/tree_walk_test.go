@@ -104,7 +104,7 @@ func TestResolveForkParent_ReadsEveryRowAndWalksLikeForkParentID(t *testing.T) {
 	}
 	chats := stubListChats{rows: rows}
 
-	got, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "self")
+	got, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, nil, "self")
 
 	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("want (ws-root, true, nil), got (%q, %v, %v)", got, ok, err)
@@ -117,7 +117,7 @@ func TestResolveForkParent_NoAncestorAtAll_ReportsNotFound(t *testing.T) {
 	}
 	chats := stubListChats{rows: rows}
 
-	_, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "root")
+	_, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, nil, "root")
 
 	if err != nil || ok {
 		t.Fatalf("a row with no ancestor has no fork parent, got ok=%v err=%v", ok, err)
@@ -131,7 +131,7 @@ func TestResolveForkParent_PropagatesTheListError(t *testing.T) {
 	// not-found would be the error this test observes, not ListChats'.
 	chats := stubListChats{rows: []domain.Chat{{ID: "any"}}, err: wantErr}
 
-	_, _, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "any")
+	_, _, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, nil, "any")
 
 	if err != wantErr {
 		t.Fatalf("want the list error propagated, got %v", err)
@@ -145,7 +145,7 @@ func TestResolveForkParent_PropagatesTheLoadFailure(t *testing.T) {
 	wantErr := context.Canceled
 	chats := stubListChats{loadErr: wantErr, err: errors.New("must never be reached")}
 
-	_, _, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "any")
+	_, _, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, nil, "any")
 
 	if err != wantErr {
 		t.Fatalf("want the load error propagated, got %v", err)
@@ -173,7 +173,7 @@ func TestResolveForkParent_UsesTheLogFoldedRowNotTheStaleProjection(t *testing.T
 		},
 	}
 
-	got, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "self")
+	got, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, nil, "self")
 
 	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("must resolve through the log-folded parent, not the stale projection; got (%q, %v, %v)", got, ok, err)
@@ -206,7 +206,7 @@ func TestResolveForkParent_WalksThroughAFolderAncestor(t *testing.T) {
 		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
 	}
 
-	got, ok, err := tree.ResolveForkParent(context.Background(), chats, folders, nodes, "self")
+	got, ok, err := tree.ResolveForkParent(context.Background(), chats, folders, nodes, nil, "self")
 
 	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("must walk THROUGH the folder to find root's workspace; got (%q, %v, %v)", got, ok, err)
@@ -231,7 +231,7 @@ func TestResolveCwdWorkspaceID_WalksThroughAFolderAncestor(t *testing.T) {
 		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
 	}
 
-	got, ok, err := tree.ResolveCwdWorkspaceID(context.Background(), chats, folders, nodes, "self")
+	got, ok, err := tree.ResolveCwdWorkspaceID(context.Background(), chats, folders, nodes, nil, "self")
 
 	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("must walk THROUGH the folder to find root's workspace; got (%q, %v, %v)", got, ok, err)
@@ -252,7 +252,7 @@ func TestCwdWorkspaceIDs_WalksThroughAFolderAncestor(t *testing.T) {
 		{ID: "folder", Kind: domain.NodeKindFolder, ParentID: "root", Order: 0},
 	}
 
-	got := tree.CwdWorkspaceIDs(context.Background(), folders, nodes, rows)
+	got := tree.CwdWorkspaceIDs(context.Background(), folders, nodes, nil, rows)
 
 	if got["self"] != "ws-root" {
 		t.Fatalf("want self -> ws-root through the folder, got %q", got["self"])
@@ -270,7 +270,7 @@ func TestResolveForkParent_NilFoldersAndNodesDegradesGracefully(t *testing.T) {
 	}
 	chats := stubListChats{rows: rows}
 
-	got, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, "self")
+	got, ok, err := tree.ResolveForkParent(context.Background(), chats, nil, nil, nil, "self")
 
 	if err != nil || !ok || got != "ws-root" {
 		t.Fatalf("nil folders/nodes must degrade, not fail; got (%q, %v, %v)", got, ok, err)

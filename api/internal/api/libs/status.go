@@ -12,6 +12,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	repoattachments "github.com/char2cs/crowbar/api/internal/app/repositories/chat/attachments"
+	noderepo "github.com/char2cs/crowbar/api/internal/app/repositories/node"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
@@ -37,9 +39,10 @@ import (
 //     revision operand git could not resolve), agentchat.ErrNotFound (an
 //     agent chat/segment id the agentic-chat repo has no row for),
 //     agentrunner.ErrNotFound (a runner id — a `--segment` value — with no
-//     live row, either never spawned or already exited), and
+//     live row, either never spawned or already exited),
 //     repoattachments.ErrNotFound (a stored chat attachment file name with no
-//     row on disk).
+//     row on disk), and noderepo.ErrNotFound (a placement Node row no
+//     aggregate carries).
 //   - 400 Bad Request    — agentusecase.ErrTreeNameRequired (a folder create or
 //     rename with a blank name — the sidebar's own folder-placement feature and
 //     the Chats panel share this one tree, so one sentinel now covers both),
@@ -191,7 +194,8 @@ func isNotFound(
 		errors.Is(err, enginegit.ErrBranchNotFound) ||
 		errors.Is(err, agentchat.ErrNotFound) ||
 		errors.Is(err, agentrunner.ErrNotFound) ||
-		errors.Is(err, repoattachments.ErrNotFound)
+		errors.Is(err, repoattachments.ErrNotFound) ||
+		errors.Is(err, noderepo.ErrNotFound)
 }
 
 // isBadRequest reports whether err is one of the sentinels that map to HTTP 400.
@@ -244,6 +248,7 @@ var conflictSentinels = []error{
 	fs.ErrExist,
 	workspace.ErrParentLocked,
 	workspace.ErrWorkspaceLocked,
+	workspace.ErrWorkspaceIsDefault,
 	workspace.ErrParentUnprovisioned,
 	project.ErrRepoAlreadyImported,
 	workspace.ErrRebaseNonLeaf,
@@ -261,6 +266,12 @@ var conflictSentinels = []error{
 	agentusecase.ErrAlreadyPromoted,
 	agentusecase.ErrNoForkParent,
 	agentusecase.ErrNothingToPromote,
+	// A create into a workspace with no worktree on disk. Same family as
+	// workspace.ErrParentUnprovisioned above, seen from the create side.
+	agentusecase.ErrTreeWorkspaceUnprovisioned,
+	// The same row opened for review: there is no tree to diff. It used to reach
+	// git with an empty working directory and answer 500 with raw git text.
+	branchreview.ErrWorkspaceUnprovisioned,
 }
 
 // isPlacementConflict reports whether err is one of the unified tree's

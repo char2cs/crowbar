@@ -894,6 +894,9 @@ describe('chatIconIndex', () => {
       locked: treeRow?.locked,
       status: treeRow?.status,
       isPlaceholder: treeRow?.isPlaceholder,
+      needsProvisioning: treeRow?.needsProvisioning,
+      heldByPath: treeRow?.heldByPath,
+      placeholderReason: treeRow?.placeholderReason,
     })
     expect(icon?.kind).toBe('branch')
     expect(icon?.status).toBe('pr-conflicts')

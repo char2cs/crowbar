@@ -5,6 +5,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { LayoutNode } from '@/features/panes/types/pane'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { partitionLayoutByView, viewIdOf } from '@/features/panes/lib/pane-views'
+import { resolveChatProjectId, resolveViewProjectId } from '@/features/panes/lib/chat-project'
 import { getAllLeafIds, getFirstLeafId } from '@/features/panes/utils/pane-layout'
 import {
   isEditorContent,
@@ -64,6 +65,7 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
 
   const buffers = (layout.buffers ?? []).map(restoreBufferDirtyState)
   const views = restoreWindowViews(layout)
+  const viewProjects = restoreViewProjects(layout, views)
 
   windowPaneStore.setState({
     activePaneId: views.activePaneId,
@@ -73,8 +75,74 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
     parkedViews: views.parkedViews,
     activeViewId: views.activeViewId,
     bottomLayout: layout.bottomLayout,
+    dormantArrangements: layout.dormantArrangements ?? [],
+    recentsOrder: layout.recentsOrder ?? [],
+    viewProjects,
+    activeViewByProject: restoreActiveViewByProject(layout, views),
     buffers,
   })
+}
+
+type PersistedProjectShape = Pick<WorkspaceLayout, 'panes' | 'viewProjects' | 'activeViewByProject'>
+
+/** Every view id the restored window holds — the showing one and every parked
+ *  one. The set both restorers below have to stay inside. */
+function restoredViewIds(views: RestoredWindowViews): string[] {
+  return [views.activeViewId, ...Object.keys(views.parkedViews)]
+}
+
+/**
+ * Which project each restored view belongs to — the design's §8, run ONCE
+ * here rather than per render (trap 2).
+ *
+ * Three answers, in order:
+ *   1. **the record's own tag**, for a layout written since views carried a
+ *      project;
+ *   2. **derived from the view's panes' chats**, for one written before —
+ *      answerable offline whenever the entity cache has already streamed the
+ *      owning repo or home tree;
+ *   3. **nothing**, which is deliberately not an error: the view stays
+ *      untagged and the first `setActiveProject` ADOPTS it (Zen's own
+ *      `_shouldShowTab` rule). A mis-filed view is one gesture to recover; a
+ *      view refused at hydrate is unreachable forever.
+ *
+ * `resolve` is injected so this is testable without a seeded sidebar store.
+ */
+export function restoreViewProjects(
+  layout: PersistedProjectShape,
+  views: RestoredWindowViews,
+  resolve: (chatId: string) => string | null = resolveChatProjectId,
+): Record<string, string> {
+  const panes = layout.panes ?? {}
+  const persisted = layout.viewProjects ?? {}
+  const out: Record<string, string> = {}
+  for (const viewId of restoredViewIds(views)) {
+    const tagged = persisted[viewId]
+    if (tagged) {
+      out[viewId] = tagged
+      continue
+    }
+    const members = Object.values(panes).filter((p) => viewIdOf(p) === viewId)
+    const derived = resolveViewProjectId(members, resolve)
+    if (derived) out[viewId] = derived
+  }
+  return out
+}
+
+/** The per-project "last showing view" pointers, minus any naming a view this
+ *  window no longer holds — a stale pointer would send a project switch to a
+ *  view that is not there and land it on the empty stage instead of on the
+ *  project's real content. */
+export function restoreActiveViewByProject(
+  layout: PersistedProjectShape,
+  views: RestoredWindowViews,
+): Record<string, string> {
+  const live = new Set(restoredViewIds(views))
+  const out: Record<string, string> = {}
+  for (const [projectId, viewId] of Object.entries(layout.activeViewByProject ?? {})) {
+    if (live.has(viewId)) out[projectId] = viewId
+  }
+  return out
 }
 
 export interface RestoredWindowViews {
@@ -277,13 +345,9 @@ export async function hydrateSidebar(): Promise<void> {
   ])
 
   if (sidebarUI) {
+    // `collapsedRepos`/`collapsedWorkspaces`/`collapsedProjects` are retired
+    // keys the pre-restyle tree wrote (see schemas.ts) — never replayed.
     useSidebarStore.setState({
-      collapsedRepos: new Set(sidebarUI.collapsedRepos),
-      collapsedWorkspaces: new Set(sidebarUI.collapsedWorkspaces ?? []),
-      // Absent on a record written before projects were collapsible — replays
-      // as "nothing collapsed", i.e. every project open, which is the product
-      // default (see sidebar.ts `collapsedProjects`).
-      collapsedProjects: new Set(sidebarUI.collapsedProjects ?? []),
       // Absent on a record written before the Chats panel was collapsible —
       // replays as "nothing folded", the product default (see schemas.ts).
       collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),

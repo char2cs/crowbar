@@ -38,12 +38,7 @@ const dto = (id: string, order: number, projectId = 'p1'): RepoDTO => ({
 const ids = () => useSidebarStore.getState().repos.map((r) => r.id)
 
 beforeEach(() => {
-  useSidebarStore.setState({
-    repos: [],
-    collapsedRepos: new Set<string>(),
-    collapsedWorkspaces: new Set<string>(),
-    collapsedProjects: new Set<string>(),
-  })
+  useSidebarStore.setState({ repos: [] })
 })
 
 describe('the sort', () => {

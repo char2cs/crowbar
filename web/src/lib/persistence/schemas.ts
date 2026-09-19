@@ -1,6 +1,7 @@
 import type { DBSchema } from 'idb'
 import type { PaneGroup, LayoutNode } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import type { RecentsEntry } from '@/features/panes/types/recents-entry'
 import type {
   ReviewThread,
   MergeStrategy,
@@ -43,6 +44,22 @@ export interface WorkspaceLayout {
   activeViewId?: string
   activePaneId: string
   mostRecentActivePaneIds: string[]
+  /**
+   * Recents' closed-but-remembered rows and the user's dragged band order —
+   * see `PaneSlice`. Both OPTIONAL: absent on a record written before Recents
+   * survived a reload, which replays as an empty band.
+   */
+  dormantArrangements?: RecentsEntry[]
+  recentsOrder?: string[]
+  /**
+   * Which PROJECT each view belongs to, and which view each project was last
+   * showing — see `PaneSlice`. Both OPTIONAL, and absent on every record
+   * written before views carried a project: `hydrate.ts` resolves what it can
+   * from the views' own chats and leaves the rest for the first
+   * `setActiveProject` to adopt (the design's §8), so there is no migration.
+   */
+  viewProjects?: Record<string, string>
+  activeViewByProject?: Record<string, string>
   buffers: PaneContent[]
   sidebarWidth: number
   rightSidebarWidth: number
@@ -70,17 +87,14 @@ export interface UIPreferences {
 }
 
 export interface SidebarUI {
-  collapsedRepos: string[]
-  collapsedWorkspaces?: string[]
   /**
-   * Projects the user has folded away — same polarity as the two lists above,
-   * so an absent value replays as "everything open", which is the product
-   * default (see `collapsedProjects` in lib/store/sidebar.ts).
-   *
-   * A record written by an earlier build carries `expandedProjects` instead.
-   * It is simply ignored: pre-production, a stale layout falls back gracefully
-   * and is rewritten on the next toggle. No migration code.
+   * RETIRED. Written by the pre-restyle tree's repo/branch chevrons and its
+   * project-row fold; the restyled tree folds through `collapsedChatRows` only
+   * (the SpaceHeader fold is panel-local). A record still carrying any of them
+   * never gates visibility (project-visibility.ts) — no migration.
    */
+  collapsedRepos?: string[]
+  collapsedWorkspaces?: string[]
   collapsedProjects?: string[]
   /**
    * Chats-panel rows the user has folded — folder ids and chat ids in ONE list,
@@ -88,8 +102,7 @@ export interface SidebarUI {
    *
    * Not keyed by workspace: every id here is a uuid minted by the daemon, so a
    * flat set is already workspace-unique and an id that outlives its row simply
-   * matches nothing. Same shape, and the same reasoning, as `collapsedWorkspaces`
-   * spanning every repo.
+   * matches nothing.
    *
    * Absent on a record written before the Chats panel was collapsible — replays
    * as "nothing folded", which is the product default.

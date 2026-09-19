@@ -5,6 +5,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/tree"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree/internal/lineage"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/cascade"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
@@ -34,7 +35,22 @@ type treeSnapshot struct {
 	// freshIDs is homeIDs' subset that has no Node row yet — writeRow mints
 	// one via Nodes.Create instead of SetOrder/SetPlacement. Always non-nil.
 	freshIDs map[string]bool
+	// foreign marks base rows at the bare root that belong to another
+	// level sharing "" (another workspace's root chats). They are planned
+	// under foreignRoot instead, so a root densify never counts or writes
+	// them, while every walk still resolves through them.
+	foreign map[string]bool
+	// aliases folds the ids that name one level onto the id the plan keys
+	// it by (see levelAliases). A row keeps the id it was filed under.
+	aliases levelAliases
+	// restated marks rows whose stored parent changed within one level (an
+	// alias for the same container) — a placement write, not a reorder.
+	restated map[string]bool
 }
+
+// foreignRoot is the plan-only container the out-of-scope root rows hang
+// under; nothing is ever placed there and nothing is ever written back with it.
+const foreignRoot = "\x00foreign-root"
 
 // newTreeSnapshot builds the snapshot over one read of Chat rows — either one
 // workspace's (chat placement) or the wider set folder CRUD plans against (see
@@ -42,11 +58,25 @@ type treeSnapshot struct {
 func newTreeSnapshot(
 	rows []domain.Chat,
 ) *treeSnapshot {
+	return newTreeSnapshotScoped(rows, nil, nil)
+}
+
+// newTreeSnapshotScoped is newTreeSnapshot with the rows foreign to this
+// snapshot's root level named — see treeSnapshot.foreign — and the level
+// aliases the plan folds together.
+func newTreeSnapshotScoped(
+	rows []domain.Chat,
+	foreign map[string]bool,
+	aliases levelAliases,
+) *treeSnapshot {
 	t := &treeSnapshot{
 		rows:     rows,
 		at:       make(map[string]int, len(rows)),
 		homeIDs:  map[string]bool{},
 		freshIDs: map[string]bool{},
+		foreign:  foreign,
+		aliases:  aliases,
+		restated: map[string]bool{},
 	}
 	for i, row := range rows {
 		t.at[row.ID] = i
@@ -62,14 +92,54 @@ func newTreeSnapshot(
 func (t *treeSnapshot) nodes() []tree.Node {
 	nodes := make([]tree.Node, 0, len(t.rows))
 	for _, row := range t.rows {
+		parentID := t.canonical(row.ParentID)
+		if t.foreign[row.ID] {
+			parentID = foreignRoot
+		}
 		nodes = append(nodes, tree.Node{
 			ID:        row.ID,
-			ParentID:  row.ParentID,
+			ParentID:  parentID,
 			Order:     row.Order,
 			CreatedAt: row.CreatedAt,
+			Rank:      rankOf(row),
 		})
 	}
 	return nodes
+}
+
+// rankOf is the tie rank of a Chat-shaped row — see tree.Node.Rank. A chat
+// that owns its workspace (recorded, or a legacy branch row) IS that
+// workspace's branch row on the sidebar.
+func rankOf(
+	row domain.Chat,
+) int {
+	switch row.Type {
+	case domain.ChatTypeFolder:
+		return tree.RankFolder
+	case nodePhantomType:
+		return tree.RankRepo
+	case workspaceAnchorType, domain.ChatTypeBranch:
+		return tree.RankWorkspace
+	}
+	if row.OwnsWorkspace {
+		return tree.RankWorkspace
+	}
+	return tree.RankChat
+}
+
+// canonical is the plan's container id for id — see levelAliases.
+func (t *treeSnapshot) canonical(
+	id string,
+) string {
+	return t.aliases.canonical(id)
+}
+
+// reparented reports whether a row's stored parent must be written whole:
+// the plan moved it between levels, or a placement restated it within one.
+func (t *treeSnapshot) reparented(
+	id string,
+) bool {
+	return t.plan.Reparented(id) || t.restated[id]
 }
 
 func (t *treeSnapshot) row(
@@ -94,7 +164,9 @@ func (t *treeSnapshot) placedRow(
 	if row == nil || !ok {
 		return nil
 	}
-	row.ParentID = node.ParentID
+	if t.canonical(row.ParentID) != node.ParentID {
+		row.ParentID = node.ParentID
+	}
 	row.Order = node.Order
 	return row
 }
@@ -104,7 +176,7 @@ func (t *treeSnapshot) add(
 ) {
 	t.at[row.ID] = len(t.rows)
 	t.rows = append(t.rows, row)
-	t.plan.Add(tree.Node{ID: row.ID, ParentID: row.ParentID, Order: row.Order})
+	t.plan.Add(tree.Node{ID: row.ID, ParentID: t.canonical(row.ParentID), Order: row.Order, Rank: rankOf(row)})
 }
 
 // drop removes a row from the snapshot and from the plan. The index map is
@@ -132,10 +204,34 @@ func (t *treeSnapshot) drop(
 func (t *treeSnapshot) subtree(
 	id string,
 ) (chats, folders []string) {
-	for _, child := range t.plan.Members(id) {
+	for _, child := range t.plan.Members(t.container(id)) {
 		chats, folders = t.appendSubtree(child.ID, chats, folders)
 	}
 	return chats, folders
+}
+
+// container is the plan container id's own children hang under: its level's
+// canonical id, unless that is the root — a row whose level IS the root (the
+// header's or the home's owner) holds nothing of its own.
+func (t *treeSnapshot) container(
+	id string,
+) string {
+	if c := t.canonical(id); c != "" {
+		return c
+	}
+	return id
+}
+
+// subtreeIDs is subtreeIDsOf over the plan's containers, so rows filed under
+// either id of one level are one subtree.
+func (t *treeSnapshot) subtreeIDs(
+	id string,
+) []string {
+	nodes := make([]cascade.Node, 0, len(t.rows))
+	for _, row := range t.rows {
+		nodes = append(nodes, cascade.Node{ID: row.ID, Parent: t.container(row.ParentID)})
+	}
+	return cascade.Plan(id, nodes)
 }
 
 func (t *treeSnapshot) appendSubtree(
@@ -163,7 +259,7 @@ func (t *treeSnapshot) isChat(
 	id string,
 ) bool {
 	row := t.row(id)
-	return row != nil && row.Type == domain.ChatTypeChat
+	return row != nil && row.IsChat()
 }
 
 // chatLineage returns the CHAT ancestors of id as THE PLAN currently has them,
