@@ -119,7 +119,7 @@ export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right', themeK
 
     if (sidebarPosition === 'right') {
       // Live-measured, unlike the static left-side constants above — a theme
-      // switch's new border-width/spacing reflow (applyTheme's dynamic
+      // switch's new border width/spacing reflow (applyTheme's dynamic
       // theme-registry import in settings-effects.ts resolves asynchronously)
       // can still be in flight the instant this effect fires, which would read
       // the row's PRE-switch box. Give it two frames before the first read.
