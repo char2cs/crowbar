@@ -278,6 +278,51 @@ func TestRegression_ChatTreeMoveRefusedWhenItWouldCycle(t *testing.T) {
 	assert.Equal(t, "", reread.ParentID, "a refused placement must never rewrite lineage")
 }
 
+// A folder rename must succeed even while a chat filed under it is WORKING.
+// Unlike an actual move or delete, a rename places nothing, so Move's own
+// guardNotWorking (tree.go) has no stake in it — but applyFolderPatch
+// (folders.go) used to run every rename through Move afterward anyway, "to
+// return the row's real state," which reused that same guard and refused the
+// rename outright. Live-reported: a folder holding a working chat could not
+// be renamed at all, even though what the folder is called has no bearing on
+// any chat inside it.
+//
+// The delete guard for the identical working subtree is re-asserted here too
+// (unchanged, same shape as TestRegression_SidebarForestMoveAndDelete) as the
+// negative control: it proves the rename fix narrows only what it should,
+// not the guard a real placement change still needs.
+func TestRegression_FolderRenameSucceedsWithAWorkingChatFiledUnderIt(t *testing.T) {
+	h := newHarness(t)
+	writeLiveStubProviderDescriptor(t, h)
+	imported := importWritableWorkspace(t, h)
+	base := repoBase(imported)
+
+	sprint := createChatFolder(t, h, base, "sprint", "")
+	chat := createAgentChat(t, h, imported)
+	placeChat(t, h, base, chat, map[string]any{"parentId": sprint.ID})
+	h.Quiesce()
+
+	detail := getAgentChat(t, h, base, chat)
+	require.NotEmpty(t, detail.LiveRunnerID, "precondition: the chat must be live to go working")
+	_ = h.raw(http.MethodPost, base+"/chats/hooks", map[string]string{
+		"segment_id": detail.LiveRunnerID, "provider": "livestub", "event": "user_prompt",
+		"payload_raw": `{"prompt":"still going"}`,
+	}, http.StatusAccepted).Body.Close()
+	h.Quiesce()
+
+	deleteMsg := h.mutationError(http.MethodDelete, base+"/chats/folders/"+sprint.ID, nil, http.StatusConflict)
+	assert.Contains(t, deleteMsg, "working", "the delete guard must still refuse this same working subtree")
+
+	var renamed chatFolderMutation
+	h.patch(base+"/chats/folders/"+sprint.ID, map[string]string{"name": "renamed-while-working"}, &renamed)
+	assert.Equal(t, "renamed-while-working", renamed.Folder.Title)
+
+	rows := listChatFolders(t, h, base)
+	row, ok := chatFolderByID(rows, sprint.ID)
+	require.True(t, ok)
+	assert.Equal(t, "renamed-while-working", row.Title, "the rename actually persisted")
+}
+
 // A CHAT parent is still refused across workspaces: a thread's parent is what
 // it READS, so accepting one from a workspace the user is not in would let an
 // agent inherit context. That refusal is decided from the MOVED chat's own

@@ -378,6 +378,26 @@ func TestPatchFolder_RenameThenMove(t *testing.T) {
 	assert.Equal(t, "folder_updated", frames[0].kind)
 }
 
+// A rename-only PATCH (no parentId, no order) must never fall through to
+// Move: Move's own guardNotWorking (tree.go) refuses ANY placement touching a
+// working subtree, correct for a real reparent/reorder but not for a bare
+// rename, which places nothing. Live-reported: renaming a folder failed
+// outright whenever a chat filed under it happened to be working, even
+// though what the folder is called has no bearing on any chat inside it.
+func TestRegression_PatchFolder_NameOnlySkipsTheMove(t *testing.T) {
+	tree := &fakeChatTree{renamed: domain.Chat{ID: "f1", Type: domain.ChatTypeFolder, Title: "new"}}
+	var frames []folderFrame
+	ctx, rec := newTestContext(t, http.MethodPatch, "/chats/folders/f1", []byte(`{"name":"new"}`))
+	ctx.Params = folderParams(gin.Param{Key: "folderId", Value: "f1"})
+
+	newFolderHandlers(tree, &frames).PatchFolder(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 1, tree.renames)
+	assert.Zero(t, tree.moves, "a bare rename must never run Move's own guardNotWorking")
+	assert.Equal(t, "new", tree.gotRename)
+}
+
 // A PATCH that reorders within one parent carries no parentId, and the nil must
 // reach the usecase as "leave it where it is" rather than "move it to the root".
 func TestPatchFolder_OrderOnlyLeavesTheParentNil(t *testing.T) {
