@@ -726,11 +726,50 @@ describe('useSidebarDrag', () => {
     expect(onDrop).toHaveBeenCalledTimes(1)
   })
 
-  // Spec §8.3: "a working chat may not be dragged." Refused at PICKUP now
-  // (`onPointerDownDrag`), before a drag is ever armed — stronger than the
-  // matrix's own working-subject refusal (`SIDEBAR_DROP_POLICY`), which
-  // still exists but would only ever fire once a drag is already in the air.
-  it('a working row never arms a drag at all — refused at pickup, not just at the hit test', () => {
+  // Live-reported: "can't drag a chat that is working... there should be
+  // nothing stopping me from making a split." A working row used to be
+  // refused at PICKUP itself (`onPointerDownDrag`), before a drag was ever
+  // armed, which blocked the pane-split gesture along with reordering. A
+  // working row now arms a drag exactly like an idle one — see the pane-drop
+  // test below for the gesture this was blocking, and the reorder-refusal
+  // test after it for what stays refused.
+  it('a working row arms a drag like any other — pickup is no longer refused', () => {
+    const workingRow: SidebarRow = { ...baseRow, working: true }
+    const rowA = makeRow(workingRow, 0)
+    const { result } = renderDrag({ subjectsFor: () => [workingRow] })
+
+    press(result, workingRow, rowA)
+    move(10, ROW_H + 2)
+
+    expect(result.current.dragging).toBe(true)
+    expect(result.current.ghostRows).not.toBeNull()
+    release(10, ROW_H + 2)
+  })
+
+  // The split gesture spec §8.1 describes ("middle of a pane" → into this
+  // view) never touches tree placement — `performSidebarPaneDrop`/
+  // `openChatIntoPane` only open/merge a view. A working chat has no less
+  // claim to that than an idle one, so it must reach `onPaneDrop` exactly
+  // like the plain-row case above (`'dropping on the middle third of a pane
+  // calls onPaneDrop with zone center'`).
+  it('a working chat dropped onto a pane still opens a split', () => {
+    const workingRow: SidebarRow = { ...baseRow, working: true }
+    const rowA = makeRow(workingRow, 0)
+    makePane('pane-1', { top: 100, bottom: 300, left: 300, right: 500, width: 200, height: 200 })
+    const { result, onPaneDrop } = renderDrag({ subjectsFor: () => [workingRow] })
+
+    press(result, workingRow, rowA)
+    move(400, 200) // dead centre of the pane's rect
+    release(400, 200)
+
+    expect(onPaneDrop).toHaveBeenCalledWith([workingRow], 'pane-1', 'center')
+  })
+
+  // What the guard was actually protecting (spec §8.3: "moving a row
+  // re-points the ground under it") — a REORDER/reparent of a working chat —
+  // stays refused, via `SIDEBAR_DROP_POLICY.allowedModes`'s own working-
+  // subject check, same as it always has for a row target.
+  it('a working chat dropped onto another row is still refused, with the same toast as any other refused reorder', () => {
     const workingRow: SidebarRow = { ...baseRow, working: true }
     const rowA = makeRow(workingRow, 0)
     makeRow({ ...baseRow, id: 'b', label: 'b' }, 1)
@@ -738,71 +777,10 @@ describe('useSidebarDrag', () => {
 
     press(result, workingRow, rowA)
     move(10, ROW_H + 2)
-
-    // Never even reached `dragging: true` — nothing to release.
-    expect(result.current.dragging).toBe(false)
-    expect(result.current.ghostRows).toBeNull()
-
     release(10, ROW_H + 2)
+
     expect(onDrop).not.toHaveBeenCalled()
-  })
-
-  describe('the working-drag refusal (spec §8.3)', () => {
-    beforeEach(() => {
-      vi.useFakeTimers()
-    })
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
-    it('dims the scroller and paints the dragged row red, with a short note', () => {
-      const workingRow: SidebarRow = { ...baseRow, working: true }
-      const rowA = makeRow(workingRow, 0)
-      const scroller = document.createElement('div')
-      document.body.appendChild(scroller)
-      const { result } = renderDrag({ subjectsFor: () => [workingRow], scroller })
-
-      press(result, workingRow, rowA)
-
-      expect(scroller.style.opacity).toBe('0.4')
-      expect(rowA.style.outline).toContain('var(--destructive)')
-      expect(document.querySelector('[data-row-drag-refusal]')).not.toBeNull()
-      expect(document.querySelector('[data-row-drag-refusal]')?.textContent).toMatch(/working/i)
-    })
-
-    it('clears itself after the timeout, undoing every style it painted', () => {
-      const workingRow: SidebarRow = { ...baseRow, working: true }
-      const rowA = makeRow(workingRow, 0)
-      const scroller = document.createElement('div')
-      document.body.appendChild(scroller)
-      const { result } = renderDrag({ subjectsFor: () => [workingRow], scroller })
-
-      press(result, workingRow, rowA)
-      expect(document.querySelector('[data-row-drag-refusal]')).not.toBeNull()
-
-      act(() => {
-        vi.advanceTimersByTime(2000)
-      })
-
-      expect(scroller.style.opacity).toBe('')
-      expect(rowA.style.outline).toBe('')
-      expect(document.querySelector('[data-row-drag-refusal]')).toBeNull()
-    })
-
-    it('clears early on the next pointerdown anywhere, not just on its own timer', () => {
-      const workingRow: SidebarRow = { ...baseRow, working: true }
-      const rowA = makeRow(workingRow, 0)
-      const { result } = renderDrag({ subjectsFor: () => [workingRow] })
-
-      press(result, workingRow, rowA)
-      expect(document.querySelector('[data-row-drag-refusal]')).not.toBeNull()
-
-      act(() => {
-        window.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-      })
-
-      expect(document.querySelector('[data-row-drag-refusal]')).toBeNull()
-    })
+    expect(toast.error).toHaveBeenCalledWith("Can't move a there")
   })
 
   // The list should "stay put" under the mouse wheel for as long as a row
