@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { setTrafficLightPosition } from '@/lib/crowbar-bridge'
 import { IS_MAC } from '@/utils/platform'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { EDGE_THRESHOLD } from './use-pane-top-row-edges'
 
 // tauri.conf.json's config-time-only trafficLightPosition, tuned for
@@ -35,6 +36,24 @@ function findTopLeftPaneTopRow(): DOMRect | null {
   return null
 }
 
+/** Runs `fn` two animation frames from now; returns a canceller. Sidebar-right's
+ *  own comment below explains why its first measurement needs this. */
+function afterTwoFrames(fn: () => void): () => void {
+  let first: number | null = null
+  let second: number | null = null
+  first = requestAnimationFrame(() => {
+    first = null
+    second = requestAnimationFrame(() => {
+      second = null
+      fn()
+    })
+  })
+  return () => {
+    if (first !== null) cancelAnimationFrame(first)
+    if (second !== null) cancelAnimationFrame(second)
+  }
+}
+
 /**
  * Sidebar-right moves the window's true top-left corner off
  * `SidebarProjectHeader` (which the static config position was tuned for)
@@ -57,8 +76,17 @@ function findTopLeftPaneTopRow(): DOMRect | null {
  * over that native reset; it does not touch the MutationObserver above, which
  * exists only for the separate cold-boot case (pane tree not mounted yet) and
  * still disconnects once it finds a row, on every effect run alike.
+ *
+ * `themeKey` alone misses one case: it comes from `useSettingsStore`, so it stays
+ * literally "system" across an OS-level appearance flip (System Settings, or
+ * macOS auto dark/light) — the app's own setting never changed, even though
+ * settings-effects.ts resolves "system" against this exact media query and still
+ * re-applies the theme (and resets the buttons) when it fires. Watching it here
+ * too re-runs this effect for that case as well.
  */
 export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right', themeKey: string): void {
+  const systemPrefersDark = useMediaQuery('(prefers-color-scheme: dark)')
+
   useEffect(() => {
     if (!IS_MAC) return
 
@@ -73,23 +101,40 @@ export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right', themeK
       return true
     }
 
-    let observer: MutationObserver | null = null
-    if (!apply()) {
+    function startColdBootRetry(): MutationObserver {
       // Cold boot: settings can rehydrate to 'right' and re-fire this effect
       // before the pane tree (its own async mount) has put a pane-top-row at
       // the top-left corner. Without a retry the window is stuck at the
       // config-time (left) position forever — watch the DOM until one shows
       // up instead of only reacting to resize.
-      observer = new MutationObserver(() => {
-        if (apply()) observer?.disconnect()
+      const obs = new MutationObserver(() => {
+        if (apply()) obs.disconnect()
       })
-      observer.observe(document.body, { childList: true, subtree: true })
+      obs.observe(document.body, { childList: true, subtree: true })
+      return obs
+    }
+
+    let observer: MutationObserver | null = null
+    let cancelInitialApply: (() => void) | null = null
+
+    if (sidebarPosition === 'right') {
+      // Live-measured, unlike the static left-side constants above — a theme
+      // switch's new border-width/spacing reflow (applyTheme's dynamic
+      // theme-registry import in settings-effects.ts resolves asynchronously)
+      // can still be in flight the instant this effect fires, which would read
+      // the row's PRE-switch box. Give it two frames before the first read.
+      cancelInitialApply = afterTwoFrames(() => {
+        if (!apply()) observer = startColdBootRetry()
+      })
+    } else if (!apply()) {
+      observer = startColdBootRetry()
     }
 
     window.addEventListener('resize', apply)
     return () => {
       window.removeEventListener('resize', apply)
+      cancelInitialApply?.()
       observer?.disconnect()
     }
-  }, [sidebarPosition, themeKey])
+  }, [sidebarPosition, themeKey, systemPrefersDark])
 }
