@@ -103,7 +103,20 @@ function findNode(nodes: SidebarTreeNode[], id: string): SidebarTreeNode | undef
 }
 
 /** The workspace whose fork-child space owns `containerId` — '' for a
- *  root-level container, which has no lineage to protect. */
+ *  root-level container, which has no lineage to protect.
+ *
+ *  A folder's own `parentId` names whatever row it was filed under in ROW
+ *  space, which for a workspace-owning row (a locked branch, or an ordinary
+ *  fork once it has a chat) is that row's OWNING CHAT id, never the raw
+ *  workspace id (`rows-from-repo.ts`, the same id `performCreateFolder`
+ *  sends as `parentId` for exactly this reason). Checking only
+ *  `workspaceIds.has(cursor)` missed that translation: a folder filed
+ *  directly under such a row walked straight past its real anchor to bare
+ *  root the moment `cursor` became that owning-chat id, because neither
+ *  `workspaceIds` (raw workspace ids) nor `folderById` (folder ids) recognise
+ *  it. Caught live: filing a fork into a folder nested under its own locked
+ *  fork parent read as a cross-parent move and silently rebased the fork
+ *  onto the repo's default checkout instead. */
 function workspaceAnchor(repo: Repo, containerId: string): string {
   const workspaceIds = new Set(repo.workspaces.map((w) => w.id))
   const folderById = new Map((repo.folders ?? []).map((f) => [f.id, f]))
@@ -111,6 +124,8 @@ function workspaceAnchor(repo: Repo, containerId: string): string {
   let cursor = containerId
   while (cursor !== '' && !visited.has(cursor)) {
     if (workspaceIds.has(cursor)) return cursor
+    const owned = workspaceIdOfBranchRow([repo], cursor)
+    if (owned) return owned
     visited.add(cursor)
     cursor = folderById.get(cursor)?.parentId ?? ''
   }
