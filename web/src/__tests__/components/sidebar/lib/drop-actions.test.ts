@@ -524,6 +524,83 @@ describe('performSidebarDrop — folder nested under a workspace container that 
   })
 })
 
+// Live-reported: dragging a folder to the top of its OWN sibling list (no
+// change of parent/nesting intended) 400'd with "a folder cannot move to a
+// different context" — the backend's real, checked-server-side ErrCrossContext
+// (usecases/chat/internal/tree/validate.go's checkFolderContextMove). The
+// backend itself never trips this for a PURE reorder: `MoveInput.ParentID` is
+// `*string`, and a nil field is left exactly as it is (Go's own
+// TestRegression_ChatTreeOrderIsDenseAndReturnsWhatItShifted already reorders
+// a folder to index 0 with no `parentId` field at all and asserts no error).
+// The bug was frontend-only: `planTreeRowDrop` always re-sent a freshly
+// COMPUTED `parentId` on every folder move, even one that landed the folder
+// right back in the container it already had — and that recomputed value
+// compared its own anchor against the backend's stored one instead of
+// skipping the context check outright the way omitting the field does.
+describe('performSidebarDrop — reordering a folder within its own current container', () => {
+  it('sends no parentId at all when the folder is not actually changing container', async () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          ...makeRepo(),
+          workspaces: [{ id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' }],
+          folders: [
+            { id: 'folder-first', repoId: 'repo-1', name: 'First', parentId: 'chat-a', order: 0 },
+            { id: 'folder-second', repoId: 'repo-1', name: 'Second', parentId: 'chat-a', order: 1 },
+          ],
+        },
+      ],
+    })
+
+    // Drag "folder-second" to become the FIRST item of the same sibling list
+    // — dropped "before" "folder-first", the row currently occupying that
+    // slot, both already filed under the identical container ("chat-a").
+    await performSidebarDrop(
+      [folderRow('folder-second', { parentId: 'chat-a' })],
+      folderRow('folder-first', { parentId: 'chat-a' }),
+      'before',
+    )
+
+    expect(placeFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'folder-second', { order: 0 })
+    expect(placeFolder).not.toHaveBeenCalledWith(
+      'proj-1',
+      'repo-1',
+      'folder-second',
+      expect.objectContaining({ parentId: expect.anything() }),
+    )
+  })
+
+  it('still sends parentId for a genuine cross-container move', async () => {
+    useSidebarStore.setState({
+      repos: [
+        {
+          ...makeRepo(),
+          workspaces: [{ id: 'ws-a', branch: 'a', age: '', order: 0, owningChatId: 'chat-a' }],
+          folders: [
+            { id: 'folder-nested', repoId: 'repo-1', name: 'Nested', parentId: 'chat-a', order: 0 },
+            // folder-1 stays at the bare repo root — a genuinely different
+            // container than folder-nested's own ("chat-a").
+            { id: 'folder-1', repoId: 'repo-1', name: 'Bugs', order: 0 },
+          ],
+        },
+      ],
+    })
+
+    // folder-1/folder-2 sit at the bare repo root — a genuinely different
+    // container than folder-nested's own ("chat-a").
+    await performSidebarDrop(
+      [folderRow('folder-nested', { parentId: 'chat-a' })],
+      folderRow('folder-1', { parentId: 'home-1' }),
+      'before',
+    )
+
+    expect(placeFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'folder-nested', {
+      parentId: '',
+      order: expect.any(Number),
+    })
+  })
+})
+
 describe('performSidebarDrop — crossing a fork parent', () => {
   it('reparents before placing when the destination is under a different fork parent', async () => {
     // ws-fork currently hangs off ws-a; dropped INTO ws-b it must rebase.
@@ -1289,8 +1366,11 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
       'before',
     )
 
+    // No `parentId` here — both folders already share the bare root as their
+    // container, so this is a pure reorder. Sending `parentId: ''` anyway
+    // (this used to) recomputed a value the backend's own `MoveInput` never
+    // needed and can disagree with (see `planTreeRowDrop`'s own note).
     expect(placeHomeFolder).toHaveBeenCalledWith('proj-1', 'home-folder-b', {
-      parentId: '',
       order: 0,
     })
     expect(placeFolder).not.toHaveBeenCalled()
@@ -1378,8 +1458,9 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
     it('lands BEFORE the header at the root', async () => {
       await performSidebarDrop([homeFolderRow('home-folder-a')], repoHeader, 'before')
 
+      // No `parentId` — the folder already sits at the bare root, same as the
+      // header it is reordering past.
       expect(placeHomeFolder).toHaveBeenCalledWith('proj-1', 'home-folder-a', {
-        parentId: '',
         order: 0,
       })
     })
@@ -1388,7 +1469,6 @@ describe('performSidebarDrop — a project-home folder as the dragged subject', 
       await performSidebarDrop([homeFolderRow('home-folder-a')], repoHeader, 'after')
 
       expect(placeHomeFolder).toHaveBeenCalledWith('proj-1', 'home-folder-a', {
-        parentId: '',
         order: 1,
       })
     })
