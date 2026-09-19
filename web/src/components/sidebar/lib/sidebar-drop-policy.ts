@@ -451,9 +451,20 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
     // A hit-tested target reads '' off the DOM for a root row; a real row says null.
     const sameParent = subjects.every((s) => (s.parentId ?? '') === (target.parentId ?? ''))
     if (!sameParent) return NO_MODES
-    return resolvesToFirstChild(target, 'after')
+    const reorder = resolvesToFirstChild(target, 'after')
       ? { before: true, after: false, into: false }
       : REORDER_MODES
+    // Filing INTO a FOLDER that already sits right beside this row is a pure
+    // `placeWorkspace` folder-edge write (`PlaceWorkspace`'s own Go doc:
+    // "unconditional on lock status") — it never touches `Workspace.ParentID`,
+    // so it is not the re-parent this branch exists to refuse. `sameParent`
+    // above already proves the folder and the row share one container, which
+    // is all `into` here would ever change. Refusing it unconditionally (this
+    // branch used to) meant a locked branch, or a fork with no owning chat
+    // yet, could never be organised into a folder sitting right next to it —
+    // while an ordinary chat sailed through onto the identical target. Caught
+    // live: "I can't move branches into this folder (threads can!)".
+    return target.kind === 'folder' ? { ...reorder, into: true } : reorder
   }
 
   return ALL_MODES

@@ -82,11 +82,21 @@ type RowPlacementCall =
       projectId: string
       repoId: string
       folderId: string
-      parentId: string
+      // Undefined for a pure reorder within the folder's own CURRENT
+      // container — see `planTreeRowDrop`'s own note on why that has to be
+      // OMITTED, not merely re-sent unchanged.
+      parentId?: string
       order: number
     }
   | { kind: 'chat'; workspaceId: string; chatId: string; parentId: string; order: number }
-  | { kind: 'homeFolder'; projectId: string; folderId: string; parentId: string; order: number }
+  | {
+      kind: 'homeFolder'
+      projectId: string
+      folderId: string
+      // Same omit-when-unchanged rule as the `'folder'` case above.
+      parentId?: string
+      order: number
+    }
   | { kind: 'repoHome'; projectId: string; repoId: string; folderId: string; order: number }
 
 /** A chat subject whose target lives in a different workspace — no endpoint
@@ -304,12 +314,30 @@ function planTreeRowDrop(
       // already have refused this, but nothing here should construct a call
       // for a folder id `placeFolder` can't recognise.
       if (!repo.folders?.some((f) => f.id === subject.id)) return
+      // `requestedRow` is the drop's own destination container, in the SAME
+      // untranslated ROW space `row.parentId` already carries — comparing
+      // them directly (never the WORKSPACE-space `containerId` below) is what
+      // proves this drop leaves the folder's container exactly as it is,
+      // regardless of which id space that container happens to be named in.
+      // A pure reorder like that must send NO `parentId` at all, never a
+      // freshly-recomputed one that merely happens to name the same place:
+      // the backend's own `MoveInput.ParentID *string` treats a nil field as
+      // "leave this exactly where it is," which is the only shape guaranteed
+      // never to trip `checkFolderContextMove`'s anchor walk (Go,
+      // usecases/chat/internal/tree/validate.go) — re-sending a value this
+      // planner derived independently compares ITS OWN anchor for that value
+      // against the backend's own stored one instead of skipping the check
+      // outright, and the two can disagree about a position both sides agree
+      // the folder never actually left. Caught live: dragging a folder to the
+      // top of its own sibling list 400'd with "a folder cannot move to a
+      // different context" for a drop that changed no parent at all.
+      const sameContainer = requestedRow === (row.parentId ?? '')
       calls.push({
         kind: 'folder',
         projectId,
         repoId,
         folderId: subject.id,
-        parentId: containerId,
+        ...(sameContainer ? {} : { parentId: containerId }),
         order,
       })
       return
@@ -515,11 +543,17 @@ function planHomeFolderDrop(
     // this is the same defensive check `planTreeRowDrop`'s own folder branch
     // makes before constructing a call `placeFolder` couldn't recognise.
     if (row.kind !== 'folder' || !tree.folders.some((f) => f.id === row.id)) return
+    // Same reasoning as `planTreeRowDrop`'s own folder branch: a reorder that
+    // leaves `row` in the exact container it already has must send no
+    // `parentId` at all, not a freshly-recomputed one — see that function's
+    // own note on why re-sending it can trip `checkFolderContextMove` for a
+    // drop that changed no parent.
+    const sameContainer = requested === (row.parentId ?? '')
     calls.push({
       kind: 'homeFolder',
       projectId,
       folderId: row.id,
-      parentId: containerId,
+      ...(sameContainer ? {} : { parentId: containerId }),
       order: at + i,
     })
   })
@@ -655,7 +689,7 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
         call.projectId,
         call.repoId,
         call.folderId,
-        { parentId: call.parentId, order: call.order },
+        { ...(call.parentId !== undefined && { parentId: call.parentId }), order: call.order },
       )
       await applyFolderPlacements(call.repoId, [folder, ...shifted], shiftedRows)
       return
@@ -666,7 +700,7 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       // either. No `bump`/`crowbar_folders` write to mirror: `useHomeTreeStore`
       // is its own cache, already updated by the apply itself.
       const { folder, shifted } = await placeHomeFolder(call.projectId, call.folderId, {
-        parentId: call.parentId,
+        ...(call.parentId !== undefined && { parentId: call.parentId }),
         order: call.order,
       })
       applyHomeFolders(call.projectId, [folder, ...shifted].map(toSidebarFolder))

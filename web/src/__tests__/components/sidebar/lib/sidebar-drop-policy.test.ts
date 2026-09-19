@@ -301,6 +301,27 @@ describe('SIDEBAR_DROP_POLICY', () => {
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherContainer)).toEqual(NO_MODES)
   })
 
+  // Live-reported: "I still can't move stuff into this done folder... Crowbar
+  // just doesn't allow me to move branches inside there (threads can!)."
+  // Filing a locked branch into a FOLDER that already sits right beside it is
+  // a pure `placeWorkspace` folder-edge write (`PlaceWorkspace`'s own Go doc:
+  // "unconditional on lock status") — it never touches `Workspace.ParentID`,
+  // so refusing it here was overly broad: the row's own re-parent refusal has
+  // nothing to say about a folder move that changes no lineage at all. A
+  // sibling of a different KIND (a branch, above) still only reorders — only
+  // a FOLDER sibling gets the extra `into`.
+  it('a locked row may still be filed INTO a folder sitting right beside it — no lineage change', () => {
+    const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
+    const siblingFolder = makeRow({
+      id: 'folder-1',
+      kind: 'folder',
+      workspaceId: null,
+      parentId: 'home-1',
+    })
+
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], siblingFolder)).toEqual(ALL_MODES)
+  })
+
   it('a locked row never gets "after" on an already-expanded target (that slot re-parents)', () => {
     const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
     const sibling = makeRow({
@@ -332,6 +353,20 @@ describe('SIDEBAR_DROP_POLICY', () => {
 
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sibling)).toEqual(REORDER_MODES)
     expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherContainer)).toEqual(NO_MODES)
+  })
+
+  // Same fix as the locked-row case above, for the other row this branch
+  // covers: a chatless fork may still be filed into a folder beside it.
+  it('a fork with no owning chat recorded may still be filed INTO a folder sitting right beside it', () => {
+    const subject = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
+    const siblingFolder = makeRow({
+      id: 'folder-1',
+      kind: 'folder',
+      workspaceId: null,
+      parentId: 'home-1',
+    })
+
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], siblingFolder)).toEqual(ALL_MODES)
   })
 
   it('a fork whose owning chat IS recorded may still re-parent', () => {
