@@ -101,22 +101,16 @@ export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right', themeK
       return true
     }
 
-    let observer: MutationObserver | null = null
     let cancelInitialApply: (() => void) | null = null
-
     // Cold boot: settings can rehydrate to 'right' and re-fire this effect
     // before the pane tree (its own async mount) has put a pane-top-row at
     // the top-left corner. Without a retry the window is stuck at the
     // config-time (left) position forever — watch the DOM until one shows
-    // up instead of only reacting to resize. Assigns `observer` directly
-    // (rather than returning it) so the cleanup below is the only place
-    // that ever holds the reference that disconnects it.
-    function armColdBootRetry(): void {
-      observer = new MutationObserver(() => {
-        if (apply()) observer?.disconnect()
-      })
-      observer.observe(document.body, { childList: true, subtree: true })
-    }
+    // up instead of only reacting to resize. Declared (not assigned) here so
+    // both call sites below assign it directly, inline, rather than through
+    // a shared helper's return value — the disconnect this effect's cleanup
+    // calls is the exact same binding either branch set.
+    let coldBootObserver: MutationObserver | null = null
 
     if (sidebarPosition === 'right') {
       // Live-measured, unlike the static left-side constants above — a theme
@@ -125,17 +119,24 @@ export function useMacTrafficLightSync(sidebarPosition: 'left' | 'right', themeK
       // can still be in flight the instant this effect fires, which would read
       // the row's PRE-switch box. Give it two frames before the first read.
       cancelInitialApply = afterTwoFrames(() => {
-        if (!apply()) armColdBootRetry()
+        if (apply()) return
+        coldBootObserver = new MutationObserver(() => {
+          if (apply()) coldBootObserver?.disconnect()
+        })
+        coldBootObserver.observe(document.body, { childList: true, subtree: true })
       })
     } else if (!apply()) {
-      armColdBootRetry()
+      coldBootObserver = new MutationObserver(() => {
+        if (apply()) coldBootObserver?.disconnect()
+      })
+      coldBootObserver.observe(document.body, { childList: true, subtree: true })
     }
 
     window.addEventListener('resize', apply)
     return () => {
       window.removeEventListener('resize', apply)
       cancelInitialApply?.()
-      observer?.disconnect()
+      coldBootObserver?.disconnect()
     }
   }, [sidebarPosition, themeKey, systemPrefersDark])
 }
