@@ -1,4 +1,5 @@
 import type { ThemeDefinition } from '@/extensions/themes/types'
+import { currentPlatform } from '@/utils/platform'
 import {
   DEFAULT_MONO_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
@@ -126,6 +127,9 @@ export function applyBootstrapAppearance(cache: AppearanceBootstrapCache): void 
   const root = document.documentElement
   root.setAttribute('data-theme', cache.themeId)
   root.setAttribute('data-theme-type', cache.themeType)
+  // Lets theme CSS branch on host OS — e.g. zen.css's vibrancy-dependent
+  // surfaces need an opaque fallback where there's no native window blur.
+  root.setAttribute('data-platform', currentPlatform)
   // The .dark class gates all Tailwind dark: variants — keep it in sync with the theme type.
   root.classList.toggle('dark', cache.themeType === 'dark')
 

@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildInnerViewStyle,
   buildPaneContentStyle,
   isWindowEdge,
 } from '@/features/panes/utils/pane-border'
 import type { PanePosition } from '@/features/panes/types/pane'
+
+// buildPaneContentStyle's header-icon inset is genuinely platform-dependent
+// (HEADER_ROW_HEIGHT: 44 on macOS, 34 elsewhere) — this suite's expectations
+// are written against the macOS value, so force it regardless of whatever OS
+// the test happens to run on (jsdom's UA bakes in the CI runner's own host
+// platform, which is Linux on GitHub Actions).
+vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
 
 const full: PanePosition = { atLeft: true, atTop: true, atRight: true, atBottom: true }
 const notAtEdge: PanePosition = { atLeft: false, atTop: false, atRight: false, atBottom: false }

@@ -16,6 +16,12 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({}),
 }))
 
+// The 44px header-clearance assertion below is a macOS value — force it
+// rather than depend on whatever navigator.userAgent the test happens to run
+// on (jsdom's UA bakes in the CI runner's own host platform, which is Linux
+// on GitHub Actions).
+vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+
 vi.mock('@/features/agent/api/agent-api', async (importOriginal) => {
   // Partial: the module also exports the TERMINAL_WAIT_* constants the banner
   // reads, and stubbing those away would make it silently take its fallback
@@ -442,8 +448,8 @@ describe('AgentChatPane — waiting in the terminal', () => {
     await setWait(store, { kind: 'workspace_trust' })
 
     screen.getByTestId('agent-terminal-wait')
-    // 44px header (IS_MAC is hard-coded true off-webview, utils/platform.ts)
-    // plus the pane's own original 8px breathing room.
+    // 44px header (IS_MAC forced true above) plus the pane's own original
+    // 8px breathing room.
     const section = document.querySelector('.agent-chat.chat') as HTMLElement
     expect(section.style.getPropertyValue('--agent-header-clearance')).toBe('52px')
   })
