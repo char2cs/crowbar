@@ -141,7 +141,7 @@ func TestAgent_SpawnPlanRendersAnExecutableLaunch(t *testing.T) {
 	a := get(t, "claude")
 	ctx := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", Provider: "claude",
-		ProjectID: "P", WorkspaceID: "W", CrowbarHook: "/bin/crowbar", CrowbarHome: t.TempDir(),
+		ProjectID: "P", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
 	}
 
 	plan, err := a.SpawnPlan(ctx, os.Environ(), nil)
@@ -158,7 +158,7 @@ func TestAgent_SpawnPlanRendersAnExecutableLaunch(t *testing.T) {
 func TestAgent_WithToolsCopiesRatherThanMutating(t *testing.T) {
 	a := get(t, "claude")
 	ctx := func() agents.TemplateCtx {
-		return agents.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", CrowbarHome: t.TempDir()}
+		return agents.TemplateCtx{Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG"}
 	}
 
 	withTools, err := a.SpawnPlan(ctx(), nil, nil)
@@ -186,7 +186,7 @@ func TestAgent_PromptStepsPlaceTheMessageExactlyOnceAfterEndOfOptions(t *testing
 				require.NoError(t, err)
 
 				plan, err := a.SpawnPlan(agents.TemplateCtx{
-					Tmp: t.TempDir(), Cwd: t.TempDir(), Message: "--print", CrowbarHome: t.TempDir(),
+					Tmp: t.TempDir(), Cwd: t.TempDir(), Message: "--print",
 				}, nil, steps)
 				require.NoError(t, err)
 
@@ -454,7 +454,7 @@ func TestInjectionRegistry_RecognisesAnEchoOncePerRunner(t *testing.T) {
 func TestShippedAgents_RenderParseableMCPRegistration(t *testing.T) {
 	ctx := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", RunnerToken: "TOK",
-		ProjectID: "P", RepoID: "R", WorkspaceID: "W", CrowbarHook: "/bin/crowbar", CrowbarHome: t.TempDir(),
+		ProjectID: "P", RepoID: "R", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
 	}
 
 	claude, err := get(t, "claude").SpawnPlan(ctx, nil, nil)
@@ -480,7 +480,6 @@ func TestShippedAgents_RenderHookCommandsThatSurviveAnEmptyRepoID(t *testing.T) 
 			plan, err := get(t, id).SpawnPlan(agents.TemplateCtx{
 				Tmp: tmp, Cwd: t.TempDir(), Segid: "SEG", Provider: id,
 				ProjectID: "P", RepoID: "", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
-				CrowbarHome: t.TempDir(),
 			}, nil, nil)
 			require.NoError(t, err)
 
@@ -770,7 +769,7 @@ func TestAgent_UnselectedSpawnIsArgvIdenticalToOneWithNoSelectionSupport(t *test
 
 	base := agents.TemplateCtx{
 		Tmp: t.TempDir(), Cwd: t.TempDir(), Segid: "SEG", Provider: "claude",
-		ProjectID: "P", WorkspaceID: "W", CrowbarHook: "/bin/crowbar", CrowbarHome: t.TempDir(),
+		ProjectID: "P", WorkspaceID: "W", CrowbarHook: "/bin/crowbar",
 	}
 
 	without, err := a.SpawnPlan(base, nil, nil)
@@ -892,7 +891,7 @@ func TestAgent_ClaudeRefusesASuggestionItCannotExpress(t *testing.T) {
 func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T) {
 	tmp := t.TempDir()
 	plan, err := get(t, "claude").SpawnPlan(agents.TemplateCtx{
-		Tmp: tmp, Segid: "seg", CrowbarHook: "/bin/crowbar", Cwd: tmp, CrowbarHome: t.TempDir(),
+		Tmp: tmp, Segid: "seg", CrowbarHook: "/bin/crowbar", Cwd: tmp,
 	}, nil, nil)
 	require.NoError(t, err)
 	if plan.Cleanup != nil {

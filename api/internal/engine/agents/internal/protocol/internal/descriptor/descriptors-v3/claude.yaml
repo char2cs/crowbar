@@ -257,38 +257,14 @@ config_injection:
   # doesn't go through the interactive wizard end to end) never sets this, so
   # every fresh spawn re-opens the full wizard, and picking a login method
   # there starts a BRAND NEW OAuth flow rather than recognizing the existing
-  # one.
-  #
-  # This must NOT be fixed by patching the user's real ~/.claude.json —
-  # Crowbar never writes into a real provider home (same law as ~/.codex).
-  # Instead, every Crowbar-spawned claude gets its OWN config dir, exactly
-  # the mechanism claude's own binary already anticipates for embedding (its
-  # strings literally reference "each session's CLAUDE_CONFIG_DIR" and a
-  # "subprocess CLAUDE_CONFIG_DIR ... container" case) and the one this
-  # repo's own integration-test harness already uses
-  # (tests/kit/provider_home.go's IsolateProviderHomes). CLAUDE_CONFIG_DIR
-  # alone isn't enough — it also renames which keychain/secret-store entry
-  # claude looks for (a per-directory hash suffix), so the real, already-
-  # stored credential resolves ONLY with CLAUDE_SECURESTORAGE_CONFIG_DIR
-  # forced to "" (selects the unsuffixed, real entry regardless of
-  # CLAUDE_CONFIG_DIR).
-  #
-  # merge_json's seed_from bootstraps the isolated .claude.json from the
-  # real one ONCE (never overwriting it again after that — seeding a
-  # from-scratch minimal file instead trips a DIFFERENT one-time modal,
-  # "Claude in Chrome extension detected"), clearing `projects` so this
-  # isolated identity doesn't inherit the real install's per-directory trust
-  # decisions, then sets hasCompletedOnboarding on that copy.
-  - set_env:
-      name: "CLAUDE_CONFIG_DIR"
-      value: "{crowbar_home}/providers/claude/config"
-  - set_env:
-      name: "CLAUDE_SECURESTORAGE_CONFIG_DIR"
-      value: ""
+  # one. Confirmed live: patching this one field is what actually fixes it,
+  # not CLAUDE_CONFIG_DIR/CLAUDE_SECURESTORAGE_CONFIG_DIR (irrelevant here —
+  # neither is set in Crowbar's spawn) and not a D-Bus/secret-service issue
+  # (verified present and reachable, made no difference). merge_json no-ops
+  # if the file doesn't exist yet — a missing file means claude's own
+  # first-run flow genuinely hasn't happened, which isn't this step's job.
   - merge_json:
-      path: "{crowbar_home}/providers/claude/config/.claude.json"
-      seed_from: "~/.claude.json"
-      clear: ["projects"]
+      path: "~/.claude.json"
       set:
         hasCompletedOnboarding: true
   # PermissionRequest/Elicitation carry an explicit timeout: they're the two
