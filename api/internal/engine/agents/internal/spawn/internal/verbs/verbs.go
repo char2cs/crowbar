@@ -30,6 +30,7 @@ var registry = map[string]Handler{
 	"set_env":    setEnv,
 	"write_file": writeFile,
 	"pass_arg":   passArg,
+	"merge_json": mergeJSON,
 }
 
 func Apply(step spec.InjectStep, ctx models.TemplateCtx, plan *models.SpawnPlan) error {

@@ -136,6 +136,63 @@ func TestPlan_WriteFileCopiesAnExistingSource(t *testing.T) {
 	assert.Equal(t, "original", string(body))
 }
 
+func TestPlan_MergeJSONSetsAMissingKeyWithoutTouchingOthers(t *testing.T) {
+	d, ctx := base(t)
+	path := filepath.Join(ctx.Tmp, "claude.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"oauthAccount":{"email":"a@b.com"},"hasCompletedOnboarding":null}`), 0o600))
+	d.ConfigInjection = []spec.InjectStep{
+		{Verb: "merge_json", Args: map[string]any{
+			"path": path,
+			"set":  map[string]any{"hasCompletedOnboarding": true},
+		}},
+	}
+
+	_, err := spawn.Plan(d, ctx, nil, nil)
+
+	require.NoError(t, err)
+	body, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.JSONEq(t, `{"oauthAccount":{"email":"a@b.com"},"hasCompletedOnboarding":true}`, string(body))
+}
+
+func TestPlan_MergeJSONOnAnAlreadyTrueKeyIsANoop(t *testing.T) {
+	d, ctx := base(t)
+	path := filepath.Join(ctx.Tmp, "claude.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"hasCompletedOnboarding":true}`), 0o600))
+	before, statErr := os.Stat(path)
+	require.NoError(t, statErr)
+	d.ConfigInjection = []spec.InjectStep{
+		{Verb: "merge_json", Args: map[string]any{
+			"path": path,
+			"set":  map[string]any{"hasCompletedOnboarding": true},
+		}},
+	}
+
+	_, err := spawn.Plan(d, ctx, nil, nil)
+
+	require.NoError(t, err)
+	after, statErr := os.Stat(path)
+	require.NoError(t, statErr)
+	assert.Equal(t, before.ModTime(), after.ModTime(), "an already-satisfied merge must not rewrite the file")
+}
+
+func TestPlan_MergeJSONOnAMissingFileIsANoop(t *testing.T) {
+	d, ctx := base(t)
+	path := filepath.Join(ctx.Tmp, "does-not-exist.json")
+	d.ConfigInjection = []spec.InjectStep{
+		{Verb: "merge_json", Args: map[string]any{
+			"path": path,
+			"set":  map[string]any{"hasCompletedOnboarding": true},
+		}},
+	}
+
+	_, err := spawn.Plan(d, ctx, nil, nil)
+
+	require.NoError(t, err)
+	_, statErr := os.Stat(path)
+	assert.True(t, os.IsNotExist(statErr), "merge_json must never seed a config it didn't find")
+}
+
 func TestPlan_WriteFileFailureCleansUpAndReports(t *testing.T) {
 	d, ctx := base(t)
 	blocker := filepath.Join(ctx.Tmp, "blocker")

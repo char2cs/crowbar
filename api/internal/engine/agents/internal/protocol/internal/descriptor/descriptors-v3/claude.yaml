@@ -250,6 +250,23 @@ effort:
   apply:
     - pass_arg: { arg: "--effort", value: "{effort}" }
 config_injection:
+  # claude's interactive TUI gates its whole onboarding sequence (theme
+  # picker, then "Select login method") on ~/.claude.json's own
+  # hasCompletedOnboarding flag — NOT on whether a valid credential already
+  # exists. A oauthAccount populated by `claude auth login` (or any path that
+  # doesn't go through the interactive wizard end to end) never sets this, so
+  # every fresh spawn re-opens the full wizard, and picking a login method
+  # there starts a BRAND NEW OAuth flow rather than recognizing the existing
+  # one. Confirmed live: patching this one field is what actually fixes it,
+  # not CLAUDE_CONFIG_DIR/CLAUDE_SECURESTORAGE_CONFIG_DIR (irrelevant here —
+  # neither is set in Crowbar's spawn) and not a D-Bus/secret-service issue
+  # (verified present and reachable, made no difference). merge_json no-ops
+  # if the file doesn't exist yet — a missing file means claude's own
+  # first-run flow genuinely hasn't happened, which isn't this step's job.
+  - merge_json:
+      path: "~/.claude.json"
+      set:
+        hasCompletedOnboarding: true
   # PermissionRequest/Elicitation carry an explicit timeout: they're the two
   # hooks Crowbar HOLDS OPEN while a human decides, and an overrun is KILLED
   # rather than abandoned.
