@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useMacTrafficLightSync } from '@/features/tabs/hooks/use-mac-traffic-light-sync'
 
+// The hook early-returns entirely off the platform (real OS detection since
+// the Linux-support fix, not a hardcoded macOS default) — this suite is
+// exercising macOS-only behavior, so it needs to force that regardless of
+// whatever OS the test happens to run on (jsdom's UA bakes in the CI
+// runner's own host platform, which is Linux on GitHub Actions).
+vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+
 function stubRect(el: HTMLElement, rect: Partial<DOMRect>) {
   el.getBoundingClientRect = () =>
     ({

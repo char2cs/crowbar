@@ -45,6 +45,14 @@ vi.mock('@/features/keymaps/hooks/use-effective-keymap', () => ({
   useEffectiveChordMap: () => ({ 'agent.toggleViewMode': 'mod+/' }),
 }))
 
+// The toggle-chord tests below dispatch metaKey (Cmd) keydowns, and
+// HEADER_ROW_HEIGHT_PX is platform-dependent — both resolve through IS_MAC
+// (chord.ts's eventMatchesChord checks metaKey on macOS, ctrlKey elsewhere).
+// Force macOS regardless of whatever OS the test happens to run on (jsdom's
+// UA bakes in the CI runner's own host platform, which is Linux on GitHub
+// Actions).
+vi.mock('@/utils/platform', () => ({ IS_MAC: true }))
+
 vi.mock('@/features/agent/api/agent-api', () => ({
   getPendingPrompt: vi.fn().mockResolvedValue(null),
   getChat: (...a: unknown[]) => getChatFn(...a),
