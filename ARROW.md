@@ -206,6 +206,9 @@ targets:
           exit_on_failure: false
 
   "linux/amd64":
+    tools:
+      - github.com/rabbytesoftware/quiver.essentials/appimage-runtime
+
     requirements:
       cpu_cores: 2
       ram_gb: 4
@@ -226,10 +229,14 @@ targets:
           timeout: 2m
           exit_on_failure: false
 
-        # APPIMAGE_EXTRACT_AND_RUN=1 lets the AppImage run on hosts without FUSE.
+        - type: run
+          command: ${github.com/rabbytesoftware/quiver.essentials/appimage-runtime.extract} "${INSTALL_PATH}/Crowbar.AppImage"
+          title: "Extracting the Crowbar AppImage"
+          timeout: 1m
+
         - type: run
           title: "Install the crowbar launcher into ~/.local/bin"
-          command: "chmod +x \"${INSTALL_PATH}/Crowbar.AppImage\" && mkdir -p \"$HOME/.local/bin\" && printf '#!/bin/sh\\nAPPIMAGE_EXTRACT_AND_RUN=1 exec \"%s\" \"$@\"\\n' \"${INSTALL_PATH}/Crowbar.AppImage\" > \"$HOME/.local/bin/crowbar\" && chmod +x \"$HOME/.local/bin/crowbar\""
+          command: "mkdir -p \"$HOME/.local/bin\" && printf '#!/bin/sh\\nexec \"%s/squashfs-root/AppRun\" \"$@\"\\n' \"${INSTALL_PATH}\" > \"$HOME/.local/bin/crowbar\" && chmod +x \"$HOME/.local/bin/crowbar\""
           timeout: 1m
 
         - type: run
@@ -245,15 +252,23 @@ targets:
           to: "${INSTALL_PATH}/Crowbar.AppImage"
           timeout: 15m
 
+        # appimage-runtime's extractor skips extraction when squashfs-root already
+        # exists, so the stale one from the previous release has to be cleared
+        # first or the update would keep running the old AppImage's contents.
         - type: run
-          title: "Make the new AppImage executable"
-          command: "chmod +x \"${INSTALL_PATH}/Crowbar.AppImage\""
+          title: "Clear the previous extraction"
+          command: "rm -rf \"${INSTALL_PATH}/squashfs-root\""
+          timeout: 1m
+
+        - type: run
+          command: ${github.com/rabbytesoftware/quiver.essentials/appimage-runtime.extract} "${INSTALL_PATH}/Crowbar.AppImage"
+          title: "Extracting the Crowbar AppImage"
           timeout: 1m
 
       uninstall:
         - type: run
           title: "Remove Crowbar"
-          command: "rm -f \"$HOME/.local/bin/crowbar\" \"$HOME/.local/share/applications/crowbar.desktop\" \"${INSTALL_PATH}/Crowbar.AppImage\" \"${INSTALL_PATH}/crowbar.png\""
+          command: "rm -f \"$HOME/.local/bin/crowbar\" \"$HOME/.local/share/applications/crowbar.desktop\" \"${INSTALL_PATH}/Crowbar.AppImage\" \"${INSTALL_PATH}/crowbar.png\" && rm -rf \"${INSTALL_PATH}/squashfs-root\""
           timeout: 2m
           exit_on_failure: false
 ```
