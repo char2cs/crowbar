@@ -16,6 +16,12 @@ function detectPlatform(): Platform {
     return 'macos'
   }
 
+  // Mirrors appearance-bootstrap.ts's isWindowsPlatform() UA-sniffing approach —
+  // Tauri v2 dropped OS detection from core (it's a separate plugin we don't
+  // depend on), so the webview's own user agent is the only signal available.
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  if (/Windows/i.test(ua)) return 'windows'
+  if (/Linux/i.test(ua)) return 'linux'
   return 'macos'
 }
 

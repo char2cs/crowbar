@@ -518,3 +518,26 @@
     display: none;
   }
 }
+
+/* Linux has no native window vibrancy (see zen.css for the full explanation
+   and tauri.linux.conf.json, which turns off window transparency itself).
+   --chrome-bg/--pane-chrome-bg are the default "Crowbar" theme's own wash
+   over the vibrancy blur, translucent for the same reason Zen's surfaces
+   are. These are the ACTUAL flattened result of compositing each token over
+   :root/.dark's own --background, not the same percentage at 100% (which
+   would shift the hue/lightness). Any theme that doesn't override these two
+   tokens itself — including Zen, which only overrides --chrome-bg and
+   inherits --pane-chrome-bg from here — gets the opaque fallback for free.
+   A theme.css selector out-specifies a theme file's own `[data-theme='x']`
+   rule only when that file doesn't also gate on `[data-platform='linux']`
+   (equal specificity falls back to source order); zen.css already does, so
+   its own --chrome-bg override still wins there. */
+:root[data-platform='linux'] {
+  --chrome-bg: oklch(0.989 0 0);
+  --pane-chrome-bg: oklch(0.986 0 0);
+}
+
+.dark[data-platform='linux'] {
+  --chrome-bg: oklch(0.182 0.005 266.8);
+  --pane-chrome-bg: oklch(0.182 0.005 266.8);
+}

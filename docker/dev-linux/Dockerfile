@@ -90,6 +90,46 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
+# --- GitHub CLI + Claude Code -------------------------------------------
+# Crowbar's own onboarding hard-blocks on "authenticate with gh auth login or
+# glab auth login" before any workspace exists — both tools need to already
+# be here, not installed ad hoc inside a running container.
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Native installer — a standalone binary, no Node.js runtime needed.
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/root/.local/bin:${PATH}"
+
+# --- Sample git repository -------------------------------------------------
+# Crowbar manages git repos/worktrees per branch — give it a real one to open
+# and test against instead of an empty onboarding screen with nothing to import.
+RUN git config --global user.email "dev@crowbar.local" \
+    && git config --global user.name "Crowbar Dev" \
+    && git config --global init.defaultBranch main \
+    && mkdir -p /root/dev/sample-project/src \
+    && cd /root/dev/sample-project \
+    && git init -q \
+    && git config --local --add safe.directory /root/dev/sample-project \
+    && echo "# Sample Project" > README.md \
+    && echo "" >> README.md \
+    && echo "A sample repository for testing Crowbar's Linux build inside the dev-linux box." >> README.md \
+    && git add README.md \
+    && git commit -q -m "Initial commit" \
+    && echo "console.log('hello from sample-project')" > src/index.js \
+    && git add src/index.js \
+    && git commit -q -m "Add src/index.js" \
+    && git checkout -q -b feature/sample-branch \
+    && echo "// TODO: sample feature" >> src/index.js \
+    && git add src/index.js \
+    && git commit -q -m "Start feature work" \
+    && git checkout -q main
+
 WORKDIR /workspace
 
 COPY docker/dev-linux/start.sh /usr/local/bin/start.sh

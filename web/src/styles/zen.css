@@ -28,3 +28,25 @@
   --pane-background: oklch(1 0 0 / 10%);
   --chrome-bg: oklch(0 0 0 / 40%);
 }
+
+/* Linux has no native window vibrancy (window-vibrancy has no Linux
+   implementation, and no viable app-requestable alternative exists yet — see
+   tauri.linux.conf.json, which also turns off window transparency itself).
+   The translucent surfaces above assume a blurred backdrop; without one they
+   just show whatever's behind the window, unblurred. These are NOT "the same
+   percentage at 100%" (e.g. dark's 10%-white pane would go nearly-white) —
+   they're the ACTUAL flattened result of compositing each token over Zen's
+   own --background, so the theme keeps its intended tone instead of just
+   gaining an opaque backer. Light's 60%-white pane over a white background
+   flattens to plain white, same as --background — panes lose their visual
+   separation once translucency is gone, which is expected, not a bug to
+   chase. Light's --chrome-bg is already 0% alpha (inert regardless of
+   backdrop), so no override is needed for it. */
+[data-theme='zen'][data-platform='linux']:not(.dark) {
+  --pane-background: var(--color-white);
+}
+
+[data-theme='zen'][data-platform='linux'].dark {
+  --pane-background: oklch(0.271 0 0);
+  --chrome-bg: oklch(0.114 0 0);
+}
