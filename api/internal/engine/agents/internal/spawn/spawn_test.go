@@ -193,6 +193,79 @@ func TestPlan_MergeJSONOnAMissingFileIsANoop(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "merge_json must never seed a config it didn't find")
 }
 
+func TestPlan_MergeJSONSeedsFromSourceWhenDestinationIsMissing(t *testing.T) {
+	d, ctx := base(t)
+	source := filepath.Join(ctx.Tmp, "real.json")
+	require.NoError(t, os.WriteFile(source,
+		[]byte(`{"oauthAccount":{"email":"a@b.com"},"projects":{"/some/repo":{"trusted":true}}}`), 0o600))
+	dest := filepath.Join(ctx.Tmp, "isolated", ".claude.json")
+	d.ConfigInjection = []spec.InjectStep{
+		{Verb: "merge_json", Args: map[string]any{
+			"path":      dest,
+			"seed_from": source,
+			"clear":     []any{"projects"},
+			"set":       map[string]any{"hasCompletedOnboarding": true},
+		}},
+	}
+
+	_, err := spawn.Plan(d, ctx, nil, nil)
+
+	require.NoError(t, err)
+	body, readErr := os.ReadFile(dest)
+	require.NoError(t, readErr)
+	assert.JSONEq(t,
+		`{"oauthAccount":{"email":"a@b.com"},"projects":{},"hasCompletedOnboarding":true}`,
+		string(body))
+	// The real source must be left untouched — seeding copies, never mutates.
+	sourceBody, readErr := os.ReadFile(source)
+	require.NoError(t, readErr)
+	assert.JSONEq(t, `{"oauthAccount":{"email":"a@b.com"},"projects":{"/some/repo":{"trusted":true}}}`,
+		string(sourceBody))
+}
+
+func TestPlan_MergeJSONNeverReSeedsAnExistingDestination(t *testing.T) {
+	d, ctx := base(t)
+	source := filepath.Join(ctx.Tmp, "real.json")
+	require.NoError(t, os.WriteFile(source, []byte(`{"oauthAccount":{"email":"a@b.com"}}`), 0o600))
+	dest := filepath.Join(ctx.Tmp, "isolated.json")
+	require.NoError(t, os.WriteFile(dest,
+		[]byte(`{"hasCompletedOnboarding":true,"projects":{"/accumulated":{}}}`), 0o600))
+	d.ConfigInjection = []spec.InjectStep{
+		{Verb: "merge_json", Args: map[string]any{
+			"path":      dest,
+			"seed_from": source,
+			"clear":     []any{"projects"},
+			"set":       map[string]any{"hasCompletedOnboarding": true},
+		}},
+	}
+
+	_, err := spawn.Plan(d, ctx, nil, nil)
+
+	require.NoError(t, err)
+	body, readErr := os.ReadFile(dest)
+	require.NoError(t, readErr)
+	assert.JSONEq(t, `{"hasCompletedOnboarding":true,"projects":{"/accumulated":{}}}`, string(body),
+		"an existing isolated copy must only be merged, never re-seeded over")
+}
+
+func TestPlan_MergeJSONWithSeedFromButNoSourceIsANoop(t *testing.T) {
+	d, ctx := base(t)
+	dest := filepath.Join(ctx.Tmp, "isolated", ".claude.json")
+	d.ConfigInjection = []spec.InjectStep{
+		{Verb: "merge_json", Args: map[string]any{
+			"path":      dest,
+			"seed_from": filepath.Join(ctx.Tmp, "does-not-exist-either.json"),
+			"set":       map[string]any{"hasCompletedOnboarding": true},
+		}},
+	}
+
+	_, err := spawn.Plan(d, ctx, nil, nil)
+
+	require.NoError(t, err)
+	_, statErr := os.Stat(dest)
+	assert.True(t, os.IsNotExist(statErr), "a missing seed source is the same as no fix available")
+}
+
 func TestPlan_WriteFileFailureCleansUpAndReports(t *testing.T) {
 	d, ctx := base(t)
 	blocker := filepath.Join(ctx.Tmp, "blocker")
