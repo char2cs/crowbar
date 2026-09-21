@@ -715,6 +715,95 @@ describe('PaneContainer — chat/editor-view hosting', () => {
   })
 })
 
+// Bug: clicking into an inactive pane's chat/editor content sometimes never
+// changes focus. handlePaneMouseDownCapture (the onMouseDownCapture wired to
+// the pane's own root div) used `target.closest("button, input, textarea,
+// [role='button'], [role='menu']")` to skip setActivePane — but .closest()
+// walks the WHOLE ancestor chain, not just the literal mousedown target. Chat
+// message content, Monaco's toolbar/find-bar and Plate's toolbar all nest
+// real buttons throughout their content, so a mousedown anywhere inside one
+// of those ancestors — even far from the literal button — was silently
+// swallowed and the pane never activated. Separately, the dead
+// `isEditorTextarea` escape hatch checked for a class ('editor-textarea')
+// that is never applied anywhere — Monaco's own real input surface uses
+// 'inputarea' (textAreaEditContext.js) — so a direct click on Monaco's real
+// textarea was ALSO swallowed, unlike xterm's real helper textarea, whose
+// override ('xterm-helper-textarea') is wired correctly.
+describe('PaneContainer — mousedown-capture pane activation', () => {
+  afterEach(() => {
+    setActiveWorkspaceStoreRef(null)
+  })
+
+  /** A second pane, so ROOT_PANE_ID can start inactive — same pattern the
+   *  active-pane accent ring suite above already uses. */
+  function makeRootPaneInactive(): void {
+    const other = windowPaneStore
+      .getState()
+      .paneActions.splitPane(ROOT_PANE_ID, 'horizontal', undefined, 'after')!
+    windowPaneStore.getState().paneActions.setActivePane(other)
+  }
+
+  it('activates an inactive pane on a mousedown whose target is merely NESTED inside a button, not the button itself', async () => {
+    const store = createWorkspaceStore('w1')
+    makeRootPaneInactive()
+
+    await renderPane(store)
+    expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
+
+    // Stand-in for a real button deep in pane content (a chat message's copy
+    // button, a Monaco/Plate toolbar icon, ...) — the literal mousedown
+    // TARGET is a child of the button, never the button element itself.
+    const paneContainer = document.querySelector(
+      `[data-pane-id="${ROOT_PANE_ID}"]`,
+    ) as HTMLElement
+    const nestedButton = document.createElement('button')
+    const icon = document.createElement('span')
+    nestedButton.appendChild(icon)
+    paneContainer.appendChild(nestedButton)
+
+    fireEvent.mouseDown(icon)
+
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+  })
+
+  it('activates the pane on a mousedown landing on Monaco’s own real inputarea, despite it being a literal <textarea>', async () => {
+    const store = createWorkspaceStore('w1')
+    makeRootPaneInactive()
+
+    await renderPane(store)
+    expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
+
+    const paneContainer = document.querySelector(
+      `[data-pane-id="${ROOT_PANE_ID}"]`,
+    ) as HTMLElement
+    const monacoTextarea = document.createElement('textarea')
+    monacoTextarea.className = 'inputarea monaco-mouse-cursor-text'
+    paneContainer.appendChild(monacoTextarea)
+
+    fireEvent.mouseDown(monacoTextarea)
+
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+  })
+
+  it('still skips activation when the mousedown target IS ITSELF a real interactive control — the preserved exception', async () => {
+    const store = createWorkspaceStore('w1')
+    makeRootPaneInactive()
+
+    await renderPane(store)
+    expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
+
+    const paneContainer = document.querySelector(
+      `[data-pane-id="${ROOT_PANE_ID}"]`,
+    ) as HTMLElement
+    const button = document.createElement('button')
+    paneContainer.appendChild(button)
+
+    fireEvent.mouseDown(button)
+
+    expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
+  })
+})
+
 // Task 18: usePaneViewPresentation wired into the chat/editor arrangement,
 // replacing Task 31's placeholder sequential stack. usePaneViewPresentation's
 // own geometry math (side-by-side vs. stacked vs. tabs thresholds) has its own
