@@ -1,24 +1,89 @@
 /**
  * `use-chat-presentation.ts` drives two splits: the terminal split hosted
- * inside `agent-chat-pane.tsx` (chat ⇄ terminal, unchanged by this file —
- * that behaviour is covered end-to-end by `agent-chat-pane-split.test.tsx`)
- * and, generalized here, the pane-level chat-view ⇄ editor-view split spec
- * §7.2 describes, consumed by `pane-container.tsx`.
+ * inside `agent-chat-pane.tsx` (chat ⇄ terminal — its end-to-end behaviour is
+ * covered by `agent-chat-pane-split.test.tsx`; the persistence of WHICH one a
+ * chat lands back on is covered directly below, since it lives entirely in
+ * this hook) and, generalized here, the pane-level chat-view ⇄ editor-view
+ * split spec §7.2 describes, consumed by `pane-container.tsx`.
  *
  * `usePaneViewPresentation` is pure geometry over `editorOpen` (Task 1's
  * `PaneGroup.editorOpen`) — there is nothing to "choose", so unlike
  * `useChatPresentation` it has no `setPresentation`/`chosen` pair to test.
  */
 import { act, renderHook } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   SPLIT_SIDE_BY_SIDE_MIN_PX,
+  useChatPresentation,
   usePaneViewPresentation,
 } from '@/features/agent/hooks/use-chat-presentation'
+import { useSettingsStore } from '@/features/settings/store'
+import { getDefaultSettingsSnapshot } from '@/features/settings/config/default-settings'
 
 function ref(size: { clientWidth?: number; clientHeight?: number }) {
   return { current: size as unknown as HTMLElement }
 }
+
+describe('useChatPresentation — a chat remembers its own surface', () => {
+  beforeEach(() => {
+    useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
+  })
+
+  afterEach(() => {
+    useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
+  })
+
+  it('keeps a chat on Terminal across switching to another chat and back, in one mount', () => {
+    const container = { current: null }
+    const { result, rerender } = renderHook(
+      ({ chatId }) => useChatPresentation(chatId, container),
+      { initialProps: { chatId: 'chat-a' } },
+    )
+    expect(result.current.presentation).toBe('chat') // the global default
+
+    act(() => result.current.setPresentation('terminal'))
+    expect(result.current.presentation).toBe('terminal')
+
+    // Switch to a different chat in the same pane — the ordinary re-seed path
+    // (a runner move, or picking another tab) that already ran before this fix.
+    rerender({ chatId: 'chat-b' })
+    expect(result.current.presentation).toBe('chat')
+
+    // ...and back to chat A. Before this fix `chosen` was thrown away on every
+    // re-seed unless it was 'split', so this landed back on the global default
+    // ('chat') instead of the 'terminal' the user had actually left it on.
+    rerender({ chatId: 'chat-a' })
+    expect(result.current.presentation).toBe('terminal')
+  })
+
+  it('keeps a chat on Terminal across a real unmount/remount — a Recents row reopening a closed chat', () => {
+    const containerA = { current: null }
+    const { result: first, unmount: unmountFirst } = renderHook(() =>
+      useChatPresentation('chat-a', containerA),
+    )
+    act(() => first.current.setPresentation('terminal'))
+    expect(first.current.presentation).toBe('terminal')
+
+    // Closing a chat's view deletes its pane outright (`closePane`,
+    // pane-slice.ts) rather than hiding it — this pane's own React state,
+    // including `chosen`, dies with it.
+    unmountFirst()
+
+    // Another chat's pane mounts and unmounts in between, same as a user
+    // browsing elsewhere before coming back.
+    const containerB = { current: null }
+    const { unmount: unmountSecond } = renderHook(() => useChatPresentation('chat-b', containerB))
+    unmountSecond()
+
+    // Reopening chat A from its Recents row mounts a BRAND NEW AgentChatPane —
+    // a fresh `renderHook`, not a rerender of the same instance. The chat's own
+    // choice must survive this, exactly like the bug report says: "the chat
+    // mode should never be lost."
+    const containerA2 = { current: null }
+    const { result: second } = renderHook(() => useChatPresentation('chat-a', containerA2))
+    expect(second.current.presentation).toBe('terminal')
+  })
+})
 
 describe('usePaneViewPresentation', () => {
   it('is tabs when the split is off, regardless of size', () => {
