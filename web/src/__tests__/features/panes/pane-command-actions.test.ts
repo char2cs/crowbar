@@ -162,7 +162,7 @@ describe('pane command actions', () => {
     expect(rootLayout.type).toBe('split')
     if (rootLayout.type !== 'split') return
 
-    paneActions.resizePaneSplit(rootLayout.id, 0, [75, 25])
+    paneActions.resizePaneSplit(rootLayout.id, [75, 25])
 
     expect(resetEditorGroupSizes()).toBe(true)
 

@@ -66,7 +66,7 @@ export const PaneNodeRenderer = memo(function PaneNodeRenderer({
   const splitId = node.type === 'split' ? node.id : null
   const handleResizeCommit = useCallback(
     (sizes: [number, number]) => {
-      if (splitId) resizePaneSplit(splitId, 0, sizes)
+      if (splitId) resizePaneSplit(splitId, sizes)
     },
     [splitId, resizePaneSplit],
   )

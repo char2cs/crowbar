@@ -19,7 +19,7 @@ import {
   getAllLeafIds,
   getFirstLeafId,
   distributeSplit,
-  resizeFlattenedLayout,
+  updateSplitSizes,
   normalizeLayout,
   getAdjacentLeafId,
 } from '@/features/panes/utils/pane-layout'
@@ -127,7 +127,7 @@ export interface PaneActions {
   setEditorTabPinned(paneId: string, tabId: string, pinned: boolean): void
   setPaneLocked(paneId: string, locked: boolean): void
   reorderEditorTabs(paneId: string, tabId: string, targetIndex: number): void
-  resizePaneSplit(splitId: string, index: number, sizes: [number, number]): void
+  resizePaneSplit(splitId: string, sizes: [number, number]): void
   distributePaneSplit(splitId: string): void
   togglePaneFullscreen(paneId: string): void
   exitPaneFullscreen(): void
@@ -1308,12 +1308,12 @@ export const createPaneSlice: StateCreator<
         })
       },
 
-      resizePaneSplit(splitId, index, sizes) {
+      resizePaneSplit(splitId, sizes) {
         set((state) => {
           if (findSplit(state.rootLayout, splitId)) {
-            state.rootLayout = resizeFlattenedLayout(state.rootLayout, splitId, index, sizes)
+            state.rootLayout = updateSplitSizes(state.rootLayout, splitId, sizes)
           } else if (findSplit(state.bottomLayout, splitId)) {
-            state.bottomLayout = resizeFlattenedLayout(state.bottomLayout, splitId, index, sizes)
+            state.bottomLayout = updateSplitSizes(state.bottomLayout, splitId, sizes)
           }
         })
       },
