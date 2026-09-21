@@ -439,6 +439,108 @@ func TestSend_MergesValuesRememberedFromEarlierCaptures(t *testing.T) {
 	require.Contains(t, (*seen)[2], `"turnId":"turn-1"`)
 }
 
+// TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurnID
+// pins the "Codex stop doesn't work sometimes" bug. remembered["turn_id"] is
+// only OVERWRITTEN once a turn/start call's reply lands and its capture: runs
+// — nothing clears it the instant the NEXT turn/start is actually SENT. So a
+// Stop that races in after a chat is already reported Working (which fires off
+// the userMessage item/started notification arriving over this SAME
+// connection, entirely independent of this call's own reply) but before THIS
+// turn/start's reply has come back finds remembered still holding the
+// PREVIOUS, already-finished turn's id — and Send happily ships turn/interrupt
+// naming that dead turn. Confirmed live behaviour (codex.yaml's own interrupt:
+// doc comment): turn/interrupt against an id that is not the CURRENTLY open
+// turn is not what StopChat intends either way — an empty id fails loudly and
+// falls back to a full stop (already handled), but a stale, well-formed one
+// risks silently targeting a turn that already ended while the real one
+// keeps generating, which is indistinguishable from Stop doing nothing at all.
+func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurnID(t *testing.T) {
+	turn2StartSeen := make(chan struct{})
+	interruptParams := make(chan string, 1)
+
+	sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
+		readReq := func() (id json.RawMessage, method, params string) {
+			_, msg, err := conn.ReadMessage()
+			require.NoError(t, err)
+			var req struct {
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+				Params json.RawMessage `json:"params"`
+			}
+			require.NoError(t, json.Unmarshal(msg, &req))
+			return req.ID, req.Method, string(req.Params)
+		}
+		respond := func(id json.RawMessage, result string) {
+			resp, _ := json.Marshal(map[string]any{"id": id, "result": json.RawMessage(result)})
+			require.NoError(t, conn.WriteMessage(websocket.TextMessage, resp))
+		}
+
+		id, method, _ := readReq() // thread/start
+		require.Equal(t, "thread/start", method)
+		respond(id, `{"thread":{"id":"t-9"}}`)
+
+		id, method, _ = readReq() // turn/start #1 (turn-1)
+		require.Equal(t, "turn/start", method)
+		respond(id, `{"turn":{"id":"turn-1"}}`)
+
+		// turn/start #2: read the request (this is what unblocks the test's own
+		// Dispatch goroutine below), but deliberately withhold the reply — the
+		// exact window a racing Stop would land in against a real, slower
+		// codex app-server.
+		id2, method, _ := readReq()
+		require.Equal(t, "turn/start", method)
+		close(turn2StartSeen)
+
+		idI, methodI, paramsI := readReq() // turn/interrupt races in here
+		require.Equal(t, "turn/interrupt", methodI)
+		interruptParams <- paramsI
+		respond(idI, `{}`)
+
+		respond(id2, `{"turn":{"id":"turn-2"}}`)
+		_, _, _ = conn.ReadMessage() // block until the client closes
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	drv, err := apidriver.Start(ctx, d, sockPath)
+	require.NoError(t, err)
+	defer drv.Close()
+
+	// Turn 1 completes in full: remembered["turn_id"] == "turn-1".
+	_, err = drv.Dispatch(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work", "text": "first"})
+	require.NoError(t, err)
+
+	// Turn 2 begins on a separate goroutine — its turn/start reaches the wire
+	// but the fake server withholds the reply, mirroring a real turn that has
+	// only just started.
+	turn2Done := make(chan error, 1)
+	go func() {
+		_, err := drv.Dispatch(ctx, "prompt", map[string]string{"session_id": "t-9", "cwd": "/work", "text": "second"})
+		turn2Done <- err
+	}()
+
+	select {
+	case <-turn2StartSeen:
+	case <-time.After(5 * time.Second):
+		t.Fatal("turn/start for the second turn never reached the fake server")
+	}
+
+	// A Stop landing in exactly this window.
+	require.NoError(t, drv.Send(ctx, "interrupt", nil))
+
+	var params string
+	select {
+	case params = <-interruptParams:
+	case <-time.After(5 * time.Second):
+		t.Fatal("turn/interrupt never reached the fake server")
+	}
+	require.NotContains(t, params, `"turnId":"turn-1"`,
+		"turn/interrupt raced against a new turn/start in flight must not name the PREVIOUS, already-finished turn")
+
+	require.NoError(t, <-turn2Done)
+}
+
 // TestSend_PropagatesAJSONRPCErrorFromTheReply pins that Send waits for a real
 // reply rather than firing a notification — live-confirmed that codex's own
 // turn/interrupt is request/response: a malformed call comes back a JSON-RPC

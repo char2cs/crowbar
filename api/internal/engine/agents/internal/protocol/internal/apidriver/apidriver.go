@@ -388,8 +388,27 @@ func (drv *Driver) InjectAt(ctx context.Context, at string, values map[string]st
 // runSteps executes one Fresh/Resume/Action list in order: expand Send's
 // template tree against values, call it, and fold any Capture into values so
 // a later step in the SAME list (or the caller) can read it.
+//
+// Any field this step is ABOUT to (re)capture is dropped from remembered
+// first, before the call goes out — never left standing until the reply
+// lands. Send (interrupt, compact_start) reads remembered concurrently with
+// this, on a caller's own goroutine, and turn_id is exactly the field a
+// second turn/start overwrites: leaving the PREVIOUS turn's id in place for
+// the whole round trip means a Stop racing in while this call is still in
+// flight would ship turn/interrupt naming a turn that already ended — not
+// loudly rejected (that's the safe, already-handled empty-field case), but
+// silently pointed at the wrong turn while the real one keeps generating.
+// Clearing here trades that silent miss for the safe one: an empty field
+// fails codex's own validation and StopChat falls back to a full stop.
 func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values map[string]string) error {
 	for _, step := range steps {
+		if len(step.Capture) > 0 {
+			drv.mu.Lock()
+			for field := range step.Capture {
+				delete(drv.remembered, field)
+			}
+			drv.mu.Unlock()
+		}
 		payload, _ := expandTree(step.Send, values).(map[string]any)
 		result, err := drv.conn.Call(ctx, step.Call, payload)
 		if err != nil {
