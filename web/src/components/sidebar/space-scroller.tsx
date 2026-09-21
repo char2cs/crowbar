@@ -20,7 +20,7 @@ import { useSidebarStore } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
-import { attachRemovalState, descendantHiddenIds } from '@/components/layout/removal-plan'
+import { attachRemovalState, renderedHiddenIds } from '@/components/layout/removal-plan'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
 import {
   getAllActiveWorkspaceIds,
@@ -269,9 +269,18 @@ function SpacePanel({
   // `rowsForProjectFn`), but a home tree is never part of `repos` for that
   // projection to reach, so it is filtered/marked here instead. The PRIMARY
   // id stays (removal-plan.ts's `descendantHiddenIds` doc) — only its
-  // cascade goes.
+  // cascade goes. Filtered against the tray's own `hiddenIds`, not an
+  // `entries`-derived set — see `sidebar-tree-surface.tsx`'s identical
+  // `renderedHiddenIds` swap for why: `entries` drops a row the instant its
+  // commit fires, before the DELETE it just sent has resolved, and deriving
+  // from `entries` alone let that row ghost back onto the tree for the
+  // length of the round trip.
   const removalEntries = useRemovalTrayStore((s) => s.entries)
-  const hiddenIds = useMemo(() => descendantHiddenIds(removalEntries), [removalEntries])
+  const trayHiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
+  const hiddenIds = useMemo(
+    () => renderedHiddenIds(trayHiddenIds, removalEntries),
+    [trayHiddenIds, removalEntries],
+  )
   // Read here (not only in `sidebar-tree-surface.tsx`) because `homeRows`
   // below is built off `useHomeTreeStore`, outside that merge entirely.
   const pendingEntries = usePendingCreatesStore((s) => s.entries)
