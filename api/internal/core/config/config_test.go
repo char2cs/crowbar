@@ -63,12 +63,19 @@ func TestGetPrompts_FromEmbeddedDefaults(t *testing.T) {
 	assert.NotContains(t, p.CapabilitiesInstruction, "chat rename")
 
 	// The review tools now exist (Task 13), so the preamble carries the directive
-	// that was held back until they did: prefer Crowbar's own review surface over
-	// `gh pr`, and post findings as anchored threads rather than chat prose.
-	// TestCapabilitiesPreamble_OnlyNamesRegisteredTools (agenttools package) is the
-	// tripwire that keeps this claim honest against the actual tool registry.
+	// that was held back until they did: there may be comments waiting on Crowbar,
+	// and the agent's own findings should land as anchored threads rather than chat
+	// prose. TestCapabilitiesPreamble_OnlyNamesRegisteredTools (agenttools package)
+	// is the tripwire that keeps this claim honest against the actual tool registry.
+	//
+	// It must never claim Crowbar is the ONLY place review happens, or name GitHub
+	// at all — a model that reads an exclusivity claim here refuses to use `gh`
+	// even when the user asks it to directly (see the regression this guards).
 	assert.Contains(t, p.CapabilitiesInstruction, "review")
-	assert.Contains(t, p.CapabilitiesInstruction, "gh pr")
+	assert.Contains(t, p.CapabilitiesInstruction, "may be")
+	assert.NotContains(t, p.CapabilitiesInstruction, "GitHub")
+	assert.NotContains(t, p.CapabilitiesInstruction, "gh pr")
+	assert.NotContains(t, p.CapabilitiesInstruction, "only")
 }
 
 func TestGetPrompts_UserConfigOverlays(t *testing.T) {
