@@ -1647,6 +1647,7 @@ export function AgentChatPane({
               // Unknown chats never resolve, so this doubles as "give up polling a
               // chat that will 404 forever" — not just tab visibility.
               visible={isVisible && known}
+              isActivePane={isActivePane}
               // The daemon has confirmed shownChatId does not exist (a stale
               // pane from a wiped/reseeded backend, or a chat deleted from
               // under an open tab). Nothing in this pane can ever resolve, so

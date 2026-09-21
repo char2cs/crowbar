@@ -1,6 +1,6 @@
 import { createElement, createRef } from 'react'
 import type { ReactNode } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentChatMessage, AgentProvider, SlashCatalog } from '@/features/agent/api/agent-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
@@ -171,6 +171,7 @@ const baseProps = () => ({
   live: true,
   active: true,
   visible: true,
+  isActivePane: true,
   onOpenTerminal: vi.fn(),
   onPromptSpawned: vi.fn(),
   onPromptDispatchStart: vi.fn(),
@@ -1056,6 +1057,30 @@ describe('AgentChatView type-to-focus', () => {
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
     type('h', 'e', 'l', 'l')
     expect(await composer()).toHaveValue('hell')
+  })
+
+  // A split (2+ wide chat view) can have several AgentChatViews mounted at
+  // once, all in the same workspace — `active`, `visible` and the workspace
+  // id all agree for every one of them, so only `isActivePane` (threaded
+  // down from agent-chat-pane.tsx, same as the ⌘/ cycle chord and the toggle-
+  // view chord already gate on) tells them apart.
+  async function composerIn(container: HTMLElement) {
+    const find = () =>
+      within(container).queryByRole('textbox', { name: /message the agent|describe the change/i })
+    for (let i = 0; i < 3 && !find(); i++) await act(async () => {})
+    return find() ?? (await within(container).findByRole('textbox', { name: /message the agent/i }))
+  }
+
+  it('redirects only into the pane that has focus, not another pane sharing the same workspace', async () => {
+    const activePane = setup({ chatId: 'active-chat', isActivePane: true })
+    const inactivePane = setup({ chatId: 'inactive-chat', isActivePane: false })
+    await composerIn(activePane.container)
+    await composerIn(inactivePane.container)
+
+    type('h', 'e', 'l', 'l')
+
+    expect(await composerIn(activePane.container)).toHaveValue('hell')
+    expect(await composerIn(inactivePane.container)).toHaveValue('')
   })
 })
 
