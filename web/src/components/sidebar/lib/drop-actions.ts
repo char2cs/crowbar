@@ -735,10 +735,22 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       return
     }
     case 'repoHome':
-      // The PATCH answers 204; the repo's DTO (and every repo it shifted)
-      // rides the `repos` broadcast. Re-read the project's repos as well so
-      // the drop never depends on that broadcast alone — a frame that races
-      // the Node projection left the header where it started until reload.
+      // The PATCH answers 204 — no confirmed row to apply directly, unlike
+      // every other case above. Left waiting on the eventual `repos`
+      // broadcast/re-read alone, a same-level reorder sat at its OLD spot for
+      // several unindicated seconds (live-reported "can't reorder, but
+      // nesting works" — nesting only LOOKS instant because the row vanishes
+      // off the flat list the moment it lands inside a folder, masking the
+      // same delay). Applied optimistically instead, with the exact
+      // order/folderId the request is about to send; the re-read below still
+      // reconciles it against the server's own decision (e.g. collateral
+      // shifts to sibling repos) — a frame that races the Node projection
+      // left the header where it started until reload.
+      useSidebarStore.getState().applyPlacement({
+        repos: [
+          { id: call.repoId, projectId: call.projectId, folderId: call.folderId, order: call.order },
+        ],
+      })
       await placeRepo(call.projectId, call.repoId, { folderId: call.folderId, order: call.order })
       await refreshRepoPlacements(call.projectId)
       return
