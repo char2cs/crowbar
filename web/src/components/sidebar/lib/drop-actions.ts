@@ -748,7 +748,12 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
       // left the header where it started until reload.
       useSidebarStore.getState().applyPlacement({
         repos: [
-          { id: call.repoId, projectId: call.projectId, folderId: call.folderId, order: call.order },
+          {
+            id: call.repoId,
+            projectId: call.projectId,
+            folderId: call.folderId,
+            order: call.order,
+          },
         ],
       })
       await placeRepo(call.projectId, call.repoId, { folderId: call.folderId, order: call.order })

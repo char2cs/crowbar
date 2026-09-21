@@ -372,7 +372,6 @@ describe('row-actions', () => {
     await performCreateFolder('ws-home')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
   })
-
 })
 
 /**

@@ -130,7 +130,15 @@ describe('useIdeShellWorkspaceRetention — home route with a stale pane-derived
         avatarColor: 'o',
         localPath: '/Users/mateo/projects/other-repo',
         workspaces: [],
-        chats: [{ id: 'stale-chat-1', repoId: 'r2', title: 'stale', order: 0, workspaceId: 'ws-other-repo' }],
+        chats: [
+          {
+            id: 'stale-chat-1',
+            repoId: 'r2',
+            title: 'stale',
+            order: 0,
+            workspaceId: 'ws-other-repo',
+          },
+        ],
       },
     ])
     const { activePaneId, paneActions } = windowPaneStore.getState()

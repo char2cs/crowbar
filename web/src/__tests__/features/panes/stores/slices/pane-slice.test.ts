@@ -14,7 +14,12 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
-import { getAllLeafIds, createSplit, createLeaf, findSplit } from '@/features/panes/utils/pane-layout'
+import {
+  getAllLeafIds,
+  createSplit,
+  createLeaf,
+  findSplit,
+} from '@/features/panes/utils/pane-layout'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
 import { viewIdOf } from '@/features/panes/lib/pane-views'

@@ -753,9 +753,7 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
     // Stand-in for a real button deep in pane content (a chat message's copy
     // button, a Monaco/Plate toolbar icon, ...) — the literal mousedown
     // TARGET is a child of the button, never the button element itself.
-    const paneContainer = document.querySelector(
-      `[data-pane-id="${ROOT_PANE_ID}"]`,
-    ) as HTMLElement
+    const paneContainer = document.querySelector(`[data-pane-id="${ROOT_PANE_ID}"]`) as HTMLElement
     const nestedButton = document.createElement('button')
     const icon = document.createElement('span')
     nestedButton.appendChild(icon)
@@ -773,9 +771,7 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
     await renderPane(store)
     expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
 
-    const paneContainer = document.querySelector(
-      `[data-pane-id="${ROOT_PANE_ID}"]`,
-    ) as HTMLElement
+    const paneContainer = document.querySelector(`[data-pane-id="${ROOT_PANE_ID}"]`) as HTMLElement
     const monacoTextarea = document.createElement('textarea')
     monacoTextarea.className = 'inputarea monaco-mouse-cursor-text'
     paneContainer.appendChild(monacoTextarea)
@@ -792,9 +788,7 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
     await renderPane(store)
     expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
 
-    const paneContainer = document.querySelector(
-      `[data-pane-id="${ROOT_PANE_ID}"]`,
-    ) as HTMLElement
+    const paneContainer = document.querySelector(`[data-pane-id="${ROOT_PANE_ID}"]`) as HTMLElement
     const button = document.createElement('button')
     paneContainer.appendChild(button)
 
