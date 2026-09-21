@@ -4,16 +4,12 @@ import {
   performSetWorkspaceLock,
   performImportBranches,
   performCreateFolder,
-  performPromoteChat,
 } from '@/components/sidebar/lib/row-actions'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { toast } from '@/features/window/stores/toast-store'
-import {
-  destroyWorkspaceStore,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 import * as agentApi from '@/features/agent/api/agent-api'
@@ -22,7 +18,6 @@ import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-
 vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
   ...(await importOriginal<typeof agentApi>()),
   renameChat: vi.fn().mockResolvedValue(undefined),
-  promoteChat: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -378,59 +373,6 @@ describe('row-actions', () => {
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
   })
 
-  // §3.5/§4.2: promoting a bubble calls the repo-scoped promote endpoint,
-  // built from the repo's own recorded workspace exactly as performRenameChat
-  // does — never the chat's own (possibly cross-repo) workspaceId.
-  it('promoting a chat calls promoteChat with the repo-scoped workspace id', async () => {
-    await performPromoteChat('chat-1')
-    expect(agentApi.promoteChat).toHaveBeenCalledWith('ws-home', 'chat-1')
-  })
-
-  it('promoting an unknown chat id is a no-op', async () => {
-    await performPromoteChat('not-a-real-chat')
-    expect(agentApi.promoteChat).not.toHaveBeenCalled()
-  })
-
-  // rows-from-repo.ts seeds every TREE chat row's `working` as always false
-  // ("ALWAYS FALSE, AND NOT AN OVERSIGHT") — a promotable row can never know
-  // live turn state from its own fields — so sidebar-row.tsx's render-time
-  // gate cannot be the only guard. This mirrors
-  // sidebar-drop-policy.test.ts's "refuses a tree chat row that IS working
-  // despite its row saying false", closing the same gap for promotion:
-  // promote.go respawns the CLI regardless of whether the chat is mid-turn,
-  // so this must refuse BEFORE the request goes out.
-  it('promoting a chat that is live mid-turn is a no-op, even though its row says working: false', async () => {
-    const store = getOrCreateWorkspaceStore('ws-home')
-    store.setState({
-      agentChats: { ...store.getState().agentChats, working: { 'chat-1': true } },
-    })
-    await performPromoteChat('chat-1')
-    expect(agentApi.promoteChat).not.toHaveBeenCalled()
-  })
-
-  it('promoting a chat whose live turn state says idle proceeds normally', async () => {
-    const store = getOrCreateWorkspaceStore('ws-home')
-    store.setState({
-      agentChats: { ...store.getState().agentChats, working: { 'chat-1': false } },
-    })
-    await performPromoteChat('chat-1')
-    expect(agentApi.promoteChat).toHaveBeenCalledWith('ws-home', 'chat-1')
-  })
-
-  // No optimistic write, matching every other perform* action's own doc
-  // comments on why: the row's ownsWorktree/workspaceId only flip once the
-  // daemon's broadcast/reseed lands.
-  it('promoting a chat does not touch the sidebar store directly', async () => {
-    const before = useSidebarStore.getState().repos[0]
-    await performPromoteChat('chat-1')
-    expect(useSidebarStore.getState().repos[0]).toBe(before)
-  })
-
-  it('a failed promotion surfaces a toast rather than throwing', async () => {
-    vi.mocked(agentApi.promoteChat).mockRejectedValueOnce(new Error('no fork parent'))
-    await expect(performPromoteChat('chat-1')).resolves.toBeUndefined()
-    expect(toast.error).toHaveBeenCalledWith('no fork parent')
-  })
 })
 
 /**
