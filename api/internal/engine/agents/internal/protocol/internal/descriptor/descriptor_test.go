@@ -317,3 +317,41 @@ func TestExperimentalCodexAPIDescriptorIsGone(t *testing.T) {
 	_, err := os.Stat("descriptors-v3/experimental/codex-api.yaml")
 	assert.True(t, os.IsNotExist(err), "codex-api.yaml is merged into codex.yaml — it must not exist alongside it")
 }
+
+// REGRESSION. full-auto used to keep codex's workspace-write sandbox active
+// and only silence the approval prompt (--sandbox workspace-write
+// --ask-for-approval never), never reaching codex's real unrestricted tier —
+// the user's own complaint was that full-auto permissions "are not mapping
+// to the real full-access codex permissions". Confirmed live against a real
+// codex 0.154.0 binary: --ask-for-approval cannot be combined with
+// --dangerously-bypass-approvals-and-sandbox at all (clap rejects the argv
+// outright), so full-auto's apply list must REPLACE both prior pass_args
+// with this one flag, never add it alongside them.
+func TestCodexDescriptor_FullAutoLevelUsesTheRealBypassFlag(t *testing.T) {
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	require.NoError(t, err)
+
+	require.NotNil(t, d.PermissionLevels)
+	level, ok := d.PermissionLevels.Levels["full-auto"]
+	require.True(t, ok, "codex must still declare a full-auto level")
+
+	require.Len(t, level.Apply, 1,
+		"full-auto must apply exactly the bypass flag, not stack it alongside --sandbox/--ask-for-approval")
+	step := level.Apply[0]
+	assert.Equal(t, "pass_arg", step.Verb)
+	assert.Equal(t, "--dangerously-bypass-approvals-and-sandbox", step.Args["arg"])
+	assert.NotContains(t, step.Args, "value",
+		"the bypass flag is a standalone boolean flag, never given a value")
+
+	// The api-transport equivalent (thread/start's sandbox/approvalPolicy
+	// params) — confirmed via `codex app-server generate-json-schema`:
+	// ThreadStartParams.sandbox is codex's own SandboxMode enum, which
+	// includes "danger-full-access", and setting sandbox=danger-full-access +
+	// approvalPolicy=never is exactly what --dangerously-bypass-approvals-
+	// and-sandbox resolves to internally (confirmed live: both produce an
+	// identical effective "approval: never / sandbox: danger-full-access").
+	assert.Equal(t, map[string]string{
+		"sandbox":        "danger-full-access",
+		"approvalPolicy": "never",
+	}, level.Vars)
+}

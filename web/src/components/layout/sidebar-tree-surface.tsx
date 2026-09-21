@@ -21,7 +21,7 @@ import {
   handleTrashProject as trashProject,
   handleCreate as createSidebarRow,
 } from './space-content-actions'
-import { applyPendingRemovals, attachRemovalState, descendantHiddenIds } from './removal-plan'
+import { applyPendingRemovals, attachRemovalState, renderedHiddenIds } from './removal-plan'
 import { performSidebarDrop, performSidebarPaneDrop } from '@/components/sidebar/lib/drop-actions'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -81,10 +81,21 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
   // exactly as it disappeared from the one flat tree before.
   const allRepos = useSidebarStore((s) => s.repos)
   const removalEntries = useRemovalTrayStore((s) => s.entries)
-  // A held row's own PRIMARY id no longer needs hiding — it stays on screen,
-  // transformed in place (sidebar-row.tsx's `RemovingSidebarRow`) — only its
-  // cascade descendants still vanish outright (removal-plan.ts's own doc).
-  const hiddenIds = useMemo(() => descendantHiddenIds(removalEntries), [removalEntries])
+  // The tray's own `hiddenIds`, not an `entries`-derived set: `entries` loses
+  // a row the INSTANT its commit fires (`sidebar-removal.ts`'s `settle()`),
+  // well before the DELETE it just sent has resolved — deriving hiddenIds
+  // from `entries` alone let a settled-but-not-yet-confirmed row fall
+  // straight through to an ordinary, interactive row for the length of that
+  // round trip (the "ghost row" bug). `renderedHiddenIds` corrects for the
+  // one case that must stay visible regardless: a still-LIVE entry's own
+  // primary id, which stays on screen transformed in place
+  // (sidebar-row.tsx's `RemovingSidebarRow`) — only its cascade descendants
+  // vanish outright while the entry is held (removal-plan.ts's own doc).
+  const trayHiddenIds = useRemovalTrayStore((s) => s.hiddenIds)
+  const hiddenIds = useMemo(
+    () => renderedHiddenIds(trayHiddenIds, removalEntries),
+    [trayHiddenIds, removalEntries],
+  )
   const repos = useMemo(() => applyPendingRemovals(allRepos, hiddenIds), [allRepos, hiddenIds])
   // ROWS come only from repos whose tree has actually been read back.
   //

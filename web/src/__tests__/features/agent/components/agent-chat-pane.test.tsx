@@ -10,6 +10,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { nanoid } from 'nanoid'
 
 // Hoisted fakes — declared before the vi.mock calls that reference them.
@@ -406,6 +407,7 @@ const paneOf = (_store: Store, id: string) => windowPaneStore.getState().panes[i
 // so explicitly by overriding these — nothing else has to opt in to "it worked".
 beforeEach(() => {
   resetWindowPaneStoreForTests()
+  resetChatPresentationMemoryForTests()
   paneWorkspace.clear()
   getChatFn.mockReset()
   switchProviderFn.mockReset()

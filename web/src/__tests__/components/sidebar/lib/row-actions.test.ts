@@ -4,16 +4,13 @@ import {
   performSetWorkspaceLock,
   performImportBranches,
   performCreateFolder,
-  performPromoteChat,
 } from '@/components/sidebar/lib/row-actions'
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { toast } from '@/features/window/stores/toast-store'
-import {
-  destroyWorkspaceStore,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 import * as agentApi from '@/features/agent/api/agent-api'
@@ -22,7 +19,6 @@ import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-
 vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
   ...(await importOriginal<typeof agentApi>()),
   renameChat: vi.fn().mockResolvedValue(undefined),
-  promoteChat: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/features/window/stores/toast-store', () => ({
@@ -95,6 +91,7 @@ describe('row-actions', () => {
       ],
     })
     useFolderSignalStore.setState({ generations: {} })
+    usePendingCreatesStore.setState(getInitialPendingCreatesState())
   })
 
   it('renaming a workspace row calls renameWorkspaceBranch with its repo/project ids', async () => {
@@ -360,6 +357,93 @@ describe('row-actions', () => {
     })
   })
 
+  // Live-reported: with no placeholder at all, the user saw a chat/thread-
+  // shaped row appear first, then flip into an unlabeled branch row once the
+  // daemon's two-aggregate mint (owning chat, then workspace) caught up.
+  // `performImportBranches` now drops a `branch`-shaped pending row per
+  // import up front, the same row-in-flight mechanism `handleCreate`'s fork
+  // path already uses (pending-creates.ts).
+  describe('the loading row shown while a branch import is in flight', () => {
+    it('drops a branch-shaped pending row per branch, carrying its real name, before the import call resolves', async () => {
+      let resolveImport: () => void = () => {}
+      vi.mocked(api.importBranches).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveImport = resolve
+          }),
+      )
+
+      const importPromise = performImportBranches('repo-1', ['feature-a', 'feature-b'])
+
+      const entries = usePendingCreatesStore.getState().entries
+      expect(entries).toHaveLength(2)
+      expect(entries.map((e) => e.label)).toEqual(['feature-a', 'feature-b'])
+      for (const entry of entries) {
+        expect(entry.kind).toBe('branch')
+        expect(entry.status).toBe('creating')
+        expect(entry.workspaceId).toBeNull()
+        expect(entry.ownsWorktree).toBe(true)
+        expect(entry.projectId).toBe('proj-1')
+      }
+
+      resolveImport()
+      await importPromise
+    })
+
+    it('an empty import drops no pending row', async () => {
+      await performImportBranches('repo-1', [])
+      expect(usePendingCreatesStore.getState().entries).toHaveLength(0)
+    })
+
+    it('clears the pending row only once BOTH the branch’s workspace and its owning chat have landed', async () => {
+      await performImportBranches('repo-1', ['feature-a'])
+      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+      // The workspace alone is not the real row's title/decoration — that
+      // rides its separately-reseeded owning chat (rows-from-repo.ts).
+      const repo = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          {
+            ...repo,
+            workspaces: [
+              ...repo.workspaces,
+              { id: 'ws-new', branch: 'feature-a', age: '', owningChatId: 'chat-new' },
+            ],
+          },
+        ],
+      })
+      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+      const repoAfterWs = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          {
+            ...repoAfterWs,
+            chats: [
+              ...(repoAfterWs.chats ?? []),
+              { id: 'chat-new', repoId: 'repo-1', title: '', order: 5 },
+            ],
+          },
+        ],
+      })
+      // The clear itself runs off a `.then()` one microtask after the
+      // subscriber's synchronous `resolve()` — flush it before asserting,
+      // the same gap a real WS reseed leaves before React's next render (see
+      // `performImportBranches`'s own doc on why that gap is never visible).
+      await Promise.resolve()
+      expect(usePendingCreatesStore.getState().entries).toHaveLength(0)
+    })
+
+    it('marks the pending rows errored, not left spinning, when the import call is refused', async () => {
+      vi.mocked(api.importBranches).mockRejectedValueOnce(new Error('remote unreachable'))
+      await performImportBranches('repo-1', ['feature-a'])
+      expect(usePendingCreatesStore.getState().entries).toMatchObject([
+        { status: 'error', error: 'remote unreachable' },
+      ])
+    })
+  })
+
   it('creating a folder under a regular workspace row passes its id straight through', async () => {
     await performCreateFolder('ws-1')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith(
@@ -376,60 +460,6 @@ describe('row-actions', () => {
   it('creating a folder under the project-home row roots it at the repo instead', async () => {
     await performCreateFolder('ws-home')
     expect(sidebarPlacement.createFolder).toHaveBeenCalledWith('proj-1', 'repo-1', 'New folder', '')
-  })
-
-  // §3.5/§4.2: promoting a bubble calls the repo-scoped promote endpoint,
-  // built from the repo's own recorded workspace exactly as performRenameChat
-  // does — never the chat's own (possibly cross-repo) workspaceId.
-  it('promoting a chat calls promoteChat with the repo-scoped workspace id', async () => {
-    await performPromoteChat('chat-1')
-    expect(agentApi.promoteChat).toHaveBeenCalledWith('ws-home', 'chat-1')
-  })
-
-  it('promoting an unknown chat id is a no-op', async () => {
-    await performPromoteChat('not-a-real-chat')
-    expect(agentApi.promoteChat).not.toHaveBeenCalled()
-  })
-
-  // rows-from-repo.ts seeds every TREE chat row's `working` as always false
-  // ("ALWAYS FALSE, AND NOT AN OVERSIGHT") — a promotable row can never know
-  // live turn state from its own fields — so sidebar-row.tsx's render-time
-  // gate cannot be the only guard. This mirrors
-  // sidebar-drop-policy.test.ts's "refuses a tree chat row that IS working
-  // despite its row saying false", closing the same gap for promotion:
-  // promote.go respawns the CLI regardless of whether the chat is mid-turn,
-  // so this must refuse BEFORE the request goes out.
-  it('promoting a chat that is live mid-turn is a no-op, even though its row says working: false', async () => {
-    const store = getOrCreateWorkspaceStore('ws-home')
-    store.setState({
-      agentChats: { ...store.getState().agentChats, working: { 'chat-1': true } },
-    })
-    await performPromoteChat('chat-1')
-    expect(agentApi.promoteChat).not.toHaveBeenCalled()
-  })
-
-  it('promoting a chat whose live turn state says idle proceeds normally', async () => {
-    const store = getOrCreateWorkspaceStore('ws-home')
-    store.setState({
-      agentChats: { ...store.getState().agentChats, working: { 'chat-1': false } },
-    })
-    await performPromoteChat('chat-1')
-    expect(agentApi.promoteChat).toHaveBeenCalledWith('ws-home', 'chat-1')
-  })
-
-  // No optimistic write, matching every other perform* action's own doc
-  // comments on why: the row's ownsWorktree/workspaceId only flip once the
-  // daemon's broadcast/reseed lands.
-  it('promoting a chat does not touch the sidebar store directly', async () => {
-    const before = useSidebarStore.getState().repos[0]
-    await performPromoteChat('chat-1')
-    expect(useSidebarStore.getState().repos[0]).toBe(before)
-  })
-
-  it('a failed promotion surfaces a toast rather than throwing', async () => {
-    vi.mocked(agentApi.promoteChat).mockRejectedValueOnce(new Error('no fork parent'))
-    await expect(performPromoteChat('chat-1')).resolves.toBeUndefined()
-    expect(toast.error).toHaveBeenCalledWith('no fork parent')
   })
 })
 

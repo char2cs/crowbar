@@ -3,12 +3,6 @@ import { cn } from '@/lib/utils'
 import { FlickerSpinner } from '@/components/ui/flicker-spinner'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from '@/components/ui/dropdown-menu'
-import {
   CREATE_ROW_PLACEHOLDER,
   ROW_BASE,
   ROW_GLYPH_BOX,
@@ -26,7 +20,7 @@ import {
 } from '@/components/layout/workspace-row-base'
 import { formatChangeCount } from '@/components/layout/format-change-count'
 import type { SidebarRow as SidebarRowType } from '@/components/sidebar/types/sidebar-row'
-import { performPromoteChat, performRenameRow } from '@/components/sidebar/lib/row-actions'
+import { performRenameRow } from '@/components/sidebar/lib/row-actions'
 import {
   confirmPendingCreateName,
   cancelPendingCreate,
@@ -219,24 +213,6 @@ export function SidebarRow({
   // doc), and Recents' `chatIcons` rows never carry `repoIcon` either.
   const isProjectHome = row.kind === 'branch' && row.repoIcon !== undefined && !inlineRenameDisabled
   const expanded = !folded
-  // §3.5/§4.2: any bubble (no worktree of its own) that isn't currently
-  // working can promote itself into one, straight from its own glyph — a
-  // bubble's cwd walk always terminates at a real worktree ancestor by
-  // construction, so there's no separate "is a parent available" check.
-  // Gated purely on the row's own fields, unlike the trailing cluster below,
-  // which only renders when a caller opts in with a handler prop: a working
-  // row does not move (§4.3), and the backend's own promote.go respawns the
-  // chat's CLI regardless of whether it is mid-turn, so refusing here up
-  // front is what keeps a click from round-tripping into a confusing error.
-  // `canFork !== false` too: a bubble's cwd walk "always terminates at a real
-  // worktree ancestor" above is exactly untrue for a project-home chat — home
-  // rides no repo at all, so there is no worktree for a promote to attach to
-  // either (same reason Fork hides for one, canFork's own doc). Without this,
-  // "Make workspace" on a home bubble was offered and silently did nothing —
-  // `performPromoteChat` finds no owning repo for a chat id no repo's `chats`
-  // ever lists, and returns before the request even goes out.
-  const promotable =
-    row.kind === 'chat' && !row.ownsWorktree && !row.working && row.canFork !== false
   // Double-click-to-rename (sidebar-tree-chrome.tsx's delegated `dblclick`
   // listener) and the right-click menu's Rename item (row-context-menu.tsx)
   // both start this row's turn in `sidebar-inline-rename.ts`'s store — real
@@ -314,62 +290,33 @@ export function SidebarRow({
         {/* The only signal of ownership (spec §3.1): a git mark for a row that
             owns a worktree, a chat bubble for one that borrows its parent's,
             a folder mark for pure organisation. `working` swaps it for the
-            flip-dot spinner IN PLACE — never beside it (§3.2). A promotable
-            bubble's glyph doubles as the one-item "Make workspace" dropdown
-            (§3.5) — never for a worktree-owning, working, or non-chat row.
+            flip-dot spinner IN PLACE — never beside it (§3.2).
             The project-home row's glyph is a THIRD thing the static
             RowGlyph can't be: the repo's own personalizable icon — clicking
-            it (and only it; the click is stopped from reaching the row,
-            same as the promote dropdown above) reopens the icon picker the
-            tree retirement severed. `repoIcon` is absent until the repo's
-            owning project has seeded, in which case this falls back to the
-            plain glyph rather than guessing at a REST base it can't build. */}
-        {promotable ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              data-testid="promote-dropdown"
-              aria-label={`Promote ${row.label} to a workspace`}
-              className={cn(
-                ROW_GLYPH_BOX,
-                'cursor-pointer rounded hover:bg-sidebar-element-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-              )}
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-            >
-              <RowGlyph row={row} large={false} expanded={expanded} />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
-              <DropdownMenuItem
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void performPromoteChat(row.id)
-                }}
-              >
-                Make workspace
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <span className={cn(ROW_GLYPH_BOX, isProjectHome && 'size-5')}>
-            {row.working ? (
-              <FlickerSpinner className="size-3.5" />
-            ) : isProjectHome && row.repoIcon ? (
-              <EditableRepoIcon
-                repo={row.repoIcon}
-                projectId={row.repoIcon.projectId}
-                repoId={row.repoIcon.repoId}
-                size="lg"
-              />
-            ) : (
-              <RowGlyph
-                row={row}
-                large={isProjectHome}
-                expanded={expanded}
-                activeGround={activeGround}
-              />
-            )}
-          </span>
-        )}
+            it (and only it; the click is stopped from reaching the row)
+            reopens the icon picker the tree retirement severed. `repoIcon`
+            is absent until the repo's owning project has seeded, in which
+            case this falls back to the plain glyph rather than guessing at
+            a REST base it can't build. */}
+        <span className={cn(ROW_GLYPH_BOX, isProjectHome && 'size-5')}>
+          {row.working ? (
+            <FlickerSpinner className="size-3.5" />
+          ) : isProjectHome && row.repoIcon ? (
+            <EditableRepoIcon
+              repo={row.repoIcon}
+              projectId={row.repoIcon.projectId}
+              repoId={row.repoIcon.repoId}
+              size="lg"
+            />
+          ) : (
+            <RowGlyph
+              row={row}
+              large={isProjectHome}
+              expanded={expanded}
+              activeGround={activeGround}
+            />
+          )}
+        </span>
 
         {renaming ? (
           <InlineRenameInput

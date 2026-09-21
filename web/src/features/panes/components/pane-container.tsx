@@ -403,13 +403,23 @@ export function PaneContainer({
   const handlePaneMouseDownCapture = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement
-      const isEditorTextarea = target.classList.contains('editor-textarea')
+      // Monaco's own real text-input surface ('inputarea' —
+      // textAreaEditContext.js) and xterm's own real helper textarea must
+      // still activate the pane even though they're literal <textarea>
+      // elements: they're the actual typing surface, not a decorative
+      // control.
+      const isEditorTextarea = target.classList.contains('inputarea')
       const isTerminalTextarea = target.classList.contains('xterm-helper-textarea')
-      if (
-        !isEditorTextarea &&
-        !isTerminalTextarea &&
-        target.closest("button, input, textarea, [role='button'], [role='menu']")
-      ) {
+      // Checked against the mousedown's own TARGET only, never `.closest()`
+      // — chat message content, Monaco's toolbar/find-bar and Plate's
+      // toolbar all nest real buttons throughout their content, and a
+      // `.closest()` walk swallowed activation for a mousedown anywhere
+      // inside one of those ancestors, not just a direct hit on the control
+      // itself.
+      const isDirectInteractiveHit = target.matches(
+        "button, input, textarea, [role='button'], [role='menu']",
+      )
+      if (!isEditorTextarea && !isTerminalTextarea && isDirectInteractiveHit) {
         return
       }
 

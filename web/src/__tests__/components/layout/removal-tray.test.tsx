@@ -457,6 +457,48 @@ describe('a repo, which takes every worktree under it', () => {
   })
 })
 
+describe('a ghost row during the DELETE round trip', () => {
+  // The bug this pins: `settle()` drops the tray ROW (`entries`) the instant
+  // the drain ends, before `deleteChat`'s promise has resolved. The
+  // countdown UI is gone (`attachRemovalState` has nothing left to mark), but
+  // the row's underlying data is still sitting in `useSidebarStore` — nothing
+  // has deleted it yet. If the tree's row-building only ever consults
+  // `entries` (via `descendantHiddenIds`) rather than the tray's own
+  // `hiddenIds` (populated at `hold()`, cleared only at `release()`), the row
+  // falls through and paints again as an ordinary, fully interactive row for
+  // as long as the network round trip takes — reported live as "the row was
+  // deleted, but Crowbar's frontend is still showing it up".
+  it('does not fall back to a normal row while the DELETE is still in flight', async () => {
+    let resolveDelete: () => void = () => {}
+    vi.mocked(deleteChat).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDelete = resolve
+        }),
+    )
+    render(<TestSidebar />)
+    hold({ kind: 'workspace', id: 'a', repoId: 'r1' })
+
+    await act(async () => {
+      vi.advanceTimersByTime(8000)
+    })
+    expect(deleteChat).toHaveBeenCalledExactlyOnceWith('a', 'chat-a')
+    // The countdown row is gone (settle() already dropped the tray entry) —
+    // but the row must not have fallen back to a normal one either. Both
+    // 'alpha' and its subtree ('alpha/one') stay off the tree entirely,
+    // exactly as they were for the whole eight-second hold.
+    expect(secs()).toBeUndefined()
+    expect(heldRow()).toBeUndefined()
+    expect(rows()).toEqual(['crowbar', 'beta', 'spikes'])
+
+    // Let the DELETE resolve so the test leaves nothing dangling.
+    await act(async () => {
+      resolveDelete()
+      await Promise.resolve()
+    })
+  })
+})
+
 describe('a page that ends mid-drain', () => {
   it('sends the removal it was holding, rather than losing it', async () => {
     // The bug this pins: the tray holds a row for eight seconds before sending

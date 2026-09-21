@@ -13,7 +13,6 @@ import {
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof rowActions>()),
-  performPromoteChat: vi.fn().mockResolvedValue(undefined),
   performRenameRow: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -874,68 +873,22 @@ describe('SidebarRow', () => {
     expect(controls.map((c) => c.getAttribute('data-control'))).toEqual(['thread', 'fold'])
   })
 
-  // §3.5/§4.2: a bubble chat's glyph is itself a promotion dropdown — gated
-  // purely on the row's own fields (row.kind === 'chat' && !row.ownsWorktree
-  // && !row.working), never on a caller-supplied handler.
-  describe('promotion dropdown', () => {
-    it('renders on a bubble chat row (chat, no worktree, not working)', () => {
+  // The glyph-click "Make workspace" promotion dropdown was removed from the
+  // thread logo (reported live) — a bubble chat's glyph is now always the
+  // plain static glyph, on every row shape that used to make it promotable.
+  describe('promotion dropdown removed', () => {
+    it('never renders on a bubble chat row (chat, no worktree, not working)', () => {
       render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-      expect(screen.getByTestId('promote-dropdown')).toBeInTheDocument()
-    })
-
-    it('does not render on a chat row that already owns a worktree', () => {
-      render(<SidebarRow row={{ ...baseRow, ownsWorktree: true }} depth={0} onOpen={vi.fn()} />)
       expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
+      expect(screen.queryByText('Make workspace')).not.toBeInTheDocument()
     })
 
-    it('does not render on a working chat row', () => {
-      render(<SidebarRow row={{ ...baseRow, working: true }} depth={0} onOpen={vi.fn()} />)
-      expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
-    })
-
-    it('does not render on a non-chat row', () => {
-      render(
-        <SidebarRow
-          row={{ ...baseRow, kind: 'folder', ownsWorktree: false }}
-          depth={0}
-          onOpen={vi.fn()}
-        />,
-      )
-      expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
-    })
-
-    // Regression, reported live: "Make workspace" was offered on a
-    // project-home bubble with no repo behind it at all — `performPromoteChat`
-    // finds no owning repo for one and silently does nothing. Same `canFork`
-    // signal Fork already hides on for exactly this row shape.
-    it('does not render on a chat row whose canFork is explicitly false', () => {
-      render(<SidebarRow row={{ ...baseRow, canFork: false }} depth={0} onOpen={vi.fn()} />)
-      expect(screen.queryByTestId('promote-dropdown')).not.toBeInTheDocument()
-    })
-
-    it('opens to a single "Make workspace" item', async () => {
-      const user = userEvent.setup()
-      render(<SidebarRow row={baseRow} depth={0} onOpen={vi.fn()} />)
-      await user.click(screen.getByTestId('promote-dropdown'))
-      expect(await screen.findByText('Make workspace')).toBeInTheDocument()
-    })
-
-    it('clicking "Make workspace" calls performPromoteChat with the row id, and does not fire onOpen', async () => {
+    it('clicking the glyph opens the row like any other click, never a menu', async () => {
       const user = userEvent.setup()
       const onOpen = vi.fn()
       render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
-      await user.click(screen.getByTestId('promote-dropdown'))
-      await user.click(await screen.findByText('Make workspace'))
-      expect(rowActions.performPromoteChat).toHaveBeenCalledWith('row-1')
-      expect(onOpen).not.toHaveBeenCalled()
-    })
-
-    it('clicking the dropdown trigger itself does not fire onOpen', async () => {
-      const user = userEvent.setup()
-      const onOpen = vi.fn()
-      render(<SidebarRow row={baseRow} depth={0} onOpen={onOpen} />)
-      await user.click(screen.getByTestId('promote-dropdown'))
-      expect(onOpen).not.toHaveBeenCalled()
+      await user.click(screen.getByRole('treeitem'))
+      expect(onOpen).toHaveBeenCalledWith('row-1')
     })
   })
 

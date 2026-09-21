@@ -61,6 +61,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 
 const providers: AgentProvider[] = [
   {
@@ -189,6 +190,7 @@ const showing = () =>
 const surfaceToggle = () => screen.getByRole('tab', { name: 'Terminal' })
 
 beforeEach(() => {
+  resetChatPresentationMemoryForTests()
   getChatFn.mockReset()
   listMessagesFn.mockReset()
   slashCatalogFn.mockReset()

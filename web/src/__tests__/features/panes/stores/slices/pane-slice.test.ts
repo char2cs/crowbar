@@ -14,7 +14,12 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID, BOTTOM_PANE_ID } from '@/features/panes/constants/pane'
-import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import {
+  getAllLeafIds,
+  createSplit,
+  createLeaf,
+  findSplit,
+} from '@/features/panes/utils/pane-layout'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
 import { viewIdOf } from '@/features/panes/lib/pane-views'
@@ -337,6 +342,55 @@ describe('pane-slice', () => {
     expect(actions.getActivePane()?.id).toBe(newPaneId)
     actions.setActivePane(ROOT_PANE_ID)
     expect(actions.getActivePane()?.id).toBe(ROOT_PANE_ID)
+  })
+})
+
+// Regression: dragging the OUTER sash of a 3-pane same-direction chain
+// (S_top{ first: S_inner{a,b}, second: c }) used to hardcode index=0 into
+// the flattened-row resize machinery, which only holds for exactly 2
+// flattened entries. With 3 entries it overwrote the flattened a/b pair with
+// the drag's two numbers and left c's stale pre-drag size untouched, so
+// S_inner's ratio got clobbered by the outer drag and S_top's new ratio was
+// driven by the stale leftover instead of where the pointer let go.
+describe('pane-slice — resizePaneSplit', () => {
+  it('resizing the outer split of a chained same-direction layout leaves the inner split untouched', () => {
+    const store = makeStore()
+    const inner = createSplit('horizontal', createLeaf('a'), createLeaf('b'), [40, 60])
+    const outer = createSplit('horizontal', inner, createLeaf('c'), [70, 30])
+    store.setState((s) => {
+      s.rootLayout = outer
+    })
+
+    store.getState().paneActions.resizePaneSplit(outer.id, [55, 45])
+
+    const root = store.getState().rootLayout
+    if (root.type !== 'split') throw new Error('expected split')
+    expect(root.sizes[0]).toBeCloseTo(55)
+    expect(root.sizes[1]).toBeCloseTo(45)
+
+    const innerAfter = findSplit(root, inner.id)
+    expect(innerAfter?.sizes[0]).toBeCloseTo(40)
+    expect(innerAfter?.sizes[1]).toBeCloseTo(60)
+  })
+
+  it('resizing the inner split of a chained layout leaves the outer split untouched', () => {
+    const store = makeStore()
+    const inner = createSplit('horizontal', createLeaf('a'), createLeaf('b'), [40, 60])
+    const outer = createSplit('horizontal', inner, createLeaf('c'), [70, 30])
+    store.setState((s) => {
+      s.rootLayout = outer
+    })
+
+    store.getState().paneActions.resizePaneSplit(inner.id, [20, 80])
+
+    const root = store.getState().rootLayout
+    if (root.type !== 'split') throw new Error('expected split')
+    expect(root.sizes[0]).toBeCloseTo(70)
+    expect(root.sizes[1]).toBeCloseTo(30)
+
+    const innerAfter = findSplit(root, inner.id)
+    expect(innerAfter?.sizes[0]).toBeCloseTo(20)
+    expect(innerAfter?.sizes[1]).toBeCloseTo(80)
   })
 })
 

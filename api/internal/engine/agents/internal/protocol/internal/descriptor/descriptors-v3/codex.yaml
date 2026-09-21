@@ -556,9 +556,29 @@ events:
 # (confirmed via `codex --help`), so there is no "ask about everything" mode
 # to offer. A level omitted here is never offered, not clamped.
 #
-# Neither level drops the sandbox (NOT
-# --dangerously-bypass-approvals-and-sandbox) — full-auto only silences the
-# escalation prompt. vars feeds the SAME two values to prompt.fresh above.
+# trusted keeps the workspace-write sandbox and only silences the escalation
+# prompt for in-workspace work — vars feeds the SAME two values to
+# prompt.fresh above.
+#
+# full-auto reaches codex's REAL unrestricted tier: --dangerously-bypass-
+# approvals-and-sandbox, not a --sandbox/--ask-for-approval pair. Confirmed
+# live against a real codex 0.154.0 binary that --ask-for-approval CANNOT be
+# combined with --dangerously-bypass-approvals-and-sandbox at all — clap
+# rejects the argv outright ("the argument '--ask-for-approval
+# <APPROVAL_POLICY>' cannot be used with '--dangerously-bypass-approvals-
+# and-sandbox'") — so full-auto's apply list REPLACES both prior pass_args
+# with this one flag rather than adding it alongside them. (--sandbox alone
+# does not hard-conflict the same way, but is silently overridden to
+# danger-full-access regardless — also confirmed live — so keeping it would
+# be dead, misleading weight.)
+#
+# vars is the api-transport equivalent, confirmed via `codex app-server
+# generate-json-schema`: ThreadStartParams has no dedicated "bypass" field —
+# thread/start's sandbox param is codex's own SandboxMode enum, which
+# includes "danger-full-access", and sandbox=danger-full-access +
+# approvalPolicy=never is exactly what --dangerously-bypass-approvals-and-
+# sandbox resolves to internally (confirmed live: both produce an identical
+# effective "approval: never / sandbox: danger-full-access").
 permission_levels:
   strategy: restart_tui
   levels:
@@ -571,10 +591,9 @@ permission_levels:
         approvalPolicy: on-request
     full-auto:
       apply:
-        - pass_arg: { arg: "--sandbox", value: "workspace-write" }
-        - pass_arg: { arg: "--ask-for-approval", value: "never" }
+        - pass_arg: { arg: "--dangerously-bypass-approvals-and-sandbox" }
       vars:
-        sandbox: workspace-write
+        sandbox: danger-full-access
         approvalPolicy: never
 
 catalog:

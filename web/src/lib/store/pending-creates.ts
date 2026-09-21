@@ -77,8 +77,12 @@ interface PendingCreatesState {
   /** Confirms a naming entry into 'creating' with the typed label — and the
    *  panel's rows as of NOW, since the request fires here, not at arming. */
   confirmNaming: (tempId: string, label: string, rowIdsAtClick?: readonly string[]) => void
-  /** Adds a thread create straight into 'creating' — no naming step. */
-  addCreating: (entry: Omit<PendingCreateEntry, 'status' | 'label' | 'error'>) => void
+  /** Adds a create straight into 'creating' — no naming step. `label`
+   *  defaults to '' (a thread has none of its own); a branch import passes
+   *  its real name, already known from the picker at click time. */
+  addCreating: (
+    entry: Omit<PendingCreateEntry, 'status' | 'label' | 'error'> & { label?: string },
+  ) => void
   /** Attaches the real row's id once the create's own request resolves — see
    *  `PendingCreateEntry.realId`'s own doc. A no-op if the entry already left
    *  (cleared or errored while the request was still in flight). */
@@ -105,7 +109,9 @@ export const usePendingCreatesStore = create<PendingCreatesState>()((set) => ({
       ),
     })),
   addCreating: (entry) =>
-    set((s) => ({ entries: [...s.entries, { ...entry, status: 'creating', label: '' }] })),
+    set((s) => ({
+      entries: [...s.entries, { ...entry, status: 'creating', label: entry.label ?? '' }],
+    })),
   attachRealId: (tempId, realId) =>
     set((s) => ({
       entries: s.entries.map((e) => (e.tempId === tempId ? { ...e, realId } : e)),

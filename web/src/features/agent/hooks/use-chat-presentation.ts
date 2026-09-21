@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import {
   getDefaultChatPresentation,
   useSplitPresentationEnabled,
@@ -76,6 +76,32 @@ function deriveStacked(width: number): boolean {
 }
 
 /**
+ * A chat's own chat/terminal/split choice, keyed by chat id — remembered
+ * across this pane's own lifecycle, not just across a re-seed within it.
+ *
+ * MODULE SCOPE, NOT A STORE: nothing renders off this map, so it needs no
+ * subscription — it is read exactly once per seed (in the hook below) and
+ * written exactly once per explicit pick, the same shape agent-chat-pane.tsx's
+ * own `reviveInFlightByChatId`/`displacingByChatId` maps already use for
+ * chat-scoped bookkeeping that has to outlive one pane. It has to live
+ * outside the component: a chat's pane is not retained across a close —
+ * `closePane` deletes the pane id outright (pane-slice.ts), it does not hide
+ * it — so reopening a chat from its Recents row mounts a brand new
+ * AgentChatPane, and a plain `useState` here would have started over. Session-
+ * lifetime only, like those two siblings: this is a UI preference, not
+ * something an app restart needs to recover.
+ */
+const lastChosenByChatId = new Map<string, ChatPresentation>()
+
+/** Test-only: a real session never reuses a chat id, but fixtures across
+ *  `it` blocks do — without this, an earlier test's pick leaks into a later
+ *  test that expects the plain global default. Mirrors
+ *  `resetWindowPaneStoreForTests`'s own naming (window-pane-store.ts). */
+export function resetChatPresentationMemoryForTests(): void {
+  lastChosenByChatId.clear()
+}
+
+/**
  * Which surface a chat is shown on, and how the split is laid out.
  *
  * The chosen value is SEEDED from the user's preference and never subscribed to
@@ -89,7 +115,23 @@ export function useChatPresentation(
     current: HTMLElement | null
   },
 ) {
-  const [chosen, setChosen] = useState<ChatPresentation>(getDefaultChatPresentation)
+  const [chosen, setChosenRaw] = useState<ChatPresentation>(
+    () => lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation(),
+  )
+  // The one path an explicit pick takes (chooseSurface/enterTerminal in
+  // agent-chat-pane.tsx, both via `setPresentation` below) — every pick this
+  // chat's user makes is remembered for it before it is applied, so a later
+  // re-seed or a fresh mount of this chat finds it instead of the global
+  // default. The re-seed branch below restores from the map directly through
+  // `setChosenRaw` instead, since a restore must not overwrite the entry it
+  // is reading.
+  const setChosen = useCallback(
+    (next: ChatPresentation) => {
+      lastChosenByChatId.set(shownChatId, next)
+      setChosenRaw(next)
+    },
+    [shownChatId],
+  )
   const splitEnabled = useSplitPresentationEnabled()
   // THE SURFACE ACTUALLY SHOWN. Derived rather than corrected, so switching the
   // dev toggle off cannot strand a chat on a surface whose button has just gone:
@@ -117,10 +159,15 @@ export function useChatPresentation(
     // react-doctor-disable-next-line no-adjust-state-on-prop-change -- accepted: React's documented "adjust state when a prop changes" pattern. An effect would paint the previous chat's surface for a frame first, which is the flicker this exists to avoid.
     setSeededFor(shownChatId)
     // Split is an INSTRUMENT the user reached for, not a landing surface, so it
-    // is the one thing that survives the re-seed: somebody comparing what Crowbar
-    // recorded against what the CLI actually printed is doing it to whichever
-    // chat they look at next.
-    if (!splitting) setChosen(getDefaultChatPresentation())
+    // is the one thing that survives the re-seed as itself: somebody comparing
+    // what Crowbar recorded against what the CLI actually printed is doing it
+    // to whichever chat they look at next. Chat/terminal survive it too now —
+    // off whatever THIS chat last showed (lastChosenByChatId), not the global
+    // default — a chat's own choice must outlive being navigated away from and
+    // back to, exactly like split already did.
+    if (!splitting) {
+      setChosenRaw(lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation())
+    }
     setReturnOffered(false)
     setSplitFocus('chat')
   }

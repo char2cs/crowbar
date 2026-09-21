@@ -131,11 +131,18 @@ export function useIdeShellWorkspaceRetention(
   // view" retention test (workspaceKeepAliveMinutes and its time-window
   // policy are gone; see keep-alive-policy.ts).
   const viewWorkspaceIds = useViewWorkspaceIds()
-  // The workspace WorkspaceHost should treat as "active": the active pane's
-  // own workspace first (see above), then the routed workspace, then — on
-  // project home — the resolved home workspace once known.
-  const effectiveActiveWorkspaceId =
-    activePaneWorkspaceId ?? activeWorkspaceId ?? homeWorkspaceId ?? null
+  // The workspace WorkspaceHost should treat as "active": on project home,
+  // the resolved home workspace ALWAYS wins — nothing clears
+  // `windowPaneStore`'s pane/chatId state on navigating to home, so
+  // `activePaneWorkspaceId` can still resolve to a real but STALE workspace
+  // left over from a previously-visited repo, and the route, not that leftover
+  // pane, is the authority on "home" (caught live: the file explorer stuck
+  // empty because WorkspaceActiveEffects never mounted for the true home
+  // workspace). Off home, the active pane's own workspace still wins, then
+  // the routed workspace.
+  const effectiveActiveWorkspaceId = isHomeRoute
+    ? (homeWorkspaceId ?? activePaneWorkspaceId ?? activeWorkspaceId ?? null)
+    : (activePaneWorkspaceId ?? activeWorkspaceId ?? homeWorkspaceId ?? null)
   // Open the per-:wsId workspace WS stream for the viewed workspace. Beyond data,
   // this is what starts the daemon's per-connection provider poll so a branch with
   // an open PR flips to the green pr-open icon (the list stream never starts it).

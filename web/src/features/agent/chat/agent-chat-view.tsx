@@ -99,6 +99,12 @@ export interface AgentChatViewProps {
   active: boolean
   /** False for a retained, hidden tab. Network polling pauses in that state. */
   visible: boolean
+  /** False when another PANE has focus — see agent-chat-pane.tsx's own prop
+   *  doc. Distinct from `active`/`visible` above, which are both about THIS
+   *  chat's own presentation/tab state and say nothing about which of
+   *  several panes (e.g. a split, all showing chats in the same workspace)
+   *  the user is actually looking at. */
+  isActivePane: boolean
   onOpenTerminal: () => void
   /** Whether the daemon has POSITIVELY established that this chat's CLI is
    *  blocked on a prompt Crowbar cannot answer. */
@@ -302,6 +308,7 @@ export function AgentChatView({
   onRevive,
   active,
   visible,
+  isActivePane,
   onOpenTerminal,
   terminalWaiting = false,
   terminalWaitKind,
@@ -774,9 +781,13 @@ export function AgentChatView({
   // own onCycleProvider effect): a retained (hidden) workspace stays mounted
   // under display:none, and a window listener that only checked `active` and
   // `visible` would still fire for a chat nobody is looking at — that class of
-  // bug already happened once for the chord. `getActiveWorkspaceId` is asked
-  // INSIDE the handler, not the guard, for the same reason: the active
-  // workspace can change without this component re-rendering.
+  // bug already happened once for the chord. `isActivePane` covers the third
+  // axis (another PANE has focus — e.g. a split with several chats in the
+  // same workspace, where `active`/`visible`/wsId all agree): a normal prop,
+  // so gated in the effect's own guard/deps like `active`/`visible`, not
+  // reread inside the handler. `getActiveWorkspaceId` IS reread inside the
+  // handler, not the guard: the active workspace can change without this
+  // component re-rendering, unlike `isActivePane`.
   const typeBufferRef = useRef<TypeBuffer>(EMPTY_TYPE_BUFFER)
   const onTypeToFocusKey = useEffectEvent((event: globalThis.KeyboardEvent) => {
     if (getActiveWorkspaceId() !== wsId) return
@@ -805,12 +816,12 @@ export function AgentChatView({
     }
   })
   useEffect(() => {
-    if (!active || !visible) return
+    if (!active || !visible || !isActivePane) return
     typeBufferRef.current = EMPTY_TYPE_BUFFER
     const onKeyDown = (event: globalThis.KeyboardEvent) => onTypeToFocusKey(event)
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [active, visible])
+  }, [active, visible, isActivePane])
 
   // A chat with nothing in it is a DIFFERENT SURFACE, not an empty transcript
   // with a message box under it: the first thing it asks for is a description of

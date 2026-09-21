@@ -227,6 +227,9 @@ export interface RepoPlacementWrite {
   id: string
   projectId: string
   order: number
+  /** Project-home folder, '' for root. Undefined leaves it alone (see
+   *  `Repo.folderId`'s own doc). */
+  folderId?: string
 }
 
 /**
@@ -713,10 +716,22 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
         const untouched: Repo[] = []
         for (const repo of repos) {
           const write = patch.get(repo.id)
-          if (!write) untouched.push(repo)
-          else if (repo.projectId === write.projectId && repo.order === write.order)
+          if (!write) {
+            untouched.push(repo)
+          } else if (
+            repo.projectId === write.projectId &&
+            repo.order === write.order &&
+            (write.folderId === undefined || (repo.folderId ?? '') === write.folderId)
+          ) {
             moved.push(repo)
-          else moved.push({ ...repo, projectId: write.projectId, order: write.order })
+          } else {
+            moved.push({
+              ...repo,
+              projectId: write.projectId,
+              order: write.order,
+              ...(write.folderId !== undefined && { folderId: write.folderId }),
+            })
+          }
         }
         moved.sort((a, b) => at.get(a.id)! - at.get(b.id)!)
         repos = [...untouched, ...moved]
