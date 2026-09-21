@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from 'vitest'
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
 
 // Mocked so the real registry's store creation doesn't need a real
 // IndexedDB write path — same setup workspace-store-registry.test.ts uses
@@ -10,8 +10,19 @@ vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
   saveSessionToStore: vi.fn(),
   clearQueuedWorkspaceSessionSave: vi.fn(),
 }))
+// `closeRecent`/`closeRecentChat`'s DORMANT branch (no live pane) is the
+// subject of the suite below: unlike the live-pane branch, which reaches
+// `stopChat` indirectly through `closePane` → `releaseClosedChat`, that
+// branch called nothing on the backend at all before this fix. Mocked at
+// module scope, same as pane-slice.close-teardown.test.ts's own reason —
+// these tests assert on the real call, not on whether a real fetch happens
+// to fail silently.
+vi.mock('@/features/agent/api/agent-api', () => ({
+  stopChat: vi.fn().mockResolvedValue(undefined),
+}))
 
 import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
+import { stopChat } from '@/features/agent/api/agent-api'
 import {
   getAllActiveWorkspaceIds,
   destroyWorkspaceStore,
@@ -24,6 +35,16 @@ import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import type { Repo } from '@/lib/store/sidebar'
 
+const stop = vi.mocked(stopChat)
+
+/** Let the fire-and-forget `stopDormantChat` call settle — same recipe as
+ *  pane-slice.close-teardown.test.ts's own `settle`. */
+async function settle() {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
   projectId: 'p1',
@@ -32,6 +53,11 @@ const repo = (over: Partial<Repo> = {}): Repo => ({
   avatarColor: 'bg-indigo-700',
   workspaces: [{ id: 'ws-1', branch: 'alpha', age: '', order: 0 }],
   ...over,
+})
+
+beforeEach(() => {
+  stop.mockClear()
+  stop.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -196,6 +222,49 @@ describe('closeRecent', () => {
 
     expect(windowPaneStore.getState().dormantArrangements).toEqual([])
   })
+
+  /**
+   * The bug: "closing a chat recent row, the chat is still active on the
+   * backend." A DORMANT entry has no live pane, so `closePane`'s own
+   * `releaseClosedChat` → `stopChat` teardown never runs for it — before
+   * this fix, forgetting the arrangement was ALL `closeRecent` ever did on
+   * this branch, and a chat `setPaneChat` had archived here (hotswap-away,
+   * still idle-but-live) kept its backend runner running forever.
+   */
+  it('stops every chat in a DORMANT entry on the backend, not just locally', async () => {
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1
+    const entryId = windowPaneStore.getState().dormantArrangements[0]!.id
+
+    const entry: RecentsBandEntry = {
+      id: entryId,
+      localId: entryId,
+      chatIds: ['chat-1'],
+      state: 'dormant',
+      workspaceId: 'ws-1',
+    }
+    closeRecent(entry)
+    await settle()
+
+    expect(stop).toHaveBeenCalledWith('ws-1', 'chat-1')
+  })
+
+  it('resolves a DORMANT SET member through chatWorkspaces, not the entry-wide workspaceId', async () => {
+    const entry: RecentsBandEntry = {
+      id: 'e1',
+      localId: 'e1',
+      chatIds: ['chat-1', 'chat-2'],
+      state: 'dormant',
+      workspaceId: 'ws-1',
+      chatWorkspaces: { 'chat-1': 'ws-1', 'chat-2': 'ws-2' },
+    }
+    closeRecent(entry)
+    await settle()
+
+    expect(stop).toHaveBeenCalledWith('ws-1', 'chat-1')
+    expect(stop).toHaveBeenCalledWith('ws-2', 'chat-2')
+  })
 })
 
 /**
@@ -318,5 +387,32 @@ describe('closeRecentChat', () => {
     )
 
     expect(windowPaneStore.getState().dormantArrangements).toEqual([])
+  })
+
+  // Same bug as `closeRecent`'s own DORMANT case, narrowed to one member of
+  // a SET: removing it from the group locally used to be the only thing
+  // this branch did — its backend runner kept running.
+  it('stops the chat on the backend when it has no live pane', async () => {
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1
+    const entryId = windowPaneStore.getState().dormantArrangements[0]!.id
+
+    closeRecentChat(
+      {
+        id: entryId,
+        localId: entryId,
+        chatIds: ['chat-1'],
+        state: 'dormant',
+        workspaceId: 'ws-1',
+        chatWorkspaces: { 'chat-1': 'ws-2' },
+      },
+      'chat-1',
+    )
+    await settle()
+
+    // Resolved through `chatWorkspaces`, not the entry-wide `workspaceId` —
+    // a SET can span more than one workspace within a project.
+    expect(stop).toHaveBeenCalledWith('ws-2', 'chat-1')
   })
 })
