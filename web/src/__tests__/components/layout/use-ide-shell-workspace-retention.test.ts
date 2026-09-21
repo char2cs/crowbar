@@ -107,3 +107,49 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
     expect(result.current.effectiveActiveWorkspaceId).toBe('ws-home-1')
   })
 })
+
+/**
+ * The other half of the same live bug: the file explorer sometimes never
+ * loads on project home at all. Unlike the describe block above (where
+ * `activePaneWorkspaceId` is null because nothing can resolve the chat yet),
+ * here it resolves to a REAL, but STALE, workspace id — a pane left over
+ * from a repo the user previously visited. Nothing clears `windowPaneStore`'s
+ * pane/chatId state on navigating to project home, so the active pane can
+ * still name a chat whose sidebar hint points at that other repo's
+ * workspace. The route says home; the pane disagrees and, before this fix,
+ * unconditionally won.
+ */
+describe('useIdeShellWorkspaceRetention — home route with a stale pane-derived workspace id', () => {
+  it('prefers the home workspace over a stale non-home activePaneWorkspaceId when isHomeRoute is true', () => {
+    useSidebarStore.getState().setRepos([
+      {
+        id: 'r2',
+        projectId: 'p2',
+        name: 'other-repo',
+        avatarLabel: 'O',
+        avatarColor: 'o',
+        localPath: '/Users/mateo/projects/other-repo',
+        workspaces: [],
+        chats: [{ id: 'stale-chat-1', repoId: 'r2', title: 'stale', order: 0, workspaceId: 'ws-other-repo' }],
+      },
+    ])
+    const { activePaneId, paneActions } = windowPaneStore.getState()
+    // The leftover pane from a previously-visited repo: its chat resolves,
+    // via the sidebar hint, to that OTHER repo's workspace — even though the
+    // route has since navigated to project home.
+    paneActions.setPaneChat(activePaneId, 'stale-chat-1', null)
+
+    const { result } = renderHook(() =>
+      useIdeShellWorkspaceRetention(
+        undefined, // activeWorkspaceId — the home route has no repoId/wsId segment
+        'ws-home-1', // homeWorkspaceId — already resolved by ide-shell.tsx
+        'p1',
+        undefined,
+        true, // isHomeRoute
+        '/Users/mateo/projects/rabbyte-labs',
+      ),
+    )
+
+    expect(result.current.effectiveActiveWorkspaceId).toBe('ws-home-1')
+  })
+})
