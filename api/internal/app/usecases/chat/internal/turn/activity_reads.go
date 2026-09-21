@@ -73,6 +73,7 @@ func (t *Turns) ReadActivity(
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: subagents: %w", err)
 	}
+	subagents = withStaleSubagentsClosed(subagents, time.Now())
 	interruptions, err := t.activity.Interruptions(ctx, chatID)
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: interruptions: %w", err)

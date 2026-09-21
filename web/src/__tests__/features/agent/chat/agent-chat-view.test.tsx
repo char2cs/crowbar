@@ -1517,17 +1517,19 @@ describe('AgentChatView model + effort selection', () => {
     )
   })
 
-  // MODEL: a real sticky pick wins over the catalogue default. EFFORT: it does
-  // NOT — 'high' here is only a REQUEST the provider is free to run under a
-  // different level than, so it stays "Default" until a real turn reports
-  // one (AgentChatView's `latestTurnEffort`). Showing the sticky value would
-  // present a guess as confirmed fact, exactly the complaint this replaces.
-  it('lets a sticky MODEL win over the catalogue default, but not a sticky effort', async () => {
+  // A real sticky pick — the caller's own selection, not a guess — wins over
+  // both the catalogue default AND a stale turn report for model AND effort
+  // alike: the picker must reflect what WILL happen on the next send.
+  // Regression: effort used to fall back to "Default" here no matter what
+  // was picked, because it read only `latestTurnEffort` (no turn has run
+  // yet) and ignored the sticky/staged value entirely — live-reported as
+  // "no way to change the effort slider," on every provider.
+  it('lets a sticky pick win over the catalogue default for both model and effort', async () => {
     setup({ providers: selectable, model: 'gpt-5.6-luna', effort: 'high' })
     await composer()
 
     expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
-      'Agent: Codex, model gpt-5.6-luna, effort Default',
+      'Agent: Codex, model gpt-5.6-luna, effort high',
     )
   })
 

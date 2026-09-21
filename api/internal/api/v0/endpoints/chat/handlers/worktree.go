@@ -77,29 +77,30 @@ type nodePlacementReader struct {
 	wt    Worktrees
 }
 
-// Placement reads the SAME Node row PlaceWorkspace itself now writes (2026-
-// 09-09, fixed same day as this route shipped) — not always workspaceID's
-// own. An ordinary fork's workspace-anchor Node is never touched by ANY
-// densify (mergeHomeNode's own doc: "already represented 1:1 by the chat
-// that owns it," so including it too would draw a duplicate row) — only a
-// LOCKED branch, whose owning chat carries no Node of its own, is genuinely
-// addressed by workspaceID. Reading workspaceID unconditionally served a
-// fork's permanently stale anchor row, caught live: the panel kept a fork
-// pinned wherever it was first minted no matter how many times it was
-// dragged, because nothing ever wrote back to the row this read.
+// Placement reads an ordinary fork's placement off its OWNING CHAT's own
+// ParentID/Order — PlaceWorkspace's write for exactly this case
+// (place_workspace.go's nodeID doc) lands on that same chat via
+// Chats.SetPlacement/SetOrder, a real AgentChat aggregate field, never a
+// Node row: no Node is ever minted for a plain chat, so reading one back via
+// r.nodes here always missed, silently degrading to "" / 0 regardless of
+// how long ago the drag landed. Caught live: a fork dragged into a folder
+// showed it there for a moment, then reseeded straight back to the repo
+// root — the response's own echoed placement was right, only the next read
+// was wrong. Only a LOCKED branch, whose owning chat carries no Node of its
+// own, is genuinely addressed by workspaceID's own Node{Kind:workspace} row
+// — the one case r.nodes still answers.
 func (r nodePlacementReader) Placement(
 	ctx context.Context,
 	workspaceID string,
 ) (folderID string, order int) {
-	nodeID := workspaceID
 	if ws, err := r.wt.Get(ctx, workspaceID); err == nil && !ws.RendersAsBranch() {
 		if rows, cErr := r.chats.ListChatsByWorkspace(ctx, workspaceID); cErr == nil {
 			if owner, ok := domain.ResolveOwningChat(rows, ws.SharedGround()); ok {
-				nodeID = owner.ID
+				return owner.ParentID, owner.Order
 			}
 		}
 	}
-	n, err := r.nodes.GetNode(ctx, nodeID)
+	n, err := r.nodes.GetNode(ctx, workspaceID)
 	if err != nil {
 		return "", 0
 	}

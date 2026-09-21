@@ -448,23 +448,30 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
       owningChatIdOfWorkspace(repos, s.workspaceId) === null,
   )
   if (hasLocked || hasNoOwner) {
-    // A hit-tested target reads '' off the DOM for a root row; a real row says null.
-    const sameParent = subjects.every((s) => (s.parentId ?? '') === (target.parentId ?? ''))
-    if (!sameParent) return NO_MODES
-    const reorder = resolvesToFirstChild(target, 'after')
-      ? { before: true, after: false, into: false }
-      : REORDER_MODES
-    // Filing INTO a FOLDER that already sits right beside this row is a pure
-    // `placeWorkspace` folder-edge write (`PlaceWorkspace`'s own Go doc:
-    // "unconditional on lock status") — it never touches `Workspace.ParentID`,
-    // so it is not the re-parent this branch exists to refuse. `sameParent`
-    // above already proves the folder and the row share one container, which
-    // is all `into` here would ever change. Refusing it unconditionally (this
-    // branch used to) meant a locked branch, or a fork with no owning chat
-    // yet, could never be organised into a folder sitting right next to it —
-    // while an ordinary chat sailed through onto the identical target. Caught
-    // live: "I can't move branches into this folder (threads can!)".
-    return target.kind === 'folder' ? { ...reorder, into: true } : reorder
+    const repo = repos.find((r) => r.id === targetScope.repoId)
+    if (!repo) return NO_MODES
+    // Same anchor math as the FOLDER-kind block above, not literal row-
+    // parent equality: a folder that sits at the SAME fork anchor as the
+    // row's own current container asks for no `Workspace.ParentID` change
+    // at all (`planTreeRowDrop`'s own `nextFork` skips the reparent call
+    // whenever the destination anchor already matches), so it is not the
+    // re-parent this branch exists to refuse — only a target whose anchor
+    // actually differs is. Comparing raw `parentId` strings instead used to
+    // refuse every folder except one already sitting right beside the row,
+    // even when the folder shared the identical anchor (e.g. any other
+    // root-level folder for a root-level branch): live-reported again after
+    // the sibling-only fix — "still can't move a branch into a folder"
+    // whenever the folder wasn't the row's literal current neighbour.
+    const subjectAnchor = nearestBranchAnchor(repo, subjects[0].parentId ?? '')
+    if (subjects.some((s) => nearestBranchAnchor(repo, s.parentId ?? '') !== subjectAnchor)) {
+      return NO_MODES
+    }
+    const reorderOk = subjectAnchor === nearestBranchAnchor(repo, target.parentId ?? '')
+    return {
+      before: reorderOk,
+      after: reorderOk && !resolvesToFirstChild(target, 'after'),
+      into: target.kind === 'folder' && subjectAnchor === nearestBranchAnchor(repo, target.id),
+    }
   }
 
   return ALL_MODES

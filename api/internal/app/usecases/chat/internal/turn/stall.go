@@ -101,7 +101,7 @@ func (t *Turns) OpenWork(ctx context.Context, chatID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for _, s := range subagents {
+	for _, s := range withStaleSubagentsClosed(subagents, time.Now()) {
 		if s.EndedAt == nil {
 			return true, nil
 		}

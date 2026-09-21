@@ -195,8 +195,9 @@ export interface AgentChatViewProps {
    *  Wins over the sticky selection above once the chat is live (still shown
    *  in the same interactive picker), since a request and its resolved argv
    *  can differ. Effort has no equivalent prop: it is not fixed at spawn the
-   *  way model is, so its displayed value is read per-turn off the ledger
-   *  instead — see `latestTurnEffort` below. */
+   *  way model is, so its displayed value falls back to a turn's own report
+   *  only once the sticky/staged selection above is unset — see
+   *  `latestTurnEffort` below. */
   launchModel?: string
   onSelectionChange: (provider: string, model: string, effort: string) => void
   /** A staged pick this file just sent WAS ACCEPTED — see
@@ -568,8 +569,9 @@ export function AgentChatView({
   // turn to turn, and Crowbar only learns which one it actually used from
   // that turn's own report (AgentChatMessage.effort — close_turn.go sets it
   // from the provider's turn_stop hook, never guessed at session start).
-  // Showing a catalogue-order guess here would assert a level nobody
-  // confirmed; the literal word is the honest placeholder until one has.
+  // Used only once there is no sticky/staged pick to show instead — a
+  // catalogue-order guess would assert a level nobody confirmed, but the
+  // user's OWN pick is not a guess.
   const latestTurnEffort = useMemo(() => {
     for (let i = ledger.messages.length - 1; i >= 0; i--) {
       const reported = ledger.messages[i].effort
@@ -577,7 +579,16 @@ export function AgentChatView({
     }
     return ''
   }, [ledger.messages])
-  const effortDisplay = latestTurnEffort || 'Default'
+  // The sticky/staged selection FIRST — same "must reflect a staged pick
+  // immediately" rule provider/model already follow (see effectiveProvider's
+  // own comment above) — then the last turn's own report, then the literal
+  // placeholder for a chat nothing has touched yet. Reversing this order
+  // (as it used to run) let the picker itself show "Default" no matter what
+  // was picked, since nothing had run a turn to confirm it yet: live-
+  // reported as "there is no way to change the effort slider," on Claude
+  // as much as Codex — every provider hits the same never-confirmed gap on
+  // a chat's first pick.
+  const effortDisplay = effort || latestTurnEffort || 'Default'
   // The provider's stop reason occupies the BAR, so the transcript must not also
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.

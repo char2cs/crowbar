@@ -411,6 +411,40 @@ describe('performSidebarDrop — filing into a folder', () => {
     })
     expect(reparentWorkspace).not.toHaveBeenCalled()
   })
+
+  it('drops a FORK into a folder outside its own lineage — reparents before placing', async () => {
+    // ws-fork hangs off ws-a; folder-1 sits at the repo root, no lineage of
+    // its own — dropping the fork there must rebase it onto the repo's
+    // default checkout, same as dropping it on the repo home row, AND file
+    // it into folder-1.
+    await performSidebarDrop(
+      [branchRow('ws-fork')],
+      folderRow('folder-1', { parentId: 'home-1' }),
+      'into',
+    )
+
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-fork', 'home-1')
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-fork', {
+      folderId: 'folder-1',
+      order: 0,
+    })
+  })
+
+  it('drops a plain branch into a folder nested under a DIFFERENT branch — adopts that lineage', async () => {
+    // ws-b has no fork parent of its own; folder-3 is nested under ws-a —
+    // dropping ws-b there must rebase it onto ws-a AND file it into folder-3.
+    await performSidebarDrop(
+      [branchRow('ws-b')],
+      folderRow('folder-3', { parentId: 'ws-a' }),
+      'into',
+    )
+
+    expect(reparentWorkspace).toHaveBeenCalledWith('ws-b', 'ws-a')
+    expect(placeWorkspace).toHaveBeenCalledWith('ws-b', {
+      folderId: 'folder-3',
+      order: 1,
+    })
+  })
 })
 
 describe('performSidebarDrop — clearing a stale folder edge', () => {
