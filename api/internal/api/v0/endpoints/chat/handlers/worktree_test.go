@@ -91,27 +91,30 @@ func (f *fakeNodeReads) GetNode(
 	return n, nil
 }
 
-// TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsNode pins
-// the live bug behind a fork that never visibly moved: its workspace-anchor
-// Node (keyed by ws.ID, minted unconditionally at creation, RendersAsBranch
-// false) is never touched by ANY densify — mergeHomeNode's own doc says an
-// ordinary fork is "already represented 1:1 by the chat that owns it" and
-// excludes its anchor row from every walk. PlaceWorkspace itself now writes
-// through the owning chat's OWN Node instead (2026-09-09) for exactly that
-// reason; this pins that the WS/REST read this DTO field rides agrees,
-// rather than reading ws.ID's permanently stale anchor forever.
-func TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsNode(t *testing.T) {
-	uc := &configurableListGetUsecase{chats: []domain.Chat{{ID: "fork-chat", WorkspaceID: "ws-fork"}}}
+// TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsOwnFields
+// pins the live bug behind a fork whose folder placement snapped back to the
+// repo root moments after landing: PlaceWorkspace's write for an ordinary
+// fork (RendersAsBranch false) lands on its OWNING CHAT's own
+// ParentID/Order via Chats.SetPlacement/SetOrder (place_workspace.go's
+// nodeID doc) — a real AgentChat aggregate field. No Node is ever minted for
+// a plain chat, so a Placement reader that looks one up via the Node store
+// keyed by that same chat id always misses and degrades to "" / 0,
+// regardless of how long ago the drag landed. Caught live: a fork dragged
+// into a folder showed it there for a moment (the PATCH response's own
+// echoed placement), then reseeded straight back to the repo root on the
+// very next read.
+func TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsOwnFields(t *testing.T) {
+	uc := &configurableListGetUsecase{chats: []domain.Chat{
+		// The fork's owning chat, carrying the placement a real drag wrote —
+		// its OWN ParentID/Order, never a Node row.
+		{ID: "fork-chat", WorkspaceID: "ws-fork", ParentID: "branch-1", Order: 3},
+	}}
 	worktrees := &fakeWorktreeReads{rows: []domain.Workspace{
 		{ID: "ws-fork", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", Status: domain.WorkspaceStatusNew},
 	}}
+	// The fork's own, never-touched workspace-anchor Node — a fixed row that
+	// must NOT be what this read answers from.
 	nodes := &fakeNodeReads{rows: map[string]domain.Node{
-		// The fork's OWN chat-keyed Node -- the row a real drag actually
-		// writes (PlaceWorkspace) and the row the sidebar tree actually
-		// reads for sort order.
-		"fork-chat": {ID: "fork-chat", ParentID: "branch-1", Order: 3},
-		// Its abandoned workspace-anchor Node, minted at creation and never
-		// touched since -- reading THIS is the bug.
 		"ws-fork": {ID: "ws-fork", ParentID: "", Order: 0},
 	}}
 	h := newWorktreeHandlers(uc, worktrees).WithNodes(nodes)
@@ -120,8 +123,32 @@ func TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsNode(t *test
 
 	require.Len(t, rows, 1)
 	require.NotNil(t, rows[0].Worktree)
-	assert.Equal(t, "branch-1", rows[0].Worktree.FolderID, "must read the row a drag actually wrote")
+	assert.Equal(t, "branch-1", rows[0].Worktree.FolderID, "must read the chat's own placement, not its abandoned Node")
 	assert.Equal(t, 3, rows[0].Worktree.Order)
+}
+
+// TestRegression_List_ALockedBranchStillReadsItsOwnWorkspaceAnchorNode pins
+// the other half of the same fix: a LOCKED branch's owning chat carries no
+// Node of its own, so its placement must still come from ws.ID's own
+// Node{Kind:workspace} row — the one case a chat-based read cannot answer.
+func TestRegression_List_ALockedBranchStillReadsItsOwnWorkspaceAnchorNode(t *testing.T) {
+	uc := &configurableListGetUsecase{chats: []domain.Chat{
+		{ID: "owner-chat", WorkspaceID: "ws-locked"},
+	}}
+	worktrees := &fakeWorktreeReads{rows: []domain.Workspace{
+		{ID: "ws-locked", RepoID: "r1", ProjectID: "p1", Branch: "main", Status: domain.WorkspaceStatusLocked},
+	}}
+	nodes := &fakeNodeReads{rows: map[string]domain.Node{
+		"ws-locked": {ID: "ws-locked", ParentID: "folder-1", Order: 2},
+	}}
+	h := newWorktreeHandlers(uc, worktrees).WithNodes(nodes)
+
+	rows := listChats(t, h)
+
+	require.Len(t, rows, 1)
+	require.NotNil(t, rows[0].Worktree)
+	assert.Equal(t, "folder-1", rows[0].Worktree.FolderID)
+	assert.Equal(t, 2, rows[0].Worktree.Order)
 }
 
 func listChats(

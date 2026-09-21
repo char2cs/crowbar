@@ -547,39 +547,53 @@ func (c *Container) enrichFrame(
 	return dto.WorkspaceDTOFrom(ctx, ws, elig, c.owningChatIDFor(ctx, ws), c.nodePlacement(ctx, ws))
 }
 
-// nodePlacement adapts this container's own Node store to
-// dto.WorkspacePlacementReader, reading the SAME Node row PlaceWorkspace
-// itself now writes (2026-09-09, fixed same day as this route shipped) —
-// not always ws.ID's own. An ordinary fork's workspace-anchor Node is never
-// touched by any densify (mergeHomeNode's own doc: "already represented 1:1
-// by the chat that owns it," so a second row would duplicate it) — only a
-// LOCKED branch, whose owning chat carries no Node of its own, is genuinely
-// addressed by ws.ID. Reading ws.ID unconditionally served a fork's
-// permanently stale anchor row on every WS frame, caught live: the panel
-// kept a dragged fork pinned wherever it was first minted, because nothing
-// this broadcast reads was the row anything ever wrote back to.
+// nodePlacement resolves ws's own sidebar placement for the wire DTO. An
+// ordinary fork's placement lives on its OWNING CHAT's own ParentID/Order —
+// PlaceWorkspace's write for exactly this case (place_workspace.go's nodeID
+// doc) lands there via Chats.SetPlacement/SetOrder, a real AgentChat
+// aggregate field, never a Node row: no Node is ever minted for a plain
+// chat, so reading one back via this container's Node store always missed,
+// silently degrading to "" / 0 regardless of how long ago the drag landed.
+// Caught live: a fork dragged into a folder showed it there for a moment,
+// then reseeded straight back to the repo root on the very next broadcast —
+// the PATCH response's own echoed placement was right, only this read (fed
+// straight into every subsequent WS frame) was wrong. Only a LOCKED branch,
+// whose owning chat carries no Node of its own, is genuinely addressed by
+// ws.ID's own Node{Kind:workspace} row — the one case the Node store below
+// still answers.
 //
-// Resolved onto nodeID once here, eagerly, rather than inside Placement:
-// enrichFrame already holds ws and calls this exactly once per frame, and
+// Resolved eagerly here, once, rather than inside Placement: enrichFrame
+// already holds ws and calls this exactly once per frame, and
 // owningChatIDFor's own resolution is the identical one this needs — no
-// second, independently-drifting copy. Nil-safe: an unwired Node store (a
-// test Container built with only the fields its own assertion needs,
-// matching owningChatIDFor's own zero-value tolerance) degrades to
-// WorkspaceDTOFrom's own "" / 0 default rather than a nil-pointer panic.
+// second, independently-drifting copy.
 func (c *Container) nodePlacement(
 	ctx context.Context,
 	ws domain.Workspace,
 ) dto.WorkspacePlacementReader {
+	if !ws.RendersAsBranch() {
+		if owner, ok := c.resolveOwningChat(ctx, ws); ok {
+			return chatPlacementReader{parentID: owner.ParentID, order: owner.Order}
+		}
+	}
 	if c.Node == nil {
 		return nil
 	}
-	nodeID := ws.ID
-	if !ws.RendersAsBranch() {
-		if owner := c.owningChatIDFor(ctx, ws); owner != "" {
-			nodeID = owner
-		}
-	}
-	return nodePlacementReader{nodes: c.Node, nodeID: nodeID}
+	return nodePlacementReader{nodes: c.Node, nodeID: ws.ID}
+}
+
+// chatPlacementReader answers a resolved owning chat's own ParentID/Order
+// directly — no store read of its own, since the caller already resolved
+// the chat this frame needs.
+type chatPlacementReader struct {
+	parentID string
+	order    int
+}
+
+func (r chatPlacementReader) Placement(
+	_ context.Context,
+	_ string,
+) (folderID string, order int) {
+	return r.parentID, r.order
 }
 
 type nodePlacementReader struct {
@@ -619,18 +633,30 @@ func (c *Container) owningChatIDFor(
 	ctx context.Context,
 	ws domain.Workspace,
 ) string {
-	if c.AgentChat == nil {
-		return ""
-	}
-	rows, err := c.AgentChat.ListByWorkspace(ctx, ws.ID)
-	if err != nil {
-		return ""
-	}
-	owner, ok := domain.ResolveOwningChat(rows, ws.SharedGround())
+	owner, ok := c.resolveOwningChat(ctx, ws)
 	if !ok {
 		return ""
 	}
 	return owner.ID
+}
+
+// resolveOwningChat resolves ws's real owning chat ROW (not just its id),
+// reusing domain.ResolveOwningChat over this container's own AgentChat read —
+// never a second, independently derived answer. An unwired AgentChat (a test
+// Container built with only the fields its own assertion needs) or an
+// unresolvable read degrades to no owner.
+func (c *Container) resolveOwningChat(
+	ctx context.Context,
+	ws domain.Workspace,
+) (domain.Chat, bool) {
+	if c.AgentChat == nil {
+		return domain.Chat{}, false
+	}
+	rows, err := c.AgentChat.ListByWorkspace(ctx, ws.ID)
+	if err != nil {
+		return domain.Chat{}, false
+	}
+	return domain.ResolveOwningChat(rows, ws.SharedGround())
 }
 
 // broadcastWorkspace enriches ws and pushes it to the hub. It backs the

@@ -289,16 +289,56 @@ describe('SIDEBAR_DROP_POLICY', () => {
     // ws-locked and ws-1 both sit under home-1 (same parent).
     const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
     const sibling = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
-    // folder-1 lives in the same repo but sits at the repo root, not under home-1.
-    const otherContainer = makeRow({
+    // A folder nested under ws-1's own fork space — a REAL lineage change
+    // for a bare-root row like ws-locked, unlike the same-anchor cases below.
+    useSidebarStore.setState((s) => ({
+      repos: s.repos.map((r) =>
+        r.id === 'repo-1'
+          ? {
+              ...r,
+              folders: [
+                ...(r.folders ?? []),
+                {
+                  id: 'folder-nested',
+                  repoId: 'repo-1',
+                  name: 'Nested',
+                  parentId: 'ws-1',
+                  order: 0,
+                },
+              ],
+            }
+          : r,
+      ),
+    }))
+    const otherLineage = makeRow({
+      id: 'folder-nested',
+      kind: 'folder',
+      workspaceId: null,
+      parentId: 'ws-1',
+    })
+
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sibling)).toEqual(REORDER_MODES)
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherLineage)).toEqual(NO_MODES)
+  })
+
+  // Live-reported AGAIN after the sibling-only fix below: "still can't move a
+  // branch into a folder" whenever the folder wasn't the row's literal
+  // current neighbour, even when it shared the exact same (bare-root) fork
+  // anchor — e.g. any OTHER root-level folder, not just the one already
+  // sitting beside the row. Comparing anchors, not raw `parentId` strings,
+  // fixes the general case: no lineage change, so nothing here refuses it.
+  it('a locked row may be filed into ANY same-anchor folder, not just its current neighbour', () => {
+    const subject = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
+    // folder-1 lives in the same repo, at the bare repo root — a DIFFERENT
+    // physical container than 'home-1', but the identical (root) fork anchor.
+    const sameAnchorFolder = makeRow({
       id: 'folder-1',
       kind: 'folder',
       workspaceId: null,
       parentId: null,
     })
 
-    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sibling)).toEqual(REORDER_MODES)
-    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherContainer)).toEqual(NO_MODES)
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sameAnchorFolder)).toEqual(ALL_MODES)
   })
 
   // Live-reported: "I still can't move stuff into this done folder... Crowbar
@@ -344,15 +384,51 @@ describe('SIDEBAR_DROP_POLICY', () => {
   it('a fork with no owning chat recorded reorders among its siblings but cannot re-parent', () => {
     const subject = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
     const sibling = makeRow({ id: 'ws-locked', workspaceId: 'ws-locked', parentId: 'home-1' })
-    const otherContainer = makeRow({
+    // A folder nested under ws-locked's own fork space — a REAL lineage
+    // change for a bare-root row like ws-1.
+    useSidebarStore.setState((s) => ({
+      repos: s.repos.map((r) =>
+        r.id === 'repo-1'
+          ? {
+              ...r,
+              folders: [
+                ...(r.folders ?? []),
+                {
+                  id: 'folder-nested',
+                  repoId: 'repo-1',
+                  name: 'Nested',
+                  parentId: 'ws-locked',
+                  order: 0,
+                },
+              ],
+            }
+          : r,
+      ),
+    }))
+    const otherLineage = makeRow({
+      id: 'folder-nested',
+      kind: 'folder',
+      workspaceId: null,
+      parentId: 'ws-locked',
+    })
+
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sibling)).toEqual(REORDER_MODES)
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherLineage)).toEqual(NO_MODES)
+  })
+
+  // Same anchor-not-literal-parent relaxation as the locked-row case above:
+  // a chatless fork may be filed into any folder sharing its own anchor, not
+  // only the one already beside it.
+  it('a fork with no owning chat recorded may be filed into ANY same-anchor folder', () => {
+    const subject = makeRow({ id: 'ws-1', workspaceId: 'ws-1', parentId: 'home-1' })
+    const sameAnchorFolder = makeRow({
       id: 'folder-1',
       kind: 'folder',
       workspaceId: null,
       parentId: null,
     })
 
-    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sibling)).toEqual(REORDER_MODES)
-    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], otherContainer)).toEqual(NO_MODES)
+    expect(SIDEBAR_DROP_POLICY.allowedModes([subject], sameAnchorFolder)).toEqual(ALL_MODES)
   })
 
   // Same fix as the locked-row case above, for the other row this branch
