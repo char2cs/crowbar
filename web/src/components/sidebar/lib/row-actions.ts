@@ -1,8 +1,10 @@
 import { useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
+import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { applyFolderPlacements } from '@/lib/store/applied-placement'
 import { applyHomeFolders, getHomeTree, resolveHomeRowScope } from '@/lib/store/home-tree'
 import { toSidebarFolder } from '@/lib/store/build-repo-tree'
+import { rowsFromRepo, resolveHomeOwnerId } from '@/components/sidebar/lib/rows-from-repo'
 import {
   renameWorkspaceBranch,
   renameRepo,
@@ -353,10 +355,16 @@ export async function performSetWorkspaceLock(
 }
 
 /**
- * Fire the batch branch import (202 Accepted). No optimistic spinner rows —
- * unlike the deleted PendingRowHooks version, this relies on the same
- * WS-driven cache that already surfaces create/rename/delete with no
- * optimistic write of their own.
+ * Fire the batch branch import (202 Accepted), dropping one pending
+ * `branch`-shaped row per branch in immediately — the same row-in-flight
+ * mechanism `handleCreate`'s fork path uses (pending-creates.ts), carrying
+ * the real branch name from the picker instead of leaving the tree with no
+ * stand-in at all, which let it draw whatever raw frame the daemon's
+ * two-aggregate mint (the owning chat, then its workspace) happened to
+ * reseed first — live-reported as a chat/thread-shaped row that later
+ * flipped into an unlabeled branch row. Each entry clears itself the moment
+ * ITS OWN branch's workspace AND owning chat have both landed
+ * (`importedBranchHasLanded`), never merely once the batch POST resolves.
  *
  * `lockedBranches` is the import dialog's per-row lock choice (Task 6). The
  * import POST only 202s — no workspace id exists yet to hand `setWorkspaceLock`
@@ -376,17 +384,96 @@ export async function performImportBranches(
   lockedBranches: string[] = [],
 ): Promise<void> {
   if (branches.length === 0) return
-  const projectId = projectIdForRepo(repoId)
-  if (!projectId) return
+  const repo = useSidebarStore.getState().repos.find((r) => r.id === repoId)
+  const projectId = repo?.projectId
+  if (!repo || !projectId) return
   const branchSet = new Set(branches)
   const toLock = lockedBranches.filter((b) => branchSet.has(b))
   const startLocking = armImportLockWatch(repoId, toLock)
+  const pendingIds = startImportPendingRows(repo, projectId, branches)
   try {
     await importBranches(projectId, repoId, branches)
     startLocking()
+    for (const [branch, tempId] of pendingIds) {
+      void waitForImportedBranch(importedBranchHasLanded(repoId, branch)).then(() =>
+        usePendingCreatesStore.getState().clear(tempId),
+      )
+    }
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to import branches')
+    const reason = err instanceof Error ? err.message : 'Failed to import branches'
+    for (const tempId of pendingIds.values()) {
+      usePendingCreatesStore.getState().setError(tempId, reason)
+    }
+    toast.error(reason)
   }
+}
+
+/**
+ * Drops one pending `branch` row per branch being imported, at the repo-root
+ * slot an unfoldered import lands at (`rows-from-repo.ts`'s own home-row
+ * parenting) — keyed by branch name so the caller can later clear each one
+ * independently as its own real row lands.
+ */
+function startImportPendingRows(
+  repo: Repo,
+  projectId: string,
+  branches: string[],
+): Map<string, string> {
+  const homeId = repo.defaultWorkspaceId ?? null
+  const parentId =
+    homeId === null ? '' : resolveHomeOwnerId(homeId, repo.defaultOwningChatId, repo.chats ?? [])
+  const siblingCount = rowsFromRepo(repo).filter((r) => r.parentId === parentId).length
+  const pendingIds = new Map<string, string>()
+  branches.forEach((branch, i) => {
+    const tempId = `pending-${crypto.randomUUID()}`
+    pendingIds.set(branch, tempId)
+    usePendingCreatesStore.getState().addCreating({
+      tempId,
+      kind: 'branch',
+      projectId,
+      parentId,
+      order: siblingCount + i,
+      label: branch,
+      workspaceId: null,
+      ownsWorktree: true,
+    })
+  })
+  return pendingIds
+}
+
+/** Mirrors `space-content-actions.ts`'s `forkHasLanded` for an imported
+ *  branch, keyed by branch NAME rather than a chat id the import's 202 never
+ *  hands back: true only once the branch's new workspace exists AND its
+ *  owning chat has landed too — the same two-aggregate mint race that
+ *  otherwise reveals a branch-shaped row still missing its title fold before
+ *  the pending stand-in clears. */
+function importedBranchHasLanded(
+  repoId: string,
+  branch: string,
+): (repos: readonly Repo[]) => boolean {
+  return (repos) => {
+    const repo = repos.find((r) => r.id === repoId)
+    const ws = repo?.workspaces.find((w) => w.branch === branch && w.status !== 'deleted')
+    return !!ws?.owningChatId && !!repo?.chats?.some((c) => c.id === ws.owningChatId)
+  }
+}
+
+/** `space-content-actions.ts`'s own `waitForRow`, duplicated rather than
+ *  imported — that module already imports FROM this one (`chatNotLoadedYet`),
+ *  and a second edge back would cycle the two files for one four-line
+ *  helper. */
+function waitForImportedBranch(predicate: (repos: readonly Repo[]) => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    if (predicate(useSidebarStore.getState().repos)) {
+      resolve()
+      return
+    }
+    const unsubscribe = useSidebarStore.subscribe((state) => {
+      if (!predicate(state.repos)) return
+      unsubscribe()
+      resolve()
+    })
+  })
 }
 
 /** How long a per-branch lock-after-import waits for the branch's new

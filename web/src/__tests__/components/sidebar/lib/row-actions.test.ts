@@ -8,6 +8,7 @@ import {
 import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
+import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { toast } from '@/features/window/stores/toast-store'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import * as api from '@/lib/api'
@@ -90,6 +91,7 @@ describe('row-actions', () => {
       ],
     })
     useFolderSignalStore.setState({ generations: {} })
+    usePendingCreatesStore.setState(getInitialPendingCreatesState())
   })
 
   it('renaming a workspace row calls renameWorkspaceBranch with its repo/project ids', async () => {
@@ -352,6 +354,93 @@ describe('row-actions', () => {
       })
       await performImportBranches('repo-1', ['feature-a'], ['feature-a'])
       expect(api.setWorkspaceLock).toHaveBeenCalledWith('ws-race', true)
+    })
+  })
+
+  // Live-reported: with no placeholder at all, the user saw a chat/thread-
+  // shaped row appear first, then flip into an unlabeled branch row once the
+  // daemon's two-aggregate mint (owning chat, then workspace) caught up.
+  // `performImportBranches` now drops a `branch`-shaped pending row per
+  // import up front, the same row-in-flight mechanism `handleCreate`'s fork
+  // path already uses (pending-creates.ts).
+  describe('the loading row shown while a branch import is in flight', () => {
+    it('drops a branch-shaped pending row per branch, carrying its real name, before the import call resolves', async () => {
+      let resolveImport: () => void = () => {}
+      vi.mocked(api.importBranches).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveImport = resolve
+          }),
+      )
+
+      const importPromise = performImportBranches('repo-1', ['feature-a', 'feature-b'])
+
+      const entries = usePendingCreatesStore.getState().entries
+      expect(entries).toHaveLength(2)
+      expect(entries.map((e) => e.label)).toEqual(['feature-a', 'feature-b'])
+      for (const entry of entries) {
+        expect(entry.kind).toBe('branch')
+        expect(entry.status).toBe('creating')
+        expect(entry.workspaceId).toBeNull()
+        expect(entry.ownsWorktree).toBe(true)
+        expect(entry.projectId).toBe('proj-1')
+      }
+
+      resolveImport()
+      await importPromise
+    })
+
+    it('an empty import drops no pending row', async () => {
+      await performImportBranches('repo-1', [])
+      expect(usePendingCreatesStore.getState().entries).toHaveLength(0)
+    })
+
+    it('clears the pending row only once BOTH the branch’s workspace and its owning chat have landed', async () => {
+      await performImportBranches('repo-1', ['feature-a'])
+      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+      // The workspace alone is not the real row's title/decoration — that
+      // rides its separately-reseeded owning chat (rows-from-repo.ts).
+      const repo = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          {
+            ...repo,
+            workspaces: [
+              ...repo.workspaces,
+              { id: 'ws-new', branch: 'feature-a', age: '', owningChatId: 'chat-new' },
+            ],
+          },
+        ],
+      })
+      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+      const repoAfterWs = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          {
+            ...repoAfterWs,
+            chats: [
+              ...(repoAfterWs.chats ?? []),
+              { id: 'chat-new', repoId: 'repo-1', title: '', order: 5 },
+            ],
+          },
+        ],
+      })
+      // The clear itself runs off a `.then()` one microtask after the
+      // subscriber's synchronous `resolve()` — flush it before asserting,
+      // the same gap a real WS reseed leaves before React's next render (see
+      // `performImportBranches`'s own doc on why that gap is never visible).
+      await Promise.resolve()
+      expect(usePendingCreatesStore.getState().entries).toHaveLength(0)
+    })
+
+    it('marks the pending rows errored, not left spinning, when the import call is refused', async () => {
+      vi.mocked(api.importBranches).mockRejectedValueOnce(new Error('remote unreachable'))
+      await performImportBranches('repo-1', ['feature-a'])
+      expect(usePendingCreatesStore.getState().entries).toMatchObject([
+        { status: 'error', error: 'remote unreachable' },
+      ])
     })
   })
 
