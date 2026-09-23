@@ -29,10 +29,12 @@ jobs:
           filters: |
             go:
               - 'api/**'
+              - '.github/workflows/ci.yml'
             web:
               - 'web/**'
             tauri:
               - 'desktop/**'
+              - '.github/workflows/ci.yml'
 
   validate-branch:
     if: github.event.pull_request.draft == false
