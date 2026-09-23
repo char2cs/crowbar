@@ -145,8 +145,19 @@ jobs:
           path: desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
   desktop-linux:
+    name: desktop-linux (${{ matrix.goarch }})
     needs: derive-tag
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goarch: amd64
+            triple: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            goarch: arm64
+            triple: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
     env:
       VERSION: ${{ needs.derive-tag.outputs.version }}
     steps:
@@ -169,11 +180,11 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
       - name: Install tauri-cli
         run: cargo binstall tauri-cli@^2 --no-confirm --locked
-      - name: Build Go sidecar (Linux x86_64)
+      - name: Build Go sidecar (${{ matrix.triple }})
         run: |
           mkdir -p desktop/src-tauri/binaries
-          cd api && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
-            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-unknown-linux-gnu ./cmd/crowbar
+          cd api && GOOS=linux GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-${{ matrix.triple }} ./cmd/crowbar
       - name: Build frontend
         env:
           NODE_OPTIONS: --max-old-space-size=6144
@@ -195,7 +206,7 @@ jobs:
           echo "AppImage: $APPIMAGE ($(du -h "$APPIMAGE" | cut -f1))"
       - uses: actions/upload-artifact@v7
         with:
-          name: desktop-linux
+          name: desktop-linux-${{ matrix.goarch }}
           path: |
             desktop/src-tauri/target/release/bundle/appimage/*.AppImage
             desktop/src-tauri/target/release/bundle/deb/*.deb

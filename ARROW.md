@@ -105,7 +105,7 @@ This is the direction, not the state.
 
 ## Arrow manifest
 
-The block below is what Quiver actually reads. It resolves an install to a universal macOS DMG or an amd64 AppImage on Linux, both pulled straight from the matching GitHub Release — there is no daemon for Quiver to supervise, since Crowbar is a desktop app the user launches and the Tauri shell spawns its own `crowbar-api` sidecar once installed.
+The block below is what Quiver actually reads. It resolves an install to a universal macOS DMG or an amd64/aarch64 AppImage on Linux, all pulled straight from the matching GitHub Release — there is no daemon for Quiver to supervise, since Crowbar is a desktop app the user launches and the Tauri shell spawns its own `crowbar-api` sidecar once installed.
 
 ```arrow
 schema: "arrow@v0"
@@ -115,10 +115,8 @@ schema: "arrow@v0"
 #              No execute/stop: Crowbar is a desktop application the user launches, not a
 #              daemon Quiver supervises. The Tauri shell spawns its own crowbar-api sidecar.
 #   Platform:  darwin/amd64, darwin/arm64 — universal DMG; Crowbar.app copied to /Applications
-#              linux/amd64               — AppImage, launcher in ~/.local/bin, desktop entry
-#   Excluded:  linux/arm64, windows/*    — the release pipeline builds no artifact for them
-#                                          (.github/workflows/stable-release.yml ships only a
-#                                          universal macOS DMG and an amd64 AppImage/deb)
+#              linux/amd64, linux/arm64  — per-arch AppImage, launcher in ~/.local/bin, desktop entry
+#   Excluded:  windows/*                 — the release pipeline builds no artifact for it
 #
 #   This file carries no version of its own. ${REF} is the git ref Quiver resolved, and the
 #   release workflows rename every bundle to match it, so one URL serves every channel:
@@ -249,6 +247,74 @@ targets:
         - type: fetch
           title: "Download the requested Crowbar release"
           url: "https://github.com/char2cs/crowbar/releases/download/${REF}/Crowbar_${REF}_amd64.AppImage"
+          to: "${INSTALL_PATH}/Crowbar.AppImage"
+          timeout: 15m
+
+        # appimage-runtime's extractor skips extraction when squashfs-root already
+        # exists, so the stale one from the previous release has to be cleared
+        # first or the update would keep running the old AppImage's contents.
+        - type: run
+          title: "Clear the previous extraction"
+          command: "rm -rf \"${INSTALL_PATH}/squashfs-root\""
+          timeout: 1m
+
+        - type: run
+          command: ${github.com/rabbytesoftware/quiver.essentials/appimage-runtime.extract} "${INSTALL_PATH}/Crowbar.AppImage"
+          title: "Extracting the Crowbar AppImage"
+          timeout: 1m
+
+      uninstall:
+        - type: run
+          title: "Remove Crowbar"
+          command: "rm -f \"$HOME/.local/bin/crowbar\" \"$HOME/.local/share/applications/crowbar.desktop\" \"${INSTALL_PATH}/Crowbar.AppImage\" \"${INSTALL_PATH}/crowbar.png\" && rm -rf \"${INSTALL_PATH}/squashfs-root\""
+          timeout: 2m
+          exit_on_failure: false
+
+  # Tauri names the AppImage after the Rust arch (aarch64), not the Debian one (arm64).
+  "linux/arm64":
+    tools:
+      - github.com/rabbytesoftware/quiver.essentials/appimage-runtime
+
+    requirements:
+      cpu_cores: 2
+      ram_gb: 4
+      disk_gb: 2
+
+    lifecycle:
+      install:
+        - type: fetch
+          title: "Download the Crowbar AppImage"
+          url: "https://github.com/char2cs/crowbar/releases/download/${REF}/Crowbar_${REF}_aarch64.AppImage"
+          to: "${INSTALL_PATH}/Crowbar.AppImage"
+          timeout: 15m
+
+        - type: fetch
+          title: "Download the Crowbar icon"
+          url: "https://raw.githubusercontent.com/char2cs/crowbar/${REF}/desktop/src-tauri/icons/128x128@2x.png"
+          to: "${INSTALL_PATH}/crowbar.png"
+          timeout: 2m
+          exit_on_failure: false
+
+        - type: run
+          command: ${github.com/rabbytesoftware/quiver.essentials/appimage-runtime.extract} "${INSTALL_PATH}/Crowbar.AppImage"
+          title: "Extracting the Crowbar AppImage"
+          timeout: 1m
+
+        - type: run
+          title: "Install the crowbar launcher into ~/.local/bin"
+          command: "mkdir -p \"$HOME/.local/bin\" && printf '#!/bin/sh\\nexec \"%s/squashfs-root/AppRun\" \"$@\"\\n' \"${INSTALL_PATH}\" > \"$HOME/.local/bin/crowbar\" && chmod +x \"$HOME/.local/bin/crowbar\""
+          timeout: 1m
+
+        - type: run
+          title: "Register the Crowbar desktop entry"
+          command: "mkdir -p \"$HOME/.local/share/applications\" && printf '[Desktop Entry]\\nType=Application\\nName=Crowbar\\nComment=The IDE where agents do the heavy lifting\\nExec=%s\\nIcon=%s\\nTerminal=false\\nCategories=Development;IDE;\\n' \"$HOME/.local/bin/crowbar\" \"${INSTALL_PATH}/crowbar.png\" > \"$HOME/.local/share/applications/crowbar.desktop\""
+          timeout: 1m
+          exit_on_failure: false
+
+      update:
+        - type: fetch
+          title: "Download the requested Crowbar release"
+          url: "https://github.com/char2cs/crowbar/releases/download/${REF}/Crowbar_${REF}_aarch64.AppImage"
           to: "${INSTALL_PATH}/Crowbar.AppImage"
           timeout: 15m
 

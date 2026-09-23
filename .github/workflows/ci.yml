@@ -29,10 +29,12 @@ jobs:
           filters: |
             go:
               - 'api/**'
+              - '.github/workflows/ci.yml'
             web:
               - 'web/**'
             tauri:
               - 'desktop/**'
+              - '.github/workflows/ci.yml'
 
   validate-branch:
     if: github.event.pull_request.draft == false
@@ -122,6 +124,8 @@ jobs:
           go tool cover -func=coverage.out | awk '/^total:/{gsub("%",""); if ($3+0 < 92) {print "❌ Coverage " $3 "% < 92%"; exit 1} else {print "✅ Coverage " $3 "%"}}'
       - name: Build (Linux)
         run: cd api && go build -tags noEmbed ./cmd/crowbar
+      - name: Cross-compile (Linux arm64)
+        run: cd api && GOOS=linux GOARCH=arm64 go build -tags noEmbed ./cmd/crowbar
       - name: Cross-compile (macOS arm64)
         run: cd api && GOOS=darwin GOARCH=arm64 go build -tags noEmbed ./cmd/crowbar
       - name: Cross-compile (macOS amd64)
@@ -159,9 +163,20 @@ jobs:
         run: cd web && bunx react-doctor . -y --blocking warning --no-color
 
   tauri-checks-linux:
+    name: tauri-checks-linux (${{ matrix.goarch }})
     needs: changes
     if: needs.changes.outputs.tauri == 'true'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goarch: amd64
+            triple: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            goarch: arm64
+            triple: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -179,11 +194,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
-      - name: Build Go sidecar (Linux x86_64)
+      - name: Build Go sidecar (${{ matrix.triple }})
         run: |
           mkdir -p desktop/src-tauri/binaries
-          cd api && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -tags noEmbed \
-            -o ../desktop/src-tauri/binaries/crowbar-api-x86_64-unknown-linux-gnu ./cmd/crowbar
+          cd api && GOOS=linux GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build -tags noEmbed \
+            -o ../desktop/src-tauri/binaries/crowbar-api-${{ matrix.triple }} ./cmd/crowbar
       - name: Cargo fmt
         run: cd desktop/src-tauri && cargo fmt --check
       - name: Cargo clippy
