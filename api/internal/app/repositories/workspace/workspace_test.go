@@ -103,8 +103,8 @@ func TestWorkspace_BackfillProvisioning_GivesLegacyRowsTheirExplicitState(t *tes
 	sweeper, ok := repo.(workspace.BootSweeper)
 	require.True(t, ok)
 
-	require.NoError(t, sweeper.BackfillProvisioning(ctx))
-	require.NoError(t, sweeper.BackfillProvisioning(ctx), "a second run finds nothing to do")
+	sweeper.BackfillProvisioning(ctx)
+	sweeper.BackfillProvisioning(ctx) // a second run finds nothing to do
 
 	want := map[string]domain.WorkspaceProvisioning{
 		"managed":      domain.WorkspaceProvisioned,

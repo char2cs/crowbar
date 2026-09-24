@@ -55,6 +55,20 @@ func (b *baseEra) workspace(
 		"INSERT OR REPLACE INTO read_workspaces (id, data) VALUES (?, ?)", ws.ID, data).Error)
 }
 
+// unreplayableWorkspace writes ws's read-model row over a history whose one
+// event cannot be applied, so every command on the aggregate fails its replay.
+func (b *baseEra) unreplayableWorkspace(
+	ws domain.Workspace,
+) {
+	b.t.Helper()
+	ops := []map[string]any{{"op": "remove", "path": "/no-such-field"}}
+	b.appendPatch(b.adapters.WorkspaceES(), "workspace.created."+ws.ID, ws.ID, 2, ops)
+	data, err := json.Marshal(ws)
+	require.NoError(b.t, err)
+	require.NoError(b.t, b.adapters.WorkspaceView().Exec(
+		"INSERT OR REPLACE INTO read_workspaces (id, data) VALUES (?, ?)", ws.ID, data).Error)
+}
+
 // chat writes c as base did; base's chat JSON has the current shape.
 func (b *baseEra) chat(
 	c domain.Chat,
