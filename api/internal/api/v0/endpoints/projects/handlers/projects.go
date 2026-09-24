@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
@@ -81,9 +81,8 @@ type Handlers struct {
 	// Where the project's icon bytes live. Overridable for tests, exactly as the
 	// repo handlers' equivalent is.
 	crowbarHome func() (string, error)
-	// async tracks the detached runAsync ops so callers can block on their real
-	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
-	async sync.WaitGroup
+	// async owns the detached runAsync ops (see runAsync / WaitAsync / Shutdown).
+	async detached.Ops
 }
 
 // New builds the projects Handlers from the project read, import, and delete

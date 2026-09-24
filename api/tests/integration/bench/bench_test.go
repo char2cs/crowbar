@@ -103,6 +103,9 @@ func runWorktreeMergeIteration(
 	childPath := env.WorktreePath(imported.ProjectID, imported.RepoID, childID)
 
 	kit.CommitFile(t, childPath, "bench.txt", fmt.Sprintf("bench content %d\n", seq), "bench commit")
+	// The child's fork point is the parent's tip until the merge moves it, so
+	// only a fork point past this one says the merge has landed.
+	before := kit.RevParse(t, imported.RepoPath, "HEAD")
 
 	watcher := env.DialChat(t, childChatID)
 	mergeResp := env.POST(t,
@@ -112,7 +115,7 @@ func runWorktreeMergeIteration(
 	mergeResp.Body.Close()
 	kit.WaitForWorkspace(t, watcher, childID, 10*time.Second, func(m map[string]any) bool {
 		fp, _ := m["forkPointSha"].(string)
-		return fp != "" && fp == kit.RevParse(t, imported.RepoPath, "HEAD")
+		return fp != "" && fp != before && fp == kit.RevParse(t, imported.RepoPath, "HEAD")
 	})
 }
 
@@ -132,4 +135,9 @@ func TestBenchmarkWorktreeMergeIntoParent(t *testing.T) {
 
 	t.Logf("WorktreeMergeIntoParent p50=%v p99=%v", result.P50, result.P99)
 	kit.AssertNoRegression(t, result)
+
+	// Each merge's tail (summary resync, conflict prediction) is still running
+	// git in the repo; teardown must end it before the repo is removed.
+	env.Close(t)
+	kit.RequireNoChildProcesses(t)
 }

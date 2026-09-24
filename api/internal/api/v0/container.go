@@ -3,6 +3,7 @@ package v0
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,8 @@ type Container struct {
 	chatScopes *agentChatScopes
 	app        *app.Container
 	eng        *engine.Container
+	// detached are the Shutdowns of the handlers that hand work off after a 202.
+	detached []func(context.Context) error
 }
 
 var _ hub.Subscriber = (*Container)(nil)
@@ -87,6 +90,17 @@ func New(
 	}
 	appContainer.Hub.Register(c)
 	return c
+}
+
+// ShutdownDetached waits for the work handlers handed off after answering 202,
+// cancelling what is still running when ctx ends. Call it once the HTTP server
+// has stopped, before the app drains: that work commits events and runs git.
+func (c *Container) ShutdownDetached(ctx context.Context) error {
+	errs := make([]error, 0, len(c.detached))
+	for _, shutdown := range c.detached {
+		errs = append(errs, shutdown(ctx))
+	}
+	return errors.Join(errs...)
 }
 
 // onTerminalEnded emits an "ended" lifecycle frame when a PTY exits on its own

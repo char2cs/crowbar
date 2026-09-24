@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/icons"
+	"github.com/char2cs/crowbar/api/internal/api/v0/endpoints/internal/detached"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
@@ -157,9 +157,8 @@ type Handlers struct {
 	fetchAvatar AvatarBytesFetcher
 	broadcast   func(dto.RepoDTO)
 	stat        func(string) (os.FileInfo, error)
-	// async tracks the detached runAsync ops so callers can block on their real
-	// completion instead of guessing with a sleep (see runAsync / WaitAsync).
-	async sync.WaitGroup
+	// async owns the detached runAsync ops (see runAsync / WaitAsync / Shutdown).
+	async detached.Ops
 }
 
 // New builds the repos Handlers from the repository GORM store. The broadcast

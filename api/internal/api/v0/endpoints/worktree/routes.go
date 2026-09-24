@@ -10,6 +10,8 @@
 package worktree
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
 	worktreehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/worktree/handlers"
@@ -39,6 +41,8 @@ import (
 // parented under and falling back to a placeholder row for a branch another
 // worktree already holds. Driving it as N single creates would silently drop all
 // three of those.
+//
+// It returns the handlers' Shutdown, which waits for the work they detach.
 func Register(
 	rg *gin.RouterGroup,
 	reader worktreehandlers.Reader,
@@ -48,14 +52,14 @@ func Register(
 	working worktreehandlers.WorkSignal,
 	remote worktreehandlers.RemoteRefs,
 	worktrees worktreehandlers.Worktrees,
-) {
+) func(context.Context) error {
 	h := worktreehandlers.New(reader, hierarchy, repos, lastErrors, working).
 		WithRemoteRefs(remote)
 	rg.POST("/chats/import-batch", h.Import)
 	// Without a resolver the verbs cannot answer which worktree a chat holds, so
 	// they are not mounted at all rather than left to answer a fiction.
 	if worktrees == nil {
-		return
+		return h.Shutdown
 	}
 	h.WithWorktrees(worktrees)
 	rg.POST("/chats/:id/lock", h.ChatLock)
@@ -69,4 +73,5 @@ func Register(
 	// meaning for POST /chats/:id/rename — see ChatRenameBranch for why that fold
 	// was declined.
 	rg.PATCH("/chats/:id/branch", h.ChatRenameBranch)
+	return h.Shutdown
 }

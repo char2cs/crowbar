@@ -110,7 +110,7 @@ func (c *Container) Register(
 	// watching .../workspaces/:wsId would leave every PR status frozen at `new`.
 	chatScoped.GET("/ws", c.agentChats.Handle)
 
-	projectsPkg.Register(
+	c.detached = append(c.detached, projectsPkg.Register(
 		rg,
 		c.app.Usecases.Project,
 		c.app.Usecases.ProjectImport,
@@ -118,8 +118,8 @@ func (c *Container) Register(
 		c.app.Hub.BroadcastProject,
 		c.projects.Handle,
 		ws.DualServe,
-	)
-	reposPkg.Register(
+	))
+	c.detached = append(c.detached, reposPkg.Register(
 		projectScoped,
 		c.app.GORM.Repositories,
 		c.eng.Provider,
@@ -132,7 +132,7 @@ func (c *Container) Register(
 		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
 		ws.DualServe,
-	)
+	))
 	homePkg.Register(
 		projectScoped,
 		c.app.Repositories.Workspace,
@@ -176,7 +176,7 @@ func (c *Container) Register(
 	// of the old `workspaces` group, whose thirteen :wsId routes spec §8 step 6
 	// deleted once every one of them had a chat-keyed replacement live and in
 	// use.
-	worktreePkg.Register(
+	c.detached = append(c.detached, worktreePkg.Register(
 		repoScoped,
 		c.app.Usecases.Workspace,
 		c.app.Usecases.Workspace,
@@ -189,7 +189,7 @@ func (c *Container) Register(
 		// .../chats/:id and a read reached through /chats/:chatId agree on which
 		// worktree a chat is holding.
 		c.app.Usecases.Worktree,
-	)
+	))
 	// Files completes spec §4.2's SHARED bucket (§8 step 4): one worktree, one
 	// tree, and every chat holding it reads and writes the same files. It
 	// mounts on the flat chat prefix alone now — the old workspace-scoped mount
@@ -209,14 +209,14 @@ func (c *Container) Register(
 	// is gone (spec §8 step 6) — and needs no workspace reader, because
 	// chatScoped's resolveChatWorktree middleware has already resolved the
 	// worktree before the handlers run.
-	git.Register(
+	c.detached = append(c.detached, git.Register(
 		chatScoped,
 		c.app.Usecases.Git,
 		c.app.Repositories.Workspace,
 		c.app.Repositories,
 		c.git.Handle,
 		ws.DualServe,
-	)
+	))
 	// Terminal is the first group to move onto the flat chat prefix (spec §8
 	// step 3): /v0/chats/:chatId/terminals[...]. It needs no workspace reader —
 	// chatScoped's resolveChatWorktree already resolved one onto the request

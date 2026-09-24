@@ -160,8 +160,11 @@ func (c *Container) Run(
 
 		drainCtx, cancelDrain := context.WithTimeout(context.Background(), writerDrainGrace)
 		defer cancelDrain()
+		// Work a handler detached after its 202 writes too — and runs git — so it
+		// ends before the app drains, never after the daemon is gone.
+		detachedErr := c.api.ShutdownDetached(drainCtx) //nolint:contextcheck // Run's ctx is already done here; the drain has its own budget (above).
 		drainErr := c.app.Shutdown(drainCtx)
-		return errors.Join(httpErr, drainErr)
+		return errors.Join(httpErr, detachedErr, drainErr)
 	case err := <-serveErr:
 		// ErrServerClosed only occurs after Shutdown (handled above), so any error
 		// arriving here is a genuine listen/accept failure.
