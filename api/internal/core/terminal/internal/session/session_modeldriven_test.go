@@ -113,46 +113,6 @@ func TestModelDriven_OutputIsModelDerived(t *testing.T) {
 	assert.Contains(t, data, "\x1b[", "model-driven output is synthesized ANSI")
 }
 
-// TestModelDriven_HealthyAttachSnapshotHasNoPendingInput pins the I3 fix: a
-// healthy (model-driven) attach snapshot must end EXACTLY at the serializer
-// output, with no buffered mid-sequence partial appended. Under model-driven
-// emission the client only ever receives model-derived frames, so the raw
-// continuation of a partial escape never arrives — appending the partial would
-// strand the fresh client's parser mid-escape (truncated OSC title, mid-rune
-// U+FFFD). The partial is appended ONLY on the degraded/raw path, where the
-// continuation genuinely follows over the live byte stream.
-func TestModelDriven_HealthyAttachSnapshotHasNoPendingInput(t *testing.T) {
-	s := newBareSession("sid-md-pending", "/bin/sh", t.TempDir(), "")
-	m, ser := newModel(80, 24, 200)
-	s.model = m
-	s.serializer = ser
-	s.emitter = model.NewDiffEmitter()
-
-	// Feed printable text plus a trailing INCOMPLETE CSI so the model buffers a
-	// non-empty pending partial (an unterminated "\x1b[1;5").
-	s.pumpStep([]byte("hello\x1b[1;5"))
-	require.NotEmpty(t, s.model.PendingInput(), "test setup: model must hold a pending partial")
-
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	defer s.Detach(ch)
-
-	f, ok := waitFrame(t, ch)
-	require.True(t, ok, "attach must deliver a snapshot")
-	require.True(t, f.Snapshot, "healthy attach frame must be a snapshot")
-
-	s.mu.Lock()
-	want := ser.Serialize(m)
-	pending := append([]byte(nil), s.model.PendingInput()...)
-	s.mu.Unlock()
-
-	require.NotEmpty(t, pending, "test setup: partial must still be buffered at attach time")
-	assert.Equal(t, string(want), string(f.Data),
-		"healthy attach snapshot must equal serializer output with no pending partial appended")
-	assert.NotContains(t, string(f.Data), string(pending),
-		"the buffered mid-sequence partial must never appear in a healthy attach snapshot")
-}
-
 // TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe proves Resize
 // invalidates the diff emitter (spec: a resize can never be expressed as an
 // absolute-addressed diff), so the very next model-derived frame after a

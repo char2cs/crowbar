@@ -58,7 +58,6 @@
     "src/components/ui/tabs.tsx": ["types"],
     "src/components/ui/toast.tsx": ["exports"],
     "src/components/ui/tree-row.tsx": ["exports"],
-    "src/extensions/icon-themes/types.ts": ["types"],
     "src/extensions/registry/extension-registry.ts": ["exports", "types"],
     "src/extensions/themes/theme-registry.ts": ["exports"],
     "src/extensions/themes/types.ts": ["types"],

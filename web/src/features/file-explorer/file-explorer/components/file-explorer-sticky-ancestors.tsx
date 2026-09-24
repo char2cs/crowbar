@@ -4,7 +4,8 @@ import type { FileTreeGitStatusDecoration } from '@/features/file-explorer/lib/f
 import type { VisibleFileTreeRow } from '@/features/file-explorer/lib/visible-file-tree-rows'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { cn } from '@/utils/cn'
-import { FileExplorerIcon } from './file-explorer-icon'
+import { FileExplorerIcon } from '@/features/file-explorer/components/file-explorer-icon'
+import { SIDEBAR_TREE_ICON_SIZE } from '@/components/ui/sidebar-tree'
 import { FILE_TREE_BASE_INDENT } from './file-explorer-tree-item'
 
 /**
@@ -57,6 +58,7 @@ export function FileExplorerStickyAncestors({
               isExpanded={ancestor.isExpanded}
               isSymlink={ancestor.file.isSymlink}
               className="relative z-1 shrink-0 text-muted-foreground"
+              size={SIDEBAR_TREE_ICON_SIZE}
             />
             <span
               className={cn(

@@ -171,6 +171,8 @@ jobs:
         run: cd web && bun prettier --check .
       - name: ESLint (warnings fail)
         run: cd web && bun eslint . --max-warnings 0
+      - name: ESLint baselines (may only shrink)
+        run: cd web && bun run lint:baselines
       - name: Dead code (knip, full + --production; baseline may only shrink)
         run: cd web && bun run knip
       - name: TypeScript

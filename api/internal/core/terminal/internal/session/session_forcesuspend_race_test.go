@@ -76,10 +76,9 @@ func (m *interleaveModel) Resize(cols, rows int) {}
 // serializer instead, which the live pump never calls.
 func (m *interleaveModel) OnForegroundReset() { m.setAlt(false) }
 
-func (m *interleaveModel) PendingInput() []byte { return nil }
-func (m *interleaveModel) Title() string        { return "" }
-func (m *interleaveModel) Cols() int            { return 80 }
-func (m *interleaveModel) Rows() int            { return 24 }
+func (m *interleaveModel) Title() string { return "" }
+func (m *interleaveModel) Cols() int     { return 80 }
+func (m *interleaveModel) Rows() int     { return 24 }
 func (m *interleaveModel) HeaderState() (int, int, bool, int) {
 	return 80, 24, m.isAlt(), 500
 }

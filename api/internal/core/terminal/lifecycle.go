@@ -271,8 +271,8 @@ type engineBirth struct {
 }
 
 // spawnShell starts a live shell session. The host theme is seeded at birth so the model
-// answers OSC 10/11 truthfully before the process can ask. The caller registers the
-// session and must then call startReaper.
+// answers OSC 10/11 truthfully before the process can ask. The caller admits the birth
+// first, then registers the session, calls startReaper and settles the birth.
 func (e *terminalEngine) spawnShell(ctx context.Context, id, shell, cwd, profileID string, b engineBirth) (*session.Session, error) {
 	bg, fg := e.hostTheme()
 	var (
@@ -288,23 +288,19 @@ func (e *terminalEngine) spawnShell(ctx context.Context, id, shell, cwd, profile
 	if err != nil {
 		return nil, err
 	}
-	if err := e.admit(s); err != nil {
-		return nil, err
-	}
 	if len(b.Notice) > 0 {
 		s.InjectLocal(b.Notice)
 	}
 	return s, nil
 }
 
-// admit claims a reap slot for a freshly spawned session, or kills it and refuses once
-// Shutdown has begun draining: a session born after the kill loop has walked the registry
-// would never be reaped at all.
-func (e *terminalEngine) admit(s *session.Session) error {
-	if e.reaps.start() {
+// admit opens a birth BEFORE any child is started, refusing once Shutdown has begun
+// draining: a session born after the kill loop has walked the registry would never be
+// reaped. Every successful admit is paired with exactly one e.reaps.settle.
+func (e *terminalEngine) admit() error {
+	if e.reaps.admit() {
 		return nil
 	}
-	s.Kill()
 	return ErrShuttingDown
 }
 
@@ -343,10 +339,14 @@ func (e *terminalEngine) Create(
 	resolved := profile.Resolve(prof, workspaceDir)
 	id := uuid.NewString()
 
+	if err := e.admit(); err != nil {
+		return "", fmt.Errorf("terminal: create: %w", err)
+	}
 	// Create births at the historical 80×24 default; a fresh attach's first resize
 	// reshapes both PTY and model.
 	s, err := e.spawnShell(ctx, id, resolved.Shell, resolved.CWD, "", engineBirth{})
 	if err != nil {
+		e.reaps.settle(false)
 		return "", fmt.Errorf("terminal: create: %w", err)
 	}
 	ent := &sessionEntry{
@@ -359,6 +359,7 @@ func (e *terminalEngine) Create(
 	ent.sess.Store(s)
 	e.register(ent)
 	e.startReaper(ctx, ent, s)
+	e.reaps.settle(true)
 
 	for _, cmd := range resolved.Startup {
 		if err := s.Write([]byte(cmd + "\n")); err != nil {
@@ -380,6 +381,11 @@ func (e *terminalEngine) CreateCommand(
 	env []string,
 	onExit func(),
 ) (string, error) {
+	// A vendor CLI whose reaper never runs is strictly worse than one never spawned: its
+	// onExit is the ONLY thing that records the runner's death.
+	if err := e.admit(); err != nil {
+		return "", err
+	}
 	id := uuid.NewString()
 	// CreateCommand takes the caller's env verbatim, so under launchd TERM and the locale
 	// are absent; backfill the terminal defaults for any keys not already set.
@@ -387,17 +393,13 @@ func (e *terminalEngine) CreateCommand(
 	bg, fg := e.hostTheme()
 	s, err := session.NewCommand(ctx, id, argv, cwd, env, 80, 24, 0, session.WithTheme(bg, fg))
 	if err != nil {
+		e.reaps.settle(false)
 		// exec.ErrNotFound means argv[0] is not installed / not executable — a fact about
 		// the USER'S MACHINE, not a server fault.
 		if errors.Is(err, exec.ErrNotFound) {
 			return "", fmt.Errorf("%w: %s", ErrCommandNotFound, argv[0])
 		}
 		return "", fmt.Errorf("terminal: create command: %w", err)
-	}
-	// A vendor CLI whose reaper never runs is strictly worse than one never spawned: its
-	// onExit is the ONLY thing that records the runner's death.
-	if err := e.admit(s); err != nil {
-		return "", err
 	}
 	ent := &sessionEntry{
 		id:      id,
@@ -411,6 +413,7 @@ func (e *terminalEngine) CreateCommand(
 	ent.sess.Store(s)
 	e.register(ent)
 	e.startReaper(ctx, ent, s)
+	e.reaps.settle(true)
 	return id, nil
 }
 
@@ -467,12 +470,13 @@ func (e *terminalEngine) endLocked(ctx context.Context, ent *sessionEntry, to se
 // ended) rather than left to fail every future Attach; one refused because the engine is
 // shutting down stays Suspended, so the next daemon start restores it. Caller holds ent.mu.
 func (e *terminalEngine) restoreLocked(ctx context.Context, ent *sessionEntry) (effects, error) {
+	if err := e.admit(); err != nil {
+		return nil, fmt.Errorf("terminal: restore: %w", err)
+	}
 	cwd, notice := resolveRestoreCWD(ent.cwd)
 	s, err := e.spawnShell(ctx, ent.id, ent.shell, cwd, ent.profileID, engineBirth{Blob: ent.blob, Notice: notice})
 	if err != nil {
-		if errors.Is(err, ErrShuttingDown) {
-			return nil, fmt.Errorf("terminal: restore: %w", err)
-		}
+		e.reaps.settle(false)
 		return e.endLocked(ctx, ent, stateRemoved, -1), fmt.Errorf("terminal: restore: spawn: %w", err)
 	}
 	ent.state = stateLive
@@ -480,6 +484,7 @@ func (e *terminalEngine) restoreLocked(ctx context.Context, ent *sessionEntry) (
 	ent.cwd = cwd
 	ent.blob = nil
 	e.startReaper(ctx, ent, s)
+	e.reaps.settle(true)
 	e.saveMeta(ctx, ent, "detached")
 	return effects{func() { e.fireState(ctx, ent.chatID, ent.id, "detached") }}, nil
 }
@@ -683,24 +688,41 @@ func dirExists(path string) bool {
 //
 // It is a counter + a mutex rather than a sync.WaitGroup because a WaitGroup PANICS on Add
 // concurrent with Wait, and a session can be born while Shutdown waits. Making "admit a new
-// reap" and "start draining" one critical section removes the race: once draining, start()
+// reap" and "start draining" one critical section removes the race: once draining, admit()
 // refuses, so the outstanding set only shrinks and the drain converges.
+//
+// births is held (read side) from admit to settle, i.e. across spawn and registration, so
+// drain cannot close the door while a child is started but not yet visible to Shutdown's
+// registry walk.
 type reapTracker struct {
+	births   sync.RWMutex
 	mu       sync.Mutex
 	n        int
 	draining bool
 	idle     chan struct{} // non-nil only while a drain is waiting on n > 0
 }
 
-// start admits a new reap goroutine, reporting false once a drain has begun.
-func (t *reapTracker) start() bool {
+// admit opens a birth and claims its reap slot, reporting false once a drain has begun.
+// A true result must be followed by exactly one settle.
+func (t *reapTracker) admit() bool {
+	t.births.RLock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.draining {
+		t.births.RUnlock()
 		return false
 	}
 	t.n++
 	return true
+}
+
+// settle closes a birth opened by admit. A birth whose child never started (spawned ==
+// false) returns its reap slot, since no reaper will ever retire it.
+func (t *reapTracker) settle(spawned bool) {
+	if !spawned {
+		t.done()
+	}
+	t.births.RUnlock()
 }
 
 // done retires a reap goroutine, releasing a waiting drain once the last one is home.
@@ -717,6 +739,8 @@ func (t *reapTracker) done() {
 // drain closes the door on new reaps and returns a channel closed once every outstanding
 // one has returned. Idempotent.
 func (t *reapTracker) drain() <-chan struct{} {
+	t.births.Lock()
+	defer t.births.Unlock()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.draining = true

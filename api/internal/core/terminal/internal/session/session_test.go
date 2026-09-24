@@ -333,6 +333,30 @@ func TestSession_NaturalExitReapsChild(t *testing.T) {
 	assert.True(t, s.cmd.ProcessState.Exited(), "child process must have exited")
 }
 
+// TestSession_ClientCloseImpliesDone pins the order shutdown publishes death in: Done is
+// closed BEFORE any client channel, so a reader that sees its channel close can ask Done
+// whether the process exited (the transport's exit-frame decision) without racing.
+func TestSession_ClientCloseImpliesDone(t *testing.T) {
+	s, err := newTestSession(t, "sid-close-order", t.TempDir())
+	require.NoError(t, err)
+	ch, err := s.Attach()
+	require.NoError(t, err)
+
+	doneAtClose := make(chan bool, 1)
+	go func() {
+		for range ch {
+		}
+		select {
+		case <-s.Done():
+			doneAtClose <- true
+		default:
+			doneAtClose <- false
+		}
+	}()
+	require.NoError(t, s.Write([]byte("exit\n")))
+	assert.True(t, <-doneAtClose, "a closed client channel must imply Done is closed")
+}
+
 func TestSession_AttachDeadSession(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestSession(t, "sid-3", dir)

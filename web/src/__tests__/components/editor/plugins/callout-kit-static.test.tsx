@@ -74,9 +74,14 @@ describe('LinkKitStatic', () => {
     expect(staticAnchor?.getAttribute('href')).toContain('example.com')
     expect(staticAnchor?.getAttribute('href')).toBe(interactiveAnchor?.getAttribute('href'))
 
-    // The one thing LinkKitStatic must NOT render: the interactive-only
-    // floating toolbar (LinkFloatingToolbar calls useEditorRef(), which is
-    // invalid outside an interactive editor — dropping it is the whole fix).
-    expect(staticRender.container.querySelector('[data-radix-popper-content-wrapper]')).toBeNull()
+    // The one thing LinkKitStatic must NOT carry is the interactive-only
+    // floating toolbar: LinkFloatingToolbar calls Plate hooks, which are invalid
+    // on the static read path. It renders nothing while idle, so its absence
+    // is checked on the plugins as each editor resolves them.
+    const interactiveLink = createStaticEditor({ plugins, value }).getPlugin({ key: 'a' })
+    const staticLink = staticEditor.getPlugin({ key: 'a' })
+    expect(interactiveLink.render.afterEditable).toBeDefined()
+    expect(staticLink.render.afterEditable).toBeUndefined()
+    expect(staticLink.render.node).toBe(interactiveLink.render.node)
   })
 })

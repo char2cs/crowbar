@@ -116,10 +116,10 @@ export function buildTerminalFontFamily(primaryFont: string): string {
 }
 
 /**
- * Load a font and verify it's available for canvas rendering.
+ * Load a font and verify it is actually available.
  * Returns `true` if the font is ready, `false` if it failed/timed out.
  */
-export async function loadAndVerifyFont(fontFamily: string, fontSize: number): Promise<boolean> {
+async function loadAndVerifyFont(fontFamily: string, fontSize: number): Promise<boolean> {
   const testString = `${fontSize}px "${fontFamily}"`
 
   try {
@@ -134,28 +134,6 @@ export async function loadAndVerifyFont(fontFamily: string, fontSize: number): P
 }
 
 /**
- * Resolve the terminal font family — attempts to load the requested font,
- * verifies it, and falls back to a platform-native monospace font if needed.
- *
- * Always returns a usable CSS font-family string for xterm.js.
- */
-/**
- * Variable fonts break xterm.js's WebGL glyph atlas (texture misalignment), so
- * xterm silently falls back to its DOM renderer for them — which rebuilds the
- * whole cell grid every frame and stalls the main thread ~130ms on full-screen
- * TUIs (cmatrix, htop, vim). Map a variable family to its static cut (e.g.
- * "Geist Mono Variable" -> "Geist Mono") so the WebGL renderer stays on.
- *
- * Returns `null` when the font has no distinct static equivalent.
- */
-export function deriveStaticFontEquivalent(font: string): string | null {
-  const base = stripWrappingQuotes(font)
-  const stripped = base.replace(/\s*variable\s*$/i, '').trim()
-  if (!stripped) return null
-  return stripped.toLowerCase() === base.toLowerCase() ? null : stripped
-}
-
-/**
  * The bundled Nerd Font symbol fallback family (see the @font-face in theme.css
  * and the fallback list in terminal-fonts.ts). TUIs (Claude Code, lazygit, etc.)
  * render private-use icon glyphs that no text mono font carries.
@@ -163,10 +141,8 @@ export function deriveStaticFontEquivalent(font: string): string | null {
 const SYMBOL_FALLBACK_FONT = 'Symbols Nerd Font Mono'
 
 /**
- * Warm the bundled symbol fallback font so the terminal's WebGL glyph atlas
- * rasterizes icon glyphs correctly on first paint instead of caching a
- * missing-glyph box (the atlas does not re-rasterize already-drawn codepoints
- * until it is cleared). Best-effort: never throws, never blocks terminal init.
+ * Warm the bundled symbol fallback font before first paint so icon glyphs do
+ * not render as tofu. Best-effort: never throws, never blocks terminal init.
  */
 async function ensureSymbolFallbackFontLoaded(fontSize: number): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts) return
@@ -178,79 +154,23 @@ async function ensureSymbolFallbackFontLoaded(fontSize: number): Promise<void> {
 }
 
 /**
- * Render the terminal through xterm's DOM renderer rather than its WebGL one.
+ * Resolve the terminal's CSS font-family: the requested font when it loads,
+ * otherwise the platform-native monospace, followed by the glyph fallbacks.
  *
- * WebGL rasterizes each glyph once into a texture atlas at whole-device-pixel
- * dimensions (`floor(cssCharWidth * dpr)`) and blits that bitmap into every
- * cell. On a 1x display the rounding error is ~8x larger than at 2x: measured at
- * 14px, cells came out 6.6% narrow and only ~20% of glyph ink landed at full
- * opacity, so stems never resolved and text read as unantialiased. The DOM
- * renderer emits real text and lets the platform stack rasterize it — hinting,
- * gamma-corrected blending, subpixel positioning — matching Monaco.
- *
- * KNOWN COST: the WebGL path also *synthesizes* ~169 glyphs as exact vectors
- * sized to the cell (box drawing, block elements, shading, Powerline) via
- * `tryDrawCustomChar`, independent of font. The DOM path has no equivalent and
- * delegates them to the font, so quadrant/half blocks (U+2588-259F) fall short
- * of the cell box and show seams — most visibly in block-element ASCII art.
- *
- * NOT a throughput cost. The previous default was justified by a claim of
- * "130-180ms main-thread stalls on full-screen TUI apps like htop" under the DOM
- * renderer. That does not reproduce. Measured in-app on a 113x59 grid, 60
- * full-screen SGR-heavy repaints, timing each write to its render callback plus
- * a following rAF (so a frame counts only once actually committed):
- *
- *     renderer   p50    p90    p99    max    mean
- *     DOM        8ms    9ms    10ms   10ms   8.33ms
- *     WebGL      8ms    9ms    13ms   13ms   8.30ms
- *
- * Identical at the median and DOM's tail is tighter. Both sit inside a 16ms
- * frame budget. Measure before reverting this on performance grounds — and not
- * with the FPS overlay, which is itself a rAF loop and reports its own cadence.
+ * The terminal always uses xterm's DOM renderer (real text rasterized by the
+ * platform, matching Monaco), which handles variable fonts natively — so no
+ * variable -> static mapping is needed. Measured throughput is on par with
+ * WebGL (60 full-screen SGR repaints on 113x59: p50 8ms both, p99 DOM 10ms vs
+ * WebGL 13ms); its one cost is that block elements (U+2588-259F) come from the
+ * font rather than being drawn to the cell box.
  */
-const USE_DOM_RENDERER = true
-
 export async function resolveTerminalFont(
   requestedFont: string,
   fontSize: number,
-): Promise<{ fontFamily: string; skipWebGL: boolean }> {
-  // Make sure the icon-glyph fallback is loaded before the terminal renders so
-  // Nerd Font symbols don't get cached as tofu in the WebGL atlas.
+): Promise<string> {
   await ensureSymbolFallbackFontLoaded(fontSize)
-
-  if (USE_DOM_RENDERER) {
-    // No variable -> static mapping here: that existed solely to keep the WebGL
-    // glyph atlas alive, and the DOM renderer handles variable cuts natively.
-    const preferred = (await loadAndVerifyFont(requestedFont, fontSize))
-      ? requestedFont
-      : getPlatformFallback()
-    return { fontFamily: buildTerminalFontFamily(preferred), skipWebGL: true }
-  }
-
-  // Prefer the static cut of a variable font so xterm can keep its WebGL
-  // renderer. Only taken when the static cut is actually available.
-  const staticEquivalent = deriveStaticFontEquivalent(requestedFont)
-  if (staticEquivalent && (await loadAndVerifyFont(staticEquivalent, fontSize))) {
-    return {
-      fontFamily: buildTerminalFontFamily(staticEquivalent),
-      skipWebGL: false,
-    }
-  }
-
-  const loaded = await loadAndVerifyFont(requestedFont, fontSize)
-
-  if (loaded) {
-    return {
-      fontFamily: buildTerminalFontFamily(requestedFont),
-      // No static cut available; a variable font still forces the DOM renderer.
-      skipWebGL: /\bvariable\b/i.test(requestedFont),
-    }
-  }
-
-  // Font didn't load — use platform native monospace (WebGL-friendly)
-  const fallback = getPlatformFallback()
-  return {
-    fontFamily: buildTerminalFontFamily(fallback),
-    skipWebGL: false,
-  }
+  const preferred = (await loadAndVerifyFont(requestedFont, fontSize))
+    ? requestedFont
+    : getPlatformFallback()
+  return buildTerminalFontFamily(preferred)
 }

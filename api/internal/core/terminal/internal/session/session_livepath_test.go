@@ -34,7 +34,6 @@ func (m *orderModel) Write(p []byte) {
 
 func (m *orderModel) OnForegroundReset()                 { m.events = append(m.events, "foreground-reset") }
 func (m *orderModel) Resize(int, int)                    {}
-func (m *orderModel) PendingInput() []byte               { return nil }
 func (m *orderModel) Title() string                      { return "" }
 func (m *orderModel) Cols() int                          { return 80 }
 func (m *orderModel) Rows() int                          { return 24 }
