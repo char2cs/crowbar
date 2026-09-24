@@ -58,6 +58,8 @@ func (sweepRecorder) Sweep(context.Context, termwait.Publish) {}
 
 func (r sweepRecorder) Run(context.Context, termwait.Publish) { r.swept <- struct{}{} }
 
+func (sweepRecorder) Wake() {}
+
 type blindTerminal struct{}
 
 func (blindTerminal) CreateCommand(
