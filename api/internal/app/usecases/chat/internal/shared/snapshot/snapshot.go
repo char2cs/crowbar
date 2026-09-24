@@ -95,6 +95,9 @@ type Publish func(Frame)
 type runnerState struct {
 	runner  agents.Runner
 	version int64
+	// lastChat is the chat the runner was last placed on, kept past a
+	// displacement so its exit still reaches that chat.
+	lastChat string
 }
 
 type chatState struct {
@@ -209,27 +212,42 @@ func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int
 
 // ApplyRunner records one runner aggregate event and publishes the snapshot of
 // every chat whose placement it changed: the chat it is on now, and the one it
-// left.
+// left. A runner now on no chat (displaced, exited) tells the chat it last held
+// why, so its exit reaches that chat's feed even after a displacement.
 func (s *Snapshots) ApplyRunner(ctx context.Context, runner, previous agents.Runner, version int64, kind string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if cur, ok := s.runners[runner.ID]; ok && version != 0 && cur.version > version {
+	cur, known := s.runners[runner.ID]
+	if known && version != 0 && cur.version > version {
 		return // an older event of this runner, delivered late
 	}
-	s.recordRunnerLocked(runner, version)
+	last := cur.lastChat
+	if previous.CurrentChatID != "" {
+		last = previous.CurrentChatID
+	}
+	s.recordRunnerLocked(runner, version, last)
 	if runner.CurrentChatID != "" {
 		s.emitChatLocked(ctx, runner.CurrentChatID, kind, runner.ID)
 	}
-	if left := previous.CurrentChatID; left != "" && left != runner.CurrentChatID {
-		s.emitChatLocked(ctx, left, KindSnapshot, runner.ID)
+	if last == "" || last == runner.CurrentChatID {
+		return
+	}
+	switch {
+	case runner.CurrentChatID == "" && (previous.CurrentChatID != "" || runner.ExitedAt != nil):
+		s.emitChatLocked(ctx, last, kind, runner.ID)
+	case previous.CurrentChatID != "":
+		s.emitChatLocked(ctx, last, KindSnapshot, runner.ID)
 	}
 }
 
 // recordRunnerLocked keeps a live runner at version and forgets an exited one — remembering
 // its exit until the seed, so the seed cannot resurrect it. Caller holds s.mu.
-func (s *Snapshots) recordRunnerLocked(runner agents.Runner, version int64) {
+func (s *Snapshots) recordRunnerLocked(runner agents.Runner, version int64, lastChat string) {
 	if runner.ExitedAt == nil {
-		s.runners[runner.ID] = runnerState{runner: runner, version: version}
+		if runner.CurrentChatID != "" {
+			lastChat = runner.CurrentChatID
+		}
+		s.runners[runner.ID] = runnerState{runner: runner, version: version, lastChat: lastChat}
 		return
 	}
 	delete(s.runners, runner.ID)

@@ -92,5 +92,32 @@ func (r *Resolver) lookups(
 	}
 	parents[chat.ID] = chat.ParentID
 	chats[chat.ID] = chat.IsChat()
+	if err := r.fillUnlisted(ctx, chat.ID, parents, chats); err != nil {
+		return nil, nil, err
+	}
 	return parents, chats, nil
+}
+
+// fillUnlisted loads, from the log, every row on chatID's chain the workspace
+// list does not carry: a folder owns no workspace, so the list never has it.
+func (r *Resolver) fillUnlisted(
+	ctx context.Context,
+	chatID string,
+	parents map[string]string,
+	chats map[string]bool,
+) error {
+	seen := map[string]bool{chatID: true}
+	for at := parents[chatID]; at != "" && !seen[at]; at = parents[at] {
+		seen[at] = true
+		if _, listed := parents[at]; listed {
+			continue
+		}
+		row, err := r.chats.LoadChat(ctx, at)
+		if err != nil {
+			return fmt.Errorf("chat lineage: ancestor %s: %w", at, err)
+		}
+		parents[at] = row.ParentID
+		chats[at] = row.IsChat()
+	}
+	return nil
 }

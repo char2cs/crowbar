@@ -40,15 +40,23 @@ func (s *stubChats) LoadChat(
 	return chat, nil
 }
 
+// ListByWorkspace filters on the workspace the way the real store does, which
+// leaves every folder (it owns no workspace) off the list.
 func (s *stubChats) ListByWorkspace(
 	_ context.Context,
-	_ string,
+	wsID string,
 ) ([]domain.Chat, error) {
 	s.lists++
 	if s.list != nil {
 		return nil, s.list
 	}
-	return s.listed, nil
+	var out []domain.Chat
+	for _, row := range s.listed {
+		if row.WorkspaceID == wsID {
+			out = append(out, row)
+		}
+	}
+	return out, nil
 }
 
 func chat(
@@ -166,6 +174,18 @@ func TestAncestors_SurfacesAChatReadFailure(t *testing.T) {
 
 	_, err := resolver.Ancestors(context.Background(), "c2")
 	require.ErrorContains(t, err, "boom")
+}
+
+// A folder on the chain is read from the log; a failure there is the answer.
+func TestAncestors_SurfacesAnUnlistedAncestorReadFailure(t *testing.T) {
+	cs := &stubChats{
+		keyed:  map[string]domain.Chat{"c2": chat("c2", "f1")},
+		listed: []domain.Chat{chat("c2", "f1")},
+	}
+	resolver := lineage.New(cs)
+
+	_, err := resolver.Ancestors(context.Background(), "c2")
+	require.ErrorContains(t, err, "ancestor f1")
 }
 
 func TestAncestors_SurfacesAChatListFailure(t *testing.T) {
