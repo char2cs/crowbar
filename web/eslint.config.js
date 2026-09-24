@@ -64,7 +64,6 @@ const MAX_LINES_BASELINE = [
   'src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx',
   'src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx',
   'src/features/git/components/diff/review-code-view.tsx',
-  'src/features/panes/components/pane-container.tsx',
   'src/features/tabs/components/tab-bar.tsx',
   'src/features/terminal/components/terminal.tsx',
   'src/features/workspace/stores/hooks/use-workspace-agent-chats-stream.ts',
