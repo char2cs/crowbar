@@ -875,3 +875,33 @@ func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) 
 	assert.Equal(t, domain.WorkspaceStatusPRMerged, changed.Status)
 	assert.Greater(t, events(), settled, "a changed provider poll must still append")
 }
+
+// A repo's home is keyed by a deterministic id, so concurrent adopts of the
+// same folder contend for ONE aggregate: exactly one wins and the repo keeps a
+// single default workspace (invariant D2). A random id let both succeed.
+func TestRegression_RepoHomeID_ConcurrentAdoptsYieldOneDefault(t *testing.T) {
+	ctx, repo := newRepo(t)
+	id := workspace.RepoHomeID("r1")
+	assert.Equal(t, id, workspace.RepoHomeID("r1"))
+	assert.NotEqual(t, id, workspace.RepoHomeID("r2"))
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	wins := 0
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := repo.Create(ctx, workspace.CreateInput{
+				ID: id, RepoID: "r1", ProjectID: "p1", IsDefault: true, WorktreePath: "/repo",
+			}, time.Unix(1, 0).UTC())
+			if err == nil {
+				mu.Lock()
+				wins++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	assert.Equal(t, 1, wins)
+}

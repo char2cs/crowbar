@@ -856,6 +856,15 @@ func homeWorkspaceID(projectID string) string {
 	return uuid.NewSHA1(homeWorkspaceNamespace, []byte(projectID)).String()
 }
 
+// RepoHomeID derives a repo's home (IsDefault) workspace id deterministically
+// from the repo id, for the reason homeWorkspaceID gives: two concurrent adopts
+// of the same repo's main folder target the SAME aggregate, so the second is
+// refused by CreateWorkspace's own Validate instead of leaving the repo with two
+// default workspaces (invariant D2). Namespaced apart from the project home's.
+func RepoHomeID(repoID string) string {
+	return uuid.NewSHA1(homeWorkspaceNamespace, []byte("repo-home:"+repoID)).String()
+}
+
 // CreateHome provisions the home workspace for a project, used for lazy
 // provisioning when GetHomeForProject returns ErrNotFound.
 //

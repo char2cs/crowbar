@@ -767,7 +767,9 @@ func (u *hierarchyUsecase) adoptMainWorktree(
 		return domain.Workspace{}, fmt.Errorf("create child: adopt main worktree: locked: %w", err)
 	}
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
-		ID:           uuid.NewString(),
+		// Deterministic: a concurrent second adopt of the same folder is refused
+		// by the aggregate itself rather than minting a second default (D2).
+		ID:           workspace.RepoHomeID(in.RepoID),
 		RepoID:       in.RepoID,
 		ProjectID:    in.ProjectID,
 		Branch:       in.Branch,

@@ -616,7 +616,7 @@ func (u *projectImport) adoptRepoHome(
 		return fmt.Errorf("project import: list worktrees: %w", err)
 	}
 	in := workspace.CreateInput{
-		ID:           uuid.NewString(),
+		ID:           workspace.RepoHomeID(repo.ID),
 		RepoID:       repo.ID,
 		ProjectID:    repo.ProjectID,
 		Branch:       mainWorktreeBranch(worktrees, repo.Path),
