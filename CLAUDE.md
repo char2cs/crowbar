@@ -31,3 +31,14 @@ export function MyComponent() { ... }
 - Per-workspace state lives in the workspace store registry (`features/workspace/stores/`).
 - Global app state lives in `features/window/stores/` or `features/settings/`.
 - `lib/store/` is for server-state-adjacent structures (conversations, projects sidebar).
+
+## Go daemon (`api/`)
+
+Layout and flow are described in `api/ARCHITECTURE.md`. Enforced by `api/.golangci.yml` (funlen 100 lines/50 statements, gocyclo 15, nestif 2, revive early-return, gofumpt) and `make pr-checks`:
+
+- Implementation details live in `internal/` sub-packages; one domain concept per file; source files under 500 lines.
+- One test file per source file (`foo.go` → `foo_test.go`), struct-only files excepted.
+- Early returns over `else`; at most three indentation levels per function.
+- Wrap errors with context: `fmt.Errorf("op: ctx: %w", err)`; check every error.
+- Tests are deterministic: no `time.Sleep` — wait on a channel, a WaitGroup or a condition with a deadline (`tests/kit` watchers).
+- Benchmarks (`*_bench_test.go`) for hot paths; build and test with `-tags noEmbed`.
