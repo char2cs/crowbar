@@ -236,10 +236,9 @@ export function deleteHomeFolder(
   ).then((raw) => (raw?.shifted ?? []).map((row) => folderDTOFromWire(row, projectId, '')))
 }
 
-/** A repo's owning project, its index within that project's section, and the
- *  project-home folder its own entry is filed under. */
+/** A repo's index within its project's section, and the project-home folder
+ *  its own entry is filed under. A repo's project is fixed at import. */
 export interface RepoPlacement {
-  projectId?: string
   order?: number
   /** A project-home folder id, or '' for the project's home root. Omitted
    *  leaves the repo in whichever folder it already sits in. */

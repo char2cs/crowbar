@@ -96,8 +96,8 @@ type Update struct {
 }
 
 // RepoUpdate is a partial repository update: a nil field is left as it is.
-// ProjectID moves the repo to another project, which also carries every
-// workspace under it — see WorkspaceRelocator. FolderID/Order re-file the
+// ProjectID may only name the repo's own project — a repo's project is fixed
+// at import (see refuseProjectMove). FolderID/Order re-file the
 // repo's own entry within its project's home tree — written to the repo's
 // own Node row (NodePlacements), interleaved against its real home chat and
 // folder siblings, which are Node-backed too now (2026-09-08
@@ -117,31 +117,14 @@ type RepoUpdate struct {
 	FolderID  *string
 }
 
-// WorkspaceRelocator is the narrow workspace surface a repo move needs. Every
-// workspace carries a denormalised ProjectID that the hierarchical routes and
-// the WS namespace are keyed on, so a repo that changed projects while its
-// workspaces did not would keep them and stop showing them.
-//
-// GetHomeForProject answers the one other thing a repo's OWN home placement
-// needs: which workspace IS project home, so a repo's sibling search
-// (placeRepoAmongHomeSiblings) can scope a ROOT-level container to THIS
-// project specifically — home chats otherwise carry no project id of their
-// own to filter by (see repoScopeOf's doc elsewhere: every project's home
-// resolves to the same "" repo scope). Satisfied structurally by the
-// workspace REPOSITORY (not the usecase — container.go builds this one
-// before the workspace usecase exists, which itself depends on this
-// package), the same adapter home.Register's own HomeWorkspaces port uses.
-type WorkspaceRelocator interface {
-	ListInRepo(
-		ctx context.Context,
-		projectID string,
-		repoID string,
-	) ([]domain.Workspace, error)
-	SetProject(
-		ctx context.Context,
-		id string,
-		projectID string,
-	) (domain.Workspace, error)
+// HomeWorkspaces answers which workspace IS project home, so a repo's sibling
+// search (placeRepoAmongHomeSiblings) can scope a ROOT-level container to THIS
+// project specifically — home chats otherwise carry no project id of their own
+// to filter by (every project's home resolves to the same "" repo scope).
+// Satisfied structurally by the workspace REPOSITORY (not the usecase —
+// container.go builds this one before the workspace usecase exists, which
+// itself depends on this package).
+type HomeWorkspaces interface {
 	GetHomeForProject(
 		ctx context.Context,
 		projectID string,
@@ -231,7 +214,7 @@ type NodePlacements interface {
 type projectUsecase struct {
 	projects   store.Store[domain.Project, string]
 	repos      store.ScopedStore[domain.Repository, string]
-	workspaces WorkspaceRelocator
+	workspaces HomeWorkspaces
 	folders    Folders
 	nodes      NodePlacements
 	homeChats  HomeChats
@@ -249,7 +232,7 @@ type projectUsecase struct {
 type HomeRowAnnouncer func(id, workspaceID string, kind domain.NodeKind, event string)
 
 // New builds a Usecase from the project and repository GORM stores, the
-// workspace relocator a cross-project repo move needs, the home-folder
+// project-home lookup a root-level repo placement needs, the home-folder
 // identity store validateRepoFolder checks a FolderID against, the Node
 // surface that now owns every home-scope sibling's OWN position (see
 // NodePlacements), and the chat-membership read that keeps a bare-root
@@ -268,7 +251,7 @@ type HomeRowAnnouncer func(id, workspaceID string, kind domain.NodeKind, event s
 func New(
 	projects store.Store[domain.Project, string],
 	repos store.ScopedStore[domain.Repository, string],
-	workspaces WorkspaceRelocator,
+	workspaces HomeWorkspaces,
 	folders Folders,
 	nodes NodePlacements,
 	homeChats HomeChats,
@@ -348,10 +331,6 @@ func (u *projectUsecase) TouchProjectActivity(
 // worktree already lives under it. Assigning it here would fork the repo's tree
 // in two — new workspaces under the new name, the existing ones stranded under
 // the old — and blind the sibling scan that rejects case-only path clashes.
-//
-// A project move carries the repo's workspaces with it and renumbers BOTH
-// projects' repo lists. It moves nothing on disk: worktree paths were derived
-// once and are stored absolute, so they keep resolving from where they are.
 func (u *projectUsecase) UpdateRepo(
 	ctx context.Context,
 	repoID string,
@@ -364,6 +343,9 @@ func (u *projectUsecase) UpdateRepo(
 	if repo == nil {
 		return RepoUpdated{}, fmt.Errorf("project: update repo: id %s: %w", repoID, apperr.ErrNotFound)
 	}
+	if err := refuseProjectMove(*repo, in.ProjectID); err != nil {
+		return RepoUpdated{}, err
+	}
 	subject, err := u.getRepoNode(ctx, repoID)
 	if err != nil {
 		return RepoUpdated{}, fmt.Errorf("project: update repo: node: %w", err)
@@ -373,11 +355,7 @@ func (u *projectUsecase) UpdateRepo(
 		repo.AvatarLabel = avatar.Label(*in.Name)
 		repo.AvatarColor = avatar.Color(*in.Name)
 	}
-	origin := repo.ProjectID
 	originFolder := subject.ParentID
-	if mErr := u.applyRepoProject(ctx, repo, in.ProjectID); mErr != nil {
-		return RepoUpdated{}, mErr
-	}
 	targetFolder, err := u.resolveTargetFolder(ctx, in, originFolder)
 	if err != nil {
 		return RepoUpdated{}, err
@@ -389,12 +367,11 @@ func (u *projectUsecase) UpdateRepo(
 	if err != nil {
 		return RepoUpdated{}, err
 	}
-	// The container the repo LEFT — whether it moved project, folder, or both —
-	// still has a gap where its row used to sit and needs closing. A plain
-	// reorder within the same container is covered by the densify above; this
-	// only fires for an actual move.
-	if origin != repo.ProjectID || originFolder != targetFolder {
-		left, err := u.densifyHomeLevel(ctx, origin, originFolder, repoID)
+	// The folder the repo LEFT still has a gap where its row used to sit and
+	// needs closing. A plain reorder within the same container is covered by
+	// the densify above; this only fires for an actual move.
+	if originFolder != targetFolder {
+		left, err := u.densifyHomeLevel(ctx, repo.ProjectID, originFolder, repoID)
 		if err != nil {
 			return RepoUpdated{}, err
 		}
@@ -505,39 +482,26 @@ func (u *projectUsecase) validateRepoFolder(
 	return nil
 }
 
-// applyRepoProject moves repo to another project, relocating every workspace
-// under it. The workspace relocation runs BEFORE the repo row is saved so a
-// failure leaves the repo where its workspaces still are, rather than the other
-// way round.
-func (u *projectUsecase) applyRepoProject(
-	ctx context.Context,
-	repo *domain.Repository,
+// refuseProjectMove answers ErrConflict for an update that names a project
+// other than the repo's own. A repo's project is fixed at import (spec §3
+// P0-3, invariant D6): everything it owns on disk — its managed worktrees
+// (<home>/projects/<P>/<slug>/<branch>), its home checkout's chats tree, its
+// workspaces' storage dirs, its entity dir — is keyed by that project, and
+// live agents and terminals run inside those worktrees. Re-pointing the rows
+// moved none of it (the worktrees stayed where another project's delete could
+// reach them) and re-pointed the workspaces one by one, non-atomically. A repo
+// that belongs elsewhere is removed and imported there instead.
+func refuseProjectMove(
+	repo domain.Repository,
 	projectID *string,
 ) error {
 	if projectID == nil || *projectID == repo.ProjectID {
 		return nil
 	}
-	target, err := u.projects.FindByKey(ctx, *projectID)
-	if err != nil {
-		return fmt.Errorf("project: update repo: resolve project: %w", err)
-	}
-	if target == nil {
-		return fmt.Errorf("project: update repo: project %s: %w", *projectID, apperr.ErrNotFound)
-	}
-	if u.workspaces == nil {
-		return fmt.Errorf("project: update repo: no workspace relocator wired")
-	}
-	rows, err := u.workspaces.ListInRepo(ctx, repo.ProjectID, repo.ID)
-	if err != nil {
-		return fmt.Errorf("project: update repo: list workspaces: %w", err)
-	}
-	for _, ws := range rows {
-		if _, err := u.workspaces.SetProject(ctx, ws.ID, *projectID); err != nil {
-			return fmt.Errorf("project: update repo: relocate workspace %s: %w", ws.ID, err)
-		}
-	}
-	repo.ProjectID = *projectID
-	return nil
+	return fmt.Errorf(
+		"project: update repo: a repository cannot change projects; remove it and import it into %s: %w",
+		*projectID, apperr.ErrConflict,
+	)
 }
 
 // repoIDSet answers the set of repo ids belonging to projectID — the project

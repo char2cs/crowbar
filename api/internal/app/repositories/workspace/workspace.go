@@ -161,13 +161,6 @@ type Workspace interface {
 		id string,
 		parentID string,
 	) (domain.Workspace, error)
-	// SetProject re-points the workspace at the project that now owns its
-	// repository, for a repo moved between projects. It moves no worktree.
-	SetProject(
-		ctx context.Context,
-		id string,
-		projectID string,
-	) (domain.Workspace, error)
 	// SetLastError records the message from a failed background operation on the
 	// workspace; the failure surfaces on the entity, never a separate WS frame
 	// (00 §4). The next successful mutating command clears it.
@@ -664,18 +657,6 @@ func (w *workspace) SetParentFromPR(
 	evt, err := w.sendWithOCC(ctx, commands.SetParentFromPR{ID: id, ParentID: parentID})
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("workspace: set parent from pr: %w", err)
-	}
-	return evt.Aggregate, nil
-}
-
-func (w *workspace) SetProject(
-	ctx context.Context,
-	id string,
-	projectID string,
-) (domain.Workspace, error) {
-	evt, err := w.sendWithOCC(ctx, commands.SetProject{ID: id, ProjectID: projectID})
-	if err != nil {
-		return domain.Workspace{}, fmt.Errorf("workspace: set project: %w", err)
 	}
 	return evt.Aggregate, nil
 }

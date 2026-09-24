@@ -27,8 +27,8 @@ func newProjectUsecase(
 	return projects, repos, uc
 }
 
-// newProjectUsecaseWithWorkspaces additionally exposes the workspace relocator,
-// for the tests that assert a repo move carries its workspaces across.
+// newProjectUsecaseWithWorkspaces additionally exposes the project-home lookup
+// fake, for the tests that seed a project home.
 func newProjectUsecaseWithWorkspaces(
 	t *testing.T,
 ) (
@@ -63,27 +63,6 @@ func newProjectUsecaseWithNodes(
 		mocks.NewProjectStore(), repos, mocks.NewWorkspacePlacements(), mocks.NewFolderStore(), nodes, nil, nil,
 	)
 	return repos, nodes, uc
-}
-
-// newProjectUsecaseWithNodesAndWorkspaces is newProjectUsecaseWithNodes plus
-// the workspace relocator, for tests that need both a cross-project move and
-// Node-fake visibility.
-func newProjectUsecaseWithNodesAndWorkspaces(
-	t *testing.T,
-) (
-	*mocks.ProjectStore,
-	*mocks.RepositoryStore,
-	*mocks.WorkspacePlacements,
-	*mocks.NodePlacements,
-	project.Usecase,
-) {
-	t.Helper()
-	projects := mocks.NewProjectStore()
-	repos := mocks.NewRepositoryStore()
-	workspaces := mocks.NewWorkspacePlacements()
-	nodes := mocks.NewNodePlacements()
-	uc := project.New(projects, repos, workspaces, mocks.NewFolderStore(), nodes, nil, nil)
-	return projects, repos, workspaces, nodes, uc
 }
 
 // name and index are pointer literals for the partial RepoUpdate fields.

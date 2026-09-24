@@ -775,39 +775,6 @@ func TestList_DoesNotTriggerReconcile(t *testing.T) {
 	assert.Empty(t, spy.calls(), "List must never trigger per-workspace reconcile")
 }
 
-// A repo moved between projects re-points its workspaces, and must leave the
-// on-disk worktree where it is: the path was derived once and is stored
-// absolute, so rewriting it here would strand the tree it names.
-func TestWorkspace_SetProject_MovesTheRecordNotTheTree(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: "/tmp/tree/worktree",
-	}, now)
-	require.NoError(t, err)
-
-	got, err := repo.SetProject(ctx, "w1", "p2")
-	require.NoError(t, err)
-	assert.Equal(t, "p2", got.ProjectID)
-	assert.Equal(t, "r1", got.RepoID)
-	assert.Equal(t, "/tmp/tree/worktree", got.WorktreePath)
-
-	// ListInRepo reads the store PROJECTION, which trails the Send. Drain it
-	// first: the barrier is the write actually landing, not a guess at how long
-	// it takes.
-	workspace.WaitQuiescentForTest(repo)
-	scoped, err := repo.ListInRepo(ctx, "p2", "r1")
-	require.NoError(t, err)
-	require.Len(t, scoped, 1, "the repo-scoped read finds it under its new project")
-}
-
-func TestWorkspace_SetProject_ErrorOnMissing(t *testing.T) {
-	ctx, repo := newRepo(t)
-
-	_, err := repo.SetProject(ctx, "no-such", "p2")
-	assert.Error(t, err)
-}
-
 // TestRegression_SyncProviderState_UnchangedPollAppendsNothing pins the guard on
 // the 5-minute sweep. Without it every visit appended an event and a snapshot
 // whether or not the provider had moved — 43,970 of 44,068 provider_synced events
