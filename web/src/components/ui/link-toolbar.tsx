@@ -15,7 +15,7 @@ import {
   useFloatingLinkInsertState,
 } from '@platejs/link/react'
 import { cva } from 'class-variance-authority'
-import { ExternalLink, Link, Text, Unlink } from 'lucide-react'
+import { ArrowSquareOutIcon, LinkBreakIcon, LinkIcon, TextTIcon } from '@phosphor-icons/react'
 import { KEYS } from 'platejs'
 import { useEditorRef, useEditorSelection, useFormInputProps, usePluginOption } from 'platejs/react'
 
@@ -85,7 +85,7 @@ export function LinkFloatingToolbar({ state }: { state?: LinkFloatingToolbarStat
     <div className="flex w-[330px] flex-col" {...inputProps}>
       <div className="flex items-center">
         <div className="flex items-center pr-1 pl-2 text-muted-foreground">
-          <Link className="size-4" />
+          <LinkIcon className="size-4" />
         </div>
 
         <FloatingLinkUrlInput
@@ -97,7 +97,7 @@ export function LinkFloatingToolbar({ state }: { state?: LinkFloatingToolbarStat
       <Separator className="my-1" />
       <div className="flex items-center">
         <div className="flex items-center pr-1 pl-2 text-muted-foreground">
-          <Text className="size-4" />
+          <TextTIcon className="size-4" />
         </div>
         <input
           className={inputVariants()}
@@ -135,7 +135,7 @@ export function LinkFloatingToolbar({ state }: { state?: LinkFloatingToolbarStat
         type="button"
         {...unlinkButtonProps}
       >
-        <Unlink width={18} />
+        <LinkBreakIcon size={18} />
       </button>
     </div>
   )
@@ -186,7 +186,7 @@ function LinkOpenButton() {
       aria-label="Open link in a new tab"
       target="_blank"
     >
-      <ExternalLink width={18} />
+      <ArrowSquareOutIcon size={18} />
     </a>
   )
 }

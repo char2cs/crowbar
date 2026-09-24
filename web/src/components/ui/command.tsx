@@ -1,7 +1,7 @@
 'use client'
 
 import { Dialog as CommandDialogPrimitive } from '@base-ui/react/dialog'
-import { SearchIcon } from 'lucide-react'
+import { MagnifyingGlassIcon } from '@phosphor-icons/react'
 import type * as React from 'react'
 import { cn } from '@/lib/utils'
 import {
@@ -137,7 +137,7 @@ export function CommandInput({
         )}
         placeholder={placeholder}
         size="lg"
-        startAddon={<SearchIcon />}
+        startAddon={<MagnifyingGlassIcon />}
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         onChange={onChange as any}
         {...props}

@@ -11,7 +11,7 @@ import type {} from 'three-stdlib'
 import type {} from 'camera-controls'
 import type {} from '@react-three/fiber'
 import { CheckCircle, XCircle, Warning, ArrowRight, ArrowClockwise } from '@phosphor-icons/react'
-import { Loader2 } from 'lucide-react'
+import { CircleNotchIcon } from '@phosphor-icons/react'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { Button } from '@/components/ui/button'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
@@ -92,7 +92,7 @@ function CheckRow({
         <p className="text-xs text-white/50">{description}</p>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {status === 'loading' && <Loader2 className="size-5 animate-spin text-white/40" />}
+        {status === 'loading' && <CircleNotchIcon className="size-5 animate-spin text-white/40" />}
         {status === 'ok' && <CheckCircle weight="fill" className="size-5 text-emerald-400" />}
         {status === 'warn' && <Warning weight="fill" className="size-5 text-amber-400" />}
         {status === 'error' && <XCircle weight="fill" className="size-5 text-red-400" />}

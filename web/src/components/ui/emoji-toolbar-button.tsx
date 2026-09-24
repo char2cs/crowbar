@@ -13,18 +13,18 @@ import {
 import type { UseEmojiPickerType } from '@platejs/emoji/react'
 import * as Popover from '@radix-ui/react-popover'
 import {
-  AppleIcon,
   ClockIcon,
   CompassIcon,
   FlagIcon,
+  HamburgerIcon,
   LeafIcon,
   LightbulbIcon,
-  MusicIcon,
-  SearchIcon,
-  SmileIcon,
+  MagnifyingGlassIcon,
+  MusicNoteIcon,
+  SmileyIcon,
   StarIcon,
   XIcon,
-} from 'lucide-react'
+} from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
 // This app's `@/components/ui/tooltip` is Base UI-backed (see popover.tsx's
@@ -529,8 +529,8 @@ const emojiCategoryIcons: Record<
   },
 
   foods: {
-    outline: <AppleIcon className="size-full" />,
-    solid: <AppleIcon className="size-full" />,
+    outline: <HamburgerIcon className="size-full" />,
+    solid: <HamburgerIcon className="size-full" />,
   },
 
   frequent: {
@@ -549,8 +549,8 @@ const emojiCategoryIcons: Record<
   },
 
   people: {
-    outline: <SmileIcon className="size-full" />,
-    solid: <SmileIcon className="size-full" />,
+    outline: <SmileyIcon className="size-full" />,
+    solid: <SmileyIcon className="size-full" />,
   },
 
   places: {
@@ -559,12 +559,12 @@ const emojiCategoryIcons: Record<
   },
 
   symbols: {
-    outline: <MusicIcon className="size-full" />,
-    solid: <MusicIcon className="size-full" />,
+    outline: <MusicNoteIcon className="size-full" />,
+    solid: <MusicNoteIcon className="size-full" />,
   },
 }
 
 const emojiSearchIcons = {
   delete: <XIcon className="size-4 text-current" />,
-  loupe: <SearchIcon className="size-4 text-current" />,
+  loupe: <MagnifyingGlassIcon className="size-4 text-current" />,
 }

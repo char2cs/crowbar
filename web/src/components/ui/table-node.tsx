@@ -28,19 +28,19 @@ import {
   useTableValue,
 } from '@platejs/table/react'
 import {
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  CombineIcon,
+  ArrowDownIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowUpIcon,
+  DotsSixVerticalIcon,
   EraserIcon,
-  Grid2X2Icon,
-  GripVertical,
+  GridFourIcon,
   PaintBucketIcon,
   SquareSplitHorizontalIcon,
-  Trash2Icon,
+  TrashIcon,
+  UniteIcon,
   XIcon,
-} from 'lucide-react'
+} from '@phosphor-icons/react'
 import { type TTableCellElement, type TTableElement, type TTableRowElement, KEYS } from 'platejs'
 import {
   type PlateElementProps,
@@ -850,7 +850,7 @@ function TableFloatingToolbarContent({
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Merge cells"
             >
-              <CombineIcon />
+              <UniteIcon />
             </ToolbarButton>
           )}
           {canSplit && onSplit && (
@@ -865,7 +865,7 @@ function TableFloatingToolbarContent({
 
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger render={<ToolbarButton tooltip="Cell borders" />}>
-              <Grid2X2Icon />
+              <GridFourIcon />
             </DropdownMenuTrigger>
 
             <DropdownMenuPortal>
@@ -876,7 +876,7 @@ function TableFloatingToolbarContent({
           {singleCellMode && (
             <ToolbarGroup>
               <ToolbarButton tooltip="Delete table" {...buttonProps}>
-                <Trash2Icon />
+                <TrashIcon />
               </ToolbarButton>
             </ToolbarGroup>
           )}
@@ -888,14 +888,14 @@ function TableFloatingToolbarContent({
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Insert row before"
             >
-              <ArrowUp />
+              <ArrowUpIcon />
             </ToolbarButton>
             <ToolbarButton
               onClick={onInsertRowAfter}
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Insert row after"
             >
-              <ArrowDown />
+              <ArrowDownIcon />
             </ToolbarButton>
             <ToolbarButton
               onClick={onDeleteRow}
@@ -913,14 +913,14 @@ function TableFloatingToolbarContent({
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Insert column before"
             >
-              <ArrowLeft />
+              <ArrowLeftIcon />
             </ToolbarButton>
             <ToolbarButton
               onClick={onInsertColumnAfter}
               onMouseDown={(e) => e.preventDefault()}
               tooltip="Insert column after"
             >
-              <ArrowRight />
+              <ArrowRightIcon />
             </ToolbarButton>
             <ToolbarButton
               onClick={onDeleteColumn}
@@ -1138,7 +1138,7 @@ function RowSelectHandle({ onSelect }: { onSelect: () => void }) {
       )}
       onClick={onSelect}
     >
-      <GripVertical className="text-muted-foreground" />
+      <DotsSixVerticalIcon className="text-muted-foreground" />
     </Button>
   )
 }

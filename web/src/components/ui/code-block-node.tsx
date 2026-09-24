@@ -4,7 +4,7 @@ import * as React from 'react'
 
 import { formatCodeBlock, isLangSupported } from '@platejs/code-block'
 import { Command as CommandPrimitive } from 'cmdk'
-import { BracesIcon, Check, CheckIcon, CopyIcon, SearchIcon } from 'lucide-react'
+import { BracketsCurlyIcon, CheckIcon, CopyIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import { type TCodeBlockElement, type TCodeSyntaxLeaf, NodeApi } from 'platejs'
 import { type PlateElementProps, type PlateLeafProps, PlateElement, PlateLeaf } from 'platejs/react'
 import { useEditorRef, useElement, useReadOnly } from 'platejs/react'
@@ -67,7 +67,7 @@ function CommandInput({
 }: React.ComponentProps<typeof CommandPrimitive.Input>) {
   return (
     <div className="flex items-center gap-2 border-b px-3" data-slot="command-input-wrapper">
-      <SearchIcon className="size-4 shrink-0 opacity-50" />
+      <MagnifyingGlassIcon className="size-4 shrink-0 opacity-50" />
       <CommandPrimitive.Input
         className={cn(
           'flex w-full rounded-md bg-transparent py-3 text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
@@ -270,7 +270,7 @@ export function CodeBlockElement({ showLanguageLabel = true, ...props }: CodeBlo
               onClick={() => formatCodeBlock(editor, { element })}
               title="Format code"
             >
-              <BracesIcon className="!size-3.5 text-muted-foreground" />
+              <BracketsCurlyIcon className="!size-3.5 text-muted-foreground" />
             </Button>
           )}
 
@@ -347,7 +347,9 @@ function CodeBlockCombobox({ showLanguageLabel }: { showLanguageLabel: boolean }
                     setOpen(false)
                   }}
                 >
-                  <Check className={cn(value === language.value ? 'opacity-100' : 'opacity-0')} />
+                  <CheckIcon
+                    className={cn(value === language.value ? 'opacity-100' : 'opacity-0')}
+                  />
                   {language.label}
                 </CommandItem>
               ))}

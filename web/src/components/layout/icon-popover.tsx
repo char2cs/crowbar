@@ -1,5 +1,11 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { Upload, Smile, Star, Trash2, Pencil } from 'lucide-react'
+import {
+  PencilSimpleIcon,
+  SmileyIcon,
+  StarIcon,
+  TrashIcon,
+  UploadSimpleIcon,
+} from '@phosphor-icons/react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -261,7 +267,7 @@ export function IconPopover({
         {trigger}
         {/* Pencil overlay — appears only when hovering the mark itself. */}
         <span className="pointer-events-none absolute inset-0 hidden items-center justify-center rounded-md bg-black/45 group-hover/entity-icon:flex">
-          <Pencil className="size-2.5 text-white" />
+          <PencilSimpleIcon className="size-2.5 text-white" />
         </span>
       </PopoverTrigger>
       <PopoverContent
@@ -318,7 +324,7 @@ export function IconPopover({
               }}
               className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
             >
-              <Upload className="size-3" />
+              <UploadSimpleIcon className="size-3" />
               Upload
             </Button>
             <Button
@@ -328,7 +334,7 @@ export function IconPopover({
               onClick={() => setShowEmojiInput((v) => !v)}
               className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
             >
-              <Smile className="size-3" />
+              <SmileyIcon className="size-3" />
               Emoji
             </Button>
             {github && (
@@ -342,7 +348,7 @@ export function IconPopover({
                 }}
                 className="flex-1 gap-1 text-muted-foreground hover:text-foreground"
               >
-                <Star className="size-3" />
+                <StarIcon className="size-3" />
                 GitHub
               </Button>
             )}
@@ -380,7 +386,7 @@ export function IconPopover({
               onClick={() => void handleReset()}
               className="w-full gap-1 text-muted-foreground/60 hover:text-destructive"
             >
-              <Trash2 className="size-3" />
+              <TrashIcon className="size-3" />
               Reset to default
             </Button>
           )}

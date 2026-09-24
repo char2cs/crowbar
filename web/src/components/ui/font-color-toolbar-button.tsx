@@ -5,7 +5,7 @@ import React from 'react'
 import type { Menu as MenuPrimitive } from '@base-ui/react/menu'
 
 import * as TooltipPrimitive from '@radix-ui/react-tooltip'
-import { CheckIcon } from 'lucide-react'
+import { CheckIcon } from '@phosphor-icons/react'
 
 import { buttonVariants } from '@/components/ui/button-variants'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
@@ -80,7 +80,7 @@ function ColorDropdownMenuItem({
       }}
       {...props}
     >
-      {isSelected ? <CheckIcon className="!size-3" strokeWidth={3} /> : null}
+      {isSelected ? <CheckIcon className="!size-3" weight="bold" /> : null}
     </DropdownMenuItem>
   )
 

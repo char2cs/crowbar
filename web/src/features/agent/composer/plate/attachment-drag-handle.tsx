@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useId } from 'react'
-import { GripVertical, Trash2Icon } from 'lucide-react'
+import { DotsSixVerticalIcon, TrashIcon } from '@phosphor-icons/react'
 import {
   type DragMoveEvent,
   type DraggableAttributes,
@@ -234,7 +234,7 @@ export function AttachmentDragHandle({
         )}
         onClick={onSelect}
       >
-        <GripVertical className="text-muted-foreground" />
+        <DotsSixVerticalIcon className="text-muted-foreground" />
       </Button>
     </div>
   )
@@ -252,7 +252,7 @@ export function AttachmentDeleteButton({ onDelete }: { onDelete: () => void }) {
       )}
       onClick={onDelete}
     >
-      <Trash2Icon className="text-muted-foreground" />
+      <TrashIcon className="text-muted-foreground" />
     </Button>
   )
 }

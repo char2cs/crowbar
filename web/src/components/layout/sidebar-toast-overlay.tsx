@@ -1,21 +1,21 @@
 import { Toast } from '@base-ui/react/toast'
 import {
-  CircleAlertIcon,
-  CircleCheckIcon,
+  CheckCircleIcon,
+  CircleNotchIcon,
   InfoIcon,
-  LoaderCircleIcon,
-  TriangleAlertIcon,
-  X,
-} from 'lucide-react'
+  WarningCircleIcon,
+  WarningIcon,
+  XIcon,
+} from '@phosphor-icons/react'
 import { buttonVariants } from '@/components/ui/button-variants'
 import { toastManager } from '@/lib/toast-manager'
 
 const TOAST_ICONS = {
-  error: CircleAlertIcon,
+  error: WarningCircleIcon,
   info: InfoIcon,
-  loading: LoaderCircleIcon,
-  success: CircleCheckIcon,
-  warning: TriangleAlertIcon,
+  loading: CircleNotchIcon,
+  success: CheckCircleIcon,
+  warning: WarningIcon,
 } as const
 
 interface SidebarToastOverlayProps {
@@ -117,7 +117,7 @@ function SidebarToastItem({
         )}
       </Toast.Content>
       <Toast.Close className="absolute top-3 right-3 rounded p-0.5 opacity-50 hover:opacity-100 hover:bg-muted transition-opacity">
-        <X className="h-3.5 w-3.5" />
+        <XIcon className="h-3.5 w-3.5" />
       </Toast.Close>
     </Toast.Root>
   )

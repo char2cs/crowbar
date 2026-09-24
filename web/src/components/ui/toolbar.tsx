@@ -5,7 +5,7 @@ import * as React from 'react'
 import * as ToolbarPrimitive from '@radix-ui/react-toolbar'
 import * as TooltipPrimitive from '@radix-ui/react-tooltip'
 import { type VariantProps, cva } from 'class-variance-authority'
-import { ChevronDown } from 'lucide-react'
+import { CaretDownIcon } from '@phosphor-icons/react'
 
 import {
   DropdownMenuLabel,
@@ -95,7 +95,7 @@ export const ToolbarButton = withTooltip(function ToolbarButton({
           <>
             <div className="flex flex-1 items-center gap-2 whitespace-nowrap">{children}</div>
             <div>
-              <ChevronDown className="size-3.5 text-muted-foreground" data-icon />
+              <CaretDownIcon className="size-3.5 text-muted-foreground" data-icon />
             </div>
           </>
         ) : (

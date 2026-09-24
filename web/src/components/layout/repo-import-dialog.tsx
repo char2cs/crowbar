@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { Lock, Check } from 'lucide-react'
+import { CheckIcon, LockIcon } from '@phosphor-icons/react'
 import {
   Dialog,
   DialogPopup,
@@ -269,7 +269,7 @@ function ImportRow({
   if (branch.isProtected) {
     return (
       <div className="flex h-full items-center gap-2 px-1 opacity-40">
-        <Lock className="size-3 shrink-0" />
+        <LockIcon className="size-3 shrink-0" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{branch.name}</span>
       </div>
     )
@@ -277,7 +277,7 @@ function ImportRow({
   if (branch.hasWorkspace) {
     return (
       <div className="flex h-full items-center gap-2 px-1 opacity-40">
-        <Check className="size-3 shrink-0 text-green-500" />
+        <CheckIcon className="size-3 shrink-0 text-green-500" />
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{branch.name}</span>
       </div>
     )
@@ -305,7 +305,7 @@ function ImportRow({
           onClick={() => onToggleLock(branch.name)}
           className={`shrink-0 rounded p-0.5 ${locked ? 'text-foreground' : 'text-muted-foreground/40 hover:text-foreground'}`}
         >
-          <Lock className="size-3" />
+          <LockIcon className="size-3" />
         </button>
       )}
     </div>

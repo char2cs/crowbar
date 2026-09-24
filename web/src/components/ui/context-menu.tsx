@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRightIcon } from 'lucide-react'
+import { CaretRightIcon } from '@phosphor-icons/react'
 
 import { cn } from '@/lib/utils'
 import { isTauri, showNativeContextMenu } from '@/lib/crowbar-bridge'
@@ -64,7 +64,7 @@ function renderMenuItems(items: ContextMenuItem[], onCloseRef: React.RefObject<(
             className={cn(menuItemClass, item.className)}
           >
             <span className="flex-1">{item.label}</span>
-            <ChevronRightIcon className="ml-auto size-4 opacity-60" />
+            <CaretRightIcon className="ml-auto size-4 opacity-60" />
           </MenuPrimitive.SubmenuTrigger>
           <MenuPrimitive.Portal>
             <MenuPrimitive.Positioner

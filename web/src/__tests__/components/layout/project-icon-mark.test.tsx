@@ -21,7 +21,7 @@ describe('ProjectIconMark', () => {
   it('draws the Library default when the project has no icon', () => {
     const { container } = render(<ProjectIconMark project={project} size="lg" />)
 
-    expect(container.querySelector('.lucide-library')).not.toBeNull()
+    expect(container.querySelector('svg')).not.toBeNull()
     expect(container.querySelector('img')).toBeNull()
   })
 
@@ -38,7 +38,7 @@ describe('ProjectIconMark', () => {
 
     expect(container.textContent).toBe('🚀')
     expect(container.querySelector('img')).toBeNull()
-    expect(container.querySelector('.lucide-library')).toBeNull()
+    expect(container.querySelector('svg')).toBeNull()
   })
 
   it('resolves the image URL for the browser', () => {
@@ -102,7 +102,7 @@ describe('EditableProjectIcon', () => {
 
   it('draws the same mark ProjectIconMark draws, read-only surfaces included', () => {
     const { container } = render(<EditableProjectIcon project={project} size="lg" />)
-    expect(container.querySelector('.lucide-library')).not.toBeNull()
+    expect(container.querySelector('svg')).not.toBeNull()
   })
 
   it('clicking the mark opens the picker, without folding the header it sits in', async () => {
