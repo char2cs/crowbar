@@ -438,10 +438,13 @@ func (r *eventSourced) Interrupt(
 	})
 }
 
+// ResolveInterruption uses sendWait: a Stop records its divider and returns,
+// and the read that follows must see it. Events project in order per chat, so
+// the Interrupt this resolves is readable too.
 func (r *eventSourced) ResolveInterruption(
 	ctx context.Context, chatID, id, kind, detail string, now time.Time,
 ) error {
-	return r.send(ctx, commands.ResolveInterruption{
+	return r.sendWait(ctx, commands.ResolveInterruption{
 		ChatID: chatID, ID: id, Kind: kind, Detail: detail, Now: now,
 	})
 }

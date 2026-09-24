@@ -21,6 +21,10 @@ func (t *Turns) IngestHook(
 	canonicalEvent string,
 	rawPayload []byte,
 ) error {
+	// The api channel's ingest holds the runner's hook gate exactly as a relayed
+	// delivery does: a Stop reads turn state and records its divider under it.
+	ctx, release := t.holdHookGate(ctx, runnerID)
+	defer release()
 	// Check the startup barrier BEFORE the repository. Once recordRunner commits,
 	// the row is visible, but the barrier deliberately remains installed through
 	// ordered replay; consulting only the repository here would let a later hook

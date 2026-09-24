@@ -58,13 +58,17 @@ func (s stubRunnerStoreForAttach) Exit(
 	return s.runner, nil
 }
 
-// stubTurnsForAttach answers only ChatWorking.
+// stubTurnsForAttach answers only ChatWorking and TurnOpen.
 type stubTurnsForAttach struct {
 	noopTurns
 	working bool
 }
 
 func (s stubTurnsForAttach) ChatWorking(context.Context, string) (bool, error) {
+	return s.working, nil
+}
+
+func (s stubTurnsForAttach) TurnOpen(context.Context, string, string) (bool, error) {
 	return s.working, nil
 }
 

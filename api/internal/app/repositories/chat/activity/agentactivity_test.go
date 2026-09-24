@@ -823,6 +823,24 @@ func TestInterrupt_MidTurnIsABlockingStateUntilTheTurnEnds(t *testing.T) {
 	assert.Equal(t, "t1", blocked[0].TurnID, "and it belongs to the turn it blocked")
 }
 
+// A resolved interruption is readable the moment ResolveInterruption returns:
+// Stop records its divider and returns, and the next read must show it.
+func TestRegression_AResolvedInterruptionIsReadableBeforeResolveReturns(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, f.repo.OpenTurn(f.ctx, activity.TurnInput{
+		ChatID: chat, TurnID: "t1", ProviderID: "claude", Now: t0,
+	}))
+
+	require.NoError(t, f.repo.Interrupt(f.ctx, chat, "i1", "stopped", "", t0))
+	require.NoError(t, f.repo.ResolveInterruption(f.ctx, chat, "i1", "stopped", "", t0))
+	// Deliberately no f.wait(): the caller reads back with no wait of its own.
+
+	got, err := f.repo.Interruptions(f.ctx, chat)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.NotNil(t, got[0].ResolvedAt)
+}
+
 func TestInterrupt_OutsideATurnDoesNotOpenOne(t *testing.T) {
 	f := newFixture(t)
 
