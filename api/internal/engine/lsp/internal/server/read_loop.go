@@ -28,16 +28,30 @@ func (s *server) readLoop(
 func (s *server) dispatch(
 	payload []byte,
 ) {
-	var resp protocol.Response
-	if err := json.Unmarshal(payload, &resp); err != nil {
+	// The id is read raw: a request FROM the server (id and method) may carry a
+	// string id, while responses to our requests always carry our int ids.
+	var msg struct {
+		ID     json.RawMessage    `json:"id"`
+		Method string             `json:"method"`
+		Params json.RawMessage    `json:"params"`
+		Result json.RawMessage    `json:"result"`
+		Error  *protocol.RPCError `json:"error"`
+	}
+	if err := json.Unmarshal(payload, &msg); err != nil {
 		return
 	}
-	if resp.ID != nil {
-		s.deliver(*resp.ID, resp)
-		return
-	}
-	if resp.Method == methodPublishDiagnostics {
-		s.handleDiagnostics(resp.Params)
+	hasID := len(msg.ID) > 0 && string(msg.ID) != "null"
+	switch {
+	case hasID && msg.Method != "":
+		s.answer(msg.ID, msg.Method, msg.Params)
+	case hasID:
+		var id int
+		if err := json.Unmarshal(msg.ID, &id); err != nil {
+			return
+		}
+		s.deliver(id, protocol.Response{JSONRPC: "2.0", ID: &id, Result: msg.Result, Error: msg.Error})
+	case msg.Method == methodPublishDiagnostics:
+		s.handleDiagnostics(msg.Params)
 	}
 }
 

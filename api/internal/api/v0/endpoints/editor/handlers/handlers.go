@@ -94,6 +94,28 @@ type LSPEngine interface {
 		filePath string,
 		lens json.RawMessage,
 	) (json.RawMessage, error)
+	SemanticTokens(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		previousResultID string,
+	) (json.RawMessage, error)
+	SemanticTokensRange(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		rng domlsp.Range,
+	) (json.RawMessage, error)
+	ExecuteCommand(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		command string,
+		arguments json.RawMessage,
+	) (domlsp.CommandResult, error)
 	Formatting(
 		ctx context.Context,
 		wsID string,

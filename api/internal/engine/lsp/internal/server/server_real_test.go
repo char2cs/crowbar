@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 )
 
 // TestRealGopls is a build-tagged smoke test that spawns the real gopls binary
@@ -33,7 +35,7 @@ func TestRealGopls(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25_000_000_000) // 25 s
 	t.Cleanup(cancel)
 
-	srv, err := New("gopls", []string{}, dir)
+	srv, err := New(ctx, "gopls", []string{}, dir, map[string]any{"semanticTokens": true})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Close() })
 
@@ -49,6 +51,48 @@ func TestRealGopls(t *testing.T) {
 	names := symbolNames(symbols)
 	assert.Contains(t, names, "Hello", "expected Hello function in symbols")
 	assert.Contains(t, names, "Greeting", "expected Greeting type in symbols")
+}
+
+// TestRealGopls_SemanticTokens runs the real handshake (our capabilities and
+// gopls's initializationOptions) and checks gopls then serves semantic tokens
+// that remap into the canonical legend.
+func TestRealGopls_SemanticTokens(t *testing.T) {
+	if _, err := exec.LookPath("gopls"); err != nil {
+		t.Skipf("gopls not found in PATH: %v", err)
+	}
+	dir := scaffoldGoModule(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 25_000_000_000) // 25 s
+	t.Cleanup(cancel)
+
+	srv, err := New(ctx, "gopls", []string{}, dir, map[string]any{"semanticTokens": true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Close() })
+	require.NoError(t, srv.Initialize(ctx, dir))
+
+	support := srv.SemanticTokens()
+	require.True(t, support.Full(), "gopls should advertise full semantic tokens")
+
+	fileURI := fmt.Sprintf("file://%s", filepath.Join(dir, "main.go"))
+	notifyDidOpen(t, ctx, srv, fileURI, mainGoSource())
+	raw, err := srv.Request(ctx, "textDocument/semanticTokens/full",
+		map[string]any{"textDocument": map[string]any{"uri": fileURI}})
+	require.NoError(t, err)
+	remapped, err := support.Remap(raw)
+	require.NoError(t, err)
+
+	var tokens struct {
+		Data []uint32 `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(remapped, &tokens))
+	require.NotEmpty(t, tokens.Data)
+	types := map[string]bool{}
+	for i := 3; i < len(tokens.Data); i += 5 {
+		if int(tokens.Data[i]) < len(semtok.TokenTypes) {
+			types[semtok.TokenTypes[tokens.Data[i]]] = true
+		}
+	}
+	assert.True(t, types["function"], "Hello is a function token: %v", types)
+	assert.True(t, types["type"], "Greeting is a type token: %v", types)
 }
 
 // scaffoldGoModule creates a temp directory with a minimal Go module and a

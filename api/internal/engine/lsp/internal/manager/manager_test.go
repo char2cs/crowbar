@@ -14,6 +14,7 @@ import (
 
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"
+	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
 
@@ -91,6 +92,17 @@ func (f *fakeServer) Replay(
 	_ context.Context,
 ) error {
 	return nil
+}
+
+func (f *fakeServer) SemanticTokens() semtok.Support {
+	return semtok.Support{}
+}
+
+func (f *fakeServer) ExecuteCommand(
+	_ context.Context,
+	_ any,
+) (json.RawMessage, []json.RawMessage, error) {
+	return nil, nil, nil
 }
 
 func (f *fakeServer) Close() error {

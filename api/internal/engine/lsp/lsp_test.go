@@ -15,6 +15,7 @@ import (
 	domlsp "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/manager"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/registry"
+	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/server"
 )
 
@@ -32,6 +33,13 @@ type fakeServer struct {
 	closedN  int
 	replayN  int
 	docs     *server.OpenDocs
+	// byMethod answers a Request for that method instead of result.
+	byMethod map[string]json.RawMessage
+	// errByMethod fails a Request for that method.
+	errByMethod map[string]error
+	semTok      semtok.Support
+	// cmdEdits are the applyEdit requests ExecuteCommand reports.
+	cmdEdits []json.RawMessage
 }
 
 type call struct {
@@ -53,7 +61,25 @@ func (f *fakeServer) Request(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reqCalls = append(f.reqCalls, call{method: method, params: params})
+	if err, ok := f.errByMethod[method]; ok {
+		return nil, err
+	}
+	if raw, ok := f.byMethod[method]; ok {
+		return raw, f.reqErr
+	}
 	return f.result, f.reqErr
+}
+
+func (f *fakeServer) SemanticTokens() semtok.Support {
+	return f.semTok
+}
+
+func (f *fakeServer) ExecuteCommand(
+	ctx context.Context,
+	params any,
+) (json.RawMessage, []json.RawMessage, error) {
+	result, err := f.Request(ctx, "workspace/executeCommand", params)
+	return result, f.cmdEdits, err
 }
 
 func (f *fakeServer) Notify(
@@ -200,6 +226,14 @@ func buildCountingEngine(
 
 // foundLookPath reports every server binary as installed so engine tests
 // exercise the spawn path without depending on real binaries on PATH.
+// as asserts v's dynamic type, failing the test instead of panicking.
+func as[T any](t *testing.T, v any) T {
+	t.Helper()
+	out, ok := v.(T)
+	require.Truef(t, ok, "%T is not %T", v, out)
+	return out
+}
+
 func foundLookPath() manager.Option {
 	return manager.WithLookPath(func(command string) (string, error) {
 		return "/usr/bin/" + command, nil
@@ -311,9 +345,9 @@ func TestCodeAction_ForwardsDiagnosticsAndRelativizesEdits(t *testing.T) {
 	got, err := e.CodeAction(context.Background(), ws, tree, goF, domlsp.Range{}, diags)
 	require.NoError(t, err)
 
-	params := fake.requests()[0].params.(map[string]any)
-	ctxParam := params["context"].(map[string]any)
-	assert.JSONEq(t, string(diags), string(ctxParam["diagnostics"].(json.RawMessage)))
+	params := as[map[string]any](t, fake.requests()[0].params)
+	ctxParam := as[map[string]any](t, params["context"])
+	assert.JSONEq(t, string(diags), string(as[json.RawMessage](t, ctxParam["diagnostics"])))
 
 	assert.JSONEq(t, `[
 		{"title":"Fix","kind":"quickfix","edit":{"changes":{"pkg/a.go":[
@@ -346,7 +380,7 @@ func TestNewFeatureRequests_ForwardTheirMethods(t *testing.T) {
 	assert.Equal(t, "textDocument/codeLens", reqs[1].method)
 	assert.Equal(t, "codeLens/resolve", reqs[2].method)
 	assert.Equal(t, "textDocument/formatting", reqs[3].method)
-	opts := reqs[3].params.(map[string]any)["options"].(map[string]any)
+	opts := as[map[string]any](t, as[map[string]any](t, reqs[3].params)["options"])
 	assert.Equal(t, 4, opts["tabSize"])
 	assert.Equal(t, true, opts["insertSpaces"])
 }
@@ -359,7 +393,7 @@ func TestDidChange_VersionsIncreaseAndResetOnReopen(t *testing.T) {
 	ctx := context.Background()
 
 	version := func(c call) any {
-		return c.params.(map[string]any)["textDocument"].(map[string]any)["version"]
+		return as[map[string]any](t, as[map[string]any](t, c.params)["textDocument"])["version"]
 	}
 
 	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "a"))

@@ -117,6 +117,37 @@ type Engine interface {
 		filePath string,
 		lens json.RawMessage,
 	) (json.RawMessage, error)
+	// SemanticTokens returns the file's semantic tokens in the canonical
+	// legend (semtok): a delta against previousResultID when it is set and the
+	// server supports deltas, else the full set. Nil when no server serves the
+	// file or it offers no full semantic tokens.
+	SemanticTokens(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		previousResultID string,
+	) (json.RawMessage, error)
+	// SemanticTokensRange returns the semantic tokens of rng in the canonical
+	// legend, or nil when no server offers range semantic tokens.
+	SemanticTokensRange(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		rng domlsp.Range,
+	) (json.RawMessage, error)
+	// ExecuteCommand runs a command a server issued (on a code lens or code
+	// action) and returns its result plus the workspace edits the server
+	// applied through the editor while it ran, workspace-relative.
+	ExecuteCommand(
+		ctx context.Context,
+		wsID string,
+		worktreePath string,
+		filePath string,
+		command string,
+		arguments json.RawMessage,
+	) (domlsp.CommandResult, error)
 	// Formatting returns the raw textDocument/formatting result (TextEdit[]).
 	Formatting(
 		ctx context.Context,
@@ -319,11 +350,11 @@ func (e *engine) forgetVersion(
 }
 
 func spawnProcess(
-	_ context.Context,
+	ctx context.Context,
 	spec registry.ServerSpec,
 	worktreePath string,
 ) (server.Server, error) {
-	srv, err := server.New(spec.Command, spec.Args, worktreePath)
+	srv, err := server.New(ctx, spec.Command, spec.Args, worktreePath, spec.InitializationOptions)
 	if err != nil {
 		return nil, fmt.Errorf("lsp: spawn %s: %w", spec.Command, err)
 	}
@@ -534,23 +565,40 @@ func (e *engine) request(
 	method string,
 	params any,
 ) (json.RawMessage, bool, error) {
-	srv, err := e.mgr.ServerForFile(ctx, wsID, worktreePath, filePath)
-	if errors.Is(err, manager.ErrNoServer) {
-		return nil, false, nil
-	}
+	var raw json.RawMessage
+	ok, err := e.serve(ctx, wsID, worktreePath, filePath, func(reqCtx context.Context, srv server.Server) error {
+		var err error
+		raw, err = srv.Request(reqCtx, method, params)
+		return err
+	})
 	if err != nil {
 		return nil, false, fmt.Errorf("lsp: %s: %w", method, err)
+	}
+	return raw, ok, nil
+}
+
+// serve runs fn against the file's language server with the request timeout,
+// under the same net-zero acquire/release as request. It reports false (and
+// never calls fn) when no server serves the file.
+func (e *engine) serve(
+	ctx context.Context,
+	wsID string,
+	worktreePath string,
+	filePath string,
+	fn func(reqCtx context.Context, srv server.Server) error,
+) (bool, error) {
+	srv, err := e.mgr.ServerForFile(ctx, wsID, worktreePath, filePath)
+	if errors.Is(err, manager.ErrNoServer) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
 	}
 	defer e.releaseFile(ctx, wsID, filePath)
 
 	reqCtx, cancel := context.WithTimeout(ctx, e.reqTimeout)
 	defer cancel()
-
-	raw, err := srv.Request(reqCtx, method, params)
-	if err != nil {
-		return nil, false, fmt.Errorf("lsp: %s: %w", method, err)
-	}
-	return raw, true, nil
+	return true, fn(reqCtx, srv)
 }
 
 // releaseFile drops one refcount for the file's language server, resolving the

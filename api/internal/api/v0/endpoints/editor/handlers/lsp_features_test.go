@@ -54,6 +54,53 @@ func TestFormatting_ForwardsOptions(t *testing.T) {
 	assert.Equal(t, domlsp.FormattingOptions{TabSize: 2, InsertSpaces: true}, lsp.formatOptions)
 }
 
+func TestSemanticTokens_ForwardsThePreviousResultID(t *testing.T) {
+	lsp := &fakeLSP{semanticTokens: json.RawMessage(`{"resultId":"2","edits":[]}`)}
+	r := newRouter(lsp, &fakeGit{})
+
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/semanticTokens", map[string]any{
+		"path": "main.go", "previousResultId": "1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "1", lsp.gotResultID)
+	assert.JSONEq(t, `{"resultId":"2","edits":[]}`, string(decode(t, rec).Data))
+
+	rec = do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/semanticTokens", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSemanticTokensRange_ForwardsTheRange(t *testing.T) {
+	lsp := &fakeLSP{}
+	r := newRouter(lsp, &fakeGit{})
+
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/semanticTokensRange", map[string]any{
+		"path":  "main.go",
+		"range": map[string]any{"start": map[string]int{"line": 4}, "end": map[string]int{"line": 60}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 60, lsp.gotRange.End.Line)
+	assert.JSONEq(t, `null`, string(decode(t, rec).Data))
+}
+
+func TestExecuteCommand_ReturnsTheEditsToApply(t *testing.T) {
+	lsp := &fakeLSP{command: domlsp.CommandResult{
+		Result: json.RawMessage(`null`),
+		Edits:  []json.RawMessage{json.RawMessage(`{"changes":{"go.mod":[]}}`)},
+	}}
+	r := newRouter(lsp, &fakeGit{})
+
+	rec := do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/executeCommand", map[string]any{
+		"path": "main.go", "command": "gopls.tidy", "arguments": []any{map[string]any{"x": 1}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "gopls.tidy", lsp.gotCommand)
+	assert.JSONEq(t, `[{"x":1}]`, string(lsp.gotArguments))
+	assert.JSONEq(t, `{"result":null,"edits":[{"changes":{"go.mod":[]}}]}`, string(decode(t, rec).Data))
+
+	rec = do(t, r, http.MethodPost, "/v0/chats/ws1/lsp/executeCommand", map[string]any{"path": "main.go"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestCodeAction_ForwardsDiagnostics(t *testing.T) {
 	lsp := &fakeLSP{codeAction: json.RawMessage(`[]`)}
 	r := newRouter(lsp, &fakeGit{})

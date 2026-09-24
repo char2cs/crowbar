@@ -35,6 +35,16 @@ type Response struct {
 	Error   *RPCError       `json:"error,omitempty"`
 }
 
+// Reply answers a request the server sent to the client. ID echoes the
+// request's id verbatim (JSON-RPC allows numbers or strings); exactly one of
+// Result (at least `null`) and Error is set.
+type Reply struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *RPCError       `json:"error,omitempty"`
+}
+
 // RPCError is a JSON-RPC error payload.
 type RPCError struct {
 	Code    int    `json:"code"`

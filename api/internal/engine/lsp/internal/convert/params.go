@@ -87,6 +87,44 @@ func DocumentSymbolParams(
 	}
 }
 
+// SemanticTokensDeltaParams builds the textDocument/semanticTokens/full/delta
+// parameter object: edits against the result previousResultID names.
+func SemanticTokensDeltaParams(
+	path string,
+	previousResultID string,
+) map[string]any {
+	return map[string]any{
+		"textDocument":     textDocument(path),
+		"previousResultId": previousResultID,
+	}
+}
+
+// SemanticTokensRangeParams builds the textDocument/semanticTokens/range
+// parameter object.
+func SemanticTokensRangeParams(
+	path string,
+	rng lsp.Range,
+) map[string]any {
+	return map[string]any{
+		"textDocument": textDocument(path),
+		"range":        rangeObject(rng),
+	}
+}
+
+// ExecuteCommandParams builds the workspace/executeCommand parameter object.
+// arguments is the command's raw argument array as the server issued it, or
+// nil for none.
+func ExecuteCommandParams(
+	command string,
+	arguments json.RawMessage,
+) map[string]any {
+	params := map[string]any{"command": command}
+	if len(arguments) > 0 && string(arguments) != "null" {
+		params["arguments"] = arguments
+	}
+	return params
+}
+
 func textDocument(
 	path string,
 ) map[string]any {
