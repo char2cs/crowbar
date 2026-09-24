@@ -182,7 +182,7 @@ func (u *projectDelete) removeRepoDir(
 		return
 	}
 	dir := worktreepath.RepoDir(home, repo.ProjectID, repo.ID)
-	if err := removeTreeKeeping(dir, isLiveCheckout); err != nil {
+	if err := removeTreeKeeping(dir, worktreepath.IsLiveCheckout); err != nil {
 		slog.ErrorContext(ctx, "delete repo: remove entity dir", "repo", repo.ID, "dir", dir, "err", err)
 	}
 }
@@ -270,7 +270,7 @@ func (u *projectDelete) removeProjectDir(
 		foreign[path] = true
 	}
 	keep := func(path string) bool {
-		return foreign[path] || isLiveCheckout(path)
+		return foreign[path] || worktreepath.IsLiveCheckout(path)
 	}
 	if err := removeTreeKeeping(dir, keep); err != nil {
 		slog.ErrorContext(ctx, "project delete: remove project dir; records already gone, part of the directory left on disk",
@@ -331,13 +331,6 @@ func removeTreeKeeping(
 func isNotEmpty(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	return err == nil && len(entries) > 0
-}
-
-// isLiveCheckout reports whether dir is a git checkout: it holds a `.git`
-// entry (a file, for a linked worktree).
-func isLiveCheckout(dir string) bool {
-	_, err := os.Lstat(filepath.Join(dir, ".git"))
-	return err == nil
 }
 
 func (u *projectDelete) projectRepos(

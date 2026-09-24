@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	gitengine "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
@@ -65,7 +66,7 @@ func Resolve(
 			continue
 		}
 		switch {
-		case samePath(e.Path, repoPath):
+		case worktreepath.SamePath(e.Path, repoPath):
 			return Outcome{Kind: HeldByHome, HeldByPath: e.Path}, nil
 		case isUnder(e.Path, crowbarHome):
 			return Outcome{Kind: HeldByManaged, HeldByPath: e.Path}, nil
@@ -76,26 +77,12 @@ func Resolve(
 	return Outcome{Kind: Free}, nil
 }
 
-// samePath reports whether two paths refer to the same location, resolving
-// symlinks first (git worktree list emits fully-resolved paths, e.g. macOS
-// /var -> /private/var), matching the codebase's other holder checks.
-func samePath(a, b string) bool {
-	return resolvePath(a) == resolvePath(b)
-}
-
-func resolvePath(p string) string {
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		return resolved
-	}
-	return filepath.Clean(p)
-}
-
 // isUnder reports whether path is at or below root (symlink-resolved).
 func isUnder(path, root string) bool {
 	if root == "" {
 		return false
 	}
-	rp := resolvePath(path)
-	rr := resolvePath(root)
+	rp := worktreepath.ResolvePath(path)
+	rr := worktreepath.ResolvePath(root)
 	return rp == rr || strings.HasPrefix(rp, rr+string(filepath.Separator))
 }

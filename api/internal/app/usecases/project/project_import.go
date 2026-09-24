@@ -642,7 +642,7 @@ func (u *projectImport) CheckRepoImportable(
 		return nil
 	}
 	for _, r := range repos {
-		if r.ProjectID == projectID || !samePath(r.Path, repoPath) {
+		if r.ProjectID == projectID || !worktreepath.SamePath(r.Path, repoPath) {
 			continue
 		}
 		owner := u.projectName(ctx, r.ProjectID)
@@ -681,7 +681,7 @@ func (u *projectImport) existingRepo(
 		return domain.Repository{}, false
 	}
 	for _, r := range repos {
-		if r.ProjectID == projectID && samePath(r.Path, repoPath) {
+		if r.ProjectID == projectID && worktreepath.SamePath(r.Path, repoPath) {
 			return r, true
 		}
 	}
@@ -695,7 +695,7 @@ func mainWorktreeBranch(
 	repoPath string,
 ) string {
 	for _, wt := range worktrees {
-		if samePath(wt.Path, repoPath) {
+		if worktreepath.SamePath(wt.Path, repoPath) {
 			return wt.Branch
 		}
 	}
@@ -767,7 +767,7 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	// <home>/projects/<project>/<slug>/<branch> (spec §3.9).
 	wsID := uuid.NewString()
 	slug := worktreepath.RemoteSlug(repo)
-	siblings, err := siblingWorktreePaths(crowbarHome, repo.ProjectID, slug)
+	siblings, err := worktreepath.SiblingRoots(crowbarHome, repo.ProjectID, slug)
 	if err != nil {
 		return fmt.Errorf("scan sibling worktrees for %q: %w", branch, err)
 	}
@@ -911,25 +911,6 @@ func (u *projectImport) addProtectedWorktreeFromOrigin(
 	return sha, nil
 }
 
-// samePath reports whether two filesystem paths refer to the same location,
-// resolving symlinks first so a repo imported under a symlinked root still
-// matches the path git reports for its main worktree. This matters because git
-// worktree list emits the fully-resolved path (e.g. macOS /var -> /private/var,
-// or a symlinked home / network mount), while repo.Path is the path as imported;
-// a naive string compare would then never flag the main worktree as default.
-// Falls back to a lexical clean when a path cannot be resolved (e.g. it no
-// longer exists on disk).
-func samePath(a, b string) bool {
-	return resolvePath(a) == resolvePath(b)
-}
-
-func resolvePath(p string) string {
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		return resolved
-	}
-	return filepath.Clean(p)
-}
-
 // createHomeWorkspace persists the project-level home workspace rooted at the
 // project's own path. It has no repo, branch, or git operations.
 func (u *projectImport) createHomeWorkspace(ctx context.Context, project domain.Project) error {
@@ -966,27 +947,4 @@ func gitRemoteURL(repoPath string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
-}
-
-// siblingWorktreePaths lists the existing branch-leaf worktrees under a repo's
-// derived slug directory, so a managed-worktree create can reject a
-// case-insensitive path clash (spec §3.9). A missing slug directory yields none.
-func siblingWorktreePaths(
-	crowbarHome string,
-	projectID string,
-	slug string,
-) ([]string, error) {
-	parent := filepath.Join(crowbarHome, "projects", projectID, slug)
-	entries, err := os.ReadDir(parent)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		paths = append(paths, filepath.Join(parent, entry.Name()))
-	}
-	return paths, nil
 }

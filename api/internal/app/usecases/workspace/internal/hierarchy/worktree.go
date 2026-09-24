@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -505,7 +503,7 @@ func (u *hierarchyUsecase) deriveWorktreePath(
 	if err != nil {
 		return "", fmt.Errorf("resolve worktree slug: %w", err)
 	}
-	siblings, err := siblingWorktreePaths(home, projectID, slug)
+	siblings, err := worktreepath.SiblingRoots(home, projectID, slug)
 	if err != nil {
 		return "", fmt.Errorf("scan sibling worktrees: %w", err)
 	}
@@ -549,29 +547,6 @@ func (u *hierarchyUsecase) resolveSlug(
 		repo.RemoteURL = remoteURL
 	}
 	return worktreepath.RemoteSlug(*repo), nil
-}
-
-// siblingWorktreePaths lists the existing branch-leaf worktrees under a repo's
-// derived slug directory, so a create can reject a case-insensitive path clash.
-// A not-yet-created slug directory yields no siblings.
-func siblingWorktreePaths(
-	home string,
-	projectID string,
-	slug string,
-) ([]string, error) {
-	parent := filepath.Join(home, "projects", projectID, slug)
-	entries, err := os.ReadDir(parent)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		paths = append(paths, filepath.Join(parent, entry.Name()))
-	}
-	return paths, nil
 }
 
 // addWorktree applies the spec-§3 checkout-vs-create decision and returns the

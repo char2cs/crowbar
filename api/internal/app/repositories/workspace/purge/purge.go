@@ -7,6 +7,7 @@ package purge
 
 import (
 	"fmt"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -30,7 +31,7 @@ func WorktreeRemover(
 	crowbarHome string,
 ) func(path string) error {
 	return func(path string) error {
-		if !managedWorktreePath(path, crowbarHome) {
+		if !worktreepath.UnderHome(path, crowbarHome) {
 			if path != "" {
 				slog.Warn("purge: refusing to rm worktree outside the crowbar home",
 					"path", path, "home", crowbarHome)
@@ -44,7 +45,7 @@ func WorktreeRemover(
 		// still STRICTLY under home — i.e. path had an intermediate segment below
 		// home — is ever removed.
 		root := filepath.Dir(path)
-		if !managedWorktreePath(root, crowbarHome) {
+		if !worktreepath.UnderHome(root, crowbarHome) {
 			slog.Warn("purge: refusing to rm workspace root at or above the crowbar home",
 				"root", root, "path", path, "home", crowbarHome)
 			return nil
@@ -97,7 +98,7 @@ func removeWorkspaceRoot(
 ) error {
 	for _, name := range workspaceRootOwned {
 		entry := filepath.Join(root, name)
-		if name == "worktree" && isLiveCheckout(entry) {
+		if name == "worktree" && worktreepath.IsLiveCheckout(entry) {
 			slog.Warn("purge: keeping a worktree git still has registered", "worktree", entry)
 			continue
 		}
@@ -122,13 +123,6 @@ func removeWorkspaceRoot(
 	return nil
 }
 
-// isLiveCheckout reports whether dir is a git checkout: it holds a `.git`
-// entry (a file, for a linked worktree).
-func isLiveCheckout(dir string) bool {
-	_, err := os.Lstat(filepath.Join(dir, ".git"))
-	return err == nil
-}
-
 // pruneEmptiedWorkspaceParents removes the directories a workspace-root removal
 // emptied, walking up from the root's parent.
 //
@@ -146,7 +140,7 @@ func pruneEmptiedWorkspaceParents(
 	if !ok {
 		return
 	}
-	for dir := filepath.Dir(root); managedWorktreePath(dir, floor); dir = filepath.Dir(dir) {
+	for dir := filepath.Dir(root); worktreepath.UnderHome(dir, floor); dir = filepath.Dir(dir) {
 		if err := os.Remove(dir); err != nil {
 			return
 		}
@@ -169,23 +163,6 @@ func projectDirOf(
 		return "", false
 	}
 	return filepath.Join(crowbarHome, parts[0], parts[1]), true
-}
-
-// managedWorktreePath reports whether path is strictly under the crowbar home: a
-// non-empty path with home as a proper directory-boundary prefix. Adopted
-// checkouts (repo.Path / project.Path) live outside the home and are excluded, so
-// a delete/sweep never rm's the user's real repository; and because the check is
-// strict (home itself is not "under" home), applying it to the removal ROOT also
-// blocks the degenerate case where the root would be the home directory itself
-// (spec §3.9; the locked workspace-model law).
-func managedWorktreePath(
-	path string,
-	crowbarHome string,
-) bool {
-	if path == "" || crowbarHome == "" {
-		return false
-	}
-	return strings.HasPrefix(path, strings.TrimRight(crowbarHome, "/")+"/")
 }
 
 // isWorkspaceWorktree reports whether a path is a worktree whose PARENT is a
