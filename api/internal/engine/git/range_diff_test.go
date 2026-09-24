@@ -28,9 +28,9 @@ func TestRangeDiff_HappyPath(t *testing.T) {
 	require.Len(t, result.Files, 1)
 	assert.Equal(t, "feature.go", result.Files[0].FilePath)
 	assert.True(t, result.Files[0].IsNew)
-	assert.Greater(t, result.Files[0].Additions, 0)
+	assert.Positive(t, result.Files[0].Additions)
 	assert.Equal(t, 1, result.TotalFiles)
-	assert.Greater(t, result.TotalAdditions, 0)
+	assert.Positive(t, result.TotalAdditions)
 }
 
 func TestRangeDiff_ErrorBadBase(t *testing.T) {

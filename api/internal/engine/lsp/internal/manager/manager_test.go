@@ -280,7 +280,7 @@ func TestNoRegistrySpec_ReturnsErrNoServer(
 
 	_, err := m.ServerForFile(ctx, "ws1", "/repo", "file.unknownext")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNoServer))
+	assert.ErrorIs(t, err, ErrNoServer)
 	assert.Equal(t, int32(0), count.Load(), "must not spawn for unknown extension")
 }
 

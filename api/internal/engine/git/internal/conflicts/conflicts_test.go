@@ -141,7 +141,7 @@ func TestParseFile(
 
 	h := hunks[0]
 	assert.NotEmpty(t, h.ID)
-	assert.Greater(t, h.StartLine, 0)
+	assert.Positive(t, h.StartLine)
 	assert.GreaterOrEqual(t, h.EndLine, h.StartLine)
 	assert.Equal(t, gitdomain.ConflictResolutionUnresolved, h.Resolution)
 

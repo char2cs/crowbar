@@ -47,7 +47,7 @@ func TestGit_SubcommandNameIgnoresFlags(t *testing.T) {
 	_ = exec.Git(context.Background(), dir, "-c", "core.quotepath=false", "status")
 
 	for _, s := range perf.Snapshot() {
-		assert.False(t, strings.Contains(s.Name, "-c"), "sample name leaked a flag: %s", s.Name)
+		assert.NotContains(t, s.Name, "-c", "sample name leaked a flag: %s", s.Name)
 	}
 }
 

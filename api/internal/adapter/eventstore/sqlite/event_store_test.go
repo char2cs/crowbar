@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,7 +74,7 @@ func TestEventStore_Append_VersionConflict(t *testing.T) {
 	require.NoError(t, s.Append(ctx, "agg-1", 1, []byte("first")))
 	err := s.Append(ctx, "agg-1", 1, []byte("dup"))
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, models.ErrPipelineFailed))
+	assert.ErrorIs(t, err, models.ErrPipelineFailed)
 }
 
 func TestEventStore_ReadFrom_Offset(t *testing.T) {
