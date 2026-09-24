@@ -21,6 +21,11 @@ type Hook struct {
 	RawPayload     []byte
 	DeliveryID     string
 	DeliveryHash   string
+	// API marks a hook that arrived over the api channel: its payload is
+	// api-shaped, and replay must read it as such. AskDeliveryID is the
+	// answer-desk slot an api ask was filed under.
+	API           bool
+	AskDeliveryID string
 }
 
 type entry struct {
@@ -65,6 +70,22 @@ func (p *Hooks) Enqueue(
 		Provider:       provider,
 		CanonicalEvent: canonicalEvent,
 		RawPayload:     rawPayload,
+	})
+}
+
+// EnqueueAPI buffers an event an api connection delivered, keeping the
+// channel (and an ask's answer slot) its replay must be read with.
+func (p *Hooks) EnqueueAPI(
+	runnerID, provider, canonicalEvent string,
+	rawPayload []byte,
+	askDeliveryID string,
+) (handled bool, err error) {
+	return p.enqueue(runnerID, Hook{
+		Provider:       provider,
+		CanonicalEvent: canonicalEvent,
+		RawPayload:     rawPayload,
+		API:            true,
+		AskDeliveryID:  askDeliveryID,
 	})
 }
 

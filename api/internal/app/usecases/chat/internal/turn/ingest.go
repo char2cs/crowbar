@@ -25,7 +25,13 @@ func (t *Turns) IngestHook(
 	// the row is visible, but the barrier deliberately remains installed through
 	// ordered replay; consulting only the repository here would let a later hook
 	// overtake the buffered session_start/user_prompt batch.
-	if handled, err := t.pendingHooks.Enqueue(runnerID, provider, canonicalEvent, rawPayload); handled {
+	enqueue := t.pendingHooks.Enqueue
+	if inflight.FromAPITransport(ctx) {
+		enqueue = func(runnerID, provider, canonicalEvent string, rawPayload []byte) (bool, error) {
+			return t.pendingHooks.EnqueueAPI(runnerID, provider, canonicalEvent, rawPayload, inflight.DeliveryID(ctx))
+		}
+	}
+	if handled, err := enqueue(runnerID, provider, canonicalEvent, rawPayload); handled {
 		return err
 	}
 	return t.ingestHookNow(ctx, runnerID, provider, canonicalEvent, rawPayload)
@@ -217,6 +223,12 @@ func (t *Turns) ReplayStartupHook(
 	replayCtx := context.Background()
 	if hook.DeliveryID != "" {
 		replayCtx = inflight.WithDeliveryID(replayCtx, hook.DeliveryID)
+	}
+	if hook.API {
+		replayCtx = inflight.WithAPITransport(replayCtx)
+	}
+	if hook.AskDeliveryID != "" {
+		replayCtx = inflight.WithDeliveryID(replayCtx, hook.AskDeliveryID)
 	}
 	if err := t.ingestHookNow(
 		replayCtx, runnerID, hook.Provider, hook.CanonicalEvent, hook.RawPayload,

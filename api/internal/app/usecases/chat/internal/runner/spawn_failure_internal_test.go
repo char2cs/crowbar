@@ -106,6 +106,7 @@ func TestSpawnRunner_SpawnPlanFailure_ReturnsTheBuildError(t *testing.T) {
 		ws:            stubWorkspaceForSpawn{home: home, worktree: worktree, chatsDir: chatsDir},
 		providers:     stubProvidersForSpawn{},
 		conversations: stubConversationsForSpawn{},
+		pendingHooks:  inflight.NewHooks(),
 	}
 
 	_, err := rs.spawnRunner(context.Background(), "chat-1", "ws-1", "boom-test", "runner-1",

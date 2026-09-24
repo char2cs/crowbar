@@ -83,20 +83,11 @@ func (rs *Runners) forkOrAdopt(
 	return termSessID, carried, err
 }
 
-// adoptAPIConn is forkCLI for a spawn with no PTY: it installs the same
-// startup barrier, and arms the same exit reconcile against the `serve`
-// process instead of a terminal session.
-//
-// The barrier is not optional here. pumpAPIConn's goroutine is already running
-// by the time this is reached, and every event it resolves lands in the SAME
-// IngestHook the hook relay uses — so without it, an api-transport event that
-// arrives before the runner row commits is dropped by ingestHookNow's
-// unknown-runner guard exactly as a hook would be.
+// adoptAPIConn is forkCLI for a spawn with no PTY: it arms the same exit
+// reconcile against the `serve` process instead of a terminal session. The
+// startup barrier spawnRunner opened before the connection holds every event
+// the connection delivers until the runner row commits.
 func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
-	if err := rs.pendingHooks.Register(req.runnerID); err != nil {
-		rs.abandonAdoptedSpawn(ctx, req)
-		return fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
-	}
 	if !rs.apiConns.watchExit(req.runnerID, rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir)) {
 		rs.pendingHooks.Discard(req.runnerID)
 		rs.abandonAdoptedSpawn(ctx, req)
