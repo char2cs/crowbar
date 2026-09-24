@@ -1243,6 +1243,7 @@ func newFixtureUsing(
 	}
 
 	engine := engineagents.New()
+	t.Cleanup(engine.Close)
 	providerPrefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
 	require.NoError(t, err)
 	permissionPrefs, err := storesqlite.New[domain.AgentPermissionDefault, string](":memory:")

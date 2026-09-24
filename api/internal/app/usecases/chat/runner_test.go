@@ -959,16 +959,26 @@ func TestResumeChat_NoConversationButAProviderOfItsOwn_RevivesThatProvider(t *te
 // for the one chat that genuinely has nothing to resume as: a bare row no runner
 // was ever placed on — a reducer mint, or a row from before the chat carried its
 // own vendor at all.
+//
+// It must refuse with ErrChatProviderUnknown, NOT with agentrunner.ErrNotFound.
+// A dormant chat having no live runner is the normal state and the entire reason
+// Resume was called, so reporting a missing RUNNER named the one thing that was
+// never in question — what could not be resolved is the PROVIDER.
 func TestResumeChat_NothingHasEverRunHere_ReturnsError(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 
 	_, err = f.usecase.ResumeChat(f.ctx, chatID)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no conversation to resume")
+	assert.ErrorIs(t, err, agentusecase.ErrChatProviderUnknown)
+	assert.Contains(t, err.Error(), "no longer records which provider it ran")
+	assert.ErrorIs(t, err, apperr.ErrNotFound,
+		"and it still maps to the 404 the old sentinel did, never a 500")
+	assert.NotErrorIs(t, err, agentrunner.ErrNotFound,
+		"a missing RUNNER is the expected dormant state, and is not what failed")
 }
 
 // TestResumeChat_ConversationWithNoTurns_SpawnsFreshInsteadOfResumingAPhantom is the
@@ -3199,7 +3209,7 @@ func TestReconcileRunnersOnBoot_EmptyIsTheNormalAnswer(t *testing.T) {
 func TestReconcileRunnersOnBoot_WorkspacelessChatDoesNotBreakTheSweep(t *testing.T) {
 	f := newFixture(t)
 
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -4881,7 +4891,7 @@ func TestRegression_SwitchingBackToTheChatsOwnProviderKeepsRecordingTheMarker(t 
 func TestRegression_SwitchProvider_ConvertingAChatWithNoResolvableProviderStillLeavesAMarker(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 	require.Empty(t, f.chat(t, chatID).ProviderID,
@@ -4896,4 +4906,31 @@ func TestRegression_SwitchProvider_ConvertingAChatWithNoResolvableProviderStillL
 	require.Len(t, ints, 1, "a conversion with an unknown starting point is still a conversion")
 	assert.Equal(t, agents.InterruptProviderSwitched, ints[0].Kind)
 	assert.Equal(t, "claude", ints[0].Detail)
+}
+
+// TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt is the read the
+// resume fix rests on, taken through the usecase door the API actually calls.
+//
+// The runner announces nothing and then dies: no conversation row is ever
+// written, and the exit deletes the live row, so both of the projections the
+// resolvers used to consult are empty. The placement remains, and it is what
+// still names the chat's provider — for the reporter's store, for 51 chats out of
+// 51.
+func TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt(t *testing.T) {
+	f := newFixture(t)
+
+	chatID, runnerID := f.spawn(t, "claude")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	_, err := f.runners.LiveRunnerForChat(f.ctx, chatID)
+	require.ErrorIs(t, err, agentrunner.ErrNotFound, "the chat must be dormant")
+	_, err = f.runners.LastConversation(f.ctx, chatID)
+	require.ErrorIs(t, err, agentrunner.ErrNotFound, "and it announced no conversation")
+
+	placements, err := f.usecase.PlacementsForChat(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, placements, 1)
+	assert.Equal(t, "claude", placements[0].ProviderID)
+	assert.Equal(t, chatID, placements[0].ChatID)
 }

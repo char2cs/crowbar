@@ -23,6 +23,10 @@ func TestAPI_New_HealthRoute(t *testing.T) {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
+	// Registered AFTER the t.TempDir() above, so it runs BEFORE that dir's own
+	// removal: app.New kicks a model-discovery warmup whose forked refresh still
+	// owes a write under this home, and Close is what joins it.
+	t.Cleanup(eng.Close)
 	a, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
 
@@ -44,6 +48,7 @@ func TestAPI_New_StaticFSServesAndAppCloses(t *testing.T) {
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
+	t.Cleanup(eng.Close)
 	a, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
 

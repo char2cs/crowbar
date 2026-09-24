@@ -5,6 +5,7 @@ import (
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/fanout"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
@@ -252,6 +253,12 @@ var (
 	// ErrToolUnauthorized is a runner callback that could not prove it is the
 	// runner it claims to be.
 	ErrToolUnauthorized = tools.ErrUnauthorized
+	// ErrChatProviderUnknown is a resume of a dormant chat that nothing left on
+	// disk can name a provider for: no conversation history, no switch marker, no
+	// placement history and no durable choice of its own. It is DISTINCT from a
+	// missing runner, which is the ordinary dormant state and the reason the
+	// resume was asked for in the first place.
+	ErrChatProviderUnknown = runner.ErrChatProviderUnknown
 	// ErrTreeNameRequired is a folder create or rename with a blank name.
 	ErrTreeNameRequired = tree.ErrNameRequired
 	// ErrTreeCycle is a move that would make a node its own ancestor.

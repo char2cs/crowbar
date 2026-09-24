@@ -25,6 +25,7 @@ func newSweepContainer(
 	t.Cleanup(func() { _ = adapters.Close() })
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
+	t.Cleanup(eng.Close)
 	c, err := New(context.Background(), eng, adapters)
 	require.NoError(t, err)
 	return c

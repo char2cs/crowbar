@@ -367,6 +367,12 @@ type configurableListGetUsecase struct {
 	conversations map[string][]engineagents.ChatConversation
 	convErr       error
 
+	// placements maps a chat id to its append-only PLACEMENT history — the THIRD
+	// fallback source activeProviderId needs, and the only one that answers for a
+	// chat whose provider announced no conversation AND was never switched.
+	placements   map[string][]engineagents.ChatPlacement
+	placementErr error
+
 	// interruptions maps a chat id to its durable interruption ledger — the
 	// second fallback source activeProviderId needs for a chat whose provider
 	// binds via its own connection identity and so never appears in
@@ -529,6 +535,16 @@ func (u *configurableListGetUsecase) ConversationsForChat(
 		return nil, u.convErr
 	}
 	return u.conversations[chatID], nil
+}
+
+func (u *configurableListGetUsecase) PlacementsForChat(
+	_ context.Context,
+	chatID string,
+) ([]engineagents.ChatPlacement, error) {
+	if u.placementErr != nil {
+		return nil, u.placementErr
+	}
+	return u.placements[chatID], nil
 }
 
 func (u *configurableListGetUsecase) Interruptions(
@@ -999,6 +1015,28 @@ func TestList_ConversationsLookupError(
 	uc := &configurableListGetUsecase{
 		chats:   []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
 		convErr: errors.New("projection down"),
+	}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestList_PlacementsLookupError proves a PLACEMENT-history read failure surfaces
+// as a mapped error too. It is activeProviderId's last source, and for a chat
+// whose provider announced no conversation it is the ONLY one — reporting "" for a
+// broken read there would look exactly like "nothing has ever run here", which is
+// what let a sidebar click convert a dormant chat to another vendor.
+func TestList_PlacementsLookupError(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats:        []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
+		placementErr: errors.New("projection down"),
 	}
 	h := newChatHandlers(uc)
 

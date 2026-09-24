@@ -84,10 +84,10 @@ func New(
 	if watch == nil {
 		return nil, fmt.Errorf("agentrunner store: nil watch")
 	}
-	if err := db.AutoMigrate(&runnerRow{}, &conversationRow{}, &healMarkerRow{}); err != nil {
+	if err := db.AutoMigrate(&runnerRow{}, &conversationRow{}, &placementRow{}, &healMarkerRow{}); err != nil {
 		return nil, fmt.Errorf("agentrunner store: migrate: %w", err)
 	}
-	if err := healConversations(db, es, ax); err != nil {
+	if err := healHistory(db, es, ax); err != nil {
 		return nil, err
 	}
 	if err := registerStoreProjection(db, ax); err != nil {
@@ -382,11 +382,16 @@ func (s *Store) AllLive(
 	return out, nil
 }
 
-// ForgetChat drops the chat's conversation history. It is the chat delete cascade
-// — the ONLY thing permitted to remove append-only history, because a deleted
-// chat is the one case where the history has nothing left to describe. It does
-// not touch the live-runner model: a runner's row belongs to the runner's
-// lifecycle (its PTY), not to any chat's.
+// ForgetChat drops the chat's conversation AND placement history. It is the chat
+// delete cascade — the ONLY thing permitted to remove append-only history,
+// because a deleted chat is the one case where the history has nothing left to
+// describe. It does not touch the live-runner model: a runner's row belongs to
+// the runner's lifecycle (its PTY), not to any chat's.
+//
+// Both append-only projections go together, or the cascade would be half done:
+// they answer the same question from the same events, so a chat whose
+// conversations were forgotten while its placements survived would still be
+// resolvable to a provider after being deleted.
 func (s *Store) ForgetChat(
 	ctx context.Context,
 	chatID string,
@@ -394,7 +399,7 @@ func (s *Store) ForgetChat(
 	if err := s.db.WithContext(ctx).Delete(&conversationRow{}, "chat_id = ?", chatID).Error; err != nil {
 		return fmt.Errorf("agentrunner store: forget chat %q: %w", chatID, err)
 	}
-	return nil
+	return forgetPlacements(ctx, s.db, chatID)
 }
 
 // registerStoreProjection subscribes the read-model projection to every
@@ -437,6 +442,10 @@ func (p *projector) onEvent(
 	if err := appendConversation(ctx, p.db, r); err != nil {
 		slog.ErrorContext(ctx, "agentrunner projection: append conversation",
 			"chat", r.CurrentChatID, "session", r.CurrentSession, "err", err)
+	}
+	if err := appendPlacement(ctx, p.db, r); err != nil {
+		slog.ErrorContext(ctx, "agentrunner projection: append placement",
+			"chat", r.CurrentChatID, "provider", r.ProviderID, "err", err)
 	}
 }
 

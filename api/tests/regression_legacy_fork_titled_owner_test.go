@@ -45,7 +45,7 @@ func TestRegression_LegacyForkKeepsItsTitledConversationAsOwner(t *testing.T) {
 	// The legacy owner: anchored to the fork at creation, ownership never
 	// recorded (Create writes WorkspaceID without OwnsWorkspace), titled by
 	// the turns it hosted.
-	conv, err := h.app.Usecases.AgentChat.MintChat(ctx, fork.ID, "")
+	conv, err := h.app.Usecases.AgentChat.MintChat(ctx, fork.ID, "", "")
 	require.NoError(t, err)
 	require.NoError(t, h.app.Usecases.AgentChat.RenameChat(ctx, conv, "Fix login bug", "agent"))
 	h.Quiesce()

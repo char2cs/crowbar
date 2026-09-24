@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
 func TestNew_ReturnsContainer(t *testing.T) {
@@ -58,4 +60,33 @@ func TestContainer_Close_ShutsDownLSP(t *testing.T) {
 
 	// Close is idempotent on the LSP host as it is on the terminal engine.
 	assert.NotPanics(t, c.Close)
+}
+
+// closeSpyAgents counts Close on a real agents engine, leaving every other
+// method to it.
+type closeSpyAgents struct {
+	engineagents.Agents
+	closed int
+}
+
+func (s *closeSpyAgents) Close() {
+	s.closed++
+	s.Agents.Close()
+}
+
+// TestRegression_ContainerCloseJoinsTheAgentsEngine pins the wiring half of the
+// t.TempDir()-cleanup flake: modeldiscovery.Cache grew a Close that joins its
+// forked refreshes, but the join only ever runs if this Container's own Close
+// reaches it. Without this line a refresh's write still lands under a crowbar
+// home the process has already released.
+func TestRegression_ContainerCloseJoinsTheAgentsEngine(t *testing.T) {
+	c, err := New(context.Background(), WithHomeDir(t.TempDir()))
+	require.NoError(t, err)
+	spy := &closeSpyAgents{Agents: c.Agents}
+	c.Agents = spy
+
+	c.Close()
+
+	assert.Equal(t, 1, spy.closed,
+		"engine Close must join the agents engine's background model discovery")
 }

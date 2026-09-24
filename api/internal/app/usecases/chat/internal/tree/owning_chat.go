@@ -54,7 +54,7 @@ func (u *chatFolderUsecase) MintOwningChat(
 	if err != nil {
 		return "", err
 	}
-	chatID, err := u.agent.MintChat(ctx, "", "")
+	chatID, err := u.agent.MintChat(ctx, "", "", "")
 	if err != nil {
 		return "", fmt.Errorf("agent chat folder: mint owning chat: %w", err)
 	}

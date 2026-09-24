@@ -27,6 +27,7 @@ func terminalsTestContainers(
 	adapters, err := adapter.New(adapter.WithHomeDir(t.TempDir()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapters.Close() })
+	t.Cleanup(eng.Close)
 	a, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
 	return a, eng

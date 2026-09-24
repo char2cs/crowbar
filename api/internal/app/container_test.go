@@ -18,6 +18,7 @@ func newEng(t *testing.T) *engine.Container {
 	t.Helper()
 	eng, err := engine.New(context.Background())
 	require.NoError(t, err)
+	t.Cleanup(eng.Close)
 	return eng
 }
 

@@ -36,8 +36,10 @@ func newProviderServer(
 	homeFn := func() (string, error) { return home, nil }
 	probe := func(a engineagents.Agent) bool { return a.ID() == "codex" }
 
+	agentsEngine := engineagents.New()
+	t.Cleanup(agentsEngine.Close)
 	uc := agentusecase.New(agentusecase.Deps{
-		Agents:        engineagents.New(),
+		Agents:        agentsEngine,
 		ProviderPrefs: prefs,
 		Home:          homeFn,
 		Installed:     probe,

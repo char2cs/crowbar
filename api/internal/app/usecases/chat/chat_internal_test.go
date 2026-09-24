@@ -126,11 +126,13 @@ func newWiringFixture(t *testing.T) *Usecase {
 	minter, err := agenttools.NewTokenMinter()
 	require.NoError(t, err)
 	home := t.TempDir()
+	agentsEngine := engineagents.New()
+	t.Cleanup(agentsEngine.Close)
 	return New(Deps{
 		Chats:         wiringChats{},
 		Runners:       wiringRunners{},
 		Activity:      wiringActivity{},
-		Agents:        engineagents.New(),
+		Agents:        agentsEngine,
 		Terminal:      screenReadingCommander{},
 		Workspace:     wiringWorkspace{},
 		Worktree:      wiringWorktree{},

@@ -69,6 +69,14 @@ type Agents interface {
 	// a descriptor. The app layer wires the real, DB-backed getter (whose own
 	// default is enabled) once at boot — see chat.assembly.go.
 	SetManifestFetchEnabled(enabled func() bool)
+
+	// Close stops every background model-discovery refresh this service has
+	// forked and BLOCKS until each has returned, the disk write it may owe
+	// under homeDir included. Cancelling the WithLifecycle context alone does
+	// not do that: a refresh whose probe or fetch has already returned is past
+	// every ctx check left to it, so only this join promises that nothing
+	// writes under a home the caller is about to release. Idempotent.
+	Close()
 }
 
 type Agent interface {
@@ -370,6 +378,11 @@ func overrideModTime(path string) time.Time {
 		return time.Time{}
 	}
 	return info.ModTime()
+}
+
+// Close joins this service's model-discovery cache — see Agents.Close.
+func (s *service) Close() {
+	s.discovery.Close()
 }
 
 func (s *service) RecordInjection(runnerID string, docs ...string) {

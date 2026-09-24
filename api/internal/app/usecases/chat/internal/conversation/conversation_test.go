@@ -187,7 +187,7 @@ func TestMintChat_CreatesAReadableDormantChat(t *testing.T) {
 
 	f := newFixture(t, stubLineage{})
 
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, chatID)
 
@@ -196,6 +196,42 @@ func TestMintChat_CreatesAReadableDormantChat(t *testing.T) {
 	assert.Equal(t, "ws-1", chat.WorkspaceID)
 	assert.Empty(t, chat.Title)
 	assert.False(t, chat.Working)
+}
+
+// TestRegression_MintChat_RecordsTheProviderItIsBornOn pins the durable write
+// itself. domain.Chat.ProviderID used to be written ONLY by the best-effort
+// SetProvider a successful spawn makes, so a chat whose CLI never came up carried
+// nothing — and on a dormant chat with no conversation row and no switch marker,
+// that field is the last thing anything can ask. Writing it at the mint is what
+// makes the answer exist before any process does.
+func TestRegression_MintChat_RecordsTheProviderItIsBornOn(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, stubLineage{})
+
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "quietvendor", "")
+	require.NoError(t, err)
+
+	chat, err := f.conversations.GetChat(t.Context(), chatID)
+	require.NoError(t, err)
+	assert.Equal(t, "quietvendor", chat.ProviderID,
+		"no CLI has run yet, and the chat can already say what it runs")
+}
+
+// A row minted with no vendor in mind — a placeholder that will never carry a
+// CLI — records none, so "" stays the distinguishable answer for a chat that has
+// genuinely never had a provider rather than one whose provider was lost.
+func TestMintChat_NoProviderAskedForRecordsNone(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, stubLineage{})
+
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
+	require.NoError(t, err)
+
+	chat, err := f.conversations.GetChat(t.Context(), chatID)
+	require.NoError(t, err)
+	assert.Empty(t, chat.ProviderID)
 }
 
 // The landing surface is DURABLE, not a one-shot spawn argument: every
@@ -208,7 +244,7 @@ func TestMintChat_PersistsTheLandingSurface(t *testing.T) {
 
 	f := newFixture(t, stubLineage{})
 
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "terminal")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "terminal")
 	require.NoError(t, err)
 
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
@@ -223,7 +259,7 @@ func TestMintChat_NoSurfaceAskedForStaysTheProvidersDefault(t *testing.T) {
 
 	f := newFixture(t, stubLineage{})
 
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
@@ -235,9 +271,9 @@ func TestListChatsByWorkspace_ScopesToTheWorkspace(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	mine, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	mine, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
-	_, err = f.conversations.MintChat(t.Context(), "ws-2", "")
+	_, err = f.conversations.MintChat(t.Context(), "ws-2", "", "")
 	require.NoError(t, err)
 	f.settle()
 
@@ -258,7 +294,7 @@ func TestRenameChat_HonoursWhereTheTitleCameFrom(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, f.conversations.RenameChat(t.Context(), chatID, "first guess", "derived"))
@@ -283,7 +319,7 @@ func TestRenameChat_AnEmptyTitleIsANoOp(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	require.NoError(t, f.conversations.RenameChat(t.Context(), chatID, "kept", "user"))
 
@@ -308,7 +344,7 @@ func TestPurgeChat_ErasesTheChatAndRetiresItsRunnersThroughThePort(t *testing.T)
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	f.settle()
 
@@ -346,7 +382,7 @@ func TestReadMessages_RefusesTwoCursorsAtOnce(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
 	_, err = f.conversations.ReadMessages(t.Context(), chatID, 5, 5, 10)
@@ -358,7 +394,7 @@ func TestReadMessages_RefusesAnOversizedPage(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
 	_, err = f.conversations.ReadMessages(t.Context(), chatID, 0, 0, 10_000)
@@ -370,7 +406,7 @@ func TestReadMessages_DefaultsThePageSize(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	f.settle()
 
@@ -386,7 +422,7 @@ func TestSetChatSelection_RefusesAModelNoProviderDeclares(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
 	err = f.conversations.SetChatSelection(t.Context(), chatID, "a-model-nobody-ships", "")
@@ -398,7 +434,7 @@ func TestSetChatSelection_ClearingBackToTheProviderDefaultIsAllowed(t *testing.T
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, f.conversations.SetChatSelection(t.Context(), chatID, "", ""))
@@ -423,7 +459,7 @@ func TestChatProviderID_ADormantProviderThatNeverBoundAConversationFallsBackToTh
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
 	_, err = f.runners.Start(t.Context(), agentrunner.StartInput{
@@ -460,7 +496,7 @@ func TestNoteThreadLineage_WritesNothingIntoAChatThatHasNotSpoken(t *testing.T) 
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, f.conversations.NoteThreadLineage(t.Context(), chatID, []string{"parent-1"}))
@@ -475,7 +511,7 @@ func TestNoteThreadLineage_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
@@ -498,7 +534,7 @@ func TestNotePromotion_WritesNothingIntoAChatThatHasNotSpoken(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, f.conversations.NotePromotion(t.Context(), chatID))
@@ -513,7 +549,7 @@ func TestNotePromotion_AppendsTheNoteToAChatAlreadyUnderWay(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
@@ -554,7 +590,7 @@ func TestMintChat_SeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.
 		DefaultPermissionLevel: func(context.Context) (string, error) { return "trusted", nil },
 	})
 
-	chatID, err := conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	waitChats()
 
@@ -606,7 +642,7 @@ func TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDe
 		DefaultPermissionLevel: func(context.Context) (string, error) { return current, nil },
 	})
 
-	chatID, err := conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	waitChats()
 	chat, err := conversations.GetChat(t.Context(), chatID)

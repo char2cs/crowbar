@@ -69,12 +69,16 @@ type StartInput struct {
 // touch the chat being left or the chat being entered, so it cannot half-succeed
 // across them.
 //
-// The read side answers placement questions ONLY, from two projections:
+// The read side answers placement questions ONLY, from three projections:
 //   - live runners — a row exists exactly while its CLI runs, so ErrNotFound on
 //     LiveRunnerForChat/Get means "dormant", not "broken".
-//   - append-only history — ChatForSession/LastConversation keep answering long
-//     after the runner that opened the conversation has died, which is what makes
-//     a re-announced session id on /resume recognisable instead of looking new.
+//   - append-only conversation history — ChatForSession/LastConversation keep
+//     answering long after the runner that opened the conversation has died,
+//     which is what makes a re-announced session id on /resume recognisable
+//     instead of looking new.
+//   - append-only placement history — PlacementsForChat answers "which providers
+//     have ever run on this chat" even for one that announced no conversation to
+//     write history about, which is the only trace such a chat leaves anywhere.
 //
 // Nothing here reports liveness as STATE: ask the live model (row exists?) or the
 // PTY. ExitedAt is an audit tombstone and is never a liveness check.
@@ -192,6 +196,23 @@ type EventStore interface {
 		ctx context.Context,
 		chatID string,
 	) (agents.ChatConversation, error)
+	// PlacementsForChat returns every provider that has ever been placed on a
+	// chat, OLDEST ARRIVAL FIRST, from APPEND-ONLY history — so it answers for
+	// runners that exited long ago, exactly as ChatForSession does.
+	//
+	// It is the read of last resort for "which provider ran here": a placement is
+	// recorded when Crowbar points a runner at a chat, which happens for EVERY
+	// runner, whereas a conversation row is only ever written by a provider that
+	// ANNOUNCES a conversation. A chat that only ever ran a provider binding via
+	// its own connection identity has no conversation row at all, and this is the
+	// only projection that still knows what it was.
+	//
+	// An empty result means no CLI has ever been started on this chat, which is a
+	// real answer and not a miss — so this returns no ErrNotFound.
+	PlacementsForChat(
+		ctx context.Context,
+		chatID string,
+	) ([]agents.ChatPlacement, error)
 	// ConversationsForChat returns every conversation the chat has hosted, OLDEST
 	// FIRST. It is what a provider switch reads to find the conversation the
 	// INCOMING provider left behind here (LastConversation only answers for the
@@ -490,6 +511,17 @@ func (r *eventSourced) LastConversation(
 		return agents.ChatConversation{}, fmt.Errorf("agentrunner: last conversation: %w", mapNotFound(err))
 	}
 	return conv, nil
+}
+
+func (r *eventSourced) PlacementsForChat(
+	ctx context.Context,
+	chatID string,
+) ([]agents.ChatPlacement, error) {
+	placements, err := r.store.PlacementsForChat(ctx, chatID)
+	if err != nil {
+		return nil, fmt.Errorf("agentrunner: placements for chat: %w", err)
+	}
+	return placements, nil
 }
 
 func (r *eventSourced) ConversationsForChat(

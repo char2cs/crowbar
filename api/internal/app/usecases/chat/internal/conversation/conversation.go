@@ -257,12 +257,27 @@ func (c *Conversations) GetChat(
 	return c.chats.GetChat(ctx, id)
 }
 
+// providerID is the vendor the chat is BORN on, written durably here rather than
+// waiting for the spawn that follows. It is the difference between a chat that
+// can always say what it runs and one that can only say so once a CLI has
+// actually started on it: the spawn-time SetProvider (runner.recordChatProvider)
+// is best-effort and runs after a fork that may never happen, so a create that
+// failed at the spawn — or predated that write entirely — left the field empty
+// forever, and a dormant chat with no conversation row and no switch marker then
+// had nothing anywhere that named its provider. Writing it at birth closes that
+// at the source; the spawn-time write remains correct, and is what records a
+// later provider SWITCH.
+//
+// "" is the honest value for a chat minted with no vendor in mind at all — an
+// owning/placeholder row, which never gets a CLI.
+//
 // surface is the VIEW this chat is born on (design spec 2.5) — "" for the
 // provider's own default landing. See domain.Chat.Surface for why it is
 // durable rather than a one-shot spawn argument.
 func (c *Conversations) MintChat(
 	ctx context.Context,
 	workspaceID string,
+	providerID string,
 	surface string,
 ) (string, error) {
 	chatID := uuid.NewString()
@@ -270,6 +285,7 @@ func (c *Conversations) MintChat(
 		ID:          chatID,
 		WorkspaceID: workspaceID,
 		Type:        domain.ChatTypeChat,
+		ProviderID:  providerID,
 		Surface:     surface,
 		Now:         time.Now(),
 	})

@@ -14,6 +14,11 @@ type (
 	Runner           = models.Runner
 	ChatConversation = models.ChatConversation
 
+	// ChatPlacement is one provider a runner has been pointed at a chat on, and
+	// when it last arrived — the placement twin of ChatConversation, and the only
+	// history a provider that announces no conversation leaves behind.
+	ChatPlacement = models.ChatPlacement
+
 	// Channel is which wire a delivery actually arrived on — the api
 	// connection or a hook relay POST — decided by the caller at receive
 	// time and threaded down to ParseHook so it can select the SAME

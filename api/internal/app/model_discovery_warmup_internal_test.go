@@ -39,6 +39,8 @@ func (f *fakeWarmupAgents) ForgetRunner(string) {}
 
 func (f *fakeWarmupAgents) SetManifestFetchEnabled(func() bool) {}
 
+func (f *fakeWarmupAgents) Close() {}
+
 var _ engineagents.Agents = (*fakeWarmupAgents)(nil)
 
 // TestStartModelDiscoveryWarmup_KicksAgentsListAtBoot pins the actual fix:

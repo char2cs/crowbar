@@ -37,6 +37,15 @@ type ChatRuntime struct {
 	// this for a live chat may leave it nil.
 	Interruptions []domain.ActivityInterruption
 
+	// Placements is the chat's append-only PLACEMENT history — every provider a
+	// runner has ever been pointed at it on — joined in by the caller for the same
+	// reason Interruptions is, and it is activeProviderID's THIRD fallback source.
+	// A placement is recorded for every runner at the moment it is placed, so
+	// unlike the two above it also answers for a chat BORN on a provider that
+	// announces no conversation and was never switched. Only ever populated for a
+	// DORMANT chat: a live runner outranks every fallback.
+	Placements []agents.ChatPlacement
+
 	// TerminalWait is the daemon's standing answer to "is this chat's CLI parked
 	// on a modal Crowbar cannot answer?". Derived, never stored, and the zero
 	// value — not waiting — is both the common case and the answer for every
@@ -573,17 +582,21 @@ type SlashCatalogItemDTO struct {
 // activeProviderID derives the provider to show for a chat: the live runner's while one
 // is placed on it (mid-switch, the incoming runner is already the truth — it outranks
 // every dormant fallback below), else agents.ResolveProviderID over the chat's
-// conversation history, its interruption ledger and its own durable choice, else "".
+// conversation history, its interruption ledger, its placement history and its own
+// durable choice, else "".
 //
-// All three sources are NEEDED, not just Conversations. A provider that binds via its
+// All four sources are NEEDED, not just Conversations. A provider that binds via its
 // own connection identity, rather than firing a session-bind, never writes a
 // Conversations row at all, so a chat last live on one of those has no history entry to
 // fall back to — only the switch interruption rt.Interruptions carries. And a chat BORN
-// on such a provider has neither, because it was never switched: chat.ProviderID is the
-// only thing left that knows, and the "" this used to answer for it is what let a
-// sidebar click convert a dormant codex chat to claude. See agents.ResolveProviderID
-// for the precedence, and agents.ActiveProviderID for the max-LastActiveAt scan this
-// preserves (the stale-provider-after-Stop report it was written to fix).
+// on such a provider has neither, because it was never switched: the "" this used to
+// answer for it is what let a sidebar click convert a dormant chat to another vendor.
+// chat.ProviderID closes that for every chat created since it was written at birth, and
+// rt.Placements — Crowbar's own record of pointing a CLI at the chat, kept for every
+// runner ever started — closes it for every chat that predates the field. See
+// agents.ResolveProviderID for the precedence, and agents.ActiveProviderID for the
+// newest-evidence scan this preserves (the stale-provider-after-Stop report it was
+// written to fix).
 func activeProviderID(
 	chat domain.Chat,
 	rt ChatRuntime,
@@ -591,7 +604,8 @@ func activeProviderID(
 	if rt.LiveRunner != nil {
 		return rt.LiveRunner.ProviderID
 	}
-	providerID, _ := agents.ResolveProviderID(rt.Conversations, rt.Interruptions, chat.ProviderID)
+	providerID, _ := agents.ResolveProviderID(
+		rt.Conversations, rt.Interruptions, rt.Placements, chat.ProviderID)
 	return providerID
 }
 

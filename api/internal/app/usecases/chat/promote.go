@@ -168,7 +168,8 @@ func (u *Usecase) unpromote(
 // the LAST conversation slice element, which is wrong twice over: a chat
 // switched back to a provider it already ran re-activates that provider's own
 // earlier row (see ActiveProviderID's max-LastActiveAt doc), and a provider
-// that binds via its own connection identity never appears in the slice at all.
+// that binds via its own connection identity never appears in the slice at all
+// — for that one only the switch marker or the chat's placement history knows.
 func (u *Usecase) currentProviderID(
 	ctx context.Context,
 	chatID string,
@@ -188,11 +189,15 @@ func (u *Usecase) currentProviderID(
 	if err != nil {
 		return "", fmt.Errorf("current provider: interruptions: %w", err)
 	}
+	placements, err := u.runners.PlacementsForChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("current provider: placements: %w", err)
+	}
 	chat, err := u.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("current provider: chat: %w", err)
 	}
-	providerID, found := engineagents.ResolveProviderID(convs, interruptions, chat.ProviderID)
+	providerID, found := engineagents.ResolveProviderID(convs, interruptions, placements, chat.ProviderID)
 	if !found {
 		return "", ErrNothingToPromote
 	}

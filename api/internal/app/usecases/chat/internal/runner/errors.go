@@ -37,6 +37,27 @@ var ErrProviderExitedDuringStartup = fmt.Errorf(
 	"agent: spawn runner: provider process exited during startup: %w", apperr.ErrFailedDependency,
 )
 
+// ErrChatProviderUnknown is returned when a dormant chat cannot be resumed
+// because nothing left on disk says which provider ever ran in it: no
+// conversation history, no provider-switch marker, no placement history and no
+// durable choice on the chat itself.
+//
+// It exists because this path used to answer agentrunner.ErrNotFound, which was
+// a lie about which thing was missing. A dormant chat having no live runner is
+// the NORMAL state and the entire reason Resume is being called — reporting
+// "agentrunner not found" sent every reader looking for an absent runner, when
+// the absent thing is the PROVIDER. Nothing is ever resolved by finding a
+// runner here, so nothing should ever say one was looked for.
+//
+// It wraps apperr.ErrNotFound, so it keeps the 404 the old sentinel mapped to:
+// the request is well-formed and the chat exists, but the record being resolved
+// — the provider this chat ran — genuinely is not there. The client's correct
+// response is to ASK which provider to start, never to pick one, which is what
+// the previous indistinguishable error let it do.
+var ErrChatProviderUnknown = fmt.Errorf(
+	"agent: this chat no longer records which provider it ran: %w", apperr.ErrNotFound,
+)
+
 var (
 	// ErrPromptBusy means the chat began working, or still has a replacement TUI
 	// awaiting its user_prompt hook, before this request acquired the spawn gate.

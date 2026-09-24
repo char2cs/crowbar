@@ -80,6 +80,15 @@ type Cache struct {
 	// shutdown, or a test's teardown) is what actually stops them — never a
 	// detached context.Background() that outlives whoever asked for it.
 	lifecycle context.Context
+	// stop cancels lifecycle (which is NewCache's argument re-derived, not the
+	// caller's own context) and inflight joins every goroutine this Cache has
+	// forked. Cancellation ALONE is not a shutdown: a refresh whose fetch
+	// already returned is past every ctx check and still has its disk write to
+	// do, so only the join can promise that nothing writes under home after
+	// Close returns. See Close.
+	stop     context.CancelFunc
+	inflight sync.WaitGroup
+	closed   bool
 }
 
 // NewCache constructs a Cache whose background work is bounded by lifecycle:
@@ -89,13 +98,61 @@ type Cache struct {
 // context — never context.Background() dressed up as one — or nothing here
 // can ever be told to stop.
 func NewCache(lifecycle context.Context) *Cache {
+	ctx, cancel := context.WithCancel(lifecycle)
 	return &Cache{
 		entries:   map[string]entry{},
 		slots:     make(chan struct{}, maxConcurrentProbes),
 		probe:     guardedProbe,
 		manifest:  ProbeManifest,
-		lifecycle: lifecycle,
+		lifecycle: ctx,
+		stop:      cancel,
 	}
+}
+
+// Close stops every background refresh this Cache forked and BLOCKS until each
+// has returned, its disk write included.
+//
+// The join is the point. A refresh writes two files under home
+// (model-manifest-cache, model-discover-cache), and by the time its fetch or
+// probe has returned it is past every ctx check it will ever make — so
+// cancelling lifecycle can shorten that window but never close it. Without
+// this, a daemon that has released its home (shutdown, hot-restart) can still
+// have a write land in it afterwards, and a test that hands this Cache a temp
+// dir as home can have one land after the dir was removed, recreating it.
+//
+// Idempotent, and safe to call while refreshes are in flight: fork refuses to
+// start new work once closed, so the WaitGroup can never be Added to after the
+// Wait below begins.
+func (c *Cache) Close() {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.closed = true
+	c.mu.Unlock()
+
+	c.stop()
+	c.inflight.Wait()
+}
+
+// fork runs one background refresh under the Close join, or not at all once
+// Close has begun. Both halves of the closed check and the Add happen under mu
+// — the same lock Close takes to latch closed — so there is no window where a
+// fork observes "open" and Adds after Wait has started.
+func (c *Cache) fork(run func()) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.inflight.Add(1)
+	c.mu.Unlock()
+
+	go func() {
+		defer c.inflight.Done()
+		run()
+	}()
 }
 
 // Models is a synchronous, I/O-free read: whatever Refresh last resolved, or
@@ -144,7 +201,7 @@ func (c *Cache) Store(id string, found []Model) {
 // not installed is retried at most once per ttl, not once per call.
 func (c *Cache) Refresh(d *spec.Descriptor, home string) {
 	c.seedDiscoverFromDisk(d, home)
-	go c.attemptRefresh(d, home)
+	c.fork(func() { c.attemptRefresh(d, home) })
 }
 
 // seedDiscoverFromDisk is model.discover:'s counterpart of
@@ -225,7 +282,7 @@ func (c *Cache) attemptRefresh(d *spec.Descriptor, home string) {
 // catalogue.
 func (c *Cache) RefreshManifest(d *spec.Descriptor, home string, embedded []byte, fetchEnabled bool) {
 	c.seedManifestFromEmbedded(d, embedded)
-	go c.attemptManifestRefresh(d, home, embedded, fetchEnabled)
+	c.fork(func() { c.attemptManifestRefresh(d, home, embedded, fetchEnabled) })
 }
 
 func (c *Cache) seedManifestFromEmbedded(d *spec.Descriptor, embedded []byte) {

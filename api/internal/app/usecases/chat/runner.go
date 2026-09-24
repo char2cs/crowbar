@@ -150,6 +150,17 @@ type RunnerUsecase interface {
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
 
+	// PlacementsForChat lists every provider a runner has ever been placed on the
+	// chat as, oldest arrival first. It is append-only history, so it answers for
+	// runners that exited long ago — and, unlike the conversation history, it is
+	// written for EVERY runner, including one whose provider announces no
+	// conversation at all, which is what makes it the last resort for "which
+	// provider ran here".
+	PlacementsForChat(
+		ctx context.Context,
+		chatID string,
+	) ([]engineagents.ChatPlacement, error)
+
 	// ReconcileRunnersOnBoot Exits every recorded runner whose PTY did not survive
 	// the restart, closes the turns they died in, and recovers their prompt
 	// journals.
@@ -388,22 +399,6 @@ func (u *Usecase) PendingPrompt(
 	chatID string,
 ) (domain.PendingPrompt, bool, error) {
 	return u.runners.PendingPrompt(ctx, chatID)
-}
-
-// LiveRunnerForChat returns the CLI currently placed on the chat.
-func (u *Usecase) LiveRunnerForChat(
-	ctx context.Context,
-	chatID string,
-) (engineagents.Runner, error) {
-	return u.runners.LiveRunnerForChat(ctx, chatID)
-}
-
-// ConversationsForChat returns every conversation a CLI has hosted on the chat.
-func (u *Usecase) ConversationsForChat(
-	ctx context.Context,
-	chatID string,
-) ([]engineagents.ChatConversation, error) {
-	return u.runners.ConversationsForChat(ctx, chatID)
 }
 
 // ReconcileRunnersOnBoot exits every runner whose PTY did not survive the
