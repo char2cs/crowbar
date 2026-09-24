@@ -10,6 +10,7 @@ package scripted_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -90,6 +92,45 @@ type daemon struct {
 	eng      *engine.Container
 	adapters *adapter.Container
 	ln       net.Listener
+	hooks    *hookLog
+}
+
+// hookLog is every hook the relay delivered to this daemon, with the status
+// it got back — what a failure message needs to show.
+type hookLog struct {
+	mu      sync.Mutex
+	entries []string
+}
+
+func (h *hookLog) middleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method != http.MethodPost || !strings.HasSuffix(c.Request.URL.Path, "/hooks") {
+			c.Next()
+			return
+		}
+		body, _ := io.ReadAll(c.Request.Body)
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		c.Next()
+		var env struct {
+			Segment string `json:"segment_id"`
+			Event   string `json:"event"`
+			Payload string `json:"payload_raw"`
+		}
+		_ = json.Unmarshal(body, &env)
+		if len(env.Payload) > 160 {
+			env.Payload = env.Payload[:160]
+		}
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.entries = append(h.entries, fmt.Sprintf("%s %d %s %s %s", time.Now().Format("15:04:05.000"),
+			c.Writer.Status(), env.Segment, env.Event, env.Payload))
+	}
+}
+
+func (h *hookLog) String() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return strings.Join(h.entries, "\n")
 }
 
 func bootDaemon(t *testing.T, home string) *daemon {
@@ -102,11 +143,13 @@ func bootDaemon(t *testing.T, home string) *daemon {
 	container, err := app.New(ctx, eng, adapters)
 	require.NoError(t, err)
 	router := gin.New()
+	hooks := &hookLog{}
+	router.Use(hooks.middleware())
 	v0.New(container, eng).Register(router.Group("/v0"))
 	ln, err := transports.NewSocket("unix://")
 	require.NoError(t, err)
 	go func() { _ = http.Serve(ln, router) }() //nolint:gosec // test server on a private unix socket
-	return &daemon{app: container, eng: eng, adapters: adapters, ln: ln}
+	return &daemon{app: container, eng: eng, adapters: adapters, ln: ln, hooks: hooks}
 }
 
 // stop ends the daemon the way a crash does: no graceful drain, and every
@@ -251,7 +294,8 @@ func (r *rig) choices(chatID string) []domain.ActivityChoice {
 // eventually waits for cond, polling what the test can observe.
 func (r *rig) eventually(cond func() bool, msg string) {
 	r.t.Helper()
-	require.Eventually(r.t, cond, 20*time.Second, 20*time.Millisecond, "%s\nCLI log:\n%s", msg, logTail{r})
+	require.Eventually(r.t, cond, 20*time.Second, 20*time.Millisecond, "%s\nCLI log:\n%s\nhooks:\n%s",
+		msg, logTail{r}, r.d.hooks)
 }
 
 // logTail renders the CLI log lazily, only when a wait fails.
