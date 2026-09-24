@@ -13,7 +13,6 @@ import (
 // announced: the chat's phase, and a runner's in-memory process state.
 type Snapshotter interface {
 	Touch(ctx context.Context, chatID string)
-	TouchRunner(ctx context.Context, runnerID string)
 }
 
 // phases is the lifecycle operation each chat is in the middle of, set by the
@@ -68,11 +67,5 @@ func (rs *Runners) replacementPhase(ctx context.Context, chatID string) string {
 func (rs *Runners) touch(ctx context.Context, chatID string) {
 	if rs.snapshots != nil {
 		rs.snapshots.Touch(ctx, chatID)
-	}
-}
-
-func (rs *Runners) touchRunner(ctx context.Context, runnerID string) {
-	if rs.snapshots != nil {
-		rs.snapshots.TouchRunner(ctx, runnerID)
 	}
 }

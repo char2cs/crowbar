@@ -34,7 +34,7 @@ func (rs *Runners) resolvePromptDelivery(
 	live engineagents.Runner,
 	descriptor engineagents.Agent,
 ) (promptDelivery, error) {
-	resuming, nativeSessionID, err := rs.resumeTarget(ctx, chatID, live)
+	resuming, nativeSessionID, lostSession, err := rs.ladderTarget(ctx, chatID, live, descriptor)
 	if err != nil {
 		return promptDelivery{}, err
 	}
@@ -88,7 +88,7 @@ func (rs *Runners) resolvePromptDelivery(
 	}
 
 	out := promptDelivery{promptSteps: promptSteps, resuming: resuming, contextResuming: resuming}
-	if !liveTurned {
+	if !liveTurned || lostSession {
 		conversation, err := rs.conversations.AssembleConversation(ctx, chatID, everTurned, leftAt)
 		if err != nil {
 			return promptDelivery{}, fmt.Errorf("agent: submit prompt: assemble handoff: %w", err)
@@ -106,10 +106,6 @@ func (rs *Runners) resolvePromptDelivery(
 	if _, resumable := descriptor.ResumeArg(); !resumable {
 		return promptDelivery{}, ErrPromptUnsupported
 	}
-	// The full native resume argv, unsuppressed: spawnRunner drops it if and only
-	// if the replacement's OWN api connection comes up and resumes the session
-	// (apiResumes). Deciding it here would be deciding it before that connection
-	// exists — see resume_injection.go.
 	out.resumeSteps = resumeInjectionSteps(descriptor, nativeSessionID)
 	out.launchSessionID = nativeSessionID
 	return out, nil

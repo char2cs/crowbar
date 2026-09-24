@@ -1092,6 +1092,25 @@ func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T
 	}
 }
 
+// A daemon started inside a Claude Code session inherits that session's
+// identity; passed on, every chat's CLI would adopt the one session id
+// (found by the live conformance run).
+func TestAgent_ClaudeNeverInheritsASessionIdentity(t *testing.T) {
+	tmp := t.TempDir()
+	inherited := []string{
+		"PATH=/bin", "CLAUDE_CODE_SESSION_ID=parent", "CLAUDE_CODE_REMOTE_SESSION_ID=parent",
+		"CLAUDE_CODE_ENTRYPOINT=cli", "CLAUDE_PID=1", "CLAUDECODE=1",
+	}
+	plan, err := get(t, "claude").SpawnPlan(agents.TemplateCtx{
+		Tmp: tmp, Segid: "seg", CrowbarHook: "/bin/crowbar", Cwd: tmp,
+	}, inherited, nil)
+	require.NoError(t, err)
+	if plan.Cleanup != nil {
+		t.Cleanup(plan.Cleanup)
+	}
+	assert.Equal(t, []string{"PATH=/bin"}, plan.Env)
+}
+
 func TestMatchTerminalPrompt_ClaudeIdentifiesItsTrustDialog(t *testing.T) {
 	screen := strings.Join([]string{
 		"╭──────────────────────────────────────╮",
@@ -1377,6 +1396,22 @@ mcp_injection:
 		"-c", `mcp_servers.crowbar.command="/bin/crowbar"`,
 		"-c", `mcp_servers.crowbar.args=["mcp","--segment","seg-1"]`,
 	}, serveArgv, "the serve process must carry the SAME crowbar MCP registration a hooks-attached CLI gets")
+}
+
+func TestAgent_Codex_ServeProcessReportsOverOneChannel(t *testing.T) {
+	a := get(t, "codex")
+	ctx := agents.TemplateCtx{Socket: "/tmp/s.sock", Cwd: `/work/tree "a"`, CrowbarHook: "/bin/crowbar", Tmp: t.TempDir()}
+
+	serveArgv, ok := a.APIServeArgv(ctx)
+	require.True(t, ok)
+	plan, err := a.SpawnPlan(ctx, nil, nil)
+	require.NoError(t, err)
+
+	assert.NotContains(t, strings.Join(serveArgv, " "), "hooks.", "app-server must not also relay hooks")
+	assert.Contains(t, strings.Join(plan.Argv, " "), "hooks.SessionStart=", "the TUI reports over hooks")
+	assert.Contains(t, plan.Argv, `projects={"/work/tree \"a\""={trust_level="trusted"}}`,
+		"a new worktree must never park the TUI on codex's trust prompt")
+	assert.Contains(t, plan.Argv, `tui.resume_cwd="current"`)
 }
 
 // TestAgent_APIServeArgvCarriesTheSelection pins the api channel's own

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -995,10 +996,33 @@ func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 	t.Helper()
 	if sessionID != "" {
 		f.sessions[runnerID] = sessionID
+		writeVendorSession(t, sessionID)
 	}
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "", "session_start",
 		mustJSON(t, map[string]any{"session_id": sessionID})))
 	f.wait()
+}
+
+// writeVendorSession puts sessionID where each shipped provider keeps its
+// sessions (the fixture's isolated CLAUDE_CONFIG_DIR/CODEX_HOME), as a real
+// CLI does once it announces one.
+func writeVendorSession(t *testing.T, sessionID string) {
+	t.Helper()
+	for _, path := range []string{
+		filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "fixture", sessionID+".jsonl"),
+		filepath.Join(os.Getenv("CODEX_HOME"), "sessions", "2026", "01", "01", "rollout-x-"+sessionID+".jsonl"),
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte("{}\n"), 0o600))
+	}
+}
+
+// removeVendorSession deletes sessionID from the providers' stores — what a
+// vendor pruning an old transcript looks like to Crowbar.
+func removeVendorSession(t *testing.T, sessionID string) {
+	t.Helper()
+	require.NoError(t, os.Remove(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "fixture", sessionID+".jsonl")))
+	require.NoError(t, os.Remove(filepath.Join(os.Getenv("CODEX_HOME"), "sessions", "2026", "01", "01", "rollout-x-"+sessionID+".jsonl")))
 }
 
 // turn drives a turn_stop hook: the CLI finishing a turn, which is how a line ever
@@ -1218,6 +1242,10 @@ func newFixtureUsing(
 	// `codex app-server` subprocess as a side effect of spawning "codex" here.
 	// See apiconn.go's own comment on this same variable.
 	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "1")
+	// The vendors' own session stores, isolated: the resume ladder checks a
+	// session exists before resuming it, and announce() writes it there.
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CODEX_HOME", t.TempDir())
 
 	snaps := agentusecase.NewChatSnapshots()
 	snapFrames := &snapshotFrames{}

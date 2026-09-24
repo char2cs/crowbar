@@ -120,7 +120,7 @@ func (t *Turns) handleObservation(
 		// a turn/started..completed pair too, riding the exact wire event
 		// turn_stop/turn_failed already consume unconditionally — see
 		// compaction.go. A hooks-transport compact_pre (claude has none today;
-		// codex's own disconnected companion PTY does) maps no turn_id, so this
+		// a codex TUI does) maps no turn_id, so this
 		// is a no-op for it.
 		t.armCompaction(chat.ID, ev.TurnID)
 		// codex reports no trigger at all, so fall back to Crowbar's own

@@ -83,6 +83,14 @@ func seedLegacyDormantChat(
 	return chatID, runnerID
 }
 
+// bootBackfill runs what the next boot does to a legacy row: the boot
+// reconcile, which backfills each chat's own vendor from its runner history.
+func bootBackfill(t *testing.T, h *harness) {
+	t.Helper()
+	require.NoError(t, h.app.Usecases.AgentRunner.ReconcileRunnersOnBoot(t.Context()))
+	h.Quiesce()
+}
+
 // TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory is the
 // reported bug, end to end. The chat has nothing the resolver used to read, and
 // resuming it answered "agentrunner not found"; it must instead come back on the
@@ -94,6 +102,7 @@ func TestRegression_ResumeDormantChatRecoversItsProviderFromRunnerHistory(t *tes
 	imported := importWritableWorkspace(t, h)
 
 	chatID, _ := seedLegacyDormantChat(t, h, imported, "quietstub")
+	bootBackfill(t, h)
 	before := chatCount(t, h, imported)
 
 	// Every precondition of the bug, asserted rather than assumed: take any one of
@@ -149,6 +158,7 @@ func TestRegression_ResumeFromRunnerHistoryPicksTheNEWESTPlacement(t *testing.T)
 	require.NoError(t, err)
 	h.Quiesce()
 	require.NotEqual(t, firstRunner, second)
+	bootBackfill(t, h)
 
 	before := chatCount(t, h, imported)
 

@@ -116,10 +116,6 @@ type RunnerUsecase interface {
 	// no error, and false for a runner with nothing attached.
 	AttachedTerminalSession(runnerID string) (string, bool)
 
-	// HasLiveAPIConnection reports whether a runner has an ACTIVE api-transport
-	// connection right now — see chatRuntime's own use (handlers/chats.go).
-	HasLiveAPIConnection(runnerID string) bool
-
 	// TelemetryOnChatSurface is the CHAT-scoped form of a capability a
 	// provider-scoped flag cannot answer: two chats of the same provider can
 	// be on different surfaces. See runner/capabilities.go.
@@ -416,12 +412,6 @@ func (u *Usecase) SwitchToNative(ctx context.Context, chatID string) error {
 // native view right now, if it has one.
 func (u *Usecase) AttachedTerminalSession(runnerID string) (string, bool) {
 	return u.runners.AttachedTerminalSession(runnerID)
-}
-
-// HasLiveAPIConnection reports whether a runner has a live api-transport
-// connection right now.
-func (u *Usecase) HasLiveAPIConnection(runnerID string) bool {
-	return u.runners.HasLiveAPIConnection(runnerID)
 }
 
 // TelemetryOnChatSurface reports whether this chat can still receive usage

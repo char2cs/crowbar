@@ -201,10 +201,11 @@ func (c *Conversations) PurgeLocked(
 	if _, err := c.chats.GetChat(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: get: %w", err)
 	}
+	// Retire first, so the chat's feed still carries its runners' displacement.
+	c.runners.RetireChatRunners(ctx, chatID)
 	if err := c.chats.Forget(ctx, chatID); err != nil {
 		return fmt.Errorf("agent: purge chat: forget: %w", err)
 	}
-	c.runners.RetireChatRunners(ctx, chatID)
 
 	// Drop the conversation record and its telemetry. The record outlives the
 	// process and nothing else removes it, so a hard delete that skipped it would

@@ -634,6 +634,10 @@ func cloneValues(values map[string]string) map[string]string {
 	return out
 }
 
+// Overflowed reports whether the connection closed because its consumer fell
+// too far behind.
+func (drv *Driver) Overflowed() bool { return drv.conn.Overflowed() }
+
 func (drv *Driver) Close() error {
 	return drv.conn.Close()
 }

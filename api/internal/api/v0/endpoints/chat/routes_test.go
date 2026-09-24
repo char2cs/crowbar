@@ -14,6 +14,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -300,10 +301,6 @@ func (stubUsecase) AttachedTerminalSession(_ string) (string, bool) {
 	return "", false
 }
 
-func (stubUsecase) HasLiveAPIConnection(_ string) bool {
-	return false
-}
-
 func (stubUsecase) AssembleHandoff(
 	_ context.Context,
 	_ string,
@@ -348,6 +345,12 @@ func (stubUsecase) Promote(
 	chatID string,
 ) (domain.Chat, error) {
 	return domain.Chat{ID: chatID, WorkspaceID: "ws-promoted"}, nil
+}
+
+func (stubUsecase) DescriptorReports(
+	context.Context,
+) ([]descriptorcheck.Report, error) {
+	return nil, nil
 }
 
 func (stubUsecase) ResolveProviders(

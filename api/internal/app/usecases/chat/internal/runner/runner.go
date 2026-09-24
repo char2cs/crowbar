@@ -107,12 +107,16 @@ type Runners struct {
 	// phases is the lifecycle operation each chat is mid-way through — see
 	// phase.go — and snapshots is where a change no aggregate event carries is
 	// announced. snapshots is nil in tests that build a bare Runners.
-	phases    *phases
+	phases *phases
+	// sessions is the supervisor's record of why each chat is in its state.
+	sessions  *sessionBook
 	snapshots Snapshotter
 
 	// switchAwaitTimeout overrides forceSwitchAfter's bound. Zero (the production
 	// default) means "use termwait.DefaultStallQuiet" — see SetSwitchAwaitTimeout.
 	switchAwaitTimeout time.Duration
+	// interruptTimeout overrides Stop's interrupt bound; zero is the default.
+	interruptTimeout time.Duration
 }
 
 // Deps is everything the CLI lifecycle is built over. It is a struct and not an
@@ -175,6 +179,7 @@ func New(d Deps) *Runners {
 		attached:     newAttachRegistry(),
 		surfaces:     newSurfaceRegistry(),
 		phases:       newPhases(),
+		sessions:     newSessionBook(),
 		snapshots:    d.Snapshots,
 
 		conversations: d.Conversations,

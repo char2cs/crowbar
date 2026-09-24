@@ -114,25 +114,6 @@ func TestTransportFor_FallsBackToTheRuntimeDefault(t *testing.T) {
 	}
 }
 
-// Design spec P6b tag 1: absent owner: means Either, never a channel — a
-// delivery must never be dropped on liveness alone with no explicit owner.
-func TestEventOwner_AbsentMeansEither(t *testing.T) {
-	d := v3()
-	if got := d.EventOwner("session_start"); got != spec.OwnerEither {
-		t.Errorf("EventOwner = %q, want %q for an event with no owner: declared", got, spec.OwnerEither)
-	}
-}
-
-func TestEventOwner_ReadsTheDeclaredValue(t *testing.T) {
-	d := v3()
-	e := d.Events["session_start"]
-	e.Owner = spec.OwnerAPI
-	d.Events["session_start"] = e
-	if got := d.EventOwner("session_start"); got != spec.OwnerAPI {
-		t.Errorf("EventOwner = %q, want %q", got, spec.OwnerAPI)
-	}
-}
-
 // Design spec P6b tag 2: nil surfaces: means every surface.
 func TestEventSurfaces_AbsentMeansNil(t *testing.T) {
 	d := v3()

@@ -72,9 +72,9 @@ func (d *detector) settleDelivery(
 	// And the DELIVERY's own age, not just the screen's.
 	//
 	// The screen clock above measures how long this PTY has drawn nothing, which
-	// for an api-transport chat (codex) is the wrong question entirely: the PTY
-	// beside that connection is a disconnected companion driving an unrelated
-	// conversation, so it draws nothing for as long as the chat sits idle. Its
+	// for an api-transport chat (codex) is the wrong question entirely: such a
+	// runner has no PTY drawing its conversation, so nothing is drawn for as
+	// long as the chat sits idle. Its
 	// quiet window is therefore ALREADY hours old when a prompt arrives, and the
 	// grace period this timeout exists to give — thirty seconds for the provider
 	// to produce a turn — collapsed to zero: the next sweep, up to two seconds

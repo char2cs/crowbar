@@ -84,7 +84,11 @@ export interface PromptQueueOptions {
    *  that "idle" hands the CLI a prompt mid-compaction and aborts the compaction.
    *  The composer already promises this queues; the FIFO has to honour it. */
   compacting: boolean
+  /** A runner is placed — its departure before confirmation makes an
+   *  in-flight item uncertain. */
   live: boolean
+  /** A send may be dispatched (live, or dormant and revived by the send). */
+  canSend: boolean
   active: boolean
   visible: boolean
   turnRevision: number
@@ -98,7 +102,7 @@ export interface PromptQueueOptions {
   getBaseline: () => number
   /** Ask the ledger to re-read. Called after every dispatch outcome. */
   refreshMessages: () => void
-  onPromptSpawned: (result: AgentPromptResult) => void | Promise<void>
+  onPromptSpawned?: (result: AgentPromptResult) => void | Promise<void>
   onPromptDispatchStart?: () => void
   onPromptDispatchSettled?: () => void
   onRefreshChat: () => Promise<boolean>
@@ -133,6 +137,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
     working,
     compacting,
     live,
+    canSend,
     active,
     visible,
     turnRevision,
@@ -256,7 +261,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
   const busyHead =
     queue[0]?.state === 'queued' && queue[0].waitForIdleEpoch !== undefined ? queue[0] : undefined
   useEffect(() => {
-    if (!busyHead || !active || !visible || !live) return
+    if (!busyHead || !active || !visible || !canSend) return
     let cancelled = false
     let checking = false
     const check = async () => {
@@ -279,7 +284,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [busyHead, active, visible, live, onRefreshChat, releaseBusyBarrier])
+  }, [busyHead, active, visible, canSend, onRefreshChat, releaseBusyBarrier])
 
   const reconcile = useCallback(
     (authoritative: AgentChatMessage[]) => {
@@ -446,7 +451,7 @@ export function usePromptQueue(options: PromptQueueOptions) {
           onSelectionCommitted?.(item.model ?? '', item.effort ?? '')
         }
         try {
-          await onPromptSpawned(result)
+          await onPromptSpawned?.(result)
         } catch {
           // Runner adoption is view reconciliation. A successful prompt must never
           // be replayed because the follow-up GET/attach failed.
@@ -540,11 +545,19 @@ export function usePromptQueue(options: PromptQueueOptions) {
   // prompt was already queued still holds it.
   useEffect(() => {
     const head = queue[0]
-    if (!head || head.state !== 'queued' || working || compacting || !live || !active || !visible)
+    if (
+      !head ||
+      head.state !== 'queued' ||
+      working ||
+      compacting ||
+      !canSend ||
+      !active ||
+      !visible
+    )
       return
     if (head.waitForIdleEpoch !== undefined && head.waitForIdleEpoch > idleEpoch) return
     void dispatch(head)
-  }, [queue, working, compacting, live, active, visible, idleEpoch, dispatch])
+  }, [queue, working, compacting, canSend, active, visible, idleEpoch, dispatch])
 
   // A replacement CLI that disappears before user_prompt is not accepted. Keep
   // the same request identity but require a human retry; never silently resubmit.

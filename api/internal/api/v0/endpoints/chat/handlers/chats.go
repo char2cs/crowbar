@@ -33,7 +33,7 @@ type createRequest struct {
 	// provider's own default landing, byte-identical to every create made
 	// before this field existed. "terminal" births the chat directly on the
 	// provider's own CLI: no api connection is opened for it, so its PTY is
-	// the conversation rather than a companion nobody is looking at.
+	// the conversation.
 	//
 	// A provider that does not declare that surface launchable
 	// (surfaces.terminal.start_here) falls back to its default at spawn
@@ -342,7 +342,7 @@ func (h *Handlers) chatSnapshot(
 		return domain.Chat{}, dto.ChatRuntime{}, err
 	}
 	return s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
-		s.TerminalWait, s.AttachedSessionID, s.HasLiveAPIConnection), nil
+		s.TerminalWait, s.AttachedSessionID, s.Session), nil
 }
 
 // requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to

@@ -70,11 +70,8 @@ type Runners interface {
 		ctx context.Context,
 		chat domain.Chat,
 	) error
-	// HasLiveAPIConnection reports whether runnerID has an ACTIVE api-transport
-	// connection right now. ownerDropsThisDelivery reads this to recognize a
-	// hooks delivery of an event the descriptor declares owner: api — see its
-	// own comment for why that combination means the delivery is a redundant
-	// echo.
+	// HasLiveAPIConnection reports whether runnerID's channel is an api
+	// connection right now (whose originated-session record is then current).
 	HasLiveAPIConnection(runnerID string) bool
 	// TelemetryOnChatSurface reports whether the chat's current surface
 	// carries its provider's usage report at all.
@@ -90,10 +87,6 @@ type Runners interface {
 	// sessionID, or is producing one right now. False for a hooks-only runner,
 	// which has no connection that could.
 	OriginatedSession(runnerID, sessionID string) bool
-	// HasDispatchedOverAPI reports whether runnerID's live api connection has
-	// actually carried a prompt, as opposed to merely being established —
-	// ownerDropsThisDelivery's own comment has the full reasoning.
-	HasDispatchedOverAPI(runnerID string) bool
 	// SettleDeliveryFor retires runnerID's pending prompt delivery on chatID
 	// right now, if it has one. handleObservation calls this on compact_post:
 	// compaction never confirms via a user_prompt hook or a ledger turn, so

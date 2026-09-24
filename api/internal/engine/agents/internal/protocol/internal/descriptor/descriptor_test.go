@@ -406,15 +406,14 @@ func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
 	assert.NotEmpty(t, d.Runtime.API.Serve)
 	assert.NotEmpty(t, d.Runtime.Hooks.Format, "hooks stay declared — see codex.yaml's own comment on why")
 
-	// subagent_pre/subagent_post remain the known gap (B1's nested-thread/
-	// collab-tool-call model does not fit StartSubagent/StopSubagent yet —
-	// see codex.yaml's own comment). session_end stays on hooks too: its
-	// dispatch is already a no-op on either transport, and no live-reachable
-	// api equivalent was found — see codex.yaml's comment there.
+	// Only the TUI's hook relay reports these: they have a hooks: block and no
+	// api: block, so the api driver never resolves them.
 	hooksOnly := []string{"subagent_pre", "subagent_post", "session_end"}
 	for _, name := range hooksOnly {
-		assert.Equal(t, "hooks", d.TransportFor(name),
-			"event %q must stay on hooks — the API does not carry it", name)
+		wire, _ := d.Events[name].WireEventFor(spec.ChannelAPI)
+		assert.True(t, wire.Empty(), "event %q must not be resolvable from the api channel", name)
+		hooksWire, _ := d.Events[name].WireEventFor(spec.ChannelHooks)
+		assert.False(t, hooksWire.Empty(), "event %q is reported over hooks", name)
 	}
 	// compact_pre/compact_post moved off hooks: confirmed live that
 	// thread/compact/start's contextCompaction item rides the same

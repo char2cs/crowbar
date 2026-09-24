@@ -57,34 +57,4 @@ describe('ComposerSignpost', () => {
     expect(container.querySelector('[data-flicker-spinner]')).toBeInTheDocument()
     expect(screen.queryByRole('button')).toBeNull()
   })
-
-  it('offers a manual Resume once a revive has already given up', () => {
-    const onRevive = vi.fn()
-    render(
-      <ComposerSignpost
-        reason="idle"
-        message="This agent has exited. Resume it to pick the conversation up where you left off."
-        onOpenTerminal={vi.fn()}
-        onRevive={onRevive}
-      />,
-    )
-
-    const button = screen.getByRole('button', { name: 'Resume' })
-    fireEvent.click(button)
-    expect(onRevive).toHaveBeenCalled()
-    // Not a redirect — there is nowhere else to send this one.
-    expect(screen.queryByText(/Terminal/)).toBeNull()
-  })
-
-  it('offers no button for idle without a revive handler to call', () => {
-    render(
-      <ComposerSignpost
-        reason="idle"
-        message="This agent has exited. Resume it to pick the conversation up where you left off."
-        onOpenTerminal={vi.fn()}
-      />,
-    )
-
-    expect(screen.queryByRole('button')).toBeNull()
-  })
 })

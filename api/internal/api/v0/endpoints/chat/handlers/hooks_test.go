@@ -15,6 +15,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -96,6 +97,9 @@ func TestHooks_UsecaseError(
 type fakeAgentUsecase struct {
 	ingestCalls []ingestCall
 	ingestErr   error
+	// descriptorReports / descriptorErr answer DescriptorReports.
+	descriptorReports []descriptorcheck.Report
+	descriptorErr     error
 	// terminalWait is the standing "is this chat's CLI parked on a modal we
 	// cannot answer" verdict. Zero — not waiting — for every test that does not
 	// set it, which is the state a chat is in unless something says otherwise.
@@ -118,7 +122,6 @@ type fakeAgentUsecase struct {
 	switchToNativeCalls    []string
 	switchToNativeErr      error
 	attachedSessionID      string
-	hasLiveAPIConn         bool
 
 	compactCalls []string
 	compactErr   error
@@ -443,10 +446,6 @@ func (f *fakeAgentUsecase) AttachedTerminalSession(_ string) (string, bool) {
 	return f.attachedSessionID, f.attachedSessionID != ""
 }
 
-func (f *fakeAgentUsecase) HasLiveAPIConnection(_ string) bool {
-	return f.hasLiveAPIConn
-}
-
 func (f *fakeAgentUsecase) AssembleHandoff(
 	_ context.Context,
 	_ string,
@@ -506,6 +505,12 @@ func (f *fakeAgentUsecase) Promote(
 		return domain.Chat{}, f.promoteErr
 	}
 	return domain.Chat{ID: chatID, WorkspaceID: f.promotedWorkspaceID}, nil
+}
+
+func (f *fakeAgentUsecase) DescriptorReports(
+	context.Context,
+) ([]descriptorcheck.Report, error) {
+	return f.descriptorReports, f.descriptorErr
 }
 
 func (f *fakeAgentUsecase) ResolveProviders(

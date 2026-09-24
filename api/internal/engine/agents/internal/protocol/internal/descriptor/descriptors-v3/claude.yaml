@@ -302,10 +302,24 @@ spawn:
   interactive_required: true
   # -p/--print would make the wrapped TUI headless.
   forbid_flags: ["-p", "--print"]
+  # A daemon started from inside a Claude Code session inherits its identity;
+  # CLAUDE_CODE_SESSION_ID would make every chat's CLI adopt that one session.
   env:
-    clear: ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]
+    clear:
+      - CLAUDE_CODE_CHILD_SESSION
+      - CLAUDECODE
+      - CLAUDE_CODE_SESSION_ID
+      - CLAUDE_CODE_REMOTE_SESSION_ID
+      - CLAUDE_CODE_ENTRYPOINT
+      - CLAUDE_PID
 session:
   resume: { arg: "--resume {id}" }
+  # Checked before any resume: a pruned or never-written transcript makes
+  # `--resume <id>` exit 1 (verified on 2.1.281).
+  locate:
+    root_env: CLAUDE_CONFIG_DIR
+    root: "~/.claude"
+    glob: ["projects/*/{id}.jsonl"]
 presentation:
   prompt_submit:
     strategy: restart_tui
@@ -380,7 +394,7 @@ effort:
   strategy: restart_tui
   apply:
     - pass_arg: { arg: "--effort", value: "{effort}" }
-config_injection:
+hooks_injection:
   # PermissionRequest/Elicitation carry an explicit timeout: they're the two
   # hooks Crowbar HOLDS OPEN while a human decides, and an overrun is KILLED
   # rather than abandoned.

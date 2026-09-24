@@ -86,6 +86,9 @@ export interface AgentChat {
   version: number
   /** The chat's lifecycle phase, owned by the daemon. The pane renders it. */
   phase: ChatPhase
+  /** How the conversation continues and why the chat is dormant, as the
+   *  daemon's session supervisor recorded it. Absent when there is nothing to say. */
+  session?: ChatSession
   /**
    * The row this chat hangs off — another CHAT (making this one a thread of it) or
    * a FOLDER. '' is the workspace root.
@@ -137,6 +140,18 @@ export interface AgentChat {
 /** Where a chat is in its lifecycle. `dormant` and `live` follow placement;
  *  the other three are an operation the daemon is running on it right now. */
 export type ChatPhase = 'dormant' | 'starting' | 'live' | 'switching' | 'stopping'
+
+/** The resume-ladder rung a runner launched on: the provider's own session,
+ *  a fresh one handed Crowbar's transcript, or nothing to continue. */
+export type SessionRung = 'session' | 'transcript' | 'fresh'
+
+export interface ChatSession {
+  rung?: SessionRung
+  /** How the last runner ended: stopped, exited, connection_lost,
+   *  transport_overflow, daemon_restart, resume_failed, spawn_failed. */
+  exitReason?: string
+  exitedAt?: string
+}
 
 /** What a chat's CLI is blocked on that Crowbar has no channel to answer.
  *
@@ -390,6 +405,7 @@ export function mapChat(c: AgentChat): AgentChat {
     createdAt: c.createdAt,
     version: c.version,
     phase: c.phase,
+    session: c.session,
     // Grounded here, once, so nothing downstream has to remember that an absent
     // parent and a root parent are the same thing. `order` defaults to 0, which
     // ties every chat on a daemon that has not placed them yet — the tree breaks
@@ -975,6 +991,30 @@ export const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{
   { value: 'full-auto', label: 'Full Auto' },
 ]
 
+/** One problem the daemon's descriptor validator found. */
+export interface DescriptorFinding {
+  rule: string
+  severity: 'error' | 'warning'
+  /** YAML path, e.g. `session.locate.glob[0]`. */
+  path: string
+  line: number
+  message: string
+  hint?: string
+}
+
+/** A descriptor's static validation; any error means the daemon will not enable it. */
+export interface DescriptorReport {
+  id: string
+  /** The override file, absent for the shipped descriptor. */
+  source?: string
+  findings: DescriptorFinding[]
+}
+
+export async function getDescriptorReports(): Promise<DescriptorReport[]> {
+  const raw = await apiFetch<DescriptorReport[]>(`/v0/settings/chat/descriptors`)
+  return (raw ?? []).map((r) => ({ ...r, findings: r.findings ?? [] }))
+}
+
 export async function getDefaultPermissionLevel(): Promise<PermissionLevel> {
   const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`)
   return res.level
@@ -1026,9 +1066,7 @@ export async function setChatPermissionLevel(
  * 2.5). It is not the same thing as `presetChatLandingPresentation`, which
  * only tells the pane where to open: this decides what the daemon actually
  * forks. For a mixed-transport provider (codex) a chat born on 'terminal'
- * gets NO api connection at all, so its own PTY is the conversation rather
- * than a companion the chat DTO then hides — which is why such a chat used to
- * land on "This agent has no terminal view attached right now". Omitted means
+ * gets NO api connection at all: its own PTY is the conversation. Omitted means
  * the provider's own default face, byte-identical to every create before this
  * argument existed.
  */
@@ -1096,23 +1134,11 @@ export async function createChatWithOwnWorktree(
 // switchProvider quits the chat's current vendor CLI, hands off the accumulated
 // context, and starts `provider` as a NEW RUNNER on the same chat. Returns that
 // runner's id — the chat is unchanged, the process is not.
-//
-// `signal` for the identical reason resumeChat takes one (see that function's
-// own comment): this drives the SAME daemon-side per-chat spawn mutex
-// (switchProviderLocked), and the caller renders the same buttonless
-// "Starting {provider}…" spinner while this is out — a switch that never
-// answers is a pane the user can only abandon just like an unbounded resume.
-export async function switchProvider(
-  wsId: string,
-  id: string,
-  provider: string,
-  signal?: AbortSignal,
-): Promise<string> {
+export async function switchProvider(wsId: string, id: string, provider: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/switch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider }),
-    signal,
   })
   return res.id
 }
@@ -1125,17 +1151,9 @@ export async function switchProvider(
 // Returns the id of the RUNNER now on the chat. A chat that is still live is a
 // no-op that hands back the runner already there, so this can never end up with
 // two CLIs on one conversation.
-// `signal` is not optional politeness: the caller renders a SPINNER WITH NO
-// BUTTON ON IT while this is out, so a resume that never answers is a chat the
-// user can only abandon. The daemon serialises every spawn path of one chat
-// behind a plain per-chat mutex with no context on it (inflight's Gate), so this
-// request can queue behind another spawn indefinitely and produce no response and
-// no access-log line at all. Whoever draws that spinner has to be able to stop
-// waiting — see AgentChatPane.revive.
-export async function resumeChat(wsId: string, id: string, signal?: AbortSignal): Promise<string> {
+export async function resumeChat(wsId: string, id: string): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}/${encodeURIComponent(id)}/resume`, {
     method: 'POST',
-    signal,
   })
   return res.id
 }

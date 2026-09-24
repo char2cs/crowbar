@@ -42,7 +42,7 @@ func (r *runtime) Phase(chatID string) string {
 }
 func (*runtime) TerminalWait(string) domain.AgentTerminalWait  { return domain.AgentTerminalWait{} }
 func (*runtime) AttachedTerminalSession(string) (string, bool) { return "", false }
-func (*runtime) HasLiveAPIConnection(string) bool              { return false }
+func (*runtime) Session(string) domain.AgentSession            { return domain.AgentSession{} }
 
 type recorder struct {
 	mu     sync.Mutex
@@ -145,6 +145,29 @@ func TestSnapshots_AMoveRepublishesTheChatLeftAndTheChatEntered(t *testing.T) {
 	assert.Nil(t, frames[1].Snapshot.Live, "the chat it left is dormant")
 	assert.Equal(t, snapshot.PhaseDormant, frames[1].Snapshot.Phase)
 	assert.Equal(t, "r1", frames[1].RunnerID)
+}
+
+// A runner taken off its chat, and its exit after that, both reach the chat it
+// held under their own kinds: a client lets go of a displaced runner at once.
+func TestSnapshots_ADisplacedRunnerAndItsExitReachTheChatItLeft(t *testing.T) {
+	ctx := context.Background()
+	s, rec, _ := newOwner(t, &reader{chats: map[string]domain.Chat{"c1": {ID: "c1"}}})
+	s.ApplyRunner(ctx, runnerOn("r1", "c1", t0), agents.Runner{}, 1, "started")
+
+	s.ApplyRunner(ctx, runnerOn("r1", "", t0), runnerOn("r1", "c1", t0), 2, "displaced")
+	displaced := rec.last(t)
+	assert.Equal(t, "displaced", displaced.Kind)
+	assert.Equal(t, "c1", displaced.Snapshot.Chat.ID)
+	assert.Nil(t, displaced.Snapshot.Live)
+
+	exited := runnerOn("r1", "", t0)
+	exitedAt := t0.Add(time.Minute)
+	exited.ExitedAt = &exitedAt
+	s.ApplyRunner(ctx, exited, runnerOn("r1", "", t0), 3, "exited")
+	last := rec.last(t)
+	assert.Equal(t, "exited", last.Kind)
+	assert.Equal(t, "c1", last.Snapshot.Chat.ID)
+	assert.Equal(t, "r1", last.RunnerID)
 }
 
 // Two runners claiming one chat: the newest arrival is the live one — the same

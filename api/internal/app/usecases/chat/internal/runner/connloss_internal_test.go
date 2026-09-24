@@ -7,18 +7,14 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
+
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
-// pumpAPIConn's loop used to just RETURN when the driver's Events() channel
-// closed — no teardown of any kind. The connection was dead but its registry
-// entry stayed, so HasLiveAPIConnection went on answering true forever, and
-// ownerDropsThisDelivery (turn/ingest.go) kept DROPPING the companion PTY's
-// hooks copy of every owner: api event as a redundant duplicate of an api
-// transport that no longer existed. The chat went permanently silent with its spinner stuck on,
-// and nothing else could reach it: the companion PTY is still alive, so no
-// runner-exit reconcile fires, and neither termwait sweep applies to a clean
-// screen that streamed nothing.
-func TestRegression_ALostAPIConnectionStopsClaimingToBeLive(t *testing.T) {
+// A connection that dies on its own ends its runner (the channel IS the
+// runner) with the loss recorded as the cause — never a runner left placed on
+// its chat with no channel at all.
+func TestRegression_ALostAPIConnectionEndsItsRunnerWithACause(t *testing.T) {
 	// Hang up as soon as the handshake is done: the driver's Events() channel
 	// closes, which is exactly what a dead `serve` process looks like from here.
 	sockPath := fakeWSServer(t, func(conn *websocket.Conn) { _ = conn.Close() })
@@ -29,7 +25,7 @@ func TestRegression_ALostAPIConnectionStopsClaimingToBeLive(t *testing.T) {
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
 
-	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry()}
+	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry(), sessions: newSessionBook()}
 	conn := &apiconn{driver: apiConn, ctx: ctx}
 	rs.apiConns.set("runner-1", conn)
 	require.True(t, rs.HasLiveAPIConnection("runner-1"))
@@ -37,8 +33,8 @@ func TestRegression_ALostAPIConnectionStopsClaimingToBeLive(t *testing.T) {
 	rs.pumpAPIConn("runner-1", "api-test", agent, conn)
 
 	require.Eventually(t, func() bool { return !rs.HasLiveAPIConnection("runner-1") },
-		3*time.Second, 10*time.Millisecond,
-		"a dead connection still reporting live suppresses the hooks fallback forever")
+		3*time.Second, 10*time.Millisecond, "a dead connection must stop claiming to be the runner's channel")
+	require.Equal(t, domain.AgentExitConnectionLost, rs.sessions.takeCause("runner-1"))
 }
 
 // The mirror case: a DELIBERATE teardown (drop, on retire / provider switch /

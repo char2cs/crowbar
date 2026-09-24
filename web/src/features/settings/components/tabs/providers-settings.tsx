@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useMemo } from 'react'
 import { updateProviderPreferences } from '@/features/agent/api/agent-api'
 import type { AgentProvider } from '@/features/agent/api/agent-api'
+import { DescriptorStatus } from '@/features/agent/components/descriptor-status'
 import {
   beginProviderWrite,
   isLatestProviderWrite,
@@ -255,6 +256,7 @@ export const ProvidersSettings = () => {
             </DndContext>
           </>
         )}
+        <DescriptorStatus />
       </Section>
       <ChatPresentationSetting />
     </div>

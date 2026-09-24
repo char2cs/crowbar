@@ -6,6 +6,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -45,6 +46,16 @@ func HasPendingDelivery(u RunnerUsecase, ctx context.Context, chatID string) boo
 // descriptor built in Go — which is the point: the day a strategy is made
 // declarable before it is made deliverable, this is the lock that still holds,
 // and a lock nothing exercises is a lock nobody notices going missing.
+// ChatSession is the session supervisor's record for chatID: the rung its
+// runner launched on and how its last runner ended.
+func ChatSession(u RunnerUsecase, chatID string) domain.AgentSession {
+	uc, ok := u.(*Usecase)
+	if !ok {
+		return domain.AgentSession{}
+	}
+	return uc.runners.Session(chatID)
+}
+
 // SetSwitchAwaitTimeout overrides how long a provider switch waits for the
 // outgoing turn to finish naturally before forcing it (see forceSwitchAfter).
 // Test-only surface: production always uses termwait.DefaultStallQuiet.

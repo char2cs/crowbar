@@ -20,6 +20,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -44,21 +45,9 @@ type apiconn struct {
 	// connection later, on the way back to native — nothing else needs them.
 	agent engineagents.Agent
 	tctx  engineagents.TemplateCtx
-	// dispatchedOverAPI is set once pushPromptOverAPI has actually sent a prompt
-	// down THIS connection — never on establish alone. A freshly (re)established
-	// connection sits idle until something is dispatched to it: the spawn that
-	// created it may have carried its own opening prompt over the companion PTY's
-	// own argv instead (submitPromptOverAPI's replacement-spawn fallback embeds
-	// text into the respawned CLI's command line, never into a Dispatch call —
-	// see prompts.go). ownerDropsThisDelivery (turn/ingest.go) reads this to tell those
-	// two cases apart: a connection that exists but has dispatched nothing has
-	// nothing of its own to echo, so the companion PTY's hooks for that turn are
-	// the ONLY record of it, not a redundant copy of something this connection
-	// is independently reporting. Confirmed live: without this, exactly that
-	// turn's hooks were dropped as "redundant" while the api side had genuinely
-	// never been asked to carry it, silently erasing the turn from the ledger
-	// even though the CLI itself answered normally.
-	dispatchedOverAPI atomic.Bool
+	// replacedSession is set when the provider refused the session this spawn
+	// asked to resume and a fresh one was opened in its place.
+	replacedSession bool
 	// originated is every conversation this connection's own driver opened in
 	// place of one Crowbar named — see sessionorigin.go.
 	originated *originatedSessions
@@ -92,10 +81,8 @@ func (r *apiConnRegistry) set(runnerID string, c *apiconn) {
 }
 
 // get returns runnerID's live connection, if it has one. ok=false is the
-// common case for a hooks-only provider, and is how submitPromptOverAPI
-// decides to fall back to restart_tui instead. Nil-safe for the same reason
-// drop is: spawnRunner asks this on EVERY spawn now (apiResumes), including
-// from test doubles that build a Runners without ever making a registry.
+// common case for a hooks-channel runner. Nil-safe: test doubles build a
+// Runners without a registry.
 func (r *apiConnRegistry) get(runnerID string) (*apiconn, bool) {
 	if r == nil {
 		return nil, false
@@ -226,18 +213,9 @@ func (rs *Runners) startAPIConn(
 }
 
 // applyAPITransport starts serve+handshake for an api-transport descriptor,
-// ESTABLISHES its session (Fresh or Resume — see apiconn's own EstablishSession
-// doc) before anything else, and, once connected, RETURNS `attach`'s argv for
-// the caller to point its spawn plan at instead of the bare descriptor
-// spawn.cmd — so the PTY spawnRunner forks carries the attached TUI, not a
-// second copy of the hooks-only launch. Returns nil when there is nothing to
-// override.
-//
-// It returns that argv rather than writing it into a *SpawnPlan because
-// spawnRunner must call this BEFORE it builds the plan at all: whether this
-// connection came up is what decides if the plan may carry a native
-// `resume {id}` (see apiResumes), and asking afterwards is how that decision
-// used to be made from the descriptor alone.
+// ESTABLISHES its session (Fresh or Resume) before anything else, and — for a
+// hotswap descriptor only — RETURNS `attach`'s argv for the caller's PTY to
+// run instead of the descriptor's spawn.cmd. Returns nil otherwise.
 //
 // The session must exist BEFORE attach's argv is rendered: attach has to name
 // the SAME thread `prompt`'s turn/start will act on (codex.yaml's attach is
@@ -292,6 +270,7 @@ func (rs *Runners) applyAPITransport(
 	for k, v := range tctx.PermissionVars {
 		values["permission."+k] = v
 	}
+	requested := tctx.Session
 	established, err := conn.driver.EstablishSession(ctx, "prompt", values)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: establish session", "err", err, "runner_id", runnerID)
@@ -299,14 +278,15 @@ func (rs *Runners) applyAPITransport(
 		return nil
 	}
 	tctx.Session = established["session_id"]
-	// The ONLY channel that reaches an already-resumed codex thread: no CLI
-	// argv exists to carry it (the redundant hooks-only PTY is deliberately
-	// starved of both the native id and this document — see apiOwnsResume,
-	// prompts.go — because handing either to a second writer on the same
-	// thread is what corrupted the switch in the first place), and
-	// thread/resume's own send: template has nowhere to put it either. Best
-	// effort, like every other step in this function: a failed inject leaves
-	// the resumed session running with no memory of the gap, not un-resumed.
+	if requested != "" && tctx.Session != requested {
+		// The provider refused the recorded session and a new one was opened:
+		// the ladder's transcript rung, so it is handed the whole conversation.
+		conn.replacedSession = true
+		resumeContext = rs.transcriptFor(ctx, tctx.ChatID)
+	}
+	// The only channel that reaches an already-resumed thread with the gap
+	// (thread/resume's own send: has nowhere to put it). Best effort: a failed
+	// inject leaves the resumed session running without the gap, not unresumed.
 	if resumeContext != "" {
 		if err := conn.driver.InjectAt(ctx, "context", map[string]string{
 			"session_id": tctx.Session,
@@ -346,49 +326,20 @@ func pointPlanAtAttach(plan *engineagents.SpawnPlan, attachArgv []string) {
 }
 
 // pumpAPIConn forwards every canonical event this connection's driver resolves
-// into the SAME ingest entrypoint hooks use — ownership, activity, and the
-// answer desk need no transport-specific branch because of this. Runs until the
-// driver's Events() channel closes (the connection died) or conn's own ctx is
-// cancelled (by drop, on runner exit) — NEVER the ctx of whatever request
-// triggered the spawn: this goroutine outlives that request by design, and
-// using its ctx would cancel every IngestHook the instant that request
-// returned. See apiconn's own field comment.
-//
-// agent (the SAME engineagents.Agent spawnRunner already holds) is how this
-// reaches TransportFor — never a raw *spec.Descriptor, which this package
-// cannot name.
+// into the same ingest entrypoint the hook relay uses. It runs on the
+// connection's own ctx (never a request's) until the driver closes its events.
 func (rs *Runners) pumpAPIConn(
 	runnerID, providerID string, agent engineagents.Agent, conn *apiconn,
 ) {
 	ctx := conn.ctx
 	go func() {
-		// Events() closing means the connection is GONE — the `serve` process
-		// died, the socket dropped. This used to just return, which left the
-		// registry entry standing: HasLiveAPIConnection answered true forever,
-		// so ownerDropsThisDelivery went on dropping the companion PTY's hooks
-		// copy of every owner: api event as a redundant duplicate of a transport
-		// that no longer existed. The chat went silent for good, spinner stuck on, and
-		// nothing else could reach it — the companion PTY is still alive, so no
-		// runner-exit reconcile fires, and neither termwait sweep applies to a
-		// clean screen that streamed nothing.
 		defer rs.onAPIConnLost(ctx, runnerID)
 		for ev := range conn.driver.Events() {
-			if agent.TransportFor(ev.Canonical) != "api" {
-				// Declared on hooks by this descriptor — the hooks wire already
-				// carries it, or will; a driver-resolved copy here would double it.
-				continue
-			}
-			// Marked on EVERY event, not just asks: ingestResolvedHook's
-			// "redundant hooks-delivered copy" guard cannot otherwise tell this
-			// call apart from the companion PTY's hooks echo of the SAME
-			// api-owned event — see inflight.FromAPITransport's own doc comment.
 			evCtx := inflight.WithAPITransport(ctx)
 			if ev.AskID != nil {
-				// A synthetic delivery id scopes this ask's slot exactly the way an
-				// HTTP hook delivery's id would — holdForAnswer (internal/turn's
-				// observation.go) reads this straight out of the context and needs
-				// no other change to hold the prompt open.
-				evCtx = inflight.WithDeliveryID(evCtx, runnerID+":"+hex.EncodeToString(ev.AskID))
+				// The synthetic delivery id scopes the ask's answer-desk slot the
+				// way an HTTP relay's delivery id does.
+				evCtx = inflight.WithDeliveryID(evCtx, apiAskDeliveryID(runnerID, ev.AskID))
 			}
 			if err := rs.turns.IngestHook(evCtx, runnerID, providerID, ev.Canonical, ev.Raw); err != nil {
 				slog.WarnContext(ctx, "agent: api transport: ingest", "err", err,
@@ -396,25 +347,21 @@ func (rs *Runners) pumpAPIConn(
 				continue
 			}
 			if ev.AskID != nil {
-				// Answered on its own goroutine: a human's decision can take
-				// minutes, and every event behind the ask — deltas, turn_stop,
-				// the interrupt reply Stop is waiting for — must keep flowing.
-				// Bounded by the desk's answer budget and by ctx (drop).
-				go rs.awaitAndReplyOverSocket(ctx, runnerID, ev.AskID, conn)
+				// Off the pump: a human's decision can take minutes, and every
+				// event behind the ask must keep flowing.
+				go rs.awaitAndReplyOverSocket(ctx, runnerID, agent, ev, conn)
 			}
 		}
 	}()
 }
 
-// HasLiveAPIConnection reports whether runnerID has an ACTIVE api-transport
-// connection right now — as opposed to torn down for its native view (see
-// SwitchToTerminal, attach.go), or never declared one at all. chatRuntime
-// (chats.go) uses this to tell a legitimately-live TerminalSession (claude:
-// its PTY IS the conversation) from the disconnected companion PTY every
-// api-transport spawn still forks alongside a LIVE connection (a known gap) —
-// reporting the latter as "the terminal" is what let a user type into an
-// unrelated codex session and have it silently promoted into its own new
-// chat. Confirmed live.
+func apiAskDeliveryID(runnerID string, askID json.RawMessage) string {
+	return runnerID + ":" + hex.EncodeToString(askID)
+}
+
+// HasLiveAPIConnection reports whether runnerID's channel right now is an api
+// connection — false for a hooks-channel runner and for one handed over to its
+// native view (SwitchToTerminal).
 func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 	_, ok := rs.apiConns.get(runnerID)
 	return ok
@@ -429,25 +376,29 @@ func (rs *Runners) Shutdown() {
 	rs.apiConns.closeAll()
 }
 
-// awaitAndReplyOverSocket blocks on the SAME answerdesk.Await an HTTP hook relay
-// would, on this goroutine instead of an HTTP request — there is no relay
-// process for the API transport, so this goroutine IS the thing waiting. On a
-// verdict (or an expired budget, which yields an empty stdout exactly as it
-// would for a hook relay nobody answered in time — the provider then falls back
-// to answering through its own attached TUI, per capability 2), it writes the
-// reply back over the socket.
+// awaitAndReplyOverSocket is the api channel's hook relay: it waits on the
+// answer desk and writes the verdict back. Every ask gets a reply — an api
+// provider has no TUI of its own to fall back to, so an ask left unanswered
+// would hold its turn open forever. On an expired budget the descriptor's own
+// refusal is sent instead.
 func (rs *Runners) awaitAndReplyOverSocket(
-	ctx context.Context, runnerID string, askID json.RawMessage, conn *apiconn,
+	ctx context.Context, runnerID string, agent engineagents.Agent, ev engineagents.APIEvent, conn *apiconn,
 ) {
-	deliveryID := runnerID + ":" + hex.EncodeToString(askID)
-	answer, err := rs.answers.Await(ctx, deliveryID)
+	answer, err := rs.answers.Await(ctx, apiAskDeliveryID(runnerID, ev.AskID))
 	if err != nil {
-		return // ctx cancelled or the connection closed underneath the wait
+		return // the connection is closing: the provider's ask dies with it
 	}
-	if len(answer.Stdout) == 0 {
-		return // nobody answered from Crowbar in time; codex's own attached TUI still has it
+	reply := answer.Stdout
+	if len(reply) == 0 {
+		reply, err = agent.RenderAnswer(ev.Canonical, ev.Raw, engineagents.AnswerDecision{
+			Key: answerdesk.RefusalKey(ev.Canonical), Reason: "No answer from Crowbar in time.",
+		})
+		if err != nil {
+			slog.WarnContext(ctx, "agent: api transport: render refusal", "err", err, "runner_id", runnerID)
+			return
+		}
 	}
-	if err := conn.driver.Reply(askID, answer.Stdout); err != nil {
+	if err := conn.driver.Reply(ev.AskID, reply); err != nil {
 		slog.WarnContext(ctx, "agent: api transport: write reply", "err", err, "runner_id", runnerID)
 	}
 }

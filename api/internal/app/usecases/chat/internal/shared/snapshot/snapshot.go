@@ -54,9 +54,10 @@ type Snapshot struct {
 	Phase   string
 	Version int64
 
-	TerminalWait         domain.AgentTerminalWait
-	AttachedSessionID    string
-	HasLiveAPIConnection bool
+	TerminalWait      domain.AgentTerminalWait
+	AttachedSessionID string
+	// Session is why the chat's vendor session is in the state it is.
+	Session domain.AgentSession
 }
 
 // Reader is the read model the owner falls back to for a chat no event has
@@ -73,7 +74,7 @@ type Runtime interface {
 	Phase(chatID string) string
 	TerminalWait(chatID string) domain.AgentTerminalWait
 	AttachedTerminalSession(runnerID string) (string, bool)
-	HasLiveAPIConnection(runnerID string) bool
+	Session(chatID string) domain.AgentSession
 }
 
 // Frame is one published change: the snapshot, the event kind that caused it,
@@ -94,6 +95,9 @@ type Publish func(Frame)
 type runnerState struct {
 	runner  agents.Runner
 	version int64
+	// lastChat is the chat the runner was last placed on, kept past a
+	// displacement so its exit still reaches that chat.
+	lastChat string
 }
 
 type chatState struct {
@@ -208,27 +212,42 @@ func (s *Snapshots) ApplyChat(ctx context.Context, chat domain.Chat, version int
 
 // ApplyRunner records one runner aggregate event and publishes the snapshot of
 // every chat whose placement it changed: the chat it is on now, and the one it
-// left.
+// left. A runner now on no chat (displaced, exited) tells the chat it last held
+// why, so its exit reaches that chat's feed even after a displacement.
 func (s *Snapshots) ApplyRunner(ctx context.Context, runner, previous agents.Runner, version int64, kind string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if cur, ok := s.runners[runner.ID]; ok && version != 0 && cur.version > version {
+	cur, known := s.runners[runner.ID]
+	if known && version != 0 && cur.version > version {
 		return // an older event of this runner, delivered late
 	}
-	s.recordRunnerLocked(runner, version)
+	last := cur.lastChat
+	if previous.CurrentChatID != "" {
+		last = previous.CurrentChatID
+	}
+	s.recordRunnerLocked(runner, version, last)
 	if runner.CurrentChatID != "" {
 		s.emitChatLocked(ctx, runner.CurrentChatID, kind, runner.ID)
 	}
-	if left := previous.CurrentChatID; left != "" && left != runner.CurrentChatID {
-		s.emitChatLocked(ctx, left, KindSnapshot, runner.ID)
+	if last == "" || last == runner.CurrentChatID {
+		return
+	}
+	switch {
+	case runner.CurrentChatID == "" && (previous.CurrentChatID != "" || runner.ExitedAt != nil):
+		s.emitChatLocked(ctx, last, kind, runner.ID)
+	case previous.CurrentChatID != "":
+		s.emitChatLocked(ctx, last, KindSnapshot, runner.ID)
 	}
 }
 
 // recordRunnerLocked keeps a live runner at version and forgets an exited one — remembering
 // its exit until the seed, so the seed cannot resurrect it. Caller holds s.mu.
-func (s *Snapshots) recordRunnerLocked(runner agents.Runner, version int64) {
+func (s *Snapshots) recordRunnerLocked(runner agents.Runner, version int64, lastChat string) {
 	if runner.ExitedAt == nil {
-		s.runners[runner.ID] = runnerState{runner: runner, version: version}
+		if runner.CurrentChatID != "" {
+			lastChat = runner.CurrentChatID
+		}
+		s.runners[runner.ID] = runnerState{runner: runner, version: version, lastChat: lastChat}
 		return
 	}
 	delete(s.runners, runner.ID)
@@ -253,19 +272,6 @@ func (s *Snapshots) Announce(ctx context.Context, chatID, kind string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.emitChatLocked(ctx, chatID, kind, "")
-}
-
-// TouchRunner publishes a fresh snapshot of the chat runnerID is placed on,
-// for a change to that runner's in-memory process state (its api connection,
-// its native view). A runner on no chat changes nothing a client sees.
-func (s *Snapshots) TouchRunner(ctx context.Context, runnerID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	rs, ok := s.runners[runnerID]
-	if !ok || rs.runner.CurrentChatID == "" {
-		return
-	}
-	s.emitChatLocked(ctx, rs.runner.CurrentChatID, KindSnapshot, runnerID)
 }
 
 // Get returns chatID's current snapshot without advancing its version.
@@ -354,9 +360,9 @@ func (s *Snapshots) buildLocked(ctx context.Context, chatID string, st *chatStat
 	if s.runtime != nil {
 		snap.Phase = s.runtime.Phase(chatID)
 		snap.TerminalWait = s.runtime.TerminalWait(chatID)
+		snap.Session = s.runtime.Session(chatID)
 		if snap.Live != nil {
 			snap.AttachedSessionID, _ = s.runtime.AttachedTerminalSession(snap.Live.ID)
-			snap.HasLiveAPIConnection = s.runtime.HasLiveAPIConnection(snap.Live.ID)
 		}
 	}
 	if snap.Phase == "" {

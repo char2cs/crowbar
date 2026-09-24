@@ -125,15 +125,14 @@ type quietRunners struct {
 func (r quietRunners) OriginatedSession(_, sessionID string) bool { return r.originated[sessionID] }
 
 // The frames these tests replay arrive OFF this connection, so it is there by
-// construction — ownerDropsThisDelivery never reads it for an api-channel
-// delivery (channel == owner short-circuits first), and namesAnotherConversation
-// needs it to read the originated record at all.
+// construction: namesAnotherConversation needs it to read the originated
+// record at all.
 func (quietRunners) HasLiveAPIConnection(string) bool { return true }
 
 // The chat is the surface in front of the user, so message_delta's own
 // surfaces: [chat] admits the parent's stream rather than gating it off.
-func (quietRunners) ShowingNativeView(string) bool    { return false }
-func (quietRunners) HasDispatchedOverAPI(string) bool { return false }
+func (quietRunners) ShowingNativeView(string) bool { return false }
+
 func (quietRunners) ReconcilePendingPromptFromLedger(context.Context, domain.Chat) error {
 	return nil
 }

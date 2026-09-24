@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1050,6 +1051,7 @@ func TestRegression_ResumeChat_OldSessionWithNoRecordedTurns_ResumesInsteadOfSpa
 	// recorded under it in agent_turns (nothing here ever calls turn()).
 	weeksAgo := time.Now().Add(-21 * 24 * time.Hour)
 	_, err := f.runners.BindSession(f.ctx, runnerID, "sid-legacy-session", true, weeksAgo, "", "")
+	writeVendorSession(t, "sid-legacy-session")
 	require.NoError(t, err)
 	f.wait()
 
@@ -1286,7 +1288,7 @@ func TestSwitchProvider_CodexKeepsItsOwnHome(t *testing.T) {
 
 	for _, call := range f.term.calls {
 		for _, kv := range call.env {
-			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME="),
+			assert.False(t, strings.HasPrefix(kv, "CODEX_HOME=") && kv != "CODEX_HOME="+os.Getenv("CODEX_HOME"),
 				"Crowbar must never own codex's home — its sessions live there")
 		}
 	}
@@ -2688,15 +2690,44 @@ func TestSubmitPrompt_RefusesAChatThatDoesNotExist(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestSubmitPrompt_RefusesADormantChat(t *testing.T) {
+// Send is the only intent a client needs: a dormant chat is revived by the
+// daemon, through the resume ladder, in the same hold as the delivery.
+func TestSubmitPrompt_RevivesADormantChatAndDelivers(t *testing.T) {
 	f := newFixture(t)
-	chatID, _ := f.spawn(t, "codex")
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-dormant")
+	turn(t, f, runnerID, "claude", "said before stopping")
 	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
 	f.wait()
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString(), "", nil)
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello again", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
 
-	require.ErrorIs(t, err, agentusecase.ErrPromptSessionUnavailable)
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, result.RunnerID, live.ID)
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.Equal(t, "sid-dormant", argAfter(t, argv, "--resume"), "revived into its own conversation")
+	assert.Contains(t, strings.Join(argv, "\x00"), "hello again")
+}
+
+// A retry of a request whose outcome is recorded answers from the journal —
+// it never revives, so a retried send cannot spawn a CLI of its own.
+func TestSubmitPrompt_ARetryNeverRevives(t *testing.T) {
+	f := newFixture(t)
+	chatID, _ := f.spawn(t, "claude")
+	requestID := uuid.NewString()
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "once", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.wait()
+	spawned := f.term.callCount()
+
+	_, _ = f.usecase.SubmitPrompt(f.ctx, chatID, "once", requestID, "", nil)
+
+	assert.Equal(t, spawned, f.term.callCount())
 }
 
 func TestSubmitPrompt_RefusesAProviderWithNoDeclaredDelivery(t *testing.T) {
@@ -4933,4 +4964,261 @@ func TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt(t *testing.T) 
 	require.Len(t, placements, 1)
 	assert.Equal(t, "claude", placements[0].ProviderID)
 	assert.Equal(t, chatID, placements[0].ChatID)
+}
+
+// The resume ladder (sessions spec §2.2): the provider's own session is the
+// first rung, and a normal revive lands on it — and says so.
+func TestResumeLadder_ARecordedSessionIsResumedAndTheRungRecorded(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-kept")
+	turn(t, f, runnerID, "claude", "kept content")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.Equal(t, "sid-kept", argAfter(t, argv, "--resume"))
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentRungSession, snap.Session.Rung)
+}
+
+// A session the provider no longer has (pruned, never flushed) is never handed
+// to the CLI — that launch exits 1 and strands the chat. The chat continues on
+// a fresh session carrying Crowbar's own transcript instead.
+func TestResumeLadder_AMissingVendorSessionContinuesFromTheTranscript(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-pruned")
+	turn(t, f, runnerID, "claude", "what we worked out earlier")
+	f.term.exit(t, f.runner(t, runnerID).TerminalSession)
+	f.wait()
+	removeVendorSession(t, "sid-pruned")
+
+	_, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.NotContains(t, argv, "--resume", "a session the provider lost must not be resumed")
+	assert.Contains(t, strings.Join(argv, "\x00"), "what we worked out earlier",
+		"the replacement is handed the conversation so far")
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentRungTranscript, snap.Session.Rung, "the UI is told which rung was used")
+}
+
+// The same ladder on the hot path: every restart_tui prompt resumes, so a
+// session lost while the chat is live must not fail the next message.
+func TestResumeLadder_APromptToALostSessionIsDeliveredWithTheTranscript(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-gone")
+	turn(t, f, runnerID, "claude", "the earlier answer")
+	removeVendorSession(t, "sid-gone")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "and now?", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+
+	argv := f.term.calls[f.term.callCount()-1].argv
+	joined := strings.Join(argv, "\x00")
+	assert.NotContains(t, argv, "--resume")
+	assert.Contains(t, joined, "and now?")
+	assert.Contains(t, joined, "the earlier answer")
+}
+
+// A resume the CLI itself refuses (it exits before announcing any session)
+// is recorded as such, and the ladder never offers that session again.
+func TestResumeLadder_AResumeTheCLIRefusesIsQuarantined(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-corrupt")
+	turn(t, f, runnerID, "claude", "before the corruption")
+
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello again", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.Equal(t, "sid-corrupt", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+	f.term.exit(t, result.TerminalSessionID) // dies before any session_start
+	f.wait()
+
+	snap, err := f.usecase.ChatSnapshot(f.ctx, chatID)
+	require.NoError(t, err)
+	assert.Equal(t, domain.AgentExitResumeFailed, snap.Session.ExitReason)
+
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	argv := f.term.calls[f.term.callCount()-1].argv
+	assert.NotContains(t, argv, "--resume", "a refused session is quarantined")
+	assert.Contains(t, strings.Join(argv, "\x00"), "before the corruption")
+}
+
+// A /clear takes the CLI to a new conversation: the chat it left says so.
+func TestSessionExit_AClearRecordsMovedOnTheChatLeftBehind(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-first")
+	f.announce(t, runnerID, "sid-cleared")
+
+	assert.Equal(t, domain.AgentExitMoved, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+}
+
+// A CLI that /resumes another chat's conversation walks onto that chat: the
+// chat it left records the move, and the chat it joined continues its session.
+func TestSessionExit_ResumingAnotherChatsConversationMovesOntoIt(t *testing.T) {
+	f := newFixture(t)
+	chatA, runnerA := f.spawn(t, "claude")
+	f.announce(t, runnerA, "sid-shared")
+	chatB, runnerB := f.spawn(t, "claude")
+	f.announce(t, runnerB, "sid-b")
+
+	f.announce(t, runnerB, "sid-shared")
+
+	live, err := f.liveRunnerFor(t, chatA)
+	require.NoError(t, err)
+	assert.Equal(t, runnerB, live.ID)
+	assert.Equal(t, domain.AgentSession{Rung: domain.AgentRungSession},
+		agentusecase.ChatSession(f.usecase.RunnerUsecase, chatA))
+	assert.Equal(t, domain.AgentExitMoved, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatB).ExitReason)
+}
+
+// sessionOp is one step of the invariant walk: anything a user, a CLI or the
+// vendor's own store can do to a chat.
+type sessionOp struct {
+	name string
+	do   func(t *testing.T, f testFixture, w *sessionWalk)
+}
+
+// sessionWalk is the chat the walk is on and what it has seen so far.
+type sessionWalk struct {
+	chatID   string
+	provider string
+	sessions int
+}
+
+func (w *sessionWalk) live(t *testing.T, f testFixture) (agents.Runner, bool) {
+	t.Helper()
+	r, err := f.liveRunnerFor(t, w.chatID)
+	return r, err == nil
+}
+
+var sessionOps = []sessionOp{
+	{"send", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if _, err := f.usecase.SubmitPrompt(f.ctx, w.chatID, "step", uuid.NewString(), "", nil); err == nil {
+			// S5: a delivered send has a runner to continue the conversation on.
+			_, ok := w.live(t, f)
+			assert.True(t, ok, "S5: a delivered send left the chat with no runner")
+		}
+	}},
+	{"stop", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		_ = f.usecase.StopChat(f.ctx, w.chatID)
+	}},
+	{"switch", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		w.provider = map[string]string{"claude": "codex", "codex": "claude"}[w.provider]
+		_, _ = f.usecase.SwitchProvider(f.ctx, w.chatID, w.provider)
+	}},
+	{"resume", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		_, _ = f.usecase.ResumeChat(f.ctx, w.chatID)
+	}},
+	{"crash", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if r, ok := w.live(t, f); ok && r.TerminalSession != "" && f.term.SessionLive(f.ctx, r.TerminalSession) {
+			f.term.exit(t, r.TerminalSession)
+		}
+	}},
+	{"restart", func(t *testing.T, f testFixture, _ *sessionWalk) {
+		t.Helper()
+		f.term.dieWithDaemon()
+		require.NoError(t, f.usecase.ReconcileRunnersOnBoot(f.ctx))
+	}},
+	{"announce", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if r, ok := w.live(t, f); ok {
+			w.sessions++
+			f.announce(t, r.ID, fmt.Sprintf("walk-%s-%d", w.chatID[:8], w.sessions))
+		}
+	}},
+	{"turn", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
+			turn(t, f, r.ID, r.ProviderID, "an answer")
+		}
+	}},
+	{"prune", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
+			id := f.sessions[r.ID]
+			_ = os.Remove(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "fixture", id+".jsonl"))
+			_ = os.Remove(filepath.Join(os.Getenv("CODEX_HOME"), "sessions", "2026", "01", "01", "rollout-x-"+id+".jsonl"))
+		}
+	}},
+	{"delete", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		if err := f.usecase.PurgeChat(f.ctx, w.chatID); err != nil {
+			return
+		}
+		f.wait()
+		// S8: nothing the supervisor kept outlives the chat.
+		assert.Equal(t, domain.AgentSession{}, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID))
+		w.chatID, _ = f.spawn(t, w.provider)
+	}},
+}
+
+// checkSessionInvariants asserts S1 and S2 after every step of the walk.
+func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail []string) {
+	t.Helper()
+	// S1: at most one runner placed on the chat, and one per vendor session.
+	assert.LessOrEqual(t, len(f.placedRunnersFor(t, w.chatID)), 1, "S1 chat, after %v", trail)
+	all, err := f.runners.AllLive(f.ctx)
+	require.NoError(t, err)
+	holders := map[string]int{}
+	for _, r := range all {
+		if r.CurrentChatID != "" && r.CurrentSession != "" {
+			holders[r.CurrentSession]++
+		}
+	}
+	for session, n := range holders {
+		assert.Equal(t, 1, n, "S1 session %s, after %v", session, trail)
+	}
+	// S2: a chat with no runner says why its last one ended.
+	if _, ok := w.live(t, f); !ok {
+		assert.NotEmpty(t, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID).ExitReason,
+			"S2, after %v", trail)
+	}
+}
+
+// The session invariants hold under any interleaving of what users, CLIs and
+// vendor stores do (sessions plan §3), walked from fixed seeds so a failure
+// replays exactly.
+func TestSessionInvariants_HoldUnderRandomInterleavings(t *testing.T) {
+	for seed := uint64(1); seed <= 10; seed++ {
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			f := newFixture(t)
+			agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+			rng := rand.New(rand.NewPCG(seed, seed))
+			w := &sessionWalk{provider: "claude"}
+			w.chatID, _ = f.spawn(t, w.provider)
+			var trail []string
+			for range 40 {
+				op := sessionOps[rng.IntN(len(sessionOps))]
+				trail = append(trail, op.name)
+				op.do(t, f, w)
+				f.wait()
+				checkSessionInvariants(t, f, w, trail)
+				if t.Failed() {
+					return
+				}
+			}
+		})
+	}
 }

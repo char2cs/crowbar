@@ -32,6 +32,12 @@ var registry = map[string]Handler{
 	"pass_arg":   passArg,
 }
 
+// Known reports whether verb names an inject verb Apply can run.
+func Known(verb string) bool {
+	_, ok := registry[verb]
+	return ok
+}
+
 func Apply(step spec.InjectStep, ctx models.TemplateCtx, plan *models.SpawnPlan) error {
 	handler, ok := registry[step.Verb]
 	if !ok {

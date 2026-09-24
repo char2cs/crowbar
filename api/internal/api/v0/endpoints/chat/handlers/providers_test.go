@@ -12,6 +12,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
 // TestProviders_Success proves the GET handler forwards the usecase's resolved,
@@ -60,6 +61,55 @@ func TestProviders_UsecaseError(t *testing.T) {
 	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
 
 	h.Providers(ctx)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// The provider settings read every descriptor's findings — rule, severity,
+// YAML path and line, hint — straight off the validator's report.
+func TestDescriptorReports_ServesEveryFinding(t *testing.T) {
+	uc := &fakeAgentUsecase{descriptorReports: []descriptorcheck.Report{{
+		ID: "codex", Source: "/home/me/.crowbar/descriptors/codex.yaml",
+		Findings: []descriptorcheck.Finding{{
+			Rule: "session.locate_glob", Severity: descriptorcheck.SeverityError,
+			Path: "session.locate.glob[0]", Line: 12, Message: "no {id}", Hint: "add {id}",
+		}},
+	}}}
+	h := newChatHandlers(uc)
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/settings/chat/descriptors", nil)
+
+	h.DescriptorReports(ctx)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var env struct {
+		Data []struct {
+			ID       string `json:"id"`
+			Source   string `json:"source"`
+			Findings []struct {
+				Rule     string `json:"rule"`
+				Severity string `json:"severity"`
+				Path     string `json:"path"`
+				Line     int    `json:"line"`
+				Hint     string `json:"hint"`
+			} `json:"findings"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &env))
+	require.Len(t, env.Data, 1)
+	require.Len(t, env.Data[0].Findings, 1)
+	f := env.Data[0].Findings[0]
+	assert.Equal(t, "session.locate_glob", f.Rule)
+	assert.Equal(t, "error", f.Severity)
+	assert.Equal(t, "session.locate.glob[0]", f.Path)
+	assert.Equal(t, 12, f.Line)
+	assert.Equal(t, "add {id}", f.Hint)
+}
+
+func TestDescriptorReports_UsecaseError(t *testing.T) {
+	h := newChatHandlers(&fakeAgentUsecase{descriptorErr: assert.AnError})
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/settings/chat/descriptors", nil)
+
+	h.DescriptorReports(ctx)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }

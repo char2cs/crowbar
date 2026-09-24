@@ -76,8 +76,14 @@ func (rs *Runners) SubmitPromptWithSwitch(
 			return domain.AgentPromptSubmission{}, err
 		}
 	}
-
-	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID)
+	// Send is the only intent: a dormant chat is revived here, never by a client.
+	revive := func() error {
+		if err := rs.reviveForDelivery(ctx, park, chatID); err != nil {
+			return parkErr(park, err)
+		}
+		return nil
+	}
+	return rs.submitPromptLocked(ctx, chatID, text, clientRequestID, revive)
 }
 
 // SetChatSelection is the standalone PATCH .../selection route's entry

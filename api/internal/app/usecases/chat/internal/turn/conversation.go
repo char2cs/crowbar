@@ -46,8 +46,8 @@ import (
 // because our own driver is what opened it, so that failure mode cannot recur.
 //
 // THE HOOKS BRANCH MUST NOT BE UNIFIED WITH IT. The hooks relay carries a
-// different id namespace entirely: the companion PTY every api-transport spawn
-// forks fires the descriptor's whole hook set under the CLI's OWN session id,
+// different id namespace entirely: a codex TUI (terminal surface) fires the
+// descriptor's whole hook set under the CLI's OWN session id,
 // which our driver never originated, and a provider's own internal sessions
 // fire the same hooks under an id of their own (the recorded Stop.json is a
 // codex memory-consolidation session's). Judged against the originated set,

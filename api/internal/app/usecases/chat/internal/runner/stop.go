@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -36,35 +38,9 @@ func (rs *Runners) StopChat(
 	if err != nil {
 		return fmt.Errorf("agent: stop chat: live runner: %w", err)
 	}
-	// ONLY WHILE THERE IS A TURN TO INTERRUPT. interruptTurn asks a live api
-	// connection to cancel gracefully and leaves the CLI running — exactly what
-	// the Stop button wants mid-answer (see this function's own history: killing
-	// mid-turn is what corrupted a resumed session's transcript, the same
-	// reasoning switchProviderLocked's awaitTurnOrForce is built around). But a
-	// closed chat tab reaches this same call on an IDLE chat just as often as a
-	// mid-turn one, and interruptTurn's own check has no notion of idle — a live
-	// api connection plus a descriptor that declares a non-"prompt" interrupt
-	// gesture (codex, always) made it return true regardless, so StopChat
-	// returned having neither interrupted anything nor retired the runner.
-	// Confirmed live: closing a codex tab left its runner, its api connection
-	// and its companion PTY all running indefinitely, still placed on the
-	// "closed" chat, directly contradicting closeBuffer's own "closing stops
-	// the CLI" contract on the frontend. Gating on working restores it: an idle
-	// chat always falls through to a real retire below.
-	//
-	// interruptTurn itself is what decides whether the CLI has actually
-	// stopped: its Send blocks on the connection's reply, and codex's own
-	// turn/interrupt DEFERS that reply until the turn genuinely ends (its
-	// app-server only answers once TurnAborted or TurnComplete fires — see
-	// codex-rs's respond_to_pending_interrupts) — so a true return here means
-	// the turn is over, not merely asked to be. retire's kill is synchronous
-	// for the same reason. RecordStop is called AFTER, never before: it used
-	// to fire the instant Stop was clicked, unconditionally, which durably
-	// marked the turn "Interrupted" while codex kept right on generating —
-	// the marker landed ahead of a full extra minute of real tool calls and
-	// assistant text that arrived after it, both because the position was
-	// wrong (stamped before the content it should have followed) and because
-	// it was a lie (nothing had actually stopped yet). Confirmed live.
+	// Mid-turn, an api provider is interrupted in place (its session and
+	// connection survive); otherwise — idle, hooks-only, or an interrupt that
+	// does not land in time — the runner is retired.
 	rs.stopRunner(ctx, chatID, live, true)
 	return nil
 }
@@ -90,6 +66,7 @@ func (rs *Runners) stopRunner(ctx context.Context, chatID string, live agents.Ru
 	}
 	if !gentle || !open || !rs.interruptTurn(ctx, live) {
 		rs.retire(ctx, live)
+		rs.noteChatExit(ctx, chatID, domain.AgentExitStopped)
 	}
 	if !open {
 		return
@@ -113,6 +90,17 @@ func (rs *Runners) turnOpen(ctx context.Context, chatID string) (bool, error) {
 // case StopChat's full teardown (retire) is too blunt for. Key-presence on the
 // descriptor is the whole capability check, same as compactStartEvent.
 const interruptEvent = "interrupt"
+
+// defaultInterruptBound is how long Stop waits for an in-place interrupt to
+// land before it retires the runner instead.
+const defaultInterruptBound = 10 * time.Second
+
+func (rs *Runners) interruptBound() time.Duration {
+	if rs.interruptTimeout > 0 {
+		return rs.interruptTimeout
+	}
+	return defaultInterruptBound
+}
 
 // interruptTurn asks a live api-transport connection to cancel its current
 // turn in place, and reports whether it actually did: false for anything that
@@ -142,7 +130,11 @@ func (rs *Runners) interruptTurn(ctx context.Context, live agents.Runner) bool {
 	if !ok || wire == "prompt" {
 		return false
 	}
-	if err := conn.driver.Send(ctx, interruptEvent, nil); err != nil {
+	// Bounded: the provider may defer its reply until the turn actually ends,
+	// and a wedged turn must not hold Stop (and the preempted gate) with it.
+	sendCtx, cancel := context.WithTimeout(ctx, rs.interruptBound())
+	defer cancel()
+	if err := conn.driver.Send(sendCtx, interruptEvent, nil); err != nil {
 		slog.WarnContext(ctx, "agent: interrupt turn: send (falling back to a full stop)",
 			"runner_id", live.ID, "err", err)
 		return false

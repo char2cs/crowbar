@@ -15,6 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/registry"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/selection"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/sessionstore"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spawn"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/template"
@@ -135,6 +136,11 @@ type Agent interface {
 
 	ResumeArg() (string, bool)
 
+	// SessionExists reports whether the provider still has sessionID on disk
+	// (session.locate); declared is false when the descriptor gives no way to
+	// check, and the id must then be trusted.
+	SessionExists(sessionID string) (exists, declared bool)
+
 	// ParseHook turns one raw provider payload into a canonical event, reading
 	// the field map channel selects: the channel-scoped block the delivery
 	// ACTUALLY arrived on (a channel-scoped event's own api:/hooks: block),
@@ -178,10 +184,6 @@ type Agent interface {
 	// descriptor: a caller outside this package can only ever reach a provider
 	// through this interface, never through *spec.Descriptor by name.
 	TransportFor(canonical string) string
-
-	// EventOwner is spec.Descriptor.EventOwner, exposed the same narrow way —
-	// api|hooks|either (design spec P6b tag 1).
-	EventOwner(canonical string) string
 
 	// EventSurfaces is spec.Descriptor.EventSurfaces, exposed the same narrow
 	// way (design spec P6b tag 2).
@@ -236,6 +238,9 @@ type service struct {
 	// it.
 	discovery *modeldiscovery.Cache
 
+	// sessions locates provider sessions on disk for the resume ladder.
+	sessions *sessionstore.Finder
+
 	// manifestFetchMu guards manifestFetch, the live getter
 	// SetManifestFetchEnabled installs — read fresh on every manifest
 	// refresh, never latched at construction, so a settings toggle takes
@@ -287,6 +292,7 @@ func New(opts ...Option) Agents {
 		injected:    registry.New(),
 		descriptors: map[string]descriptorCacheEntry{},
 		discovery:   modeldiscovery.NewCache(cfg.lifecycle),
+		sessions:    sessionstore.New(),
 	}
 }
 
@@ -298,7 +304,7 @@ func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
 	out := make([]Agent, 0, len(descriptors))
 	for _, d := range descriptors {
 		s.refreshModelsIfDeclared(d, homeDir)
-		out = append(out, &agent{spec: d, discovery: s.discovery})
+		out = append(out, &agent{spec: d, discovery: s.discovery, sessions: s.sessions})
 	}
 	return out, nil
 }
@@ -319,7 +325,7 @@ func (s *service) Get(ctx context.Context, homeDir, id string) (Agent, error) {
 		return nil, err
 	}
 	s.refreshModelsIfDeclared(d, homeDir)
-	a := &agent{spec: d, discovery: s.discovery}
+	a := &agent{spec: d, discovery: s.discovery, sessions: s.sessions}
 
 	s.resolved.Lock()
 	s.descriptors[key] = descriptorCacheEntry{agent: a, overrideModTime: modTime}
@@ -417,6 +423,8 @@ type agent struct {
 	// Models/Efforts fall back to the descriptor's static catalogue then,
 	// same as a descriptor with no discover: block at all.
 	discovery *modeldiscovery.Cache
+	// sessions is the service's shared session locator (nil in white-box tests).
+	sessions *sessionstore.Finder
 }
 
 func (a *agent) ID() string { return a.spec.ID }
@@ -603,24 +611,9 @@ func (a *agent) StartAPIConn(
 	return protocol.StartAPIDriver(ctx, a.spec, socketPath, origin)
 }
 
-// APIServeArgv carries the SAME MCPInject/ConfigInjection steps
-// APIAttachArgv's sibling SpawnPlan applies to a hooks-attached CLI — a
-// provider's own MCP server is a fact about the provider, not about which of
-// its processes happens to be talking to Crowbar right now (see spawn.Inject).
-// Without this, an api-transport serve process is never told Crowbar's tools
-// exist at all: confirmed live against codex-cli 0.149.1, whose thread/start
-// started only the servers config.toml already knew about, never crowbar's.
-//
-// A failed injection degrades to ok=false, same as no declared serve argv at
-// all: the caller already knows that means "run this provider over hooks
-// alone" (design spec §2.2b), which is the right answer here too rather than
-// serving with tools silently missing.
-//
-// It also carries the chat's MODEL/EFFORT choice (model.api_apply /
-// effort.api_apply), rendered from the same ctx.Model/ctx.Effort a forked
-// PTY's own apply: steps read. This process is the only carrier a PTY-less
-// spawn has: without it the choice was built into a plan nobody ran and the
-// chat silently reverted to the provider's default for good.
+// APIServeArgv is the api-transport `serve` argv: MCP + session config (never
+// hook wiring — spawn.InjectServe) plus the chat's model/effort via api_apply,
+// since this process is the only carrier a PTY-less runner has.
 func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 	if len(a.spec.Runtime.API.Serve) == 0 {
 		return nil, false
@@ -628,7 +621,7 @@ func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 	argv := expandArgv(a.spec.Runtime.API.Serve, ctx)
 	plan := &SpawnPlan{Executable: argv[0], Argv: append([]string{}, argv[1:]...)}
 	sel := Selection{Model: ctx.Model, Effort: ctx.Effort}
-	if err := spawn.Inject(a.spec, ctx, plan, selection.APISteps(a.spec, sel)); err != nil {
+	if err := spawn.InjectServe(a.spec, ctx, plan, selection.APISteps(a.spec, sel)); err != nil {
 		return nil, false
 	}
 	return append([]string{plan.Executable}, plan.Argv...), true
@@ -665,10 +658,6 @@ func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
 
 func (a *agent) TransportFor(canonical string) string {
 	return a.spec.TransportFor(canonical)
-}
-
-func (a *agent) EventOwner(canonical string) string {
-	return a.spec.EventOwner(canonical)
 }
 
 func (a *agent) EventSurfaces(canonical string) []string {

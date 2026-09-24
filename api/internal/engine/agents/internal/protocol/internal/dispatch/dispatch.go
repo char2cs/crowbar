@@ -29,6 +29,9 @@ func Resolve(d *spec.Descriptor, wireMethod string, params map[string]any) (stri
 
 	for _, name := range names {
 		ev := d.Events[name]
+		if !ev.HasChannelBlocks() && d.TransportFor(name) == string(spec.ChannelHooks) {
+			continue // a flat event declared on the hook relay never arrives here
+		}
 		// The api transport is the only channel this package ever resolves a
 		// wire frame FOR — WireEventFor/WhenFor(ChannelAPI) reads a
 		// channel-scoped event's own api: block, and falls back to a legacy
