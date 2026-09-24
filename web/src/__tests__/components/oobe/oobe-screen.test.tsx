@@ -1,21 +1,11 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { OobeScreen } from '@/components/oobe/oobe-screen'
-import { vi, beforeEach, afterEach, describe, it, expect } from 'vitest'
+import { vi, describe, it, expect } from 'vitest'
 
 // The OOBE is a multi-step gradient flow: presentation → prerequisites →
 // add-project. The add-project step's "Choose a folder" CTA opens the import
 // modal (subscribe-before-POST). We drive the steps and assert the headline/CTA
 // and that the CTA opens the dialog.
-
-// ShaderGradientCanvas uses IntersectionObserver, absent under jsdom — polyfill it.
-class IO {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-  takeRecords() {
-    return []
-  }
-}
 
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
 vi.mock('@/lib/store/projects', () => ({
@@ -30,12 +20,15 @@ vi.mock('@/lib/api', () => ({
   }),
 }))
 
-beforeEach(() => {
-  vi.stubGlobal('IntersectionObserver', IO)
-})
-
-afterEach(() => {
-  vi.unstubAllGlobals()
+// The backdrop is plain CSS: no WebGL canvas, nothing for assistive tech.
+describe('OOBE backdrop', () => {
+  it('renders a decorative CSS gradient, not a WebGL canvas', () => {
+    const { container } = render(<OobeScreen />)
+    const backdrop = container.querySelector('.oobe-gradient')
+    expect(backdrop).not.toBeNull()
+    expect(backdrop).toHaveAttribute('aria-hidden')
+    expect(container.querySelector('canvas')).toBeNull()
+  })
 })
 
 // Advance the presentation → prerequisites → add-project flow up to the

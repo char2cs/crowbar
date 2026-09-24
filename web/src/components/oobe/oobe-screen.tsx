@@ -1,66 +1,36 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { AnimatePresence, domAnimation, LazyMotion, m } from 'framer-motion'
-import { ShaderGradient, ShaderGradientCanvas } from '@shadergradient/react'
-// @shadergradient/react's WebGL renderer imports these at runtime but omits them
-// from its peerDependencies, so they must remain direct deps (the build fails to
-// resolve them otherwise). These type-only imports are erased at compile time
-// (zero bundle cost) and only anchor the packages for dead-code analysis.
-// `three` itself is covered transitively as @react-three/fiber's declared peer.
-import type {} from 'three-stdlib'
-import type {} from 'camera-controls'
-import type {} from '@react-three/fiber'
-import { CheckCircle, XCircle, Warning, ArrowRight, ArrowClockwise } from '@phosphor-icons/react'
-import { CircleNotchIcon } from '@phosphor-icons/react'
+import {
+  ArrowClockwise,
+  ArrowRight,
+  CheckCircle,
+  CircleNotchIcon,
+  Warning,
+  XCircle,
+} from '@phosphor-icons/react'
 import { CrowbarWordmark } from '@/components/ui/crowbar-wordmark'
 import { Button } from '@/components/ui/button'
 import { ImportProjectModal } from '@/components/projects/import-project-modal'
 import { importProjectAndSync, useProjectStore } from '@/lib/store/projects'
 import { fetchPrerequisites } from '@/lib/api'
 import type { Project, Prerequisites } from '@/lib/types'
+import './oobe-gradient.css'
 
 type OobeStep = 'presentation' | 'prerequisites' | 'add-project'
 
 // ─── Gradient (extracted so JSX stays readable) ─────────────────────────────
 
+// A CSS stand-in for the WebGL shader gradient this screen used to render
+// (three.js + react-three-fiber, ~280 KB gzip for one backdrop): the same three
+// colors drifting under a grain, animated by the compositor alone.
 function GradientBackground() {
   return (
-    <div className="pointer-events-none absolute inset-0">
-      <ShaderGradientCanvas style={{ width: '100%', height: '100%' }} fov={45} pixelDensity={1}>
-        <ShaderGradient
-          animate="on"
-          brightness={0.8}
-          cAzimuthAngle={270}
-          cDistance={0.5}
-          cPolarAngle={180}
-          cameraZoom={15.09}
-          color1="#73bfc4"
-          color2="#ff810a"
-          color3="#8da0ce"
-          envPreset="city"
-          grain="on"
-          lightType="env"
-          positionX={-0.1}
-          positionY={0}
-          positionZ={0}
-          range="disabled"
-          rangeEnd={40}
-          rangeStart={0}
-          reflection={0.4}
-          rotationX={0}
-          rotationY={130}
-          rotationZ={70}
-          shader="defaults"
-          type="sphere"
-          uAmplitude={3.2}
-          uDensity={0.8}
-          uFrequency={5.5}
-          uSpeed={0.3}
-          uStrength={0.3}
-          uTime={0}
-          wireframe={false}
-        />
-      </ShaderGradientCanvas>
+    <div aria-hidden className="oobe-gradient pointer-events-none absolute inset-0 overflow-hidden">
+      <div className="oobe-gradient__blob oobe-gradient__blob--teal" />
+      <div className="oobe-gradient__blob oobe-gradient__blob--orange" />
+      <div className="oobe-gradient__blob oobe-gradient__blob--lavender" />
+      <div className="oobe-gradient__grain" />
     </div>
   )
 }
