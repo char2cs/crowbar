@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { IEditorLike, MonacoEditorApi } from '@/features/editor/lib/editor-manager'
 import type { IModelLike, MonacoModelApi } from '@/features/editor/lib/model-registry'
@@ -87,6 +87,16 @@ function renderInAmbient(ambientWsId: string) {
     </WorkspaceStoreContext.Provider>,
   )
 }
+
+// The editor surface is a lazy chunk (Monaco stays out of boot); resolve the
+// (mocked) module once so each render's Suspense settles promptly.
+beforeAll(async () => {
+  await Promise.all([
+    import('@/features/editor/components/editor-surface'),
+    import('@/features/editor/lib/monaco-adapters'),
+    import('@/features/panes/stores/window-pane-store'),
+  ])
+})
 
 describe('EditorPane — resolves the EditorManager by the buffer’s own workspace', () => {
   it('prefers the buffer’s own workspace store over a DIFFERENT ambient one', async () => {
