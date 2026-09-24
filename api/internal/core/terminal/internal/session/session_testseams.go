@@ -1,7 +1,6 @@
 package session
 
 import (
-	"os"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/model"
@@ -43,13 +42,10 @@ func (s *Session) PumpNotifyForTest() <-chan struct{} { return s.pumpNotify }
 // SerializedForTest returns the session's current screen as serializer redraw bytes. It is
 // deliberately NON-CONSUMING: unlike Snapshot it does not clear the dirty bit, so a test may
 // use it as a readiness predicate without perturbing a later cadence flush (the same
-// contract SerializedLen already offers, which this generalises from a length to content).
+// contract).
 func (s *Session) SerializedForTest() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.model == nil {
-		return s.rawBlob
-	}
 	return s.serializeLocked()
 }
 
@@ -65,31 +61,6 @@ func SetNewModelForTest(
 	orig := newModel
 	newModel = fn
 	return func() { newModel = orig }
-}
-
-// NewDoneClosedForTest returns a Session that reports IsLive()==true (it holds a non-nil
-// *os.File) yet whose done channel is already closed, so a subsequent Attach() returns an
-// error. It exists so an OUT-OF-PACKAGE test can drive the engine's Attach error-path guard
-// (a live session whose Attach fails) — a TOCTOU state that production reaches only when the
-// session dies in the window between the engine's IsLive() check and its Attach() call.
-// Production never calls this.
-func NewDoneClosedForTest(
-	id string,
-	shell string,
-	cwd string,
-	profileID string,
-) *Session {
-	s := newBareSession(id, shell, cwd, profileID)
-	// A closed *os.File is non-nil, so IsLive() (ptmx != nil) reports true.
-	f, _ := os.Open(os.DevNull)
-	if f != nil {
-		_ = f.Close()
-		s.ptmx = f
-	}
-	// Close done THROUGH the once guard so a later shutdown() (e.g. via Kill during engine
-	// Shutdown) is a no-op rather than a double-close panic.
-	s.once.Do(func() { close(s.done) })
-	return s
 }
 
 // forceModelPanicForTest drives a model-driven session into the degraded/raw-fallback state

@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,6 +73,8 @@ func (r *restartConn) WriteMessage(_ int, data []byte) error {
 	r.cond.Broadcast()
 	return nil
 }
+
+func (r *restartConn) SetWriteDeadline(time.Time) error { return nil }
 
 func (r *restartConn) ReadMessage() (int, []byte, error) {
 	<-r.closed

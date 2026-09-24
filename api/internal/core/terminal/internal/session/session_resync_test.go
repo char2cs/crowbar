@@ -106,8 +106,8 @@ func TestResync_ForegroundApp_EmitsSnapshot(t *testing.T) {
 		"attached client must receive the resync Snapshot frame")
 }
 
-// TestResync_Placeholder_NoOp covers the model==nil guard.
-func TestResync_Placeholder_NoOp(t *testing.T) {
-	ph := NewPlaceholder("sid-resync-ph", "/bin/sh", "", "", nil)
+// TestResync_NoModel_NoOp covers the model==nil guard.
+func TestResync_NoModel_NoOp(t *testing.T) {
+	ph := newBareSession("sid-resync-ph", "/bin/sh", "", "")
 	assert.False(t, ph.Resync())
 }

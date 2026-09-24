@@ -69,9 +69,9 @@ type client struct {
 	send chan OutputFrame
 }
 
-// Session is a single PTY session. It may be live (ptmx != nil, model != nil) or
-// suspended (ptmx == nil, model == nil, created via NewPlaceholder which holds only the
-// persisted rawBlob).
+// Session is a single PTY process and its screen model. It is born live and dies exactly
+// once (Done closes); it has no notion of being suspended or restored — that lifecycle
+// belongs to the engine, which replaces a dead Session with a new one on restore.
 type Session struct {
 	id         string
 	ptmx       *os.File
@@ -79,11 +79,9 @@ type Session struct {
 	model      model.TerminalModel
 	serializer model.Serializer
 	mu         sync.Mutex
-	flushMu    sync.Mutex
 	clients    map[*client]struct{}
 	done       chan struct{}
 	once       sync.Once
-	suspending bool
 	dirty      bool
 	// screenGen advances every time the model TAKES something that can change what
 	// is on screen — a PTY chunk, a daemon-authored injection, a resize, a
@@ -115,9 +113,6 @@ type Session struct {
 	// cadence flush of an unchanged session reuses it and skips the grid render (§8.4).
 	// It is reclaimable under memory pressure (DropCachedBlob, §9.4).
 	lastBlob []byte
-	// rawBlob is the placeholder's persisted serialized blob, returned verbatim by the
-	// model-less Snapshot fast-path. Distinct from lastBlob and never aliased (§8.4).
-	rawBlob []byte
 	// modelPanics counts recovered SESSION-LEVEL model-access panics — the §8.5
 	// backstops around Resize/Serialize/Emit/Prime/teardown — surfaced via Stats
 	// and never fatal. It does NOT count vtModel.Write's internal parse panics,
@@ -189,8 +184,8 @@ type Session struct {
 	themeEmittedDark bool
 }
 
-// newBareSession allocates a Session shell with no PTY and no model. New/NewRestored fill
-// it in via spawn; NewPlaceholder stores only its rawBlob.
+// newBareSession allocates a Session shell with no PTY and no model. New/NewRestored/
+// NewCommand fill it in via spawn.
 func newBareSession(
 	id string,
 	shell string,
@@ -258,7 +253,7 @@ func WithTheme(
 }
 
 // applyBirthTheme installs the host's default colours on a freshly built model. Called from
-// spawn/spawnCmd between newModel and `go s.pump()`, so no PTY byte — and therefore no query
+// spawn between newModel and `go s.pump()`, so no PTY byte — and therefore no query
 // — can have reached the model yet. Guarded like every other optional-interface access
 // (ModelHealth, ThemeAware in Session.SetTheme): a backend or test model that implements
 // neither simply keeps its own defaults.
@@ -294,7 +289,7 @@ func New(
 	for _, o := range opts {
 		o(&p)
 	}
-	if err := s.spawn(env, p); err != nil {
+	if err := s.spawn(exec.Command(shell), env, p); err != nil { //nolint:gosec // G204: shell is the operator-configured login shell path, not attacker-controlled; spawning it is the whole point of a terminal session.
 		return nil, err
 	}
 	return s, nil
@@ -318,38 +313,23 @@ func NewRestored(
 	for _, o := range opts {
 		o(&p)
 	}
-	if err := s.spawn(env, p); err != nil {
+	if err := s.spawn(exec.Command(shell), env, p); err != nil { //nolint:gosec // G204: see New.
 		return nil, err
 	}
 	return s, nil
 }
 
-// NewPlaceholder builds a suspended Session with no live PTY and no model. The serialized
-// rawBlob is retained so a later restore re-reads it; Snapshot returns it verbatim. No pump
-// goroutine is started — a later Attach→restore spawns a fresh NewRestored session.
-func NewPlaceholder(
-	id string,
-	shell string,
-	cwd string,
-	profileID string,
-	rawBlob []byte,
-) *Session {
-	s := newBareSession(id, shell, cwd, profileID)
-	s.rawBlob = rawBlob
-	return s
-}
-
-// spawn is the single PTY-birth helper shared by the create and restore paths. It starts
-// the PTY, sizes it to the resolved dimensions BEFORE the first read (preserving the
-// model==PTY size invariant, §4.2), builds the model+serializer at that size, replays the
-// restore redraw (if any) into the model, and launches the pump goroutine.
+// spawn is the single PTY-birth helper shared by the create, restore and command paths. It
+// starts cmd under a PTY, sizes it to the resolved dimensions BEFORE the first read
+// (preserving the model==PTY size invariant, §4.2), builds the model+serializer at that
+// size, replays the restore redraw (if any) into the model, and launches the pump goroutine.
 func (s *Session) spawn(
+	cmd *exec.Cmd,
 	env []string,
 	p spawnParams,
 ) error {
 	cols, rows, sbLines, redraw := s.resolveBirth(p)
 
-	cmd := exec.Command(s.shell) //nolint:gosec // G204: s.shell is the operator-configured login shell path, not attacker-controlled; spawning it is the whole point of a terminal session.
 	cmd.Dir = s.cwd
 	cmd.Env = env
 
@@ -403,41 +383,10 @@ func NewCommand(
 	for _, o := range opts {
 		o(&p)
 	}
-	if err := s.spawnCmd(argv, env, p); err != nil {
+	if err := s.spawn(exec.Command(argv[0], argv[1:]...), env, p); err != nil { //nolint:gosec // G204: argv is the operator-configured agent command, resolved through binpath; spawning it is the whole point of a command session.
 		return nil, err
 	}
 	return s, nil
-}
-
-// spawnCmd is spawn() with an explicit argv instead of a bare shell.
-func (s *Session) spawnCmd(argv, env []string, p spawnParams) error {
-	cols, rows, sbLines, redraw := s.resolveBirth(p)
-
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // G204: argv is the operator-configured agent command, resolved through binpath; spawning it is the whole point of a command session.
-	cmd.Dir = s.cwd
-	cmd.Env = env
-
-	ptmx, err := pty.Start(cmd)
-	if err != nil {
-		return fmt.Errorf("session: pty start: %w", err)
-	}
-	_ = pty.Setsize(ptmx, &pty.Winsize{Cols: winDim(cols), Rows: winDim(rows)})
-
-	m, ser := newModel(cols, rows, sbLines)
-	if len(redraw) > 0 {
-		m.Write(redraw)
-	}
-	applyBirthTheme(m, p)
-	s.ptmx = ptmx
-	s.cmd = cmd
-	s.model = m
-	s.serializer = ser
-	s.emitter = model.NewDiffEmitter()
-	if s.model != nil {
-		s.startResponseSink(s.ptmx)
-	}
-	go s.pump()
-	return nil
 }
 
 // startResponseSink wires the model's device-query response path (spec §3.8) so
@@ -572,31 +521,11 @@ func (s *Session) Done() <-chan struct{} {
 	return s.done
 }
 
-// IsLive reports whether the PTY is still open (ptmx != nil).
-func (s *Session) IsLive() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.ptmx != nil
-}
-
 // AttachedCount returns the number of currently attached clients.
 func (s *Session) AttachedCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.clients)
-}
-
-// State returns one of "active", "detached", or "suspended".
-func (s *Session) State() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.ptmx == nil {
-		return "suspended"
-	}
-	if len(s.clients) > 0 {
-		return "active"
-	}
-	return "detached"
 }
 
 // CWD returns the last known working directory (updated from OSC 7 sequences).
@@ -625,13 +554,6 @@ func (s *Session) ProfileID() string {
 // goroutine starts, and never mutated again, so it is safe to read without s.mu.
 func (s *Session) IsCommand() bool {
 	return s.command
-}
-
-// FlushMu returns the dedicated flush mutex used by the engine to serialise bulk
-// persistence with the cadence flush. It is separate from s.mu; Snapshot takes s.mu
-// INSIDE the flushMu hold, never the reverse (§8.4).
-func (s *Session) FlushMu() *sync.Mutex {
-	return &s.flushMu
 }
 
 // IsIdle reports whether the shell is idle (no foreground child process).
@@ -893,9 +815,11 @@ func (s *Session) Resize(
 	return nil
 }
 
-// Kill terminates the PTY process. For placeholder sessions (ptmx == nil) it only calls
-// shutdown(). For live sessions it closes the PTY, kills the child, nils ptmx, then calls
-// shutdown() WITHOUT holding s.mu (shutdown re-acquires it inside once.Do).
+// Kill terminates the PTY process group. When the process already exited (ptmx == nil) it
+// only calls shutdown(). Otherwise it closes the PTY, SIGKILLs the child's process group
+// (so the children it spawned die with it, exactly as Terminate signals the group), nils
+// ptmx, then calls shutdown() WITHOUT holding s.mu (shutdown re-acquires it inside once.Do).
+// It returns only once the process has been reaped: Done is closed and ExitCode is final.
 func (s *Session) Kill() {
 	s.mu.Lock()
 	if s.ptmx == nil {
@@ -905,7 +829,7 @@ func (s *Session) Kill() {
 	}
 	_ = s.ptmx.Close()
 	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
+		killSignal(s.cmd.Process)
 	}
 	s.ptmx = nil
 	s.mu.Unlock()
@@ -924,9 +848,8 @@ func (s *Session) Kill() {
 // never blocks longer than grace waiting for a wedged or signal-ignoring
 // child.
 //
-// Terminate is a no-op-equivalent-to-Kill for placeholder sessions (ptmx ==
-// nil): there is no process to signal, so shutdown() runs directly, exactly
-// like Kill.
+// When the process already exited (ptmx == nil) there is nothing to signal,
+// so shutdown() runs directly, exactly like Kill.
 func (s *Session) Terminate(grace time.Duration) {
 	s.mu.Lock()
 	if s.ptmx == nil {
@@ -1392,13 +1315,9 @@ func (s *Session) shutdown() {
 }
 
 // Snapshot returns the session's persisted blob and whether it changed since the last
-// flush (§8.4). A model-less placeholder returns its stored rawBlob verbatim with no model
-// access. A live session samples the foreground reset, reuses lastBlob when clean, otherwise
+// flush (§8.4). It samples the foreground reset, reuses lastBlob when clean, otherwise
 // serializes header+redraw under one s.mu hold and clears the dirty bit in that same hold.
 func (s *Session) Snapshot() (blob []byte, changed bool) {
-	if s.model == nil {
-		return s.rawBlob, false
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.checkForegroundResetLocked()
@@ -1493,9 +1412,6 @@ func (s *Session) ForceSuspendSnapshot(
 ) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.model == nil {
-		return s.rawBlob
-	}
 	s.mutateModelLocked(s.model.OnForegroundReset)
 	s.injectLocalLocked(notice)
 	blob := append([]byte(s.header()), s.serializeLocked()...)
@@ -1512,55 +1428,22 @@ func (s *Session) ExitCode() int {
 	return s.exitCode
 }
 
-// BeginSuspendIfEligible atomically checks idle/no-clients/not-already-suspending and, if
-// eligible, sets the suspending flag — closing the TOCTOU window before the kill.
-func (s *Session) BeginSuspendIfEligible() bool {
+// SuspendEligible reports whether the engine may tear this session's PTY down to a
+// suspended placeholder: never for a command session (a live agentic vendor CLI — restore
+// could only exec the joined argv string as a bogus binary), never while a client is
+// attached, and — unless force — only at an idle shell prompt. The engine calls it under
+// its per-session lifecycle lock, which is also where Attach registers clients, so the
+// answer cannot go stale before the suspend acts on it.
+func (s *Session) SuspendEligible(force bool) bool {
 	if s.command {
-		// A command session is a live agentic vendor CLI, not a login shell: Suspend's
-		// PTY teardown would kill the vendor process outright, and restore cannot bring
-		// it back (it would exec.Command the joined argv string as a bogus binary).
-		// Command sessions must never be suspended — see IsCommand's doc.
 		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.clients) > 0 || s.suspending || !s.isIdleLocked() {
+	if len(s.clients) > 0 {
 		return false
 	}
-	s.suspending = true
-	return true
-}
-
-// Suspending reports whether the suspend flag has been set.
-func (s *Session) Suspending() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.suspending
-}
-
-// BeginForceSuspend atomically sets the suspending flag for a DETACHED session even when it
-// is not idle. Returns false if it has clients or is already suspending.
-func (s *Session) BeginForceSuspend() bool {
-	if s.command {
-		// See BeginSuspendIfEligible: a live agentic CLI can never survive
-		// force-suspend's teardown+restore either.
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.clients) > 0 || s.suspending {
-		return false
-	}
-	s.suspending = true
-	return true
-}
-
-// MarkSuspendingForShutdown unconditionally sets suspending=true so reapOnDone preserves the
-// .buf/meta row Shutdown wrote for daemon-restart restore.
-func (s *Session) MarkSuspendingForShutdown() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.suspending = true
+	return force || s.isIdleLocked()
 }
 
 // Health reports the session's parse-health for the engine's Stats observability surface
@@ -1586,14 +1469,11 @@ func (s *Session) Health() (degraded bool, parsePanics int) {
 }
 
 // ModelBytes returns the session's estimated resident size for the engine's memory ceiling:
-// a placeholder counts only its rawBlob; a live session counts the model's grid+scrollback
-// estimate plus the cached blob (§9.4) and the diff emitter's retained lastGrid estimate.
+// the model's grid+scrollback estimate plus the cached blob (§9.4) and the diff emitter's
+// retained lastGrid estimate.
 func (s *Session) ModelBytes() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.model == nil {
-		return int64(len(s.rawBlob))
-	}
 	total := s.model.ModelBytes() + int64(len(s.lastBlob))
 	if s.emitter != nil {
 		// Stable-from-spawn estimate derived from the model's dims (see
@@ -1606,26 +1486,13 @@ func (s *Session) ModelBytes() int64 {
 	return total
 }
 
-// SerializedLen returns the byte length of a fresh serialize of the current screen (a
-// placeholder reports its stored blob length). It is a PURE read: unlike Snapshot it does
-// NOT consume the dirty bit or update the cached blob, so observers can poll the screen size
-// without perturbing the cadence-flush change tracking.
-func (s *Session) SerializedLen() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.model == nil {
-		return len(s.rawBlob)
-	}
-	return len(s.serializeLocked())
-}
-
-// DropCachedBlob reclaims the live-session blob cache under memory pressure (§9.4 Phase-3
-// pre-step): it nils lastBlob and marks the session dirty so the next Snapshot re-serializes
-// a correct, current blob. No-op for a placeholder. Returns the bytes reclaimed.
+// DropCachedBlob reclaims the blob cache under memory pressure (§9.4 Phase-3 pre-step): it
+// nils lastBlob and marks the session dirty so the next Snapshot re-serializes a correct,
+// current blob. Returns the bytes reclaimed.
 func (s *Session) DropCachedBlob() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.model == nil || s.lastBlob == nil {
+	if s.lastBlob == nil {
 		return 0
 	}
 	n := int64(len(s.lastBlob))

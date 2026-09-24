@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
@@ -226,6 +227,8 @@ func (p *PTYTap) WriteMessage(
 // ReadMessage blocks until the tap is closed: a tap sends no input, and the
 // engine's read pump must not spin. Returning an error is what lets Attach
 // unwind cleanly on Close.
+func (p *PTYTap) SetWriteDeadline(time.Time) error { return nil }
+
 func (p *PTYTap) ReadMessage() (int, []byte, error) {
 	<-p.closed
 	return 0, nil, io.EOF

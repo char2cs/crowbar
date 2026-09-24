@@ -6,7 +6,9 @@ package terminal
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,7 +39,8 @@ func decodeMsgs(t *testing.T, conn *recordConn) []wireMsg {
 // own flagged message, with the surrounding raw bytes in separate unflagged
 // messages, in order.
 func TestWritePump_SnapshotIsCoalescingBarrier(t *testing.T) {
-	e, _ := newCoverEngine(t)
+	e := newEngine(defaultConfig())
+	StopMaintenanceForTest(e)
 	conn := newRecordConn()
 	ch := make(chan session.OutputFrame, 8)
 	done := make(chan struct{})
@@ -48,7 +51,7 @@ func TestWritePump_SnapshotIsCoalescingBarrier(t *testing.T) {
 	ch <- session.OutputFrame{SessionID: "s", Data: []byte("after")}
 	close(ch)
 
-	go e.writePump(conn, "s", ch, done)
+	go e.writePump(conn, "s", ch, notExited, done)
 	// Block on the real signal. A hand-rolled deadline here would only be a second,
 	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
 	// -timeout` reports it with the blocked stack.
@@ -67,7 +70,8 @@ func TestWritePump_SnapshotIsCoalescingBarrier(t *testing.T) {
 // TestWritePump_SnapshotAsFirstFrame covers the leading-snapshot branch (the
 // attach redraw): one flagged message, nothing merged.
 func TestWritePump_SnapshotAsFirstFrame(t *testing.T) {
-	e, _ := newCoverEngine(t)
+	e := newEngine(defaultConfig())
+	StopMaintenanceForTest(e)
 	conn := newRecordConn()
 	ch := make(chan session.OutputFrame, 2)
 	done := make(chan struct{})
@@ -75,7 +79,7 @@ func TestWritePump_SnapshotAsFirstFrame(t *testing.T) {
 	ch <- session.OutputFrame{SessionID: "s", Data: []byte("REDRAW"), Snapshot: true}
 	close(ch)
 
-	go e.writePump(conn, "s", ch, done)
+	go e.writePump(conn, "s", ch, notExited, done)
 	// Block on the real signal. A hand-rolled deadline here would only be a second,
 	// weaker definition of "too slow"; if this never fires it is a hang, and `go test
 	// -timeout` reports it with the blocked stack.
@@ -90,11 +94,12 @@ func TestWritePump_SnapshotAsFirstFrame(t *testing.T) {
 // tail belongs to the pre-snapshot stream the client reset supersedes — it
 // must be dropped, never prepended to post-snapshot output.
 func TestWritePump_SnapshotDropsHeldBackPartialRune(t *testing.T) {
-	e, _ := newCoverEngine(t)
+	e := newEngine(defaultConfig())
+	StopMaintenanceForTest(e)
 	conn := newRecordConn()
 	ch := make(chan session.OutputFrame, 2)
 	done := make(chan struct{})
-	go e.writePump(conn, "s", ch, done)
+	go e.writePump(conn, "s", ch, notExited, done)
 
 	// A lone frame ending in a dangling 4-byte-rune lead byte: flushed as "hi",
 	// 0xF0 held back as pending.
@@ -119,3 +124,40 @@ func TestWritePump_SnapshotDropsHeldBackPartialRune(t *testing.T) {
 	assert.Equal(t, "after", msgs[2].Data,
 		"the pending 0xF0 must be dropped at the snapshot barrier, not prepended")
 }
+
+func notExited() (int, bool) { return 0, false }
+
+// recordConn records every message the engine writes; waitFrames blocks until n have landed.
+type recordConn struct {
+	mu    sync.Mutex
+	msgs  [][]byte
+	wrote chan struct{}
+}
+
+func newRecordConn() *recordConn { return &recordConn{wrote: make(chan struct{}, 64)} }
+
+func (c *recordConn) waitFrames(n int) {
+	for {
+		c.mu.Lock()
+		got := len(c.msgs)
+		c.mu.Unlock()
+		if got >= n {
+			return
+		}
+		<-c.wrote
+	}
+}
+
+func (c *recordConn) WriteMessage(_ int, data []byte) error {
+	c.mu.Lock()
+	c.msgs = append(c.msgs, append([]byte(nil), data...))
+	c.mu.Unlock()
+	select {
+	case c.wrote <- struct{}{}:
+	default:
+	}
+	return nil
+}
+func (c *recordConn) ReadMessage() (int, []byte, error) { select {} }
+func (c *recordConn) SetWriteDeadline(time.Time) error  { return nil }
+func (c *recordConn) Close() error                      { return nil }

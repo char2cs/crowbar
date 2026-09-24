@@ -9,8 +9,8 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/model"
 )
 
-func TestSession_ScreenText_PlaceholderIsUnchanged(t *testing.T) {
-	s := NewPlaceholder("sid-screen-placeholder", "/bin/sh", t.TempDir(), "", nil)
+func TestSession_ScreenText_NoModelIsUnchanged(t *testing.T) {
+	s := newBareSession("sid-screen-placeholder", "/bin/sh", t.TempDir(), "")
 
 	text, gen, changed := s.ScreenText(0)
 	assert.Empty(t, text)

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -42,6 +43,8 @@ func (p *pipeConn) WriteMessage(
 	}
 	return nil
 }
+
+func (p *pipeConn) SetWriteDeadline(time.Time) error { return nil }
 
 func (p *pipeConn) ReadMessage() (int, []byte, error) {
 	select {

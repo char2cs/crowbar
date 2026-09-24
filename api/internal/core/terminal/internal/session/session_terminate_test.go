@@ -115,12 +115,11 @@ func TestSession_Terminate_FallsBackToKill_WhenSignalIgnored(t *testing.T) {
 	assert.Equal(t, syscall.SIGKILL, ws.Signal(), "a SIGTERM-ignoring child must ultimately die from the fallback SIGKILL")
 }
 
-// TestSession_Terminate_PlaceholderActsLikeKill mirrors Kill's placeholder
-// behavior: a session with no live PTY has no process to signal, so Terminate
-// must run shutdown() directly instead of hanging around for a grace window
-// that can never elapse anything.
-func TestSession_Terminate_PlaceholderActsLikeKill(t *testing.T) {
-	s := NewPlaceholder("sid-terminate-placeholder", "/bin/sh", t.TempDir(), "", []byte("CRWB1"))
+// TestSession_Terminate_NoProcessActsLikeKill: a session with no live PTY has no
+// process to signal, so Terminate must run shutdown() directly instead of hanging
+// around for a grace window that can never elapse anything.
+func TestSession_Terminate_NoProcessActsLikeKill(t *testing.T) {
+	s := newBareSession("sid-terminate-placeholder", "/bin/sh", t.TempDir(), "")
 
 	done := make(chan struct{})
 	go func() {
