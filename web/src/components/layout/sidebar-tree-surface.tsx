@@ -3,7 +3,6 @@ import { useNavigate } from '@tanstack/react-router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
-import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
 import { rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
@@ -14,7 +13,6 @@ import {
   getHomeWorkspaceId,
 } from '@/features/workspace/lib/home-workspace-resolver'
 import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
-import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import {
   handleOpen as openSidebarRow,
   handleTrash,
@@ -187,10 +185,6 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     ],
     [treeRepos, removalEntries, pendingEntries],
   )
-  const recentsForProjectFn = useCallback(
-    (projectId: string) => recentsForProject(repos, projectId),
-    [repos],
-  )
   const openRow = useCallback(
     (id: string) => openSidebarRow(id, repos, navigate),
     [repos, navigate],
@@ -200,7 +194,7 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
     [navigate],
   )
   const focusRecentEntry = useCallback(
-    (entry: RecentsBandEntry) => focusRecent(entry, repos, navigate),
+    (viewId: string) => focusRecent(viewId, repos, navigate),
     [repos, navigate],
   )
   // The row's own X control (sidebar-row.tsx) — the same `handleTrash` the
@@ -241,7 +235,6 @@ export const SidebarTreeSurface = memo(function SidebarTreeSurface({
             activeProjectId={activeProjectId}
             onActiveProjectChange={onActiveProjectChange}
             rowsForProject={rowsForProjectFn}
-            recentsForProject={recentsForProjectFn}
             onOpen={openRow}
             onTrash={onTrash}
             onCreate={createRow}

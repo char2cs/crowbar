@@ -57,6 +57,63 @@ func TestCreate_Success(
 	assert.Equal(t, createChatCall{WorkspaceID: "ws-1", ProviderID: "vendor-a"}, tree.gotCreate2)
 }
 
+// The landing surface decides which of the provider's faces this chat is born
+// on (design spec 2.5) — and for a mixed-transport provider it decides whether
+// an api connection is opened for the chat at all, so a handler that dropped
+// it would answer 201 with a chat on the wrong face and no sign of it.
+func TestCreate_ForwardsTheSurfaceTheChatIsBornOn(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a","surface":"terminal"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, "terminal", tree.gotSurface)
+}
+
+// Omitted is the overwhelming majority, and means the provider's own default
+// landing — never a surface invented for it.
+func TestCreate_NoSurfaceAskedForForwardsTheProvidersDefault(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusCreated, rec.Code)
+	assert.Equal(t, "", tree.gotSurface)
+}
+
+// A surface name design spec 2.5 does not define is a client bug, refused
+// before anything is minted — never silently coerced to a default, which
+// would hand back a chat on a face the caller did not ask for.
+func TestCreate_AnUnknownSurfaceIs400(
+	t *testing.T,
+) {
+	tree := &fakeChatTree{placed: domain.Chat{ID: "chat-1"}}
+	h := newChatHandlersWith(&fakeAgentUsecase{}, tree)
+
+	body := []byte(`{"provider":"vendor-a","surface":"holodeck"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/workspaces/ws-1/chats", body)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}}
+
+	h.Create(ctx)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Zero(t, tree.createChatCalls, "nothing may be minted for a surface that does not exist")
+}
+
 // The parent is the half of a create that decides whether the new chat is a
 // THREAD, so it has to reach the usecase intact. A handler that dropped it would
 // still create a chat, still answer 201, and produce a chat at the panel root that
@@ -282,6 +339,15 @@ type configurableListGetUsecase struct {
 	chat   domain.Chat
 	getErr error
 
+	// cwdWorkspaceID is where a BUBBLE's cwd walk lands (model spec §3.2);
+	// "" is the true orphan, whose whole ancestry owns no workspace.
+	cwdWorkspaceID string
+	cwdErr         error
+
+	// renamed records the chat ids RenameChat was called with, so a scope
+	// refusal can be proved to have landed BEFORE the write.
+	renamed []string
+
 	// promoted records the chat ids Promote was called with, and promoteErr is
 	// the refusal branch (an already-promoted chat, a bubble with no fork
 	// parent).
@@ -301,6 +367,13 @@ type configurableListGetUsecase struct {
 	conversations map[string][]engineagents.ChatConversation
 	convErr       error
 
+	// interruptions maps a chat id to its durable interruption ledger — the
+	// second fallback source activeProviderId needs for a chat whose provider
+	// binds via its own connection identity and so never appears in
+	// conversations at all.
+	interruptions map[string][]domain.ActivityInterruption
+	interruptErr  error
+
 	selection    selectionCall
 	selectionErr error
 
@@ -312,6 +385,10 @@ type configurableListGetUsecase struct {
 	// hasLiveAPIConn is HasLiveAPIConnection's canned answer for every runner —
 	// false (no live api connection) unless a test says otherwise.
 	hasLiveAPIConn bool
+}
+
+func (*configurableListGetUsecase) TelemetryOnChatSurface(context.Context, string) bool {
+	return true
 }
 
 func (configurableListGetUsecase) SpawnChat(
@@ -376,6 +453,16 @@ func (u *configurableListGetUsecase) GetChat(
 	return u.chat, nil
 }
 
+func (u *configurableListGetUsecase) CwdWorkspaceID(
+	_ context.Context,
+	_ string,
+) (string, bool, error) {
+	if u.cwdErr != nil {
+		return "", false, u.cwdErr
+	}
+	return u.cwdWorkspaceID, u.cwdWorkspaceID != "", nil
+}
+
 // Promote answers with the chat the fixture holds, its workspace slot filled by
 // promoted, so a handler test can tell a promotion apart from a plain read.
 func (u *configurableListGetUsecase) Promote(
@@ -403,7 +490,7 @@ func (*configurableListGetUsecase) ReadMessages(
 }
 
 func (*configurableListGetUsecase) SubmitPrompt(
-	context.Context, string, string, string, string, string, string,
+	context.Context, string, string, string, string, *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
 	return domain.AgentPromptSubmission{}, nil
 }
@@ -442,6 +529,16 @@ func (u *configurableListGetUsecase) ConversationsForChat(
 		return nil, u.convErr
 	}
 	return u.conversations[chatID], nil
+}
+
+func (u *configurableListGetUsecase) Interruptions(
+	_ context.Context,
+	chatID string,
+) ([]domain.ActivityInterruption, error) {
+	if u.interruptErr != nil {
+		return nil, u.interruptErr
+	}
+	return u.interruptions[chatID], nil
 }
 
 func (configurableListGetUsecase) SwitchProvider(
@@ -502,10 +599,11 @@ func (configurableListGetUsecase) AssembleHandoff(
 	return "", nil
 }
 
-func (configurableListGetUsecase) RenameChat(
+func (u *configurableListGetUsecase) RenameChat(
 	_ context.Context,
-	_, _, _ string,
+	chatID, _, _ string,
 ) error {
+	u.renamed = append(u.renamed, chatID)
 	return nil
 }
 
@@ -554,6 +652,19 @@ func (configurableListGetUsecase) DefaultPermissionLevel(
 func (configurableListGetUsecase) SetDefaultPermissionLevel(
 	_ context.Context,
 	_ string,
+) error {
+	return nil
+}
+
+func (configurableListGetUsecase) ModelManifestFetchEnabled(
+	_ context.Context,
+) (bool, error) {
+	return true, nil
+}
+
+func (configurableListGetUsecase) SetModelManifestFetchEnabled(
+	_ context.Context,
+	_ bool,
 ) error {
 	return nil
 }
@@ -709,6 +820,48 @@ func TestList_DormantChatFallsBackToLastConversationProvider(
 	assert.Empty(t, envelope.Data[0].LiveRunnerID, "a dormant chat has no runner: absence IS the liveness answer")
 	assert.Empty(t, envelope.Data[0].TerminalSessionID, "no runner, no PTY to attach to")
 	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID, "dormant falls back to the MOST RECENTLY ACTIVE conversation's provider")
+}
+
+// TestList_DormantChatProviderThatNeverBoundAConversationFallsBackToSwitchInterruption
+// is the showstopper: a chat switched to a provider that binds via its own connection
+// identity (never firing a session-bind) has NO conversation row for that provider at
+// all — only an OLDER row from whatever ran before. Before the fix, activeProviderId
+// read only that older conversation and reported the WRONG vendor. The durable switch
+// interruption chatRuntime now joins in is the only trace such a provider leaves, and
+// it postdates the last conversation, so it must win.
+func TestList_DormantChatProviderThatNeverBoundAConversationFallsBackToSwitchInterruption(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws1"}},
+		// No live runner for c1: the chat is dormant.
+		conversations: map[string][]engineagents.ChatConversation{
+			"c1": {
+				{ChatID: "c1", ProviderID: "vendor-a", SessionID: "sess-1", FirstSeenAt: time.Unix(1, 0).UTC(), LastActiveAt: time.Unix(1, 0).UTC()},
+			},
+		},
+		interruptions: map[string][]domain.ActivityInterruption{
+			"c1": {
+				{ChatID: "c1", Kind: string(engineagents.InterruptProviderSwitched), Detail: "vendor-b", At: time.Unix(2, 0).UTC()},
+			},
+		},
+	}
+	h := newChatHandlers(uc)
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/workspaces/ws1/chats", nil)
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws1"}}
+
+	h.List(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var envelope struct {
+		Data []chatRow `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Len(t, envelope.Data, 1)
+	assert.Empty(t, envelope.Data[0].LiveRunnerID, "a dormant chat has no runner")
+	assert.Equal(t, "vendor-b", envelope.Data[0].ActiveProviderID,
+		"the switch interruption is the only trace of the provider actually running, and must win")
 }
 
 // TestList_LiveChatCarriesRunnerAndPTY proves the live join: a chat a runner is
@@ -1037,17 +1190,24 @@ func TestGet_WrongWorkspace404s(
 }
 
 // TestGet_NoPathWorkspace_AnyWorkspaceIsVisible proves the repo-scoped mount
-// (Task 17: no :wsId path param) drops the workspace-ownership half of
-// requireChatInWorkspace: a chat anchored to SOME workspace is served
-// regardless, since the model spec addresses a chat by id alone (§5.1) and a
-// URL naming no workspace has no stale comparison left to make.
+// (Task 17: no :wsId path param) drops the WORKSPACE-ownership half of
+// requireChatInWorkspace: a chat anchored to some OTHER workspace OF THIS REPO
+// is served regardless, since the model spec addresses a chat by id alone
+// (§5.1) and a URL naming no workspace has no stale comparison left to make.
+//
+// The repo half is not dropped with it — see
+// TestRegression_RepoMountRefusesAChatThatRunsInTheProjectHome — so the
+// fixture now has to say which repo ws-other rides. It said nothing before,
+// and the assertion held only because nothing asked.
 func TestGet_NoPathWorkspace_AnyWorkspaceIsVisible(
 	t *testing.T,
 ) {
 	uc := &configurableListGetUsecase{
 		chat: domain.Chat{ID: "c1", WorkspaceID: "ws-other"},
 	}
-	h := newChatHandlers(uc)
+	h := newWorktreeHandlers(uc, &fakeWorktreeReads{rows: []domain.Workspace{
+		{ID: "ws-other", ProjectID: "p1", RepoID: "r1"},
+	}})
 
 	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats/c1", nil)
 	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c1"}}
@@ -1055,6 +1215,167 @@ func TestGet_NoPathWorkspace_AnyWorkspaceIsVisible(
 	h.Get(ctx)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// The repo mount's SCOPE check. requireChatInWorkspace enforced a scope only
+// when the route happened to carry a :wsId — which only the home mount does —
+// so the repo mount resolved ANY chat id in the daemon by id alone. Caught
+// live: GET .../repos/<r>/chats/<project-home-chat> answered 200 with a chat
+// the same repo's own GET .../chats never lists, and the client's
+// "a chat the list never mentions" recovery wrote it into that repo's store,
+// where the next seed computed it as vanished and deleted its pane and its
+// Recents row.
+//
+// The rule these pin: a chat is addressable through a mount when the GROUND it
+// runs on belongs to that mount — its own workspace, or, for a bubble, the one
+// its cwd walk lands on (model spec §3.2). That is the membership
+// ListChatsInRepo computes for the list beside it, so Get and List can no
+// longer disagree. Spec §9.2's open set is about the LINEAGE a row reads, not
+// the ground it runs on: a bubble whose chat ancestors live in the repo it left
+// still RUNS where its cwd walk lands, and is still addressed there.
+
+// TestRegression_RepoMountRefusesAChatThatRunsInTheProjectHome is the live
+// repro: the project home rides no repo, so a home chat belongs to no repo's
+// list and must belong to no repo's by-id route either.
+func TestRegression_RepoMountRefusesAChatThatRunsInTheProjectHome(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chat: domain.Chat{ID: "c1", WorkspaceID: "ws-home"},
+	}
+	h := newWorktreeHandlers(uc, &fakeWorktreeReads{rows: []domain.Workspace{
+		{ID: "ws-home", ProjectID: "p1", Kind: domain.WorkspaceKindHome},
+	}})
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats/c1", nil)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c1"}}
+
+	h.Get(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestRegression_RepoMountRefusesAChatThatRunsInAnotherRepo is the same rule
+// for the other repo-less-ness: a real workspace, a real repo, the wrong one.
+func TestRegression_RepoMountRefusesAChatThatRunsInAnotherRepo(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chat: domain.Chat{ID: "c1", WorkspaceID: "ws-r2"},
+	}
+	h := newWorktreeHandlers(uc, &fakeWorktreeReads{rows: []domain.Workspace{
+		{ID: "ws-r2", ProjectID: "p1", RepoID: "r2"},
+	}})
+
+	ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats/c1", nil)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c1"}}
+
+	h.Get(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestRegression_RepoMountRefusesAHomeChatOnAMutatingRoute proves the check is
+// the SHARED one, not a special case bolted onto Get: every route that takes a
+// bare chat id goes through requireChatInWorkspace, and a write reached through
+// the wrong mount must be refused before it lands.
+func TestRegression_RepoMountRefusesAHomeChatOnAMutatingRoute(
+	t *testing.T,
+) {
+	uc := &configurableListGetUsecase{
+		chat: domain.Chat{ID: "c1", WorkspaceID: "ws-home"},
+	}
+	h := newWorktreeHandlers(uc, &fakeWorktreeReads{rows: []domain.Workspace{
+		{ID: "ws-home", ProjectID: "p1", Kind: domain.WorkspaceKindHome},
+	}})
+
+	body := []byte(`{"title":"renamed through the wrong mount"}`)
+	ctx, rec := newTestContext(t, http.MethodPost, "/v0/projects/p1/repos/r1/chats/c1/rename", body)
+	ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c1"}}
+
+	h.Rename(ctx)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Empty(t, uc.renamed, "RenameChat must never be called once the scope check 404s")
+}
+
+// TestGet_RepoMount_BubbleIsHeldToTheRepoItsWalkLandsIn proves a BUBBLE —
+// which carries no workspace of its own — is scoped by the same cwd walk the
+// list scopes it by, not waved through for lack of a field to compare.
+func TestGet_RepoMount_BubbleIsHeldToTheRepoItsWalkLandsIn(
+	t *testing.T,
+) {
+	rows := []domain.Workspace{
+		{ID: "ws-r1", ProjectID: "p1", RepoID: "r1"},
+		{ID: "ws-r2", ProjectID: "p1", RepoID: "r2"},
+	}
+
+	for _, tc := range []struct {
+		name string
+		cwd  string
+		want int
+	}{
+		{name: "lands in this repo", cwd: "ws-r1", want: http.StatusOK},
+		{name: "lands in another repo", cwd: "ws-r2", want: http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			uc := &configurableListGetUsecase{
+				chat:           domain.Chat{ID: "c1"},
+				cwdWorkspaceID: tc.cwd,
+			}
+			h := newWorktreeHandlers(uc, &fakeWorktreeReads{rows: rows})
+
+			ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats/c1", nil)
+			ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c1"}}
+
+			h.Get(ctx)
+
+			assert.Equal(t, tc.want, rec.Code)
+		})
+	}
+}
+
+// TestGet_RepoMount_ARowWithNoResolvableGroundIsStillServed is the other half
+// of the rule, and the one that keeps this from being worse than the bug: a
+// root bubble whose whole ancestry owns no workspace has NO scope to be held
+// to (the same posture matchScopeOrUnscoped takes on the socket), and a read
+// that simply failed is not a scope verdict. Neither may 404 — that would
+// hand the client's vanished-chat path the very deletion this fix exists to
+// prevent.
+func TestGet_RepoMount_ARowWithNoResolvableGroundIsStillServed(
+	t *testing.T,
+) {
+	for _, tc := range []struct {
+		name string
+		uc   *configurableListGetUsecase
+	}{
+		{
+			name: "the walk resolves nothing",
+			uc:   &configurableListGetUsecase{chat: domain.Chat{ID: "c1"}},
+		},
+		{
+			name: "the walk itself failed",
+			uc: &configurableListGetUsecase{
+				chat:   domain.Chat{ID: "c1"},
+				cwdErr: errors.New("projection unreadable"),
+			},
+		},
+		{
+			name: "the workspace row is unreadable",
+			uc:   &configurableListGetUsecase{chat: domain.Chat{ID: "c1", WorkspaceID: "ws-gone"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newWorktreeHandlers(tc.uc, &fakeWorktreeReads{})
+
+			ctx, rec := newTestContext(t, http.MethodGet, "/v0/projects/p1/repos/r1/chats/c1", nil)
+			ctx.Params = gin.Params{{Key: "repoId", Value: "r1"}, {Key: "id", Value: "c1"}}
+
+			h.Get(ctx)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
 }
 
 // TestGet_ChatNotFound proves an unknown chat id 404s via the

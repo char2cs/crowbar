@@ -34,7 +34,8 @@ import { MarkdownPreview } from '@/features/panes/lib/markdown'
 import { toast } from '@/features/window/stores/toast-store'
 import { ProviderIcon } from '@/components/ui/provider-icon'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import { openAgentChat } from '@/features/agent/lib/open-agent-chat'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import type { IdentityDTO } from '@/features/git/api/identity-api'
 import type {
@@ -250,7 +251,7 @@ function ChatOrigin({
       type="button"
       data-testid="review-message-chat-link"
       title={`Open ${title}`}
-      onClick={() => openAgentChat(getOrCreateWorkspaceStore(wsId), wsId, chatId)}
+      onClick={() => openReviewChat(wsId, chatId)}
       className="min-w-0 max-w-40 truncate text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
       {title}
@@ -353,6 +354,13 @@ function MessageRow({
       </div>
     </div>
   )
+}
+
+function openReviewChat(wsId: string, chatId: string): void {
+  getOrCreateWorkspaceStore(wsId).getState().setActiveAgentChatId(chatId)
+  windowPaneStore.getState().paneActions.openChat(chatId, {
+    projectId: resolveChatProjectId(chatId, wsId) ?? undefined,
+  })
 }
 
 export function ReviewThreadItem({

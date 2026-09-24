@@ -12,9 +12,9 @@ import (
 // pumpAPIConn's loop used to just RETURN when the driver's Events() channel
 // closed — no teardown of any kind. The connection was dead but its registry
 // entry stayed, so HasLiveAPIConnection went on answering true forever, and
-// apiOwnsThisEvent (turn/ingest.go) kept DROPPING the companion PTY's hooks copy
-// of every api-owned event as a redundant duplicate of an api transport that no
-// longer existed. The chat went permanently silent with its spinner stuck on,
+// ownerDropsThisDelivery (turn/ingest.go) kept DROPPING the companion PTY's
+// hooks copy of every owner: api event as a redundant duplicate of an api
+// transport that no longer existed. The chat went permanently silent with its spinner stuck on,
 // and nothing else could reach it: the companion PTY is still alive, so no
 // runner-exit reconcile fires, and neither termwait sweep applies to a clean
 // screen that streamed nothing.
@@ -26,7 +26,7 @@ func TestRegression_ALostAPIConnectionStopsClaimingToBeLive(t *testing.T) {
 	agent := apiTransportTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath)
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
 
 	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry()}
@@ -54,7 +54,7 @@ func TestPumpAPIConn_ADeliberateTeardownIsNotTreatedAsALostConnection(t *testing
 	})
 
 	agent := apiTransportTestAgent(t)
-	apiConn, err := agent.StartAPIConn(context.Background(), sockPath)
+	apiConn, err := agent.StartAPIConn(context.Background(), sockPath, nil)
 	require.NoError(t, err)
 
 	rs := &Runners{turns: &spyTurns{}, apiConns: newAPIConnRegistry()}

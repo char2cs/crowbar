@@ -18,6 +18,7 @@ function makeGroup(id: string, overrides: Partial<PaneGroup> = {}): PaneGroup {
     editorTabIds: [],
     activeEditorTabId: null,
     editorOpen: true,
+    viewId: null,
     ...overrides,
   }
 }

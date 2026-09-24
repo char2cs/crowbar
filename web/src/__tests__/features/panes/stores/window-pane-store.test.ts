@@ -60,27 +60,28 @@ describe('createWindowPaneStore', () => {
     // (destroyWorkspaceStore). This just pins that a plain switch is a no-op
     // for panes/buffers, on an isolated store.
     const store = createWindowPaneStore()
-    store.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    store.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     setActiveWorkspaceId('ws-2')
 
     expect(store.getState().paneActions.getPaneById(ROOT_PANE_ID)?.chatId).toBe('chat-1')
   })
 
-  it('initialises with the same root/bottom leaves as the old per-workspace store', () => {
+  it('initialises with the stage and bottom leaves and an empty band', () => {
     const store = createWindowPaneStore()
     const state = store.getState()
     expect(Object.keys(state.panes).sort()).toEqual(['bottom-pane', 'root-pane'])
     expect(state.activePaneId).toBe(ROOT_PANE_ID)
     expect(state.buffers).toEqual([])
-    expect(state.dormantArrangements).toEqual([])
+    expect(state.viewOrder).toEqual([])
+    expect(state.activeViewId).toBeNull()
   })
 
   it('is a fresh, independent instance per call — not the module singleton', () => {
     const a = createWindowPaneStore()
     const b = createWindowPaneStore()
     expect(a).not.toBe(b)
-    a.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-only-in-a', null)
+    a.getState().paneActions.openChat('chat-only-in-a')
     expect(b.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
   })
 })
@@ -105,7 +106,7 @@ describe('windowPaneStore — never destroyed, created once for the window', () 
     resetWindowPaneStoreForTests()
     getOrCreateWorkspaceStore('ws-evicted')
 
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     destroyWorkspaceStore('ws-evicted')
     await flushMicrotasks()
@@ -146,7 +147,7 @@ describe('windowPaneStore — persistence subscription', () => {
   })
 
   it('debounces a persisted-field mutation and saves once after 300ms', () => {
-    windowPaneStore.getState().paneActions.setActivePane('some-pane-id')
+    windowPaneStore.getState().paneActions.openChat('chat-1')
 
     // Not yet — the write is debounced.
     expect(mockSave).not.toHaveBeenCalled()
@@ -157,9 +158,9 @@ describe('windowPaneStore — persistence subscription', () => {
   })
 
   it('a rapid second mutation re-arms the debounce instead of double-saving', () => {
-    windowPaneStore.getState().paneActions.setActivePane('pane-a')
+    windowPaneStore.getState().paneActions.openChat('chat-a')
     vi.advanceTimersByTime(100)
-    windowPaneStore.getState().paneActions.setActivePane('pane-b')
+    windowPaneStore.getState().paneActions.openChat('chat-b')
     vi.advanceTimersByTime(100)
     // Still inside the re-armed 300ms window from the second mutation.
     expect(mockSave).not.toHaveBeenCalled()

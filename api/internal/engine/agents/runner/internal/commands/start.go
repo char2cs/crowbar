@@ -39,9 +39,12 @@ func (c Start) Validate(current *agents.Runner) error {
 	if c.ChatID == "" {
 		return fmt.Errorf("start runner: missing chat id: %w", asynxModels.ErrValidation)
 	}
-	if c.TerminalSession == "" {
-		return fmt.Errorf("start runner: missing terminal session: %w", asynxModels.ErrValidation)
-	}
+	// NO terminal-session check. A runner has exactly one PROCESS, and a PTY
+	// is only one shape of it: an api-driven runner is its `serve` connection
+	// and forks no terminal at all, so "" is the honest value. Minting a
+	// placeholder instead would put an id in this projection that the
+	// terminal engine has never heard of — and boot reconciliation, the
+	// terminal-wait sweep and the chat DTO all read this field as one.
 	return nil
 }
 

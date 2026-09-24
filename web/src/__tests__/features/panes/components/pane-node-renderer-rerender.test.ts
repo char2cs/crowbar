@@ -23,6 +23,7 @@ vi.mock('@/features/panes/components/pane-container', () => ({
 }))
 
 // Imported AFTER the mock (vi.mock is hoisted regardless; kept explicit).
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { PaneNodeRenderer } from '@/features/panes/components/pane-node-renderer'
 import { SplitViewRoot } from '@/features/panes/components/split-view-root'
 
@@ -44,17 +45,21 @@ function paneGroup(id: string, editorTabIds: string[], activeEditorTabId: string
     editorTabIds,
     activeEditorTabId,
     editorOpen: true,
+    viewId: null,
   }
 }
 
 // Task 26: panes/layout live on the window-level `windowPaneStore`, not the
 // per-workspace store — seed pane-a/pane-b there. `WorkspaceStoreContext` is
 // kept around purely because PaneContainer still reads `workspaceId` off it.
-function setupStore(layoutInto: 'root' | 'none') {
+function setupStore() {
   const store = createWorkspaceStore('w1')
   resetWindowPaneStoreForTests()
   windowPaneStore.setState((s) => {
-    if (layoutInto === 'root') s.rootLayout = SPLIT
+    delete s.panes[ROOT_PANE_ID]
+    s.stage = SPLIT
+    s.activePaneId = 'pane-a'
+    s.mostRecentActivePaneIds = ['pane-a']
     s.panes['pane-a'] = paneGroup('pane-a', ['a1', 'a2'], 'a1')
     s.panes['pane-b'] = paneGroup('pane-b', ['b1'], 'b1')
     return s
@@ -67,7 +72,7 @@ describe('PaneNodeRenderer leaf render isolation', () => {
   afterEach(() => vi.clearAllMocks())
 
   it('does not re-render pane B when pane A activeEditorTabId changes', () => {
-    const store = setupStore('none')
+    const store = setupStore()
 
     act(() => {
       render(
@@ -100,7 +105,7 @@ describe('SplitViewRoot end-to-end leaf isolation', () => {
   afterEach(() => vi.clearAllMocks())
 
   it('a pane-local change does not re-render the sibling leaf through the whole tree', () => {
-    const store = setupStore('root')
+    const store = setupStore()
 
     act(() => {
       render(

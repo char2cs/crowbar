@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const apiFetch = vi.fn()
 vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
@@ -17,6 +17,7 @@ vi.mock('@/lib/workspace-scope', () => ({
 }))
 
 import * as api from '@/features/agent/api/agent-api'
+import { useSettingsStore } from '@/features/settings/store'
 
 describe('agent-api: chatBase URL shape', () => {
   beforeEach(() => apiFetch.mockReset())
@@ -369,6 +370,29 @@ describe('agent-api', () => {
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
+  // THE BUG: a chat "started on the CLI" was only ever a client-side landing
+  // seed. The daemon spawned it on the provider's own default face, which for
+  // a mixed-transport provider means an api connection — and a chat with one
+  // of those has its PTY hidden outright, so the terminal surface it landed on
+  // showed "This agent has no terminal view attached right now". The surface
+  // has to travel on the CREATE, because it decides what gets forked.
+  it('createChat carries the SURFACE the chat is born on', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChat('w1', 'codex', '', 'terminal')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.surface).toBe('terminal')
+  })
+
+  // Omitted means the provider's own default face — and the key is ABSENT,
+  // not "", so the wire shape for an ordinary create is byte-identical to
+  // what it was before this argument existed.
+  it('createChat omits surface entirely when none is asked for', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChat('w1', 'codex')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect('surface' in body).toBe(false)
+  })
+
   // Task 8: the sidebar's "create workspace" affordance — no workspace exists
   // yet to derive a chatBase scope from, so this is built straight off
   // project+repo instead.
@@ -559,6 +583,34 @@ describe('agent-api', () => {
     const out = await api.listProviders('w1')
     expect(out[0].hasTerminal).toBe(false)
     expect(out[0].hotswap).toBe(true)
+  })
+
+  // terminalStartHere (design spec 2.5) defaults OFF, the SAME direction as
+  // hotswap/compaction/the selection capabilities — NOT hasTerminal's
+  // opposite-direction default. Silence means the descriptor's surfaces:
+  // block omits start_here (or omits the whole block), and that must not be
+  // read as permission to launch a brand-new chat onto a surface the
+  // provider never said was a landing target.
+  it('listProviders defaults terminalStartHere to false when omitted', async () => {
+    apiFetch.mockResolvedValueOnce([
+      { id: 'claude', displayName: 'Claude', icon: '<svg/>', hasTerminal: true },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].terminalStartHere).toBe(false)
+  })
+
+  it('listProviders carries terminalStartHere:true through unchanged', async () => {
+    apiFetch.mockResolvedValueOnce([
+      {
+        id: 'claude',
+        displayName: 'Claude',
+        icon: '<svg/>',
+        hasTerminal: true,
+        terminalStartHere: true,
+      },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].terminalStartHere).toBe(true)
   })
 
   // The selection catalogue: WHETHER each picker exists at all, plus the models
@@ -977,5 +1029,69 @@ describe('agent-api', () => {
       const { shifted } = await api.setChatPlacement('w1', 'c1', { parentId: '', order: 0 })
       expect(shifted).toEqual([])
     })
+  })
+})
+
+// THE BUG: with "native chats" off (chatIsDefaultPresentation: false — default
+// landing surface 'terminal'), starting a codex chat showed "This agent has no
+// terminal view attached right now". The default was consulted only at DISPLAY
+// time, so the create named no `surface` and the daemon forked codex's default
+// face — the api transport, which forks NO PTY — leaving the pane asking for a
+// terminal view that never existed. `createSurfaceFor` is the one place that
+// derivation lives.
+describe('createSurfaceFor', () => {
+  const CAN_START = {
+    id: 'codex',
+    hasTerminal: true,
+    terminalStartHere: true,
+  } as api.AgentProvider
+  const CANNOT_START = {
+    id: 'legacy',
+    hasTerminal: true,
+    terminalStartHere: false,
+  } as api.AgentProvider
+
+  function setLandingDefault(landing: 'chat' | 'terminal'): void {
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, chatIsDefaultPresentation: landing === 'chat' },
+    }))
+  }
+
+  afterEach(() => setLandingDefault('chat'))
+
+  it("names the terminal when that is the user's default and the provider may start there", () => {
+    setLandingDefault('terminal')
+    expect(api.createSurfaceFor(CAN_START)).toBe('terminal')
+  })
+
+  it('names nothing for a provider whose terminal is not a landing surface', () => {
+    setLandingDefault('terminal')
+    expect(api.createSurfaceFor(CANNOT_START)).toBeUndefined()
+  })
+
+  it("names nothing when the user's default is Chat, whichever provider it is", () => {
+    setLandingDefault('chat')
+    expect(api.createSurfaceFor(CAN_START)).toBeUndefined()
+    expect(api.createSurfaceFor(CANNOT_START)).toBeUndefined()
+  })
+
+  // An explicitly asked-for surface is the "start THIS chat on the CLI"
+  // affordance (⌥⌘N, the row menu). It answers for itself in both directions —
+  // it must not be re-derived from a preference it exists to override.
+  it('lets an explicit surface win over the default, both ways round', () => {
+    setLandingDefault('chat')
+    expect(api.createSurfaceFor(CAN_START, 'terminal')).toBe('terminal')
+    setLandingDefault('terminal')
+    expect(api.createSurfaceFor(CAN_START, 'chat')).toBe('chat')
+  })
+
+  // providerCanStartOnTerminal reads PERMISSIVE for an unresolved provider on
+  // purpose — an affordance stays offered and leaves the refusal to click time.
+  // A CREATE cannot borrow that: it forks the face it names, so "we do not know
+  // yet" must never become "born on the terminal".
+  it('never names the terminal for an unresolved provider, though the gate is permissive', () => {
+    setLandingDefault('terminal')
+    expect(api.providerCanStartOnTerminal(undefined)).toBe(true)
+    expect(api.createSurfaceFor(undefined)).toBeUndefined()
   })
 })

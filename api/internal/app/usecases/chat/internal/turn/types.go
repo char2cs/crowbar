@@ -71,18 +71,25 @@ type Runners interface {
 		chat domain.Chat,
 	) error
 	// HasLiveAPIConnection reports whether runnerID has an ACTIVE api-transport
-	// connection right now. ingestResolvedHook reads this to recognize a hooks
-	// delivery of an event the descriptor declares api-owned — see its own
-	// comment for why that combination means the delivery is a redundant echo.
+	// connection right now. ownerDropsThisDelivery reads this to recognize a
+	// hooks delivery of an event the descriptor declares owner: api — see its
+	// own comment for why that combination means the delivery is a redundant
+	// echo.
 	HasLiveAPIConnection(runnerID string) bool
 	// ShowingNativeView reports whether runnerID is handed over to its
 	// provider's own view right now (runner.SwitchToTerminal). holdForAnswer
 	// reads it to stay out of a decision the CLI is about to put on screen
-	// itself — see its own comment.
+	// itself — see its own comment. surfaceGated (design spec P6b tag 2) also
+	// reads it, to decide which surface a per-event surfaces: list is checked
+	// against.
 	ShowingNativeView(runnerID string) bool
+	// OriginatedSession reports whether runnerID's own api connection produced
+	// sessionID, or is producing one right now. False for a hooks-only runner,
+	// which has no connection that could.
+	OriginatedSession(runnerID, sessionID string) bool
 	// HasDispatchedOverAPI reports whether runnerID's live api connection has
 	// actually carried a prompt, as opposed to merely being established —
-	// apiOwnsThisEvent's own comment has the full reasoning.
+	// ownerDropsThisDelivery's own comment has the full reasoning.
 	HasDispatchedOverAPI(runnerID string) bool
 	// SettleDeliveryFor retires runnerID's pending prompt delivery on chatID
 	// right now, if it has one. handleObservation calls this on compact_post:

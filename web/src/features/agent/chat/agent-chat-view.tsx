@@ -79,6 +79,17 @@ export interface AgentChatViewProps {
    *  pick — see `provider` below for that. */
   providerId: string
   providers: AgentProvider[]
+  /**
+   * Is this chat on the PROVIDER'S OWN TERMINAL right now (the daemon's
+   * `chat.surface`, not the local view the pane happens to be showing)?
+   *
+   * Compaction is a Crowbar native-chat affordance, not a provider capability
+   * the TUI is missing: on that surface the user types the provider's own
+   * gesture themselves, and the daemon refuses a Crowbar-issued one outright.
+   * So the control is ABSENT there — the house rule the gauge states for
+   * itself, never a greyed-out button. Provider-independent, claude included.
+   */
+  onTerminalSurface?: boolean
   /** A switch is already running, or the pane is mid-delivery. */
   switchDisabled?: boolean
   working: boolean
@@ -199,6 +210,14 @@ export interface AgentChatViewProps {
    *  only once the sticky/staged selection above is unset — see
    *  `latestTurnEffort` below. */
   launchModel?: string
+  /** Whether this pane can SPEAK FOR the chat's selection — false while the
+   *  chat list is still in flight, when `model`/`effort` above are merely
+   *  their '' fallbacks rather than the chat's own answer. It matters
+   *  because '' is a real pick on the wire ("the provider's own default"),
+   *  so a send from a pane with no authoritative copy must stage NOTHING
+   *  rather than an empty pair the daemon would honour as a clear. Defaults
+   *  to true: an ordinary pane speaks for its chat. */
+  selectionKnown?: boolean
   onSelectionChange: (provider: string, model: string, effort: string) => void
   /** A staged pick this file just sent WAS ACCEPTED — see
    *  usePromptQueue's `onSelectionCommitted` for the exact contract. */
@@ -300,6 +319,7 @@ export function AgentChatView({
   chatId,
   providerId,
   providers,
+  onTerminalSurface = false,
   switchDisabled,
   working,
   compacting = false,
@@ -336,6 +356,7 @@ export function AgentChatView({
   model,
   effort,
   launchModel = '',
+  selectionKnown = true,
   onSelectionChange,
   onSelectionCommitted,
   presentation,
@@ -447,6 +468,29 @@ export function AgentChatView({
   // cover. Real, needed reset; a key alone cannot replace it.
   // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
   useEffect(() => setSubmitUnavailable(false), [chatId, providerId])
+  // The last CONFIRMED launch model — what a live runner actually reported
+  // running as — kept around after `live` drops instead of being lost with
+  // it. AgentChat.launchModel is absent exactly when liveRunnerId is (see its
+  // own doc in agent-api.ts), so the backend gives up this fact the moment a
+  // turn's runner goes idle/exits; without remembering it here the picker had
+  // nothing left to show but a guess.
+  const [lastConfirmedModel, setLastConfirmedModel] = useState('')
+  // Reset FIRST — a provider change invalidates whatever this held, and the
+  // ordering matters: both effects can fire in the same commit (a provider
+  // switch that lands a fresh launch report in one render), and effects run
+  // in declaration order, so this must run before the capture below or it
+  // would wipe out a value that same commit just confirmed. The view already
+  // remounts wholesale on a chatId change (key={wsId:chatId}); listed anyway
+  // to mirror submitUnavailable's own reset above.
+  // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
+  useEffect(() => setLastConfirmedModel(''), [chatId, providerId])
+  // Not derivable: this holds the LAST non-empty launchModel and must survive
+  // `launchModel` going absent when the runner goes idle (see its doc above).
+  // react-doctor-disable-next-line no-derived-state-effect
+  useEffect(() => {
+    // react-doctor-disable-next-line no-derived-state
+    if (live && launchModel) setLastConfirmedModel(launchModel)
+  }, [live, launchModel])
 
   // The queue baselines its evidence on the ledger's cursor and asks it to
   // re-read after every dispatch; the ledger's recovery walk asks the queue what
@@ -558,12 +602,15 @@ export function AgentChatView({
   // slash catalog) stays on the REAL, live `provider`/`providerId`: a staged
   // pick has not taken effect yet, so there is no live CLI to probe or label.
   const effectiveProvider = providers.find((candidate) => candidate.id === effectiveProviderId)
-  // Last-resort fallback for a chat with no sticky pick and no launch report
-  // yet (the empty, never-sent composer): `models` is DESCRIPTOR ORDER, the
-  // provider's own ranking (AgentProvider's own doc), so its first entry IS
-  // the provider's default — no separate "default" flag to declare or keep
-  // in sync.
-  const defaultModel = effectiveProvider?.models?.[0] ?? ''
+  // `models` is catalogue/descriptor order, NOT a default flag (measured:
+  // codex's own catalog carries priority/visibility/default_reasoning_level
+  // but no per-model default) — position must never stand in for a
+  // confirmation. Nothing confirmed yet stays '' all the way down to the
+  // picker, which renders the literal word "Default" itself at display
+  // time (AgentSelectionPicker's `unsetLabel`) — same as `effectiveEffort`
+  // below. Baking that label into the VALUE here used to leak it: the
+  // picker's own effort slider echoes `model` straight back out on every
+  // effort pick, so a staged "Default" model would ship on the next send.
   // Effort has no such fixed fallback: unlike model (pinned for the whole
   // session, restart_tui), a provider can change its OWN reasoning effort
   // turn to turn, and Crowbar only learns which one it actually used from
@@ -581,14 +628,20 @@ export function AgentChatView({
   }, [ledger.messages])
   // The sticky/staged selection FIRST — same "must reflect a staged pick
   // immediately" rule provider/model already follow (see effectiveProvider's
-  // own comment above) — then the last turn's own report, then the literal
-  // placeholder for a chat nothing has touched yet. Reversing this order
-  // (as it used to run) let the picker itself show "Default" no matter what
-  // was picked, since nothing had run a turn to confirm it yet: live-
+  // own comment above) — then the last turn's own report. Reversing this
+  // order (as it used to run) let the picker itself show "Default" no matter
+  // what was picked, since nothing had run a turn to confirm it yet: live-
   // reported as "there is no way to change the effort slider," on Claude
   // as much as Codex — every provider hits the same never-confirmed gap on
-  // a chat's first pick.
-  const effortDisplay = effort || latestTurnEffort || 'Default'
+  // a chat's first pick. Stays RAW ('' when neither exists) — see `model`'s
+  // own comment above for why the "Default" label may never reach this far.
+  const effectiveEffort = effort || latestTurnEffort
+  // What the provider's LAST turn actually answered with — display only, fed
+  // to the picker's `reportedModel` (never `model` itself: that prop is the
+  // `efforts['']` lookup key, and baking a resolved id into it is the exact
+  // defect that killed the slider before). telemetry, not a turn/message
+  // field: AgentChatMessage carries no model, only effort (see its own doc).
+  const reportedModel = telemetry?.model?.displayName || telemetry?.model?.id || ''
   // The provider's stop reason occupies the BAR, so the transcript must not also
   // render it as a row: it is one sentence, and saying it twice reads as the
   // provider having stopped twice.
@@ -657,7 +710,15 @@ export function AgentChatView({
     // (not reading them again at dispatch) is what keeps a later pick from
     // bleeding onto this message.
     const stagedProvider = effectiveProviderId === providerId ? '' : effectiveProviderId
-    const result = prompts.enqueue(text ?? draft, stagedProvider, model, effort)
+    // undefined, not '', when this pane cannot speak for the selection: ''
+    // is a PICK of the provider's own default and the daemon honours it as
+    // a clear. See `selectionKnown`'s own doc.
+    const result = prompts.enqueue(
+      text ?? draft,
+      stagedProvider,
+      selectionKnown ? model : undefined,
+      selectionKnown ? effort : undefined,
+    )
     if (!result.ok) {
       setComposerError(result.error ?? '')
       return
@@ -864,8 +925,9 @@ export function AgentChatView({
     <SelectionCluster
       provider={effectiveProvider}
       providers={providers}
-      model={model || defaultModel}
-      effort={effortDisplay}
+      model={model}
+      effort={effectiveEffort}
+      reportedModel={reportedModel}
       presentation={presentation}
       splitEnabled={splitEnabled && provider?.hotswap === true}
       showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}
@@ -1052,13 +1114,30 @@ export function AgentChatView({
               provider={effectiveProvider}
               providers={providers}
               switchDisabled={switchDisabled}
-              model={(live && launchModel) || model || defaultModel}
-              effort={effortDisplay}
+              // THE PICK WINS, live or not. This chip says what the NEXT
+              // message will run as, which is the whole point of staging a
+              // pick locally: letting the runner's own launch report win
+              // while `live` (as this once did) painted the RUNNING model
+              // over the user's choice, so clicking a model on a live chat
+              // looked like it did nothing until the next send restarted the
+              // CLI. The launch report only FILLS THE GAP when nothing has
+              // been picked — falling back to the last model this chat
+              // actually CONFIRMED once `live` drops and the backend's own
+              // launchModel goes with it (see `lastConfirmedModel` above).
+              // Neither fallback guesses from catalogue order, and neither
+              // bakes in the "Default" label — see `model`'s own comment.
+              model={model || (live ? launchModel : lastConfirmedModel)}
+              effort={effectiveEffort}
+              reportedModel={reportedModel}
               telemetry={telemetry}
               presentation={presentation}
               splitEnabled={splitEnabled && provider?.hotswap === true}
               queued={queue.length}
-              onCompact={provider?.compaction && live && !compacting ? handleCompact : undefined}
+              onCompact={
+                provider?.compaction && live && !compacting && !onTerminalSurface
+                  ? handleCompact
+                  : undefined
+              }
               onSelectionChange={onSelectionChange}
               onSelectPresentation={onSelectPresentation}
               showSwitcher={presentation !== 'terminal' && provider?.hasTerminal !== false}

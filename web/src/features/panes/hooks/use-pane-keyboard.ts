@@ -1,15 +1,22 @@
 import { useEffect } from 'react'
-import { ensurePaneChatThenOpen, openChatIdInOwnView } from '../utils/pane-command-actions'
+import { ensurePaneChatThenOpen } from '../utils/pane-command-actions'
 import { getPaneScopeForPaneId } from '../utils/pane-routing'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { showingLayout } from '@/features/panes/lib/view-state'
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
-import { createChat } from '@/features/agent/api/agent-api'
+import {
+  createChat,
+  createSurfaceFor,
+  providerCanStartOnTerminal,
+} from '@/features/agent/api/agent-api'
 import { selectEnabledProviders } from '@/features/workspace/stores/slices/agent-chats-slice'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
+import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
 import {
   AGENT_NEW_CHAT,
+  AGENT_NEW_CHAT_TERMINAL,
   PANE_NAVIGATE_DOWN,
   PANE_NAVIGATE_LEFT,
   PANE_NAVIGATE_RIGHT,
@@ -91,27 +98,45 @@ export function usePaneKeyboard() {
         return
       }
 
-      if (matches(AGENT_NEW_CHAT)) {
+      if (matches(AGENT_NEW_CHAT) || matches(AGENT_NEW_CHAT_TERMINAL)) {
         // ⌘N is registered in the keymap and rendered as a badge on the New
         // Tab surface's "New Chat" action, but nothing dispatched it (I4) — a
         // rebindable command whose chord did nothing. Picks the first ENABLED
         // provider (selectEnabledProviders — the same rule every New-chat
         // surface uses; a disabled provider is never offered), creates the
         // chat, then opens it as its OWN VIEW (spec §8.4, same as clicking a
-        // chat in the tree) via `openChatIdInOwnView` — never straight into
-        // `activePaneId`, which used to ARCHIVE whatever that pane held
-        // (setPaneChat's dedicated close-and-replace path) instead of parking
-        // it as a still-live view. That is what made ⌘N feel like it could
-        // only ever leave one view open at a time.
+        // chat in the tree) via `openChat` — never into the active pane.
+        //
+        // AGENT_NEW_CHAT_TERMINAL is the same create, landed on Terminal
+        // regardless of where `chatIsDefaultPresentation` points — the one
+        // way to start THIS chat on the CLI without flipping that setting
+        // for every chat after it. `presetChatLandingPresentation` writes
+        // the choice before the pane exists to read it. Absence, not a
+        // disabled control: a provider that does not declare its terminal a
+        // start_here surface (providerCanStartOnTerminal — design spec 2.5)
+        // just creates the ordinary chat, same as AGENT_NEW_CHAT.
+        const wantsTerminal = matches(AGENT_NEW_CHAT_TERMINAL)
         e.preventDefault()
         const state = workspaceStore.getState()
         const provider = selectEnabledProviders(state)[0]
         if (!provider) return
-        createChat(state.workspaceId, provider.id)
+        // The surface travels on the CREATE, not just into the landing seed:
+        // it is what decides which of the provider's faces the daemon forks.
+        // The PLAIN chord names none, so `createSurfaceFor` answers it from the
+        // user's own default landing surface — without that, "native chats" off
+        // forked codex on its api face and the pane had no terminal to show.
+        const surface = createSurfaceFor(
+          provider,
+          wantsTerminal && providerCanStartOnTerminal(provider) ? 'terminal' : undefined,
+        )
+        createChat(state.workspaceId, provider.id, '', surface)
           .then((chatId) => {
+            if (surface === 'terminal') {
+              presetChatLandingPresentation(chatId, 'terminal')
+            }
             workspaceStore.getState().setActiveAgentChatId(chatId)
             // A brand-new chat has no runner yet — null until it spawns one.
-            openChatIdInOwnView(chatId, null)
+            windowPaneStore.getState().paneActions.openChat(chatId)
           })
           .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
         return
@@ -152,7 +177,7 @@ export function usePaneKeyboard() {
         // branch and immediately deletes the fallback leaf right after).
         if (pane.editorTabIds.length === 0) {
           const scope = getPaneScopeForPaneId(
-            state.rootLayout,
+            showingLayout(state),
             state.bottomLayout,
             state.panes,
             paneId,

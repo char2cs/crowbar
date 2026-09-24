@@ -28,6 +28,15 @@ type ChatRuntime struct {
 	// into.
 	Conversations []agents.ChatConversation
 
+	// Interruptions is the chat's durable interruption ledger, joined in by the
+	// caller (the DTO layer has no store access of its own) because
+	// activeProviderID needs it as a second fallback source: a provider that binds
+	// via its own connection identity never writes a Conversations row, so its
+	// only trace is the switch marker here. Only ever populated for a DORMANT
+	// chat — a live runner already outranks both fallbacks, so a caller building
+	// this for a live chat may leave it nil.
+	Interruptions []domain.ActivityInterruption
+
 	// TerminalWait is the daemon's standing answer to "is this chat's CLI parked
 	// on a modal Crowbar cannot answer?". Derived, never stored, and the zero
 	// value — not waiting — is both the common case and the answer for every
@@ -95,10 +104,25 @@ type AgentChatDTO struct {
 	// attaches to. Empty exactly when LiveRunnerID is — no runner, nothing to attach.
 	TerminalSessionID string `json:"terminalSessionId"`
 
+	// Surface is the VIEW this chat is on RIGHT NOW — design spec 2.5,
+	// domain.Chat.Surface. Birth seeds it and the two switch calls move it,
+	// so it never says how the chat GOT here. OMITTED for the overwhelming
+	// majority, which sit on their provider's own default face.
+	//
+	// The client needs it for one thing: a chat on a hooks-channel surface has
+	// NO api connection behind it, so the PTY above IS its conversation and
+	// there is nothing to fork. Asking anyway (POST .../terminal) is refused —
+	// that attach resumes an api session this chat never had — which is what
+	// put "provider has no completed turn yet to show its native view of" on a
+	// chat the user had just created on the CLI.
+	Surface string `json:"surface,omitempty"`
+
 	// ActiveProviderID is the provider whose CLI is (or last was) talking to this
-	// chat: the LIVE runner's provider while the chat is live, and otherwise the
-	// provider of its LAST conversation. That fallback is what lets a dormant chat
-	// still show the right glyph and dropdown selection, and lets Resume know who to
+	// chat: the LIVE runner's provider while the chat is live, else whichever is
+	// newer of its most-recently-active conversation or its last durable
+	// provider-switch interruption (agents.ActiveProviderID — see there for why
+	// both sources are needed). That fallback is what lets a dormant chat still
+	// show the right glyph and dropdown selection, and lets Resume know who to
 	// bring back. Empty only on a chat no runner has ever been placed on.
 	ActiveProviderID string `json:"activeProviderId"`
 
@@ -183,7 +207,8 @@ func AgentChatDTOFrom(
 		WorkspaceID:      c.WorkspaceID,
 		Title:            c.Title,
 		Type:             c.EffectiveType(),
-		ActiveProviderID: activeProviderID(rt),
+		Surface:          c.Surface,
+		ActiveProviderID: activeProviderID(c, rt),
 		Working:          c.Working,
 		ParentID:         c.ParentID,
 		Order:            c.Order,
@@ -546,35 +571,28 @@ type SlashCatalogItemDTO struct {
 }
 
 // activeProviderID derives the provider to show for a chat: the live runner's while one
-// is placed on it (mid-switch, the incoming runner is already the truth — it outranks a
-// history whose last entry still names the outgoing vendor), else the provider that was
-// most recently ACTIVE, else "".
+// is placed on it (mid-switch, the incoming runner is already the truth — it outranks
+// every dormant fallback below), else agents.ResolveProviderID over the chat's
+// conversation history, its interruption ledger and its own durable choice, else "".
 //
-// rt.Conversations is oldest-FIRST-SEEN-first (ConversationsForChat's own contract —
-// callers besides this one rely on that order), so its last element is NOT necessarily
-// the answer: a chat switched back to a provider it already ran re-activates that
-// provider's own EARLIER row rather than minting a new one, and that row's position in
-// the slice never moves even though it is once again the current one. Scanning for the
-// max LastActiveAt is what actually answers "current" — see LastConversation's own doc
-// for the live bug this replaced (the stale-provider-after-Stop report).
+// All three sources are NEEDED, not just Conversations. A provider that binds via its
+// own connection identity, rather than firing a session-bind, never writes a
+// Conversations row at all, so a chat last live on one of those has no history entry to
+// fall back to — only the switch interruption rt.Interruptions carries. And a chat BORN
+// on such a provider has neither, because it was never switched: chat.ProviderID is the
+// only thing left that knows, and the "" this used to answer for it is what let a
+// sidebar click convert a dormant codex chat to claude. See agents.ResolveProviderID
+// for the precedence, and agents.ActiveProviderID for the max-LastActiveAt scan this
+// preserves (the stale-provider-after-Stop report it was written to fix).
 func activeProviderID(
+	chat domain.Chat,
 	rt ChatRuntime,
 ) string {
 	if rt.LiveRunner != nil {
 		return rt.LiveRunner.ProviderID
 	}
-	var last agents.ChatConversation
-	found := false
-	for _, c := range rt.Conversations {
-		if !found || c.LastActiveAt.After(last.LastActiveAt) {
-			last = c
-			found = true
-		}
-	}
-	if !found {
-		return ""
-	}
-	return last.ProviderID
+	providerID, _ := agents.ResolveProviderID(rt.Conversations, rt.Interruptions, chat.ProviderID)
+	return providerID
 }
 
 // AgentChatDTOList converts a slice of AgentChats into wire DTOs, returning a
@@ -651,18 +669,29 @@ type HandoffDTO struct {
 // declares no catalogue: an absent field says the picker does not exist, which an
 // empty array would not.
 type AgentProviderDTO struct {
-	ID           string              `json:"id"`
-	DisplayName  string              `json:"displayName"`
-	Icon         string              `json:"icon"`
-	Connected    bool                `json:"connected"`
-	Enabled      bool                `json:"enabled"`
-	MCPEnabled   bool                `json:"mcpEnabled"`
-	Compaction   bool                `json:"compaction"`
-	Hotswap      bool                `json:"hotswap"`
-	HasTerminal  bool                `json:"hasTerminal"`
-	ModelSelect  bool                `json:"modelSelect"`
-	EffortSelect bool                `json:"effortSelect"`
-	Models       []string            `json:"models,omitempty"`
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+	Icon        string `json:"icon"`
+	Connected   bool   `json:"connected"`
+	Enabled     bool   `json:"enabled"`
+	MCPEnabled  bool   `json:"mcpEnabled"`
+	Compaction  bool   `json:"compaction"`
+	Hotswap     bool   `json:"hotswap"`
+	HasTerminal bool   `json:"hasTerminal"`
+	// TerminalStartHere is domain.AgentProvider.TerminalStartHere — whether a
+	// brand-new chat may be launched DIRECTLY onto this provider's terminal
+	// surface (design spec 2.5). False whenever HasTerminal is false, and may
+	// be false even when it is true (codex: has a terminal, idle-only
+	// handoff, never a launch target).
+	TerminalStartHere bool     `json:"terminalStartHere"`
+	ModelSelect       bool     `json:"modelSelect"`
+	EffortSelect      bool     `json:"effortSelect"`
+	Models            []string `json:"models,omitempty"`
+	// DefaultModel is domain.AgentProvider.DefaultModel: the provider's OWN
+	// stated default, omitted (never sent as "") when unknown — an absent
+	// field says "the provider didn't say", where "" could misread as "no
+	// default model" as a fact rather than as missing information.
+	DefaultModel string              `json:"defaultModel,omitempty"`
 	Efforts      map[string][]string `json:"efforts,omitempty"`
 
 	// PermissionLevels mirrors Models/Efforts' own "omitted, not empty" rule:

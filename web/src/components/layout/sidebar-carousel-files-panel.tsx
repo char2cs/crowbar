@@ -4,7 +4,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { SidebarSkeleton } from './sidebar-skeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
+import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
@@ -15,11 +15,9 @@ import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
  * this is its own whole store surface (selection, create/rename/delete/
  * upload) that none of the carousel's own tab/fold/resize machinery touches.
  */
-export function SidebarCarouselFilesPanel({
-  activeWorkspaceRepoPath,
-}: {
-  activeWorkspaceRepoPath: string
-}) {
+export function SidebarCarouselFilesPanel() {
+  const workspaceId = useFocusedWorkspaceContextStore((s) => s.workspaceId)
+  const rootPath = useFocusedWorkspaceContextStore((s) => s.rootPath)
   const files = useFileSystemStore((s) => s.files)
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
   const handleFileSelect = useFileSystemStore.use.handleFileSelect?.()
@@ -47,9 +45,9 @@ export function SidebarCarouselFilesPanel({
   // before the open, is the same fix the file-tree DROP path already applies
   // for its own unambiguous drop target.
   const ensureActivePaneForFileOpen = useCallback(() => {
-    const targetPaneId = resolveOnscreenPaneForWorkspace(getWorkspaceScope()?.wsId ?? '')
+    const targetPaneId = resolveOnscreenPaneForWorkspace(workspaceId ?? '')
     if (targetPaneId) windowPaneStore.getState().paneActions.setActivePane(targetPaneId)
-  }, [])
+  }, [workspaceId])
 
   return (
     <div
@@ -60,10 +58,11 @@ export function SidebarCarouselFilesPanel({
         <Suspense fallback={<SidebarSkeleton />}>
           <FileExplorerTree
             files={files}
-            rootFolderPath={activeWorkspaceRepoPath}
+            workspaceId={workspaceId}
+            rootFolderPath={rootPath}
             onFileSelect={(path, isDir) => {
               if (isDir) {
-                useFileTreeStore.getState().toggleFolder(getWorkspaceScope()?.wsId ?? '', path)
+                useFileTreeStore.getState().toggleFolder(workspaceId ?? '', path)
               } else {
                 ensureActivePaneForFileOpen()
                 handleFileSelect?.(path, false)

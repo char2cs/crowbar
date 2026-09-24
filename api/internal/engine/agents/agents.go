@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/catalog"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/modeldiscovery"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/models"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/move"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol"
@@ -20,6 +21,23 @@ import (
 )
 
 var errPromptSubmitUnsupported = errors.New("agents: provider does not support chat prompt submission")
+
+// Allowed reports whether want is acceptable against a resolved catalogue.
+// A non-empty known list rejects anything it omits, same as always. An
+// EMPTY one only means "nothing is valid" when nothing could ever resolve
+// it (discovered is false — no catalogue declared, or a static one that is
+// itself empty); when discovered is true, empty means "a live probe hasn't
+// resolved this yet", and rejecting on that would wedge selection every
+// time discovery is merely pending or failed. Every selection-validation
+// gate (promptswitch.go, the two selection.go files) reads
+// Agent.Models()/Efforts() plus Agent.Capabilities().ModelDiscovery through
+// this rather than a bare slices.Contains.
+func Allowed(known []string, discovered bool, want string) bool {
+	if len(known) > 0 {
+		return slices.Contains(known, want)
+	}
+	return discovered
+}
 
 // errAPITransportNotDeclared is StartAPIConn's refusal for a hooks-only
 // descriptor — one with no runtime.api and no event overriding transport: api.
@@ -41,6 +59,16 @@ type Agents interface {
 	ConsumeInjectedPrefix(runnerID, text string) (remainder string, found bool)
 
 	ForgetRunner(runnerID string)
+
+	// SetManifestFetchEnabled installs the live getter a model.manifest:
+	// source's background refresh reads before hitting the network — pulled
+	// fresh on every refresh attempt, never cached across a toggle. A nil
+	// getter (the state before this is ever called — every bare New(), every
+	// test) means DISABLED: only the embedded bundle and disk cache apply, so
+	// a raw Agents never makes a network call as a side effect of resolving
+	// a descriptor. The app layer wires the real, DB-backed getter (whose own
+	// default is enabled) once at boot — see chat.assembly.go.
+	SetManifestFetchEnabled(enabled func() bool)
 }
 
 type Agent interface {
@@ -57,6 +85,12 @@ type Agent interface {
 
 	Efforts(model string) []string
 
+	// DefaultModel is whichever model id the provider ITSELF states is its
+	// default (model.discover.default_when) — empty when the source states
+	// nothing at all, or nothing has resolved yet. Never inferred from
+	// Models()'s own order.
+	DefaultModel() string
+
 	// PermissionLevels reports which of Crowbar's own guarded/trusted/
 	// full-auto names this provider can actually reach. A level absent here
 	// must never be offered for this provider — never clamped to one that is.
@@ -69,6 +103,13 @@ type Agent interface {
 	PermissionVars(level string) map[string]string
 
 	SelectionSteps(sel Selection) []InjectStep
+
+	// SelectionAPISteps is SelectionSteps' sibling for the api channel: the
+	// same choice declared onto the `serve` process, for a spawn that forks
+	// no process for SelectionSteps to ride. APIServeArgv already renders
+	// these; this is here so a caller can ask WHICH fields a carrier takes
+	// without launching anything.
+	SelectionAPISteps(sel Selection) []InjectStep
 
 	SelectionRestart(launched, desired Selection) bool
 
@@ -86,7 +127,12 @@ type Agent interface {
 
 	ResumeArg() (string, bool)
 
-	ParseHook(canonical string, raw []byte) (CanonicalEvent, error)
+	// ParseHook turns one raw provider payload into a canonical event, reading
+	// the field map channel selects: the channel-scoped block the delivery
+	// ACTUALLY arrived on (a channel-scoped event's own api:/hooks: block),
+	// never the event's static declared transport — see spec.Channel and
+	// TransportFor's own doc comment for why those are different facts.
+	ParseHook(canonical string, raw []byte, channel Channel) (CanonicalEvent, error)
 
 	ParseTelemetry(raw []byte, now time.Time) (Telemetry, error)
 
@@ -108,8 +154,10 @@ type Agent interface {
 	// StartAPIConn dials this provider's API socket (already resolved by the
 	// caller — the same TemplateCtx machinery SpawnPlan uses expands {socket})
 	// and completes its declared handshake. Returns ErrAPITransportNotDeclared
-	// for a hooks-only descriptor — never (nil, nil).
-	StartAPIConn(ctx context.Context, socketPath string) (*APIConn, error)
+	// for a hooks-only descriptor — never (nil, nil). origin (nil-able) is told
+	// which sessions the connection goes on to produce itself — see
+	// APISessionOrigin.
+	StartAPIConn(ctx context.Context, socketPath string, origin APISessionOrigin) (*APIConn, error)
 
 	// APIServeArgv and APIAttachArgv are runtime.api.serve / .attach, already
 	// template-expanded against ctx, mirroring PromptSteps's (x, bool) shape: ok
@@ -122,6 +170,32 @@ type Agent interface {
 	// descriptor: a caller outside this package can only ever reach a provider
 	// through this interface, never through *spec.Descriptor by name.
 	TransportFor(canonical string) string
+
+	// EventOwner is spec.Descriptor.EventOwner, exposed the same narrow way —
+	// api|hooks|either (design spec P6b tag 1).
+	EventOwner(canonical string) string
+
+	// EventSurfaces is spec.Descriptor.EventSurfaces, exposed the same narrow
+	// way (design spec P6b tag 2).
+	EventSurfaces(canonical string) []string
+
+	// SurfaceChannel is spec.Descriptor.SurfaceChannel, exposed the same
+	// narrow way: which delivery channel drives one SURFACE's facts (design
+	// spec 2.5's surfaces.<name>.channel), "" for an undeclared surface.
+	SurfaceChannel(surface string) string
+
+	// TelemetryChannel is the delivery channel this provider's usage reports
+	// arrive on, and TelemetryOnSurface asks whether a chat on one SURFACE
+	// can receive them at all — the chat-scoped form of the capability, since
+	// a provider-scoped flag cannot tell two chats of the same provider apart.
+	TelemetryChannel() string
+	TelemetryOnSurface(surface string) bool
+
+	// SurfaceStartHere is spec.Descriptor.SurfaceStartHere: whether a
+	// brand-new chat may be LAUNCHED directly onto this surface. The same
+	// fact Capabilities.TerminalStartHere reports for the terminal, asked
+	// per surface by the spawn path.
+	SurfaceStartHere(surface string) bool
 }
 
 type service struct {
@@ -146,6 +220,20 @@ type service struct {
 	// still picked up without a restart, just without paying Resolve's full
 	// cost to notice nothing changed.
 	descriptors map[string]descriptorCacheEntry
+
+	// discovery is the shared, provider-keyed cache behind a model.discover
+	// OR model.manifest descriptor's Models()/Efforts() — one instance for
+	// every agent this service ever builds, so a refresh triggered by one
+	// List/Get is visible to the next, however many *agent values point at
+	// it.
+	discovery *modeldiscovery.Cache
+
+	// manifestFetchMu guards manifestFetch, the live getter
+	// SetManifestFetchEnabled installs — read fresh on every manifest
+	// refresh, never latched at construction, so a settings toggle takes
+	// effect on the very next refresh rather than needing a restart.
+	manifestFetchMu sync.RWMutex
+	manifestFetch   func() bool
 }
 
 // descriptorCacheEntry is one Get result, held until the on-disk override
@@ -161,8 +249,37 @@ type descriptorCacheEntry struct {
 	overrideModTime time.Time
 }
 
-func New() Agents {
-	return &service{injected: registry.New(), descriptors: map[string]descriptorCacheEntry{}}
+// serviceOpts is New's own option set — currently just the lifecycle context
+// its model-discovery cache forks background work against.
+type serviceOpts struct {
+	lifecycle context.Context
+}
+
+// Option configures New.
+type Option func(*serviceOpts)
+
+// WithLifecycle ties every background model-discovery refresh this service
+// ever forks to ctx: cancelling it (a daemon's own shutdown) stops in-flight
+// probes/fetches and refuses to store or write one that raced past the
+// cancellation — see modeldiscovery.Cache's own doc. Omitted, refreshes are
+// bound to context.Background() — never cancelled by anything — which is the
+// state every existing bare New() call (test or otherwise) is already in;
+// the app layer is the only caller that needs this, wiring its own
+// shutdown-bound context once at boot.
+func WithLifecycle(ctx context.Context) Option {
+	return func(o *serviceOpts) { o.lifecycle = ctx }
+}
+
+func New(opts ...Option) Agents {
+	cfg := serviceOpts{lifecycle: context.Background()}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	return &service{
+		injected:    registry.New(),
+		descriptors: map[string]descriptorCacheEntry{},
+		discovery:   modeldiscovery.NewCache(cfg.lifecycle),
+	}
 }
 
 func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
@@ -172,7 +289,8 @@ func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
 	}
 	out := make([]Agent, 0, len(descriptors))
 	for _, d := range descriptors {
-		out = append(out, &agent{spec: d})
+		s.refreshModelsIfDeclared(d, homeDir)
+		out = append(out, &agent{spec: d, discovery: s.discovery})
 	}
 	return out, nil
 }
@@ -192,12 +310,51 @@ func (s *service) Get(ctx context.Context, homeDir, id string) (Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &agent{spec: d}
+	s.refreshModelsIfDeclared(d, homeDir)
+	a := &agent{spec: d, discovery: s.discovery}
 
 	s.resolved.Lock()
 	s.descriptors[key] = descriptorCacheEntry{agent: a, overrideModTime: modTime}
 	s.resolved.Unlock()
 	return a, nil
+}
+
+// refreshModelsIfDeclared kicks off a background catalogue refresh for a
+// descriptor that declares model.discover or model.manifest — a no-op (and
+// zero extra cost on every other Get/List call) for one that declares
+// neither.
+func (s *service) refreshModelsIfDeclared(d *spec.Descriptor, homeDir string) {
+	if d.Model == nil {
+		return
+	}
+	if d.Model.Discover != nil {
+		s.discovery.Refresh(d, homeDir)
+	}
+	if d.Model.Manifest != nil {
+		s.discovery.RefreshManifest(d, homeDir, protocol.EmbeddedModelManifest(), s.manifestFetchAllowed())
+	}
+}
+
+// SetManifestFetchEnabled installs the live getter refreshModelsIfDeclared's
+// model.manifest half reads before hitting the network.
+func (s *service) SetManifestFetchEnabled(enabled func() bool) {
+	s.manifestFetchMu.Lock()
+	defer s.manifestFetchMu.Unlock()
+	s.manifestFetch = enabled
+}
+
+// manifestFetchAllowed defaults to DISABLED (nil getter, the state before
+// SetManifestFetchEnabled is ever called) — every bare New(), every test —
+// so resolving a descriptor never makes a network call as a side effect
+// until the app layer explicitly wires the real, DB-backed getter (whose own
+// default IS enabled) at boot.
+func (s *service) manifestFetchAllowed() bool {
+	s.manifestFetchMu.RLock()
+	defer s.manifestFetchMu.RUnlock()
+	if s.manifestFetch == nil {
+		return false
+	}
+	return s.manifestFetch()
 }
 
 // overrideModTime is the zero Time for an empty path (no override possible)
@@ -231,12 +388,22 @@ func Expand(s string, ctx TemplateCtx) string {
 	return template.Expand(s, ctx)
 }
 
-func Decide(currentSession, announcedSession, knownChatID string, known bool) Decision {
-	return move.Decide(currentSession, announcedSession, knownChatID, known)
+// Decide places a conversation a CLI has announced — see move.Decide, and
+// especially what crowbarOriginated is load-bearing for.
+func Decide(
+	currentSession, announcedSession, knownChatID string,
+	known, crowbarOriginated bool,
+) Decision {
+	return move.Decide(currentSession, announcedSession, knownChatID, known, crowbarOriginated)
 }
 
 type agent struct {
 	spec *spec.Descriptor
+	// discovery is nil for an agent built outside this package's own New()
+	// (a handful of white-box tests construct &agent{spec: d} directly);
+	// Models/Efforts fall back to the descriptor's static catalogue then,
+	// same as a descriptor with no discover: block at all.
+	discovery *modeldiscovery.Cache
 }
 
 func (a *agent) ID() string { return a.spec.ID }
@@ -249,10 +416,11 @@ func (a *agent) Installed() bool { return protocol.Installed(a.spec.Spawn.Cmd) }
 
 func (a *agent) Capabilities() Capabilities {
 	caps := Capabilities{
-		SlashCatalog: a.spec.Presentation.SlashCatalog != nil,
-		Telemetry:    a.spec.Telemetry != nil,
-		ModelSelect:  a.spec.Model != nil,
-		EffortSelect: a.spec.Effort != nil,
+		SlashCatalog:   a.spec.Presentation.SlashCatalog != nil,
+		Telemetry:      a.spec.Telemetry != nil,
+		ModelSelect:    a.spec.Model != nil,
+		EffortSelect:   a.spec.Effort != nil,
+		ModelDiscovery: a.spec.Model != nil && (a.spec.Model.Discover != nil || a.spec.Model.Manifest != nil),
 
 		TerminalPrompts: protocol.TerminalPrompts(a.spec),
 		Compaction:      protocol.CanSend(a.spec, "compact_start"),
@@ -260,6 +428,8 @@ func (a *agent) Capabilities() Capabilities {
 
 		Hotswap:     a.spec.Runtime.Hotswap,
 		HasTerminal: a.spec.Runtime.Transport != "api" || len(a.spec.Runtime.API.Attach) > 0,
+
+		TerminalStartHere: a.spec.SurfaceStartHere(spec.SurfaceTerminal),
 	}
 	if ps := a.spec.Presentation.PromptSubmit; ps != nil {
 		caps.PromptSubmit = true
@@ -275,15 +445,38 @@ func (a *agent) WithTools(enabled bool) Agent {
 
 	stripped := *a.spec
 	stripped.MCPInject = nil
-	return &agent{spec: &stripped}
+	return &agent{spec: &stripped, discovery: a.discovery}
+}
+
+// discoversModels reports whether Models/Efforts/DefaultModel must read the
+// shared discovery cache instead of the descriptor's own static tables —
+// true for EITHER a live probe (model.discover) or a fetched/bundled
+// catalogue (model.manifest); the two are mutually exclusive per descriptor
+// (rules.modelCatalog) so there is never a question of which one to prefer.
+func (a *agent) discoversModels() bool {
+	m := a.spec.Model
+	return m != nil && (m.Discover != nil || m.Manifest != nil) && a.discovery != nil
 }
 
 func (a *agent) Models() []string {
+	if a.discoversModels() {
+		return a.discovery.Models(a.spec.ID)
+	}
 	return selection.Models(a.spec)
 }
 
 func (a *agent) Efforts(model string) []string {
+	if a.discoversModels() {
+		return a.discovery.Efforts(a.spec.ID, model)
+	}
 	return selection.Efforts(a.spec, model)
+}
+
+func (a *agent) DefaultModel() string {
+	if a.discoversModels() {
+		return a.discovery.DefaultModel(a.spec.ID)
+	}
+	return ""
 }
 
 func (a *agent) PermissionLevels() []string {
@@ -296,6 +489,10 @@ func (a *agent) PermissionVars(level string) map[string]string {
 
 func (a *agent) SelectionSteps(sel Selection) []InjectStep {
 	return selection.Steps(a.spec, sel)
+}
+
+func (a *agent) SelectionAPISteps(sel Selection) []InjectStep {
+	return selection.APISteps(a.spec, sel)
 }
 
 func (a *agent) SelectionRestart(launched, desired Selection) bool {
@@ -336,8 +533,8 @@ func (a *agent) ResumeArg() (string, bool) {
 	return a.spec.Session.Resume.Arg, true
 }
 
-func (a *agent) ParseHook(canonical string, raw []byte) (CanonicalEvent, error) {
-	return protocol.Recv(a.spec, canonical, raw)
+func (a *agent) ParseHook(canonical string, raw []byte, channel Channel) (CanonicalEvent, error) {
+	return protocol.Recv(a.spec, canonical, raw, channel)
 }
 
 func (a *agent) ParseTelemetry(raw []byte, now time.Time) (Telemetry, error) {
@@ -384,11 +581,13 @@ func (a *agent) ProbeTelemetry(
 	return protocol.ProbeTelemetry(ctx, a.spec, opts, acquire, now)
 }
 
-func (a *agent) StartAPIConn(ctx context.Context, socketPath string) (*APIConn, error) {
+func (a *agent) StartAPIConn(
+	ctx context.Context, socketPath string, origin APISessionOrigin,
+) (*APIConn, error) {
 	if a.spec.Runtime.Transport != "api" && !hasAPIEventOverride(a.spec) {
 		return nil, errAPITransportNotDeclared
 	}
-	return protocol.StartAPIDriver(ctx, a.spec, socketPath)
+	return protocol.StartAPIDriver(ctx, a.spec, socketPath, origin)
 }
 
 // APIServeArgv carries the SAME MCPInject/ConfigInjection steps
@@ -403,13 +602,20 @@ func (a *agent) StartAPIConn(ctx context.Context, socketPath string) (*APIConn, 
 // all: the caller already knows that means "run this provider over hooks
 // alone" (design spec §2.2b), which is the right answer here too rather than
 // serving with tools silently missing.
+//
+// It also carries the chat's MODEL/EFFORT choice (model.api_apply /
+// effort.api_apply), rendered from the same ctx.Model/ctx.Effort a forked
+// PTY's own apply: steps read. This process is the only carrier a PTY-less
+// spawn has: without it the choice was built into a plan nobody ran and the
+// chat silently reverted to the provider's default for good.
 func (a *agent) APIServeArgv(ctx TemplateCtx) ([]string, bool) {
 	if len(a.spec.Runtime.API.Serve) == 0 {
 		return nil, false
 	}
 	argv := expandArgv(a.spec.Runtime.API.Serve, ctx)
 	plan := &SpawnPlan{Executable: argv[0], Argv: append([]string{}, argv[1:]...)}
-	if err := spawn.Inject(a.spec, ctx, plan, nil); err != nil {
+	sel := Selection{Model: ctx.Model, Effort: ctx.Effort}
+	if err := spawn.Inject(a.spec, ctx, plan, selection.APISteps(a.spec, sel)); err != nil {
 		return nil, false
 	}
 	return append([]string{plan.Executable}, plan.Argv...), true
@@ -446,6 +652,22 @@ func (a *agent) APIAttachArgv(ctx TemplateCtx) ([]string, bool) {
 
 func (a *agent) TransportFor(canonical string) string {
 	return a.spec.TransportFor(canonical)
+}
+
+func (a *agent) EventOwner(canonical string) string {
+	return a.spec.EventOwner(canonical)
+}
+
+func (a *agent) EventSurfaces(canonical string) []string {
+	return a.spec.EventSurfaces(canonical)
+}
+
+func (a *agent) SurfaceChannel(surface string) string {
+	return string(a.spec.SurfaceChannel(surface))
+}
+
+func (a *agent) SurfaceStartHere(surface string) bool {
+	return a.spec.SurfaceStartHere(surface)
 }
 
 func expandArgv(argv []string, ctx TemplateCtx) []string {

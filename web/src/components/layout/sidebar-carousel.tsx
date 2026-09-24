@@ -1,31 +1,23 @@
-import { useLayoutEffect, useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { useMatch } from '@tanstack/react-router'
-import { CaretDown, FolderOpen, GitBranch } from '@phosphor-icons/react'
+import { CaretDown } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import { NavStack } from './nav-stack'
 import { Button } from '@/components/ui/button'
 import { GitPanel } from '@/features/git/components/git-panel'
-import { RemovalTray } from './removal-tray'
 import { SidebarCarouselFilesPanel } from './sidebar-carousel-files-panel'
 import { useCardResizeDrag } from './use-card-resize-drag'
 import { useCarouselScrollSync } from './use-carousel-scroll-sync'
-import { useSidebarStore, type SidebarTab } from '@/lib/store/sidebar'
+import { useSidebarStore } from '@/lib/store/sidebar'
+import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 import { CARD_BOTTOM_INSET_VAR, loadCardHeightFraction } from './sidebar-card-height'
-
-// The head's two glyphs (spec §6.1), in the carousel's own panel order
-// (Files, then Git — see use-carousel-scroll-sync.ts's own TABS).
-const HEAD_TABS: {
-  tab: SidebarTab
-  label: string
-  Icon: React.ComponentType<{ size: number; weight: 'fill' | 'regular' }>
-}[] = [
-  { tab: 'files', label: 'Files', Icon: FolderOpen },
-  { tab: 'git', label: 'Git', Icon: GitBranch },
-]
+import {
+  FALLBACK_SIDEBAR_PANEL_TAB,
+  SIDEBAR_PANEL_TABS,
+  availableSidebarPanelTabsKey,
+} from './sidebar-panel-tabs'
 
 interface SidebarCarouselProps {
-  activeWorkspaceRepoPath: string
   /**
    * Height (px) of the sidebar rail this card floats over (spec §6) —
    * undefined before `ide-shell.tsx`'s own ResizeObserver has measured it
@@ -55,12 +47,7 @@ interface SidebarCarouselProps {
   onHeightChange?: (heightPx: number) => void
 }
 
-export function SidebarCarousel({
-  activeWorkspaceRepoPath,
-  sidebarHeight,
-  railRef,
-  onHeightChange,
-}: SidebarCarouselProps) {
+export function SidebarCarousel({ sidebarHeight, railRef, onHeightChange }: SidebarCarouselProps) {
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -146,16 +133,19 @@ export function SidebarCarousel({
     onCommit: setHeightFraction,
   })
 
-  // Git has no meaning without a repo, and the project-home route has no
-  // active workspace — carried over verbatim from the old SidebarTabBar,
-  // which is retired now that the head lives here (spec §6.1).
-  const isHomeRoute = Boolean(useMatch({ from: '/_shell/ide/$projectId/home', shouldThrow: false }))
+  // Tab availability follows the focused workspace context, never the route:
+  // a split can focus a branch chat while the route still names project home.
+  const availableKey = useFocusedWorkspaceContextStore(availableSidebarPanelTabsKey)
+  const visibleHeadTabs = useMemo(() => {
+    const available = new Set(availableKey.split(','))
+    return SIDEBAR_PANEL_TABS.filter((t) => available.has(t.tab))
+  }, [availableKey])
   useEffect(() => {
-    if (isHomeRoute && activeTab === 'git') {
-      setActiveTab('files')
-    }
-  }, [isHomeRoute, activeTab, setActiveTab])
-  const visibleHeadTabs = isHomeRoute ? HEAD_TABS.filter((t) => t.tab !== 'git') : HEAD_TABS
+    // Re-read live: the context is published in a layout effect, which can land
+    // after this render's snapshot (e.g. on mount).
+    const live = availableSidebarPanelTabsKey(useFocusedWorkspaceContextStore.getState())
+    if (!live.split(',').includes(activeTab)) setActiveTab(FALLBACK_SIDEBAR_PANEL_TAB)
+  }, [availableKey, activeTab, setActiveTab])
 
   // Keeps scrollLeft and activeTab in sync in both directions — see
   // `use-carousel-scroll-sync.ts`'s own doc.
@@ -273,13 +263,11 @@ export function SidebarCarousel({
             />
           </Button>
         </div>
-        {/* The removal tray (addendum §2 step 4): "the held row renders at
-            the top of the file explorer card, not at the sidebar's separate
-            foot position" — moved here from `sidebar-tree-chrome.tsx`'s own
-            sidebar-wide mount. Sits above the Files/Git body, independent of
-            fold state: a draining hold stays visible (and Keep-able) even
-            if the user folds the card while it is waiting out its clock. */}
-        <RemovalTray />
+        {/* `RemovalTray` used to mount here. It must not: this card is
+            unmounted whenever the stage is empty or a space is being created
+            (ide-shell.tsx's gate), and the tray owns the ONLY commit clock —
+            measured live, a held row drained its hairline and no DELETE was
+            ever sent. It mounts in the rail itself now. */}
         {/* The body (spec §6.4): folding "drops everything under [the head]" —
             `hidden` (display:none), never a conditional unmount. Both
             Files and Git panels stay mounted the whole time regardless of
@@ -302,7 +290,7 @@ export function SidebarCarousel({
           )}
         >
           {/* Files panel */}
-          <SidebarCarouselFilesPanel activeWorkspaceRepoPath={activeWorkspaceRepoPath} />
+          <SidebarCarouselFilesPanel />
 
           {/* Git panel */}
           <div

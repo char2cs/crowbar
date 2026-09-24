@@ -4,14 +4,97 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/protocol/internal/descriptor"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
+
+// TestRegression_NoShippedDescriptorContainsTheAlternationGlyph is the repo-
+// level backstop for docs/plans/2026-09-22-descriptor-channel-split.md 5.0: by
+// the end of P5 the `||` glyph must not appear in ANY descriptor, in ANY
+// position. The parser (spec.decodeExpr/WireRef.UnmarshalYAML) already
+// refuses it in an expression, but this scans the raw YAML NODE tree — every
+// scalar, key or value, anywhere in the document — so a reintroduction
+// outside a field this phase's parser rule happens to cover (or in a brand
+// new descriptor nobody wired the same check into) still fails the build.
+//
+// Walking yaml.Node rather than the raw text is what makes "outside a
+// comment" free: a YAML comment is never captured into a Node's Value at all,
+// so there is nothing to strip.
+func TestRegression_NoShippedDescriptorContainsTheAlternationGlyph(t *testing.T) {
+	matches, err := filepath.Glob("descriptors-v3/*.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, matches, "this test must actually scan something")
+
+	for _, path := range matches {
+		t.Run(path, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			var root yaml.Node
+			require.NoError(t, yaml.Unmarshal(data, &root))
+			assertNoAlternationGlyph(t, path, &root)
+		})
+	}
+}
+
+func assertNoAlternationGlyph(t *testing.T, path string, n *yaml.Node) {
+	t.Helper()
+	if n.Kind == yaml.ScalarNode && strings.Contains(n.Value, "||") {
+		t.Errorf("%s:%d: %q — the || glyph must never appear in a shipped descriptor "+
+			"(first_present:/any_of:/a list instead)", path, n.Line, n.Value)
+	}
+	for _, c := range n.Content {
+		assertNoAlternationGlyph(t, path, c)
+	}
+}
+
+// TestSurfaceGatedEvents_AreReportedLoudly is the conformance layer's own
+// visibility for design spec P6b's "visibility, not veto": a descriptor may
+// gate ANY event off ANY surface — there is no Crowbar-side policy veto, the
+// descriptor author decides (P6b, "NO CROWBAR-SIDE VETO") — but the
+// implication must be LOUD and greppable, the same as unverified: true. This
+// test never fails on what it finds; it only reports, the same way `grep
+// surfaces: descriptors-v3/*.yaml` would, but tied to the real parsed table
+// rather than a raw text match.
+func TestSurfaceGatedEvents_AreReportedLoudly(t *testing.T) {
+	matches, err := filepath.Glob("descriptors-v3/*.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, matches, "this test must actually scan something")
+
+	var reported int
+	for _, path := range matches {
+		raw, err := os.ReadFile(path)
+		require.NoError(t, err)
+		d, err := descriptor.ParseV3(raw)
+		require.NoError(t, err)
+
+		names := make([]string, 0, len(d.Events))
+		for name := range d.Events {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		for _, name := range names {
+			surfaces := d.EventSurfaces(name)
+			if len(surfaces) == 0 {
+				continue
+			}
+			reported++
+			t.Logf("SURFACE-GATED: descriptor %q event %q ingests only on surfaces %v — "+
+				"confirm this is not the sole writer of a ledger fact before relying on it",
+				d.ID, name, surfaces)
+		}
+	}
+	t.Logf("%d event(s) declare a narrower surfaces: than the default (every surface)", reported)
+}
 
 const minimal = `
 id: probe
@@ -279,6 +362,40 @@ func TestCodexDescriptor_DeclaresAttachWithoutHotswap(t *testing.T) {
 
 	assert.NotEmpty(t, d.Runtime.API.Attach, "idle-only handoff needs a bare resume argv to fork")
 	assert.False(t, d.Runtime.Hotswap, "codex hands its live turn over, it never shares it")
+}
+
+// TestShippedClaudeDeclaresBothSurfacesStartHere: claude's terminal PTY IS
+// the CLI from the instant it spawns (hotswap: true, both faces live at
+// once), so a brand-new chat may land directly on either surface.
+func TestShippedClaudeDeclaresBothSurfacesStartHere(t *testing.T) {
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude")
+	require.NoError(t, err)
+
+	require.Contains(t, d.Surfaces, "chat")
+	require.Contains(t, d.Surfaces, "terminal")
+	assert.True(t, d.Surfaces["chat"].StartHere)
+	assert.True(t, d.Surfaces["terminal"].StartHere)
+	assert.True(t, d.SurfaceStartHere("terminal"))
+}
+
+// TestCodexDescriptor_BothSurfacesAreStartHere: codex's terminal surface is
+// fed by the HOOKS channel — the ordinary `codex` PTY every spawn already
+// forks, live from the fork and naming no session — so a brand-new chat may
+// land on it directly. The idle-only restriction belongs to `attach`
+// (SwitchToTerminal, runner/attach.go), which is the api channel's way back
+// onto an EXISTING session and is not involved in a birth.
+func TestCodexDescriptor_BothSurfacesAreStartHere(t *testing.T) {
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	require.NoError(t, err)
+
+	require.Contains(t, d.Surfaces, "terminal", "codex declares attach: it HAS a terminal")
+	assert.Equal(t, spec.ChannelHooks, d.Surfaces["terminal"].Channel,
+		"the terminal's facts arrive over the PTY's own hooks, never the api connection")
+	assert.True(t, d.Surfaces["terminal"].StartHere)
+	assert.True(t, d.SurfaceStartHere("terminal"))
+	require.Contains(t, d.Surfaces, "chat")
+	assert.Equal(t, spec.ChannelAPI, d.Surfaces["chat"].Channel)
+	assert.True(t, d.Surfaces["chat"].StartHere)
 }
 
 func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {

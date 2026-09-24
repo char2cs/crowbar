@@ -4,6 +4,7 @@ import {
 } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { showingLayout } from '@/features/panes/lib/view-state'
 
 /**
  * THE workspace a chat belongs to — never "whichever workspace happens to be
@@ -65,9 +66,8 @@ export function isKnownChatId(chatId: string): boolean {
  * single value for the whole window that only updates on a literal click
  * INSIDE a pane's own surface (pane-container.tsx's handlePaneMouseDownCapture)
  * — never on a click in the sidebar, which sits outside the pane tree
- * entirely. Two chats sharing a workspace ("group" = a `viewId`, see
- * pane-views.ts) can both be on screen at once (`splitPane`/
- * `mergePaneIntoView`); if the user's last literal pane click landed in chat
+ * entirely. Two chats sharing a workspace (one view record) can both be on screen at once (`splitPane`/
+ * `dropChatOnPane`); if the user's last literal pane click landed in chat
  * A and they then click a file meant for chat B, `openContent`
  * (buffer-slice.ts) blindly reads the stale `activePaneId` and the file lands
  * in A. The file-tree DROP path (pane-container.tsx's openFileTreeDropInPane)
@@ -80,16 +80,12 @@ export function isKnownChatId(chatId: string): boolean {
  * belongs to `wsId`, or no on-screen pane does — leaving `activePaneId`
  * alone is the safe default either way).
  *
- * Deliberately restricted to `rootLayout`'s leaves — the SHOWING view's
- * panes (see the `rootLayout` doc in pane-slice.ts: "every leaf here belongs
- * to activeViewId"). `setActivePane` reveals a parked view if the target
- * pane lives in one (that's what makes a Recents click "go to that chat");
- * reaching into parkedViews here would make a plain file click switch the
- * user's whole screen, which nothing about opening a file should ever do.
+ * Restricted to the SHOWING view's panes: reaching into another view would
+ * make a plain file click switch the user's whole screen.
  */
 export function resolveOnscreenPaneForWorkspace(wsId: string): string | null {
   const state = windowPaneStore.getState()
-  const onscreenIds = getAllLeafIds(state.rootLayout)
+  const onscreenIds = getAllLeafIds(showingLayout(state))
   const onscreenIdSet = new Set(onscreenIds)
   const belongsToWorkspace = (paneId: string): boolean => {
     const chatId = state.panes[paneId]?.chatId

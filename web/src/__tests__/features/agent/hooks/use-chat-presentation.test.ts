@@ -14,6 +14,8 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   SPLIT_SIDE_BY_SIDE_MIN_PX,
+  presetChatLandingPresentation,
+  resetChatPresentationMemoryForTests,
   useChatPresentation,
   usePaneViewPresentation,
 } from '@/features/agent/hooks/use-chat-presentation'
@@ -82,6 +84,61 @@ describe('useChatPresentation — a chat remembers its own surface', () => {
     const containerA2 = { current: null }
     const { result: second } = renderHook(() => useChatPresentation('chat-a', containerA2))
     expect(second.current.presentation).toBe('terminal')
+  })
+})
+
+/**
+ * THE BUG: "can't start chats directly on a CLI, it always obligates me to
+ * use the native chat". `chatIsDefaultPresentation` (chat-presentation.ts)
+ * genuinely seeds a brand-new chat's landing surface from the user's global
+ * preference — that plumbing was never broken. What never existed is a way
+ * to land ONE new chat on Terminal without also flipping that preference for
+ * every other chat: no creation entry point (space-content-actions.ts's
+ * `handleCreate`, use-pane-keyboard.ts's ⌘N) offers a choice at all, they
+ * only ever accept whatever the global default happens to be.
+ *
+ * `presetChatLandingPresentation` is the fix's one new capability: a creation
+ * call site records a chat's landing surface into the SAME map an in-pane
+ * pick already writes, before that chat's pane ever mounts.
+ */
+describe('presetChatLandingPresentation — choosing a new chat’s surface at creation', () => {
+  beforeEach(() => {
+    resetChatPresentationMemoryForTests()
+    useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
+  })
+
+  afterEach(() => {
+    resetChatPresentationMemoryForTests()
+    useSettingsStore.setState({ settings: getDefaultSettingsSnapshot() })
+  })
+
+  it('lands a specific brand-new chat on Terminal, with the global default untouched', () => {
+    expect(getDefaultSettingsSnapshot().chatIsDefaultPresentation).toBe(true)
+
+    presetChatLandingPresentation('new-chat-1', 'terminal')
+
+    const container = { current: null }
+    const { result } = renderHook(() => useChatPresentation('new-chat-1', container))
+    expect(result.current.presentation).toBe('terminal')
+
+    // The preset named exactly one chat — everyone else still lands on
+    // whatever the (untouched) global default says.
+    expect(useSettingsStore.getState().settings.chatIsDefaultPresentation).toBe(true)
+    const otherContainer = { current: null }
+    const { result: other } = renderHook(() =>
+      useChatPresentation('some-other-chat', otherContainer),
+    )
+    expect(other.current.presentation).toBe('chat')
+  })
+
+  it('is a one-time seed: an explicit pick made afterward still wins', () => {
+    presetChatLandingPresentation('new-chat-2', 'terminal')
+    const container = { current: null }
+    const { result } = renderHook(() => useChatPresentation('new-chat-2', container))
+    expect(result.current.presentation).toBe('terminal')
+
+    act(() => result.current.setPresentation('chat'))
+    expect(result.current.presentation).toBe('chat')
   })
 })
 

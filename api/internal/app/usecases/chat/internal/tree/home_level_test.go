@@ -60,7 +60,7 @@ func TestRegression_CreateChat_AtRootMintsANodeAtTheNextSlot(t *testing.T) {
 	}
 	chats.NextID = "c-new"
 
-	chatID, _, err := uc.CreateChat(context.Background(), homeWorkspaceID, "claude", "", tree.WorktreeSpec{})
+	chatID, _, err := uc.CreateChat(context.Background(), homeWorkspaceID, "claude", "", tree.WorktreeSpec{}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	n := nodeRowFor(t, nodes, "c-new")

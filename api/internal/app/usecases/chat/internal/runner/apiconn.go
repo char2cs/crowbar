@@ -14,15 +14,11 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"hash/fnv"
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
@@ -54,7 +50,7 @@ type apiconn struct {
 	// created it may have carried its own opening prompt over the companion PTY's
 	// own argv instead (submitPromptOverAPI's replacement-spawn fallback embeds
 	// text into the respawned CLI's command line, never into a Dispatch call —
-	// see prompts.go). apiOwnsThisEvent (turn/ingest.go) reads this to tell those
+	// see prompts.go). ownerDropsThisDelivery (turn/ingest.go) reads this to tell those
 	// two cases apart: a connection that exists but has dispatched nothing has
 	// nothing of its own to echo, so the companion PTY's hooks for that turn are
 	// the ONLY record of it, not a redundant copy of something this connection
@@ -63,6 +59,16 @@ type apiconn struct {
 	// never been asked to carry it, silently erasing the turn from the ledger
 	// even though the CLI itself answered normally.
 	dispatchedOverAPI atomic.Bool
+	// originated is every conversation this connection's own driver opened in
+	// place of one Crowbar named — see sessionorigin.go.
+	originated *originatedSessions
+	// handedOver marks a connection whose process is being killed so ANOTHER
+	// process can take the runner over — SwitchToTerminal's native view, which
+	// must tear this down first (codex allows one writer per thread). Read by
+	// watchExit (apirunner.go), which otherwise reads the same death as the
+	// runner's own. Held on the connection rather than in the registry because
+	// the watcher owns a direct pointer and the registry entry is gone by then.
+	handedOver atomic.Bool
 }
 
 // apiConnRegistry is the per-runner registry pumpAPIConn's ingest loop and
@@ -150,17 +156,6 @@ func (r *apiConnRegistry) closeAll() {
 	}
 }
 
-// apiSocketPath derives a short path under the OS temp dir, keyed by a hash of
-// runnerID — mirroring internal/core/gateway/transports.overrideSocketPath's own
-// convention. It must be short and NEVER under a Crowbar worktree: macOS's
-// sun_path is a hard 104 bytes, and a worktree-rooted tmpDir routinely exceeds
-// it (see [[project_dev_home_isolation]]).
-func apiSocketPath(runnerID string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(runnerID))
-	return filepath.Join(os.TempDir(), fmt.Sprintf("crowbar-api-%x.sock", h.Sum64()))
-}
-
 // startAPIConn starts nothing and returns ok=false for a hooks-transport
 // descriptor. For an api-transport one, it forks `serve`, waits for the socket
 // to exist, and hands the connection to protocol.StartAPIDriver (via
@@ -212,14 +207,20 @@ func (rs *Runners) startAPIConn(
 		_ = cmd.Process.Kill()
 		return nil, false
 	}
-	driver, err := agent.StartAPIConn(ctx, tctx.Socket)
+	// Built BEFORE the driver, and handed to it: a driver that recovers a lost
+	// session opens a conversation nobody asked for, and the claim has to be
+	// open before the first call of that recovery reaches the wire.
+	originated := newOriginatedSessions()
+	driver, err := agent.StartAPIConn(ctx, tctx.Socket, originated.Claim)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: handshake", "err", err, "runner_id", runnerID)
 		_ = cmd.Process.Kill()
 		return nil, false
 	}
 	connCtx, cancel := context.WithCancel(context.Background())
-	conn := &apiconn{serveCmd: cmd, driver: driver, ctx: connCtx, cancel: cancel}
+	conn := &apiconn{
+		serveCmd: cmd, driver: driver, ctx: connCtx, cancel: cancel, originated: originated,
+	}
 	rs.apiConns.set(runnerID, conn)
 	return conn, true
 }
@@ -344,46 +345,6 @@ func pointPlanAtAttach(plan *engineagents.SpawnPlan, attachArgv []string) {
 	plan.Argv = attachArgv[1:]
 }
 
-// forkServeProcess starts argv as a long-lived BACKGROUND process — not a PTY:
-// codex's app-server is a headless control-plane process, and the PTY the rest
-// of spawnRunner manages is reserved for `attach`, if the descriptor declares
-// one.
-func forkServeProcess(argv []string) (*exec.Cmd, error) {
-	if len(argv) == 0 {
-		return nil, fmt.Errorf("agent: api transport: empty serve argv")
-	}
-	cmd := exec.Command(binpath.Resolve(argv[0]), argv[1:]...) //nolint:gosec // argv is descriptor-declared and template-expanded, not user input
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("agent: api transport: start %s: %w", argv[0], err)
-	}
-	return cmd, nil
-}
-
-// waitForSocket polls for sockPath to exist, bounded by ctx. codex's app-server
-// creates the socket file synchronously on bind, so a short poll is enough —
-// there is no readiness protocol beyond the file's existence.
-func waitForSocket(ctx context.Context, sockPath string) error {
-	deadline := time.NewTimer(10 * time.Second)
-	defer deadline.Stop()
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		if _, err := os.Stat(sockPath); err == nil {
-			return nil
-		}
-		select {
-		case <-ticker.C:
-			continue
-		case <-deadline.C:
-			return fmt.Errorf("agent: api transport: socket %s never appeared", sockPath)
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
 // pumpAPIConn forwards every canonical event this connection's driver resolves
 // into the SAME ingest entrypoint hooks use — ownership, activity, and the
 // answer desk need no transport-specific branch because of this. Runs until the
@@ -404,9 +365,9 @@ func (rs *Runners) pumpAPIConn(
 		// Events() closing means the connection is GONE — the `serve` process
 		// died, the socket dropped. This used to just return, which left the
 		// registry entry standing: HasLiveAPIConnection answered true forever,
-		// so apiOwnsThisEvent went on dropping the companion PTY's hooks copy of
-		// every api-owned event as a redundant duplicate of a transport that no
-		// longer existed. The chat went silent for good, spinner stuck on, and
+		// so ownerDropsThisDelivery went on dropping the companion PTY's hooks
+		// copy of every owner: api event as a redundant duplicate of a transport
+		// that no longer existed. The chat went silent for good, spinner stuck on, and
 		// nothing else could reach it — the companion PTY is still alive, so no
 		// runner-exit reconcile fires, and neither termwait sweep applies to a
 		// clean screen that streamed nothing.

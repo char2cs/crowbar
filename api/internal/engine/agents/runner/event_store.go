@@ -127,9 +127,11 @@ type EventStore interface {
 		ctx context.Context,
 		runnerID string,
 	) (agents.Runner, error)
-	// Exit tombstones a runner whose PTY has died. It is emitted ONLY because the
-	// PTY died (the terminal engine's exit callback, or boot reconciliation asking
-	// the PTY) — never from an independent opinion about liveness. The projection
+	// Exit tombstones a runner whose PROCESS has died. It is emitted ONLY because
+	// that happened — the terminal engine's exit callback, boot reconciliation
+	// asking the PTY, or (for a runner that has no PTY) its api connection's own
+	// process dying with nothing replacing it — never from an independent opinion
+	// about liveness. The projection
 	// DROPS the live row, and that deletion is how the chat goes dormant.
 	Exit(
 		ctx context.Context,

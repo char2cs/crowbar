@@ -1,12 +1,12 @@
 import { useCallback, useState } from 'react'
 import { findFileInTree } from '@/features/file-system/controllers/file-tree-utils'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { toast } from '@/features/window/stores/toast-store'
 import type { FileEntry } from '@/features/file-system/types/app'
 import { getDirName, joinPath, stripTrailingPathSeparators } from '@/utils/path-helpers'
 
 interface UseFileExplorerInlineEditingProps {
+  workspaceId: string | null
   files: FileEntry[]
   rootFolderPath?: string
   onUpdateFiles?: (files: FileEntry[]) => void
@@ -49,6 +49,7 @@ function removeNewItems(items: FileEntry[]): FileEntry[] {
 }
 
 export function useFileExplorerInlineEditing({
+  workspaceId,
   files,
   rootFolderPath,
   onUpdateFiles,
@@ -106,7 +107,7 @@ export function useFileExplorerInlineEditing({
       // the entire tree a second time (the "folder name + whole tree" popup bug).
       if (parentPath) {
         try {
-          const wsId = getWorkspaceScope()?.wsId ?? ''
+          const wsId = workspaceId ?? ''
           const current = useFileTreeStore.getState().getExpandedPaths(wsId)
           const next = new Set(current)
           next.add(parentPath)
@@ -118,7 +119,7 @@ export function useFileExplorerInlineEditing({
 
       setEditingValue('')
     },
-    [files, onUpdateFiles, rootFolderPath],
+    [files, onUpdateFiles, rootFolderPath, workspaceId],
   )
 
   const finishInlineEditing = useCallback(

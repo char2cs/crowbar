@@ -82,6 +82,14 @@ func (u *projectUsecase) homeLevel(
 // withNodelessRows appends the root rows that predate Node rows — a repo,
 // or a home chat created before the root minted one — at the root the
 // sidebar draws them at; their first move mints the row.
+//
+// Absent from ListByParent("") is NOT "has no Node row": a repo filed into a
+// home folder has one, parented there. Both kinds therefore confirm the miss
+// with GetNode before claiming the row is fresh — a repo that answers is
+// filed elsewhere and is no member of this container at all. Skipping that
+// check for repos refused every later root-level repo drag with "reorder
+// repos: mint <id>: node: create: create node: exists" the moment one repo
+// of the project lived in a folder.
 func (u *projectUsecase) withNodelessRows(
 	ctx context.Context,
 	rows []homeRow,
@@ -93,6 +101,9 @@ func (u *projectUsecase) withNodelessRows(
 	for id := range repoIDs {
 		if seen[id] || id == exclude {
 			continue
+		}
+		if _, gErr := u.nodes.GetNode(ctx, id); gErr == nil {
+			continue // Node-backed, filed elsewhere
 		}
 		rows = append(rows, homeRow{Node: domain.Node{ID: id, Kind: domain.NodeKindRepo}, fresh: true})
 	}

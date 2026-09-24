@@ -30,6 +30,22 @@ export interface AgentSelectionPickerProps {
    *  a switch itself, so a row click can never tear down the live CLI on its
    *  own. */
   onSelectionChange: (provider: string, model: string, effort: string) => void
+  /** The word shown in place of an unset `model`/`effort` — the trigger's
+   *  aria-label and visible chip text ONLY. `model`/`effort` themselves stay
+   *  RAW everywhere else (effortLevelsFor's `efforts['']` lookup, the
+   *  `picked` checkmark, and every onSelectionChange call) — this label must
+   *  never reach any of those, since `pickEffort` echoes `model` straight
+   *  back out and a label echoed as a value is exactly the bug this splits
+   *  apart. Defaults to 'unset'; the production caller (SelectionCluster)
+   *  passes 'Default'. */
+  unsetLabel?: string
+  /** What the provider's last turn actually answered with — display only,
+   *  shown alongside `unsetLabel` while `model` is '' so a completed turn no
+   *  longer leaves "Default" unexplained. Never substituted for `model`
+   *  itself: that would feed `efforts['']`'s lookup a concrete id instead of
+   *  '', silently killing the slider — same trap `unsetLabel` above split
+   *  apart from `model`. */
+  reportedModel?: string
 }
 
 interface ModelRow {
@@ -310,7 +326,14 @@ export function AgentSelectionPicker({
   effort,
   disabled,
   onSelectionChange,
+  unsetLabel = 'unset',
+  reportedModel,
 }: AgentSelectionPickerProps) {
+  // Display only — never passed to onSelectionChange or effortLevelsFor.
+  const modelLabel = model || unsetLabel
+  const effortLabelText = effort || unsetLabel
+  // Only annotates the UNSET case — a real pick already says what it is.
+  const showsReport = !model && Boolean(reportedModel)
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
@@ -424,17 +447,19 @@ export function AgentSelectionPicker({
         disabled={disabled}
         data-testid="agent-selection-picker"
         title={`${provider?.displayName ?? 'Agent'} — provider, model and effort.`}
-        aria-label={`Agent: ${provider?.displayName ?? 'none'}, model ${model || 'unset'}, effort ${effort || 'unset'}`}
+        aria-label={`Agent: ${provider?.displayName ?? 'none'}, model ${modelLabel}${showsReport ? ` (reported ${reportedModel})` : ''}, effort ${effortLabelText}`}
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
         className={cn('chip max-w-56', (provider || model) && 'set')}
       >
         {provider && <ProviderIcon svg={provider.icon} className="size-3" />}
-        {model && <b className="font-semibold text-foreground">{model}</b>}
-        {model && effort && <span className="opacity-50">&middot;</span>}
-        {effort && <span className="truncate">{effortLabel(effort)}</span>}
-        {!model && <span className="truncate">{provider?.displayName ?? 'Agent'}</span>}
+        <b className="font-semibold text-foreground">{modelLabel}</b>
+        {showsReport && (
+          <span className="truncate text-[11px] text-muted-foreground">({reportedModel})</span>
+        )}
+        <span className="opacity-50">&middot;</span>
+        <span className="truncate">{effortLabel(effortLabelText)}</span>
         <UpDownIcon size={12} className="opacity-55" />
       </button>
       <Dropdown

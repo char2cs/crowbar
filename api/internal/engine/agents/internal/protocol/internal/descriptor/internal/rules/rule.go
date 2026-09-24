@@ -29,11 +29,17 @@ func All() []Rule {
 		telemetry{},
 		selectionStrategy{},
 		selectionApply{},
+		selectionAPICarrier{},
 		modelCatalog{},
+		modelDiscover{},
+		modelManifest{},
 		effortCatalog{},
 		terminalPrompts{},
 		terminalNotices{},
 		injectedPrompts{},
+		surfaces{},
+		eventOwner{},
+		eventSurfaces{},
 	}
 }
 

@@ -11,12 +11,13 @@ import (
 
 func TestDecide_BranchesOnlyOnChangedAndKnown(t *testing.T) {
 	testCases := []struct {
-		name      string
-		current   string
-		announced string
-		knownID   string
-		known     bool
-		want      models.Decision
+		name       string
+		current    string
+		announced  string
+		knownID    string
+		known      bool
+		originated bool
+		want       models.Decision
 	}{
 		{
 			name:    "same conversation is a no-op",
@@ -44,6 +45,13 @@ func TestDecide_BranchesOnlyOnChangedAndKnown(t *testing.T) {
 			want: models.Decision{Kind: models.MoveToKnown, ChatID: "chat-2"},
 		},
 		{
+			// A conversation Crowbar's own driver opened. Identical on the wire to
+			// the /clear two cases up; only this flag tells them apart.
+			name:    "a conversation Crowbar originated binds where it is",
+			current: "s1", announced: "s2", originated: true,
+			want: models.Decision{Kind: models.MoveBind},
+		},
+		{
 			name:    "both empty is a no-op, not a bind",
 			current: "", announced: "",
 			want: models.Decision{Kind: models.MoveNoop},
@@ -51,7 +59,7 @@ func TestDecide_BranchesOnlyOnChangedAndKnown(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := move.Decide(tc.current, tc.announced, tc.knownID, tc.known)
+			got := move.Decide(tc.current, tc.announced, tc.knownID, tc.known, tc.originated)
 			assert.Equal(t, tc.want, got)
 		})
 	}
@@ -59,11 +67,12 @@ func TestDecide_BranchesOnlyOnChangedAndKnown(t *testing.T) {
 
 func TestDecide_HasNoRejectOutcome(t *testing.T) {
 	for _, d := range []models.Decision{
-		move.Decide("", "", "", false),
-		move.Decide("a", "a", "", false),
-		move.Decide("", "a", "", false),
-		move.Decide("a", "b", "", false),
-		move.Decide("a", "b", "c", true),
+		move.Decide("", "", "", false, false),
+		move.Decide("a", "a", "", false, false),
+		move.Decide("", "a", "", false, false),
+		move.Decide("a", "b", "", false, false),
+		move.Decide("a", "b", "c", true, false),
+		move.Decide("a", "b", "", false, true),
 	} {
 		assert.Contains(t,
 			[]models.MoveKind{models.MoveNoop, models.MoveBind, models.MoveToNew, models.MoveToKnown},

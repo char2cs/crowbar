@@ -5,7 +5,6 @@ import {
   RETENTION_CAP,
 } from '@/features/workspace/lib/keep-alive-policy'
 import type { PaneGroup } from '@/features/panes/types/pane'
-import type { RecentsEntry } from '@/features/panes/types/recents-entry'
 
 describe('planRetention', () => {
   it('retains a lone active workspace with no view chat', () => {
@@ -119,7 +118,11 @@ describe('planRetention', () => {
 })
 
 describe('workspacesWithViewChat', () => {
-  function pane(id: string, chatId: string | null, viewId?: string): PaneGroup {
+  function pane(
+    id: string,
+    chatId: string | null,
+    viewId: string | null = `view-${id}`,
+  ): PaneGroup {
     return {
       id,
       type: 'group',
@@ -128,50 +131,34 @@ describe('workspacesWithViewChat', () => {
       editorTabIds: [],
       editorOpen: false,
       activeEditorTabId: null,
-      viewId: viewId ?? id,
+      viewId,
     }
   }
 
-  it('includes the owner of a chat currently held by a live pane', () => {
-    const owners = workspacesWithViewChat(
-      [pane('p1', 'chat-1')],
-      {},
-      [],
-      new Map([['chat-1', 'ws-a']]),
-    )
+  it('includes the owner of a chat held by a record, showing or not', () => {
+    const owners = workspacesWithViewChat([pane('p1', 'chat-1')], new Map([['chat-1', 'ws-a']]))
     expect(owners).toEqual(new Set(['ws-a']))
   })
 
-  it('includes the owner of a chat in a dormant/parked arrangement, with no live pane', () => {
-    const dormant: RecentsEntry[] = [{ id: 'd1', chatIds: ['chat-2'], state: 'dormant' }]
-    const owners = workspacesWithViewChat([], {}, dormant, new Map([['chat-2', 'ws-b']]))
-    expect(owners).toEqual(new Set(['ws-b']))
+  it('excludes a workspace once no record holds its chats', () => {
+    expect(workspacesWithViewChat([], new Map([['chat-4', 'ws-d']]))).toEqual(new Set())
   })
 
-  it('includes the owner of a chat that is merely "working" with no pane or dormant record', () => {
-    const owners = workspacesWithViewChat([], { 'chat-3': true }, [], new Map([['chat-3', 'ws-c']]))
-    expect(owners).toEqual(new Set(['ws-c']))
-  })
-
-  it('excludes a workspace once its last chat is gone from every entry', () => {
-    // No pane, no dormant record, not working: `chat-4` is in no Recents
-    // entry at all, so its owner is not "in a view" any more.
-    const owners = workspacesWithViewChat([], {}, [], new Map([['chat-4', 'ws-d']]))
-    expect(owners).toEqual(new Set())
-  })
-
-  it('ignores a chat with no known owner (not a currently-registered workspace)', () => {
-    const dormant: RecentsEntry[] = [{ id: 'd1', chatIds: ['orphan-chat'], state: 'dormant' }]
-    const owners = workspacesWithViewChat([], {}, dormant, new Map())
-    expect(owners).toEqual(new Set())
-  })
-
-  it('unions owners across multiple entries and multiple chats per entry', () => {
-    const dormant: RecentsEntry[] = [{ id: 'set1', chatIds: ['chat-5', 'chat-6'], state: 'set' }]
+  it('ignores chatless panes and panes outside any record', () => {
     const owners = workspacesWithViewChat(
-      [pane('p1', 'chat-7')],
-      {},
-      dormant,
+      [pane('stage', null, null), pane('p2', null)],
+      new Map([['chat-1', 'ws-a']]),
+    )
+    expect(owners).toEqual(new Set())
+  })
+
+  it('ignores a chat with no known owner (not a registered workspace)', () => {
+    expect(workspacesWithViewChat([pane('p1', 'orphan')], new Map())).toEqual(new Set())
+  })
+
+  it('unions owners across records and members of a group', () => {
+    const owners = workspacesWithViewChat(
+      [pane('p1', 'chat-5', 'g'), pane('p2', 'chat-6', 'g'), pane('p3', 'chat-7')],
       new Map([
         ['chat-5', 'ws-x'],
         ['chat-6', 'ws-y'],

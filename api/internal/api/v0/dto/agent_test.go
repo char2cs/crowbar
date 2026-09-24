@@ -111,6 +111,28 @@ func TestAgentChatDTOFrom_DormantFallsBackToLastConversation(t *testing.T) {
 	assert.Equal(t, "vendor-b", got.ActiveProviderID)
 }
 
+// TestAgentChatDTOFrom_ProviderThatNeverBoundAConversationFallsBackToSwitchInterruption
+// is the showstopper this DTO existed to fix: a provider that binds via its own
+// connection identity (rather than firing a session-bind) never writes a
+// Conversations row, so a dormant chat last live on one had only an OLDER
+// provider's conversation to fall back to — reporting the WRONG vendor. The
+// durable switch interruption is the only trace such a provider leaves, and it
+// must win here because it postdates the last conversation.
+func TestAgentChatDTOFrom_ProviderThatNeverBoundAConversationFallsBackToSwitchInterruption(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1"}, dto.ChatRuntime{
+		Conversations: []agents.ChatConversation{
+			{ChatID: "c1", ProviderID: "vendor-a", FirstSeenAt: time.Unix(1, 0).UTC(), LastActiveAt: time.Unix(1, 0).UTC()},
+		},
+		Interruptions: []domain.ActivityInterruption{
+			{ChatID: "c1", Kind: agents.InterruptProviderSwitched, Detail: "vendor-b", At: time.Unix(2, 0).UTC()},
+		},
+	}, nil)
+
+	assert.Empty(t, got.LiveRunnerID)
+	assert.Equal(t, "vendor-b", got.ActiveProviderID,
+		"the switch interruption is newer than the last conversation and must win")
+}
+
 // TestAgentChatDTOFrom_NeverRanIsAllEmpty proves a chat no runner has ever been placed
 // on derives to empty strings everywhere rather than erroring or inventing a provider.
 func TestAgentChatDTOFrom_NeverRanIsAllEmpty(t *testing.T) {
@@ -313,4 +335,36 @@ func TestAgentChatDTOFrom_UnidentifiedTerminalWaitMarshalsAsEmptyObject(t *testi
 	raw, err := json.Marshal(got)
 	require.NoError(t, err)
 	assert.Contains(t, string(raw), `"terminalWait":{}`)
+}
+
+// TestRegression_AgentChatDTOFrom_BornOnAProviderThatRecordedNothingIsStillNamed
+// is the live-reproduced conversion this fallback exists to make impossible: a
+// chat BORN on codex, whose CLI was then killed. codex binds by its own
+// connection identity, so it writes no conversation row, and a chat born on it
+// was never switched, so it carries no provider_switched marker either — both
+// projection sources are empty and activeProviderId answered "". The frontend
+// read that absence as "never ran" and started the first enabled provider
+// (claude) on it instead. The chat's own durable choice is the third source,
+// and it is the only one that can answer here.
+func TestRegression_AgentChatDTOFrom_BornOnAProviderThatRecordedNothingIsStillNamed(t *testing.T) {
+	got := dto.AgentChatDTOFrom(
+		domain.Chat{ID: "c1", ProviderID: "codex"}, dto.ChatRuntime{}, nil)
+
+	assert.Empty(t, got.LiveRunnerID, "the chat must be dormant for this to prove anything")
+	assert.Equal(t, "codex", got.ActiveProviderID,
+		"a dormant chat that recorded nothing still knows what it runs; \"\" is what let the UI guess")
+}
+
+// TestAgentChatDTOFrom_RunnerProjectionsOutrankTheStoredChoice pins the
+// precedence the fallback is deliberately LAST in: the conversation/interruption
+// scan carries two live-reported orderings of its own and stays the answer
+// whenever it has one. The stored choice only answers what that scan is blind to.
+func TestAgentChatDTOFrom_RunnerProjectionsOutrankTheStoredChoice(t *testing.T) {
+	got := dto.AgentChatDTOFrom(domain.Chat{ID: "c1", ProviderID: "vendor-a"}, dto.ChatRuntime{
+		Conversations: []agents.ChatConversation{
+			{ChatID: "c1", ProviderID: "vendor-b", LastActiveAt: time.Unix(2, 0).UTC()},
+		},
+	}, nil)
+
+	assert.Equal(t, "vendor-b", got.ActiveProviderID)
 }

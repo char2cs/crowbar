@@ -18,9 +18,10 @@ func (u *chatFolderUsecase) CreateChat(
 	providerID string,
 	parentID string,
 	worktree WorktreeSpec,
+	surface string,
 ) (string, string, error) {
 	if worktree.Mode == WorktreeFork {
-		return u.createOwnWorktreeChat(ctx, providerID, parentID, worktree.Branch)
+		return u.createOwnWorktreeChat(ctx, providerID, parentID, worktree.Branch, surface)
 	}
 	if worktree.Mode == WorktreeImport {
 		chatID, _, runnerID, err := u.createImportedWorktreeChat(ctx, providerID, parentID, worktree.Import)
@@ -34,7 +35,7 @@ func (u *chatFolderUsecase) CreateChat(
 			return "", "", err
 		}
 	}
-	chatID, err := u.agent.MintChat(ctx, workspaceID)
+	chatID, err := u.agent.MintChat(ctx, workspaceID, surface)
 	if err != nil {
 		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
 	}
@@ -74,13 +75,14 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 	providerID string,
 	parentID string,
 	branch string,
+	surface string,
 ) (string, string, error) {
 	if parentID != "" {
 		if err := u.checkNewChatParent(ctx, "", parentID, true); err != nil {
 			return "", "", err
 		}
 	}
-	chatID, err := u.agent.MintChat(ctx, "")
+	chatID, err := u.agent.MintChat(ctx, "", surface)
 	if err != nil {
 		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
 	}

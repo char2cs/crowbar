@@ -21,7 +21,6 @@ import { buildInnerViewStyle, buildPaneContentStyle } from '../utils/pane-border
 import { useSidebarOptional } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import { ROOT_PANE_POSITION, type PanePosition } from '../types/pane'
-import { viewIdOf } from '../lib/pane-views'
 import TabBar from '@/features/tabs/components/tab-bar'
 import { ChatOnlyPaneHeader } from '@/features/tabs/components/chat-only-pane-header'
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
@@ -400,35 +399,58 @@ export function PaneContainer({
     }
   }, [isActivePane, pane.id, setActivePane])
 
-  const handlePaneMouseDownCapture = useCallback(
-    (e: React.MouseEvent) => {
+  // A REAL native listener, not a React `onMouseDownCapture` prop — deliberately.
+  // EditorPane/Monaco (editor-host-registry.tsx) is portaled in from
+  // EditorHostRegistry, a React SIBLING of the whole pane tree, not a
+  // descendant of PaneContainer. Its DOM node still lands inside this pane's
+  // own subtree (the portal TARGET div this component publishes below), but
+  // React's synthetic dispatch collects ancestor handlers by walking the
+  // FIBER tree, not the DOM tree — a portal's bubble/capture path runs
+  // through its React parent (EditorHostSlot), never through PaneContainer.
+  // A React `onMouseDownCapture` prop here (what this used to be) therefore
+  // NEVER fired for a click landing on the real Monaco widget, no matter how
+  // many explicit `setActivePane` calls got added to individual handlers
+  // elsewhere — none of them sit on the click's actual path. Attaching
+  // straight to the DOM node in capture phase only cares about real DOM
+  // containment, so it catches the portaled content too, same as it catches
+  // everything else already flowing through here.
+  useEffect(() => {
+    const node = containerRef.current
+    if (!node) return
+    const onMouseDownCapture = (e: MouseEvent) => {
       const target = e.target as HTMLElement
       // Monaco's own real text-input surface ('inputarea' —
       // textAreaEditContext.js) and xterm's own real helper textarea must
       // still activate the pane even though they're literal <textarea>
       // elements: they're the actual typing surface, not a decorative
       // control.
-      const isEditorTextarea = target.classList.contains('inputarea')
-      const isTerminalTextarea = target.classList.contains('xterm-helper-textarea')
+      const isEditorTextarea = target.classList?.contains('inputarea')
+      const isTerminalTextarea = target.classList?.contains('xterm-helper-textarea')
       // Checked against the mousedown's own TARGET only, never `.closest()`
       // — chat message content, Monaco's toolbar/find-bar and Plate's
       // toolbar all nest real buttons throughout their content, and a
       // `.closest()` walk swallowed activation for a mousedown anywhere
       // inside one of those ancestors, not just a direct hit on the control
       // itself.
-      const isDirectInteractiveHit = target.matches(
+      const isDirectInteractiveHit = target.matches?.(
         "button, input, textarea, [role='button'], [role='menu']",
       )
       if (!isEditorTextarea && !isTerminalTextarea && isDirectInteractiveHit) {
         return
       }
 
-      if (!isActivePane) {
-        setActivePane(pane.id)
+      // Read fresh rather than closing over `isActivePane`/`showing`: a
+      // parked view's pane never receives a real user gesture (it is off
+      // screen), so `activePaneId` alone is the whole answer, and reading it
+      // live means this listener never needs to be torn down and re-added
+      // just because focus moved.
+      if (windowPaneStore.getState().activePaneId !== pane.id) {
+        windowPaneStore.getState().paneActions.setActivePane(pane.id)
       }
-    },
-    [isActivePane, pane.id, setActivePane],
-  )
+    }
+    node.addEventListener('mousedown', onMouseDownCapture, true)
+    return () => node.removeEventListener('mousedown', onMouseDownCapture, true)
+  }, [pane.id])
 
   const handleTabClick = useCallback(
     (tabId: string) => {
@@ -929,20 +951,6 @@ export function PaneContainer({
         )}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           <Suspense fallback={null}>
-            {/* `paneId` was `bufferId` and a known, disclosed gap until the
-              final fix wave: AgentChatPane wrote runner-follow repoints
-              and title renames through `bufferActions
-              .repointAgentChatBuffer`/`.renameBuffer`, both of which look
-              an id up in `state.buffers` — and a chat has not been a
-              buffer since Task 1 removed 'agentChat' from PaneContent, so
-              every one of those writes safely no-op'd and runner-follow
-              silently never happened (`/clear` left the chat header on the
-              old name, and `closePane`'s dormantArrangements push
-              remembered the wrong chat). AgentChatPane now writes
-              `paneActions.setPaneChat(paneId, ...)` — the real write path
-              for what chat a pane holds — and the relabel is gone
-              entirely, since ChatBranchHeader reads the live title by
-              chat id. */}
             <AgentChatPane
               chatId={pane.chatId}
               runnerId={pane.runnerId ?? ''}
@@ -1068,7 +1076,7 @@ export function PaneContainer({
       // the outside — the layout tree looks identical either way — which is
       // exactly what made "clicking a row appends to my current view" so hard
       // to see, and to check.
-      data-view-id={viewIdOf(pane)}
+      data-view-id={pane.viewId ?? undefined}
       // The sidebar's own drag arm (`useSidebarDrag`) hit-tests THIS attribute
       // to find which pane a row/chat was dropped onto and at which zone
       // (center/edge) — spec §8.1. Every drop here ADDS; see
@@ -1098,7 +1106,12 @@ export function PaneContainer({
         // signal.
         !internalHoverZone && 'data-[pane-hit]:ring-2 data-[pane-hit]:ring-secondary',
       )}
-      onMouseDownCapture={handlePaneMouseDownCapture}
+      // Pane activation on mousedown is wired up as a real native listener
+      // in the effect above, not a React prop here — see its own doc for
+      // why (the portal boundary a React `onMouseDownCapture` prop can't
+      // cross). `onClick` stays a React prop: it only needs to catch a
+      // keyboard-triggered click (Enter/Space on a focused control inside
+      // this pane), which carries no preceding mousedown at all.
       onClick={handlePaneClick}
       onMouseUp={handleMouseUp}
       onDragOver={handleDragOver}
@@ -1194,11 +1207,9 @@ export function PaneContainer({
             out from under it — React saw a different element at its old
             position and unmounted/remounted it, and everything inside,
             INCLUDING LIVE TERMINAL PTYs, along with it. `pane.chatId` is not
-            a hypothetical either — `⌘N` (use-pane-keyboard.ts),
-            `openAgentChat`, and a chat drop onto a pane
-            (drop-actions.ts's `performSidebarPaneDrop`, Task 22) all call
-            `setPaneChat` on a pane that may already be showing something
-            else, so this was reachable today, and directly against spec
+            a hypothetical either — a chat drop onto a chatless pane
+            (`dropChatOnPane`) fills a pane that may already be showing
+            editor tabs, so this is reachable, and directly against spec
             §7.2 ("Both surfaces stay mounted") and the terminal keep-alive
             comment below. (The chat-removal.ts caller that used to clear
             `pane.chatId` back to null went with that file — Task 22 — but

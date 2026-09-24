@@ -59,16 +59,19 @@ func TestSetChatPermissionLevel_RejectsALevelTheProviderDoesNotDeclare(t *testin
 
 // TestRegression_SpawnChatSeedsThePermissionLevelFromTheCurrentGlobalDefault
 // proves the REAL production chat-creation path — SpawnChat, not MintChat —
-// durably seeds a freshly spawned chat's trust dial from the global default
-// AT CREATION TIME (see recordRunner's seed in internal/runner/spawn.go),
-// not merely from a live per-request read of whatever the global default
-// happens to be right now.
+// durably seeds a freshly spawned chat's DISPLAY field (chat.PermissionLevel)
+// from the global default AT CREATION TIME (see recordRunner's seed in
+// internal/runner/spawn.go).
 //
-// The global default is changed to guarded AFTER the spawn, on purpose: a
-// chat that only ever fell back to a LIVE read of the global default (never
-// seeded at all) would follow that change. Only a chat truly seeded at
-// creation keeps answering from the value that was current when it was
-// minted.
+// This is the STORED-field half only. It does NOT test what the chat
+// actually spawns under on its NEXT prompt/restart — that is
+// PermissionLevelExplicit/ChatSelection's job (selection.go), and a chat
+// seeded here (never explicitly pinned) DOES follow a later global-default
+// change at its next spawn: see
+// TestMintChat_TheSeededFieldIsAFrozenSnapshotButChatSelectionTracksTheLiveDefault
+// (conversation package) and
+// TestRegression_PermissionLevelFollowsTheGlobalDefaultOnAnInheritedChatsNextSpawn
+// (api/tests) for that half.
 func TestRegression_SpawnChatSeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.T) {
 	f := newFixtureWithPermissionDefault(t, "trusted")
 	chatID, _ := f.spawn(t, "claude")
@@ -86,8 +89,11 @@ func TestRegression_SpawnChatSeedsThePermissionLevelFromTheCurrentGlobalDefault(
 // proves the THIRD chat-creation path — moveToNewChat, reached whenever a
 // live CLI announces a session id Crowbar's history doesn't recognise (an
 // everyday mid-conversation /clear or /new) — also seeds the new chat's
-// trust dial from the global default in effect AT THE MOMENT the chat is
-// minted, not from a live per-request read of whatever it is right now.
+// DISPLAY field from the global default in effect AT THE MOMENT the chat is
+// minted. As with the SpawnChat test above, this is the stored-field half
+// only — the new chat is never explicitly pinned, so it still follows a
+// later global-default change at its next spawn (ChatSelection); it is not
+// frozen against the dial.
 func TestRegression_MoveToNewChatSeedsThePermissionLevelFromTheCurrentGlobalDefault(t *testing.T) {
 	f := newFixtureWithPermissionDefault(t, "trusted")
 	chatA, runnerID := f.spawn(t, "claude")

@@ -109,5 +109,56 @@ describe('AgentContextGauge', () => {
       expect(gauge).toHaveTextContent('61% context')
       expect(gauge.querySelector('.gbar > span')).toHaveStyle({ width: '61.4%' })
     })
+
+    // User call: Compact overlays the BAR on hover (CSS makes it hidden at
+    // rest — see composer.test.ts), not the percentage text beside it.
+    it('places .gaction in the same stack as .gbar, not beside .gpct', () => {
+      render(
+        <AgentContextGauge
+          telemetry={telemetry({ context: { usedPercent: 61 } })}
+          onCompact={() => {}}
+        />,
+      )
+      const gauge = screen.getByTestId('agent-context-gauge')
+      const gbar = gauge.querySelector('.gbar')
+      const gaction = gauge.querySelector('.gaction')
+      const gpct = gauge.querySelector('.gpct')
+      expect(gaction?.parentElement).toBe(gbar?.parentElement)
+      expect(gaction?.parentElement).not.toBe(gpct?.parentElement)
+    })
+  })
+
+  // REGRESSION: compaction is an unrelated provider capability
+  // (AgentChatView's own onCompact gate — provider.compaction && live &&
+  // !compacting — never looks at telemetry), so it must not go hostage to a
+  // usage report that has not arrived yet, or that a daemon restart wiped
+  // (see telemetry's own durability fix). Before this, ANY missing report —
+  // including "provider has never reported at all" — made the whole element
+  // return null, taking Compact down with it.
+  describe('onCompact with no usage report', () => {
+    it('still renders nothing when neither a report nor compaction is offered', () => {
+      const { container } = render(<AgentContextGauge telemetry={null} />)
+      expect(container).toBeEmptyDOMElement()
+    })
+
+    it('offers Compact even though there is no usage report to show', () => {
+      render(<AgentContextGauge telemetry={null} onCompact={() => {}} />)
+      const gauge = screen.getByTestId('agent-context-gauge')
+      expect(gauge.tagName).toBe('BUTTON')
+      expect(gauge).not.toBeDisabled()
+      expect(gauge).toHaveTextContent('Compact')
+    })
+
+    it('never invents a 0% bar for the unreported chat', () => {
+      render(<AgentContextGauge telemetry={null} onCompact={() => {}} />)
+      expect(screen.getByTestId('agent-context-gauge').querySelector('.gbar')).toBeNull()
+    })
+
+    it('calls onCompact on click with no report present', () => {
+      const onCompact = vi.fn()
+      render(<AgentContextGauge telemetry={telemetry()} onCompact={onCompact} />)
+      fireEvent.click(screen.getByTestId('agent-context-gauge'))
+      expect(onCompact).toHaveBeenCalledTimes(1)
+    })
   })
 })

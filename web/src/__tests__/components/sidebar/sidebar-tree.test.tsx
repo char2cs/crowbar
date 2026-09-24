@@ -8,7 +8,6 @@ vi.mock('@/lib/persistence/sidebar-ui', () => ({
 
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { SidebarTree } from '@/components/sidebar/sidebar-tree'
-import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -281,12 +280,9 @@ describe('SidebarTree', () => {
     // Every row in `rows` is seeded with `hasView: false` (rows-from-repo.ts
     // never seeds live state into the row object — see its own note). The
     // signal has to come from a LIVE subscription to pane membership, not
-    // from the prop, so seed a pane holding chat-1's id directly on the
+    // from the prop, so open chat-1 in a real view on the
     // window pane store rather than passing hasView: true into `rows`.
-    windowPaneStore.setState((s) => {
-      s.panes[ROOT_PANE_ID] = { ...s.panes[ROOT_PANE_ID], chatId: 'chat-1' }
-      return s
-    })
+    windowPaneStore.getState().paneActions.openChat('chat-1')
 
     render(
       <SidebarTree

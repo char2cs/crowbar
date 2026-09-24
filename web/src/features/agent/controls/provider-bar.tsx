@@ -11,6 +11,8 @@ interface ProviderBarProps {
   switchDisabled?: boolean
   model: string
   effort: string
+  /** See AgentSelectionPicker's own doc — display only, forwarded untouched. */
+  reportedModel?: string
   telemetry: AgentTelemetry | null
   presentation: ChatPresentation
   splitEnabled: boolean
@@ -54,6 +56,7 @@ export function ProviderBar({
   switchDisabled,
   model,
   effort,
+  reportedModel,
   telemetry,
   presentation,
   splitEnabled,
@@ -75,6 +78,7 @@ export function ProviderBar({
           providers={providers ?? []}
           model={model}
           effort={effort}
+          reportedModel={reportedModel}
           presentation={presentation}
           splitEnabled={splitEnabled}
           showSwitcher={showSwitcher}

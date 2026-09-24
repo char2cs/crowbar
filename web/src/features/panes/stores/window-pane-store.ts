@@ -7,6 +7,7 @@ import { createBufferSlice } from './slices/buffer-slice'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
 import { stripNewTabs } from '@/features/panes/utils/persisted-layout'
 import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
+import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 
 export type WindowPaneStore = StoreApi<WindowPaneState>
 
@@ -14,15 +15,14 @@ export type WindowPaneSnapshot = Partial<
   Pick<
     WindowPaneState,
     | 'panes'
-    | 'rootLayout'
+    | 'views'
+    | 'viewOrder'
+    | 'stage'
     | 'bottomLayout'
-    | 'parkedViews'
     | 'activeViewId'
     | 'activePaneId'
     | 'fullscreenPaneId'
     | 'mostRecentActivePaneIds'
-    | 'dormantArrangements'
-    | 'viewProjects'
     | 'activeViewByProject'
     | 'activeProjectId'
     | 'buffers'
@@ -36,8 +36,7 @@ export type WindowPaneSnapshot = Partial<
  * live pane layout the moment its workspace aged out of keep-alive, or the
  * user left to project home). A `PaneGroup`'s own chat resolves which
  * workspace it belongs to (via the chat's own `workspaceId`, looked up
- * through the owning workspace store — see `pane-slice.ts`'s `isChatWorking`
- * use and `workspace-store-registry.ts`), never by which store instance
+ * through the owning workspace store — see `workspace-store-registry.ts`), never by which store instance
  * happens to hold it.
  *
  * `createWindowPaneStore` is exported (not just the singleton below) so
@@ -53,28 +52,41 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
     })),
   )
 
-  // Debounced persistence, re-keyed to the one window/session row (was
-  // per-workspace on the old registry — see workspace-layout.ts). Same
-  // shallow-compare-then-debounce shape as the old registry subscription:
-  // skip the (frequent) non-persisted mutations immediately, without arming
-  // the timer.
+  if (import.meta.env.DEV) {
+    store.subscribe((state, prev) => {
+      if (
+        state.panes === prev.panes &&
+        state.views === prev.views &&
+        state.viewOrder === prev.viewOrder &&
+        state.stage === prev.stage &&
+        state.bottomLayout === prev.bottomLayout &&
+        state.activeViewId === prev.activeViewId &&
+        state.activePaneId === prev.activePaneId &&
+        state.activeViewByProject === prev.activeViewByProject
+      ) {
+        return
+      }
+      const violations = viewIntegrityViolations(state)
+      if (violations.length === 0) return
+      if (import.meta.env.MODE === 'test')
+        throw new Error(`view integrity: ${violations.join('; ')}`)
+      console.error('view integrity violated:', violations)
+    })
+  }
+
+  // A field left out of this comparison silently never persists.
   let persistTimer: ReturnType<typeof setTimeout> | undefined
   store.subscribe((state, prev) => {
     if (
       state.panes === prev.panes &&
-      state.rootLayout === prev.rootLayout &&
-      state.bottomLayout === prev.bottomLayout &&
-      state.parkedViews === prev.parkedViews &&
+      state.views === prev.views &&
+      state.viewOrder === prev.viewOrder &&
       state.activeViewId === prev.activeViewId &&
+      state.activeViewByProject === prev.activeViewByProject &&
+      state.stage === prev.stage &&
+      state.bottomLayout === prev.bottomLayout &&
       state.activePaneId === prev.activePaneId &&
       state.mostRecentActivePaneIds === prev.mostRecentActivePaneIds &&
-      state.dormantArrangements === prev.dormantArrangements &&
-      state.recentsOrder === prev.recentsOrder &&
-      // Project-scoped panes trap 5: a field left out of THIS comparison is a
-      // field that silently never persists, because a change that touches
-      // nothing else returns above without ever arming the timer.
-      state.viewProjects === prev.viewProjects &&
-      state.activeViewByProject === prev.activeViewByProject &&
       state.buffers === prev.buffers
     ) {
       return
@@ -86,26 +98,17 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
       const current = store.getState()
       const persistable = stripNewTabs({ buffers: current.buffers, panes: current.panes })
       saveWorkspaceLayout({
-        // WINDOW_SESSION_ID is stamped in workspace-layout.ts's own
-        // saveWorkspaceLayout — this workspaceId is overwritten there.
+        // Overwritten with WINDOW_SESSION_ID in saveWorkspaceLayout.
         workspaceId: '',
         panes: persistable.panes,
-        rootLayout: current.rootLayout,
-        bottomLayout: current.bottomLayout,
-        // Without these two a reload would restore every open view's PANES
-        // but only one tree to hang them on — the parked arrangements would
-        // be lost and their chats would come back as unreachable orphans.
-        parkedViews: current.parkedViews,
+        views: current.views,
+        viewOrder: current.viewOrder,
         activeViewId: current.activeViewId,
+        activeViewByProject: current.activeViewByProject,
+        stage: current.stage,
+        bottomLayout: current.bottomLayout,
         activePaneId: current.activePaneId,
         mostRecentActivePaneIds: current.mostRecentActivePaneIds,
-        dormantArrangements: current.dormantArrangements,
-        recentsOrder: current.recentsOrder,
-        // Which project each view belongs to, and where each project was
-        // last looking. `activeProjectId` is deliberately NOT here: the route
-        // is what says where "now" is at boot (pane-slice.ts's own doc).
-        viewProjects: current.viewProjects,
-        activeViewByProject: current.activeViewByProject,
         buffers: persistable.buffers,
         sidebarWidth: 0,
         rightSidebarWidth: 0,
@@ -147,16 +150,14 @@ export function resetWindowPaneStoreForTests(target: WindowPaneStore = windowPan
   const fresh = createWindowPaneStore().getState()
   target.setState({
     panes: fresh.panes,
-    rootLayout: fresh.rootLayout,
+    views: fresh.views,
+    viewOrder: fresh.viewOrder,
+    stage: fresh.stage,
     bottomLayout: fresh.bottomLayout,
-    parkedViews: fresh.parkedViews,
     activeViewId: fresh.activeViewId,
     activePaneId: fresh.activePaneId,
     fullscreenPaneId: fresh.fullscreenPaneId,
     mostRecentActivePaneIds: fresh.mostRecentActivePaneIds,
-    dormantArrangements: fresh.dormantArrangements,
-    recentsOrder: fresh.recentsOrder,
-    viewProjects: fresh.viewProjects,
     activeViewByProject: fresh.activeViewByProject,
     activeProjectId: fresh.activeProjectId,
     buffers: fresh.buffers,

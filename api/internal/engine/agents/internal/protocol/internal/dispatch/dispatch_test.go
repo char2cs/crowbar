@@ -130,6 +130,65 @@ func TestRegression_AFailedTurnRoutesToTurnFailedNotTurnStop(t *testing.T) {
 	assert.Equal(t, "turn_failed", canonical)
 }
 
+// TestResolve_ChannelScopedEventUsesItsOwnAPIBlock proves dispatch (which
+// only ever resolves API-transport wire frames) reads a channel-scoped
+// event's api: block — never its hooks: block, and never a legacy top-level
+// in:/when: it does not declare — for both the wire name and the sum-type
+// discriminator.
+func TestResolve_ChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
+	d := &spec.Descriptor{Events: map[string]spec.EventSpec{
+		"tool_pre": {
+			API: &spec.ChannelBlock{
+				In:   spec.WireRef{"item/started"},
+				When: spec.WhenMap{"item.type": {"commandExecution", "fileChange"}},
+				Map:  spec.FieldMap{"tool_id": {"item.id"}},
+			},
+			Hooks: &spec.ChannelBlock{In: spec.WireRef{"PreToolUse"}, Map: spec.FieldMap{"tool_id": {"tool_use_id"}}},
+		},
+	}}
+
+	canonical, ok := dispatch.Resolve(d, "item/started", map[string]any{
+		"item": map[string]any{"type": "commandExecution", "id": "i1"},
+	})
+	require.True(t, ok, "the api block's own in: must resolve the wire method")
+	assert.Equal(t, "tool_pre", canonical)
+
+	// The hooks block's wire name (PreToolUse) must never be a candidate on
+	// the api transport — dispatch only ever resolves api frames.
+	_, ok = dispatch.Resolve(d, "PreToolUse", map[string]any{})
+	assert.False(t, ok, "a channel-scoped event's hooks: wire name must not resolve on the api transport")
+
+	// The api block's own when: must gate it, same as a legacy event's.
+	_, ok = dispatch.Resolve(d, "item/started", map[string]any{
+		"item": map[string]any{"type": "reasoning"},
+	})
+	assert.False(t, ok, "the api block's own when: clause must still gate the sum type")
+}
+
+// TestResolve_AskChannelScopedEventUsesItsOwnAPIBlock is
+// TestResolve_ChannelScopedEventUsesItsOwnAPIBlock's ask-direction
+// counterpart — the direct reproduction of the P3 gap report (codex.yaml's
+// own "STILL FLAT" comment on permission, since replaced): "WireEventFor
+// always returns direction 'in' for a channel-scoped event", so an
+// ASK-direction channel block never resolved on the api transport at all.
+func TestResolve_AskChannelScopedEventUsesItsOwnAPIBlock(t *testing.T) {
+	d := &spec.Descriptor{Events: map[string]spec.EventSpec{
+		"permission": {
+			API:   &spec.ChannelBlock{Ask: spec.WireRef{"approval/request"}, Map: spec.FieldMap{"tool_name": {"tool"}}},
+			Hooks: &spec.ChannelBlock{Ask: spec.WireRef{"PermissionRequest"}, Map: spec.FieldMap{"tool_name": {"tool_name"}}},
+		},
+	}}
+
+	canonical, ok := dispatch.Resolve(d, "approval/request", map[string]any{})
+	require.True(t, ok, "the api block's own ask: must resolve the wire method")
+	assert.Equal(t, "permission", canonical)
+
+	// The hooks block's own wire name must never be a candidate on the api
+	// transport — dispatch only ever resolves api frames.
+	_, ok = dispatch.Resolve(d, "PermissionRequest", map[string]any{})
+	assert.False(t, ok, "a channel-scoped event's hooks: wire name must not resolve on the api transport")
+}
+
 func decodeParams(t *testing.T, raw string) map[string]any {
 	t.Helper()
 	var params map[string]any
@@ -208,9 +267,22 @@ func TestRegression_DenyDeclinesRatherThanCancellingTheTurn(t *testing.T) {
 // A card only exists if the choice does: inbound builds one when the descriptor
 // declares any of prompt_id/tool_name/tool_input/questions/suggestions, and codex's
 // own sentence for what it wants is what the reader decides on.
+//
+// EventFieldsFor(..., ChannelAPI), not the flat EventFields: permission is
+// channel-split (docs/plans/2026-09-22-descriptor-channel-split.md P2b) and
+// this real payload is api-shaped, exactly what inbound.Parse's own channel
+// selection reads it through in production.
+//
+// tool_name deliberately is NOT asserted to resolve here: the raw payload
+// carries no tool identity at all on EITHER real capture (F1 of the design
+// spec — codex namespaces it by the WIRE METHOD, not a payload field), so
+// resolving it needs apidriver's by_wire: overlay, which only runs over the
+// live transport — see apidriver_test.go's own
+// TestStart_ByWireOverlayNamesTheToolOnThePermissionCard for the end-to-end
+// proof this file cannot give on its own.
 func TestRegression_ApprovalPayloadCarriesSomethingToShow(t *testing.T) {
 	d := loadCodexAPIDescriptor(t)
-	fields, declared := d.EventFields("permission")
+	fields, declared := d.EventFieldsFor("permission", spec.ChannelAPI)
 	require.True(t, declared)
 
 	params := decodeParams(t, commandExecutionApproval)

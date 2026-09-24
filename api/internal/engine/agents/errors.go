@@ -22,6 +22,8 @@ var (
 
 	ErrForeignConversation = protocol.ErrForeignPayload
 
+	ErrRequiredFieldMissing = protocol.ErrRequiredFieldMissing
+
 	ErrTelemetryUnsupported = protocol.ErrTelemetryUnsupported
 
 	ErrTelemetryInvalidWorkdir = protocol.ErrTelemetryInvalidWorkdir

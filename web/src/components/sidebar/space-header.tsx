@@ -5,6 +5,7 @@ import {
   DotsThree,
   Folder as FolderIcon,
   FolderOpen,
+  Terminal,
 } from '@phosphor-icons/react'
 import { cn } from '@/lib/utils'
 import {
@@ -23,6 +24,8 @@ import {
 import { EditableProjectIcon } from '@/components/layout/project-icon-mark'
 import { InlineRenameInput } from '@/components/sidebar/inline-rename-input'
 import { performRenameProject } from '@/components/sidebar/lib/row-actions'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
 import type { Project } from '@/lib/types'
 
 interface SpaceHeaderProps {
@@ -32,6 +35,15 @@ interface SpaceHeaderProps {
   /** Starts a new thread on the project's home workspace — same mechanism
    *  a row's own Thread button uses (`onCreate(homeRowId, 'thread')`). */
   onCreateThread: () => void
+  /** Same create as `onCreateThread`, landed straight on Terminal — "start
+   *  THIS chat on the CLI" without flipping `chatIsDefaultPresentation`
+   *  (Settings → Chat) for every thread after it. Optional so every existing
+   *  caller (and this file's own pre-existing render calls) keeps compiling
+   *  unchanged; the one real caller (space-scroller.tsx) always supplies it.
+   *  Absence, not a disabled control: the menu item that calls this is left
+   *  OUT of the overflow menu entirely — never greyed out — whenever the
+   *  provider a new chat would start under declares no terminal at all. */
+  onCreateThreadTerminal?: () => void
   /** Opens the "Import a repo" modal. */
   onImportRepo: () => void
   /** Starts a folder on the project's own home workspace. */
@@ -60,11 +72,23 @@ export function SpaceHeader({
   folded,
   onToggleFold,
   onCreateThread,
+  onCreateThreadTerminal,
   onImportRepo,
   onCreateFolder,
   onDeleteSpace,
 }: SpaceHeaderProps) {
   const [active, setActive] = useState(false)
+  // Whether the provider a new chat would actually start under offers a
+  // START_HERE terminal (design spec 2.5) — a NARROW, reactive selector
+  // (never `.getState()` in render). Absence, not a disabled control: "New
+  // thread in Terminal" below is left OUT of the overflow menu entirely
+  // rather than pushed in disabled. No enabled provider resolved yet is not
+  // evidence of "no terminal" — the plain Thread button offers itself
+  // unconditionally too and leaves that refusal to `enabledProvider()` at
+  // click time (providerCanStartOnTerminal(undefined) is permissive).
+  const enabledProviderCanStartOnTerminal = useAgentProvidersStore((s) =>
+    providerCanStartOnTerminal(s.providers.find((p) => p.enabled)),
+  )
   // The delete menu's own open state, ORed into the cluster's mount
   // condition below (`active || menuOpen`) — its content renders in a
   // portal outside this row's DOM subtree, so moving the pointer onto it to
@@ -284,6 +308,17 @@ export function SpaceHeader({
                 <FolderIcon className="size-4" />
                 Create a folder
               </DropdownMenuItem>
+              {onCreateThreadTerminal && enabledProviderCanStartOnTerminal && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCreateThreadTerminal()
+                  }}
+                >
+                  <Terminal className="size-4" />
+                  New thread in Terminal
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"

@@ -15,14 +15,13 @@ import (
 
 func permissionMap() map[string]string {
 	return map[string]string{
-		"session_id":             "session_id",
-		"message":                "tool_name",
-		"prompt_id":              "prompt_id",
-		"tool_name":              "tool_name",
-		"tool_input":             "tool_input",
-		"suggestions":            "permission_suggestions",
-		"suggestion_type":        "type",
-		"suggestion_description": "mode,destination",
+		"session_id":      "session_id",
+		"message":         "tool_name",
+		"prompt_id":       "prompt_id",
+		"tool_name":       "tool_name",
+		"tool_input":      "tool_input",
+		"suggestions":     "permission_suggestions",
+		"suggestion_type": "type",
 
 		"suggestion_label.addRules":       "Add a permanent rule for this",
 		"suggestion_label.addDirectories": "Allow this directory from now on",
@@ -58,9 +57,15 @@ const threeQuestionPayload = `{
      "options":[{"label":"Local"},{"label":"Cloud"}]}]}}`
 
 func TestParse_PermissionCarriesTheWholePrompt(t *testing.T) {
-	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
+	// suggestion_description needs a REAL first_present: [mode, destination] —
+	// claude's own shape — to prove the fallthrough this test asserts on; every
+	// other test sharing permissionMap() does not care, so it stays out of the
+	// shared single-path map.
+	fields := fieldMap(permissionMap())
+	fields["suggestion_description"] = []string{"mode", "destination"}
+	d := descriptorWithFields(spec.HookPermission, fields)
 
-	ev, err := inbound.Parse(d, spec.HookPermission, []byte(permissionPayload))
+	ev, err := parse(d, spec.HookPermission, []byte(permissionPayload))
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Interrupt, "a permission is still an interruption")
@@ -93,7 +98,7 @@ func TestRegression_ASuggestionIsNeverLabelledWithARawProviderTypeName(t *testin
 	  {"type":"setMode","mode":"acceptEdits"},
 	  {"type":"someTypeNobodyHasSeen","destination":"session"}]}`)
 
-	ev, err := inbound.Parse(d, spec.HookPermission, raw)
+	ev, err := parse(d, spec.HookPermission, raw)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
@@ -120,7 +125,7 @@ func TestParse_ASuggestionWithNoDeclaredWordsIsSkipped(t *testing.T) {
 		},
 	})
 
-	ev, err := inbound.Parse(d, spec.HookPermission,
+	ev, err := parse(d, spec.HookPermission,
 		[]byte(`{"tool_name":"Bash","permission_suggestions":[{"type":"addRules"}]}`))
 
 	require.NoError(t, err)
@@ -133,7 +138,7 @@ func TestParse_PermissionOffersNoToolCallID(t *testing.T) {
 		spec.HookPermission: mergeMap(permissionMap(), map[string]string{"tool_id": "tool_use_id"}),
 	})
 
-	ev, err := inbound.Parse(d, spec.HookPermission, []byte(permissionPayload))
+	ev, err := parse(d, spec.HookPermission, []byte(permissionPayload))
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
@@ -147,7 +152,7 @@ func TestParse_AskUserQuestionBecomesAQuestionChoice(t *testing.T) {
 	    "header":"Pick","options":[{"label":"A","description":"Option A"},
 	    {"label":"B","description":"Option B"}],"multiSelect":false}]}}`)
 
-	ev, err := inbound.Parse(d, spec.HookPermission, raw)
+	ev, err := parse(d, spec.HookPermission, raw)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
@@ -173,7 +178,7 @@ func TestParse_AskUserQuestionBecomesAQuestionChoice(t *testing.T) {
 func TestRegression_EveryQuestionOfAMultiQuestionPayloadIsModelled(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 
-	ev, err := inbound.Parse(d, spec.HookPermission, []byte(threeQuestionPayload))
+	ev, err := parse(d, spec.HookPermission, []byte(threeQuestionPayload))
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
@@ -206,7 +211,7 @@ func TestParse_AMultiSelectQuestionSaysSo(t *testing.T) {
 	raw := []byte(`{"tool_name":"AskUserQuestion","tool_input":{"questions":[
 	  {"question":"which?","options":[{"label":"A"}],"multiSelect":true}]}}`)
 
-	ev, err := inbound.Parse(d, spec.HookPermission, raw)
+	ev, err := parse(d, spec.HookPermission, raw)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
@@ -222,7 +227,7 @@ func TestParse_AnAbsurdQuestionListIsModelledWithNoQuestionsAtAll(t *testing.T) 
 			`{"question":"q`+strconv.Itoa(i)+`","options":[{"label":"yes"}]}`)
 	}
 
-	ev, err := inbound.Parse(d, spec.HookPermission, []byte(
+	ev, err := parse(d, spec.HookPermission, []byte(
 		`{"tool_name":"AskUserQuestion","tool_input":{"questions":[`+
 			strings.Join(questions, ",")+`]}}`,
 	))
@@ -239,7 +244,7 @@ func TestParse_AnUntypedSuggestionTakesTheDeclaredGenericWords(t *testing.T) {
 	d := descriptor(map[string]map[string]string{spec.HookPermission: permissionMap()})
 	raw := []byte(`{"tool_name":"Bash","permission_suggestions":[{"destination":"session"}]}`)
 
-	ev, err := inbound.Parse(d, spec.HookPermission, raw)
+	ev, err := parse(d, spec.HookPermission, raw)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
@@ -259,7 +264,7 @@ func TestParse_ElicitationCarriesTheServerModeAndSchema(t *testing.T) {
 	  "requested_schema":{"type":"object","properties":{"choice":{"type":"string",
 	  "enum":["A","B"]}},"required":["choice"]}}`)
 
-	ev, err := inbound.Parse(d, spec.HookElicitation, raw)
+	ev, err := parse(d, spec.HookElicitation, raw)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Interrupt)
@@ -282,7 +287,7 @@ func TestParse_AnOversizedSchemaIsDroppedNotTruncated(t *testing.T) {
 	raw := []byte(`{"message":"pick","requested_schema":{"blob":"` +
 		strings.Repeat("x", 9<<10) + `"}}`)
 
-	ev, err := inbound.Parse(d, spec.HookElicitation, raw)
+	ev, err := parse(d, spec.HookElicitation, raw)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Choice)
@@ -291,17 +296,15 @@ func TestParse_AnOversizedSchemaIsDroppedNotTruncated(t *testing.T) {
 }
 
 func TestParse_ToolFailCarriesTheErrorAndDuration(t *testing.T) {
-	d := descriptor(map[string]map[string]string{
-		spec.HookToolFail: {
-			"tool_id": "tool_use_id", "tool_name": "tool_name",
-			"tool_result": "tool_response,error", "tool_error": "error",
-			"duration_ms": "duration_ms",
-		},
+	d := descriptorWithFields(spec.HookToolFail, spec.FieldMap{
+		"tool_id": {"tool_use_id"}, "tool_name": {"tool_name"},
+		"tool_result": {"tool_response", "error"}, "tool_error": {"error"},
+		"duration_ms": {"duration_ms"},
 	})
 	raw := []byte(`{"tool_use_id":"t1","tool_name":"Bash","error":"exit status 1",
 	  "is_interrupt":false,"duration_ms":42}`)
 
-	ev, err := inbound.Parse(d, spec.HookToolFail, raw)
+	ev, err := parse(d, spec.HookToolFail, raw)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
@@ -313,11 +316,11 @@ func TestParse_ToolFailCarriesTheErrorAndDuration(t *testing.T) {
 }
 
 func TestParse_ToolResultAlternationPrefersTheResponse(t *testing.T) {
-	d := descriptor(map[string]map[string]string{
-		spec.HookToolFail: {"tool_result": "tool_response,error", "tool_error": "error"},
+	d := descriptorWithFields(spec.HookToolFail, spec.FieldMap{
+		"tool_result": {"tool_response", "error"}, "tool_error": {"error"},
 	})
 
-	ev, err := inbound.Parse(d, spec.HookToolFail,
+	ev, err := parse(d, spec.HookToolFail,
 		[]byte(`{"tool_response":"partial output","error":"exit status 1"}`))
 
 	require.NoError(t, err)
@@ -330,7 +333,7 @@ func TestParse_ADescriptorMappingNoChoiceVocabularyReportsNoPrompt(t *testing.T)
 		spec.HookPermission: {"session_id": "session_id", "message": "tool_name"},
 	})
 
-	ev, err := inbound.Parse(d, spec.HookPermission, []byte(permissionPayload))
+	ev, err := parse(d, spec.HookPermission, []byte(permissionPayload))
 
 	require.NoError(t, err)
 	assert.Nil(t, ev.Choice, "no choice vocabulary declared, so no prompt is reported")
@@ -354,7 +357,7 @@ func TestParse_AnUndeclaredNewKindNeverFires(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := inbound.Parse(d, tc.canonical, []byte(`{"message":"anything"}`))
+			_, err := parse(d, tc.canonical, []byte(`{"message":"anything"}`))
 
 			assert.ErrorIs(t, err, inbound.ErrUndeclaredEvent,
 				"an unmapped kind must degrade to never being reported")
@@ -391,7 +394,7 @@ func TestParse_AnAbsurdOptionListIsCapped(t *testing.T) {
 		suggestions = append(suggestions, `{"type":"sug`+strconv.Itoa(i)+`"}`)
 	}
 
-	question, err := inbound.Parse(d, spec.HookPermission, []byte(
+	question, err := parse(d, spec.HookPermission, []byte(
 		`{"tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"q",
 		 "options":[`+strings.Join(options, ",")+`]}]}}`,
 	))
@@ -400,7 +403,7 @@ func TestParse_AnAbsurdOptionListIsCapped(t *testing.T) {
 	require.Len(t, question.Choice.Questions, 1)
 	assert.Len(t, question.Choice.Questions[0].Options, 32)
 
-	permission, err := inbound.Parse(d, spec.HookPermission, []byte(
+	permission, err := parse(d, spec.HookPermission, []byte(
 		`{"tool_name":"Bash","permission_suggestions":[`+strings.Join(suggestions, ",")+`]}`,
 	))
 	require.NoError(t, err)

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // Crash recovery for the at-most-once submission journal.
@@ -25,8 +27,19 @@ func (rs *Runners) classifyPriorAttempt(
 	journalDir, clientRequestID string,
 	existing agentjournal.PromptRequest,
 ) (domain.AgentPromptSubmission, bool, error) {
-	if existing.RunnerID != "" && existing.TerminalSessionID != "" &&
-		(existing.State == agentjournal.PromptStateSpawned || existing.State == agentjournal.PromptStateAccepted) {
+	// `spawned` is the ONE state only MarkSpawned can produce, so it proves
+	// this delivery committed on its own — which matters now that an
+	// api-driven runner commits with an EMPTY terminal session (apirunner.go)
+	// and a non-empty one can no longer stand in for the proof.
+	//
+	// `accepted` still needs that terminal session, and deliberately: the
+	// user_prompt hook can advance a record straight out of `dispatching`,
+	// before MarkSpawned has run at all, so an accepted record with no
+	// committed identity has no delivery to replay and must recover from the
+	// ledger instead — see TestSubmitPrompt_RunnerLookupFailureAndAcceptedCrashGapAreSafe.
+	committed := existing.State == agentjournal.PromptStateSpawned ||
+		(existing.State == agentjournal.PromptStateAccepted && existing.TerminalSessionID != "")
+	if existing.RunnerID != "" && committed {
 		return promptSubmission(existing), true, nil
 	}
 	if existing.State == agentjournal.PromptStateDispatching ||
@@ -174,6 +187,74 @@ func (rs *Runners) reconcilePromptRunnerDeparture(
 	if err != nil || !found {
 		return
 	}
+	rs.settlePromptRecord(ctx, chat, dir, record)
+}
+
+// settleDepartedPromptDelivery is the OWNERSHIP half of "is a delivery
+// pending?", and the reason a wedged chat cannot happen again.
+//
+// A "spawned" record is a claim about a live process. The journal is a
+// directory of files and cannot check one, so it answers from the state string
+// alone — and nothing downgrades "spawned" on its own. That asymmetry with
+// "dispatching" is deliberate and stays: a dispatching record can only have
+// been written by a caller that is no longer running, whereas a spawned one may
+// be a CLI answering right now, and downgrading that would let a second prompt
+// through mid-turn.
+//
+// Which leaves exactly one way to be wrong, and it bricked a chat: the owner
+// departed and nothing settled the record, so every resume and every prompt
+// answered 409 conflict for the life of the chat. Enumerating departure sites is
+// what already failed — three were wired, two were missed. Asked at the QUESTION
+// instead: a record whose owner is not the chat's live runner is not in flight,
+// whatever its state says.
+func (rs *Runners) settleDepartedPromptDelivery(
+	ctx context.Context,
+	chat domain.Chat,
+) {
+	dir, err := rs.promptJournalDirFor(chat.ID)
+	if err != nil {
+		return
+	}
+	record, found, err := rs.prompts.ActiveDelivery(dir)
+	if err != nil || !found {
+		return
+	}
+	if record.State != agentjournal.PromptStateSpawned || record.RunnerID == "" {
+		return
+	}
+	if rs.runnerStillOnChat(ctx, chat.ID, record.RunnerID) {
+		return
+	}
+	slog.WarnContext(ctx, "agent: prompt delivery outlived the runner that owned it; settling",
+		"chat_id", chat.ID, "client_request_id", record.RequestID, "runner_id", record.RunnerID)
+	rs.settlePromptRecord(ctx, chat, dir, record)
+}
+
+// runnerStillOnChat is deliberately asymmetric about failure: only a runner the
+// store positively reports as GONE settles a record. A read that merely failed
+// is not evidence the owner left, and treating it as such would retire a
+// delivery a live CLI is still answering.
+func (rs *Runners) runnerStillOnChat(ctx context.Context, chatID, runnerID string) bool {
+	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
+	if errors.Is(err, agentrunner.ErrNotFound) {
+		return false
+	}
+	if err != nil {
+		return true
+	}
+	return live.ID == runnerID
+}
+
+// settlePromptRecord retires one in-flight record against the ledger: accepted
+// when a turn proves the provider took it, uncertain otherwise. Uncertain
+// blocks an automatic RETRY (at-most-once is preserved) without blocking the
+// chat, which is what un-wedges it.
+func (rs *Runners) settlePromptRecord(
+	ctx context.Context,
+	chat domain.Chat,
+	dir string,
+	record agentjournal.PromptRequest,
+) {
 	accepted, err := rs.promptRecordAccepted(ctx, chat, record)
 	if err != nil {
 		return

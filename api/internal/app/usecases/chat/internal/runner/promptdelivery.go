@@ -147,15 +147,36 @@ func (rs *Runners) RequirePromptRestart(
 	if descriptor.Capabilities().Delivery == engineagents.DeliveryRestartTUI {
 		return nil
 	}
-	desired, err := rs.conversations.ChatSelection(ctx, chatID, false)
+	changed, err := rs.selectionRequiresRestart(ctx, chatID, live, descriptor)
 	if err != nil {
 		return err
+	}
+	if changed {
+		return nil
+	}
+	return ErrPromptUnsupported
+}
+
+// selectionRequiresRestart reports whether live's LAUNCHED model/effort/
+// permission level differ from the chat's CURRENT desired selection in a
+// field the descriptor itself declares restart_tui for (descriptor.
+// SelectionRestart) — the same comparison RequirePromptRestart already made
+// for the restart-per-prompt path, extracted so submitPromptOverAPI's live
+// connection shortcut (prompts.go) can refuse it and fall back to an actual
+// restart instead of silently delivering to a process whose model/effort no
+// longer matches what the user just asked for.
+func (rs *Runners) selectionRequiresRestart(
+	ctx context.Context,
+	chatID string,
+	live engineagents.Runner,
+	descriptor engineagents.Agent,
+) (bool, error) {
+	desired, err := rs.conversations.ChatSelection(ctx, chatID, false)
+	if err != nil {
+		return false, err
 	}
 	launched := engineagents.Selection{
 		Model: live.LaunchModel, Effort: live.LaunchEffort, PermissionLevel: live.LaunchPermissionLevel,
 	}
-	if descriptor.SelectionRestart(launched, desired) {
-		return nil
-	}
-	return ErrPromptUnsupported
+	return descriptor.SelectionRestart(launched, desired), nil
 }

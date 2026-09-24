@@ -9,6 +9,7 @@ import { useSidebarStore, getInitialState } from '@/lib/store/sidebar'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
+import { renderedProjectRows } from '@/components/sidebar/lib/drop-actions'
 import { toast } from '@/features/window/stores/toast-store'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import * as api from '@/lib/api'
@@ -441,6 +442,163 @@ describe('row-actions', () => {
       expect(usePendingCreatesStore.getState().entries).toMatchObject([
         { status: 'error', error: 'remote unreachable' },
       ])
+    })
+
+    // Live-reported: the branch row correctly stays in its loading state, but
+    // mid-import a stray THREAD row popped in at the root, then "converted"
+    // into the chat once the branch finished — the daemon mints the owning
+    // CHAT first, atomically, before its WORKSPACE half (and the
+    // `owningChatId` that folds the two into one branch row) lands, so a
+    // structural reseed can land that bare chat in the tree with nothing to
+    // fold it onto yet. `hideRowsForInFlightCreates` (rows-from-pending.ts)
+    // already exists to hide exactly this kind of stray reseed, but only for
+    // an entry carrying `rowIdsAtClick` — the fork/thread paths
+    // (space-content-actions.ts) always set it; the import path did not.
+    it('hides a stray owning-chat row that reseeds mid-import, before it folds under the branch', async () => {
+      await performImportBranches('repo-1', ['feature-a'])
+      expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+      expect(usePendingCreatesStore.getState().entries[0].rowIdsAtClick).toBeDefined()
+
+      // The owning chat reseeds alone — no `workspaceId`/`ownsWorktree` of its
+      // own yet, and no `Workspace.owningChatId` naming it either (that field
+      // arrives on the WORKSPACE half, still in flight) — so nothing can fold
+      // it under the pending branch. This is `crowbar_chats`'s own structural
+      // reseed landing early, not a hand-built placeholder.
+      const repo = useSidebarStore.getState().repos[0]
+      useSidebarStore.setState({
+        repos: [
+          {
+            ...repo,
+            chats: [
+              ...(repo.chats ?? []),
+              { id: 'chat-new', repoId: 'repo-1', title: '', order: 5 },
+            ],
+          },
+        ],
+      })
+
+      const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
+      expect(rows.find((r) => r.id === 'chat-new')).toBeUndefined()
+    })
+
+    // The fix above (repo-scoped `hideRowsForInFlightCreates`) has to be
+    // narrow, not just present: a naive fix widened the "known at click"
+    // snapshot to the WHOLE project panel, which made a repo-1 import blank
+    // out every OTHER repo's and project home's freshly-created rows for its
+    // entire provisioning window — this user routinely has several agents
+    // creating chats concurrently, so that regression is worse than the
+    // ghost row it was meant to fix. `repoId` on the pending entry is what
+    // `hideRowsForInFlightCreates` scopes suppression by
+    // (rows-from-pending.ts) — these pin that a repo-2 chat and a
+    // project-home chat both stay visible the whole time repo-1's import is
+    // pending.
+    describe('a row created elsewhere in the project, while the import is still pending', () => {
+      beforeEach(() => {
+        useSidebarStore.setState({
+          repos: [
+            ...useSidebarStore.getState().repos,
+            {
+              id: 'repo-2',
+              projectId: 'proj-1',
+              name: 'repo-two',
+              avatarLabel: 'T',
+              avatarColor: 'bg-emerald-700',
+              defaultWorkspaceId: 'ws2-home',
+              defaultBranch: 'main',
+              defaultWorking: false,
+              workspaces: [],
+              folders: [],
+              chats: [],
+            },
+          ],
+        })
+        useHomeTreeStore.setState({
+          trees: { 'proj-1': { chats: [], folders: [] } },
+        })
+      })
+
+      it('stays visible: a genuine new chat in a different repo of the same project', async () => {
+        await performImportBranches('repo-1', ['feature-a'])
+        expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+        const repo2 = useSidebarStore.getState().repos.find((r) => r.id === 'repo-2')!
+        useSidebarStore.setState({
+          repos: useSidebarStore
+            .getState()
+            .repos.map((r) =>
+              r.id === 'repo-2'
+                ? { ...r, chats: [{ id: 'chat-in-repo-2', repoId: 'repo-2', title: '', order: 0 }] }
+                : r,
+            ),
+        })
+        expect(repo2.chats).toEqual([])
+
+        const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
+        expect(rows.find((r) => r.id === 'chat-in-repo-2')).toBeDefined()
+      })
+
+      it('stays visible: a genuine new project-home chat', async () => {
+        await performImportBranches('repo-1', ['feature-a'])
+        expect(usePendingCreatesStore.getState().entries).toHaveLength(1)
+
+        useHomeTreeStore.setState({
+          trees: {
+            'proj-1': {
+              chats: [{ id: 'home-chat-new', repoId: '', title: 'New home chat', order: 0 }],
+              folders: [],
+            },
+          },
+        })
+
+        const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
+        expect(rows.find((r) => r.id === 'home-chat-new')).toBeDefined()
+      })
+
+      // Every branch in a batch import gets its OWN pending entry
+      // (`startImportPendingRows`) — all scoped to the SAME repo. A row
+      // elsewhere in the project must stay visible with several of those
+      // entries live at once, and each entry must still suppress ITS OWN
+      // repo's stray reseed.
+      it('multi-branch import: rows elsewhere stay visible, and each branch still hides its own ghost row', async () => {
+        await performImportBranches('repo-1', ['feature-a', 'feature-b'])
+        expect(usePendingCreatesStore.getState().entries).toHaveLength(2)
+
+        useSidebarStore.setState({
+          repos: useSidebarStore.getState().repos.map((r) => {
+            if (r.id === 'repo-1') {
+              return {
+                ...r,
+                chats: [
+                  ...(r.chats ?? []),
+                  { id: 'chat-new-a', repoId: 'repo-1', title: '', order: 5 },
+                  { id: 'chat-new-b', repoId: 'repo-1', title: '', order: 6 },
+                ],
+              }
+            }
+            if (r.id === 'repo-2') {
+              return {
+                ...r,
+                chats: [{ id: 'chat-in-repo-2', repoId: 'repo-2', title: '', order: 0 }],
+              }
+            }
+            return r
+          }),
+        })
+        useHomeTreeStore.setState({
+          trees: {
+            'proj-1': {
+              chats: [{ id: 'home-chat-new', repoId: '', title: 'New home chat', order: 0 }],
+              folders: [],
+            },
+          },
+        })
+
+        const rows = renderedProjectRows(useSidebarStore.getState().repos, 'proj-1')
+        expect(rows.find((r) => r.id === 'chat-new-a')).toBeUndefined()
+        expect(rows.find((r) => r.id === 'chat-new-b')).toBeUndefined()
+        expect(rows.find((r) => r.id === 'chat-in-repo-2')).toBeDefined()
+        expect(rows.find((r) => r.id === 'home-chat-new')).toBeDefined()
+      })
     })
   })
 

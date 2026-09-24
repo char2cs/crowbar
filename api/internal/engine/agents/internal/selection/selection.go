@@ -69,6 +69,7 @@ func PermissionVars(
 	return d.PermissionLevels.Levels[level].Vars
 }
 
+// Steps is sel on the argv of a process the spawn FORKS.
 func Steps(
 	d *spec.Descriptor,
 	sel models.Selection,
@@ -87,6 +88,29 @@ func Steps(
 		if lvl, ok := d.PermissionLevels.Levels[sel.PermissionLevel]; ok {
 			out = append(out, spec.CloneSteps(lvl.Apply)...)
 		}
+	}
+	return out
+}
+
+// APISteps is sel on the api channel's own `serve` argv — the carrier a spawn
+// that forks no process at all has instead of Steps.
+//
+// A permission level contributes nothing here on purpose, and is not missing:
+// its api carrier is vars:, which the establish call's send: tree renders
+// (PermissionVars), not an argv this could put a step on.
+func APISteps(
+	d *spec.Descriptor,
+	sel models.Selection,
+) []spec.InjectStep {
+	if d == nil {
+		return nil
+	}
+	var out []spec.InjectStep
+	if sel.Model != "" && d.Model != nil {
+		out = append(out, spec.CloneSteps(d.Model.APIApply)...)
+	}
+	if sel.Effort != "" && d.Effort != nil {
+		out = append(out, spec.CloneSteps(d.Effort.APIApply)...)
 	}
 	return out
 }

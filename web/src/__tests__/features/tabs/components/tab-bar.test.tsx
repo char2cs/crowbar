@@ -93,12 +93,12 @@ function setupPaneStore({
     s.buffers = buffers
     s.panes[ROOT_PANE_ID] = {
       ...s.panes[ROOT_PANE_ID],
-      chatId,
       editorTabIds: buffers.map((b) => b.id),
       activeEditorTabId,
     }
     return s
   })
+  if (chatId) windowPaneStore.getState().paneActions.openChat(chatId)
   return store
 }
 

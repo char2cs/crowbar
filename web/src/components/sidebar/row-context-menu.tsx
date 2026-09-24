@@ -1,10 +1,12 @@
 import { useEffect, type RefObject } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import {
   DownloadSimple,
   Folder,
   Lock,
   LockOpen,
   PencilSimpleLine,
+  Terminal,
   Trash,
 } from '@phosphor-icons/react'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
@@ -19,7 +21,9 @@ import {
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
 import { resolveHomeRowScope } from '@/lib/store/home-tree'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
-import { handleTrashRepo } from '@/components/layout/space-content-actions'
+import { handleCreate, handleTrashRepo } from '@/components/layout/space-content-actions'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { providerCanStartOnTerminal } from '@/features/agent/api/agent-api'
 import { toast } from '@/features/window/stores/toast-store'
 
 interface SidebarRowContextMenuProps {
@@ -38,9 +42,10 @@ interface MenuData {
 }
 
 /**
- * The sidebar's right-click menu — rename, lock/unlock, branch import, and
- * "New folder", the four verbs Task 8's unification left with no home on
- * `SidebarRow`'s four-prop surface.
+ * The sidebar's right-click menu — rename, lock/unlock, branch import,
+ * "New folder", and "New thread in Terminal", the verbs Task 8's
+ * unification (and this fix) left with no home on `SidebarRow`'s four-prop
+ * surface.
  *
  * A SIBLING of the tree, listening for a native `contextmenu` event on
  * `treeRef.current` rather than a hook inside the tree: with the open/closed
@@ -56,6 +61,18 @@ interface MenuData {
 export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowContextMenuProps) {
   const menu = useContextMenu<MenuData>()
   const { openAt } = menu
+  const navigate = useNavigate()
+  // Whether the provider a new chat would actually start under offers a
+  // START_HERE terminal (design spec 2.5) — a NARROW, reactive selector
+  // (never `.getState()` in render): absence, not a disabled control, so
+  // "New thread in Terminal" below is left OUT of `items` entirely rather
+  // than pushed disabled. No enabled provider resolved yet is not evidence
+  // of "no terminal" — the plain Thread button offers itself unconditionally
+  // too and leaves that refusal to `enabledProvider()` at click time; this
+  // matches it (providerCanStartOnTerminal(undefined) is permissive).
+  const enabledProviderCanStartOnTerminal = useAgentProvidersStore((s) =>
+    providerCanStartOnTerminal(s.providers.find((p) => p.enabled)),
+  )
 
   useEffect(() => {
     const tree = treeRef.current
@@ -211,6 +228,24 @@ export function SidebarRowContextMenu({ treeRef, rows, onImport }: SidebarRowCon
             ? performCreateFolderFromChat(row.id)
             : performCreateFolder(row.id)),
     })
+
+    // THE BUG this exists for: "can't start chats directly on a CLI, it
+    // always obligates me to use the native chat" — no creation entry point
+    // could land a single new chat on Terminal without flipping
+    // chatIsDefaultPresentation (Settings → Chat) globally. Same
+    // `handleCreate` the row's own "+" Thread button calls, with the
+    // optional 4th arg that presets the landed chat's surface. Absence, not
+    // disabled: left out of `items` entirely, never pushed with
+    // `disabled: true`, whenever the provider that would run it has no
+    // terminal at all.
+    if (enabledProviderCanStartOnTerminal) {
+      items.push({
+        id: 'new-thread-terminal',
+        label: 'New thread in Terminal',
+        icon: <Terminal />,
+        onClick: () => handleCreate(row.id, 'thread', navigate, 'terminal'),
+      })
+    }
   }
 
   // The repo's real delete entry point — `handleTrash` refuses this ONE row

@@ -185,7 +185,7 @@ export const createBufferSlice: StateCreator<
           // up blank. Editors and everything else are safe to surface in the
           // active pane, so they keep the addEditorTabToPane path. (An agent chat
           // used to share this jump path too — it is no longer reachable here at
-          // all: a chat is `PaneGroup.chatId`, set via `setPaneChat`, never opened
+          // all: a chat is `PaneGroup.chatId`, never opened
           // through `openContent`.)
           if (existing.type === 'terminal') {
             const pane = get().paneActions.getPaneByEditorTabId(existing.id)
@@ -414,8 +414,7 @@ export const createBufferSlice: StateCreator<
             'kill terminal session',
           )
         }
-        // A chat is no longer a buffer at all (it is `PaneGroup.chatId`, set via
-        // `setPaneChat`), so closeBuffer is never reached for one any more — the
+        // A chat is no longer a buffer at all (it is `PaneGroup.chatId`), so closeBuffer is never reached for one any more — the
         // "stop the vendor CLI, keep the chat resumable" behavior that used to
         // live here belongs to whatever closes a chat PANE now, a gap already
         // disclosed by pane-container.tsx (Task 18's job).

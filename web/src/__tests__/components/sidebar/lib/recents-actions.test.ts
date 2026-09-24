@@ -1,418 +1,90 @@
-import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Mocked so the real registry's store creation doesn't need a real
-// IndexedDB write path — same setup workspace-store-registry.test.ts uses
-// for exercising the real registry.
-vi.mock('@/lib/persistence/workspace-layout', () => ({
-  saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
-}))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
-// `closeRecent`/`closeRecentChat`'s DORMANT branch (no live pane) is the
-// subject of the suite below: unlike the live-pane branch, which reaches
-// `stopChat` indirectly through `closePane` → `releaseClosedChat`, that
-// branch called nothing on the backend at all before this fix. Mocked at
-// module scope, same as pane-slice.close-teardown.test.ts's own reason —
-// these tests assert on the real call, not on whether a real fetch happens
-// to fail silently.
-vi.mock('@/features/agent/api/agent-api', () => ({
-  stopChat: vi.fn().mockResolvedValue(undefined),
+const { openChatRoute } = vi.hoisted(() => ({ openChatRoute: vi.fn(() => true) }))
+vi.mock('@/components/layout/space-content-actions', () => ({ openChatRoute }))
+vi.mock('@/features/panes/lib/release-closed-chat', () => ({
+  releaseClosedChat: vi.fn(async () => {}),
 }))
 
-import { focusRecent, closeRecent, closeRecentChat } from '@/components/sidebar/lib/recents-actions'
-import { stopChat } from '@/features/agent/api/agent-api'
+import { closeRecent, closeRecentChat, focusRecent } from '@/components/sidebar/lib/recents-actions'
 import {
-  getAllActiveWorkspaceIds,
-  destroyWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
-import {
-  windowPaneStore,
   resetWindowPaneStoreForTests,
+  windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
-import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { viewChatIds } from '@/features/panes/lib/view-state'
 import type { Repo } from '@/lib/store/sidebar'
 
-const stop = vi.mocked(stopChat)
+const repos: Repo[] = [
+  {
+    id: 'r1',
+    projectId: 'p1',
+    name: 'crowbar',
+    avatarLabel: 'C',
+    avatarColor: 'bg-indigo-700',
+    workspaces: [{ id: 'ws-1', branch: 'main', age: '' }],
+    chats: [
+      { id: 'chat-a', repoId: 'r1', title: 'A', order: 0, workspaceId: 'ws-1' },
+      { id: 'chat-b', repoId: 'r1', title: 'B', order: 1, workspaceId: 'ws-1' },
+    ],
+  },
+]
 
-/** Let the fire-and-forget `stopDormantChat` call settle — same recipe as
- *  pane-slice.close-teardown.test.ts's own `settle`. */
-async function settle() {
-  await Promise.resolve()
-  await Promise.resolve()
-  await Promise.resolve()
+function viewOf(chatId: string): string {
+  const { panes } = windowPaneStore.getState()
+  return panes[chatPaneIndex(panes).get(chatId)!].viewId!
 }
 
-const repo = (over: Partial<Repo> = {}): Repo => ({
-  id: 'r1',
-  projectId: 'p1',
-  name: 'crowbar',
-  avatarLabel: 'C',
-  avatarColor: 'bg-indigo-700',
-  workspaces: [{ id: 'ws-1', branch: 'alpha', age: '', order: 0 }],
-  ...over,
-})
-
 beforeEach(() => {
-  stop.mockClear()
-  stop.mockResolvedValue(undefined)
-})
-
-afterEach(() => {
-  getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
-  // Task 26: panes/dormantArrangements are a window-level singleton now,
-  // never destroyed by destroyWorkspaceStore — reset between tests.
+  vi.clearAllMocks()
   resetWindowPaneStoreForTests()
+  const { paneActions } = windowPaneStore.getState()
+  paneActions.setActiveProject('p1')
+  paneActions.openChat('chat-a')
+  paneActions.openChat('chat-b')
 })
 
 describe('focusRecent', () => {
-  it("navigates to the entry's owning workspace", () => {
+  it('switches to the row’s view, then routes to its chat’s own workspace', () => {
     const navigate = vi.fn()
-    const entry: RecentsBandEntry = {
-      id: 'e1',
-      localId: 'e1',
-      chatIds: ['chat-1'],
-      state: 'dormant',
-      workspaceId: 'ws-1',
-    }
-    focusRecent(entry, [repo()], navigate)
-    expect(navigate).toHaveBeenCalledWith({
-      to: '/ide/$projectId/$repoId/$wsId',
-      params: { projectId: 'p1', repoId: 'r1', wsId: 'ws-1' },
-    })
+    focusRecent(viewOf('chat-a'), repos, navigate as never)
+    expect(windowPaneStore.getState().activeViewId).toBe(viewOf('chat-a'))
+    expect(openChatRoute).toHaveBeenCalledWith(repos, 'chat-a', 'ws-1', navigate)
   })
 
-  it('brings a live pane already holding the chat to the front', () => {
-    const navigate = vi.fn()
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    const otherPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
-    windowPaneStore.getState().paneActions.setActivePane(otherPane)
-
-    const entry: RecentsBandEntry = {
-      id: 'e1',
-      localId: 'e1',
-      chatIds: ['chat-1'],
-      state: 'live',
-      workspaceId: 'ws-1',
-    }
-    focusRecent(entry, [repo()], navigate)
-
-    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
-  })
-
-  it('does not navigate for a workspace not found in the given repos', () => {
-    const navigate = vi.fn()
-    const entry: RecentsBandEntry = {
-      id: 'e1',
-      localId: 'e1',
-      chatIds: ['chat-1'],
-      state: 'dormant',
-      workspaceId: 'nope',
-    }
-    focusRecent(entry, [repo()], navigate)
-    expect(navigate).not.toHaveBeenCalled()
-  })
-
-  /**
-   * Recents is the VIEW SWITCHER, so this row body is the only way back to a
-   * view that is off screen. It used to run the switch AFTER the navigation
-   * and behind its early return, which meant a row whose workspace
-   * `resolveRow` could not place — a repo's own checkout, a project-home
-   * workspace, anything outside `repo.workspaces` — did nothing at all.
-   * Observed live: clicking such a row left the screen exactly as it was.
-   */
-  it('switches to the view even when the route cannot be resolved', () => {
-    const navigate = vi.fn()
+  it('focuses the member of a group that was focused last', () => {
     const { paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    const elsewhere = paneActions.addPane()!
-    paneActions.setPaneChat(elsewhere, 'chat-2', null)
-    expect(windowPaneStore.getState().activePaneId).toBe(elsewhere)
-
-    focusRecent(
-      { id: 'e1', localId: 'e1', chatIds: ['chat-1'], state: 'live', workspaceId: 'unplaceable' },
-      [repo()],
-      navigate,
-    )
-
-    expect(navigate).not.toHaveBeenCalled()
-    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
-    expect(windowPaneStore.getState().activeViewId).toBe(ROOT_PANE_ID)
+    const paneA = chatPaneIndex(windowPaneStore.getState().panes).get('chat-a')!
+    paneActions.dropChatOnPane('chat-b', paneA, 'right')
+    paneActions.setActivePane(chatPaneIndex(windowPaneStore.getState().panes).get('chat-b')!)
+    focusRecent(viewOf('chat-a'), repos, vi.fn() as never)
+    expect(openChatRoute).toHaveBeenCalledWith(repos, 'chat-b', 'ws-1', expect.anything())
   })
 
-  it('brings a view that is OFF SCREEN back onto it', () => {
-    const navigate = vi.fn()
-    const { paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    const elsewhere = paneActions.addPane()!
-    paneActions.setPaneChat(elsewhere, 'chat-2', null)
-
-    focusRecent(
-      { id: 'e1', localId: 'e1', chatIds: ['chat-1'], state: 'live', workspaceId: 'ws-1' },
-      [repo()],
-      navigate,
-    )
-
-    expect(windowPaneStore.getState().activeViewId).toBe(ROOT_PANE_ID)
-    expect(Object.keys(windowPaneStore.getState().parkedViews)).toEqual([elsewhere])
+  it('is a no-op for a row that no longer exists', () => {
+    focusRecent('gone', repos, vi.fn() as never)
+    expect(openChatRoute).not.toHaveBeenCalled()
   })
 })
 
-describe('closeRecent', () => {
-  it("closes every pane holding one of a LIVE entry's chats", () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-
-    const entry: RecentsBandEntry = {
-      id: 'e1',
-      localId: 'e1',
-      chatIds: ['chat-1'],
-      state: 'live',
-      workspaceId: 'ws-1',
-    }
-    closeRecent(entry)
-
-    // closePane on the sole root pane empties it rather than deleting it
-    // (spec §5.4: "closing the last pane empties it rather than refusing").
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBeNull()
+describe('closeRecent / closeRecentChat', () => {
+  it('closeRecent ends the whole view — its row goes in one press', () => {
+    const view = viewOf('chat-a')
+    closeRecent(view)
+    expect(windowPaneStore.getState().viewOrder).not.toContain(view)
+    expect(chatPaneIndex(windowPaneStore.getState().panes).has('chat-a')).toBe(false)
   })
 
-  // Was "becomes a dormant arrangement on close, never lost" — that lingering
-  // row was exactly the bug: "the pane disappears, but its row on recents
-  // don't — I have to hit the X once again to then have it removed from
-  // recents" (verbatim). A close is now final on both sides, in one action.
-  it('an idle live chat leaves Recents entirely on close — no dormant residue, no second X needed', () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-
-    const entry: RecentsBandEntry = {
-      id: 'e1',
-      localId: 'e1',
-      chatIds: ['chat-1'],
-      state: 'live',
-      workspaceId: 'ws-1',
-    }
-    closeRecent(entry)
-
-    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
-  })
-
-  it('forgets a DORMANT entry outright — there is no pane to close', () => {
+  it('closeRecentChat takes one member out of a group, leaving the rest grouped', () => {
     const { paneActions } = windowPaneStore.getState()
-    // A dormant record now only ever comes from setPaneChat's own hotswap-
-    // away archive (spec §8.4) — closePane no longer seeds one.
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1
-    expect(windowPaneStore.getState().dormantArrangements).toHaveLength(1)
-    const entryId = windowPaneStore.getState().dormantArrangements[0]!.id
+    paneActions.openChat('chat-c')
+    const paneA = chatPaneIndex(windowPaneStore.getState().panes).get('chat-a')!
+    paneActions.dropChatOnPane('chat-b', paneA, 'right')
+    paneActions.dropChatOnPane('chat-c', paneA, 'bottom')
+    const group = viewOf('chat-a')
 
-    // Task 26: ids are already globally unique (one pane store), so
-    // recents-for-project.ts no longer mints a workspace-qualified `.id`
-    // distinct from `.localId` — both are the store's own real arrangement
-    // id now. `closeRecent` still forgets by `.localId` (the field the store
-    // is actually keyed by), which continues to be the correct field to use.
-    const entry: RecentsBandEntry = {
-      id: entryId,
-      localId: entryId,
-      chatIds: ['chat-1'],
-      state: 'dormant',
-      workspaceId: 'ws-1',
-    }
-    closeRecent(entry)
+    closeRecentChat('chat-b')
 
-    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
-  })
-
-  /**
-   * The bug: "closing a chat recent row, the chat is still active on the
-   * backend." A DORMANT entry has no live pane, so `closePane`'s own
-   * `releaseClosedChat` → `stopChat` teardown never runs for it — before
-   * this fix, forgetting the arrangement was ALL `closeRecent` ever did on
-   * this branch, and a chat `setPaneChat` had archived here (hotswap-away,
-   * still idle-but-live) kept its backend runner running forever.
-   */
-  it('stops every chat in a DORMANT entry on the backend, not just locally', async () => {
-    const { paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1
-    const entryId = windowPaneStore.getState().dormantArrangements[0]!.id
-
-    const entry: RecentsBandEntry = {
-      id: entryId,
-      localId: entryId,
-      chatIds: ['chat-1'],
-      state: 'dormant',
-      workspaceId: 'ws-1',
-    }
-    closeRecent(entry)
-    await settle()
-
-    expect(stop).toHaveBeenCalledWith('ws-1', 'chat-1')
-  })
-
-  it('resolves a DORMANT SET member through chatWorkspaces, not the entry-wide workspaceId', async () => {
-    const entry: RecentsBandEntry = {
-      id: 'e1',
-      localId: 'e1',
-      chatIds: ['chat-1', 'chat-2'],
-      state: 'dormant',
-      workspaceId: 'ws-1',
-      chatWorkspaces: { 'chat-1': 'ws-1', 'chat-2': 'ws-2' },
-    }
-    closeRecent(entry)
-    await settle()
-
-    expect(stop).toHaveBeenCalledWith('ws-1', 'chat-1')
-    expect(stop).toHaveBeenCalledWith('ws-2', 'chat-2')
-  })
-})
-
-/**
- * The × on a Recents row is "end this view" (spec §5.4), and a view is now
- * routinely more than one pane — so it has to take every member with it.
- * `closeView` is what guarantees that: one `closePane` per member, each
- * running the real teardown (`releaseClosedChat` → `stopChat` → workspace
- * eviction), rather than only the pane the gesture happened to name.
- */
-describe('closeRecent — a view of any size', () => {
-  it('ends every member of a MERGED view, leaving no Recents residue for any of them', () => {
-    const { paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    const b = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
-    paneActions.setPaneChat(b, 'chat-2', null)
-    const c = paneActions.splitPane(b, 'vertical')!
-    paneActions.setPaneChat(c, 'chat-3', null)
-
-    closeRecent({
-      id: 'e1',
-      localId: 'e1',
-      chatIds: ['chat-1', 'chat-2', 'chat-3'],
-      state: 'live',
-      showing: true,
-      workspaceId: 'ws-1',
-    })
-
-    expect(Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId)).toEqual([])
-    expect(windowPaneStore.getState().panes[b]).toBeUndefined()
-    expect(windowPaneStore.getState().panes[c]).toBeUndefined()
-    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
-  })
-
-  // The row's own id is the DORMANT RECORD's when it inherited one, not the
-  // live view's — so the view has to be resolved from a member that is up.
-  it('ends the right view when the row sits at a remembered slot', () => {
-    const { paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    const other = paneActions.addPane()!
-    paneActions.setPaneChat(other, 'chat-2', null)
-
-    closeRecent({
-      id: 'a-slot-id-that-is-not-a-view',
-      localId: 'a-slot-id-that-is-not-a-view',
-      chatIds: ['chat-1'],
-      state: 'live',
-      workspaceId: 'ws-1',
-    })
-
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]).toBeUndefined()
-    // The sibling view is untouched and now the one on screen.
-    expect(windowPaneStore.getState().panes[other]?.chatId).toBe('chat-2')
-  })
-
-  it('closing a view that is off screen never disturbs the one that is', () => {
-    const { paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    const showing = paneActions.addPane()!
-    paneActions.setPaneChat(showing, 'chat-2', null)
-
-    closeRecent({
-      id: ROOT_PANE_ID,
-      localId: ROOT_PANE_ID,
-      chatIds: ['chat-1'],
-      state: 'live',
-      workspaceId: 'ws-1',
-    })
-
-    expect(windowPaneStore.getState().parkedViews).toEqual({})
-    expect(windowPaneStore.getState().activePaneId).toBe(showing)
-    expect(windowPaneStore.getState().panes[showing]?.chatId).toBe('chat-2')
-  })
-})
-
-/**
- * Recents' per-chat × on a multi-chat SET (feedback: "closes that chat from
- * that group, but doesn't dissolve the group, it just removes that one chat
- * from it") — narrower than `closeRecent` above, which always ends the WHOLE
- * entry/view.
- */
-describe('closeRecentChat', () => {
-  it('closes the pane when the chat is LIVE, leaving the rest of the view alone', () => {
-    const { paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    const b = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
-    paneActions.setPaneChat(b, 'chat-2', null)
-
-    closeRecentChat(
-      {
-        id: 'e1',
-        localId: 'e1',
-        chatIds: ['chat-1', 'chat-2'],
-        state: 'live',
-        workspaceId: 'ws-1',
-      },
-      'chat-1',
-    )
-
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]).toBeUndefined()
-    expect(windowPaneStore.getState().panes[b]?.chatId).toBe('chat-2')
-  })
-
-  // The multi-survivor case (removing one id out of several, leaving the rest
-  // of the arrangement intact) is already exercised directly against the
-  // reducer in pane-slice.test.ts's own `removeChatFromDormantArrangement`
-  // suite — this only needs to confirm `closeRecentChat` reaches for that
-  // action (rather than `closePane`) once there is no live pane to close.
-  it('routes to removeChatFromDormantArrangement when the chat has no live pane', () => {
-    const { paneActions } = windowPaneStore.getState()
-    // No live pane for this chat — seed the dormant record the same way
-    // forgetDormantArrangement's own suite does (setPaneChat's hotswap-away
-    // archive).
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1
-    const entryId = windowPaneStore.getState().dormantArrangements[0]!.id
-
-    closeRecentChat(
-      { id: entryId, localId: entryId, chatIds: ['chat-1'], state: 'dormant', workspaceId: 'ws-1' },
-      'chat-1',
-    )
-
-    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
-  })
-
-  // Same bug as `closeRecent`'s own DORMANT case, narrowed to one member of
-  // a SET: removing it from the group locally used to be the only thing
-  // this branch did — its backend runner kept running.
-  it('stops the chat on the backend when it has no live pane', async () => {
-    const { paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
-    paneActions.setPaneChat(ROOT_PANE_ID, 'chat-2', 'runner-2') // archives chat-1
-    const entryId = windowPaneStore.getState().dormantArrangements[0]!.id
-
-    closeRecentChat(
-      {
-        id: entryId,
-        localId: entryId,
-        chatIds: ['chat-1'],
-        state: 'dormant',
-        workspaceId: 'ws-1',
-        chatWorkspaces: { 'chat-1': 'ws-2' },
-      },
-      'chat-1',
-    )
-    await settle()
-
-    // Resolved through `chatWorkspaces`, not the entry-wide `workspaceId` —
-    // a SET can span more than one workspace within a project.
-    expect(stop).toHaveBeenCalledWith('ws-2', 'chat-1')
+    expect(viewChatIds(windowPaneStore.getState(), group)).toEqual(['chat-a', 'chat-c'])
   })
 })

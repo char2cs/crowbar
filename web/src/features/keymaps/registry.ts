@@ -23,6 +23,7 @@ export const TAB_NEW = 'tabs.new'
 export const TAB_NEW_TERMINAL = 'tabs.newTerminal'
 export const TAB_NEW_FILE = 'tabs.newFile'
 export const AGENT_NEW_CHAT = 'agent.newChat'
+export const AGENT_NEW_CHAT_TERMINAL = 'agent.newChatTerminal'
 export const AGENT_CYCLE_PROVIDER = 'agent.cycleProvider'
 export const AGENT_TOGGLE_VIEW_MODE = 'agent.toggleViewMode'
 export const TAB_REOPEN_CLOSED = 'tabs.reopenClosed'
@@ -119,6 +120,18 @@ export const COMMANDS: Command[] = [
     label: 'New chat',
     category: 'Tabs',
     defaultChord: 'mod+n',
+    liveEditable: true,
+  },
+  {
+    // The chat's own switcher can already MOVE an open chat onto Terminal —
+    // this is the one thing it could not do: land a chat there from the
+    // start. `chatIsDefaultPresentation` (Settings → Chat) covers "every new
+    // chat from now on"; this covers "just this one", without touching that
+    // sticky default for the chats that follow it.
+    id: AGENT_NEW_CHAT_TERMINAL,
+    label: 'New chat (Terminal)',
+    category: 'Tabs',
+    defaultChord: 'mod+alt+n',
     liveEditable: true,
   },
   {

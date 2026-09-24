@@ -1,5 +1,6 @@
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { isPaneEmpty } from '@/features/panes/stores/slices/pane-slice'
+import { showingLayout } from '@/features/panes/lib/view-state'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { getOwningChatId } from '@/lib/workspace-scope'
 import { BOTTOM_PANE_ID } from '../constants/pane'
@@ -7,66 +8,6 @@ import type { LayoutNode } from '../types/pane'
 import { getAllLeafIds } from './pane-layout'
 import { getPaneScopeForPaneId } from './pane-routing'
 import { createPaneBeside } from './pane-split-actions'
-
-/**
- * Put `chatId` on screen as its OWN view — spec §8.4, "clicking a chat makes
- * its own view" — regardless of where the chat id comes from. The one shared
- * core behind every "open this chat, the way a click does" caller:
- * `openChatInOwnPane` (drop-actions.ts, a sidebar row click/reveal) and the
- * ⌘N new-chat command (use-pane-keyboard.ts), which differ only in how they
- * got a chat id (an existing chat vs. one just minted) but must agree on what
- * "open" means once they have one — see the fix note below for why they used
- * to disagree.
- *
- *   - **already up anywhere → go TO it** (§8.2's "it never opens twice"),
- *     checked against every pane, including one in a view currently off
- *     screen (`setActivePane` brings that whole view over) — EXCEPT one in
- *     another PROJECT's parked view, which is law 5 of the project-scoped
- *     panes design: reaching it is a route + space switch, never a reveal in
- *     place. `setActivePane` enforces that itself (it records the view as
- *     that project's own, so the route-driven switch lands on this exact
- *     pane, and changes nothing on this screen); this function must still
- *     return here rather than fall through, or §8.2 would be broken by
- *     opening the same chat a second time in the space the user is in.
- *   - **an EMPTY pane in the showing view → it fills that one** (the active
- *     pane first, so it lands where the user is already looking).
- *   - **otherwise → a brand-new VIEW** (`addPane`), which takes the screen
- *     while the arrangement that was showing is PARKED whole, not lost.
- *
- * `detachPaneToOwnView` covers the middle case: a reused empty pane can still
- * be tagged into a view someone merged earlier, and filling it in place would
- * silently add this chat to that group.
- *
- * Before this existed, ⌘N wrote straight into `activePaneId` via
- * `setPaneChat` — which ARCHIVES whatever that pane held into
- * `dormantArrangements` (closed, not parked) — instead of minting a view of
- * its own. Every chat the user had open before pressing ⌘N was one keystroke
- * from being silently closed, which is what made the app feel like it could
- * only ever hold one view at a time. `runnerId` defaults to null — a freshly
- * minted chat has no runner yet; a revealed existing one ignores it entirely
- * (the reveal branch returns before it would apply).
- */
-export function openChatIdInOwnView(chatId: string, runnerId: string | null = null): void {
-  const { panes, activePaneId, rootLayout, paneActions } = windowPaneStore.getState()
-
-  const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
-  if (existingPane) {
-    paneActions.setActivePane(existingPane.id)
-    return
-  }
-
-  const openPaneIds = getAllLeafIds(rootLayout)
-  const vacant = (id: string) => isPaneEmpty(panes[id])
-  const targetId =
-    (openPaneIds.includes(activePaneId) && vacant(activePaneId) ? activePaneId : undefined) ??
-    openPaneIds.find(vacant) ??
-    paneActions.addPane()
-  if (!targetId) return
-
-  paneActions.detachPaneToOwnView(targetId)
-  paneActions.setPaneChat(targetId, chatId, runnerId)
-  paneActions.setActivePane(targetId)
-}
 
 export const getShareableSplitBufferId = (bufferId: string | null | undefined) => {
   if (!bufferId) return undefined
@@ -83,7 +24,7 @@ function isEditorPaneId(paneId: string): boolean {
     return false
   }
 
-  return getAllLeafIds(windowPaneStore.getState().rootLayout).includes(paneId)
+  return getAllLeafIds(showingLayout(windowPaneStore.getState())).includes(paneId)
 }
 
 function getActiveEditorPane() {
@@ -176,23 +117,15 @@ export function ensurePaneChatThenOpen(wsId: string, paneId: string, openTab: ()
   const owningChatId = getOwningChatId(wsId)
   if (!owningChatId) return
 
-  // Same dedup rule every other "put a chat in a pane" path already follows
-  // (open-agent-chat.ts's openAgentChat, drop-actions.ts's openChatIntoPane):
-  // a chat already showing somewhere is REVEALED, never duplicated into a
-  // second pane.
-  const existingPane = Object.values(windowPaneStore.getState().panes).find(
-    (p) => p.chatId === owningChatId,
-  )
-  if (existingPane) {
-    paneActions.setActivePane(existingPane.id)
+  // A chat already showing somewhere is revealed, never duplicated.
+  const existingPaneId = chatPaneIndex(windowPaneStore.getState().panes).get(owningChatId)
+  if (existingPaneId) {
+    paneActions.setActivePane(existingPaneId)
     openTab()
     return
   }
 
-  // No runner known yet — agent-chat-pane's own mount-time revive resolves
-  // and writes back the real one (same convention openAgentChat/
-  // openChatIntoPane use for a freshly attached chat).
-  paneActions.setPaneChat(paneId, owningChatId, null)
+  paneActions.dropChatOnPane(owningChatId, paneId, 'center')
   openTab()
 }
 
@@ -226,7 +159,7 @@ export function closeActiveEditorGroup(): boolean {
   }
 
   const paneGroups = getPaneScopeForPaneId(
-    state.rootLayout,
+    showingLayout(state),
     state.bottomLayout,
     state.panes,
     activePane.id,
@@ -246,7 +179,7 @@ export function closeOtherEditorGroups(): boolean {
     return false
   }
 
-  const editorGroups = getAllLeafIds(state.rootLayout).flatMap((id) => {
+  const editorGroups = getAllLeafIds(showingLayout(state)).flatMap((id) => {
     const pane = state.panes[id]
     return pane ? [pane] : []
   })
@@ -274,7 +207,7 @@ function collectSplitIds(node: LayoutNode): string[] {
 
 export function resetEditorGroupSizes(): boolean {
   const state = windowPaneStore.getState()
-  const splitIds = collectSplitIds(state.rootLayout)
+  const splitIds = collectSplitIds(showingLayout(state))
   if (splitIds.length === 0) {
     return false
   }
@@ -294,7 +227,7 @@ export function moveActiveEditorToAdjacentGroup(direction: 'next' | 'previous'):
   }
 
   const paneGroups = getPaneScopeForPaneId(
-    state.rootLayout,
+    showingLayout(state),
     state.bottomLayout,
     state.panes,
     activePane.id,

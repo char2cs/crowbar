@@ -19,8 +19,8 @@ import (
 // envelope unchanged.
 func TestProviders_Success(t *testing.T) {
 	uc := &fakeAgentUsecase{resolveProviders: []domain.AgentProvider{
-		{ID: "codex", DisplayName: "Codex", Icon: "<svg/>", Connected: true, Enabled: true, Hotswap: true, HasTerminal: true},
-		{ID: "claude", DisplayName: "Claude", Icon: "<svg/>", Connected: false, Enabled: false},
+		{ID: "codex", DisplayName: "Codex", Icon: "<svg/>", Connected: true, Enabled: true, Hotswap: true, HasTerminal: true, TerminalStartHere: false},
+		{ID: "claude", DisplayName: "Claude", Icon: "<svg/>", Connected: false, Enabled: false, TerminalStartHere: true},
 	}}
 	h := newChatHandlers(uc)
 
@@ -42,10 +42,12 @@ func TestProviders_Success(t *testing.T) {
 	assert.True(t, env.Data[0].Enabled)
 	assert.True(t, env.Data[0].Hotswap)
 	assert.True(t, env.Data[0].HasTerminal)
+	assert.False(t, env.Data[0].TerminalStartHere)
 	assert.False(t, env.Data[1].Connected)
 	assert.False(t, env.Data[1].Enabled)
 	assert.False(t, env.Data[1].Hotswap)
 	assert.False(t, env.Data[1].HasTerminal)
+	assert.True(t, env.Data[1].TerminalStartHere)
 }
 
 // TestProviders_UsecaseError proves a ResolveProviders failure surfaces as a

@@ -26,7 +26,9 @@ type GORMStores struct {
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
 	AgentPermissionDefault   store.Store[domain.AgentPermissionDefault, string]
+	AgentModelManifestFetch  store.Store[domain.AgentModelManifestFetch, string]
 	Folders                  store.ScopedStore[domain.Folder, string]
+	AgentChatTelemetry       store.Store[domain.AgentChatTelemetry, string]
 }
 
 func newGORMStores(
@@ -60,6 +62,17 @@ func newGORMStores(
 	if err != nil {
 		return nil, fmt.Errorf("app: folder store: %w", err)
 	}
+	chatTelemetry, err := storesqlite.NewFromDB[domain.AgentChatTelemetry, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("app: agent chat telemetry store: %w", err)
+	}
+	// Built last: preserves every earlier store's own fault-injection call
+	// count in gorm_test.go (e.g. TestNewGORMStores_FolderStoreError), which
+	// counts ExecContext calls by construction ORDER.
+	modelManifestFetch, err := storesqlite.NewFromDB[domain.AgentModelManifestFetch, string](db)
+	if err != nil {
+		return nil, fmt.Errorf("app: agent model manifest fetch store: %w", err)
+	}
 	return &GORMStores{
 		Projects:                 projects,
 		Repositories:             repos,
@@ -67,6 +80,8 @@ func newGORMStores(
 		TerminalSessions:         sessions,
 		AgentProviderPreferences: providerPrefs,
 		AgentPermissionDefault:   permissionDefault,
+		AgentModelManifestFetch:  modelManifestFetch,
 		Folders:                  folders,
+		AgentChatTelemetry:       chatTelemetry,
 	}, nil
 }

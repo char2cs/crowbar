@@ -23,8 +23,8 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { AgentChat } from '@/features/agent/api/agent-api'
-import type { PaneGroup } from '@/features/panes/types/pane'
 import type { EditorContent } from '@/features/panes/types/pane-content'
 
 const editorTab = (id: string, wsId: string): EditorContent => ({
@@ -38,16 +38,6 @@ const editorTab = (id: string, wsId: string): EditorContent => ({
   isDirty: false,
   isVirtual: false,
   tokens: [],
-})
-
-const editorOnlyPane = (id: string, tabId: string): PaneGroup => ({
-  id,
-  type: 'group',
-  chatId: null,
-  runnerId: null,
-  editorTabIds: [tabId],
-  activeEditorTabId: tabId,
-  editorOpen: true,
 })
 
 const chat = (id: string, wsId: string): AgentChat => ({
@@ -142,17 +132,12 @@ describe('useChatWorkspaceId', () => {
 /**
  * `WorkspaceHost`'s new "in a view" retention test (keep-alive-policy.ts —
  * `workspaceKeepAliveMinutes` and its time-window policy are gone). Real
- * workspace stores and the real `windowPaneStore`, same as
- * `recents-for-project.test.ts` — the whole point is exercising the same
- * `deriveRecentsEntries` derivation Recents itself renders from.
+ * workspace stores and the real `windowPaneStore`: the records Recents
+ * renders from.
  */
 describe('useViewWorkspaceIds', () => {
-  function seedLivePane(chatId: string): string {
-    const { paneActions, activePaneId } = windowPaneStore.getState()
-    const target = paneActions.getPaneById(activePaneId)
-    const paneId = target?.chatId == null ? activePaneId : paneActions.addPane()!
-    paneActions.setPaneChat(paneId, chatId, null)
-    return paneId
+  function seedLivePane(chatId: string): void {
+    windowPaneStore.getState().paneActions.openChat(chatId)
   }
 
   it('is empty with no active workspaces at all', () => {
@@ -177,7 +162,7 @@ describe('useViewWorkspaceIds', () => {
     expect(result.current).toEqual(['ws-a'])
   })
 
-  it('includes the owner of a chat that is merely "working", with no pane', () => {
+  it('includes the owner of a chat adopted as a background record', () => {
     act(() => {
       getOrCreateWorkspaceStore('ws-a')
         .getState()
@@ -186,11 +171,22 @@ describe('useViewWorkspaceIds', () => {
     const { result, rerender } = renderHook(() => useViewWorkspaceIds())
 
     act(() => {
-      getOrCreateWorkspaceStore('ws-a').getState().setAgentChatWorking('c1', true)
+      windowPaneStore.getState().paneActions.adoptBackgroundChat('c1', 'p1')
     })
     rerender()
 
     expect(result.current).toEqual(['ws-a'])
+  })
+
+  it('a working chat with no record retains nothing', () => {
+    act(() => {
+      getOrCreateWorkspaceStore('ws-a')
+        .getState()
+        .seedAgentChats([chat('c1', 'ws-a')])
+      getOrCreateWorkspaceStore('ws-a').getState().setAgentChatWorking('c1', true)
+    })
+    const { result } = renderHook(() => useViewWorkspaceIds())
+    expect(result.current).toEqual([])
   })
 
   it('drops a workspace the instant its last chat leaves every Recents entry (close, not a grace period)', () => {
@@ -203,8 +199,7 @@ describe('useViewWorkspaceIds', () => {
     const { result, rerender } = renderHook(() => useViewWorkspaceIds())
     expect(result.current).toEqual(['ws-a'])
 
-    // Close the view: the pane loses its chat and closePane strips every
-    // trace from dormantArrangements (see pane-slice.ts's closePane).
+    // Close the view: its record goes with its last chat.
     act(() => {
       const { paneActions, activePaneId } = windowPaneStore.getState()
       paneActions.closePane(activePaneId)
@@ -274,9 +269,9 @@ describe('usePaneEditorWorkspaceIds', () => {
   it('names the workspace an editor-only pane (no chat) holds a file for', () => {
     act(() => {
       windowPaneStore.setState((state) => ({
-        panes: { ...state.panes, 'editor-pane': editorOnlyPane('editor-pane', 'tab-1') },
         buffers: [...state.buffers, editorTab('tab-1', 'ws-a')],
       }))
+      windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal', 'tab-1')
     })
 
     const { result } = renderHook(() => usePaneEditorWorkspaceIds())
@@ -285,15 +280,14 @@ describe('usePaneEditorWorkspaceIds', () => {
   })
 
   it('unions across every pane and drops a workspace once its tab closes', () => {
+    let paneA = ''
     act(() => {
       windowPaneStore.setState((state) => ({
-        panes: {
-          ...state.panes,
-          'editor-pane-a': editorOnlyPane('editor-pane-a', 'tab-a'),
-          'editor-pane-b': editorOnlyPane('editor-pane-b', 'tab-b'),
-        },
         buffers: [...state.buffers, editorTab('tab-a', 'ws-a'), editorTab('tab-b', 'ws-b')],
       }))
+      const { paneActions } = windowPaneStore.getState()
+      paneA = paneActions.splitPane(ROOT_PANE_ID, 'horizontal', 'tab-a')!
+      paneActions.splitPane(ROOT_PANE_ID, 'vertical', 'tab-b')
     })
     const { result, rerender } = renderHook(() => usePaneEditorWorkspaceIds())
     expect([...result.current].sort()).toEqual(['ws-a', 'ws-b'])
@@ -302,7 +296,7 @@ describe('usePaneEditorWorkspaceIds', () => {
       windowPaneStore.setState((state) => ({
         panes: {
           ...state.panes,
-          'editor-pane-a': { ...state.panes['editor-pane-a']!, editorTabIds: [] },
+          [paneA]: { ...state.panes[paneA]!, editorTabIds: [] },
         },
       }))
     })

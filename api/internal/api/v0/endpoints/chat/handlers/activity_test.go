@@ -447,3 +447,34 @@ func TestChoices_RefusesAChatOutsideTheScopedWorkspace(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, rec.Code)
 	assert.Empty(t, uc.pendingCalls)
 }
+
+// TestRegression_TelemetryIsAbsentOnASurfaceThatCarriesNone is the measured
+// half of the capability fix. codex publishes usage only as
+// thread/tokenUsage/updated, an app-server notification: NO recorded codex
+// hooks payload carries a token, usage, context or cost field
+// (TestRegression_CodexReportsNoUsageOnItsHooksChannel, engine/agents, lists
+// the three captures and the eleven hooks it wires). So a codex chat on its
+// hooks-channel terminal surface can never receive another report.
+//
+// The store is DURABLE, which is what made this visible: a chat that earned a
+// report on the chat surface and then switched kept serving that number
+// forever — a gauge that never moves. Absence, never a dead control (the
+// house rule context-gauge.tsx states for itself).
+func TestRegression_TelemetryIsAbsentOnASurfaceThatCarriesNone(t *testing.T) {
+	capacity, used := 200000, 37117
+	pct := 19.0
+	uc := &fakeAgentUsecase{
+		telemetryOK: true,
+		telemetry: engineagents.Telemetry{
+			ObservedAt: activityAt,
+			Source:     engineagents.TelemetrySourceCallback,
+			Context:    &engineagents.ContextUsage{CapacityTokens: &capacity, UsedTokens: &used, UsedPercent: &pct},
+		},
+		telemetryOffSurface: true,
+	}
+	ctx, rec := scoped(t, "/telemetry")
+	newChatHandlers(inWorkspace(uc)).Telemetry(ctx)
+
+	assert.Equal(t, http.StatusNoContent, ctx.Writer.Status())
+	assert.Empty(t, rec.Body.String(), "a stale number is worse than no gauge at all")
+}

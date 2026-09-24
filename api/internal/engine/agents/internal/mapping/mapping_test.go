@@ -24,36 +24,45 @@ func doc() map[string]any {
 	}
 }
 
+func p(paths ...string) []string { return paths }
+
 func TestString_WalksADottedPath(t *testing.T) {
-	if got := mapping.String(doc(), "turn.lastAgentMessage"); got != "done" {
+	if got := mapping.String(doc(), p("turn.lastAgentMessage")); got != "done" {
 		t.Fatalf("got %q, want done", got)
 	}
 }
 
 func TestString_AlternationTakesTheFirstNonEmpty(t *testing.T) {
-	got := mapping.String(doc(), "tool_input.file_path || tool_input.command")
+	got := mapping.String(doc(), p("tool_input.file_path", "tool_input.command"))
 	if got != "ls -la" {
 		t.Fatalf("got %q, want the first NON-EMPTY branch", got)
 	}
 }
 
 func TestString_AlternationSkipsMissingAsWellAsEmpty(t *testing.T) {
-	if got := mapping.String(doc(), "nope.nothing || tool_input.command"); got != "ls -la" {
+	if got := mapping.String(doc(), p("nope.nothing", "tool_input.command")); got != "ls -la" {
 		t.Fatalf("got %q, want ls -la", got)
 	}
 }
 
 func TestString_MissingPathIsEmptyNotAPanic(t *testing.T) {
-	if got := mapping.String(doc(), "a.b.c.d"); got != "" {
+	if got := mapping.String(doc(), p("a.b.c.d")); got != "" {
 		t.Fatalf("got %q, want empty", got)
 	}
 }
 
-// The v2 grammar overloaded comma as alternation, which made a comma-bearing key
-// unaddressable. v3 uses || so this works.
+func TestString_NoBranchesIsEmpty(t *testing.T) {
+	if got := mapping.String(doc(), nil); got != "" {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
+
+// v2 overloaded comma as alternation, which made a comma-bearing key
+// unaddressable. There is no operator embedded in the path string at all any
+// more — a literal comma in a key is just part of the (single) path.
 func TestString_CommaIsNotAnOperator(t *testing.T) {
 	d := map[string]any{"a,b": "kept"}
-	if got := mapping.String(d, "a,b"); got != "kept" {
+	if got := mapping.String(d, p("a,b")); got != "kept" {
 		t.Fatalf("got %q, want kept", got)
 	}
 }
@@ -65,51 +74,51 @@ func TestString_WholeKeyWinsOverSegmentWalk(t *testing.T) {
 		"a.b": "whole",
 		"a":   map[string]any{"b": "walked"},
 	}
-	if got := mapping.String(d, "a.b"); got != "whole" {
+	if got := mapping.String(d, p("a.b")); got != "whole" {
 		t.Fatalf("got %q, want the whole-key match", got)
 	}
 }
 
 func TestInt_ReadsANumericLeaf(t *testing.T) {
-	got, ok := mapping.Int(doc(), "usage.inputTokens")
+	got, ok := mapping.Int(doc(), p("usage.inputTokens"))
 	if !ok || got != 1200 {
 		t.Fatalf("got (%d,%v), want (1200,true)", got, ok)
 	}
 }
 
 func TestBool_ReadsABooleanLeaf(t *testing.T) {
-	got, ok := mapping.Bool(doc(), "done")
+	got, ok := mapping.Bool(doc(), p("done"))
 	if !ok || !got {
 		t.Fatalf("got (%v,%v), want (true,true)", got, ok)
 	}
 }
 
 func TestObjects_ReadsAnArrayOfObjects(t *testing.T) {
-	got := mapping.Objects(doc(), "questions")
+	got := mapping.Objects(doc(), p("questions"))
 	if len(got) != 1 || got[0]["header"] != "Pick" {
 		t.Fatalf("got %+v", got)
 	}
 }
 
 func TestJSON_MarshalsANestedObject(t *testing.T) {
-	if got := mapping.JSON(doc(), "item"); len(got) == 0 {
+	if got := mapping.JSON(doc(), p("item")); len(got) == 0 {
 		t.Fatal("want the item object as JSON bytes")
 	}
 }
 
 func TestMatch_SelectsOnAVariantField(t *testing.T) {
-	if !mapping.Match(doc(), map[string]string{"item.type": "commandExecution"}) {
+	if !mapping.Match(doc(), map[string][]string{"item.type": {"commandExecution"}}) {
 		t.Fatal("want a match on item.type")
 	}
-	if mapping.Match(doc(), map[string]string{"item.type": "fileChange"}) {
+	if mapping.Match(doc(), map[string][]string{"item.type": {"fileChange"}}) {
 		t.Fatal("must not match a different variant")
 	}
 }
 
-func TestMatch_AlternationInTheWhenValue(t *testing.T) {
-	when := map[string]string{"item.type": "fileChange || commandExecution"}
+func TestMatch_MatchesAnyValueInTheSet(t *testing.T) {
+	when := map[string][]string{"item.type": {"fileChange", "commandExecution"}}
 	if !mapping.Match(doc(), when) {
-		t.Fatal("a when: value may alternate; commandExecution is in the set")
+		t.Fatal("a when: value may name a set; commandExecution is in it")
 	}
 }
 
@@ -119,13 +128,13 @@ func TestMatch_EmptyWhenMatchesEverything(t *testing.T) {
 	if !mapping.Match(doc(), nil) {
 		t.Fatal("no when: means unconditional")
 	}
-	if !mapping.Match(doc(), map[string]string{}) {
+	if !mapping.Match(doc(), map[string][]string{}) {
 		t.Fatal("an empty when: means unconditional")
 	}
 }
 
 func TestMatch_AllClausesMustHold(t *testing.T) {
-	when := map[string]string{"item.type": "commandExecution", "session_id": "other"}
+	when := map[string][]string{"item.type": {"commandExecution"}, "session_id": {"other"}}
 	if mapping.Match(doc(), when) {
 		t.Fatal("when: is a conjunction; one failing clause fails the match")
 	}
@@ -134,7 +143,7 @@ func TestMatch_AllClausesMustHold(t *testing.T) {
 // A missing path in a when: clause must not match, or a variant selector silently
 // applies to every payload that lacks the discriminator.
 func TestMatch_MissingDiscriminatorDoesNotMatch(t *testing.T) {
-	if mapping.Match(doc(), map[string]string{"absent.field": "anything"}) {
+	if mapping.Match(doc(), map[string][]string{"absent.field": {"anything"}}) {
 		t.Fatal("a missing discriminator must not match")
 	}
 }
@@ -164,32 +173,32 @@ func arrayDoc() map[string]any {
 }
 
 func TestString_SelectsFromAnArrayByField(t *testing.T) {
-	if got := mapping.String(arrayDoc(), "turn.items[type=agentMessage].text"); got != "OK" {
+	if got := mapping.String(arrayDoc(), p("turn.items[type=agentMessage].text")); got != "OK" {
 		t.Fatalf("got %q, want OK", got)
 	}
 }
 
 func TestString_ArraySelectionTakesTheFirstMatch(t *testing.T) {
-	if got := mapping.String(arrayDoc(), "turn.items[type=reasoning].text"); got != "thinking" {
+	if got := mapping.String(arrayDoc(), p("turn.items[type=reasoning].text")); got != "thinking" {
 		t.Fatalf("got %q, want thinking", got)
 	}
 }
 
 func TestString_ArraySelectionWithNoMatchIsEmpty(t *testing.T) {
-	if got := mapping.String(arrayDoc(), "turn.items[type=nothingLikeThis].text"); got != "" {
+	if got := mapping.String(arrayDoc(), p("turn.items[type=nothingLikeThis].text")); got != "" {
 		t.Fatalf("got %q, want empty", got)
 	}
 }
 
 func TestString_ArraySelectionOnAnEmptyListIsEmpty(t *testing.T) {
-	if got := mapping.String(arrayDoc(), "empty.items[type=x].y"); got != "" {
+	if got := mapping.String(arrayDoc(), p("empty.items[type=x].y")); got != "" {
 		t.Fatalf("got %q, want empty", got)
 	}
 }
 
 func TestString_ArraySelectionComposesWithAlternation(t *testing.T) {
-	expr := "turn.items[type=missing].text || item.content[type=text].text"
-	if got := mapping.String(arrayDoc(), expr); got != "Reply with exactly: OK" {
+	got := mapping.String(arrayDoc(), p("turn.items[type=missing].text", "item.content[type=text].text"))
+	if got != "Reply with exactly: OK" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -197,7 +206,7 @@ func TestString_ArraySelectionComposesWithAlternation(t *testing.T) {
 // A bracket in a plain key must not be mistaken for a selector.
 func TestString_ABracketedKeyIsStillAddressable(t *testing.T) {
 	d := map[string]any{"weird[key]": "kept"}
-	if got := mapping.String(d, "weird[key]"); got != "kept" {
+	if got := mapping.String(d, p("weird[key]")); got != "kept" {
 		t.Fatalf("got %q, want kept (whole-key match wins)", got)
 	}
 }
@@ -228,7 +237,7 @@ func TestFloat_AcceptsEveryNumericShapeAPayloadCanCarry(t *testing.T) {
 		{"str", 0, false},
 		{"absent", 0, false},
 	} {
-		got, ok := mapping.Float(d, tc.path)
+		got, ok := mapping.Float(d, p(tc.path))
 		if got != tc.want || ok != tc.wantOK {
 			t.Errorf("Float(%q) = (%v,%v), want (%v,%v)", tc.path, got, ok, tc.want, tc.wantOK)
 		}
@@ -257,7 +266,7 @@ func TestScalar_RendersEveryScalarShape(t *testing.T) {
 		{"obj", "", false},
 		{"absent", "", false},
 	} {
-		got, ok := mapping.Scalar(d, tc.path)
+		got, ok := mapping.Scalar(d, p(tc.path))
 		if got != tc.want || ok != tc.wantOK {
 			t.Errorf("Scalar(%q) = (%q,%v), want (%q,%v)", tc.path, got, ok, tc.want, tc.wantOK)
 		}
@@ -266,13 +275,13 @@ func TestScalar_RendersEveryScalarShape(t *testing.T) {
 
 func TestObject_ReturnsANestedObjectOrNil(t *testing.T) {
 	d := map[string]any{"obj": map[string]any{"a": "1"}, "notobj": "text"}
-	if got := mapping.Object(d, "obj"); got == nil || got["a"] != "1" {
+	if got := mapping.Object(d, p("obj")); got == nil || got["a"] != "1" {
 		t.Fatalf("Object(obj) = %+v", got)
 	}
-	if got := mapping.Object(d, "notobj"); got != nil {
+	if got := mapping.Object(d, p("notobj")); got != nil {
 		t.Fatalf("Object of a non-object should be nil, got %+v", got)
 	}
-	if got := mapping.Object(d, "absent"); got != nil {
+	if got := mapping.Object(d, p("absent")); got != nil {
 		t.Fatalf("Object of a missing path should be nil, got %+v", got)
 	}
 }
@@ -285,14 +294,14 @@ func TestObject_ReturnsANestedObjectOrNil(t *testing.T) {
 // performs still fails closed to empty.
 func TestString_ASelectorSegmentWithNoEqualsOverAnArrayIsEmpty(t *testing.T) {
 	d := map[string]any{"arr": []any{map[string]any{"a": "1"}}}
-	if got := mapping.String(d, "arr[novalue]"); got != "" {
+	if got := mapping.String(d, p("arr[novalue]")); got != "" {
 		t.Fatalf("got %q, want empty: a dynamic-key selector over an array must not resolve", got)
 	}
 }
 
 func TestString_ASelectorSegmentWithAnEmptyFieldIsAPlainKey(t *testing.T) {
 	d := map[string]any{"arr": []any{map[string]any{"a": "1"}}}
-	if got := mapping.String(d, "arr[=novalue]"); got != "" {
+	if got := mapping.String(d, p("arr[=novalue]")); got != "" {
 		t.Fatalf("got %q, want empty: a selector needs a non-empty field name", got)
 	}
 }
@@ -301,7 +310,7 @@ func TestString_ASelectorSegmentWithAnEmptyFieldIsAPlainKey(t *testing.T) {
 // selector does not resolve to a list at all.
 func TestString_ArraySelectionOnANonArrayIsEmpty(t *testing.T) {
 	d := map[string]any{"obj": "not a list"}
-	if got := mapping.String(d, "obj[type=foo]"); got != "" {
+	if got := mapping.String(d, p("obj[type=foo]")); got != "" {
 		t.Fatalf("got %q, want empty: a selector over a non-array must not resolve", got)
 	}
 }
@@ -312,7 +321,7 @@ func TestString_ArraySelectionSkipsNonObjectElements(t *testing.T) {
 	d := map[string]any{
 		"items": []any{"not an object", map[string]any{"type": "foo", "val": "kept"}},
 	}
-	if got := mapping.String(d, "items[type=foo].val"); got != "kept" {
+	if got := mapping.String(d, p("items[type=foo].val")); got != "kept" {
 		t.Fatalf("got %q, want kept: the non-object element must be skipped, not matched", got)
 	}
 }
@@ -323,7 +332,7 @@ func TestString_ArraySelectionSkipsNonObjectElements(t *testing.T) {
 // leaf holding the literal two-byte string `""`.
 func TestJSON_AnEmptyStringLeafIsNilNotEmptyQuotes(t *testing.T) {
 	d := map[string]any{"s": ""}
-	if got := mapping.JSON(d, "s"); got != nil {
+	if got := mapping.JSON(d, p("s")); got != nil {
 		t.Fatalf("got %q, want nil for an empty string leaf", got)
 	}
 }
@@ -334,7 +343,7 @@ func TestJSON_AnEmptyStringLeafIsNilNotEmptyQuotes(t *testing.T) {
 // encoding error nowhere the caller could see it.
 func TestJSON_AnUnmarshalableLeafIsNil(t *testing.T) {
 	d := map[string]any{"bad": make(chan int)}
-	if got := mapping.JSON(d, "bad"); got != nil {
+	if got := mapping.JSON(d, p("bad")); got != nil {
 		t.Fatalf("got %q, want nil for a value json.Marshal cannot encode", got)
 	}
 }
@@ -343,7 +352,7 @@ func TestJSON_AnUnmarshalableLeafIsNil(t *testing.T) {
 // same "fail closed" contract as a missing path.
 func TestObjects_ANonArrayLeafIsNilNotAPanic(t *testing.T) {
 	d := map[string]any{"notarray": "text"}
-	if got := mapping.Objects(d, "notarray"); got != nil {
+	if got := mapping.Objects(d, p("notarray")); got != nil {
 		t.Fatalf("got %+v, want nil for a non-array leaf", got)
 	}
 }
@@ -351,13 +360,13 @@ func TestObjects_ANonArrayLeafIsNilNotAPanic(t *testing.T) {
 // A false bool is an ANSWER, not an absence: alternation must not skip past it.
 func TestIsEmpty_OnlyNilAndEmptyStringCountAsEmpty(t *testing.T) {
 	d := map[string]any{"f": false, "zero": float64(0), "blank": "", "nil": nil}
-	if got, ok := mapping.Bool(d, "f || nil"); !ok || got {
-		t.Fatalf("Bool(f||nil) = (%v,%v), want (false,true): false is an answer", got, ok)
+	if got, ok := mapping.Bool(d, p("f", "nil")); !ok || got {
+		t.Fatalf("Bool(f,nil) = (%v,%v), want (false,true): false is an answer", got, ok)
 	}
-	if got, ok := mapping.Float(d, "zero"); !ok || got != 0 {
+	if got, ok := mapping.Float(d, p("zero")); !ok || got != 0 {
 		t.Fatalf("Float(zero) = (%v,%v), want (0,true): zero is an answer", got, ok)
 	}
-	if got := mapping.String(d, "blank || nil"); got != "" {
+	if got := mapping.String(d, p("blank", "nil")); got != "" {
 		t.Fatalf("all-empty alternation should be empty, got %q", got)
 	}
 }
@@ -376,49 +385,49 @@ func changesDoc() map[string]any {
 }
 
 func TestString_SelectsFromAnArrayByIndex(t *testing.T) {
-	if got := mapping.String(changesDoc(), "item.changes[0].path"); got != "/w/main.go" {
+	if got := mapping.String(changesDoc(), p("item.changes[0].path")); got != "/w/main.go" {
 		t.Fatalf("got %q, want /w/main.go", got)
 	}
-	if got := mapping.String(changesDoc(), "item.changes[1].path"); got != "/w/util.go" {
+	if got := mapping.String(changesDoc(), p("item.changes[1].path")); got != "/w/util.go" {
 		t.Fatalf("got %q, want /w/util.go", got)
 	}
 }
 
 func TestString_IndexSelectionComposesWithAlternation(t *testing.T) {
-	got := mapping.String(changesDoc(), "item.command || item.changes[0].path")
+	got := mapping.String(changesDoc(), p("item.command", "item.changes[0].path"))
 	if got != "/w/main.go" {
 		t.Fatalf("got %q, want the fallback branch to resolve", got)
 	}
 }
 
 func TestString_IndexOutOfRangeIsEmptyNotAPanic(t *testing.T) {
-	if got := mapping.String(changesDoc(), "item.changes[9].path"); got != "" {
+	if got := mapping.String(changesDoc(), p("item.changes[9].path")); got != "" {
 		t.Fatalf("got %q, want empty", got)
 	}
 }
 
 // A nested selector must still reach a scalar under an object-valued key.
 func TestString_SelectsANestedFieldOfAnIndexedElement(t *testing.T) {
-	if got := mapping.String(changesDoc(), "item.changes[0].kind.type"); got != "update" {
+	if got := mapping.String(changesDoc(), p("item.changes[0].kind.type")); got != "update" {
 		t.Fatalf("got %q, want update", got)
 	}
 }
 
 func TestPresent_TrueForAnExplicitNull(t *testing.T) {
 	d := map[string]any{"transcript_path": nil}
-	if !mapping.Present(d, "transcript_path") {
+	if !mapping.Present(d, p("transcript_path")) {
 		t.Fatal("a JSON null is a present key, not an absent one")
 	}
 }
 
 func TestPresent_FalseWhenTheKeyIsEntirelyAbsent(t *testing.T) {
-	if mapping.Present(map[string]any{}, "transcript_path") {
+	if mapping.Present(map[string]any{}, p("transcript_path")) {
 		t.Fatal("a key the payload never carries at all must not read as present")
 	}
 }
 
 func TestPresent_TrueForAnOrdinaryValue(t *testing.T) {
-	if !mapping.Present(doc(), "session_id") {
+	if !mapping.Present(doc(), p("session_id")) {
 		t.Fatal("a present, non-empty value must read as present")
 	}
 }
@@ -446,14 +455,14 @@ func collabDoc() map[string]any {
 }
 
 func TestString_SelectsAMapValueByADynamicKeyFromASiblingField(t *testing.T) {
-	got := mapping.String(collabDoc(), "item.agentsStates[receiverThreadIds[0]].status")
+	got := mapping.String(collabDoc(), p("item.agentsStates[receiverThreadIds[0]].status"))
 	if got != "completed" {
 		t.Fatalf("got %q, want completed", got)
 	}
 }
 
 func TestString_DynamicKeySelectionReachesANestedField(t *testing.T) {
-	got := mapping.String(collabDoc(), "item.agentsStates[receiverThreadIds[0]].message")
+	got := mapping.String(collabDoc(), p("item.agentsStates[receiverThreadIds[0]].message"))
 	if got != "done" {
 		t.Fatalf("got %q, want done", got)
 	}
@@ -466,28 +475,29 @@ func TestString_DynamicKeySelectionWithNoMatchingEntryIsEmpty(t *testing.T) {
 			"states":  map[string]any{"thread-1": map[string]any{"status": "completed"}},
 		},
 	}
-	if got := mapping.String(d, "item.states[childId].status"); got != "" {
+	if got := mapping.String(d, p("item.states[childId].status")); got != "" {
 		t.Fatalf("got %q, want empty: no entry under the resolved key", got)
 	}
 }
 
 func TestString_DynamicKeySelectionOnANonObjectTargetIsEmpty(t *testing.T) {
 	d := map[string]any{"item": map[string]any{"childId": "x", "states": []any{"not a map"}}}
-	if got := mapping.String(d, "item.states[childId].status"); got != "" {
+	if got := mapping.String(d, p("item.states[childId].status")); got != "" {
 		t.Fatalf("got %q, want empty: a dynamic-key selector over a non-object must not resolve", got)
 	}
 }
 
 func TestString_DynamicKeySelectionWithAnUnresolvedKeyPathIsEmpty(t *testing.T) {
 	d := map[string]any{"item": map[string]any{"states": map[string]any{"x": "y"}}}
-	if got := mapping.String(d, "item.states[missingSibling].value"); got != "" {
+	if got := mapping.String(d, p("item.states[missingSibling].value")); got != "" {
 		t.Fatalf("got %q, want empty: the key path itself never resolved", got)
 	}
 }
 
 func TestString_DynamicKeySelectorComposesWithAlternation(t *testing.T) {
-	expr := "item.agentsStates[missing].status || item.agentsStates[receiverThreadIds[0]].message"
-	if got := mapping.String(collabDoc(), expr); got != "done" {
+	got := mapping.String(collabDoc(), p(
+		"item.agentsStates[missing].status", "item.agentsStates[receiverThreadIds[0]].message"))
+	if got != "done" {
 		t.Fatalf("got %q, want the fallback branch to resolve", got)
 	}
 }

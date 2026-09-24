@@ -11,6 +11,7 @@ describe('PaneGroup', () => {
       editorTabIds: [],
       activeEditorTabId: null,
       editorOpen: false,
+      viewId: null,
     }
     expect(pane.chatId).toBe('chat-1')
     expect(pane).not.toHaveProperty('bufferIds')
@@ -25,6 +26,7 @@ describe('PaneGroup', () => {
       editorTabIds: [],
       activeEditorTabId: null,
       editorOpen: false,
+      viewId: null,
     }
     expect(pane.chatId).toBeNull()
   })

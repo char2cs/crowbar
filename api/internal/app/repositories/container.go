@@ -87,6 +87,19 @@ type Container struct {
 	// Exported (not routed through a setter) so tests can inject a fake exactly
 	// like they already do for c.Workspace. Nil is safe: reaping is skipped.
 	ReapChatFiles func(ctx context.Context, wsID, chatID string) error
+	// RetireAgentRunner is the cascade's OTHER process seam, for the runner
+	// terminateSession above cannot reach: an api-driven one forks no PTY at
+	// all (usecases/chat/internal/runner/apirunner.go), so its TerminalSession
+	// is "" and its process is a `serve` the terminal engine has never heard
+	// of. Killing the PTY used to drop that connection as a side effect of its
+	// exit callback; with no PTY, nothing did, and the workspace delete left
+	// both the process and its runner row alive indefinitely.
+	//
+	// Assigned after construction for the same reason ReapChatFiles is: its
+	// implementation lives in the chat usecase, which is built from this
+	// container. Nil is safe — the PTY path alone is what every test in this
+	// package exercises.
+	RetireAgentRunner func(ctx context.Context, runnerID string)
 	// axWorkspace/axReviewThread/axAgentChat/axAgentRunner are the per-type asynx
 	// instances, retained so WaitQuiescent can drain their dispatch queues +
 	// projection handlers — the deterministic read-your-writes barrier for tests (no
@@ -526,6 +539,10 @@ func (c *Container) retireChatRunners(
 		if err := c.terminateSession(ctx, live.TerminalSession); err != nil {
 			slog.ErrorContext(ctx, "repositories: delete cascade: terminate agent chat PTY (best-effort, continuing)",
 				"chat_id", chatID, "runner_id", live.ID, "terminal_session_id", live.TerminalSession, "err", err)
+		}
+		// The api-driven runner's process is not that PTY — see RetireAgentRunner.
+		if c.RetireAgentRunner != nil {
+			c.RetireAgentRunner(ctx, live.ID)
 		}
 	}
 }

@@ -902,3 +902,83 @@ func TestContainer_WireCallbacks_DeleteCascade_TerminateFailure_IsBestEffort(t *
 	_, err = c.AgentChat.GetChat(ctx, "chat2")
 	assert.ErrorIs(t, err, agentchat.ErrNotFound)
 }
+
+// fakeRetireConnection is a thread-safe double for the cascade's OTHER
+// process seam: the runner whose process is an api connection rather than a
+// PTY, and which terminateSession above therefore cannot reach.
+type fakeRetireConnection struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (f *fakeRetireConnection) retire(_ context.Context, runnerID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, runnerID)
+}
+
+func (f *fakeRetireConnection) retired() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
+}
+
+// TestRegression_DeleteCascade_TearsDownAPTYLessRunnersConnection is fallout
+// from the orphan-PTY fix (usecases/chat/internal/runner/apirunner.go): an
+// api-driven runner forks no PTY, so its TerminalSession is "" and this
+// cascade's terminateSession seam — its ONLY way to end a vendor process —
+// reaches nothing at all.
+//
+// Before the fix the cascade worked by accident: it killed the companion PTY,
+// whose exit callback dropped the api connection on the way past. With no PTY
+// there is no callback, so deleting a workspace left the `serve` process
+// running and its runner row live forever — the "runner that can never be
+// observed to exit" the orphan fix exists to avoid, not create.
+func TestRegression_DeleteCascade_TearsDownAPTYLessRunnersConnection(t *testing.T) {
+	ctx := context.Background()
+	ad := newAdapter(t)
+	term := &fakeTerminateSession{}
+	conns := &fakeRetireConnection{}
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, term.terminate, noChatWatch, noRunnerWatch, noNodeWatch)
+	require.NoError(t, err)
+	c.RetireAgentRunner = conns.retire
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	// No terminal session: this runner's api connection IS its process.
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat1", "w1", "")
+	c.WaitQuiescent()
+
+	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
+	c.QuiesceReactors(context.Background())
+
+	assert.Equal(t, []string{"chat1-runner"}, conns.retired(),
+		"a runner with no PTY still has a process, and the cascade has to reach it")
+}
+
+// The PTY path is unchanged: a runner that HAS a terminal session is still
+// ended by terminating it, and the connection seam is harmless beside it
+// (a hooks-only runner simply has none to drop).
+func TestContainer_DeleteCascade_StillTerminatesAPTYBackedRunner(t *testing.T) {
+	ctx := context.Background()
+	ad := newAdapter(t)
+	term := &fakeTerminateSession{}
+	conns := &fakeRetireConnection{}
+	c, err := repositories.New(ctx, ad, hub.NewHub(), ax[domain.ReviewThread](t), wsAx(t, ad), agentChatAx(t, ad), agentActivityAx(t, ad), agentRunnerAx(t, ad), nodeAx(t, ad), nil, term.terminate, noChatWatch, noRunnerWatch, noNodeWatch)
+	require.NoError(t, err)
+	c.RetireAgentRunner = conns.retire
+
+	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
+		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+	}, time.Unix(1, 0).UTC())
+	require.NoError(t, err)
+	createAgentChat(t, ctx, c.AgentChat, c.AgentRunner, "chat1", "w1", "term-1")
+	c.WaitQuiescent()
+
+	require.NoError(t, c.Workspace.Delete(ctx, "w1"))
+	c.QuiesceReactors(context.Background())
+
+	assert.Equal(t, []string{"term-1"}, term.terminated())
+}

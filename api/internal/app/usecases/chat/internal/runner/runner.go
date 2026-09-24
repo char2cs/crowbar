@@ -8,9 +8,11 @@
 // also why nothing on the hook path may call into it through a gated door: a
 // switch holds the gate while parked on a turn only a hook can end.
 //
-// The PTY is the sole authority on liveness. Nothing here asserts a process is
-// alive or dead that it has not observed; a CLI is ended by killing it and
-// letting its death carry the runner row away.
+// A runner's own PROCESS is the sole authority on its liveness. Nothing here
+// asserts a process is alive or dead that it has not observed; a CLI is ended
+// by killing it and letting its death carry the runner row away. That process
+// is usually a PTY, and for an api-driven runner it is the `serve` connection
+// or the native view it hands over to instead — see apirunner.go.
 package runner
 
 import (
@@ -78,6 +80,9 @@ type Runners struct {
 	// in memory only, exactly like apiConns: it describes a live process, not
 	// a fact to survive a restart on. See attach.go.
 	attached *attachRegistry
+	// surfaces is the CURRENT surface each runner's chat is on — the
+	// in-process mirror of domain.Chat.Surface. See surfaceRegistry.
+	surfaces *surfaceRegistry
 
 	conversations Conversations
 	providers     Providers
@@ -160,6 +165,7 @@ func New(d Deps) *Runners {
 		answers:      d.Answers,
 		apiConns:     newAPIConnRegistry(),
 		attached:     newAttachRegistry(),
+		surfaces:     newSurfaceRegistry(),
 
 		conversations: d.Conversations,
 		providers:     d.Providers,

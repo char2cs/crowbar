@@ -1,7 +1,6 @@
 import type { DBSchema } from 'idb'
-import type { PaneGroup, LayoutNode } from '@/features/panes/types/pane'
+import type { PaneGroup, LayoutNode, ViewRecord } from '@/features/panes/types/pane'
 import type { PaneContent } from '@/features/panes/types/pane-content'
-import type { RecentsEntry } from '@/features/panes/types/recents-entry'
 import type {
   ReviewThread,
   MergeStrategy,
@@ -29,37 +28,15 @@ export interface WorkspaceLayout {
    */
   workspaceId: string
   panes: Record<string, PaneGroup>
-  rootLayout: LayoutNode
+  /** The Recents rows. A record without them hydrates to an empty band. */
+  views?: Record<string, ViewRecord>
+  viewOrder?: string[]
+  activeViewId?: string | null
+  activeViewByProject?: Record<string, string>
+  stage?: LayoutNode
   bottomLayout: LayoutNode
-  /**
-   * The open-but-not-showing views' tiling trees, keyed by view id, and which
-   * view `rootLayout` is — see `PaneSlice`. Both OPTIONAL, and absent on every
-   * record written before views owned their own trees: a layout from then
-   * carried every open view tiled into `rootLayout` together, which
-   * `restoreWindowViews` (hydrate.ts) reads correctly by splitting that one
-   * tree back apart rather than restoring the side-by-side tiling the view
-   * model exists to remove.
-   */
-  parkedViews?: Record<string, LayoutNode>
-  activeViewId?: string
   activePaneId: string
   mostRecentActivePaneIds: string[]
-  /**
-   * Recents' closed-but-remembered rows and the user's dragged band order —
-   * see `PaneSlice`. Both OPTIONAL: absent on a record written before Recents
-   * survived a reload, which replays as an empty band.
-   */
-  dormantArrangements?: RecentsEntry[]
-  recentsOrder?: string[]
-  /**
-   * Which PROJECT each view belongs to, and which view each project was last
-   * showing — see `PaneSlice`. Both OPTIONAL, and absent on every record
-   * written before views carried a project: `hydrate.ts` resolves what it can
-   * from the views' own chats and leaves the rest for the first
-   * `setActiveProject` to adopt (the design's §8), so there is no migration.
-   */
-  viewProjects?: Record<string, string>
-  activeViewByProject?: Record<string, string>
   buffers: PaneContent[]
   sidebarWidth: number
   rightSidebarWidth: number

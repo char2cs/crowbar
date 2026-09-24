@@ -37,9 +37,11 @@ type (
 	ChatEvent = store.ChatEvent
 )
 
-// CreateInput seeds a new AgentChat: identity, kind, workspace, clock. It
-// carries no segment/provider/terminal because the chat does not own the CLI
-// talking to it — that is the runner (runner.Start), a separate aggregate.
+// CreateInput seeds a new AgentChat: identity, kind, workspace, clock, and the
+// two durable CHOICES a chat is born with — its landing view and its vendor. It
+// still carries no segment and no terminal, because the chat does not own the
+// CLI talking to it — that is the runner (runner.Start), a separate aggregate,
+// and ProviderID no more starts one than Surface does.
 type CreateInput struct {
 	ID          string
 	WorkspaceID string
@@ -47,7 +49,11 @@ type CreateInput struct {
 	// domain.Chat.RepoID's own doc. Left "" for every other type.
 	RepoID string
 	Type   domain.ChatType
-	Now    time.Time
+	// Surface is the chat's landing VIEW — see domain.Chat.Surface.
+	Surface string
+	// ProviderID is the vendor the chat is born on — see domain.Chat.ProviderID.
+	ProviderID string
+	Now        time.Time
 }
 
 // EventStore is the asynx-backed AgentChat aggregate repository: mutations
@@ -148,12 +154,51 @@ type EventStore interface {
 		model string,
 		effort string,
 	) (domain.Chat, error)
-	// SetPermissionLevel writes the chat's sticky guarded/trusted/full-auto
-	// choice — the same durable, next-spawn-reads-it fact SetSelection writes
+	// SetPermissionLevel writes an EXPLICIT per-chat guarded/trusted/full-auto
+	// pick — the same durable, next-spawn-reads-it fact SetSelection writes
 	// for Model/Effort, on the same ordinary async Send path for the same
 	// reason: the prompt path's restart decision reads it through LoadChat,
-	// never the read model.
+	// never the read model. Marks the chat PermissionLevelExplicit, so it
+	// keeps winning over the global default from here on — see
+	// SeedPermissionLevel for the non-explicit counterpart.
 	SetPermissionLevel(
+		ctx context.Context,
+		chatID string,
+		level string,
+	) (domain.Chat, error)
+	// SetSurface moves the chat to the VIEW the user is on now. Create seeds
+	// the same field, so this is what makes domain.Chat.Surface a CURRENT
+	// fact rather than a birth record — its only callers are the two moments
+	// Crowbar is actually told the user moved (SwitchToTerminal and
+	// SwitchToNative).
+	SetSurface(
+		ctx context.Context,
+		chatID string,
+		surface string,
+	) (domain.Chat, error)
+	// SetProvider restates the VENDOR the chat runs as. Create seeds the same
+	// field, so this is what keeps domain.Chat.ProviderID a CURRENT fact
+	// rather than a birth record — its callers are the moments a CLI is
+	// actually placed on the chat (recordRunner, and the two hook-driven
+	// runner moves).
+	//
+	// It may be called UNCONDITIONALLY, like AbandonTurn above and for the
+	// same reason: "the provider did not change" is decided by the command
+	// against the authoritative fold, never out here against the read model
+	// the projection lags. ErrValidation from this call is therefore the
+	// ordinary no-op answer — every ordinary respawn produces one — not a
+	// failure.
+	SetProvider(
+		ctx context.Context,
+		chatID string,
+		providerID string,
+	) (domain.Chat, error)
+	// SeedPermissionLevel writes the level a chat merely INHERITS from the
+	// global default — at mint, or re-seeding a legacy chat that predates
+	// this field entirely. It leaves PermissionLevelExplicit false, so
+	// ChatSelection keeps re-resolving the CURRENT global default for this
+	// chat on every future spawn rather than freezing at this value.
+	SeedPermissionLevel(
 		ctx context.Context,
 		chatID string,
 		level string,
@@ -372,6 +417,8 @@ func (r *eventSourced) Create(
 		WorkspaceID: in.WorkspaceID,
 		RepoID:      in.RepoID,
 		Type:        in.Type,
+		Surface:     in.Surface,
+		ProviderID:  in.ProviderID,
 		Now:         in.Now,
 	})
 	if err != nil {
@@ -463,9 +510,45 @@ func (r *eventSourced) SetPermissionLevel(
 	chatID string,
 	level string,
 ) (domain.Chat, error) {
-	evt, err := r.sendWithOCC(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level})
+	evt, err := r.sendWithOCC(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: true})
 	if err != nil {
 		return domain.Chat{}, fmt.Errorf("agentchat: set permission level: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) SetSurface(
+	ctx context.Context,
+	chatID string,
+	surface string,
+) (domain.Chat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetSurface{ChatID: chatID, Surface: surface})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: set surface: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) SetProvider(
+	ctx context.Context,
+	chatID string,
+	providerID string,
+) (domain.Chat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetProvider{ChatID: chatID, ProviderID: providerID})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: set provider: %w", err)
+	}
+	return evt.Aggregate, nil
+}
+
+func (r *eventSourced) SeedPermissionLevel(
+	ctx context.Context,
+	chatID string,
+	level string,
+) (domain.Chat, error) {
+	evt, err := r.sendWithOCC(ctx, commands.SetPermissionLevel{ChatID: chatID, Level: level, Explicit: false})
+	if err != nil {
+		return domain.Chat{}, fmt.Errorf("agentchat: seed permission level: %w", err)
 	}
 	return evt.Aggregate, nil
 }

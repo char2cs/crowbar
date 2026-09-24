@@ -172,6 +172,11 @@ func New(
 	// repositories.Container.ReapChatFiles' doc comment for why this can't be a
 	// repositories.New constructor argument).
 	repos.ReapChatFiles = reapAgentChatFiles(ucs.AgentWorkspaceReader)
+	// Same post-construction wiring, for the runner whose process is an api
+	// connection and not a PTY — terminateAgentSession above cannot reach it.
+	repos.RetireAgentRunner = func(_ context.Context, runnerID string) {
+		ucs.AgentRunner.RetireAPIConnection(runnerID)
+	}
 
 	startProviderSweep(ctx, engines, repos, ucs)
 	if err := startBootSweep(ctx, adapters, repos, axWorkspace); err != nil {
@@ -180,6 +185,7 @@ func New(
 	startRestoreTerminalSessions(ctx, ucs)
 	reconcileAgentRunners(ctx, ucs)
 	startTerminalWaitSweep(ctx, h, ucs)
+	startModelDiscoveryWarmup(ctx, engines, crowbarHome)
 
 	rt := realtime.New(
 		ctx,
@@ -540,7 +546,9 @@ func toUsecaseStores(
 		TerminalSessions:         gormStores.TerminalSessions,
 		AgentProviderPreferences: gormStores.AgentProviderPreferences,
 		AgentPermissionDefault:   gormStores.AgentPermissionDefault,
+		AgentModelManifestFetch:  gormStores.AgentModelManifestFetch,
 		Folders:                  gormStores.Folders,
+		AgentChatTelemetry:       gormStores.AgentChatTelemetry,
 	}
 }
 
@@ -577,6 +585,32 @@ func startTerminalWaitSweep(
 			h.BroadcastAgentChatPlan(chatID, workspaceID, steps)
 		},
 	)
+}
+
+// startModelDiscoveryWarmup kicks a model.discover: source's live probe for
+// every descriptor that declares one, at boot rather than waiting for the
+// frontend's first providers request to trigger it lazily. List() already
+// forks each descriptor's refresh instead of blocking on it (Cache.Refresh),
+// so this call returns quickly; run off the request path anyway (its own
+// goroutine) so a slow descriptor scan never adds to daemon startup time.
+// Best-effort and fire-and-forget: List's error, if any, is left for the
+// first real request to surface. This List call itself is detached from ctx
+// (WithoutCancel, same as this file's other boot-time reconciliation calls)
+// so an early cancellation never aborts the scan — but the refreshes it
+// forks are NOT: engines was built from this same ctx (engine.New ->
+// engineagents.WithLifecycle), so the daemon's own shutdown still stops
+// every in-flight and future probe/fetch, request-triggered or not.
+func startModelDiscoveryWarmup(
+	ctx context.Context,
+	engines *engine.Container,
+	crowbarHome string,
+) {
+	if engines == nil || engines.Agents == nil {
+		return
+	}
+	go func() {
+		_, _ = engines.Agents.List(context.WithoutCancel(ctx), crowbarHome)
+	}()
 }
 
 func startProviderSweep(

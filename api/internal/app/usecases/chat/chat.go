@@ -13,6 +13,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/manifestfetch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
@@ -33,9 +34,13 @@ import (
 type ChatUsecase interface {
 	// MintChat creates an empty chat in a workspace and returns its id. No CLI is
 	// started: the chat is dormant until a runner is placed on it.
+	//
+	// surface is the VIEW the chat is born on (design spec 2.5), "" for the
+	// provider's own default landing — see domain.Chat.Surface.
 	MintChat(
 		ctx context.Context,
 		workspaceID string,
+		surface string,
 	) (string, error)
 
 	// RenameChat retitles a chat, honouring where the title came from: a
@@ -219,6 +224,7 @@ type Usecase struct {
 	runners       *runner.Runners
 	providers     *provider.Providers
 	defaultLevel  *defaultlevel.DefaultLevel
+	manifestFetch *manifestfetch.ManifestFetch
 }
 
 // The chat record. A chat exists, and is readable, whether or not a CLI has ever
@@ -228,8 +234,9 @@ type Usecase struct {
 func (u *Usecase) MintChat(
 	ctx context.Context,
 	workspaceID string,
+	surface string,
 ) (string, error) {
-	return u.conversations.MintChat(ctx, workspaceID)
+	return u.conversations.MintChat(ctx, workspaceID, surface)
 }
 
 // RenameChat retitles a chat under the user > agent > derived precedence.

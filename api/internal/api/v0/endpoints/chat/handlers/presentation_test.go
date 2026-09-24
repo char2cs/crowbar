@@ -71,8 +71,7 @@ func TestSubmitPrompt_ThreadsStagedModelAndEffortOntoTheSameCall(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, uc.promptCalls, 1)
-	assert.Equal(t, "opus", uc.promptCalls[0].model)
-	assert.Equal(t, "high", uc.promptCalls[0].effort)
+	assert.Equal(t, &domain.ChatSelection{Model: "opus", Effort: "high"}, uc.promptCalls[0].selection)
 }
 
 // A staged provider travels on the SAME request as the text too — the
@@ -91,6 +90,7 @@ func TestSubmitPrompt_ThreadsStagedProviderOntoTheSameCall(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, uc.promptCalls, 1)
 	assert.Equal(t, "codex", uc.promptCalls[0].provider)
+	assert.Nil(t, uc.promptCalls[0].selection, "a provider-only body stages no model/effort")
 }
 
 // No model/effort in the request body means the composer had nothing staged
@@ -107,8 +107,29 @@ func TestSubmitPrompt_OmittedModelAndEffortMeansNothingStaged(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, uc.promptCalls, 1)
-	assert.Empty(t, uc.promptCalls[0].model)
-	assert.Empty(t, uc.promptCalls[0].effort)
+	assert.Nil(t, uc.promptCalls[0].selection)
+}
+
+// THE OTHER HALF of the test above, and the one "" alone could never express:
+// a body that CARRIES model/effort as "" staged the provider's own default —
+// a real pick the user made in the picker — and must reach the usecase as a
+// present, all-empty selection. Read as "absent, keep the old one" (which a
+// plain string body cannot tell apart) the chat silently keeps running the
+// model it was already on and nothing can ever clear it, since the picker no
+// longer PATCHes .../selection on its own.
+func TestRegression_SubmitPrompt_AnExplicitlyEmptySelectionIsStagedNotIgnored(t *testing.T) {
+	ctx, rec := newTestContext(t, http.MethodPost, "/prompts",
+		[]byte(`{"text":"hello","clientRequestId":"9d1a5551-8145-46a1-bf09-b99d39163341","model":"","effort":""}`))
+	ctx.Params = gin.Params{{Key: "wsId", Value: "ws-1"}, {Key: "id", Value: "chat-1"}}
+	uc := &fakeAgentUsecase{
+		getChat:      domain.Chat{ID: "chat-1", WorkspaceID: "ws-1"},
+		promptResult: domain.AgentPromptSubmission{RunnerID: "runner-new", TerminalSessionID: "term-new"},
+	}
+	newChatHandlers(uc).SubmitPrompt(ctx)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, uc.promptCalls, 1)
+	assert.Equal(t, &domain.ChatSelection{}, uc.promptCalls[0].selection)
 }
 
 func TestSubmitPrompt_ConflictCarriesStableMachineCode(t *testing.T) {

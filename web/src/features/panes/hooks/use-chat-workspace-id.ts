@@ -214,24 +214,10 @@ export function usePaneEditorWorkspaceIds(): string[] {
 }
 
 /**
- * Every workspace id that currently owns at least one chat present in some
- * Recents entry (live, working, set, or dormant) — "in a view" per
- * `keep-alive-policy.ts`'s new retention rule. Built for `WorkspaceHost`'s
- * own `viewWsIds` prop: it needs this to decide what stays mounted, and this
- * hook is where the "which workspaces does Recents currently track"
- * question already gets answered generically (see `workspacesWithViewChat`),
- * the same way `usePaneWorkspaceIds` above answers the narrower "which
- * workspaces does some PANE currently name" one.
- *
- * Scans every currently-registered workspace store (`getAllActiveWorkspaceIds`)
- * for its own `agentChats.chats`/`agentChats.working` — same "only a live
- * store can say who owns a chat" scoping `recents-for-project.ts` uses,
- * generalized across every project rather than one. Subscribes to the one
- * window-level pane store (a view opening/closing/merging) AND the workspace
- * registry (a chat's working flag flipping, or a chat being deleted) —
- * whichever changes first, this recomputes; `useSyncExternalStore`'s
- * `Object.is` check on the returned string key means a change that doesn't
- * actually move any workspace in or out of Recents re-renders nothing.
+ * Every workspace owning a chat held by some view record — "in a view" per
+ * `keep-alive-policy.ts`. Owners resolve from the registered workspace stores
+ * only; the string key means a change that moves no workspace re-renders
+ * nothing.
  */
 export function useViewWorkspaceIds(): string[] {
   const subscribe = useCallback((onChange: () => void) => {
@@ -243,22 +229,16 @@ export function useViewWorkspaceIds(): string[] {
     }
   }, [])
   const snapshot = useCallback(() => {
-    const { panes, dormantArrangements } = windowPaneStore.getState()
-    const working: Record<string, boolean> = {}
+    const { panes } = windowPaneStore.getState()
     const chatOwner = new Map<string, string>()
     for (const wsId of getAllActiveWorkspaceIds()) {
       const store = getWorkspaceStore(wsId)
       if (!store) continue
-      const { agentChats } = store.getState()
-      Object.assign(working, agentChats.working)
-      for (const chat of agentChats.chats) chatOwner.set(chat.id, chat.workspaceId || wsId)
+      for (const chat of store.getState().agentChats.chats) {
+        chatOwner.set(chat.id, chat.workspaceId || wsId)
+      }
     }
-    const owners = workspacesWithViewChat(
-      Object.values(panes),
-      working,
-      dormantArrangements,
-      chatOwner,
-    )
+    const owners = workspacesWithViewChat(Object.values(panes), chatOwner)
     return [...owners].sort().join(ID_DELIM)
   }, [])
   const key = useSyncExternalStore(subscribe, snapshot, snapshot)

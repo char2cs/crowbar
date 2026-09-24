@@ -44,6 +44,7 @@ func (stubChatTree) CreateChat(
 	_ string,
 	_ string,
 	_ agentusecase.WorktreeSpec,
+	_ string,
 ) (string, string, error) {
 	return "c1", "run-1", nil
 }
@@ -184,9 +185,17 @@ func (stubUsecase) ListChatsInRepo(
 	return nil, nil
 }
 
+func (stubUsecase) CwdWorkspaceID(
+	_ context.Context,
+	_ string,
+) (string, bool, error) {
+	return "", false, nil
+}
+
 // GetChat answers a workspace-less chat: TestRegisterMountsRoutes dials the
-// repo-scoped mount, which carries no :wsId for requireChatInWorkspace's scope
-// check to compare against, so this only has to satisfy the existence half.
+// repo-scoped mount with no Worktrees port wired, so requireChatInWorkspace's
+// repo-scope check has nothing to resolve a ground against and this only has
+// to satisfy the existence half.
 func (stubUsecase) GetChat(
 	_ context.Context,
 	id string,
@@ -201,7 +210,7 @@ func (stubUsecase) ReadMessages(
 }
 
 func (stubUsecase) SubmitPrompt(
-	context.Context, string, string, string, string, string, string,
+	context.Context, string, string, string, string, *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
 	return domain.AgentPromptSubmission{RunnerID: "run-2", TerminalSessionID: "term-2"}, nil
 }
@@ -361,6 +370,19 @@ func (stubUsecase) SetDefaultPermissionLevel(
 	return nil
 }
 
+func (stubUsecase) ModelManifestFetchEnabled(
+	_ context.Context,
+) (bool, error) {
+	return true, nil
+}
+
+func (stubUsecase) SetModelManifestFetchEnabled(
+	_ context.Context,
+	_ bool,
+) error {
+	return nil
+}
+
 // TestRegisterMountsRoutes proves Register mounts every agent route nested
 // under the repo-scoped group (Task 17: .../repos/:repoId/chats/...), including
 // the WS upgrade route delegating to the supplied handler.
@@ -409,6 +431,8 @@ func TestRegisterMountsRoutes(
 		{http.MethodPut, "/v0/settings/chat/providers"},
 		{http.MethodGet, "/v0/settings/chat/permission-level"},
 		{http.MethodPut, "/v0/settings/chat/permission-level"},
+		{http.MethodGet, "/v0/settings/chat/model-manifest-fetch"},
+		{http.MethodPut, "/v0/settings/chat/model-manifest-fetch"},
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
@@ -500,6 +524,12 @@ func (stubUsecase) ReadPendingChoices(
 	return nil, nil
 }
 
+func (stubUsecase) Interruptions(
+	context.Context, string,
+) ([]domain.ActivityInterruption, error) {
+	return nil, nil
+}
+
 func (stubUsecase) AnswerableChoiceIDs(string, []domain.ActivityChoice) []string { return nil }
 
 func (stubUsecase) AnswerChoice(
@@ -527,6 +557,8 @@ func (stubUsecase) SetChatPermissionLevel(
 func (stubUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 	return engineagents.Telemetry{}, false
 }
+
+func (stubUsecase) TelemetryOnChatSurface(context.Context, string) bool { return true }
 
 func (stubUsecase) UploadAttachment(
 	context.Context, string, agentusecase.UploadAttachmentInput,

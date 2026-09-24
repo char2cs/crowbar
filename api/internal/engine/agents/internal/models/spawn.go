@@ -26,6 +26,13 @@ type Capabilities struct {
 	ModelSelect  bool
 	EffortSelect bool
 
+	// ModelDiscovery is true when Models()/Efforts() are backed by a live
+	// probe (model.discover:) rather than a static available: list. The
+	// three selection-validation gates read it to tell "not yet resolved"
+	// (empty, discovery declared — allow) apart from "no catalogue at all"
+	// (empty, nothing declared — reject), which an empty list alone cannot.
+	ModelDiscovery bool
+
 	TerminalPrompts bool
 
 	// Compaction reports whether Crowbar can ASK this provider to compact its
@@ -45,6 +52,14 @@ type Capabilities struct {
 	// must be derived from what Crowbar was told to run, not declared, because a
 	// separate boolean could contradict it).
 	HasTerminal bool
+
+	// TerminalStartHere is design spec 2.5's `surfaces.terminal.start_here`:
+	// whether a brand-new chat may be launched DIRECTLY onto the terminal
+	// surface, as opposed to reached only by switching to it after spawn
+	// (codex's idle-only handoff). False whenever the descriptor declares no
+	// terminal surface at all, regardless of HasTerminal — absence, not a
+	// disabled control.
+	TerminalStartHere bool
 
 	Observes []string
 }

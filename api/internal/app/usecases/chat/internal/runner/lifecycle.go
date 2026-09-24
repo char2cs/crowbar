@@ -167,6 +167,9 @@ func (rs *Runners) ReconcileRunnersOnBoot(
 func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	// The echo guard is per-spawn and means nothing once the process is gone.
 	rs.agents.ForgetRunner(runnerID)
+	// Nor does the surface it was on: the mirror is per-runner, and a dead
+	// runner's entry would outlive the daemon's memory of anything else.
+	rs.surfaces.drop(runnerID)
 	// Nor does a prompt it was blocked on. Its hooks may still be ALIVE — they are
 	// spawned detached, so killing a CLI orphans them — so every relay this runner
 	// owned is woken with no verdict, and every question it was asking is closed.
@@ -362,27 +365,6 @@ func (rs *Runners) ConversationsForChat(
 	chatID string,
 ) ([]agents.ChatConversation, error) {
 	return rs.runnerStore.ConversationsForChat(ctx, chatID)
-}
-
-func (rs *Runners) ResumeChat(
-	ctx context.Context,
-	chatID string,
-) (string, error) {
-	defer rs.spawns.Lock(chatID)()
-
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if err == nil {
-		return live.ID, nil
-	}
-	if !errors.Is(err, agentrunner.ErrNotFound) {
-		return "", fmt.Errorf("agent: resume chat: live runner: %w", err)
-	}
-	last, err := rs.runnerStore.LastConversation(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("agent: resume chat: no conversation to resume: %w", err)
-	}
-	// The gate is already held: call the inner body, never SwitchProvider itself.
-	return rs.switchProviderLocked(ctx, chatID, last.ProviderID)
 }
 
 func (rs *Runners) StopChat(

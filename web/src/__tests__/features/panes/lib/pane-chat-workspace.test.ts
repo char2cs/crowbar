@@ -26,6 +26,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
@@ -140,7 +141,7 @@ describe('resolveOnscreenPaneForWorkspace', () => {
 
   it('returns null when the active pane already belongs to the target workspace', () => {
     seed('ws-a', [chat('c1', 'ws-a')])
-    paneActions().setPaneChat(ROOT_PANE_ID, 'c1', null)
+    paneActions().openChat('c1')
     paneActions().setActivePane(ROOT_PANE_ID)
 
     expect(resolveOnscreenPaneForWorkspace('ws-a')).toBeNull()
@@ -149,10 +150,9 @@ describe('resolveOnscreenPaneForWorkspace', () => {
   it('names the on-screen sibling pane that belongs to the target workspace', () => {
     seed('ws-a', [chat('c1', 'ws-a')])
     seed('ws-b', [chat('c2', 'ws-b')])
-    paneActions().setPaneChat(ROOT_PANE_ID, 'c1', null)
-    const secondPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal')
-    if (!secondPaneId) throw new Error('splitPane did not return a pane id')
-    paneActions().setPaneChat(secondPaneId, 'c2', null)
+    paneActions().openChat('c1')
+    paneActions().dropChatOnPane('c2', ROOT_PANE_ID, 'right')
+    const secondPaneId = chatPaneIndex(windowPaneStore.getState().panes).get('c2')
     // The user's last literal click landed in the ws-a pane...
     paneActions().setActivePane(ROOT_PANE_ID)
 
@@ -162,7 +162,7 @@ describe('resolveOnscreenPaneForWorkspace', () => {
 
   it('returns null when no on-screen pane belongs to the target workspace', () => {
     seed('ws-a', [chat('c1', 'ws-a')])
-    paneActions().setPaneChat(ROOT_PANE_ID, 'c1', null)
+    paneActions().openChat('c1')
     paneActions().setActivePane(ROOT_PANE_ID)
 
     expect(resolveOnscreenPaneForWorkspace('ws-nobody-showing')).toBeNull()
@@ -171,14 +171,10 @@ describe('resolveOnscreenPaneForWorkspace', () => {
   it('never targets a pane sitting in a PARKED (off-screen) view', () => {
     seed('ws-a', [chat('c1', 'ws-a')])
     seed('ws-b', [chat('c2', 'ws-b')])
-    paneActions().setPaneChat(ROOT_PANE_ID, 'c2', null)
-    // addPane() takes the screen with a fresh empty view, parking the ws-b
-    // pane whole — setActivePane must never be asked to reveal it just
-    // because a file click happened to match its workspace.
-    const newPaneId = paneActions().addPane()
-    if (!newPaneId) throw new Error('addPane did not return a pane id')
-    paneActions().setPaneChat(newPaneId, 'c1', null)
-    paneActions().setActivePane(newPaneId)
+    paneActions().openChat('c2')
+    // A second chat takes the screen as a view of its own; the ws-b pane is
+    // off screen, and a file click must never reveal it.
+    paneActions().openChat('c1')
 
     expect(resolveOnscreenPaneForWorkspace('ws-b')).toBeNull()
   })

@@ -2,11 +2,8 @@ import { getDB } from './idb'
 import type { EditorState, UIPreferences, WorkspaceLayout } from './schemas'
 import { loadWindowPaneLayout } from './workspace-layout'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import type { LayoutNode } from '@/features/panes/types/pane'
-import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { partitionLayoutByView, viewIdOf } from '@/features/panes/lib/pane-views'
-import { resolveChatProjectId, resolveViewProjectId } from '@/features/panes/lib/chat-project'
-import { getAllLeafIds, getFirstLeafId } from '@/features/panes/utils/pane-layout'
+import type { ViewState } from '@/features/panes/lib/view-state'
+import { repairViewState } from '@/features/panes/lib/view-repair'
 import {
   isEditorContent,
   isPersistableContent,
@@ -46,192 +43,42 @@ export async function hydratePreferences(): Promise<UIPreferences | null> {
 }
 
 /**
- * One-time, WINDOW-level hydration of pane/buffer layout — call once at app
- * boot (from `main.tsx`'s `hydrateCriticalStores`, alongside
- * `hydratePreferences`/`hydrateSidebar`), AWAITED BEFORE `renderApp()` is
- * ever called — not from inside a mounted component's effect. A
- * `WorkspaceView`/`EditorSurface` that mounts first and has this replace its
- * layout out from under it a frame later is a real crash, not just a flash
- * (caught live as a wave of "Editor failed to load" ErrorBoundary trips).
- * Task 26 moved panes/buffers off the
- * per-workspace store registry onto one window-level store
- * (`window-pane-store.ts`) that is never destroyed, so there is exactly one
- * persisted layout row to restore here, not one per workspace — see
- * `workspace-layout.ts`'s `WINDOW_SESSION_ID`.
+ * One-time, window-level hydration of pane/buffer layout — awaited at boot
+ * BEFORE `renderApp()`: a surface that mounts first and has its layout
+ * replaced a frame later crashes.
  */
 export async function hydrateWindowPaneLayout(): Promise<void> {
   const layout = await loadWindowPaneLayout()
   if (!layout) return
-
   const buffers = (layout.buffers ?? []).map(restoreBufferDirtyState)
-  const views = restoreWindowViews(layout)
-  const viewProjects = restoreViewProjects(layout, views)
+  const restored = restoreWindowPaneState(layout)
+  windowPaneStore.setState(
+    restored
+      ? { ...restored, activeProjectId: windowPaneStore.getState().activeProjectId, buffers }
+      : { buffers },
+  )
+}
 
-  windowPaneStore.setState({
-    activePaneId: views.activePaneId,
-    mostRecentActivePaneIds: layout.mostRecentActivePaneIds ?? [views.activePaneId],
+/**
+ * The persisted views, repaired: a record, pane or pointer that breaks an
+ * invariant is dropped and every valid one is kept. Null only when the record
+ * carries no views at all. No older shape is read.
+ */
+export function restoreWindowPaneState(layout: WorkspaceLayout): ViewState | null {
+  if (!layout.views || !layout.panes) return null
+  return repairViewState({
     panes: layout.panes,
-    rootLayout: views.rootLayout,
-    parkedViews: views.parkedViews,
-    activeViewId: views.activeViewId,
+    views: layout.views,
+    viewOrder: layout.viewOrder ?? Object.keys(layout.views),
+    activeViewId: layout.activeViewId ?? null,
+    activeViewByProject: layout.activeViewByProject ?? {},
+    activeProjectId: null,
+    stage: layout.stage,
     bottomLayout: layout.bottomLayout,
-    dormantArrangements: layout.dormantArrangements ?? [],
-    recentsOrder: layout.recentsOrder ?? [],
-    viewProjects,
-    activeViewByProject: restoreActiveViewByProject(layout, views),
-    buffers,
+    activePaneId: layout.activePaneId,
+    mostRecentActivePaneIds: layout.mostRecentActivePaneIds ?? [],
+    fullscreenPaneId: null,
   })
-}
-
-type PersistedProjectShape = Pick<WorkspaceLayout, 'panes' | 'viewProjects' | 'activeViewByProject'>
-
-/** Every view id the restored window holds — the showing one and every parked
- *  one. The set both restorers below have to stay inside. */
-function restoredViewIds(views: RestoredWindowViews): string[] {
-  return [views.activeViewId, ...Object.keys(views.parkedViews)]
-}
-
-/**
- * Which project each restored view belongs to — the design's §8, run ONCE
- * here rather than per render (trap 2).
- *
- * Three answers, in order:
- *   1. **the record's own tag**, for a layout written since views carried a
- *      project;
- *   2. **derived from the view's panes' chats**, for one written before —
- *      answerable offline whenever the entity cache has already streamed the
- *      owning repo or home tree;
- *   3. **nothing**, which is deliberately not an error: the view stays
- *      untagged and the first `setActiveProject` ADOPTS it (Zen's own
- *      `_shouldShowTab` rule). A mis-filed view is one gesture to recover; a
- *      view refused at hydrate is unreachable forever.
- *
- * `resolve` is injected so this is testable without a seeded sidebar store.
- */
-export function restoreViewProjects(
-  layout: PersistedProjectShape,
-  views: RestoredWindowViews,
-  resolve: (chatId: string) => string | null = resolveChatProjectId,
-): Record<string, string> {
-  const panes = layout.panes ?? {}
-  const persisted = layout.viewProjects ?? {}
-  const out: Record<string, string> = {}
-  for (const viewId of restoredViewIds(views)) {
-    const tagged = persisted[viewId]
-    if (tagged) {
-      out[viewId] = tagged
-      continue
-    }
-    const members = Object.values(panes).filter((p) => viewIdOf(p) === viewId)
-    const derived = resolveViewProjectId(members, resolve)
-    if (derived) out[viewId] = derived
-  }
-  return out
-}
-
-/** The per-project "last showing view" pointers, minus any naming a view this
- *  window no longer holds — a stale pointer would send a project switch to a
- *  view that is not there and land it on the empty stage instead of on the
- *  project's real content. */
-export function restoreActiveViewByProject(
-  layout: PersistedProjectShape,
-  views: RestoredWindowViews,
-): Record<string, string> {
-  const live = new Set(restoredViewIds(views))
-  const out: Record<string, string> = {}
-  for (const [projectId, viewId] of Object.entries(layout.activeViewByProject ?? {})) {
-    if (live.has(viewId)) out[projectId] = viewId
-  }
-  return out
-}
-
-export interface RestoredWindowViews {
-  rootLayout: LayoutNode
-  parkedViews: Record<string, LayoutNode>
-  activeViewId: string
-  activePaneId: string
-}
-
-type PersistedViewShape = Pick<
-  WorkspaceLayout,
-  'panes' | 'rootLayout' | 'parkedViews' | 'activeViewId' | 'activePaneId'
->
-
-/**
- * Rebuild the window's per-view trees from a persisted layout — the half of
- * hydration that decides what is ON SCREEN after a reload.
- *
- * IT ENFORCES THE INVARIANT RATHER THAN TRUSTING THE RECORD: the showing tree
- * holds exactly one view, whatever was written to disk. Checking for the
- * presence of `parkedViews`/`activeViewId` instead is what an earlier pass did
- * and it is not enough — a record can carry both fields and STILL have a
- * `rootLayout` mixing views, which is precisely the state an upgrade produces
- * the first time the new store persists over a layout the old one wrote (the
- * new fields take their defaults, `rootLayout` is still the old tiled tree,
- * and `parkedViews: {}` is a perfectly truthy empty object). Trusting the
- * fields there restored the side-by-side tiling this whole feature removes —
- * observed live, not hypothesised.
- *
- * So `rootLayout` is always partitioned by `viewId` (already tagged on the
- * panes, which is why this needs no migration — just a correct reading of the
- * old shape), the view that should show is chosen from what the record says,
- * and every other view the tree was mixing in joins the parked set. A record
- * that already honours the invariant partitions to a single tree and comes
- * back untouched.
- */
-export function restoreWindowViews(layout: PersistedViewShape): RestoredWindowViews {
-  const panes = layout.panes ?? {}
-  const settled = settleViewTrees(layout, panes)
-
-  // `activePaneId` has to name a pane the SHOWING tree actually holds —
-  // otherwise the active-pane ring, the keyboard commands and every
-  // `getActivePane()` caller address a pane nobody can see.
-  const leaves = getAllLeafIds(settled.rootLayout)
-  const activePaneId = leaves.includes(layout.activePaneId)
-    ? layout.activePaneId
-    : getFirstLeafId(settled.rootLayout)
-
-  return { ...settled, activePaneId }
-}
-
-function settleViewTrees(
-  layout: PersistedViewShape,
-  panes: WorkspaceLayout['panes'],
-): Omit<RestoredWindowViews, 'activePaneId'> {
-  const trees = partitionLayoutByView(layout.rootLayout, panes)
-  const parkedViews = { ...(layout.parkedViews ?? {}) }
-
-  // Which view should be the one showing, in descending order of what the
-  // record actually knows: what it says was active, else the view owning the
-  // pane it says was focused, else whichever the tree yields first.
-  const focused = panes[layout.activePaneId]
-  const showing =
-    (layout.activeViewId && trees[layout.activeViewId] ? layout.activeViewId : undefined) ??
-    (focused && trees[viewIdOf(focused)] ? viewIdOf(focused) : undefined) ??
-    Object.keys(trees)[0]
-
-  if (!showing) {
-    // Nothing in the tree to show — the empty stage, or a record too broken to
-    // read. Hand back what was written and let the caller's own activePaneId
-    // healing take it from there.
-    return {
-      rootLayout: layout.rootLayout,
-      parkedViews,
-      activeViewId: layout.activeViewId ?? ROOT_PANE_ID,
-    }
-  }
-
-  // Every view the showing tree was mixing in is a view in its own right,
-  // parked. A stored parked entry under one of those ids is a corrupt record
-  // (two authoritative copies of one arrangement) — the copy that was really
-  // in the tree wins.
-  for (const [viewId, tree] of Object.entries(trees)) {
-    if (viewId !== showing) parkedViews[viewId] = tree
-  }
-  // ...and the showing view is never also parked, for the same reason.
-  delete parkedViews[showing]
-
-  return { rootLayout: trees[showing], parkedViews, activeViewId: showing }
 }
 
 /**

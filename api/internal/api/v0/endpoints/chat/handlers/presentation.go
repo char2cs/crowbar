@@ -9,6 +9,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 func (h *Handlers) Messages(ctx *gin.Context) {
@@ -65,20 +66,34 @@ func (h *Handlers) SubmitPrompt(ctx *gin.Context) {
 	var body struct {
 		Text            string `json:"text"`
 		ClientRequestID string `json:"clientRequestId"`
-		// Provider/Model/Effort are the composer's staged pick, if any —
-		// omitted or empty means "nothing staged, use the chat's current
-		// provider / sticky selection as-is."
+		// Provider is the composer's staged provider — omitted or empty
+		// means "nothing staged, use the chat's current one as-is." It has no
+		// "clear it" reading at all: a chat always runs SOME provider.
 		Provider string `json:"provider"`
-		Model    string `json:"model"`
-		Effort   string `json:"effort"`
+		// Model/Effort are POINTERS because "" is a real pick here — "the
+		// provider's own default", the same distinct fact domain.Chat.Model's
+		// own doc records. Absent (nil) leaves the chat's sticky selection
+		// alone; present, INCLUDING "", is a pick committed with this prompt.
+		// Bound as one pair: sending only one half clears the other, exactly
+		// as PATCH .../selection already documents, because which effort
+		// levels are valid is a property of the model.
+		Model  *string `json:"model"`
+		Effort *string `json:"effort"`
 	}
 	if err := ctx.ShouldBindJSON(&body); err != nil {
 		libs.WriteErr(ctx, http.StatusBadRequest, err.Error())
 		return
 	}
+	var selection *domain.ChatSelection
+	if body.Model != nil || body.Effort != nil {
+		selection = &domain.ChatSelection{
+			Model:  derefOr(body.Model),
+			Effort: derefOr(body.Effort),
+		}
+	}
 	result, err := h.runners.SubmitPrompt(
 		ctx.Request.Context(), chat.ID, body.Text, body.ClientRequestID,
-		body.Provider, body.Model, body.Effort,
+		body.Provider, selection,
 	)
 	if err != nil {
 		writeCodedErr(ctx, err, agentusecase.PromptErrorCode(err))
@@ -144,4 +159,12 @@ func writeCodedErr(
 		return
 	}
 	libs.WriteErrCode(ctx, status, code, message)
+}
+
+// derefOr reads an optional wire string, treating absence as "".
+func derefOr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

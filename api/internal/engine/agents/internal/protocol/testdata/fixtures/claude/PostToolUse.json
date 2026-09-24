@@ -1,0 +1,24 @@
+{
+  "session_id": "0af92797-253b-4aaf-a8b5-8d6c53b0887f",
+  "transcript_path": "/h/.claude/projects/-ws/0af92797-253b-4aaf-a8b5-8d6c53b0887f.jsonl",
+  "cwd": "/ws",
+  "scratchpad_dir": "/ws/.scratchpad",
+  "prompt_id": "3e3c34e9-ed07-455c-b928-31226d8c6df6",
+  "permission_mode": "acceptEdits",
+  "effort": { "level": "medium" },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Read",
+  "tool_input": { "file_path": "/ws/note.txt" },
+  "tool_response": {
+    "type": "text",
+    "file": {
+      "filePath": "/ws/note.txt",
+      "content": "alpha\n",
+      "numLines": 2,
+      "startLine": 1,
+      "totalLines": 2
+    }
+  },
+  "tool_use_id": "toolu_01WtQsGtA8wqVEh4diPoaLMe",
+  "duration_ms": 7
+}

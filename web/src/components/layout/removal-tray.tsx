@@ -27,6 +27,12 @@ function secondsLeft(deadlineAt: number, now: number): number {
  * dialog: a row in a tray docked at the sidebar's foot, offering its own
  * Cancel/Remove before the dialog ever opened. That dock is gone; holding a
  * repo or a project now goes straight to the one question that matters.
+ *
+ * MOUNT IT UNCONDITIONALLY (ide-shell.tsx). Every held row of every kind is
+ * drawn by the TREE, so an unmounted tray looks entirely healthy: the row
+ * transforms, the hairline drains, and the commit simply never happens.
+ * Measured live from inside `SidebarCarousel` — the card is gone on an empty
+ * stage, the numerals sat at 8 forever and no DELETE ever left the app.
  */
 export function RemovalTray() {
   const entries = useRemovalTrayStore((s) => s.entries)

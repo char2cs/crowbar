@@ -22,7 +22,17 @@ type Create struct {
 	// domain.Chat.RepoID's own doc. Left "" for every other type.
 	RepoID string
 	Type   domain.ChatType
-	Now    time.Time
+	// Surface is the chat's landing VIEW — see domain.Chat.Surface. "" is
+	// the provider's own default and is what every chat minted before this
+	// field existed carries.
+	Surface string
+	// ProviderID is the vendor the chat is BORN on — see domain.Chat.ProviderID.
+	// Still not a process fact: the runner is a separate aggregate and this
+	// mint starts nothing. "" is what a chat minted before the field carries,
+	// and what a reducer-minted chat (a /clear landing on an unknown
+	// conversation) carries until its runner's own move restates it.
+	ProviderID string
+	Now        time.Time
 }
 
 func (c Create) AggregateID() string  { return c.ID }
@@ -64,6 +74,8 @@ func (c Create) EmitEvent(_ *domain.Chat) domain.Chat {
 		WorkspaceID:    c.WorkspaceID,
 		RepoID:         c.RepoID,
 		Type:           c.Type,
+		Surface:        c.Surface,
+		ProviderID:     c.ProviderID,
 		CreatedAt:      c.Now,
 		LastActivityAt: c.Now,
 	}

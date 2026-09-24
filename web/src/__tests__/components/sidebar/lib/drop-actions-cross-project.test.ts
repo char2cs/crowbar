@@ -27,6 +27,8 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { showingLayout } from '@/features/panes/lib/view-state'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
@@ -46,9 +48,8 @@ const chatRow = (id: string, wsId: string): SidebarRow => ({
 function showChatUnderProject(project: string, chatId: string): string {
   const actions = windowPaneStore.getState().paneActions
   actions.setActiveProject(project)
-  const paneId = actions.addPane()!
-  actions.setPaneChat(paneId, chatId, null)
-  return paneId
+  actions.openChat(chatId, { projectId: project })
+  return chatPaneIndex(windowPaneStore.getState().panes).get(chatId)!
 }
 
 beforeEach(() => {
@@ -64,7 +65,7 @@ describe('openChatIntoPane — law 4', () => {
 
     openChatIntoPane(chatRow('chat-b', 'ws-b'), paneId, 'right')
 
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([paneId])
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toEqual([paneId])
     expect(toast.error).toHaveBeenCalledWith('That chat belongs to a different space')
   })
 
@@ -74,7 +75,7 @@ describe('openChatIntoPane — law 4', () => {
 
     openChatIntoPane(chatRow('chat-b', 'ws-b'), paneId, 'right')
 
-    const leaves = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const leaves = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(leaves).toHaveLength(2)
     expect(toast.error).not.toHaveBeenCalled()
   })
@@ -88,7 +89,7 @@ describe('openChatIntoPane — law 4', () => {
 
     openChatIntoPane(chatRow('chat-b', 'ws-b'), paneId, 'right')
 
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toHaveLength(2)
     expect(toast.error).not.toHaveBeenCalled()
   })
 })

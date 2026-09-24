@@ -52,9 +52,12 @@ func WithHomeDir(
 	}
 }
 
-// New constructs the engine container.
+// New constructs the engine container. ctx is the daemon's own lifecycle
+// context (serve-until-cancelled, per internal.Container.Run) — threaded
+// into Agents so its model-discovery cache's background refreshes stop on
+// shutdown instead of outliving it (engineagents.WithLifecycle).
 func New(
-	_ context.Context,
+	ctx context.Context,
 	opts ...Option,
 ) (*Container, error) {
 	cfg := engineOpts{}
@@ -63,7 +66,7 @@ func New(
 	}
 	_ = cfg
 	return &Container{
-		Agents:   engineagents.New(),
+		Agents:   engineagents.New(engineagents.WithLifecycle(ctx)),
 		Git:      enginegit.New(),
 		FS:       enginefs.New(),
 		Provider: engineprovider.New(),

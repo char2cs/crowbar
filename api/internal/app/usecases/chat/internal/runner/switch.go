@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner/internal/termwait"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -52,9 +51,12 @@ func (rs *Runners) switchProviderLocked(
 			return "", fmt.Errorf("agent: switch provider: chat: %w", err)
 		}
 		// Protect a React replacement that has not emitted its acceptance hook
-		// yet. This first check happens before waiting; the interlocked check just
-		// before displacement closes the hook-between-checks race.
-		if err := rs.requireNoPendingPromptDelivery(ctx, chat); err != nil {
+		// yet — by WAITING for it, not by refusing it. It is the same state as a
+		// turn in flight one moment earlier, and the turn below is waited for.
+		// The interlocked check inside displaceForSwitch still refuses outright:
+		// that one runs under turnStarts, which the hook that would release it
+		// must take.
+		if err := rs.awaitPromptDeliverySettled(ctx, chat); err != nil {
 			return "", err
 		}
 		// Resolve the target while the outgoing CLI is still alive. A missing or
@@ -159,7 +161,17 @@ func (rs *Runners) switchProviderLocked(
 		// changed nothing, and this is Crowbar's own doing, never something to fail
 		// the switch itself over. Only recorded when the provider actually changed
 		// — resuming into the same provider it was already on is not a switch.
-		if previousProviderID != "" && previousProviderID != targetProviderID {
+		//
+		// An UNKNOWN previous provider is recorded too, and used not to be. That
+		// exemption is what made a real conversion invisible: the chats it fired
+		// for were exactly the ones nothing else could name either, so the
+		// conversion left no divider in the transcript and no interruption for
+		// the next resolver to read. It no longer risks a divider on a chat's
+		// first spawn, because no first spawn comes through here — StartRunner
+		// and SpawnChat do — and every chat those mint now carries its own
+		// provider, so "unknown" means a row minted before that field and nothing
+		// else.
+		if previousProviderID != targetProviderID {
 			if err := rs.turns.RecordChatSwitch(
 				ctx, chatID, engineagents.InterruptProviderSwitched, targetProviderID,
 			); err != nil {
@@ -415,73 +427,4 @@ func (rs *Runners) resumableConversation(
 	slog.InfoContext(ctx, "agent: prior conversation predates recorded turns; resuming anyway using the chat's last activity as the gap cutoff",
 		"chat_id", chat.ID, "provider", targetProviderID, "session_id", sessionID, "first_seen_at", firstSeenAt)
 	return sessionID, chat.LastActivityAt, nil
-}
-
-// forceSwitchAfter bounds how long a switch waits for the outgoing turn before
-// forcing it. AwaitTurnComplete itself is documented as needing no timeout,
-// because a live CLI either finishes its turn or eventually dies, and death is
-// what reconcileRunnerExit turns into the same release signal. That reasoning
-// has a gap: a CLI that is alive but stuck — no turn_stop, no exit, no delivery
-// of any kind ever again — satisfies neither condition, and left the switch (and
-// the "Starting <provider>…" spinner it drives) waiting forever. DefaultStallQuiet
-// is reused rather than a second invented number: it is already this codebase's
-// definition of "quiet long enough to call it stuck" (see termwait).
-func (rs *Runners) forceSwitchAfter() time.Duration {
-	if rs.switchAwaitTimeout > 0 {
-		return rs.switchAwaitTimeout
-	}
-	return termwait.DefaultStallQuiet
-}
-
-// SetSwitchAwaitTimeout overrides forceSwitchAfter's bound. Test-only surface —
-// production never calls it — so a deterministic test can force the timeout
-// path without actually waiting DefaultStallQuiet in real time.
-func (rs *Runners) SetSwitchAwaitTimeout(d time.Duration) { rs.switchAwaitTimeout = d }
-
-// awaitTurnOrForce is AwaitTurnComplete bounded by forceSwitchAfter. Distinguishing
-// "my own added deadline fired" from "the CALLER's context died" matters:
-// TestSwitchProvider_MidTurn_ContextCancelled_AbortsWithNothingChanged requires the
-// latter to abort the switch with nothing touched, exactly as before this existed.
-// ctx here is the CALLER's, unwrapped — only when it is still alive can the failure
-// belong to the timeout this function added.
-func (rs *Runners) awaitTurnOrForce(ctx context.Context, chatID string) error {
-	bounded, cancel := context.WithTimeout(ctx, rs.forceSwitchAfter())
-	defer cancel()
-	err := rs.turns.AwaitTurnComplete(bounded, chatID)
-	if err == nil {
-		return nil
-	}
-	if ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
-		return err
-	}
-	return rs.forceOutgoingTurn(ctx, chatID)
-}
-
-// forceOutgoingTurn ends the outgoing turn the same way an explicit Stop click
-// would (see StopChat): record the interruption, then tear the runner down.
-// Always a full retire, never interruptTurn's gentler in-place cancel — by the
-// time this runs, the CLI has already been given forceSwitchAfter to wrap up
-// gracefully and has not, so a second, equally-graceful signal is not owed
-// another wait for it to be silently ignored a second time. Accepting the small
-// risk StopChat already accepts every day (a CLI terminated mid-turn may not
-// flush its native transcript) beats a switch that never completes at all.
-func (rs *Runners) forceOutgoingTurn(ctx context.Context, chatID string) error {
-	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
-	if errors.Is(err, agentrunner.ErrNotFound) {
-		return nil // it finished or died between the deadline firing and this read
-	}
-	if err != nil {
-		return fmt.Errorf("agent: switch provider: force outgoing turn: live runner: %w", err)
-	}
-	slog.WarnContext(ctx, "agent: switch provider: outgoing turn did not finish within the grace period; forcing it",
-		"chat_id", chatID, "runner_id", live.ID, "waited", rs.forceSwitchAfter())
-	rs.retire(ctx, live)
-	// Recorded AFTER retire's kill, not before — see StopChat's own RecordStop
-	// call for why: it must not durably claim "Interrupted" until the CLI has
-	// actually stopped, and retire's kill is what makes that true here.
-	if err := rs.turns.RecordStop(ctx, chatID, live.ID); err != nil {
-		slog.WarnContext(ctx, "agent: switch provider: force outgoing turn: record interruption",
-			"chat_id", chatID, "err", err)
-	}
-	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // compactStartEvent is the canonical outbound event a provider declares when Crowbar
@@ -21,12 +22,24 @@ const compactStartEvent = "compact_start"
 // thread/compact/start over the api transport. A provider that declares neither
 // cannot be asked, and says so with ErrNotFound rather than silently doing nothing.
 //
+// It is offered on CROWBAR'S OWN CHAT ONLY. On the provider's terminal the
+// user types the provider's own gesture themselves, and a second control for
+// it is Crowbar drawing a button over someone else's UI — see
+// ErrCompactionOffSurface.
+//
 // The provider then reports back through compact_pre and compact_post, which is how
 // the chat learns it happened; nothing here writes that record.
 func (rs *Runners) Compact(ctx context.Context, chatID string) error {
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return fmt.Errorf("agent: compact: %w", err)
+	}
+	// Before anything is resolved: the SURFACE decides, not the provider. See
+	// ErrCompactionOffSurface (capabilities.go) — and CompactionOnChatSurface
+	// beside it, which is the read the client gates its control on so the
+	// button is absent rather than present-and-erroring.
+	if chat.Surface == domain.SurfaceTerminal {
+		return ErrCompactionOffSurface
 	}
 
 	providerID, err := rs.conversations.ChatProviderID(ctx, chatID)

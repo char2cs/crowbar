@@ -1,11 +1,14 @@
 package chat
 
 import (
+	"context"
+
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/conversation"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/defaultlevel"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/manifestfetch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
@@ -53,6 +56,17 @@ type Deps struct {
 	// PermissionPrefs is the global default permission level a new chat is
 	// seeded with.
 	PermissionPrefs store.Store[domain.AgentPermissionDefault, string]
+	// ModelManifestFetchPrefs is the global toggle for whether a
+	// model.manifest: source's background refresh may hit the network —
+	// wired straight into Agents.SetManifestFetchEnabled below, since that
+	// engine-side getter is pulled fresh on every refresh rather than pushed
+	// on change.
+	ModelManifestFetchPrefs store.Store[domain.AgentModelManifestFetch, string]
+	// ChatTelemetry backs the durable half of the telemetry cache — the last
+	// usage report per chat, surviving a daemon restart. Nil is a valid,
+	// supported value (every test that builds Deps by hand): New falls back to
+	// a process-local-only store, same as before this field existed.
+	ChatTelemetry store.Store[domain.AgentChatTelemetry, string]
 	// Home is the app-config crowbar-home resolver, NOT a wsId lookup: it resolves
 	// the descriptor catalog, and providers are global.
 	Home func() (string, error)
@@ -102,8 +116,12 @@ type shared struct {
 
 // New builds the chat usecase and every component behind it.
 func New(d Deps) *Usecase {
+	// context.Background(): this hydration read happens exactly once, at
+	// daemon boot, before there is a request context to carry — same
+	// justification as the other startup-only Background() reads in this
+	// codebase (e.g. container.go's sweepTargets).
 	sh := shared{
-		telemetry:    telemetry.New(),
+		telemetry:    telemetry.NewDurable(context.Background(), d.ChatTelemetry),
 		work:         inflight.NewWork(),
 		spawns:       inflight.NewGate(),
 		turns:        inflight.NewTurns(),
@@ -151,6 +169,19 @@ func (u *Usecase) buildComponents(d Deps, sh shared) {
 		Tools:     u.tools,
 	})
 	u.defaultLevel = defaultlevel.New(defaultlevel.Deps{Prefs: d.PermissionPrefs})
+	u.manifestFetch = manifestfetch.New(manifestfetch.Deps{Prefs: d.ModelManifestFetchPrefs})
+	// Pull, not push: the engine reads this getter fresh on every
+	// model.manifest: refresh attempt, so a settings change takes effect on
+	// the very next one rather than needing this wiring to run again.
+	if d.Agents != nil {
+		d.Agents.SetManifestFetchEnabled(func() bool {
+			enabled, err := u.manifestFetch.Get(context.Background())
+			if err != nil {
+				return true
+			}
+			return enabled
+		})
+	}
 	u.conversations = conversation.New(conversation.Deps{
 		Chats:     d.Chats,
 		Runners:   d.Runners,

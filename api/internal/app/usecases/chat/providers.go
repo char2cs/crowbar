@@ -54,6 +54,19 @@ type ProviderUsecase interface {
 		ctx context.Context,
 		level string,
 	) error
+
+	// ModelManifestFetchEnabled reports whether a model.manifest: source's
+	// background refresh may hit the network. Defaults to true when never
+	// set.
+	ModelManifestFetchEnabled(
+		ctx context.Context,
+	) (bool, error)
+
+	// SetModelManifestFetchEnabled overwrites the global toggle.
+	SetModelManifestFetchEnabled(
+		ctx context.Context,
+		enabled bool,
+	) error
 }
 
 var _ ProviderUsecase = (*Usecase)(nil)

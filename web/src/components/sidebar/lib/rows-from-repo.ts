@@ -407,6 +407,21 @@ export function rowsFromRepo(repo: Repo): SidebarRow[] {
 }
 
 /**
+ * Row id -> owning repo id, across every repo passed in — the scope
+ * `hideRowsForInFlightCreates` (rows-from-pending.ts) needs to tell a
+ * repo-scoped pending create's own repo's rows apart from every other
+ * repo's (or project home's, which owns no repo and so is never in this
+ * map at all).
+ */
+export function rowRepoScope(repos: readonly Repo[]): ReadonlyMap<string, string> {
+  const scope = new Map<string, string>()
+  for (const repo of repos) {
+    for (const row of rowsFromRepo(repo)) scope.set(row.id, repo.id)
+  }
+  return scope
+}
+
+/**
  * Walk a built (and, for `rowsFromRepo`, owner-folded) tree into flat
  * `SidebarRow`s, pushed onto `rows` in place.
  *

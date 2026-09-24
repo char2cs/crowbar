@@ -19,6 +19,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -28,8 +29,40 @@ import (
 
 func hook(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
 	t.Helper()
+	f.withTrackedSession(runnerID, payload)
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, kind, mustJSON(t, payload)))
 	f.wait()
+}
+
+// hookAPI is hook() delivered on an API-marked ctx — inflight.WithAPITransport,
+// the SAME marker pumpAPIConn's own IngestHook calls carry in production (see
+// ingest.go's channelFor). Use it for a payload shaped the way a provider's
+// api: channel block actually maps it (codex's threadId/item.*/turn.* — see
+// codex.yaml) rather than hook()'s hooks-shaped default; delivering an
+// api-shaped payload through hook() instead resolves against the wrong
+// channel block (or no block at all) and silently drops or misparses it.
+func hookAPI(t *testing.T, f testFixture, runnerID, provider, kind string, payload map[string]any) {
+	t.Helper()
+	require.NoError(t, f.usecase.IngestHook(
+		inflight.WithAPITransport(f.ctx), runnerID, provider, kind, mustJSON(t, payload)))
+	f.wait()
+}
+
+// codexTurnStop delivers a codex turn_stop the way pumpAPIConn actually
+// receives one in production: api-shaped (threadId/turn.items[type=
+// agentMessage].text — codex.yaml's turn_stop:api: block), on an API-marked
+// ctx. turn()'s own flat last_assistant_message is claude's hooks shape and
+// silently resolves to an empty message under codex's api: block.
+func codexTurnStop(t *testing.T, f testFixture, runnerID, sessionID, message string) {
+	t.Helper()
+	hookAPI(t, f, runnerID, "codex", "turn_stop", map[string]any{
+		"threadId": sessionID,
+		"turn": map[string]any{
+			"items": []any{
+				map[string]any{"type": "agentMessage", "text": message},
+			},
+		},
+	})
 }
 
 func TestObservation_ToolActivityIsRecordedWithItsPayloads(t *testing.T) {
@@ -168,10 +201,18 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 
 	// The PARENT thread's own spawnAgent tool call completes, naming the
 	// child thread it just created (item.receiverThreadIds[0]) — this is
-	// what opens the nested subagent for real.
-	hook(t, f, runnerID, "codex", "tool_post", map[string]any{
-		"session_id": "thread-main", "tool_use_id": "spawn-1", "tool_name": "spawnAgent",
-		"item": map[string]any{"receiverThreadIds": []any{"thread-child"}},
+	// what opens the nested subagent for real. nested_session_id only
+	// resolves off codex's api: channel block (see codex.yaml's own comment
+	// on tool_post — the hooks: block maps no such field at all, since no
+	// PostToolUse capture of a collab-agent completion has ever been taken),
+	// so this — like every event below — must arrive on an API-marked ctx,
+	// api-shaped, exactly as codex's real collabAgentToolCall traffic does.
+	hookAPI(t, f, runnerID, "codex", "tool_post", map[string]any{
+		"threadId": "thread-main",
+		"item": map[string]any{
+			"type": "collabAgentToolCall", "id": "spawn-1", "tool": "spawnAgent",
+			"receiverThreadIds": []any{"thread-child"},
+		},
 	})
 
 	subs, err := f.activity.Subagents(f.ctx, chatID)
@@ -180,21 +221,27 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	assert.Equal(t, "thread-child", subs[0].ID)
 	assert.Nil(t, subs[0].EndedAt, "opened, not yet closed")
 
-	// The CHILD thread's own tool call — session_id names the CHILD, not the
+	// The CHILD thread's own tool call — threadId names the CHILD, not the
 	// parent — must be routed into the subagent's nested activity.
-	hook(t, f, runnerID, "codex", "tool_pre", map[string]any{
-		"session_id": "thread-child", "tool_use_id": "child-tool-1", "tool_name": "Bash",
-		"tool_input": map[string]any{"command": "echo hi"},
+	hookAPI(t, f, runnerID, "codex", "tool_pre", map[string]any{
+		"threadId": "thread-child",
+		"item":     map[string]any{"type": "commandExecution", "id": "child-tool-1", "command": "echo hi"},
 	})
-	hook(t, f, runnerID, "codex", "tool_post", map[string]any{
-		"session_id": "thread-child", "tool_use_id": "child-tool-1", "tool_name": "Bash",
-		"tool_response": "hi",
+	hookAPI(t, f, runnerID, "codex", "tool_post", map[string]any{
+		"threadId": "thread-child",
+		"item": map[string]any{
+			"type": "commandExecution", "id": "child-tool-1", "command": "echo hi",
+			"aggregatedOutput": "hi",
+		},
 	})
 
 	// The CHILD thread's own turn closing is what CLOSES the subagent and
 	// records its own final reply.
-	hook(t, f, runnerID, "codex", "turn_stop", map[string]any{
-		"session_id": "thread-child", "last_assistant_message": "done",
+	hookAPI(t, f, runnerID, "codex", "turn_stop", map[string]any{
+		"threadId": "thread-child",
+		"turn": map[string]any{
+			"items": []any{map[string]any{"type": "agentMessage", "text": "done"}},
+		},
 	})
 
 	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
@@ -216,7 +263,14 @@ func TestObservation_ANestedSubagentsToolCallsAndReplyAreRecorded(t *testing.T) 
 	assert.Equal(t, "spawnAgent", parent.Name)
 	require.NotNil(t, nested, "the child's own tool call must be recorded")
 	assert.Equal(t, "thread-child", nested.SubagentID)
-	assert.Equal(t, "Bash", nested.Name)
+	// "commandExecution", not a specific binary name: a real commandExecution
+	// item carries no item.tool field at all (confirmed live — see the
+	// item_started/item_completed.commandExecution.json fixtures), so
+	// tool_name's first_present chain falls through to item.type, same as
+	// any other unmapped codex tool call (codex.yaml's own tool_target
+	// comment: "unmapped every codex tool call read as the bare word
+	// 'commandExecution'").
+	assert.Equal(t, "commandExecution", nested.Name)
 	assert.Equal(t, domain.ToolStatusOK, nested.Status)
 	assert.Empty(t, nested.TurnID, "a nested tool call has no top-level turn")
 
@@ -264,10 +318,15 @@ func TestRegression_SpawnAgentCompletionKeepsChatWorkingForTheNestedSubagent(t *
 
 	// The parent's own spawnAgent tool call completes, naming the child
 	// thread it just created — this is what opens the nested subagent, and
-	// it is the ONLY thing open at this instant.
-	hook(t, f, runnerID, "codex", "tool_post", map[string]any{
-		"session_id": "thread-main", "tool_use_id": "spawn-1", "tool_name": "spawnAgent",
-		"item": map[string]any{"receiverThreadIds": []any{"thread-child"}},
+	// it is the ONLY thing open at this instant. nested_session_id only
+	// resolves off codex's api: channel block (see the sibling test above),
+	// so this must be api-shaped on an API-marked ctx.
+	hookAPI(t, f, runnerID, "codex", "tool_post", map[string]any{
+		"threadId": "thread-main",
+		"item": map[string]any{
+			"type": "collabAgentToolCall", "id": "spawn-1", "tool": "spawnAgent",
+			"receiverThreadIds": []any{"thread-child"},
+		},
 	})
 
 	chat := f.chat(t, chatID)
@@ -278,6 +337,93 @@ func TestRegression_SpawnAgentCompletionKeepsChatWorkingForTheNestedSubagent(t *
 	require.NoError(t, err)
 	require.Len(t, subs, 1)
 	assert.Nil(t, subs[0].EndedAt, "opened, not yet closed")
+}
+
+// TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript is the
+// bug reported live 2026-09-23: a codex chat running with
+// features.collab_agents filed its SUBAGENTS' prompts as the user's own
+// messages and their answers as the main agent's, interleaved into the
+// transcript (dev daemon, chat b1fb213e — three `turn_appended` role: user
+// rows carrying prompts Crowbar's own agent wrote, plus four assistant
+// messages under four different item ids).
+//
+// The precondition is the whole bug: a RESUMED chat can have no bound
+// conversation at all. codex's api transport resumes through thread/resume,
+// which fires no thread/started notification, so HandleSessionStart never
+// runs and the runner row keeps an empty currentSessionId for its entire
+// life — confirmed in the live daemon's own runner event log, which holds
+// exactly one runner.started for that chat's runner and no
+// runner.session_bound. namesAnotherConversation then had NOTHING to compare
+// each event's session id against and waved every foreign thread through,
+// including the child threads codex pushes down this same connection.
+func TestRegression_ASubagentsPromptAndReplyNeverEnterTheMainTranscript(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "thread-main")
+	turn(t, f, runnerID, "codex", "answered before the TUI stopped")
+
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.term.exit(t, "term-1")
+	f.wait()
+	resumedID, err := f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	resumed := f.runner(t, resumedID)
+	require.Equal(t, "thread-main", resumed.LaunchSessionID)
+	require.Empty(t, resumed.CurrentSession,
+		"precondition: an api-transport resume announces nothing, so the runner never binds a session")
+
+	// The parent's own spawnAgent completes, naming the child thread it just
+	// created — this is what opens the nested subagent.
+	hookAPI(t, f, resumedID, "codex", "tool_post", map[string]any{
+		"threadId": "thread-main",
+		"item": map[string]any{
+			"type": "collabAgentToolCall", "id": "spawn-1", "tool": "spawnAgent",
+			"receiverThreadIds": []any{"thread-child"},
+		},
+	})
+
+	// Everything below names the CHILD thread: the prompt Crowbar's own agent
+	// handed its subagent, the subagent's streamed answer, and the subagent's
+	// own turn closing. None of it is this chat's transcript.
+	hookAPI(t, f, resumedID, "codex", "user_prompt", map[string]any{
+		"threadId": "thread-child",
+		"item": map[string]any{
+			"type": "userMessage",
+			"content": []any{map[string]any{
+				"type": "text", "text": "Perform a read-only test-inventory check.",
+			}},
+		},
+	})
+	hookAPI(t, f, resumedID, "codex", "message_delta", map[string]any{
+		"threadId": "thread-child", "turnId": "child-turn-1",
+		"itemId": "msg_child", "delta": "Top-level entries: .git, README.md",
+	})
+	hookAPI(t, f, resumedID, "codex", "turn_stop", map[string]any{
+		"threadId": "thread-child",
+		"turn": map[string]any{
+			"items": []any{map[string]any{
+				"type": "agentMessage", "text": "Top-level entries: .git, README.md",
+			}},
+		},
+	})
+
+	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	for _, recorded := range turns {
+		assert.NotContains(t, recorded.Text, "read-only test-inventory",
+			"a prompt Crowbar's own agent wrote was filed as the user's own message")
+		assert.NotContains(t, recorded.Text, "Top-level entries",
+			"a subagent's answer was filed as the main agent's own")
+	}
+
+	// ...and none of that visibility is lost: the child's work stays on the
+	// subagent it belongs to.
+	subs, err := f.activity.Subagents(f.ctx, chatID)
+	require.NoError(t, err)
+	require.Len(t, subs, 1)
+	require.NotNil(t, subs[0].EndedAt, "the child's own turn_stop closes it")
+	require.Len(t, subs[0].Messages, 1)
+	assert.Equal(t, "Top-level entries: .git, README.md", subs[0].Messages[0].Text)
 }
 
 func TestObservation_InterruptionsAreRecordedForEachKind(t *testing.T) {
@@ -508,16 +654,26 @@ func textsOfPage(items []domain.LedgerMessage) []string {
 	return out
 }
 
-func TestObservation_AnonymousToolCallsDoNotCollide(t *testing.T) {
+// TestObservation_AToolPreWithNoIDIsRejectedNotRecorded replaces the former
+// "anonymous tool calls do not collide" expectation: claude's real
+// PreToolUse/PostToolUse payloads ALWAYS carry tool_use_id (PreToolUse.json/
+// PostToolUse.json's own fixtures prove it, which is why claude.yaml's
+// tool_pre/tool_post keep tool_id in required: — design spec 2.3), so a
+// PreToolUse hook missing it is a malformed delivery, not a legitimate
+// anonymous call. required: now rejects it outright instead of toolID()
+// silently minting a fresh fallback id per call — which was worse, not
+// better: two genuinely anonymous deliveries of the SAME real call would
+// mint two DIFFERENT ids and its own pre/post pair would never match
+// (codex.yaml's own comment on tool_id being "load-bearing").
+func TestObservation_AToolPreWithNoIDIsRejectedNotRecorded(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "claude")
 
 	hook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{"tool_name": "Bash"})
-	hook(t, f, runnerID, "claude", engineagents.HookToolPre, map[string]any{"tool_name": "Bash"})
 
 	calls, err := f.activity.ToolCalls(f.ctx, chatID, 0, 0)
 	require.NoError(t, err)
-	assert.Len(t, calls, 2)
+	assert.Empty(t, calls, "a tool_pre missing its required tool_id must be rejected, not recorded")
 }
 
 func TestObservation_AToolCompletionWithNoStatusReadsAsOK(t *testing.T) {
@@ -1045,6 +1201,55 @@ func TestRegression_StalledTurnIsClosedAndTheChatSaysWhy(t *testing.T) {
 	assert.Equal(t, "sess-1", notices[0].SessionID)
 }
 
+// TestRegression_CloseStalledTurnSalvagesTheAlreadyStreamedText is the same gap
+// TestRegression_StopChatSalvagesTheAlreadyStreamedText already proved on StopChat's
+// own door, hit through the stall sweep instead: codex streams part of a reply,
+// then hits its usage limit (codex.yaml's only terminal_notices entry) before its
+// own turn/completed ever arrives. CloseStalledTurn clears Working — the wedged
+// spinner does stop — but unlike AbandonMessage/AbandonMessageForRunner it never
+// looked at the streamed buffer, so the reply already broadcast live over
+// message_delta was simply dropped. The frontend's own live bubble, matched
+// against the ledger by "msg-"+item id, then never finds its row and never
+// stops rendering as still in progress.
+func TestRegression_CloseStalledTurnSalvagesTheAlreadyStreamedText(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "codex")
+	f.announce(t, runnerID, "sess-1")
+	prompt(t, f, runnerID, "codex", "please do the thing")
+	require.True(t, f.chat(t, chatID).Working, "the user's prompt must have opened a turn")
+
+	// Codex streaming its own reply — no `final`/`index`, exactly as its own
+	// descriptor maps message_delta — when the usage-limit banner appears.
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "message_delta",
+		mustJSON(t, map[string]any{
+			"threadId": "sess-1", "turnId": "turn-1", "itemId": "reply-msg",
+			"delta": "Here is the first part of the answer...",
+		})))
+	f.wait()
+
+	notice, ok := f.usecase.MatchTerminalNotice(f.ctx, "codex", codexUsageLimitScreen)
+	require.True(t, ok)
+	agentusecase.CloseStalledTurn(f.usecase.TurnUsecase, f.ctx, agentusecase.Stall{
+		ChatID: chatID, WorkspaceID: "ws1", ProviderID: "codex",
+		RunnerID: runnerID, SessionID: "sess-1", Notice: notice,
+	})
+	f.wait()
+
+	assert.False(t, f.chat(t, chatID).Working, "the wedged spinner must stop")
+
+	turns, err := f.activity.Turns(f.ctx, chatID, 0, 0, 0)
+	require.NoError(t, err)
+	var salvaged *domain.ActivityTurn
+	for i := range turns {
+		if turns[i].Text == "Here is the first part of the answer..." {
+			salvaged = &turns[i]
+		}
+	}
+	require.NotNil(t, salvaged,
+		"THE BUG: text Crowbar already streamed to the client must survive a stall, not disappear")
+	assert.Equal(t, "codex", salvaged.ProviderID)
+}
+
 func TestUsecase_CloseStalledTurn_WritesNoNoticeWhenThereWasNoTurnToClose(t *testing.T) {
 	f := newFixture(t)
 	chatID, runnerID := f.spawn(t, "codex")
@@ -1545,13 +1750,17 @@ func TestRegression_ACodexFailedToolIsRecordedAsAnError(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "codex")
 	hook(t, f, runnerID, "codex", engineagents.HookUserPrompt, map[string]any{"prompt": "go"})
 
-	hook(t, f, runnerID, "codex", engineagents.HookToolPre, map[string]any{
+	// tool_fail is api-only — codex declares no hooks: block for it at all
+	// (PostToolUse always names canonical tool_post, never tool_fail — see
+	// codex.yaml's own comment) — so both of these must arrive api-shaped on
+	// an API-marked ctx, or tool_fail resolves to nothing and drops.
+	hookAPI(t, f, runnerID, "codex", engineagents.HookToolPre, map[string]any{
 		"threadId": "t1", "turnId": "tn1",
 		"item": map[string]any{
 			"type": "commandExecution", "id": "c1", "command": "rg --files", "status": "inProgress",
 		},
 	})
-	hook(t, f, runnerID, "codex", engineagents.HookToolFail, map[string]any{
+	hookAPI(t, f, runnerID, "codex", engineagents.HookToolFail, map[string]any{
 		"threadId": "t1", "turnId": "tn1",
 		"item": map[string]any{
 			"type": "commandExecution", "id": "c1", "command": "rg --files",
@@ -1926,10 +2135,12 @@ func TestRegression_InterruptedTurnGraduallyFinishingIsNotMisattributedToTheNext
 	require.NoError(t, f.runnersMove(t, codexRunnerID, chatID, "codex-s1"))
 
 	// Codex, placed second, closes its OWN turn FIRST.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": "what did we talk before"})))
-	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": "codex reply"})))
+	codexPrompt := map[string]any{"prompt": "what did we talk before"}
+	f.withTrackedSession(codexRunnerID, codexPrompt)
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "user_prompt", mustJSON(t, codexPrompt)))
+	codexStop := map[string]any{"last_assistant_message": "codex reply"}
+	f.withTrackedSession(codexRunnerID, codexStop)
+	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunnerID, "codex", "turn_stop", mustJSON(t, codexStop)))
 	f.wait()
 
 	// Claude's real text — still gracefully finishing — arrives LATE, after
@@ -2528,28 +2739,27 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 
 	// compact_pre: the contextCompaction item/started, in the same shape
 	// codex.yaml's own mapping reads (threadId, item.type, the envelope's
-	// turnId) — this is what ARMS the latch.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_pre",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-1"},
-			"turnId":   "compact-turn-1",
-		})))
-	f.wait()
+	// turnId) — this is what ARMS the latch. turn_id only resolves off
+	// codex's api: channel block (the hooks: block maps only session_id), so
+	// this and the wrapper turn_stop below must both be api-shaped on an
+	// API-marked ctx.
+	hookAPI(t, f, runnerID, "codex", "compact_pre", map[string]any{
+		"threadId": "sess-1",
+		"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-1"},
+		"turnId":   "compact-turn-1",
+	})
 
 	// The wrapper's own turn/completed — same turn id, no items — exactly the
 	// shape captured live from a real thread/compact/start round trip.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"turn": map[string]any{
-				"id":        "compact-turn-1",
-				"items":     []any{},
-				"itemsView": "notLoaded",
-				"status":    "completed",
-			},
-		})))
-	f.wait()
+	hookAPI(t, f, runnerID, "codex", "turn_stop", map[string]any{
+		"threadId": "sess-1",
+		"turn": map[string]any{
+			"id":        "compact-turn-1",
+			"items":     []any{},
+			"itemsView": "notLoaded",
+			"status":    "completed",
+		},
+	})
 
 	chat := f.chat(t, chatID)
 	require.False(t, chat.Working, "a compaction round trip must never mark the chat working")
@@ -2571,17 +2781,15 @@ func TestRegression_CodexCompactionTurnNeverStopsTheChat(t *testing.T) {
 	// a whole: an ORDINARY turn right after, with its own different turn id,
 	// must still record its reply exactly as it always has.
 	prompt(t, f, runnerID, "codex", "what changed?")
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_stop",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"turn": map[string]any{
-				"id":        "ordinary-turn-1",
-				"items":     []any{map[string]any{"type": "agentMessage", "text": "nothing much"}},
-				"itemsView": "summary",
-				"status":    "completed",
-			},
-		})))
-	f.wait()
+	hookAPI(t, f, runnerID, "codex", "turn_stop", map[string]any{
+		"threadId": "sess-1",
+		"turn": map[string]any{
+			"id":        "ordinary-turn-1",
+			"items":     []any{map[string]any{"type": "agentMessage", "text": "nothing much"}},
+			"itemsView": "summary",
+			"status":    "completed",
+		},
+	})
 
 	chat = f.chat(t, chatID)
 	require.False(t, chat.Working, "the ordinary turn closed normally")
@@ -2607,13 +2815,14 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 	before, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
 	require.NoError(t, err)
 
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_pre",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-2"},
-			"turnId":   "compact-turn-2",
-		})))
-	f.wait()
+	// turn_failed is api-only (no hooks: block at all — same as tool_fail),
+	// so both this and its own compact_pre below must be api-shaped on an
+	// API-marked ctx.
+	hookAPI(t, f, runnerID, "codex", "compact_pre", map[string]any{
+		"threadId": "sess-1",
+		"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-2"},
+		"turnId":   "compact-turn-2",
+	})
 
 	// The wrapper's turn/completed with turn.status: failed. IngestHook takes
 	// the canonical event by name (not the raw wire frame), which bypasses
@@ -2621,17 +2830,15 @@ func TestRegression_CodexFailedCompactionTurnRecordsNoFailureNotice(t *testing.T
 	// so this drives turn_failed directly, exactly as real dispatch would
 	// have resolved this exact payload to, given the SAME turn id
 	// compact_pre armed.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "turn_failed",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"turn": map[string]any{
-				"id":     "compact-turn-2",
-				"items":  []any{},
-				"status": "failed",
-				"error":  map[string]any{"message": "compaction blew up"},
-			},
-		})))
-	f.wait()
+	hookAPI(t, f, runnerID, "codex", "turn_failed", map[string]any{
+		"threadId": "sess-1",
+		"turn": map[string]any{
+			"id":     "compact-turn-2",
+			"items":  []any{},
+			"status": "failed",
+			"error":  map[string]any{"message": "compaction blew up"},
+		},
+	})
 
 	after, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
 	require.NoError(t, err)
@@ -2664,26 +2871,22 @@ func TestRegression_CodexManualCompactionIsLabelledManual(t *testing.T) {
 
 	_ = f.usecase.Compact(f.ctx, chatID)
 
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_pre",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-3"},
-			"turnId":   "compact-turn-3",
-		})))
-	f.wait()
+	hookAPI(t, f, runnerID, "codex", "compact_pre", map[string]any{
+		"threadId": "sess-1",
+		"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-3"},
+		"turnId":   "compact-turn-3",
+	})
 
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, ints, 1)
 	assert.Equal(t, "manual", ints[0].Detail, "compact_pre alone must already record manual")
 
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_post",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-3"},
-			"turnId":   "compact-turn-3",
-		})))
-	f.wait()
+	hookAPI(t, f, runnerID, "codex", "compact_post", map[string]any{
+		"threadId": "sess-1",
+		"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-3"},
+		"turnId":   "compact-turn-3",
+	})
 
 	ints, err = f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
@@ -2701,13 +2904,11 @@ func TestRegression_CodexAutomaticCompactionIsNotLabelledManual(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")
 
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "codex", "compact_pre",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-4"},
-			"turnId":   "compact-turn-4",
-		})))
-	f.wait()
+	hookAPI(t, f, runnerID, "codex", "compact_pre", map[string]any{
+		"threadId": "sess-1",
+		"item":     map[string]any{"type": "contextCompaction", "id": "comp-item-4"},
+		"turnId":   "compact-turn-4",
+	})
 
 	ints, err := f.activity.Interruptions(f.ctx, chatID)
 	require.NoError(t, err)
@@ -2729,7 +2930,7 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 	chatID, runnerID := f.spawn(t, "codex")
 	f.announce(t, runnerID, "sess-1")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what changed?", uuid.NewString(), "", "", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "what changed?", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"precondition: the real prompt is dispatched and still unconfirmed")
@@ -2744,24 +2945,20 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 
 	// codex's OWN decision, never Compact() — the manual latch is deliberately
 	// left unarmed, matching an automatic pre-turn compaction exactly.
-	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "codex", "compact_pre",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"item":     map[string]any{"type": "contextCompaction", "id": "auto-comp-1"},
-			"turnId":   "auto-compact-turn-1",
-		})))
-	f.wait()
+	hookAPI(t, f, live.ID, "codex", "compact_pre", map[string]any{
+		"threadId": "sess-1",
+		"item":     map[string]any{"type": "contextCompaction", "id": "auto-comp-1"},
+		"turnId":   "auto-compact-turn-1",
+	})
 
 	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"the real prompt must still be pending — compact_pre must not settle a delivery it did not itself create")
 
-	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "codex", "compact_post",
-		mustJSON(t, map[string]any{
-			"threadId": "sess-1",
-			"item":     map[string]any{"type": "contextCompaction", "id": "auto-comp-1"},
-			"turnId":   "auto-compact-turn-1",
-		})))
-	f.wait()
+	hookAPI(t, f, live.ID, "codex", "compact_post", map[string]any{
+		"threadId": "sess-1",
+		"item":     map[string]any{"type": "contextCompaction", "id": "auto-comp-1"},
+		"turnId":   "auto-compact-turn-1",
+	})
 
 	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"compact_post must not settle it either")

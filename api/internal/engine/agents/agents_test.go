@@ -3,6 +3,8 @@ package agents_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
@@ -255,7 +258,8 @@ func TestAgent_ParseHookMapsAConversationTurn(t *testing.T) {
 	a := get(t, "claude")
 
 	ev, err := a.ParseHook(agents.HookTurnStop,
-		[]byte(`{"session_id":"s1","last_assistant_message":"done","background_tasks":[1]}`))
+		[]byte(`{"session_id":"s1","last_assistant_message":"done","background_tasks":[1]}`),
+		agents.ChannelHooks)
 
 	require.NoError(t, err)
 	assert.Equal(t, "s1", ev.SessionID)
@@ -271,7 +275,8 @@ func TestAgent_ParseHookRefusesAnotherConversationsPayload(t *testing.T) {
 	a := get(t, "codex")
 
 	_, err := a.ParseHook(agents.HookSubagentPre,
-		[]byte(`{"session_id":"s1","agent_id":"a1","agent_type":"t1","transcript_path":null}`))
+		[]byte(`{"session_id":"s1","agent_id":"a1","agent_type":"t1","transcript_path":null}`),
+		agents.ChannelHooks)
 
 	assert.ErrorIs(t, err, agents.ErrForeignConversation)
 }
@@ -294,7 +299,8 @@ func TestRegression_CodexMemoryConsolidationSessionDoesNotStealTheChat(t *testin
 		[]byte(`{"session_id":"019fafaf-4f2c-7551-806e-eda96d1cefed","turn_id":"019fafaf-4f54",`+
 			`"transcript_path":null,"cwd":"/h/.codex/memories","hook_event_name":"UserPromptSubmit",`+
 			`"model":"gpt-5.6-terra","permission_mode":"bypassPermissions",`+
-			`"prompt":"MEMORY-WRITING-AGENT-PHASE-2-CONSOLIDATION"}`))
+			`"prompt":"MEMORY-WRITING-AGENT-PHASE-2-CONSOLIDATION"}`),
+		agents.ChannelHooks)
 
 	assert.ErrorIs(t, err, agents.ErrForeignConversation,
 		"a hooks-shaped delivery of a dual-shape event must still be checked, even though "+
@@ -324,7 +330,7 @@ func TestRegression_EveryDualShapeCodexEventRejectsAForeignHooksPayload(t *testi
 				"precondition: this event must actually inherit the api default for the "+
 					"sweep to mean anything")
 
-			_, err := a.ParseHook(event, []byte(`{"transcript_path":null}`))
+			_, err := a.ParseHook(event, []byte(`{"transcript_path":null}`), agents.ChannelHooks)
 
 			assert.ErrorIs(t, err, agents.ErrForeignConversation)
 		})
@@ -333,9 +339,78 @@ func TestRegression_EveryDualShapeCodexEventRejectsAForeignHooksPayload(t *testi
 
 func TestAgent_ParseHookReportsAnUndeclaredEvent(t *testing.T) {
 	_, err := get(t, "codex").ParseHook(agents.HookNotification,
-		[]byte(`{"transcript_path":"/x","message":"hi"}`))
+		[]byte(`{"transcript_path":"/x","message":"hi"}`), agents.ChannelHooks)
 
 	assert.ErrorIs(t, err, agents.ErrHookUndeclared)
+}
+
+// TestRegression_ParseHookReadsAChannelScopedEventsOwnBlock is the chat-theft
+// class proven through the SAME public entry point production uses
+// (Agent.ParseHook — ingest.go's own call), not just the internal translate/
+// inbound package underneath it: the SAME canonical event, the SAME
+// descriptor, two payloads shaped for two DIFFERENT channels, each read
+// through its own channel's block. See translate/inbound/hooks.go's doc
+// comment on Parse, and docs/plans/2026-09-22-descriptor-channel-split.md
+// 1.1, for the live bug (transport-keyed rather than channel-keyed
+// resolution) this design replaces.
+func TestRegression_ParseHookReadsAChannelScopedEventsOwnBlock(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "channel-split", `
+id: channel-split
+spawn:
+  cmd: acme
+  interactive_required: true
+events:
+  session_start:
+    in: session_start
+    map: { session_id: session_id }
+  turn_stop:
+    in: turn_stop
+    map: { message: last }
+  tool_pre:
+    required: [session_id, tool_id, tool_name]
+    api:
+      in: item/started
+      when: { item.type: { any_of: [commandExecution, fileChange] } }
+      map: { session_id: threadId, tool_id: item.id, tool_name: item.type }
+    hooks:
+      in: PreToolUse
+      map: { session_id: session_id, tool_id: tool_use_id, tool_name: tool_name }
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+`)
+	a, err := agents.New().Get(context.Background(), home, "channel-split")
+	require.NoError(t, err)
+
+	apiEv, err := a.ParseHook(agents.HookToolPre,
+		[]byte(`{"threadId":"api-session","item":{"type":"commandExecution","id":"api-tool"}}`),
+		agents.ChannelAPI)
+	require.NoError(t, err)
+	assert.Equal(t, "api-session", apiEv.SessionID)
+	require.NotNil(t, apiEv.Tool)
+	assert.Equal(t, "api-tool", apiEv.Tool.ID)
+
+	hooksEv, err := a.ParseHook(agents.HookToolPre,
+		[]byte(`{"session_id":"hooks-session","tool_use_id":"hooks-tool","tool_name":"Bash"}`),
+		agents.ChannelHooks)
+	require.NoError(t, err)
+	assert.Equal(t, "hooks-session", hooksEv.SessionID)
+	require.NotNil(t, hooksEv.Tool)
+	assert.Equal(t, "hooks-tool", hooksEv.Tool.ID)
+
+	// The isolation half: the api-shaped payload read through the HOOKS
+	// channel must resolve nothing — never fall back to the api block's
+	// threadId/item.id, which is exactly the cross-shape leak the old
+	// transport-keyed resolution allowed. tool_pre declares session_id
+	// required:, so isolation now surfaces as a RequiredFieldError rather
+	// than a hollow success (design spec 2.3) — a stronger proof than an
+	// empty field: the mismatch is REJECTED, not merely unfilled.
+	_, err = a.ParseHook(agents.HookToolPre,
+		[]byte(`{"threadId":"api-session","item":{"type":"commandExecution","id":"api-tool"}}`),
+		agents.ChannelHooks)
+	assert.ErrorIs(t, err, agents.ErrRequiredFieldMissing)
 }
 
 func TestAgent_ParseTelemetryMapsTheProvidersReport(t *testing.T) {
@@ -426,11 +501,12 @@ func TestExpand_RendersCrowbarsOwnPrompts(t *testing.T) {
 }
 
 func TestDecide_IsReExportedAsAPureFunction(t *testing.T) {
-	assert.Equal(t, agents.MoveNoop, agents.Decide("s1", "s1", "", false).Kind)
-	assert.Equal(t, agents.MoveBind, agents.Decide("", "s1", "", false).Kind)
-	assert.Equal(t, agents.MoveToNew, agents.Decide("s1", "s2", "", false).Kind)
+	assert.Equal(t, agents.MoveNoop, agents.Decide("s1", "s1", "", false, false).Kind)
+	assert.Equal(t, agents.MoveBind, agents.Decide("", "s1", "", false, false).Kind)
+	assert.Equal(t, agents.MoveToNew, agents.Decide("s1", "s2", "", false, false).Kind)
+	assert.Equal(t, agents.MoveBind, agents.Decide("s1", "s2", "", false, true).Kind)
 
-	known := agents.Decide("s1", "s2", "chat-9", true)
+	known := agents.Decide("s1", "s2", "chat-9", true, false)
 	assert.Equal(t, agents.MoveToKnown, known.Kind)
 	assert.Equal(t, "chat-9", known.ChatID)
 }
@@ -655,6 +731,100 @@ runtime:
 	return a
 }
 
+// manifestDescriptorYAML is a synthetic model.manifest: descriptor pointing
+// at url — the shared embedded model-manifest.json has no "synthetic"
+// provider key, so this id's embedded half always resolves empty, letting a
+// test tell "the network was actually consulted" apart from "the embedded
+// fallback still applies".
+func manifestDescriptorYAML(url string) string {
+	return `
+id: synthetic
+spawn:
+  cmd: true
+  interactive_required: true
+events:
+  session_start:
+    in: session_start
+    map:
+      session_id: session_id
+  turn_stop:
+    in: turn_stop
+    map:
+      message: last
+runtime:
+  transport: hooks
+  hooks:
+    format: json
+model:
+  manifest:
+    url: ` + url + `
+    items_path: "providers.synthetic.models[]"
+    item:
+      id: "{id}"
+      label: "{label}"
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+`
+}
+
+// TestManifestFetch_DefaultsDisabledUntilTheSettingsGetterIsWired proves the
+// engine-side half of the fetch toggle (agents.go's own doc on
+// SetManifestFetchEnabled): a bare New(), never wired to a settings getter,
+// must NEVER dial out as a side effect of resolving a descriptor — only the
+// embedded/disk halves apply. Wiring a getter that reports true is what
+// switches the network half on.
+func TestManifestFetch_DefaultsDisabledUntilTheSettingsGetterIsWired(t *testing.T) {
+	calls := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		// updatedAt must beat the REAL embedded model-manifest.json's own
+		// timestamp (ProbeManifest picks whichever candidate is freshest),
+		// so far in the future it can never accidentally lose that race.
+		_, _ = w.Write([]byte(
+			`{"updatedAt":"2099-01-01T00:00:00Z","providers":{"synthetic":{"models":[` +
+				`{"id":"m1","label":"M1"}]}}}`,
+		))
+	}))
+	defer server.Close()
+	// model.manifest.url must be https: (rules.modelManifest) — httptest's
+	// plain server can't satisfy that, so this borrows the TLS variant's own
+	// trusting client for the one real net/http call ProbeManifest makes.
+	realClient := http.DefaultClient
+	http.DefaultClient = server.Client()
+	t.Cleanup(func() { http.DefaultClient = realClient })
+
+	home := t.TempDir()
+	writeDescriptor(t, home, "synthetic", manifestDescriptorYAML(server.URL))
+	svc := agents.New()
+
+	a, err := svc.Get(context.Background(), home, "synthetic")
+	require.NoError(t, err)
+	assert.Empty(t, a.Models(), "no embedded fallback for this id, and fetch defaults disabled")
+	assert.Equal(t, 0, calls, "a bare New() must never dial out")
+
+	svc.SetManifestFetchEnabled(func() bool { return true })
+	// List, not Get: Get short-circuits on its own descriptor cache when the
+	// override file's mtime is unchanged (agents.go's own doc on
+	// descriptorCacheEntry), so it would never re-trigger
+	// refreshModelsIfDeclared here. List always does. The refresh itself is
+	// async, so poll the real signal (the model actually landing) instead
+	// of sleeping.
+	require.Eventually(t, func() bool {
+		list, err := svc.List(context.Background(), home)
+		if err != nil {
+			return false
+		}
+		for _, p := range list {
+			if p.ID() == "synthetic" {
+				return len(p.Models()) == 1
+			}
+		}
+		return false
+	}, 2*time.Second, 5*time.Millisecond)
+	assert.Positive(t, calls, "enabling the getter must let the next refresh reach the network")
+}
+
 func writeDescriptor(t *testing.T, home, id, body string) {
 	t.Helper()
 	dir := filepath.Join(home, "descriptors")
@@ -707,30 +877,34 @@ func TestAgent_SelectionCapabilitiesAreFactsAboutTheDescriptor(t *testing.T) {
 	claude := get(t, "claude")
 	assert.True(t, claude.Capabilities().ModelSelect)
 	assert.True(t, claude.Capabilities().EffortSelect)
-	assert.Equal(t, []string{"sonnet", "opus", "haiku"}, claude.Models())
-	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, claude.Efforts(""))
+	assert.Equal(t, []string{"fable", "opus", "sonnet", "haiku", "opusplan"}, claude.Models(),
+		"resolved synchronously from the embedded model-manifest.json bundle")
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, claude.Efforts(""),
+		"the '' key is the union of every model's own levels — see modeldiscovery.effortsOf")
 	assert.Equal(t, claude.Efforts(""), claude.Efforts("opus"),
-		"claude's levels do not vary by model, so every model takes the fallback")
+		"the bundled manifest currently states the same levels for every model")
+	assert.Empty(t, claude.DefaultModel(),
+		"claude's manifest states no default (account-dependent) — never inferred, never Models[0]")
 
 	codex := get(t, "codex")
 	assert.True(t, codex.Capabilities().ModelSelect)
 	assert.True(t, codex.Capabilities().EffortSelect)
-	assert.Equal(t, []string{
-		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini",
-	}, codex.Models(), "codex's own priority order, as `codex debug models` reports it")
 }
 
-func TestAgent_CodexEffortsVaryByModel(t *testing.T) {
+// TestAgent_CodexModelsAreDiscoveredNotDeclared pins codex.yaml's own switch
+// to model.discover: with no `codex` binary in this test environment (and
+// homeDir "" — get's own helper — failing Probe's own cwd check outright),
+// nothing ever resolves, so Models/Efforts read as "not yet known" (empty),
+// never the stale hand-maintained list this replaced. The actual
+// filter/order/per-model-effort mapping is modeldiscovery's own table-driven
+// tests against a real trimmed capture; the cache-to-Agent wiring itself is
+// TestAgent_ModelsAndEffortsReadTheDiscoveryCacheWhenDeclared below.
+func TestAgent_CodexModelsAreDiscoveredNotDeclared(t *testing.T) {
 	codex := get(t, "codex")
 
-	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"},
-		codex.Efforts("gpt-5.6-sol"))
-	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"},
-		codex.Efforts("gpt-5.6-luna"))
-	assert.Equal(t, []string{"low", "medium", "high", "xhigh"},
-		codex.Efforts("gpt-5.4-mini"))
-	assert.Empty(t, codex.Efforts("gpt-9-imaginary"))
-	assert.Empty(t, codex.Efforts(""), "no fallback key means the default model has no declared levels")
+	assert.Empty(t, codex.Models(), "no probe has resolved, so nothing is known yet")
+	assert.Empty(t, codex.Efforts("gpt-5.6-sol"))
+	assert.Empty(t, codex.Efforts(""))
 }
 
 func TestAgent_CodexSelectionUsesItsOwnConfigChannel(t *testing.T) {
@@ -1042,7 +1216,7 @@ runtime:
 
 func TestAgent_StartAPIConnRefusesAHooksTransportDescriptor(t *testing.T) {
 	claude := get(t, "claude")
-	_, err := claude.StartAPIConn(context.Background(), "/nonexistent.sock")
+	_, err := claude.StartAPIConn(context.Background(), "/nonexistent.sock", nil)
 	assert.ErrorIs(t, err, agents.ErrAPITransportNotDeclared)
 }
 
@@ -1205,6 +1379,111 @@ mcp_injection:
 	}, serveArgv, "the serve process must carry the SAME crowbar MCP registration a hooks-attached CLI gets")
 }
 
+// TestAgent_APIServeArgvCarriesTheSelection pins the api channel's own
+// carrier for a chat's model/effort choice. An api-transport spawn whose
+// connection comes up forks NO PTY, so the argv model.apply/effort.apply
+// render into never exists; api_apply is the same choice declared onto the
+// serve process instead. Without it the choice is built and thrown away.
+func TestAgent_APIServeArgvCarriesTheSelection(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "api-selection", `
+id: api-selection
+spawn:
+  cmd: acme
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve:  [acme, app-server, --listen, "unix://{socket}"]
+    handshake: { call: initialize }
+model:
+  available: [fast, deep]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+  api_apply:
+    - pass_arg: { arg: "-c", value: 'model="{model}"' }
+effort:
+  available: { "*": [low, high] }
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--effort", value: "{effort}" }
+  api_apply:
+    - pass_arg: { arg: "-c", value: 'reasoning="{effort}"' }
+`)
+	a, err := agents.New().Get(context.Background(), home, "api-selection")
+	require.NoError(t, err)
+
+	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{
+		Socket: "/tmp/s.sock", Model: "deep", Effort: "high",
+	})
+	require.True(t, ok)
+	assert.Equal(t, []string{
+		"acme", "app-server", "--listen", "unix:///tmp/s.sock",
+		"-c", `model="deep"`,
+		"-c", `reasoning="high"`,
+	}, serveArgv)
+	assert.NotContains(t, serveArgv, "--model",
+		"the argv carrier is for a forked PTY; the serve process takes the api one")
+}
+
+// A chat that chose nothing renders an argv byte-identical to one built
+// before the feature existed — the same guarantee SelectionSteps already
+// makes for the forked path.
+func TestAgent_APIServeArgvIsUnchangedWhenNothingWasChosen(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "api-selection-empty", `
+id: api-selection-empty
+spawn:
+  cmd: acme
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve:  [acme, app-server, --listen, "unix://{socket}"]
+    handshake: { call: initialize }
+model:
+  available: [fast, deep]
+  strategy: restart_tui
+  apply:
+    - pass_arg: { arg: "--model", value: "{model}" }
+  api_apply:
+    - pass_arg: { arg: "-c", value: 'model="{model}"' }
+`)
+	a, err := agents.New().Get(context.Background(), home, "api-selection-empty")
+	require.NoError(t, err)
+
+	serveArgv, ok := a.APIServeArgv(agents.TemplateCtx{Socket: "/tmp/s.sock"})
+	require.True(t, ok)
+	assert.Equal(t, []string{"acme", "app-server", "--listen", "unix:///tmp/s.sock"}, serveArgv)
+}
+
+// TestRegression_ACodexChatsChosenModelReachesItsServeProcess is the reported
+// defect at the descriptor layer: a codex chat's model/effort rode
+// model.apply/effort.apply only, and codex's api-transport spawn forks no PTY
+// to put them on — so the user's choice silently reverted to the provider
+// default for the life of the chat.
+//
+// Driven against the REAL shipped descriptor, which is the only place the key
+// names live. Verified against codex-cli 0.154.0: `codex app-server --help`
+// documents `-c model="o3"` as its first example and offers no --model flag
+// at all, which is why the api carrier is the config channel and not a
+// second copy of the TUI's own.
+func TestRegression_ACodexChatsChosenModelReachesItsServeProcess(t *testing.T) {
+	serveArgv, ok := get(t, "codex").APIServeArgv(agents.TemplateCtx{
+		Socket: "/tmp/s.sock", Model: "gpt-5.4-codex", Effort: "high",
+	})
+
+	require.True(t, ok)
+	assert.Contains(t, serveArgv, `model="gpt-5.4-codex"`,
+		"an adopted codex connection has no argv but this one; a model that misses it is not run")
+	assert.Contains(t, serveArgv, `model_reasoning_effort="high"`)
+}
+
 func TestAgent_TransportForResolvesPerEventOverridesAgainstTheRuntimeDefault(t *testing.T) {
 	home := t.TempDir()
 	writeDescriptor(t, home, "mixed-transport", `
@@ -1276,4 +1555,81 @@ runtime:
 	declared, err := agents.New().Get(context.Background(), home, "declared")
 	require.NoError(t, err)
 	assert.True(t, declared.Capabilities().Hotswap)
+}
+
+// TestCapabilities_TerminalStartHereReadsTheSurfacesBlock proves design spec
+// 2.5's `surfaces.terminal.start_here` reaches Capabilities — absent by
+// default (no surfaces: block at all, or a terminal surface that omits it),
+// true only when declared, same conservative direction as every other
+// capability key.
+func TestCapabilities_TerminalStartHereReadsTheSurfacesBlock(t *testing.T) {
+	home := t.TempDir()
+	writeDescriptor(t, home, "no-surfaces", `
+id: no-surfaces
+spawn:
+  cmd: x
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: hooks
+  hotswap: true
+  hooks:
+    format: json
+`)
+	noSurfaces, err := agents.New().Get(context.Background(), home, "no-surfaces")
+	require.NoError(t, err)
+	assert.False(t, noSurfaces.Capabilities().TerminalStartHere,
+		"a descriptor with no surfaces: block declares no launch surface at all")
+
+	writeDescriptor(t, home, "start-here", `
+id: start-here
+spawn:
+  cmd: x
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: hooks
+  hotswap: true
+  hooks:
+    format: json
+surfaces:
+  chat: { channel: hooks, start_here: true }
+  terminal: { channel: hooks, start_here: true }
+`)
+	startHere, err := agents.New().Get(context.Background(), home, "start-here")
+	require.NoError(t, err)
+	assert.True(t, startHere.Capabilities().TerminalStartHere)
+
+	writeDescriptor(t, home, "not-start-here", `
+id: not-start-here
+spawn:
+  cmd: x
+  interactive_required: true
+`+v3EventsBlock+`
+runtime:
+  transport: hooks
+  hotswap: true
+  hooks:
+    format: json
+surfaces:
+  chat: { channel: hooks, start_here: true }
+  terminal: { channel: hooks }
+`)
+	notStartHere, err := agents.New().Get(context.Background(), home, "not-start-here")
+	require.NoError(t, err)
+	assert.False(t, notStartHere.Capabilities().TerminalStartHere,
+		"terminal declared but start_here omitted must not offer the CLI-start affordance")
+}
+
+// TestSurfaceNames_MatchTheDescriptorVocabulary pins the two spellings of the
+// same two surfaces together: the descriptor schema's (this package, from
+// spec) and persistence's (domain.Chat.Surface). The string crosses both
+// layers and goes out on the wire, and the layers deliberately do not import
+// each other — so this is the only thing standing between them and a silent
+// divergence that would make every gate read the wrong surface.
+func TestSurfaceNames_MatchTheDescriptorVocabulary(t *testing.T) {
+	assert.Equal(t, domain.SurfaceChat, agents.SurfaceChat)
+	assert.Equal(t, domain.SurfaceTerminal, agents.SurfaceTerminal)
+	assert.True(t, domain.KnownSurface(agents.SurfaceChat))
+	assert.True(t, domain.KnownSurface(agents.SurfaceTerminal))
 }

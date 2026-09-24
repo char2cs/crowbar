@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rowsFromRepo, chatIconIndex } from '@/components/sidebar/lib/rows-from-repo'
+import { rowsFromRepo, chatIconIndex, rowRepoScope } from '@/components/sidebar/lib/rows-from-repo'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import type { Chat, Folder, Repo, Workspace } from '@/lib/store/sidebar'
 
@@ -1017,5 +1017,49 @@ describe('rowsFromRepo — the repo home never doubles as a workspace row', () =
     const rows = rowsFromRepo(repo)
     expect(rows).toHaveLength(2)
     expect(rows.find((r) => r.id === 'ws-1')?.parentId).toBe(HOME_ROW_ID)
+  })
+})
+
+/**
+ * The scope `hideRowsForInFlightCreates` (rows-from-pending.ts) needs to
+ * confine a branch import's suppression to its OWN repo — see that
+ * function's own doc for why unscoped suppression is a worse regression
+ * than the ghost row it exists to hide.
+ */
+describe('rowRepoScope', () => {
+  it('maps every row a repo draws to that repo — home row included', () => {
+    const repo = makeTestRepo({
+      id: 'repo-a',
+      defaultWorkspaceId: 'ws-home',
+      workspaces: [
+        makeTestWorkspace({ id: 'ws-home', branch: 'main' }),
+        makeTestWorkspace({ id: 'ws-1', branch: 'feature/x', parentId: 'ws-home' }),
+      ],
+    })
+    const scope = rowRepoScope([repo])
+    expect(scope.get(HOME_ROW_ID)).toBe('repo-a')
+    expect(scope.get('ws-1')).toBe('repo-a')
+  })
+
+  it('keeps two repos in the same project cleanly separate', () => {
+    const repoA = makeTestRepo({
+      id: 'repo-a',
+      defaultWorkspaceId: 'ws-a-home',
+      workspaces: [makeTestWorkspace({ id: 'ws-a-1', branch: 'a-fork', parentId: 'ws-a-home' })],
+    })
+    const repoB = makeTestRepo({
+      id: 'repo-b',
+      defaultWorkspaceId: 'ws-b-home',
+      workspaces: [makeTestWorkspace({ id: 'ws-b-1', branch: 'b-fork', parentId: 'ws-b-home' })],
+    })
+    const scope = rowRepoScope([repoA, repoB])
+    expect(scope.get('ws-a-1')).toBe('repo-a')
+    expect(scope.get('ws-b-1')).toBe('repo-b')
+  })
+
+  it('answers undefined for an id no repo passed in claims (a project-home row)', () => {
+    const repo = makeTestRepo({ id: 'repo-a', defaultWorkspaceId: 'ws-home' })
+    const scope = rowRepoScope([repo])
+    expect(scope.get('some-home-chat-id')).toBeUndefined()
   })
 })

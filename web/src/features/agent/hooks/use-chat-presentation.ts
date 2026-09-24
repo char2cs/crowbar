@@ -3,6 +3,7 @@ import {
   getDefaultChatPresentation,
   useSplitPresentationEnabled,
   type ChatPresentation,
+  type LandingChatPresentation,
 } from '@/features/settings/lib/chat-presentation'
 
 export const SPLIT_MIN_HALF_PX = 340
@@ -99,6 +100,26 @@ const lastChosenByChatId = new Map<string, ChatPresentation>()
  *  `resetWindowPaneStoreForTests`'s own naming (window-pane-store.ts). */
 export function resetChatPresentationMemoryForTests(): void {
   lastChosenByChatId.clear()
+}
+
+/**
+ * Records `chatId`'s landing surface BEFORE its pane ever mounts — the one
+ * way a caller outside this hook can put a single, just-minted chat on
+ * Terminal without touching `chatIsDefaultPresentation` (which would move
+ * every OTHER new chat too, and back again once the user remembered to flip
+ * it). Writes the exact same map an explicit in-pane pick does, so the seed
+ * below (`lastChosenByChatId.get(shownChatId) ?? getDefaultChatPresentation()`)
+ * finds it on that chat's very first mount, same as any other remembered
+ * choice.
+ *
+ * Landing-only, like the setting it stands in for: split is never a place a
+ * chat opens by itself, so this cannot request it.
+ */
+export function presetChatLandingPresentation(
+  chatId: string,
+  presentation: LandingChatPresentation,
+): void {
+  lastChosenByChatId.set(chatId, presentation)
 }
 
 /**

@@ -109,7 +109,7 @@ func TestCompact_APITransport_SendsThreadCompactStart(t *testing.T) {
 	agent := compactAPITestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath)
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
@@ -155,4 +155,49 @@ func TestCompact_APITransport_NoLiveConnIsUnavailable(t *testing.T) {
 	err := rs.Compact(context.Background(), "chat-1")
 	require.Error(t, err)
 	require.ErrorIs(t, err, apperr.ErrUnavailable)
+}
+
+// TestRegression_CompactIsRefusedOnTheProvidersOwnTerminal: compaction is a
+// CROWBAR NATIVE-CHAT affordance, not a provider capability the TUI is
+// missing. On the terminal surface the user types the provider's own gesture
+// themselves — Crowbar has no business drawing a second control for it, and
+// the control it was drawing errored.
+//
+// The rule is about the SURFACE and is provider-independent: claude, whose
+// compact_start is a channel-agnostic `/compact` over the prompt and would
+// work perfectly well down its own PTY, is refused here too.
+func TestRegression_CompactIsRefusedOnTheProvidersOwnTerminal(t *testing.T) {
+	agent := compactAPITestAgent(t)
+	rs := &Runners{
+		apiConns:      newAPIConnRegistry(),
+		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:        stubAgentsForInterrupt{agent: agent},
+		chats:         stubChatsForCompact{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1", Surface: domain.SurfaceTerminal}},
+		conversations: stubConversationsForCompact{providerID: "compact-api-test"},
+	}
+
+	err := rs.Compact(context.Background(), "chat-1")
+	require.ErrorIs(t, err, ErrCompactionOffSurface)
+}
+
+// And the same chat on Crowbar's own chat surface is not refused — the gate
+// is the surface, never the provider.
+func TestCompact_IsOfferedOnCrowbarsOwnChatSurface(t *testing.T) {
+	agent := compactAPITestAgent(t)
+	rs := &Runners{
+		apiConns:      newAPIConnRegistry(),
+		ws:            stubWorkspaceForInterrupt{crowbarHome: t.TempDir()},
+		agents:        stubAgentsForInterrupt{agent: agent},
+		chats:         stubChatsForCompact{chat: domain.Chat{ID: "chat-1", WorkspaceID: "ws-1", Surface: domain.SurfaceChat}},
+		conversations: stubConversationsForCompact{providerID: "compact-api-test"},
+		runnerStore: stubRunnerStoreForAttach{
+			runner: engineagents.Runner{ID: "runner-1", WorkspaceID: "ws-1", ProviderID: "compact-api-test"},
+		},
+	}
+
+	// No live connection, so this still refuses — but on availability, not
+	// on the surface, which is the distinction under test.
+	err := rs.Compact(context.Background(), "chat-1")
+	require.ErrorIs(t, err, apperr.ErrUnavailable)
+	require.NotErrorIs(t, err, ErrCompactionOffSurface)
 }

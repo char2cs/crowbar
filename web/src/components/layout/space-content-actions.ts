@@ -4,9 +4,16 @@ import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { useProjectDataStore, EMPTY_PROJECTS } from '@/lib/store/projects'
 import { dataOf } from '@/lib/loadable'
 import { planRemoval, type DragSubject } from './removal-plan'
-import { createChat, createChatWithOwnWorktree } from '@/features/agent/api/agent-api'
+import {
+  createChat,
+  createChatWithOwnWorktree,
+  createSurfaceFor,
+  type AgentProvider,
+} from '@/features/agent/api/agent-api'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
+import { presetChatLandingPresentation } from '@/features/agent/hooks/use-chat-presentation'
+import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
 import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { workspaceIdOfBranchRow } from '@/components/sidebar/lib/branch-row-id'
@@ -231,6 +238,43 @@ async function navigateThenOpenChat(
 }
 
 /**
+ * Resolve `chatId`'s route — project home or a repo workspace — and open it
+ * into its own pane (reveal if already up, fill a vacant pane, or mint a new
+ * view), navigating first when its workspace is not already active. Returns
+ * whether a route was found at all.
+ *
+ * THE one place that resolves "home or repo, then open" for an
+ * already-identified chat id — `handleOpen`'s three call sites below all go
+ * through it now instead of each repeating the same
+ * home-check/`openChatInOwnView`/`navigateThenOpenChat` trio. That
+ * duplication is what let `focusRecent` (recents-actions.ts, the Recents
+ * band's click) drift out of sync with this file: it never learned project
+ * home exists, so a Recents row for a project-home chat resolved nowhere and
+ * did nothing on click. `focusRecent` now calls this same function.
+ */
+export function openChatRoute(
+  repos: readonly Repo[],
+  chatId: string,
+  workspaceId: string,
+  navigate: NavigateFn,
+): boolean {
+  const homeRow = resolveHomeRowScope(chatId)
+  if (homeRow) {
+    void openHomeChat(homeRow.projectId, homeRow.homeWorkspaceId, chatId, navigate)
+    return true
+  }
+  const found = resolveRow(repos, workspaceId)
+  if (!found?.repo.projectId) return false
+  if (openChatInOwnView(chatId, workspaceId)) return true
+  void navigateThenOpenChat(
+    navigate,
+    { projectId: found.repo.projectId, repoId: found.repo.id, wsId: workspaceId },
+    chatId,
+  )
+  return true
+}
+
+/**
  * Opens a row: into a pane (a real, unlocked chat/workspace row), or toggles
  * a fold (a container — a folder, the repo home, or a locked/protected
  * branch, addendum §3: "a project, a repo, and a locked/protected branch
@@ -265,7 +309,7 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
       useSidebarStore.getState().toggleChatRow(id)
       return
     }
-    void openHomeChat(homeRow.projectId, homeRow.homeWorkspaceId, id, navigate)
+    openChatRoute(repos, id, homeRow.homeWorkspaceId, navigate)
     return
   }
 
@@ -281,13 +325,11 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
     // one" shape `handleCreate`'s own Fork/Thread resolution already uses.
     const rowWsId = rowsFromRepo(chatRow.repo).find((r) => r.id === id)?.workspaceId ?? null
     const wsId = isOpenableWorkspaceOfRepo(chatRow.repo, rowWsId)
-    const projectId = chatRow.repo.projectId
-    if (!wsId || !projectId) {
+    if (!wsId || !chatRow.repo.projectId) {
       useSidebarStore.getState().toggleChatRow(id)
       return
     }
-    if (openChatInOwnView(id, wsId)) return
-    void navigateThenOpenChat(navigate, { projectId, repoId: chatRow.repo.id, wsId }, id)
+    openChatRoute(repos, id, wsId, navigate)
     return
   }
 
@@ -316,12 +358,10 @@ export function handleOpen(id: string, repos: readonly Repo[], navigate: Navigat
   // separate id, read off the `Workspace` record the same way
   // `handleCreate` already does.
   const owningChatId = found.repo.workspaces.find((w) => w.id === found.subject.id)?.owningChatId
-  if (owningChatId && openChatInOwnView(owningChatId, found.subject.id)) return
   // `subject.id`, never the row's — a branch row is addressed by its owning
   // chat, and only `resolveRow` knows which workspace that names.
-  const params = { projectId: found.repo.projectId, repoId: found.repo.id, wsId: found.subject.id }
   if (owningChatId) {
-    void navigateThenOpenChat(navigate, params, owningChatId)
+    openChatRoute(repos, owningChatId, found.subject.id, navigate)
     return
   }
   // No owner recorded yet: the daemon mints one on the first read of the
@@ -630,6 +670,20 @@ export function handleCreate(
   parentId: string,
   kind: 'workspace' | 'thread',
   navigate: NavigateFn,
+  /** Landed on the requested surface (`presetChatLandingPresentation`)
+   *  instead of wherever `chatIsDefaultPresentation` points — "start THIS
+   *  chat on the CLI" without flipping that setting for every chat after
+   *  it. Also travels to the daemon as the create's own `surface`, which is
+   *  what decides which of the provider's faces is actually FORKED — a
+   *  seeded landing alone would open a terminal pane on a chat the daemon
+   *  had already spawned on its api transport, with no PTY to show.
+   *  Undefined leaves the surface to `createSurfaceFor`, which answers it
+   *  from the user's own default landing surface (a provider that cannot be
+   *  landed on its terminal still creates exactly as before).
+   *  Never applies to a fork ('workspace'): naming happens first, and by
+   *  the time `confirmPendingCreateName` actually mints one there is no
+   *  caller left in this call to have asked. */
+  presentation?: LandingChatPresentation,
 ): void {
   // A project-home row (chat OR folder) is resolved FIRST, against every
   // visible project's home tree rather than `repos` — same rule `handleOpen`
@@ -677,9 +731,15 @@ export function handleCreate(
     // an omitted parentId here roots every home thread at the top level
     // regardless of which bubble was clicked — caught live: rooted as a
     // sibling of "Test", never nested under it.
-    createChat(homeRow.homeWorkspaceId, provider.id, parentId)
+    const surface = createSurfaceFor(provider, presentation)
+    createChat(homeRow.homeWorkspaceId, provider.id, parentId, surface)
       .then((chatId) => {
         release()
+        // Before anything opens a pane on it — the seed this chat's own
+        // AgentChatPane reads at first mount (use-chat-presentation.ts). Off
+        // the surface actually CREATED, never the caller's argument alone: a
+        // chat the daemon forked on its terminal must land there.
+        if (surface) presetChatLandingPresentation(chatId, surface)
         // Hides the real row (space-scroller.tsx's `unconfirmedRealIds`)
         // from first paint, rather than letting it render wrong once and
         // correct itself a moment later — see PendingCreateEntry.realId.
@@ -879,10 +939,15 @@ export function handleCreate(
   // sharing that same workspace rooted the new chat at the top level
   // instead — caught chasing the identical gap on the project-home path,
   // which has no workspace-ground fold to hide it behind at all.
-  createChat(wsId, provider.id, parentId)
+  const surface = createSurfaceFor(provider, presentation)
+  createChat(wsId, provider.id, parentId, surface)
     .then((chatId) => {
       release()
       announceTreeChange(repo.id)
+      // Before either branch below opens a pane on it — the seed this
+      // chat's own AgentChatPane reads at first mount
+      // (use-chat-presentation.ts), off the surface actually CREATED.
+      if (surface) presetChatLandingPresentation(chatId, surface)
       // Opens the new thread the moment it exists — same "focus what you
       // just created" contract `openHomeChat` already gives a project-home
       // thread — rather than leaving it as a sidebar row the user has to
@@ -1000,6 +1065,8 @@ export async function handleCreateHomeThread(
   projectId: string,
   homeWorkspaceId: string,
   navigate: NavigateFn,
+  /** Same as `handleCreate`'s own optional 4th arg — see its doc. */
+  presentation?: LandingChatPresentation,
 ): Promise<void> {
   const provider = enabledProvider()
   if (!provider) return
@@ -1023,15 +1090,19 @@ export async function handleCreateHomeThread(
     ownsWorktree: false,
     rowIdsAtClick,
   })
+  const surface = createSurfaceFor(provider, presentation)
   let chatId: string
   try {
-    chatId = await createChat(homeWorkspaceId, provider.id)
+    chatId = await createChat(homeWorkspaceId, provider.id, '', surface)
   } catch (err) {
     release()
     failCreate(tempId, err, 'Failed to start chat')
     return
   }
   release()
+  // Before `openHomeChat` below opens a pane on it — off the surface actually
+  // CREATED, never the caller's argument alone.
+  if (surface) presetChatLandingPresentation(chatId, surface)
   usePendingCreatesStore.getState().attachRealId(tempId, chatId)
   void waitForRootHomeChat(projectId, homeWorkspaceId, chatId).then(() =>
     usePendingCreatesStore.getState().clear(tempId),
@@ -1075,7 +1146,7 @@ async function openHomeChat(
  * once for that, but only for a MOUNTED workspace — the sidebar can be the only
  * thing on screen). A precondition that stops a click has to be visible.
  */
-export function enabledProvider(): { id: string } | null {
+export function enabledProvider(): AgentProvider | null {
   const provider = useAgentProvidersStore.getState().providers.find((p) => p.enabled)
   if (provider) return provider
   toast.error(

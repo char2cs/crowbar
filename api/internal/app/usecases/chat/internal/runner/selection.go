@@ -25,10 +25,11 @@ func resolveSelectionForSpawn(
 	sel engineagents.Selection,
 ) engineagents.Selection {
 	sel.PermissionLevel = resolvePermissionLevel(descriptor.PermissionLevels(), sel.PermissionLevel)
-	if sel.Model != "" && !containsLevel(descriptor.Models(), sel.Model) {
+	discovered := descriptor.Capabilities().ModelDiscovery
+	if sel.Model != "" && !engineagents.Allowed(descriptor.Models(), discovered, sel.Model) {
 		sel.Model = ""
 	}
-	if sel.Effort != "" && !containsLevel(descriptor.Efforts(sel.Model), sel.Effort) {
+	if sel.Effort != "" && !engineagents.Allowed(descriptor.Efforts(sel.Model), discovered, sel.Effort) {
 		sel.Effort = ""
 	}
 	return sel

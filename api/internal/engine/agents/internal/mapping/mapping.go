@@ -4,9 +4,12 @@
 // internal/catalog/internal/adapters' selectPath — with a single implementation, so a
 // descriptor author learns one syntax and a bug is fixed in one place.
 //
-// A path is dot-separated. `a || b` is ALTERNATION: the first branch resolving to a
-// present, non-empty value wins. Comma is not an operator — v2 overloaded it as
-// alternation, which made a comma-bearing key unaddressable.
+// A path is dot-separated. Every accessor here takes a LIST of paths — an
+// alternation: the first branch resolving to a present, non-empty value wins. A
+// single-path caller passes a one-element list. There is no string-joined spelling of
+// alternation any more (see docs/plans/2026-09-22-descriptor-channel-split.md P5): the
+// caller carries real branches in, never a `||`-joined expression, so there is nothing
+// for this package to split apart or get wrong.
 //
 // Every accessor is total: a missing path yields the zero value, never a panic. That
 // is deliberate — a descriptor mapping a field a given payload does not carry is the
@@ -20,9 +23,7 @@ import (
 	"time"
 )
 
-const altSep = "||"
-
-// resolve reads expr against doc.
+// resolve reads paths against doc.
 //
 // The non-empty rule belongs to ALTERNATION only. A single path returns whatever it
 // found, present-but-empty included — Scalar must be able to say "the field is there
@@ -32,13 +33,13 @@ const altSep = "||"
 //
 // Across branches, the first non-empty wins; if every branch that exists is empty, the
 // first PRESENT one is returned, so presence still survives.
-func resolve(doc map[string]any, expr string) (any, bool) {
-	if !strings.Contains(expr, altSep) {
-		return walk(doc, strings.TrimSpace(expr))
+func resolve(doc map[string]any, paths []string) (any, bool) {
+	if len(paths) == 1 {
+		return walk(doc, strings.TrimSpace(paths[0]))
 	}
 	var firstPresent any
 	var found bool
-	for _, branch := range strings.Split(expr, altSep) {
+	for _, branch := range paths {
 		v, ok := walk(doc, strings.TrimSpace(branch))
 		if !ok {
 			continue
@@ -209,20 +210,20 @@ func isEmpty(v any) bool {
 	}
 }
 
-// Present reports whether expr's path exists in doc at all — true even for a
-// JSON null, false only when the key (or an ancestor segment) is entirely
-// absent. It exists for callers that must tell "this payload's shape never
-// carries this concept" (an api-transport event, say) apart from "it carries
-// the concept and it is empty" (a hooks payload naming no conversation) —
-// String and the other scalar accessors collapse both into the same zero
-// value, which is exactly the distinction that check needs.
-func Present(doc map[string]any, expr string) bool {
-	_, ok := resolve(doc, expr)
+// Present reports whether any of paths exists in doc at all — true even for a
+// JSON null, false only when every path's key (or an ancestor segment) is
+// entirely absent. It exists for callers that must tell "this payload's shape
+// never carries this concept" (an api-transport event, say) apart from "it
+// carries the concept and it is empty" (a hooks payload naming no
+// conversation) — String and the other scalar accessors collapse both into
+// the same zero value, which is exactly the distinction that check needs.
+func Present(doc map[string]any, paths []string) bool {
+	_, ok := resolve(doc, paths)
 	return ok
 }
 
-func String(doc map[string]any, expr string) string {
-	v, ok := resolve(doc, expr)
+func String(doc map[string]any, paths []string) string {
+	v, ok := resolve(doc, paths)
 	if !ok {
 		return ""
 	}
@@ -233,8 +234,8 @@ func String(doc map[string]any, expr string) string {
 	return s
 }
 
-func Count(doc map[string]any, expr string) int {
-	v, ok := resolve(doc, expr)
+func Count(doc map[string]any, paths []string) int {
+	v, ok := resolve(doc, paths)
 	if !ok {
 		return 0
 	}
@@ -245,8 +246,8 @@ func Count(doc map[string]any, expr string) int {
 	return len(arr)
 }
 
-func Int(doc map[string]any, expr string) (int, bool) {
-	f, ok := Float(doc, expr)
+func Int(doc map[string]any, paths []string) (int, bool) {
+	f, ok := Float(doc, paths)
 	if !ok {
 		return 0, false
 	}
@@ -255,8 +256,8 @@ func Int(doc map[string]any, expr string) (int, bool) {
 
 // Float accepts every numeric shape a decoded payload can carry. JSON numbers arrive
 // as float64, but a re-encoded or hand-built map can hold any of these.
-func Float(doc map[string]any, expr string) (float64, bool) {
-	v, ok := resolve(doc, expr)
+func Float(doc map[string]any, paths []string) (float64, bool) {
+	v, ok := resolve(doc, paths)
 	if !ok {
 		return 0, false
 	}
@@ -282,8 +283,8 @@ func Float(doc map[string]any, expr string) (float64, bool) {
 
 // Bool reads a boolean leaf. isEmpty counts only nil and "" as empty, so a `false`
 // here is an answer and alternation does not skip past it.
-func Bool(doc map[string]any, expr string) (bool, bool) {
-	v, ok := resolve(doc, expr)
+func Bool(doc map[string]any, paths []string) (bool, bool) {
+	v, ok := resolve(doc, paths)
 	if !ok {
 		return false, false
 	}
@@ -291,8 +292,8 @@ func Bool(doc map[string]any, expr string) (bool, bool) {
 	return b, isBool
 }
 
-func Time(doc map[string]any, expr string) (time.Time, bool) {
-	raw := String(doc, expr)
+func Time(doc map[string]any, paths []string) (time.Time, bool) {
+	raw := String(doc, paths)
 	if raw == "" {
 		return time.Time{}, false
 	}
@@ -304,8 +305,8 @@ func Time(doc map[string]any, expr string) (time.Time, bool) {
 }
 
 // JSON returns a leaf as raw bytes: a string leaf verbatim, anything else marshalled.
-func JSON(doc map[string]any, expr string) []byte {
-	v, ok := resolve(doc, expr)
+func JSON(doc map[string]any, paths []string) []byte {
+	v, ok := resolve(doc, paths)
 	if !ok || v == nil {
 		return nil
 	}
@@ -322,8 +323,8 @@ func JSON(doc map[string]any, expr string) []byte {
 	return data
 }
 
-func Objects(doc map[string]any, expr string) []map[string]any {
-	v, ok := resolve(doc, expr)
+func Objects(doc map[string]any, paths []string) []map[string]any {
+	v, ok := resolve(doc, paths)
 	if !ok {
 		return nil
 	}
@@ -340,8 +341,8 @@ func Objects(doc map[string]any, expr string) []map[string]any {
 	return out
 }
 
-func Object(doc map[string]any, expr string) map[string]any {
-	v, ok := resolve(doc, expr)
+func Object(doc map[string]any, paths []string) map[string]any {
+	v, ok := resolve(doc, paths)
 	if !ok {
 		return nil
 	}
@@ -354,8 +355,8 @@ func Object(doc map[string]any, expr string) map[string]any {
 
 // Scalar renders any scalar leaf as text, which is what a catalog row or a template
 // substitution needs.
-func Scalar(doc map[string]any, expr string) (string, bool) {
-	v, ok := resolve(doc, expr)
+func Scalar(doc map[string]any, paths []string) (string, bool) {
+	v, ok := resolve(doc, paths)
 	if !ok {
 		return "", false
 	}
@@ -387,22 +388,24 @@ func scalarOf(v any) (string, bool) {
 }
 
 // Match reports whether every when: clause holds. An empty when matches everything, so
-// an event that declares none applies unconditionally.
+// an event that declares none applies unconditionally. Each clause's key is a SINGLE
+// discriminator path; its value is the SET of values that path may equal (an `any_of:`
+// list, or a one-element list for a plain equality clause).
 //
 // A clause whose path is missing does NOT match: a variant selector must not silently
 // apply to payloads that lack the discriminator.
-func Match(doc map[string]any, when map[string]string) bool {
+func Match(doc map[string]any, when map[string][]string) bool {
 	for path, want := range when {
-		got, ok := Scalar(doc, path)
-		if !ok || !inAlternation(got, want) {
+		got, ok := Scalar(doc, []string{path})
+		if !ok || !inSet(got, want) {
 			return false
 		}
 	}
 	return true
 }
 
-func inAlternation(got, want string) bool {
-	for _, opt := range strings.Split(want, altSep) {
+func inSet(got string, want []string) bool {
+	for _, opt := range want {
 		if got == strings.TrimSpace(opt) {
 			return true
 		}

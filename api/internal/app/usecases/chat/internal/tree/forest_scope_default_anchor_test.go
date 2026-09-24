@@ -32,7 +32,7 @@ func TestRegression_CreateChat_RepoRootLevelNeverCountsTheDefaultCheckoutAnchor(
 	}
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "owner", tree.WorktreeSpec{Mode: tree.WorktreeNone})
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", "owner", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	n := nodeRowFor(t, nodes, "c-new")
 	assert.Equal(t, "owner", n.ParentID)

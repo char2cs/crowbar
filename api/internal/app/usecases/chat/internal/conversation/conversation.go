@@ -207,7 +207,7 @@ func (c *Conversations) PurgeLocked(
 		slog.ErrorContext(ctx, "agent: purge chat: forget conversation record (best-effort, continuing)",
 			"chat_id", chatID, "err", err)
 	}
-	c.telemetry.Forget(chatID)
+	c.telemetry.Forget(ctx, chatID)
 
 	// Drop the chat's conversation history. It is append-only and outlives the
 	// process, so nothing else ever removes it — and a conversation still pointing
@@ -257,15 +257,20 @@ func (c *Conversations) GetChat(
 	return c.chats.GetChat(ctx, id)
 }
 
+// surface is the VIEW this chat is born on (design spec 2.5) — "" for the
+// provider's own default landing. See domain.Chat.Surface for why it is
+// durable rather than a one-shot spawn argument.
 func (c *Conversations) MintChat(
 	ctx context.Context,
 	workspaceID string,
+	surface string,
 ) (string, error) {
 	chatID := uuid.NewString()
 	created, err := c.chats.Create(ctx, agentchat.CreateInput{
 		ID:          chatID,
 		WorkspaceID: workspaceID,
 		Type:        domain.ChatTypeChat,
+		Surface:     surface,
 		Now:         time.Now(),
 	})
 	if err != nil {
@@ -278,11 +283,14 @@ func (c *Conversations) MintChat(
 
 // SeedPermissionLevel durably writes the CURRENT global default onto a
 // freshly created chat — the RAW, provider-blind choice, never a
-// provider-clamped one: which value a spawn actually uses is resolved fresh
-// each time (see runner.resolvePermissionLevel), so a chat that later
-// switches providers still has its own real intent to resolve against, not
-// whatever an earlier provider happened to clamp it to. A read failure is
-// swallowed, not propagated: the chat must still get created even if the
+// provider-clamped one, and NON-explicit: it seeds a display value for a
+// chat that has not opted out of the dial, it does not pin one. ChatSelection
+// re-resolves the LIVE global default for this chat on every future spawn
+// until (if ever) SetChatPermissionLevel makes an explicit choice — so a
+// chat that later switches providers still has its own real, CURRENT intent
+// to resolve against, not whatever an earlier provider happened to clamp it
+// to, nor whatever the default was on the day it was minted. A read failure
+// is swallowed, not propagated: the chat must still get created even if the
 // lookup has trouble, and an unseeded chat still answers something sane —
 // see the write failure's own best-effort logging for why the write side is
 // the same story.
@@ -294,7 +302,7 @@ func (c *Conversations) SeedPermissionLevel(
 	if err != nil {
 		return
 	}
-	if _, err := c.chats.SetPermissionLevel(ctx, chatID, level); err != nil {
+	if _, err := c.chats.SeedPermissionLevel(ctx, chatID, level); err != nil {
 		slog.WarnContext(ctx, "agent: seed permission level (best-effort, continuing)",
 			"chat_id", chatID, "err", err)
 	}

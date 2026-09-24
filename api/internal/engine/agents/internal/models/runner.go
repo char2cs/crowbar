@@ -27,10 +27,13 @@ import "time"
 // its only writer, so it cannot drift. Persisting it is what makes a conversation
 // switch a single atomic write instead of a torn cross-aggregate one.
 type Runner struct {
-	ID              string `json:"id"` // == crowbarSegmentID
-	WorkspaceID     string `json:"workspaceId"`
-	ProviderID      string `json:"providerId"`
-	TerminalSession string `json:"terminalSessionId"` // its PTY: identity AND heartbeat
+	ID          string `json:"id"` // == crowbarSegmentID
+	WorkspaceID string `json:"workspaceId"`
+	ProviderID  string `json:"providerId"`
+	// TerminalSession is its PTY — identity AND heartbeat — and is EMPTY for a
+	// runner whose process is an api connection instead (runner/apirunner.go).
+	// Every reader treats "" as "no terminal", never as missing data.
+	TerminalSession string `json:"terminalSessionId"`
 
 	// CurrentChatID is set while the runner is PLACED — which is its whole life, bar
 	// one case: Crowbar has taken it off a chat it is being removed from (an eviction,

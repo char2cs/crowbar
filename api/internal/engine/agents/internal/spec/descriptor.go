@@ -4,11 +4,11 @@ type Descriptor struct {
 	ID string `yaml:"id"`
 
 	// --- v3: the event is the unit ------------------------------------------
-	ProtocolVersion *VersionRange        `yaml:"protocol_version"`
-	Runtime         RuntimeSpec          `yaml:"runtime"`
-	Events          map[string]EventSpec `yaml:"events"`
-	Catalog         map[string]CallSpec  `yaml:"catalog"`
-	Inject          []InjectSpec         `yaml:"inject"`
+	ProtocolVersion *VersionRange       `yaml:"protocol_version"`
+	Runtime         RuntimeSpec         `yaml:"runtime"`
+	Events          EventTable          `yaml:"events"`
+	Catalog         map[string]CallSpec `yaml:"catalog"`
+	Inject          []InjectSpec        `yaml:"inject"`
 
 	DisplayName string `yaml:"display_name"`
 	Icon        string `yaml:"icon"`
@@ -41,6 +41,21 @@ type Descriptor struct {
 	TerminalNotices []TerminalNoticeSpec `yaml:"terminal_notices"`
 
 	InjectedPrompts []InjectedPromptSpec `yaml:"injected_prompts"`
+
+	// NotEmitted names canonical in/ask events this provider genuinely never
+	// fires — an absent event otherwise means both "the provider doesn't do
+	// this" and "we forgot", indistinguishably. Enforced (rules.notEmitted):
+	// every in/ask canonical event must be mapped in events: or listed here
+	// (design spec 2.6).
+	NotEmitted []string `yaml:"not_emitted"`
+
+	// Surfaces declares which VIEWS this provider offers (chat, terminal) and
+	// which may be launched a brand-new chat directly onto (design spec 2.5).
+	// Keyed by surface name; validated by rules.surfaces against RuntimeSpec/
+	// Hotswap so it cannot silently contradict them. Nil for a descriptor
+	// that has not declared any — every surface then answers false to
+	// SurfaceStartHere, same as every other absent capability.
+	Surfaces map[string]SurfaceSpec `yaml:"surfaces"`
 }
 
 type SpawnSpec struct {

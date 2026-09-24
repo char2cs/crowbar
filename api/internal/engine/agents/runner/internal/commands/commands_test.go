@@ -26,6 +26,26 @@ func TestStart_EmitsRunnerOnItsChat(t *testing.T) {
 	require.Zero(t, got.CurrentSessionSince, "nothing is bound yet, so nothing has a since")
 }
 
+// TestRegression_StartAcceptsARunnerWhoseProcessIsNotAPTY is the orphan-PTY
+// fix's own invariant change (usecases/chat/internal/runner/apirunner.go): a
+// runner driven by an api connection forks no terminal at all, so it has no
+// terminal session to name — and naming a fake one would put an id in the
+// projection that the terminal engine has never heard of, which the DTO, the
+// terminal-wait sweep and boot reconciliation all read.
+//
+// A runner still has exactly ONE process; what changed is that the process is
+// not always a PTY. Chat placement (I1) is untouched — it is the invariant
+// this aggregate actually exists to hold.
+func TestRegression_StartAcceptsARunnerWhoseProcessIsNotAPTY(t *testing.T) {
+	c := commands.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "codex",
+		TerminalSession: "", ChatID: "c1", Now: time.Unix(1, 0),
+	}
+	require.NoError(t, c.Validate(nil))
+	require.Empty(t, c.EmitEvent(nil).TerminalSession,
+		"the absence has to survive into the projection; every reader already treats it as no terminal")
+}
+
 func TestStart_RejectsMissingChat(t *testing.T) {
 	c := commands.Start{RunnerID: "r1", WorkspaceID: "w1", ProviderID: "claude", TerminalSession: "pty1"}
 	require.Error(t, c.Validate(nil), "a runner always points at exactly one chat (spec I1)")

@@ -30,7 +30,7 @@ func seedBubbleChat(
 	t.Helper()
 	rootChatID, _ = f.spawn(t, provider)
 
-	bubbleID, err := f.usecase.MintChat(f.ctx, "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "")
 	require.NoError(t, err)
 	_, err = f.chats.SetPlacement(f.ctx, bubbleID, rootChatID, 0)
 	require.NoError(t, err)
@@ -66,9 +66,41 @@ func TestPromote_FillsWorkspaceKeepsIdentity(t *testing.T) {
 	assert.Equal(t, "claude", live.ProviderID, "respawns the SAME provider the chat was already on")
 }
 
+// TestPromote_ADormantProviderThatNeverBoundAConversationRespawnsTheRightVendor
+// is currentProviderID's own showstopper: a bubble switched to a provider that
+// binds via its own connection identity (never firing a session_start hook) and
+// then left dormant has NO conversation row for it at all — only an OLDER row
+// from whatever ran before. Promote must respawn the provider that was ACTUALLY
+// running, not the merely-older conversation's — currentProviderID used to read
+// the last conversation SLICE ELEMENT directly, which is blind to this exactly
+// like the resume/selection sites were.
+func TestPromote_ADormantProviderThatNeverBoundAConversationRespawnsTheRightVendor(t *testing.T) {
+	f := newFixture(t)
+	bubbleID, claudeRunnerID, _ := seedBubbleChat(t, f, "claude")
+	f.announce(t, claudeRunnerID, "sid-claude-native")
+	waitForClockTick(t)
+
+	codexRunnerID, err := f.usecase.SwitchProvider(f.ctx, bubbleID, "codex")
+	require.NoError(t, err)
+	f.wait()
+	// No f.announce for codex: it never binds a conversation row.
+
+	f.term.exit(t, f.runner(t, codexRunnerID).TerminalSession)
+	f.wait()
+
+	promoted, err := f.usecase.Promote(f.ctx, bubbleID)
+	require.NoError(t, err)
+
+	live, err := f.liveRunnerFor(t, promoted.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "codex", live.ProviderID,
+		"promote must respawn codex — the provider actually running when the bubble went "+
+			"dormant — not claude, whose conversation row is merely older")
+}
+
 func TestPromote_AlreadyPromoted_Refuses(t *testing.T) {
 	f := newFixture(t)
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
 	require.NoError(t, err)
 
 	_, err = f.usecase.Promote(f.ctx, chatID)
@@ -79,7 +111,7 @@ func TestPromote_AlreadyPromoted_Refuses(t *testing.T) {
 
 func TestPromote_NoForkParent_Refuses(t *testing.T) {
 	f := newFixture(t)
-	bubbleID, err := f.usecase.MintChat(f.ctx, "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -92,7 +124,7 @@ func TestPromote_NoForkParent_Refuses(t *testing.T) {
 func TestPromote_NoProviderHistory_Refuses(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
-	bubbleID, err := f.usecase.MintChat(f.ctx, "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "")
 	require.NoError(t, err)
 	_, err = f.chats.SetPlacement(f.ctx, bubbleID, rootChatID, 0)
 	require.NoError(t, err)

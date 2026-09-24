@@ -66,12 +66,60 @@ type EventSpec struct {
 	// whole mechanism behind a MIXED provider — API for turns, hooks for permissions.
 	Transport string `yaml:"transport"`
 
+	// Owner names which channel is AUTHORITATIVE for a dual-channel event —
+	// api|hooks|either (design spec P6b tag 1). Absent means Either. See
+	// owner.go and Descriptor.EventOwner.
+	Owner string `yaml:"owner"`
+
+	// Surfaces names which VIEWS (chat|terminal) this event is worth
+	// ingesting on — design spec P6b tag 2. Nil (absent) means every
+	// surface: nothing changes unless a descriptor opts in. Distinct from
+	// the descriptor-level Surfaces block (surfaces.go — a PROVIDER
+	// capability, "which views exist and which may be launched into"): this
+	// is a per-EVENT visibility gate consulted against
+	// Runners.ShowingNativeView at ingest time. Same YAML key by design
+	// (user-confirmed) — the two never collide in one document, since one
+	// lives at the descriptor's own top level and the other inside a single
+	// event.
+	Surfaces []string `yaml:"surfaces"`
+
 	// When selects among events sharing one wire event, by discriminator. Codex's
 	// `item` is a sum type and item/started serves three canonical events.
-	When map[string]string `yaml:"when"`
+	When WhenMap `yaml:"when"`
 
 	// Map pulls canonical fields out of an inbound payload.
-	Map map[string]string `yaml:"map"`
+	Map FieldMap `yaml:"map"`
+
+	// Required names the fields whose absence is a hard, per-channel error —
+	// parsed and exposed this phase (Descriptor.EventRequired), enforced
+	// starting P5 of the descriptor channel-split design (docs/plans/
+	// 2026-09-22-descriptor-channel-split.md, 2.3).
+	Required []string `yaml:"required"`
+
+	// Fixtures is the legacy flat form's own recorded-payload list — the
+	// counterpart of ChannelBlock.Fixtures for an event with no api:/hooks:
+	// blocks (a hooks-only provider like claude never splits). Parsed and
+	// exposed this phase (Descriptor.EventFixtures); enforced by
+	// TestV3Descriptors_ResolveAgainstRecordedTraffic (design spec 2.4).
+	Fixtures []string `yaml:"fixtures"`
+
+	// Unverified is ChannelBlock.Unverified's counterpart for the legacy flat
+	// form: an explicit, greppable "this event genuinely has no recorded
+	// payload yet" opt-out from the fixtures: hard rule.
+	Unverified bool `yaml:"unverified"`
+
+	// API/Hooks are this event's own per-CHANNEL blocks: the same canonical
+	// event can arrive shaped differently depending on which wire actually
+	// delivered it — codex's session_start/user_prompt/turn_stop inherit the
+	// api default yet are ALSO fired hooks-shaped by codex's own internal
+	// memory-consolidation session (see translate/inbound/hooks.go's own doc
+	// comment, and the design spec's 1.1). Nil for a legacy event, which
+	// still declares one flat In/When/Map above and answers the same on
+	// every channel — see EventSpec.WireEventFor/WhenFor, which fall back to
+	// those fields when neither block is set. An event must not mix the two
+	// forms; checked at load (descriptor.ParseV3).
+	API   *ChannelBlock `yaml:"api"`
+	Hooks *ChannelBlock `yaml:"hooks"`
 	// Send builds an outbound payload.
 	Send map[string]string `yaml:"send"`
 	// Reply holds one template per decision the event accepts.
@@ -187,5 +235,5 @@ func (e EventSpec) WireEvent() (ref WireRef, direction string) {
 	case !e.Ask.Empty():
 		return e.Ask, "ask"
 	}
-	return "", ""
+	return nil, ""
 }

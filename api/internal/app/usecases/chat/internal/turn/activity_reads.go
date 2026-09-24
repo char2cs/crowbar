@@ -29,7 +29,7 @@ func (t *Turns) handleTelemetry(
 	if report.Empty() {
 		return nil
 	}
-	t.telemetry.Set(chat.ID, report)
+	t.telemetry.Set(ctx, chat.ID, report)
 	return nil
 }
 
@@ -69,11 +69,15 @@ func (t *Turns) ReadActivity(
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: tool calls: %w", err)
 	}
+	now := time.Now()
+	// Both halves through their staleness nets, so what the shelf draws agrees
+	// with what OpenWork counts — see withStaleToolCallsClosed.
+	calls = withStaleToolCallsClosed(calls, now)
 	subagents, err := t.activity.Subagents(ctx, chatID)
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: subagents: %w", err)
 	}
-	subagents = withStaleSubagentsClosed(subagents, time.Now())
+	subagents = withStaleSubagentsClosed(subagents, now)
 	interruptions, err := t.activity.Interruptions(ctx, chatID)
 	if err != nil {
 		return ChatActivity{}, fmt.Errorf("agent: read activity: interruptions: %w", err)
@@ -88,6 +92,18 @@ func (t *Turns) ReadActivity(
 		Interruptions: interruptions,
 		Choices:       choices,
 	}, nil
+}
+
+// Interruptions returns chatID's durable interruption ledger — permission waits,
+// notifications, compactions, and Crowbar's own switch/model/effort markers. It is
+// the fallback source engineagents.ActiveProviderID needs once a chat's most
+// recently active conversation is not enough: a provider that binds via its own
+// connection identity never writes a conversation row at all.
+func (t *Turns) Interruptions(
+	ctx context.Context,
+	chatID string,
+) ([]domain.ActivityInterruption, error) {
+	return t.activity.Interruptions(ctx, chatID)
 }
 
 func (t *Turns) ReadPendingChoices(

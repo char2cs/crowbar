@@ -99,3 +99,69 @@ func TestRegression_PromptRecordAccepted_MergedDeliveryNeverConfirms(t *testing.
 			"it as accepted instead of hashing the full recorded text against the journal's "+
 			"original-text-only hash, which a merged delivery can never satisfy")
 }
+
+// TestRegression_ClassifyPriorAttempt_APTYLessDeliveryReplaysAsTheSameSuccess
+// is the second half of the orphan-PTY fix's fallout on the durable journal
+// (see commitPromptSpawn's own regression test): MarkSpawned now legitimately
+// records an EMPTY terminalSessionId for an api-driven runner, and the
+// short-circuit that makes a retried client request id replay as the SAME
+// success required a non-empty one.
+//
+// Without this, an ordinary retry (the client lost the response to a network
+// hiccup) stopped being idempotent and fell through to the ledger-derived
+// recovery instead, answering ErrPromptOutcomeUnknown or
+// ErrPromptAlreadyAccepted for a delivery the journal had already confirmed.
+//
+// State is what actually proves the dispatch committed — Begin writes
+// RunnerID while still `dispatching`, and only MarkSpawned advances it — so
+// the terminal session was never carrying that meaning in the first place.
+func TestRegression_ClassifyPriorAttempt_APTYLessDeliveryReplaysAsTheSameSuccess(t *testing.T) {
+	// An empty ledger, so falling through to the recovery path is a visible
+	// ErrPromptOutcomeUnknown rather than an accidental pass.
+	rs := &Runners{conversations: stubConversationsWithTurn{}}
+
+	got, done, err := rs.classifyPriorAttempt(context.Background(), domain.Chat{ID: "chat-1"}, "", "req-1",
+		agentjournal.PromptRequest{
+			RequestID: "req-1",
+			RunnerID:  "runner-1",
+			State:     agentjournal.PromptStateSpawned,
+			// No PTY: this runner's api connection IS its process.
+			TerminalSessionID: "",
+		})
+
+	require.True(t, done)
+	require.NoError(t, err)
+	assert.Equal(t, "runner-1", got.RunnerID)
+}
+
+// A record that never reached `spawned` is NOT a completed delivery, and must
+// still take the ledger-derived recovery path rather than replaying as one.
+func TestClassifyPriorAttempt_ADispatchingRecordStillRecovers(t *testing.T) {
+	rs := &Runners{conversations: stubConversationsWithTurn{}}
+
+	_, done, err := rs.classifyPriorAttempt(context.Background(), domain.Chat{ID: "chat-1"}, "", "req-1",
+		agentjournal.PromptRequest{
+			RequestID: "req-1", RunnerID: "runner-1", State: agentjournal.PromptStateDispatching,
+		})
+
+	require.True(t, done)
+	require.ErrorIs(t, err, ErrPromptOutcomeUnknown)
+}
+
+// An `accepted` record whose MarkSpawned never ran committed no delivery
+// identity at all — the user_prompt hook advanced it straight out of
+// `dispatching` while commitPromptSpawn was still failing. It must recover
+// from the ledger, never replay as a success DTO naming a delivery that was
+// never recorded. Pins the narrow half of the relaxation above.
+func TestClassifyPriorAttempt_AnAcceptedRecordWithNoCommittedIdentityStillRecovers(t *testing.T) {
+	rs := &Runners{conversations: stubConversationsWithTurn{}}
+
+	_, done, err := rs.classifyPriorAttempt(context.Background(), domain.Chat{ID: "chat-1"}, "", "req-1",
+		agentjournal.PromptRequest{
+			RequestID: "req-1", RunnerID: "runner-1",
+			State: agentjournal.PromptStateAccepted, TerminalSessionID: "",
+		})
+
+	require.True(t, done)
+	require.ErrorIs(t, err, ErrPromptAlreadyAccepted)
+}

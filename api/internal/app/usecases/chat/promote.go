@@ -8,6 +8,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -161,9 +162,13 @@ func (u *Usecase) unpromote(
 }
 
 // currentProviderID answers "the same provider" step 3 respawns as: whichever
-// provider is live on the chat right now, or — for a dormant bubble — the
-// provider its last conversation was with. Mirrors ResumeChat's own live/last
-// resolution (internal/runner/lifecycle.go) rather than inventing a second one.
+// provider is live on the chat right now, or — for a dormant bubble —
+// engineagents.ResolveProviderID's fallback answer, the same one ResumeChat and
+// ChatProviderID use, rather than a second ad-hoc resolution. This used to take
+// the LAST conversation slice element, which is wrong twice over: a chat
+// switched back to a provider it already ran re-activates that provider's own
+// earlier row (see ActiveProviderID's max-LastActiveAt doc), and a provider
+// that binds via its own connection identity never appears in the slice at all.
 func (u *Usecase) currentProviderID(
 	ctx context.Context,
 	chatID string,
@@ -179,8 +184,17 @@ func (u *Usecase) currentProviderID(
 	if err != nil {
 		return "", fmt.Errorf("current provider: conversations: %w", err)
 	}
-	if len(convs) == 0 {
+	interruptions, err := u.activity.Interruptions(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("current provider: interruptions: %w", err)
+	}
+	chat, err := u.GetChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("current provider: chat: %w", err)
+	}
+	providerID, found := engineagents.ResolveProviderID(convs, interruptions, chat.ProviderID)
+	if !found {
 		return "", ErrNothingToPromote
 	}
-	return convs[len(convs)-1].ProviderID, nil
+	return providerID, nil
 }

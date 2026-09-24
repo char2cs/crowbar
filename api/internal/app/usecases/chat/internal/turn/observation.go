@@ -310,11 +310,23 @@ func subagentID(ev engineagents.CanonicalEvent) string {
 }
 
 // openNestedSubagent starts tracking ev.Tool.NestedSessionID as one of chatID's
-// own subagents, the first time a tool completion names an id Go has not
-// already seen open — see the mapping's own doc on the field for what
-// populates it and why (a provider's own multi-agent tool call reporting the
-// thread id of the agent it spawned or is addressing). A no-op for every
-// ordinary tool call, which maps no such field.
+// own subagents, the first time a tool completion names an id this chat has
+// never recorded — see the mapping's own doc on the field for what populates it
+// and why (a provider's own multi-agent tool call reporting the thread id of the
+// agent it spawned or is addressing). A no-op for every ordinary tool call,
+// which maps no such field.
+//
+// EVER RECORDED, not "open right now". A provider names the same child on every
+// collab call it makes about it, not just the spawn — codex's `wait` completes
+// BECAUSE the child finished and still carries that child in
+// receiverThreadIds[0] (codex.yaml maps it to nested_session_id on tool_post,
+// which is the only form that carries it at all). Asking "is it open" let a
+// child that had just stopped answer false and be opened again, and SaveSubagent
+// upserts, so ended_at went back to NULL and OpenWork read the row as live work
+// forever. Measured live on chat a37942f9 (2026-09-23): three children, each
+// stopped and then re-opened within 4ms, chat Working with every turn closed and
+// no tool running. See
+// TestRegression_ANestedSubagentIsNeverReopenedAfterItStopped.
 //
 // OpenNestedSubagent, not StartSubagent: Go never learns why a tool call
 // named this id, only that one did, but StartSubagent's own ensureTurn is
@@ -329,13 +341,15 @@ func (t *Turns) openNestedSubagent(
 	if ev.Tool == nil || ev.Tool.NestedSessionID == "" {
 		return
 	}
-	open, err := t.activity.IsSubagentOpen(ctx, chatID, ev.Tool.NestedSessionID)
+	known, err := t.activity.Subagents(ctx, chatID)
 	if err != nil {
-		slog.WarnContext(ctx, "agent: nested subagent: check already open", "err", err)
+		slog.WarnContext(ctx, "agent: nested subagent: check already recorded", "err", err)
 		return
 	}
-	if open {
-		return
+	for _, s := range known {
+		if s.ID == ev.Tool.NestedSessionID {
+			return
+		}
 	}
 	note(ctx, "nested subagent opened",
 		t.activity.OpenNestedSubagent(ctx, chatID, ev.Tool.NestedSessionID, now))

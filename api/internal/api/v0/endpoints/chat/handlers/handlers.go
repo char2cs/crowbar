@@ -37,6 +37,16 @@ type ChatUsecase interface {
 		repoID string,
 	) ([]domain.Chat, error)
 
+	// CwdWorkspaceID answers where a row's CLI RUNS: the workspace of the
+	// nearest ancestor-or-self carrying one (model spec §3.2). It is how a
+	// BUBBLE, which carries no workspace of its own, is held to the mount it
+	// was reached through — the same walk ListChatsInRepo scopes the list
+	// beside it by, so Get and List cannot disagree. See chatGround.
+	CwdWorkspaceID(
+		ctx context.Context,
+		chatID string,
+	) (workspaceID string, ok bool, err error)
+
 	GetChat(
 		ctx context.Context,
 		id string,
@@ -144,9 +154,23 @@ type TurnUsecase interface {
 		chatID string,
 	) ([]domain.ActivityChoice, error)
 
+	// Interruptions returns a chat's durable interruption ledger — chatRuntime's
+	// source for the dormant-provider fallback once a chat's most-recently-active
+	// conversation alone is not enough (dto.ChatRuntime.Interruptions, joined in
+	// here because the DTO layer has no store access of its own).
+	Interruptions(
+		ctx context.Context,
+		chatID string,
+	) ([]domain.ActivityInterruption, error)
+
 	// Telemetry is the provider's own report of cost and capacity, absent until
 	// the provider makes one.
 	Telemetry(chatID string) (engineagents.Telemetry, bool)
+	// TelemetryOnChatSurface reports whether the report above can still be
+	// TRUE: the store is durable, and a chat that moved to a surface whose
+	// channel carries no usage would otherwise keep serving the last number
+	// it earned somewhere else, forever.
+	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
 
 	// UploadAttachment stores one attachment into chatID's durable attachment
 	// store and returns the logical reference the caller writes back into the
@@ -168,17 +192,18 @@ type TurnUsecase interface {
 // RunnerUsecase is the vendor CLI itself: which one is on a chat, what it has
 // been told, and the lifecycle gestures a client can aim at it.
 type RunnerUsecase interface {
-	// provider/model/effort are the composer's STAGED selection, committed
-	// atomically with the prompt — empty means nothing staged, use the
-	// chat's current provider/sticky value as-is. A non-empty provider that
-	// differs from the chat's current one is switched to BEFORE the prompt is
-	// delivered — the frontend never calls a separate switch endpoint for
-	// this any more, so there is exactly one path from a picker row to a
-	// delivered prompt, not two. See agentusecase.Usecase.SubmitPrompt's own
-	// doc comment.
+	// provider/selection are the composer's STAGED pick, committed atomically
+	// with the prompt. An empty provider is nothing staged, use the chat's
+	// current one as-is; a non-empty one that differs from it is switched to
+	// BEFORE the prompt is delivered — the frontend never calls a separate
+	// switch endpoint for this any more, so there is exactly one path from a
+	// picker row to a delivered prompt, not two. A nil selection is nothing
+	// staged; a non-nil one is committed even when both halves are "" — see
+	// domain.ChatSelection and agentusecase.Usecase.SubmitPrompt's own doc.
 	SubmitPrompt(
 		ctx context.Context,
-		chatID, text, clientRequestID, provider, model, effort string,
+		chatID, text, clientRequestID, provider string,
+		selection *domain.ChatSelection,
 	) (domain.AgentPromptSubmission, error)
 
 	// PendingPrompt returns chatID's most recent prompt submission the
@@ -388,6 +413,17 @@ type ProviderUsecase interface {
 		ctx context.Context,
 		level string,
 	) error
+
+	// ModelManifestFetchEnabled and SetModelManifestFetchEnabled back
+	// GET/PUT /v0/settings/chat/model-manifest-fetch — whether a
+	// model.manifest: source's background refresh may hit the network.
+	ModelManifestFetchEnabled(
+		ctx context.Context,
+	) (bool, error)
+	SetModelManifestFetchEnabled(
+		ctx context.Context,
+		enabled bool,
+	) error
 }
 
 // ChatTreeUsecase is the Chats-panel tree surface the handlers need: folder
@@ -439,12 +475,16 @@ type ChatTreeUsecase interface {
 	// resolved fork parent, or an existing branch imported — the last two both
 	// minting the workspace and setting it on the chat in the SAME call, so the
 	// two effects are never observable apart. workspaceID is ignored for both.
+	//
+	// surface is the VIEW the chat is born on (design spec 2.5), "" for the
+	// provider's own default landing — see domain.Chat.Surface.
 	CreateChat(
 		ctx context.Context,
 		workspaceID string,
 		providerID string,
 		parentID string,
 		worktree agentusecase.WorktreeSpec,
+		surface string,
 	) (chatID, runnerID string, err error)
 	PlaceChat(
 		ctx context.Context,

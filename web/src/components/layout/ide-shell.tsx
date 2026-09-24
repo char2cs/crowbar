@@ -5,6 +5,7 @@ import { SidebarProvider } from '@/components/ui/sidebar'
 import { SidebarProjectHeader } from './sidebar-project-header'
 import { useNavigationHistory } from '@/features/tabs/hooks/use-navigation-history'
 import { SidebarCarousel } from './sidebar-carousel'
+import { RemovalTray } from './removal-tray'
 import { SidebarTreeSurface } from './sidebar-tree-surface'
 import { SidebarFooter } from './sidebar-footer'
 import { useSpaceSwitcherKeyboard } from '@/features/keymaps/hooks/use-space-switcher-keyboard'
@@ -37,7 +38,7 @@ import {
   useHomeWorkspaceState,
 } from '@/features/workspace/lib/home-workspace-resolver'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { selectIsShowingEmptyStage } from '@/features/panes/stores/slices/pane-slice'
+import { selectIsShowingEmptyStage } from '@/features/panes/lib/view-selectors'
 import { useIdeShellWorkspaceRetention } from './use-ide-shell-workspace-retention'
 import { IdeShellWorkspaceContent } from './ide-shell-workspace-content'
 import { useMeasuredHeight } from './use-measured-height'
@@ -81,7 +82,8 @@ export function IDEShell() {
   // home. Kicking the fetch off here (not in HomeRoute) means WorkspaceHost
   // below can keep the resulting workspace mounted-but-hidden via its normal
   // keep-alive retention, so a repeat visit is a warm slot reveal.
-  const homeProjectId = homeRouteMatch ? activeProjectIdFromRoute : undefined
+  // Not gated to `homeRouteMatch`: retention's sidebar-path lookup needs this project's home id/path off the home route too (a split can mix a home chat's pane with a repo route), or it falls through to the repo scan and dead-ends on "No folder open".
+  const homeProjectId = activeProjectIdFromRoute
   const {
     wsId: homeWorkspaceId,
     owningChatId: homeOwningChatId,
@@ -108,16 +110,17 @@ export function IDEShell() {
   // Every workspace-id fact WorkspaceHost's retention and the sidebar's
   // file-explorer path need, resolved off the active pane/route — see the
   // hook's own doc for why this lives outside IDEShell's body.
-  const { effectiveActiveWorkspaceId, paneWsIds, viewWsIds, sidebarWorkspacePath } =
-    useIdeShellWorkspaceRetention(
-      activeWorkspaceId,
-      homeWorkspaceId,
-      activeProjectIdFromRoute,
-      activeRepoIdFromRoute,
-      Boolean(homeRouteMatch),
-      homeWorkspacePath,
-    )
   const allProjects = useProjectDataStore((s) => dataOf(s.data) ?? EMPTY_PROJECTS)
+  const projectPath = allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ?? ''
+  const { effectiveActiveWorkspaceId, paneWsIds, viewWsIds } = useIdeShellWorkspaceRetention(
+    activeWorkspaceId,
+    homeWorkspaceId,
+    activeProjectIdFromRoute,
+    activeRepoIdFromRoute,
+    Boolean(homeRouteMatch),
+    homeWorkspacePath,
+    projectPath,
+  )
   // The tree's only entry point for a SECOND space (spec §3 ruling): a
   // trailing `+` mark alongside the space marks in SidebarFooter. Swaps
   // SpaceScroller for CreateSpacePanel in place (sidebar-tree-surface.tsx)
@@ -173,11 +176,6 @@ export function IDEShell() {
     [allProjects, handleSelectProject],
   )
   useSpaceSwitcherKeyboard(allProjects.length, handleSpaceSwitcherSelect)
-  const projectFallbackPath = homeRouteMatch
-    ? (allProjects.find((p) => p.id === activeProjectIdFromRoute)?.path ?? '')
-    : ''
-  const activeWorkspaceRepoPath = sidebarWorkspacePath || projectFallbackPath
-
   const hasNavScreen = useSidebarNavStore((s) => s.stack.length > 0)
   // The file-explorer card only makes sense alongside a real view — with
   // nothing open (the empty-stage fallback pane, spec §5.4's tumbling
@@ -274,14 +272,19 @@ export function IDEShell() {
               wordmark with no workspace of its own to speak for. */}
           {!creatingSpace && !isShowingEmptyStage && (
             <ErrorBoundary>
-              <SidebarCarousel
-                activeWorkspaceRepoPath={activeWorkspaceRepoPath}
-                sidebarHeight={sidebarRailHeight}
-                railRef={sidebarRailRef}
-              />
+              <SidebarCarousel sidebarHeight={sidebarRailHeight} railRef={sidebarRailRef} />
             </ErrorBoundary>
           )}
         </div>
+        {/* The removal service, mounted where NOTHING unmounts it.
+            It draws no held row of its own (those transform in place in the
+            tree, sidebar-row.tsx) — it owns the 8s commit clock, the seconds
+            numerals, the pagehide flush and `RemovalConfirmDialog`. It used
+            to live inside `SidebarCarousel`, which the gate above unmounts on
+            an empty stage: measured live, the hairline drained, the numerals
+            never counted, and no DELETE was ever sent. It cannot be gated on
+            anything. */}
+        <RemovalTray />
         <SidebarFooter
           projects={allProjects}
           activeProjectId={activeProjectIdFromRoute}

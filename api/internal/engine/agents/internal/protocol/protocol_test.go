@@ -114,7 +114,7 @@ func TestAPIConn_FacadeForwardsEveryCallThroughToTheUnderlyingDriver(t *testing.
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 
-	conn, err := protocol.StartAPIDriver(ctx, d, sockPath)
+	conn, err := protocol.StartAPIDriver(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -146,7 +146,7 @@ func TestAPIConn_InjectAtUndeclaredMomentIsANoopThroughTheFacade(t *testing.T) {
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 
-	conn, err := protocol.StartAPIDriver(ctx, d, sockPath)
+	conn, err := protocol.StartAPIDriver(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -163,7 +163,7 @@ func TestStartAPIDriver_PropagatesTheUnderlyingStartFailure(t *testing.T) {
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
 
-	conn, err := protocol.StartAPIDriver(ctx, d, "/nonexistent.sock")
+	conn, err := protocol.StartAPIDriver(ctx, d, "/nonexistent.sock", nil)
 
 	require.Error(t, err)
 	assert.Nil(t, conn)
@@ -175,8 +175,8 @@ func TestStartAPIDriver_PropagatesTheUnderlyingStartFailure(t *testing.T) {
 func TestSends_ListsOnlyEventsDeclaringAnOutboundCall(t *testing.T) {
 	d := &spec.Descriptor{
 		Events: map[string]spec.EventSpec{
-			"compact_start": {Out: "thread/compact/start"},
-			"turn_stop":     {In: "turn/completed"},
+			"compact_start": {Out: spec.WireRef{"thread/compact/start"}},
+			"turn_stop":     {In: spec.WireRef{"turn/completed"}},
 		},
 	}
 

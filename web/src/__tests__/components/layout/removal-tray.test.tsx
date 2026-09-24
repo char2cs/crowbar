@@ -14,13 +14,14 @@
  *
  * Driven through `SidebarTreeSurface` (Task 30) — SpaceScroller's real mount
  * point — so a held row is proven to disappear from a REAL tree, not just
- * from the tray's own list. `RemovalTray` itself no longer mounts inside
- * `SidebarTreeSurface`'s own chrome (addendum §2 step 4 moved it into
- * `SidebarCarousel`, the file explorer card); `TestSidebar` below mounts the
- * real `<RemovalTray />` as a sibling instead of dragging in the card's own
- * heavy dependencies (FileExplorerTree, GitPanel, the tab head) just to
- * reach it — this suite is about hold/cancel/drain/commit behavior, not
- * about where in the DOM the tray's box sits.
+ * from the tray's own list. `TestSidebar` below mounts the real
+ * `<RemovalTray />` as a sibling by hand — this suite is about
+ * hold/cancel/drain/commit behavior, not about where the shell mounts it.
+ *
+ * That hand-mount is exactly why this suite stayed green through a live bug
+ * where no row could be deleted at all: the tray was gated behind
+ * `SidebarCarousel`, which is unmounted on an empty stage, so the real app
+ * had no commit clock. `ide-shell.test.tsx` owns the mount point now.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
@@ -107,10 +108,8 @@ const project: Project = {
 
 /** SpaceScroller's real mount point, single-project (this suite's fixtures
  *  only ever seed one) — the same wiring `ide-shell.tsx` gives
- *  `SidebarTreeSurface` for real, plus the real `RemovalTray` as a sibling
- *  (`ide-shell.tsx` mounts it inside `SidebarCarousel`, a separate sibling
- *  of `SidebarTreeSurface` — this harness skips that card's own unrelated
- *  dependencies and mounts the tray directly, same store, same component). */
+ *  `SidebarTreeSurface` for real, plus the real `RemovalTray` as an ungated
+ *  sibling, which is where the shell mounts it too. */
 function TestSidebar() {
   return (
     <>

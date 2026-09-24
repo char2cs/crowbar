@@ -11,6 +11,11 @@ import (
 type SetPermissionLevel struct {
 	ChatID string
 	Level  string
+	// Explicit is false for a mint-time seed (the chat merely INHERITS this
+	// value; ChatSelection re-resolves the live global default for it on
+	// every future spawn) and true for an explicit SetChatPermissionLevel
+	// pick (which then pins the chat against the global dial for good).
+	Explicit bool
 }
 
 func (c SetPermissionLevel) AggregateID() string  { return c.ChatID }
@@ -30,5 +35,6 @@ func (c SetPermissionLevel) Validate(current *domain.Chat) error {
 func (c SetPermissionLevel) EmitEvent(current *domain.Chat) domain.Chat {
 	next := *current
 	next.PermissionLevel = c.Level
+	next.PermissionLevelExplicit = c.Explicit
 	return next
 }

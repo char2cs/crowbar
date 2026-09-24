@@ -18,8 +18,14 @@ import {
 import { createStreamingMessageBatcher } from '@/features/workspace/stores/hooks/lib/streaming-message-batcher'
 import { getWorkspaceScope, useWorkspaceScopeReady } from '@/lib/workspace-scope'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import {
+  getOrCreateWorkspaceStore,
+  resolveChatOwnerWorkspaceId,
+} from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
+import { isNotFoundError } from '@/lib/api'
 import {
   isLatestProviderWrite,
   providerWriteGeneration,
@@ -31,15 +37,6 @@ import { toast } from '@/features/window/stores/toast-store'
 
 type WorkspaceSnapshot = ReturnType<WorkspaceStore['getState']>
 
-// A chat is no longer a BUFFER in a pane's tab strip — Task 1 removed
-// 'agentChat' from `PaneContent` entirely and made `chatId`/`runnerId`
-// first-class fields on `PaneGroup` itself (spec Law 3: "a pane holds exactly
-// one chat"). Every lookup below that used to scan `state.buffers` for an
-// `agentChat`-typed tab now scans the window-level pane store's `panes`
-// (Task 26: one pane map for the whole window, not one per workspace store),
-// and every write that used to go through `bufferActions.repointAgentChatBuffer`
-// now goes through `paneActions.setPaneChat` — the one write path for what
-// chat a pane holds.
 function panesNow(): PaneGroup[] {
   return Object.values(windowPaneStore.getState().panes)
 }
@@ -160,6 +157,10 @@ interface AgentStreamEvent {
     // folder frame does not: the list is the answer, and it is refetched.
     | 'placement_set'
     | 'order_set'
+    // The chat's own durable VENDOR moved — a provider switch, or a CLI moved
+    // onto it by its own /clear. Like the two above it carries no new value and
+    // is refetched: activeProviderId is derived, and the list is the answer.
+    | 'provider_set'
     | 'deleted'
     | 'started'
     | 'moved'
@@ -275,12 +276,11 @@ interface AgentStreamEvent {
  *     timeout, since compact_post is not reliable.
  *   - created: a new chat (and its ordering) may have appeared — reseed the whole list.
  *   - title_set / session_bound: refetch just that chat and upsert it.
- *   - deleted: drop the chat from the store, clear the layout of any pane holding
- *     it, and pluck it from every remembered Recents arrangement (spec §9).
+ *   - deleted: drop the chat from the store and forget its pane (spec §9).
  *
  *  RUNNER frames — the pane is a viewport on a MOVING TARGET, and this is what moves it.
  *   - moved: the CLI switched conversation (the user typed /clear or /resume inside it).
- *     Re-point the pane that follows it, empty a pane that already held the destination,
+ *     Retarget the pane that follows it, drop a pane that already held the destination,
  *     and invalidate BOTH chats.
  *   - displaced: Crowbar took the CLI off its chat. Let go of it at once.
  *   - started / session_bound / exited: refetch the chat named, and let the pane
@@ -377,6 +377,11 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // of preserving the pre-outage map. Otherwise the newer created read wins
     // sequencing but also preserves the stale state reconnect was meant to repair.
     let needsReconnectReconcile = false
+    // Whether a list read has landed since this effect mounted or the socket
+    // last reconnected; until then the store's `working` map is not an answer.
+    let listLanded = false
+    // Chats first sighted through a live `created` frame after the list landed.
+    const bornLive = new Set<string>()
 
     // The seed is a full RECONCILE, not a merge: it runs on first load AND on every
     // reconnect, and on reconnect it is the only thing that can repair frames the
@@ -426,15 +431,17 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           before.hydrateAgentChatOrder()
 
           const present = new Set(chats.map((c) => c.id))
-          const vanished: string[] = []
+          const vanished: { id: string; owner: string }[] = []
           for (const c of before.agentChats.chats) {
-            if (!present.has(c.id)) vanished.push(c.id)
+            if (!present.has(c.id)) vanished.push({ id: c.id, owner: c.workspaceId })
           }
 
           if (keepWorking && !needsReconnectReconcile)
             store.getState().seedAgentChats(chats, { keepWorking: true })
           else store.getState().seedAgentChats(chats)
           needsReconnectReconcile = false
+          listLanded = true
+          for (const c of chats) if (c.working === true) adoptBornLive(c.id)
           // Every chat in this snapshot now carries an answer as fresh as `ticket`, so a
           // single-chat read ISSUED before this list request must no longer overwrite one.
           // The overtaken check above only ever asked the opposite question ("did a
@@ -446,14 +453,27 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
             ticket,
           )
 
-          // A chat deleted during the outage never delivered its `deleted` frame, so
-          // clean up after it here exactly as that frame's handler would have.
-          const { forgetChat } = windowPaneStore.getState().paneActions
-          for (const chatId of vanished) forgetChat(chatId)
+          // A chat missing from the list is only a SUSPECT: a repo-scoped list
+          // can omit a project-home chat that still exists. Forget it only on
+          // a definite not-found; the `deleted` frame forgets directly.
+          for (const { id, owner } of vanished) void forgetIfGone(id, owner)
           return
         } catch {
           return /* seed failure is non-fatal — the WS stream still pushes */
         }
+      }
+    }
+
+    // Only the chat's own workspace may confirm it gone: stores hold other
+    // workspaces' chats, and asking through the wrong mount 404s a live chat.
+    const forgetIfGone = async (chatId: string, recordOwner: string) => {
+      const owner = recordOwner || resolveChatOwnerWorkspaceId(chatId)
+      if (owner !== wsId) return
+      try {
+        await getChat(owner, chatId)
+      } catch (err) {
+        if (cancelled || !isNotFoundError(err)) return
+        windowPaneStore.getState().paneActions.forgetChat(chatId)
       }
     }
 
@@ -582,48 +602,44 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
       }
     }
 
-    // The runner has arrived on `entered`. Make the panes agree with that.
-    //
-    // Runs AFTER `entered` has been refetched, deliberately: the store then already says
-    // the runner is there, so this write and the pane's own follow rule ("follow my
-    // runner if it still exists anywhere") compute the same pair and converge in one
-    // step instead of fighting each other across a round trip.
-    //
-    // And it must run even when no AgentChatPane is mounted for the pane: a pane in a
-    // hidden workspace's layout renders nothing, so nothing else would ever re-point it.
+    // The runner has arrived on `entered`: the pane following it now shows
+    // `entered` (its row and group carry on), and any other pane that showed
+    // `entered` goes (Law 4). Runs even when no AgentChatPane is mounted.
     const followRunner = (runnerId: string, entered: string, closedProvider: string) => {
       const { panes, paneActions } = windowPaneStore.getState()
       const taker = Object.values(panes).find((p) => p.runnerId === runnerId)
-      if (!taker) return // no pane follows this runner — the chat list update is the whole story
-
-      // ONE PANE PER LIVE CONVERSATION (spec Law 4). If another pane was already showing
-      // the chat this runner has just walked into, its own CLI was pushed off it (that is
-      // what an eviction IS) and it now shows a conversation it does not own. Empty it and
-      // leave the user looking at the pane that took the conversation over.
-      //
-      // EMPTIED, not closed: Law 6 says "the only thing that removes a pane is closing
-      // it", and §5.4's "closing the last pane empties it rather than refusing" already
-      // names a chatless pane as a real state (the New Tab stage). The old code closed a
-      // TAB here, which no longer has an analogue — the chat was the tab.
-      const evicted = Object.values(panes).filter((p) => p.chatId === entered && p.id !== taker.id)
-      for (const pane of evicted) paneActions.setPaneChat(pane.id, null, null)
-
-      // The taker moves onto `entered`. `setPaneChat` archives whatever it held into
-      // Recents on the way (spec §5.5/§8.4) — a /clear leaves the conversation the CLI
-      // walked out of with no pane, and Law 5 says the chat is durable even when its
-      // view is not. Emptying the evicted panes FIRST keeps Law 4 true at every step.
-      paneActions.setPaneChat(taker.id, entered, runnerId)
-      if (evicted.length === 0) return
+      if (!taker) return
+      const evicted = Object.values(panes).some((p) => p.chatId === entered && p.id !== taker.id)
+      paneActions.retargetPane(taker.id, entered, runnerId)
+      if (!evicted) return
 
       paneActions.setActivePane(taker.id)
-
-      // Told, not silently done: a pane emptied and another one changed what it is
-      // showing. Fired from here — a hook, i.e. component-scope code — and never from a
-      // slice; `toast` is the imperative toast API, not a component (CLAUDE.md).
       toast.info(
         'Conversation moved',
         `${closedProvider} was closed — that conversation is now in this pane.`,
       )
+    }
+
+    // A chat that starts working with no pane gets a background record — only on
+    // a LIVE edge: after this mount's list read landed, the store held the chat
+    // idle, or the chat was born live on this stream (its first working sight,
+    // from a frame or its own reseed, adopts). A first sight through a snapshot
+    // (boot, remount, reconnect) is not an edge.
+    const heldIdle = (st: WorkspaceSnapshot, chatId: string) =>
+      listLanded &&
+      st.agentChats.working[chatId] !== true &&
+      st.agentChats.chats.some((c) => c.id === chatId)
+
+    const adoptBornLive = (chatId: string) => {
+      if (!bornLive.delete(chatId)) return
+      adoptIfViewless(chatId)
+    }
+
+    const adoptIfViewless = (chatId: string) => {
+      const { panes, paneActions } = windowPaneStore.getState()
+      if (chatPaneIndex(panes).has(chatId)) return
+      const projectId = getWorkspaceScope(wsId)?.projectId || resolveChatProjectId(chatId, wsId)
+      if (projectId) paneActions.adoptBackgroundChat(chatId, projectId)
     }
 
     const onRunnerFrame = (ev: AgentStreamEvent & { runnerId: string }) => {
@@ -666,12 +682,9 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           const held = chatOfRunner(st, ev.runnerId)
           const { paneActions } = windowPaneStore.getState()
           for (const pane of panesNow()) {
-            if (pane.runnerId !== ev.runnerId) continue
-            // The pane keeps its chat and lets the runner go. The pane's second rule then
-            // takes over — adopt whoever is on my chat — so it picks up a successor if one
-            // arrives, and renders dormant + Resume if none does. Same chatId in, so
-            // `setPaneChat` archives nothing: this is not a view ending.
-            paneActions.setPaneChat(pane.id, pane.chatId, null)
+            // The pane keeps its chat and lets the runner go; it adopts a successor
+            // if one arrives, and renders dormant + Resume if none does.
+            if (pane.runnerId === ev.runnerId) paneActions.setPaneRunner(pane.id, null)
           }
           // Re-read the chat it held NOW rather than on some later frame: whether it went
           // dormant or was taken over, the answer is already true on the server.
@@ -703,6 +716,8 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         // superseded list request must not make its messages invisible forever.
         stateOf().notifyAgentChatMessages()
         needsReconnectReconcile = true
+        listLanded = false
+        bornLive.clear()
         void seedChats()
         // Folders too, and for exactly the reason the chat list is reseeded here:
         // every folder frame dropped during the outage is a rearrangement this
@@ -770,7 +785,13 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
           //
           // Hardcoding false here is exactly what kept the spinner dark under a live
           // background subagent even after the server knew better.
-          st.setAgentChatWorking(ev.chatId, ev.working === true)
+          {
+            const wasIdle = heldIdle(st, ev.chatId)
+            st.setAgentChatWorking(ev.chatId, ev.working === true)
+            if (ev.working === true && listLanded && bornLive.has(ev.chatId))
+              adoptBornLive(ev.chatId)
+            else if (wasIdle && ev.working === true) adoptIfViewless(ev.chatId)
+          }
           // The thinking belonged to the turn that just changed state, and the
           // answer supersedes it. Unlike streamingMessages below there is nothing
           // to preserve across the edge: a thought is never recorded, so a stale
@@ -871,14 +892,14 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         case 'deleted': {
           st.removeAgentChat(ev.chatId)
           forgetChatRead(wsId, ev.chatId)
-          // Spec §9: deletion "clears the layout of any pane holding a deleted
-          // chat, plucks every arrangement in Recents that remembered one,
-          // drops arrangements left empty." One window-level action does all
-          // three — panes and `dormantArrangements` both live there now.
+          // Spec §9: a deleted chat's pane goes, and its view with it when
+          // that was its last chat.
           windowPaneStore.getState().paneActions.forgetChat(ev.chatId)
           return
         }
         case 'created':
+          if (listLanded && !st.agentChats.chats.some((c) => c.id === ev.chatId))
+            bornLive.add(ev.chatId)
           // New chat + ordering — reseed the whole list, but KEEP working: the socket is
           // live, so no other chat's turn state was missed and clearing it would blank
           // every other mid-turn chat's spinner.
