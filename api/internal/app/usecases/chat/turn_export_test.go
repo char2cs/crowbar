@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
@@ -22,7 +23,11 @@ const WaitingForTurnLog = turn.WaitingForTurnLog
 // HookDeliveryCount reports how many completed delivery ids the ingress's
 // in-memory dedup set holds.
 func HookDeliveryCount(u TurnUsecase) int {
-	return u.(*Usecase).turns.HookDeliveryCount()
+	uc, ok := u.(*Usecase)
+	if !ok {
+		panic(fmt.Sprintf("chat: HookDeliveryCount given %T, not the chat usecase", u))
+	}
+	return uc.turns.HookDeliveryCount()
 }
 
 func CloseStalledTurn(u TurnUsecase, ctx context.Context, stall seam.Stall) {

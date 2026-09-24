@@ -2,9 +2,9 @@ package runner
 
 import (
 	"context"
-
 	"errors"
 	"fmt"
+
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"

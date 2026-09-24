@@ -25,7 +25,6 @@ func (d *detector) sweep(ctx context.Context, publish Publish) bool {
 }
 
 func (d *detector) publishAndClose(ctx context.Context, publish Publish, runners []agents.Runner) {
-
 	changed, stalls := d.fold(ctx, runners)
 
 	if publish != nil {

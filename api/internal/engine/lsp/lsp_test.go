@@ -311,9 +311,9 @@ func TestCodeAction_ForwardsDiagnosticsAndRelativizesEdits(t *testing.T) {
 	got, err := e.CodeAction(context.Background(), ws, tree, goF, domlsp.Range{}, diags)
 	require.NoError(t, err)
 
-	params := fake.requests()[0].params.(map[string]any)
-	ctxParam := params["context"].(map[string]any)
-	assert.JSONEq(t, string(diags), string(ctxParam["diagnostics"].(json.RawMessage)))
+	params := as[map[string]any](t, fake.requests()[0].params)
+	ctxParam := as[map[string]any](t, params["context"])
+	assert.JSONEq(t, string(diags), string(as[json.RawMessage](t, ctxParam["diagnostics"])))
 
 	assert.JSONEq(t, `[
 		{"title":"Fix","kind":"quickfix","edit":{"changes":{"pkg/a.go":[
@@ -346,7 +346,7 @@ func TestNewFeatureRequests_ForwardTheirMethods(t *testing.T) {
 	assert.Equal(t, "textDocument/codeLens", reqs[1].method)
 	assert.Equal(t, "codeLens/resolve", reqs[2].method)
 	assert.Equal(t, "textDocument/formatting", reqs[3].method)
-	opts := reqs[3].params.(map[string]any)["options"].(map[string]any)
+	opts := as[map[string]any](t, as[map[string]any](t, reqs[3].params)["options"])
 	assert.Equal(t, 4, opts["tabSize"])
 	assert.Equal(t, true, opts["insertSpaces"])
 }
@@ -359,7 +359,7 @@ func TestDidChange_VersionsIncreaseAndResetOnReopen(t *testing.T) {
 	ctx := context.Background()
 
 	version := func(c call) any {
-		return c.params.(map[string]any)["textDocument"].(map[string]any)["version"]
+		return as[map[string]any](t, as[map[string]any](t, c.params)["textDocument"])["version"]
 	}
 
 	require.NoError(t, e.DidOpen(ctx, ws, tree, goF, "go", "a"))
@@ -867,4 +867,13 @@ func TestNew_WithOverrides(t *testing.T) {
 		".go": {Command: "gopls-x", LanguageID: "go", Extensions: []string{".go"}},
 	})
 	assert.NotNil(t, got)
+}
+
+// as is a checked type assertion: it fails the test, naming the dynamic type, instead of
+// panicking when v is not a T.
+func as[T any](t *testing.T, v any) T {
+	t.Helper()
+	got, ok := v.(T)
+	require.Truef(t, ok, "got %T, want %T", v, got)
+	return got
 }
