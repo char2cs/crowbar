@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -52,96 +53,6 @@ func initRepo(t *testing.T, dir string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi"), 0o644))
 	runGit(t, dir, "add", "a.txt")
 	runGit(t, dir, "commit", "-q", "-m", "init")
-}
-
-// TestGitDefaultBranch_RealRepo pins the happy path (branch name on HEAD) and
-// the two failure modes: a non-git directory and a detached HEAD.
-func TestGitDefaultBranch_RealRepo(t *testing.T) {
-	t.Run("returns the checked-out branch name", func(t *testing.T) {
-		dir := t.TempDir()
-		initRepo(t, dir)
-		got := callGitDefaultBranch(t, dir)
-		assert.Equal(t, "main", got)
-	})
-
-	t.Run("non-git directory returns empty string", func(t *testing.T) {
-		dir := t.TempDir() // no git init
-		got := callGitDefaultBranch(t, dir)
-		assert.Equal(t, "", got)
-	})
-
-	t.Run("detached HEAD returns empty string", func(t *testing.T) {
-		dir := t.TempDir()
-		initRepo(t, dir)
-		sha := runGit(t, dir, "rev-parse", "HEAD")
-		runGit(t, dir, "checkout", "-q", sha)
-		got := callGitDefaultBranch(t, dir)
-		assert.Equal(t, "", got)
-	})
-}
-
-// callGitDefaultBranch exercises gitDefaultBranch through buildRepo (via
-// Create), the only exported surface that calls it, keeping the unexported
-// function itself untouched.
-func callGitDefaultBranch(t *testing.T, path string) string {
-	repo := createdRepoFor(t, path, "")
-	return repo.DefaultBranch
-}
-
-// callGitRemoteURL exercises gitRemoteURL through buildRepo (via Create).
-func callGitRemoteURL(t *testing.T, path string) string {
-	repo := createdRepoFor(t, path, "")
-	return repo.RemoteURL
-}
-
-// createdRepoFor drives Handlers.Create synchronously with the given path and
-// default branch, returning the resulting Repository as derived by
-// buildRepo -> gitDefaultBranch / gitRemoteURL / repoAvatar. It captures the
-// value actually passed to Store.Save (which carries fields, like RemoteURL,
-// that the broadcast RepoDTO does not) and blocks until that save happens.
-func createdRepoFor(t *testing.T, path, defaultBranch string) domain.Repository {
-	t.Helper()
-	saved := make(chan domain.Repository, 1)
-	store := &fakeStore{}
-	store.SaveFn = func(_ context.Context, r domain.Repository) error {
-		saved <- r
-		return nil
-	}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithStat(statRepoOK)
-	r := gin.New()
-	r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
-
-	body := map[string]any{"name": "alpha", "path": path}
-	if defaultBranch != "" {
-		body["defaultBranch"] = defaultBranch
-	}
-	b, _ := json.Marshal(body)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v0/projects/p1/repos", bytes.NewReader(b))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusAccepted, rec.Code)
-
-	// The Save call IS the signal that the background create ran; block on it
-	// rather than guessing at a duration.
-	return <-saved
-}
-
-// TestGitRemoteURL_RealRepo pins the happy path (origin configured) and the
-// no-remote failure mode, both via the real git binary.
-func TestGitRemoteURL_RealRepo(t *testing.T) {
-	t.Run("returns the origin URL when configured", func(t *testing.T) {
-		dir := t.TempDir()
-		initRepo(t, dir)
-		runGit(t, dir, "remote", "add", "origin", "https://example.com/acme/widget.git")
-		assert.Equal(t, "https://example.com/acme/widget.git", callGitRemoteURL(t, dir))
-	})
-
-	t.Run("no origin remote returns empty string", func(t *testing.T) {
-		dir := t.TempDir()
-		initRepo(t, dir)
-		assert.Equal(t, "", callGitRemoteURL(t, dir))
-	})
 }
 
 // TestDefaultCrowbarHome pins the production root: ~/.crowbar under the real
@@ -394,7 +305,7 @@ func TestBranches_Success_AnnotatesProtectionAndWorkspace(t *testing.T) {
 			{RepoID: "other", Branch: "feature", IsDefault: false},
 		}},
 		nil,
-	)
+	).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -425,7 +336,7 @@ func TestBranches_NoProviderOrWorkspaceReader_StillListsBranches(t *testing.T) {
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: clone}}
 	// NewWithDeps with nil provider/wsReader exercises both "if h.provider !=
 	// nil" / "if h.wsReader != nil" false branches.
-	h := repohandlers.NewWithDeps(store, nil, nil, nil)
+	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -450,7 +361,7 @@ func TestBranches_GitCommandFails_Returns500(t *testing.T) {
 	// branch -r` fails.
 	dir := t.TempDir()
 	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: dir}}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil)
+	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -461,9 +372,26 @@ func TestBranches_GitCommandFails_Returns500(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
+// A protection lookup that fails used to be read as "nothing is protected",
+// so the picker offered a protected branch as an ordinary import. It is an
+// error the caller sees.
+func TestRegression_Branches_ProtectionLookupFailureIsNotUnprotected(t *testing.T) {
+	clone := initRemoteTrackingRepo(t)
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Path: clone}}
+	h := repohandlers.NewWithDeps(store, &fakeBranchProvider{protectedErr: errors.New("gh down")}, nil, nil).
+		WithRemoteRefresher(enginegit.New())
+	r := gin.New()
+	r.GET("/v0/repos/:repoId/branches", h.Branches)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v0/repos/r1/branches", http.NoBody))
+
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+}
+
 func TestBranches_StoreLookupError_Returns404(t *testing.T) {
 	store := &fakeStore{byKeErr: errors.New("db down")}
-	h := repohandlers.NewWithDeps(store, nil, nil, nil)
+	h := repohandlers.NewWithDeps(store, nil, nil, nil).WithRemoteRefresher(enginegit.New())
 	r := gin.New()
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
@@ -779,57 +707,6 @@ func TestPutIcon_LargerThanMax_ViaMultipart_Returns400(t *testing.T) {
 // ---------------------------------------------------------------------------
 // repoAvatar / githubSlugFromURL via generated-avatar + create-flow paths.
 // ---------------------------------------------------------------------------
-
-func TestRepoAvatar_ViaBuildRepo_LabelDerivedFromName(t *testing.T) {
-	tests := []struct {
-		name      string
-		repoName  string
-		wantLabel string
-	}{
-		{"no letters at all falls back to R", "🚀🔥", "R"},
-		{"single word uses its first rune", "widget", "W"},
-		{"two words use first rune of each", "acme widget", "AW"},
-		{"punctuation is treated as a separator", "acme-widget_two", "AW"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bc := newRecordingRepoBroadcaster()
-			h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).WithStat(statRepoOK)
-			r := gin.New()
-			r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
-
-			b, _ := json.Marshal(map[string]any{"name": tt.repoName, "path": "/tmp/x"})
-			req := httptest.NewRequest(http.MethodPost, "/v0/projects/p1/repos", bytes.NewReader(b))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			r.ServeHTTP(rec, req)
-			require.Equal(t, http.StatusAccepted, rec.Code)
-
-			got := bc.await(t)
-			assert.Equal(t, tt.wantLabel, got.AvatarLabel)
-			assert.NotEmpty(t, got.AvatarColor)
-		})
-	}
-}
-
-func TestRepoAvatar_ColorIsDeterministic(t *testing.T) {
-	colorFor := func(name string) string {
-		bc := newRecordingRepoBroadcaster()
-		h := repohandlers.NewWithDeps(&fakeStore{}, nil, nil, bc.push).WithStat(statRepoOK)
-		r := gin.New()
-		r.Group("/v0/projects/:projectId").POST("/repos", h.Create)
-		b, _ := json.Marshal(map[string]any{"name": name, "path": "/tmp/x"})
-		req := httptest.NewRequest(http.MethodPost, "/v0/projects/p1/repos", bytes.NewReader(b))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		require.Equal(t, http.StatusAccepted, rec.Code)
-		return bc.await(t).AvatarColor
-	}
-	c1 := colorFor("same-name-repo")
-	c2 := colorFor("same-name-repo")
-	assert.Equal(t, c1, c2, "the same repo name must always derive the same avatar color")
-}
 
 // ---------------------------------------------------------------------------
 // defaultCrowbarHome error branch.

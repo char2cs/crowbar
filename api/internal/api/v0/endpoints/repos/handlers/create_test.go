@@ -96,11 +96,26 @@ func newCreateRouterWithHandlers(
 	bc *recordingRepoBroadcaster,
 ) (*gin.Engine, *repohandlers.Handlers) {
 	r := gin.New()
-	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithStat(statRepoOK)
+	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).WithStat(statRepoOK).
+		WithImporter(savingImporter{store: store})
 	rg := r.Group("/v0/projects/:projectId")
 	rg.POST("/repos", h.Create)
 	return r, h
 }
+
+// savingImporter is the smallest RepoImporter: it persists the repo it is asked
+// for as "r1" and hands it back, failing when the store does.
+type savingImporter struct{ store repohandlers.Store }
+
+func (s savingImporter) ImportRepo(ctx context.Context, projectID, name, path string) (domain.Repository, error) {
+	repo := domain.Repository{ID: "r1", ProjectID: projectID, Name: name, Path: path}
+	if err := s.store.Save(ctx, repo); err != nil {
+		return domain.Repository{}, err
+	}
+	return repo, nil
+}
+
+func (savingImporter) CheckRepoImportable(context.Context, string, string) error { return nil }
 
 func doPost(
 	r *gin.Engine,
@@ -513,65 +528,6 @@ func TestCreateRepo_RejectsNamesThatEscapeTheCrowbarHome(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			assertNoBroadcast(t, h, bc)
-		})
-	}
-}
-
-// The bare create path (no importer wired) persists the row itself, so it owns
-// the same seeding duty the importer has: the on-disk PathSlug comes from the
-// repo's PATH, never from the user-supplied display name that the rename
-// endpoint can change afterwards.
-func TestCreateRepo_BareCreateSeedsPathSlugFromThePath(
-	t *testing.T,
-) {
-	bc := newRecordingRepoBroadcaster()
-	saved := make(chan domain.Repository, 1)
-	store := &fakeStore{SaveFn: func(_ context.Context, r domain.Repository) error {
-		saved <- r
-		return nil
-	}}
-	rec := doPost(newCreateRouter(store, bc), "/v0/projects/p1/repos",
-		map[string]any{"id": "r1", "name": "My Custom Name", "path": "/tmp/widget"})
-	require.Equal(t, http.StatusAccepted, rec.Code)
-	bc.await(t)
-
-	got := <-saved
-	assert.Equal(t, "My Custom Name", got.Name, "the display name is the supplied one")
-	assert.Equal(t, "widget", got.PathSlug,
-		"the on-disk slug is seeded from filepath.Base(path), not from the name")
-}
-
-// The create path only STATS the supplied path, it never normalises it, so
-// ".../widget/.." arrives verbatim and its raw base is "..". Persisted as the
-// slug that would collapse a level out of the worktree layout without tripping
-// the escape guard (it stays under crowbar home), so the seed resolves the path
-// first and declines a leaf that is not a usable directory name.
-func TestCreateRepo_BareCreateNeverSeedsATraversalSlug(
-	t *testing.T,
-) {
-	cases := []struct {
-		name string
-		path string
-		want string
-	}{
-		{name: "traversal resolved before the leaf", path: "/tmp/projects/widget/..", want: "projects"},
-		{name: "no usable leaf", path: "/..", want: ""},
-		{name: "filesystem root", path: "/", want: ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			bc := newRecordingRepoBroadcaster()
-			saved := make(chan domain.Repository, 1)
-			store := &fakeStore{SaveFn: func(_ context.Context, r domain.Repository) error {
-				saved <- r
-				return nil
-			}}
-			rec := doPost(newCreateRouter(store, bc), "/v0/projects/p1/repos",
-				map[string]any{"id": "r1", "name": "alpha", "path": c.path})
-			require.Equal(t, http.StatusAccepted, rec.Code)
-			bc.await(t)
-
-			assert.Equal(t, c.want, (<-saved).PathSlug)
 		})
 	}
 }

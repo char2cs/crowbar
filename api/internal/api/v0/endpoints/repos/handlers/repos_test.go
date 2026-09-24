@@ -352,12 +352,13 @@ func TestPutIcon_Multipart_StoresBytes(t *testing.T) {
 }
 
 type fakeBranchProvider struct {
-	protected []string
-	prLinks   []providertypes.PRLink
+	protected    []string
+	protectedErr error
+	prLinks      []providertypes.PRLink
 }
 
 func (f *fakeBranchProvider) ProtectedBranches(_ context.Context, _ string) ([]string, error) {
-	return f.protected, nil
+	return f.protected, f.protectedErr
 }
 
 func (f *fakeBranchProvider) OpenPullRequests(_ context.Context, _ string) ([]providertypes.PRLink, error) {

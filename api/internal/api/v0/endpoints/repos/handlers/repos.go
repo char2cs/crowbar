@@ -13,11 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
@@ -27,50 +24,9 @@ import (
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
-
-var avatarColors = []string{
-	"bg-indigo-700", "bg-emerald-700", "bg-orange-700", "bg-sky-700",
-	"bg-rose-700", "bg-violet-700", "bg-teal-700", "bg-amber-700",
-}
-
-// repoAvatar derives a 1-2 char label and deterministic Tailwind color from a repo name.
-func repoAvatar(name string) (label, color string) {
-	words := strings.Fields(strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsSpace(r) {
-			return r
-		}
-		return ' '
-	}, name))
-	switch len(words) {
-	case 0:
-		label = "R"
-	case 1:
-		r, _ := utf8.DecodeRuneInString(words[0])
-		label = strings.ToUpper(string(r))
-	default:
-		r0, _ := utf8.DecodeRuneInString(words[0])
-		r1, _ := utf8.DecodeRuneInString(words[1])
-		label = strings.ToUpper(string(r0) + string(r1))
-	}
-	hash := 0
-	for _, c := range name {
-		hash = (hash*31 + int(c)) & 0xFFFFFF
-	}
-	color = avatarColors[hash%len(avatarColors)]
-	return label, color
-}
-
-// gitRemoteURL returns the origin remote URL for the repo at path, or "".
-func gitRemoteURL(path string) string {
-	//nolint:gosec // G204: fixed git subcommand; path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
-	out, err := exec.Command(binpath.Git(), "-C", path, "remote", "get-url", "origin").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
 
 // Store is the full surface the repos handlers need over the repository GORM
 // table: list every repo, fetch one by id, persist a new one, and remove one.
@@ -117,6 +73,7 @@ type RepoDeleter interface {
 // takes the same per-clone lock every other git operation does.
 type RemoteRefresher interface {
 	FetchPrune(ctx context.Context, repoPath string) error
+	Branches(ctx context.Context, repoPath string) ([]gitdomain.Branch, error)
 }
 
 // BranchEntry is one item in the GET /v0/projects/:projectId/repos/:repoId/branches response.
@@ -456,12 +413,14 @@ func (h *Handlers) Create(
 	// import itself runs after the 202, where its only channel back to the client
 	// is a broadcast that never comes — the dialog would sit on a 30s wait and
 	// then blame a timeout for what is a plain, answerable conflict.
-	if h.importer != nil {
-		if err := h.importer.CheckRepoImportable(c.Request.Context(), body.ProjectID, body.Path); err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(c, status, msg)
-			return
-		}
+	if h.importer == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "repo import is not wired")
+		return
+	}
+	if err := h.importer.CheckRepoImportable(c.Request.Context(), body.ProjectID, body.Path); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
 	}
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
@@ -473,92 +432,19 @@ func (h *Handlers) Create(
 	})
 }
 
-// persistRepo runs the background create work. When a full RepoImporter is
-// wired it runs the complete import (default-branch workspace adoption +
-// protected-branch stubs + GitHub avatar), which also broadcasts the adopted
-// workspaces via the workspace repo callback. Without an importer it falls back
-// to the bare buildRepo+Save path. ok is false when the work failed and no
-// RepoDTO should be broadcast (no per-repo LastError sink).
+// persistRepo runs the background create work: the complete import
+// (default-branch workspace adoption, protected-branch rows, GitHub avatar).
+// ok is false when it failed and no RepoDTO should be broadcast.
 func (h *Handlers) persistRepo(
 	ctx context.Context,
 	body createRequest,
 ) (domain.Repository, bool) {
-	if h.importer != nil {
-		repo, err := h.importer.ImportRepo(ctx, body.ProjectID, body.Name, body.Path)
-		if err != nil {
-			return domain.Repository{}, false
-		}
-		return repo, true
-	}
-	repo := buildRepo(body)
-	if err := h.store.Save(ctx, repo); err != nil {
+	repo, err := h.importer.ImportRepo(ctx, body.ProjectID, body.Name, body.Path)
+	if err != nil {
+		slog.ErrorContext(ctx, "create repo: import", "path", body.Path, "err", err)
 		return domain.Repository{}, false
 	}
 	return repo, true
-}
-
-// buildRepo derives the persisted Repository from the validated create request:
-// a generated id when absent, the git-derived default branch and remote URL when
-// a local path is present, the on-disk path slug, and the generated label/color
-// avatar.
-func buildRepo(
-	body createRequest,
-) domain.Repository {
-	defaultBranch := body.DefaultBranch
-	if defaultBranch == "" && body.Path != "" {
-		defaultBranch = gitDefaultBranch(body.Path)
-	}
-	id := body.ID
-	if id == "" {
-		id = uuid.NewString()
-	}
-	remoteURL := ""
-	if body.Path != "" {
-		remoteURL = gitRemoteURL(body.Path)
-	}
-	label, color := repoAvatar(body.Name)
-	return domain.Repository{
-		ID:            id,
-		ProjectID:     body.ProjectID,
-		Name:          body.Name,
-		Path:          body.Path,
-		PathSlug:      pathSlug(body.Path),
-		DefaultBranch: defaultBranch,
-		RemoteURL:     remoteURL,
-		AvatarLabel:   label,
-		AvatarColor:   color,
-	}
-}
-
-// pathSlug returns the immutable on-disk identity persisted as
-// Repository.PathSlug: the repo directory's own base name.
-//
-// The slug chain that consumes it (worktreepath.RemoteSlug) resolves the git
-// remote FIRST and only then this value, and the RemoteURL persisted beside it
-// is never rewritten afterwards — so a repo with a parseable remote keeps its
-// host/owner/repo layout either way, and this is the leaf identity for every
-// repo without one. What it must never be is the display Name: that is
-// user-renameable, and a slug that moved with a rename would strand every
-// already-derived worktree under the previous slug.
-//
-// The path is only stat'd by Create, never normalised, so it is CLEANED before
-// its leaf is taken and a leaf that is not a usable directory name yields "" —
-// the same shape safeRepoName refuses for the display name, and for the same
-// reason: "." and ".." are joined into the derived worktree path, where they
-// silently collapse a level out of the layout. "" falls the chain through to the
-// already-validated name. Mirrors worktreepath.SeedPathSlug, which the api layer
-// may not import (usecase-internal).
-func pathSlug(
-	repoPath string,
-) string {
-	if repoPath == "" {
-		return ""
-	}
-	leaf := filepath.Base(filepath.Clean(repoPath))
-	if strings.ContainsAny(leaf, `/\`) || strings.Trim(leaf, ".") == "" {
-		return ""
-	}
-	return leaf
 }
 
 // patchRequest is the PATCH .../repos/:repoId body. Every field is optional and
@@ -761,19 +647,6 @@ func (h *Handlers) DeleteRepo(
 	})
 }
 
-// gitDefaultBranch reads the current branch from a git repository at path.
-// Returns "" if path is not a git repo or the command fails.
-func gitDefaultBranch(
-	path string,
-) string {
-	//nolint:gosec // G204: fixed git subcommand; path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
-	out, err := exec.Command(binpath.Git(), "-C", path, "symbolic-ref", "HEAD", "--short").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
 // Icon handles GET /v0/projects/:projectId/repos/:repoId/icon. It serves the
 // on-disk icon bytes stored at worktreepath.RepoIconPath, sniffing the
 // content-type from the bytes. Returns 404 when the repo has no on-disk icon.
@@ -919,27 +792,33 @@ func (h *Handlers) Branches(c *gin.Context) {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	if h.remote != nil {
-		if fErr := h.remote.FetchPrune(c.Request.Context(), repo.Path); fErr != nil {
-			slog.WarnContext(c.Request.Context(), "branches: could not refresh origin; listing cached remote-tracking refs",
-				"repo", repo.Name, "err", fErr)
-		}
+	ctx := c.Request.Context()
+	if h.remote == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "branch listing is not wired")
+		return
 	}
-
-	// List remote branches via git branch -r
-	//nolint:gosec // G204: fixed git subcommand; repo.Path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
-	cmd := exec.CommandContext(c.Request.Context(), "git", "-C", repo.Path, "branch", "-r", "--format=%(refname:short)")
-	out, err := cmd.Output()
+	if fErr := h.remote.FetchPrune(ctx, repo.Path); fErr != nil {
+		slog.WarnContext(ctx, "branches: could not refresh origin; listing cached remote-tracking refs",
+			"repo", repo.Name, "err", fErr)
+	}
+	// Through the git engine and its per-repo lock, never a bare shell-out.
+	all, err := h.remote.Branches(ctx, repo.Path)
 	if err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, "failed to list branches")
 		return
 	}
-	rawBranches := parseRemoteBranches(string(out))
+	rawBranches := originBranches(all)
 
-	// Annotate with protected status
+	// A protection lookup that fails must not report every branch as
+	// unprotected: the picker would offer to import a protected branch as an
+	// ordinary one.
 	protected := map[string]bool{}
 	if h.provider != nil {
-		list, _ := h.provider.ProtectedBranches(c.Request.Context(), repo.Path)
+		list, pErr := h.provider.ProtectedBranches(ctx, repo.Path)
+		if pErr != nil {
+			libs.WriteErr(c, http.StatusBadGateway, "failed to read protected branches")
+			return
+		}
 		for _, b := range list {
 			protected[b] = true
 		}
@@ -952,9 +831,13 @@ func (h *Handlers) Branches(c *gin.Context) {
 	// workspace. Skip IsDefault here.
 	hasWS := map[string]bool{}
 	if h.wsReader != nil {
-		all, _ := h.wsReader.List(c.Request.Context())
-		for _, ws := range all {
-			if ws.RepoID == repo.ID && !ws.IsDefault {
+		rows, lErr := h.wsReader.List(ctx)
+		if lErr != nil {
+			libs.WriteErr(c, http.StatusInternalServerError, "failed to list workspaces")
+			return
+		}
+		for _, ws := range rows {
+			if ws.RepoID == repo.ID && !ws.IsDefault && ws.Status != domain.WorkspaceStatusDeleted {
 				hasWS[ws.Branch] = true
 			}
 		}
@@ -1009,22 +892,19 @@ func (h *Handlers) PullRequests(c *gin.Context) {
 	libs.WriteQueryOK(c, links)
 }
 
-// parseRemoteBranches strips the "origin/" prefix from git branch -r output and
-// skips HEAD pointer lines.
-//
-// Only `origin/` refs are kept. `git branch -r` lists EVERY remote, and the old
-// cut-at-the-first-slash rule turned an `upstream/x` into a plain `x` the picker
-// offered as importable — a branch the import then resolved against `origin/x`,
-// which may be a different branch or none at all.
-func parseRemoteBranches(out string) []string {
+// originBranches keeps the engine's origin/ remote-tracking branches, with the
+// "origin/" prefix stripped. Only origin is kept: every other remote's branch
+// would be offered as importable and then resolved against origin/<name>,
+// which may be a different branch or none at all. origin/HEAD (short name
+// "origin") has no prefix and falls away.
+func originBranches(all []gitdomain.Branch) []string {
 	var result []string
 	seen := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.Contains(line, "->") {
+	for _, b := range all {
+		if !b.IsRemote {
 			continue
 		}
-		name, ok := strings.CutPrefix(line, "origin/")
+		name, ok := strings.CutPrefix(b.Name, "origin/")
 		if !ok || name == "" || seen[name] {
 			continue
 		}
