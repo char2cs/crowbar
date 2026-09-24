@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify'
 import { cloneElement, isValidElement } from 'react'
 import { File, Folder, FolderOpen } from '@phosphor-icons/react'
 import { iconThemeRegistry } from '@/extensions/icon-themes/icon-theme-registry'
+import { useIconThemeRegistryVersion } from '@/extensions/icon-themes/use-icon-theme-registry-version'
 import { useSettingsStore } from '@/features/settings/store'
 
 interface FileExplorerIconProps {
@@ -22,6 +23,8 @@ export function FileExplorerIcon({
   className = 'text-muted-foreground',
 }: FileExplorerIconProps) {
   const iconThemeValue = useSettingsStore((s) => s.settings.iconTheme)
+  // Re-render when a theme changes or its lazily loaded icons arrive.
+  useIconThemeRegistryVersion()
   const iconTheme = iconThemeRegistry.getTheme(iconThemeValue)
 
   // When no icon theme is registered, use Phosphor Icons as built-in fallback

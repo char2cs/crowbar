@@ -4,6 +4,7 @@ class IconThemeRegistry {
   private themes: Map<string, IconThemeDefinition> = new Map()
   private themeSources: Map<string, IconThemeSource> = new Map()
   private listeners: Set<() => void> = new Set()
+  private version = 0
 
   registerTheme(theme: IconThemeDefinition, source?: IconThemeSource) {
     this.themes.set(theme.id, theme)
@@ -80,10 +81,23 @@ class IconThemeRegistry {
 
   onRegistryChange(callback: () => void): () => void {
     this.listeners.add(callback)
-    return () => this.listeners.delete(callback)
+    return () => {
+      this.listeners.delete(callback)
+    }
+  }
+
+  /** Bumped on every change, so `useIconThemeRegistryVersion` can re-render. */
+  getVersion(): number {
+    return this.version
+  }
+
+  /** A registered theme's output changed (e.g. its lazily loaded icons arrived). */
+  notifyChanged() {
+    this.notifyListeners()
   }
 
   private notifyListeners() {
+    this.version += 1
     for (const listener of this.listeners) {
       listener()
     }

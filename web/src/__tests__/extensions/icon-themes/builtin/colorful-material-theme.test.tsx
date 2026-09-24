@@ -1,6 +1,7 @@
 import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { colorfulMaterialIconTheme } from '@/extensions/icon-themes/builtin/colorful-material-theme'
+import { loadMaterialIcons } from '@/extensions/icon-themes/builtin/material-icons'
 
 // Folders used to render as plain `text-muted-foreground` grey under this
 // theme even though its file icons keep their original colors — the theme
@@ -26,7 +27,8 @@ describe('colorfulMaterialIconTheme folder color', () => {
     expect(svg).toHaveAttribute('fill', '#f2c14e')
   })
 
-  it('still keeps a file icon its own original-color svg, untouched', () => {
+  it('still keeps a file icon its own original-color svg, untouched', async () => {
+    await loadMaterialIcons()
     const result = colorfulMaterialIconTheme.getFileIcon('README.md', false, false)
     expect(result.component).toBeUndefined()
     expect(result.svg).toBeTruthy()
