@@ -29,6 +29,8 @@ jobs:
           filters: |
             go:
               - 'api/**'
+              - 'scripts/check-test-names.sh'
+              - 'scripts/test-name-baseline.txt'
               - '.github/workflows/ci.yml'
             web:
               - 'web/**'
@@ -73,6 +75,12 @@ jobs:
           cache-dependency-path: api/go.sum
       - name: Go vet
         run: cd api && go vet -tags noEmbed ./...
+      - name: Test file names (no *_coverage/_extra/_gaps_test.go)
+        run: bash scripts/check-test-names.sh
+      - name: Dead code (deadcode; baseline may only shrink)
+        run: |
+          go install golang.org/x/tools/cmd/deadcode@v0.50.0
+          cd api && scripts/deadcode-check.sh
       - name: Integration-tagged tests (black-box suite + route audit)
         run: |
           cd api
@@ -131,6 +139,27 @@ jobs:
       - name: Cross-compile (macOS amd64)
         run: cd api && GOOS=darwin GOARCH=amd64 go build -tags noEmbed ./cmd/crowbar
 
+  go-lint:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # .golangci.yml gates only lines changed since its new-from-rev
+          # baseline, which needs the history back to that commit.
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.2'
+          cache-dependency-path: api/go.sum
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          working-directory: api
+          args: --build-tags noEmbed
+
   frontend-checks:
     needs: changes
     if: needs.changes.outputs.web == 'true'
@@ -142,8 +171,10 @@ jobs:
         run: cd web && bun install --frozen-lockfile
       - name: Prettier
         run: cd web && bun prettier --check .
-      - name: ESLint
-        run: cd web && bun eslint src
+      - name: ESLint (warnings fail)
+        run: cd web && bun eslint . --max-warnings 0
+      - name: Dead code (knip, full + --production; baseline may only shrink)
+        run: cd web && bun run knip
       - name: TypeScript
         run: cd web && bun tsc --noEmit
       - name: Test coverage (ratchet)
