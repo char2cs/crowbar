@@ -137,6 +137,7 @@ import {
 } from '@/features/panes/stores/window-pane-store'
 import { showingLayout, viewChatIds } from '@/features/panes/lib/view-state'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
+import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
 /**
@@ -919,6 +920,9 @@ const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentCha
   liveRunnerId: '',
   terminalSessionId: '',
   activeProviderId: 'claude',
+  working: false,
+  version: nextVersion(),
+  phase: 'dormant',
   createdAt: '2026-01-01T00:00:00Z',
   order: 0,
   parentId: '',
@@ -1077,13 +1081,11 @@ describe('performSidebarDrop — chats', () => {
       ],
     }))
     const store = getOrCreateWorkspaceStore('ws-x')
-    store
-      .getState()
-      .seedAgentChats([
-        chat('chat-a', 'ws-x', { order: 0 }),
-        chat('chat-b', 'ws-x', { order: 1 }),
-        chat('chat-c', 'ws-x', { order: 2 }),
-      ])
+    seedChats(store, [
+      chat('chat-a', 'ws-x', { order: 0 }),
+      chat('chat-b', 'ws-x', { order: 1 }),
+      chat('chat-c', 'ws-x', { order: 2 }),
+    ])
     const bumpSpy = vi.spyOn(useFolderSignalStore.getState(), 'bump')
 
     await performSidebarDrop([chatRow('chat-c', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into')
@@ -2230,7 +2232,7 @@ describe('performSidebarDrop — targetInRecents', () => {
   it('middle of an already-LIVE Recents entry merges the dragged chat beside it, not a tree placement', async () => {
     setActiveWorkspaceId('ws-x')
     const store = getOrCreateWorkspaceStore('ws-x')
-    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    seedChats(store, [chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
 
     await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
@@ -2250,7 +2252,7 @@ describe('performSidebarDrop — targetInRecents', () => {
   it('middle of a DORMANT Recents entry opens it first, then merges the dragged chat beside it', async () => {
     setActiveWorkspaceId('ws-x')
     const store = getOrCreateWorkspaceStore('ws-x')
-    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    seedChats(store, [chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
 
     await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
 
@@ -2264,7 +2266,7 @@ describe('performSidebarDrop — targetInRecents', () => {
   it('dropping a chat that is already up onto a Recents target just reveals it — never opened twice', async () => {
     setActiveWorkspaceId('ws-x')
     const store = getOrCreateWorkspaceStore('ws-x')
-    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    seedChats(store, [chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
     windowPaneStore.getState().paneActions.openChat('chat-b', { runnerId: 'runner-2' })
     const otherPane = paneOfChat('chat-b')
@@ -2279,7 +2281,7 @@ describe('performSidebarDrop — targetInRecents', () => {
 
   it('above/below a Recents entry reorders the persisted Recents order instead of writing a tree placement', async () => {
     const store = getOrCreateWorkspaceStore('ws-x')
-    store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+    seedChats(store, [chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
     // `addPane`, not `splitPane` — two INDEPENDENT views, which is what two
     // Recents rows to reorder means. A split would merge them into one.
@@ -2294,9 +2296,7 @@ describe('performSidebarDrop — targetInRecents', () => {
 
   it('a second reorder only moves the dragged entry, leaving every other tracked id in place', async () => {
     const store = getOrCreateWorkspaceStore('ws-x')
-    store
-      .getState()
-      .seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])
+    seedChats(store, [chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
     windowPaneStore.getState().paneActions.openChat('chat-b', { runnerId: 'runner-2' })
     const paneB = paneOfChat('chat-b')
@@ -2344,7 +2344,7 @@ describe('performSidebarDrop — targetInRecents', () => {
      *  the two Recents rows a reorder needs. Returns the second pane's id. */
     function twoLiveViews(): string {
       const store = getOrCreateWorkspaceStore('ws-x')
-      store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
+      seedChats(store, [chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
       windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
       windowPaneStore.getState().paneActions.openChat('chat-b', { runnerId: 'runner-2' })
       const otherPane = paneOfChat('chat-b')
@@ -2401,12 +2401,8 @@ describe('performSidebarDrop — targetInRecents', () => {
         },
       },
     })
-    getOrCreateWorkspaceStore('ws-x')
-      .getState()
-      .seedAgentChats([chat('chat-a', 'ws-x')])
-    getOrCreateWorkspaceStore('home-ws-2')
-      .getState()
-      .seedAgentChats([chat('home-chat', 'home-ws-2')])
+    seedChats(getOrCreateWorkspaceStore('ws-x'), [chat('chat-a', 'ws-x')])
+    seedChats(getOrCreateWorkspaceStore('home-ws-2'), [chat('home-chat', 'home-ws-2')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
     windowPaneStore.getState().paneActions.openChat('home-chat', { runnerId: 'runner-2' })
     const homePane = paneOfChat('home-chat')
@@ -2434,12 +2430,8 @@ describe('performSidebarDrop — targetInRecents', () => {
     useProjectDataStore.setState({
       data: success([{ id: 'proj-2', name: 'p2', path: '', lastActivity: new Date() }]),
     })
-    getOrCreateWorkspaceStore('ws-x')
-      .getState()
-      .seedAgentChats([chat('chat-a', 'ws-x')])
-    getOrCreateWorkspaceStore('home-ws-2')
-      .getState()
-      .seedAgentChats([chat('home-chat', 'home-ws-2')])
+    seedChats(getOrCreateWorkspaceStore('ws-x'), [chat('chat-a', 'ws-x')])
+    seedChats(getOrCreateWorkspaceStore('home-ws-2'), [chat('home-chat', 'home-ws-2')])
     windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
     windowPaneStore.getState().paneActions.openChat('home-chat', { runnerId: 'runner-2' })
     const homePane = paneOfChat('home-chat')

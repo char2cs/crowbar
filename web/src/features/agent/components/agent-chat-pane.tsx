@@ -21,7 +21,6 @@ import { useAgentProvidersStore } from '@/features/settings/stores/agent-provide
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
-import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
   SPLIT_MIN_HALF_PX,
@@ -379,12 +378,6 @@ export function AgentChatPane({
     if (wsProviders.length > 0 || globalProviders.length > 0) return
     void useAgentProvidersStore.getState().load(wsId)
   }, [wsProviders.length, globalProviders.length, wsId])
-  // The provider this chat last ran under — what a failed revive has to NAME ("Claude
-  // isn’t installed"), since a dormant chat has no live runner to ask.
-  const chatProviderId = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
-  )
 
   // Is this chat's CLI parked on a prompt Crowbar CANNOT answer — a workspace
   // trust dialog, a first-run screen, a login — which reaches the daemon through
@@ -598,32 +591,16 @@ export function AgentChatPane({
   // runner now on it, or report that there still is none (false). It only ever READS, so
   // it cannot spawn anything; the caller has already done the spawning.
   //
-  // Reading is not belt-and-braces. The WS would push the same facts eventually, but this
-  // way the pane settles on the ACT rather than whenever a frame happens to arrive — and,
-  // crucially, it settles AT ALL: a CLI that died on startup leaves the chat dormant, and
-  // this read says so, where waiting for a frame that is never coming would spin forever.
-  //
-  // IT IS ALSO ONE OF TWO RACERS. The resume this follows makes the daemon publish
-  // `started`, and use-workspace-agent-chats-stream refetches the same chat off that
-  // frame — usually ISSUING FIRST, since the socket push beats the POST response. The
-  // daemon can answer that first read from before the placement it just announced, so it
-  // can land LAST carrying "dormant" and overwrite the live row this one just wrote. The
-  // pane's one revive is spent by then, so it settles on "This agent has exited" over a
-  // CLI that is alive — the confirmed live bug. Both reads therefore go through the one
-  // ordering registry, and the loser is discarded rather than applied.
+  // The read is a versioned snapshot applied under the one rule every chat write follows
+  // (reduce-chat-frame.ts): it lands only if it is newer than what the feed already
+  // delivered, so it can race the `started` frame in either order and neither can
+  // overwrite the other with an older answer.
   const adopt = useCallback(
     async (signal?: AbortSignal): Promise<boolean> => {
-      const ticket = claimChatRead()
       const fetched = await getChat(wsId, shownChatId, signal)
       if (!mountedRef.current) return false
-      const s = store.getState()
-      if (acceptChatRead(wsId, fetched.id, ticket)) {
-        s.upsertAgentChat(fetched, ticket)
-        s.setAgentChatWorking(fetched.id, fetched.working === true)
-      }
-      // Settle on the STORE, not on our own payload: when a later-issued read has already
-      // applied, that row is the newer truth and this one is a snapshot of the past.
-      // Attaching off the older answer would seed a PTY the server has already moved past.
+      store.getState().applyAgentChat(fetched)
+      // Settle on the STORE, not on our own payload: a newer snapshot may already hold.
       const chat = store.getState().agentChats.chats.find((c) => c.id === fetched.id) ?? fetched
       // liveRunnerId ALONE is liveness — terminalSessionId is not a second vote on it.
       // A non-hotswap api-transport runner (codex) is legitimately live with nothing
@@ -640,52 +617,13 @@ export function AgentChatPane({
 
   // Re-check the aggregate after a prompt race. The prompt queue consumes only
   // this server-folded value; it never guesses busy state from a lifecycle kind.
-  // Ordered against every other single-chat read for the same reason adopt is.
+  // Applied under the version rule like every other chat read.
   const refreshChatWorking = useCallback(async (): Promise<boolean> => {
-    const ticket = claimChatRead()
     const fetched = await getChat(wsId, shownChatId)
     const s = store.getState()
-    // Torn down mid-flight: report the store's answer, write nothing, spend no slot.
-    if (!mountedRef.current) return s.agentChats.working[fetched.id] === true
-    if (!acceptChatRead(wsId, fetched.id, ticket)) {
-      return s.agentChats.working[fetched.id] === true
-    }
-    s.upsertAgentChat(fetched, ticket)
-    s.setAgentChatWorking(fetched.id, fetched.working === true)
-    return fetched.working === true
+    if (mountedRef.current) s.applyAgentChat(fetched)
+    return store.getState().agentChats.working[fetched.id] === true
   }, [store, wsId, shownChatId])
-
-  // THE REGRESSION, reported live and repeatedly: `working` is otherwise
-  // written ONLY by the turn_started/turn_stopped WS frame (see
-  // agent-chats-slice.ts's own doc on that map) — there is no other path.
-  // A single dropped frame — one lost mid a socket hiccup, or the daemon
-  // process itself restarting out from under an open turn — leaves this
-  // chat's spinner wrong FOREVER in either direction: dark under a CLI
-  // that is still visibly working, or lit long after everything actually
-  // settled, since nothing else ever asks again. Confirmed live: a chat
-  // stuck reporting `working:true` for 50+ minutes after its own turn had
-  // long since closed, self-corrected only by a full page reload — the one
-  // path that re-seeds `working` from the server's own list response
-  // (seedAgentChats) rather than trusting the frame feed alone.
-  //
-  // This is that self-heal without a reload: the same periodic reconcile
-  // pattern this codebase already uses for exactly this class of problem
-  // (the provider-idle sweep, termwait's own doc). Bounded and cheap — one
-  // GET, only for a chat this pane is actually showing — and it corrects
-  // the store rather than trusting whatever the WS feed last said.
-  //
-  // Gated on `attached`: a pane that is reviving/idle is mid its OWN
-  // adopt/resume orchestration, which already owns every read of this
-  // chat for the runner it is about to attach — an uncoordinated read
-  // racing in here would upsert a runner that orchestration has not
-  // decided to accept yet. `working` only means something once a pane is
-  // normally attached, which is exactly where this belongs.
-  const attached = attachment.state === 'attached'
-  useEffect(() => {
-    if (!attached) return
-    const timer = window.setInterval(() => void refreshChatWorking(), 5_000)
-    return () => window.clearInterval(timer)
-  }, [attached, refreshChatWorking])
 
   // A pick the picker has made but NOT sent yet — provider included. The
   // picker itself never calls the selection API or SwitchProvider any more —
@@ -867,7 +805,7 @@ export function AgentChatPane({
           // runs either way.
           if (abort.signal.aborted && !boundFired) return
           fail()
-          const name = providers.find((p) => p.id === chatProviderId)?.displayName || 'the agent'
+          const name = providers.find((p) => p.id === activeProviderId)?.displayName || 'the agent'
           // An abort reads as a DOMException about a cancelled fetch, which tells the user
           // nothing about their chat. Say what actually happened instead.
           toastSpawnFailure(
@@ -893,7 +831,7 @@ export function AgentChatPane({
         }
       }
     },
-    [wsId, shownChatId, adopt, fail, providers, chatProviderId],
+    [wsId, shownChatId, adopt, fail, providers, activeProviderId],
   )
 
   // A CHAT THE LIST NEVER MENTIONS.
@@ -926,12 +864,7 @@ export function AgentChatPane({
     resolvedRef.current.add(shownChatId)
     void getChat(wsId, shownChatId)
       .then((chat) => {
-        const s = store.getState()
-        s.upsertAgentChat(chat)
-        // The server-folded answer, exactly as adopt() writes it. There is no
-        // newer frame truth to clobber here: the store had never heard of this
-        // chat at all.
-        s.setAgentChatWorking(chat.id, chat.working === true)
+        store.getState().applyAgentChat(chat)
       })
       .catch(() => {
         // Genuinely gone, or the read failed. The pane has asked its one
@@ -1284,11 +1217,11 @@ export function AgentChatPane({
   // is no stale-closure risk to trade away by not memoizing it.
   // providerIdOverride: handleSwitch calls this AFTER switchProvider resolves,
   // when the chat is already on the terminal surface and the switch itself
-  // never re-runs this gate — chatProviderId is this render's value from
+  // never re-runs this gate — activeProviderId is this render's value from
   // BEFORE the switch, so the caller passes the provider it just switched TO
   // instead of relying on a re-render to catch up first.
   const enterTerminal = (providerIdOverride?: string) => {
-    const chatProvider = providers.find((p) => p.id === (providerIdOverride ?? chatProviderId))
+    const chatProvider = providers.find((p) => p.id === (providerIdOverride ?? activeProviderId))
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap || onTerminalSurface) {
       setPresentation('terminal')
@@ -1308,7 +1241,7 @@ export function AgentChatPane({
         // rollout to resume — used to be a click that silently did nothing,
         // exactly the failure mode toastSpawnFailure exists to prevent
         // elsewhere in this file. Same fix, here too.
-        const name = chatProvider?.displayName ?? providerIdOverride ?? chatProviderId
+        const name = chatProvider?.displayName ?? providerIdOverride ?? activeProviderId
         toastSpawnFailure(err, name, 'open the terminal view for')
       }
     })()
@@ -1390,7 +1323,7 @@ export function AgentChatPane({
     // workspace/project scope to route through), where defaulting the other way
     // just costs a non-hotswap provider one extra render before its capability
     // loads in, same as any other capability-gated control.
-    const chatProvider = providers.find((p) => p.id === chatProviderId)
+    const chatProvider = providers.find((p) => p.id === activeProviderId)
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
     if (hotswap || next === presentation) {
       setPresentation(next)

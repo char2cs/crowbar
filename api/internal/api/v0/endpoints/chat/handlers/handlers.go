@@ -17,6 +17,14 @@ import (
 // It starts no processes and reads no vendor CLI. Every route served off here
 // answers whether or not a runner has ever been placed on the chat.
 type ChatUsecase interface {
+	// ChatSnapshot is chatID's versioned snapshot: the chat, the runner live on
+	// it, its phase and the version that orders it against every frame. Every
+	// chat body this API serves is built from it.
+	ChatSnapshot(
+		ctx context.Context,
+		chatID string,
+	) (agentusecase.ChatSnapshot, error)
+
 	// ListChatsByWorkspace returns every AgentChat anchored to workspaceID. List
 	// calls this when its request still names a workspace (the home mount's
 	// injected :wsId); otherwise it falls back to ListChats below.
@@ -117,17 +125,16 @@ type TurnUsecase interface {
 		rawPayload []byte,
 	) error
 
-	// IngestHookDelivery is the exactly-once ingress: the relay mints one delivery
-	// id and reuses it on every retry, and this path turns those retries into ONE
-	// semantic hook.
+	// IngestHookDelivery is the idempotent ingress: the relay mints one delivery
+	// id and reuses it on its short in-process retry, and this path turns those
+	// retries into ONE semantic hook (an in-memory TTL dedup set — no disk).
 	//
 	// It is declared here rather than discovered at runtime on purpose. A port
 	// that only MIGHT carry it is a port a mis-wire silently falls off — every
-	// hook takes the un-journalled path and every retry applies its effects twice
+	// hook takes the un-deduplicated path and every retry applies its effects twice
 	// — and nothing fails until a user sees the same turn twice in production.
 	IngestHookDelivery(
-		ctx context.Context,
-		workspaceID, deliveryID, runnerID, provider, canonicalEvent string,
+		ctx context.Context, deliveryID, runnerID, provider, canonicalEvent string,
 		rawPayload []byte,
 	) error
 
@@ -235,15 +242,6 @@ type RunnerUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
-
-	// PlacementsForChat returns every provider a runner has ever been placed on
-	// chatID as, oldest arrival first — the append-only record that still names a
-	// dormant chat's vendor when its provider announced no conversation to fall
-	// back to. It is activeProviderId's third fallback source.
-	PlacementsForChat(
-		ctx context.Context,
-		chatID string,
-	) ([]engineagents.ChatPlacement, error)
 
 	// SwitchProvider quits the chat's current vendor CLI, hands off the accumulated
 	// context, and starts targetProviderID as a new runner on the SAME chat,

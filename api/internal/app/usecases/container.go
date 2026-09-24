@@ -166,7 +166,12 @@ func New(
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	announceHomeRow project.HomeRowAnnouncer,
 	announceRepo agentusecase.TreeRepoAnnouncer,
+	opts ...Option,
 ) (*Container, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	projectUsecase := project.New(
 		gormStores.Projects,
 		gormStores.Repositories,
@@ -229,7 +234,7 @@ func New(
 		engines.Git,
 		nowFunc,
 	)
-	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo)
+	agentic, err := newAgentWiring(repos, gormStores, engines, crowbarHome, branchReview, threadBroadcast, workspaceUsecase, announceRepo, o.chatSnapshots)
 	if err != nil {
 		return nil, err
 	}
@@ -330,6 +335,20 @@ type agentWiring struct {
 // usecase, because deleting a chat there takes every chat threaded below it and
 // erasing a chat — with the CLIs on it — is the chat usecase's job. The tree
 // decides which chats go; it never learns how they are torn down.
+// Option configures New.
+type Option func(*options)
+
+type options struct {
+	chatSnapshots *agentusecase.ChatSnapshots
+}
+
+// WithChatSnapshots hands the chat usecase the snapshot owner the composition
+// root built and fed to the repositories' watch seams. Without it the usecase
+// builds a private owner no event reaches.
+func WithChatSnapshots(s *agentusecase.ChatSnapshots) Option {
+	return func(o *options) { o.chatSnapshots = s }
+}
+
 func newAgentWiring(
 	repos *repositories.Container,
 	gormStores GORMStores,
@@ -339,6 +358,7 @@ func newAgentWiring(
 	threadBroadcast agentusecase.ToolThreadBroadcast,
 	workspaceUsecase workspace.Usecase,
 	announceRepo agentusecase.TreeRepoAnnouncer,
+	chatSnapshots *agentusecase.ChatSnapshots,
 ) (agentWiring, error) {
 	wsReader := &agentWorkspaceReader{
 		workspaces:  repos.Workspace,
@@ -388,8 +408,9 @@ func newAgentWiring(
 		Home:                    crowbarHome,
 		// Installed is left nil: the usecase defaults to Agent.Installed, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
-		Minter: minter,
-		Tools:  toolDeps,
+		Minter:    minter,
+		Tools:     toolDeps,
+		Snapshots: chatSnapshots,
 		// Folders/Nodes let own_worktree.go/promote.go/repo_scope.go/
 		// cwd_resolver.go's ancestor walks see past a Folder-only ancestor
 		// (2026-09-08 sidebar-placement-unification Task 8's own review fix

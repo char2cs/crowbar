@@ -158,6 +158,9 @@ type Detector interface {
 	Sweep(ctx context.Context, publish Publish)
 
 	Run(ctx context.Context, publish Publish)
+
+	// Wake resumes a Run loop parked because no runner was live.
+	Wake()
 }
 
 type detector struct {
@@ -166,6 +169,8 @@ type detector struct {
 	mu sync.RWMutex
 
 	state map[string]chatState
+
+	wake chan struct{}
 }
 
 type chatState struct {
@@ -193,7 +198,7 @@ type screenCache struct {
 }
 
 func New(deps Deps) Detector {
-	return &detector{deps: deps, state: make(map[string]chatState)}
+	return &detector{deps: deps, state: make(map[string]chatState), wake: make(chan struct{}, 1)}
 }
 
 func (d *detector) Wait(chatID string) domain.AgentTerminalWait {

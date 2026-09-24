@@ -24,27 +24,9 @@ type ChatRuntime struct {
 	LiveRunner *agents.Runner
 
 	// Conversations is the chat's append-only history, OLDEST FIRST (so the last
-	// element is its last conversation). Empty on a chat no runner has ever spoken
-	// into.
+	// element is its last conversation). Joined in only for the single-chat detail
+	// read; a list leaves it nil.
 	Conversations []agents.ChatConversation
-
-	// Interruptions is the chat's durable interruption ledger, joined in by the
-	// caller (the DTO layer has no store access of its own) because
-	// activeProviderID needs it as a second fallback source: a provider that binds
-	// via its own connection identity never writes a Conversations row, so its
-	// only trace is the switch marker here. Only ever populated for a DORMANT
-	// chat — a live runner already outranks both fallbacks, so a caller building
-	// this for a live chat may leave it nil.
-	Interruptions []domain.ActivityInterruption
-
-	// Placements is the chat's append-only PLACEMENT history — every provider a
-	// runner has ever been pointed at it on — joined in by the caller for the same
-	// reason Interruptions is, and it is activeProviderID's THIRD fallback source.
-	// A placement is recorded for every runner at the moment it is placed, so
-	// unlike the two above it also answers for a chat BORN on a provider that
-	// announces no conversation and was never switched. Only ever populated for a
-	// DORMANT chat: a live runner outranks every fallback.
-	Placements []agents.ChatPlacement
 
 	// TerminalWait is the daemon's standing answer to "is this chat's CLI parked
 	// on a modal Crowbar cannot answer?". Derived, never stored, and the zero
@@ -61,6 +43,30 @@ type ChatRuntime struct {
 	// HasLiveAPIConnection is whether the runner has an ACTIVE api-transport
 	// connection right now — see AgentChatDTOFrom's own use.
 	HasLiveAPIConnection bool
+
+	// Version and Phase come from the chat snapshot owner: the version that
+	// orders every answer about this chat, and the lifecycle phase it is in.
+	Version int64
+	Phase   string
+}
+
+// ChatSnapshotRuntime assembles the runtime half of a chat snapshot.
+func ChatSnapshotRuntime(
+	live *agents.Runner,
+	phase string,
+	version int64,
+	wait domain.AgentTerminalWait,
+	attachedSessionID string,
+	hasLiveAPIConnection bool,
+) ChatRuntime {
+	return ChatRuntime{
+		LiveRunner:           live,
+		TerminalWait:         wait,
+		AttachedSessionID:    attachedSessionID,
+		HasLiveAPIConnection: hasLiveAPIConnection,
+		Version:              version,
+		Phase:                phase,
+	}
 }
 
 // AgentTerminalWaitDTO says a chat's CLI is blocked on a prompt Crowbar has no
@@ -195,6 +201,15 @@ type AgentChatDTO struct {
 	Worktree *ChatWorktreeDTO `json:"worktree,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt"`
+
+	// Version orders every answer the daemon gives about this chat — frame or
+	// GET — so a client applies a snapshot only if its version is newer than
+	// the one it holds (invariant A6). Larger across daemon restarts too.
+	Version int64 `json:"version"`
+
+	// Phase is the chat's lifecycle phase: dormant, starting, live, switching
+	// or stopping. The client renders it; it never infers it.
+	Phase string `json:"phase"`
 }
 
 // AgentChatDTOFrom converts a persisted AgentChat plus its derived runtime into the
@@ -225,6 +240,8 @@ func AgentChatDTOFrom(
 		Effort:           c.Effort,
 		Worktree:         wt,
 		CreatedAt:        c.CreatedAt,
+		Version:          rt.Version,
+		Phase:            rt.Phase,
 	}
 	if rt.LiveRunner != nil {
 		out.LiveRunnerID = rt.LiveRunner.ID
@@ -516,6 +533,30 @@ type AgentTelemetryDTO struct {
 	Model      *AgentModelIdentityDTO `json:"model,omitempty"`
 }
 
+// AgentTelemetryDTOFrom maps the provider's usage report onto the wire — the one
+// conversion the GET and the pushed `telemetry` frame share.
+func AgentTelemetryDTOFrom(report agents.Telemetry) AgentTelemetryDTO {
+	out := AgentTelemetryDTO{ObservedAt: report.ObservedAt, Source: report.Source}
+	if c := report.Context; c != nil {
+		out.Context = &AgentContextUsageDTO{
+			CapacityTokens: c.CapacityTokens, UsedTokens: c.UsedTokens,
+			UsedPercent: c.UsedPercent, RemainingPercent: c.RemainingPercent,
+		}
+	}
+	for _, w := range report.RateLimits {
+		out.RateLimits = append(out.RateLimits, AgentRateLimitDTO{
+			ID: w.ID, Label: w.Label, UsedPercent: w.UsedPercent, ResetsAt: w.ResetsAt,
+		})
+	}
+	if c := report.Cost; c != nil {
+		out.Cost = &AgentSessionCostDTO{TotalUSD: c.TotalUSD, APIDurationMS: c.APIDurationMS}
+	}
+	if m := report.Model; m != nil {
+		out.Model = &AgentModelIdentityDTO{ID: m.ID, DisplayName: m.DisplayName}
+	}
+	return out
+}
+
 type AgentContextUsageDTO struct {
 	CapacityTokens   *int     `json:"capacityTokens,omitempty"`
 	UsedTokens       *int     `json:"usedTokens,omitempty"`
@@ -579,24 +620,9 @@ type SlashCatalogItemDTO struct {
 	Source      string `json:"source"`
 }
 
-// activeProviderID derives the provider to show for a chat: the live runner's while one
-// is placed on it (mid-switch, the incoming runner is already the truth — it outranks
-// every dormant fallback below), else agents.ResolveProviderID over the chat's
-// conversation history, its interruption ledger, its placement history and its own
-// durable choice, else "".
-//
-// All four sources are NEEDED, not just Conversations. A provider that binds via its
-// own connection identity, rather than firing a session-bind, never writes a
-// Conversations row at all, so a chat last live on one of those has no history entry to
-// fall back to — only the switch interruption rt.Interruptions carries. And a chat BORN
-// on such a provider has neither, because it was never switched: the "" this used to
-// answer for it is what let a sidebar click convert a dormant chat to another vendor.
-// chat.ProviderID closes that for every chat created since it was written at birth, and
-// rt.Placements — Crowbar's own record of pointing a CLI at the chat, kept for every
-// runner ever started — closes it for every chat that predates the field. See
-// agents.ResolveProviderID for the precedence, and agents.ActiveProviderID for the
-// newest-evidence scan this preserves (the stale-provider-after-Stop report it was
-// written to fix).
+// activeProviderID is the live runner's provider while one is placed (mid-switch
+// the incoming runner is already the truth), else the chat's own durable vendor
+// — domain.Chat.ProviderID, the single owner of that answer (spec §7-A target 2).
 func activeProviderID(
 	chat domain.Chat,
 	rt ChatRuntime,
@@ -604,9 +630,7 @@ func activeProviderID(
 	if rt.LiveRunner != nil {
 		return rt.LiveRunner.ProviderID
 	}
-	providerID, _ := agents.ResolveProviderID(
-		rt.Conversations, rt.Interruptions, rt.Placements, chat.ProviderID)
-	return providerID
+	return chat.ProviderID
 }
 
 // AgentChatDTOList converts a slice of AgentChats into wire DTOs, returning a
@@ -787,27 +811,6 @@ type AgentChatEvent struct {
 	// what a reconnect does, so the outage path and the live path repair
 	// identically.
 	FolderID string `json:"folderId,omitempty"`
-	// Working is the chat's folded busy state (domain.Chat.Working) as of this
-	// event — the spinner, answered by the server. Set on the CHAT kinds; meaningless
-	// on runner kinds, which are about a process and not about a conversation.
-	//
-	// It is here so the client never re-derives it. `turn_stopped` does NOT mean idle
-	// — a CLI that hands work to a background subagent ends its turn and goes quiet
-	// waiting for it — so a spinner driven off the kind is wrong precisely when it
-	// matters, and a second copy of the fold in TypeScript is a second thing to get
-	// wrong. The aggregate folds it once; this carries the answer.
-	Working bool `json:"working"`
-
-	// TerminalWait rides the `terminal_wait` kind and nothing else. It is present
-	// when the chat's CLI has become blocked on a prompt Crowbar cannot answer, and
-	// NIL on the frame that says the block has cleared — so the frame carries the
-	// whole answer either way and a client needs no round trip to learn which.
-	//
-	// Carried on the frame rather than refetched for the same reason Working is:
-	// the user is looking at a pane that explains nothing, and a banner that
-	// arrives a round trip later is a banner that arrives after they gave up.
-	TerminalWait *AgentTerminalWaitDTO `json:"terminalWait,omitempty"`
-
 	// ClientRequestID names one prompt the browser is still holding in its pending
 	// queue, and is set ONLY on the prompt_settled kind.
 	//
@@ -859,6 +862,15 @@ type AgentChatEvent struct {
 	Message *AgentStreamingMessageDTO `json:"message,omitempty"`
 	// Plan is the agent's running to-do list, on the `plan` kind.
 	Plan []AgentPlanStepDTO `json:"plan,omitempty"`
+	// Chat is the chat's full snapshot as of this frame, on every frame the
+	// snapshot owner publishes — and Version its version. A client applies it
+	// only when Version is newer than the one it holds; it never refetches.
+	Chat    *AgentChatDTO `json:"chat,omitempty"`
+	Version int64         `json:"version,omitempty"`
+
+	// Telemetry is the provider's newest usage report, on the `telemetry` kind.
+	// Pushed as it arrives (about once a turn) so no client polls for it.
+	Telemetry *AgentTelemetryDTO `json:"telemetry,omitempty"`
 }
 
 // AgentPlanStepDTO is one entry of the agent's running plan.
@@ -920,13 +932,9 @@ const AgentChatKindWorktreeState = "worktree_state"
 // nothing to merge. Never stored: a plan for a turn in progress is a view of it.
 const AgentChatKindPlan = "plan"
 
-// AgentChatKindTerminalWait is the lifecycle kind that announces a change in
-// whether a chat's CLI is blocked behind a terminal-only prompt.
-//
-// It is a CHAT kind — it names a conversation, carries no runner id, and is
-// emitted only when the verdict MOVES, so a chat parked for an hour produces
-// exactly one frame.
-const AgentChatKindTerminalWait = "terminal_wait"
+// AgentChatKindTelemetry announces the provider's newest usage report for the
+// chat — context, rate limits, cost — carried whole on the frame.
+const AgentChatKindTelemetry = "telemetry"
 
 // AgentChatKindCompactionStarted and AgentChatKindCompactionStopped announce
 // the live compact_pre/compact_post edge — the one fact on this feed that

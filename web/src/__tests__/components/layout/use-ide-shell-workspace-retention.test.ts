@@ -15,6 +15,7 @@ import {
   getOrCreateWorkspaceStore,
   destroyWorkspaceStore,
 } from '@/features/workspace/stores/workspace-store-registry'
+import { nextVersion, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 const repoWithOwnPath: Repo = {
   id: 'r1',
@@ -212,13 +213,16 @@ describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFER
     // app has once the pane's own chat has streamed at least once, which is
     // exactly the "file explorer stuck empty, but the chat itself renders
     // fine" shape of the live bug.
-    getOrCreateWorkspaceStore('ws-home-1').getState().upsertAgentChat({
+    writeChat(getOrCreateWorkspaceStore('ws-home-1'), {
       id: 'home-chat-1',
       workspaceId: 'ws-home-1',
       title: 'home-chat-1',
       liveRunnerId: '',
       terminalSessionId: '',
       activeProviderId: 'claude',
+      working: false,
+      version: nextVersion(),
+      phase: 'dormant',
       createdAt: '2026-01-01T00:00:00Z',
       order: 0,
     })

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"time"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
@@ -180,8 +179,8 @@ func (t *Turns) ingestResolvedHook(
 		// distinction is invisible to the actual CLI process, which just fires
 		// whatever it is configured with. Recording this copy too would
 		// duplicate whatever the api connection already reported, under a
-		// delivery id hookDeliveries' retry journal has never seen (it is a
-		// genuinely separate delivery, not a retry of one).
+		// delivery id the retry dedup has never seen (it is a genuinely
+		// separate delivery, not a retry of one).
 		//
 		// inflight.FromAPITransport(ctx) is what tells the two deliveries apart.
 		// Without it this guard cannot distinguish "a hooks POST echoing an
@@ -259,14 +258,8 @@ func (t *Turns) ReplayStartupHook(
 			"runner_id", runnerID, "event", hook.CanonicalEvent, "err", err)
 		return
 	}
-	if hook.DeliveryID == "" {
-		return
-	}
-	if err := t.hookDeliveries.Complete(
-		hook.DeliveryDir, hook.DeliveryID, hook.DeliveryHash, time.Now(),
-	); err != nil {
-		slog.Error("agent: persist replayed startup hook delivery (effects already committed)",
-			"runner_id", runnerID, "delivery_id", hook.DeliveryID, "err", err)
+	if hook.DeliveryID != "" {
+		t.hookDeliveries.Complete(hook.DeliveryID, hook.DeliveryHash)
 	}
 }
 

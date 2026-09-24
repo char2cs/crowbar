@@ -7,28 +7,16 @@ import {
 import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
 import type { AgentChat, AgentChatFolder, AgentProvider } from '@/features/agent/api/agent-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
-// Unmocked: the eviction below compares the ticket driving a write against the mark the
-// registry holds for the chat being trampled, so a fake would defeat the thing under test.
-import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
+import {
+  chatSnapshot,
+  setChatTerminalWait,
+  setChatWorking,
+} from '@/__tests__/__fixtures__/agent-chat'
 
-const chat = (id: string, createdAt: string): AgentChat => ({
-  id,
-  workspaceId: 'w1',
-  title: id,
-  liveRunnerId: '',
-  terminalSessionId: '',
-  activeProviderId: 'claude',
-  createdAt,
-  order: 0,
-})
-
-/** A chat with a runner placed on it: liveRunnerId names the process, and carries
- *  the PTY a pane attaches to. */
-const liveChat = (id: string, runnerId: string, pty: string): AgentChat => ({
-  ...chat(id, '2026-01-01T00:00:00Z'),
-  liveRunnerId: runnerId,
-  terminalSessionId: pty,
-})
+/** A fresh snapshot of a chat — every call a newer version, like every read
+ *  the daemon answers. */
+const chat = (id: string, createdAt: string): AgentChat =>
+  chatSnapshot({ id, title: id, activeProviderId: 'claude', createdAt })
 
 describe('agent-chats-slice', () => {
   beforeEach(() => {
@@ -37,8 +25,8 @@ describe('agent-chats-slice', () => {
 
   it('upserts (insert then replace by id) and removes', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
-    s.getState().upsertAgentChat(chat('c1', '2026-01-02T00:00:00Z')) // replace
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().applyAgentChat(chat('c1', '2026-01-02T00:00:00Z')) // replace
     expect(s.getState().agentChats.chats).toHaveLength(1)
     expect(s.getState().agentChats.chats[0].createdAt).toBe('2026-01-02T00:00:00Z')
     s.getState().removeAgentChat('c1')
@@ -197,7 +185,7 @@ describe('agent-chats-slice', () => {
 
   it('setAgentChatSelection writes BOTH halves of an accepted selection', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
 
     s.getState().setAgentChatSelection('c1', 'gpt-5.6-luna', 'max')
 
@@ -212,7 +200,7 @@ describe('agent-chats-slice', () => {
     // endpoint takes. Deleting the field instead would make a cleared selection
     // indistinguishable from one that was never read.
     const s = createWorkspaceStore('w1')
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
     s.getState().setAgentChatSelection('c1', 'gpt-5.6-sol', 'ultra')
 
     s.getState().setAgentChatSelection('c1', '', '')
@@ -227,125 +215,14 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.chats).toHaveLength(0)
   })
 
-  // ── One runner, one chat ──────────────────────────────────────────────────
-  // A runner is placed on exactly ONE chat; the backend enforces it. This projection
-  // is updated ONE CHAT AT A TIME off WS frames, so it has to hold the invariant
-  // itself — otherwise a move leaves a chat claiming a runner that has left it.
-
-  it('upsert evicts the runner from the chat it LEFT (a /clear moves it, and only the new chat is refetched)', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().seedAgentChats([liveChat('c1', 'r1', 'pty1')])
-
-    // The runner /clears into a brand-new chat, carrying the same PTY. The `moved`
-    // frame names c2, so ONLY c2 is refetched — nothing refetches c1.
-    s.getState().upsertAgentChat(liveChat('c2', 'r1', 'pty1'))
-
-    const chats = s.getState().agentChats.chats
-    // Exactly one chat may claim r1, and it is the one the fresh read named.
-    expect(chats.filter((c) => c.liveRunnerId === 'r1').map((c) => c.id)).toEqual(['c2'])
-    // c1 is dormant now — and carries no PTY, so no pane can attach a dead session.
-    const c1 = chats.find((c) => c.id === 'c1')
-    expect(c1).toMatchObject({ liveRunnerId: '', terminalSessionId: '' })
-  })
-
-  it('upsert of a DORMANT chat evicts nobody (an empty runner id is not a claim)', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().seedAgentChats([liveChat('c1', 'r1', 'pty1'), liveChat('c2', 'r2', 'pty2')])
-
-    s.getState().upsertAgentChat(chat('c3', '2026-01-03T00:00:00Z')) // dormant
-
-    const chats = s.getState().agentChats.chats
-    expect(chats.find((c) => c.id === 'c1')?.liveRunnerId).toBe('r1')
-    expect(chats.find((c) => c.id === 'c2')?.liveRunnerId).toBe('r2')
-  })
-
-  // ── THE EVICTION IS A WRITE TO A CHAT NOBODY ASKED ABOUT ──────────────────
-  //
-  // chat-read-order stops a stale read overwriting the row it names. The eviction above
-  // is the one write here that touches a DIFFERENT row, so accepting the read says
-  // nothing about whether it may trample that one — and reaching the same live symptom
-  // ("This agent has exited" over a running CLI) through this door needs no stale write
-  // to the shown chat at all.
-  //
-  // Reachable sequence: runner R spawns onto A, so `started` refetches A at ticket T1 and
-  // that read goes in flight. R then moves to B. At the moment the move is handled NO
-  // chat claims R yet and no pane follows it, so the hook resolves no chat it left and A
-  // is never refetched — A's mark stays at the seed's. B is read at T2 and correctly
-  // claims R. Then T1 lands: legitimately accepted for A, and its eviction blanks R off
-  // B, which is the chat the pane is showing.
-  //
-  // Resolved by comparing answers ABOUT THE RUNNER: B holds it under a newer mark, so the
-  // arriving claim is the stale one. The row still lands; only the claim is dropped, so
-  // no two chats ever hold one runner.
-  it('upsert does not evict a runner from a chat holding it under a NEWER read', () => {
-    const s = createWorkspaceStore('w1')
-    const staleTicket = claimChatRead() // A's read: issued first, lands last
-
-    s.getState().seedAgentChats([
-      chat('a', '2026-01-01T00:00:00Z'),
-      chat('b', '2026-01-02T00:00:00Z'),
-    ])
-
-    // B's read: issued later, lands first, and truthfully claims R.
-    const freshTicket = claimChatRead()
-    expect(acceptChatRead('w1', 'b', freshTicket)).toBe(true)
-    s.getState().upsertAgentChat(liveChat('b', 'R', 'R-pty'), freshTicket)
-
-    // A's read finally lands, saying R was on A — true when it was served, not now.
-    s.getState().upsertAgentChat(liveChat('a', 'R', 'R-pty'), staleTicket)
-
-    const chats = s.getState().agentChats.chats
-    expect(chats.find((c) => c.id === 'b')).toMatchObject({
-      liveRunnerId: 'R',
-      terminalSessionId: 'R-pty',
-    })
-    // Exactly one claimant, and it is the one with the newest answer.
-    expect(chats.filter((c) => c.liveRunnerId === 'R').map((c) => c.id)).toEqual(['b'])
-    expect(chats.find((c) => c.id === 'a')).toMatchObject({
-      liveRunnerId: '',
-      terminalSessionId: '',
-    })
-  })
-
-  it('upsert with no ticket behind it evicts exactly as before', () => {
-    const s = createWorkspaceStore('w1')
-    const fresh = claimChatRead()
-    s.getState().seedAgentChats([
-      chat('a', '2026-01-01T00:00:00Z'),
-      chat('b', '2026-01-02T00:00:00Z'),
-    ])
-    acceptChatRead('w1', 'b', fresh)
-    s.getState().upsertAgentChat(liveChat('b', 'R', 'R-pty'), fresh)
-
-    // No read behind it — a caller with nothing to compare gets the old, unconditional
-    // rule rather than a silent new one.
-    s.getState().upsertAgentChat(liveChat('a', 'R', 'R-pty'))
-
-    const chats = s.getState().agentChats.chats
-    expect(chats.filter((c) => c.liveRunnerId === 'R').map((c) => c.id)).toEqual(['a'])
-  })
-
-  it('upsert leaves OTHER runners alone', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().seedAgentChats([liveChat('c1', 'r1', 'pty1'), liveChat('c2', 'r2', 'pty2')])
-
-    s.getState().upsertAgentChat(liveChat('c1', 'r1', 'pty1')) // no-op re-read of c1
-
-    expect(s.getState().agentChats.chats.find((c) => c.id === 'c2')?.liveRunnerId).toBe('r2')
-  })
-
-  // ── seedAgentChats: the initial-load / WS-reconnect reconcile ──────────────
-  // The reseed is the ONLY thing that can repair state the socket missed while it
-  // was down, so it must be a full reconcile, not a merge of upserts.
-
   it('seedAgentChats grounds an omitted working value to idle — a dropped turn_stopped cannot strand a spinner', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
-    s.getState().setAgentChatWorking('c1', true) // mid-turn when the socket dropped
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    setChatWorking(s, 'c1', true) // mid-turn when the socket dropped
     expect(s.getState().agentChats.working.c1).toBe(true)
 
-    // Older daemon/fixture omits working → idle. Without replacement the row
-    // would keep the pre-outage true forever.
+    // The reconnect read is a NEWER snapshot saying idle: it replaces the
+    // pre-outage true, which would otherwise stand forever.
     s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
 
     expect(s.getState().agentChats.working.c1).toBeUndefined()
@@ -354,15 +231,18 @@ describe('agent-chats-slice', () => {
 
   it('seedAgentChats restores server-folded working on initial load and reconnect', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatWorking('stale', true)
+    setChatWorking(s, 'stale', true)
 
-    s.getState().seedAgentChats([
+    const vanished = s.getState().seedAgentChats([
       { ...chat('busy', '2026-01-01T00:00:00Z'), working: true },
       { ...chat('idle', '2026-01-02T00:00:00Z'), working: false },
     ])
 
-    expect(s.getState().agentChats.working).toEqual({ busy: true })
-    expect(s.getState().agentChats.working.stale).toBeUndefined()
+    expect(s.getState().agentChats.working.busy).toBe(true)
+    expect(s.getState().agentChats.working.idle).toBeUndefined()
+    // A chat the list does not mention is a SUSPECT the caller confirms, never
+    // a row the seed deletes on its own say-so.
+    expect(vanished).toEqual(['stale'])
   })
 
   // ── seedAgentChats: reconciling a stuck `compacting` flag ──────────────────
@@ -397,21 +277,6 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.compacting.c1).toBe(true)
   })
 
-  it('a live `created` reseed (keepWorking) also clears a stuck `compacting` flag for a chat the fresh read shows idle', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatCompacting('c1', true)
-
-    s.getState().seedAgentChats(
-      [
-        { ...chat('c1', '2026-01-01T00:00:00Z'), working: false },
-        chat('new', '2026-01-02T00:00:00Z'),
-      ],
-      { keepWorking: true },
-    )
-
-    expect(s.getState().agentChats.compacting.c1).toBeUndefined()
-  })
-
   it('notifyAgentChatMessages advances every current chat revision independently of reconnect GETs', () => {
     const s = createWorkspaceStore('w1')
     s.getState().seedAgentChats([
@@ -432,58 +297,74 @@ describe('agent-chats-slice', () => {
     expect(s.getState().agentChats.turnRevision).toEqual({ c1: 2, c2: 2 })
   })
 
-  it('seedAgentChats with { keepWorking } PRESERVES surviving chats working state — a live `created` reseed must not blank other chats spinners', () => {
+  it('seedAgentChats REPORTS chats absent from the response instead of dropping them', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatWorking('c1', true) // mid-turn, socket LIVE
-    s.getState().setAgentChatWorking('c2', true) // mid-turn, about to vanish
-    expect(s.getState().agentChats.working).toEqual({ c1: true, c2: true })
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().applyAgentChat(chat('c2', '2026-01-02T00:00:00Z'))
 
-    // A new chat opened while the socket never dropped: the whole list is reseeded to
-    // pick up the newcomer + ordering, but no turn frame was missed, so every surviving
-    // chat's working state is still the truth. c2 is gone from the list; c1 survives.
-    s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')], { keepWorking: true })
+    // A repo-scoped list can omit a project-home chat that still exists, and a
+    // chat created after the list was served is newer than the list: the seed
+    // names the absentees for the stream to confirm (a not-found forgets them).
+    const vanished = s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
 
-    expect(s.getState().agentChats.working.c1).toBe(true) // preserved — spinner keeps spinning
-    expect(s.getState().agentChats.working.c2).toBeUndefined() // the gone chat is forgotten
+    expect(vanished).toEqual(['c2'])
+    expect(
+      s
+        .getState()
+        .agentChats.chats.map((c) => c.id)
+        .sort(),
+    ).toEqual(['c1', 'c2'])
   })
 
-  it('keepWorking seeds the server value for a newly arrived busy chat without overwriting surviving frame state', () => {
+  // THE RULE (invariant A6): a snapshot applies only if its version is newer.
+  // An older read landing last — whichever caller issued it — cannot overwrite
+  // what a frame already delivered.
+  it('an older snapshot never overwrites a newer one, whatever order they land in', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatWorking('c1', false)
+    const older = { ...chat('c1', '2026-01-01T00:00:00Z'), liveRunnerId: '' }
+    const newer = { ...chat('c1', '2026-01-01T00:00:00Z'), liveRunnerId: 'r1' }
 
-    s.getState().seedAgentChats(
-      [
-        { ...chat('c1', '2026-01-01T00:00:00Z'), working: true },
-        { ...chat('new', '2026-01-02T00:00:00Z'), working: true },
-      ],
-      { keepWorking: true },
-    )
+    expect(s.getState().applyAgentChat(newer).kind).toBe('applied')
+    expect(s.getState().applyAgentChat(older).kind).toBe('stale')
+    s.getState().seedAgentChats([older])
 
-    expect(s.getState().agentChats.working).toEqual({ c1: false, new: true })
+    expect(s.getState().agentChats.chats[0].liveRunnerId).toBe('r1')
   })
 
-  it('seedAgentChats DROPS chats absent from the response — a delete missed during an outage leaves no ghost row', () => {
+  it('a delete frame removes the chat and every per-chat entry (A7)', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
-    s.getState().upsertAgentChat(chat('c2', '2026-01-02T00:00:00Z'))
-    s.getState().setAgentChatOrder(['c2', 'c1'])
-    s.getState().setActiveAgentChatId('c2')
-    s.getState().setAgentChatWorking('c2', true)
-    localStorage.setItem(promptQueueStorageKey('w1', 'c2'), 'pending')
+    s.getState().applyAgentChat({ ...chat('c1', '2026-01-01T00:00:00Z'), working: true })
+    s.getState().setAgentChatTelemetry('c1', { observedAt: '', source: 'callback' })
+    s.getState().setAgentChatStreamingPlan('c1', [{ text: 'a', status: 'pending' }])
 
-    // c2 was deleted while the WS was down: the GET no longer returns it.
-    s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
+    const outcome = s.getState().applyAgentChatFrame({ chatId: 'c1', kind: 'deleted' })
 
-    expect(s.getState().agentChats.chats.map((c) => c.id)).toEqual(['c1'])
-    expect(s.getState().agentChats.order).toEqual(['c1']) // stale order entry pruned
-    expect(s.getState().agentChats.activeChatId).toBeNull() // the active chat is gone
-    expect(s.getState().agentChats.working.c2).toBeUndefined()
-    expect(localStorage.getItem(promptQueueStorageKey('w1', 'c2'))).toBeNull()
+    expect(outcome.kind).toBe('deleted')
+    const st = s.getState().agentChats
+    expect(st.chats).toHaveLength(0)
+    expect(st.working.c1).toBeUndefined()
+    expect(st.telemetry.c1).toBeUndefined()
+    expect(st.streamingPlan.c1).toBeUndefined()
+    expect(st.turnRevision.c1).toBeUndefined()
+  })
+
+  it('a chat first seen on a frame joins the top of a saved arrangement', () => {
+    const s = createWorkspaceStore('w1')
+    s.getState().seedAgentChats([chat('a', '2026-01-01T00:00:00Z')])
+    s.getState().setAgentChatOrder(['a'])
+
+    s.getState().applyAgentChatFrame({
+      chatId: 'b',
+      kind: 'created',
+      chat: chat('b', '2026-01-02T00:00:00Z'),
+    })
+
+    expect(s.getState().agentChats.order).toEqual(['b', 'a'])
   })
 
   it('seedAgentChats keeps an active id that still exists, and takes the server copy of each chat', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().upsertAgentChat({ ...chat('c1', '2026-01-01T00:00:00Z'), title: 'stale title' })
+    s.getState().applyAgentChat({ ...chat('c1', '2026-01-01T00:00:00Z'), title: 'stale title' })
     s.getState().setActiveAgentChatId('c1')
 
     s.getState().seedAgentChats([{ ...chat('c1', '2026-01-01T00:00:00Z'), title: 'server title' }])
@@ -494,11 +375,11 @@ describe('agent-chats-slice', () => {
 
   it('toggles the working map and stores providers/active id', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatWorking('c1', true)
+    setChatWorking(s, 'c1', true)
     expect(s.getState().agentChats.working.c1).toBe(true)
     expect(s.getState().agentChats.turnRevision.c1).toBe(1)
-    s.getState().setAgentChatWorking('c1', false)
-    expect(s.getState().agentChats.working.c1).toBe(false)
+    setChatWorking(s, 'c1', false)
+    expect(s.getState().agentChats.working.c1).toBeUndefined()
     expect(s.getState().agentChats.turnRevision.c1).toBe(2)
     s.getState().setAgentProviders([
       {
@@ -508,6 +389,12 @@ describe('agent-chats-slice', () => {
         connected: true,
         enabled: true,
         mcpEnabled: true,
+        modelSelect: false,
+        effortSelect: false,
+        compaction: false,
+        hasTerminal: true,
+        hotswap: false,
+        terminalStartHere: false,
       },
     ])
     expect(s.getState().agentChats.providers).toHaveLength(1)
@@ -525,16 +412,16 @@ describe('agent-chats-slice', () => {
   // that carried no real transition at all.
   it('re-announcing the same working value is a no-op — it must not advance turnRevision', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatWorking('c1', true)
+    setChatWorking(s, 'c1', true)
     expect(s.getState().agentChats.turnRevision.c1).toBe(1)
 
-    s.getState().setAgentChatWorking('c1', true)
+    setChatWorking(s, 'c1', true)
     expect(s.getState().agentChats.working.c1).toBe(true)
     expect(s.getState().agentChats.turnRevision.c1).toBe(1)
 
-    s.getState().setAgentChatWorking('c1', false)
+    setChatWorking(s, 'c1', false)
     expect(s.getState().agentChats.turnRevision.c1).toBe(2)
-    s.getState().setAgentChatWorking('c1', false)
+    setChatWorking(s, 'c1', false)
     expect(s.getState().agentChats.turnRevision.c1).toBe(2)
   })
 
@@ -545,8 +432,8 @@ describe('agent-chats-slice', () => {
 
   it('removeAgentChat clears the working entry, order membership, and active id when it matches', () => {
     const s = createWorkspaceStore('w2')
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
-    s.getState().setAgentChatWorking('c1', true)
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    setChatWorking(s, 'c1', true)
     localStorage.setItem(promptQueueStorageKey('w2', 'c1'), 'pending')
     s.getState().setAgentChatOrder(['c1'])
     s.getState().setActiveAgentChatId('c1')
@@ -563,8 +450,8 @@ describe('agent-chats-slice', () => {
 
   it('removeAgentChat leaves an unrelated active id untouched', () => {
     const s = createWorkspaceStore('w3')
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
-    s.getState().upsertAgentChat(chat('c2', '2026-01-02T00:00:00Z'))
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().applyAgentChat(chat('c2', '2026-01-02T00:00:00Z'))
     s.getState().setActiveAgentChatId('c2')
 
     s.getState().removeAgentChat('c1')
@@ -699,6 +586,12 @@ describe('agent-chats-slice', () => {
       connected: true,
       enabled,
       mcpEnabled: true,
+      modelSelect: false,
+      effortSelect: false,
+      compaction: false,
+      hasTerminal: true,
+      hotswap: false,
+      terminalStartHere: false,
     })
     const s = {
       agentChats: {
@@ -791,7 +684,7 @@ describe('agent-chats-slice: folders', () => {
   it('removeAgentChatFolder deletes the folder and PROMOTES its chat children to its own parent — a folder holds no conversation, so the chat outlives it', () => {
     const s = createWorkspaceStore('w1')
     s.getState().seedAgentChatFolders([folder('f1', '', 0)])
-    s.getState().upsertAgentChat({
+    s.getState().applyAgentChat({
       ...chat('c1', '2026-01-01T00:00:00Z'),
       parentId: 'f1',
       order: 0,
@@ -819,7 +712,7 @@ describe('agent-chats-slice: folders', () => {
       folder('root-folder', '', 0),
       folder('f1', 'root-folder', 0),
     ])
-    s.getState().upsertAgentChat({
+    s.getState().applyAgentChat({
       ...chat('c1', '2026-01-01T00:00:00Z'),
       parentId: 'f1',
       order: 0,
@@ -833,7 +726,7 @@ describe('agent-chats-slice: folders', () => {
 
   it('setAgentChatPlacement moves a known chat, writing parentId and order', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
     s.getState().setAgentChatPlacement('c1', 'f1', 3)
     expect(s.getState().agentChats.chats[0]).toMatchObject({ parentId: 'f1', order: 3 })
   })
@@ -852,17 +745,17 @@ describe('agent-chats-slice: folders', () => {
   it('setAgentChatTerminalWait raises and clears the verdict', () => {
     const s = createWorkspaceStore('w1')
 
-    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+    setChatTerminalWait(s, 'c1', { kind: 'workspace_trust' })
     expect(s.getState().agentChats.terminalWaits.c1).toEqual({ kind: 'workspace_trust' })
 
-    s.getState().setAgentChatTerminalWait('c1', null)
+    setChatTerminalWait(s, 'c1', null)
     expect(s.getState().agentChats.terminalWaits.c1).toBeUndefined()
   })
 
   it('an unidentified prompt is still an entry, with an empty kind', () => {
     const s = createWorkspaceStore('w1')
 
-    s.getState().setAgentChatTerminalWait('c1', { kind: '' })
+    setChatTerminalWait(s, 'c1', { kind: '' })
 
     expect(s.getState().agentChats.terminalWaits.c1?.kind).toBe('')
     expect('c1' in s.getState().agentChats.terminalWaits).toBe(true)
@@ -873,7 +766,7 @@ describe('agent-chats-slice: folders', () => {
   // — in BOTH directions.
   it('seedAgentChats replaces the wait map from the list response', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+    setChatTerminalWait(s, 'c1', { kind: 'workspace_trust' })
 
     s.getState().seedAgentChats([
       { ...chat('c1', '2026-01-01T00:00:00Z') },
@@ -886,53 +779,10 @@ describe('agent-chats-slice: folders', () => {
   // A LIVE `created` reseed missed no frame, so it must leave standing answers
   // alone — clearing them here would take a banner down off a chat that is still
   // blocked, and nothing would put it back until the state next changed.
-  it('a live created reseed keeps the waits it already has', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
-    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
-
-    s.getState().seedAgentChats(
-      [
-        chat('c1', '2026-01-01T00:00:00Z'),
-        { ...chat('c2', '2026-01-02T00:00:00Z'), terminalWait: { kind: '' } },
-      ],
-      { keepWorking: true },
-    )
-
-    expect(s.getState().agentChats.terminalWaits).toEqual({
-      c1: { kind: 'workspace_trust' },
-      c2: { kind: '' },
-    })
-  })
-
-  it('a chat that leaves the list loses its wait', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().seedAgentChats([chat('c1', '2026-01-01T00:00:00Z')])
-    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
-
-    s.getState().seedAgentChats([], { keepWorking: true })
-
-    expect(s.getState().agentChats.terminalWaits).toEqual({})
-  })
-
-  // A single-chat refetch must NOT touch this map — the same rule `working`
-  // follows, for the same reason. The refetch is a snapshot of the moment it was
-  // ISSUED: a spawn's `started` refetch can resolve after the `terminal_wait`
-  // frame that a trust dialog raised a second later, and since the daemon
-  // publishes only on a CHANGE, an overwrite here would never be corrected.
-  it('upsertAgentChat leaves the wait map alone', () => {
-    const s = createWorkspaceStore('w1')
-    s.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
-
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
-
-    expect(s.getState().agentChats.terminalWaits.c1).toEqual({ kind: 'workspace_trust' })
-  })
-
   it('removeAgentChat forgets the wait', () => {
     const s = createWorkspaceStore('w1')
-    s.getState().upsertAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
-    s.getState().setAgentChatTerminalWait('c1', { kind: '' })
+    s.getState().applyAgentChat(chat('c1', '2026-01-01T00:00:00Z'))
+    setChatTerminalWait(s, 'c1', { kind: '' })
 
     s.getState().removeAgentChat('c1')
 

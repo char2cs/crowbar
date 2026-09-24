@@ -8,7 +8,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/tree"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -162,14 +161,8 @@ func (u *Usecase) unpromote(
 }
 
 // currentProviderID answers "the same provider" step 3 respawns as: whichever
-// provider is live on the chat right now, or — for a dormant bubble —
-// engineagents.ResolveProviderID's fallback answer, the same one ResumeChat and
-// ChatProviderID use, rather than a second ad-hoc resolution. This used to take
-// the LAST conversation slice element, which is wrong twice over: a chat
-// switched back to a provider it already ran re-activates that provider's own
-// earlier row (see ActiveProviderID's max-LastActiveAt doc), and a provider
-// that binds via its own connection identity never appears in the slice at all
-// — for that one only the switch marker or the chat's placement history knows.
+// provider is live on the chat right now, else the chat's own durable vendor —
+// the same single owner ResumeChat and ChatProviderID read.
 func (u *Usecase) currentProviderID(
 	ctx context.Context,
 	chatID string,
@@ -181,25 +174,12 @@ func (u *Usecase) currentProviderID(
 	if !errors.Is(err, agentrunner.ErrNotFound) {
 		return "", fmt.Errorf("current provider: live runner: %w", err)
 	}
-	convs, err := u.runners.ConversationsForChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("current provider: conversations: %w", err)
-	}
-	interruptions, err := u.activity.Interruptions(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("current provider: interruptions: %w", err)
-	}
-	placements, err := u.runners.PlacementsForChat(ctx, chatID)
-	if err != nil {
-		return "", fmt.Errorf("current provider: placements: %w", err)
-	}
 	chat, err := u.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("current provider: chat: %w", err)
 	}
-	providerID, found := engineagents.ResolveProviderID(convs, interruptions, placements, chat.ProviderID)
-	if !found {
+	if chat.ProviderID == "" {
 		return "", ErrNothingToPromote
 	}
-	return providerID, nil
+	return chat.ProviderID, nil
 }

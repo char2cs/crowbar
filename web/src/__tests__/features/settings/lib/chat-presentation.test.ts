@@ -49,6 +49,12 @@ const CLAUDE: AgentProvider = {
   connected: true,
   enabled: true,
   mcpEnabled: true,
+  modelSelect: false,
+  effortSelect: false,
+  compaction: false,
+  hasTerminal: true,
+  hotswap: false,
+  terminalStartHere: false,
 }
 
 /** Every surface the preference can name. There is no third value, and no

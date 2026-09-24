@@ -21,13 +21,22 @@ import (
 var errBoom = errors.New("read failed")
 
 type fakeRunners struct {
+	mu   sync.Mutex
 	live []engineagents.Runner
 	err  error
 
 	calls int
 }
 
+func (f *fakeRunners) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
 func (f *fakeRunners) AllLive(context.Context) ([]engineagents.Runner, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
@@ -768,7 +777,7 @@ func TestDetector_Run_StopsWithItsContext(t *testing.T) {
 		t.Fatal("the immediate sweep must run even on a context that is already done")
 	}
 
-	assert.Equal(t, 1, r.runners.calls, "the loop must not tick again after its context is done")
+	assert.Equal(t, 1, r.runners.callCount(), "the loop must not tick again after its context is done")
 }
 
 func TestDetector_Run_DefaultsItsInterval(t *testing.T) {
@@ -1411,4 +1420,29 @@ func TestRegression_ProviderIdleNeverRecordsAnInferredInterrupt(t *testing.T) {
 	require.Equal(t, 1, r.msgs.count(), "the idle report still closes the turn")
 	assert.Zero(t, r.msgs.inferredCount(),
 		"an authoritative idle report is not an interruption Crowbar inferred")
+}
+
+// §6a: an idle daemon does no periodic work. With no live runner the sweep
+// parks after one pass — no ticker, no read transaction every interval — and a
+// runner being recorded live wakes it.
+func TestDetector_Run_ParksWhileNoRunnerIsLiveAndWakesOnDemand(t *testing.T) {
+	r := newRigEvery(t, time.Millisecond)
+	r.runners.mu.Lock()
+	live := r.runners.live
+	r.runners.live = nil
+	r.runners.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	r.detector.Run(ctx, nil)
+	require.Eventually(t, func() bool { return r.runners.callCount() == 1 }, 5*time.Second, time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, 1, r.runners.callCount(), "nothing to sweep: the loop must park, not tick")
+
+	r.runners.mu.Lock()
+	r.runners.live = live
+	r.runners.mu.Unlock()
+	r.detector.Wake()
+	require.Eventually(t, func() bool { return r.runners.callCount() > 3 }, 5*time.Second, time.Millisecond,
+		"a live runner resumes the cadence")
 }

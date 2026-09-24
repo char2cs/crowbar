@@ -85,6 +85,7 @@ import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useSettingsStore } from '@/features/settings/store'
+import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 
 const providers: AgentProvider[] = [
   {
@@ -96,6 +97,10 @@ const providers: AgentProvider[] = [
     mcpEnabled: true,
     hasTerminal: true,
     hotswap: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -107,6 +112,9 @@ function dormantChat(o: { id: string }): AgentChat {
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: 'codex',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -120,6 +128,9 @@ function liveChat(o: { id: string; runnerId: string; pty: string }): AgentChat {
     liveRunnerId: o.runnerId,
     terminalSessionId: o.pty,
     activeProviderId: 'codex',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -132,7 +143,7 @@ function detail(chat: AgentChat): AgentChatDetail {
 function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
   store.getState().setAgentProviders(providers)
-  store.getState().seedAgentChats(chats)
+  seedChats(store, chats)
   return store
 }
 

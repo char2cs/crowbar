@@ -17,7 +17,7 @@ type StartTurn struct {
 
 func (c StartTurn) AggregateID() string  { return c.ChatID }
 func (c StartTurn) EventName() string    { return "agentchat.turn_started." + c.ChatID }
-func (c StartTurn) ShouldSnapshot() bool { return false }
+func (c StartTurn) ShouldSnapshot() bool { return true }
 
 func (c StartTurn) Validate(current *domain.Chat) error {
 	if current == nil {

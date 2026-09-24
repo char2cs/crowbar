@@ -11,18 +11,7 @@ import {
   subscribeChatWorking,
   readChatWorking,
 } from '@/features/workspace/stores/workspace-store-registry'
-import type { AgentChat } from '@/features/agent/api/agent-api'
-
-const chat = (id: string, workspaceId: string): AgentChat => ({
-  id,
-  workspaceId,
-  title: id,
-  liveRunnerId: '',
-  terminalSessionId: '',
-  activeProviderId: 'claude',
-  createdAt: '2026-01-01T00:00:00Z',
-  order: 0,
-})
+import { setChatWorking, writeChat } from '@/__tests__/__fixtures__/agent-chat'
 
 // Mock the IDB-backed persistence so a real destroyWorkspaceStore call (which
 // dynamically imports window-pane-store.ts for its buffer-scoped teardown)
@@ -161,14 +150,14 @@ describe('workspace-store-registry', () => {
       const fired = vi.fn()
       const unsubscribe = subscribeWorkspaceStores(fired)
 
-      getOrCreateWorkspaceStore('ws-fresh').getState().upsertAgentChat(chat('chat-1', 'ws-fresh'))
+      writeChat(getOrCreateWorkspaceStore('ws-fresh'), { id: 'chat-1', workspaceId: 'ws-fresh' })
 
       expect(fired).toHaveBeenCalled()
       unsubscribe()
     })
 
     it('fires watchers when a store is destroyed — that really does change the answer', () => {
-      getOrCreateWorkspaceStore('ws-doomed').getState().upsertAgentChat(chat('chat-1', 'ws-doomed'))
+      writeChat(getOrCreateWorkspaceStore('ws-doomed'), { id: 'chat-1', workspaceId: 'ws-doomed' })
       const fired = vi.fn()
       const unsubscribe = subscribeWorkspaceStores(fired)
 
@@ -185,7 +174,7 @@ describe('workspace-store-registry', () => {
       getOrCreateWorkspaceStore('ws-late')
       expect(fired).not.toHaveBeenCalled()
 
-      getOrCreateWorkspaceStore('ws-late').getState().setAgentChatWorking('chat-late', true)
+      setChatWorking(getOrCreateWorkspaceStore('ws-late'), 'chat-late', true)
       expect(fired).toHaveBeenCalled()
       expect(readChatWorking('ws-late', 'chat-late')).toBe(true)
 

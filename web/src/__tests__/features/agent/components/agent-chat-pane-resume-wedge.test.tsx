@@ -77,6 +77,7 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
+import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { useSettingsStore } from '@/features/settings/store'
 
 const providers: AgentProvider[] = [
@@ -89,6 +90,10 @@ const providers: AgentProvider[] = [
     mcpEnabled: true,
     hasTerminal: true,
     hotswap: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -100,6 +105,9 @@ function liveChat(o: { id: string; runnerId: string; pty: string }): AgentChat {
     liveRunnerId: o.runnerId,
     terminalSessionId: o.pty,
     activeProviderId: 'codex',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -113,6 +121,9 @@ function dormantChat(o: { id: string }): AgentChat {
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: 'codex',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -143,7 +154,7 @@ function neverAnswers() {
 function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
   store.getState().setAgentProviders(providers)
-  store.getState().seedAgentChats(chats)
+  seedChats(store, chats)
   return store
 }
 
@@ -287,7 +298,7 @@ describe('AgentChatPane: a resume the daemon never answers', () => {
         // proof a revive was still coming and left it alone, for ever.
         for (const _ of [1, 2, 3]) {
           await act(async () => {
-            store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+            seedChats(store, [dormantChat({ id: 'c1' })])
           })
         }
         expect(screen.getByText(/resuming this chat/i)).toBeTruthy()

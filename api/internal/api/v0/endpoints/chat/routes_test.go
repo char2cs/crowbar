@@ -164,8 +164,7 @@ func (stubUsecase) IngestHook(
 }
 
 func (stubUsecase) IngestHookDelivery(
-	_ context.Context,
-	_, _, _, _, _ string,
+	_ context.Context, _, _, _, _ string,
 	_ []byte,
 ) error {
 	return nil
@@ -201,6 +200,13 @@ func (stubUsecase) GetChat(
 	id string,
 ) (domain.Chat, error) {
 	return domain.Chat{ID: id}, nil
+}
+
+func (stubUsecase) ChatSnapshot(
+	_ context.Context,
+	id string,
+) (agentusecase.ChatSnapshot, error) {
+	return agentusecase.ChatSnapshot{Chat: domain.Chat{ID: id}, Phase: agentusecase.ChatPhaseDormant}, nil
 }
 
 func (stubUsecase) ReadMessages(
@@ -244,13 +250,6 @@ func (stubUsecase) ConversationsForChat(
 	_ context.Context,
 	_ string,
 ) ([]engineagents.ChatConversation, error) {
-	return nil, nil
-}
-
-func (stubUsecase) PlacementsForChat(
-	_ context.Context,
-	_ string,
-) ([]engineagents.ChatPlacement, error) {
 	return nil, nil
 }
 

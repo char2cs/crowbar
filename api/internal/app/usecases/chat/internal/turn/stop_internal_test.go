@@ -59,16 +59,6 @@ func newStopTestTurns(t *testing.T) (*Turns, *fakeStopActivity, *inflight.Turns)
 	return turns, activity, inflightTurns
 }
 
-func TestRecordStop_NoOpWhenTheChatIsIdle(t *testing.T) {
-	turns, activity, _ := newStopTestTurns(t)
-
-	err := turns.RecordStop(context.Background(), "chat-1", "runner-1")
-
-	require.NoError(t, err)
-	assert.Empty(t, activity.interrupts, "an idle chat has no turn to interrupt — StopChat closing a chat tab must stay silent")
-	assert.Empty(t, activity.resolves)
-}
-
 func TestRecordStop_RecordsAndResolvesAStoppedInterruption_WhenATurnIsInFlight(t *testing.T) {
 	turns, activity, inflightTurns := newStopTestTurns(t)
 	inflightTurns.Begin("runner-1", "chat-1")

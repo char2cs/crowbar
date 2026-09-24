@@ -44,6 +44,12 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
   {
     id: 'codex',
@@ -52,6 +58,12 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
   {
     id: 'gemini',
@@ -60,6 +72,12 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
 ]
 

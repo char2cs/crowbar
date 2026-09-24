@@ -4547,12 +4547,12 @@ func TestRegression_ReasoningStreamsLiveAndIsNeverRecorded(t *testing.T) {
 	chatID, runnerID := f.spawn(t, "codex")
 
 	deltas := &deltaCallbackRecorder{}
-	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record, nil, nil)
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{MessageDelta: deltas.record})
 
 	think := func(index int, text string) {
 		t.Helper()
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "ws1", uuid.NewString(), runnerID, "codex", "reasoning_delta",
+			f.ctx, uuid.NewString(), runnerID, "codex", "reasoning_delta",
 			mustJSON(t, map[string]any{
 				"threadId": "sess-1", "turnId": "turn-1", "itemId": "rs_1",
 				"summaryIndex": index, "delta": text,
@@ -4603,12 +4603,12 @@ func TestStartTerminalWaitSweep_PushesEveryDeltaAsTheMessageSoFar(t *testing.T) 
 	chatID, runnerID := f.spawn(t, "claude")
 
 	deltas := &deltaCallbackRecorder{}
-	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, deltas.record, nil, nil)
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{MessageDelta: deltas.record})
 
 	post := func(index int, final bool, text string) {
 		t.Helper()
 		require.NoError(t, f.usecase.IngestHookDelivery(
-			f.ctx, "ws1", uuid.NewString(), runnerID, "claude", "message_delta",
+			f.ctx, uuid.NewString(), runnerID, "claude", "message_delta",
 			deltaHook(t, "msg-one", index, final, text),
 		))
 	}
@@ -4928,7 +4928,7 @@ func TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt(t *testing.T) 
 	_, err = f.runners.LastConversation(f.ctx, chatID)
 	require.ErrorIs(t, err, agentrunner.ErrNotFound, "and it announced no conversation")
 
-	placements, err := f.usecase.PlacementsForChat(f.ctx, chatID)
+	placements, err := f.runners.PlacementsForChat(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, placements, 1)
 	assert.Equal(t, "claude", placements[0].ProviderID)

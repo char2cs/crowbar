@@ -1,15 +1,15 @@
 // Package agentjournal is the on-disk bookkeeping an agent chat keeps beside
-// its own files rather than in a database. Two journals live here: the prompt
-// request ledger that makes a React prompt delivery at-most-once across a
-// daemon crash, and the hook delivery ledger that makes Crowbar's own hook
-// relay exactly-once at the ingress boundary. Both are plain directories of one
-// JSON record per id, committed by a single atomic write sequence (record.go):
-// what a caller reads back after a crash is always a record that was durably
-// written whole.
+// its own files rather than in a database: the prompt request ledger that makes
+// a React prompt delivery at-most-once across a daemon crash. It is a plain
+// directory of one JSON record per id, committed by a single atomic write
+// sequence (record.go): what a caller reads back after a crash is always a
+// record that was durably written whole.
 //
-// They are on disk, not in the read model, because both must answer a question
+// It is on disk, not in the read model, because it must answer a question
 // asked BEFORE any aggregate is touched — "did this exact request already
 // happen?" — and must survive the crash that made the question worth asking.
+// (Hook delivery dedup is deliberately NOT here: the relay's retry window is
+// seconds, so it lives in memory — see chat/internal/turn/internal/dedup.)
 //
 // Every method takes its directory as a parameter. A chat's journal location is
 // derived from the workspace reader (AgentChatsDir), which does not exist until

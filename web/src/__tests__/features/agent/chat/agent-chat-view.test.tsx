@@ -119,6 +119,12 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
   {
     id: 'claude',
@@ -127,6 +133,12 @@ const providers: AgentProvider[] = [
     connected: true,
     enabled: true,
     mcpEnabled: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    hasTerminal: true,
+    hotswap: false,
+    terminalStartHere: false,
   },
 ]
 

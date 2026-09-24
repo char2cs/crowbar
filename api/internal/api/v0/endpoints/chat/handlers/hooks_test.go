@@ -280,8 +280,7 @@ func (f *fakeAgentUsecase) IngestHook(
 // the hook carries a delivery id, so this double records into the SAME log as
 // IngestHook: a test asserts what was forwarded, never which of the two ran.
 func (f *fakeAgentUsecase) IngestHookDelivery(
-	_ context.Context,
-	_, _ string,
+	_ context.Context, _ string,
 	segID, provider, event string,
 	raw []byte,
 ) error {
@@ -318,6 +317,17 @@ func (f *fakeAgentUsecase) GetChat(
 		return domain.Chat{}, f.getChatErr
 	}
 	return f.getChat, nil
+}
+
+func (f *fakeAgentUsecase) ChatSnapshot(
+	ctx context.Context,
+	chatID string,
+) (agentusecase.ChatSnapshot, error) {
+	chat, err := f.GetChat(ctx, chatID)
+	if err != nil {
+		return agentusecase.ChatSnapshot{}, err
+	}
+	return agentusecase.ChatSnapshot{Chat: chat, Version: 1, Phase: agentusecase.ChatPhaseDormant}, nil
 }
 
 func (f *fakeAgentUsecase) ReadMessages(
@@ -371,13 +381,6 @@ func (f *fakeAgentUsecase) ConversationsForChat(
 	_ context.Context,
 	_ string,
 ) ([]engineagents.ChatConversation, error) {
-	return nil, nil
-}
-
-func (f *fakeAgentUsecase) PlacementsForChat(
-	_ context.Context,
-	_ string,
-) ([]engineagents.ChatPlacement, error) {
 	return nil, nil
 }
 

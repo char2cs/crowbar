@@ -73,7 +73,7 @@ func TestHooks_DeliveryIDIsDeduplicated(t *testing.T) {
 
 	for range 3 {
 		handled, err := p.EnqueueDelivery(
-			"runner-1", "claude", "turn_start", []byte(`{}`), "delivery-1", "/tmp/d", "hash-1",
+			"runner-1", "claude", "turn_start", []byte(`{}`), "delivery-1", "hash-1",
 		)
 		if !handled || err != nil {
 			t.Fatalf("EnqueueDelivery = (handled=%v, err=%v), want (true, nil)", handled, err)
@@ -84,7 +84,7 @@ func TestHooks_DeliveryIDIsDeduplicated(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("replayed %d hooks for one delivery id, want 1", len(got))
 	}
-	if got[0].DeliveryID != "delivery-1" || got[0].DeliveryDir != "/tmp/d" || got[0].DeliveryHash != "hash-1" {
+	if got[0].DeliveryID != "delivery-1" || got[0].DeliveryHash != "hash-1" {
 		t.Fatalf("delivery fields lost in the buffer: %+v", got[0])
 	}
 }
@@ -99,7 +99,7 @@ func TestHooks_DistinctDeliveriesAreBothBuffered(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 	for _, id := range []string{"d-1", "d-2"} {
-		if _, err := p.EnqueueDelivery("runner-1", "claude", "turn_start", []byte(`{}`), id, "", ""); err != nil {
+		if _, err := p.EnqueueDelivery("runner-1", "claude", "turn_start", []byte(`{}`), id, ""); err != nil {
 			t.Fatalf("EnqueueDelivery(%s): %v", id, err)
 		}
 	}

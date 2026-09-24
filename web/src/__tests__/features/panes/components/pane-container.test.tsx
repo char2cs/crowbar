@@ -195,6 +195,7 @@ vi.mock('@/features/panes/components/split-drop-overlay', () => ({
 }))
 
 import { PaneContainer } from '@/features/panes/components/pane-container'
+import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 import { EditorHostRegistry } from '@/features/panes/components/editor-host-registry'
 
 function PaneHost({ position, showing }: { position?: PanePosition; showing?: boolean }) {
@@ -1572,15 +1573,16 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: 'claude',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant' as const,
     createdAt: '2026-01-01T00:00:00Z',
     order: 0,
     parentId: '',
   })
 
   it('hands the chat surface the workspace the CHAT belongs to', async () => {
-    getOrCreateWorkspaceStore('w-owner')
-      .getState()
-      .seedAgentChats([chatRecord('chat-1', 'w-owner')])
+    seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
@@ -1606,9 +1608,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // AgentChatPane) reads off the exact same resolved `chatStore` — this is
   // the same cross-workspace-title bug class, now checked at its new home.
   it("shows the chat's own title in its header even while a DIFFERENT workspace is ambient", async () => {
-    getOrCreateWorkspaceStore('w-owner')
-      .getState()
-      .seedAgentChats([chatRecord('chat-1', 'w-owner')])
+    seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
@@ -1625,9 +1625,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // a wrong answer here doesn't just render wrong and self-correct next
   // frame: it permanently tags a buffer with the wrong workspace.
   it("opens branch review for the CHAT's own workspace, not whichever one is ambient", async () => {
-    getOrCreateWorkspaceStore('w-owner')
-      .getState()
-      .seedAgentChats([chatRecord('chat-1', 'w-owner')])
+    seedChats(getOrCreateWorkspaceStore('w-owner'), [chatRecord('chat-1', 'w-owner')])
     windowPaneStore
       .getState()
       .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })

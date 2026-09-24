@@ -13,6 +13,7 @@ import (
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -24,7 +25,11 @@ func (rs *Runners) SpawnChat(
 	providerID string,
 ) (chatID, runnerID string, err error) {
 	chatID = uuid.NewString()
-	defer rs.spawns.Lock(chatID)()
+	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", "", err
+	}
+	defer release()
 
 	runnerID, err = rs.spawnRunner(ctx, chatID, workspaceID, providerID, "", nil, nil, "", 0, false, "", true, "")
 	if err != nil {
@@ -38,12 +43,17 @@ func (rs *Runners) StartRunner(
 	chatID string,
 	providerID string,
 ) (string, error) {
-	defer rs.spawns.Lock(chatID)()
+	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: start runner: chat: %w", err)
 	}
+	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStarting)()
 	return rs.spawnRunner(ctx, chatID, chat.WorkspaceID, providerID, "", nil, nil, "", 0, false, "", false, "")
 }
 

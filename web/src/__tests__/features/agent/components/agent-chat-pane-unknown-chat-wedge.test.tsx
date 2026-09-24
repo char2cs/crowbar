@@ -79,6 +79,7 @@ import { savePromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useSettingsStore } from '@/features/settings/store'
+import { nextVersion, seedChats } from '@/__tests__/__fixtures__/agent-chat'
 
 const providers: AgentProvider[] = [
   {
@@ -90,6 +91,10 @@ const providers: AgentProvider[] = [
     mcpEnabled: true,
     hasTerminal: true,
     hotswap: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -101,6 +106,9 @@ function liveChat(o: { id: string; runnerId: string; pty: string }): AgentChat {
     liveRunnerId: o.runnerId,
     terminalSessionId: o.pty,
     activeProviderId: 'codex',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -116,7 +124,7 @@ function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
   // An AUTHORITATIVE list — the initial load / reconnect reseed. This is the
   // whole point of the fixture: the list HAS arrived, and the pane's chat is
   // simply not in it.
-  store.getState().seedAgentChats(chats)
+  seedChats(store, chats)
   return store
 }
 

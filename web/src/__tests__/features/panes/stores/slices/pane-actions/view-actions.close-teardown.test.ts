@@ -22,6 +22,7 @@ import {
   resetWindowPaneStoreForTests,
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
+import { nextVersion, seedChats, setChatWorking } from '@/__tests__/__fixtures__/agent-chat'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 
 const stop = vi.mocked(stopChat)
@@ -34,6 +35,9 @@ function chat(id: string, wsId: string): AgentChat {
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: 'claude',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '2026-01-01T00:00:00Z',
     order: 0,
     parentId: '',
@@ -43,9 +47,9 @@ function chat(id: string, wsId: string): AgentChat {
 /** A real, registered store whose `agentChats.chats` names the chats. */
 function seedWorkspace(wsId: string, chats: AgentChat[], working: Record<string, boolean> = {}) {
   const store = getOrCreateWorkspaceStore(wsId)
-  store.getState().seedAgentChats(chats)
+  seedChats(store, chats)
   for (const [chatId, isWorking] of Object.entries(working)) {
-    store.getState().setAgentChatWorking(chatId, isWorking)
+    setChatWorking(store, chatId, isWorking)
   }
   return store
 }

@@ -21,6 +21,28 @@ import (
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
 
+// ChatFeed is where the chat usecase publishes the LIVE facts about a
+// conversation that no aggregate projection carries: each is derived from a
+// hook, a screen or an in-memory registry, and each is pushed on the chat
+// feed as it moves. Bound once, at sweep start, by the layer that owns the
+// hub. A nil field is a feed nobody listens to, and is skipped.
+//
+// One struct rather than one setter per fact, so a new live fact is one field
+// here and one line where the hub is wired — not a new parameter threaded
+// through three signatures.
+type ChatFeed struct {
+	// PromptSettled is a delivered prompt retired without producing a turn.
+	PromptSettled func(chatID, workspaceID, requestID string, consumed bool)
+	// MessageDelta is an assistant message (or thought, or tool output) growing.
+	MessageDelta func(chatID, workspaceID, messageID, text, kind string)
+	// Compaction is the live compact_pre/compact_post edge.
+	Compaction func(chatID, workspaceID string, active bool)
+	// Plan is the agent's running to-do list, restated wholesale.
+	Plan func(chatID, workspaceID string, steps []engineagents.PlanStep)
+	// Telemetry is the provider's newest usage report for the chat.
+	Telemetry func(chatID, workspaceID string, report engineagents.Telemetry)
+}
+
 // TerminalCommander is the PTY seam every vendor CLI is started, ended and
 // inspected through.
 type TerminalCommander interface {
@@ -73,8 +95,8 @@ type WorkspaceReader interface {
 	) (crowbarHome, projectID, repoID, worktree string, err error)
 	// AgentChatsDir returns the directory holding the workspace's own agent-work
 	// state — per-spawn tmp dirs (the rendered hook config; nothing else — no
-	// descriptor copies any credential into them, and none may) and the
-	// per-runner hook-delivery journal. It is ALWAYS strictly under crowbar
+	// descriptor copies any credential into them, and none may). It is ALWAYS
+	// strictly under crowbar
 	// home, even for a home-kind / adopted-checkout workspace whose worktree (Cwd)
 	// is the user's REAL directory outside home: for a managed worktree it is the
 	// sibling of the worktree, and for an adopted checkout it reroots under home

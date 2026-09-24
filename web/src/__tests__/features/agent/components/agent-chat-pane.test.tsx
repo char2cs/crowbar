@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from 'zustand'
 import type { AgentChat, AgentChatDetail, AgentProvider } from '@/features/agent/api/agent-api'
 import { ApiError } from '@/lib/api'
@@ -186,15 +186,18 @@ vi.mock('@/features/agent/components/provider-switch-dropdown', () => ({
 }))
 
 import { AgentChatPane } from '@/features/agent/components/agent-chat-pane'
-// Unmocked: this registry is the SEAM the pane shares with
-// use-workspace-agent-chats-stream, and the two tests below stand in for that hook by
-// making the exact calls it makes. A fake would test the fake.
-import { acceptChatRead, claimChatRead } from '@/features/agent/lib/chat-read-order'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import { setActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useSettingsStore } from '@/features/settings/store'
+import {
+  nextVersion,
+  seedChats,
+  setChatTerminalWait,
+  setChatWorking,
+  writeChat,
+} from '@/__tests__/__fixtures__/agent-chat'
 
 /**
  * Land this pane on the TERMINAL surface.
@@ -224,6 +227,10 @@ const providers: AgentProvider[] = [
     mcpEnabled: true,
     hasTerminal: true,
     hotswap: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
   {
     id: 'codex',
@@ -234,6 +241,10 @@ const providers: AgentProvider[] = [
     mcpEnabled: true,
     hasTerminal: true,
     hotswap: true,
+    modelSelect: false,
+    effortSelect: false,
+    compaction: false,
+    terminalStartHere: false,
   },
 ]
 
@@ -261,6 +272,9 @@ function liveChat(o: {
     terminalSessionId: o.pty,
     surface: o.surface,
     activeProviderId: o.provider ?? 'codex',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -276,6 +290,9 @@ function dormantChat(o: { id: string; title?: string; provider?: string }): Agen
     liveRunnerId: '',
     terminalSessionId: '',
     activeProviderId: o.provider ?? 'codex',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -292,6 +309,9 @@ function liveChatNoTerminal(o: { id: string; runnerId: string; title?: string })
     liveRunnerId: o.runnerId,
     terminalSessionId: '',
     activeProviderId: 'codex',
+    working: false,
+    version: nextVersion(),
+    phase: 'dormant',
     createdAt: '',
     order: 0,
   }
@@ -338,7 +358,7 @@ const paneWorkspace = new Map<string, string>()
 function seedWorkspace(chats: AgentChat[], wsId = 'w1') {
   const store = createWorkspaceStore(wsId)
   store.getState().setAgentProviders(providers)
-  store.getState().seedAgentChats(chats)
+  seedChats(store, chats)
   return store
 }
 
@@ -484,12 +504,10 @@ describe('AgentChatPane', () => {
 
     // The runner /clears into a brand-new chat — carrying the SAME pty.
     await act(async () => {
-      store
-        .getState()
-        .seedAgentChats([
-          dormantChat({ id: 'c1' }),
-          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1', title: 'Fresh' }),
-        ])
+      seedChats(store, [
+        dormantChat({ id: 'c1' }),
+        liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1', title: 'Fresh' }),
+      ])
     })
 
     // The surface follows the runner at once; the PANE record is retargeted by
@@ -521,12 +539,10 @@ describe('AgentChatPane', () => {
     await renderPane(store, paneId)
 
     await act(async () => {
-      store
-        .getState()
-        .seedAgentChats([
-          dormantChat({ id: 'c1' }),
-          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
-        ])
+      seedChats(store, [
+        dormantChat({ id: 'c1' }),
+        liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
+      ])
     })
 
     expect(screen.queryByText(/this agent has exited/i)).not.toBeInTheDocument()
@@ -693,13 +709,15 @@ describe('AgentChatPane', () => {
     // daemon can answer either read from before the placement it has already announced,
     // so the one that lands last is not the one that knows most.
     //
-    // Both therefore go through chat-read-order, and these two cases are the PANE's side
-    // of that contract: without them, neutralising the registry leaves this whole suite
-    // green while the second half of the fix is silently gone.
+    // Every chat read is a versioned snapshot applied under the one rule (newer version
+    // wins), and these two cases are the PANE's side of that contract: an older answer
+    // landing last is dropped, whichever of the two racers it came from.
 
     it('adopt() discards its own overtaken answer and settles on the STORE row', async () => {
-      // adopt()'s read, held: it was served before the runner that actually came up.
+      // adopt()'s read, held: it was served before the runner that actually came up,
+      // so its snapshot is OLDER than the one the WS hook lands below.
       const staleRead = deferred<AgentChatDetail>()
+      const staleAnswer = detail(liveChat({ id: 'c1', runnerId: 'r-stale', pty: 'pty-stale' }))
       getChatFn.mockReturnValue(staleRead.promise)
 
       const store = seedWorkspace([dormantChat({ id: 'c1' })])
@@ -712,16 +730,12 @@ describe('AgentChatPane', () => {
       // The WS hook's read of the same chat: ISSUED LATER, and it lands FIRST with the
       // runner the daemon really placed.
       await act(async () => {
-        const ticket = claimChatRead()
-        expect(acceptChatRead('w1', 'c1', ticket)).toBe(true)
-        store
-          .getState()
-          .upsertAgentChat(liveChat({ id: 'c1', runnerId: 'r-fresh', pty: 'pty-fresh' }), ticket)
+        writeChat(store, liveChat({ id: 'c1', runnerId: 'r-fresh', pty: 'pty-fresh' }))
       })
 
       // …and only now does adopt()'s own, older answer arrive.
       await act(async () => {
-        staleRead.resolve(detail(liveChat({ id: 'c1', runnerId: 'r-stale', pty: 'pty-stale' })))
+        staleRead.resolve(staleAnswer)
         await staleRead.promise
       })
 
@@ -759,8 +773,13 @@ describe('AgentChatPane', () => {
           ],
         }),
       )
-      // The recheck's own read, held. It was served while the turn was still running.
+      // The recheck's own read, held. It was served while the turn was still running,
+      // so its snapshot is OLDER than the one landed below.
       const staleRead = deferred<AgentChatDetail>()
+      const staleAnswer = detail({
+        ...liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' }),
+        working: true,
+      })
       getChatFn.mockReturnValue(staleRead.promise)
 
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
@@ -772,17 +791,11 @@ describe('AgentChatPane', () => {
       // store's `working` is deliberately NOT touched — a turn frame would release the
       // barrier by itself and prove nothing about this read).
       await act(async () => {
-        const ticket = claimChatRead()
-        expect(acceptChatRead('w1', 'c1', ticket)).toBe(true)
-        store
-          .getState()
-          .upsertAgentChat(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' }), ticket)
+        writeChat(store, liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' }))
       })
 
       await act(async () => {
-        staleRead.resolve(
-          detail({ ...liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' }), working: true }),
-        )
+        staleRead.resolve(staleAnswer)
         await staleRead.promise
       })
 
@@ -827,7 +840,7 @@ describe('AgentChatPane', () => {
       // not become a retry loop.
       for (const _ of [1, 2, 3]) {
         await act(async () => {
-          store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+          seedChats(store, [dormantChat({ id: 'c1' })])
         })
       }
 
@@ -854,7 +867,7 @@ describe('AgentChatPane', () => {
 
       // It exits again — the daemon reaps the runner and the chat goes dormant.
       await act(async () => {
-        store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+        seedChats(store, [dormantChat({ id: 'c1' })])
       })
 
       expect(resumeChatFn).toHaveBeenCalledTimes(1) // NOT revived again
@@ -874,7 +887,7 @@ describe('AgentChatPane', () => {
 
       // ...and the moment the list lands with the chat LIVE, it attaches — no revive.
       await act(async () => {
-        store.getState().seedAgentChats([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
+        seedChats(store, [liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
       })
       expect(resumeChatFn).not.toHaveBeenCalled()
       expect(await screen.findByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
@@ -887,12 +900,10 @@ describe('AgentChatPane', () => {
       // c1 is now dormant — but its runner is not dead, it walked into c2, and the pane
       // walks with it. A dormant chat NOBODY IS LOOKING AT must not be revived.
       await act(async () => {
-        store
-          .getState()
-          .seedAgentChats([
-            dormantChat({ id: 'c1' }),
-            liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
-          ])
+        seedChats(store, [
+          dormantChat({ id: 'c1' }),
+          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
+        ])
       })
 
       expect(resumeChatFn).not.toHaveBeenCalled()
@@ -1377,9 +1388,7 @@ describe('AgentChatPane', () => {
     expect(before).toHaveAttribute('data-session-id', 'pty1')
 
     await act(async () => {
-      store
-        .getState()
-        .seedAgentChats([liveChat({ id: 'c1', runnerId: 'r2', pty: 'pty2', provider: 'claude' })])
+      seedChats(store, [liveChat({ id: 'c1', runnerId: 'r2', pty: 'pty2', provider: 'claude' })])
     })
 
     const after = await screen.findByTestId('xterm')
@@ -1396,7 +1405,7 @@ describe('AgentChatPane', () => {
     await renderPane(store, paneId)
 
     await act(async () => {
-      store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+      seedChats(store, [dormantChat({ id: 'c1' })])
     })
 
     // The buffer must never go on pointing at a runner that no longer exists — it lets r1
@@ -1512,7 +1521,7 @@ describe('AgentChatPane', () => {
 
       // The daemon reaps the runner and pushes the chat: NOW it is authoritatively dormant.
       await act(async () => {
-        store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+        seedChats(store, [dormantChat({ id: 'c1' })])
       })
 
       expect(resumeChatFn).toHaveBeenCalledTimes(1)
@@ -1573,12 +1582,10 @@ describe('AgentChatPane', () => {
 
       // The runner /clears into c2 — the tab follows it.
       await act(async () => {
-        store
-          .getState()
-          .seedAgentChats([
-            dormantChat({ id: 'c1' }),
-            liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
-          ])
+        seedChats(store, [
+          dormantChat({ id: 'c1' }),
+          liveChat({ id: 'c2', runnerId: 'r1', pty: 'pty1' }),
+        ])
       })
 
       await act(async () => {
@@ -1617,7 +1624,7 @@ describe('AgentChatPane', () => {
 
       // Mid-switch, the `displaced` frame refetches the chat into the gap: DORMANT.
       await act(async () => {
-        store.getState().seedAgentChats([dormantChat({ id: 'c1' })])
+        seedChats(store, [dormantChat({ id: 'c1' })])
       })
 
       expect(resumeChatFn).not.toHaveBeenCalled()
@@ -1930,7 +1937,7 @@ describe('AgentChatPane', () => {
 
     it('pauses a busy-chat FIFO in Terminal and resumes only after Return to Chat', async () => {
       const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      store.getState().setAgentChatWorking('c1', true)
+      setChatWorking(store, 'c1', true)
       await renderPane(store, openChatPane(store, 'c1', 'r1'))
 
       const input = screen.getByRole('textbox', { name: /message the agent/i })
@@ -1940,7 +1947,7 @@ describe('AgentChatPane', () => {
 
       fireEvent.click(screen.getByRole('tab', { name: /^terminal$/i }))
       expect(screen.getByText(/1 prompt pending in Chat/i)).toBeInTheDocument()
-      await act(async () => store.getState().setAgentChatWorking('c1', false))
+      await act(async () => setChatWorking(store, 'c1', false))
       expect(submitPromptFn).not.toHaveBeenCalled()
 
       fireEvent.click(screen.getByRole('button', { name: /return to chat/i }))
@@ -2000,104 +2007,6 @@ describe('AgentChatPane', () => {
     })
   })
 
-  // THE REGRESSION, reported live and repeatedly: `working` is otherwise
-  // written ONLY by the turn_started/turn_stopped WS frame. A single dropped
-  // frame — a socket hiccup, a daemon restart out from under an open turn —
-  // leaves the spinner wrong forever in either direction, since nothing else
-  // ever asks the server again. This guards the periodic self-heal: this
-  // pane must re-check and correct `working` on its own, without a reload.
-  describe('working self-heal', () => {
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
-    it('corrects a working flag stuck true after the server has already gone idle', async () => {
-      vi.useFakeTimers()
-      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      store.getState().setAgentChatWorking('c1', true)
-      await renderPane(store, openChatPane(store, 'c1', 'r1'))
-      expect(store.getState().agentChats.working.c1).toBe(true)
-
-      // The server has since settled — the frame announcing it never arrived.
-      getChatFn.mockResolvedValue({
-        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
-        working: false,
-      })
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5_000)
-      })
-
-      expect(store.getState().agentChats.working.c1).toBeFalsy()
-    })
-
-    it('corrects a working flag stuck false while the server is genuinely still busy', async () => {
-      vi.useFakeTimers()
-      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openChatPane(store, 'c1', 'r1'))
-      expect(store.getState().agentChats.working.c1).toBeFalsy()
-
-      // A subagent is genuinely still running server-side (AsyncWork > 0), but
-      // the frame that would have said so never reached this client.
-      getChatFn.mockResolvedValue({
-        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
-        working: true,
-      })
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5_000)
-      })
-
-      expect(store.getState().agentChats.working.c1).toBe(true)
-    })
-
-    // THE REGRESSION, reported live 2026-09-12: a queued prompt re-submitted
-    // itself into a turn that was still genuinely generating, corrupting its
-    // output mid-stream. Root cause traced to this exact poll: the daemon can
-    // take over 11s to answer under subagent-heavy load (measured live), so
-    // two ticks of this 5s poll can have requests in flight at once, and an
-    // OLDER one carrying a stale answer from before the turn started must not
-    // overwrite a NEWER one that already recorded the current truth.
-    it('an older in-flight refresh does not overwrite a newer one that already resolved', async () => {
-      vi.useFakeTimers()
-      const store = seedWorkspace([liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })])
-      await renderPane(store, openChatPane(store, 'c1', 'r1'))
-
-      const stale = deferred<Awaited<ReturnType<typeof getChatFn>>>()
-      const fresh = deferred<Awaited<ReturnType<typeof getChatFn>>>()
-      getChatFn.mockImplementationOnce(() => stale.promise)
-      getChatFn.mockImplementationOnce(() => fresh.promise)
-
-      // Two poll ticks fire back-to-back — neither request has resolved yet.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(10_000)
-      })
-
-      // The NEWER request settles first with the current, correct answer.
-      fresh.resolve({
-        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
-        working: true,
-      })
-      await act(async () => {
-        await Promise.resolve()
-        await Promise.resolve()
-      })
-      expect(store.getState().agentChats.working.c1).toBe(true)
-
-      // The OLDER request finally arrives, carrying a stale `false` from
-      // before the turn started. It must not win just by arriving later.
-      stale.resolve({
-        ...detail(liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1' })),
-        working: false,
-      })
-      await act(async () => {
-        await Promise.resolve()
-        await Promise.resolve()
-      })
-      expect(store.getState().agentChats.working.c1).toBe(true)
-    })
-  })
-
   // Regression: `AgentTerminalWaitBanner` (a pane-level overlay) and the
   // composer's own `signpost` (reason: 'terminal_wait', via `resolveComposerState`)
   // both render off the SAME `waiting` signal — but only the banner is meant to
@@ -2119,7 +2028,7 @@ describe('AgentChatPane', () => {
       expect(screen.getByRole('textbox', { name: /message the agent/i })).toBeInTheDocument()
 
       await act(async () => {
-        store.getState().setAgentChatTerminalWait('c1', { kind: 'workspace_trust' })
+        setChatTerminalWait(store, 'c1', { kind: 'workspace_trust' })
       })
 
       // The composer itself became the signpost...

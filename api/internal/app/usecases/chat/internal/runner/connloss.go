@@ -35,6 +35,7 @@ func (rs *Runners) onAPIConnLost(ctx context.Context, runnerID string) {
 		return // deliberate teardown; the caller that dropped it owns the turn
 	}
 	rs.apiConns.drop(runnerID)
+	rs.touchRunner(context.WithoutCancel(ctx), runnerID)
 
 	if rs.runnerStore == nil {
 		return

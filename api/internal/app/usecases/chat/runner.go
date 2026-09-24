@@ -145,17 +145,6 @@ type RunnerUsecase interface {
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
 
-	// PlacementsForChat lists every provider a runner has ever been placed on the
-	// chat as, oldest arrival first. It is append-only history, so it answers for
-	// runners that exited long ago — and, unlike the conversation history, it is
-	// written for EVERY runner, including one whose provider announces no
-	// conversation at all, which is what makes it the last resort for "which
-	// provider ran here".
-	PlacementsForChat(
-		ctx context.Context,
-		chatID string,
-	) ([]engineagents.ChatPlacement, error)
-
 	// ReconcileRunnersOnBoot Exits every recorded runner whose PTY did not survive
 	// the restart, closes the turns they died in, and recovers their prompt
 	// journals.
@@ -179,14 +168,7 @@ type RunnerUsecase interface {
 
 	// StartTerminalWaitSweep starts the screen sweep and binds the four publish
 	// callbacks the hub owns. It runs until ctx is cancelled.
-	StartTerminalWaitSweep(
-		ctx context.Context,
-		publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-		promptSettled func(chatID, workspaceID, requestID string, consumed bool),
-		messageDelta func(chatID, workspaceID, messageID, text, kind string),
-		compactionStatus func(chatID, workspaceID string, active bool),
-		planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),
-	)
+	StartTerminalWaitSweep(ctx context.Context, feed ChatFeed)
 }
 
 var _ RunnerUsecase = (*Usecase)(nil)
@@ -398,11 +380,15 @@ func (u *Usecase) PendingPrompt(
 
 // ReconcileRunnersOnBoot exits every runner whose PTY did not survive the
 // restart. Nothing else can: no event was ever recorded for a process the daemon
-// outlived.
+// outlived. It then backfills each chat's own durable provider from the runner
+// history — after the reconcile, so the history it reads is final.
 func (u *Usecase) ReconcileRunnersOnBoot(
 	ctx context.Context,
 ) error {
-	return u.runners.ReconcileRunnersOnBoot(ctx)
+	if err := u.runners.ReconcileRunnersOnBoot(ctx); err != nil {
+		return err
+	}
+	return u.conversations.BackfillProviders(ctx)
 }
 
 // Compact asks the chat's provider to compact its own context, through whichever
@@ -458,13 +444,6 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 
 // StartTerminalWaitSweep starts the screen sweep and wires the publish callbacks
 // the hub owns.
-func (u *Usecase) StartTerminalWaitSweep(
-	ctx context.Context,
-	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-	promptSettled func(chatID, workspaceID, requestID string, consumed bool),
-	messageDelta func(chatID, workspaceID, messageID, text, kind string),
-	compactionStatus func(chatID, workspaceID string, active bool),
-	planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),
-) {
-	u.runners.StartTerminalWaitSweep(ctx, publish, promptSettled, messageDelta, compactionStatus, planUpdate)
+func (u *Usecase) StartTerminalWaitSweep(ctx context.Context, feed ChatFeed) {
+	u.runners.StartTerminalWaitSweep(ctx, feed)
 }

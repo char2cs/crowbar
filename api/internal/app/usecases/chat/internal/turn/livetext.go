@@ -150,7 +150,7 @@ func (t *Turns) recordLiveText(
 	if ev.Delta == nil || ev.Delta.Text == "" {
 		return
 	}
-	if t.messageDelta == nil {
+	if t.feed.MessageDelta == nil {
 		return // nobody is listening; text nobody sees is not worth buffering
 	}
 	// A provider that streams one undifferentiated stream per turn maps no
@@ -161,5 +161,5 @@ func (t *Turns) recordLiveText(
 		blockID = ev.Delta.TurnID
 	}
 	text := t.live.observe(chat.ID, kind, blockID, ev.Delta.Index, ev.Delta.Text)
-	t.messageDelta(chat.ID, chat.WorkspaceID, blockID, text, kind)
+	t.feed.MessageDelta(chat.ID, chat.WorkspaceID, blockID, text, kind)
 }

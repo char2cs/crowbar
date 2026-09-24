@@ -446,16 +446,14 @@ func TestSetChatSelection_ClearingBackToTheProviderDefaultIsAllowed(t *testing.T
 	assert.Empty(t, chat.Effort)
 }
 
-// TestChatProviderID_ADormantProviderThatNeverBoundAConversationFallsBackToTheSwitchInterruption
-// is site 3's own showstopper: vendor-b is switched to and left dormant WITHOUT ever
-// binding a session — a provider that binds via its own connection identity, rather
-// than firing a session-bind, leaves no conversation row at all. Only vendor-a's
-// OLDER conversation exists; the durable switch interruption is the sole trace of
-// vendor-b, and it postdates that row, so ChatProviderID must resolve to vendor-b —
-// not the older, merely-present conversation. This is the path SetChatSelection,
-// SwitchProvider and SubmitPrompt's implicit-provider resolve through, so getting it
-// wrong here spawns the WRONG vendor, not just mislabels one.
-func TestChatProviderID_ADormantProviderThatNeverBoundAConversationFallsBackToTheSwitchInterruption(t *testing.T) {
+// TestBackfillProviders_ASwitchNewerThanTheLastConversationWins migrates the old
+// three-projection scan's hardest case into the one-time backfill: vendor-b was
+// switched to and left dormant WITHOUT ever binding a session, so only vendor-a's
+// OLDER conversation exists and the durable switch interruption is the sole trace
+// of vendor-b. The backfill must record vendor-b, and ChatProviderID — the path
+// SetChatSelection, SwitchProvider and SubmitPrompt resolve through — then reads
+// the field.
+func TestBackfillProviders_ASwitchNewerThanTheLastConversationWins(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
@@ -480,6 +478,8 @@ func TestChatProviderID_ADormantProviderThatNeverBoundAConversationFallsBackToTh
 		engineagents.InterruptProviderSwitched, "vendor-b", time.Unix(2, 0).UTC()))
 	require.NoError(t, f.activity.ResolveInterruption(t.Context(), chatID, "int-1",
 		engineagents.InterruptProviderSwitched, "vendor-b", time.Unix(2, 0).UTC()))
+	f.settle()
+	require.NoError(t, f.conversations.BackfillProviders(t.Context()))
 	f.settle()
 
 	providerID, err := f.conversations.ChatProviderID(t.Context(), chatID)

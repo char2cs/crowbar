@@ -22,9 +22,7 @@ import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 
 /** The PTYs the daemon was told to close, by tab session id. */
 function killed(): string[] {
-  return terminalKill.mock.calls.map(([connectionId]) =>
-    String(connectionId).replace(/^conn-/, ''),
-  )
+  return terminalKill.mock.calls.map(([connectionId]) => String(connectionId).replace(/^conn-/, ''))
 }
 
 /** Invariant C2, checked on every notification the store emits. */

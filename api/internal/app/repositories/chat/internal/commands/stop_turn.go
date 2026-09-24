@@ -49,7 +49,7 @@ type StopTurn struct {
 
 func (c StopTurn) AggregateID() string  { return c.ChatID }
 func (c StopTurn) EventName() string    { return "agentchat.turn_stopped." + c.ChatID }
-func (c StopTurn) ShouldSnapshot() bool { return false }
+func (c StopTurn) ShouldSnapshot() bool { return true }
 
 // Validate refuses a chat that does not exist and — for an ABANDON only — a chat that
 // has nothing to close.
