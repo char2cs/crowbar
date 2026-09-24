@@ -190,9 +190,18 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 		rtForgot = append(rtForgot, wsID)
 		return nil
 	}
-	rmCh := make(chan string, 1)
+	// The reactor runs concurrently with this test, so the tombstone row is
+	// observed where the invariant lives: at the moment the worktree is removed
+	// (persist happens-before purge), not by racing a read against the purge.
+	type removal struct {
+		path      string
+		tombstone *domain.Workspace
+		err       error
+	}
+	rmCh := make(chan removal, 1)
 	rmWorktree := func(path string) error {
-		rmCh <- path
+		row, err := st.Get(context.Background(), "w1")
+		rmCh <- removal{path: path, tombstone: row, err: err}
 		return nil
 	}
 	gate := drain.New()
@@ -207,24 +216,22 @@ func TestRegisterDeleteReactor_GatedPurge_RemovesWorktreeAndForgets(t *testing.T
 	_, err = ax.SendWait(ctx, wscmds.Delete{ID: "w1"})
 	require.NoError(t, err)
 
-	// The store projection persisted the deleted tombstone row before the reactor
-	// purges it (the boot orphan-sweep depends on this row surviving a crash).
-	got, err := st.Get(ctx, "w1")
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	require.Equal(t, domain.WorkspaceStatusDeleted, got.Status)
-
-	// rmWorktree pushes the removed path onto rmCh: it is a genuine completion
-	// signal, so block on it directly (a hang would surface via go test -timeout).
-	path := <-rmCh
-	assert.Equal(t, "/wt/w1", path)
+	// rmWorktree pushes onto rmCh: a genuine completion signal, so block on it
+	// directly (a hang would surface via go test -timeout).
+	rm := <-rmCh
+	assert.Equal(t, "/wt/w1", rm.path)
+	// The deleted tombstone row was persisted before the purge began (the boot
+	// orphan-sweep depends on this row surviving a crash mid-purge).
+	require.NoError(t, rm.err)
+	require.NotNil(t, rm.tombstone)
+	require.Equal(t, domain.WorkspaceStatusDeleted, rm.tombstone.Status)
 	gate.WaitIdle(context.Background())
 
 	exists, err := ax.Exists(ctx, "w1")
 	require.NoError(t, err)
 	assert.False(t, exists, "aggregate must be Forgotten as the terminal purge step")
 
-	got, err = st.Get(ctx, "w1")
+	got, err := st.Get(ctx, "w1")
 	require.NoError(t, err)
 	assert.Nil(t, got, "Forget's synchronous OnForget must drop the read-model row")
 
