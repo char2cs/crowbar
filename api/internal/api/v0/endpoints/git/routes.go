@@ -42,8 +42,6 @@ func Register(
 
 // mount registers the 32-route git surface under prefix on rg. It is the
 // single definition of that surface.
-//
-//nolint:funlen // Flat route table: one line per route. Splitting it would scatter the surface across helpers for no gain, and this list IS the audited surface (route_audit_test.go).
 func mount(
 	rg *gin.RouterGroup,
 	prefix string,
