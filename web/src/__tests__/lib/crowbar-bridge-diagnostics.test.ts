@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { exportDiagnostics } from '@/features/settings/lib/diagnostics-export'
+import { exportDiagnostics } from '@/lib/crowbar-bridge'
 
 type TauriWindow = Window & { __TAURI_INTERNALS__?: { invoke: (cmd: string) => Promise<unknown> } }
 const tauriWindow = window as TauriWindow
@@ -17,7 +17,7 @@ describe('exportDiagnostics', () => {
     tauriWindow.__TAURI_INTERNALS__ = { invoke }
 
     await expect(exportDiagnostics()).resolves.toBe('/Users/me/Downloads/crowbar-diagnostics-1.zip')
-    expect(invoke).toHaveBeenCalledWith('diagnostics_export')
+    expect(invoke).toHaveBeenCalledWith('diagnostics_export', undefined)
   })
 
   it('rejects outside the desktop app instead of invoking nothing', async () => {

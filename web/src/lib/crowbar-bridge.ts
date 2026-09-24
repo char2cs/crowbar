@@ -604,9 +604,20 @@ export function isTauri(): boolean {
  *  stays the one place non-bridge code reaches `@tauri-apps/*` through. */
 export const convertFileSrc = tauriConvertFileSrc
 
-async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<void> {
+async function tauriInvoke<T = void>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauri()) throw new Error(`tauriInvoke called outside Tauri: ${cmd}`)
   // Use the global injected by Tauri before any JS runs — no npm import needed
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (window as any).__TAURI_INTERNALS__.invoke(cmd, args)
+  return (window as any).__TAURI_INTERNALS__.invoke(cmd, args)
+}
+
+/**
+ * Runs the desktop `diagnostics_export` command: bundles the daemon log
+ * (panic traces, watchdog goroutine dumps), the app log, fresh
+ * goroutine/heap dumps from the live daemon, and version metadata into a
+ * zip in ~/Downloads. Resolves to the bundle's absolute path.
+ */
+export async function exportDiagnostics(): Promise<string> {
+  if (!isTauri()) throw new Error('Diagnostics export requires the desktop app')
+  return tauriInvoke<string>('diagnostics_export')
 }

@@ -1,11 +1,13 @@
 'use client'
 
+import type { Ref } from 'react'
 import type { PlateElementProps } from 'platejs/react'
 import { PlateElement, useComposedRef } from 'platejs/react'
 import { cn } from '@/lib/utils'
 import {
   AttachmentDropLine,
   useAttachmentDropTarget,
+  useHasDndContext,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
 
 /**
@@ -24,11 +26,28 @@ import {
  * registered, which the static plugin set deliberately drops.
  */
 export function ChatParagraphElement(props: PlateElementProps) {
+  // With no <DndProvider> above (e.g. a read-only render) there is nothing to
+  // drop into; the drop-target hook is only mounted where it can work.
+  return useHasDndContext() ? (
+    <DropTargetParagraph {...props} />
+  ) : (
+    <ParagraphShell {...props} nodeRef={props.ref} />
+  )
+}
+
+function DropTargetParagraph(props: PlateElementProps) {
   const { nodeRef } = useAttachmentDropTarget(props.element)
+  return <ParagraphShell {...props} nodeRef={useComposedRef(props.ref, nodeRef)} />
+}
+
+function ParagraphShell({
+  nodeRef,
+  ...props
+}: PlateElementProps & { nodeRef: Ref<HTMLElement> | undefined }) {
   return (
     <PlateElement
       {...props}
-      ref={useComposedRef(props.ref, nodeRef)}
+      ref={nodeRef}
       className={cn('group/attachment-drop relative m-0 px-0 py-1')}
     >
       <AttachmentDropLine />

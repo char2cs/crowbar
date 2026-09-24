@@ -172,22 +172,18 @@ export function useAttachmentDraggable(element: TElement) {
  * message has plain paragraphs, so unconditionally registering this on all
  * of them would have made a `<DndProvider>` mandatory for rendering ANY
  * message at all, attachments or not — a much bigger requirement than this
- * feature needs. Peeking at `DndContext` directly (the same context
- * `useDragDropManager` reads, minus its `invariant`) and skipping
- * registration when it's absent keeps a plain paragraph renderable with no
- * `<DndProvider>`, exactly like before this hook existed.
+ * feature needs. So this hook is only called by a component rendered under a
+ * provider: callers pick that component with {@link useHasDndContext}.
  */
+/** Whether a react-dnd provider is mounted above (the context `useDragDropManager`
+ *  reads, minus its invariant). */
+export function useHasDndContext(): boolean {
+  return Boolean(useContext(DndContext).dragDropManager)
+}
+
 export function useAttachmentDropTarget(element: TElement) {
   const editor = useEditorRef()
   const nodeRef = useRef<HTMLElement | null>(null)
-  const { dragDropManager } = useContext(DndContext)
-  if (!dragDropManager) return { nodeRef }
-  // Safe despite the shape react-hooks/rules-of-hooks flags in general: a
-  // `<DndContext>` ancestor's PRESENCE (unlike its value) cannot change
-  // across this component's own lifetime without remounting it — the same
-  // invariant `@platejs/dnd`'s own `useDraggable` relies on for its
-  // analogous `if (!editor.plugins.dnd) return {}` guard.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
   const [, drop] = useDropNode(editor, {
     accept: [ATTACHMENT_DND_TYPE],
     canDropNode: canDropAttachmentNode,

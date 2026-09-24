@@ -22,6 +22,7 @@ import {
   resolveDraggableBlockElement,
   useAttachmentDraggable,
   useAttachmentDropTarget,
+  useHasDndContext,
 } from '@/features/agent/composer/plate/attachment-drag-handle'
 
 // `useDraggable`/`useDropLine`/`useDropNode` wire real HTML5 drag events,
@@ -489,15 +490,9 @@ describe('useAttachmentDraggable', () => {
  * paragraphs.
  */
 describe('useAttachmentDropTarget', () => {
-  it('never calls useDropNode, and returns a plain ref, with no DndContext at all', () => {
-    const element: TElement = { type: 'p', children: [] }
-
-    const { result } = renderHook(() => useAttachmentDropTarget(element), {
-      wrapper: EditorWrapper,
-    })
-
-    expect(useDropNode).not.toHaveBeenCalled()
-    expect(result.current.nodeRef.current).toBeNull()
+  it('reports no DndContext when no provider is mounted, so callers skip the hook', () => {
+    const { result } = renderHook(() => useHasDndContext(), { wrapper: EditorWrapper })
+    expect(result.current).toBe(false)
   })
 
   it('registers as a drop target accepting ATTACHMENT_DND_TYPE when a real DndContext is present', () => {
