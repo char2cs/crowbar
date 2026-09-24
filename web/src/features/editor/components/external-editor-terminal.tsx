@@ -17,7 +17,6 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useTerminalTheme } from '@/features/terminal/hooks/use-terminal-theme'
 import { sanitizeTerminalTitle } from '@/features/terminal/utils/terminal-title'
-import { useProjectStore } from '@/features/window/stores/project-store'
 import { cn } from '@/utils/cn'
 import '@xterm/xterm/css/xterm.css'
 import '@/features/terminal/styles/terminal.css'
@@ -47,7 +46,6 @@ export const ExternalEditorTerminal = ({
 
   const editorFontSize = useEditorSettingsStore((s) => s.fontSize)
   const editorFontFamily = useEditorSettingsStore((s) => s.fontFamily)
-  const rootFolderPath = useProjectStore((s) => s.rootFolderPath)
   const settings = useSettingsStore((s) => s.settings)
   const { getTerminalTheme } = useTerminalTheme()
 
@@ -77,7 +75,7 @@ export const ExternalEditorTerminal = ({
 
   const getEditorCommand = useCallback(
     (path: string): string => {
-      const relativePath = rootFolderPath ? path.replace(rootFolderPath, '.') : path
+      const relativePath = path
 
       switch (settings.editorEngine) {
         case 'nvim':
@@ -92,7 +90,7 @@ export const ExternalEditorTerminal = ({
           return `nvim "${relativePath}"`
       }
     },
-    [settings.editorEngine, settings.customEditorCommand, rootFolderPath],
+    [settings.editorEngine, settings.customEditorCommand],
   )
 
   const initializeTerminal = useCallback(() => {

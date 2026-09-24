@@ -42,7 +42,6 @@ import type { ChatDTO } from '@/lib/types'
 import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
-import { saveWorkspaceHierarchy } from '@/lib/persistence/workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import type { Repo } from '@/lib/store/sidebar'
 
@@ -97,8 +96,6 @@ async function seedDB(workspaceId: string) {
     activePaneId: ROOT_PANE_ID,
     mostRecentActivePaneIds: [ROOT_PANE_ID],
     buffers: [],
-    sidebarWidth: 240,
-    rightSidebarWidth: 280,
     updatedAt: Date.now(),
   }
   const prefs: UIPreferences = {
@@ -190,8 +187,6 @@ describe('hydrateWindowPaneLayout', () => {
       activePaneId: 'pane-a',
       mostRecentActivePaneIds: ['pane-a'],
       buffers: [buffer('buf-1')],
-      sidebarWidth: 240,
-      rightSidebarWidth: 280,
       updatedAt: Date.now(),
     }
     await db.put('workspace-layout', layout)
@@ -241,8 +236,6 @@ describe('hydrateWindowPaneLayout', () => {
       activePaneId: 'pane-a',
       mostRecentActivePaneIds: ['pane-a'],
       buffers: [],
-      sidebarWidth: 0,
-      rightSidebarWidth: 0,
       updatedAt: Date.now(),
     } as WorkspaceLayout)
 
@@ -266,8 +259,6 @@ describe('hydrateWindowPaneLayout', () => {
       activePaneId: ROOT_PANE_ID,
       mostRecentActivePaneIds: [ROOT_PANE_ID],
       buffers: [buffer('buf-1')],
-      sidebarWidth: 240,
-      rightSidebarWidth: 280,
       updatedAt: Date.now(),
     } as unknown as WorkspaceLayout)
 
@@ -293,8 +284,6 @@ describe('hydrateWindowPaneLayout', () => {
       activePaneId: 'pane-a',
       mostRecentActivePaneIds: [],
       buffers: [],
-      sidebarWidth: 240,
-      rightSidebarWidth: 280,
       updatedAt: Date.now(),
     })
 
@@ -329,8 +318,6 @@ describe('hydrateWindowPaneLayout', () => {
       activePaneId: 'pane-x',
       mostRecentActivePaneIds: ['pane-x', 'pane-a'],
       buffers: [],
-      sidebarWidth: 240,
-      rightSidebarWidth: 280,
       updatedAt: Date.now(),
     })
 
@@ -435,8 +422,6 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
       activePaneId: ROOT_PANE_ID,
       mostRecentActivePaneIds: [ROOT_PANE_ID],
       buffers,
-      sidebarWidth: 240,
-      rightSidebarWidth: 280,
       updatedAt: Date.now(),
     })
     await hydrateWindowPaneLayout()
@@ -716,24 +701,6 @@ describe('hydrateSidebar', () => {
     const state = useSidebarStore.getState() as unknown as Record<string, unknown>
     expect(state.collapsedRepos).toBeUndefined()
     expect(useSidebarStore.getState().collapsedChatRows.has('f1')).toBe(true)
-  })
-
-  it('overlays parentId values from IDB onto repos', async () => {
-    await saveWorkspaceHierarchy('crowbar', [
-      { wsId: 'ws3', parentId: 'ws-develop' },
-      { wsId: 'ws1', parentId: 'ws3' },
-    ])
-    await hydrateSidebar()
-    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
-    expect(repo.workspaces.find((w) => w.id === 'ws3')?.parentId).toBe('ws-develop')
-    expect(repo.workspaces.find((w) => w.id === 'ws1')?.parentId).toBe('ws3')
-  })
-
-  it('clears parentId for workspaces not in hierarchy entries', async () => {
-    await saveWorkspaceHierarchy('crowbar', [{ wsId: 'ws1' }])
-    await hydrateSidebar()
-    const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
-    expect(repo.workspaces.find((w) => w.id === 'ws1')?.parentId).toBeUndefined()
   })
 
   it('ignores the retired collapsedWorkspaces key a previous build persisted', async () => {

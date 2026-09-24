@@ -31,8 +31,6 @@ const mockLayout: WorkspaceLayout = {
   activePaneId: ROOT_PANE_ID,
   mostRecentActivePaneIds: [ROOT_PANE_ID],
   buffers: [],
-  sidebarWidth: 260,
-  rightSidebarWidth: 300,
   updatedAt: 1000,
 }
 
@@ -46,7 +44,7 @@ describe('window pane layout persistence', () => {
     await saveWorkspaceLayout(mockLayout)
     const loaded = await loadWindowPaneLayout()
     expect(loaded?.activePaneId).toBe(ROOT_PANE_ID)
-    expect(loaded?.sidebarWidth).toBe(260)
+    expect(loaded?.version).toBe(2)
   })
 
   it('returns null when nothing has been saved yet', async () => {

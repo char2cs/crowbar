@@ -30,10 +30,6 @@ const chat = (id: string, workspaceId: string): AgentChat => ({
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 // Fake Monaco adapters so armEditor() (dynamically imported by both
 // WorkspaceStore itself and destroyWorkspaceStore's teardown) never touches
 // real monaco-editor — same fakes editor-pane-workspace-scope.test.tsx uses.

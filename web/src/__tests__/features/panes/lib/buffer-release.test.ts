@@ -3,10 +3,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 const terminalClose = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 vi.mock('@/lib/crowbar-bridge', async (importOriginal) => ({
   ...(await importOriginal<object>()),

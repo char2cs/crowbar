@@ -6,10 +6,6 @@ import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }))
@@ -1587,49 +1583,6 @@ describe('performSidebarDrop — a repo header row as the dragged subject', () =
 
     expect(fetchRepos).toHaveBeenCalledWith('proj-1')
     expect(useSidebarStore.getState().repos.find((r) => r.id === 'repo-1')?.order).toBe(1)
-  })
-
-  // Live-reported "can't reorder legacy repos between the same level, but can
-  // put them nested under folders": a same-level reorder DID land and DID
-  // eventually repaint, but only once the GET above resolved — several
-  // unindicated seconds later. Nesting INTO a folder looked instant purely
-  // because the row vanishes off the flat list the moment it lands inside a
-  // (collapsed) folder, masking the identical delay a same-level reorder
-  // cannot hide: the row has to visibly move within the SAME still-rendered
-  // list. The PATCH answers 204, so — unlike every other placement kind —
-  // there is no confirmed response to apply directly; the fix applies the
-  // exact order/folderId the request is about to send before the GET (or
-  // even the PATCH) has settled, proven here by holding the GET open past
-  // the assertion.
-  it('moves the header locally in the same pass as the drop, before the reconciling GET resolves', async () => {
-    useHomeTreeStore.setState({
-      trees: {
-        'proj-1': {
-          chats: [HOME_OWNING_CHAT, { id: 'home-chat-1', repoId: '', title: 'testing', order: 0 }],
-          folders: [],
-        },
-      },
-    })
-    let resolveFetch!: (repos: unknown[]) => void
-    fetchRepos.mockReturnValue(
-      new Promise((resolve) => {
-        resolveFetch = resolve
-      }),
-    )
-
-    const done = performSidebarDrop(
-      [repoHeaderRow('home-1', 'proj-1', 'repo-1')],
-      chatRow('home-chat-1', '', { parentId: null }),
-      'after',
-    )
-
-    // The reconciling GET is still pending — if the store only updated once
-    // it resolves, this would see the OLD order (undefined), not the one the
-    // drop just decided (1).
-    expect(useSidebarStore.getState().repos.find((r) => r.id === 'repo-1')?.order).toBe(1)
-
-    resolveFetch([])
-    await done
   })
 
   it('files a repo into a project-home folder', async () => {

@@ -44,8 +44,6 @@ export interface WorkspaceLayout {
   activePaneId: string
   mostRecentActivePaneIds: string[]
   buffers: PaneContent[]
-  sidebarWidth: number
-  rightSidebarWidth: number
   updatedAt: number
 }
 
@@ -94,12 +92,6 @@ export interface SidebarUI {
   updatedAt: number
 }
 
-export interface WorkspaceHierarchy {
-  repoId: string
-  entries: Array<{ wsId: string; parentId?: string }>
-  updatedAt: number
-}
-
 export interface CachedRecord<T> {
   key: string
   data: T
@@ -124,9 +116,11 @@ export interface CrowbarDB extends DBSchema {
     key: string
     value: SidebarUI
   }
+  /** Retired: the daemon owns workspace parents. The object store stays so
+   *  existing databases open without a version bump. */
   'workspace-hierarchy': {
     key: string
-    value: WorkspaceHierarchy
+    value: unknown
   }
   'branch-review': {
     key: string

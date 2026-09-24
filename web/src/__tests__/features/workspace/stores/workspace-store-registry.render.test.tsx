@@ -4,10 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 
 import { useActivePaneWorkspaceId } from '@/features/panes/hooks/use-chat-workspace-id'
 import {

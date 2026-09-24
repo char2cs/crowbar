@@ -3,10 +3,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 const { toastError, apiFetch } = vi.hoisted(() => ({
   toastError: vi.fn(),
   apiFetch: vi.fn(() => Promise.resolve(undefined)),

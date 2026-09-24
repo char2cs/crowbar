@@ -18,7 +18,6 @@ import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { useSettingsStore } from '@/features/settings/store'
 import { isNotFoundError } from '@/lib/api'
 import { loadSidebarUI } from './sidebar-ui'
-import { loadAllWorkspaceHierarchies } from './workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
 export interface WorkspaceHydrationResult {
@@ -223,34 +222,13 @@ function setBufferFileMissing(workspaceId: string, path: string, fileMissing: bo
 }
 
 export async function hydrateSidebar(): Promise<void> {
-  const [sidebarUI, hierarchies] = await Promise.all([
-    loadSidebarUI(),
-    loadAllWorkspaceHierarchies(),
-  ])
-
-  if (sidebarUI) {
-    // `collapsedRepos`/`collapsedWorkspaces`/`collapsedProjects` are retired
-    // keys the pre-restyle tree wrote (see schemas.ts) — never replayed.
-    useSidebarStore.setState({
-      // Absent on a record written before the Chats panel was collapsible —
-      // replays as "nothing folded", the product default (see schemas.ts).
-      collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
-    })
-  }
-
-  if (hierarchies.length > 0) {
-    useSidebarStore.setState((s) => ({
-      repos: s.repos.map((repo) => {
-        const hierarchy = hierarchies.find((h) => h.repoId === repo.id)
-        if (!hierarchy) return repo
-        const entryMap = new Map(hierarchy.entries.map((e) => [e.wsId, e.parentId]))
-        return {
-          ...repo,
-          workspaces: repo.workspaces.map((ws) =>
-            entryMap.has(ws.id) ? { ...ws, parentId: entryMap.get(ws.id) } : ws,
-          ),
-        }
-      }),
-    }))
-  }
+  const sidebarUI = await loadSidebarUI()
+  if (!sidebarUI) return
+  // `collapsedRepos`/`collapsedWorkspaces`/`collapsedProjects` are retired
+  // keys the pre-restyle tree wrote (see schemas.ts) — never replayed.
+  useSidebarStore.setState({
+    // Absent on a record written before the Chats panel was collapsible —
+    // replays as "nothing folded", the product default (see schemas.ts).
+    collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
+  })
 }

@@ -503,27 +503,44 @@ function failCreate(tempId: string, err: unknown, fallback: string): void {
   console.error(`${fallback}:`, err)
 }
 
+/** How long a created row may take to arrive before the create is reported
+ *  failed — the same bound `awaitEntity` puts on an entity after its 202. */
+const ROW_ARRIVAL_TIMEOUT_MS = 30_000
+
 /**
- * Resolves once `predicate` matches the live sidebar store, or never — the
- * same "no ceiling, self-clears the moment the real row's own reseed lands"
- * shape the pre-migration tree's own `confirmCreate` used
- * (workspace-tree-context.tsx, since deleted): a create's row always arrives
- * through the ordinary reseed/WS path everything else here already depends
- * on, so this only ever needs to notice it, never to invent a timeout for a
- * path that already has its own liveness guarantee.
+ * Resolves once `landed()` holds, re-checked on every write `subscribe`
+ * reports; rejects if it has not within {@link ROW_ARRIVAL_TIMEOUT_MS}. The
+ * row normally arrives through the ordinary reseed/WS path — the bound is for
+ * the daemon failing after it answered, which used to leave the pending row
+ * spinning (and this subscription alive) forever.
  */
-function waitForRow(predicate: (repos: readonly Repo[]) => boolean): Promise<void> {
-  return new Promise((resolve) => {
-    if (predicate(useSidebarStore.getState().repos)) {
+function untilLanded(
+  subscribe: (onChange: () => void) => () => void,
+  landed: () => boolean,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (landed()) {
       resolve()
       return
     }
-    const unsubscribe = useSidebarStore.subscribe((state) => {
-      if (!predicate(state.repos)) return
+    const timer = setTimeout(() => {
+      unsubscribe()
+      reject(new Error('The new row never arrived from the daemon'))
+    }, ROW_ARRIVAL_TIMEOUT_MS)
+    const unsubscribe = subscribe(() => {
+      if (!landed()) return
+      clearTimeout(timer)
       unsubscribe()
       resolve()
     })
   })
+}
+
+function waitForRow(predicate: (repos: readonly Repo[]) => boolean): Promise<void> {
+  return untilLanded(
+    (onChange) => useSidebarStore.subscribe(onChange),
+    () => predicate(useSidebarStore.getState().repos),
+  )
 }
 
 /** Whether some repo's chat list now carries `chatId`, ALREADY placed under
@@ -621,18 +638,10 @@ function waitForRootHomeChat(
 }
 
 function waitForHomeTree(projectId: string, landedIn: (chats: Chat[]) => boolean): Promise<void> {
-  const landed = (): boolean => landedIn(getHomeTree(projectId).chats)
-  return new Promise((resolve) => {
-    if (landed()) {
-      resolve()
-      return
-    }
-    const unsubscribe = useHomeTreeStore.subscribe(() => {
-      if (!landed()) return
-      unsubscribe()
-      resolve()
-    })
-  })
+  return untilLanded(
+    (onChange) => useHomeTreeStore.subscribe(onChange),
+    () => landedIn(getHomeTree(projectId).chats),
+  )
 }
 
 /** A fork create armed by `handleCreate`'s 'workspace' branch, waiting on the
@@ -1104,8 +1113,9 @@ export async function handleCreateHomeThread(
   // CREATED, never the caller's argument alone.
   if (surface) presetChatLandingPresentation(chatId, surface)
   usePendingCreatesStore.getState().attachRealId(tempId, chatId)
-  void waitForRootHomeChat(projectId, homeWorkspaceId, chatId).then(() =>
-    usePendingCreatesStore.getState().clear(tempId),
+  void waitForRootHomeChat(projectId, homeWorkspaceId, chatId).then(
+    () => usePendingCreatesStore.getState().clear(tempId),
+    (err: unknown) => failCreate(tempId, err, 'Failed to start chat'),
   )
   await openHomeChat(projectId, homeWorkspaceId, chatId, navigate)
 }

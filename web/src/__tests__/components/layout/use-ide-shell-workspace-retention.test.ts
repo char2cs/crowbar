@@ -4,10 +4,6 @@ import { renderHook } from '@testing-library/react'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 
 import { useIdeShellWorkspaceRetention } from '@/components/layout/use-ide-shell-workspace-retention'
 import {

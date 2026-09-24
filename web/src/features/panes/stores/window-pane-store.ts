@@ -5,7 +5,6 @@ import type { WindowPaneState } from './window-pane-store.types'
 import { createPaneSlice } from './slices/pane-slice'
 import { createBufferSlice } from './slices/buffer-slice'
 import { saveWorkspaceLayout } from '@/lib/persistence/workspace-layout'
-import { saveSessionToStore } from '@/features/editor/stores/buffer-session-persistence'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 
 export type WindowPaneStore = StoreApi<WindowPaneState>
@@ -108,21 +107,9 @@ export function createWindowPaneStore(snapshot?: WindowPaneSnapshot): WindowPane
         activePaneId: current.activePaneId,
         mostRecentActivePaneIds: current.mostRecentActivePaneIds,
         buffers: current.buffers,
-        sidebarWidth: 0,
-        rightSidebarWidth: 0,
         updatedAt: Date.now(),
       })
     }, 300)
-  })
-
-  // Persist session (open buffers + active buffer) to IndexedDB on buffer
-  // changes — moved verbatim from the old per-workspace `createWorkspaceStore`
-  // (see git history), now firing once for the window's one flat buffer list
-  // instead of once per retained workspace store.
-  store.subscribe((state, prev) => {
-    if (state.buffers === prev.buffers) return
-    const activePane = state.panes[state.activePaneId] ?? null
-    saveSessionToStore(state.buffers, activePane?.activeEditorTabId ?? null)
   })
 
   return store
