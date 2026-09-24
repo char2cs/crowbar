@@ -157,10 +157,10 @@ func (rs *Runners) ConfirmPromptAccepted(
 	chat domain.Chat,
 	runner engineagents.Runner,
 	text string,
-) error {
+) (string, error) {
 	dir, err := rs.promptJournalDirFor(chat.ID)
 	if err != nil {
-		return fmt.Errorf("prompt journal dir: %w", err)
+		return "", fmt.Errorf("prompt journal dir: %w", err)
 	}
 	return rs.prompts.ConfirmAccepted(
 		dir, runner.ID, runner.ProviderID, agentjournal.PromptTextHash(text), time.Now(),

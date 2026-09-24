@@ -20,6 +20,9 @@ import (
 // returned before anything else is touched, so a caller that must not proceed
 // on a still-running CLI (a switch) aborts with nothing changed.
 func (rs *Runners) endProcesses(ctx context.Context, runner agents.Runner) error {
+	// Noted before the kill, whose exit callback can run inside it: this end
+	// is Crowbar's doing, never the CLI refusing anything.
+	rs.sessions.cause(runner.ID, domain.AgentExitDisplaced)
 	if runner.TerminalSession != "" {
 		err := rs.term.TerminateGraceful(ctx, runner.TerminalSession)
 		if err != nil && !errors.Is(err, engineterminal.ErrSessionNotFound) {

@@ -14,6 +14,8 @@ import (
 const (
 	pollEvery     = 250 * time.Millisecond
 	eventTurnStop = "turn_stop"
+	// sessionFlushWindow is how long a session file may trail turn_stop.
+	sessionFlushWindow = 5 * time.Second
 )
 
 // boot starts the TUI the way a chat does and keeps it up for the hook,
@@ -35,7 +37,7 @@ func (l *live) boot(ctx context.Context) []Step {
 	case s.Status == StatusFail:
 		return []Step{s}
 	case parked:
-		why := "the CLI is parked on a prompt only a person answers; rerun with --cwd set to a directory it trusts"
+		why := "the CLI is parked on a prompt only a person answers (first-run setup, login or folder trust); log the CLI in once, or rerun with --cwd set to a directory it trusts"
 		return []Step{s, skip("hooks", why), skip("turn", why), skip("session_locate", why)}
 	}
 	turn := l.turn(ctx, t)
@@ -55,7 +57,7 @@ func (l *live) watchBoot(ctx context.Context, t *term) (Step, bool) {
 			return fail("tui_boot", ctx.Err().Error()), false
 		}
 		if prompt, ok := l.agent.MatchTerminalPrompt(t.text()); ok {
-			return warn("tui_boot", fmt.Sprintf("up, but parked on a %s prompt", promptName(prompt.Kind))), true
+			return warn("tui_boot", fmt.Sprintf("up, but parked on a %s prompt: %s", promptName(prompt.Kind), tail(t.text(), 240))), true
 		}
 	}
 	return pass("tui_boot", fmt.Sprintf("up for %s with no blocking prompt", l.opts.BootWindow)), false
@@ -139,7 +141,13 @@ func (l *live) sessionLocate() Step {
 	if id == "" {
 		return fail("session_locate", "no hook reported a session id")
 	}
+	// A CLI may flush its transcript a moment after reporting the turn's end
+	// (claude 2.1.281 does): look again for a short while before failing.
 	exists, declared := l.agent.SessionExists(id)
+	for deadline := time.Now().Add(sessionFlushWindow); declared && !exists && time.Now().Before(deadline); {
+		<-time.After(pollEvery)
+		exists, _ = l.agent.SessionExists(id)
+	}
 	switch {
 	case !declared:
 		return skip("session_locate", "the descriptor declares no session.locate")

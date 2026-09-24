@@ -72,10 +72,24 @@ func (c TemplateCtx) ScopeFlags() string {
 		flags += " --repo=" + c.RepoID
 	}
 	if c.CrowbarHome != "" {
-		flags += " --home=" + c.CrowbarHome
+		flags += " --home=" + shellWord(c.CrowbarHome)
 	}
 	return flags
 }
+
+// shellWord is s as one shell word. {crowbar_hook} and {scope_flags} are only
+// ever rendered into hook commands the vendor CLI runs through a shell, where
+// a path with a space would split. Single quotes also survive the JSON and
+// TOML strings those commands are embedded in (a path holding a quote itself
+// cannot be embedded in either).
+func shellWord(s string) string {
+	if s == "" || strings.Trim(s, shellSafe) == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+
+const shellSafe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:=@%+-"
 
 func (c TemplateCtx) Replacer() *strings.Replacer {
 	pairs := c.pairs()
@@ -110,7 +124,7 @@ func (c TemplateCtx) pairs() []string {
 		"{effort}", c.Effort,
 		"{cwd}", c.Cwd,
 		"{cwd_json}", jsonString(c.Cwd),
-		"{crowbar_hook}", c.CrowbarHook,
+		"{crowbar_hook}", shellWord(c.CrowbarHook),
 		"{crowbar_home}", c.CrowbarHome,
 
 		"{crowbar}", c.CrowbarHook,

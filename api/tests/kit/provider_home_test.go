@@ -45,7 +45,7 @@ func TestIsolateProviderHomes_ClaudeKeychainLookupStaysOnTheRealCredential(t *te
 	if runtime.GOOS != "darwin" {
 		t.Skip("claude stores credentials in the macOS keychain only")
 	}
-	if !keychainHasItem(t, "Claude Code-credentials") {
+	if !keychainHasItem("Claude Code-credentials") {
 		t.Skip("no claude login on this machine")
 	}
 
@@ -57,9 +57,9 @@ func TestIsolateProviderHomes_ClaudeKeychainLookupStaysOnTheRealCredential(t *te
 	require.Contains(t, os.Environ(), "CLAUDE_SECURESTORAGE_CONFIG_DIR=",
 		"the empty value has to survive into the child's environment as \"KEY=\", or the CLI reads it as unset")
 
-	assert.True(t, keychainHasItem(t, "Claude Code-credentials"),
+	assert.True(t, keychainHasItem("Claude Code-credentials"),
 		"the credential claude will look up must exist")
-	assert.False(t, keychainHasItem(t, suffixedKeychainService(os.Getenv("CLAUDE_CONFIG_DIR"))),
+	assert.False(t, keychainHasItem(suffixedKeychainService(os.Getenv("CLAUDE_CONFIG_DIR"))),
 		"the SUFFIXED name has an item, so this test can no longer tell the two lookups apart")
 }
 
@@ -177,17 +177,6 @@ func suffixedKeychainService(
 ) string {
 	sum := sha256.Sum256([]byte(configDir))
 	return "Claude Code-credentials-" + hex.EncodeToString(sum[:])[:8]
-}
-
-func keychainHasItem(
-	t *testing.T,
-	service string,
-) bool {
-	t.Helper()
-	cmd := exec.Command("security", "find-generic-password", "-s", service)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	return cmd.Run() == nil
 }
 
 func lookupCLI(

@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -1980,7 +1981,7 @@ presentation:
         source: "test"
 `, os.Args[0])
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(descriptor), 0o600,
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(descriptor)), 0o600,
 	))
 
 	chatID, runnerID := f.spawn(t, "codex")
@@ -2075,7 +2076,7 @@ func TestSlashCatalog_UnsupportedWhenTheProviderDeclaresNoCatalogue(t *testing.T
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
 	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(`
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(`
 id: codex
 spawn:
   cmd: /usr/bin/true
@@ -2093,7 +2094,7 @@ runtime:
   transport: hooks
   hooks:
     format: json
-`), 0o600,
+`)), 0o600,
 	))
 
 	chatID, _ := f.spawn(t, "codex")
@@ -2140,7 +2141,7 @@ func TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) 
 func writeCatalogDescriptor(t *testing.T, f testFixture, command string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(fmt.Sprintf(`
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(fmt.Sprintf(`
 id: codex
 spawn:
   cmd: %s
@@ -2173,7 +2174,7 @@ presentation:
         label: "{name}"
         insert_text: "${name} "
         source: "test"
-`, command)), 0o600,
+`, command))), 0o600,
 	))
 }
 
@@ -2734,7 +2735,7 @@ func TestSubmitPrompt_RefusesAProviderWithNoDeclaredDelivery(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(`
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(`
 id: codex
 spawn:
   cmd: /usr/bin/true
@@ -2752,7 +2753,7 @@ runtime:
   transport: hooks
   hooks:
     format: json
-`), 0o600,
+`)), 0o600,
 	))
 	chatID, _ := f.spawn(t, "codex")
 
@@ -5059,6 +5060,106 @@ func TestResumeLadder_AResumeTheCLIRefusesIsQuarantined(t *testing.T) {
 	assert.Contains(t, strings.Join(argv, "\x00"), "before the corruption")
 }
 
+// The prompt a refused resume carried was never read by its CLI, so the daemon
+// delivers it again on the next rung — the user never retries by hand.
+func TestResumeLadder_ARefusedResumesPromptIsDeliveredOnTheTranscriptRung(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-refused")
+	turn(t, f, runnerID, "claude", "what came before")
+	requestID := uuid.NewString()
+
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "carry on", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
+	calls := f.term.callCount()
+	f.term.exit(t, result.TerminalSessionID) // refuses: dies before any session_start
+
+	var argv []string
+	require.Eventually(t, func() bool {
+		for i := f.term.callCount() - 1; i >= calls; i-- {
+			if call := f.term.call(i); slices.Contains(call.argv, "carry on") {
+				argv = call.argv
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, time.Millisecond, "the refused prompt is delivered again")
+	assert.NotContains(t, argv, "--resume", "never the refused session again")
+	assert.Contains(t, strings.Join(argv, "\x00"), "what came before", "handed the conversation so far")
+	require.Eventually(t, func() bool {
+		return agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).Rung == domain.AgentRungTranscript
+	}, 5*time.Second, time.Millisecond, "the chat says which rung it continued on")
+}
+
+// A resumed CLI Crowbar stops before it announces anything did not refuse its
+// session: the chat says it was stopped, and the next revive resumes it.
+func TestResumeLadder_AResumeStoppedBeforeItSpeaksIsNotARefusal(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-kept")
+	turn(t, f, runnerID, "claude", "an answer")
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.term.exit(t, result.TerminalSessionID) // the stopped CLI goes
+	f.wait()
+	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	assert.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"),
+		"a session nobody refused is never quarantined")
+}
+
+// A resumed CLI that reported anything at all accepted its session, even one
+// that never re-announces it: its later exit is an exit, not a refusal.
+func TestResumeLadder_AResumedCLIThatSpokeDidNotRefuse(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-kept")
+	turn(t, f, runnerID, "claude", "an answer")
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "next"})))
+	f.wait()
+
+	f.term.exit(t, result.TerminalSessionID)
+	f.wait()
+
+	assert.NotEqual(t, domain.AgentExitResumeFailed,
+		agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	assert.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+}
+
+// A replacement that cannot start leaves the chat dormant saying so — never a
+// silent dormancy, and never the "displaced" of the runner it replaced.
+func TestSessionExit_AReplacementThatCannotStartRecordsSpawnFailed(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-before")
+	turn(t, f, runnerID, "claude", "an answer")
+	f.term.err = errors.New("pty: out of descriptors")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	require.Error(t, err)
+
+	_, err = f.liveRunnerFor(t, chatID)
+	require.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.Equal(t, domain.AgentExitSpawnFailed, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+}
+
 // A /clear takes the CLI to a new conversation: the chat it left says so.
 func TestSessionExit_AClearRecordsMovedOnTheChatLeftBehind(t *testing.T) {
 	f := newFixture(t)
@@ -5119,7 +5220,19 @@ var sessionOps = []sessionOp{
 	}},
 	{"stop", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
-		_ = f.usecase.StopChat(f.ctx, w.chatID)
+		// S4: Stop is bounded and leaves no turn open.
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+			_ = f.usecase.StopChat(f.ctx, w.chatID)
+		}()
+		select {
+		case <-stopped:
+		case <-time.After(10 * time.Second):
+			t.Fatal("S4: Stop did not return")
+		}
+		f.wait()
+		assert.False(t, f.chat(t, w.chatID).Working, "S4: a stopped chat is left working")
 	}},
 	{"switch", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
@@ -5146,6 +5259,15 @@ var sessionOps = []sessionOp{
 		if r, ok := w.live(t, f); ok {
 			w.sessions++
 			f.announce(t, r.ID, fmt.Sprintf("walk-%s-%d", w.chatID[:8], w.sessions))
+		}
+	}},
+	{"prompt", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		// A turn the CLI opened and has not finished: whatever comes next must close it.
+		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
+			payload := map[string]any{"prompt": "typed in the terminal"}
+			f.withTrackedSession(r.ID, payload)
+			require.NoError(t, f.usecase.IngestHook(f.ctx, r.ID, r.ProviderID, "user_prompt", mustJSON(t, payload)))
 		}
 	}},
 	{"turn", func(t *testing.T, f testFixture, w *sessionWalk) {
@@ -5191,9 +5313,61 @@ func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail [
 		assert.Equal(t, 1, n, "S1 session %s, after %v", session, trail)
 	}
 	// S2: a chat with no runner says why its last one ended.
+	// S3: and has no turn left open — nothing is left that could close it.
 	if _, ok := w.live(t, f); !ok {
 		assert.NotEmpty(t, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID).ExitReason,
 			"S2, after %v", trail)
+		assert.False(t, f.chat(t, w.chatID).Working, "S3, after %v", trail)
+	}
+}
+
+// concurrentOps are the user's own intents, which really do race each other
+// from different tabs and clients.
+var concurrentOps = []string{"send", "stop", "switch", "resume", "crash"}
+
+func sessionOpNamed(name string) sessionOp {
+	for _, op := range sessionOps {
+		if op.name == name {
+			return op
+		}
+	}
+	panic("no session op " + name)
+}
+
+// Two intents at once — a send racing a stop, a switch racing a resume — leave
+// the same invariants standing. Run under -race.
+func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
+	for seed := uint64(1); seed <= 10; seed++ {
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			f := newFixture(t)
+			agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+			rng := rand.New(rand.NewPCG(seed, seed))
+			w := &sessionWalk{provider: "claude"}
+			var runnerID string
+			w.chatID, runnerID = f.spawn(t, w.provider)
+			f.announce(t, runnerID, "race-"+w.chatID[:8])
+			var trail []string
+			for range 20 {
+				a := sessionOpNamed(concurrentOps[rng.IntN(len(concurrentOps))])
+				b := sessionOpNamed(concurrentOps[rng.IntN(len(concurrentOps))])
+				trail = append(trail, a.name+"|"+b.name)
+				// Each goroutine reads its own copy: a switch flips the walk's provider.
+				wa, wb := *w, *w
+				var both sync.WaitGroup
+				both.Add(2)
+				go func() { defer both.Done(); a.do(t, f, &wa) }()
+				go func() { defer both.Done(); b.do(t, f, &wb) }()
+				both.Wait()
+				f.wait()
+				if live, ok := w.live(t, f); ok {
+					w.provider = live.ProviderID
+				}
+				checkSessionInvariants(t, f, w, trail)
+				if t.Failed() {
+					return
+				}
+			}
+		})
 	}
 }
 

@@ -112,7 +112,7 @@ func (w *Turns) Begin(
 func (w *Turns) Complete(
 	runnerID string,
 ) {
-	if runnerID == "" {
+	if w == nil || runnerID == "" {
 		return
 	}
 
@@ -167,6 +167,17 @@ func (w *Turns) Watch(chatID string) (bool, <-chan struct{}) {
 		}
 	}
 	return open, w.changedLocked(chatID)
+}
+
+// Forget wakes every watcher of chatID and drops its signal: the chat is being
+// erased. Its runners' turns are completed by their own exits.
+func (w *Turns) Forget(chatID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if ch, ok := w.changed[chatID]; ok {
+		close(ch)
+		delete(w.changed, chatID)
+	}
 }
 
 // Work is the process-local mirror of the authoritative aggregate
@@ -228,4 +239,15 @@ func (w *Work) Observe(chatID string) (working, known bool, changed <-chan struc
 
 	state := w.stateLocked(chatID)
 	return state.working, state.known, state.changed
+}
+
+// Forget wakes every waiter on chatID and drops its state: the chat is being
+// erased, and a later read starts from unknown again.
+func (w *Work) Forget(chatID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if state, ok := w.states[chatID]; ok {
+		close(state.changed)
+		delete(w.states, chatID)
+	}
 }

@@ -48,6 +48,9 @@ type Conversations interface {
 // turn only this package can release, so a hook that waited on it would deadlock
 // against the very switch waiting on the hook.
 type Runners interface {
+	// ConfirmLaunch records that runnerID's CLI reported something: whatever
+	// session it was launched to resume, it accepted.
+	ConfirmLaunch(runnerID string)
 	// HandleSessionStart applies the placement a CLI has already performed: a
 	// /clear or /resume inside the TUI moves the runner, and Crowbar is told after
 	// the fact.
@@ -57,13 +60,14 @@ type Runners interface {
 		ev engineagents.CanonicalEvent,
 	) error
 	// ConfirmPromptAccepted closes the at-most-once journal entry for a React
-	// submission the CLI has now echoed back as its own user prompt.
+	// submission the CLI has now echoed back as its own user prompt, and
+	// returns that submission's request id ("" when it was none of Crowbar's).
 	ConfirmPromptAccepted(
 		ctx context.Context,
 		chat domain.Chat,
 		runner engineagents.Runner,
 		message string,
-	) error
+	) (string, error)
 	// ReconcilePendingPromptFromLedger settles a delivery whose outcome the journal
 	// could not observe, using what the chat's ledger now shows.
 	ReconcilePendingPromptFromLedger(

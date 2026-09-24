@@ -85,7 +85,10 @@ func (rs *Runners) spawnRunner(
 	launchSessionID string,
 	create bool,
 	promptMessage string,
-) (string, error) {
+) (_ string, err error) {
+	if !create {
+		defer rs.noteSpawnFailure(ctx, chatID, &err)
+	}
 	pre, err := rs.spawnPreflight(ctx, chatID, providerID, create)
 	if err != nil {
 		return "", err
@@ -178,6 +181,13 @@ func (rs *Runners) spawnRunner(
 		rs.agents.RecordInjection(runnerID, tctx.Context, tctx.ContextPointer)
 	}
 
+	// The startup barrier opens before anything can report: an api connection
+	// announces its session the moment it is established, long before the
+	// runner row exists, and that announcement is what makes it resumable.
+	if err := rs.pendingHooks.Register(runnerID); err != nil {
+		rs.agents.ForgetRunner(runnerID)
+		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
+	}
 	// The surface this process lands on, recorded before anything can ask
 	// (ShowingNativeView reads it).
 	rs.surfaces.set(runnerID, surfaceForSpawn(descriptor, pre.surface))
@@ -201,6 +211,7 @@ func (rs *Runners) spawnRunner(
 		// Same for the connection just established: onRunnerExit's own drop fires
 		// from a PTY dying, and this spawn never gets one.
 		rs.apiConns.drop(runnerID)
+		rs.pendingHooks.Discard(runnerID)
 		rs.agents.ForgetRunner(runnerID)
 		return "", fmt.Errorf("agent: spawn runner: build spawn plan: %w", err)
 	}
@@ -280,11 +291,6 @@ func (rs *Runners) forkCLI(
 	ctx context.Context,
 	req forkRequest,
 ) (string, error) {
-	if err := rs.pendingHooks.Register(req.runnerID); err != nil {
-		rs.agents.ForgetRunner(req.runnerID)
-		worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
-		return "", fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
-	}
 	termSessID, err := rs.term.CreateCommand(ctx, req.chatID, req.worktree, req.argv, req.env,
 		rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir))
 	if err == nil {

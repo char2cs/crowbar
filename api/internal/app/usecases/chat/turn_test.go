@@ -2820,3 +2820,33 @@ func TestRegression_CodexAutoCompactionMidPromptDoesNotSettleTheRealDelivery(t *
 	require.True(t, agentusecase.HasPendingDelivery(f.usecase.RunnerUsecase, f.ctx, chatID),
 		"compact_post must not settle it either")
 }
+
+// The user turn a Crowbar-dispatched prompt produces carries that dispatch's
+// own request id, so a client confirms its queued prompt by identity rather
+// than by comparing text the CLI may have reshaped.
+func TestUserTurn_ADispatchedPromptIsRecordedUnderItsRequestID(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-1")
+	turn(t, f, runnerID, "claude", "an earlier answer")
+	requestID := uuid.NewString()
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "the dispatched prompt", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "the dispatched prompt", "session_id": "sid-1"})))
+	f.wait()
+
+	page, err := f.usecase.ReadMessages(f.ctx, chatID, 0, 0, 100)
+	require.NoError(t, err)
+	var ids []string
+	for _, item := range page.Items {
+		if item.Role == "user" && item.Text == "the dispatched prompt" {
+			ids = append(ids, item.ID)
+		}
+	}
+	assert.Equal(t, []string{requestID}, ids)
+}

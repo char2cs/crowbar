@@ -26,6 +26,25 @@ func TestHooks_UnregisteredRunnerIsNotHandled(t *testing.T) {
 	}
 }
 
+// An api connection's event keeps its channel (and an ask its answer slot)
+// through the buffer: replayed as a hook, an api-shaped payload is unreadable.
+func TestHooks_AnAPIEventReplaysAsOne(t *testing.T) {
+	t.Parallel()
+
+	p := pending.New()
+	if err := p.Register("runner-1"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if handled, err := p.EnqueueAPI("runner-1", "codex", "permission", []byte(`{}`), "runner-1:01"); !handled || err != nil {
+		t.Fatalf("EnqueueAPI = (handled=%v, err=%v), want (true, nil)", handled, err)
+	}
+
+	got, _ := drain(p, "runner-1")
+	if len(got) != 1 || !got[0].API || got[0].AskDeliveryID != "runner-1:01" {
+		t.Fatalf("replayed %+v, want one api hook with its ask slot", got)
+	}
+}
+
 func TestHooks_ReplaysInArrivalOrder(t *testing.T) {
 	t.Parallel()
 

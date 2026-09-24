@@ -75,6 +75,24 @@ the chat on the `forgotten` event. Remaining leaks found: none new beyond the
 `Set(false)`); the new supervisor state (`sessions`) is deleted on purge and
 tested (§5).
 
+### 1.7 Found while proving it (Phase 4)
+
+Each has a failing test first; **(live)** marks ones only the real CLIs showed.
+
+| # | Mechanism | Fix |
+|---|---|---|
+| P1 | A native (api) codex turn whose `turn/completed` never came was never closed by the provider's idle report: termwait skipped runners without a PTY. | termwait consults the idle report for every runner. |
+| P2 | The idle-report close left `inflight.Turns` open, so the chat stayed busy for every later send. | `AbandonMessage` completes the in-flight turn. |
+| P3 | A refused resume's prompt was written off. | Redelivered on the transcript rung (same request id). |
+| P4 | A replacement that could not start left a silent dormancy. | `spawn_failed` exit reason. |
+| P5 | codex's thread announcement at startup was dropped before the runner row existed, so codex never resumed natively. | The startup barrier also buffers api events. |
+| P6 | Switching back from the terminal / Stop while in the terminal deadlocked on the spawn gate (exit callback ran inside the gated teardown). | The exit callback runs as tracked background work taking the gate itself. |
+| P7 **(live)** | SIGKILLing `codex app-server` leaves its thread's writer lease, so the next one was refused the thread and every stop silently forked a new codex session. | SIGTERM, bounded wait for the reap, then kill. |
+| P8 **(live)** | A resumed CLI that Crowbar stopped, or that had already reported hooks, was read as refusing its resume and the session quarantined. | Any ingested hook confirms the launch; an exit Crowbar caused never counts. |
+| P9 **(live)** | A turn_stop waiting for its final `message_delta` held the runner's hook gate the delta needed: always a 3 s stall and a duplicate assistant row. | The wait steps out of the gate. |
+| P10 **(live)** | claude's first-run screens (theme, login method) were not recognised as blocking; a parent Claude Code session's identity env leaked into spawned CLIs; hook commands broke under a home path with a space. | Needles, `env.clear`, shell quoting. |
+| P11 | The web queue confirmed a delivered prompt by comparing text. | The user turn is recorded under the prompt's clientRequestId; the queue matches by id. |
+
 ## 2. Target design
 
 ### 2.1 One supervisor per chat, on the daemon
@@ -216,13 +234,20 @@ the composer (send revives), on the terminal surface a "Start session" button.
   launch with a session-layer `-c`, nothing persisted.
 
 ### 6.2 Out of scope here
-- Server-side prompt queue (busy barrier, `samePrompt`) — tracked in §7-A;
-  the supervisor's intents are the seam it plugs into.
+- Server-side prompt queue. `samePrompt` now matches by request id (P11).
+  The busy-barrier recheck and the ledger poll remain: "busy" has sources the
+  pushed snapshot does not carry (a pending journal delivery, in-flight turn
+  lag, a runner being replaced), and ledger rows are not pushed. Removing
+  either needs those facts on the snapshot first.
 
 ### 6.3 Offline real-binary harness
-Both CLIs accept a custom endpoint: codex via
-`-c model_provider=… model_providers.<id>.base_url=…`, claude via
-`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`. A 100-line fake server that
-speaks the Responses and Messages SSE shapes drives a complete real turn with
-hooks firing — used by the conformance harness's `--live` mode when no
-credentials are present.
+Both CLIs accept a custom endpoint: codex via a `config.toml`
+`[model_providers.<id>]` with `base_url` and `env_key`, claude via
+`ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` (the key pre-approved and
+onboarding marked done in its `.claude.json`). The stand-in server
+(`api/tests/integration/scripted/livemodel_test.go`) speaks the Responses and
+Messages SSE shapes and drives complete real turns with hooks firing. It
+backs the scripted suite's live mode (`SCRIPTED_LIVE=1`), not
+`crowbar descriptor test --live`: that one runs the CLI as the owner has it
+configured, so `--turn` needs real credentials and otherwise stops at the
+login screen, which it reports.

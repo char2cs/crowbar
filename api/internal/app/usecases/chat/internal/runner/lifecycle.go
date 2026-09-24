@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 
@@ -190,19 +191,37 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 		}
 		// Already exited (a double exit is not an error — the row is simply gone).
 		rs.sessions.takeCause(runnerID)
+		rs.sessions.failedProbe(runnerID, 0)
 		return
 	}
-	rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
+	// A CLI that refused its resume never read the prompt its launch carried:
+	// that prompt goes to the next rung instead of being written off.
+	// Only an exit nobody asked for: a CLI Crowbar stopped or replaced was
+	// never given the chance to announce anything.
+	window := resumeProbeWindow
+	if rs.sessions.hasCause(runnerID) {
+		window = 0
+	}
+	refused := rs.sessions.failedProbe(runnerID, window)
+	redeliver, again := agentjournal.PromptRequest{}, false
+	if refused {
+		redeliver, again = rs.refusedDelivery(ctx, runner)
+	} else {
+		rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
+	}
 	if _, err := rs.runnerStore.Exit(ctx, runnerID, time.Now()); err != nil {
 		slog.WarnContext(ctx, "agent: reconcile runner exit: exit runner", "runner_id", runnerID, "err", err)
 		return
 	}
-	rs.noteExit(ctx, runner.CurrentChatID, runnerID)
+	rs.noteExit(ctx, runner.CurrentChatID, runnerID, refused)
 
 	// Close a turn it left open — unless it had already been DISPLACED, in which case its
 	// chat (if it still had a turn to close) was dealt with at displacement time and
 	// CurrentChatID is now empty, meaning nowhere.
 	rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
+	if again {
+		rs.redeliverRefused(ctx, runner.CurrentChatID, redeliver)
+	}
 }
 
 func (rs *Runners) RetireChatRunners(
@@ -218,7 +237,13 @@ func (rs *Runners) RetireChatRunners(
 	for _, r := range placed {
 		rs.retire(ctx, r)
 	}
-	rs.sessions.forget(chatID) // the chat is being erased (A7)
+	// The chat is being erased (A7): nothing held in memory for it survives.
+	rs.sessions.forget(chatID)
+	rs.work.Forget(chatID)
+	rs.inflightTurns.Forget(chatID)
+	if rs.turns != nil {
+		rs.turns.ForgetChat(chatID)
+	}
 }
 
 func (rs *Runners) reapCrashOrphanRunnerTmp(

@@ -83,20 +83,11 @@ func (rs *Runners) forkOrAdopt(
 	return termSessID, carried, err
 }
 
-// adoptAPIConn is forkCLI for a spawn with no PTY: it installs the same
-// startup barrier, and arms the same exit reconcile against the `serve`
-// process instead of a terminal session.
-//
-// The barrier is not optional here. pumpAPIConn's goroutine is already running
-// by the time this is reached, and every event it resolves lands in the SAME
-// IngestHook the hook relay uses — so without it, an api-transport event that
-// arrives before the runner row commits is dropped by ingestHookNow's
-// unknown-runner guard exactly as a hook would be.
+// adoptAPIConn is forkCLI for a spawn with no PTY: it arms the same exit
+// reconcile against the `serve` process instead of a terminal session. The
+// startup barrier spawnRunner opened before the connection holds every event
+// the connection delivers until the runner row commits.
 func (rs *Runners) adoptAPIConn(ctx context.Context, req forkRequest) error {
-	if err := rs.pendingHooks.Register(req.runnerID); err != nil {
-		rs.abandonAdoptedSpawn(ctx, req)
-		return fmt.Errorf("agent: spawn runner: install hook startup barrier: %w", err)
-	}
 	if !rs.apiConns.watchExit(req.runnerID, rs.onRunnerExit(req.crowbarHome, req.runnerID, req.tmpDir)) {
 		rs.pendingHooks.Discard(req.runnerID)
 		rs.abandonAdoptedSpawn(ctx, req)
@@ -163,11 +154,11 @@ func (rs *Runners) handOverAPIConn(runnerID string) {
 // SwitchToTerminal and the matching SwitchToNative, while every other runner
 // is its own PTY. This is the one place that asks which, so no teardown path
 // has to know.
-func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
+func (rs *Runners) runnerHasAnotherProcess(ctx context.Context, runnerID string) bool {
 	if rs.ShowingNativeView(runnerID) || rs.HasLiveAPIConnection(runnerID) {
 		return true
 	}
-	runner, err := rs.runnerStore.Get(context.Background(), runnerID)
+	runner, err := rs.runnerStore.Get(ctx, runnerID)
 	return err == nil && runner.TerminalSession != ""
 }
 
@@ -179,11 +170,13 @@ func (rs *Runners) runnerHasAnotherProcess(runnerID string) bool {
 // answerable once whatever is mid-teardown (or mid-re-establish) has
 // finished. Taking the gate here instead would deadlock SwitchToNative, which
 // holds it across exactly that window.
-func (rs *Runners) exitProcesslessRunner(runnerID string) {
-	if rs.runnerHasAnotherProcess(runnerID) {
+func (rs *Runners) exitProcesslessRunner(ctx context.Context, runnerID string) {
+	// The exit is reconciled in full even if the request that noticed it ends.
+	ctx = context.WithoutCancel(ctx)
+	if rs.runnerHasAnotherProcess(ctx, runnerID) {
 		return
 	}
-	rs.reconcileRunnerExit(context.Background(), runnerID)
+	rs.reconcileRunnerExit(ctx, runnerID)
 }
 
 // rearmAPIConnExit points a PTY-less runner's exit signal back at the
@@ -214,11 +207,11 @@ func (rs *Runners) rearmAPIConnExit(runnerID string, tctx engineagents.TemplateC
 // that this spawn has no liveness signal at all and must not be recorded.
 func (r *apiConnRegistry) watchExit(runnerID string, onExit func()) bool {
 	c, ok := r.get(runnerID)
-	if !ok || c.serveCmd == nil || c.serveCmd.Process == nil {
+	if !ok || c.serve == nil {
 		return false
 	}
 	go func() {
-		_ = c.serveCmd.Wait()
+		<-c.serve.exited
 		if c.handedOver.Load() {
 			return // another process took this runner over — see handOverAPIConn
 		}

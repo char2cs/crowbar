@@ -65,7 +65,7 @@ func writeStubProviderDescriptor(
 	t.Helper()
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "stub.yaml"), []byte(stubProviderDescriptorYAML), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stub.yaml"), []byte(stubDescriptor(stubProviderDescriptorYAML)), 0o644))
 }
 
 // agentChatDTO mirrors the wire shape of dto.AgentChatDTO.

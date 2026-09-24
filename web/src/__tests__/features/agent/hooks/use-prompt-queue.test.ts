@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AgentChatMessage } from '@/features/agent/api/agent-api'
 import {
   hasPendingImageUpload,
   usePromptQueue,
@@ -453,5 +454,47 @@ describe('usePromptQueue staged selection', () => {
     })
 
     expect(onSelectionCommitted).not.toHaveBeenCalled()
+  })
+})
+
+// The daemon names the user turn a dispatched prompt produced by that prompt's
+// clientRequestId, so the ledger row is recognised by identity: the CLI may
+// reshape the text, and the same words may be sent twice.
+describe('usePromptQueue confirming a delivery', () => {
+  beforeEach(() => {
+    submitAgentPrompt.mockReset()
+    submitAgentPrompt.mockResolvedValue({ runnerId: 'r1' })
+    getPendingPrompt.mockReset()
+    getPendingPrompt.mockResolvedValue(null)
+    localStorage.clear()
+  })
+
+  function userRow(turnId: string, text: string, sequence = 1): AgentChatMessage {
+    return { turnId, sequence, role: 'user', providerId: 'claude', text, at: '' }
+  }
+
+  async function delivered() {
+    const hook = mount(options())
+    await act(async () => {
+      hook.result.current.enqueue('continue')
+    })
+    expect(hook.result.current.queue[0]?.state).toBe('awaiting_turn')
+    return { ...hook, requestId: submitAgentPrompt.mock.calls[0]?.[3] as string }
+  }
+
+  it('retires the prompt on the row named by its request id, whatever its text', async () => {
+    const { result, requestId } = await delivered()
+
+    act(() => result.current.reconcile([userRow(requestId, 'continue\n\n[attachment restored]')]))
+
+    expect(result.current.queue).toEqual([])
+  })
+
+  it('does not retire it on another row that merely says the same words', async () => {
+    const { result } = await delivered()
+
+    act(() => result.current.reconcile([userRow('another-turn', 'continue')]))
+
+    expect(result.current.queue.map((item) => item.state)).toEqual(['awaiting_turn'])
   })
 })

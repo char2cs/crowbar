@@ -111,6 +111,8 @@ type Runners struct {
 	// sessions is the supervisor's record of why each chat is in its state.
 	sessions  *sessionBook
 	snapshots Snapshotter
+	// background is the supervisor's own follow-up work; Shutdown ends it.
+	background *backgroundWork
 
 	// switchAwaitTimeout overrides forceSwitchAfter's bound. Zero (the production
 	// default) means "use termwait.DefaultStallQuiet" — see SetSwitchAwaitTimeout.
@@ -181,6 +183,7 @@ func New(d Deps) *Runners {
 		phases:       newPhases(),
 		sessions:     newSessionBook(),
 		snapshots:    d.Snapshots,
+		background:   newBackgroundWork(),
 
 		conversations: d.Conversations,
 		providers:     d.Providers,

@@ -52,6 +52,7 @@ type stubTurns struct{}
 func (stubTurns) IngestHook(context.Context, string, string, string, []byte) error { return nil }
 
 func (stubTurns) ReplayStartupHook(string, inflight.Hook) {}
+func (stubTurns) ForgetChat(string)                       {}
 
 func (stubTurns) AwaitTurnComplete(context.Context, string) error { return nil }
 

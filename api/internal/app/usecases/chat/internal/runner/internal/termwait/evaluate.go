@@ -13,13 +13,18 @@ func (d *detector) evaluate(
 	runner agents.Runner,
 	prev screenCache,
 ) (domain.AgentTerminalWait, screenCache, bool) {
-	if runner.TerminalSession == "" {
-		return domain.AgentTerminalWait{}, screenCache{}, false
-	}
-
 	chat, err := d.deps.Chats.GetChat(ctx, runner.CurrentChatID)
 	if err != nil {
 		return domain.AgentTerminalWait{}, prev, false
+	}
+
+	// An api-channel runner has no screen; only the provider's own idle report
+	// can tell it a turn will never close.
+	if runner.TerminalSession == "" {
+		if chat.Working {
+			d.providerSaysItIsIdle(ctx, runner)
+		}
+		return domain.AgentTerminalWait{}, screenCache{}, false
 	}
 
 	if chat.Working {

@@ -3,13 +3,14 @@
 package tests
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/char2cs/crowbar/api/tests/kit"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
@@ -69,7 +70,7 @@ func writeCwdStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "cwdstub.yaml"), []byte(cwdStubProviderDescriptorYAML), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cwdstub.yaml"), []byte(stubDescriptor(cwdStubProviderDescriptorYAML)), 0o644))
 }
 
 // createChatWithProvider creates a chat with an explicit provider, optional
@@ -138,29 +139,27 @@ func readSpawnCwd(
 // process printed right after the marker, trimmed of any row padding a full
 // grid redraw adds.
 //
-// It carries no read deadline, like readTerminalUntil: the PTY output IS the
-// signal, and a value that never arrives is a hang `go test -timeout` reports
-// against this exact read, not a flaky timeout.
+// Bounded like readTerminalUntil: a value that never arrives fails this test
+// instead of hanging the package.
 func readMarkedValue(
 	t *testing.T,
 	conn *websocket.Conn,
 	marker string,
 ) string {
 	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(terminalReadBound)))
 	var buf strings.Builder
 	for {
 		mt, raw, err := conn.ReadMessage()
-		require.NoError(t, err, "PTY ws closed before the marked value arrived")
-		if mt != websocket.TextMessage {
+		require.NoError(t, err, "the marked value %q never arrived", marker)
+		if mt != websocket.BinaryMessage {
 			continue
 		}
-		var msg struct {
-			Data string `json:"data"`
-		}
-		if json.Unmarshal(raw, &msg) != nil {
+		data, _, ok := kit.ParseTerminalFrame(raw)
+		if !ok {
 			continue
 		}
-		buf.WriteString(msg.Data)
+		buf.Write(data)
 		if value, ok := valueAfterMarker(buf.String(), marker); ok {
 			return value
 		}

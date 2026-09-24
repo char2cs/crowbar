@@ -1446,3 +1446,19 @@ func TestDetector_Run_ParksWhileNoRunnerIsLiveAndWakesOnDemand(t *testing.T) {
 	require.Eventually(t, func() bool { return r.runners.callCount() > 3 }, 5*time.Second, time.Millisecond,
 		"a live runner resumes the cadence")
 }
+
+// The idle report arrives over the api channel, and an api-channel runner has
+// no PTY: the authoritative close must not depend on a screen it never has.
+func TestProviderIdle_ClosesAnAPIRunnersTurnWithNoPTY(t *testing.T) {
+	r := newRig(t)
+	r.runners.live[0].TerminalSession = ""
+	r.runners.live[0].ProviderID = "codex"
+	r.chats.byID[chatID] = domain.Chat{ID: chatID, WorkspaceID: wsID, Working: true}
+	r.idle.arm(r.clock.Now())
+
+	r.clock.advance(termwait.DefaultIdleQuiet + time.Second)
+	r.sweep()
+
+	assert.Equal(t, 1, r.msgs.count(), "a PTY-less runner's idle report still closes the turn")
+	assert.False(t, r.detector.Wait(chatID).Waiting, "a runner with no screen is never waiting on one")
+}

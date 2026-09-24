@@ -312,6 +312,16 @@ spawn:
       - CLAUDE_CODE_REMOTE_SESSION_ID
       - CLAUDE_CODE_ENTRYPOINT
       - CLAUDE_PID
+      # The parent session's peer channel and account identity (verified on
+      # 2.1.281: inherited, the child wrote the parent user's email into its
+      # own system prompt and could reach the parent's messaging socket).
+      - CLAUDE_CODE_MESSAGING_SOCKET
+      - CLAUDE_CODE_MESSAGING_TOKEN
+      - CLAUDE_CODE_USER_EMAIL
+      - CLAUDE_CODE_ACCOUNT_UUID
+      - CLAUDE_CODE_ORGANIZATION_UUID
+      - CLAUDE_CODE_SESSION_ATTENDED
+      - CLAUDE_SESSION_INGRESS_TOKEN_FILE
 session:
   resume: { arg: "--resume {id}" }
   # Checked before any resume: a pruned or never-written transcript makes
@@ -503,6 +513,11 @@ terminal_prompts:
   # Footer every claude selection modal paints. Unkinded: a match only
   # justifies "something is blocking".
   - needle: "Enter to confirm"
+  # First-run onboarding, painted before any hook by a claude never set up on
+  # this machine (verified on 2.1.281 with an empty CLAUDE_CONFIG_DIR): the
+  # theme picker, then the login method. Neither paints the footer above.
+  - needle: "Choose the text style that looks best with your terminal"
+  - needle: "Select login method"
 # NO terminal_notices, no SCREEN idle needle — both measured: no notice-shaped
 # message has been captured, and the footer hint is mode/model-dependent while
 # generating, so there is nothing on the PTY to read as idle. The idle: event

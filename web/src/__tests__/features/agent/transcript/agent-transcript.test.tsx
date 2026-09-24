@@ -1064,13 +1064,13 @@ describe('AgentTranscript: pinning the turn a prompt actually started', () => {
     )
     expect(pinTurnToTopCalls).toHaveLength(1)
 
-    // Settled: the queue drains to empty, but a matching user message (same
-    // text, a real sequence past the prompt's baseline) is now present.
+    // Settled: the queue drains to empty, and the user message named by its
+    // request id is now present.
     rerender(
       <AgentTranscript
         messages={[
           {
-            turnId: 't1',
+            turnId: item.clientRequestId,
             sequence: 1,
             role: 'user',
             providerId: '',
@@ -1470,7 +1470,7 @@ describe('AgentTranscript: priming a settling row from its queued height', () =>
       // The daemon confirms delivery: the queued row is gone, and the
       // matching user message has landed in the ledger.
       const message: AgentChatMessage = {
-        turnId: 't1',
+        turnId: 'req-1',
         sequence: 1,
         role: 'user',
         providerId: '',

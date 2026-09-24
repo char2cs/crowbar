@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"os/exec"
 	"sync"
 	"sync/atomic"
 
@@ -27,8 +26,8 @@ import (
 )
 
 type apiconn struct {
-	serveCmd *exec.Cmd
-	driver   *engineagents.APIConn
+	serve  *serveProcess
+	driver *engineagents.APIConn
 	// ctx/cancel are the connection's OWN lifetime, deliberately NOT derived
 	// from whatever request's ctx happened to trigger the spawn. pumpAPIConn's
 	// goroutine outlives that request by design — codex's reply to THIS
@@ -36,7 +35,7 @@ type apiconn struct {
 	// returned — and a request-scoped ctx is cancelled the instant that call
 	// completes, silently failing every IngestHook call after with "context
 	// canceled" and making the reply vanish. cancel is called from drop, the
-	// same place serveCmd is killed, so nothing outlives the connection either.
+	// same place serve is killed, so nothing outlives the connection either.
 	ctx    context.Context
 	cancel context.CancelFunc
 	// agent/tctx are this connection's own descriptor and rendered template
@@ -114,9 +113,7 @@ func (r *apiConnRegistry) drop(runnerID string) {
 	if c.driver != nil {
 		_ = c.driver.Close()
 	}
-	if c.serveCmd != nil && c.serveCmd.Process != nil {
-		_ = c.serveCmd.Process.Kill()
-	}
+	c.serve.kill()
 }
 
 // closeAll drops every connection this registry holds. This is the ONLY path
@@ -183,15 +180,15 @@ func (rs *Runners) startAPIConn(
 	// process binding, never a leftover one. A path with nothing there (the
 	// common case, a runner id's first connection) is a silent no-op.
 	_ = os.Remove(tctx.Socket)
-	cmd, err := forkServeProcess(serveArgv)
+	serve, err := forkServeProcess(serveArgv)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: start serve", "err", err, "runner_id", runnerID)
 		return nil, false
 	}
-	if err := waitForSocket(ctx, tctx.Socket); err != nil {
+	if err := waitForSocket(ctx, tctx.Socket, serve.exited); err != nil {
 		slog.WarnContext(ctx, "agent: api transport: serve never opened its socket",
 			"err", err, "runner_id", runnerID)
-		_ = cmd.Process.Kill()
+		serve.kill()
 		return nil, false
 	}
 	// Built BEFORE the driver, and handed to it: a driver that recovers a lost
@@ -201,12 +198,12 @@ func (rs *Runners) startAPIConn(
 	driver, err := agent.StartAPIConn(ctx, tctx.Socket, originated.Claim)
 	if err != nil {
 		slog.WarnContext(ctx, "agent: api transport: handshake", "err", err, "runner_id", runnerID)
-		_ = cmd.Process.Kill()
+		serve.kill()
 		return nil, false
 	}
 	connCtx, cancel := context.WithCancel(context.Background())
 	conn := &apiconn{
-		serveCmd: cmd, driver: driver, ctx: connCtx, cancel: cancel, originated: originated,
+		serve: serve, driver: driver, ctx: connCtx, cancel: cancel, originated: originated,
 	}
 	rs.apiConns.set(runnerID, conn)
 	return conn, true
@@ -373,6 +370,7 @@ func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 // below that. Called once, at daemon shutdown — see ShutdownAPIConnections
 // in the chat usecase and shutdownAgentRunners in app/container.go.
 func (rs *Runners) Shutdown() {
+	rs.background.stop()
 	rs.apiConns.closeAll()
 }
 

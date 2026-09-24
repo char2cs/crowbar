@@ -139,7 +139,7 @@ func (l *live) resumeUnknown(ctx context.Context) Step {
 		}
 		if prompt, ok := l.agent.MatchTerminalPrompt(t.text()); ok {
 			return warn("resume_unknown", fmt.Sprintf(
-				"parked on a %s prompt before resuming; rerun with --cwd set to a directory it trusts", promptName(prompt.Kind)))
+				"parked on a %s prompt before resuming (first-run setup, login or folder trust); log the CLI in once, or rerun with --cwd set to a directory it trusts", promptName(prompt.Kind)))
 		}
 	}
 	return fail("resume_unknown", fmt.Sprintf(

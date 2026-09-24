@@ -72,6 +72,8 @@ func Validate(raw []byte) Report {
 		rep.Findings = append(rep.Findings, sessionRules(doc, d)...)
 		rep.Findings = append(rep.Findings, templateRules(doc, d)...)
 		rep.Findings = append(rep.Findings, channelRules(doc, d)...)
+		rep.Findings = append(rep.Findings, safetyRules(doc, d)...)
+		rep.Findings = append(rep.Findings, lifecycleRules(doc, d)...)
 	}
 	sort.SliceStable(rep.Findings, func(i, j int) bool {
 		return rep.Findings[i].Line < rep.Findings[j].Line

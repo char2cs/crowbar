@@ -9,3 +9,16 @@ runtime:
 spawn:
   cmd: BIN
   interactive_required: true
+events:
+  session_start:
+    required: [session_id]
+    in: thread/started
+    map: { session_id: thread.id }
+  user_prompt:
+    required: [session_id]
+    in: item/started
+    map: { session_id: threadId, message: "item.content[type=text].text" }
+  turn_stop:
+    required: [session_id]
+    in: turn/completed
+    map: { session_id: threadId, message: "turn.items[type=agentMessage].text" }

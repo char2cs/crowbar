@@ -6,6 +6,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -27,6 +28,66 @@ type sessionBook struct {
 	// quarantined is, per chat, the vendor session ids a launch failed to
 	// resume: the ladder never offers them again.
 	quarantined map[string]map[string]struct{}
+}
+
+// backgroundWork is the supervisor's own follow-up work (a refused prompt's
+// redelivery): tracked, so Shutdown cancels it and waits, and none outlives
+// the daemon. A nil one (a bare Runners built by a test) runs untracked.
+type backgroundWork struct {
+	mu      sync.Mutex
+	stopped bool
+	cancels map[*context.CancelFunc]struct{}
+	wg      sync.WaitGroup
+}
+
+func newBackgroundWork() *backgroundWork {
+	return &backgroundWork{cancels: map[*context.CancelFunc]struct{}{}}
+}
+
+// run starts fn with parent's values but the supervisor's lifetime: it
+// outlives the request that asked for it and ends with Shutdown.
+func (b *backgroundWork) run(parent context.Context, fn func(context.Context)) {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	if b == nil {
+		go func() {
+			defer cancel()
+			fn(ctx)
+		}()
+		return
+	}
+	b.mu.Lock()
+	if b.stopped {
+		cancel() // after Shutdown it runs already cancelled, and is still waited for
+	}
+	b.cancels[&cancel] = struct{}{}
+	b.wg.Add(1)
+	b.mu.Unlock()
+	go func() {
+		defer b.wg.Done()
+		defer b.forget(&cancel)
+		fn(ctx)
+	}()
+}
+
+func (b *backgroundWork) forget(cancel *context.CancelFunc) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.cancels, cancel)
+	(*cancel)()
+}
+
+// stop cancels every piece of background work and waits for it to return.
+func (b *backgroundWork) stop() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.stopped = true
+	for cancel := range b.cancels {
+		(*cancel)()
+	}
+	b.mu.Unlock()
+	b.wg.Wait()
 }
 
 type resumeProbe struct {
@@ -68,6 +129,17 @@ func (b *sessionBook) cause(runnerID, reason string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.causes[runnerID] = reason
+}
+
+// hasCause reports whether Crowbar itself is ending runnerID.
+func (b *sessionBook) hasCause(runnerID string) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.causes[runnerID]
+	return ok
 }
 
 // takeCause consumes runnerID's noted cause; "exited" when none was noted.
@@ -145,6 +217,10 @@ func (b *sessionBook) isQuarantined(chatID, sessionID string) bool {
 	return ok
 }
 
+// ConfirmLaunch implements turn.Runners: a CLI that reports anything took
+// the session it was launched on, so its exit can never read as a refusal.
+func (rs *Runners) ConfirmLaunch(runnerID string) { rs.sessions.confirm(runnerID) }
+
 // Session implements snapshot.Runtime.
 func (rs *Runners) Session(chatID string) domain.AgentSession {
 	return rs.sessions.get(chatID)
@@ -158,9 +234,9 @@ func (rs *Runners) noteLaunch(ctx context.Context, chatID, rung string) {
 
 // noteExit records how chatID's runner (runnerID) ended, consuming the cause
 // noted for it. A runner already off its chat (displaced) records nothing.
-func (rs *Runners) noteExit(ctx context.Context, chatID, runnerID string) {
+func (rs *Runners) noteExit(ctx context.Context, chatID, runnerID string, refused bool) {
 	reason := rs.sessions.takeCause(runnerID)
-	if rs.sessions.failedProbe(runnerID, resumeProbeWindow) {
+	if refused {
 		reason = domain.AgentExitResumeFailed
 	}
 	if chatID == "" {
@@ -174,6 +250,19 @@ func (rs *Runners) noteExit(ctx context.Context, chatID, runnerID string) {
 func (rs *Runners) noteChatExit(ctx context.Context, chatID, reason string) {
 	rs.sessions.set(chatID, domain.AgentSession{ExitReason: reason, ExitedAt: time.Now()})
 	rs.touch(ctx, chatID)
+}
+
+// noteSpawnFailure records spawn_failed on a chat a spawn left with no runner.
+// A CLI that died during startup already recorded why through its own exit, and
+// a preempted spawn is the preempting Stop's to record.
+func (rs *Runners) noteSpawnFailure(ctx context.Context, chatID string, err *error) {
+	if *err == nil || errors.Is(*err, ErrProviderExitedDuringStartup) || errors.Is(*err, context.Canceled) {
+		return
+	}
+	if _, liveErr := rs.runnerStore.LiveRunnerForChat(ctx, chatID); liveErr == nil {
+		return
+	}
+	rs.noteChatExit(ctx, chatID, domain.AgentExitSpawnFailed)
 }
 
 // launchRung is how a spawn continues its chat: the provider's own session,

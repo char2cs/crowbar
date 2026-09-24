@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
@@ -19,6 +20,10 @@ import (
 // announced a session: one that dies unannounced within it refused the resume
 // (a vendor CLI exits within a second or two when it cannot load a session).
 const resumeProbeWindow = 30 * time.Second
+
+// redeliverBound caps the next-rung delivery of a refused prompt: the gate
+// wait plus a fresh spawn.
+const redeliverBound = 2 * time.Minute
 
 // verifiedResume keeps sessionID only if the provider can still resume it:
 // not quarantined by an earlier failed launch, and present where the
@@ -77,6 +82,45 @@ func (rs *Runners) spawnRung(runnerID string, resuming bool, conversation string
 		return domain.AgentRungTranscript
 	}
 	return launchRung(resuming, conversation)
+}
+
+// refusedDelivery fails the prompt runner's launch carried, which its CLI
+// provably never read (it refused the resume before announcing a session), and
+// returns it for the next rung.
+func (rs *Runners) refusedDelivery(ctx context.Context, runner engineagents.Runner) (agentjournal.PromptRequest, bool) {
+	dir, err := rs.promptJournalDirFor(runner.CurrentChatID)
+	if err != nil || runner.CurrentChatID == "" {
+		return agentjournal.PromptRequest{}, false
+	}
+	record, found, err := rs.prompts.ActiveForRunner(dir, runner.ID, runner.ProviderID)
+	if err != nil || !found {
+		return agentjournal.PromptRequest{}, false
+	}
+	if err := rs.prompts.MarkRefused(dir, record.RequestID, time.Now()); err != nil {
+		slog.WarnContext(ctx, "agent: resume ladder: fail refused delivery", "chat_id", runner.CurrentChatID, "err", err)
+		return agentjournal.PromptRequest{}, false
+	}
+	return record, true
+}
+
+// redeliverRefused sends a refused launch's prompt again under the same
+// request id. The refused session is quarantined, so the revive this send
+// performs lands on the transcript rung: the conversation continues.
+func (rs *Runners) redeliverRefused(ctx context.Context, chatID string, record agentjournal.PromptRequest) {
+	rs.background.run(ctx, func(ctx context.Context) {
+		ctx, cancel := context.WithTimeout(ctx, redeliverBound)
+		defer cancel()
+		park, release, err := rs.spawns.Acquire(ctx, chatID)
+		if err != nil {
+			return // a Stop or delete preempted it: the prompt stays failed, retryable
+		}
+		defer release()
+		revive := func() error { return rs.reviveForDelivery(ctx, park, chatID) }
+		if _, err := rs.submitPromptLocked(ctx, chatID, record.Text, record.RequestID, revive); err != nil {
+			slog.WarnContext(ctx, "agent: resume ladder: redeliver refused prompt",
+				"chat_id", chatID, "client_request_id", record.RequestID, "err", err)
+		}
+	})
 }
 
 // watchResume arms the probe that catches a resume the provider refuses at

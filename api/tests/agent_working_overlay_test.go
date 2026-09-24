@@ -42,7 +42,7 @@ func writeLiveStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "livestub.yaml"), []byte(liveStubProviderDescriptorYAML), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "livestub.yaml"), []byte(stubDescriptor(liveStubProviderDescriptorYAML)), 0o644))
 }
 
 // requireRESTWorking asserts that BOTH REST read paths — the repo-scoped chat
