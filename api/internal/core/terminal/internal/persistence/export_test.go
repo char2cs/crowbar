@@ -9,7 +9,7 @@ import (
 // none. Production restores scrollback through the session snapshot; only the
 // tests read the raw file back.
 func ReadBuf(dir, sessionID string) ([]byte, error) {
-	data, err := os.ReadFile(filepath.Join(dir, sessionID+".buf")) //nolint:gosec // G304: test-controlled temp dir
+	data, err := os.ReadFile(filepath.Join(dir, sessionID+".buf"))
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
