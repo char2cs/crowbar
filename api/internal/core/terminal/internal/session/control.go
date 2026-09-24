@@ -284,11 +284,12 @@ func (s *Session) shutdown() {
 		if s.model != nil {
 			s.model.Close()
 		}
+		// Done first: a client that sees its channel close asks Done whether we exited.
+		close(s.done)
 		for cl := range s.clients {
 			close(cl.send)
 		}
 		s.clients = make(map[*client]struct{})
-		close(s.done)
 	})
 }
 
