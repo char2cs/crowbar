@@ -4,13 +4,15 @@ import type { Loadable } from '@/lib/loadable'
 import type { Repo } from '@/lib/store/sidebar'
 import type { Project } from '@/lib/types'
 
-const { hydrateSidebar, hydrateWindowPaneLayout } = vi.hoisted(() => ({
+const { hydrateSidebar, hydrateWindowPaneLayout, placeRestoredChatMembers } = vi.hoisted(() => ({
   hydrateSidebar: vi.fn().mockResolvedValue(undefined),
   hydrateWindowPaneLayout: vi.fn().mockResolvedValue(undefined),
+  placeRestoredChatMembers: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/lib/persistence/hydrate', () => ({
   hydrateSidebar,
   hydrateWindowPaneLayout,
+  placeRestoredChatMembers,
 }))
 
 const {
@@ -81,6 +83,23 @@ describe('hydrateCriticalStores', () => {
     await hydrateCriticalStores()
 
     expect(hydrateWindowPaneLayout).toHaveBeenCalledTimes(1)
+  })
+
+  // The daemon placement of restored members is network: started once the
+  // layout is in the store, never awaited before first paint.
+  it('starts placing restored chat members after the layout, without awaiting it', async () => {
+    const order: string[] = []
+    hydrateWindowPaneLayout.mockImplementation(async () => {
+      order.push('layout')
+    })
+    placeRestoredChatMembers.mockImplementation(() => {
+      order.push('place')
+      return new Promise<void>(() => {})
+    })
+
+    await hydrateCriticalStores()
+
+    expect(order).toEqual(['layout', 'place'])
   })
 
   it('sets repos from the workspace-list fetch before hydrating the sidebar', async () => {

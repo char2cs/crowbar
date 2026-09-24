@@ -7,6 +7,20 @@ vi.mock('@/features/file-system/controllers/platform', async (importOriginal) =>
   return { ...actual, readWorkspaceFile: (wsId: string, path: string) => readFileMock(wsId, path) }
 })
 
+// The daemon's chat listings, for placing a restored member the cache does not know.
+const fetchHomeChatsMock = vi.fn<(projectId: string) => Promise<ChatDTO[]>>()
+const fetchReposMock = vi.fn<(projectId: string) => Promise<RepoDTO[]>>()
+const fetchRepoChatsMock = vi.fn<(projectId: string, repoId: string) => Promise<ChatDTO[]>>()
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return {
+    ...actual,
+    fetchHomeChats: (p: string) => fetchHomeChatsMock(p),
+    fetchRepos: (p: string) => fetchReposMock(p),
+    fetchRepoChats: (p: string, r: string) => fetchRepoChatsMock(p, r),
+  }
+})
+
 const toastWarning = vi.fn()
 vi.mock('@/features/window/stores/toast-store', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/window/stores/toast-store')>()
@@ -23,10 +37,16 @@ import {
   hydrateWorkspace,
   hydrateSidebar,
   hydrateWindowPaneLayout,
+  placeRestoredChatMembers,
+  upgradeWindowPaneLayout,
 } from '@/lib/persistence/hydrate'
 import { ApiError } from '@/lib/api'
 import { getDB, resetDB } from '@/lib/persistence/idb'
-import { WINDOW_SESSION_ID } from '@/lib/persistence/workspace-layout'
+import {
+  WINDOW_LAYOUT_VERSION,
+  WINDOW_SESSION_ID,
+  loadWindowPaneLayout,
+} from '@/lib/persistence/workspace-layout'
 import type { WorkspaceLayout, EditorState } from '@/lib/persistence/schemas'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {
@@ -34,10 +54,11 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import type { EditorContent } from '@/features/panes/types/pane-content'
+import type { PaneGroup } from '@/features/panes/types/pane'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { upsertEntity } from '@/lib/persistence/entity-cache'
-import type { ChatDTO } from '@/lib/types'
+import type { ChatDTO, RepoDTO } from '@/lib/types'
 import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
@@ -232,12 +253,13 @@ describe('hydrateWindowPaneLayout', () => {
 
     const state = windowPaneStore.getState()
     expect(state.panes['pane-a'].workspaceId).toBe('ws-a')
-    // A member the cache cannot place is not guessed at: it, and the view it
-    // leaves empty, are not restored.
-    expect(state.viewOrder).toEqual(['view-a'])
+    // A member the cache cannot place is not guessed at and not dropped: it
+    // is restored unplaced, for the daemon to answer (placeRestoredChatMembers).
+    expect(state.viewOrder).toEqual(['view-a', 'view-x'])
+    expect(state.panes['pane-x'].workspaceId).toBeNull()
   })
 
-  it('a payload without views hydrates to an empty band; unlisted buffers are not restored', async () => {
+  it('a payload without views hydrates to an empty band and keeps its buffers', async () => {
     const db = await getDB()
     await db.put('workspace-layout', {
       workspaceId: WINDOW_SESSION_ID,
@@ -257,7 +279,9 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.viewOrder).toEqual([])
     expect(state.views).toEqual({})
     expect(state.activeViewId).toBeNull()
-    expect(state.buffers).toHaveLength(0)
+    // As the base build did: the buffers come back, held by the stage.
+    expect(state.buffers.map((b) => b.id)).toEqual(['buf-1'])
+    expect(state.panes[getAllLeafIds(state.stage)[0]].editorTabIds).toEqual(['buf-1'])
   })
 
   it('a payload whose only record is broken hydrates to an empty band', async () => {
@@ -317,6 +341,265 @@ describe('hydrateWindowPaneLayout', () => {
     expect(Object.keys(state.views).sort()).toEqual(['view-a', 'view-b'])
     expect(state.panes['pane-x']).toBeUndefined()
     expect(viewIntegrityViolations(state)).toEqual([])
+  })
+})
+
+/**
+ * First load after upgrading an install from the base build (70ec430). The
+ * seeds are exactly what that build wrote: a layout row with no `version`,
+ * chat panes with no `workspaceId`, the retired `sidebarWidth` fields, and
+ * whatever buffers it held (it kept buffers no pane listed — P0-11).
+ */
+describe('hydrateWindowPaneLayout — upgrade from the base build', () => {
+  const P = 'p1'
+
+  beforeEach(() => {
+    resetDB()
+    globalThis.indexedDB = new IDBFactory()
+    resetWindowPaneStoreForTests()
+    fetchHomeChatsMock.mockReset()
+    fetchReposMock.mockReset()
+    fetchRepoChatsMock.mockReset()
+  })
+
+  function basePane(id: string, viewId: string | null, over: Partial<PaneGroup> = {}): PaneGroup {
+    const p = pane(id, viewId, over)
+    delete p.workspaceId
+    return p
+  }
+
+  function dirty(id: string, workspaceId: string): EditorContent {
+    return {
+      ...buffer(id),
+      path: `/src/${id}.ts`,
+      content: 'unsaved edits',
+      savedContent: 'on disk',
+      isDirty: true,
+      workspaceId,
+    }
+  }
+
+  async function seedBaseLayout(over: Record<string, unknown>) {
+    const db = await getDB()
+    await db.put('workspace-layout', {
+      workspaceId: WINDOW_SESSION_ID,
+      panes: {},
+      views: {},
+      viewOrder: [],
+      activeViewId: null,
+      activeViewByProject: {},
+      stage: createLeaf(ROOT_PANE_ID),
+      bottomLayout: createLeaf('bottom-pane'),
+      activePaneId: ROOT_PANE_ID,
+      mostRecentActivePaneIds: [],
+      buffers: [],
+      sidebarWidth: 0,
+      rightSidebarWidth: 0,
+      updatedAt: Date.now(),
+      ...over,
+    } as unknown as WorkspaceLayout)
+  }
+
+  it('keeps a project-home chat pane the cache does not know, with its dirty buffer', async () => {
+    // Only the repo chat is in the entity cache; the project-home chat never is.
+    await upsertEntity('crowbar_chats', {
+      id: 'chat-repo',
+      repoId: 'r1',
+      projectId: P,
+      workspaceId: 'ws-repo',
+      title: 'repo',
+    } as ChatDTO)
+    await seedBaseLayout({
+      panes: {
+        [ROOT_PANE_ID]: basePane(ROOT_PANE_ID, null),
+        'pane-home': basePane('pane-home', 'view-home', {
+          chatId: 'chat-home',
+          editorTabIds: ['buf-dirty'],
+          activeEditorTabId: 'buf-dirty',
+          editorOpen: true,
+        }),
+        'pane-repo': basePane('pane-repo', 'view-repo', { chatId: 'chat-repo' }),
+        'bottom-pane': basePane('bottom-pane', null),
+      },
+      views: {
+        'view-home': { id: 'view-home', projectId: P, layout: createLeaf('pane-home') },
+        'view-repo': { id: 'view-repo', projectId: P, layout: createLeaf('pane-repo') },
+      },
+      viewOrder: ['view-home', 'view-repo'],
+      activeViewId: 'view-home',
+      activeViewByProject: { [P]: 'view-home' },
+      activePaneId: 'pane-home',
+      mostRecentActivePaneIds: ['pane-home'],
+      // `buf-orphan` is listed by no pane — the base build leaked it, unsaved.
+      buffers: [dirty('buf-dirty', 'ws-home'), dirty('buf-orphan', 'ws-repo')],
+    })
+
+    await hydrateWindowPaneLayout()
+
+    const state = windowPaneStore.getState()
+    expect(state.viewOrder).toEqual(['view-home', 'view-repo'])
+    expect(state.activeViewId).toBe('view-home')
+    expect(state.panes['pane-home']).toMatchObject({
+      chatId: 'chat-home',
+      workspaceId: null,
+      editorTabIds: ['buf-dirty'],
+    })
+    expect(state.panes['pane-repo'].workspaceId).toBe('ws-repo')
+    // No unsaved edit is lost: the orphan is re-homed to a surviving pane.
+    expect(state.buffers.map((b) => b.id).sort()).toEqual(['buf-dirty', 'buf-orphan'])
+    const holders = Object.values(state.panes).filter((p) => p.editorTabIds.includes('buf-orphan'))
+    expect(holders).toHaveLength(1)
+    expect(state.buffers.every((b) => (b as EditorContent).content === 'unsaved edits')).toBe(true)
+    expect(viewIntegrityViolations(state)).toEqual([])
+
+    // The daemon then places the unknown member.
+    fetchHomeChatsMock.mockResolvedValue([
+      { id: 'chat-home', repoId: '', projectId: P, workspaceId: 'ws-home', title: 'h' } as ChatDTO,
+    ])
+    await placeRestoredChatMembers()
+
+    expect(fetchHomeChatsMock).toHaveBeenCalledWith(P)
+    // Home answered every unknown chat; no repo was listed.
+    expect(fetchReposMock).not.toHaveBeenCalled()
+    const placed = windowPaneStore.getState()
+    expect(placed.panes['pane-home'].workspaceId).toBe('ws-home')
+    expect(placed.panes['pane-home'].editorTabIds).toEqual(['buf-dirty'])
+    expect(placed.viewOrder).toEqual(['view-home', 'view-repo'])
+  })
+
+  it('drops a member the daemon reports not found, re-homing its unsaved buffer', async () => {
+    await seedBaseLayout({
+      panes: {
+        [ROOT_PANE_ID]: basePane(ROOT_PANE_ID, null),
+        'pane-gone': basePane('pane-gone', 'view-gone', {
+          chatId: 'chat-gone',
+          editorTabIds: ['buf-dirty', 'buf-clean'],
+          activeEditorTabId: 'buf-dirty',
+          editorOpen: true,
+        }),
+        'pane-kept': basePane('pane-kept', 'view-kept', { chatId: 'chat-kept' }),
+        'bottom-pane': basePane('bottom-pane', null),
+      },
+      views: {
+        'view-gone': { id: 'view-gone', projectId: P, layout: createLeaf('pane-gone') },
+        'view-kept': { id: 'view-kept', projectId: P, layout: createLeaf('pane-kept') },
+      },
+      viewOrder: ['view-gone', 'view-kept'],
+      activeViewId: 'view-kept',
+      activeViewByProject: { [P]: 'view-kept' },
+      activePaneId: 'pane-kept',
+      buffers: [dirty('buf-dirty', 'ws-x'), { ...buffer('buf-clean'), workspaceId: 'ws-x' }],
+    })
+    await hydrateWindowPaneLayout()
+
+    fetchHomeChatsMock.mockResolvedValue([])
+    fetchReposMock.mockResolvedValue([{ id: 'r1' } as RepoDTO])
+    fetchRepoChatsMock.mockResolvedValue([
+      { id: 'chat-kept', repoId: 'r1', projectId: P, workspaceId: 'ws-k', title: 'k' } as ChatDTO,
+    ])
+    await placeRestoredChatMembers()
+
+    const state = windowPaneStore.getState()
+    expect(fetchRepoChatsMock).toHaveBeenCalledWith(P, 'r1')
+    expect(state.viewOrder).toEqual(['view-kept'])
+    expect(state.panes['pane-gone']).toBeUndefined()
+    expect(state.panes['pane-kept'].workspaceId).toBe('ws-k')
+    // The unsaved buffer outlives its chat; the clean one is released (C2).
+    expect(state.buffers.map((b) => b.id)).toEqual(['buf-dirty'])
+    const holders = Object.values(state.panes).filter((p) => p.editorTabIds.includes('buf-dirty'))
+    expect(holders).toHaveLength(1)
+    expect(viewIntegrityViolations(state)).toEqual([])
+  })
+
+  it('drops every member of a project the daemon no longer has', async () => {
+    await seedBaseLayout({
+      panes: {
+        'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
+        'bottom-pane': basePane('bottom-pane', null),
+      },
+      views: { 'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') } },
+      viewOrder: ['view-a'],
+      activeViewId: 'view-a',
+      activePaneId: 'pane-a',
+    })
+    await hydrateWindowPaneLayout()
+
+    fetchReposMock.mockRejectedValue(new ApiError('project not found', 404))
+    fetchHomeChatsMock.mockRejectedValue(new ApiError('project not found', 404))
+    await placeRestoredChatMembers()
+
+    expect(windowPaneStore.getState().viewOrder).toEqual([])
+  })
+
+  it('keeps an unknown member unplaced when the daemon cannot answer', async () => {
+    await seedBaseLayout({
+      panes: {
+        'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
+        'bottom-pane': basePane('bottom-pane', null),
+      },
+      views: { 'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') } },
+      viewOrder: ['view-a'],
+      activeViewId: 'view-a',
+      activePaneId: 'pane-a',
+    })
+    await hydrateWindowPaneLayout()
+
+    fetchHomeChatsMock.mockRejectedValue(new ApiError('daemon starting', 503))
+    fetchReposMock.mockRejectedValue(new ApiError('daemon starting', 503))
+    await placeRestoredChatMembers()
+
+    const state = windowPaneStore.getState()
+    expect(state.viewOrder).toEqual(['view-a'])
+    expect(state.panes['pane-a'].workspaceId).toBeNull()
+  })
+
+  it('stamps the upgraded layout once; a second load does not upgrade again', async () => {
+    await seedBaseLayout({
+      panes: {
+        'pane-a': basePane('pane-a', 'view-a', { chatId: 'chat-a' }),
+        'bottom-pane': basePane('bottom-pane', null),
+      },
+      views: { 'view-a': { id: 'view-a', projectId: P, layout: createLeaf('pane-a') } },
+      viewOrder: ['view-a'],
+      activeViewId: 'view-a',
+      activePaneId: 'pane-a',
+    })
+
+    await hydrateWindowPaneLayout()
+
+    const stamped = await loadWindowPaneLayout()
+    expect(stamped?.version).toBe(WINDOW_LAYOUT_VERSION)
+    expect(stamped?.panes['pane-a']).toMatchObject({ chatId: 'chat-a', workspaceId: null })
+    // Idempotent: upgrading an upgraded layout changes nothing.
+    expect(await upgradeWindowPaneLayout(stamped!)).toBe(stamped)
+    // The cache learning the chat later does not re-run the upgrade — the
+    // daemon placement (placeRestoredChatMembers) owns what is left.
+    await upsertEntity('crowbar_chats', {
+      id: 'chat-a',
+      repoId: 'r1',
+      projectId: P,
+      workspaceId: 'ws-late',
+      title: 'A',
+    } as ChatDTO)
+    resetWindowPaneStoreForTests()
+    await hydrateWindowPaneLayout()
+    expect(windowPaneStore.getState().panes['pane-a'].workspaceId).toBeNull()
+  })
+
+  it('a base layout without views restores its buffers', async () => {
+    await seedBaseLayout({
+      views: undefined,
+      viewOrder: undefined,
+      panes: { [ROOT_PANE_ID]: basePane(ROOT_PANE_ID, null, { editorTabIds: ['buf-1'] }) },
+      buffers: [dirty('buf-1', 'ws-a'), { ...buffer('buf-2'), workspaceId: 'ws-a' }],
+    })
+
+    await hydrateWindowPaneLayout()
+
+    const state = windowPaneStore.getState()
+    expect(state.buffers.map((b) => b.id)).toEqual(['buf-1', 'buf-2'])
+    expect(state.panes[ROOT_PANE_ID].editorTabIds).toEqual(['buf-1', 'buf-2'])
+    expect((state.buffers[0] as EditorContent).content).toBe('unsaved edits')
   })
 })
 

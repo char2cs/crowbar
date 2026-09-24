@@ -1,4 +1,8 @@
-import { hydrateSidebar, hydrateWindowPaneLayout } from '@/lib/persistence/hydrate'
+import {
+  hydrateSidebar,
+  hydrateWindowPaneLayout,
+  placeRestoredChatMembers,
+} from '@/lib/persistence/hydrate'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useProjectStore, useProjectDataStore } from '@/lib/store/projects'
 import { useWorkspaceListStore } from '@/lib/store/workspace-list'
@@ -34,6 +38,8 @@ import { dataOf } from '@/lib/loadable'
  */
 export async function hydrateCriticalStores(): Promise<void> {
   await hydrateWindowPaneLayout()
+  // The one network step, deliberately not awaited: members stay unplaced until it answers.
+  void placeRestoredChatMembers()
   await useWorkspaceListStore.getState().fetch()
   useSidebarStore.getState().setRepos(dataOf(useWorkspaceListStore.getState().data) ?? [])
   await hydrateSidebar()
