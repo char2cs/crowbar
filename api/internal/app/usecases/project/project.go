@@ -246,7 +246,7 @@ type projectUsecase struct {
 
 // HomeRowAnnouncer announces one shifted home row on the chats WS by its
 // own kind: a chat frame for a chat, a folder frame for a folder.
-type HomeRowAnnouncer func(id, workspaceID string, kind domain.NodeKind, event string)
+type HomeRowAnnouncer func(ctx context.Context, id, workspaceID string, kind domain.NodeKind, event string)
 
 // New builds a Usecase from the project and repository GORM stores, the
 // workspace relocator a cross-project repo move needs, the home-folder
@@ -815,7 +815,7 @@ func (u *projectUsecase) writeHomeLevel(
 		// rows moving as collateral of a REPO drag instead.
 		if row.ID != subjectID && u.broadcastChat != nil && homeWorkspaceID != "" &&
 			(row.Kind == domain.NodeKindChat || row.Kind == domain.NodeKindFolder) {
-			u.broadcastChat(row.ID, homeWorkspaceID, row.Kind, "order_set")
+			u.broadcastChat(ctx, row.ID, homeWorkspaceID, row.Kind, "order_set")
 		}
 	}
 	// A legacy root chat whose slot did not move (place reports no change, so

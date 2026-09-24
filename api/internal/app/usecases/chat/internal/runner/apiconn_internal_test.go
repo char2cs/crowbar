@@ -315,7 +315,7 @@ func TestPumpAPIConn_RoutesOnlyAPITransportEventsAndDropsHooksDeclaredOnes(t *te
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	// SubagentStart isn't in this descriptor's `in:`/`ask:` table for the API
 	// transport at all (it's hooks-only), so dispatch.Resolve never surfaces it —
@@ -358,7 +358,7 @@ func TestPumpAPIConn_AskEventCarriesADeliveryIDAndRepliesOverTheSocket(t *testin
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
 	spy := &spyTurns{answers: answers}
@@ -405,7 +405,7 @@ func TestPumpAPIConn_UnansweredAskWritesNoReply(t *testing.T) {
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	spy := &spyTurns{}
 	// A retention/wait of practically zero: the relay's declared budget expires
@@ -453,7 +453,7 @@ func TestPumpAPIConn_AnUnansweredAskDoesNotBlockLaterEvents(t *testing.T) {
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	answers := answerdesk.New(answerdesk.DefaultRetention, nil)
 	spy := &spyTurns{answers: answers}

@@ -1125,23 +1125,23 @@ func newChatStore(
 // than a stub because the record is what every turn assertion in this package
 // reads back, and a stub would let the write path and the read path agree with
 // each other while both were wrong.
-func newActivityStore(t testing.TB) (agentactivity.EventStore, func()) {
-	t.Helper()
+func newActivityStore(tb testing.TB) (agentactivity.EventStore, func()) {
+	tb.Helper()
 	es, err := eventsqlite.NewEventStore(":memory:")
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	ax, err := asynx.New[domain.ChatActivity]().
 		WithEventStore(es).
 		WithSnapshotStore(asynxstore.NewSnapshots()).
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
+	require.NoError(tb, err)
+	tb.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
 	db, err := storesqlite.OpenDB(":memory:")
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
-	repo, err := agentactivity.NewEventSourced(ax, es, db, t.TempDir())
-	require.NoError(t, err)
+	repo, err := agentactivity.NewEventSourced(ax, es, db, tb.TempDir())
+	require.NoError(tb, err)
 	return repo, ax.WaitPublish
 }
 
@@ -1170,9 +1170,9 @@ func newRunnerStore(
 	return repo, ax.WaitPublish
 }
 
-func newFixture(t testing.TB) testFixture {
-	t.Helper()
-	f, _, _ := newFixtureUsing(t, nil, nil, "")
+func newFixture(tb testing.TB) testFixture {
+	tb.Helper()
+	f, _, _ := newFixtureUsing(tb, nil, nil, "")
 	return f
 }
 

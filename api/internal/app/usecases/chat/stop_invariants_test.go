@@ -123,6 +123,6 @@ func TestInvariantA2_StopPreemptsASwitchParkedOnTheTurn(t *testing.T) {
 	assert.Empty(t, got.runnerID)
 
 	_, err := f.liveRunnerFor(t, chatID)
-	assert.Error(t, err, "after Stop the chat is dormant: the preempted switch spawned nothing")
+	require.Error(t, err, "after Stop the chat is dormant: the preempted switch spawned nothing")
 	assert.Equal(t, 1, stoppedInterruptions(t, f, chatID))
 }

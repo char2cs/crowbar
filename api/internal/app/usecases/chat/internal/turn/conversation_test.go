@@ -2,10 +2,11 @@ package turn_test
 
 import (
 	"context"
-	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/seam"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

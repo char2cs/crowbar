@@ -215,19 +215,25 @@ func (s *Snapshots) ApplyRunner(ctx context.Context, runner, previous agents.Run
 	if cur, ok := s.runners[runner.ID]; ok && version != 0 && cur.version > version {
 		return // an older event of this runner, delivered late
 	}
-	if runner.ExitedAt != nil {
-		delete(s.runners, runner.ID)
-		if !s.seeded {
-			s.exited[runner.ID] = struct{}{}
-		}
-	} else {
-		s.runners[runner.ID] = runnerState{runner: runner, version: version}
-	}
+	s.recordRunnerLocked(runner, version)
 	if runner.CurrentChatID != "" {
 		s.emitChatLocked(ctx, runner.CurrentChatID, kind, runner.ID)
 	}
 	if left := previous.CurrentChatID; left != "" && left != runner.CurrentChatID {
 		s.emitChatLocked(ctx, left, KindSnapshot, runner.ID)
+	}
+}
+
+// recordRunnerLocked keeps a live runner at version and forgets an exited one — remembering
+// its exit until the seed, so the seed cannot resurrect it. Caller holds s.mu.
+func (s *Snapshots) recordRunnerLocked(runner agents.Runner, version int64) {
+	if runner.ExitedAt == nil {
+		s.runners[runner.ID] = runnerState{runner: runner, version: version}
+		return
+	}
+	delete(s.runners, runner.ID)
+	if !s.seeded {
+		s.exited[runner.ID] = struct{}{}
 	}
 }
 

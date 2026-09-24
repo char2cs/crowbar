@@ -103,7 +103,7 @@ func TestRegression_StopChatRecordsTheStopOnlyAfterTheCLIActuallyStops(t *testin
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	inflightTurns, work := inflight.NewTurns(), inflight.NewWork()
 	inflightTurns.Begin("runner-1", "chat-1")
@@ -190,7 +190,7 @@ func TestRegression_StopChatOnAnIdleChatActuallyRetires(t *testing.T) {
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	idleTurns, activity := realStopTurns(inflight.NewTurns(), idleWork())
 	store := &stopRetireRunnerStore{
@@ -258,7 +258,7 @@ func TestRegression_StopChatRecordsTheStopWhenTheTurnStopWinsTheRace(t *testing.
 	defer cancel()
 	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
-	defer apiConn.Close()
+	defer func() { _ = apiConn.Close() }()
 
 	rs := &Runners{
 		apiConns:      newAPIConnRegistry(),
