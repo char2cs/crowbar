@@ -14,6 +14,43 @@ Findings marked **✔** were re-verified by reading the code while writing this;
 the rest are audit findings with file:line evidence, to be confirmed by a
 failing test before they are fixed (see §2).
 
+## Status (end of 2026-09-24)
+
+Landed on `claude/crowbar-codebase-audit-vx19ux` (one PR). Code: +45.7k / −89.0k
+lines; stale docs −164k.
+
+| Phase | State |
+| --- | --- |
+| 0 — data loss | Done: P0-1…P0-11. P0-3 resolved by refusing a repo's cross-project move. |
+| 1 — guardrails | Done: golangci-lint in CI with a new-code ratchet, deadcode + knip + ESLint-baseline gates that only shrink, `--max-warnings 0`, test-name gate, nightly integration job, CLAUDE.md agent rules. |
+| 2 — mechanical deletion | Done: mock mode, dead Go/web code, duplicate libraries (react-dnd, lucide, radix, lowlight, usehooks-ts, use-debounce, three.js, react-markdown), tree-sitter (54 MB), historical docs. |
+| 3 — owner decisions | Applied as recorded in §6. |
+| 4-A agent lifecycle | Done, see `2026-09-24-agent-sessions.md`: daemon-owned session supervisor, resume ladder, one channel per process, versioned chat snapshots, descriptor validation + live conformance. |
+| 4-B terminal | Done: explicit session state machine, daemon-authoritative exit, binary transport, one Rust bridge. |
+| 4-C layout | Done: buffers owned by panes, record-carried workspace identity, WorkspaceHost as sole registry owner, derived focus, splits. View membership deliberately stays pane-carried (one writer). |
+| 4-D storage | Done: one delete lifecycle with durable intent + boot resume, one physical purger, explicit workspace provisioning, legacy shims removed, sqlite `synchronous=NORMAL`. |
+| 4-E editor | Done: Monaco + LSP providers over the daemon (incl. semantic tokens, executeCommand), one save path, lazy Monaco, one settings store, one markdown renderer. |
+
+Measured: boot JS closure 1.8 MB → 0.52 MB gzip (Monaco lazy, entry 281 → 107 KB);
+`web/dist` 90 MB → 34 MB; daemon binary with embedded UI 155 MB → 96 MB; idle
+webview CPU ~50% of a core → the static-frame path measured at ~1.4% (the
+empty-pane animation now settles after 1.5 s; not re-profiled end to end); PTY output path
+~100–300× faster (binary frames); hook ingest 7–9 ms → ~1 µs per delivery (no
+fsync); per-commit SQLite cost 1.1 ms → 0.15 ms; activity replay flat in turn
+length; zero client polls at idle except the two noted below.
+
+Open follow-ups:
+- Agent: push ledger rows and the remaining busy sources on the chat snapshot,
+  then delete the web busy-recheck and ledger polls; split agent-chat-pane.tsx.
+- Storage: surface a failed physical purge after a workspace tombstone in the UI.
+- Web: `refreshRepoPlacements` re-reads a project's repos on every placement
+  frame ("belt and braces") — remove once frames are proven complete.
+- `lib/` still has a handful of value imports from `features/`; add a lint rule.
+- golangci-lint backlog outside the ratchet: 1.1k findings, mostly test-only
+  `noctx`/`testifylint` — mechanical.
+- Live model-turn conformance needs credentials: `make descriptor-live P=claude TURN=1`,
+  `make descriptor-live P=codex TURN=1`, and `tests/integration/agent`.
+
 ## 1. Diagnosis
 
 The trash is not random. Almost all of it is one pattern:
