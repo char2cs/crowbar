@@ -1,14 +1,11 @@
 /**
  * Shared prose styling for rendered markdown across the branch-review feature.
  *
- * Used by BOTH the renderer (`MarkdownPreview`, for a posted comment) and the
- * comment editor's editable, so what you type is styled identically to what
- * appears once you post it. That equality is the point of a WYSIWYG composer;
- * if the two ever drift, the composer stops being a preview of anything.
- *
- * Its own module rather than living beside `MarkdownPreview`: that file pulls
- * react-markdown, DOMPurify and a lazy shiki singleton, none of which the
- * editor needs to know one class string.
+ * Used by BOTH the renderer of a posted comment (review-thread-item, through
+ * the app's one read-only markdown renderer) and the comment editor's
+ * editable, so what you type is styled identically to what appears once you
+ * post it. That equality is the point of a WYSIWYG composer; if the two ever
+ * drift, the composer stops being a preview of anything.
  */
 export const MARKDOWN_PROSE_CLASS =
   'prose prose-sm prose-invert max-w-none text-sm text-foreground ' +
