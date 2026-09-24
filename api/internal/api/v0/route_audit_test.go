@@ -456,6 +456,11 @@ func extraRoutes() []string {
 		// choice of its own falls back to this.
 		"GET /v0/settings/chat/permission-level",
 		"PUT /v0/settings/chat/permission-level",
+		// Whether a model.manifest: source's background refresh may hit the
+		// network. Machine-level for the same reason: the fetch is the daemon's,
+		// not any one chat's.
+		"GET /v0/settings/chat/model-manifest-fetch",
+		"PUT /v0/settings/chat/model-manifest-fetch",
 		// The host terminal's light/dark colours, and a GLOBAL setting for the same
 		// reason: one Crowbar window renders every session, so there is one theme, and
 		// it must be known BEFORE any session exists. The daemon seeds it into each PTY
