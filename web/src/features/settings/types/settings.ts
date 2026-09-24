@@ -64,8 +64,8 @@ export interface Settings {
   // Keyboard
   // Language
   formatOnSave: boolean
-  formatter: string
-  lintOnSave: boolean
+  /** Show the cursor line's git blame after the line. */
+  inlineBlame: boolean
   autoCompletion: boolean
   parameterHints: boolean
   // External Editor

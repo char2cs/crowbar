@@ -58,8 +58,7 @@ export const defaultSettings: Settings = {
   // Keyboard
   // Language
   formatOnSave: false,
-  formatter: 'prettier',
-  lintOnSave: false,
+  inlineBlame: true,
   autoCompletion: true,
   parameterHints: true,
   // External Editor

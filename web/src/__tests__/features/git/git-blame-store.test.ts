@@ -1,71 +1,82 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { dataOf } from '@/lib/loadable'
 
-vi.mock('@/features/git/api/git-blame-api', () => ({
-  getGitBlame: vi.fn(async () => ({ lines: [{ line_number: 1, total_lines: 1 }] })),
-}))
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock('@/lib/api', () => ({ apiFetch }))
 
-describe('git-blame-store loadable', () => {
-  beforeEach(async () => {
-    const { useGitBlameStore } = await import('@/features/git/stores/git-blame-store')
-    useGitBlameStore.setState({ blame: new Map(), fileToRepo: new Map() })
-  })
+import {
+  blameKey,
+  clearBlame,
+  loadBlame,
+  useGitBlameStore,
+} from '@/features/git/stores/git-blame-store'
+import { __resetWorkspaceScopesForTest, recordWorkspaceScope } from '@/lib/workspace-scope'
 
-  it('loads blame into a per-file Loadable', async () => {
-    const { useGitBlameStore } = await import('@/features/git/stores/git-blame-store')
-    await useGitBlameStore.getState().loadBlameForFile('/repo', 'a.ts')
-    const entry = useGitBlameStore.getState().blame.get('a.ts')
-    expect(entry?.status).toBe('success')
-    expect(dataOf(entry)?.lines).toHaveLength(1)
-  })
+const ENTRY = {
+  lineNumber: 1,
+  commitHash: 'abc123',
+  author: 'Ada',
+  email: 'ada@example.com',
+  date: '2026-09-01T10:00:00Z',
+  commitMessage: 'initial',
+}
 
-  it('getBlameForLine returns the line via dataOf', async () => {
-    const { useGitBlameStore } = await import('@/features/git/stores/git-blame-store')
-    await useGitBlameStore.getState().loadBlameForFile('/repo', 'a.ts')
-    expect(useGitBlameStore.getState().getBlameForLine('a.ts', 1)).toEqual({
-      line_number: 1,
-      total_lines: 1,
-    })
-  })
+beforeEach(() => {
+  apiFetch.mockReset()
+  apiFetch.mockResolvedValue([ENTRY])
+  useGitBlameStore.setState({ blame: {} })
+  __resetWorkspaceScopesForTest()
+  recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-1', owningChatId: 'chat-1' })
+  recordWorkspaceScope({ projectId: 'p', repoId: 'r', wsId: 'ws-2', owningChatId: 'chat-2' })
 })
 
-describe('git-blame-store memory management', () => {
-  beforeEach(async () => {
-    const { useGitBlameStore } = await import('@/features/git/stores/git-blame-store')
-    useGitBlameStore.setState({ blame: new Map(), fileToRepo: new Map() })
+describe('git-blame-store', () => {
+  it("loads a file's blame from its workspace's daemon route", async () => {
+    await loadBlame('ws-1', 'src/a b.ts')
+
+    expect(apiFetch).toHaveBeenCalledWith('/v0/chats/chat-1/blame?path=src%2Fa%20b.ts', {
+      signal: undefined,
+    })
+    expect(dataOf(useGitBlameStore.getState().blame[blameKey('ws-1', 'src/a b.ts')])).toEqual([
+      ENTRY,
+    ])
   })
 
-  it('clearBlameForFile removes only the targeted file entry', async () => {
-    const { useGitBlameStore } = await import('@/features/git/stores/git-blame-store')
-    await useGitBlameStore.getState().loadBlameForFile('/repo', 'a.ts')
-    await useGitBlameStore.getState().loadBlameForFile('/repo', 'b.ts')
+  it('loads once until invalidated', async () => {
+    await loadBlame('ws-1', 'a.ts')
+    await loadBlame('ws-1', 'a.ts')
+    expect(apiFetch).toHaveBeenCalledTimes(1)
 
-    useGitBlameStore.getState().clearBlameForFile('a.ts')
-
-    expect(useGitBlameStore.getState().blame.has('a.ts')).toBe(false)
-    expect(useGitBlameStore.getState().fileToRepo.has('a.ts')).toBe(false)
-    // b.ts must remain untouched
-    expect(useGitBlameStore.getState().blame.has('b.ts')).toBe(true)
-    expect(useGitBlameStore.getState().fileToRepo.has('b.ts')).toBe(true)
+    clearBlame('ws-1', 'a.ts')
+    await loadBlame('ws-1', 'a.ts')
+    expect(apiFetch).toHaveBeenCalledTimes(2)
   })
 
-  it('clearBlameForFile is a no-op for a file that was never loaded', async () => {
-    const { useGitBlameStore } = await import('@/features/git/stores/git-blame-store')
-    await useGitBlameStore.getState().loadBlameForFile('/repo', 'a.ts')
+  it('keys by workspace: sibling worktrees share relative paths', async () => {
+    await loadBlame('ws-1', 'a.ts')
+    await loadBlame('ws-2', 'a.ts')
+    clearBlame('ws-1', 'a.ts')
 
-    expect(() => useGitBlameStore.getState().clearBlameForFile('never-opened.ts')).not.toThrow()
-    expect(useGitBlameStore.getState().blame.has('a.ts')).toBe(true)
+    const { blame } = useGitBlameStore.getState()
+    expect(blame[blameKey('ws-1', 'a.ts')]).toBeUndefined()
+    expect(blame[blameKey('ws-2', 'a.ts')]?.status).toBe('success')
   })
 
-  it('clearAllBlame empties both maps', async () => {
-    const { useGitBlameStore } = await import('@/features/git/stores/git-blame-store')
-    await useGitBlameStore.getState().loadBlameForFile('/repo', 'a.ts')
-    await useGitBlameStore.getState().loadBlameForFile('/repo', 'b.ts')
-    await useGitBlameStore.getState().loadBlameForFile('/repo', 'c.ts')
+  it('drops an answer that arrives after the file was invalidated', async () => {
+    let finish: (v: unknown) => void = () => {}
+    apiFetch.mockImplementationOnce(() => new Promise((r) => (finish = r)))
 
-    useGitBlameStore.getState().clearAllBlame()
+    const pending = loadBlame('ws-1', 'a.ts')
+    clearBlame('ws-1', 'a.ts')
+    finish([ENTRY])
+    await pending
 
-    expect(useGitBlameStore.getState().blame.size).toBe(0)
-    expect(useGitBlameStore.getState().fileToRepo.size).toBe(0)
+    expect(useGitBlameStore.getState().blame[blameKey('ws-1', 'a.ts')]).toBeUndefined()
+  })
+
+  it('records a failure without throwing', async () => {
+    apiFetch.mockRejectedValueOnce(new Error('not a git repository'))
+    await loadBlame('ws-1', 'a.ts')
+    expect(useGitBlameStore.getState().blame[blameKey('ws-1', 'a.ts')]?.status).toBe('error')
   })
 })

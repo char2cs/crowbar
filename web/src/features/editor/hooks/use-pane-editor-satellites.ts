@@ -1,980 +1,153 @@
 /**
- * usePaneEditorSatellites — per-pane retained-editor "satellite" concerns.
+ * usePaneEditorSatellites — everything bound to a pane's retained Monaco
+ * widget besides the model swap itself (usePaneEditorController owns that):
  *
- * The core buffer switch is driven imperatively by {@link usePaneEditorController}
- * (model swap + content/cursor seam). THIS hook owns everything else the old
- * `monaco-editor.tsx` managed path attached to the retained widget, WITHOUT
- * remounting on a tab switch:
+ *  - theme + settings-driven options (use-editor-appearance.ts),
+ *  - the model's language/indentation after each swap,
+ *  - store → model sync for genuine external changes (disk reload,
+ *    format-on-save),
+ *  - the LSP document lifecycle and diagnostics markers
+ *    (use-lsp-document-sync.ts),
+ *  - current-line git blame (use-inline-blame.ts),
+ *  - focus on swap.
  *
- *  - Widget-level, bound once per pane (read the editor's CURRENT model):
- *      • settings `updateOptions` (font, tabSize, wordWrap, minimap, …)
- *      • theme (`setTheme` + themeRegistry subscriptions)
- *      • editorAPI cursor/selection adapter (insert/delete/replace/undo/redo)
- *      • scroll-offset forwarding, layout (viewport height) + visible line range
- *  - Model-dependent, rebound on each swap via the active-editor registry:
- *      • decorations collection (search-match highlights)
- *      • coordinate / model-position resolvers (LSP overlays)
- *      • external-change → model sync (disk reload / format-on-save / undo-redo)
- *      • LSP diagnostics document lifecycle + markers
- *      • language id sync
- *
- * It subscribes to the active-editor registry for `{ editor, model, filePath }`
- * so the model-dependent pieces retarget on swap; the widget-level pieces read
- * `editorRef`/`modelRef` (kept current by the same subscription) so they survive
- * swaps without re-running.
+ * The retained editor + current model come from the pane's active-editor
+ * registry, which the controller publishes on every swap.
  */
-
 import type React from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-// See the comment in `monaco-diff-editor.tsx`: `editor.api` is the same real
-// editor/languages singleton as the bare 'monaco-editor' specifier, without
-// eagerly bundling all built-in language contributions.
-import {
-  editor as monacoEditor,
-  KeyCode,
-  KeyMod,
-  Range as MonacoRange,
-} from 'monaco-editor/esm/vs/editor/editor.api.js'
+import { useEffect, useState } from 'react'
+import { KeyCode, KeyMod } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
-import { themeRegistry } from '@/extensions/themes/theme-registry'
-import { useSettingsStore } from '@/features/settings/store'
-import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useStore } from 'zustand'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import type { ActiveEditorRegistry } from '@/features/editor/lib/active-editor-context'
+import type {
+  ActiveEditorContext,
+  ActiveEditorRegistry,
+} from '@/features/editor/lib/active-editor-context'
 import type { EditorManager } from '@/features/editor/lib/editor-manager'
-import { isHomeWorkspace } from '@/lib/workspace-scope-url'
-import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { hasTextContent, isEditorContent } from '@/features/panes/types/pane-content'
 import { fileUri } from '@/features/editor/lib/editor-uri'
 import { shouldReconcileModelFromStore } from '@/features/editor/lib/pane-editor-controller'
-import { useEditorSettingsStore } from '../stores/settings-store'
-import { useEditorStateStore } from '../stores/state-store'
-import { useEditorUIStore } from '../stores/ui-store'
-import type { Position } from '../types/editor'
+import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import { isEditorContent, type PaneContent } from '@/features/panes/types/pane-content'
 import { getLanguageIdFromPath } from '../utils/language-id'
-import { calculateLineHeight } from '../utils/lines'
-import { editorAPI } from '../extensions/api'
-import { LspClient, type LspDiagnostic } from '../lsp/lsp-client'
-import type {
-  EditorCoordinateResolver,
-  EditorModelPositionResolver,
-} from '../view-model/view-layout'
-import { toMonacoLanguageId } from '../monaco/language'
-import {
-  toEditorPosition,
-  toEditorRange,
-  toMonacoRange,
-  toClampedMonacoPosition,
-  clampMonacoPosition,
-  toMonacoMarker,
-  pathsMatch,
-} from '../monaco/editor-conversions'
-import { defineMonacoTheme } from '../monaco/define-theme'
-import { scheduleIdleTask } from '../lib/idle-task'
-import { createRafCoalescer, type RafCoalescer } from '../lib/raf-coalesce'
+import { useEditorOptions, useEditorTheme, useModelOptions } from './use-editor-appearance'
+import { useInlineBlame } from './use-inline-blame'
+import { useLspDocumentSync } from './use-lsp-document-sync'
 
 type StandaloneEditor = Monaco.editor.IStandaloneCodeEditor
-
-// Same MutationObserver-on-`.dark`-class pattern as sidebar-build-badge.tsx's
-// `useIsDarkMode` and mermaid-theme.ts's `useMermaidThemeVersion` — kept as
-// its own tiny copy here (per those files' own precedent) rather than a
-// shared import, and needed for the identical reason: the app flips light/
-// dark by toggling a class on `document.documentElement`, not through any
-// store a React tree can subscribe to, so a REAL subscription is the only way
-// an effect finds out a mode change happened at all.
-let darkModeVersion = 0
-const darkModeListeners = new Set<() => void>()
-let darkModeObserver: MutationObserver | null = null
-
-function ensureDarkModeObserver(): void {
-  if (
-    darkModeObserver ||
-    typeof document === 'undefined' ||
-    typeof MutationObserver === 'undefined'
-  ) {
-    return
-  }
-  darkModeObserver = new MutationObserver(() => {
-    darkModeVersion++
-    darkModeListeners.forEach((listener) => listener())
-  })
-  darkModeObserver.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['class'],
-  })
-}
-
-function subscribeDarkMode(listener: () => void): () => void {
-  ensureDarkModeObserver()
-  darkModeListeners.add(listener)
-  return () => darkModeListeners.delete(listener)
-}
-
-function getDarkModeVersion(): number {
-  return darkModeVersion
-}
-
-function getDarkModeServerVersion(): number {
-  return 0
-}
-
-/** Bumps whenever the app's light/dark class flips — read purely to force a
- *  dependent effect to re-run; the actual isDark read stays live-off-the-DOM
- *  wherever it's consumed (`defineMonacoTheme`'s own CSS-first design). */
-function useDarkModeVersion(): number {
-  return useSyncExternalStore(subscribeDarkMode, getDarkModeVersion, getDarkModeServerVersion)
-}
 
 export interface PaneEditorSatelliteDeps {
   /**
    * The active-editor registry and Monaco manager for the BUFFER'S OWN
-   * workspace — the exact same values `EditorSurface` already resolved via
-   * its `workspaceId` prop (buffer-own-workspace-if-armed, else ambient —
-   * see that component's own doc). Passed explicitly rather than re-derived
-   * here via `useWorkspaceStore()` (ambient `WorkspaceStoreContext`): that
-   * context is scoped to the PANE'S CHAT's workspace (pane-container.tsx),
-   * which a pane's editor TAB is not required to match — a pane can hold a
-   * chat from one workspace and a file from another. Re-deriving it
-   * independently meant this hook's registry subscription (and therefore
-   * every setting it applies — font size, tabSize, wordWrap, minimap, theme
-   * refresh) silently targeted a DIFFERENT workspace's registry than the one
-   * `usePaneEditorController` actually published the swap to, so it never
-   * fired for that pane's editor at all — left running Monaco's bare
-   * defaults forever. Live-reported: two panes showing the same file at
-   * different font sizes.
+   * workspace — the values EditorSurface resolved from its `workspaceId`
+   * prop, not the ambient (pane chat's) workspace: a pane can hold a chat
+   * from one workspace and a file from another.
    */
   registry: ActiveEditorRegistry
   editorManager: EditorManager
-  /**
-   * Same workspace as `editorManager` above — the other half of a Monaco
-   * model uri (`fileUri(workspaceId, path)`). Needed for the external-edit
-   * seam below, which must build the SAME uri `usePaneEditorController`
-   * used to acquire this model, or it targets a different (or nonexistent)
-   * model in Monaco's global model table. See fileUri's own doc for the
-   * cross-workspace collision that motivated scoping the uri by workspace
-   * at all.
-   */
+  /** Same workspace as `editorManager` — half of the model uri. */
   workspaceId: string
-  highlightMatches?: Array<{ start: number; end: number }>
-  currentHighlightIndex?: number
-  lineNumberStart?: number
-  lineNumberMap?: Array<number | null>
-  onScrollOffsetChange?: (scrollTop: number, scrollLeft: number) => void
-  onCoordinateResolverChange?: (resolver: EditorCoordinateResolver | null) => void
-  onModelPositionResolverChange?: (resolver: EditorModelPositionResolver | null) => void
   readOnly?: boolean
   scrollable?: boolean
   isActiveSurface?: boolean
   /**
-   * Shared latch the surface reads in its content-change write seam to ignore
-   * the model-change event that a GENUINE external edit (applied here via the
-   * manager) re-fires — preventing it from bouncing back to the buffer store.
-   * Set to the applied text immediately before the edit.
+   * Latch the surface's content-write seam reads to ignore the model-change
+   * event a GENUINE external edit (applied here) re-fires, so it does not
+   * bounce back to the buffer store. Set to the applied text just before.
    */
   externalApplyRef?: React.MutableRefObject<string | null>
 }
 
-/**
- * Whether the LSP diagnostics effect below may safely call into `LspClient`.
- *
- * `LspClient` resolves its own workspace id via `getActiveWorkspaceId()` (not
- * anything this hook hands it) and, for a non-home workspace, needs that
- * workspace's OWNING CHAT id to build the chat-scoped `/lsp` URL
- * (`lspBaseForWorkspace` — see `workspace-scope-url.ts`). That id is recorded
- * ASYNCHRONOUSLY by the sidebar's own chat-list fetch, completely independent
- * of (and often slower than) the workspace's own hydration — the same race
- * `use-workspace-effects.ts` already guards for git/files. A buffer becoming a
- * pane's active model (including tab restoration on a cold workspace
- * activation) used to call straight into `ensureSubscribed`/`wsBase`, which
- * throw on a null id by design; the throw propagated out of the effect body
- * and crashed via the nearest error boundary. This makes the id a piece of
- * REACT STATE the effect can depend on, so it waits instead of crashing, and
- * re-runs the moment the sidebar catches up instead of losing diagnostics for
- * that file for good.
- */
-export function useLspScopeReady(): boolean {
-  const wsId = getActiveWorkspaceId()
-  const owningChatId = useSyncExternalStore(
-    useCallback(
-      (onChange) => (wsId ? subscribeToWorkspaceScope(wsId, onChange) : () => {}),
-      [wsId],
-    ),
-    useCallback(() => (wsId ? getOwningChatId(wsId) : null), [wsId]),
-  )
-  return !wsId || isHomeWorkspace(wsId) || owningChatId !== null
+interface BoundEditor {
+  editor: StandaloneEditor | null
+  model: Monaco.editor.ITextModel | null
+  filePath: string
 }
 
-/**
- * Bind the retained widget's satellite concerns for `paneId`. The retained
- * editor + active model are sourced from the active-editor registry (published
- * by the controller on every swap), so this hook never reads `activeBufferId`
- * through React render and never remounts the widget.
- */
+const UNBOUND: BoundEditor = { editor: null, model: null, filePath: '' }
+
+function toBound(ctx: ActiveEditorContext | undefined): BoundEditor {
+  if (!ctx) return UNBOUND
+  return {
+    editor: (ctx.editor as StandaloneEditor | undefined) ?? null,
+    model: (ctx.model as Monaco.editor.ITextModel | undefined) ?? null,
+    filePath: ctx.filePath,
+  }
+}
+
+function activeEditorBuffer(
+  state: { panes: Record<string, { activeEditorTabId?: string | null }>; buffers: PaneContent[] },
+  paneId: string,
+) {
+  const id = state.panes[paneId]?.activeEditorTabId ?? null
+  const buffer = id ? state.buffers.find((b) => b.id === id) : null
+  return buffer && isEditorContent(buffer) ? buffer : null
+}
+
 export function usePaneEditorSatellites(paneId: string, deps: PaneEditorSatelliteDeps): void {
   const {
     registry,
     editorManager,
     workspaceId,
-    highlightMatches,
-    currentHighlightIndex,
-    lineNumberStart,
-    lineNumberMap,
-    onScrollOffsetChange,
-    onCoordinateResolverChange,
-    onModelPositionResolverChange,
     readOnly = false,
     scrollable = true,
     isActiveSurface = true,
     externalApplyRef,
   } = deps
 
-  const lspScopeReady = useLspScopeReady()
+  const [bound, setBound] = useState<BoundEditor>(() => toBound(registry.get(paneId)))
+  useEffect(() => registry.subscribe(paneId, (ctx) => setBound(toBound(ctx))), [paneId, registry])
+  const { editor, model, filePath } = bound
 
-  // Active buffer CONTENT is read IMPERATIVELY (U5b) — NOT subscribed into
-  // render. A render subscription here re-rendered EditorSurface on every
-  // keystroke (content flows model → sink → store every ~150ms). Instead a
-  // vanilla `workspaceStore.subscribe` (below) watches THIS pane's active-buffer
-  // text and drives the external-sync + LSP-didChange effects off-render,
-  // reading the new content + model imperatively when it actually changes.
-  const readActiveContent = useCallback(() => {
-    const state = windowPaneStore.getState()
-    const bufferId = state.panes[paneId]?.activeEditorTabId ?? null
-    const buffer = bufferId ? state.buffers.find((candidate) => candidate.id === bufferId) : null
-    return buffer && hasTextContent(buffer) ? buffer.content : ''
-  }, [paneId])
-
-  // `languageOverride` changes RARELY (a manual language pick), so it stays a
-  // render subscription — it feeds `setModelLanguage` + the LSP document
-  // lifecycle, both keyed on `languageId`/`swapTick`, not on keystrokes. It
-  // returns a PRIMITIVE so the snapshot is referentially stable.
   const languageOverride = useStore(
     windowPaneStore,
-    useCallback(
-      (state) => {
-        const bufferId = state.panes[paneId]?.activeEditorTabId ?? null
-        const buffer = bufferId
-          ? state.buffers.find((candidate) => candidate.id === bufferId)
-          : null
-        return buffer && hasTextContent(buffer) && 'languageOverride' in buffer
-          ? buffer.languageOverride
-          : undefined
-      },
-      [paneId],
-    ),
+    (state) => activeEditorBuffer(state, paneId)?.languageOverride,
   )
+  const languageId = languageOverride ?? getLanguageIdFromPath(filePath) ?? 'plaintext'
 
-  // The retained editor + its current model, kept fresh by the registry
-  // subscription below. Widget-level effects read these refs; model-dependent
-  // effects re-run via the `swapVersion` state bumped on each swap.
-  const editorRef = useRef<StandaloneEditor | null>(null)
-  const modelRef = useRef<Monaco.editor.ITextModel | null>(null)
-  const filePathRef = useRef('')
-  const decorationCollectionRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null)
+  useEditorTheme(editor)
+  useEditorOptions(editor, { readOnly, scrollable })
+  useModelOptions(model, filePath, languageOverride)
+  useLspDocumentSync(model, filePath, languageId, workspaceId)
+  useInlineBlame(editor, model, workspaceId, filePath)
 
-  // ── Settings (latest in a ref; applied by the updateOptions effect) ───────
-  const baseFontSize = useEditorSettingsStore.use.fontSize()
-  const fontFamily = useEditorSettingsStore.use.fontFamily()
-  const editorLineHeight = useEditorSettingsStore.use.lineHeight()
-  const tabSize = useEditorSettingsStore.use.tabSize()
-  const wordWrap = useEditorSettingsStore.use.wordWrap()
-  const lineNumbers = useEditorSettingsStore.use.lineNumbers()
-  const renderWhitespace = useEditorSettingsStore.use.renderWhitespace()
-  const renderIndentGuides = useEditorSettingsStore.use.renderIndentGuides()
-  const semanticHighlighting = useEditorSettingsStore.use.semanticHighlighting()
-  const highlightOccurrences = useEditorSettingsStore.use.highlightOccurrences()
-  const theme = useEditorSettingsStore.use.theme()
-  const zoomLevel = useZoomStore.use.editorZoomLevel()
-  const settingsTheme = useSettingsStore((state) => state.settings.theme)
-  const minimapEnabled = useSettingsStore((state) => state.settings.showMinimap)
-  const autoCompletion = useSettingsStore((state) => state.settings.autoCompletion)
-  const parameterHints = useSettingsStore((state) => state.settings.parameterHints)
-  const { setCursorAndSelection, setViewportHeight } = useEditorStateStore.use.actions()
-  const searchMatches = useEditorUIStore.use.searchMatches()
-  const currentSearchMatchIndex = useEditorUIStore.use.currentMatchIndex()
-
-  const fontSize = baseFontSize * zoomLevel
-  const lineHeight = calculateLineHeight(fontSize, editorLineHeight)
-
-  const lineNumberFormatter = useCallback(
-    (lineNumber: number) => {
-      const mappedLine = lineNumberMap?.[lineNumber - 1]
-      if (typeof mappedLine === 'number') return String(mappedLine)
-      return String((lineNumberStart ?? 1) + lineNumber - 1)
-    },
-    [lineNumberMap, lineNumberStart],
-  )
-
-  // Latest-callback refs (read inside once-bound listeners).
-  const latestOnScrollOffsetChangeRef = useRef(onScrollOffsetChange)
-  latestOnScrollOffsetChangeRef.current = onScrollOffsetChange
-  const onCoordinateResolverChangeRef = useRef(onCoordinateResolverChange)
-  onCoordinateResolverChangeRef.current = onCoordinateResolverChange
-  const onModelPositionResolverChangeRef = useRef(onModelPositionResolverChange)
-  onModelPositionResolverChangeRef.current = onModelPositionResolverChange
-
-  // Cursor/selection sync is rAF-COALESCED: the editorAPI adapter actions
-  // (select-all/undo/redo/insert/…) call `syncCursorAndSelection()`, which only
-  // schedules a single trailing frame that reads the editor's CURRENT
-  // position+selection once and writes them in ONE batched store update.
-  const flushCursorSyncRef = useRef<() => void>(() => {})
-  flushCursorSyncRef.current = () => {
-    const editor = editorRef.current
-    const model = modelRef.current
-    if (!editor || !model) return
-    const position = editor.getPosition()
-    if (!position) return
-    const selection = editor.getSelection()
-    setCursorAndSelection(
-      toEditorPosition(model, position),
-      selection ? toEditorRange(model, selection) : undefined,
-      { ensureVisible: false },
-    )
-  }
-  const cursorSyncerRef = useRef<RafCoalescer | null>(null)
-  if (!cursorSyncerRef.current) {
-    cursorSyncerRef.current = createRafCoalescer(() => flushCursorSyncRef.current())
-  }
+  // Cmd/Ctrl+A selects the whole model even when an app-level shortcut would
+  // otherwise claim the keystroke first.
   useEffect(() => {
-    const syncer = cursorSyncerRef.current
-    return () => syncer?.cancel()
-  }, [])
-  const syncCursorAndSelection = useCallback(() => cursorSyncerRef.current?.schedule(), [])
-
-  const updateVisibleLineRange = useCallback((editor: StandaloneEditor) => {
-    const visibleRanges = editor.getVisibleRanges()
-    const firstRange = visibleRanges[0]
-    const lastRange = visibleRanges[visibleRanges.length - 1] ?? firstRange
-    if (!firstRange || !lastRange) return
-    // Reserved for future overlay virtualization; kept for parity.
-    void firstRange
-    void lastRange
-  }, [])
-
-  // ── Registry subscription: keep editor/model refs current + retarget ──────
-  // Bumps `swapTick` to re-run the model-dependent effects on each swap.
-  //
-  // Keyed on `registry` too, not just `paneId`: `registry` is the buffer's
-  // OWN workspace's registry (see PaneEditorSatelliteDeps' own doc), and that
-  // resolution can change out from under an already-mounted pane — the same
-  // ambient-fallback-then-real-workspace race `usePaneEditorController`
-  // handles via its `managerKey` dependency. Re-subscribing on change
-  // matters, not just for correctness of WHICH registry is watched:
-  // `subscribe` calls back immediately with the registry's CURRENT context
-  // for this pane, so switching to the real registry immediately picks up
-  // whatever `usePaneEditorController` already published there.
-  const [swapTick, setSwapTick] = useState(0)
-  useEffect(() => {
-    const unsubscribe = registry.subscribe(paneId, (ctx) => {
-      editorRef.current = (ctx?.editor as StandaloneEditor | undefined) ?? null
-      modelRef.current = (ctx?.model as Monaco.editor.ITextModel | undefined) ?? null
-      filePathRef.current = ctx?.filePath ?? ''
-      setSwapTick((t) => t + 1)
-    })
-    return unsubscribe
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId, registry])
-
-  // ── Imperative active-content change signal (U5b) ──────────────────────────
-  // A single vanilla store subscription watches THIS pane's active-buffer text
-  // and fans out to the two content-driven concerns (external→model sync, LSP
-  // didChange) WITHOUT re-rendering. The latest content is mirrored into
-  // `activeContentRef`; subscribers register a callback that fires only when the
-  // content actually changes. This is rebound on swap (refs/effects re-key on
-  // `swapTick`), but the subscription itself is paneId-scoped and reads the live
-  // active buffer, so it survives swaps.
-  const activeContentRef = useRef('')
-  activeContentRef.current = readActiveContent()
-  const externalSyncRef = useRef<(content: string) => void>(() => {})
-  const lspDidChangeRef = useRef<(content: string) => void>(() => {})
-  useEffect(() => {
-    let previous = readActiveContent()
-    activeContentRef.current = previous
-    // Apply any change that landed between render and this effect's commit.
-    externalSyncRef.current(previous)
-    return windowPaneStore.subscribe(() => {
-      const next = readActiveContent()
-      if (next === previous) return
-      previous = next
-      activeContentRef.current = next
-      externalSyncRef.current(next)
-      lspDidChangeRef.current(next)
-    })
-  }, [readActiveContent])
-
-  // ── Once-per-pane: select-all command + scroll/layout/visible-range ───────
-  // Bound when the editor first becomes available; reads the CURRENT model.
-  const boundEditorRef = useRef<StandaloneEditor | null>(null)
-  useEffect(() => {
-    const editor = editorRef.current
-    if (!editor || boundEditorRef.current === editor) return
-    boundEditorRef.current = editor
-
-    const selectEntireModel = () => {
-      const ed = editorRef.current
-      const m = ed?.getModel()
-      if (!ed || !m) return
-      ed.setSelection(m.getFullModelRange())
-      ed.focus()
-      syncCursorAndSelection()
-    }
-    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, selectEntireModel)
-
-    const disposables = [
-      editor.onKeyDown((event) => {
-        const browserEvent = event.browserEvent
-        const isSelectAllShortcut =
-          (browserEvent.metaKey || browserEvent.ctrlKey) &&
-          !browserEvent.altKey &&
-          !browserEvent.shiftKey &&
-          browserEvent.key.toLowerCase() === 'a'
-        if (!isSelectAllShortcut) return
-        event.preventDefault()
-        event.stopPropagation()
-        selectEntireModel()
-      }),
-      editor.onDidScrollChange((event) => {
-        latestOnScrollOffsetChangeRef.current?.(event.scrollTop, event.scrollLeft)
-        updateVisibleLineRange(editor)
-      }),
-      editor.onDidLayoutChange((info) => {
-        setViewportHeight(info.height)
-        updateVisibleLineRange(editor)
-      }),
-    ]
-
-    return () => {
-      for (const d of disposables) d.dispose()
-      if (boundEditorRef.current === editor) boundEditorRef.current = null
-    }
-    // syncCursorAndSelection is stable; re-run only when the editor instance appears.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [swapTick, setViewportHeight, updateVisibleLineRange])
-
-  // ── Per-swap: decorations collection bound to the live model ──────────────
-  useEffect(() => {
-    const editor = editorRef.current
     if (!editor) return
-    decorationCollectionRef.current = editor.createDecorationsCollection([])
-    return () => {
-      decorationCollectionRef.current?.clear()
-      decorationCollectionRef.current = null
-    }
-  }, [swapTick])
-
-  // ── editorAPI adapter (only while this surface is active) ─────────────────
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const adapterOwnerId = useMemo(() => `${paneId}:${filePathRef.current}`, [paneId, swapTick])
-  useEffect(() => {
-    if (!isActiveSurface || readOnly) {
-      editorAPI.clearActiveEditorAdapter(adapterOwnerId)
-      return
-    }
-    const editor = editorRef.current
-    const model = modelRef.current
-    if (!editor || !model) return
-
-    editorAPI.setTextareaRef(null)
-
-    const executeTextEdit = (range: Monaco.Range, text: string) => {
-      const e = editorRef.current
-      const m = modelRef.current
-      if (!e || !m) return
-      const startOffset = m.getOffsetAt(range.getStartPosition())
-      e.pushUndoStop()
-      e.executeEdits('crowbar-api', [{ range, text, forceMoveMarkers: true }])
-      const nextPosition = m.getPositionAt(startOffset + text.length)
-      e.setSelection(
-        new MonacoRange(
-          nextPosition.lineNumber,
-          nextPosition.column,
-          nextPosition.lineNumber,
-          nextPosition.column,
-        ),
-      )
-      e.setPosition(nextPosition)
-      e.pushUndoStop()
-      syncCursorAndSelection()
-    }
-
-    editorAPI.setActiveEditorAdapter({
-      ownerId: adapterOwnerId,
-      insertText: (text, position) => {
-        const e = editorRef.current
-        const m = modelRef.current
-        if (!e || !m) return
-        if (position) {
-          const monacoPosition = toClampedMonacoPosition(m, position)
-          executeTextEdit(
-            new MonacoRange(
-              monacoPosition.lineNumber,
-              monacoPosition.column,
-              monacoPosition.lineNumber,
-              monacoPosition.column,
-            ),
-            text,
-          )
-          return
-        }
-        const selection = e.getSelection()
-        if (selection && !selection.isEmpty()) {
-          executeTextEdit(selection, text)
-          return
-        }
-        const currentPosition = e.getPosition() ?? { lineNumber: 1, column: 1 }
-        executeTextEdit(
-          new MonacoRange(
-            currentPosition.lineNumber,
-            currentPosition.column,
-            currentPosition.lineNumber,
-            currentPosition.column,
-          ),
-          text,
-        )
-      },
-      deleteRange: (range) => {
-        const m = modelRef.current
-        if (!m) return
-        executeTextEdit(toMonacoRange(m, range), '')
-      },
-      replaceRange: (range, text) => {
-        const m = modelRef.current
-        if (!m) return
-        executeTextEdit(toMonacoRange(m, range), text)
-      },
-      selectAll: () => {
-        const e = editorRef.current
-        if (!e) return
-        const fullRange = e.getModel()?.getFullModelRange()
-        if (fullRange) e.setSelection(fullRange)
-        e.focus()
-        syncCursorAndSelection()
-      },
-      undo: () => {
-        editorRef.current?.trigger('crowbar-api', 'undo', null)
-        syncCursorAndSelection()
-      },
-      redo: () => {
-        editorRef.current?.trigger('crowbar-api', 'redo', null)
-        syncCursorAndSelection()
-      },
-      // Monaco's model.canUndo()/canRedo() are not public API.  Being permissive
-      // (true whenever a model is loaded) is far less harmful than the previous
-      // behaviour of reading the app history store, which is never written for
-      // managed (Monaco) buffers and therefore always drifts from the real stack.
-      canUndo: () => modelRef.current !== null,
-      canRedo: () => modelRef.current !== null,
+    editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyA, () => {
+      const m = editor.getModel()
+      if (m) editor.setSelection(m.getFullModelRange())
     })
+  }, [editor])
 
-    return () => editorAPI.clearActiveEditorAdapter(adapterOwnerId)
-    // syncCursorAndSelection is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adapterOwnerId, isActiveSurface, readOnly, swapTick])
-
-  // ── Focus on swap / when this surface becomes active ──────────────────────
+  // ── Store → model: genuine external changes only ──────────────────────────
+  // Local typing flows model → sink → store, so by the time the store fires
+  // the model already holds that text and nothing is applied.
   useEffect(() => {
-    const editor = editorRef.current
-    if (!editor || !isActiveSurface) return
-    if (!readOnly) {
-      const focusTimer = setTimeout(() => editorRef.current?.focus(), 0)
-      return () => clearTimeout(focusTimer)
-    }
-  }, [isActiveSurface, readOnly, swapTick])
-
-  // ── Per-swap MODEL-level options: language + tabSize ──────────────────────
-  // These are the ONLY things that legitimately must reapply on a model swap
-  // (a fresh model has default language + tab settings). The heavy, widget-level
-  // `editor.updateOptions({...})` below is deliberately NOT keyed on swapTick.
-  const languageId = languageOverride ?? getLanguageIdFromPath(filePathRef.current)
-  const monacoLanguageId = toMonacoLanguageId(languageId)
-  useEffect(() => {
-    const model = modelRef.current
-    if (!model) return
-    monacoEditor.setModelLanguage(model, monacoLanguageId)
-    model.updateOptions({ tabSize, insertSpaces: true })
-  }, [monacoLanguageId, tabSize, swapTick])
-
-  // ── External content → model sync (imperative, U5b) ───────────────────────
-  // Managed panes are model-authoritative; only GENUINE external changes (disk
-  // reload, format-on-save, undo/redo applied to the store) are pushed into the
-  // held model via the manager's undo-friendly edit. This installs the handler
-  // the content-change subscription calls (and re-keys on swap so it captures the
-  // current model/path). Local typing does NOT bounce: it flows model → sink →
-  // store, so by the time the store fires `model.getValue() === content` and the
-  // edit is skipped. The `externalApplyRef` latch additionally guards the one
-  // model-change event a genuine external edit re-fires.
-  useEffect(() => {
-    const applyExternal = (content: string) => {
-      const editor = editorRef.current
-      const model = modelRef.current
-      if (!editor || !model) return
-      // A disposed model can linger in modelRef across a close→reopen race (the
-      // registry briefly held the old context). Reading it (getValue / applyEdit)
-      // throws 'Model is disposed!' and crashes this effect — bail instead.
-      if (model.isDisposed()) return
-      const path = filePathRef.current
-      if (!path) return
-      if (model.getValue() === content) return
+    if (!editor || !model || !filePath) return
+    const apply = (content: string) => {
+      if (model.isDisposed() || model.getValue() === content) return
       const selection = editor.getSelection()
-      // Latch the applied text so the surface ignores the model-change event this
-      // edit re-fires (otherwise it would bounce straight back to the store).
       if (externalApplyRef) externalApplyRef.current = content
-      editorManager.applyExternalEdit(paneId, fileUri(workspaceId, path), content)
+      editorManager.applyExternalEdit(paneId, fileUri(workspaceId, filePath), content)
       if (selection) editor.setSelection(selection)
     }
-    externalSyncRef.current = applyExternal
-    // Reconcile on (re)bind — e.g. a swap BACK to a held model whose store content
-    // was updated (disk reload / format-on-save / undo) while it was off-screen.
-    //
-    // I2 guard: do NOT clobber a model that is AHEAD of the store with pending,
-    // un-flushed local edits. Genuine external changes only ever update the store
-    // for a CLEAN buffer (a dirty buffer is flagged, never overwritten — see
-    // external-buffer-sync); so when the buffer is dirty the MODEL is the source
-    // of truth and the older store snapshot must not be applied over it. The
-    // subscription-driven path (store content actually changed) still applies
-    // genuine external edits regardless of dirty state.
-    const reconcileBuffer = (() => {
-      const state = windowPaneStore.getState()
-      const id = state.panes[paneId]?.activeEditorTabId ?? null
-      const buf = id ? state.buffers.find((b) => b.id === id) : null
-      return buf && isEditorContent(buf) ? buf : null
-    })()
-    if (shouldReconcileModelFromStore(reconcileBuffer)) {
-      applyExternal(activeContentRef.current)
-    }
-    return () => {
-      externalSyncRef.current = () => {}
-    }
-  }, [editorManager, externalApplyRef, paneId, swapTick, workspaceId])
-
-  // ── Settings: theme (separate so font/layout changes don't redefine theme) ─
-  // Runs on mount, when theme inputs change, AND once when the editor instance
-  // first becomes available — but NOT on every model swap. `themeBoundEditorRef`
-  // tracks the editor instance the theme subscriptions are bound to; we rebind
-  // only when that instance changes (editor created/replaced), so a tab switch
-  // (swapTick bump with the SAME retained editor) is a cheap no-op.
-  const themeBoundEditorRef = useRef<StandaloneEditor | null>(null)
-  // `settingsTheme`/`theme` name the COLOR theme (e.g. "crowbar") — a totally
-  // separate setting from Theme Mode (light/dark/system), which touches
-  // neither. Switching Theme Mode only ever calls `document.documentElement.
-  // classList.toggle('dark', ...)` (settings-effects.ts's `applyThemeMode`/
-  // `syncThemeWithSystem`, including the system-preference-change case), and
-  // `defineMonacoTheme` reads exactly that class as its OWN source of truth
-  // for isDark (this file's own top comment: "CSS-first ... always matches
-  // whatever .dark ... is currently applied"). A plain `editorRef.current`
-  // read inside this effect can't see that change on its own: the ref is set
-  // IMPERATIVELY by the editor-creation path, not through a React state
-  // update, so nothing here re-runs when it happens. `darkModeVersion` is a
-  // REACTIVE dependency for exactly that reason — the same shared
-  // MutationObserver-backed `useSyncExternalStore` seam `sidebar-build-
-  // badge.tsx`'s `useIsDarkMode` and mermaid-theme.ts's
-  // `useMermaidThemeVersion` already use for this identical problem — so a
-  // mode toggle forces a real re-run of this effect, landing on whatever
-  // `editorRef.current` holds AT THAT LATER TIME (by then, almost always
-  // populated), not the one captured at mount. Without it, toggling Theme
-  // Mode repaints every other pixel in the app but leaves an already-mounted
-  // editor's Monaco theme (and thus real, opaque colors like `editor.
-  // lineHighlightBackground`, not just the transparent `editor.background`)
-  // stuck on whatever was baked in at creation — caught live: a solid dark
-  // current-line highlight surviving a switch back to light, verified via
-  // console tracing that this effect's OWN mount-time runs all saw a null
-  // `editorRef.current` and, absent this dependency, never ran again.
-  const darkModeVersion = useDarkModeVersion()
-  useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    const applyTheme = () => monacoEditor.setTheme(defineMonacoTheme(settingsTheme || theme))
-    // Always reapply the theme value (cheap) when theme inputs change; rebind the
-    // registry subscriptions only when the editor instance itself changed.
-    applyTheme()
-    if (themeBoundEditorRef.current === editor) return
-    themeBoundEditorRef.current = editor
-    const unsubscribeRegistry = themeRegistry.onRegistryChange(applyTheme)
-    const unsubscribeTheme = themeRegistry.onThemeChange(applyTheme)
-    return () => {
-      unsubscribeRegistry()
-      unsubscribeTheme()
-      if (themeBoundEditorRef.current === editor) themeBoundEditorRef.current = null
-    }
-    // swapTick is intentionally a dep so this re-evaluates when the editor first
-    // appears / is replaced, but the subscription rebind is gated by the ref.
-  }, [settingsTheme, theme, swapTick, darkModeVersion])
-
-  // ── Settings: all non-theme editor options (widget-level) ─────────────────
-  // Keyed on actual settings values only — NOT swapTick — so a tab switch does
-  // not re-run this ~20-option `updateOptions`. `swapTick` is still a dep purely
-  // so the effect re-evaluates when the editor instance first becomes available;
-  // the body short-circuits to a no-op once it has applied the current settings
-  // to the current editor instance (guarded by `optionsBoundStateRef`).
-  const optionsBoundStateRef = useRef<{ editor: StandaloneEditor; key: string } | null>(null)
-  useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    // Identity of "these settings on this editor". If unchanged (e.g. a pure tab
-    // switch bumped swapTick but nothing settings-related moved), skip the work.
-    const settingsKey = JSON.stringify([
-      autoCompletion,
-      fontFamily,
-      fontSize,
-      highlightOccurrences,
-      lineHeight,
-      lineNumbers,
-      // line-number formatting inputs (formatter identity is derived from these)
-      lineNumberStart,
-      lineNumberMap,
-      minimapEnabled,
-      parameterHints,
-      readOnly,
-      renderIndentGuides,
-      renderWhitespace,
-      scrollable,
-      semanticHighlighting,
-      tabSize,
-      wordWrap,
-    ])
-    const bound = optionsBoundStateRef.current
-    if (bound && bound.editor === editor && bound.key === settingsKey) return
-    optionsBoundStateRef.current = { editor, key: settingsKey }
-    editor.updateOptions({
-      fontFamily,
-      fontSize,
-      lineHeight,
-      tabSize,
-      readOnly,
-      domReadOnly: readOnly,
-      lineNumbers: lineNumbers ? lineNumberFormatter : 'off',
-      minimap: { enabled: minimapEnabled },
-      renderWhitespace: renderWhitespace === 'none' ? 'none' : renderWhitespace,
-      wordWrap: wordWrap ? 'on' : 'off',
-      guides: {
-        indentation: renderIndentGuides,
-        highlightActiveIndentation: renderIndentGuides,
-      },
-      'semanticHighlighting.enabled': semanticHighlighting,
-      occurrencesHighlight: highlightOccurrences ? 'singleFile' : 'off',
-      selectionHighlight: true,
-      quickSuggestions: autoCompletion,
-      suggestOnTriggerCharacters: autoCompletion,
-      parameterHints: { enabled: parameterHints },
-      cursorStyle: 'line',
-      cursorBlinking: 'blink',
-      scrollbar: {
-        vertical: scrollable ? 'auto' : 'hidden',
-        horizontal: scrollable ? 'auto' : 'hidden',
-      },
+    // On (re)bind the store is authoritative only for a CLEAN buffer: a dirty
+    // one's model is ahead of the store with un-flushed keystrokes (I2).
+    const initial = activeEditorBuffer(windowPaneStore.getState(), paneId)
+    if (initial && shouldReconcileModelFromStore(initial)) apply(initial.content)
+    let previous = initial?.content
+    return windowPaneStore.subscribe((state) => {
+      const buffer = activeEditorBuffer(state, paneId)
+      if (!buffer || buffer.path !== filePath || buffer.content === previous) return
+      previous = buffer.content
+      apply(buffer.content)
     })
-  }, [
-    autoCompletion,
-    fontFamily,
-    fontSize,
-    highlightOccurrences,
-    lineHeight,
-    lineNumbers,
-    lineNumberFormatter,
-    lineNumberMap,
-    lineNumberStart,
-    minimapEnabled,
-    parameterHints,
-    readOnly,
-    renderIndentGuides,
-    renderWhitespace,
-    scrollable,
-    semanticHighlighting,
-    tabSize,
-    wordWrap,
-    swapTick,
-  ])
+  }, [editor, model, filePath, editorManager, externalApplyRef, paneId, workspaceId])
 
-  // ── Search-match decorations ──────────────────────────────────────────────
+  // ── Focus the editor when it shows a new model on the active surface ──────
   useEffect(() => {
-    const collection = decorationCollectionRef.current
-    const model = modelRef.current
-    if (!collection || !model) return
-    const matches = highlightMatches ?? searchMatches
-    const activeIndex = currentHighlightIndex ?? currentSearchMatchIndex
-    const decorations = matches.flatMap((match, index) => {
-      const start = model.getPositionAt(match.start)
-      const end = model.getPositionAt(match.end)
-      return [
-        {
-          range: new MonacoRange(start.lineNumber, start.column, end.lineNumber, end.column),
-          options: {
-            className:
-              index === activeIndex
-                ? 'monaco-search-match monaco-search-match-current'
-                : 'monaco-search-match',
-            overviewRuler: undefined,
-          },
-        },
-      ]
-    })
-    collection.set(decorations)
-  }, [currentHighlightIndex, currentSearchMatchIndex, highlightMatches, searchMatches, swapTick])
-
-  // ── Coordinate / model-position resolvers (LSP overlays) ──────────────────
-  useEffect(() => {
-    const editor = editorRef.current
-    const model = modelRef.current
-    if (!editor || !model) {
-      onCoordinateResolverChangeRef.current?.(null)
-      onModelPositionResolverChangeRef.current?.(null)
-      return
-    }
-
-    onCoordinateResolverChangeRef.current?.((clientX, clientY) => {
-      if (model.isDisposed()) return null
-      const target = editor.getTargetAtClientPoint(clientX, clientY)
-      const position = target?.position
-      if (!position) return null
-      const editorPosition = toEditorPosition(model, position)
-      const top = editor.getTopForLineNumber(position.lineNumber)
-      const left = editor.getOffsetForColumn(position.lineNumber, position.column)
-      return {
-        ...editorPosition,
-        viewLine: position.lineNumber - 1,
-        modelLine: editorPosition.line,
-        top,
-        left,
-        height: lineHeight,
-        segment: {
-          viewLine: position.lineNumber - 1,
-          modelLine: editorPosition.line,
-          startColumn: 0,
-          endColumn: model.getLineLength(position.lineNumber),
-          top,
-          height: lineHeight,
-        },
-      }
-    })
-
-    onModelPositionResolverChangeRef.current?.((line, column) => {
-      if (model.isDisposed()) return null
-      const position = clampMonacoPosition(model, {
-        lineNumber: line + 1,
-        column: column + 1,
-      })
-      let editorPosition: Position
-      let top: number
-      let left: number
-      let lineLength: number
-      try {
-        editorPosition = toEditorPosition(model, position)
-        top = editor.getTopForLineNumber(position.lineNumber)
-        left = editor.getOffsetForColumn(position.lineNumber, position.column)
-        lineLength = model.getLineLength(position.lineNumber)
-      } catch (error) {
-        if (model.isDisposed()) return null
-        throw error
-      }
-      const modelLine = position.lineNumber - 1
-      return {
-        ...editorPosition,
-        viewLine: modelLine,
-        modelLine,
-        top,
-        left,
-        height: lineHeight,
-        segment: {
-          viewLine: modelLine,
-          modelLine,
-          startColumn: 0,
-          endColumn: lineLength,
-          top,
-          height: lineHeight,
-        },
-      }
-    })
-
-    return () => {
-      onCoordinateResolverChangeRef.current?.(null)
-      onModelPositionResolverChangeRef.current?.(null)
-    }
-  }, [lineHeight, swapTick])
-
-  // ── LSP diagnostics: open document + paint markers ────────────────────────
-  // The diagnostics subscription is set up synchronously (cheap) so markers paint
-  // as soon as the server reports them. The EXPENSIVE part — `documentOpen` — is
-  // deferred to an idle tick so it never blocks the content paint on open/switch.
-  //
-  // Lifecycle safety: the deferred open is cancelled if this effect cleans up
-  // (swap/unmount) before it fires, so a rapid open→open→open never leaks an open
-  // document and ends with exactly one open (the last). The previous document is
-  // closed synchronously on cleanup regardless of whether its open already fired
-  // (`documentClose` is a no-op for a document that was never opened).
-  useEffect(() => {
-    const model = modelRef.current
-    const filePath = filePathRef.current
-    if (!model || !filePath) return
-    // Wait for the owning-chat-id race in useLspScopeReady to resolve before
-    // touching LspClient — ensureSubscribed/wsBase throw on a null id. This
-    // effect re-runs (lspScopeReady is a dependency) the moment it does, so a
-    // cold activation retries the subscribe + open instead of crashing or
-    // losing diagnostics for this file for good.
-    if (!lspScopeReady) return
-    const client = LspClient.getInstance()
-
-    const applyMarkers = (fp: string, diagnostics: LspDiagnostic[], diagWsId: string) => {
-      // LspClient is a single global subscription to whichever workspace is
-      // currently active — a pane showing a DIFFERENT (non-active) workspace's
-      // file stays registered as a handler the whole time, so a path match
-      // alone isn't enough: two workspaces sharing a relative path (two
-      // worktrees of the same repo) would otherwise paint one workspace's
-      // diagnostics onto the other's file. Same bleed shape as the Monaco
-      // model URI collision this session already fixed, one layer up.
-      if (diagWsId !== workspaceId) return
-      if (!pathsMatch(fp, filePath)) return
-      const current = modelRef.current
-      if (!current) return
-      monacoEditor.setModelMarkers(current, 'crowbar-lsp', diagnostics.map(toMonacoMarker))
-    }
-    const unsubscribe = client.onDiagnosticsUpdate(applyMarkers)
-
-    let opened = false
-    const openHandle = scheduleIdleTask(() => {
-      opened = true
-      void client.documentOpen(filePath, model.getValue(), languageId ?? 'plaintext')
-    })
-
-    return () => {
-      // Cancel the pending open if it has not fired yet (prevents a leaked open
-      // for a buffer we are already switching away from).
-      openHandle.cancel()
-      unsubscribe()
-      // Close only if we actually opened it; harmless otherwise.
-      if (opened) void client.documentClose(filePath)
-      const current = modelRef.current
-      if (current) monacoEditor.setModelMarkers(current, 'crowbar-lsp', [])
-    }
-  }, [languageId, swapTick, lspScopeReady, workspaceId])
-
-  // ── LSP re-analyze on edits (debounced, imperative — U5b) ─────────────────
-  // Driven by the content-change signal, not a render dep. Each change (re)arms a
-  // trailing 400ms timer that reads the model's CURRENT text imperatively
-  // (`model.getValue()`) and sends `documentChange`. Re-keyed on swap so it
-  // targets the live model/path; the pending timer is cleared on rebind/unmount.
-  useEffect(() => {
-    const filePath = filePathRef.current
-    if (!filePath) {
-      lspDidChangeRef.current = () => {}
-      return
-    }
-    let timer: ReturnType<typeof setTimeout> | null = null
-    lspDidChangeRef.current = () => {
-      if (timer) clearTimeout(timer)
-      timer = setTimeout(() => {
-        timer = null
-        const model = modelRef.current
-        // Guard against a disposed model lingering across a close→reopen race:
-        // getValue() would throw 'Model is disposed!'. Fall back to the last
-        // known store content instead.
-        const content = model && !model.isDisposed() ? model.getValue() : activeContentRef.current
-        void LspClient.getInstance().documentChange(filePath, content)
-      }, 400)
-    }
-    return () => {
-      if (timer) clearTimeout(timer)
-      lspDidChangeRef.current = () => {}
-    }
-  }, [swapTick])
+    if (!editor || !model || !isActiveSurface || readOnly) return
+    editor.focus()
+  }, [editor, model, isActiveSurface, readOnly])
 }

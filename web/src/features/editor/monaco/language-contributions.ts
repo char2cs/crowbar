@@ -65,9 +65,8 @@ import { registerTreeSitterSemanticTokens } from './semantic-tokens-provider'
  * full behavior originally came from TWO separately-imported modules (a
  * basic-languages Monarch tokenizer PLUS one of the 4 richer language
  * services): css/less/scss all route through the shared
- * `language/css/monaco.contribution`; typescript/javascript both route through
- * `language/typescript/monaco.contribution`; html has its own service; json has
- * no basic-languages counterpart at all (language-service only).
+ * `language/css/monaco.contribution`; html has its own service; json has no
+ * basic-languages counterpart at all (language-service only).
  */
 const contributionLoaders: Record<string, () => Promise<unknown>> = {
   c: () => import('monaco-editor/esm/vs/basic-languages/cpp/cpp.contribution'),
@@ -91,11 +90,12 @@ const contributionLoaders: Record<string, () => Promise<unknown>> = {
       import('monaco-editor/esm/vs/language/html/monaco.contribution'),
     ]),
   java: () => import('monaco-editor/esm/vs/basic-languages/java/java.contribution'),
+  // TypeScript/JavaScript get grammar only: completion, hover, diagnostics &c.
+  // come from the daemon's language server (monaco-lsp-providers.ts). Monaco's
+  // in-browser TS service would answer the same queries a second time, with
+  // single-file knowledge and false "cannot find module" errors.
   javascript: () =>
-    Promise.all([
-      import('monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'),
-      import('monaco-editor/esm/vs/language/typescript/monaco.contribution'),
-    ]),
+    import('monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'),
   json: () => import('monaco-editor/esm/vs/language/json/monaco.contribution'),
   kotlin: () => import('monaco-editor/esm/vs/basic-languages/kotlin/kotlin.contribution'),
   less: () =>
@@ -128,10 +128,7 @@ const contributionLoaders: Record<string, () => Promise<unknown>> = {
   sql: () => import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution'),
   swift: () => import('monaco-editor/esm/vs/basic-languages/swift/swift.contribution'),
   typescript: () =>
-    Promise.all([
-      import('monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'),
-      import('monaco-editor/esm/vs/language/typescript/monaco.contribution'),
-    ]),
+    import('monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'),
   xml: () => import('monaco-editor/esm/vs/basic-languages/xml/xml.contribution'),
   yaml: () => import('monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'),
 }

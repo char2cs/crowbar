@@ -15,6 +15,7 @@
  */
 import { useFileWatcherStore } from '@/features/file-system/controllers/file-watcher-store'
 import { writeWorkspaceFile } from '@/features/file-system/controllers/platform'
+import { clearBlame } from '@/features/git/stores/git-blame-store'
 import { requestGitRefresh } from '@/features/git/stores/git-refresh'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { isEditorContent, type EditorContent } from '@/features/panes/types/pane-content'
@@ -181,6 +182,7 @@ async function writeToDisk(
   const { LspClient } = await import('@/features/editor/lsp/lsp-client')
   void LspClient.getInstance().documentSave(path)
   requestGitRefresh(workspaceId)
+  clearBlame(workspaceId, path)
 
   // Edits typed during the write keep the buffer dirty; make sure autosave
   // picks them up rather than leaving them waiting for the next keystroke.

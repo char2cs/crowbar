@@ -130,9 +130,9 @@ describe('LspClient owning-chat-id race (cold-boot "no owning chat recorded" cra
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
-  it('getDefinition resolves to null instead of throwing before the owning chat id is recorded', async () => {
+  it('a feature request resolves to null instead of throwing before the owning chat id is recorded', async () => {
     const client = new LspClient()
-    await expect(client.getDefinition('src/app.ts', 0, 0)).resolves.toBeNull()
+    await expect(client.request('ws-race', 'definition', {})).resolves.toBeNull()
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
