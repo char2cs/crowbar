@@ -374,6 +374,8 @@ func TestDeleteRepo_Returns202(
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Empty(t, rec.Body.String())
 
+	intent := bc.await(t)
+	assert.Empty(t, intent.Status, "the recorded intent is announced first")
 	got := bc.await(t)
 	assert.Equal(t, "r1", got.ID)
 	assert.Equal(t, "p1", got.ProjectID)
@@ -438,7 +440,7 @@ func TestDeleteRepo_FindError_5xx(
 func TestDeleteRepo_DeleteError_ReannouncesTheRepo(
 	t *testing.T,
 ) {
-	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1"}}
+	store := &fakeStore{byKey: &domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true, LastError: "wedged"}}
 	bc := newRecordingRepoBroadcaster()
 	h := repohandlers.NewWithDeps(store, nil, nil, bc.push).
 		WithRepoDeleter(&fakeRepoDeleter{err: errStore})
@@ -451,9 +453,11 @@ func TestDeleteRepo_DeleteError_ReannouncesTheRepo(
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
 	h.WaitAsync()
+	<-bc.ch // the recorded intent
 	frame := <-bc.ch
 	assert.Equal(t, "r1", frame.ID)
 	assert.Empty(t, frame.Status, "the repo is re-announced live, never tombstoned")
+	assert.Equal(t, "wedged", frame.LastError, "carrying why the delete stopped")
 	assertNoBroadcast(t, h, bc)
 }
 
@@ -462,6 +466,11 @@ type fakeRepoDeleter struct {
 	mu      sync.Mutex
 	deleted []domain.Repository
 	err     error
+}
+
+func (f *fakeRepoDeleter) BeginRepoDelete(_ context.Context, repo domain.Repository) (domain.Repository, error) {
+	repo.Deleting, repo.LastError = true, ""
+	return repo, nil
 }
 
 func (f *fakeRepoDeleter) DeleteRepo(_ context.Context, repo domain.Repository) error {

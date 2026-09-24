@@ -33,6 +33,8 @@ export interface Project {
   /** The emoji icon, rendered directly. Wins over avatarUrl — the daemon clears
    *  one when the other is set, so both are never live at once. */
   avatarEmoji?: string
+  /** Why the last delete of this project stopped (see RepoDTO.lastError). */
+  lastError?: string
 }
 
 export interface Prerequisites {
@@ -155,6 +157,9 @@ export interface RepoDTO {
   /** Project-home folder this repo's entry is filed under, absent (root) on
    *  frames from a daemon that predates repo placement. */
   folderId?: string
+  /** Why the last delete of this repo stopped; the daemon keeps the row and
+   *  resumes the delete at boot. */
+  lastError?: string
 }
 
 export interface FolderDTO {

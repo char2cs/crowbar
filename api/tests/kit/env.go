@@ -1477,6 +1477,32 @@ func (e *Env) WorkspaceRow(
 	return "", false
 }
 
+// RecordRepoDeleteIntent writes the durable intent a repo delete records
+// before any teardown — the state a crash right after that write leaves.
+func (e *Env) RecordRepoDeleteIntent(
+	t *testing.T,
+	repoID string,
+) {
+	t.Helper()
+	ctx := context.Background()
+	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
+	require.NoError(t, err)
+	require.NotNil(t, repo, "RecordRepoDeleteIntent: repo %s", repoID)
+	repo.Deleting = true
+	require.NoError(t, e.app.GORM.Repositories.Save(ctx, *repo))
+}
+
+// RepoRow reports whether repoID's row is still in the repository store.
+func (e *Env) RepoRow(
+	t *testing.T,
+	repoID string,
+) bool {
+	t.Helper()
+	repo, err := e.app.GORM.Repositories.FindByKey(context.Background(), repoID)
+	require.NoError(t, err)
+	return repo != nil
+}
+
 // WorktreeChats returns the repo's chat rows that OWN a worktree, projected to
 // the flat workspace shape (WorktreeFrame's REST twin), keyed by workspace id.
 // It is the read-model replacement for the deleted workspace list.

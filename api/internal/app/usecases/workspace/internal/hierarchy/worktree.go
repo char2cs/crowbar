@@ -1498,8 +1498,8 @@ func (u *hierarchyUsecase) DeleteCascade(
 // forcing it, though — removeOne never --forces a locked worktree and never
 // deletes a branch Crowbar did not create, so the repo's default and
 // protected branches, and any uncommitted work in their worktrees, survive
-// the repo's removal (spec §3 P0-1). Individual failures are tolerated so one
-// wedged worktree cannot strand the rest.
+// the repo's removal (spec §3 P0-1). One failed tombstone does not stop the
+// rest, but it is returned, so the repo row stays for a re-drive.
 func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 	ctx context.Context,
 	repo domain.Repository,
@@ -1517,6 +1517,7 @@ func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 		}
 	}
 	ref := repoRef{path: repo.Path, defaultBranch: repo.DefaultBranch}
+	var errs []error
 	for _, n := range mine {
 		if parent, ok := index[n.Parent]; ok && parent.RepoID == repo.ID &&
 			parent.Status != domain.WorkspaceStatusDeleted {
@@ -1524,10 +1525,14 @@ func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 		}
 		for _, id := range cascade.Plan(n.ID, mine) {
 			if removeErr := u.removeOne(ctx, index[id], ref); removeErr != nil {
-				slog.ErrorContext(ctx, "delete repo workspaces: remove",
-					"repo", repo.ID, "ws", id, "err", removeErr)
+				errs = append(errs, fmt.Errorf("remove %s: %w", id, removeErr))
 			}
 		}
+	}
+	// Reported only after every other workspace had its turn: the repo must not
+	// go while a workspace of it is still live.
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("delete repo workspaces: %w", err)
 	}
 	return nil
 }

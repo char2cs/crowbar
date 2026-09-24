@@ -298,3 +298,36 @@ describe('committing a project-home removal', () => {
     expect(toastError).toHaveBeenCalledOnce()
   })
 })
+
+// A repo or project delete answers 202 and finishes in the background; the only
+// way its failure can arrive is the row the daemon kept, carrying lastError.
+describe('committing a repo removal', () => {
+  const hideRepo = () => useRemovalTrayStore.setState({ hiddenIds: new Set(['r1']) })
+  const repoEntry = () =>
+    entry({ kind: 'repo', id: 'r1', label: 'checkout', hiddenIds: ['r1'], deadlineAt: null })
+
+  it('un-hides the repo and says why when the daemon reports the delete stopped', async () => {
+    hideRepo()
+    await commitRemoval(repoEntry(), context)
+    expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(true)
+
+    useSidebarStore.setState({ repos: [repo({ deleteError: 'worktree wedged' })] })
+
+    expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false)
+    expect(toastError).toHaveBeenCalledExactlyOnceWith("Couldn't remove checkout: worktree wedged")
+  })
+
+  it('does not mistake an earlier attempt’s error for this one', async () => {
+    useSidebarStore.setState({ repos: [repo({ deleteError: 'old failure' })] })
+    hideRepo()
+    await commitRemoval(repoEntry(), context)
+
+    useSidebarStore.setState({ repos: [repo({ deleteError: 'old failure', name: 'renamed' })] })
+    useSidebarStore.setState({ repos: [repo()] })
+    expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(true)
+    useSidebarStore.setState({ repos: [] })
+
+    expect(useRemovalTrayStore.getState().hiddenIds.has('r1')).toBe(false)
+    expect(toastError).not.toHaveBeenCalled()
+  })
+})

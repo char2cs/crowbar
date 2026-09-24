@@ -63,6 +63,7 @@ type WorkspaceReader interface {
 // lifecycle (project.DeleteUsecase.DeleteRepo): workspaces retired first, then
 // the row, its Node row and its entity directory. The handler only binds HTTP.
 type RepoDeleter interface {
+	BeginRepoDelete(ctx context.Context, repo domain.Repository) (domain.Repository, error)
 	DeleteRepo(ctx context.Context, repo domain.Repository) error
 }
 
@@ -574,8 +575,8 @@ func (h *Handlers) bindRepoUpdate(
 // removal in the background through the one delete lifecycle
 // (RepoDeleter.DeleteRepo), broadcasting the deleted-status RepoDTO tombstone
 // once it is done. A failure is never silent: the repo is re-broadcast as still
-// present, so the client does not believe in a removal that did not happen. The
-// user's real repository directory (repo.Path) is never touched.
+// present, carrying the LastError the usecase recorded, and boot resumes the
+// delete. The user's real repository directory (repo.Path) is never touched.
 func (h *Handlers) DeleteRepo(
 	c *gin.Context,
 ) {
@@ -595,11 +596,22 @@ func (h *Handlers) DeleteRepo(
 		libs.WriteErr(c, http.StatusInternalServerError, "repo delete is not wired")
 		return
 	}
+	// The intent is durable, and a previous attempt's error cleared on every
+	// client, before the 202: from here on boot finishes what this starts.
+	marked, err := h.deleter.BeginRepoDelete(c.Request.Context(), *repo)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	h.broadcast(dto.RepoDTOFrom(marked, h.placementOf(c.Request.Context(), repoID)))
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
-		if err := h.deleter.DeleteRepo(ctx, *repo); err != nil {
-			slog.ErrorContext(ctx, "delete repo: the repo stays", "repo", repoID, "err", err)
-			h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(ctx, repoID)))
+		if err := h.deleter.DeleteRepo(ctx, marked); err != nil {
+			slog.ErrorContext(ctx, "delete repo: stopped; the repo stays", "repo", repoID, "err", err)
+			if row, getErr := h.store.FindByKey(ctx, repoID); getErr == nil && row != nil {
+				h.broadcast(dto.RepoDTOFrom(*row, h.placementOf(ctx, repoID)))
+			}
 			return
 		}
 		h.broadcast(dto.RepoDTO{ID: repoID, ProjectID: projectID, Status: "deleted"})

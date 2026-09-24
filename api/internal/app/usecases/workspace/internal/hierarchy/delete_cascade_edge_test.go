@@ -65,18 +65,29 @@ func TestDeleteRepoWorkspaces_SkipsNonRootWorkspaces(t *testing.T) {
 	assert.Equal(t, 2, countOp(g.ops(), "WorktreeRemove"), "each workspace's worktree is removed exactly once")
 }
 
-func TestDeleteRepoWorkspaces_RemoveErrorIsBestEffort(t *testing.T) {
+// A workspace that could not be tombstoned does not stop the others, but it is
+// reported: the caller must keep the repo row while one of its workspaces is live.
+func TestDeleteRepoWorkspaces_AFailedTombstoneIsReportedAfterTheRest(t *testing.T) {
 	all := []domain.Workspace{
-		{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", WorktreePath: "/wt/a/worktree"},
+		{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "a", WorktreePath: "/wt/a/worktree"},
+		{ID: "w2", RepoID: "r1", ProjectID: "p1", Branch: "b", WorktreePath: "/wt/b/worktree"},
 	}
+	var tried []string
 	ws := &fakeWorkspace{
-		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-		DeleteFn: func(_ context.Context, _ string) error { return errBoom },
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error {
+			tried = append(tried, id)
+			if id == "w1" {
+				return errBoom
+			}
+			return nil
+		},
 	}
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 
 	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"})
-	require.NoError(t, err, "a per-workspace removal failure must not fail the whole sweep")
+	require.ErrorIs(t, err, errBoom)
+	assert.ElementsMatch(t, []string{"w1", "w2"}, tried)
 }
 
 // TestRemoveOne_DefaultBranchReattachFails_IsBestEffort proves a failed

@@ -173,6 +173,12 @@ func New(
 	if err := startBootSweep(ctx, repos); err != nil {
 		return nil, err
 	}
+	// A project or repo delete a crash or a failure stopped is finished before
+	// anything is served (invariant D5); the tombstones it writes are purged by
+	// the delete reactor like any other.
+	if err := ucs.ProjectDelete.Resume(ctx); err != nil {
+		return nil, fmt.Errorf("app: resume deletes: %w", err)
+	}
 	startRestoreTerminalSessions(ctx, ucs)
 	reconcileAgentRunners(ctx, ucs)
 	startOwningChatReconcile(ctx, repos, ucs)

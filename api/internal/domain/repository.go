@@ -32,6 +32,11 @@ type Repository struct {
 	AvatarVersion int64  `json:"avatarVersion,omitempty"`
 	AvatarEmoji   string `json:"avatarEmoji,omitempty"`
 	RemoteURL     string `json:"remoteUrl,omitempty"`
+	// Deleting is the durable intent of a delete, written before any of the
+	// teardown runs; it is one-way, and boot re-drives every row carrying it.
+	Deleting bool `json:"deleting,omitempty"`
+	// LastError is why the last delete attempt stopped; cleared on a re-drive.
+	LastError string `json:"lastError,omitempty"`
 }
 
 func (Repository) TableName() string {

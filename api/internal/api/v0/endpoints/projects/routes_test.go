@@ -74,6 +74,13 @@ func (stubImporter) Create(
 
 type stubDeleter struct{}
 
+func (stubDeleter) BeginDelete(
+	_ context.Context,
+	id string,
+) (domain.Project, error) {
+	return domain.Project{ID: id}, nil
+}
+
 func (stubDeleter) Delete(
 	_ context.Context,
 	_ string,
