@@ -1100,6 +1100,11 @@ func TestAgent_ClaudeNeverInheritsASessionIdentity(t *testing.T) {
 	inherited := []string{
 		"PATH=/bin", "CLAUDE_CODE_SESSION_ID=parent", "CLAUDE_CODE_REMOTE_SESSION_ID=parent",
 		"CLAUDE_CODE_ENTRYPOINT=cli", "CLAUDE_PID=1", "CLAUDECODE=1",
+		// The parent's peer channel and account identity: a child reached the
+		// parent's messaging socket and wrote its user's email into prompts.
+		"CLAUDE_CODE_MESSAGING_SOCKET=/tmp/p.sock", "CLAUDE_CODE_MESSAGING_TOKEN=t",
+		"CLAUDE_CODE_USER_EMAIL=a@b", "CLAUDE_CODE_ACCOUNT_UUID=u", "CLAUDE_CODE_ORGANIZATION_UUID=o",
+		"CLAUDE_CODE_SESSION_ATTENDED=1", "CLAUDE_SESSION_INGRESS_TOKEN_FILE=/f",
 	}
 	plan, err := get(t, "claude").SpawnPlan(agents.TemplateCtx{
 		Tmp: tmp, Segid: "seg", CrowbarHook: "/bin/crowbar", Cwd: tmp,
@@ -1109,6 +1114,18 @@ func TestAgent_ClaudeNeverInheritsASessionIdentity(t *testing.T) {
 		t.Cleanup(plan.Cleanup)
 	}
 	assert.Equal(t, []string{"PATH=/bin"}, plan.Env)
+}
+
+// A claude never set up on this machine paints its onboarding before any
+// hook: both screens read as blocking, never as a healthy empty pane.
+func TestMatchTerminalPrompt_ClaudeFirstRunOnboardingBlocks(t *testing.T) {
+	for _, screen := range []string{
+		"Welcome to Claude Code v2.1.281\n Let's get started.\n Choose the text style that looks best with your terminal\n ❯ 2. Dark mode ✔",
+		"Claude Code can be used with your Claude subscription\n Select login method:\n ❯ Claude account with subscription",
+	} {
+		_, ok := get(t, "claude").MatchTerminalPrompt(screen)
+		assert.True(t, ok, "not recognised as blocking: %q", screen)
+	}
 }
 
 func TestMatchTerminalPrompt_ClaudeIdentifiesItsTrustDialog(t *testing.T) {
