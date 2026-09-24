@@ -261,15 +261,21 @@ func (h *Handlers) List(
 		return
 	}
 
+	// ONE read of the runner projection for the whole list, not one (or four)
+	// per row: every other runtime fact is an in-memory read.
+	live, err := h.runners.LiveRunnersByChat(rctx)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
 	runtimes := make(map[string]dto.ChatRuntime, len(chats))
 	for _, c := range chats {
-		rt, err := h.chatRuntime(rctx, c.ID)
-		if err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(ctx, status, msg)
-			return
+		var runner *agents.Runner
+		if r, ok := live[c.ID]; ok {
+			runner = &r
 		}
-		runtimes[c.ID] = rt
+		runtimes[c.ID] = h.liveRuntime(c.ID, runner)
 	}
 
 	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(
@@ -324,19 +330,9 @@ func (h *Handlers) Get(
 		chat, rt, h.chatWorktree(ctx.Request.Context(), chat)))
 }
 
-// chatRuntime derives a chat's process view at read time by joining the runner
-// projections: the runner PLACED on it (if any), the conversations it has hosted,
-// and — while dormant — its interruption ledger. Nothing here is read off the chat
-// aggregate, because a chat stores no process facts.
-//
-// A dormant chat is NOT an error: agentrunner.ErrNotFound from LiveRunnerForChat means
-// no live row exists, which means no PTY exists, which is the liveness answer — so it
-// yields a nil LiveRunner and the read continues to the history and the interruption
-// ledger and its placement history, which together supply the provider the FE
-// still needs (glyph, dropdown, Resume) even for a provider that never wrote a
-// conversation row — see dto.ChatRuntime.Interruptions and .Placements. Any OTHER error is a genuine read failure and
-// propagates: an empty liveRunnerId must mean "dormant" and never "the projection
-// broke", or the frontend would silently treat a broken read as a dead CLI.
+// chatRuntime derives one chat's process view at read time: the runner PLACED on
+// it (if any) and the conversations it has hosted. Nothing here is read off the
+// chat aggregate, because a chat stores no process facts.
 func (h *Handlers) chatRuntime(
 	ctx context.Context,
 	chatID string,
@@ -354,65 +350,25 @@ func (h *Handlers) chatRuntime(
 	if err != nil {
 		return dto.ChatRuntime{}, err
 	}
-
-	// The two dormant-only fallback sources are read only when live is nil, sparing
-	// every live chat in a list these extra queries — a live runner's provider
-	// outranks both.
-	var interruptions []domain.ActivityInterruption
-	var placements []agents.ChatPlacement
-	if live == nil {
-		interruptions, placements, err = h.dormantProviderSources(ctx, chatID)
-		if err != nil {
-			return dto.ChatRuntime{}, err
-		}
-	}
-
-	var attachedSessionID string
-	var hasLiveAPIConn bool
-	if live != nil {
-		attachedSessionID, _ = h.runners.AttachedTerminalSession(live.ID)
-		hasLiveAPIConn = h.runners.HasLiveAPIConnection(live.ID)
-	}
-
-	// TerminalWait is a plain in-memory read of the detector's standing answer,
-	// and it takes no ctx and returns no error for that reason: it never touches a
-	// repository, a provider or a PTY on the request path. A daemon whose detector
-	// is not running answers the zero verdict, which is the same answer every chat
-	// gave before this existed. AttachedTerminalSession and HasLiveAPIConnection are
-	// the same kind of read.
-	return dto.ChatRuntime{
-		LiveRunner:           live,
-		Conversations:        convs,
-		Interruptions:        interruptions,
-		Placements:           placements,
-		TerminalWait:         h.runners.TerminalWait(chatID),
-		AttachedSessionID:    attachedSessionID,
-		HasLiveAPIConnection: hasLiveAPIConn,
-	}, nil
+	rt := h.liveRuntime(chatID, live)
+	rt.Conversations = convs
+	return rt, nil
 }
 
-// dormantProviderSources reads activeProviderId's second and third fallback
-// sources for a chat no runner is placed on: its interruption ledger and its
-// placement history.
-//
-// Both exist because the conversation history is blind to a provider that binds
-// via its own connection identity — it writes no conversation row, so its only
-// traces are a switch marker here, or, for a chat that was never switched, the
-// placement Crowbar recorded when it pointed the CLI at the chat in the first
-// place. See dto.ChatRuntime.Interruptions and .Placements.
-func (h *Handlers) dormantProviderSources(
-	ctx context.Context,
-	chatID string,
-) ([]domain.ActivityInterruption, []agents.ChatPlacement, error) {
-	interruptions, err := h.turns.Interruptions(ctx, chatID)
-	if err != nil {
-		return nil, nil, err
+// liveRuntime joins the in-memory process facts onto a chat's placed runner.
+// TerminalWait, AttachedTerminalSession and HasLiveAPIConnection are plain
+// in-memory reads of the daemon's standing answers — no repository, provider or
+// PTY on the request path.
+func (h *Handlers) liveRuntime(chatID string, live *agents.Runner) dto.ChatRuntime {
+	rt := dto.ChatRuntime{
+		LiveRunner:   live,
+		TerminalWait: h.runners.TerminalWait(chatID),
 	}
-	placements, err := h.runners.PlacementsForChat(ctx, chatID)
-	if err != nil {
-		return nil, nil, err
+	if live != nil {
+		rt.AttachedSessionID, _ = h.runners.AttachedTerminalSession(live.ID)
+		rt.HasLiveAPIConnection = h.runners.HasLiveAPIConnection(live.ID)
 	}
-	return interruptions, placements, nil
+	return rt
 }
 
 // requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to

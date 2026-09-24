@@ -373,10 +373,9 @@ func (f *fakeAgentUsecase) ConversationsForChat(
 	return nil, nil
 }
 
-func (f *fakeAgentUsecase) PlacementsForChat(
+func (f *fakeAgentUsecase) LiveRunnersByChat(
 	_ context.Context,
-	_ string,
-) ([]engineagents.ChatPlacement, error) {
+) (map[string]engineagents.Runner, error) {
 	return nil, nil
 }
 

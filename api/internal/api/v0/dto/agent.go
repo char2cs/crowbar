@@ -24,27 +24,9 @@ type ChatRuntime struct {
 	LiveRunner *agents.Runner
 
 	// Conversations is the chat's append-only history, OLDEST FIRST (so the last
-	// element is its last conversation). Empty on a chat no runner has ever spoken
-	// into.
+	// element is its last conversation). Joined in only for the single-chat detail
+	// read; a list leaves it nil.
 	Conversations []agents.ChatConversation
-
-	// Interruptions is the chat's durable interruption ledger, joined in by the
-	// caller (the DTO layer has no store access of its own) because
-	// activeProviderID needs it as a second fallback source: a provider that binds
-	// via its own connection identity never writes a Conversations row, so its
-	// only trace is the switch marker here. Only ever populated for a DORMANT
-	// chat — a live runner already outranks both fallbacks, so a caller building
-	// this for a live chat may leave it nil.
-	Interruptions []domain.ActivityInterruption
-
-	// Placements is the chat's append-only PLACEMENT history — every provider a
-	// runner has ever been pointed at it on — joined in by the caller for the same
-	// reason Interruptions is, and it is activeProviderID's THIRD fallback source.
-	// A placement is recorded for every runner at the moment it is placed, so
-	// unlike the two above it also answers for a chat BORN on a provider that
-	// announces no conversation and was never switched. Only ever populated for a
-	// DORMANT chat: a live runner outranks every fallback.
-	Placements []agents.ChatPlacement
 
 	// TerminalWait is the daemon's standing answer to "is this chat's CLI parked
 	// on a modal Crowbar cannot answer?". Derived, never stored, and the zero
@@ -579,24 +561,9 @@ type SlashCatalogItemDTO struct {
 	Source      string `json:"source"`
 }
 
-// activeProviderID derives the provider to show for a chat: the live runner's while one
-// is placed on it (mid-switch, the incoming runner is already the truth — it outranks
-// every dormant fallback below), else agents.ResolveProviderID over the chat's
-// conversation history, its interruption ledger, its placement history and its own
-// durable choice, else "".
-//
-// All four sources are NEEDED, not just Conversations. A provider that binds via its
-// own connection identity, rather than firing a session-bind, never writes a
-// Conversations row at all, so a chat last live on one of those has no history entry to
-// fall back to — only the switch interruption rt.Interruptions carries. And a chat BORN
-// on such a provider has neither, because it was never switched: the "" this used to
-// answer for it is what let a sidebar click convert a dormant chat to another vendor.
-// chat.ProviderID closes that for every chat created since it was written at birth, and
-// rt.Placements — Crowbar's own record of pointing a CLI at the chat, kept for every
-// runner ever started — closes it for every chat that predates the field. See
-// agents.ResolveProviderID for the precedence, and agents.ActiveProviderID for the
-// newest-evidence scan this preserves (the stale-provider-after-Stop report it was
-// written to fix).
+// activeProviderID is the live runner's provider while one is placed (mid-switch
+// the incoming runner is already the truth), else the chat's own durable vendor
+// — domain.Chat.ProviderID, the single owner of that answer (spec §7-A target 2).
 func activeProviderID(
 	chat domain.Chat,
 	rt ChatRuntime,
@@ -604,9 +571,7 @@ func activeProviderID(
 	if rt.LiveRunner != nil {
 		return rt.LiveRunner.ProviderID
 	}
-	providerID, _ := agents.ResolveProviderID(
-		rt.Conversations, rt.Interruptions, rt.Placements, chat.ProviderID)
-	return providerID
+	return chat.ProviderID
 }
 
 // AgentChatDTOList converts a slice of AgentChats into wire DTOs, returning a

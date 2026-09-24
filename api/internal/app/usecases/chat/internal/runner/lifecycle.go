@@ -367,9 +367,8 @@ func (rs *Runners) ConversationsForChat(
 	return rs.runnerStore.ConversationsForChat(ctx, chatID)
 }
 
-func (rs *Runners) PlacementsForChat(
+func (rs *Runners) LiveRunnersByChat(
 	ctx context.Context,
-	chatID string,
-) ([]agents.ChatPlacement, error) {
-	return rs.runnerStore.PlacementsForChat(ctx, chatID)
+) (map[string]agents.Runner, error) {
+	return rs.runnerStore.LiveRunnersByChat(ctx)
 }

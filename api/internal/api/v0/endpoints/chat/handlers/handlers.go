@@ -236,14 +236,11 @@ type RunnerUsecase interface {
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
 
-	// PlacementsForChat returns every provider a runner has ever been placed on
-	// chatID as, oldest arrival first — the append-only record that still names a
-	// dormant chat's vendor when its provider announced no conversation to fall
-	// back to. It is activeProviderId's third fallback source.
-	PlacementsForChat(
+	// LiveRunnersByChat answers LiveRunnerForChat for every placed chat in one
+	// read, so the chat list costs one runner query rather than one per row.
+	LiveRunnersByChat(
 		ctx context.Context,
-		chatID string,
-	) ([]engineagents.ChatPlacement, error)
+	) (map[string]engineagents.Runner, error)
 
 	// SwitchProvider quits the chat's current vendor CLI, hands off the accumulated
 	// context, and starts targetProviderID as a new runner on the SAME chat,

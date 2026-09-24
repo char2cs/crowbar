@@ -150,16 +150,10 @@ type RunnerUsecase interface {
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
 
-	// PlacementsForChat lists every provider a runner has ever been placed on the
-	// chat as, oldest arrival first. It is append-only history, so it answers for
-	// runners that exited long ago — and, unlike the conversation history, it is
-	// written for EVERY runner, including one whose provider announces no
-	// conversation at all, which is what makes it the last resort for "which
-	// provider ran here".
-	PlacementsForChat(
+	// LiveRunnersByChat returns the runner placed on every live chat, in one read.
+	LiveRunnersByChat(
 		ctx context.Context,
-		chatID string,
-	) ([]engineagents.ChatPlacement, error)
+	) (map[string]engineagents.Runner, error)
 
 	// ReconcileRunnersOnBoot Exits every recorded runner whose PTY did not survive
 	// the restart, closes the turns they died in, and recovers their prompt
@@ -403,11 +397,22 @@ func (u *Usecase) PendingPrompt(
 
 // ReconcileRunnersOnBoot exits every runner whose PTY did not survive the
 // restart. Nothing else can: no event was ever recorded for a process the daemon
-// outlived.
+// outlived. It then backfills each chat's own durable provider from the runner
+// history — after the reconcile, so the history it reads is final.
 func (u *Usecase) ReconcileRunnersOnBoot(
 	ctx context.Context,
 ) error {
-	return u.runners.ReconcileRunnersOnBoot(ctx)
+	if err := u.runners.ReconcileRunnersOnBoot(ctx); err != nil {
+		return err
+	}
+	return u.conversations.BackfillProviders(ctx)
+}
+
+// LiveRunnersByChat returns the runner placed on every live chat, in one read.
+func (u *Usecase) LiveRunnersByChat(
+	ctx context.Context,
+) (map[string]engineagents.Runner, error) {
+	return u.runners.LiveRunnersByChat(ctx)
 }
 
 // Compact asks the chat's provider to compact its own context, through whichever

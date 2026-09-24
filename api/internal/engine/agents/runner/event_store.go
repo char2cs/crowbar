@@ -230,6 +230,12 @@ type EventStore interface {
 	AllLive(
 		ctx context.Context,
 	) ([]agents.Runner, error)
+	// LiveRunnersByChat answers LiveRunnerForChat for EVERY placed chat in one
+	// read — the runner each chat's single-chat read would return — so a list of
+	// chats costs one query rather than one per row.
+	LiveRunnersByChat(
+		ctx context.Context,
+	) (map[string]agents.Runner, error)
 	// ForgetChat drops a chat's conversation history — the chat-delete cascade, and
 	// the ONLY thing permitted to remove append-only history. It deliberately does
 	// NOT delete the chat's live runner row: that row belongs to the PTY's
@@ -543,6 +549,16 @@ func (r *eventSourced) AllLive(
 		return nil, fmt.Errorf("agentrunner: all live: %w", err)
 	}
 	return rows, nil
+}
+
+func (r *eventSourced) LiveRunnersByChat(
+	ctx context.Context,
+) (map[string]agents.Runner, error) {
+	byChat, err := r.store.LiveRunnersByChat(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("agentrunner: live runners by chat: %w", err)
+	}
+	return byChat, nil
 }
 
 func (r *eventSourced) ForgetChat(

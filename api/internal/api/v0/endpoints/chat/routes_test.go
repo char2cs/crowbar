@@ -246,10 +246,9 @@ func (stubUsecase) ConversationsForChat(
 	return nil, nil
 }
 
-func (stubUsecase) PlacementsForChat(
+func (stubUsecase) LiveRunnersByChat(
 	_ context.Context,
-	_ string,
-) ([]engineagents.ChatPlacement, error) {
+) (map[string]engineagents.Runner, error) {
 	return nil, nil
 }
 

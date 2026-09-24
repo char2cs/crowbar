@@ -4928,7 +4928,7 @@ func TestRegression_PlacementsForChat_SurvivesTheRunnerThatMadeIt(t *testing.T) 
 	_, err = f.runners.LastConversation(f.ctx, chatID)
 	require.ErrorIs(t, err, agentrunner.ErrNotFound, "and it announced no conversation")
 
-	placements, err := f.usecase.PlacementsForChat(f.ctx, chatID)
+	placements, err := f.runners.PlacementsForChat(f.ctx, chatID)
 	require.NoError(t, err)
 	require.Len(t, placements, 1)
 	assert.Equal(t, "claude", placements[0].ProviderID)
