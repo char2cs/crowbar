@@ -35,11 +35,16 @@ type ChatUsecase interface {
 	// MintChat creates an empty chat in a workspace and returns its id. No CLI is
 	// started: the chat is dormant until a runner is placed on it.
 	//
+	// providerID is the vendor the chat is born on, recorded durably at creation so
+	// the chat can name it whether or not a CLI ever starts — "" for a placeholder
+	// row that will never get one. See Conversations.MintChat.
+	//
 	// surface is the VIEW the chat is born on (design spec 2.5), "" for the
 	// provider's own default landing — see domain.Chat.Surface.
 	MintChat(
 		ctx context.Context,
 		workspaceID string,
+		providerID string,
 		surface string,
 	) (string, error)
 
@@ -230,13 +235,15 @@ type Usecase struct {
 // The chat record. A chat exists, and is readable, whether or not a CLI has ever
 // run on it — everything here is answerable with no runner in sight.
 
-// MintChat creates an empty chat in a workspace and returns its id.
+// MintChat creates an empty chat in a workspace, recording the provider it is
+// born on, and returns its id.
 func (u *Usecase) MintChat(
 	ctx context.Context,
 	workspaceID string,
+	providerID string,
 	surface string,
 ) (string, error) {
-	return u.conversations.MintChat(ctx, workspaceID, surface)
+	return u.conversations.MintChat(ctx, workspaceID, providerID, surface)
 }
 
 // RenameChat retitles a chat under the user > agent > derived precedence.

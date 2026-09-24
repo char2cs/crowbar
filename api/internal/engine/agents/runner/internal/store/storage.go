@@ -58,17 +58,30 @@ func (conversationRow) TableName() string {
 	return "agent_chat_conversations"
 }
 
-// healMarkerID is the single row healMarkerRow ever holds: this read model is
-// per-type, so there is exactly one thing to remember about it.
-const healMarkerID = "agentrunner"
-
-// healMarkerRow records that this read DB has been BUILT — written once, after
-// the first successful construction, and never removed. It is what makes the
-// difference between "never populated" and "emptied on purpose" a FACT rather
-// than an inference from row counts.
+// conversationsMarkerID and placementsMarkerID are the healMarkerRow ids of the
+// two append-only projections, ONE PER PROJECTION rather than one for the read
+// model as a whole.
 //
-// Without it, the heal would trigger on an empty conversation table — and the
-// only thing that ever empties that table is ForgetChat, the chat-delete cascade.
+// That split is what lets a projection be added later at all. A read DB built
+// before the placement history existed already carries the conversations marker;
+// under a single shared marker it would report itself built, the placement fold
+// would never run, and every chat already on disk would stay unresolvable
+// forever — exactly the population that projection was added to recover.
+//
+// conversationsMarkerID keeps its original value so a DB that already holds it
+// is still recognised as built and is never re-folded.
+const (
+	conversationsMarkerID = "agentrunner"
+	placementsMarkerID    = "agentrunner-placements"
+)
+
+// healMarkerRow records that one append-only projection of this read DB has been
+// BUILT — written once, after that projection's first successful fold, and never
+// removed. It is what makes the difference between "never populated" and
+// "emptied on purpose" a FACT rather than an inference from row counts.
+//
+// Without it, the heal would trigger on an empty history table — and the only
+// thing that ever empties those tables is ForgetChat, the chat-delete cascade.
 // Runner aggregates are never Forgotten, so the event log keeps every
 // (chat, session) pair forever: deleting your last chat and rebooting would
 // resurrect the conversations of every chat you ever deleted, and ChatForSession

@@ -35,7 +35,7 @@ func (u *chatFolderUsecase) CreateChat(
 			return "", "", err
 		}
 	}
-	chatID, err := u.agent.MintChat(ctx, workspaceID, surface)
+	chatID, err := u.agent.MintChat(ctx, workspaceID, providerID, surface)
 	if err != nil {
 		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
 	}
@@ -82,7 +82,7 @@ func (u *chatFolderUsecase) createOwnWorktreeChat(
 			return "", "", err
 		}
 	}
-	chatID, err := u.agent.MintChat(ctx, "", surface)
+	chatID, err := u.agent.MintChat(ctx, "", providerID, surface)
 	if err != nil {
 		return "", "", fmt.Errorf("agent chat folder: create chat: %w", err)
 	}

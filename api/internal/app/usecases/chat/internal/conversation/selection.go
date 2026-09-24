@@ -106,7 +106,9 @@ func (c *Conversations) chatAgent(
 // The chat's own durable vendor is the last source, and it is why
 // SwitchProvider's previousProviderID is now knowable for a chat that bound
 // nothing: an unresolvable previous provider is what made a real conversion
-// record no provider_switched marker at all, so it left no trace anywhere.
+// record no provider_switched marker at all, so it left no trace anywhere. The
+// chat's PLACEMENT history answers the same question for every chat minted
+// before that field existed.
 func (c *Conversations) ChatProviderID(
 	ctx context.Context,
 	chatID string,
@@ -125,7 +127,8 @@ func (c *Conversations) ChatProviderID(
 	case err == nil:
 		conversations = []engineagents.ChatConversation{last}
 	case errors.Is(err, agentrunner.ErrNotFound):
-		// No conversation ever bound — a switch interruption may still answer it.
+		// No conversation ever bound — a switch interruption, or the chat's own
+		// placement history, may still answer it.
 	default:
 		return "", fmt.Errorf("agent: chat provider: last conversation: %w", err)
 	}
@@ -135,12 +138,17 @@ func (c *Conversations) ChatProviderID(
 		return "", fmt.Errorf("agent: chat provider: interruptions: %w", err)
 	}
 
+	placements, err := c.runnerStore.PlacementsForChat(ctx, chatID)
+	if err != nil {
+		return "", fmt.Errorf("agent: chat provider: placements: %w", err)
+	}
+
 	chat, err := c.chats.GetChat(ctx, chatID)
 	if err != nil {
 		return "", fmt.Errorf("agent: chat provider: chat: %w", err)
 	}
 
-	providerID, found := engineagents.ResolveProviderID(conversations, interruptions, chat.ProviderID)
+	providerID, found := engineagents.ResolveProviderID(conversations, interruptions, placements, chat.ProviderID)
 	if !found {
 		return "", fmt.Errorf("agent: chat provider: no provider has ever run on this chat: %w",
 			apperr.ErrUnprocessable)

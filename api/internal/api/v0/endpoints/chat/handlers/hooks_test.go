@@ -374,6 +374,13 @@ func (f *fakeAgentUsecase) ConversationsForChat(
 	return nil, nil
 }
 
+func (f *fakeAgentUsecase) PlacementsForChat(
+	_ context.Context,
+	_ string,
+) ([]engineagents.ChatPlacement, error) {
+	return nil, nil
+}
+
 func (f *fakeAgentUsecase) SwitchProvider(
 	_ context.Context,
 	chatID string,

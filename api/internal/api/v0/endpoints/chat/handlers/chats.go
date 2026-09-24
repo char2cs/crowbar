@@ -332,9 +332,9 @@ func (h *Handlers) Get(
 // A dormant chat is NOT an error: agentrunner.ErrNotFound from LiveRunnerForChat means
 // no live row exists, which means no PTY exists, which is the liveness answer — so it
 // yields a nil LiveRunner and the read continues to the history and the interruption
-// ledger, which together supply the provider the FE still needs (glyph, dropdown,
-// Resume) even for a provider that never wrote a conversation row — see
-// dto.ChatRuntime.Interruptions. Any OTHER error is a genuine read failure and
+// ledger and its placement history, which together supply the provider the FE
+// still needs (glyph, dropdown, Resume) even for a provider that never wrote a
+// conversation row — see dto.ChatRuntime.Interruptions and .Placements. Any OTHER error is a genuine read failure and
 // propagates: an empty liveRunnerId must mean "dormant" and never "the projection
 // broke", or the frontend would silently treat a broken read as a dead CLI.
 func (h *Handlers) chatRuntime(
@@ -355,13 +355,13 @@ func (h *Handlers) chatRuntime(
 		return dto.ChatRuntime{}, err
 	}
 
-	// Interruptions is activeProviderId's second fallback source, and is only ever
-	// consulted for a DORMANT chat (a live runner's provider always wins) — so it
-	// is read only when live is nil, sparing every live chat in a list this extra
-	// query.
+	// The two dormant-only fallback sources are read only when live is nil, sparing
+	// every live chat in a list these extra queries — a live runner's provider
+	// outranks both.
 	var interruptions []domain.ActivityInterruption
+	var placements []agents.ChatPlacement
 	if live == nil {
-		interruptions, err = h.turns.Interruptions(ctx, chatID)
+		interruptions, placements, err = h.dormantProviderSources(ctx, chatID)
 		if err != nil {
 			return dto.ChatRuntime{}, err
 		}
@@ -384,10 +384,35 @@ func (h *Handlers) chatRuntime(
 		LiveRunner:           live,
 		Conversations:        convs,
 		Interruptions:        interruptions,
+		Placements:           placements,
 		TerminalWait:         h.runners.TerminalWait(chatID),
 		AttachedSessionID:    attachedSessionID,
 		HasLiveAPIConnection: hasLiveAPIConn,
 	}, nil
+}
+
+// dormantProviderSources reads activeProviderId's second and third fallback
+// sources for a chat no runner is placed on: its interruption ledger and its
+// placement history.
+//
+// Both exist because the conversation history is blind to a provider that binds
+// via its own connection identity — it writes no conversation row, so its only
+// traces are a switch marker here, or, for a chat that was never switched, the
+// placement Crowbar recorded when it pointed the CLI at the chat in the first
+// place. See dto.ChatRuntime.Interruptions and .Placements.
+func (h *Handlers) dormantProviderSources(
+	ctx context.Context,
+	chatID string,
+) ([]domain.ActivityInterruption, []agents.ChatPlacement, error) {
+	interruptions, err := h.turns.Interruptions(ctx, chatID)
+	if err != nil {
+		return nil, nil, err
+	}
+	placements, err := h.runners.PlacementsForChat(ctx, chatID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return interruptions, placements, nil
 }
 
 // requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to

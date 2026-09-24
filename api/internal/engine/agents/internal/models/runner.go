@@ -108,3 +108,30 @@ type ChatConversation struct {
 	// stale the moment its provider is switched away from and back.
 	LastActiveAt time.Time `json:"lastActiveAt"`
 }
+
+// ChatPlacement is one provider that has been PLACED on a chat, and when a
+// runner of it last arrived there. Append-only history, projected from the SAME
+// runner event stream ChatConversation is — but recorded at PLACEMENT rather
+// than at conversation bind, which is the whole reason it exists.
+//
+// A provider that binds via its own connection identity never announces a
+// conversation, so it writes no ChatConversation row EVER. A chat that only ever
+// ran one of those, and was never switched, therefore had nothing left in either
+// runner projection that could name it: every resolver answered "no provider has
+// ever run here" for a chat whose CLI had demonstrably run there for days. A
+// placement is recorded the moment a runner is pointed at a chat, before any
+// provider has announced anything, so it answers for every chat any CLI has ever
+// been started on.
+//
+// It is history, not state: the live-runner row is deleted when its process
+// dies, and this is not. That is what lets a dormant chat still say what it ran.
+type ChatPlacement struct {
+	ChatID     string `json:"chatId"`
+	ProviderID string `json:"providerId"`
+	// LastPlacedAt is when a runner of this provider most recently ARRIVED on the
+	// chat — the later of when it spawned and when it moved into the chat's
+	// conversation, the same "arrival" the live model orders candidates by. It is
+	// directly comparable with ChatConversation.LastActiveAt: both are stamped
+	// from the same runner events, so one scan can order all of them.
+	LastPlacedAt time.Time `json:"lastPlacedAt"`
+}

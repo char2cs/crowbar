@@ -1408,7 +1408,13 @@ type AgentChatPlacements struct {
 	// MintedSurfaces is the landing surface each MintChat call asked for, in
 	// the same order as Minted — "" for the provider's own default.
 	MintedSurfaces []string
-	Started        []StartCall
+	// MintedProviders is the provider each MintChat call recorded on the new row,
+	// in the same order as Minted — "" for a placeholder row that will never carry
+	// a CLI. It is asserted on rather than merely recorded: a create that mints
+	// without a provider leaves a chat that cannot name its own vendor when it goes
+	// dormant, which is the whole reason the mint carries one.
+	MintedProviders []string
+	Started         []StartCall
 	// SpawnedOwnWorktree records each SpawnChatWithOwnWorktree call, in the SAME
 	// StartCall shape Started uses (including ParentAtStart) — CreateChat's
 	// ownWorktree counterpart to Started above, and provable ordering for the
@@ -1805,6 +1811,7 @@ func (s *AgentChatPlacements) SpawnChat(
 func (s *AgentChatPlacements) MintChat(
 	ctx context.Context,
 	workspaceID string,
+	providerID string,
 	surface string,
 ) (string, error) {
 	if s.MintErr != nil {
@@ -1812,8 +1819,13 @@ func (s *AgentChatPlacements) MintChat(
 	}
 	s.Minted = append(s.Minted, workspaceID)
 	s.MintedSurfaces = append(s.MintedSurfaces, surface)
+	s.MintedProviders = append(s.MintedProviders, providerID)
 	s.Rows = append(s.Rows, domain.Chat{
-		ID: s.NextID, Type: domain.ChatTypeChat, WorkspaceID: workspaceID, Surface: surface,
+		ID:          s.NextID,
+		Type:        domain.ChatTypeChat,
+		WorkspaceID: workspaceID,
+		ProviderID:  providerID,
+		Surface:     surface,
 	})
 	return s.NextID, nil
 }

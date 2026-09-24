@@ -24,7 +24,7 @@ func seedPlacedBubble(
 	parentID string,
 ) string {
 	t.Helper()
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "")
 	require.NoError(t, err)
 	_, err = f.chats.SetPlacement(f.ctx, bubbleID, parentID, 0)
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestRegression_SpawnChatWithOwnWorktree_ForwardsTheRequestedBranchName(t *t
 // same refusal Promote makes for the identical shape (TestPromote_NoForkParent_Refuses).
 func TestSpawnChatWithOwnWorktree_NoForkParent_Refuses(t *testing.T) {
 	f := newFixture(t)
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "")
 	require.NoError(t, err)
 	f.wait()
 

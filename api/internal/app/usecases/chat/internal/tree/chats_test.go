@@ -114,6 +114,39 @@ func TestCreateChat_NoSurfaceAskedForMintsTheProvidersDefault(t *testing.T) {
 	assert.Equal(t, []string{""}, chats.MintedSurfaces)
 }
 
+// TestRegression_CreateChat_MintsTheChatWithItsProvider is the "close it at the
+// source" half of the resume fix. The provider must reach the MINT, not only the
+// spawn that follows it: the spawn-time write is best-effort and runs after a
+// process fork that may never happen, so a chat whose CLI never came up — or one
+// minted before that write existed at all — could never say what it ran, and a
+// later resume had nothing to resolve.
+func TestRegression_CreateChat_MintsTheChatWithItsProvider(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.NextID = "c-new"
+
+	_, _, err := uc.CreateChat(
+		context.Background(), workspaceID, "codex", "", tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex"}, chats.MintedProviders,
+		"the row records its vendor from the instant it exists, not from a later spawn")
+}
+
+// The ownWorktree create takes the same path and must carry the same fact: it
+// mints the row first too, and its CLI comes up later still (a worktree has to be
+// forked in between), so it has even more window in which the spawn can fail.
+func TestRegression_CreateChat_OwnWorktreeMintsTheChatWithItsProvider(t *testing.T) {
+	chats, uc := newUsecase(t)
+	chats.NextID = "c-new"
+
+	_, _, err := uc.CreateChat(
+		context.Background(), workspaceID, "codex", "",
+		tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex"}, chats.MintedProviders)
+}
+
 // THE ORDERING. A chat created under another chat must carry the parent edge
 // before its CLI is started, because the spawn is what tells a thread what it
 // reads — a chat placed afterwards spends its whole first session, the one the

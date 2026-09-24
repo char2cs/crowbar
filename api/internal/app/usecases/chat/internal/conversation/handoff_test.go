@@ -60,7 +60,7 @@ func TestAssembleConversation_UnderTheCapCarriesEveryTurnAndNoNote(t *testing.T)
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestAssembleConversation_FreshJoinOverTheCapKeepsOnlyTheMostRecent(t *testi
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestAssembleConversation_ResumeGapOverTheCapKeepsOnlyTheMostRecentOfTheGap(
 	t.Parallel()
 
 	f := newFixture(t, stubLineage{})
-	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "")
+	chatID, err := f.conversations.MintChat(t.Context(), "ws-1", "", "")
 	require.NoError(t, err)
 	chat, err := f.conversations.GetChat(t.Context(), chatID)
 	require.NoError(t, err)

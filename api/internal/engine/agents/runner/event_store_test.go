@@ -506,6 +506,12 @@ func TestAgentRunner_ReadErrorsPropagateFromTheStore(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentrunner: conversations for chat:")
 
+	_, err = repo.PlacementsForChat(ctx, "chat-a")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentrunner: placements for chat:")
+	assert.NotErrorIs(t, err, runner.ErrNotFound,
+		"an empty placement history is a real answer; a broken read is not it")
+
 	err = repo.ForgetChat(ctx, "chat-a")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentrunner: forget chat:")

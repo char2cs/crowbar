@@ -947,7 +947,8 @@ func TestNew_DoesNotMarkBuiltWhenTheHealCannotWrite(t *testing.T) {
 
 	st, err := store.New(db, h.es, newAx(t, h.es), noopBroadcast)
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), markerCount(t, db))
+	assert.Equal(t, int64(2), markerCount(t, db),
+		"one marker per append-only projection — conversations and placements")
 
 	chatID, err := st.ChatForSession(h.ctx, "w1", "s1")
 	require.NoError(t, err)
@@ -1197,4 +1198,55 @@ func TestNew_HubProjectionSubscribeFailurePropagates(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "agentrunner hub projection: subscribe:",
 		"the failure must be attributed to the hub projection, reached only after the read-model one succeeded")
+}
+
+// TestRegression_New_HealsPlacementHistoryOntoAReadModelBuiltWithoutIt is the
+// recovery half of the resume bug, end to end over real events.
+//
+// Every store already on a user's disk was built before the placement projection
+// existed: it carries the CONVERSATIONS marker and no placements at all. The
+// runner event log, however, has recorded a provider and a chat for every runner
+// ever started — which on a populated machine is every chat there is. This proves
+// a second construction over such a DB folds that history in, WITHOUT re-folding
+// the conversations it already has.
+//
+// The runner here binds no session, which is the case that matters: it leaves no
+// conversation row at all, so placement history is the only thing that can ever
+// name its chat's provider again.
+func TestRegression_New_HealsPlacementHistoryOntoAReadModelBuiltWithoutIt(t *testing.T) {
+	h := newHarness(t)
+	h.start(arCmds.Start{
+		RunnerID: "r1", WorkspaceID: "w1", ProviderID: "quietvendor",
+		TerminalSession: "pty1", ChatID: "c1", Now: clock(10),
+	})
+	h.exit("r1", clock(11))
+	h.drain()
+
+	db, err := storesqlite.OpenDB(":memory:")
+	require.NoError(t, err)
+	st, err := store.New(db, h.es, newAx(t, h.es), noopBroadcast)
+	require.NoError(t, err)
+	placements, err := st.PlacementsForChat(h.ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, placements, 1, "precondition: a full build folds the placement")
+
+	// Rewind this read DB to what a store built before the projection existed looks
+	// like: the conversations marker present, the placement history absent.
+	require.NoError(t, db.Exec("DELETE FROM agent_chat_placements").Error)
+	require.NoError(t, db.Exec(
+		"DELETE FROM agent_runner_heal_marker WHERE id <> 'agentrunner'").Error)
+	require.Equal(t, int64(1), markerCount(t, db))
+
+	st, err = store.New(db, h.es, newAx(t, h.es), noopBroadcast)
+	require.NoError(t, err)
+
+	placements, err = st.PlacementsForChat(h.ctx, "c1")
+	require.NoError(t, err)
+	require.Len(t, placements, 1, "the pre-existing chat's provider is recovered from the log")
+	assert.Equal(t, "quietvendor", placements[0].ProviderID)
+	assert.Equal(t, int64(2), markerCount(t, db), "and the new projection is now marked built")
+
+	_, err = st.LastConversation(h.ctx, "c1")
+	assert.ErrorIs(t, err, store.ErrNotFound,
+		"the runner announced nothing, so there was never a conversation to fall back to")
 }

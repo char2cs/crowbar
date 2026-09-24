@@ -30,7 +30,7 @@ func seedBubbleChat(
 	t.Helper()
 	rootChatID, _ = f.spawn(t, provider)
 
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "")
 	require.NoError(t, err)
 	_, err = f.chats.SetPlacement(f.ctx, bubbleID, rootChatID, 0)
 	require.NoError(t, err)
@@ -100,7 +100,7 @@ func TestPromote_ADormantProviderThatNeverBoundAConversationRespawnsTheRightVend
 
 func TestPromote_AlreadyPromoted_Refuses(t *testing.T) {
 	f := newFixture(t)
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.NoError(t, err)
 
 	_, err = f.usecase.Promote(f.ctx, chatID)
@@ -111,7 +111,7 @@ func TestPromote_AlreadyPromoted_Refuses(t *testing.T) {
 
 func TestPromote_NoForkParent_Refuses(t *testing.T) {
 	f := newFixture(t)
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -124,7 +124,7 @@ func TestPromote_NoForkParent_Refuses(t *testing.T) {
 func TestPromote_NoProviderHistory_Refuses(t *testing.T) {
 	f := newFixture(t)
 	rootChatID, _ := f.spawn(t, "claude")
-	bubbleID, err := f.usecase.MintChat(f.ctx, "", "")
+	bubbleID, err := f.usecase.MintChat(f.ctx, "", "", "")
 	require.NoError(t, err)
 	_, err = f.chats.SetPlacement(f.ctx, bubbleID, rootChatID, 0)
 	require.NoError(t, err)

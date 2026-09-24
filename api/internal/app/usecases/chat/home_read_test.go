@@ -52,7 +52,7 @@ func (f *fakeChatUsecase) GetChat(_ context.Context, id string) (domain.Chat, er
 	return domain.Chat{}, errors.New("not found")
 }
 
-func (f *fakeChatUsecase) MintChat(context.Context, string, string) (string, error) {
+func (f *fakeChatUsecase) MintChat(context.Context, string, string, string) (string, error) {
 	panic("unused")
 }
 

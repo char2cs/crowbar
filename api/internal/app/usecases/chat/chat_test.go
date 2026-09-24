@@ -738,7 +738,7 @@ func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 func TestMintChat_CreatesTheChatAndNoRunner(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -754,7 +754,7 @@ func TestMintChat_SurfacesACreateFailure(t *testing.T) {
 	f, chatStore, _ := newFaultFixture(t)
 	chatStore.failCreate = errors.New("chat store down")
 
-	_, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	_, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.ErrorContains(t, err, "chat store down")
 }
 
@@ -766,7 +766,7 @@ func TestStartRunner_ATheadPlacedBeforeItsFirstSpawnIsToldItsLineage(t *testing.
 	f := newFixture(t)
 
 	parentID, _ := f.spawn(t, "claude")
-	threadID, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	threadID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 	thread(t, f, threadID, parentID)
@@ -784,7 +784,7 @@ func TestStartRunner_ATheadPlacedBeforeItsFirstSpawnIsToldItsLineage(t *testing.
 func TestStartRunner_AnUnplacedChatIsToldNothingExtra(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -811,7 +811,7 @@ func TestStartRunner_UnknownChat_StartsNothing(t *testing.T) {
 func TestNoteThreadLineage_SaysNothingInAChatThatHasNotSpoken(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -851,7 +851,7 @@ func TestStartRunner_ThreadsAChatTheReadModelStillReportsUnplaced(t *testing.T) 
 	f, chatStore, _ := newFaultFixture(t)
 
 	parentID, _ := f.spawn(t, "claude")
-	threadID, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	threadID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 	thread(t, f, threadID, parentID)
@@ -1858,7 +1858,7 @@ func TestSetChatSelection_ADormantChatIsJudgedByItsLastProvider(t *testing.T) {
 
 func TestSetChatSelection_AChatNoProviderHasEverRunOnIsUnprocessable(t *testing.T) {
 	f := newFixture(t)
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "", "")
 	require.NoError(t, err)
 	f.wait()
 

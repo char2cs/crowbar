@@ -117,11 +117,18 @@ type Agent interface {
 	// written first — a create that spawned first would leave the thread's first
 	// session, the one the user is watching, believing it is a standalone chat.
 	//
+	// providerID is the vendor the new chat is born on. It is threaded through the
+	// MINT rather than left to the spawn that follows, so the chat records what it
+	// runs from the instant it exists — a spawn that never happens, or a write that
+	// lands only afterwards, is what left older chats unable to name their own
+	// provider at all. "" for a row that will never carry a CLI.
+	//
 	// surface is the VIEW the new chat is born on (design spec 2.5), "" for
 	// the provider's own default landing.
 	MintChat(
 		ctx context.Context,
 		workspaceID string,
+		providerID string,
 		surface string,
 	) (string, error)
 	// StartRunner launches a vendor CLI on a chat that already exists — the second
