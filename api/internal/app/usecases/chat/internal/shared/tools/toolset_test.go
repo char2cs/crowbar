@@ -721,6 +721,7 @@ func seedReviewWorkspace(
 		Branch:       "feature/perf-review",
 		WorktreePath: s.featurePath,
 		Kind:         domain.WorkspaceKindGit,
+		Provisioning: domain.WorkspaceProvisioned,
 	}, perfNow())
 	require.NoError(b, err)
 	seedRunnerOn(b, s, "perf-ws")
@@ -747,6 +748,8 @@ func seedContextTree(
 			Branch:    fmt.Sprintf("feature/perf-%d", i),
 			Kind:      domain.WorkspaceKindGit,
 			IsDefault: i == 0,
+			// No checkout: these rows only size the listing being measured.
+			Provisioning: domain.WorkspacePlaceholder,
 		}, perfNow())
 		require.NoError(b, err)
 		for j := range chatsPer {

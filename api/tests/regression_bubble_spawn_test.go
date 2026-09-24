@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/char2cs/crowbar/api/tests/kit"
 	"github.com/google/uuid"
@@ -138,19 +139,19 @@ func readSpawnCwd(
 // process printed right after the marker, trimmed of any row padding a full
 // grid redraw adds.
 //
-// It carries no read deadline, like readTerminalUntil: the PTY output IS the
-// signal, and a value that never arrives is a hang `go test -timeout` reports
-// against this exact read, not a flaky timeout.
+// Bounded like readTerminalUntil: a value that never arrives fails this test
+// instead of hanging the package.
 func readMarkedValue(
 	t *testing.T,
 	conn *websocket.Conn,
 	marker string,
 ) string {
 	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(terminalReadBound)))
 	var buf strings.Builder
 	for {
 		mt, raw, err := conn.ReadMessage()
-		require.NoError(t, err, "PTY ws closed before the marked value arrived")
+		require.NoError(t, err, "the marked value %q never arrived", marker)
 		if mt != websocket.BinaryMessage {
 			continue
 		}
