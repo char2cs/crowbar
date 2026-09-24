@@ -394,11 +394,13 @@ func (u *projectDelete) removeProjectDir(
 		if ownedBy(ws, projectID, repos) || ws.Status == domain.WorkspaceStatusDeleted || ws.WorktreePath == "" {
 			continue
 		}
-		path := filepath.Clean(ws.WorktreePath)
-		if filepath.Base(path) == "worktree" {
-			path = filepath.Dir(path)
+		if root, ok := worktreepath.OwnRoot(ws.WorktreePath, home); ok {
+			foreign[root] = true
+			continue
 		}
-		foreign[path] = true
+		// A pre-leaf row: its checkout, and the chats tree beside it.
+		foreign[filepath.Clean(ws.WorktreePath)] = true
+		foreign[worktreepath.ChatsDir(filepath.Clean(ws.WorktreePath))] = true
 	}
 	keep := func(path string) bool {
 		return foreign[path] || worktreepath.IsLiveCheckout(path)

@@ -109,6 +109,23 @@ func TestDeleteCascade_DeletesOnlyTheBranchCrowbarCreated(t *testing.T) {
 		"an ordinary unlocked workspace is still removed with --force")
 }
 
+// A pre-leaf branch named chats is checked out at <slug>/chats — the chats
+// tree every pre-leaf sibling resolves. A forced remove would delete their
+// files with it, so git is asked without --force and keeps a dirty checkout.
+func TestRegression_DeleteCascade_NeverForcesACheckoutHoldingASiblingsChats(t *testing.T) {
+	ws, _ := repoDeleteFixture([]domain.Workspace{
+		{ID: "chats", RepoID: "r1", Branch: "chats", WorktreePath: "/h/projects/p/app/chats", Provisioning: domain.WorkspaceProvisioned},
+		{ID: "dev", RepoID: "r1", Branch: "dev", WorktreePath: "/h/projects/p/app/dev", Provisioning: domain.WorkspaceProvisioned},
+	})
+	g := &fakeGit{}
+	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo", defaultBranch: "main"},
+		newNow(), fakeHome())
+
+	require.NoError(t, uc.DeleteCascade(context.Background(), "chats"))
+
+	assert.Equal(t, "false", removeCall(g, "/h/projects/p/app/chats")[2])
+}
+
 // A failed create only takes back a branch it made: the -B import of a remote
 // branch that already existed locally must not delete the user's local branch
 // when the row then fails to land.

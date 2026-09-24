@@ -141,7 +141,7 @@ func TestResolve_PrefersAnOnDiskOverrideOverTheEmbeddedDefault(t *testing.T) {
 	home := t.TempDir()
 	writeOverride(t, home, "claude", minimalWithID("claude", "overridden-cli"))
 
-	d, err := descriptor.Resolve(context.Background(), home, "claude")
+	d, err := descriptor.Resolve(context.Background(), home, "claude", nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "overridden-cli", d.Spawn.Cmd,
@@ -149,7 +149,7 @@ func TestResolve_PrefersAnOnDiskOverrideOverTheEmbeddedDefault(t *testing.T) {
 }
 
 func TestResolve_FallsBackToTheEmbeddedDefault(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude", nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "claude", d.Spawn.Cmd)
@@ -164,7 +164,7 @@ func TestResolve_FallsBackToTheEmbeddedDefault(t *testing.T) {
 func TestRegression_ShippedDescriptorsDeclareTheirShellModeSigil(t *testing.T) {
 	for _, id := range []string{"claude", "codex"} {
 		t.Run(id, func(t *testing.T) {
-			d, err := descriptor.Resolve(context.Background(), t.TempDir(), id)
+			d, err := descriptor.Resolve(context.Background(), t.TempDir(), id, nil)
 
 			require.NoError(t, err)
 			require.NotNil(t, d.Presentation.PromptSubmit)
@@ -176,7 +176,7 @@ func TestRegression_ShippedDescriptorsDeclareTheirShellModeSigil(t *testing.T) {
 }
 
 func TestResolve_UnknownIDIsNotFound(t *testing.T) {
-	_, err := descriptor.Resolve(context.Background(), "", "no-such-provider")
+	_, err := descriptor.Resolve(context.Background(), "", "no-such-provider", nil)
 
 	assert.ErrorIs(t, err, descriptor.ErrUnknown)
 }
@@ -191,7 +191,7 @@ func TestResolve_RefusesAnIDThatIsNotABareStem(t *testing.T) {
 	}
 	for _, id := range testCases {
 		t.Run(id, func(t *testing.T) {
-			_, err := descriptor.Resolve(context.Background(), t.TempDir(), id)
+			_, err := descriptor.Resolve(context.Background(), t.TempDir(), id, nil)
 			assert.ErrorIs(t, err, descriptor.ErrUnknown)
 		})
 	}
@@ -201,7 +201,7 @@ func TestResolve_RespectsACancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := descriptor.Resolve(ctx, "", "claude")
+	_, err := descriptor.Resolve(ctx, "", "claude", nil)
 
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -210,14 +210,14 @@ func TestResolve_ABrokenOverrideIsAnError(t *testing.T) {
 	home := t.TempDir()
 	writeOverride(t, home, "claude", "id: \"\"\n")
 
-	_, err := descriptor.Resolve(context.Background(), home, "claude")
+	_, err := descriptor.Resolve(context.Background(), home, "claude", nil)
 
 	assert.ErrorIs(t, err, descriptor.ErrInvalid,
 		"asking for one provider by id must report why it is unusable")
 }
 
 func TestAll_EnumeratesTheEmbeddedSetSortedByID(t *testing.T) {
-	list, err := descriptor.All(context.Background(), "")
+	list, err := descriptor.All(context.Background(), "", nil)
 
 	require.NoError(t, err)
 	ids := idsOf(list)
@@ -228,7 +228,7 @@ func TestAll_UnionsOnDiskIDsWithTheEmbeddedSet(t *testing.T) {
 	home := t.TempDir()
 	writeOverride(t, home, "zeta", minimalWithID("zeta", "zeta-cli"))
 
-	list, err := descriptor.All(context.Background(), home)
+	list, err := descriptor.All(context.Background(), home, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude", "codex", "zeta"}, idsOf(list))
@@ -238,7 +238,7 @@ func TestAll_ABrokenOverrideOmitsOneEntryNotTheList(t *testing.T) {
 	home := t.TempDir()
 	writeOverride(t, home, "broken", "id: \"\"\n")
 
-	list, err := descriptor.All(context.Background(), home)
+	list, err := descriptor.All(context.Background(), home, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude", "codex"}, idsOf(list))
@@ -250,7 +250,7 @@ func TestAll_IgnoresNonYAMLAndDirectories(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "notadescriptor.yaml"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "readme.md"), []byte("hi"), 0o600))
 
-	list, err := descriptor.All(context.Background(), home)
+	list, err := descriptor.All(context.Background(), home, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"claude", "codex"}, idsOf(list))
@@ -260,7 +260,7 @@ func TestAll_RespectsACancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := descriptor.All(ctx, "")
+	_, err := descriptor.All(ctx, "", nil)
 
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -312,7 +312,7 @@ func idsOf(list []*spec.Descriptor) []string {
 }
 
 func TestResolve_ShippedCodexDeclaresItsMeasuredNotice(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex", nil)
 	require.NoError(t, err)
 
 	require.Len(t, d.TerminalNotices, 1)
@@ -322,7 +322,7 @@ func TestResolve_ShippedCodexDeclaresItsMeasuredNotice(t *testing.T) {
 }
 
 func TestResolve_ShippedCodexDeclaresBothBlockingModals(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex", nil)
 	require.NoError(t, err)
 
 	needles := make([]string, 0, len(d.TerminalPrompts))
@@ -334,14 +334,14 @@ func TestResolve_ShippedCodexDeclaresBothBlockingModals(t *testing.T) {
 }
 
 func TestResolve_ShippedClaudeDeclaresNoNotices(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude", nil)
 	require.NoError(t, err)
 
 	assert.Empty(t, d.TerminalNotices)
 }
 
 func TestShippedClaudeDeclaresHotswapTrue(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude", nil)
 	require.NoError(t, err)
 	assert.True(t, d.Runtime.Hotswap, "claude keeps the PTY attached for the whole "+
 		"session with hooks reporting alongside (design spec §3.5)")
@@ -357,7 +357,7 @@ func TestShippedClaudeDeclaresHotswapTrue(t *testing.T) {
 // (SwitchToTerminal in runner/attach.go), never a live/concurrent view, which
 // is exactly what hotswap:false means. See codex.yaml's own comment.
 func TestCodexDescriptor_DeclaresAttachWithoutHotswap(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex", nil)
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, d.Runtime.API.Attach, "idle-only handoff needs a bare resume argv to fork")
@@ -368,7 +368,7 @@ func TestCodexDescriptor_DeclaresAttachWithoutHotswap(t *testing.T) {
 // the CLI from the instant it spawns (hotswap: true, both faces live at
 // once), so a brand-new chat may land directly on either surface.
 func TestShippedClaudeDeclaresBothSurfacesStartHere(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "claude", nil)
 	require.NoError(t, err)
 
 	require.Contains(t, d.Surfaces, "chat")
@@ -385,7 +385,7 @@ func TestShippedClaudeDeclaresBothSurfacesStartHere(t *testing.T) {
 // (SwitchToTerminal, runner/attach.go), which is the api channel's way back
 // onto an EXISTING session and is not involved in a birth.
 func TestCodexDescriptor_BothSurfacesAreStartHere(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex", nil)
 	require.NoError(t, err)
 
 	require.Contains(t, d.Surfaces, "terminal", "codex declares attach: it HAS a terminal")
@@ -399,7 +399,7 @@ func TestCodexDescriptor_BothSurfacesAreStartHere(t *testing.T) {
 }
 
 func TestCodexDescriptor_IsMergedMixedTransport(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex", nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "api", d.Runtime.Transport)
@@ -444,7 +444,7 @@ func TestExperimentalCodexAPIDescriptorIsGone(t *testing.T) {
 // outright), so full-auto's apply list must REPLACE both prior pass_args
 // with this one flag, never add it alongside them.
 func TestCodexDescriptor_FullAutoLevelUsesTheRealBypassFlag(t *testing.T) {
-	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex")
+	d, err := descriptor.Resolve(context.Background(), t.TempDir(), "codex", nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, d.PermissionLevels)

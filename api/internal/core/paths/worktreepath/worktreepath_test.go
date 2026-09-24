@@ -344,3 +344,57 @@ func TestRestoreDurableAttachmentRefs_MultipleReferences(t *testing.T) {
 	out := RestoreDurableAttachmentRefs(text, "/crow/projects/p1/slug/branch/chats", "chat-1")
 	assert.Equal(t, "![a](chats/chat-1/attachments/one.png) and ![b](chats/chat-1/attachments/two.png)", out)
 }
+
+// Only the leaf shape names a directory that is one workspace's alone.
+func TestOwnRoot_AcceptsOnlyTheLeafShapeInsideAProject(t *testing.T) {
+	home := "/crow"
+	root, ok := OwnRoot("/crow/projects/p/github.com/acme/app/main/worktree", home)
+	require.True(t, ok)
+	assert.Equal(t, "/crow/projects/p/github.com/acme/app/main", root)
+
+	for _, path := range []string{
+		"/crow/projects/p/github.com/acme/app/develop", // pre-leaf
+		"/crow/projects/p/worktree",                    // root is the project dir
+		"/crow/projects/worktree",                      // root is projects/
+		"/crow/worktree",                               // root is the home
+		"/elsewhere/projects/p/x/worktree",             // outside the home
+		"/crow/projects/p/a/develop/../main/worktree",  // unclean
+		"crow/projects/p/a/main/worktree",              // relative
+		"",
+	} {
+		_, ok := OwnRoot(path, home)
+		assert.False(t, ok, "must refuse %q", path)
+	}
+}
+
+// A pre-leaf row keeps the <slug>/chats tree its attachments already live in,
+// unless that tree is a sibling's checkout; a leaf row keeps its own.
+func TestManagedChatsDir_KeepsAPreLeafRowsTreeUnlessItIsACheckout(t *testing.T) {
+	home := t.TempDir()
+	slug := filepath.Join(home, "projects", "p", "app")
+
+	assert.Equal(t, filepath.Join(slug, "main", "chats"),
+		ManagedChatsDir(home, "p", "w1", filepath.Join(slug, "main", "worktree")))
+	assert.Equal(t, filepath.Join(slug, "chats"),
+		ManagedChatsDir(home, "p", "w2", filepath.Join(slug, "develop")))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(slug, "chats"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(slug, "chats", ".git"), []byte("gitdir: x"), 0o644))
+	assert.Equal(t, filepath.Join(home, "projects", "p", ".workspace-chats", "w2"),
+		ManagedChatsDir(home, "p", "w2", filepath.Join(slug, "develop")),
+		"a branch named chats is a checkout, never another workspace's chats tree")
+	assert.Equal(t, filepath.Join(home, "projects", "p", ".workspace-chats", "w3"),
+		ManagedChatsDir(home, "p", "w3", filepath.Join(home, "stray")),
+		"a path outside the project never resolves beside it")
+}
+
+// A checkout that is, or holds, another row's checkout or chats tree holds
+// that row's files; a checkout beside them does not.
+func TestHoldsAnother(t *testing.T) {
+	others := []string{"/h/p/app/dev", "/h/p/app/main/worktree", ""}
+	assert.True(t, HoldsAnother("/h/p/app/chats", others), "dev's chats tree is <slug>/chats")
+	assert.True(t, HoldsAnother("/h/p/app/dev", others), "the same checkout")
+	assert.True(t, HoldsAnother("/h/p/app/main", others), "a checkout holding main's root")
+	assert.False(t, HoldsAnother("/h/p/app/threads", others))
+	assert.False(t, HoldsAnother("/h/p/app/main/worktree/x", others))
+}

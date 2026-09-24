@@ -28,7 +28,6 @@ internal/app/usecases/chat/internal/tree/walk.go: ChatLineage
 internal/app/usecases/chat/internal/tree/walk.go: CwdWorkspaceID
 internal/app/usecases/chat/internal/tree/walk.go: ForkParentID
 internal/core/binpath/git.go: InvalidateGit
-internal/core/paths/worktreepath/worktreepath.go: GlobalStateDir
 internal/core/paths/worktreepath/worktreepath.go: ProjectStorageDir
 internal/core/paths/worktreepath/worktreepath.go: RepoStorageDir
 internal/core/paths/worktreepath/worktreepath.go: ThreadsStorageDir

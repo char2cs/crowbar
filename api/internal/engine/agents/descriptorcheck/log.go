@@ -15,10 +15,17 @@ func LogAll(ctx context.Context, homeDir string) {
 		return
 	}
 	for _, r := range reports {
+		if r.FellBack {
+			slog.WarnContext(ctx, "agent: descriptor override refused; running the shipped descriptor",
+				"provider", r.ID, "source", r.Source)
+		}
 		for _, f := range r.Findings {
 			level := slog.LevelWarn
 			msg := "agent: descriptor warning"
-			if f.Severity == SeverityError {
+			switch {
+			case r.FellBack && f.Severity == SeverityError:
+				msg = "agent: descriptor override refused"
+			case f.Severity == SeverityError:
 				level, msg = slog.LevelError, "agent: descriptor blocked"
 			}
 			slog.Log(ctx, level, msg, "provider", r.ID, "source", r.Source, "rule", f.Rule,

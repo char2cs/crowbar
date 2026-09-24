@@ -28,7 +28,7 @@ func realEmbeddedManifest(t *testing.T) []byte {
 // hand-typed copy of its mapping.
 func realClaudeManifestSpec(t *testing.T) *spec.ModelManifestSpec {
 	t.Helper()
-	d, err := protocol.Resolve(context.Background(), "", "claude")
+	d, err := protocol.Resolve(context.Background(), "", "claude", nil)
 	require.NoError(t, err)
 	require.NotNil(t, d.Model)
 	require.NotNil(t, d.Model.Manifest, "claude.yaml must declare model.manifest:")

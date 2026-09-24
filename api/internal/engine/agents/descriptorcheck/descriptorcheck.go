@@ -43,6 +43,9 @@ type Report struct {
 	// Source is the override file validated, or "" for the embedded default.
 	Source   string    `json:"source,omitempty"`
 	Findings []Finding `json:"findings"`
+	// FellBack says the override at Source was refused for its error
+	// findings and the shipped descriptor runs in its place.
+	FellBack bool `json:"fellBack,omitempty"`
 }
 
 // OK reports whether nothing blocks the descriptor.
@@ -95,7 +98,9 @@ func Sources(homeDir string) ([]Source, error) {
 	return sources, nil
 }
 
-// ValidateAll validates every descriptor Crowbar would load from homeDir.
+// ValidateAll validates every descriptor Crowbar would load from homeDir. An
+// override refused in favour of the shipped default reports its own findings,
+// marked FellBack, so the user sees why their file is not the one running.
 func ValidateAll(homeDir string) ([]Report, error) {
 	sources, err := Sources(homeDir)
 	if err != nil {
@@ -108,9 +113,27 @@ func ValidateAll(homeDir string) ([]Report, error) {
 			rep.ID = src.ID
 		}
 		rep.Source = src.Path
+		rep.FellBack = fallsBack(src, rep)
 		out = append(out, rep)
 	}
 	return out, nil
+}
+
+// AcceptOverride admits an override the daemon may run: one with no
+// error-severity finding. It is the predicate agents.WithOverrideCheck loads
+// descriptors through, so what runs and what the gate checks agree.
+func AcceptOverride(raw []byte) bool {
+	return Validate(raw).OK()
+}
+
+// fallsBack reports whether src is a refused override with a shipped default
+// to run instead.
+func fallsBack(src Source, rep Report) bool {
+	if src.Path == "" || rep.OK() {
+		return false
+	}
+	_, ok := protocol.EmbeddedDescriptorSource(src.ID)
+	return ok
 }
 
 func syntaxFinding(err error) Finding {

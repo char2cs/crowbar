@@ -1011,7 +1011,7 @@ func (r *agentWorkspaceReader) AgentChatsDir(
 		return "", fmt.Errorf("usecases: agent workspace reader: get workspace: %w", err)
 	}
 	if worktreepath.UnderHome(w.WorktreePath, home) {
-		return worktreepath.ChatsDir(w.WorktreePath), nil
+		return worktreepath.ManagedChatsDir(home, w.ProjectID, w.ID, w.WorktreePath), nil
 	}
 	slug, err := r.repoSlug(ctx, w.RepoID)
 	if err != nil {

@@ -88,7 +88,9 @@ func TestDescriptorReports_ReportsABrokenOverrideItRefusesToEnable(t *testing.T)
 }
 
 // A descriptor that loads but fails a static rule (here: a shell as its
-// command) never launches: every spawn goes through this refusal.
+// command) never launches: every spawn goes through this refusal. (An override
+// of a shipped provider is refused in favour of the shipped descriptor instead;
+// this is a provider with no shipped default to fall back to.)
 func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
 	t.Parallel()
 	prefs, err := storesqlite.New[domain.AgentProviderPreference, string](":memory:")
@@ -98,13 +100,14 @@ func TestRequireProviderEnabled_RefusesADescriptorWithAnError(t *testing.T) {
 		"protocol", "internal", "descriptor", "descriptors-v3", "claude.yaml"))
 	require.NoError(t, err)
 	shell := strings.Replace(string(shipped), "  cmd: claude\n  interactive_required", "  cmd: /bin/sh\n  interactive_required", 1)
+	shell = strings.Replace(shell, "\nid: claude\n", "\nid: acme\n", 1)
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "claude.yaml"), []byte(shell), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "acme.yaml"), []byte(shell), 0o600))
 	table := provider.New(provider.Deps{
 		Agents: engineagents.New(), Home: func() (string, error) { return home, nil }, Prefs: prefs,
 	})
 
-	err = table.RequireProviderEnabled(t.Context(), "claude")
+	err = table.RequireProviderEnabled(t.Context(), "acme")
 
 	require.ErrorIs(t, err, descriptorcheck.ErrBlocked)
 	require.ErrorIs(t, err, apperr.ErrUnprocessable)

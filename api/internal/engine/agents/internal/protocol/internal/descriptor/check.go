@@ -81,6 +81,14 @@ func source(homeDir, id string) (Source, bool) {
 			return Source{ID: id, Path: override, Raw: raw}, true
 		}
 	}
+	return EmbeddedSource(id)
+}
+
+// EmbeddedSource is the shipped default for id, whatever override shadows it.
+func EmbeddedSource(id string) (Source, bool) {
+	if !validID(id) {
+		return Source{}, false
+	}
 	raw, err := embedded.ReadFile(embeddedDir + "/" + id + yamlSuffix)
 	if err != nil {
 		return Source{}, false

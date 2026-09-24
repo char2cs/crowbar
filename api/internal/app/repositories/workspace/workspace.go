@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"time"
 
@@ -221,10 +222,10 @@ type ReconcileOnOpener interface {
 type BootSweeper interface {
 	// BackfillProvisioning gives every row written before
 	// domain.Workspace.Provisioning existed its explicit value. It runs before
-	// anything reads the field.
+	// anything reads the field, and never fails boot.
 	BackfillProvisioning(
 		ctx context.Context,
-	) error
+	)
 	Sweep(
 		ctx context.Context,
 	) error
@@ -239,7 +240,7 @@ type BootSweeper interface {
 type DeleteReactorRegistrar interface {
 	RegisterDeleteReactor(
 		forgetDependents func(ctx context.Context, wsID string) error,
-		removeWorktree func(path string) error,
+		removeWorktree func(ctx context.Context, tomb domain.Workspace) error,
 		gate *drain.Gate,
 	) error
 }
@@ -762,18 +763,16 @@ func inRepo(
 	return ws.RepoID == "" && ws.ProjectID == projectID
 }
 
-// Sweep runs the boot orphan-sweep over this repository's RAW read model (spec
-// §3.8): it reads state/store/workspace.db DIRECTLY — never the Replay-wrapped
-// per-request List — so boot pays no replay and an empty model reaps nothing,
-// and re-drives the one Purger for every residual "deleted" row, from that
-// tombstone's own WorktreePath. Best-effort per row: recovery work never fails
-// boot. It refuses to run before RegisterDeleteReactor has built the Purger.
+// BackfillProvisioning records Provisioning on every row of the RAW read model
+// that lacks it. Best-effort per row: a row whose history cannot be replayed is
+// logged and left for the next boot, and never keeps the daemon from starting.
 func (w *workspace) BackfillProvisioning(
 	ctx context.Context,
-) error {
+) {
 	rows, err := w.readModel.List(ctx)
 	if err != nil {
-		return fmt.Errorf("workspace: backfill provisioning: list: %w", err)
+		slog.ErrorContext(ctx, "workspace: backfill provisioning: list", "err", err)
+		return
 	}
 	for _, ws := range rows {
 		if ws.Provisioning != "" {
@@ -781,12 +780,18 @@ func (w *workspace) BackfillProvisioning(
 		}
 		if _, err := w.sendWithOCC(ctx, commands.BackfillProvisioning{ID: ws.ID}); err != nil &&
 			!errors.Is(err, asynxModels.ErrValidation) {
-			return fmt.Errorf("workspace: backfill provisioning %s: %w", ws.ID, err)
+			slog.ErrorContext(ctx, "workspace: backfill provisioning (continuing)",
+				"workspace_id", ws.ID, "err", err)
 		}
 	}
-	return nil
 }
 
+// Sweep runs the boot orphan-sweep over this repository's RAW read model (spec
+// §3.8): it reads state/store/workspace.db DIRECTLY — never the Replay-wrapped
+// per-request List — so boot pays no replay and an empty model reaps nothing,
+// and re-drives the one Purger for every residual "deleted" row, from that
+// tombstone's own WorktreePath. Best-effort per row: recovery work never fails
+// boot. It refuses to run before RegisterDeleteReactor has built the Purger.
 func (w *workspace) Sweep(
 	ctx context.Context,
 ) error {
@@ -803,7 +808,7 @@ func (w *workspace) Sweep(
 // persisted tombstone (spec §3.6/§3.8, §7-D).
 func (w *workspace) RegisterDeleteReactor(
 	forgetDependents func(ctx context.Context, wsID string) error,
-	removeWorktree func(path string) error,
+	removeWorktree func(ctx context.Context, tomb domain.Workspace) error,
 	gate *drain.Gate,
 ) error {
 	w.purger = reactors.NewPurger(w.ax, w.readModel.Drop, forgetDependents, removeWorktree)

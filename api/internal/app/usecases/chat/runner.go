@@ -148,6 +148,13 @@ type RunnerUsecase interface {
 		ctx context.Context,
 	) error
 
+	// RestateProvidersFromHistory makes each chat's durable provider agree with
+	// its runner history, as the pre-audit daemon resolved it. It runs once per
+	// install, after ReconcileRunnersOnBoot, and reports whether it finished.
+	RestateProvidersFromHistory(
+		ctx context.Context,
+	) bool
+
 	// Compact asks the chat's CLI to compact its own context, using the gesture the
 	// provider declares. A provider that declares none reports ErrNotFound.
 	Compact(
@@ -376,15 +383,19 @@ func (u *Usecase) PendingPrompt(
 
 // ReconcileRunnersOnBoot exits every runner whose PTY did not survive the
 // restart. Nothing else can: no event was ever recorded for a process the daemon
-// outlived. It then backfills each chat's own durable provider from the runner
-// history — after the reconcile, so the history it reads is final.
+// outlived.
 func (u *Usecase) ReconcileRunnersOnBoot(
 	ctx context.Context,
 ) error {
-	if err := u.runners.ReconcileRunnersOnBoot(ctx); err != nil {
-		return err
-	}
-	return u.conversations.BackfillProviders(ctx)
+	return u.runners.ReconcileRunnersOnBoot(ctx)
+}
+
+// RestateProvidersFromHistory is the one-off upgrade of every chat's durable
+// provider to what its runner history names; see Conversations'.
+func (u *Usecase) RestateProvidersFromHistory(
+	ctx context.Context,
+) bool {
+	return u.conversations.RestateProvidersFromHistory(ctx)
 }
 
 // Compact asks the chat's provider to compact its own context, through whichever

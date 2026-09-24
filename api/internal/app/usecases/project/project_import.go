@@ -303,6 +303,13 @@ type ImportUsecase interface {
 		projectID string,
 		repoPath string,
 	) error
+	// CreateHome creates project's home workspace under its deterministic id.
+	// Import does it before the project row is saved; boot does it for a
+	// project an older version saved without one.
+	CreateHome(
+		ctx context.Context,
+		project domain.Project,
+	) (domain.Workspace, error)
 	// SetOwningChats wires the chat side every workspace this usecase creates is
 	// minted under (see OwningChats). It is a post-construction setter because
 	// the chat usecase is built after this one; until it is called, every path
@@ -860,16 +867,9 @@ func (u *projectImport) saveProjectWithHome(
 		Path:         path,
 		LastActivity: u.deps.Now(),
 	}
-	home, err := u.createOwnedWorkspace(ctx, workspace.CreateInput{
-		// Deterministic, so a project can never get two homes (invariant D2).
-		ID:           workspace.ProjectHomeID(project.ID),
-		ProjectID:    project.ID,
-		WorktreePath: project.Path,
-		Kind:         domain.WorkspaceKindHome,
-		Provisioning: domain.WorkspaceShared,
-	}, u.deps.Now())
+	home, err := u.CreateHome(ctx, project)
 	if err != nil {
-		return domain.Project{}, fmt.Errorf("home workspace: %w", err)
+		return domain.Project{}, err
 	}
 	if err := u.deps.Projects.Save(ctx, project); err != nil {
 		// The tombstone's reactor forgets the home's chats and Node row too.
@@ -880,6 +880,26 @@ func (u *projectImport) saveProjectWithHome(
 		return domain.Project{}, fmt.Errorf("save project: %w", err)
 	}
 	return project, nil
+}
+
+// CreateHome implements ImportUsecase: the project's home workspace, rooted at
+// the project's own path, owned by a chat and placed like any other.
+func (u *projectImport) CreateHome(
+	ctx context.Context,
+	project domain.Project,
+) (domain.Workspace, error) {
+	home, err := u.createOwnedWorkspace(ctx, workspace.CreateInput{
+		// Deterministic, so a project can never get two homes (invariant D2).
+		ID:           workspace.ProjectHomeID(project.ID),
+		ProjectID:    project.ID,
+		WorktreePath: project.Path,
+		Kind:         domain.WorkspaceKindHome,
+		Provisioning: domain.WorkspaceShared,
+	}, u.deps.Now())
+	if err != nil {
+		return domain.Workspace{}, fmt.Errorf("home workspace: %w", err)
+	}
+	return home, nil
 }
 
 func (u *projectImport) validateImportPath(
