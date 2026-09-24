@@ -239,7 +239,7 @@ type BootSweeper interface {
 type DeleteReactorRegistrar interface {
 	RegisterDeleteReactor(
 		forgetDependents func(ctx context.Context, wsID string) error,
-		removeWorktree func(path string) error,
+		removeWorktree func(ctx context.Context, tomb domain.Workspace) error,
 		gate *drain.Gate,
 	) error
 }
@@ -803,7 +803,7 @@ func (w *workspace) Sweep(
 // persisted tombstone (spec §3.6/§3.8, §7-D).
 func (w *workspace) RegisterDeleteReactor(
 	forgetDependents func(ctx context.Context, wsID string) error,
-	removeWorktree func(path string) error,
+	removeWorktree func(ctx context.Context, tomb domain.Workspace) error,
 	gate *drain.Gate,
 ) error {
 	w.purger = reactors.NewPurger(w.ax, w.readModel.Drop, forgetDependents, removeWorktree)

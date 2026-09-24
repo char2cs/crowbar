@@ -315,7 +315,7 @@ func (c *Container) wireCallbacks(
 	if !ok {
 		return fmt.Errorf("workspace repository does not support delete-reactor registration")
 	}
-	if err := registrar.RegisterDeleteReactor(c.forgetDependents, purge.WorktreeRemover(crowbarHome), c.drainGate); err != nil {
+	if err := registrar.RegisterDeleteReactor(c.forgetDependents, purge.WorktreeRemover(crowbarHome, c.Workspace.List), c.drainGate); err != nil {
 		return fmt.Errorf("delete reactor: %w", err)
 	}
 	return nil

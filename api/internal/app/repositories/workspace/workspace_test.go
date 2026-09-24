@@ -91,6 +91,7 @@ func TestWorkspace_BackfillProvisioning_GivesLegacyRowsTheirExplicitState(t *tes
 	ctx, repo := newRepo(t)
 	legacy := map[string]domain.Workspace{
 		"managed":      {ID: "managed", RepoID: "r1", ProjectID: "p1", Branch: "f", WorktreePath: "/h/projects/p1/r/f/worktree"},
+		"pre-leaf":     {ID: "pre-leaf", RepoID: "r1", ProjectID: "p1", Branch: "d", WorktreePath: "/h/projects/p1/r/d"},
 		"placeholder":  {ID: "placeholder", RepoID: "r1", ProjectID: "p1", Branch: "main", HeldByPath: "/elsewhere"},
 		"repo-home":    {ID: "repo-home", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: "/user/repo", IsDefault: true},
 		"project-home": {ID: "project-home", ProjectID: "p1", WorktreePath: "/user/project", Kind: domain.WorkspaceKindHome},
@@ -107,6 +108,7 @@ func TestWorkspace_BackfillProvisioning_GivesLegacyRowsTheirExplicitState(t *tes
 
 	want := map[string]domain.WorkspaceProvisioning{
 		"managed":      domain.WorkspaceProvisioned,
+		"pre-leaf":     domain.WorkspaceProvisioned,
 		"placeholder":  domain.WorkspacePlaceholder,
 		"repo-home":    domain.WorkspaceShared,
 		"project-home": domain.WorkspaceShared,
@@ -742,7 +744,10 @@ func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T
 	require.True(t, ok)
 	require.NoError(t, registrar.RegisterDeleteReactor(
 		func(_ context.Context, wsID string) error { purged = append(purged, wsID); return nil },
-		func(path string) error { removed = append(removed, path); return nil },
+		func(_ context.Context, tomb domain.Workspace) error {
+			removed = append(removed, tomb.WorktreePath)
+			return nil
+		},
 		gate,
 	))
 

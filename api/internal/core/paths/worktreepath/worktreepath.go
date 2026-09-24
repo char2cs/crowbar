@@ -87,6 +87,76 @@ func ChatsDir(worktreePath string) string {
 	return filepath.Join(WorkspaceRoot(worktreePath), "chats")
 }
 
+// worktreeLeaf is the last component of every managed worktree path (Derive).
+const worktreeLeaf = "worktree"
+
+// OwnRoot returns the root a managed worktree path names — the directory that
+// holds its "worktree" leaf beside its chats, storages and threads, and nothing
+// of any other workspace — and false for every other shape. A pre-leaf
+// <slug>/<branch> row, written before the leaf existed, is refused: its parent
+// is the slug directory all its siblings share. So is an unclean path, and one
+// whose root is not strictly inside <home>/projects/<project>.
+func OwnRoot(
+	worktreePath string,
+	home string,
+) (string, bool) {
+	if worktreePath == "" || home == "" || !filepath.IsAbs(worktreePath) ||
+		filepath.Clean(worktreePath) != worktreePath || filepath.Base(worktreePath) != worktreeLeaf {
+		return "", false
+	}
+	root := filepath.Dir(worktreePath)
+	rel, err := filepath.Rel(filepath.Join(home, "projects"), root)
+	if err != nil || !filepath.IsLocal(rel) || len(strings.Split(rel, string(filepath.Separator))) < 2 {
+		return "", false
+	}
+	return root, true
+}
+
+// ManagedChatsDir resolves the chats directory of a worktree under the home.
+// A leaf-shaped path keeps it beside the worktree (ChatsDir). A pre-leaf row
+// keeps the <slug>/chats tree it has always used, so its attachments stay
+// readable — unless that directory is a checkout (a sibling branch named
+// "chats") or not inside the project, in which case it gets its own directory
+// keyed by workspace id rather than writing into someone else's tree.
+func ManagedChatsDir(
+	home string,
+	projectID string,
+	workspaceID string,
+	worktreePath string,
+) string {
+	if _, ok := OwnRoot(worktreePath, home); ok {
+		return ChatsDir(worktreePath)
+	}
+	legacy := ChatsDir(filepath.Clean(worktreePath))
+	project := ProjectDir(home, projectID)
+	if projectID != "" && UnderHome(filepath.Dir(legacy), project) && !IsLiveCheckout(legacy) {
+		return legacy
+	}
+	return filepath.Join(project, ".workspace-chats", workspaceID)
+}
+
+// HoldsAnother reports whether checkout is, or contains, another workspace's
+// checkout or the chats tree beside it — as a pre-leaf branch named "chats"
+// holds every sibling's. A forced removal of it would delete their files.
+func HoldsAnother(
+	checkout string,
+	others []string,
+) bool {
+	checkout = filepath.Clean(checkout)
+	for _, other := range others {
+		if other == "" {
+			continue
+		}
+		other = filepath.Clean(other)
+		for _, claim := range []string{other, ChatsDir(other)} {
+			if claim == checkout || UnderHome(claim, checkout) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // HomeDefaultChatsDir returns the agentic chats directory for an adopted checkout
 // (repo-home/project-home), rooted strictly under crowbar home so no plaintext
 // conversation ledger is ever written beside the user's real repository (Task 7).

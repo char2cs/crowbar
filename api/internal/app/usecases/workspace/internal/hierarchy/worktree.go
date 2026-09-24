@@ -1486,7 +1486,7 @@ func (u *hierarchyUsecase) DeleteCascade(
 		if index[id].Status == domain.WorkspaceStatusDeleted {
 			continue
 		}
-		if removeErr := u.removeOne(ctx, index[id], repo); removeErr != nil {
+		if removeErr := u.removeOne(ctx, index[id], repo, all); removeErr != nil {
 			return fmt.Errorf("delete cascade: remove %s: %w", id, removeErr)
 		}
 	}
@@ -1528,7 +1528,7 @@ func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 			continue // taken by its parent's cascade
 		}
 		for _, id := range cascade.Plan(n.ID, mine) {
-			if removeErr := u.removeOne(ctx, index[id], ref); removeErr != nil {
+			if removeErr := u.removeOne(ctx, index[id], ref, all); removeErr != nil {
 				errs = append(errs, fmt.Errorf("remove %s: %w", id, removeErr))
 			}
 		}
@@ -1574,11 +1574,13 @@ func (u *hierarchyUsecase) repoRefFor(
 // The branch is deleted only when Crowbar created it (CreatedBranch), the
 // workspace is not locked, and it is not the repo's default branch — the
 // default branch instead gets the main folder re-attached to it, since a
-// managed worktree on it is the reason the folder was detached.
+// managed worktree on it is the reason the folder was detached. Nor is a
+// checkout forced that holds another row's files (worktreepath.HoldsAnother).
 func (u *hierarchyUsecase) removeOne(
 	ctx context.Context,
 	ws domain.Workspace,
 	repo repoRef,
+	all []domain.Workspace,
 ) error {
 	// Kill the workspace's live PTY sessions FIRST, before the worktree is removed.
 	// They otherwise survive the delete as orphaned shell processes with a
@@ -1599,9 +1601,10 @@ func (u *hierarchyUsecase) removeOne(
 	// cascade or leave a GHOST row pointing at a gone worktree. Log and
 	// continue; the row is always dropped. A worktree git refused to remove is
 	// left on disk — the purger never deletes a live checkout.
-	if removeErr := u.git.WorktreeRemove(ctx, repo.path, ws.WorktreePath, !locked); removeErr != nil {
+	force := !locked && !worktreepath.HoldsAnother(ws.WorktreePath, otherPaths(ws.ID, all))
+	if removeErr := u.git.WorktreeRemove(ctx, repo.path, ws.WorktreePath, force); removeErr != nil {
 		slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
-			"ws", ws.ID, "worktree", ws.WorktreePath, "locked", locked, "err", removeErr)
+			"ws", ws.ID, "worktree", ws.WorktreePath, "locked", locked, "force", force, "err", removeErr)
 	}
 	switch {
 	case ws.Branch == "":
@@ -1614,6 +1617,21 @@ func (u *hierarchyUsecase) removeOne(
 		}
 	}
 	return u.workspaces.Delete(ctx, ws.ID)
+}
+
+// otherPaths lists the worktree paths of every row but id, tombstones
+// included: a tombstone's files may still be on disk.
+func otherPaths(
+	id string,
+	all []domain.Workspace,
+) []string {
+	paths := make([]string, 0, len(all))
+	for _, ws := range all {
+		if ws.ID != id {
+			paths = append(paths, ws.WorktreePath)
+		}
+	}
+	return paths
 }
 
 // reattachMainIfDetachedAt puts the repo's main folder back on branch once the

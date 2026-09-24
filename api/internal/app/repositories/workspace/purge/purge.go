@@ -1,11 +1,11 @@
 // Package purge holds the hardened on-disk half of a workspace purge: the one
 // function allowed to delete a workspace's root under the crowbar home. The
 // delete reactor and the boot sweep both reach it through reactors.Purger, so
-// the guards below (under the home, no foreign entries, no checkout git
-// still registers) hold on every path.
+// the guards below hold on every path.
 package purge
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,42 +13,27 @@ import (
 	"strings"
 
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // WorktreeRemover builds the one bounded fs delete a workspace purge uses to
 // remove a deleted workspace's on-disk footprint — for the delete reactor and the
 // boot sweep alike, through the same reactors.Purger (spec §3 P0-2).
 //
-// path is the tombstone's WorktreePath: the "worktree" leaf of a workspace root
-// that also holds the sibling "chats" tree. `git worktree remove` only clears
-// the leaf, so this removes the ROOT's Crowbar-made entries and then the root.
-//
-// It is GUARDED: only a path strictly under the crowbar home is ever touched —
-// an adopted home or main worktree's path is the user's REAL checkout, outside
-// the home, and is never deleted. A blank path, a path outside the home, or an already-gone dir is
-// an idempotent no-op, so a crash re-driven purge rm's to nothing.
+// It removes a directory only when it can prove that directory is ONE
+// workspace's own root (ownRoot). Every other shape — a pre-leaf
+// <slug>/<branch> checkout whose parent every sibling shares, a path outside the
+// home, a root another row still claims — loses nothing here: its checkout is
+// git's to remove (the delete usecase's teardown), and whatever is left beside
+// it is shared or foreign. rows lists every workspace row, tombstones included.
 func WorktreeRemover(
 	crowbarHome string,
-) func(path string) error {
-	return func(path string) error {
-		if !worktreepath.UnderHome(path, crowbarHome) {
-			if path != "" {
-				slog.Warn("purge: refusing to rm worktree outside the crowbar home",
-					"path", path, "home", crowbarHome)
-			}
-			return nil
-		}
-		// The removed target is the PARENT of the worktree leaf (the workspace
-		// root holding the sibling chats tree). Re-guard the ROOT itself: a
-		// degenerate one-segment leaf (<home>/worktree) has filepath.Dir == home,
-		// and rm'ing that would nuke the ENTIRE crowbar home. Only a root that is
-		// still STRICTLY under home — i.e. path had an intermediate segment below
-		// home — is ever removed.
-		root := filepath.Dir(path)
-		if !worktreepath.UnderHome(root, crowbarHome) {
-			slog.Warn("purge: refusing to rm workspace root at or above the crowbar home",
-				"root", root, "path", path, "home", crowbarHome)
-			return nil
+	rows func(ctx context.Context) ([]domain.Workspace, error),
+) func(ctx context.Context, tomb domain.Workspace) error {
+	return func(ctx context.Context, tomb domain.Workspace) error {
+		root, ok, err := ownRoot(ctx, crowbarHome, tomb, rows)
+		if err != nil || !ok {
+			return err
 		}
 		if err := removeWorkspaceRoot(root); err != nil {
 			return fmt.Errorf("purge: remove workspace root %q: %w", root, err)
@@ -56,6 +41,93 @@ func WorktreeRemover(
 		pruneEmptiedWorkspaceParents(root, crowbarHome)
 		return nil
 	}
+}
+
+// ownRoot answers the directory that belongs to tomb alone, or false. The
+// proof has four parts: the path has the managed leaf shape
+// (worktreepath.OwnRoot); the root on disk is that very directory, not a symlink
+// into somewhere else; it is not itself a checkout; and no other row's claim
+// (claimsOf) overlaps it. A root that is already gone is false: nothing to do.
+func ownRoot(
+	ctx context.Context,
+	crowbarHome string,
+	tomb domain.Workspace,
+	rows func(ctx context.Context) ([]domain.Workspace, error),
+) (string, bool, error) {
+	root, ok := worktreepath.OwnRoot(tomb.WorktreePath, crowbarHome)
+	if !ok {
+		if tomb.WorktreePath != "" {
+			slog.WarnContext(ctx, "purge: not a single workspace's root; only git removes its checkout",
+				"workspace_id", tomb.ID, "path", tomb.WorktreePath, "home", crowbarHome)
+		}
+		return "", false, nil
+	}
+	if _, err := os.Lstat(root); os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if !resolvesInPlace(root, crowbarHome) || worktreepath.IsLiveCheckout(root) {
+		slog.WarnContext(ctx, "purge: workspace root is a symlink or a checkout; kept",
+			"workspace_id", tomb.ID, "root", root)
+		return "", false, nil
+	}
+	all, err := rows(ctx)
+	if err != nil {
+		return "", false, fmt.Errorf("purge: list workspaces: %w", err)
+	}
+	for _, other := range all {
+		if other.ID == tomb.ID {
+			continue
+		}
+		for _, claim := range claimsOf(other, crowbarHome) {
+			if overlaps(root, claim) {
+				slog.WarnContext(ctx, "purge: workspace root overlaps another workspace; kept",
+					"workspace_id", tomb.ID, "root", root, "other", other.ID, "claim", claim)
+				return "", false, nil
+			}
+		}
+	}
+	return root, true, nil
+}
+
+// claimsOf lists the directories a row may own: its own root for the leaf
+// shape; otherwise its checkout and the chats tree resolved beside it, which
+// for a pre-leaf row is shared by every sibling.
+func claimsOf(
+	ws domain.Workspace,
+	crowbarHome string,
+) []string {
+	if ws.WorktreePath == "" {
+		return nil
+	}
+	if root, ok := worktreepath.OwnRoot(ws.WorktreePath, crowbarHome); ok {
+		return []string{root}
+	}
+	path := filepath.Clean(ws.WorktreePath)
+	return []string{path, worktreepath.ChatsDir(path)}
+}
+
+// overlaps reports whether a and b are the same directory or one holds the
+// other.
+func overlaps(a, b string) bool {
+	return a == b || worktreepath.UnderHome(a, b) || worktreepath.UnderHome(b, a)
+}
+
+// resolvesInPlace reports whether root, with every symlink resolved, is still
+// root: no component of it leads somewhere else in (or out of) the home.
+func resolvesInPlace(
+	root string,
+	crowbarHome string,
+) bool {
+	rel, err := filepath.Rel(crowbarHome, root)
+	if err != nil {
+		return false
+	}
+	resolvedHome, err := filepath.EvalSymlinks(crowbarHome)
+	if err != nil {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	return err == nil && resolved == filepath.Join(resolvedHome, rel)
 }
 
 // workspaceRootOwned are the entries a workspace root may lose. The first four

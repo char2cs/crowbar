@@ -46,7 +46,7 @@ type Purger struct {
 	ax               Forgetter
 	dropRow          func(ctx context.Context, id string) error
 	forgetDependents func(ctx context.Context, wsID string) error
-	removeWorktree   func(path string) error
+	removeWorktree   func(ctx context.Context, tomb domain.Workspace) error
 }
 
 // NewPurger builds the one physical purger. dropRow deletes the read-model row
@@ -56,7 +56,7 @@ func NewPurger(
 	ax Forgetter,
 	dropRow func(ctx context.Context, id string) error,
 	forgetDependents func(ctx context.Context, wsID string) error,
-	removeWorktree func(path string) error,
+	removeWorktree func(ctx context.Context, tomb domain.Workspace) error,
 ) *Purger {
 	return &Purger{ax: ax, dropRow: dropRow, forgetDependents: forgetDependents, removeWorktree: removeWorktree}
 }
@@ -80,7 +80,7 @@ func (p *Purger) Purge(
 		return fmt.Errorf("forget dependents: %w", err)
 	}
 	if tomb.Provisioning == domain.WorkspaceProvisioned {
-		if err := p.removeWorktree(tomb.WorktreePath); err != nil {
+		if err := p.removeWorktree(ctx, tomb); err != nil {
 			return fmt.Errorf("remove worktree %q: %w", tomb.WorktreePath, err)
 		}
 	}

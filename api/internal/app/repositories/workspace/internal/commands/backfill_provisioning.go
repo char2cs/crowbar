@@ -13,6 +13,10 @@ import (
 // home or default row is a shared checkout, an empty path a placeholder — and
 // it runs once per such row at boot; every later reader sees the field. It is
 // refused on a row that already has one, so re-running it changes nothing.
+//
+// A pre-leaf path (<slug>/<branch>) is a checkout Crowbar made, so it is
+// provisioned; what keeps its shared parent safe is purge.WorktreeRemover's
+// own-root proof, not this classification.
 type BackfillProvisioning struct {
 	ID string
 }

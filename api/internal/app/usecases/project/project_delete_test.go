@@ -346,7 +346,13 @@ func TestRegression_ProjectDelete_NeverRemovesAnotherProjectsWorktree(t *testing
 	}
 	movedChats := filepath.Join(filepath.Dir(moved), "chats", "c1")
 	require.NoError(t, os.MkdirAll(movedChats, 0o755))
+	// A pre-leaf row of the moved repo: its checkout and the shared chats tree.
+	preLeaf := filepath.Join(projectDir, "github.com", "acme", "other", "d")
+	preLeafChats := filepath.Join(projectDir, "github.com", "acme", "other", "chats", "c2")
+	require.NoError(t, os.MkdirAll(preLeaf, 0o755))
+	require.NoError(t, os.MkdirAll(preLeafChats, 0o755))
 	f.workspaces.workspaces = []domain.Workspace{
+		{ID: "w-preleaf", ProjectID: "p2", RepoID: "r-other", WorktreePath: preLeaf, Provisioning: domain.WorkspaceProvisioned},
 		{ID: "w-moved", ProjectID: "p2", RepoID: "r-other", WorktreePath: moved, Provisioning: domain.WorkspaceProvisioned},
 		{ID: "w-stale", ProjectID: "p1", RepoID: "r-other", WorktreePath: stale, Provisioning: domain.WorkspaceProvisioned},
 		{ID: "w-mine", ProjectID: "p1", RepoID: "r1", WorktreePath: mine, Provisioning: domain.WorkspaceProvisioned},
@@ -356,6 +362,8 @@ func TestRegression_ProjectDelete_NeverRemovesAnotherProjectsWorktree(t *testing
 
 	assert.FileExists(t, filepath.Join(moved, "work.txt"), "another project's worktree survives")
 	assert.DirExists(t, movedChats, "with the chats beside it")
+	assert.DirExists(t, preLeaf, "a pre-leaf checkout of another project survives")
+	assert.DirExists(t, preLeafChats, "with the chats tree it resolves")
 	assert.FileExists(t, filepath.Join(stale, "work.txt"), "a row of another project's repo survives")
 	assert.NoDirExists(t, mine, "the project's own worktree goes")
 	assert.NotContains(t, f.workspaces.deleted, "w-stale", "and its row is not the project's to tombstone")
