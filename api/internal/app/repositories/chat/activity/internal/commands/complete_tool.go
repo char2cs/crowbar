@@ -20,7 +20,7 @@ type CompleteTool struct {
 
 func (c CompleteTool) AggregateID() string  { return c.ChatID }
 func (c CompleteTool) EventName() string    { return "agentactivity.tool_completed." + c.ChatID }
-func (c CompleteTool) ShouldSnapshot() bool { return false }
+func (c CompleteTool) ShouldSnapshot() bool { return true }
 
 func (c CompleteTool) Validate(*domain.ChatActivity) error {
 	if err := requireChat("complete tool", c.ChatID); err != nil {
