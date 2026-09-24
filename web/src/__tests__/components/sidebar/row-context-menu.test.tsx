@@ -12,7 +12,8 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import * as api from '@/lib/api'
 import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-resolver'
-import * as spaceContentActions from '@/components/layout/space-content-actions'
+import * as trashActions from '@/components/layout/trash-actions'
+import * as createActions from '@/components/layout/create-actions'
 import { toast } from '@/features/window/stores/toast-store'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 
@@ -20,9 +21,12 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }))
 
-vi.mock('@/components/layout/space-content-actions', async (importOriginal) => ({
-  ...(await importOriginal<typeof spaceContentActions>()),
+vi.mock('@/components/layout/trash-actions', async (importOriginal) => ({
+  ...(await importOriginal<typeof trashActions>()),
   handleTrashRepo: vi.fn(),
+}))
+vi.mock('@/components/layout/create-actions', async (importOriginal) => ({
+  ...(await importOriginal<typeof createActions>()),
   handleCreate: vi.fn(),
 }))
 
@@ -438,16 +442,16 @@ describe('SidebarRowContextMenu', () => {
     })
 
     it('clicking Delete Repo calls handleTrashRepo with the REPO id, not the row id', () => {
-      vi.mocked(spaceContentActions.handleTrashRepo).mockReturnValue(true)
+      vi.mocked(trashActions.handleTrashRepo).mockReturnValue(true)
       const { treeRef } = renderMenu()
       clickRepoMenuButton(treeRef.current, HOME_ROW_ID)
       fireEvent.click(screen.getByText('Delete Repo'))
-      expect(spaceContentActions.handleTrashRepo).toHaveBeenCalledExactlyOnceWith('repo-1')
+      expect(trashActions.handleTrashRepo).toHaveBeenCalledExactlyOnceWith('repo-1')
       expect(toast.error).not.toHaveBeenCalled()
     })
 
     it('a refusal (nothing held) surfaces a toast instead of pretending to succeed', () => {
-      vi.mocked(spaceContentActions.handleTrashRepo).mockReturnValue(false)
+      vi.mocked(trashActions.handleTrashRepo).mockReturnValue(false)
       const { treeRef } = renderMenu()
       clickRepoMenuButton(treeRef.current, HOME_ROW_ID)
       fireEvent.click(screen.getByText('Delete Repo'))
@@ -532,7 +536,7 @@ describe('SidebarRowContextMenu — "New thread in Terminal"', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, THREAD_ROW_ID)
     fireEvent.click(screen.getByText('New thread in Terminal'))
-    expect(spaceContentActions.handleCreate).toHaveBeenCalledWith(
+    expect(createActions.handleCreate).toHaveBeenCalledWith(
       THREAD_ROW_ID,
       'thread',
       expect.any(Function),

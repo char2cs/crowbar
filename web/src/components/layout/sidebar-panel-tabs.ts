@@ -1,6 +1,6 @@
 import type React from 'react'
 import { FolderOpen, GitBranch } from '@phosphor-icons/react'
-import type { SidebarTab } from '@/lib/store/sidebar'
+import type { SidebarTab } from '@/lib/store/sidebar-ui'
 import {
   hasRepoWorkspace,
   type FocusedWorkspaceContext,

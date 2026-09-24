@@ -17,7 +17,8 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeOwningChatId: () => 'home-owner',
 }))
 
-import { handleCreate, handleCreateHomeThread } from '@/components/layout/space-content-actions'
+import { handleCreate } from '@/components/layout/create-actions'
+import { handleCreateHomeThread } from '@/components/layout/home-actions'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'

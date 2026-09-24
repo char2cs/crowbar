@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  commitViewWrite,
   fillPane,
   insertPane,
   movePane,
@@ -314,5 +315,23 @@ describe('viewIntegrityViolations', () => {
     const text = viewIntegrityViolations(state).join('\n')
     expect(text).toMatch(/view v2 missing from viewOrder/)
     expect(text).toMatch(/pane orphan is in no layout/)
+  })
+})
+
+describe('commitViewWrite — focus is derived from pane writes', () => {
+  it('focus never names a removed pane, whichever op removed it', () => {
+    for (const op of [
+      (s: ReturnType<typeof twoViews>) => removePane(s, 'b'),
+      (s: ReturnType<typeof twoViews>) => removeView(s, 'v2'),
+      (s: ReturnType<typeof twoViews>) =>
+        movePane(s, 'b', { kind: 'view', projectId: 'p1', after: 'v2' }),
+    ]) {
+      const state = twoViews()
+      state.activeViewId = 'v2'
+      state.activePaneId = 'b'
+      commitViewWrite(state, op)
+      expect(state.panes[state.activePaneId]).toBeDefined()
+      assertViewIntegrity(state)
+    }
   })
 })

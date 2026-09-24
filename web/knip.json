@@ -22,7 +22,6 @@
     "src/components/layout/repo-avatar.tsx": ["exports", "types"],
     "src/components/layout/repo-icon-mark.tsx": ["exports", "types"],
     "src/components/layout/sidebar-card-height.ts": ["exports"],
-    "src/components/layout/space-content-actions.ts": ["exports"],
     "src/components/layout/workspace-branch-icon.tsx": ["exports"],
     "src/components/layout/workspace-switcher-model.ts": ["files"],
     "src/components/layout/workspace-switcher.tsx": ["files"],

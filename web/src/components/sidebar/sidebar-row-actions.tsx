@@ -135,7 +135,7 @@ export function SidebarRowActions({
       {/* Spec §9: "every row that owns something carries a trash: chats,
           workspaces, folders, repos, and the space header for the
           project." A locked branch and the repo's own project-home row
-          are the two `handleTrash` itself refuses (space-content-actions.ts's
+          are the two `handleTrash` itself refuses (trash-actions.ts's
           own doc) — surfacing a toast rather than pretending to succeed —
           so those are excluded here rather than offered a dead click. Same
           token+glyph Recents' own close button uses (recents-band.tsx),

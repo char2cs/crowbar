@@ -1,5 +1,5 @@
 import type { useNavigate } from '@tanstack/react-router'
-import { openChatRoute } from '@/components/layout/space-content-actions'
+import { openChatRoute } from '@/components/layout/open-actions'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'

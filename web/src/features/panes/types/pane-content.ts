@@ -91,7 +91,6 @@ export interface TerminalContent extends EditorTabBase {
   sessionId: string
   initialCommand?: string
   workingDirectory?: string
-  remoteConnectionId?: string
 }
 
 /** One commit's diff, rendered on the same windowed surface as the branch
@@ -208,7 +207,6 @@ export type OpenEditorTabSpec =
       name?: string
       command?: string
       workingDirectory?: string
-      remoteConnectionId?: string
       sessionId?: string
       path?: string
       workspaceId?: string

@@ -20,15 +20,39 @@ interface ProjectState {
   addProject: (project: Project) => void
 }
 
-// §6: the project list is GET-seeded and kept live by the `/v0/projects` WS
-// stream — an imported/deleted project arrives as a ProjectDTO frame and the
-// debounced applyDelta re-seeds the loadable (no caller-side double-refetch).
+/** Sidebar order, as the daemon sorts it (compareProjectDTOs). */
+function byOrder(a: Project, b: Project): number {
+  const d = (a.order ?? 0) - (b.order ?? 0)
+  if (d !== 0) return d
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
+/**
+ * One `/v0/projects` frame — a complete ProjectDTO, or a `status: 'deleted'`
+ * tombstone — folded into the list. Every project write broadcasts every row
+ * it changes, so the frames are the list and never need a re-read.
+ */
+function mergeProjectFrame(list: Project[], frame: unknown): Project[] | undefined {
+  if (!frame || typeof frame !== 'object') return undefined
+  const { status, ...project } = frame as Project & { status?: string }
+  if (typeof project.id !== 'string') return undefined
+  const index = list.findIndex((p) => p.id === project.id)
+  if (status === 'deleted') return index === -1 ? list : list.filter((p) => p.id !== project.id)
+  if (index !== -1 && JSON.stringify(list[index]) === JSON.stringify(project)) return list
+  const next = index === -1 ? [...list, project] : list.map((p, i) => (i === index ? project : p))
+  return next.sort(byOrder)
+}
+
+// §6: the project list is GET-seeded once and then kept live by the
+// `/v0/projects` WS stream's frames alone — the snapshot it sends on subscribe
+// merges as no-ops, so boot makes one request.
 export const useProjectDataStore = create<LoadableSlice<Project[], []>>()((set, get) =>
   createLoadableSlice<Project[], []>({
     store: 'projects-data',
     fetcher: () => fetchProjects(),
     cacheKey: () => 'projects',
     wsEndpoint: () => '/v0/projects',
+    mergeFrame: mergeProjectFrame,
   })(set, get),
 )
 

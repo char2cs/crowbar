@@ -453,7 +453,7 @@ describe('row-actions', () => {
     // fold it onto yet. `hideRowsForInFlightCreates` (rows-from-pending.ts)
     // already exists to hide exactly this kind of stray reseed, but only for
     // an entry carrying `rowIdsAtClick` — the fork/thread paths
-    // (space-content-actions.ts) always set it; the import path did not.
+    // (create-actions.ts) always set it; the import path did not.
     it('hides a stray owning-chat row that reseeds mid-import, before it folds under the branch', async () => {
       await performImportBranches('repo-1', ['feature-a'])
       expect(usePendingCreatesStore.getState().entries).toHaveLength(1)

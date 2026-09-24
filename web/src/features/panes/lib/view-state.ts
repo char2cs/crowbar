@@ -198,7 +198,13 @@ export function nextViewFor(state: ViewState, projectId: string | null): string 
   return state.viewOrder.find(eligible) ?? null
 }
 
-export function healActivePane(state: ViewState): void {
+/**
+ * Focus is derived, not maintained: after a write, an `activePaneId` that no
+ * longer names a pane on screen (or in the bottom tray) falls back to the most
+ * recently focused one that does, else the first leaf showing. Applied once
+ * per write by `commitViewWrite` and once per load by `repairViewState`.
+ */
+export function settleFocus(state: ViewState): void {
   const showing = getAllLeafIds(showingLayout(state))
   const bottom = getAllLeafIds(state.bottomLayout)
   if (showing.includes(state.activePaneId) || bottom.includes(state.activePaneId)) return

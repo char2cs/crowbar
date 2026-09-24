@@ -26,7 +26,7 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeOwningChatId: () => null,
 }))
 
-import { handleCreate, confirmPendingCreateName } from '@/components/layout/space-content-actions'
+import { handleCreate, confirmPendingCreateName } from '@/components/layout/create-actions'
 import { performSetWorkspaceLock, performRenameRow } from '@/components/sidebar/lib/row-actions'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'

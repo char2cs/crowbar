@@ -1,6 +1,7 @@
 import { idle, loading, success, failed, type Loadable } from '@/lib/loadable'
 import { saveCache, loadCache, type CacheStoreName } from '@/lib/persistence/cache-store'
 import { wsManager } from '@/lib/ws/manager'
+import { isReconnectSentinel } from '@/lib/ws/types'
 
 export interface LoadableSlice<T, K extends unknown[] = [string]> {
   data: Loadable<T>
@@ -15,6 +16,14 @@ interface LoadableConfig<T, K extends unknown[]> {
   fetcher: (...args: K) => Promise<T>
   cacheKey?: (...args: K) => string
   wsEndpoint?: (...args: K) => string
+  /**
+   * For a socket whose frames are complete entities (a snapshot on subscribe,
+   * then one whole DTO per change): fold one frame into the held value, or
+   * undefined when this frame cannot be merged (a reconnect sentinel) and the
+   * value must be re-read. Return `current` itself for a frame that changes
+   * nothing. Without it, every frame schedules a debounced re-read.
+   */
+  mergeFrame?: (current: T, frame: unknown) => T | undefined
 }
 
 const DELTA_DEBOUNCE_MS = 120
@@ -37,8 +46,8 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
   const keyOf = (...args: K): string => (cfg.cacheKey ? cfg.cacheKey(...args) : (args[0] as string))
 
   return (set: Setter<T>, get: Getter<T>): LoadableSlice<T, K> => {
-    // Snapshot-on-subscribe delivers one WS event per entity; debouncing the
-    // refetch collapses that burst (and rapid mutations) into a single request.
+    // A slice without `mergeFrame` answers each frame with a re-read; debouncing
+    // collapses a snapshot burst (and rapid mutations) into a single request.
     const deltaTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
     // Only the most-recently ISSUED fetch may write. Callers overlap routinely —
@@ -58,10 +67,32 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
      *  the send issues its own, so no one is ever handed an answer older than
      *  its call. */
     const unsent = new Map<string, Promise<void>>()
+    /** Per key, one list per fetch in flight of the frames that arrived since
+     *  it began: its answer may predate them, so they are replayed onto it. */
+    const inFlightFrames = new Map<string, Set<unknown[]>>()
+
+    const replay = (fresh: T, frames: readonly unknown[]): T =>
+      frames.reduce<T>((value, frame) => cfg.mergeFrame?.(value, frame) ?? value, fresh)
+
+    const scheduleRefetch = (key: string, args: K): void => {
+      const pending = deltaTimers.get(key)
+      if (pending) clearTimeout(pending)
+      deltaTimers.set(
+        key,
+        setTimeout(() => {
+          deltaTimers.delete(key)
+          void get().fetch(...args)
+        }, DELTA_DEBOUNCE_MS),
+      )
+    }
 
     const run = async (key: string, args: K): Promise<void> => {
       const seq = ++latestFetch
       let sent = false
+      const frames: unknown[] = []
+      const tracked = inFlightFrames.get(key) ?? new Set<unknown[]>()
+      tracked.add(frames)
+      inFlightFrames.set(key, tracked)
       try {
         const cached = await loadCache<T>(cfg.store, key)
         if (seq !== latestFetch) return
@@ -71,7 +102,7 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
         try {
           unsent.delete(key)
           sent = true
-          const fresh = await cfg.fetcher(...args)
+          const fresh = replay(await cfg.fetcher(...args), frames)
           if (seq !== latestFetch) return
           // An unchanged answer is not re-written: a warm boot otherwise
           // re-puts every cached list it just read.
@@ -88,6 +119,7 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
         }
       } finally {
         if (!sent) unsent.delete(key)
+        tracked.delete(frames)
       }
     }
 
@@ -112,17 +144,27 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
         })
       },
 
-      applyDelta: async (_event: unknown, ...args: K) => {
+      applyDelta: async (event: unknown, ...args: K) => {
         const key = keyOf(...args)
-        const pending = deltaTimers.get(key)
-        if (pending) clearTimeout(pending)
-        deltaTimers.set(
-          key,
-          setTimeout(() => {
-            deltaTimers.delete(key)
-            void get().fetch(...args)
-          }, DELTA_DEBOUNCE_MS),
-        )
+        const merge = cfg.mergeFrame
+        if (merge && !isReconnectSentinel(event)) {
+          const inFlight = inFlightFrames.get(key) ?? new Set<unknown[]>()
+          const current = get().data
+          const next = current.status === 'success' ? merge(current.data, event) : undefined
+          if (next !== undefined && current.status === 'success') {
+            for (const frames of inFlight) frames.push(event)
+            if (next === current.data) return
+            set({ data: success(next, current.fetchedAt) })
+            void saveCache(cfg.store, key, next)
+            return
+          }
+          // Nothing held yet: the read in flight carries this frame.
+          if (current.status !== 'success' && inFlight.size > 0) {
+            for (const frames of inFlight) frames.push(event)
+            return
+          }
+        }
+        scheduleRefetch(key, args)
       },
 
       optimisticWrite: async (optimistic: T, commit: () => Promise<T | void>) => {
