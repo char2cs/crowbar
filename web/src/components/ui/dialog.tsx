@@ -168,7 +168,7 @@ export function DialogDescription({
 // Higher-level dialog used by Crowbar feature modules.
 // Accepts title, icon, footer, size, onClose, classNames props.
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- icon components from several libraries with unrelated prop types
 type AppDialogIconComponent = React.ComponentType<any>
 
 interface AppDialogProps {

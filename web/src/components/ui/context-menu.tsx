@@ -241,7 +241,7 @@ function ContextMenuHost({
     }
     // items/position are read once, at the moment isOpen flips true — an
     // already-open native popup can't be updated mid-display anyway.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- items/position are read once when the menu opens
   }, [isOpen])
 
   if (isTauri() && !nativeFailed) return null

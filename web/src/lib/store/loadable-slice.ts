@@ -20,9 +20,9 @@ interface LoadableConfig<T, K extends unknown[]> {
 const DELTA_DEBOUNCE_MS = 120
 
 // Shim types to satisfy Zustand's StateCreator while keeping generic K flexible
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- the key tuple K is erased here; any K is accepted
 type Setter<T> = (partial: Partial<LoadableSlice<T, any>>) => void
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- the key tuple K is erased here; any K is accepted
 type Getter<T> = () => LoadableSlice<T, any>
 
 export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: LoadableConfig<T, K>) {

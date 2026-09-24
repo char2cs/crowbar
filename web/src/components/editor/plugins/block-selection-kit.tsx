@@ -82,7 +82,7 @@ export const BlockSelectionKit = [
         // takes the plain `PlateElementProps` — same shape at runtime, but
         // TS won't unify the two generic instantiations structurally. Same
         // escape hatch the upstream registry file uses.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the two plugin generics do not unify structurally
         return <BlockSelection {...(props as any)} />
       },
     },

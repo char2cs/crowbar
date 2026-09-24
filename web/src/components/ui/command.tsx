@@ -124,7 +124,7 @@ export function CommandInput({
   ...props
 }: Omit<React.ComponentProps<typeof AutocompleteInput>, 'onChange'> & {
   /** Accept both the Base UI event handler and the legacy Crowbar string handler */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accepts either Base UI's event or a plain string
   onChange?: ((event: any) => void) | ((value: string) => void)
 }): React.ReactElement {
   return (
@@ -138,7 +138,7 @@ export function CommandInput({
         placeholder={placeholder}
         size="lg"
         startAddon={<SearchIcon />}
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the union handler above is forwarded as-is
         onChange={onChange as any}
         {...props}
       />

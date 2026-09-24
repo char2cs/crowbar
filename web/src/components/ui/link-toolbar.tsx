@@ -168,7 +168,7 @@ function LinkOpenButton() {
       const [element] = entry
       return getLinkAttributes(editor, element)
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selection is the recompute trigger, read via editor.api
     [editor, selection],
   )
 
