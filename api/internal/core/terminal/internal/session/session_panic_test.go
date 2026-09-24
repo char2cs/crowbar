@@ -148,14 +148,10 @@ func TestRegression_ModelPanicOnResizeAndAttachStillServes(t *testing.T) {
 // model with recovered parse panics is reported as degraded with the panic count, so a
 // blanked-and-reparsed session is no longer invisible to operators.
 func TestSession_HealthSurfacesModelHealth(t *testing.T) {
-	swapNewModel(t, func(cols, rows, sb int) (model.TerminalModel, model.Serializer) {
-		return &fakeModel{cols: cols, rows: rows, degraded: true, panics: 3}, panicSerializer{}
-	})
-
-	dir := t.TempDir()
-	s, err := newTestSession(t, "sid-health", dir)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
+	// A bare session (no PTY, no pump): live shell output would drive the emitter over the
+	// fake model and add session-level backstop panics, making the count racy.
+	s := newBareSession("sid-health", "/bin/sh", t.TempDir(), "")
+	s.model = &fakeModel{cols: 80, rows: 24, degraded: true, panics: 3}
 
 	degraded, panics := s.Health()
 	assert.True(t, degraded, "a degraded model must surface through Session.Health()")
