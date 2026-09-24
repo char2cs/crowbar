@@ -8,12 +8,11 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 
 // Ratchet floors, not targets: tighten as chunking work lands, never loosen them
-// to make a regression pass. Measured 2026-09-24 on stab/deps: entry 105.5 KB,
-// boot closure 1675 KB — nearly all of it Monaco, still reached statically
-// through `_shell` (editor-pane → language-contributions). Once Monaco is
-// lazy, re-measure and cut BOOT_BUDGET to the new size plus ~10%.
+// to make a regression pass. Measured 2026-09-24 on stab/editor2 (Monaco lazy,
+// tree-sitter gone): entry 104.2 KB, boot closure 506.4 KB. The entry budget
+// already sits under that plus 10%, so it stays; boot is cut to it.
 const ENTRY_BUDGET_GZIP_BYTES = 112_000
-const BOOT_BUDGET_GZIP_BYTES = 1_725_000
+const BOOT_BUDGET_GZIP_BYTES = 570_000
 
 const ASSETS = 'dist/assets'
 const html = readFileSync('dist/index.html', 'utf8')
