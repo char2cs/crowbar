@@ -162,7 +162,7 @@ export const EditorSettings = () => {
 
         <SettingRow
           label="Semantic Highlighting"
-          description="Color functions, types, and properties using the Tree-sitter tokenizer"
+          description="Color functions, types, and properties using language servers and grammars"
           onReset={() =>
             updateSetting('semanticHighlighting', getDefaultSetting('semanticHighlighting'))
           }

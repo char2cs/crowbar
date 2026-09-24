@@ -62,7 +62,6 @@ const MAX_LINES_BASELINE = [
   'src/features/editor/components/toolbar/editor-status-actions.tsx',
   'src/features/editor/extensions/api.ts',
   'src/features/editor/hooks/use-pane-editor-satellites.ts',
-  'src/features/editor/lib/wasm-parser/loader.ts',
   'src/features/file-explorer/file-explorer/components/file-explorer-tree.tsx',
   'src/features/file-explorer/file-explorer/hooks/use-file-explorer-context-menu.tsx',
   'src/features/git/components/diff/review-code-view.tsx',
