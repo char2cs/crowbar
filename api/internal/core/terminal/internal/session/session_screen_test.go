@@ -2,6 +2,7 @@ package session
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,6 +28,7 @@ func TestSession_ScreenText_FirstReadThenUnchanged(t *testing.T) {
 	s := newBareSession("sid-screen-first-read", "/bin/sh", t.TempDir(), "")
 	m, _ := model.New(80, 24, 0)
 	s.model = m
+	parkFrameClock(t, s)
 
 	s.PumpChunkForTest([]byte("hello screen"))
 
@@ -45,6 +47,7 @@ func TestSession_ScreenText_AdvancesOnNewOutput(t *testing.T) {
 	s := newBareSession("sid-screen-advances", "/bin/sh", t.TempDir(), "")
 	m, _ := model.New(80, 24, 0)
 	s.model = m
+	parkFrameClock(t, s)
 
 	s.PumpChunkForTest([]byte("first"))
 	_, gen1, _ := s.ScreenText(0)
@@ -59,6 +62,7 @@ func TestSession_ScreenText_AdvancesOnNewOutput(t *testing.T) {
 func TestSession_ScreenText_NonScreenReaderModelDegradesGracefully(t *testing.T) {
 	s := newBareSession("sid-screen-no-reader", "/bin/sh", t.TempDir(), "")
 	s.model = &fakeModel{cols: 80, rows: 24}
+	parkFrameClock(t, s)
 
 	s.PumpChunkForTest([]byte("irrelevant"))
 
@@ -66,4 +70,17 @@ func TestSession_ScreenText_NonScreenReaderModelDegradesGracefully(t *testing.T)
 	assert.Empty(t, text, "a non-ScreenReader model must never surface text")
 	assert.NotZero(t, gen, "screenGen still advances even though no reader can render it")
 	assert.False(t, changed)
+}
+
+// parkFrameClock defers every emit to a trailing timer that cannot fire during the test,
+// so a bare session (no serializer, possibly a fake model) exercises only the model write
+// and the screen read — never the emit path.
+func parkFrameClock(t *testing.T, s *Session) {
+	t.Helper()
+	s.lastEmitAt = time.Now().Add(time.Hour)
+	t.Cleanup(func() {
+		s.mu.Lock()
+		s.stopEmitTimerLocked()
+		s.mu.Unlock()
+	})
 }

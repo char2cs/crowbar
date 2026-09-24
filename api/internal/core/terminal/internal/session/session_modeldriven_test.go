@@ -153,24 +153,6 @@ func TestModelDriven_HealthyAttachSnapshotHasNoPendingInput(t *testing.T) {
 		"the buffered mid-sequence partial must never appear in a healthy attach snapshot")
 }
 
-func TestModelDriven_DegradedFallsBackToRaw(t *testing.T) {
-	s, err := New("sid-md-deg", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
-	require.NoError(t, err)
-	t.Cleanup(s.Kill)
-
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	defer s.Detach(ch)
-
-	// Force the degraded state the way the panic tests do (see
-	// session_panic_test.go / session_testseams.go for the seam that swaps in
-	// a panicking model — reuse it exactly).
-	forceModelPanicForTest(s)
-
-	require.NoError(t, s.Write([]byte("echo RAW-FALLBACK-7\n")))
-	collectUntil(t, ch, "RAW-FALLBACK-7") // the arrival IS the assertion: raw streaming survived
-}
-
 // TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe proves Resize
 // invalidates the diff emitter (spec: a resize can never be expressed as an
 // absolute-addressed diff), so the very next model-derived frame after a
@@ -276,55 +258,6 @@ func TestModelDriven_AttachFlushesPendingDeltaBeforeRebasing(t *testing.T) {
 	assert.True(t, f2.Snapshot)
 	assert.Contains(t, string(f2.Data), "PENDING-DELTA-XYZ",
 		"the new client's attach snapshot must already include the pre-attach write")
-}
-
-// TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk proves the boundary the
-// review finding called out: writeModelLocked can succeed (the model consumed the
-// chunk) while the EMIT path (emitLocked / the keyframe serializeLocked) panics and
-// recovers, bumping modelPanics and flipping the session to raw for the NEXT chunk. If
-// pumpStep did nothing else, that chunk's visual delta would be silently dropped —
-// no frame goes out for it, and the flip only affects chunks after this one. pumpStep
-// must detect the flip and fan the triggering chunk's raw bytes out instead, and the
-// session must keep flowing normally (raw) afterward.
-//
-// It builds the Session directly (newBareSession + a real model/emitter) instead of
-// spawning a live PTY: a spawned session's background pump goroutine reads the real
-// shell asynchronously (startup mode-set sequences, prompt redraw) and would race this
-// test's own direct pumpStep calls on the same synthetic chunks, nondeterministically
-// landing the armed panic on the wrong chunk and masking a real drop. With no PTY there
-// is nothing to race — pumpStep only ever runs on the exact chunks this test injects.
-func TestModelDriven_EmitPanicOnFlipDoesNotDropTheTriggeringChunk(t *testing.T) {
-	s := newBareSession("sid-md-emitpanic", "/bin/sh", t.TempDir(), "")
-	m, ser := newModel(80, 24, 200)
-	s.model = m
-	s.serializer = ser
-	s.emitter = model.NewDiffEmitter()
-
-	ch, err := s.Attach()
-	require.NoError(t, err)
-	defer s.Detach(ch)
-
-	// Drain the initial attach snapshot so it can't be mistaken for the fallback frame.
-	_, ok := waitFrame(t, ch)
-	require.True(t, ok, "attach must deliver an initial snapshot")
-
-	// Arm the emit-path panic for exactly the next emitLocked call, then drive that
-	// exact chunk through pumpStep directly.
-	forceEmitPanicForTest(s)
-	s.pumpStep([]byte("LOST-CHUNK-GUARD"))
-
-	f, ok := waitFrame(t, ch)
-	require.True(t, ok, "the chunk that triggered the emit-path panic must still reach the client via raw fallback, not be dropped")
-	assert.Equal(t, "LOST-CHUNK-GUARD", string(f.Data),
-		"the fallback frame must carry the triggering chunk's raw bytes verbatim")
-	assert.False(t, f.Snapshot, "the fallback frame is a raw chunk, not a model snapshot")
-
-	// The session must now be flipped to raw (modelPanics > 0) and keep streaming
-	// normally through the pre-existing raw branch for every subsequent chunk.
-	s.pumpStep([]byte("AFTER-FLIP"))
-	f2, ok := waitFrame(t, ch)
-	require.True(t, ok, "session must keep streaming raw after the flip")
-	assert.Equal(t, "AFTER-FLIP", string(f2.Data))
 }
 
 // TestModelDriven_BurstCoalescesFrames proves the Task 7 adaptive frame clock: a burst of
@@ -733,14 +666,12 @@ func TestModelDriven_CPRQueryAnsweredToPTY(t *testing.T) {
 	assert.NotContains(t, data, "NOANSWER")
 }
 
-// TestModelDriven_DegradedFlipUninstallsResponseSink proves the T8 review finding fix:
-// once a model-driven session degrades to raw fallback (modelPanics > 0), the model's
-// response sink must be uninstalled. Left armed, the model would keep answering device
-// queries (e.g. CPR) from the PTY's raw bytes at the same time the client's own xterm —
-// which now also sees those raw bytes — answers them too, so the app would receive
-// DOUBLE replies to every query after the flip. One answerer at a time, always.
-func TestModelDriven_DegradedFlipUninstallsResponseSink(t *testing.T) {
-	s, err := New("sid-md-sink-flip", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
+// TestModelDriven_ModelResetKeepsOneAnswerer: when a backstop rebuilds the model after a
+// recovered panic, the fresh model is the session's device-query answerer — its response
+// sink is installed — and the next frame to every client is a keyframe of it. There is no
+// raw fallback, so the client's own xterm never becomes a second answerer.
+func TestModelDriven_ModelResetKeepsOneAnswerer(t *testing.T) {
+	s, err := New("sid-md-sink-reset", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -749,24 +680,14 @@ func TestModelDriven_DegradedFlipUninstallsResponseSink(t *testing.T) {
 	defer s.Detach(ch)
 
 	s.mu.Lock()
+	s.resetModelLocked()
 	installed := model.ResponseSinkInstalledForTest(s.model)
 	s.mu.Unlock()
-	require.True(t, installed, "test setup: a fresh model-driven session must spawn with the sink installed")
+	assert.True(t, installed, "the rebuilt model must answer device queries")
+	_, panics := s.Health()
+	assert.Equal(t, 1, panics, "the recovered panic is counted")
 
-	forceModelPanicForTest(s)
-
-	// Drive the flip through the modelEmitHealthyLocked latch (pumpStep -> writeModelLocked
-	// -> modelEmitHealthyLocked), the same way TestModelDriven_DegradedFallsBackToRaw does.
-	// The very chunk that flips the session is also the one the (now) raw path fans out, so the
-	// marker's ARRIVAL at the client is proof the flip has already latched — a real signal that
-	// makes the assertions below valid, where the old 3s drain merely assumed it.
-	require.NoError(t, s.Write([]byte("echo SINK-FLIP-TRIGGER\n")))
-	collectUntil(t, ch, "SINK-FLIP-TRIGGER")
-
-	s.mu.Lock()
-	stillInstalled := model.ResponseSinkInstalledForTest(s.model)
-	fellBack := s.modelDrivenFellBack
-	s.mu.Unlock()
-	require.True(t, fellBack, "test setup: the degraded flip must have latched")
-	assert.False(t, stillInstalled, "the response sink must be uninstalled once the session flips to raw fallback")
+	require.NoError(t, s.Write([]byte("echo AFTER-RESET\n")))
+	data := collectUntil(t, ch, "AFTER-RESET")
+	assert.Contains(t, data, "AFTER-RESET", "the rebuilt model keeps serving model-derived output")
 }
