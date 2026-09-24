@@ -19,6 +19,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/convert"
 	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/protocol"
+	"github.com/char2cs/crowbar/api/internal/engine/lsp/internal/semtok"
 )
 
 const methodPublishDiagnostics = "textDocument/publishDiagnostics"
@@ -89,6 +90,21 @@ type Server interface {
 	Replay(
 		ctx context.Context,
 	) error
+	// SemanticTokens reports the server's semantic-token support, as its last
+	// initialize result declared it.
+	SemanticTokens() semtok.Support
+	// CanExecute reports whether the server declared command in its
+	// executeCommandProvider; any other command is the client's to run.
+	CanExecute(
+		command string,
+	) bool
+	// ExecuteCommand runs workspace/executeCommand and returns its result plus
+	// every workspace edit the server asked the client to apply while the
+	// command ran (commands edit through workspace/applyEdit, not their result).
+	ExecuteCommand(
+		ctx context.Context,
+		params any,
+	) (json.RawMessage, []json.RawMessage, error)
 	// Close terminates the process and fails any in-flight requests.
 	Close() error
 }
@@ -106,6 +122,13 @@ type server struct {
 	closed     bool
 	rootDir    string
 	openParams map[string]json.RawMessage
+	// initOptions is the initializationOptions sent in every handshake.
+	initOptions map[string]any
+	features    serverFeatures
+	// commandEdits collects workspace/applyEdit requests while a command runs
+	// (nil otherwise); execMu serializes commands so each edit has one owner.
+	commandEdits *[]json.RawMessage
+	execMu       sync.Mutex
 
 	writeMu sync.Mutex
 	docs    *OpenDocs
@@ -131,19 +154,23 @@ func newOverTransport(
 // running Server. The process stdin/stdout become the JSON-RPC transport. Each
 // spawned process is watched by a reaper that reaps it on natural exit and
 // drives the server's OnExit callback so a crashed server is evicted, not left
-// a zombie in the pool (R10).
+// a zombie in the pool (R10). initOptions (nil for none) is sent as the
+// handshake's initializationOptions.
 func New(
+	ctx context.Context,
 	command string,
 	args []string,
 	dir string,
+	initOptions map[string]any,
 ) (Server, error) {
 	s := &server{
-		waiters:    make(map[int]chan waiterResult),
-		openParams: make(map[string]json.RawMessage),
-		docs:       NewOpenDocs(),
+		waiters:     make(map[int]chan waiterResult),
+		openParams:  make(map[string]json.RawMessage),
+		docs:        NewOpenDocs(),
+		initOptions: initOptions,
 	}
 	s.spawn = commandSpawn(command, args, dir, s.handleProcessExit)
-	transport, err := s.spawn(context.Background())
+	transport, err := s.spawn(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -196,66 +223,32 @@ func (s *server) handshake(
 		"capabilities":     clientCapabilities(),
 		"workspaceFolders": []any{map[string]any{"uri": rootURI, "name": "root"}},
 	}
-	if _, err := s.Request(ctx, "initialize", params); err != nil {
+	if len(s.initOptions) > 0 {
+		params["initializationOptions"] = s.initOptions
+	}
+	result, err := s.Request(ctx, "initialize", params)
+	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
+	features := featuresFromInitialize(result)
+	s.mu.Lock()
+	s.features = features
+	s.mu.Unlock()
 	return s.Notify(ctx, "initialized", map[string]any{})
 }
 
-// clientCapabilities declares what the editor (Monaco, via the daemon's /lsp
-// routes) can consume. Servers shape their answers by it: without
-// codeActionLiteralSupport a server returns bare commands instead of edits,
-// without hierarchicalDocumentSymbolSupport a flat symbol list, without a
-// markdown contentFormat plain-text hovers.
-func clientCapabilities() map[string]any {
-	markup := []string{"markdown", "plaintext"}
-	return map[string]any{
-		"textDocument": map[string]any{
-			"synchronization":    map[string]any{"didSave": true, "dynamicRegistration": false},
-			"publishDiagnostics": map[string]any{"relatedInformation": true},
-			"hover":              map[string]any{"contentFormat": markup},
-			"completion": map[string]any{
-				"contextSupport": true,
-				"completionItem": map[string]any{
-					"snippetSupport":          true,
-					"documentationFormat":     markup,
-					"deprecatedSupport":       true,
-					"labelDetailsSupport":     true,
-					"insertReplaceSupport":    false,
-					"commitCharactersSupport": false,
-				},
-			},
-			"signatureHelp": map[string]any{
-				"contextSupport": true,
-				"signatureInformation": map[string]any{
-					"documentationFormat":    markup,
-					"activeParameterSupport": true,
-					"parameterInformation":   map[string]any{"labelOffsetSupport": true},
-				},
-			},
-			"definition":     map[string]any{"linkSupport": false},
-			"references":     map[string]any{},
-			"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
-			"codeAction": map[string]any{
-				"isPreferredSupport": true,
-				"codeActionLiteralSupport": map[string]any{
-					"codeActionKind": map[string]any{
-						"valueSet": []string{
-							"", "quickfix", "refactor", "refactor.extract", "refactor.inline",
-							"refactor.rewrite", "source", "source.organizeImports", "source.fixAll",
-						},
-					},
-				},
-			},
-			"codeLens":   map[string]any{},
-			"formatting": map[string]any{},
-			"rename":     map[string]any{"prepareSupport": false},
-		},
-		"workspace": map[string]any{
-			"workspaceFolders": true,
-			"workspaceEdit":    map[string]any{"documentChanges": false},
-		},
-	}
+func (s *server) SemanticTokens() semtok.Support {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.features.semTok
+}
+
+func (s *server) CanExecute(
+	command string,
+) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.features.commands[command]
 }
 
 func (s *server) OnDiagnostics(

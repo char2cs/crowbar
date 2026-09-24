@@ -12,7 +12,6 @@ import { initializeSettingsStore } from '@/features/settings/store'
 import { ensureStartupAppearanceApplied } from '@/features/settings/lib/appearance-bootstrap'
 import { startHostThemeSync } from '@/features/terminal/lib/host-theme'
 import { initializeIconThemes } from '@/extensions/icon-themes/icon-theme-initializer'
-import { initTreeCacheSubscription } from '@/features/editor/stores/tree-cache-store'
 import { installPerfObserver, perfEnabled, pushPerfEntry } from '@/lib/perf/instrumentation'
 import { prefetchEditorChunks } from '@/features/panes/components/prefetch-editor-chunks'
 import { hydrateCriticalStores, hydrateProjectsInBackground } from '@/lib/boot'
@@ -55,9 +54,6 @@ initializeIconThemes()
 // asynchronously when localStorage values are loaded — this fires the
 // subscriptions in settings-store.ts which propagate to editor/theme/etc.
 void initializeSettingsStore()
-
-// Wire up tree-sitter cache cleanup: removes parse trees when buffers are closed.
-initTreeCacheSubscription()
 
 // Prefetch the editor/diff pane chunks once startup settles (spec P1): first
 // file-open should not pay the network/parse cost, but cold launch must not

@@ -31,7 +31,7 @@
 // per-LANGUAGE contributions stay deferred.
 import 'monaco-editor/esm/vs/editor/edcore.main.js'
 import { languages } from 'monaco-editor/esm/vs/editor/editor.api.js'
-import { registerTreeSitterSemanticTokens } from './semantic-tokens-provider'
+import { registerViewportSemanticTokens } from './semantic-tokens-provider'
 
 /**
  * On-demand grammar/language-service loaders, keyed by MONACO language id (the
@@ -542,4 +542,4 @@ languages.setMonarchTokensProvider('ocaml', {
   },
 })
 
-registerTreeSitterSemanticTokens()
+registerViewportSemanticTokens()

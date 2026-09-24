@@ -57,16 +57,6 @@ export interface EditorState {
   updatedAt: number
 }
 
-export interface UIPreferences {
-  theme: string
-  fontSize: number
-  fontFamily: string
-  tabSize: number
-  wordWrap: boolean
-  minimap: boolean
-  updatedAt: number
-}
-
 export interface SidebarUI {
   /**
    * RETIRED. Written by the pre-restyle tree's repo/branch chevrons and its
@@ -108,19 +98,9 @@ export interface CrowbarDB extends DBSchema {
     value: EditorState
     indexes: { workspaceId: string }
   }
-  'ui-preferences': {
-    key: string
-    value: UIPreferences
-  }
   'sidebar-ui': {
     key: string
     value: SidebarUI
-  }
-  /** Retired: the daemon owns workspace parents. The object store stays so
-   *  existing databases open without a version bump. */
-  'workspace-hierarchy': {
-    key: string
-    value: unknown
   }
   'branch-review': {
     key: string

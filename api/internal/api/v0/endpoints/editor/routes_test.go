@@ -108,6 +108,37 @@ func (stubLSP) CodeLensResolve(
 	return nil, nil
 }
 
+func (stubLSP) SemanticTokens(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ string,
+) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (stubLSP) SemanticTokensRange(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ domlsp.Range,
+) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (stubLSP) ExecuteCommand(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	_ string,
+	_ json.RawMessage,
+) (domlsp.CommandResult, error) {
+	return domlsp.CommandResult{}, nil
+}
+
 func (stubLSP) Formatting(
 	_ context.Context,
 	_ string,

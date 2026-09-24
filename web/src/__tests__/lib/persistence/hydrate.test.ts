@@ -27,7 +27,7 @@ import {
 import { ApiError } from '@/lib/api'
 import { getDB, resetDB } from '@/lib/persistence/idb'
 import { WINDOW_SESSION_ID } from '@/lib/persistence/workspace-layout'
-import type { WorkspaceLayout, UIPreferences, EditorState } from '@/lib/persistence/schemas'
+import type { WorkspaceLayout, EditorState } from '@/lib/persistence/schemas'
 import { destroyWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import {
   windowPaneStore,
@@ -97,15 +97,6 @@ async function seedDB(workspaceId: string) {
     buffers: [],
     updatedAt: Date.now(),
   }
-  const prefs: UIPreferences = {
-    theme: 'dark',
-    fontSize: 14,
-    fontFamily: 'Geist Mono',
-    tabSize: 2,
-    wordWrap: false,
-    minimap: true,
-    updatedAt: Date.now(),
-  }
   const editorState: EditorState = {
     workspaceId,
     bufferId: '/src/main.ts',
@@ -116,9 +107,8 @@ async function seedDB(workspaceId: string) {
     updatedAt: Date.now(),
   }
   await db.put('workspace-layout', layout)
-  await db.put('ui-preferences', prefs, 'global')
   await db.put('editor-state', editorState)
-  return { layout, prefs, editorState }
+  return { layout, editorState }
 }
 
 describe('hydrateWorkspace', () => {

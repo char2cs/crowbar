@@ -63,33 +63,10 @@ func isNull(
 	return len(raw) == 0 || string(raw) == "null"
 }
 
-// RelCodeActions rewrites the workspace edits inside a textDocument/codeAction
-// result so every file they name is workspace-relative, the form the editor
-// and the files API address files by. Commands and anything that does not
-// decode are passed through unchanged.
-func RelCodeActions(
-	worktreePath string,
-	raw json.RawMessage,
-) json.RawMessage {
-	var actions []map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &actions); err != nil {
-		return raw
-	}
-	for _, action := range actions {
-		edit, ok := action["edit"]
-		if !ok {
-			continue
-		}
-		action["edit"] = relRawWorkspaceEdit(worktreePath, edit)
-	}
-	out, err := json.Marshal(actions)
-	if err != nil {
-		return raw
-	}
-	return out
-}
-
-func relRawWorkspaceEdit(
+// RelWorkspaceEdit rewrites every file a raw LSP WorkspaceEdit names
+// (changes keys, documentChanges URIs) to its workspace-relative path.
+// Anything that does not decode is passed through unchanged.
+func RelWorkspaceEdit(
 	worktreePath string,
 	raw json.RawMessage,
 ) json.RawMessage {
@@ -110,9 +87,11 @@ func relRawWorkspaceEdit(
 	return out
 }
 
-// relChanges rewrites a WorkspaceEdit's "changes" map from URI keys to workspace-relative
-// paths, returning raw unchanged if it cannot be decoded or re-encoded.
-func relChanges(worktreePath string, raw json.RawMessage) json.RawMessage {
+// relChanges rewrites the keys of a WorkspaceEdit's changes map (file URIs).
+func relChanges(
+	worktreePath string,
+	raw json.RawMessage,
+) json.RawMessage {
 	var byURI map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &byURI); err != nil {
 		return raw
@@ -128,30 +107,38 @@ func relChanges(worktreePath string, raw json.RawMessage) json.RawMessage {
 	return out
 }
 
-// relDocumentChanges rewrites each "documentChanges" item's textDocument.uri to a
-// workspace-relative path, skipping items it cannot read and returning raw unchanged if
-// the list cannot be decoded or re-encoded.
-func relDocumentChanges(worktreePath string, raw json.RawMessage) json.RawMessage {
+// relDocumentChanges rewrites each documentChanges entry's textDocument URI.
+func relDocumentChanges(
+	worktreePath string,
+	raw json.RawMessage,
+) json.RawMessage {
 	var items []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return raw
 	}
 	for _, item := range items {
-		var td map[string]json.RawMessage
-		if err := json.Unmarshal(item["textDocument"], &td); err != nil {
-			continue
-		}
-		var uri string
-		if err := json.Unmarshal(td["uri"], &uri); err != nil {
-			continue
-		}
-		rel, _ := json.Marshal(WorkspaceRelPath(worktreePath, PathFromURI(uri)))
-		td["uri"] = rel
-		item["textDocument"], _ = json.Marshal(td)
+		relTextDocument(worktreePath, item)
 	}
 	out, err := json.Marshal(items)
 	if err != nil {
 		return raw
 	}
 	return out
+}
+
+func relTextDocument(
+	worktreePath string,
+	item map[string]json.RawMessage,
+) {
+	var td map[string]json.RawMessage
+	if err := json.Unmarshal(item["textDocument"], &td); err != nil {
+		return
+	}
+	var uri string
+	if err := json.Unmarshal(td["uri"], &uri); err != nil {
+		return
+	}
+	rel, _ := json.Marshal(WorkspaceRelPath(worktreePath, PathFromURI(uri)))
+	td["uri"] = rel
+	item["textDocument"], _ = json.Marshal(td)
 }

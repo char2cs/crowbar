@@ -87,8 +87,8 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     tab: 'editor',
     section: 'Display',
     label: 'Semantic Highlighting',
-    description: 'Color functions, types, and properties using the Tree-sitter tokenizer',
-    keywords: ['semantic', 'highlighting', 'syntax', 'tree-sitter', 'colors', 'tokens', 'display'],
+    description: 'Color functions, types, and properties using language servers and grammars',
+    keywords: ['semantic', 'highlighting', 'syntax', 'colors', 'tokens', 'display'],
   },
   {
     id: 'editor-highlight-occurrences',

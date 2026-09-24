@@ -26,12 +26,12 @@ vi.mock('shiki/bundle/full', () => ({
   })),
 }))
 
-import type { HighlightToken } from '@/features/editor/lib/wasm-parser/types'
 import {
   __resetShikiTokensForTests,
   scopeCategory,
   shikiTokensInRange,
   tokenizeRows,
+  type ShikiToken,
   type TokenizerGrammar,
   type TokenizerModel,
 } from '@/features/editor/monaco/shiki-tokens'
@@ -185,6 +185,18 @@ describe('scopeCategory', () => {
     ).toBeNull()
   })
 
+  it.each([
+    [['source.nix', 'keyword.other.nix'], 'keyword'],
+    [['source.nix', 'storage.type.function.nix'], 'keyword'],
+    [['source.nix', 'keyword.operator.nix'], 'operator'],
+    [['source.nix', 'string.quoted.double.nix'], 'string'],
+    [['source.nix', 'constant.numeric.nix'], 'number'],
+    [['source.nix', 'comment.line.number-sign.nix'], 'comment'],
+    [['source.nix', 'entity.name.function.nix'], 'function'],
+  ])('also classifies %j as %s where Monaco has no grammar', (scopes, expected) => {
+    expect(scopeCategory(scopes, true)).toBe(expected)
+  })
+
   it('takes the innermost scope over its container', () => {
     // The `(` inside a python call: the call's meta scope would say "function".
     expect(
@@ -198,17 +210,16 @@ describe('scopeCategory', () => {
 })
 
 describe('tokenizeRows', () => {
-  it('emits legend-prefixed types and trims the whitespace grammars pad tokens with', () => {
+  it('emits categories and trims the whitespace grammars pad tokens with', () => {
     const lines = ['  fnRun  Tfoo  Kif  x']
-    const tokens: HighlightToken[] = []
+    const tokens: ShikiToken[] = []
     tokenizeRows(fakeGrammar(), (row) => lines[row], [null], 0, 0, tokens)
 
     expect(tokens).toEqual([
-      expect.objectContaining({ type: 'token-function', startIndex: 2, endIndex: 7 }),
-      expect.objectContaining({ type: 'token-type', startIndex: 9, endIndex: 13 }),
-      expect.objectContaining({ type: 'token-variable', startIndex: 20, endIndex: 21 }),
+      { category: 'function', row: 0, start: 2, end: 7 },
+      { category: 'type', row: 0, start: 9, end: 13 },
+      { category: 'variable', row: 0, start: 20, end: 21 },
     ])
-    expect(tokens[0].startPosition).toEqual({ row: 0, column: 2 })
   })
 
   it('records the rule stack entering the row after the last one tokenized', () => {
@@ -252,7 +263,7 @@ describe('shikiTokensInRange', () => {
 
     // 3. synchronous from here on
     const tokens = shikiTokensInRange(model, 'fakelang', 0, 0, onReady)
-    expect(tokens?.map((t) => t.type)).toEqual(['token-type', 'token-function'])
+    expect(tokens?.map((t) => t.category)).toEqual(['type', 'function'])
   })
 
   it('maps a crowbar language id onto shiki’s bundle id', async () => {
@@ -285,7 +296,7 @@ describe('shikiTokensInRange', () => {
     // Row 1 sits inside the block comment opened on row 0 — nothing is re-colored.
     expect(shikiTokensInRange(model, 'fakelang', 1, 1, () => {})).toEqual([])
     // Row 3 is past the close and gets its real category.
-    expect(shikiTokensInRange(model, 'fakelang', 3, 3, () => {})?.[0]?.type).toBe('token-type')
+    expect(shikiTokensInRange(model, 'fakelang', 3, 3, () => {})?.[0]?.category).toBe('type')
   })
 
   it('drops only the rule stacks below an edit, keeping the ones above it', async () => {
@@ -300,7 +311,7 @@ describe('shikiTokensInRange', () => {
     edit(3)
 
     const tokens = shikiTokensInRange(model, 'fakelang', 2, 3, () => {})
-    expect(tokens?.map((t) => t.type)).toEqual(['token-type', 'token-type'])
+    expect(tokens?.map((t) => t.category)).toEqual(['type', 'type'])
   })
 
   it('defers a jump past the synchronous budget to a background walk', async () => {

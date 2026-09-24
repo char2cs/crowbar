@@ -32,6 +32,8 @@ type fakeServer struct {
 
 	gotReq   chan protocol.Request
 	gotNotif chan protocol.Notification
+	// gotReply receives the client's replies to requests the fake sent.
+	gotReply chan []byte
 }
 
 func newFakeServer(
@@ -42,6 +44,7 @@ func newFakeServer(
 		reader:   bufio.NewReader(conn),
 		gotReq:   make(chan protocol.Request, 16),
 		gotNotif: make(chan protocol.Notification, 16),
+		gotReply: make(chan []byte, 16),
 	}
 	go f.readLoop()
 	return f
@@ -61,9 +64,15 @@ func (f *fakeServer) handle(
 	payload []byte,
 ) {
 	var probe struct {
-		ID *int `json:"id"`
+		ID     *int            `json:"id"`
+		Result json.RawMessage `json:"result"`
+		Error  json.RawMessage `json:"error"`
 	}
 	_ = json.Unmarshal(payload, &probe)
+	if probe.Result != nil || probe.Error != nil {
+		f.gotReply <- payload
+		return
+	}
 
 	if probe.ID == nil {
 		var n protocol.Notification
@@ -577,7 +586,7 @@ func TestServer_NotifyDidOpenWithoutURIIsIgnored(t *testing.T) {
 }
 
 func TestServer_NewFailsOnBadCommand(t *testing.T) {
-	_, err := New("this-binary-does-not-exist-crowbar", nil, "")
+	_, err := New(context.Background(), "this-binary-does-not-exist-crowbar", nil, "", nil)
 	require.Error(t, err)
 }
 
@@ -682,7 +691,7 @@ func TestServer_InitializeDeclaresEditorCapabilities(t *testing.T) {
 	require.NoError(t, json.Unmarshal(req.Params, &params))
 	for _, feature := range []string{
 		"hover", "completion", "signatureHelp", "documentSymbol", "codeAction", "codeLens",
-		"formatting", "rename", "references", "definition",
+		"formatting", "rename", "references", "definition", "semanticTokens",
 	} {
 		assert.Contains(t, params.Capabilities.TextDocument, feature)
 	}

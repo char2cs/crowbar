@@ -74,6 +74,98 @@ func (h *Handlers) CodeLensResolve(
 	writeRaw(c, result, err)
 }
 
+// SemanticTokens handles POST /v0/chats/:chatId/lsp/semanticTokens. The data
+// field carries the file's semantic tokens in the canonical legend — a delta
+// ({resultId, edits}) when previousResultId is set and the server supports
+// one, else the full set ({resultId, data}) — or null when none are offered.
+func (h *Handlers) SemanticTokens(
+	c *gin.Context,
+) {
+	if !h.requireLSP(c) {
+		return
+	}
+	worktreePath, ok := h.worktreePath(c)
+	if !ok {
+		return
+	}
+	var req dto.LSPSemanticTokensRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := h.lsp.SemanticTokens(
+		c.Request.Context(),
+		h.lspOwnerID(c),
+		worktreePath,
+		req.Path,
+		req.PreviousResultID,
+	)
+	writeRaw(c, result, err)
+}
+
+// SemanticTokensRange handles POST /v0/chats/:chatId/lsp/semanticTokensRange.
+// The data field carries the range's tokens ({data}) in the canonical legend,
+// or null when the server offers no range tokens.
+func (h *Handlers) SemanticTokensRange(
+	c *gin.Context,
+) {
+	if !h.requireLSP(c) {
+		return
+	}
+	worktreePath, ok := h.worktreePath(c)
+	if !ok {
+		return
+	}
+	var req dto.LSPRangeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := h.lsp.SemanticTokensRange(
+		c.Request.Context(),
+		h.lspOwnerID(c),
+		worktreePath,
+		req.Path,
+		req.Range,
+	)
+	writeRaw(c, result, err)
+}
+
+// ExecuteCommand handles POST /v0/chats/:chatId/lsp/executeCommand: it runs a
+// command a code lens or code action carried. The data field carries the
+// server's result and the workspace edits the command applied, for the
+// editor to apply.
+func (h *Handlers) ExecuteCommand(
+	c *gin.Context,
+) {
+	if !h.requireLSP(c) {
+		return
+	}
+	worktreePath, ok := h.worktreePath(c)
+	if !ok {
+		return
+	}
+	var req dto.LSPExecuteCommandRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		libs.WriteErr(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := h.lsp.ExecuteCommand(
+		c.Request.Context(),
+		h.lspOwnerID(c),
+		worktreePath,
+		req.Path,
+		req.Command,
+		req.Arguments,
+	)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
+	}
+	libs.WriteQueryOK(c, result)
+}
+
 // Formatting handles POST /v0/chats/:chatId/lsp/formatting. The data field
 // carries the raw textDocument/formatting result (TextEdit[]), or null.
 func (h *Handlers) Formatting(

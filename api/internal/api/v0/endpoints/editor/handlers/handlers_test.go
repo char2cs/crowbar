@@ -39,6 +39,12 @@ type fakeLSP struct {
 	resolvedLens   json.RawMessage
 	gotLens        json.RawMessage
 	formatting     json.RawMessage
+	semanticTokens json.RawMessage
+	gotResultID    string
+	gotRange       domlsp.Range
+	command        domlsp.CommandResult
+	gotCommand     string
+	gotArguments   json.RawMessage
 	formatOptions  domlsp.FormattingOptions
 	status         domlsp.ServerStatus
 	restartCalls   int
@@ -144,6 +150,41 @@ func (f *fakeLSP) CodeLensResolve(
 ) (json.RawMessage, error) {
 	f.gotLens = lens
 	return f.resolvedLens, f.err
+}
+
+func (f *fakeLSP) SemanticTokens(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	previousResultID string,
+) (json.RawMessage, error) {
+	f.gotResultID = previousResultID
+	return f.semanticTokens, f.err
+}
+
+func (f *fakeLSP) SemanticTokensRange(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	rng domlsp.Range,
+) (json.RawMessage, error) {
+	f.gotRange = rng
+	return f.semanticTokens, f.err
+}
+
+func (f *fakeLSP) ExecuteCommand(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ string,
+	command string,
+	arguments json.RawMessage,
+) (domlsp.CommandResult, error) {
+	f.gotCommand = command
+	f.gotArguments = arguments
+	return f.command, f.err
 }
 
 func (f *fakeLSP) Formatting(
@@ -266,6 +307,9 @@ func mountEditorRoutes(
 	rg.POST("/lsp/signatureHelp", h.SignatureHelp)
 	rg.POST("/lsp/codeLens", h.CodeLens)
 	rg.POST("/lsp/codeLensResolve", h.CodeLensResolve)
+	rg.POST("/lsp/semanticTokens", h.SemanticTokens)
+	rg.POST("/lsp/semanticTokensRange", h.SemanticTokensRange)
+	rg.POST("/lsp/executeCommand", h.ExecuteCommand)
 	rg.POST("/lsp/formatting", h.Formatting)
 	rg.GET("/lsp/status", h.Status)
 	rg.POST("/lsp/restart", h.Restart)
