@@ -53,16 +53,21 @@ func (c *ttlCache[V]) put(key string, val V, ttl time.Duration) {
 	defer c.mu.Unlock()
 	now := c.now()
 	if len(c.m) >= c.cap {
-		for k, e := range c.m {
-			if !now.Before(e.expires) {
-				delete(c.m, k)
-			}
-		}
-		if len(c.m) >= c.cap {
-			c.m = make(map[string]ttlEntry[V])
-		}
+		c.evictLocked(now)
 	}
 	c.m[key] = ttlEntry[V]{val: val, expires: now.Add(ttl)}
+}
+
+// evictLocked drops expired entries and, if the map is still full, all of them.
+func (c *ttlCache[V]) evictLocked(now time.Time) {
+	for k, e := range c.m {
+		if !now.Before(e.expires) {
+			delete(c.m, k)
+		}
+	}
+	if len(c.m) >= c.cap {
+		c.m = make(map[string]ttlEntry[V])
+	}
 }
 
 // cachedDetect wraps a detect function with a per-repo TTL cache. Errors are not
