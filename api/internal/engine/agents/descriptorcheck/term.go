@@ -27,12 +27,19 @@ type term struct {
 	mu  sync.Mutex
 	out bytes.Buffer
 
+	// done closes once the process has exited AND its output is drained, so
+	// whoever reports the exit reports the CLI's last words with it.
 	done    chan struct{}
 	waitErr error
 }
 
 // maxTermOutput bounds what one run keeps; a boot screen is far smaller.
 const maxTermOutput = 1 << 20
+
+// drainBound is how long an exit waits for the PTY to reach EOF. A process's
+// exit does not close the PTY while a descendant still holds it, so the wait
+// is bounded; ordinarily the reader hits EOF as soon as it has read the rest.
+const drainBound = 2 * time.Second
 
 var (
 	cursorQuery = []byte("\x1b[6n")
@@ -51,14 +58,29 @@ func startTerm(ctx context.Context, argv, env []string, cwd string) (*term, erro
 		return nil, fmt.Errorf("descriptorcheck: start %s: %w", argv[0], err)
 	}
 	t := &term{cmd: cmd, ptmx: ptmx, done: make(chan struct{})}
-	go t.pump()
+	drained := make(chan struct{})
 	go func() {
-		t.waitErr = cmd.Wait()
+		defer close(drained)
+		t.pump()
+	}()
+	go func() {
+		err := cmd.Wait()
+		// The exit is reported only after what the CLI wrote before it is read:
+		// Wait returns while the tail of its output still sits in the PTY.
+		timer := time.NewTimer(drainBound)
+		defer timer.Stop()
+		select {
+		case <-drained:
+		case <-timer.C:
+		}
+		t.waitErr = err
 		close(t.done)
 	}()
 	return t, nil
 }
 
+// pump reads the PTY until EOF — on Linux, EIO once every holder of the
+// other end has closed it and the buffer is empty.
 func (t *term) pump() {
 	buf := make([]byte, 32*1024)
 	for {
