@@ -103,10 +103,10 @@ export function useXtermInstance({
 
     void (async () => {
       const o = optionsRef.current
-      const font = await resolveTerminalFont(o.settings.terminalFontFamily, o.fontSize)
+      const fontFamily = await resolveTerminalFont(o.settings.terminalFontFamily, o.fontSize)
       if (disposed) return
       const terminal = new Terminal({
-        fontFamily: font.fontFamily,
+        fontFamily,
         fontSize: o.fontSize,
         lineHeight: o.settings.terminalLineHeight,
         letterSpacing: o.letterSpacing,
@@ -121,7 +121,7 @@ export function useXtermInstance({
         macOptionIsMeta: true,
         rightClickSelectsWord: false,
       })
-      const addons = createTerminalAddons(terminal, { skipWebGL: font.skipWebGL })
+      const addons = createTerminalAddons(terminal)
       terminal.open(container)
       terminal.attachCustomKeyEventHandler((event) => {
         // The ONLY manual key override (Shift/Alt+Enter): emit the CSI-u sequence
@@ -247,10 +247,9 @@ export function useXtermInstance({
   useEffect(() => {
     if (!terminal || !addons) return
     let cancelled = false
-    void resolveTerminalFont(settings.terminalFontFamily, fontSize).then((font) => {
+    void resolveTerminalFont(settings.terminalFontFamily, fontSize).then((fontFamily) => {
       if (cancelled) return
-      if (font.skipWebGL) addons.webglAddon?.dispose()
-      terminal.options.fontFamily = font.fontFamily
+      terminal.options.fontFamily = fontFamily
       terminal.options.fontSize = fontSize
       terminal.options.lineHeight = settings.terminalLineHeight
       terminal.options.letterSpacing = letterSpacing
