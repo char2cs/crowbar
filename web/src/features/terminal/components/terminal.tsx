@@ -77,6 +77,11 @@ interface XtermTerminalProps {
   isVisible?: boolean
   onReady?: () => void
   onTerminalRef?: (ref: { focus: () => void; showSearch: () => void; terminal: Terminal }) => void
+  /**
+   * Fires when this shell tab's session has ENDED: the daemon sent its exit
+   * frame, or the session it was bound to is no longer on the daemon. A shell
+   * tab never spawns a replacement for an ended session (invariant B7).
+   */
   onTerminalExit?: (sessionId: string) => void
   initialCommand?: string
   workingDirectory?: string
@@ -91,7 +96,8 @@ interface XtermTerminalProps {
    */
   attachOnly?: boolean
   /**
-   * Fires when attachOnly resolution finds the session gone (mount or reconnect).
+   * The attach-only counterpart of onTerminalExit: fires when the viewed session
+   * exits, or resolution finds it gone (mount or reconnect).
    * Carries the sessionId the resolution was FOR, not whichever session the owner
    * wants now: a displaced PTY can report its death after its replacement has
    * already been attached, and an owner that cannot tell the two apart would read
@@ -168,9 +174,20 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   // setAttachment) does not re-identify doReconnect and churn the
   // transport-drop subscription on every render.
   const onSessionGoneRef = useRef(onSessionGone)
+  const onTerminalExitRef = useRef(onTerminalExit)
   useEffect(() => {
     onSessionGoneRef.current = onSessionGone
-  }, [onSessionGone])
+    onTerminalExitRef.current = onTerminalExit
+  }, [onSessionGone, onTerminalExit])
+  // The one place a session's end is routed to its owner: the agent view's
+  // "ended" state, or the shell tab's close.
+  const handleSessionEnded = useCallback(
+    (endedSessionId: string) => {
+      if (attachOnly) onSessionGoneRef.current?.(endedSessionId)
+      else onTerminalExitRef.current?.(endedSessionId)
+    },
+    [attachOnly],
+  )
 
   // Latest visibility, read inside fitTerminal so the fit path can gate the PTY
   // push on it WITHOUT putting isVisible in fitTerminal's dep list — which would
@@ -312,8 +329,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         return
       }
       if ('gone' in result) {
-        // Attach-only and the PTY is gone: the owner renders its ended state.
-        onSessionGoneRef.current?.(sessionId)
+        // The PTY ended while nothing was attached to hear its exit frame.
+        handleSessionEnded(sessionId)
         return
       }
       // This view is now attached to result.connectionId — count it so the LAST
@@ -374,6 +391,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     chatId,
     chatScopeReady,
     getSession,
+    handleSessionEnded,
     releaseInitLock,
     sessionId,
     updateSession,
@@ -452,9 +470,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     getTerminalTheme,
     initialCommand,
     isInitialized,
-    onTerminalExit,
+    onTerminalExit: handleSessionEnded,
     reconnectKey,
-    remoteConnectionId,
     reuseExistingConnection: reuseConnection,
     sessionId,
     terminal: xtermRef.current,
@@ -841,11 +858,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
         return
       }
       if ('gone' in result) {
-        // Attach-only and the PTY is gone. Leave the terminal uninitialized (no
-        // connection, nothing to write to) and let the owner render its ended
-        // state; it will unmount us.
+        // The PTY this view was bound to ended. Leave the terminal uninitialized
+        // (nothing to write to) and let the owner end it; it will unmount us.
         releaseInitLock()
-        onSessionGoneRef.current?.(sessionId)
+        handleSessionEnded(sessionId)
         return
       }
       const activeConnectionId = result.connectionId
@@ -926,6 +942,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     fitTerminal,
     getSession,
     getTerminalTheme,
+    handleSessionEnded,
     isInitialized,
     onReady,
     onTerminalRef,

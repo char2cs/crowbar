@@ -73,9 +73,10 @@ describe('resolveTerminalConnection', () => {
     expect(createSpy).not.toHaveBeenCalled()
   })
 
-  it('creates fresh when storeConnectionId has no transport and daemon does NOT confirm it', async () => {
+  // B7: a shell tab never spawns a PTY because an existing one exited.
+  it('reports GONE (never creates) when storeConnectionId has no transport and the daemon no longer has it', async () => {
     mocks.setHasTransport(false) // transport gone
-    listSpy.mockResolvedValueOnce(['other-conn']) // non-empty list, stored id absent → genuinely gone
+    listSpy.mockResolvedValueOnce(['other-conn']) // stored id absent → the session ended
     const r = await resolveTerminalConnection({
       workspaceId: 'ws-1',
       tabSessionId: 'tab-1',
@@ -84,8 +85,8 @@ describe('resolveTerminalConnection', () => {
       listLiveSessions: listSpy,
       createTerminal: createSpy,
     })
-    expect(createSpy).toHaveBeenCalledOnce()
-    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
+    expect(r).toEqual({ gone: true })
+    expect(createSpy).not.toHaveBeenCalled()
     expect(mocks.attachSpy).not.toHaveBeenCalled()
   })
 
@@ -104,7 +105,7 @@ describe('resolveTerminalConnection', () => {
     expect(createSpy).not.toHaveBeenCalled()
   })
 
-  it('creates fresh when the persisted connectionId is no longer alive', async () => {
+  it('reports GONE (never creates) when the persisted connectionId is no longer alive', async () => {
     saveReconnect('ws-1', 'tab-1', 'dead-conn')
     const r = await resolveTerminalConnection({
       workspaceId: 'ws-1',
@@ -114,120 +115,40 @@ describe('resolveTerminalConnection', () => {
       listLiveSessions: listSpy,
       createTerminal: createSpy,
     })
-    expect(createSpy).toHaveBeenCalledOnce()
-    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
+    expect(r).toEqual({ gone: true })
+    expect(createSpy).not.toHaveBeenCalled()
+    expect(loadReconnect('ws-1', 'tab-1')).toBeNull()
   })
-})
 
-describe('Fix B — empty live-session list retry', () => {
-  it('retries once after 400ms on an empty list and re-attaches when found on retry', async () => {
-    saveReconnect('ws-1', 'tab-1', 'conn-1')
-    // First call: empty (daemon still loading sessions); second call: conn-1 is there.
-    listSpy.mockResolvedValueOnce([]).mockResolvedValueOnce(['conn-1'])
-
-    const promise = resolveTerminalConnection({
+  it('creates a PTY only for a tab that was never bound to one', async () => {
+    const r = await resolveTerminalConnection({
       workspaceId: 'ws-1',
-      tabSessionId: 'tab-1',
+      tabSessionId: 'tab-new',
       storeConnectionId: undefined,
       base: '/base',
       listLiveSessions: listSpy,
       createTerminal: createSpy,
     })
-    // Fire the 400ms retry timer so the second listLiveSessions call proceeds.
-    await vi.advanceTimersByTimeAsync(400)
-    const r = await promise
-
-    expect(listSpy).toHaveBeenCalledTimes(2)
-    expect(mocks.attachSpy).toHaveBeenCalledWith('conn-1', '/base')
-    expect(r).toEqual({ connectionId: 'conn-1', reused: true })
-    expect(createSpy).not.toHaveBeenCalled()
+    expect(createSpy).toHaveBeenCalledOnce()
+    expect(listSpy).not.toHaveBeenCalled()
+    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
   })
 
-  it('creates fresh when retry also returns empty (id permanently absent)', async () => {
+  // The daemon restores its persisted sessions before it serves a request, so an
+  // empty list is authoritative: one question, no timed retry.
+  it('asks the daemon once — an empty list is an answer, not a reason to wait and retry', async () => {
     saveReconnect('ws-1', 'tab-1', 'conn-1')
-    // Both calls return empty — session is truly gone.
     listSpy.mockResolvedValue([])
-
-    const promise = resolveTerminalConnection({
-      workspaceId: 'ws-1',
-      tabSessionId: 'tab-1',
-      storeConnectionId: undefined,
-      base: '/base',
-      listLiveSessions: listSpy,
-      createTerminal: createSpy,
-    })
-    await vi.advanceTimersByTimeAsync(400)
-    const r = await promise
-
-    expect(listSpy).toHaveBeenCalledTimes(2)
-    expect(createSpy).toHaveBeenCalledOnce()
-    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
-    expect(mocks.attachSpy).not.toHaveBeenCalled()
-  })
-
-  it('does NOT retry when the first live list is non-empty but missing the persisted id', async () => {
-    // Non-empty list where the persisted id is simply absent → stale, no retry.
-    saveReconnect('ws-1', 'tab-1', 'dead-conn')
-    listSpy.mockResolvedValueOnce(['other-conn'])
-
-    const promise = resolveTerminalConnection({
-      workspaceId: 'ws-1',
-      tabSessionId: 'tab-1',
-      storeConnectionId: undefined,
-      base: '/base',
-      listLiveSessions: listSpy,
-      createTerminal: createSpy,
-    })
-    await vi.advanceTimersByTimeAsync(400) // timer should never fire, but safe to advance
-    const r = await promise
-
-    expect(listSpy).toHaveBeenCalledTimes(1) // no second call
-    expect(createSpy).toHaveBeenCalledOnce()
-    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
-  })
-
-  it('branch 1 (storeConnectionId, no transport): retries empty list and re-attaches the restored session', async () => {
-    // The daemon-restart reconnect bug: store has the id, transport is gone, and
-    // the just-restarted daemon returns [] on the first list (socket rebind window),
-    // then the restored id on retry. Must re-attach, not create fresh.
-    mocks.setHasTransport(false)
-    listSpy.mockResolvedValueOnce([]).mockResolvedValueOnce(['conn-store'])
-
-    const promise = resolveTerminalConnection({
-      workspaceId: 'ws-1',
-      tabSessionId: 'tab-1',
-      storeConnectionId: 'conn-store',
-      base: '/base',
-      listLiveSessions: listSpy,
-      createTerminal: createSpy,
-    })
-    await vi.advanceTimersByTimeAsync(400)
-    const r = await promise
-
-    expect(listSpy).toHaveBeenCalledTimes(2)
-    expect(mocks.attachSpy).toHaveBeenCalledWith('conn-store', '/base')
-    expect(r).toEqual({ connectionId: 'conn-store', reused: true })
-    expect(createSpy).not.toHaveBeenCalled()
-  })
-})
-
-describe('Fix D — branch-1 store id not in daemon list', () => {
-  it('creates fresh when storeConnectionId has no transport and daemon list does NOT contain it', async () => {
-    // Validates Fix D: branch 1 should fall through to createTerminal when the
-    // stored connectionId is not in the live sessions list.
-    mocks.setHasTransport(false)
-    listSpy.mockResolvedValueOnce(['other-conn']) // non-empty but stored id absent
     const r = await resolveTerminalConnection({
       workspaceId: 'ws-1',
       tabSessionId: 'tab-1',
-      storeConnectionId: 'dead-store-conn',
+      storeConnectionId: undefined,
       base: '/base',
       listLiveSessions: listSpy,
       createTerminal: createSpy,
     })
-    expect(createSpy).toHaveBeenCalledOnce()
-    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
-    expect(mocks.attachSpy).not.toHaveBeenCalled()
+    expect(listSpy).toHaveBeenCalledTimes(1)
+    expect(r).toEqual({ gone: true })
   })
 })
 
@@ -283,11 +204,11 @@ describe('attachOnly — an agent pane must never spawn a shell', () => {
     expect(mocks.attachSpy).not.toHaveBeenCalled()
   })
 
-  it('reports GONE (never creates) when the daemon list is empty even after the retry', async () => {
+  it('reports GONE (never creates) when the daemon list is empty', async () => {
     mocks.setHasTransport(false)
-    listSpy.mockResolvedValue([]) // both attempts empty — genuinely gone
+    listSpy.mockResolvedValue([])
 
-    const promise = resolveTerminalConnection({
+    const r = await resolveTerminalConnection({
       workspaceId: 'ws-1',
       tabSessionId: 'agent-term',
       storeConnectionId: 'agent-term',
@@ -296,10 +217,21 @@ describe('attachOnly — an agent pane must never spawn a shell', () => {
       createTerminal: createSpy,
       attachOnly: true,
     })
-    await vi.advanceTimersByTimeAsync(400)
-    const r = await promise
 
-    expect(listSpy).toHaveBeenCalledTimes(2) // the restart-window retry still applies
+    expect(r).toEqual({ gone: true })
+    expect(createSpy).not.toHaveBeenCalled()
+  })
+
+  it('never creates even for an unbound agent view', async () => {
+    const r = await resolveTerminalConnection({
+      workspaceId: 'ws-1',
+      tabSessionId: 'agent-new',
+      storeConnectionId: undefined,
+      base: '/base',
+      listLiveSessions: listSpy,
+      createTerminal: createSpy,
+      attachOnly: true,
+    })
     expect(r).toEqual({ gone: true })
     expect(createSpy).not.toHaveBeenCalled()
   })
@@ -341,23 +273,6 @@ describe('attachOnly — an agent pane must never spawn a shell', () => {
     expect(createSpy).not.toHaveBeenCalled()
   })
 
-  it('NO REGRESSION: an ordinary terminal pane (attachOnly unset) still spawns a fresh shell', async () => {
-    mocks.setHasTransport(false)
-    listSpy.mockResolvedValueOnce(['other-conn']) // same dead-session inputs as above
-
-    const r = await resolveTerminalConnection({
-      workspaceId: 'ws-1',
-      tabSessionId: 'tab-1',
-      storeConnectionId: 'dead-store-conn',
-      base: '/base',
-      listLiveSessions: listSpy,
-      createTerminal: createSpy,
-    })
-
-    expect(createSpy).toHaveBeenCalledOnce()
-    expect(r).toEqual({ connectionId: 'fresh-conn', reused: false })
-  })
-
   // THE DEAD-AGENT-CHAT REGRESSION. Crowbar does not portal terminals, so an
   // attach-only xterm is BRAND-NEW on every (re)mount — it holds no screen. The
   // daemon paints a client only at ATTACH, so a live in-memory transport that is
@@ -391,7 +306,7 @@ describe('attachOnly — an agent pane must never spawn a shell', () => {
     mocks.setHasTransport(true) // stale/phantom transport lingers in the map
     listSpy.mockResolvedValue([]) // ...but the daemon has actually reaped the PTY
 
-    const promise = resolveTerminalConnection({
+    const r = await resolveTerminalConnection({
       workspaceId: 'ws-1',
       tabSessionId: 'agent-term',
       storeConnectionId: 'agent-term',
@@ -400,8 +315,6 @@ describe('attachOnly — an agent pane must never spawn a shell', () => {
       createTerminal: createSpy,
       attachOnly: true,
     })
-    await vi.advanceTimersByTimeAsync(400) // the restart-window retry still applies
-    const r = await promise
 
     // Reusing the phantom would have handed back a dead connection; instead it must
     // report gone so the pane renders its dormant/Resume state.

@@ -3,7 +3,6 @@ import {
   terminalResize,
   terminalResync,
   terminalSetTheme,
-  terminalClose,
   terminalListen,
 } from '@/lib/crowbar-bridge'
 import type { IDisposable, Terminal as XtermTerminal } from '@xterm/xterm'
@@ -21,12 +20,13 @@ interface UseTerminalConnectionOptions {
   getTerminalTheme: () => NonNullable<XtermTerminal['options']['theme']>
   initialCommand?: string
   isInitialized: boolean
+  // Fired once when the daemon reports the session's process exited (its exit
+  // frame). The only signal that ends a terminal — see TerminalFrame.
   onTerminalExit?: (sessionId: string) => void
   // Bumped by the parent component after a transport drop + re-attach so this
   // hook re-registers its terminalListen call on the fresh connection object
   // even when connectionId itself has not changed.
   reconnectKey?: number
-  remoteConnectionId?: string
   reuseExistingConnection?: boolean
   sessionId: string
   terminal: XtermTerminal | null
@@ -47,18 +47,14 @@ export function useTerminalConnection({
   isInitialized,
   onTerminalExit,
   reconnectKey = 0,
-  remoteConnectionId,
   reuseExistingConnection = false,
   sessionId,
   terminal,
   updateSession,
 }: UseTerminalConnectionOptions) {
   const currentConnectionIdRef = useRef<string | null>(null)
-  const currentInputLineRef = useRef('')
   const initialCommandSentForConnectionRef = useRef<string | null>(null)
   const onTerminalExitRef = useRef(onTerminalExit)
-  const explicitExitRequestedRef = useRef(false)
-  const lastExitInfoRef = useRef<{ exitCode?: number | null; signal?: string | null } | null>(null)
   const outputBufferRef = useRef('')
   // One-shot flag: armed on every (re)attach, consumed by the first output
   // flush (the daemon's bulk scrollback replay) to force a viewport repaint.
@@ -96,11 +92,6 @@ export function useTerminalConnection({
 
   useEffect(() => {
     currentConnectionIdRef.current = connectionId ?? null
-  }, [connectionId])
-
-  useEffect(() => {
-    explicitExitRequestedRef.current = false
-    lastExitInfoRef.current = null
   }, [connectionId])
 
   // Arm the one-shot viewport finalize for the first output flush after every
@@ -182,29 +173,10 @@ export function useTerminalConnection({
         // writeFrame's terminal.write callback (echo painted). See the
         // markEnd call site for the coalescing/no-prior-mark caveats.
         markStart('terminal.echo')
-
-        const activeConnectionId = currentConnectionIdRef.current || connectionId
-        const hasNewline = data.includes('\n') || data.includes('\r')
-
-        if (hasNewline) {
-          currentInputLineRef.current += data
-          if (/^\s*exit\s*$/i.test(currentInputLineRef.current.trim())) {
-            explicitExitRequestedRef.current = true
-            currentInputLineRef.current = ''
-            write(data, 'onData:exit')
-            window.setTimeout(() => {
-              void terminalClose(activeConnectionId).catch(() => {})
-            }, 100)
-            return
-          }
-          currentInputLineRef.current = ''
-        } else {
-          currentInputLineRef.current += data
-          if (currentInputLineRef.current.length > 1000) {
-            currentInputLineRef.current = currentInputLineRef.current.slice(-100)
-          }
-        }
-
+        // Keystrokes are forwarded verbatim and never interpreted: whether a
+        // typed "exit" ends anything is up to the program reading it (a shell,
+        // ssh, a REPL, an agent TUI). The daemon's exit frame reports the
+        // outcome.
         write(data, 'onData')
       }),
     )
@@ -280,6 +252,10 @@ export function useTerminalConnection({
     // redraw supersedes — so client-side reflow junk (stale TUI copies pushed
     // into local scrollback by xterm's resize semantics) is replaced by truth.
     const unlistenOutput = terminalListen(connectionId, (frame) => {
+      if (frame.exit) {
+        onTerminalExitRef.current?.(sessionId)
+        return
+      }
       if (frame.snapshot) {
         outputBufferRef.current = ''
         pendingAttachFinalizeRef.current = false
@@ -409,7 +385,6 @@ export function useTerminalConnection({
     terminal,
     updateSession,
     write,
-    remoteConnectionId,
   ])
 
   useEffect(() => {

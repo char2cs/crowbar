@@ -4,23 +4,26 @@ import { renderHook, act } from '@testing-library/react'
 // vi.hoisted runs before the vi.mock factories below, so the bridge spies and
 // the captured listen callback exist when the mock module is constructed.
 const bridge = vi.hoisted(() => {
-  let listenCb: ((frame: { data: string; snapshot: boolean }) => void) | null = null
+  type Frame = { data: string; snapshot: boolean } | { exit: true; code: number }
+  let listenCb: ((frame: Frame) => void) | null = null
   return {
     terminalWrite: vi.fn(async () => {}),
     terminalResize: vi.fn(async () => {}),
     terminalResync: vi.fn(async () => {}),
     terminalSetTheme: vi.fn(async () => {}),
+    // Never called by the hook: nothing on the client may end a PTY because of what was
+    // typed. Kept in the mock so the P0-6 test can prove that.
     terminalClose: vi.fn(async () => {}),
-    terminalListen: vi.fn(
-      (_id: string, onFrame: (frame: { data: string; snapshot: boolean }) => void) => {
-        listenCb = onFrame
-        return () => {
-          listenCb = null
-        }
-      },
-    ),
+    terminalListen: vi.fn((_id: string, onFrame: (frame: Frame) => void) => {
+      listenCb = onFrame
+      return () => {
+        listenCb = null
+      }
+    }),
     // Simulate a PTY output frame arriving from the daemon.
     deliver: (data: string, snapshot = false) => listenCb?.({ data, snapshot }),
+    // Simulate the daemon's exit frame.
+    exit: (code: number) => listenCb?.({ exit: true, code }),
     reset: () => {
       listenCb = null
     },
@@ -77,13 +80,17 @@ function makeFakeTerminal() {
   const disposable = () => ({ dispose: () => {} })
   const parent = { addEventListener: vi.fn(), removeEventListener: vi.fn() }
   let resizeCb: ((size: { cols: number; rows: number }) => void) | null = null
+  let dataCb: ((data: string) => void) | null = null
   const terminal = {
     rows: 40,
     write,
     reset,
     scrollToBottom,
     refresh,
-    onData: vi.fn(disposable),
+    onData: vi.fn((cb: (data: string) => void) => {
+      dataCb = cb
+      return { dispose: () => {} }
+    }),
     onResize: vi.fn((cb: (size: { cols: number; rows: number }) => void) => {
       resizeCb = cb
       return { dispose: () => {} }
@@ -103,6 +110,7 @@ function makeFakeTerminal() {
     write,
     order,
     fireResize: (size: { cols: number; rows: number }) => resizeCb?.(size),
+    type: (data: string) => dataCb?.(data),
   }
 }
 
@@ -604,5 +612,53 @@ describe('useTerminalConnection — theme propagation', () => {
 
     expect(bridge.terminalSetTheme).toHaveBeenCalledTimes(1)
     expect(bridge.terminalSetTheme).toHaveBeenCalledWith('conn-1', expect.any(Object))
+  })
+})
+
+// P0-6 / B4: the daemon's exit frame is the only thing that ends a terminal. Typing
+// "exit" is ordinary input — inside ssh, a REPL or an agent TUI it ends nothing.
+describe('useTerminalConnection — exit is daemon-authoritative', () => {
+  beforeEach(() => {
+    bridge.terminalListen.mockClear()
+    bridge.terminalWrite.mockClear()
+    bridge.reset()
+  })
+
+  it('forwards a typed "exit" verbatim and does not end the terminal', async () => {
+    vi.useFakeTimers()
+    const onTerminalExit = vi.fn()
+    const { terminal, type } = makeFakeTerminal()
+    renderConnection(terminal, { onTerminalExit })
+
+    act(() => {
+      type('exit')
+      type('\r')
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+    vi.useRealTimers()
+
+    const written = bridge.terminalWrite.mock.calls.map((c: unknown[]) => c[1]).join('')
+    expect(written).toBe('exit\r')
+    expect(bridge.terminalClose).not.toHaveBeenCalled()
+    expect(onTerminalExit).not.toHaveBeenCalled()
+  })
+
+  it('ends the terminal when the daemon sends its exit frame', () => {
+    const onTerminalExit = vi.fn()
+    const { terminal } = makeFakeTerminal()
+    renderConnection(terminal, { onTerminalExit })
+
+    act(() => {
+      bridge.deliver('bye')
+      bridge.exit(0)
+    })
+
+    expect(onTerminalExit).toHaveBeenCalledExactlyOnceWith('sess-1')
   })
 })

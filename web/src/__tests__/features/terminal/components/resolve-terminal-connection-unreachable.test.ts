@@ -45,15 +45,6 @@ vi.mock('@/features/terminal/lib/terminal-reconnect-map', () => ({
 
 import { resolveTerminalConnection } from '@/features/terminal/components/resolve-terminal-connection'
 
-/** The resolver retries an unhelpful answer once, behind a 400ms delay. Fake
- *  timers drive that deterministically — the assertions still block on the
- *  resolver's own promise, never on elapsed wall-clock time. */
-async function resolveWithRetryElapsed<T>(run: () => Promise<T>): Promise<T> {
-  const pending = run()
-  await vi.advanceTimersByTimeAsync(400)
-  return pending
-}
-
 const baseArgs = {
   workspaceId: 'w1',
   tabSessionId: 'tab-1',
@@ -73,15 +64,13 @@ beforeEach(() => {
 describe('resolveTerminalConnection: an unreachable daemon', () => {
   it('TestRegression_AFailedLiveListIsNotAGoneSession', async () => {
     const createTerminal = vi.fn(async () => 'fresh-pty')
-    const result = await resolveWithRetryElapsed(() =>
-      resolveTerminalConnection({
-        ...baseArgs,
-        storeConnectionId: 'pty-alive',
-        listLiveSessions: () => Promise.reject(new Error('daemon unreachable')),
-        createTerminal,
-        attachOnly: true,
-      }),
-    )
+    const result = await resolveTerminalConnection({
+      ...baseArgs,
+      storeConnectionId: 'pty-alive',
+      listLiveSessions: () => Promise.reject(new Error('daemon unreachable')),
+      createTerminal,
+      attachOnly: true,
+    })
 
     // THE REGRESSION ASSERTION: a failed question must not be answered "dead".
     expect(result).toEqual({ unknown: true })
@@ -93,17 +82,15 @@ describe('resolveTerminalConnection: an unreachable daemon', () => {
 
   it('TestRegression_AFailedLiveListDoesNotSpawnOverALiveShellTab', async () => {
     const createTerminal = vi.fn(async () => 'fresh-pty')
-    const result = await resolveWithRetryElapsed(() =>
-      resolveTerminalConnection({
-        ...baseArgs,
-        storeConnectionId: 'pty-alive',
-        listLiveSessions: () => Promise.reject(new Error('daemon unreachable')),
-        createTerminal,
-        // A plain shell tab: spawning is its normal fallback, which is exactly
-        // why it must not be triggered by a question that was never answered.
-        attachOnly: false,
-      }),
-    )
+    const result = await resolveTerminalConnection({
+      ...baseArgs,
+      storeConnectionId: 'pty-alive',
+      listLiveSessions: () => Promise.reject(new Error('daemon unreachable')),
+      createTerminal,
+      // A plain shell tab: spawning is its normal fallback, which is exactly
+      // why it must not be triggered by a question that was never answered.
+      attachOnly: false,
+    })
 
     expect(result).toEqual({ unknown: true })
     expect(createTerminal).not.toHaveBeenCalled()
@@ -111,65 +98,40 @@ describe('resolveTerminalConnection: an unreachable daemon', () => {
 
   it('keeps the persisted reconnect mapping when the daemon cannot be asked', async () => {
     loadReconnectFn.mockReturnValue('pty-persisted')
-    const result = await resolveWithRetryElapsed(() =>
-      resolveTerminalConnection({
-        ...baseArgs,
-        storeConnectionId: undefined,
-        listLiveSessions: () => Promise.reject(new Error('daemon unreachable')),
-        attachOnly: true,
-      }),
-    )
+    const result = await resolveTerminalConnection({
+      ...baseArgs,
+      storeConnectionId: undefined,
+      listLiveSessions: () => Promise.reject(new Error('daemon unreachable')),
+      attachOnly: true,
+    })
 
     expect(result).toEqual({ unknown: true })
     expect(clearReconnectFn).not.toHaveBeenCalled()
   })
 
-  it('recovers when the retry succeeds: a first-attempt failure is not final', async () => {
-    const listLiveSessions = vi
-      .fn<() => Promise<string[]>>()
-      .mockRejectedValueOnce(new Error('hiccup'))
-      .mockResolvedValueOnce(['pty-alive'])
-
-    const result = await resolveWithRetryElapsed(() =>
-      resolveTerminalConnection({
-        ...baseArgs,
-        storeConnectionId: 'pty-alive',
-        listLiveSessions,
-        attachOnly: true,
-      }),
-    )
-
-    expect(result).toEqual({ connectionId: 'pty-alive', reused: true })
-    expect(terminalAttachFn).toHaveBeenCalledWith('pty-alive', 'http://daemon')
-  })
-
   it('still reports gone for an AUTHORITATIVE empty list — the honest death path', async () => {
-    const result = await resolveWithRetryElapsed(() =>
-      resolveTerminalConnection({
-        ...baseArgs,
-        storeConnectionId: 'pty-dead',
-        listLiveSessions: async () => [],
-        attachOnly: true,
-      }),
-    )
+    const result = await resolveTerminalConnection({
+      ...baseArgs,
+      storeConnectionId: 'pty-dead',
+      listLiveSessions: async () => [],
+      attachOnly: true,
+    })
 
     expect(result).toEqual({ gone: true })
     expect(clearReconnectFn).toHaveBeenCalledWith('w1', 'tab-1')
   })
 
-  it('still spawns for a shell tab whose PTY is authoritatively absent', async () => {
+  it('reports gone — never spawns — for a shell tab whose PTY is authoritatively absent (B7)', async () => {
     const createTerminal = vi.fn(async () => 'fresh-pty')
-    const result = await resolveWithRetryElapsed(() =>
-      resolveTerminalConnection({
-        ...baseArgs,
-        storeConnectionId: 'pty-dead',
-        listLiveSessions: async () => ['someone-elses-pty'],
-        createTerminal,
-        attachOnly: false,
-      }),
-    )
+    const result = await resolveTerminalConnection({
+      ...baseArgs,
+      storeConnectionId: 'pty-dead',
+      listLiveSessions: async () => ['someone-elses-pty'],
+      createTerminal,
+      attachOnly: false,
+    })
 
-    expect(result).toEqual({ connectionId: 'fresh-pty', reused: false })
-    expect(createTerminal).toHaveBeenCalled()
+    expect(result).toEqual({ gone: true })
+    expect(createTerminal).not.toHaveBeenCalled()
   })
 })

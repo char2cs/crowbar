@@ -23,22 +23,34 @@ import type { ContextMenuItem } from '@/components/ui/context-menu'
 // PTY to the webview over a Tauri Channel — see the `isTauri()` branches below
 // and desktop/src-tauri/src/terminal.rs. Both paths honour the same contract.
 
-// One parsed daemon→client terminal frame. `snapshot` marks a self-contained
+// One parsed daemon→client terminal frame.
+//
+// An output frame carries PTY output; `snapshot` marks a self-contained
 // ground-state redraw (the daemon's serialized screen model) that must be
 // applied onto a RESET xterm buffer — the attach redraw and the post-resize
-// resync — as opposed to incremental PTY output that appends.
-export interface TerminalFrame {
-  data: string
-  snapshot: boolean
-}
+// resync — as opposed to incremental output that appends.
+//
+// An exit frame is the daemon saying the session's PROCESS EXITED (with its
+// exit code). It is the only thing that ends a terminal: a socket that closes
+// without one is a transport drop, and the view reconnects. Nothing on this
+// side ever infers an exit from what the user typed.
+export type TerminalFrame =
+  { exit?: undefined; data: string; snapshot: boolean } | { exit: true; code: number }
 
-// parseTerminalFrame decodes one wire frame ({sessionId, data, snapshot?})
-// shared by both transports (browser WebSocket text frames and the whole-frame
-// strings Rust forwards down the Tauri channel). Returns null for malformed
-// frames.
+// parseTerminalFrame decodes one wire frame ({sessionId, data, snapshot?} or
+// {type:"exit", code}) shared by both transports (browser WebSocket text frames
+// and the whole-frame strings Rust forwards down the Tauri channel). Returns
+// null for malformed frames.
 function parseTerminalFrame(raw: string): TerminalFrame | null {
   try {
-    const msg = JSON.parse(raw) as { data?: unknown; snapshot?: unknown }
+    const msg = JSON.parse(raw) as {
+      type?: unknown
+      code?: unknown
+      data?: unknown
+      snapshot?: unknown
+    }
+    if (msg.type === 'exit')
+      return { exit: true, code: typeof msg.code === 'number' ? msg.code : -1 }
     if (typeof msg.data !== 'string') return null
     return { data: msg.data, snapshot: msg.snapshot === true }
   } catch {
@@ -57,6 +69,9 @@ interface TerminalConnection {
   // freshly started app detects the right background instead of the default.
   pendingTheme: string | null
   open: boolean
+  // Latched by the daemon's exit frame: the session is over, so the close that
+  // follows is not a drop and nothing may reconnect it.
+  exited: boolean
 }
 
 const terminals = new Map<string, TerminalConnection>()
@@ -74,6 +89,7 @@ interface TauriTerminal {
   listener: ((frame: TerminalFrame) => void) | null
   outputBuffer: TerminalFrame[]
   unlisten?: () => void // unsubscribe fn for the terminal:transport-dropped listener
+  exited: boolean // see TerminalConnection.exited
 }
 
 const tauriTerminals = new Map<string, TauriTerminal>()
@@ -99,6 +115,7 @@ function openBrowserSocket(connectionId: string, base: string): void {
     inputQueue: [],
     pendingTheme: null,
     open: false,
+    exited: false,
   }
   ws.onopen = () => {
     conn.open = true
@@ -112,6 +129,11 @@ function openBrowserSocket(connectionId: string, base: string): void {
   ws.onmessage = (event) => {
     const frame = parseTerminalFrame(event.data as string)
     if (!frame) return
+    // The session exited: latch it BEFORE the daemon's close arrives, so that
+    // close is not mistaken for a transport drop (which would reconnect). The
+    // entry stays until the tab closes it, so a listener registered after the
+    // exit frame still receives it from the backlog.
+    if (frame.exit) conn.exited = true
     if (conn.listener) conn.listener(frame)
     else conn.outputBuffer.push(frame)
   }
@@ -130,7 +152,7 @@ function openBrowserSocket(connectionId: string, base: string): void {
     // connectionId while the old socket's close is still in flight. A `has()` check
     // cannot tell the two apart, and would let the dead socket delete the live
     // entry and fire a spurious transport-drop against it.
-    if (terminals.get(connectionId) !== conn) return
+    if (terminals.get(connectionId) !== conn || conn.exited) return
     terminals.delete(connectionId)
     const cbs = dropCallbacks.get(connectionId)
     if (cbs) {
@@ -145,13 +167,16 @@ function openBrowserSocket(connectionId: string, base: string): void {
 // (see desktop/src-tauri/src/terminal.rs) — omitting it makes the invoke reject.
 // Extracted from terminalCreate so terminalAttach can reuse it without a POST.
 async function openTauriSocket(connectionId: string, wsPath: string): Promise<void> {
-  const conn: TauriTerminal = { listener: null, outputBuffer: [] }
+  const conn: TauriTerminal = { listener: null, outputBuffer: [], exited: false }
   const channel = new Channel<string>()
   channel.onmessage = (raw) => {
     // Rust forwards the wire frame whole; parse it here so both transports
     // share one frame decoder.
     const frame = parseTerminalFrame(raw)
     if (!frame) return
+    // Exit: latch it so the drop event Rust emits when the daemon then closes
+    // the socket is ignored (see openBrowserSocket).
+    if (frame.exit) conn.exited = true
     if (conn.listener) conn.listener(frame)
     else conn.outputBuffer.push(frame)
   }
@@ -169,6 +194,13 @@ async function openTauriSocket(connectionId: string, wsPath: string): Promise<vo
     // detach→re-attach cycle on one connectionId (chat tab switch, StrictMode
     // remount) can register a fresh entry before the dead one's drop event lands.
     if (tauriTerminals.get(connectionId) !== conn) return
+    if (conn.exited) {
+      // The session exited and the daemon closed its socket: nothing to
+      // reconnect, and nothing more this listener can ever hear.
+      conn.unlisten?.()
+      conn.unlisten = undefined
+      return
+    }
     tauriTerminals.delete(connectionId)
     // Unsubscribe on the way out. Deleting the entry above is what makes every later
     // firing a no-op, so the listener is dead weight from here on — but it is dead
@@ -327,8 +359,8 @@ export async function terminalClose(id: string): Promise<void> {
 
 // Register the output sink for a session, flushing any frames that arrived
 // before the listener attached (e.g. the shell's first prompt / the attach
-// snapshot). The listener receives parsed TerminalFrames — check `snapshot`
-// to distinguish reset-and-redraw frames from incremental output.
+// snapshot). The listener receives parsed TerminalFrames in wire order —
+// output (check `snapshot` for reset-and-redraw) and, last, the exit frame.
 export function terminalListen(id: string, onFrame: (frame: TerminalFrame) => void): () => void {
   if (isTauri()) {
     const conn = tauriTerminals.get(id)
@@ -386,7 +418,8 @@ export async function terminalDetach(connectionId: string): Promise<void> {
 // timeout). So a session that is not provably alive is no longer left in the map for the
 // resolver to reuse as a corpse: it is gone, `has()` is false, and the resolver re-attaches.
 export function terminalHasTransport(connectionId: string): boolean {
-  return terminals.has(connectionId) || tauriTerminals.has(connectionId)
+  const conn = terminals.get(connectionId) ?? tauriTerminals.get(connectionId)
+  return conn !== undefined && !conn.exited
 }
 
 // Attach to an EXISTING daemon PTY (after a workspace switch) without creating a
