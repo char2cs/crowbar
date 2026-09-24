@@ -21,7 +21,7 @@ import {
   useAgentProvidersStore,
 } from '@/features/settings/stores/agent-providers-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { toast } from '@/features/window/stores/toast-store'
 import Section from '../settings-section'
 import { ChatPresentationSetting } from './chat-presentation-setting'
@@ -78,7 +78,7 @@ export const ProvidersSettings = () => {
       .then((resolved) => {
         // Repair the workspace copy too — it is what the chat surfaces read, and
         // a lost seed there is exactly what sends the user to this tab.
-        if (resolved) getActiveWorkspaceStoreRef()?.getState().setAgentProviders(resolved)
+        if (resolved) getActiveWorkspaceStore()?.getState().setAgentProviders(resolved)
       })
   }, [])
 
@@ -92,7 +92,7 @@ export const ProvidersSettings = () => {
   // only one of them is how they drift.
   const publish = useCallback((resolved: AgentProvider[]) => {
     useAgentProvidersStore.getState().setProviders(resolved)
-    getActiveWorkspaceStoreRef()?.getState().setAgentProviders(resolved)
+    getActiveWorkspaceStore()?.getState().setAgentProviders(resolved)
   }, [])
 
   // THE ONLY WRITE PATH. Every change — a reorder, an enable toggle, a tools

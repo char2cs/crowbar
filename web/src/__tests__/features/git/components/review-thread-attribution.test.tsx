@@ -18,10 +18,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }))

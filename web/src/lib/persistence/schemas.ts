@@ -27,6 +27,12 @@ export interface WorkspaceLayout {
    * is the real per-buffer scoping now.
    */
   workspaceId: string
+  /**
+   * The shape version (`WINDOW_LAYOUT_VERSION`). Absent on a layout written
+   * before view members carried their workspace; `hydrate.ts` upgrades it
+   * once at load.
+   */
+  version?: number
   panes: Record<string, PaneGroup>
   /** The Recents rows. A record without them hydrates to an empty band. */
   views?: Record<string, ViewRecord>
@@ -38,8 +44,6 @@ export interface WorkspaceLayout {
   activePaneId: string
   mostRecentActivePaneIds: string[]
   buffers: PaneContent[]
-  sidebarWidth: number
-  rightSidebarWidth: number
   updatedAt: number
 }
 
@@ -88,12 +92,6 @@ export interface SidebarUI {
   updatedAt: number
 }
 
-export interface WorkspaceHierarchy {
-  repoId: string
-  entries: Array<{ wsId: string; parentId?: string }>
-  updatedAt: number
-}
-
 export interface CachedRecord<T> {
   key: string
   data: T
@@ -118,9 +116,11 @@ export interface CrowbarDB extends DBSchema {
     key: string
     value: SidebarUI
   }
+  /** Retired: the daemon owns workspace parents. The object store stays so
+   *  existing databases open without a version bump. */
   'workspace-hierarchy': {
     key: string
-    value: WorkspaceHierarchy
+    value: unknown
   }
   'branch-review': {
     key: string

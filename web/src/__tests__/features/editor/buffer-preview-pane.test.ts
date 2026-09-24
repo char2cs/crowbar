@@ -5,7 +5,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { createWorkspaceStore } from '@/features/workspace/stores/workspace-store'
-import { setActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { setActiveWorkspaceStoreForTests } from '@/features/workspace/stores/workspace-store-registry'
 import {
   setActiveWorkspaceId,
   destroyWorkspaceStore,
@@ -59,12 +59,12 @@ describe('buffer preview pane integration', () => {
     })
     resetWindowPaneStoreForTests()
     const store = createWorkspaceStore('test-ws')
-    setActiveWorkspaceStoreRef(store)
+    setActiveWorkspaceStoreForTests(store)
     setActiveWorkspaceId('test-ws')
   })
 
   afterEach(() => {
-    setActiveWorkspaceStoreRef(null)
+    setActiveWorkspaceStoreForTests(null)
     destroyWorkspaceStore('test-ws')
     vi.unstubAllGlobals()
   })

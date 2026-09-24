@@ -1,15 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
-vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
-  getHomeWorkspaceId: (projectId: string) => (projectId === 'p1' ? 'home-ws' : null),
-  getHomeOwningChatId: () => null,
-}))
-
-import {
-  recentsChatIcon,
-  recentsChatWorkspaceId,
-} from '@/components/sidebar/lib/recents-for-project'
-import type { HomeTree } from '@/lib/store/home-tree'
+import { recentsChatIcon } from '@/components/sidebar/lib/recents-for-project'
 import type { Repo } from '@/lib/store/sidebar'
 
 const repos: Repo[] = [
@@ -27,29 +18,6 @@ const repos: Repo[] = [
     ],
   },
 ]
-const homeTrees: Record<string, HomeTree> = {
-  p1: {
-    chats: [{ id: 'chat-home', repoId: '', title: 'Home', order: 0, workspaceId: '' }],
-    folders: [],
-  },
-}
-
-describe('recentsChatWorkspaceId', () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it("answers a repo chat from the sidebar's own chat list — no store needed", () => {
-    expect(recentsChatWorkspaceId(repos, homeTrees, 'p1', 'chat-repo')).toBe('ws-1')
-  })
-
-  it("answers a project-home chat with the project's home workspace", () => {
-    expect(recentsChatWorkspaceId(repos, homeTrees, 'p1', 'chat-home')).toBe('home-ws')
-  })
-
-  it("never answers from another project's repos", () => {
-    expect(recentsChatWorkspaceId(repos, homeTrees, 'p2', 'chat-repo')).toBe('')
-  })
-})
-
 describe('recentsChatIcon', () => {
   it("gives a workspace-owning chat the tree's branch glyph fields, shared per repos snapshot", () => {
     const icon = recentsChatIcon(repos, 'chat-owner')

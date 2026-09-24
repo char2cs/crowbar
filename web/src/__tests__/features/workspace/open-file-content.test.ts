@@ -34,6 +34,7 @@ describe('openFileContent', () => {
         name: 'vite.config.ts',
         content: 'hello world',
       }),
+      { paneId: undefined },
     )
     expect(toast.error).not.toHaveBeenCalled()
   })
@@ -45,7 +46,9 @@ describe('openFileContent', () => {
     })
     const openContent = vi.fn()
     await openFileContent('ws-1', 'a/b.bin', { openContent } as never, {})
-    expect(openContent).toHaveBeenCalledWith(expect.objectContaining({ content: 'binary' }))
+    expect(openContent).toHaveBeenCalledWith(expect.objectContaining({ content: 'binary' }), {
+      paneId: undefined,
+    })
   })
 
   it('shows an error toast and opens nothing on failure', async () => {
@@ -61,7 +64,12 @@ describe('openFileContent', () => {
   it('passes isPreview when preview=true', async () => {
     ;(apiFetch as ReturnType<typeof vi.fn>).mockResolvedValue({ content: 'x' })
     const openContent = vi.fn()
-    await openFileContent('ws-1', 'a/b.ts', { openContent } as never, { preview: true })
-    expect(openContent).toHaveBeenCalledWith(expect.objectContaining({ isPreview: true }))
+    await openFileContent('ws-1', 'a/b.ts', { openContent } as never, {
+      preview: true,
+      paneId: 'pane-2',
+    })
+    expect(openContent).toHaveBeenCalledWith(expect.objectContaining({ isPreview: true }), {
+      paneId: 'pane-2',
+    })
   })
 })

@@ -160,7 +160,10 @@ vi.mock('@/features/panes/utils/pane-command-actions', async () => {
 })
 
 const { getOwningChatId } = vi.hoisted(() => ({ getOwningChatId: vi.fn() }))
-vi.mock('@/lib/workspace-scope', () => ({ getOwningChatId }))
+vi.mock('@/lib/workspace-scope', () => ({
+  bindActiveWorkspaceId: () => {},
+  getOwningChatId,
+}))
 
 // pane-command-actions.ts (run for real above) also imports getActiveWorkspaceId
 // from the registry (for openBranchReviewForActiveWorkspace, unexercised here) —
@@ -368,8 +371,8 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', metaKey: true }))
 
     expect(getOwningChatId).toHaveBeenCalledWith('ws-1')
-    expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center')
-    expect(openContent).toHaveBeenCalledWith({ type: 'terminal' })
+    expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center', 'ws-1')
+    expect(openContent).toHaveBeenCalledWith({ type: 'terminal' }, { paneId: ROOT_PANE_ID })
     expect(createChat).not.toHaveBeenCalled()
   })
 
@@ -389,9 +392,10 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
     renderHook(() => usePaneKeyboard())
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, shiftKey: true }))
 
-    expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center')
+    expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center', 'ws-1')
     expect(openContent).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'editor', isVirtual: true }),
+      { paneId: ROOT_PANE_ID },
     )
     expect(createChat).not.toHaveBeenCalled()
   })
@@ -446,7 +450,7 @@ describe('usePaneKeyboard — agent.newChat chord (I4)', () => {
     expect(setActiveAgentChatId).toHaveBeenCalledWith('chat-9')
     // ⌘N opens the chat the way a click does — its own row — never into
     // whatever the active pane is showing.
-    expect(openChat).toHaveBeenCalledWith('chat-9')
+    expect(openChat).toHaveBeenCalledWith('chat-9', { workspaceId: 'ws-1' })
     expect(dropChatOnPane).not.toHaveBeenCalled()
     expect(openContent).not.toHaveBeenCalled()
   })
@@ -554,7 +558,7 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
     // Preset BEFORE the pane opens, or a pane mounted off the same microtask
     // queue could seed from the global default first.
     expect(presetChatLandingPresentation).toHaveBeenCalledWith('chat-9', 'terminal')
-    expect(openChat).toHaveBeenCalledWith('chat-9')
+    expect(openChat).toHaveBeenCalledWith('chat-9', { workspaceId: 'ws-1' })
   })
 
   it('does not preset Terminal for a provider with no terminal at all (absence, not a disabled control)', async () => {
@@ -582,7 +586,7 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
     // told to land somewhere this provider cannot show.
     expect(createChat).toHaveBeenCalledWith('ws-1', 'p1', '', undefined)
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
-    expect(openChat).toHaveBeenCalledWith('chat-9')
+    expect(openChat).toHaveBeenCalledWith('chat-9', { workspaceId: 'ws-1' })
   })
 
   // THE surfaces: fix (design spec 2.5): hasTerminal alone is not enough — a
@@ -614,7 +618,7 @@ describe('usePaneKeyboard — agent.newChatTerminal chord', () => {
     await Promise.resolve()
 
     expect(presetChatLandingPresentation).not.toHaveBeenCalled()
-    expect(openChat).toHaveBeenCalledWith('chat-9')
+    expect(openChat).toHaveBeenCalledWith('chat-9', { workspaceId: 'ws-1' })
   })
 
   it('plain agent.newChat never presets a surface', async () => {

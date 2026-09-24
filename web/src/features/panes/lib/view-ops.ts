@@ -254,12 +254,14 @@ export function fillPane(
   chatId: string,
   runnerId: string | null,
   projectId: string,
+  workspaceId: string | null = null,
 ): string | undefined {
   const pane = state.panes[paneId]
   const home = homeOf(state, paneId)
   if (!pane || !home || pane.chatId || home.kind === 'bottom') return undefined
   pane.chatId = chatId
   pane.runnerId = runnerId
+  pane.workspaceId = workspaceId
   if (home.kind === 'stage') return promoteStage(state, projectId)
   return home.viewId
 }

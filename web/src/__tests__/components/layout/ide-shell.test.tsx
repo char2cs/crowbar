@@ -47,7 +47,7 @@ vi.mock('@/components/layout/removal-tray', () => ({
   RemovalTray: () => <div data-testid="removal-tray" />,
 }))
 // `useActivePaneWorkspaceId` alone, overridable per-test — every other export
-// (usePaneWorkspaceIds, usePaneEditorWorkspaceIds, useViewWorkspaceIds) stays
+// (usePaneEditorWorkspaceIds, useViewWorkspaceIds) stays
 // real. The override exists only to stand in for a project-home chat's
 // resolution, which normally requires a REGISTERED workspace store (a real
 // chat record, seeded via the registry) rather than the sidebar-hint path
@@ -434,8 +434,8 @@ describe('IDEShell', () => {
         },
       ]
       resetWindowPaneStoreForTests()
-      windowPaneStore.getState().paneActions.openChat('chat-a')
-      windowPaneStore.getState().paneActions.dropChatOnPane('chat-b', ROOT_PANE_ID, 'right')
+      windowPaneStore.getState().paneActions.openChat('chat-a', { workspaceId: 'ws-a' })
+      windowPaneStore.getState().paneActions.dropChatOnPane('chat-b', ROOT_PANE_ID, 'right', 'ws-b')
       const secondPaneId = chatPaneIndex(windowPaneStore.getState().panes).get('chat-b')
       windowPaneStore.getState().paneActions.setActivePane(secondPaneId!)
 
@@ -482,8 +482,8 @@ describe('IDEShell', () => {
       ]
       resetWindowPaneStoreForTests()
       const paneActions = () => windowPaneStore.getState().paneActions
-      paneActions().openChat('chat-a')
-      paneActions().dropChatOnPane('chat-b', ROOT_PANE_ID, 'right')
+      paneActions().openChat('chat-a', { workspaceId: 'ws-a' })
+      paneActions().dropChatOnPane('chat-b', ROOT_PANE_ID, 'right', 'ws-a')
       const secondPaneId = chatPaneIndex(windowPaneStore.getState().panes).get('chat-b')!
       // The asymmetry that used to move the shell's `activeEditorTabId`: one
       // pane holds an editor tab, the other holds only its chat.
@@ -516,7 +516,7 @@ describe('IDEShell', () => {
         },
       ]
       resetWindowPaneStoreForTests()
-      windowPaneStore.getState().paneActions.openChat('chat-a')
+      windowPaneStore.getState().paneActions.openChat('chat-a', { workspaceId: 'ws-a' })
 
       render(<IDEShell />)
 

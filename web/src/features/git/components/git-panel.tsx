@@ -10,7 +10,7 @@ import {
   useFocusedWorkspaceContextStore,
 } from '@/features/window/stores/focused-workspace-context-store'
 import { useSidebarChangedFiles } from '@/features/git/hooks/use-sidebar-changed-files'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { ChangedFilesTree } from './changed-files-tree'
 import { BranchSection } from './branch-section'
 import { GitHistoryList } from './git-history-list'
@@ -55,7 +55,7 @@ export function GitPanel() {
   const handleFileOpen = (filePath: string) => {
     if (!wsId) return
     openBranchReviewForWorkspace(wsId)
-    getOrCreateWorkspaceStore(wsId).getState().revealBranchReviewFile(filePath)
+    getWorkspaceStore(wsId)?.getState().revealBranchReviewFile(filePath)
   }
 
   const repoPath = wsId ?? undefined

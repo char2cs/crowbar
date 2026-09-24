@@ -8,6 +8,7 @@ vi.mock('@/lib/api', () => ({ apiFetch: (...a: unknown[]) => apiFetch(...a) }))
 // repo-scoped shape; 'ws-home' has repoId '' (a project-home workspace) and
 // falls back to the still-live /home mount; anything else is unrecorded scope.
 vi.mock('@/lib/workspace-scope', () => ({
+  bindActiveWorkspaceId: () => {},
   getWorkspaceScope: (id: string) => {
     if (id === 'w1') return { projectId: 'p1', repoId: 'r1', wsId: 'w1' }
     if (id === 'ws-home') return { projectId: 'p1', repoId: '', wsId: 'ws-home' }

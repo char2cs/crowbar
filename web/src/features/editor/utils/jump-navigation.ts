@@ -1,6 +1,6 @@
 import { revealInEditor } from '@/features/editor/lib/reveal'
 import { useJumpListStore, type JumpListEntry } from '@/features/editor/stores/jump-list-store'
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
+import { getActiveWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { logger } from './logger'
 
@@ -15,7 +15,7 @@ export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean
     return false
   }
 
-  const wsStore = getActiveWorkspaceStoreRef()?.getState()
+  const wsStore = getActiveWorkspaceStore()?.getState()
   if (!wsStore) return abandon()
   // Task 26: panes/buffers are window-level now — `wsStore` only still owns
   // `workspaceId` (and other per-workspace slices); pane/buffer state and

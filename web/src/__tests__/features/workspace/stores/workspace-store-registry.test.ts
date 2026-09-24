@@ -4,9 +4,8 @@ import {
   getWorkspaceStore,
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
-  resolveWorkspaceIdForChat,
   setActiveWorkspaceId,
-  clearActiveWorkspaceId,
+  canEvictWorkspace,
   getActiveWorkspaceId,
   subscribeWorkspaceStores,
   subscribeChatWorking,
@@ -30,10 +29,6 @@ const chat = (id: string, workspaceId: string): AgentChat => ({
 // doesn't need a real IndexedDB write path.
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
-}))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
 }))
 // Fake Monaco adapters so armEditor() (dynamically imported by both
 // WorkspaceStore itself and destroyWorkspaceStore's teardown) never touches
@@ -65,8 +60,7 @@ vi.mock('@/features/editor/lib/monaco-adapters', () => ({
 
 afterEach(() => {
   getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
-  const active = getActiveWorkspaceId()
-  if (active) clearActiveWorkspaceId(active)
+  setActiveWorkspaceId(null)
   vi.restoreAllMocks()
 })
 
@@ -138,111 +132,20 @@ describe('workspace-store-registry', () => {
   // ambient workspace, remounting the retained widget onto the WRONG
   // manager and landing on a silently empty model. Live-reported as a
   // blank editor pane with no console error and no repro steps.
-  it('does not evict a workspace whose EditorManager still has a mounted pane', async () => {
+  // The host asks BEFORE letting go (canEvict), so a destroy is never vetoed
+  // after the fact — that left a zombie store registered.
+  it('a workspace whose EditorManager still has a mounted pane cannot be evicted', async () => {
     const store = getOrCreateWorkspaceStore('ws-mounted-pane')
     await store.armEditor()
     store.editorManager!.mountPane('pane-1', document.createElement('div'))
+    expect(canEvictWorkspace('ws-mounted-pane')).toBe(false)
 
-    destroyWorkspaceStore('ws-mounted-pane')
-
-    expect(getWorkspaceStore('ws-mounted-pane')).toBe(store)
-    expect(getAllActiveWorkspaceIds()).toContain('ws-mounted-pane')
-
-    // Once the pane's widget actually unmounts (its editor tab closes), the
-    // SAME call must go through normally.
     store.editorManager!.unmountPane('pane-1')
+    expect(canEvictWorkspace('ws-mounted-pane')).toBe(true)
     destroyWorkspaceStore('ws-mounted-pane')
     expect(getWorkspaceStore('ws-mounted-pane')).toBeUndefined()
   })
 
-  // Task 27: the chatId -> workspaceId resolution Task 26's own review found
-  // missing from the render path entirely. Mirrors isChatWorking's own
-  // real-store-via-the-registry test style rather than mocking the scan.
-  describe('resolveWorkspaceIdForChat', () => {
-    it('returns the id of the registered store whose agentChats.chats names the chat', () => {
-      const store = getOrCreateWorkspaceStore('ws-a')
-      store.getState().upsertAgentChat(chat('chat-1', 'ws-a'))
-      expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-a')
-    })
-
-    it('searches every registered store, not just the first', () => {
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-a', 'ws-a'))
-      const storeB = getOrCreateWorkspaceStore('ws-b')
-      storeB.getState().upsertAgentChat(chat('chat-b', 'ws-b'))
-      expect(resolveWorkspaceIdForChat('chat-b')).toBe('ws-b')
-    })
-
-    it('returns null when no registered store names the chat', () => {
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-1', 'ws-a'))
-      expect(resolveWorkspaceIdForChat('chat-never-seen')).toBeNull()
-    })
-
-    it('returns null when nothing is registered at all', () => {
-      expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
-    })
-
-    it('stops naming a chat once its owning store is destroyed', () => {
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-1', 'ws-a'))
-      expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-a')
-      destroyWorkspaceStore('ws-a')
-      expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
-    })
-
-    it('resolves the workspace that actually owns the chat, not the caller-active one', () => {
-      // The whole point of the resolver (Task 26's own review): a chat's
-      // owning workspace has to be found on its own terms, independent of
-      // whichever workspace happens to be globally "active" elsewhere.
-      getOrCreateWorkspaceStore('ws-active').getState().upsertAgentChat(chat('chat-x', 'ws-active'))
-      getOrCreateWorkspaceStore('ws-background')
-        .getState()
-        .upsertAgentChat(chat('chat-y', 'ws-background'))
-      expect(resolveWorkspaceIdForChat('chat-y')).toBe('ws-background')
-    })
-
-    it("agrees with the chat record's own workspaceId in the ordinary (non-evicted) case", () => {
-      // Documents the doc comment's claim: the registry key and the chat's
-      // own denormalized `workspaceId` field are expected to agree whenever
-      // the owning store is actually registered — this resolver just never
-      // relies on the denormalized field to make that true.
-      const record = chat('chat-1', 'ws-a')
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(record)
-      expect(resolveWorkspaceIdForChat('chat-1')).toBe(record.workspaceId)
-    })
-
-    // Fix round 1 (coordinator review): the resolver's PRIMARY intended
-    // case — Task 26 deliberately hoisted panes to window level so a pane
-    // holding a chat OUTLIVES its owning workspace's own eviction
-    // (WorkspaceHost's age/LRU keep-alive window; see workspace-host.tsx).
-    // "Registered stores only" therefore means the one scenario this
-    // resolver exists to serve — a pane whose chat's workspace has since
-    // been evicted — is exactly the case where it answers null. This is
-    // documented as a deliberate characteristic on the function itself
-    // (REGISTRY-SCOPED, NOT OMNISCIENT), not a silent gap; this test pins
-    // that characteristic down so a future change can't quietly alter it.
-    it('resolves to null for a chat whose workspace was evicted, even though a pane can still reference it', () => {
-      getOrCreateWorkspaceStore('ws-evicted')
-        .getState()
-        .upsertAgentChat(chat('chat-1', 'ws-evicted'))
-      expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-evicted')
-
-      // WorkspaceHost's own eviction path: destroy the store, exactly as it
-      // does when a workspace ages out of the keep-alive window. Nothing
-      // about the pane that still holds `chat-1` changes here — panes are
-      // window-level and outlive this by design (Task 26).
-      destroyWorkspaceStore('ws-evicted')
-
-      expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
-    })
-  })
-
-  // `getOrCreateWorkspaceStore` is called FROM THE RENDER PATH
-  // (WorkspaceView/WindowPaneSurface mint the store they provide as context),
-  // so a registration that pushes a change at its watchers pushes a setState
-  // out of React's render phase — live-observed as "Cannot update a component
-  // (`IDEShell`) while rendering a different component (`WorkspaceView`)".
-  // A brand-new store has no agentChats, so it can move no watcher's answer;
-  // the re-bind still has to be synchronous, because the next write to that
-  // very store (its chats stream landing) is what carries the real change.
   describe('registry change notifications', () => {
     it('does not fire watchers when a store is merely registered', () => {
       const fired = vi.fn()
@@ -290,35 +193,10 @@ describe('workspace-store-registry', () => {
     })
   })
 
-  // Live-reported: file-explorer state (and anything else keyed off
-  // getWorkspaceScope()'s active id) for a chat sharing a workspace with
-  // sibling chats kept reading/writing a DIFFERENT workspace than the one
-  // actually on screen. Root cause: WorkspaceView's active-only effect
-  // called setActiveWorkspaceId(wsId) with no cleanup at all — unlike its
-  // sibling setActiveWorkspaceStoreRef effect right above it, which does
-  // null itself out on deactivation — so the id kept pointing at a
-  // workspace whose WorkspaceView had since unmounted (evicted from
-  // WorkspaceHost's retention), a dangling reference nothing ever corrected
-  // for a workspace with no dedicated route of its own to re-claim it.
-  describe('setActiveWorkspaceId / clearActiveWorkspaceId', () => {
-    it('clearActiveWorkspaceId resets the active id when it is still the one recorded', () => {
-      setActiveWorkspaceId('ws-a')
-      expect(getActiveWorkspaceId()).toBe('ws-a')
-
-      clearActiveWorkspaceId('ws-a')
-
-      expect(getActiveWorkspaceId()).toBeNull()
-    })
-
-    it('clearActiveWorkspaceId is a no-op once a different workspace has claimed the id', () => {
-      setActiveWorkspaceId('ws-a')
-      setActiveWorkspaceId('ws-b') // ws-b's WorkspaceView became active first
-
-      // ws-a's own effect cleanup fires afterward (its `active` flipped
-      // false, or it unmounted) — it must not clobber ws-b's newer claim.
-      clearActiveWorkspaceId('ws-a')
-
-      expect(getActiveWorkspaceId()).toBe('ws-b')
-    })
+  it('the active id is one value the host writes, cleared with null', () => {
+    setActiveWorkspaceId('ws-a')
+    expect(getActiveWorkspaceId()).toBe('ws-a')
+    setActiveWorkspaceId(null)
+    expect(getActiveWorkspaceId()).toBeNull()
   })
 })

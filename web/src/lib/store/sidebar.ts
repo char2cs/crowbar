@@ -265,29 +265,14 @@ interface SidebarState {
   collapsedChatRows: Set<string>
   /** Persisted active tab so re-mounts don't reset it. */
   activeTab: SidebarTab
-  addWorkspace: (repoId: string, wsId: string, branch: string, parentId?: string) => void
-  deleteWorkspace: (wsId: string) => void
   // NOTE: there is deliberately no renameWorkspace here. A branch rename moves
   // the git branch AND the workspace's on-disk directory, so it belongs to the
   // daemon; the renamed WorkspaceDTO returns via applyWorkspaceDTO. A local
   // relabel is what made rename look like it worked while changing nothing.
-  reparentWorkspace: (wsId: string, newParentId: string | undefined) => void
-  /**
-   * Apply a whole drop's worth of placement at once — see {@link SidebarPlacement}.
-   * Paired with {@link capturePlacement}, which reads the same fields back
-   * beforehand so a refusal is one call to undo.
-   */
+  /** Apply a whole drop's worth of confirmed placement — see {@link SidebarPlacement}. */
   applyPlacement: (placement: SidebarPlacement) => void
   /** Fold a Chats-panel row away, or open it again. */
   toggleChatRow: (rowId: string) => void
-  /**
-   * Open a Chats-panel row, whatever it was.
-   *
-   * Its own call rather than a toggle, because the caller is putting something
-   * INSIDE the row — filing into a box you cannot see is not what "+ in here"
-   * means — and a toggle there would close a row that was already open.
-   */
-  openChatRow: (rowId: string) => void
   setActiveTab: (tab: SidebarTab) => void
   setRepos: (repos: Repo[]) => void
   /**
@@ -459,66 +444,6 @@ export function isWorkspaceLockedInSidebar(repos: Repo[], wsId: string | null): 
   return false
 }
 
-/**
- * Read back exactly the fields a placement is about to overwrite, so the drop
- * that fired it can be undone in one call. The shape returned is the same
- * `SidebarPlacement` — an undo is just the previous placement re-applied.
- *
- * Repos come back in their CURRENT array order, which is what carries their
- * index within a project's section.
- */
-export function capturePlacement(repos: Repo[], placement: SidebarPlacement): SidebarPlacement {
-  const out: SidebarPlacement = {}
-
-  if (placement.workspaces?.length) {
-    const wanted = new Map(placement.workspaces.map((w) => [w.id, w]))
-    const workspaces: WorkspacePlacementWrite[] = []
-    for (const repo of repos) {
-      for (const ws of repo.workspaces) {
-        const patch = wanted.get(ws.id)
-        if (!patch) continue
-        workspaces.push({
-          id: ws.id,
-          ...(patch.folderId !== undefined && { folderId: ws.folderId ?? '' }),
-          ...(patch.parentId !== undefined && { parentId: ws.parentId ?? '' }),
-          ...(patch.order !== undefined && { order: ws.order ?? 0 }),
-        })
-      }
-    }
-    out.workspaces = workspaces
-  }
-
-  if (placement.folders?.length) {
-    const wanted = new Map(placement.folders.map((f) => [f.id, f]))
-    const folders: FolderPlacementWrite[] = []
-    for (const repo of repos) {
-      for (const folder of repo.folders ?? EMPTY_FOLDERS) {
-        const patch = wanted.get(folder.id)
-        if (!patch) continue
-        folders.push({
-          id: folder.id,
-          ...(patch.parentId !== undefined && { parentId: folder.parentId ?? '' }),
-          ...(patch.order !== undefined && { order: folder.order }),
-        })
-      }
-    }
-    out.folders = folders
-  }
-
-  if (placement.repos?.length) {
-    const wanted = new Set(placement.repos.map((r) => r.id))
-    const current: RepoPlacementWrite[] = []
-    for (const repo of repos) {
-      if (wanted.has(repo.id)) {
-        current.push({ id: repo.id, projectId: repo.projectId ?? '', order: repo.order ?? 0 })
-      }
-    }
-    out.repos = current
-  }
-
-  return out
-}
-
 /** Merge one row's placement patch, leaving absent fields untouched. */
 function withPlacement<T extends { order?: number }>(
   row: T,
@@ -608,74 +533,6 @@ function persist(change: CollapseSets): CollapseSets {
 export const useSidebarStore = create<SidebarState>()((set) => ({
   ...getInitialState(),
 
-  addWorkspace: (repoId, wsId, branch, parentId) =>
-    set((s) => ({
-      repos: s.repos.map((r) =>
-        r.id !== repoId
-          ? r
-          : {
-              ...r,
-              workspaces: [
-                ...r.workspaces,
-                {
-                  id: wsId,
-                  branch,
-                  ...(parentId !== undefined && { parentId }),
-                  status: 'new' as WorkspaceStatus,
-                  age: 'just now',
-                },
-              ],
-            },
-      ),
-    })),
-
-  deleteWorkspace: (wsId) =>
-    set((s) => {
-      // Collect the target and all non-locked descendants (shared with
-      // getPostDeleteNavigationTarget below).
-      const toDelete = collectDeletedIds(
-        s.repos.flatMap((r) => r.workspaces),
-        wsId,
-      )
-      return {
-        repos: s.repos.map((r) => ({
-          ...r,
-          workspaces: r.workspaces.filter((w) => !toDelete.has(w.id)),
-        })),
-      }
-    }),
-
-  reparentWorkspace: (wsId, newParentId) =>
-    set((s) => {
-      const repo = s.repos.find((r) => r.workspaces.some((w) => w.id === wsId))
-      if (!repo) return s
-      // newParentId must exist in the same repo (or be undefined for root)
-      if (newParentId !== undefined && !repo.workspaces.some((w) => w.id === newParentId)) return s
-      // Reject cycles: walk up from newParentId; if we reach wsId it's a cycle
-      if (newParentId !== undefined) {
-        const wsMap = new Map(repo.workspaces.map((w) => [w.id, w]))
-        const visited = new Set<string>()
-        let cursor: string | undefined = newParentId
-        while (cursor !== undefined) {
-          if (cursor === wsId || visited.has(cursor)) return s
-          visited.add(cursor)
-          cursor = wsMap.get(cursor)?.parentId
-        }
-      }
-      return {
-        repos: s.repos.map((r) =>
-          r.id !== repo.id
-            ? r
-            : {
-                ...r,
-                workspaces: r.workspaces.map((w) =>
-                  w.id === wsId ? { ...w, parentId: newParentId } : w,
-                ),
-              },
-        ),
-      }
-    }),
-
   applyPlacement: (placement) =>
     set((s) => {
       let repos = s.repos
@@ -744,14 +601,6 @@ export const useSidebarStore = create<SidebarState>()((set) => ({
     set((s) => {
       const next = new Set(s.collapsedChatRows)
       next.has(rowId) ? next.delete(rowId) : next.add(rowId)
-      return persist({ collapsedChatRows: next })
-    }),
-
-  openChatRow: (rowId) =>
-    set((s) => {
-      if (!s.collapsedChatRows.has(rowId)) return s
-      const next = new Set(s.collapsedChatRows)
-      next.delete(rowId)
       return persist({ collapsedChatRows: next })
     }),
 

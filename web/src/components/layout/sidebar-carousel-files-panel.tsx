@@ -5,7 +5,6 @@ import { SidebarSkeleton } from './sidebar-skeleton'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
 import { pickAndUploadFiles } from '@/features/files/lib/file-upload'
 
@@ -37,17 +36,13 @@ export function SidebarCarouselFilesPanel() {
     (directoryPath: string) => void pickAndUploadFiles(directoryPath),
     [],
   )
-  // Live-reported: opening a file from the explorer could land it in a
-  // DIFFERENT chat than the one the user was looking at, when that chat
-  // shared its workspace ("group") with another one on screen. The explorer
-  // click never named which pane it meant — see resolveOnscreenPaneForWorkspace's
-  // own doc for the full mechanism. Reasserting the active pane here, right
-  // before the open, is the same fix the file-tree DROP path already applies
-  // for its own unambiguous drop target.
-  const ensureActivePaneForFileOpen = useCallback(() => {
-    const targetPaneId = resolveOnscreenPaneForWorkspace(workspaceId ?? '')
-    if (targetPaneId) windowPaneStore.getState().paneActions.setActivePane(targetPaneId)
-  }, [workspaceId])
+  // The explorer click names the pane it opens into (C8): the on-screen pane
+  // of this workspace — never merely whichever pane had focus, which can be a
+  // different chat sharing the workspace (see resolveOnscreenPaneForWorkspace).
+  const fileOpenTarget = useCallback(
+    () => ({ paneId: resolveOnscreenPaneForWorkspace(workspaceId ?? '') ?? undefined }),
+    [workspaceId],
+  )
 
   return (
     <div
@@ -64,16 +59,14 @@ export function SidebarCarouselFilesPanel() {
               if (isDir) {
                 useFileTreeStore.getState().toggleFolder(workspaceId ?? '', path)
               } else {
-                ensureActivePaneForFileOpen()
-                handleFileSelect?.(path, false)
+                handleFileSelect?.(path, false, fileOpenTarget())
               }
             }}
             onFileOpen={
               handleFileOpen
                 ? (path: string, isDir: boolean) => {
                     if (!isDir) {
-                      ensureActivePaneForFileOpen()
-                      void handleFileOpen(path, false)
+                      void handleFileOpen(path, false, fileOpenTarget())
                     }
                   }
                 : undefined

@@ -33,6 +33,33 @@ function paneCanSafelyLoseLastTab(state: WindowPaneState, paneId: string): boole
   return !!home && getAllLeafIds(layoutOf(state, home)).length > 1
 }
 
+/** Put `tabId` in `paneId` and make it the pane's shown tab. False when the
+ *  pane does not exist. Pure over the draft, so `openContent` can create a
+ *  buffer and seat it in one `set`. */
+export function placeTab(
+  state: WindowPaneState,
+  paneId: string,
+  tabId: string,
+  preview = false,
+): boolean {
+  const pane = state.panes[paneId]
+  if (!pane) return false
+  // A tab id always names a buffer (C2); slice-only stores carry no list.
+  if (Array.isArray(state.buffers) && !state.buffers.some((b) => b.id === tabId)) return false
+  const hadEditorTabs = pane.editorTabIds.length > 0
+  if (!pane.editorTabIds.includes(tabId)) pane.editorTabIds.push(tabId)
+  pane.activeEditorTabId = tabId
+  // Respect a split the user already toggled off.
+  if (!hadEditorTabs) pane.editorOpen = true
+  pane.chatSelected = false
+  if (preview && Array.isArray(state.buffers)) {
+    const inPane = new Set(pane.editorTabIds)
+    for (const buf of state.buffers) if (inPane.has(buf.id)) buf.isPreview = buf.id === tabId
+  }
+  syncSoleEditorTabCloseability(state, paneId, paneCanSafelyLoseLastTab(state, paneId))
+  return true
+}
+
 /** The editor tabs a pane holds beside its chat. */
 export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabActions {
   // Never CREATE a workspace store just to reach its editor manager — a
@@ -73,15 +100,7 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
 
     addEditorTabToPane(paneId, tab) {
       set((state) => {
-        const pane = state.panes[paneId]
-        if (!pane) return
-        const hadEditorTabs = pane.editorTabIds.length > 0
-        if (!pane.editorTabIds.includes(tab.id)) pane.editorTabIds.push(tab.id)
-        pane.activeEditorTabId = tab.id
-        // Respect a split the user already toggled off.
-        if (!hadEditorTabs) pane.editorOpen = true
-        pane.chatSelected = false
-        syncSoleEditorTabCloseability(state, paneId, paneCanSafelyLoseLastTab(state, paneId))
+        placeTab(state, paneId, tab.id)
       })
     },
 
@@ -96,13 +115,10 @@ export function createEditorTabActions(set: PaneSet, get: PaneGet): EditorTabAct
         const wasActive = pane.activeEditorTabId === tabId
         pane.editorTabIds = pane.editorTabIds.filter((id) => id !== tabId)
         if (wasActive) {
-          // The adjacent tab that still has content; with no buffer list
-          // (slice-only tests) every id counts as alive.
-          const known = state.buffers
-          const isAlive = (id: string) => !Array.isArray(known) || known.some((b) => b.id === id)
-          const alive = pane.editorTabIds.filter(isAlive)
-          const rightNeighbor = pane.editorTabIds.slice(closedIndex).find(isAlive)
-          pane.activeEditorTabId = rightNeighbor ?? alive[alive.length - 1] ?? null
+          pane.activeEditorTabId =
+            pane.editorTabIds[closedIndex] ??
+            pane.editorTabIds[pane.editorTabIds.length - 1] ??
+            null
         }
         if (pane.editorTabIds.length === 0) pane.editorOpen = false
         syncSoleEditorTabCloseability(state, paneId, paneCanSafelyLoseLastTab(state, paneId))

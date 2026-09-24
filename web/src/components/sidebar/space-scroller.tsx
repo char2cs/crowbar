@@ -285,7 +285,6 @@ function SpacePanel({
             />
           )}
           <RecentsBand
-            projectId={projectId}
             viewIds={viewIds}
             onFocus={onFocusRecent}
             onClose={onCloseRecent}

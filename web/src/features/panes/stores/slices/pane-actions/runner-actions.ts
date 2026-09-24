@@ -29,6 +29,8 @@ export function createRunnerActions(set: PaneSet): RunnerActions {
         }
         const taker = state.panes[paneId]
         if (!taker) return
+        // The runner moved within its workspace; the pane's workspace was
+        // fixed when its chat was opened (C3).
         taker.chatId = chatId
         taker.runnerId = runnerId
       })
@@ -41,10 +43,13 @@ export function createRunnerActions(set: PaneSet): RunnerActions {
       })
     },
 
-    adoptBackgroundChat(chatId, projectId) {
+    adoptBackgroundChat(chatId, projectId, workspaceId = null) {
       set((state) => {
         if (chatPaneIndex(state.panes).has(chatId)) return
-        insertPane(state, makePane(nanoid(), null, { chatId }), { kind: 'view', projectId })
+        insertPane(state, makePane(nanoid(), null, { chatId, workspaceId }), {
+          kind: 'view',
+          projectId,
+        })
       })
     },
   }

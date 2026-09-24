@@ -106,24 +106,6 @@ beforeEach(() => {
   })
 })
 
-test('addWorkspace appends to the correct repo', () => {
-  useSidebarStore.getState().addWorkspace('crowbar', 'ws-new', 'feature/test')
-  const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
-  expect(repo.workspaces.some((w) => w.id === 'ws-new')).toBe(true)
-})
-
-test('addWorkspace does not affect other repos', () => {
-  useSidebarStore.getState().addWorkspace('crowbar', 'ws-new', 'feature/test')
-  const other = useSidebarStore.getState().repos.find((r) => r.id === 'quiver-core')!
-  expect(other.workspaces.some((w) => w.id === 'ws-new')).toBe(false)
-})
-
-test('deleteWorkspace removes from repo', () => {
-  useSidebarStore.getState().deleteWorkspace('ws3')
-  const repo = useSidebarStore.getState().repos.find((r) => r.id === 'crowbar')!
-  expect(repo.workspaces.some((w) => w.id === 'ws3')).toBe(false)
-})
-
 test('setRepos is silent when a cache rebuild only recreated object identities', () => {
   const before = useSidebarStore.getState().repos
   const rebuilt = before.map((repo) => ({
@@ -162,24 +144,6 @@ test('setRepos preserves unaffected repos and rows when one workspace changed', 
   expect(after[1]).toBe(before[1])
 })
 
-test('addWorkspace stores parentId when provided', () => {
-  useSidebarStore.getState().addWorkspace('crowbar', 'ws-child', 'feature/child', 'ws-develop')
-  const ws = useSidebarStore
-    .getState()
-    .repos.find((r) => r.id === 'crowbar')!
-    .workspaces.find((w) => w.id === 'ws-child')!
-  expect(ws.parentId).toBe('ws-develop')
-})
-
-test('addWorkspace stores no parentId when omitted', () => {
-  useSidebarStore.getState().addWorkspace('crowbar', 'ws-root', 'feature/root')
-  const ws = useSidebarStore
-    .getState()
-    .repos.find((r) => r.id === 'crowbar')!
-    .workspaces.find((w) => w.id === 'ws-root')!
-  expect(ws.parentId).toBeUndefined()
-})
-
 // A branch rename moves the git branch AND the workspace's on-disk directory,
 // so it is the daemon's to perform; the renamed row comes back through
 // applyWorkspaceDTO. The store deliberately exposes no local rename — one was
@@ -199,44 +163,6 @@ test('a renamed workspace arrives through applyWorkspaceDTO', () => {
   const workspaces = useSidebarStore.getState().repos.flatMap((r) => r.workspaces)
   expect(workspaces.find((w) => w.id === 'ws3')!.branch).toBe('feature/renamed')
   expect(workspaces.find((w) => w.id === 'ws1')!.branch).toBe('enhancement/scaffold')
-})
-
-test('reparentWorkspace changes parentId', () => {
-  useSidebarStore.getState().reparentWorkspace('ws2', 'ws3')
-  const ws = useSidebarStore
-    .getState()
-    .repos.flatMap((r) => r.workspaces)
-    .find((w) => w.id === 'ws2')!
-  expect(ws.parentId).toBe('ws3')
-})
-
-test('reparentWorkspace to undefined makes workspace a repo root', () => {
-  useSidebarStore.getState().reparentWorkspace('ws3', undefined)
-  const ws = useSidebarStore
-    .getState()
-    .repos.flatMap((r) => r.workspaces)
-    .find((w) => w.id === 'ws3')!
-  expect(ws.parentId).toBeUndefined()
-})
-
-test('reparentWorkspace rejects cycles: descendant cannot become ancestor', () => {
-  // ws3 is a child of ws-develop; making ws-develop a child of ws3 would cycle
-  useSidebarStore.getState().reparentWorkspace('ws-develop', 'ws3')
-  const ws = useSidebarStore
-    .getState()
-    .repos.flatMap((r) => r.workspaces)
-    .find((w) => w.id === 'ws-develop')!
-  expect(ws.parentId).toBeUndefined() // unchanged
-})
-
-test('reparentWorkspace rejects cross-repo moves', () => {
-  // qc1 is in quiver-core; ws3 is in crowbar
-  useSidebarStore.getState().reparentWorkspace('ws3', 'qc1')
-  const ws = useSidebarStore
-    .getState()
-    .repos.flatMap((r) => r.workspaces)
-    .find((w) => w.id === 'ws3')!
-  expect(ws.parentId).toBe('ws-develop') // unchanged
 })
 
 // ---------------------------------------------------------------------------

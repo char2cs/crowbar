@@ -14,10 +14,6 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }))
@@ -91,5 +87,19 @@ describe('a repo header dropped relative to ANOTHER repo header', () => {
     await performSidebarDrop([header(3)], header(2), 'before')
 
     expect(placeRepo).toHaveBeenCalledWith('proj-1', 'repo-3', { folderId: '', order: 1 })
+  })
+})
+
+// C7: after any sidebar drop, the order equals the daemon's answer — a
+// refused reorder never paints, so there is nothing to revert.
+describe('a repo reorder the daemon refuses', () => {
+  it('leaves the headers exactly where they were', async () => {
+    vi.mocked(placeRepo).mockRejectedValueOnce(new Error('409 conflict'))
+    const before = useSidebarStore.getState().repos.map((r) => [r.id, r.order])
+    const header = (n: number) => rowsFromRepo(repo(n))[0]
+
+    await performSidebarDrop([header(3)], header(1), 'before')
+
+    expect(useSidebarStore.getState().repos.map((r) => [r.id, r.order])).toEqual(before)
   })
 })

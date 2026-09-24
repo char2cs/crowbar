@@ -4,10 +4,6 @@ import { renderHook } from '@testing-library/react'
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 
 import { useIdeShellWorkspaceRetention } from '@/components/layout/use-ide-shell-workspace-retention'
 import {
@@ -149,7 +145,7 @@ describe('useIdeShellWorkspaceRetention — home route with a split pane focused
     const { paneActions } = windowPaneStore.getState()
     // The split's OTHER pane: a branch-workspace chat, focused, while the
     // route is still on project home.
-    paneActions.openChat('branch-chat-1')
+    paneActions.openChat('branch-chat-1', { workspaceId: 'ws-other-repo' })
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(
@@ -226,7 +222,7 @@ describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFER
       createdAt: '2026-01-01T00:00:00Z',
       order: 0,
     })
-    paneActions.openChat('home-chat-1')
+    paneActions.openChat('home-chat-1', { workspaceId: 'ws-home-1' })
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(

@@ -959,6 +959,12 @@ describe('the chats reseed records that the repo’s tree has been read', () => 
         }
         return realSaveCache.fn!(...a)
       })
+      // An unchanged answer is never re-written, so make the cached list
+      // differ: the path under test is a fetch that DOES write.
+      // (IndexedDB runs on the faked timers, hence the settle.)
+      const differ = realSaveCache.fn!('workspaces-data', 'workspaces', [])
+      await settle()
+      await differ
       void useWorkspaceListStore.getState().fetch()
       await settle()
       // The precondition the whole path rests on, asserted rather than assumed.

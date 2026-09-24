@@ -9,11 +9,13 @@ import {
 
 let store: ReturnType<typeof createWorkspaceStore>
 
-vi.mock('@/features/workspace/stores/workspace-store-ref', () => ({
-  // Task 26: navigateToJumpEntry reads ONLY `workspaceId` off this now —
-  // panes/buffers come from windowPaneStore (mocked normally, i.e. not
-  // mocked, below).
-  getActiveWorkspaceStoreRef: () => store,
+vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/features/workspace/stores/workspace-store-registry')
+  >()),
+  // navigateToJumpEntry reads ONLY `workspaceId` off the active store —
+  // panes/buffers come from windowPaneStore (not mocked).
+  getActiveWorkspaceStore: () => store,
 }))
 const readWorkspaceFile = vi.fn(async (_wsId: string, _path: string) => 'reopened content')
 vi.mock('@/features/file-system/controllers/platform', () => ({

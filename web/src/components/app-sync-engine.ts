@@ -331,11 +331,16 @@ export function useAppSyncEngine(): void {
         if (!live()) return
         const fresh = new Set(items.map((item) => item.id))
         const stale: string[] = []
+        const known = new Map<string, string>()
         for (const row of cached) {
           if (row.repoId === repoId && !fresh.has(row.id)) stale.push(row.id)
+          if (fresh.has(row.id)) known.set(row.id, JSON.stringify(row))
         }
+        // Only rows that actually changed are written: a warm boot reseeds
+        // every visible repo with exactly what the cache already holds.
+        const changed = items.filter((item) => known.get(item.id) !== JSON.stringify(item))
         await Promise.all(stale.map((id) => removeEntity(store, id)))
-        await Promise.all(items.map((item) => upsertEntity(store, item)))
+        await Promise.all(changed.map((item) => upsertEntity(store, item)))
       }
 
       /**
@@ -566,19 +571,26 @@ export function useAppSyncEngine(): void {
       return keys
     }
 
-    // Cheap guard: reconcile() is called from every project- and sidebar-store
-    // mutation (so a newly seeded repo immediately gets its workspace stream),
-    // and the overwhelming majority of those leave the desired set untouched.
-    let lastSignature: string | null = null
-    let lastDesired = new Set<string>()
+    // Cheap guard: reconcile() runs whenever the inputs of desiredKeys() move
+    // (so a newly seeded repo immediately gets its workspace stream), and most
+    // of those leave the desired set untouched — compared as sets, with no
+    // sort/join per call.
+    let lastDesired: Set<string> | null = null
 
     function reconcile(): void {
       if (disposed) return
       const desired = desiredKeys()
-      const signature = [...desired].sort().join('\n')
-      if (signature === lastSignature) return
-      lastSignature = signature
-      const isOpening = [...desired].some((key) => !lastDesired.has(key))
+      const previous = lastDesired
+      let isOpening = previous === null
+      if (previous) {
+        for (const key of desired) {
+          if (!previous.has(key)) {
+            isOpening = true
+            break
+          }
+        }
+        if (!isOpening && desired.size === previous.size) return
+      }
       lastDesired = desired
 
       for (const key of [...subscriptions.keys()]) {
@@ -617,9 +629,23 @@ export function useAppSyncEngine(): void {
       //    guard keeps the extra wake-ups free.
       scheduleRebuild()
       reconcile()
-      rootUnsubscribes.push(useProjectStore.subscribe(reconcile))
-      rootUnsubscribes.push(useProjectDataStore.subscribe(reconcile))
-      rootUnsubscribes.push(useSidebarStore.subscribe(reconcile))
+      // Narrow: only the fields desiredKeys() reads wake it — not every
+      // sidebar write (selection, drag, working flags, per-frame rows).
+      rootUnsubscribes.push(
+        useProjectStore.subscribe((s, prev) => {
+          if (s.activeProjectId !== prev.activeProjectId) reconcile()
+        }),
+      )
+      rootUnsubscribes.push(
+        useProjectDataStore.subscribe((s, prev) => {
+          if (s.data !== prev.data) reconcile()
+        }),
+      )
+      rootUnsubscribes.push(
+        useSidebarStore.subscribe((s, prev) => {
+          if (s.repos !== prev.repos) reconcile()
+        }),
+      )
     }
 
     void start()

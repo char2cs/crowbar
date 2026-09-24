@@ -16,7 +16,8 @@ vi.mock('@/lib/api', () => ({
   fetchProjects: vi.fn(),
 }))
 
-vi.mock('@/lib/store/projects', () => ({
+vi.mock('@/lib/store/projects', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/store/projects')>()),
   useProjectStore: { getState: vi.fn(() => ({ activeProjectId: '' })) },
 }))
 

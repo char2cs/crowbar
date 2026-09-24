@@ -4,13 +4,20 @@ import { render, act, cleanup } from '@testing-library/react'
 // Hoisted spies so the vi.mock factories (hoisted above imports) can capture them.
 // `events` records unmount/destroy interleaving: components living over the store
 // (Monaco panes, terminal slots) must be UNMOUNTED before the store is destroyed.
-const { hydrateSpy, destroySpy, events } = vi.hoisted(() => {
+const { hydrateSpy, destroySpy, events, registry, pinned, rendering } = vi.hoisted(() => {
   const events = [] as string[]
+  const registry = new Map<string, { wsId: string }>()
   return {
     events,
+    registry,
+    /** Workspaces whose editor is still mounted into a pane (canEvict false). */
+    pinned: new Set<string>(),
+    /** Set while a WorkspaceView renders, to catch a mint in the render path. */
+    rendering: { current: false, mintedWhileRendering: 0 },
     hydrateSpy: vi.fn<(wsId: string) => void>(),
     destroySpy: vi.fn<(wsId: string) => void>((wsId) => {
       events.push(`destroy:${wsId}`)
+      registry.delete(wsId)
     }),
   }
 })
@@ -22,6 +29,11 @@ vi.mock('@/features/workspace/components/workspace-view', async () => {
   const React = await import('react')
   return {
     WorkspaceView: ({ wsId, active }: { wsId: string; active: boolean }) => {
+      rendering.current = true
+      // Children's layout effects run before the host's: the render phase is over.
+      React.useLayoutEffect(() => {
+        rendering.current = false
+      })
       React.useEffect(() => {
         hydrateSpy(wsId)
         return () => {
@@ -38,9 +50,14 @@ vi.mock('@/features/workspace/components/workspace-view', async () => {
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
   destroyWorkspaceStore: (wsId: string) => destroySpy(wsId),
-  // WindowPaneSurface (the window's ONE pane tree, a sibling of the slots)
-  // resolves the active workspace's store to publish as the ambient context.
-  getOrCreateWorkspaceStore: () => null,
+  getOrCreateWorkspaceStore: (wsId: string) => {
+    if (rendering.current) rendering.mintedWhileRendering++
+    if (!registry.has(wsId)) registry.set(wsId, { wsId })
+    return registry.get(wsId)
+  },
+  getWorkspaceStore: (wsId: string) => registry.get(wsId),
+  canEvictWorkspace: (wsId: string) => !pinned.has(wsId),
+  setActiveWorkspaceId: () => {},
 }))
 
 // The pane tree itself is another suite's subject; this one is about retention.
@@ -79,11 +96,63 @@ beforeEach(() => {
   hydrateSpy.mockClear()
   destroySpy.mockClear()
   events.length = 0
+  registry.clear()
+  pinned.clear()
+  rendering.mintedWhileRendering = 0
   useSidebarStore.setState(getInitialState())
 })
 
 afterEach(() => {
   cleanup()
+})
+
+/** The mounted slots, as the DOM shows them. */
+function mountedSlots(): string[] {
+  return [...document.querySelectorAll<HTMLElement>('[data-workspace-slot]')]
+    .map((el) => el.dataset.workspaceSlot!)
+    .sort()
+}
+
+describe('WorkspaceHost — sole owner of the registry (C5, C6)', () => {
+  it('registry keys are exactly the mounted slots, through switches and evictions', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" viewWsIds={['a', 'b']} />)
+    expect([...registry.keys()].sort()).toEqual(mountedSlots())
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['a', 'b']} />)
+    expect([...registry.keys()].sort()).toEqual(mountedSlots())
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={['b']} />)
+    expect([...registry.keys()].sort()).toEqual(['b'])
+    expect(mountedSlots()).toEqual(['b'])
+  })
+
+  it('never mints a store while rendering', () => {
+    const { rerender } = render(<WorkspaceHost activeWsId="a" paneWsIds={['p1', 'p2']} />)
+    rerender(<WorkspaceHost activeWsId="c" paneWsIds={['p1', 'p3']} />)
+    expect(rendering.mintedWhileRendering).toBe(0)
+  })
+
+  it('holds the cap even when panes name more workspaces than it allows (no force-mount past the plan)', () => {
+    const many = Array.from({ length: 10 }, (_, i) => `p${i}`)
+    render(<WorkspaceHost activeWsId="a" paneWsIds={many} />)
+    expect(mountedSlots().length).toBeLessThanOrEqual(6)
+    expect(registry.size).toBe(mountedSlots().length)
+    expect(mountedSlots()).toContain('a')
+  })
+
+  it('keeps a workspace whose editor is still mounted instead of destroying it — no zombie store', () => {
+    pinned.add('a')
+    const { rerender } = render(<WorkspaceHost activeWsId="a" />)
+    rerender(<WorkspaceHost activeWsId="b" />)
+    // Not evictable: still mounted, still registered, never destroyed.
+    expect(destroySpy).not.toHaveBeenCalledWith('a')
+    expect(mountedSlots()).toEqual(['a', 'b'])
+    expect([...registry.keys()].sort()).toEqual(['a', 'b'])
+
+    // Once its editor lets go, the next reconcile evicts it for real.
+    pinned.delete('a')
+    rerender(<WorkspaceHost activeWsId="b" viewWsIds={[]} paneWsIds={['b']} />)
+    expect(destroySpy).toHaveBeenCalledWith('a')
+    expect([...registry.keys()]).toEqual(['b'])
+  })
 })
 
 describe('WorkspaceHost', () => {

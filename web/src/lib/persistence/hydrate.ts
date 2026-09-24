@@ -1,9 +1,13 @@
 import { getDB } from './idb'
 import type { EditorState, WorkspaceLayout } from './schemas'
-import { loadWindowPaneLayout } from './workspace-layout'
+import { loadWindowPaneLayout, WINDOW_LAYOUT_VERSION } from './workspace-layout'
+import { getAllEntities } from './entity-cache'
+import type { ChatDTO } from '@/lib/types'
+import type { PaneGroup } from '@/features/panes/types/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { ViewState } from '@/features/panes/lib/view-state'
 import { repairViewState } from '@/features/panes/lib/view-repair'
+import { validateLoadedBuffers } from '@/features/panes/utils/persisted-layout'
 import {
   isEditorContent,
   isPersistableContent,
@@ -13,7 +17,6 @@ import { syncBufferWithDisk } from '@/features/workspace/lib/external-buffer-syn
 import { readWorkspaceFile } from '@/features/file-system/controllers/platform'
 import { isNotFoundError } from '@/lib/api'
 import { loadSidebarUI } from './sidebar-ui'
-import { loadAllWorkspaceHierarchies } from './workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
 
 export interface WorkspaceHydrationResult {
@@ -26,15 +29,48 @@ export interface WorkspaceHydrationResult {
  * replaced a frame later crashes.
  */
 export async function hydrateWindowPaneLayout(): Promise<void> {
-  const layout = await loadWindowPaneLayout()
-  if (!layout) return
-  const buffers = (layout.buffers ?? []).map(restoreBufferDirtyState)
+  const stored = await loadWindowPaneLayout()
+  if (!stored) return
+  const layout = await upgradeWindowPaneLayout(stored)
   const restored = restoreWindowPaneState(layout)
-  windowPaneStore.setState(
-    restored
-      ? { ...restored, activeProjectId: windowPaneStore.getState().activeProjectId, buffers }
-      : { buffers },
-  )
+  if (!restored) return
+  const { panes, buffers } = validateLoadedBuffers({
+    panes: restored.panes,
+    buffers: layout.buffers ?? [],
+  })
+  windowPaneStore.setState({
+    ...restored,
+    panes,
+    activeProjectId: windowPaneStore.getState().activeProjectId,
+    buffers: buffers.map(restoreBufferDirtyState),
+  })
+}
+
+/**
+ * The one load-time upgrade of an older saved layout to the current shape.
+ *
+ * v1 → v2: a chat pane records the workspace its chat belongs to. A v1 pane
+ * carries only the chat id, so the workspace is read from the chat's own
+ * cached record (the daemon's answer, `crowbar_chats`). A member whose chat
+ * the cache does not know cannot be given a workspace without guessing, so it
+ * is not restored; a view left without members goes with it (repair).
+ */
+export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
+  if ((layout.version ?? 1) >= WINDOW_LAYOUT_VERSION) return layout
+  const owner = new Map<string, string>()
+  for (const chat of await getAllEntities<ChatDTO>('crowbar_chats')) {
+    if (chat.workspaceId) owner.set(chat.id, chat.workspaceId)
+  }
+  const panes: Record<string, PaneGroup> = {}
+  for (const [id, pane] of Object.entries(layout.panes ?? {})) {
+    if (!pane.chatId) {
+      panes[id] = { ...pane, workspaceId: null }
+      continue
+    }
+    const workspaceId = pane.workspaceId || owner.get(pane.chatId)
+    if (workspaceId) panes[id] = { ...pane, workspaceId }
+  }
+  return { ...layout, panes, version: WINDOW_LAYOUT_VERSION }
 }
 
 /**
@@ -164,34 +200,13 @@ function setBufferFileMissing(workspaceId: string, path: string, fileMissing: bo
 }
 
 export async function hydrateSidebar(): Promise<void> {
-  const [sidebarUI, hierarchies] = await Promise.all([
-    loadSidebarUI(),
-    loadAllWorkspaceHierarchies(),
-  ])
-
-  if (sidebarUI) {
-    // `collapsedRepos`/`collapsedWorkspaces`/`collapsedProjects` are retired
-    // keys the pre-restyle tree wrote (see schemas.ts) — never replayed.
-    useSidebarStore.setState({
-      // Absent on a record written before the Chats panel was collapsible —
-      // replays as "nothing folded", the product default (see schemas.ts).
-      collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
-    })
-  }
-
-  if (hierarchies.length > 0) {
-    useSidebarStore.setState((s) => ({
-      repos: s.repos.map((repo) => {
-        const hierarchy = hierarchies.find((h) => h.repoId === repo.id)
-        if (!hierarchy) return repo
-        const entryMap = new Map(hierarchy.entries.map((e) => [e.wsId, e.parentId]))
-        return {
-          ...repo,
-          workspaces: repo.workspaces.map((ws) =>
-            entryMap.has(ws.id) ? { ...ws, parentId: entryMap.get(ws.id) } : ws,
-          ),
-        }
-      }),
-    }))
-  }
+  const sidebarUI = await loadSidebarUI()
+  if (!sidebarUI) return
+  // `collapsedRepos`/`collapsedWorkspaces`/`collapsedProjects` are retired
+  // keys the pre-restyle tree wrote (see schemas.ts) — never replayed.
+  useSidebarStore.setState({
+    // Absent on a record written before the Chats panel was collapsible —
+    // replays as "nothing folded", the product default (see schemas.ts).
+    collapsedChatRows: new Set(sidebarUI.collapsedChatRows ?? []),
+  })
 }

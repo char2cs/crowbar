@@ -37,7 +37,8 @@ import { ProviderIcon } from '@/components/ui/provider-icon'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
-import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { useRegisteredWorkspaceStore } from '@/features/workspace/stores/hooks/use-workspace-store-by-id'
 import type { IdentityDTO } from '@/features/git/api/identity-api'
 import type {
   ReviewMessage,
@@ -149,7 +150,7 @@ function resolveAuthorDisplay(
  * caller renders exactly what it rendered before attribution existed.
  */
 function useAgentAttribution(wsId: string, message: ReviewMessage): AgentAttribution {
-  const store = getOrCreateWorkspaceStore(wsId)
+  const store = useRegisteredWorkspaceStore(wsId)
   const providerId = message.providerId ?? ''
   const chatId = message.chatId ?? ''
 
@@ -360,9 +361,10 @@ function MessageRow({
 }
 
 function openReviewChat(wsId: string, chatId: string): void {
-  getOrCreateWorkspaceStore(wsId).getState().setActiveAgentChatId(chatId)
+  getWorkspaceStore(wsId)?.getState().setActiveAgentChatId(chatId)
   windowPaneStore.getState().paneActions.openChat(chatId, {
     projectId: resolveChatProjectId(chatId, wsId) ?? undefined,
+    workspaceId: wsId,
   })
 }
 

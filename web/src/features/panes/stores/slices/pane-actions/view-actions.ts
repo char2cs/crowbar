@@ -18,7 +18,9 @@ import {
   showView,
   touchPane,
   viewChatIds,
+  viewMembers,
 } from '@/features/panes/lib/view-state'
+import type { ViewMember } from '@/features/panes/types/pane'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import type { PaneActions } from '../pane-slice'
 import type { PaneGet, PaneSet } from './context'
@@ -37,8 +39,10 @@ type ViewActions = Pick<
 
 /** The row lifecycle: open, detach, close, reorder, activate, project switch. */
 export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
-  const release = (chatIds: readonly string[]) => {
-    for (const chatId of chatIds) void releaseClosedChat(chatId, () => get().panes)
+  const release = (members: readonly ViewMember[]) => {
+    for (const { chatId, workspaceId } of members) {
+      void releaseClosedChat(chatId, workspaceId, () => get().panes)
+    }
   }
 
   return {
@@ -53,11 +57,12 @@ export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
         const foreign =
           !!projectId && !!state.activeProjectId && projectId !== state.activeProjectId
         const runnerId = opts.runnerId ?? null
+        const workspaceId = opts.workspaceId ?? null
 
         if (!foreign && state.activeViewId === null) {
           const leaves = getAllLeafIds(state.stage)
           const target = leaves.includes(state.activePaneId) ? state.activePaneId : leaves[0]
-          const viewId = fillPane(state, target, chatId, runnerId, projectId)
+          const viewId = fillPane(state, target, chatId, runnerId, projectId, workspaceId)
           if (viewId) {
             showView(state, viewId, target)
             return
@@ -65,10 +70,14 @@ export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
         }
 
         const paneId = nanoid()
-        const viewId = insertPane(state, makePane(paneId, null, { chatId, runnerId }), {
-          kind: 'view',
-          projectId,
-        })
+        const viewId = insertPane(
+          state,
+          makePane(paneId, null, { chatId, runnerId, workspaceId }),
+          {
+            kind: 'view',
+            projectId,
+          },
+        )
         if (!viewId) return
         if (foreign) {
           state.activeViewByProject[projectId] = viewId
@@ -97,19 +106,19 @@ export function createViewActions(set: PaneSet, get: PaneGet): ViewActions {
     },
 
     closePane(paneId) {
-      const chatId = get().panes[paneId]?.chatId ?? null
+      const pane = get().panes[paneId]
       set((state) => {
         removePane(state, paneId)
       })
-      if (chatId) release([chatId])
+      if (pane?.chatId) release([{ chatId: pane.chatId, workspaceId: pane.workspaceId ?? null }])
     },
 
     closeView(viewId) {
-      const chatIds = viewChatIds(get(), viewId)
+      const members = viewMembers(get(), viewId)
       set((state) => {
         removeView(state, viewId)
       })
-      release(chatIds)
+      release(members)
     },
 
     reorderView(viewId, targetId, mode) {

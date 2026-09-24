@@ -59,8 +59,6 @@ import {
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import { EditorManager } from '@/features/editor/lib/editor-manager'
 import { ModelRegistry } from '@/features/editor/lib/model-registry'
-import { blameKey, useGitBlameStore } from '@/features/git/stores/git-blame-store'
-import { success } from '@/lib/loadable'
 
 // Task 4b: Monaco loads via a dynamic-import seam on first ACTUAL editor need
 // (EditorPane mount → store.armEditor()), NOT at store creation. createWorkspaceStore
@@ -147,35 +145,14 @@ describe('workspace-store editor arming seam', () => {
       content: 'hello',
       workspaceId: wsId,
     })
-    const closedId = windowPaneStore.getState().bufferActions.openContent({
-      type: 'editor',
-      path: '/already-closed.ts',
-      name: 'already-closed.ts',
-      content: 'hello',
-      workspaceId: wsId,
-    })
-    // Detach the second buffer from every pane WITHOUT sweeping it from the
-    // flat buffer list — the exact "closed everywhere, not yet swept" case
-    // the teardown's own buffers filter targets — so the async teardown has
-    // real, independently-observable work to do: it clears this buffer's cached
-    // blame, which this test can wait on for a real completion signal instead
-    // of a sleep.
-    windowPaneStore
-      .getState()
-      .paneActions.removeEditorTabFromPane(windowPaneStore.getState().activePaneId, closedId)
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toContain(openId)
-    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(closedId)
-
-    const key = blameKey(wsId, '/already-closed.ts')
-    useGitBlameStore.setState({ blame: { [key]: success([]) } })
 
     destroyWorkspaceStore(wsId)
 
-    // The async teardown (dynamic-imports window-pane-store) schedules the
-    // blame clear for the no-longer-referenced buffer and evaluates the
-    // disposeAll gate in the SAME callback — once the clear has landed, that
-    // gate has necessarily already been evaluated too.
-    await vi.waitFor(() => expect(useGitBlameStore.getState().blame[key]).toBeUndefined())
+    // The teardown's own dynamic import settles before the gate runs.
+    await import('@/features/panes/stores/window-pane-store')
+    await Promise.resolve()
+    await Promise.resolve()
     expect(disposeAll).not.toHaveBeenCalled()
   })
 

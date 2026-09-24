@@ -649,22 +649,23 @@ const TabBar = ({
                     isBottomPane={isBottomPane}
                     onNewFile={() => {
                       if (!wsId) return
-                      setActivePane(paneId)
-                      ensurePaneChatThenOpen(wsId, paneId, () => {
-                        openContent({
-                          type: 'editor',
-                          path: 'untitled:Untitled',
-                          name: 'Untitled',
-                          content: '',
-                          isVirtual: true,
-                        })
+                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
+                        openContent(
+                          {
+                            type: 'editor',
+                            path: 'untitled:Untitled',
+                            name: 'Untitled',
+                            content: '',
+                            isVirtual: true,
+                          },
+                          { paneId: target },
+                        )
                       })
                     }}
                     onNewTerminal={() => {
                       if (!wsId) return
-                      setActivePane(paneId)
-                      ensurePaneChatThenOpen(wsId, paneId, () => {
-                        openContent({ type: 'terminal' })
+                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
+                        openContent({ type: 'terminal' }, { paneId: target })
                       })
                     }}
                   />
