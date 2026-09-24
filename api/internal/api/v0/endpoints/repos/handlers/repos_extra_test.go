@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,6 +22,7 @@ import (
 	repohandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/repos/handlers"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 // ---------------------------------------------------------------------------
@@ -384,7 +384,7 @@ func TestRegression_Branches_ProtectionLookupFailureIsNotUnprotected(t *testing.
 	r.GET("/v0/repos/:repoId/branches", h.Branches)
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v0/repos/r1/branches", http.NoBody))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v0/repos/r1/branches", http.NoBody))
 
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
 }
