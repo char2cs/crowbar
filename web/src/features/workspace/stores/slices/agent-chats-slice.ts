@@ -4,6 +4,7 @@ import type {
   AgentChat,
   AgentChatFolder,
   AgentProvider,
+  AgentTelemetry,
   AgentTerminalWait,
 } from '@/features/agent/api/agent-api'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
@@ -216,6 +217,12 @@ export interface AgentChatsState {
    * view of it, not a record.
    */
   streamingPlan: Record<string, { text: string; status: string }[]>
+  /**
+   * The provider's newest usage report per chat — context, rate limits, cost.
+   * Written by the `telemetry` frame the daemon pushes as each report lands, and
+   * once by the gauge's own first read; never polled.
+   */
+  telemetry: Record<string, AgentTelemetry>
   /** Monotonic notification counter. It advances for every server turn state
    *  write even when React batches a fast true→false pair into one render, and
    *  on an authoritative reconnect reseed because a complete idle→idle turn
@@ -299,6 +306,8 @@ export interface AgentChatsSlice {
     chatId: string,
     steps: { text: string; status: string }[] | null,
   ) => void
+  /** Replace (or clear, with null) the provider's newest usage report. */
+  setAgentChatTelemetry: (chatId: string, report: AgentTelemetry | null) => void
   /** Drop the given ids' entries once the ledger has recorded them for real —
    *  see useChatMessages' streamingBubbles for the matching id computation
    *  this is the store-side twin of. NOT a blanket clear on a turn boundary:
@@ -362,6 +371,7 @@ export const INITIAL_AGENT_CHATS_STATE: AgentChatsState = {
   streamingReasoning: {},
   streamingToolOutput: {},
   streamingPlan: {},
+  telemetry: {},
   turnRevision: {},
   excalidrawEditRequests: {},
   order: [],
@@ -602,6 +612,7 @@ export const createAgentChatsSlice: StateCreator<
       delete s.agentChats.streamingReasoning[chatId]
       delete s.agentChats.streamingToolOutput[chatId]
       delete s.agentChats.streamingPlan[chatId]
+      delete s.agentChats.telemetry[chatId]
       delete s.agentChats.turnRevision[chatId]
       delete s.agentChats.excalidrawEditRequests[chatId]
       s.agentChats.order = s.agentChats.order.filter((id) => id !== chatId)
@@ -701,6 +712,12 @@ export const createAgentChatsSlice: StateCreator<
         return
       }
       s.agentChats.streamingPlan[chatId] = steps
+    }),
+
+  setAgentChatTelemetry: (chatId, report) =>
+    set((s) => {
+      if (report) s.agentChats.telemetry[chatId] = report
+      else delete s.agentChats.telemetry[chatId]
     }),
 
   pruneAgentChatStreamingMessages: (chatId, ids) =>

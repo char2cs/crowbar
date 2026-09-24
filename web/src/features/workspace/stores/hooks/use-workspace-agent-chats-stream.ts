@@ -6,6 +6,7 @@ import {
   getChat,
   listProviders,
   listChatFolders,
+  type AgentTelemetry,
   type AgentTerminalWait,
 } from '@/features/agent/api/agent-api'
 import {
@@ -78,6 +79,13 @@ export const NON_STRUCTURAL_CHAT_KINDS: ReadonlySet<string> = new Set([
   'terminal_wait',
   'prompt_settled',
   'session_bound',
+  // The live views of a turn in progress: the plan, the compaction edge and the
+  // usage gauge. Each rides its whole payload and moves no row; treating them
+  // as structural reseeded a repo's chat list on every plan restatement.
+  'plan',
+  'compaction_started',
+  'compaction_stopped',
+  'telemetry',
   // `worktree_state` belongs here for exactly the reason the three hot kinds
   // above do. It carries the git state of the worktree a chat owns — diff
   // counts, PR state, lock status — and it is emitted from the same push site
@@ -149,6 +157,7 @@ interface AgentStreamEvent {
     | 'plan'
     | 'compaction_started'
     | 'compaction_stopped'
+    | 'telemetry'
     | 'title_set'
     // A row MOVED in the tree — dragged into a folder, threaded under another
     // chat, or renumbered by the dense renumber a sibling's move triggered.
@@ -251,6 +260,9 @@ interface AgentStreamEvent {
    * merges and a missed frame costs nothing.
    */
   plan?: { text: string; status: string }[]
+  /** The provider's newest usage report, on the `telemetry` kind — pushed as it
+   *  lands so no client polls for it. */
+  telemetry?: AgentTelemetry
 }
 
 /**
@@ -846,6 +858,9 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
         case 'plan':
           // Wholesale replace: see the frame's own doc above.
           st.setAgentChatStreamingPlan(ev.chatId, ev.plan ?? null)
+          return
+        case 'telemetry':
+          st.setAgentChatTelemetry(ev.chatId, ev.telemetry ?? null)
           return
         case 'compaction_started':
           // The ledger's own interruption record for this is born already
