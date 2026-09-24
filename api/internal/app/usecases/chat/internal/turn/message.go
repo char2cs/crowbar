@@ -92,12 +92,15 @@ func assistantTurnID(messageID string) string { return "msg-" + messageID }
 // bounded, on a channel nothing else holds — is what tells "the increment is
 // still in flight" apart from "there truly was none." A no-op, with no wait,
 // whenever something is already open or the hook reports no text at all.
-func (t *Turns) awaitStreamed(chatID, runnerID, hookText string) []stream.Message {
+func (t *Turns) awaitStreamed(ctx context.Context, chatID, runnerID, hookText string) []stream.Message {
 	streamed := t.messages.Open(chatID, runnerID)
 	if len(streamed) > 0 || hookText == "" {
 		return streamed
 	}
-	return t.messages.AwaitOpen(chatID, runnerID, t.messageAwaitTimeout)
+	stepOutOfHookGate(ctx, func() {
+		streamed = t.messages.AwaitOpen(chatID, runnerID, t.messageAwaitTimeout)
+	})
+	return streamed
 }
 
 func (t *Turns) closeAssistantTurn(
@@ -109,7 +112,7 @@ func (t *Turns) closeAssistantTurn(
 	// Runner-scoped: a DIFFERENT runner's still-open message (an interrupted
 	// turn, still gracefully finishing after a provider switch) must never
 	// be swept up and recorded under THIS runner's provider.
-	streamed := t.awaitStreamed(chat.ID, runner.ID, ev.Message)
+	streamed := t.awaitStreamed(ctx, chat.ID, runner.ID, ev.Message)
 	defer t.messages.Forget(chat.ID, runner.ID)
 	// The thinking and the tool output belonged to the turn that is now ending,
 	// and the answer has superseded them. Nothing durable is dropped here — a live
