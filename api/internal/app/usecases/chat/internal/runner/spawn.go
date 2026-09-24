@@ -85,7 +85,10 @@ func (rs *Runners) spawnRunner(
 	launchSessionID string,
 	create bool,
 	promptMessage string,
-) (string, error) {
+) (_ string, err error) {
+	if !create {
+		defer rs.noteSpawnFailure(ctx, chatID, &err)
+	}
 	pre, err := rs.spawnPreflight(ctx, chatID, providerID, create)
 	if err != nil {
 		return "", err

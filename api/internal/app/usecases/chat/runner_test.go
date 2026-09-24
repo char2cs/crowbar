@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -5057,6 +5058,55 @@ func TestResumeLadder_AResumeTheCLIRefusesIsQuarantined(t *testing.T) {
 	argv := f.term.calls[f.term.callCount()-1].argv
 	assert.NotContains(t, argv, "--resume", "a refused session is quarantined")
 	assert.Contains(t, strings.Join(argv, "\x00"), "before the corruption")
+}
+
+// The prompt a refused resume carried was never read by its CLI, so the daemon
+// delivers it again on the next rung — the user never retries by hand.
+func TestResumeLadder_ARefusedResumesPromptIsDeliveredOnTheTranscriptRung(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-refused")
+	turn(t, f, runnerID, "claude", "what came before")
+	requestID := uuid.NewString()
+
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "carry on", requestID, "", nil)
+	require.NoError(t, err)
+	f.wait()
+	calls := f.term.callCount()
+	f.term.exit(t, result.TerminalSessionID) // refuses: dies before any session_start
+
+	var argv []string
+	require.Eventually(t, func() bool {
+		for i := f.term.callCount() - 1; i >= calls; i-- {
+			if call := f.term.call(i); slices.Contains(call.argv, "carry on") {
+				argv = call.argv
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, time.Millisecond, "the refused prompt is delivered again")
+	assert.NotContains(t, argv, "--resume", "never the refused session again")
+	assert.Contains(t, strings.Join(argv, "\x00"), "what came before", "handed the conversation so far")
+	require.Eventually(t, func() bool {
+		return agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).Rung == domain.AgentRungTranscript
+	}, 5*time.Second, time.Millisecond, "the chat says which rung it continued on")
+}
+
+// A replacement that cannot start leaves the chat dormant saying so — never a
+// silent dormancy, and never the "displaced" of the runner it replaced.
+func TestSessionExit_AReplacementThatCannotStartRecordsSpawnFailed(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-before")
+	turn(t, f, runnerID, "claude", "an answer")
+	f.term.err = errors.New("pty: out of descriptors")
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	require.Error(t, err)
+
+	_, err = f.liveRunnerFor(t, chatID)
+	require.ErrorIs(t, err, agentrunner.ErrNotFound)
+	assert.Equal(t, domain.AgentExitSpawnFailed, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
 }
 
 // A /clear takes the CLI to a new conversation: the chat it left says so.

@@ -197,6 +197,33 @@ func TestJournal_MarkFailedDispatchAllowsASameIDRetry(t *testing.T) {
 	assert.False(t, existing, "a proven pre-spawn failure is safe to retry")
 }
 
+func TestJournal_MarkRefusedLetsASpawnedRecordBeDeliveredAgain(t *testing.T) {
+	j, dir := journal(t)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
+	require.NoError(t, err)
+	_, err = j.MarkSpawned(dir, "req-1", "hash", "new", "term-1", jnow)
+	require.NoError(t, err)
+
+	require.NoError(t, j.MarkRefused(dir, "req-1", jnow))
+
+	_, existing, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new2", jnow)
+	require.NoError(t, err)
+	assert.False(t, existing, "a process that refused before reading the prompt never had it")
+}
+
+func TestJournal_MarkRefusedLeavesAnAcceptedRecordAlone(t *testing.T) {
+	j, dir := journal(t)
+	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)
+	require.NoError(t, err)
+	require.NoError(t, j.ConfirmAccepted(dir, "new", "claude", "hash", jnow))
+
+	require.NoError(t, j.MarkRefused(dir, "req-1", jnow))
+
+	record, _, err := agentjournal.ReadPromptRequest(dir, "req-1")
+	require.NoError(t, err)
+	assert.Equal(t, agentjournal.PromptStateAccepted, record.State)
+}
+
 func TestJournal_MarkUncertainLeavesTheOutcomeUnknown(t *testing.T) {
 	j, dir := journal(t)
 	_, _, err := j.Begin(dir, "req-1", "", "hash", "claude", "out", "new", jnow)

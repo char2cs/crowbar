@@ -129,6 +129,14 @@ type PromptRequests interface {
 		requestID string,
 		now time.Time,
 	) error
+	// MarkRefused fails a dispatching or spawned record whose process PROVABLY
+	// never read the prompt (it refused its resume and exited before announcing
+	// any session), so the same request id may be delivered again.
+	MarkRefused(
+		dir string,
+		requestID string,
+		now time.Time,
+	) error
 	// MarkAccepted accepts a record by request id. An unknown id is an error:
 	// accepting a request nobody journalled is a caller bug, not a state.
 	MarkAccepted(
@@ -446,6 +454,25 @@ func (s *promptRequests) MarkFailedDispatch(
 		return err
 	}
 	if record.State != PromptStateDispatching {
+		return nil
+	}
+	record.State = PromptStateFailed
+	record.UpdatedAt = now.UTC()
+	return s.write(dir, record)
+}
+
+func (s *promptRequests) MarkRefused(
+	dir string,
+	requestID string,
+	now time.Time,
+) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, found, err := readPromptRequest(dir, requestID)
+	if err != nil || !found {
+		return err
+	}
+	if record.State != PromptStateSpawned && record.State != PromptStateDispatching {
 		return nil
 	}
 	record.State = PromptStateFailed

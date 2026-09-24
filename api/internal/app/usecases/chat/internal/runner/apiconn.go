@@ -373,6 +373,7 @@ func (rs *Runners) HasLiveAPIConnection(runnerID string) bool {
 // below that. Called once, at daemon shutdown — see ShutdownAPIConnections
 // in the chat usecase and shutdownAgentRunners in app/container.go.
 func (rs *Runners) Shutdown() {
+	rs.background.stop()
 	rs.apiConns.closeAll()
 }
 

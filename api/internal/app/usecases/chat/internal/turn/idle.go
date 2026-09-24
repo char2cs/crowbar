@@ -81,3 +81,13 @@ func (t *Turns) ProviderIdleSince(chatID string) (time.Time, bool) {
 // an armed latch means "the provider says it is done and Crowbar has not noticed",
 // and the moment Crowbar notices — or a new turn begins — that is no longer true.
 func (t *Turns) ForgetIdle(chatID string) { t.idle.clear(chatID) }
+
+// ForgetChat drops every piece of in-memory turn state held for chatID: the
+// chat is being erased (A7), and none of it may outlive the chat.
+func (t *Turns) ForgetChat(chatID string) {
+	t.idle.clear(chatID)
+	t.live.forget(chatID)
+	t.messages.ForgetChat(chatID)
+	t.compacting.forget(chatID)
+	t.manualCompact.consume(chatID)
+}

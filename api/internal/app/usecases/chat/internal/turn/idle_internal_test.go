@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn/internal/stream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,4 +60,27 @@ func TestIdleLatch_NilIsSafe(t *testing.T) {
 func armed(l *idleLatch, chatID string) bool {
 	_, ok := l.at(chatID)
 	return ok
+}
+
+// A7: erasing a chat leaves nothing the turn ingress held for it in memory.
+func TestTurns_ForgetChatDropsEveryPerChatEntry(t *testing.T) {
+	turns := &Turns{
+		idle: newIdleLatch(), live: newLiveText(), messages: stream.New(),
+		compacting: newCompactionTurns(), manualCompact: newManualCompactRequests(),
+	}
+	turns.idle.arm("c1", time.Unix(100, 0))
+	turns.live.observe("c1", "reasoning", "b1", 0, "thinking")
+	turns.messages.Observe("c1", "r1", "t1", "m1", 0, false, false, "partial", time.Unix(100, 0))
+	turns.compacting.arm("c1", "turn-compact")
+	turns.manualCompact.arm("c1")
+
+	turns.ForgetChat("c1")
+
+	_, idle := turns.idle.at("c1")
+	_, live := turns.live.sinceLastDelta("c1")
+	assert.False(t, idle)
+	assert.False(t, live)
+	assert.Empty(t, turns.messages.UnfinishedAcrossRunners("c1"))
+	assert.False(t, turns.compacting.consume("c1", "turn-compact"))
+	assert.False(t, turns.manualCompact.peek("c1"))
 }

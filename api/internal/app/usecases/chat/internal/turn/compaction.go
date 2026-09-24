@@ -104,6 +104,16 @@ func (c *compactionTurns) consume(chatID, turnID string) bool {
 	return true
 }
 
+// forget drops chatID's armed compaction turn, if any.
+func (c *compactionTurns) forget(chatID string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.byChat, chatID)
+}
+
 // manualCompactRequests remembers which chat's NEXT compaction round trip was
 // asked for by Crowbar itself — the compact button — for a provider whose own
 // wire event carries no trigger at all. codex's contextCompaction item is

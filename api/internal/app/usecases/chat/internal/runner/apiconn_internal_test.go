@@ -33,6 +33,7 @@ func (noopTurns) IngestHook(context.Context, string, string, string, []byte) err
 }
 
 func (noopTurns) ReplayStartupHook(string, inflight.Hook) {}
+func (noopTurns) ForgetChat(string)                       {}
 
 func (noopTurns) AwaitTurnComplete(context.Context, string) error { return nil }
 

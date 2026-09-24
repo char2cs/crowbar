@@ -109,6 +109,8 @@ type Turns interface {
 		canonicalEvent string,
 		rawPayload []byte,
 	) error
+	// ForgetChat drops every piece of in-memory turn state held for chatID.
+	ForgetChat(chatID string)
 	// ReplayStartupHook ingests one hook that arrived before the runner row
 	// existed, now that it does.
 	ReplayStartupHook(runnerID string, hook inflight.Hook)

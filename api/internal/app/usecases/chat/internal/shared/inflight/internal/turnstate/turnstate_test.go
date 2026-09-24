@@ -217,3 +217,24 @@ func TestWork_ChatsAreIndependent(t *testing.T) {
 		t.Fatal("setting one chat's work state made another chat known")
 	}
 }
+
+// A7: erasing a chat drops its entries and wakes anyone still waiting on it.
+func TestWorkAndTurns_ForgetWakesWaitersAndDropsTheChat(t *testing.T) {
+	t.Parallel()
+
+	work := turnstate.NewWork()
+	work.Set("chat-1", true)
+	_, _, workChanged := work.Observe("chat-1")
+	turns := turnstate.NewTurns()
+	_, turnChanged := turns.Watch("chat-1")
+
+	work.Forget("chat-1")
+	turns.Forget("chat-1")
+
+	if !closed(workChanged) || !closed(turnChanged) {
+		t.Fatal("a waiter on an erased chat was left parked")
+	}
+	if working, known, _ := work.Observe("chat-1"); working || known {
+		t.Fatalf("Observe after Forget = working %v known %v, want a fresh unknown state", working, known)
+	}
+}

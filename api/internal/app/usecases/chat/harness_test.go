@@ -230,6 +230,12 @@ func (f *fakeCommander) callCount() int {
 	return len(f.calls)
 }
 
+func (f *fakeCommander) call(i int) commandCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[i]
+}
+
 // terminatedIDs returns every session id TerminateGraceful successfully tore down.
 func (f *fakeCommander) terminatedIDs() []string {
 	f.mu.Lock()
@@ -1387,6 +1393,8 @@ func newFixtureUsing(
 	// this package tests, it just stops every turn_stop-with-nothing-streamed
 	// call from sitting idle for the full 3s.
 	agentusecase.SetMessageAwaitTimeout(u, time.Millisecond)
+	// The supervisor's background work ends before the stores it writes close.
+	t.Cleanup(u.ShutdownAPIConnections)
 	f := testFixture{
 		ctx: context.Background(),
 		usecase: &harnessUsecase{
