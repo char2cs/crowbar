@@ -5220,7 +5220,19 @@ var sessionOps = []sessionOp{
 	}},
 	{"stop", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
-		_ = f.usecase.StopChat(f.ctx, w.chatID)
+		// S4: Stop is bounded and leaves no turn open.
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+			_ = f.usecase.StopChat(f.ctx, w.chatID)
+		}()
+		select {
+		case <-stopped:
+		case <-time.After(10 * time.Second):
+			t.Fatal("S4: Stop did not return")
+		}
+		f.wait()
+		assert.False(t, f.chat(t, w.chatID).Working, "S4: a stopped chat is left working")
 	}},
 	{"switch", func(t *testing.T, f testFixture, w *sessionWalk) {
 		t.Helper()
@@ -5247,6 +5259,15 @@ var sessionOps = []sessionOp{
 		if r, ok := w.live(t, f); ok {
 			w.sessions++
 			f.announce(t, r.ID, fmt.Sprintf("walk-%s-%d", w.chatID[:8], w.sessions))
+		}
+	}},
+	{"prompt", func(t *testing.T, f testFixture, w *sessionWalk) {
+		t.Helper()
+		// A turn the CLI opened and has not finished: whatever comes next must close it.
+		if r, ok := w.live(t, f); ok && f.sessions[r.ID] != "" {
+			payload := map[string]any{"prompt": "typed in the terminal"}
+			f.withTrackedSession(r.ID, payload)
+			require.NoError(t, f.usecase.IngestHook(f.ctx, r.ID, r.ProviderID, "user_prompt", mustJSON(t, payload)))
 		}
 	}},
 	{"turn", func(t *testing.T, f testFixture, w *sessionWalk) {
@@ -5292,9 +5313,61 @@ func checkSessionInvariants(t *testing.T, f testFixture, w *sessionWalk, trail [
 		assert.Equal(t, 1, n, "S1 session %s, after %v", session, trail)
 	}
 	// S2: a chat with no runner says why its last one ended.
+	// S3: and has no turn left open — nothing is left that could close it.
 	if _, ok := w.live(t, f); !ok {
 		assert.NotEmpty(t, agentusecase.ChatSession(f.usecase.RunnerUsecase, w.chatID).ExitReason,
 			"S2, after %v", trail)
+		assert.False(t, f.chat(t, w.chatID).Working, "S3, after %v", trail)
+	}
+}
+
+// concurrentOps are the user's own intents, which really do race each other
+// from different tabs and clients.
+var concurrentOps = []string{"send", "stop", "switch", "resume", "crash"}
+
+func sessionOpNamed(name string) sessionOp {
+	for _, op := range sessionOps {
+		if op.name == name {
+			return op
+		}
+	}
+	panic("no session op " + name)
+}
+
+// Two intents at once — a send racing a stop, a switch racing a resume — leave
+// the same invariants standing. Run under -race.
+func TestSessionInvariants_HoldWhenIntentsRace(t *testing.T) {
+	for seed := uint64(1); seed <= 10; seed++ {
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			f := newFixture(t)
+			agentusecase.SetSwitchAwaitTimeout(f.usecase.RunnerUsecase, 10*time.Millisecond)
+			rng := rand.New(rand.NewPCG(seed, seed))
+			w := &sessionWalk{provider: "claude"}
+			var runnerID string
+			w.chatID, runnerID = f.spawn(t, w.provider)
+			f.announce(t, runnerID, "race-"+w.chatID[:8])
+			var trail []string
+			for range 20 {
+				a := sessionOpNamed(concurrentOps[rng.IntN(len(concurrentOps))])
+				b := sessionOpNamed(concurrentOps[rng.IntN(len(concurrentOps))])
+				trail = append(trail, a.name+"|"+b.name)
+				// Each goroutine reads its own copy: a switch flips the walk's provider.
+				wa, wb := *w, *w
+				var both sync.WaitGroup
+				both.Add(2)
+				go func() { defer both.Done(); a.do(t, f, &wa) }()
+				go func() { defer both.Done(); b.do(t, f, &wb) }()
+				both.Wait()
+				f.wait()
+				if live, ok := w.live(t, f); ok {
+					w.provider = live.ProviderID
+				}
+				checkSessionInvariants(t, f, w, trail)
+				if t.Failed() {
+					return
+				}
+			}
+		})
 	}
 }
 
