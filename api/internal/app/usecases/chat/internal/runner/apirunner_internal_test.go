@@ -174,7 +174,7 @@ func (h *spawnHarness) seedLiveAPIConn(t *testing.T, runnerID string) *exec.Cmd 
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	h.rs.apiConns.set(runnerID, &apiconn{serveCmd: cmd, ctx: ctx, cancel: cancel})
+	h.rs.apiConns.set(runnerID, &apiconn{serve: reapServe(cmd), ctx: ctx, cancel: cancel})
 	return cmd
 }
 
@@ -456,7 +456,7 @@ func (h *spawnHarness) seedAdoptableAPIConn(
 	require.NoError(t, cmd.Start())
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	h.rs.apiConns.set(runnerID, &apiconn{
-		serveCmd: cmd, driver: driver, ctx: ctx, cancel: cancel, agent: agent,
+		serve: reapServe(cmd), driver: driver, ctx: ctx, cancel: cancel, agent: agent,
 		tctx: engineagents.TemplateCtx{Session: established["session_id"], Cwd: "/work"},
 	})
 }

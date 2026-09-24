@@ -205,11 +205,11 @@ func (rs *Runners) rearmAPIConnExit(runnerID string, tctx engineagents.TemplateC
 // that this spawn has no liveness signal at all and must not be recorded.
 func (r *apiConnRegistry) watchExit(runnerID string, onExit func()) bool {
 	c, ok := r.get(runnerID)
-	if !ok || c.serveCmd == nil || c.serveCmd.Process == nil {
+	if !ok || c.serve == nil {
 		return false
 	}
 	go func() {
-		_ = c.serveCmd.Wait()
+		<-c.serve.exited
 		if c.handedOver.Load() {
 			return // another process took this runner over — see handOverAPIConn
 		}

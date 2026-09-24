@@ -109,7 +109,7 @@ func TestWaitForSocket_DetectsTheSocketAppearing(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	assert.NoError(t, waitForSocket(ctx, sockPath))
+	assert.NoError(t, waitForSocket(ctx, sockPath, nil))
 	require.NoError(t, <-listening, "the test's own background listener must have bound cleanly")
 }
 
@@ -117,17 +117,17 @@ func TestWaitForSocket_RespectsContextCancellation(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	assert.Error(t, waitForSocket(ctx, filepath.Join(dir, "never.sock")))
+	assert.Error(t, waitForSocket(ctx, filepath.Join(dir, "never.sock"), nil))
 }
 
 func TestForkServeProcess_StartsARealProcess(t *testing.T) {
-	cmd, err := forkServeProcess([]string{"sleep", "5"})
+	serve, err := forkServeProcess([]string{"sleep", "5"})
 	require.NoError(t, err)
-	require.NotNil(t, cmd.Process)
-	defer func() { _ = cmd.Process.Kill() }()
+	require.NotNil(t, serve.cmd.Process)
+	defer serve.kill()
 
 	// The process is genuinely running, not merely constructed.
-	assert.NoError(t, cmd.Process.Signal(os.Interrupt))
+	assert.NoError(t, serve.cmd.Process.Signal(os.Interrupt))
 }
 
 func TestForkServeProcess_EmptyArgvIsAnError(t *testing.T) {
@@ -141,8 +141,17 @@ func TestAPIConnRegistry_DropKillsTheProcessAndClosesTheDriver(t *testing.T) {
 	require.NoError(t, cmd.Start())
 	pid := cmd.Process.Pid
 
-	reg.set("runner-1", &apiconn{serveCmd: cmd})
+	serve := reapServe(cmd)
+	reg.set("runner-1", &apiconn{serve: serve})
 	reg.drop("runner-1")
+
+	// Gone by the time drop returns: codex refuses a replacement resuming the
+	// thread while the old process still holds its writer lock.
+	select {
+	case <-serve.exited:
+	default:
+		t.Fatal("drop returned before the killed serve process was reaped")
+	}
 
 	// The process must actually be dead, not merely asked nicely.
 	require.Eventually(t, func() bool {
@@ -160,8 +169,8 @@ func TestAPIConnRegistry_CloseAllKillsEveryLiveProcess(t *testing.T) {
 	cmd2 := exec.Command("sleep", "5")
 	require.NoError(t, cmd2.Start())
 
-	reg.set("runner-1", &apiconn{serveCmd: cmd1})
-	reg.set("runner-2", &apiconn{serveCmd: cmd2})
+	reg.set("runner-1", &apiconn{serve: reapServe(cmd1)})
+	reg.set("runner-2", &apiconn{serve: reapServe(cmd2)})
 	reg.closeAll()
 
 	require.Eventually(t, func() bool {
