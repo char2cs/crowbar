@@ -23,15 +23,13 @@ interface TerminalTabProps {
   workspaceId: string
   initialCommand?: string
   workingDirectory?: string
-  remoteConnectionId?: string
   isActive?: boolean
   isVisible?: boolean
 }
 
-// Renders XtermTerminal directly — no portal indirection. The TerminalHost
-// portal mechanism (TerminalSlot → XtermPortal) is reserved for the bottom
-// panel terminal system where PTY sessions must survive pane rearrangements.
-// Workspace pane terminals don't have that constraint yet.
+// Renders XtermTerminal directly — no portal indirection: the pane container
+// keeps a terminal buffer's view mounted (visibility:hidden) across layout
+// changes, so its xterm and transport survive them.
 export function TerminalTab({
   sessionId,
   bufferId,
@@ -39,7 +37,6 @@ export function TerminalTab({
   workspaceId,
   initialCommand,
   workingDirectory,
-  remoteConnectionId,
   isActive = true,
   isVisible = true,
 }: TerminalTabProps) {
@@ -90,7 +87,6 @@ export function TerminalTab({
         onTerminalExit={handleTerminalExit}
         initialCommand={initialCommand}
         workingDirectory={workingDirectory}
-        remoteConnectionId={remoteConnectionId}
       />
     </div>
   )

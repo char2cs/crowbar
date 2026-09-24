@@ -154,9 +154,6 @@ vi.mock('@/components/ui/sonner', () => ({
 vi.mock('@/features/settings/components/font-style-injector', () => ({
   FontStyleInjector: () => null,
 }))
-vi.mock('@/features/terminal/components/terminal-host', () => ({
-  TerminalHost: () => null,
-}))
 
 describe('IDEShell', () => {
   beforeEach(() => {

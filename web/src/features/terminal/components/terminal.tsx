@@ -85,7 +85,6 @@ interface XtermTerminalProps {
   onTerminalExit?: (sessionId: string) => void
   initialCommand?: string
   workingDirectory?: string
-  remoteConnectionId?: string
   /**
    * Attach-only: this terminal is a view onto ONE specific pre-existing PTY and
    * must NEVER spawn a shell. When that PTY is not live on the daemon — on mount
@@ -146,7 +145,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   onTerminalExit,
   initialCommand,
   workingDirectory,
-  remoteConnectionId,
   attachOnly = false,
   onSessionGone,
   flush = false,
@@ -826,8 +824,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       // already defaults a new PTY's cwd to the workspace worktree. Only pass
       // an explicit working directory when one is actually known.
       const targetDirectory = workingDirectory || existingSession?.currentDirectory
-      // parseRemotePath does not expose connectionId in the stub; use only the passed remoteConnectionId
-      const effectiveRemoteConnectionId = remoteConnectionId || undefined
 
       // Derive the workspace base for attach/listLive paths. Prefer the OWNING
       // workspace (the workspaceId prop): with keep-alive, a hidden workspace's
@@ -872,13 +868,9 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       if (attachOnly) retainAttach(activeConnectionId)
 
       // Always sync the store so in-memory connectionId is up to date.
-      // Only include remoteConnectionId when it is actually defined — writing
-      // undefined would clobber a previously-stored value on a reuse where the
-      // prop is absent.
       updateSession(sessionId, {
         connectionId: activeConnectionId,
         currentDirectory: targetDirectory ?? undefined,
-        ...(effectiveRemoteConnectionId ? { remoteConnectionId: effectiveRemoteConnectionId } : {}),
       })
 
       // Persist the tab→connectionId mapping now (not only on workspace switch).
@@ -919,12 +911,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       // Re-fit after connection is established so onResize can notify the PTY
       fitTerminal(3)
 
-      window.dispatchEvent(
-        new CustomEvent('terminal-ready', {
-          detail: { terminalId: sessionId, connectionId: activeConnectionId },
-        }),
-      )
-
       onTerminalRef?.({
         focus: () => terminal.focus(),
         showSearch: () => setIsSearchVisible(true),
@@ -947,7 +933,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     onReady,
     onTerminalRef,
     releaseInitLock,
-    remoteConnectionId,
     sessionId,
     terminalCursorBlink,
     terminalCursorStyle,
@@ -1223,25 +1208,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       if (timer !== null) window.clearTimeout(timer)
     }
   }, [currentConnectionIdRef, isInitialized])
-
-  // Listen for portal-target changes from TerminalHost; force a fit + repaint
-  // so PTY/xterm dims match the new slot before any TUI relies on them.
-  // fitTerminal + sessionId read fresh through an Effect Event so this listener
-  // is registered once per init, not re-subscribed every time fitTerminal takes
-  // a new identity (tab switch, setting change). See useEffectEvent.
-  const onRefitRequest = useEffectEvent((event: Event) => {
-    const detail = (event as CustomEvent<{ sessionId: string }>).detail
-    if (!detail || detail.sessionId !== sessionId) return
-    fitTerminal(4)
-    const term = xtermRef.current
-    if (term) term.refresh(0, term.rows - 1)
-  })
-  useEffect(() => {
-    if (!isInitialized) return
-    const handler = (event: Event) => onRefitRequest(event)
-    window.addEventListener('crowbar-terminal-refit', handler)
-    return () => window.removeEventListener('crowbar-terminal-refit', handler)
-  }, [isInitialized])
 
   useEffect(() => {
     if (!addonsRef.current || !terminalContainerRef.current || !isInitialized) return
