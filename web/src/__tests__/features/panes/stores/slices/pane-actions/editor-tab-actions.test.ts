@@ -6,7 +6,17 @@ import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { editorTab, makePaneOnlyStore } from '@/__tests__/__fixtures__/view-state'
 
 type Buf = { id: string; type: string; workspaceId: string; [k: string]: unknown }
-const withBuffers = (buffers: Buf[]) => makePaneOnlyStore({ buffers })
+/** A store whose buffers are already listed by the root pane — a buffer
+ *  exists only while a pane lists it (invariant C2). */
+const withBuffers = (buffers: Buf[]) => {
+  const store = makePaneOnlyStore({ buffers, closedBuffersHistory: [] })
+  store.setState((s) => {
+    s.panes[ROOT_PANE_ID].editorTabIds = buffers.map((b) => b.id)
+    s.panes[ROOT_PANE_ID].activeEditorTabId = buffers[0]?.id ?? null
+    return s
+  })
+  return store
+}
 
 describe('editor tabs in a pane', () => {
   it('addEditorTabToPane adds, activates and opens the editor view', () => {
@@ -84,18 +94,22 @@ describe('editor tabs in a pane', () => {
     expect(activeOf()).toBeNull()
   })
 
-  it('never activates a tab whose content no longer exists', () => {
-    const store = withBuffers([
-      { id: 'tab-real', type: 'terminal', workspaceId: 'ws-test' },
-      { id: 'tab-active', type: 'terminal', workspaceId: 'ws-test' },
-    ])
+  it('refuses a tab that names no buffer — a tab id always names content (C2)', () => {
+    const store = withBuffers([{ id: 'tab-real', type: 'terminal', workspaceId: 'ws-test' }])
     const actions = store.getState().paneActions
-    for (const id of ['tab-real', 'tab-ghost', 'tab-active']) {
-      actions.addEditorTabToPane(ROOT_PANE_ID, editorTab(id, 'terminal'))
-    }
-    actions.activateEditorTabInPane(ROOT_PANE_ID, 'tab-active')
-    actions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-active')
+    actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('tab-ghost', 'terminal'))
+    expect(actions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['tab-real'])
     expect(actions.getPaneById(ROOT_PANE_ID)?.activeEditorTabId).toBe('tab-real')
+  })
+
+  it('the last pane letting go of a buffer releases it', () => {
+    const store = withBuffers([
+      { id: 'a', type: 'terminal', workspaceId: 'ws-test' },
+      { id: 'b', type: 'terminal', workspaceId: 'ws-test' },
+    ])
+    store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'a')
+    expect(store.getState().buffers.map((b) => b.id)).toEqual(['b'])
+    expect(store.getState().panes[ROOT_PANE_ID].activeEditorTabId).toBe('b')
   })
 
   it('losing the last tab collapses a chatless split pane out of the layout', () => {
@@ -160,8 +174,6 @@ describe('reorder / preview / pinned / cycling', () => {
       { id: 'b', type: 'editor', isPreview: false, workspaceId: 'ws-test' },
     ])
     const actions = store.getState().paneActions
-    actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('a'))
-    actions.addEditorTabToPane(ROOT_PANE_ID, editorTab('b'))
     const preview = (id: string) => store.getState().buffers.find((b) => b.id === id)?.isPreview
     actions.setEditorTabPreview(ROOT_PANE_ID, 'a')
     expect([preview('a'), preview('b')]).toEqual([true, false])
@@ -238,7 +250,7 @@ describe('editorManager model release (C1)', () => {
 
   it('does not release for a pane that never held the tab', async () => {
     const { store, closeBuffer } = await storeWithManager()
-    store.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-ed')
+    store.getState().paneActions.removeEditorTabFromPane(BOTTOM_PANE_ID, 'tab-ed')
     expect(closeBuffer).not.toHaveBeenCalled()
   })
 })

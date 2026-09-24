@@ -4,6 +4,7 @@ import { loadWindowPaneLayout } from './workspace-layout'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { ViewState } from '@/features/panes/lib/view-state'
 import { repairViewState } from '@/features/panes/lib/view-repair'
+import { validateLoadedBuffers } from '@/features/panes/utils/persisted-layout'
 import {
   isEditorContent,
   isPersistableContent,
@@ -50,13 +51,18 @@ export async function hydratePreferences(): Promise<UIPreferences | null> {
 export async function hydrateWindowPaneLayout(): Promise<void> {
   const layout = await loadWindowPaneLayout()
   if (!layout) return
-  const buffers = (layout.buffers ?? []).map(restoreBufferDirtyState)
   const restored = restoreWindowPaneState(layout)
-  windowPaneStore.setState(
-    restored
-      ? { ...restored, activeProjectId: windowPaneStore.getState().activeProjectId, buffers }
-      : { buffers },
-  )
+  if (!restored) return
+  const { panes, buffers } = validateLoadedBuffers({
+    panes: restored.panes,
+    buffers: layout.buffers ?? [],
+  })
+  windowPaneStore.setState({
+    ...restored,
+    panes,
+    activeProjectId: windowPaneStore.getState().activeProjectId,
+    buffers: buffers.map(restoreBufferDirtyState),
+  })
 }
 
 /**

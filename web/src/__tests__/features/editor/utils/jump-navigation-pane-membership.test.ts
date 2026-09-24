@@ -68,21 +68,21 @@ describe('jump navigation — pane membership invariant', () => {
     expect(rendersSomething(ROOT_PANE_ID)).toBe(false)
   })
 
-  it('addEditorTabToPane restores renderability for a detached buffer', () => {
+  it('reopening a closed file seats and activates it again', () => {
     resetWindowPaneStoreForTests()
-    const id = windowPaneStore.getState().bufferActions.openContent({
-      type: 'editor',
+    const spec = {
+      type: 'editor' as const,
       path: '/a.ts',
       name: 'a.ts',
       content: 'a',
       workspaceId: 'w1',
-    })
+    }
+    const id = windowPaneStore.getState().bufferActions.openContent(spec)
     windowPaneStore.getState().paneActions.removeEditorTabFromPane(ROOT_PANE_ID, id)
+    // The pane let go of its last reference: the buffer is gone (C2).
+    expect(windowPaneStore.getState().buffers).toEqual([])
 
-    // The fix: attach before activating. addEditorTabToPane always activates
-    // the tab it adds (see pane-slice.ts), so no separate activate call.
-    const buffer = windowPaneStore.getState().buffers.find((b) => b.id === id)!
-    windowPaneStore.getState().paneActions.addEditorTabToPane(ROOT_PANE_ID, buffer)
+    windowPaneStore.getState().bufferActions.openContent(spec)
 
     expect(rendersSomething(ROOT_PANE_ID)).toBe(true)
   })

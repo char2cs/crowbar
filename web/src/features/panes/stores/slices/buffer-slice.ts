@@ -14,14 +14,10 @@ import type {
   ClosedBuffer,
   PendingClose,
 } from '@/features/panes/types/pane-content'
-import { shouldStartLsp, isEditorContent } from '@/features/panes/types/pane-content'
+import { isEditorContent } from '@/features/panes/types/pane-content'
 import { EDITOR_CONSTANTS } from '@/features/editor/config/constants'
-import { useHistoryStore } from '@/features/editor/stores/history-store'
-import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
-// Leaf module (zustand only, no Plate) — a static import here keeps the rich
-// editor's chunk out of the base bundle while still giving closeBuffer a
-// synchronous way to release the buffer's rich/source preference.
-import { useMarkdownViewStore } from '@/features/editor/markdown/plate/markdown-view-store'
+import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib/buffer-release'
+import { placeTab } from './pane-actions/editor-tab-actions'
 import { useSettingsStore } from '@/features/settings/store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { nanoid } from 'nanoid'
@@ -37,8 +33,14 @@ const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['externalEditor', 
 
 // ── Actions ──────────────────────────────────────────────────────────
 
+export interface OpenContentOptions {
+  /** The pane the tab lands in (C8). Defaults to the focused pane; focus is
+   *  never a precondition. */
+  paneId?: string
+}
+
 export interface BufferActions {
-  openContent(spec: OpenEditorTabSpec): string
+  openContent(spec: OpenEditorTabSpec, opts?: OpenContentOptions): string
   closeBuffer(id: string): void
   renameBuffer(id: string, name: string): void
   setPinned(id: string, pinned: boolean): void
@@ -101,7 +103,8 @@ export const createBufferSlice: StateCreator<
     maxOpenTabs: EDITOR_CONSTANTS.MAX_OPEN_TABS,
 
     bufferActions: {
-      openContent(spec) {
+      openContent(spec, opts = {}) {
+        const paneId = opts.paneId ?? get().activePaneId
         // Resolve the owning workspace once: an explicit spec.workspaceId wins
         // (the caller already knows — e.g. openFileContent's own wsId param),
         // commitDiff/branchReview fall back to their own (pre-existing) wsId
@@ -195,7 +198,7 @@ export const createBufferSlice: StateCreator<
               return existing.id
             }
           }
-          get().paneActions.addEditorTabToPane(get().activePaneId, existing)
+          get().paneActions.addEditorTabToPane(paneId, existing)
           return existing.id
         }
 
@@ -228,15 +231,12 @@ export const createBufferSlice: StateCreator<
               !(isEditorContent(b) && b.isDirty),
           )
           if (evictee) {
-            const allPanes = Object.values(get().panes)
-            for (const pane of allPanes) {
+            // The last pane letting go releases it (invariant C2).
+            for (const pane of Object.values(get().panes)) {
               if (pane.editorTabIds.includes(evictee.id)) {
                 get().paneActions.removeEditorTabFromPane(pane.id, evictee.id)
               }
             }
-            set((state) => {
-              state.buffers = state.buffers.filter((b) => b.id !== evictee.id)
-            })
           }
         }
 
@@ -353,110 +353,31 @@ export const createBufferSlice: StateCreator<
           } satisfies ExternalEditorContent
         }
 
+        // Created and seated in one write: a buffer never exists without a
+        // pane listing it (invariant C2). No pane, no buffer.
+        let placed = false
         set((state) => {
           state.buffers.push(buf)
+          placed = placeTab(state, paneId, id, spec.type === 'editor' && !!spec.isPreview)
+          if (!placed) state.buffers.pop()
         })
-        get().paneActions.addEditorTabToPane(get().activePaneId, buf)
-        if (spec.type === 'editor' && spec.isPreview) {
-          get().paneActions.setEditorTabPreview(get().activePaneId, id)
-        }
+        if (!placed) return ''
 
         return id
       },
 
       closeBuffer(id) {
-        // A SPLIT (createPaneBeside's own shared-bufferId path — see pane-slice's
-        // splitPane) puts ONE buffer id in TWO panes' editorTabIds, so a chat, an
-        // editor or any other split-able content can be showing LIVE in a sibling
-        // pane while this call is closing a DIFFERENT pane's tab onto the same
-        // buffer. Every caller here already calls removeEditorTabFromPane for the
-        // pane it is actually closing before reaching this action (tab-bar.tsx,
-        // use-pane-keyboard.ts), so any pane still listing `id` below is a
-        // genuine SIBLING still showing it, not this call's own not-yet-applied
-        // removal.
-        //
-        // Tearing this buffer down anyway is the multi-pane close race: closing
-        // one pane's tab on a chat split across two panes killed the vendor CLI
-        // (and, for an agent chat, its whole runner) out from under the sibling
-        // pane still displaying it live — confirmed live, splitting a chat pane
-        // and closing one side's tab took the OTHER side's live session down too
-        // — and unconditionally deleting the buffer from `state.buffers` below
-        // orphaned the sibling pane's own `editorTabIds` entry, since nothing else
-        // ever prunes a dead id back out of a pane that never asked to close it.
-        //
-        // A buffer with no such sibling — the ordinary non-split case, where the
-        // caller's own removeEditorTabFromPane already emptied this out, or a
-        // terminal reporting its own exit (handleTerminalExit calls closeBuffer
-        // directly, with no sibling: splitPane's shared-bufferId path explicitly
-        // excludes terminals, see getShareableSplitBufferId) — falls straight
-        // through to the full teardown below exactly as before.
-        if (Object.values(get().panes ?? {}).some((pane) => pane.editorTabIds.includes(id))) {
-          return
-        }
-        const buf = get().buffers.find((b) => b.id === id)
-        // Closing a terminal tab is final (terminals never enter the undo-close
-        // history) — terminate the backend PTY so shell processes don't leak.
-        // Dynamic import avoids a workspace-slice → terminal-feature cycle.
-        if (buf && buf.type === 'terminal') {
-          const { sessionId } = buf as TerminalContent
-          const workspaceId = buf.workspaceId
-          bestEffort(
-            import('@/features/terminal/lib/kill-terminal-session').then(
-              async ({ killTerminalSession }) => {
-                await killTerminalSession(sessionId).catch(() => {})
-                // Clear the reconnect map entry so a stale connectionId can't be
-                // picked up if the same tab sessionId is reused in a later session.
-                const { clearReconnect } =
-                  await import('@/features/terminal/lib/terminal-reconnect-map')
-                clearReconnect(workspaceId, sessionId)
-              },
-            ),
-            'kill terminal session',
-          )
-        }
-        // A chat is no longer a buffer at all (it is `PaneGroup.chatId`), so closeBuffer is never reached for one any more — the
-        // "stop the vendor CLI, keep the chat resumable" behavior that used to
-        // live here belongs to whatever closes a chat PANE now, a gap already
-        // disclosed by pane-container.tsx (Task 18's job).
-        if (buf && shouldStartLsp(buf)) {
-          set((state) => {
-            const entry: ClosedBuffer = {
-              path: buf.path ?? '',
-              name: buf.name,
-              isPinned: buf.isPinned ?? false,
-              workspaceId: buf.workspaceId,
-            }
-            state.closedBuffersHistory.unshift(entry)
-            if (state.closedBuffersHistory.length > EDITOR_CONSTANTS.MAX_CLOSED_BUFFERS_HISTORY) {
-              state.closedBuffersHistory.pop()
-            }
-          })
-        }
-        // Free git-blame data accumulated for this file so per-file Maps don't
-        // grow unbounded across a long session. Dynamic import mirrors the pattern
-        // used above for terminal/chat to avoid circular slice → git-feature deps.
-        if (buf && isEditorContent(buf) && buf.path) {
-          const filePath = buf.path
-          bestEffort(
-            import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-              useGitBlameStore.getState().clearBlameForFile(filePath)
-            }),
-            'clear blame for closed buffer',
-          )
-        }
-        // Release this buffer's markdown rich/source preference. The view store
-        // is keyed by bufferId and nothing else ever removes an entry, so
-        // without this it grows for the life of the session (no-ops when the
-        // buffer never had one).
-        useMarkdownViewStore.getState().clearView(id)
-        // Free full-content history snapshots so closed buffers don't leak memory.
-        // clearHistory drops up to 100 HistoryEntry objects each holding a full copy
-        // of the file text — the dominant source of memory growth in long sessions.
-        cleanupBufferHistoryTracking(id)
-        useHistoryStore.getState().actions.clearHistory(id)
+        // A pane still listing `id` is a split sibling showing it live:
+        // tearing it down would kill the sibling's content (a terminal's PTY)
+        // out from under it. Pane writes already release a buffer the moment
+        // its last pane lets go (invariant C2, see pane-slice); this is for
+        // a buffer nothing lists any more.
+        if (Object.values(get().panes).some((pane) => pane.editorTabIds.includes(id))) return
+        let released: PaneContent[] = []
         set((state) => {
-          state.buffers = state.buffers.filter((b) => b.id !== id)
+          released = releaseUnreferencedBuffers(state)
         })
+        disposeBuffers(released)
       },
 
       // Rename an open buffer's tab label in place. `openContent` snapshots the

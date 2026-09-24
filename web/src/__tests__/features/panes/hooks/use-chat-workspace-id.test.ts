@@ -284,21 +284,22 @@ describe('usePaneEditorWorkspaceIds', () => {
     act(() => {
       windowPaneStore.setState((state) => ({
         buffers: [...state.buffers, editorTab('tab-a', 'ws-a'), editorTab('tab-b', 'ws-b')],
+        panes: {
+          ...state.panes,
+          [ROOT_PANE_ID]: { ...state.panes[ROOT_PANE_ID]!, editorTabIds: ['tab-a', 'tab-b'] },
+        },
       }))
       const { paneActions } = windowPaneStore.getState()
       paneA = paneActions.splitPane(ROOT_PANE_ID, 'horizontal', 'tab-a')!
       paneActions.splitPane(ROOT_PANE_ID, 'vertical', 'tab-b')
+      paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-a')
+      paneActions.removeEditorTabFromPane(ROOT_PANE_ID, 'tab-b')
     })
     const { result, rerender } = renderHook(() => usePaneEditorWorkspaceIds())
     expect([...result.current].sort()).toEqual(['ws-a', 'ws-b'])
 
     act(() => {
-      windowPaneStore.setState((state) => ({
-        panes: {
-          ...state.panes,
-          [paneA]: { ...state.panes[paneA]!, editorTabIds: [] },
-        },
-      }))
+      windowPaneStore.getState().paneActions.removeEditorTabFromPane(paneA, 'tab-a')
     })
     rerender()
 

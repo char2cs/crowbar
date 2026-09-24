@@ -4,6 +4,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { seatTab } from '@/__tests__/__fixtures__/view-state'
 
 describe('pane buffer actions', () => {
   beforeEach(() => {
@@ -44,13 +45,13 @@ describe('pane buffer actions', () => {
     const { ensureBufferInPane } = await import('@/features/panes/utils/pane-buffer-actions')
     const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+    seatTab(windowPaneStore, ROOT_PANE_ID, {
       id: 'buffer-a',
       type: 'editor',
       name: 'a.ts',
       workspaceId: 'test-ws',
     })
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, {
+    seatTab(windowPaneStore, ROOT_PANE_ID, {
       id: 'buffer-b',
       type: 'editor',
       name: 'b.ts',

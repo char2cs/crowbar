@@ -205,7 +205,7 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.buffers[0]).toMatchObject({ id: 'buf-1', content: 'saved' })
   })
 
-  it('a payload without views hydrates to an empty band, keeping its buffers', async () => {
+  it('a payload without views hydrates to an empty band; unlisted buffers are not restored', async () => {
     const db = await getDB()
     await db.put('workspace-layout', {
       workspaceId: WINDOW_SESSION_ID,
@@ -227,7 +227,7 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.viewOrder).toEqual([])
     expect(state.views).toEqual({})
     expect(state.activeViewId).toBeNull()
-    expect(state.buffers).toHaveLength(1)
+    expect(state.buffers).toHaveLength(0)
   })
 
   it('a payload whose only record is broken hydrates to an empty band', async () => {

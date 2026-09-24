@@ -4,6 +4,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { seatTab } from '@/__tests__/__fixtures__/view-state'
 import { showingLayout } from '@/features/panes/lib/view-state'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import type { EditorTabBase } from '@/features/panes/types/pane-content'
@@ -40,7 +41,6 @@ describe('pane command actions', () => {
 
   it('splits the active editor group with an editor buffer', async () => {
     const { splitActiveEditorGroup } = await import('@/features/panes/utils/pane-command-actions')
-    const paneActions = windowPaneStore.getState().paneActions
 
     windowPaneStore.setState((state) => ({
       ...state,
@@ -63,7 +63,7 @@ describe('pane command actions', () => {
       ],
     }))
 
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-a'))
+    seatTab(windowPaneStore, ROOT_PANE_ID, tab('buffer-a'))
 
     expect(splitActiveEditorGroup('horizontal')).toBe(true)
 
@@ -76,7 +76,6 @@ describe('pane command actions', () => {
 
   it('splits stateful buffers into an empty editor group', async () => {
     const { splitActiveEditorGroup } = await import('@/features/panes/utils/pane-command-actions')
-    const paneActions = windowPaneStore.getState().paneActions
 
     windowPaneStore.setState((state) => ({
       ...state,
@@ -95,7 +94,7 @@ describe('pane command actions', () => {
       ],
     }))
 
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('terminal-a'))
+    seatTab(windowPaneStore, ROOT_PANE_ID, tab('terminal-a'))
 
     expect(splitActiveEditorGroup('horizontal')).toBe(true)
 
@@ -111,7 +110,7 @@ describe('pane command actions', () => {
     const { closeActiveEditorGroup } = await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-a'))
+    seatTab(windowPaneStore, ROOT_PANE_ID, tab('buffer-a'))
     expect(closeActiveEditorGroup()).toBe(false)
 
     const splitPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
@@ -129,12 +128,12 @@ describe('pane command actions', () => {
     const { closeOtherEditorGroups } = await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-a'))
+    seatTab(windowPaneStore, ROOT_PANE_ID, tab('buffer-a'))
     const rightPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
 
-    paneActions.addEditorTabToPane(rightPaneId, tab('buffer-b'))
+    seatTab(windowPaneStore, rightPaneId, tab('buffer-b'))
     paneActions.setActivePane(ROOT_PANE_ID)
 
     expect(closeOtherEditorGroups()).toBe(true)
@@ -178,8 +177,8 @@ describe('pane command actions', () => {
       await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-a'))
-    paneActions.addEditorTabToPane(ROOT_PANE_ID, tab('buffer-b'))
+    seatTab(windowPaneStore, ROOT_PANE_ID, tab('buffer-a'))
+    seatTab(windowPaneStore, ROOT_PANE_ID, tab('buffer-b'))
     const rightPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     expect(rightPaneId).not.toBeNull()
     if (!rightPaneId) return
@@ -206,12 +205,12 @@ describe('pane command actions', () => {
     } = await import('@/features/panes/utils/pane-command-actions')
     const paneActions = windowPaneStore.getState().paneActions
 
-    paneActions.addEditorTabToPane(BOTTOM_PANE_ID, tab('terminal-a'))
+    seatTab(windowPaneStore, BOTTOM_PANE_ID, tab('terminal-a'))
     const splitPaneId = paneActions.splitPane(BOTTOM_PANE_ID, 'horizontal')
     expect(splitPaneId).not.toBeNull()
     if (!splitPaneId) return
 
-    paneActions.addEditorTabToPane(splitPaneId, tab('terminal-b'))
+    seatTab(windowPaneStore, splitPaneId, tab('terminal-b'))
     paneActions.setActivePane(splitPaneId)
 
     expect(splitActiveEditorGroup('horizontal')).toBe(false)

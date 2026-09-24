@@ -8,6 +8,9 @@ import { createChatDropActions } from './pane-actions/chat-drop-actions'
 import { createRunnerActions } from './pane-actions/runner-actions'
 import { createLayoutActions } from './pane-actions/layout-actions'
 import { createEditorTabActions } from './pane-actions/editor-tab-actions'
+import type { PaneSet } from './pane-actions/context'
+import type { PaneContent } from '@/features/panes/types/pane-content'
+import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib/buffer-release'
 
 export type PaneDropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
 
@@ -87,14 +90,27 @@ export const createPaneSlice: StateCreator<
   [['zustand/immer', never]],
   [],
   PaneSlice
-> = (set, get) => ({
-  ...initialViewState(),
-  activeProjectId: null,
-  paneActions: {
-    ...createViewActions(set, get),
-    ...createChatDropActions(set),
-    ...createRunnerActions(set),
-    ...createLayoutActions(set, get),
-    ...createEditorTabActions(set, get),
-  },
-})
+> = (rawSet, get) => {
+  // Every pane write releases the buffers it left unreferenced in the same
+  // `set` (invariant C2): closing a view, a pane or a tab can never strand a
+  // buffer, or the terminal PTY behind one.
+  const set: PaneSet = (recipe) => {
+    let released: PaneContent[] = []
+    rawSet((state) => {
+      recipe(state)
+      released = releaseUnreferencedBuffers(state)
+    })
+    disposeBuffers(released)
+  }
+  return {
+    ...initialViewState(),
+    activeProjectId: null,
+    paneActions: {
+      ...createViewActions(set, get),
+      ...createChatDropActions(set),
+      ...createRunnerActions(set),
+      ...createLayoutActions(set, get),
+      ...createEditorTabActions(set, get),
+    },
+  }
+}
