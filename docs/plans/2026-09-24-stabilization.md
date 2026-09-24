@@ -208,38 +208,57 @@ Tools prove these dead; each bullet is one small PR.
 - Rewrite `api/ARCHITECTURE.md` — it describes a flow engine, kanban, MCP and
   wiring that no longer exist, and it misleads every agent that reads it.
 
-## 6. Phase 3 — decisions the owner must make
+## 6. Phase 3 — owner decisions (resolved 2026-09-24)
 
-These block parts of Phase 4; each is "wire it or delete it", never "leave it".
+1. **Stub-backed editor features → connect them.** Completion, hover, rename,
+   references, code actions, document symbols, signature help, code lens,
+   format and blame are implemented as Monaco providers over the daemon's
+   existing `/lsp/*`, `/blame` and `/search` routes. The custom React overlays
+   that re-implement Monaco widgets are deleted. No UI may remain bound to a
+   method that returns a constant.
+2. **Mock mode → delete** (`dev:mock`, `lib/mock`, `src/mocks`, chaos store,
+   chaos headers in `lib/api.ts` and the CORS allow-list).
+3. **Legacy data shims → delete.** All data is already on the current model.
+   Remove every mint-on-read / upcaster / legacy tie-break / pre-leaf path
+   guard and the `regression_legacy_*` tests that pin them. Make the
+   owning-chat creation saga crash-safe first, since `EnsureOwner` was its
+   only repair.
+4. **Duplicate libraries → consolidate now.** dnd-kit (drop react-dnd),
+   phosphor (drop lucide), base-ui (drop radix + ariakit where possible),
+   shiki (drop lowlight), one read-only markdown renderer, drop
+   `usehooks-ts`/`use-debounce` for local helpers, one geist-mono package.
+5. **Hook delivery → both in-memory.** The relay's short retry and a bounded
+   in-memory TTL dedup set replace the fsync'd exactly-once journal. No fsync
+   on the hook hot path; memory bounded by TTL and a size cap.
 
-1. **Stub-backed editor features.** Completion, hover, rename, code lens,
-   signature help, format-on-save, lint-on-save, blame and "Start/Restart
-   language server" are fully built UIs calling no-op methods (✔
-   `lsp-client.ts:446` `startForFile` returns `false`, so "Restart language
-   server" *always* toasts failure). The daemon already serves
-   `/lsp/completion|hover|references|rename|codeAction|documentSymbol`,
-   `/blame`, `/search` + `/search/replace`, and nothing calls them.
-   *Recommendation:* wire completion, hover and rename as Monaco providers
-   (cheap — the backend exists); delete code lens, signature help, the
-   format/lint toggles and the custom React overlays (~1.8k lines).
-2. **Mock mode** (`dev:mock`, ~3.3k lines of `lib/mock` + `src/mocks` + chaos
-   headers): intercepts routes that no longer exist. *Recommendation:* delete.
-3. **Legacy data shims vs. a data reset.** "Mint on first read" (`resolveHome`,
-   `EnsureOwner` writes on GET, `mintNode`, `rerootDanglingChats`, legacy owner
-   tie-break, `ChatType ""` normalisation, retired-field upcasters, pre-leaf
-   path guards) plus 13 `regression_legacy_*` tests. *Recommendation:* one
-   versioned boot migration, then delete every shim — but only after the
-   owning-chat saga is crash-safe (§7-D), because `EnsureOwner` is currently
-   its only repair.
-4. **Duplicate libraries.** react-dnd (2 files) → dnd-kit; lucide → phosphor;
-   radix/ariakit → base-ui; lowlight → shiki; react-markdown (1 file) → one
-   read-only markdown renderer; `usehooks-ts`+`use-debounce` (1 file each);
-   two geist-mono font packages. And: is the three.js stack (5 packages) for
-   the OOBE background worth keeping?
-5. **Hook delivery durability.** The relay retries 3× over 800 ms (spool
-   removed) while the daemon keeps a durable fsync'd exactly-once journal for
-   it. Either restore a real relay spool and keep the journal, or make both
-   honestly in-memory. Pick one.
+## 6a. Performance mandate
+
+Crowbar must be fast and frugal. Every area's work is judged on:
+
+- **Idle cost ≈ 0.** No client polls (every poll in §7-A goes); no timers
+  that fire while nothing changes; the daemon does no periodic work that an
+  event could trigger. Idle CPU of daemon + webview is measured before/after.
+- **Hot paths do no redundant work.** No per-frame full-store scans
+  (`useViewWorkspaceIds`), no per-keystroke `lines[]` split (`view-store`), no
+  fsync per hook delivery, no JSON-string encoding of PTY bytes (binary
+  frames), narrow store selectors everywhere.
+- **Bounded memory.** Every per-chat / per-session / per-buffer map has an
+  owner that deletes its entries (invariants A7, B3, C2); caches have caps.
+- **Smaller bundle.** Duplicate libraries removed (§6.4), heavy features
+  lazily loaded, bundle budget ratcheted down after each removal.
+- Numbers (bundle size, idle CPU, RSS after opening N chats/terminals) are
+  recorded in each area's final PR.
+
+## 6b. Designed for what comes next
+
+New features land in weeks, so the target designs are extension points, not
+just cleanups: a chat is a versioned snapshot with an explicit `phase` (new
+providers and new chat states plug into one reducer); a terminal session is an
+explicit state machine (new session kinds add states, not maps); a view is a
+record with typed members (new pane content types register in one content
+registry); workspace lifecycle is one service with one saga (new workspace
+kinds add a state, not a fourth encoding); the editor is Monaco plus providers
+(new language features are one provider each).
 
 ## 7. Phase 4 — per-area structural work
 
