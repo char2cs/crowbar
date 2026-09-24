@@ -188,6 +188,7 @@ const baseProps = () => ({
   compacting: false,
   turnRevision: 0,
   live: true,
+  canSend: true,
   active: true,
   visible: true,
   isActivePane: true,

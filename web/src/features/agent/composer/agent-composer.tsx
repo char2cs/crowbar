@@ -48,7 +48,7 @@ interface AgentComposerProps {
   sending: boolean
   submitUnavailable: boolean
   terminalWait?: AgentTerminalWait
-  /** The pane's own revive attempt, for a chat that is not live. */
+  /** The daemon placing a CLI this pane did not ask for. */
   revival?: ComposerRevival
   haltedMessage?: string
   haltedResetsAt?: string
@@ -67,8 +67,6 @@ interface AgentComposerProps {
   onSend: () => void
   onStop: () => void
   onOpenTerminal: () => void
-  /** The manual retry for a revive that already gave up. */
-  onRevive?: () => void
   /** Bumped when the draft is set from OUTSIDE the box, to remount it. */
   draftSeed: number
   /** The text that seed carries — see the note on `seed` in the view. */
@@ -209,7 +207,6 @@ export function AgentComposer(props: AgentComposerProps) {
           reason={state.reason}
           message={state.message}
           onOpenTerminal={props.onOpenTerminal}
-          onRevive={props.onRevive}
         />
       )
     case 'choice':

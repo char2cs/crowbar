@@ -68,6 +68,7 @@ function options(overrides: Partial<PromptQueueOptions> = {}): PromptQueueOption
     working: false,
     compacting: false,
     live: true,
+    canSend: true,
     active: true,
     visible: true,
     turnRevision: 0,
@@ -200,6 +201,42 @@ describe('usePromptQueue during a compaction', () => {
 // reached the ledger. The words were unrecoverable, and no error was shown.
 //
 // The frame now distinguishes the two cases. Nothing here is timing-based.
+// Send is the only lifecycle intent: the daemon revives a dormant chat itself,
+// so the queue dispatches to it rather than waiting for a CLI to appear.
+describe('usePromptQueue on a dormant chat', () => {
+  beforeEach(() => {
+    submitAgentPrompt.mockReset()
+    submitAgentPrompt.mockResolvedValue({ runnerId: 'r1' })
+    getPendingPrompt.mockReset()
+    getPendingPrompt.mockResolvedValue(null)
+    localStorage.clear()
+  })
+
+  it('dispatches to a dormant chat — the send revives it', async () => {
+    const { result } = mount(options({ live: false, canSend: true }))
+
+    await act(async () => {
+      result.current.enqueue('pick up where we left off')
+    })
+
+    expect(submitAgentPrompt).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds while the daemon is still placing a CLI', async () => {
+    const { result, rerender } = mount(options({ live: false, canSend: false }))
+
+    await act(async () => {
+      result.current.enqueue('wait for it')
+    })
+    expect(submitAgentPrompt).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rerender(options({ live: true, canSend: true }))
+    })
+    expect(submitAgentPrompt).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('usePromptQueue when the daemon retires a delivery', () => {
   beforeEach(() => {
     submitAgentPrompt.mockReset()

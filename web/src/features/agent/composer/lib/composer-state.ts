@@ -18,24 +18,18 @@ export type ComposerState =
 
 /** Why the bar is not an input, in the provider's terms rather than Crowbar's. */
 export type SignpostReason =
-  /** No runner. There is nothing on the other end of the box. */
+  /** The chat is not known yet, so nothing can be sent to it. */
   | 'dormant'
   /** This provider declares no way to accept a typed prompt at all. */
   | 'unsupported'
   /** The CLI is blocked on a prompt that reaches the daemon through no hook. */
   | 'terminal_wait'
-  /** Crowbar's own revive is in flight, unasked. */
+  /** The daemon is placing a CLI (a revive, a switch). */
   | 'reviving'
-  /** A revive was tried (automatically, or by hand) and there is nothing left on
-   *  the other end of the box until a person tries again. */
-  | 'idle'
 
-/** The pane's own revive attempt for a chat that is not live — richer than the
- *  collapsed `live` boolean, which cannot tell "still resolving" from "actively
- *  resuming" from "gave up; needs a person". Undefined for a chat whose
- *  liveness has not even been read back yet. */
-export type ComposerRevival =
-  { state: 'reviving'; message: string } | { state: 'idle'; reason: 'exited' | 'failed' }
+/** The daemon placing a CLI this pane did not ask for — richer than the
+ *  collapsed `live` boolean. A dormant chat is NOT one: sending revives it. */
+export type ComposerRevival = { state: 'reviving'; message: string }
 
 export interface ComposerInputs {
   live: boolean
@@ -66,9 +60,8 @@ export function describeTerminalWait(wait: AgentTerminalWait): string {
  * The order is the contract, and it reads top-down as "what is the ONE thing a
  * person can act on right now":
  *
- *  1. `dormant`      — no runner exists; nothing else is even reachable
- *                      (refined into `reviving`/`idle` by `revival`, when the
- *                      pane can say more than just "not live")
+ *  1. `dormant`      — nothing can be sent yet (the chat is unknown), refined
+ *                      into `reviving` while the daemon places a CLI
  *  2. `unsupported`  — this provider will never take a typed prompt
  *  3. `terminal_wait`— the CLI is blocked where only its terminal can reach
  *  4. `unanswerable` — a question whose answer cannot be delivered from here
@@ -84,24 +77,10 @@ export function resolveComposerState(inputs: ComposerInputs): ComposerState {
   const { live, revival, submitUnavailable, terminalWait, compacting, activity } = inputs
 
   if (!live) {
-    if (revival?.state === 'reviving') {
+    if (revival) {
       return { kind: 'signpost', reason: 'reviving', message: revival.message }
     }
-    if (revival?.state === 'idle') {
-      return {
-        kind: 'signpost',
-        reason: 'idle',
-        message:
-          revival.reason === 'failed'
-            ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-            : 'This agent has exited. Resume it to pick the conversation up where you left off.',
-      }
-    }
-    return {
-      kind: 'signpost',
-      reason: 'dormant',
-      message: 'Resume the provider before sending from Chat.',
-    }
+    return { kind: 'signpost', reason: 'dormant', message: 'Loading this chat…' }
   }
   if (submitUnavailable) {
     return {

@@ -27,7 +27,7 @@ export type TerminalAttachment =
   | { state: 'pending' }
   | { state: 'attached'; sessionId: string | null }
   | { state: 'reviving'; message: string }
-  | { state: 'idle'; reason: 'exited' | 'failed' }
+  | { state: 'idle'; message: string }
 
 /** The imperative handle XtermTerminal hands back. */
 export type AgentTerminalApi = Parameters<NonNullable<XtermTerminalProps['onTerminalRef']>>[0]
@@ -66,8 +66,8 @@ export interface AgentTerminalSurfaceProps {
   /** A click on this half's dead space, pointed back at the grid. */
   onDeadSpaceMouseDown: (event: MouseEvent<HTMLDivElement>) => void
   onTerminalRef: (api: AgentTerminalApi) => void
-  onSessionGone: (sessionId: string) => void
-  onRevive: () => void
+  /** Bring the chat's provider back without sending anything. */
+  onStartSession: () => void
   ref?: Ref<HTMLDivElement>
 }
 
@@ -106,8 +106,7 @@ export function AgentTerminalSurface({
   onTakeFocus,
   onDeadSpaceMouseDown,
   onTerminalRef,
-  onSessionGone,
-  onRevive,
+  onStartSession,
   ref,
 }: AgentTerminalSurfaceProps) {
   const provider = providers.find((candidate) => candidate.id === activeProviderId)
@@ -156,7 +155,6 @@ export function AgentTerminalSurface({
           attachOnly
           flush
           onTerminalRef={onTerminalRef}
-          onSessionGone={onSessionGone}
         />
       )}
 
@@ -180,19 +178,15 @@ export function AgentTerminalSurface({
 
       {presentation !== 'chat' && attachment.state === 'idle' && (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6">
-          <p className="max-w-sm text-center text-muted-foreground text-sm">
-            {attachment.reason === 'failed'
-              ? 'Crowbar could not restart this agent. Check that its CLI is installed, then try again — or pick another provider below.'
-              : 'This agent has exited. Resume it to pick the conversation up where you left off.'}
-          </p>
+          <p className="max-w-sm text-center text-muted-foreground text-sm">{attachment.message}</p>
           <Button
             type="button"
             variant="secondary"
             size="sm"
             data-testid="pane-resume"
-            onClick={onRevive}
+            onClick={onStartSession}
           >
-            Resume
+            Start session
           </Button>
         </div>
       )}

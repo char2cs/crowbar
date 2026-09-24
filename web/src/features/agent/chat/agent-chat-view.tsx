@@ -102,10 +102,14 @@ export interface AgentChatViewProps {
   /** Increments for every lifecycle frame, including a batched fast turn. */
   turnRevision: number
   live: boolean
-  /** The pane's own revive attempt, for a chat that is not live. */
+  /** A send may be dispatched now: the chat is live, or dormant and revived
+   *  by the send itself (server-side). False while the daemon places a CLI. */
+  canSend: boolean
+  /** The daemon still placing a CLI this pane did not ask for. */
   revival?: ComposerRevival
-  /** The manual retry for a revive that already gave up. */
-  onRevive?: () => void
+  /** One line on how the conversation continues (why it is dormant, or that
+   *  it continued from Crowbar's transcript). */
+  sessionNote?: string
   /** False while the native terminal presentation is selected. */
   active: boolean
   /** False for a retained, hidden tab. Network polling pauses in that state. */
@@ -166,7 +170,7 @@ export interface AgentChatViewProps {
    *  see useChatMessages' onStreamingSettled for why this is safe where a
    *  turn-boundary clear was not. */
   onStreamingSettled?: (ids: string[]) => void
-  onPromptSpawned: (result: AgentPromptResult) => void | Promise<void>
+  onPromptSpawned?: (result: AgentPromptResult) => void | Promise<void>
   onPromptDispatchStart?: () => void
   onPromptDispatchSettled?: () => void
   /** Re-read the server-folded busy value after a stale 409. */
@@ -326,7 +330,8 @@ export function AgentChatView({
   turnRevision,
   live,
   revival,
-  onRevive,
+  canSend,
+  sessionNote,
   active,
   visible,
   isActivePane,
@@ -510,6 +515,7 @@ export function AgentChatView({
     working,
     compacting,
     live,
+    canSend,
     active,
     visible,
     turnRevision,
@@ -869,7 +875,7 @@ export function AgentChatView({
     // untouched rather than silently swallowing keystrokes into a draft no one
     // can see.
     const state = resolveComposerState({
-      live,
+      live: canSend,
       revival,
       submitUnavailable,
       terminalWait: terminalWaiting ? { kind: terminalWaitKind ?? '' } : undefined,
@@ -1080,13 +1086,18 @@ export function AgentChatView({
                 onSelect={selectSlashItem}
               />
             )}
+            {sessionNote && (
+              <p className="meta session-note" data-testid="agent-session-note">
+                {sessionNote}
+              </p>
+            )}
             <AgentComposer
               wsId={wsId}
               chatId={chatId}
               activity={activity}
               providerLabel={providerLabel}
               permissionLevels={provider?.permissionLevels}
-              live={live}
+              live={canSend}
               revival={revival}
               working={working}
               compacting={compacting}
@@ -1105,7 +1116,6 @@ export function AgentChatView({
               onSend={() => enqueueDraft()}
               onStop={handleStop}
               onOpenTerminal={onOpenTerminal}
-              onRevive={onRevive}
               draftSeed={seed.n}
               seedText={seed.text}
               takeoverContainer={chatSurfaceEl}
