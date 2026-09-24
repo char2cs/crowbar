@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 // through wsManager.subscribe; the files topic is built by filesWsEndpoint and
 // dialed from the workspace effects hook. Both resolve the owning chat from the
 // route-recorded workspace scope.
-const subscribe = vi.fn(() => () => {})
+const { subscribe } = vi.hoisted(() => ({ subscribe: vi.fn(() => () => {}) }))
 vi.mock('@/lib/ws/manager', () => ({
   wsManager: {
     subscribe,
@@ -19,6 +19,8 @@ vi.mock('@/lib/ws/manager', () => ({
 // it there so the URL builders resolve the owning chat without importing the
 // heavy registry.
 import { setWorkspaceScope } from '@/lib/workspace-scope'
+import { useGitStore } from '@/features/git/stores/git-store'
+import { filesWsEndpoint } from '@/features/files/lib/file-tree-api'
 
 beforeEach(() => {
   subscribe.mockClear()
@@ -31,8 +33,7 @@ describe('WebSocket endpoint contract', () => {
   // holding the worktree, never by the workspace. Every chat sharing that
   // worktree subscribes to its own URL and the daemon fans one push out to all
   // of them.
-  test('git store subscribes to the chat-scoped .../git/status WS', async () => {
-    const { useGitStore } = await import('@/features/git/stores/git-store')
+  test('git store subscribes to the chat-scoped .../git/status WS', () => {
     useGitStore.getState().startGitSync('ws-123')
     expect(subscribe).toHaveBeenCalledWith('/v0/chats/chat-123/git/status', expect.any(Function))
   })
@@ -40,8 +41,7 @@ describe('WebSocket endpoint contract', () => {
   // files completes the shared bucket's move. Sibling chats over one worktree
   // each dial their own URL and the daemon fans one file-change push out to all
   // of them — the same shape git already has above.
-  test('files topic builder targets the chat-scoped .../files/ws', async () => {
-    const { filesWsEndpoint } = await import('@/features/files/lib/file-tree-api')
+  test('files topic builder targets the chat-scoped .../files/ws', () => {
     expect(filesWsEndpoint('ws-456')).toBe('/v0/chats/chat-456/files/ws')
   })
 })

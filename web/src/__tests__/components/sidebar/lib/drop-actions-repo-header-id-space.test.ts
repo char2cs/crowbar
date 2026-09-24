@@ -24,6 +24,12 @@ vi.mock('@/lib/api/sidebar-placement', () => ({
   placeRepo: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/lib/api/workspace', () => ({ reparentWorkspace: vi.fn() }))
+// The drop reads the repos back after placing them; without this the read goes
+// to a daemon that isn't there and sits out the client's startup retries (~5 s).
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  fetchRepos: vi.fn().mockResolvedValue([]),
+}))
 vi.mock('@/features/agent/api/agent-api', () => ({ setChatPlacement: vi.fn() }))
 const { getHomeWorkspaceId } = vi.hoisted(() => ({ getHomeWorkspaceId: vi.fn() }))
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
