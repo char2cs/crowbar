@@ -82,3 +82,39 @@ func agentSubRoutes(t *testing.T, mount func(*gin.Engine), prefix string) []stri
 }
 
 func noopWS(c *gin.Context) { c.Status(http.StatusOK) }
+
+// TestHomeTerminalsAreServedByTheOneTerminalHandlerSet pins §7-B "one transport": the
+// home group's terminal routes are the chat-scoped terminal handlers themselves (same
+// list DTO, same PTY WebSocket), not a second copy that drifts — the old copy answered
+// the list with a bare []string the client had to special-case.
+func TestHomeTerminalsAreServedByTheOneTerminalHandlerSet(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	home.Register(
+		r.Group("/scope"),
+		nil, nil, nil, nil, nil, nil,
+		noopWS,
+		nil, nil, noopWS,
+		nil, nil, nil, nil, nil,
+		nil, nil,
+		nil, nil,
+		noopWS,
+		func(rest, _ gin.HandlerFunc) gin.HandlerFunc { return rest },
+	)
+	want := map[string]string{
+		"GET /scope/home/terminals":               "(*Handlers).ListSessions",
+		"POST /scope/home/terminals":              "(*Handlers).CreateSession",
+		"DELETE /scope/home/terminals/:sessionId": "(*Handlers).KillSession",
+		"GET /scope/home/terminals/:sessionId/ws": "(*Handlers).WS",
+	}
+	got := map[string]string{}
+	for _, ri := range r.Routes() {
+		got[ri.Method+" "+ri.Path] = ri.Handler
+	}
+	for route, fn := range want {
+		h, ok := got[route]
+		require.True(t, ok, "home must mount %s", route)
+		assert.Contains(t, h, "endpoints/terminal/handlers.", "%s must be the terminal handler set's", route)
+		assert.Contains(t, h, fn, "%s", route)
+	}
+}

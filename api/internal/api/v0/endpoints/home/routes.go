@@ -9,6 +9,7 @@ import (
 
 	chathandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/chat/handlers"
 	homehandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/home/handlers"
+	termhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/terminal/handlers"
 	threadhandlers "github.com/char2cs/crowbar/api/internal/api/v0/endpoints/threads/handlers"
 )
 
@@ -34,7 +35,7 @@ func Register(
 	workspaces homehandlers.HomeWorkspaces,
 	projects homehandlers.ProjectReader,
 	files homehandlers.Files,
-	termEng homehandlers.TerminalEngine,
+	termEng termhandlers.TerminalEngine,
 	working homehandlers.WorkSignal,
 	// nodes mints a lazily-provisioned legacy project's home workspace its own
 	// Node{Kind:workspace} row the instant resolveHome creates one (2026-09-08
@@ -68,7 +69,7 @@ func Register(
 	).WithWorktrees(agentWorktrees).WithNodes(agentNodes)
 	// GET /home resolves its owner through the SAME EnsureOwner the home chat
 	// list does, under the same mint lock.
-	h := homehandlers.New(workspaces, projects, files, termEng, working).
+	h := homehandlers.New(workspaces, projects, files, working).
 		WithChats(agentChats).WithOwners(ah).WithNodes(nodes)
 	th := threadhandlers.New(threadStore, threadBroadcast)
 	home := projectScoped.Group("/home")
@@ -101,10 +102,14 @@ func Register(
 	home.PATCH("/threads/:threadId/messages/:messageId", h.RequireHomeWorkspace, th.EditMessage)
 	home.DELETE("/threads/:threadId/messages/:messageId", h.RequireHomeWorkspace, th.DeleteMessage)
 
-	home.GET("/terminals", h.ListTerminals)
-	home.POST("/terminals", h.CreateTerminal)
-	home.DELETE("/terminals/:sessionId", h.KillTerminal)
-	home.GET("/terminals/:sessionId/ws", h.TerminalWS)
+	// Terminals are served by the ONE terminal handler set the chat-scoped group uses
+	// (same list DTO, same PTY WebSocket). RequireHomeTerminalScope makes the home
+	// workspace the sessions' owner and their starting directory.
+	terms := termhandlers.New(termEng, nil, nil)
+	home.GET("/terminals", h.RequireHomeTerminalScope, terms.ListSessions)
+	home.POST("/terminals", h.RequireHomeTerminalScope, terms.CreateSession)
+	home.DELETE("/terminals/:sessionId", h.RequireHomeTerminalScope, terms.KillSession)
+	home.GET("/terminals/:sessionId/ws", terms.WS)
 
 	registerAgent(home, h, ah, agentWS)
 }

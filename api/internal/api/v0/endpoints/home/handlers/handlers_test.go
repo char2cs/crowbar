@@ -124,7 +124,7 @@ func TestGetHome_StampsWorkingFromSignal(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-1").
 		Return(domain.Workspace{ID: "ws-home-1", ProjectID: "proj-1", Kind: domain.WorkspaceKindHome}, nil)
 
-	h := handlers.New(reader, nil, nil, nil, stubWork{working: true})
+	h := handlers.New(reader, nil, nil, stubWork{working: true})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -159,7 +159,7 @@ func TestGetHome_Returns200WithWorkspace(t *testing.T) {
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-1").Return(homeWS, nil)
 
-	h := handlers.New(reader, nil, nil, nil, stubWork{})
+	h := handlers.New(reader, nil, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -182,7 +182,7 @@ func TestGetHome_Returns404WhenNotFound(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-missing").
 		Return(domain.Workspace{}, apperr.ErrNotFound)
 
-	h := handlers.New(reader, stubProjectReader{}, nil, nil, stubWork{})
+	h := handlers.New(reader, stubProjectReader{}, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -203,7 +203,7 @@ func TestGetHome_Returns500OnStorageError(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-err").
 		Return(domain.Workspace{}, errors.New("asynx: read failed"))
 
-	h := handlers.New(reader, nil, nil, nil, stubWork{})
+	h := handlers.New(reader, nil, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -229,7 +229,7 @@ func TestFileTree_Returns200WhenWorkspaceExists(t *testing.T) {
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-2").Return(homeWS, nil)
 
-	h := handlers.New(reader, nil, &stubFiles{}, nil, stubWork{})
+	h := handlers.New(reader, nil, &stubFiles{}, stubWork{})
 	r.GET("/projects/:projectId/home/files/tree", h.FileTree)
 
 	w := httptest.NewRecorder()
@@ -272,7 +272,7 @@ func TestGetHome_LazilyProvisions(t *testing.T) {
 	nodes.On("CreateIdempotent", mock.Anything, "ws-new", domain.NodeKindWorkspace, "", 0).
 		Return(domain.Node{ID: "ws-new", Kind: domain.NodeKindWorkspace}, nil)
 
-	h := handlers.New(reader, projects, nil, nil, stubWork{}).WithNodes(nodes)
+	h := handlers.New(reader, projects, nil, stubWork{}).WithNodes(nodes)
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -308,7 +308,7 @@ func TestGetHome_LazyProvisionNodeMintFails(t *testing.T) {
 	nodes.On("CreateIdempotent", mock.Anything, "ws-new3", domain.NodeKindWorkspace, "", 0).
 		Return(domain.Node{}, errors.New("node create boom"))
 
-	h := handlers.New(reader, projects, nil, nil, stubWork{}).WithNodes(nodes)
+	h := handlers.New(reader, projects, nil, stubWork{}).WithNodes(nodes)
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -337,7 +337,7 @@ func TestGetHome_LazyProvisionNoNodesWired(t *testing.T) {
 	projects.On("FindByKey", mock.Anything, "proj-legacy4").
 		Return(&domain.Project{ID: "proj-legacy4", Path: "/projects/legacy4"}, nil)
 
-	h := handlers.New(reader, projects, nil, nil, stubWork{}) // no .WithNodes
+	h := handlers.New(reader, projects, nil, stubWork{}) // no .WithNodes
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -363,7 +363,7 @@ func TestGetHome_LazyProvisionCreateFails(t *testing.T) {
 	projects.On("FindByKey", mock.Anything, "proj-legacy2").
 		Return(&domain.Project{ID: "proj-legacy2", Path: "/projects/legacy2"}, nil)
 
-	h := handlers.New(reader, projects, nil, nil, stubWork{})
+	h := handlers.New(reader, projects, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -389,7 +389,7 @@ func TestGetHome_LazyProvisionProjectLookupErrors(t *testing.T) {
 	projects.On("FindByKey", mock.Anything, "proj-err").
 		Return(nil, errors.New("db unreachable"))
 
-	h := handlers.New(reader, projects, nil, nil, stubWork{})
+	h := handlers.New(reader, projects, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -431,7 +431,7 @@ func TestRequireHomeWorkspace_SetsWsIdAndCallsNext(t *testing.T) {
 		Kind:      domain.WorkspaceKindHome,
 	}, nil)
 
-	h := handlers.New(reader, nil, nil, nil, stubWork{})
+	h := handlers.New(reader, nil, nil, stubWork{})
 	var capturedWsID string
 	r.GET("/projects/:projectId/home/thing", h.RequireHomeWorkspace, func(c *gin.Context) {
 		capturedWsID = c.Param("wsId")
@@ -458,7 +458,7 @@ func TestRequireHomeWorkspace_AbortsChainOnFailure(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-abort").
 		Return(domain.Workspace{}, errors.New("storage error"))
 
-	h := handlers.New(reader, nil, nil, nil, stubWork{})
+	h := handlers.New(reader, nil, nil, stubWork{})
 	called := false
 	r.GET("/projects/:projectId/home/thing", h.RequireHomeWorkspace, func(c *gin.Context) {
 		called = true

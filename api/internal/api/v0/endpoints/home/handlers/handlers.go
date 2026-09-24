@@ -7,17 +7,15 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/api/v0/reqscope"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	fileusecase "github.com/char2cs/crowbar/api/internal/app/usecases/file"
-	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
-
-// WSConn is the WebSocket abstraction used by the terminal engine Attach method.
-type WSConn = engineterminal.WSConn
 
 // ProjectReader resolves a project by ID — used for lazy home provisioning.
 type ProjectReader interface {
@@ -102,32 +100,6 @@ type Files interface {
 	) error
 }
 
-// TerminalEngine is the terminal engine surface needed by home terminal handlers.
-//
-// The engine keys sessions by their OWNING CHAT now (spec §4.2). The home
-// group has no chat behind it — that is exactly what spec §4.1 deletes it for —
-// so it passes its own home workspace id as the key and is merely
-// self-consistent: it lists back what it created, under an id no chat shares.
-// This whole group, these four terminal routes included, goes away in spec §8
-// step 6; nothing new should be built on it.
-type TerminalEngine interface {
-	Create(
-		ctx context.Context,
-		ownerID string,
-		workspaceDir string,
-		prof *domain.TerminalProfile,
-	) (sessionID string, err error)
-	Kill(
-		ctx context.Context,
-		sessionID string,
-	) error
-	ListSessionsForChat(
-		ownerID string,
-	) []string
-	SessionExists(ctx context.Context, sessionID string) bool
-	Attach(ctx context.Context, sessionID string, conn WSConn) error
-}
-
 // ChatResolver resolves the chat rows a workspace id owns, mirroring the
 // workspaces handlers' own ChatResolver (workspacehandlers.ChatResolver): the
 // home workspace's GET is a second wire-DTO call site, and needs the same
@@ -191,7 +163,6 @@ type Handlers struct {
 	workspaces HomeWorkspaces
 	projects   ProjectReader
 	files      Files
-	termEng    TerminalEngine
 	working    WorkSignal
 	chats      ChatResolver
 	owners     OwnerResolver
@@ -203,14 +174,12 @@ func New(
 	workspaces HomeWorkspaces,
 	projects ProjectReader,
 	files Files,
-	termEng TerminalEngine,
 	working WorkSignal,
 ) *Handlers {
 	return &Handlers{
 		workspaces: workspaces,
 		projects:   projects,
 		files:      files,
-		termEng:    termEng,
 		working:    working,
 	}
 }
@@ -339,5 +308,20 @@ func (h *Handlers) RequireHomeWorkspace(c *gin.Context) {
 		return
 	}
 	c.Params = append(c.Params, gin.Param{Key: "wsId", Value: ws.ID})
+	c.Next()
+}
+
+// RequireHomeTerminalScope puts a home request in the shape the ONE terminal handler
+// set expects: the session owner is the home workspace (it has no owning chat), so its
+// id rides as :chatId, and the workspace itself is stashed where the chat-scoped
+// resolveChatWorktree middleware would have put it — the PTY's starting directory.
+func (h *Handlers) RequireHomeTerminalScope(c *gin.Context) {
+	ws, ok := h.resolveHome(c)
+	if !ok {
+		c.Abort()
+		return
+	}
+	c.Params = append(c.Params, gin.Param{Key: "chatId", Value: ws.ID})
+	reqscope.SetWorkspace(c, ws)
 	c.Next()
 }
