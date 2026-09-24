@@ -106,6 +106,17 @@ func (b *sessionBook) cause(runnerID, reason string) {
 	b.causes[runnerID] = reason
 }
 
+// hasCause reports whether Crowbar itself is ending runnerID.
+func (b *sessionBook) hasCause(runnerID string) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	_, ok := b.causes[runnerID]
+	return ok
+}
+
 // takeCause consumes runnerID's noted cause; "exited" when none was noted.
 func (b *sessionBook) takeCause(runnerID string) string {
 	if b == nil {
@@ -180,6 +191,10 @@ func (b *sessionBook) isQuarantined(chatID, sessionID string) bool {
 	_, ok := b.quarantined[chatID][sessionID]
 	return ok
 }
+
+// ConfirmLaunch implements turn.Runners: a CLI that reports anything took
+// the session it was launched on, so its exit can never read as a refusal.
+func (rs *Runners) ConfirmLaunch(runnerID string) { rs.sessions.confirm(runnerID) }
 
 // Session implements snapshot.Runtime.
 func (rs *Runners) Session(chatID string) domain.AgentSession {

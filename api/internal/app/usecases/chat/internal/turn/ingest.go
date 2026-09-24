@@ -286,6 +286,9 @@ func (t *Turns) ingestHookNow(
 	canonicalEvent string,
 	rawPayload []byte,
 ) error {
+	if t.runners != nil {
+		t.runners.ConfirmLaunch(runnerID)
+	}
 	if canonicalEvent == "user_prompt" {
 		return t.ingestUserPromptInterlocked(ctx, runnerID, provider, canonicalEvent, rawPayload)
 	}

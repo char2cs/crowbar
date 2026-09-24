@@ -71,6 +71,8 @@ type surfaceRunners struct {
 	native bool
 }
 
+func (surfaceRunners) ConfirmLaunch(string) {}
+
 func (r surfaceRunners) ShowingNativeView(string) bool { return r.native }
 
 // answerableAgent declares every prompt answerable from Crowbar, which is what

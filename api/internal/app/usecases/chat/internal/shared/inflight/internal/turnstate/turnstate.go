@@ -112,7 +112,7 @@ func (w *Turns) Begin(
 func (w *Turns) Complete(
 	runnerID string,
 ) {
-	if runnerID == "" {
+	if w == nil || runnerID == "" {
 		return
 	}
 

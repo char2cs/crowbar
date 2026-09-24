@@ -29,6 +29,8 @@ type fakeLiveConn struct {
 	originated map[string]bool
 }
 
+func (fakeLiveConn) ConfirmLaunch(string) {}
+
 func (f fakeLiveConn) HasLiveAPIConnection(string) bool { return f.live }
 
 // originated is whatever this connection minted itself. Empty is the honest
@@ -51,6 +53,8 @@ type showingRunners struct {
 	Runners
 	showing bool
 }
+
+func (showingRunners) ConfirmLaunch(string) {}
 
 func (r showingRunners) ShowingNativeView(string) bool { return r.showing }
 

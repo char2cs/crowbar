@@ -48,6 +48,9 @@ type Conversations interface {
 // turn only this package can release, so a hook that waited on it would deadlock
 // against the very switch waiting on the hook.
 type Runners interface {
+	// ConfirmLaunch records that runnerID's CLI reported something: whatever
+	// session it was launched to resume, it accepted.
+	ConfirmLaunch(runnerID string)
 	// HandleSessionStart applies the placement a CLI has already performed: a
 	// /clear or /resume inside the TUI moves the runner, and Crowbar is told after
 	// the fact.

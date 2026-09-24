@@ -5092,6 +5092,57 @@ func TestResumeLadder_ARefusedResumesPromptIsDeliveredOnTheTranscriptRung(t *tes
 	}, 5*time.Second, time.Millisecond, "the chat says which rung it continued on")
 }
 
+// A resumed CLI Crowbar stops before it announces anything did not refuse its
+// session: the chat says it was stopped, and the next revive resumes it.
+func TestResumeLadder_AResumeStoppedBeforeItSpeaksIsNotARefusal(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-kept")
+	turn(t, f, runnerID, "claude", "an answer")
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	require.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+
+	require.NoError(t, f.usecase.StopChat(f.ctx, chatID))
+	f.term.exit(t, result.TerminalSessionID) // the stopped CLI goes
+	f.wait()
+	assert.Equal(t, domain.AgentExitStopped, agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	assert.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"),
+		"a session nobody refused is never quarantined")
+}
+
+// A resumed CLI that reported anything at all accepted its session, even one
+// that never re-announces it: its later exit is an exit, not a refusal.
+func TestResumeLadder_AResumedCLIThatSpokeDidNotRefuse(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	f.announce(t, runnerID, "sid-kept")
+	turn(t, f, runnerID, "claude", "an answer")
+	result, err := f.usecase.SubmitPrompt(f.ctx, chatID, "next", uuid.NewString(), "", nil)
+	require.NoError(t, err)
+	f.wait()
+	live, err := f.liveRunnerFor(t, chatID)
+	require.NoError(t, err)
+	require.NoError(t, f.usecase.IngestHook(f.ctx, live.ID, "claude", "user_prompt",
+		mustJSON(t, map[string]any{"prompt": "next"})))
+	f.wait()
+
+	f.term.exit(t, result.TerminalSessionID)
+	f.wait()
+
+	assert.NotEqual(t, domain.AgentExitResumeFailed,
+		agentusecase.ChatSession(f.usecase.RunnerUsecase, chatID).ExitReason)
+	_, err = f.usecase.ResumeChat(f.ctx, chatID)
+	require.NoError(t, err)
+	f.wait()
+	assert.Equal(t, "sid-kept", argAfter(t, f.term.calls[f.term.callCount()-1].argv, "--resume"))
+}
+
 // A replacement that cannot start leaves the chat dormant saying so — never a
 // silent dormancy, and never the "displaced" of the runner it replaced.
 func TestSessionExit_AReplacementThatCannotStartRecordsSpawnFailed(t *testing.T) {

@@ -196,7 +196,13 @@ func (rs *Runners) reconcileRunnerExit(ctx context.Context, runnerID string) {
 	}
 	// A CLI that refused its resume never read the prompt its launch carried:
 	// that prompt goes to the next rung instead of being written off.
-	refused := rs.sessions.failedProbe(runnerID, resumeProbeWindow)
+	// Only an exit nobody asked for: a CLI Crowbar stopped or replaced was
+	// never given the chance to announce anything.
+	window := resumeProbeWindow
+	if rs.sessions.hasCause(runnerID) {
+		window = 0
+	}
+	refused := rs.sessions.failedProbe(runnerID, window)
 	redeliver, again := agentjournal.PromptRequest{}, false
 	if refused {
 		redeliver, again = rs.refusedDelivery(ctx, runner)

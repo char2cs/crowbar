@@ -122,6 +122,8 @@ type quietRunners struct {
 	originated map[string]bool
 }
 
+func (quietRunners) ConfirmLaunch(string) {}
+
 func (r quietRunners) OriginatedSession(_, sessionID string) bool { return r.originated[sessionID] }
 
 // The frames these tests replay arrive OFF this connection, so it is there by
