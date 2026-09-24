@@ -37,6 +37,8 @@ import {
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { upsertEntity } from '@/lib/persistence/entity-cache'
+import type { ChatDTO } from '@/lib/types'
 import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
@@ -205,6 +207,54 @@ describe('hydrateWindowPaneLayout', () => {
     expect(state.buffers[0]).toMatchObject({ id: 'buf-1', content: 'saved' })
   })
 
+  // The one versioned load-time upgrade: a v1 member carried only its chat;
+  // v2 records the workspace, read from the chat's own cached record.
+  it('upgrades a v1 layout: members gain their workspace from the chat cache', async () => {
+    await upsertEntity('crowbar_chats', {
+      id: 'chat-a',
+      repoId: 'r1',
+      projectId: 'p1',
+      workspaceId: 'ws-a',
+      title: 'A',
+    } as ChatDTO)
+    const db = await getDB()
+    const v1 = (id: string, viewId: string, chatId: string) => {
+      const p = pane(id, viewId, { chatId })
+      delete p.workspaceId
+      return p
+    }
+    await db.put('workspace-layout', {
+      workspaceId: WINDOW_SESSION_ID,
+      panes: {
+        'pane-a': v1('pane-a', 'view-a', 'chat-a'),
+        'pane-x': v1('pane-x', 'view-x', 'chat-unknown'),
+        'bottom-pane': pane('bottom-pane', null),
+      },
+      views: {
+        'view-a': { id: 'view-a', projectId: 'p1', layout: createLeaf('pane-a') },
+        'view-x': { id: 'view-x', projectId: 'p1', layout: createLeaf('pane-x') },
+      },
+      viewOrder: ['view-a', 'view-x'],
+      activeViewId: 'view-a',
+      stage: createLeaf(ROOT_PANE_ID),
+      bottomLayout: createLeaf('bottom-pane'),
+      activePaneId: 'pane-a',
+      mostRecentActivePaneIds: ['pane-a'],
+      buffers: [],
+      sidebarWidth: 0,
+      rightSidebarWidth: 0,
+      updatedAt: Date.now(),
+    } as WorkspaceLayout)
+
+    await hydrateWindowPaneLayout()
+
+    const state = windowPaneStore.getState()
+    expect(state.panes['pane-a'].workspaceId).toBe('ws-a')
+    // A member the cache cannot place is not guessed at: it, and the view it
+    // leaves empty, are not restored.
+    expect(state.viewOrder).toEqual(['view-a'])
+  })
+
   it('a payload without views hydrates to an empty band; unlisted buffers are not restored', async () => {
     const db = await getDB()
     await db.put('workspace-layout', {
@@ -307,6 +357,8 @@ function pane(
     editorTabIds: [],
     activeEditorTabId: over.editorTabIds?.[0] ?? null,
     editorOpen: false,
+    // A current-shape member records its workspace (C3).
+    workspaceId: over.chatId ? `ws-of-${over.chatId}` : null,
     ...over,
     viewId,
   }

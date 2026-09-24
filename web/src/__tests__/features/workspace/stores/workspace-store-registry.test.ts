@@ -4,7 +4,6 @@ import {
   getWorkspaceStore,
   destroyWorkspaceStore,
   getAllActiveWorkspaceIds,
-  resolveWorkspaceIdForChat,
   setActiveWorkspaceId,
   clearActiveWorkspaceId,
   getActiveWorkspaceId,
@@ -158,91 +157,6 @@ describe('workspace-store-registry', () => {
   // Task 27: the chatId -> workspaceId resolution Task 26's own review found
   // missing from the render path entirely. Mirrors isChatWorking's own
   // real-store-via-the-registry test style rather than mocking the scan.
-  describe('resolveWorkspaceIdForChat', () => {
-    it('returns the id of the registered store whose agentChats.chats names the chat', () => {
-      const store = getOrCreateWorkspaceStore('ws-a')
-      store.getState().upsertAgentChat(chat('chat-1', 'ws-a'))
-      expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-a')
-    })
-
-    it('searches every registered store, not just the first', () => {
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-a', 'ws-a'))
-      const storeB = getOrCreateWorkspaceStore('ws-b')
-      storeB.getState().upsertAgentChat(chat('chat-b', 'ws-b'))
-      expect(resolveWorkspaceIdForChat('chat-b')).toBe('ws-b')
-    })
-
-    it('returns null when no registered store names the chat', () => {
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-1', 'ws-a'))
-      expect(resolveWorkspaceIdForChat('chat-never-seen')).toBeNull()
-    })
-
-    it('returns null when nothing is registered at all', () => {
-      expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
-    })
-
-    it('stops naming a chat once its owning store is destroyed', () => {
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(chat('chat-1', 'ws-a'))
-      expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-a')
-      destroyWorkspaceStore('ws-a')
-      expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
-    })
-
-    it('resolves the workspace that actually owns the chat, not the caller-active one', () => {
-      // The whole point of the resolver (Task 26's own review): a chat's
-      // owning workspace has to be found on its own terms, independent of
-      // whichever workspace happens to be globally "active" elsewhere.
-      getOrCreateWorkspaceStore('ws-active').getState().upsertAgentChat(chat('chat-x', 'ws-active'))
-      getOrCreateWorkspaceStore('ws-background')
-        .getState()
-        .upsertAgentChat(chat('chat-y', 'ws-background'))
-      expect(resolveWorkspaceIdForChat('chat-y')).toBe('ws-background')
-    })
-
-    it("agrees with the chat record's own workspaceId in the ordinary (non-evicted) case", () => {
-      // Documents the doc comment's claim: the registry key and the chat's
-      // own denormalized `workspaceId` field are expected to agree whenever
-      // the owning store is actually registered — this resolver just never
-      // relies on the denormalized field to make that true.
-      const record = chat('chat-1', 'ws-a')
-      getOrCreateWorkspaceStore('ws-a').getState().upsertAgentChat(record)
-      expect(resolveWorkspaceIdForChat('chat-1')).toBe(record.workspaceId)
-    })
-
-    // Fix round 1 (coordinator review): the resolver's PRIMARY intended
-    // case — Task 26 deliberately hoisted panes to window level so a pane
-    // holding a chat OUTLIVES its owning workspace's own eviction
-    // (WorkspaceHost's age/LRU keep-alive window; see workspace-host.tsx).
-    // "Registered stores only" therefore means the one scenario this
-    // resolver exists to serve — a pane whose chat's workspace has since
-    // been evicted — is exactly the case where it answers null. This is
-    // documented as a deliberate characteristic on the function itself
-    // (REGISTRY-SCOPED, NOT OMNISCIENT), not a silent gap; this test pins
-    // that characteristic down so a future change can't quietly alter it.
-    it('resolves to null for a chat whose workspace was evicted, even though a pane can still reference it', () => {
-      getOrCreateWorkspaceStore('ws-evicted')
-        .getState()
-        .upsertAgentChat(chat('chat-1', 'ws-evicted'))
-      expect(resolveWorkspaceIdForChat('chat-1')).toBe('ws-evicted')
-
-      // WorkspaceHost's own eviction path: destroy the store, exactly as it
-      // does when a workspace ages out of the keep-alive window. Nothing
-      // about the pane that still holds `chat-1` changes here — panes are
-      // window-level and outlive this by design (Task 26).
-      destroyWorkspaceStore('ws-evicted')
-
-      expect(resolveWorkspaceIdForChat('chat-1')).toBeNull()
-    })
-  })
-
-  // `getOrCreateWorkspaceStore` is called FROM THE RENDER PATH
-  // (WorkspaceView/WindowPaneSurface mint the store they provide as context),
-  // so a registration that pushes a change at its watchers pushes a setState
-  // out of React's render phase — live-observed as "Cannot update a component
-  // (`IDEShell`) while rendering a different component (`WorkspaceView`)".
-  // A brand-new store has no agentChats, so it can move no watcher's answer;
-  // the re-bind still has to be synchronous, because the next write to that
-  // very store (its chats stream landing) is what carries the real change.
   describe('registry change notifications', () => {
     it('does not fire watchers when a store is merely registered', () => {
       const fired = vi.fn()

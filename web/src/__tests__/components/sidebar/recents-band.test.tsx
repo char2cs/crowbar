@@ -9,14 +9,6 @@ import {
   windowPaneStore,
 } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
-import { ApiError } from '@/lib/api'
-import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import type { AgentChat } from '@/features/agent/api/agent-api'
-import {
-  destroyWorkspaceStore,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
-import { _resetRecentsChatFallbackForTests } from '@/components/sidebar/lib/use-recents-chat-fallback'
 
 vi.mock('@/features/panes/lib/release-closed-chat', () => ({
   releaseClosedChat: vi.fn(async () => {}),
@@ -28,16 +20,10 @@ interface FakeChat {
   title: string
 }
 
-const { stores, getChatFn } = vi.hoisted(() => ({
+const { stores } = vi.hoisted(() => ({
   stores: {
     current: new Map<string, { chats: FakeChat[]; working: Record<string, boolean> }>(),
   },
-  getChatFn: vi.fn(),
-}))
-
-vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/features/agent/api/agent-api')>()),
-  getChat: (...a: unknown[]) => getChatFn(...a),
 }))
 
 // Each member row resolves its chat through its OWN workspace's registered
@@ -52,12 +38,6 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
     return { subscribe: () => () => {}, getState: () => ({ agentChats }) }
   },
 }))
-
-/** Drain the microtasks a mocked read settles through. Not a clock. */
-const settle = () =>
-  act(async () => {
-    for (let i = 0; i < 8; i++) await Promise.resolve()
-  })
 
 const DRAG_PROPS = {
   scrollRef: { current: null } as React.RefObject<HTMLElement | null>,
@@ -100,8 +80,6 @@ beforeEach(() => {
   useSidebarStore.setState({ ...getInitialState(), repos: [repo(SIDEBAR_CHATS)] })
   resetWindowPaneStoreForTests()
   windowPaneStore.getState().paneActions.setActiveProject('p1')
-  _resetRecentsChatFallbackForTests()
-  getChatFn.mockReset()
 })
 
 const actions = () => windowPaneStore.getState().paneActions
@@ -110,7 +88,6 @@ const viewOf = (chatId: string) => windowPaneStore.getState().panes[paneOf(chatI
 
 function renderBand(overrides: Partial<Parameters<typeof RecentsBand>[0]> = {}) {
   const props = {
-    projectId: 'p1',
     viewIds: windowPaneStore.getState().viewOrder,
     onFocus: vi.fn(),
     onClose: vi.fn(),
@@ -127,9 +104,9 @@ function classesOf(el: Element): string[] {
 
 /** A group of chat-1 + chat-2 in one view, plus chat-3 as its own view. */
 function groupAndSolo() {
-  actions().openChat('chat-1')
-  actions().dropChatOnPane('chat-2', paneOf('chat-1'), 'right')
-  actions().openChat('chat-3')
+  actions().openChat('chat-1', { workspaceId: 'ws-1' })
+  actions().dropChatOnPane('chat-2', paneOf('chat-1'), 'right', 'ws-1')
+  actions().openChat('chat-3', { workspaceId: 'ws-1' })
 }
 
 describe('RecentsBand', () => {
@@ -147,20 +124,20 @@ describe('RecentsBand', () => {
   })
 
   it('rows render flat, no indent', () => {
-    actions().openChat('chat-1')
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
     renderBand()
     expect(screen.getByTestId('recents-row-chat-1')).not.toHaveAttribute('data-depth')
   })
 
   it('clicking a row calls onFocus with its view', () => {
-    actions().openChat('chat-1')
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
     const { props } = renderBand()
     screen.getByRole('treeitem').click()
     expect(props.onFocus).toHaveBeenCalledWith(viewOf('chat-1'))
   })
 
   it("a solo row's × closes its view, never labelled as a delete", () => {
-    actions().openChat('chat-1')
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
     const { props } = renderBand()
     const close = screen.getByRole('button', { name: 'Close Chat One' })
     expect(close.getAttribute('aria-label')).not.toMatch(/delete/i)
@@ -177,7 +154,7 @@ describe('RecentsBand', () => {
   })
 
   it('every row has a close control — a working one included', () => {
-    actions().openChat('chat-1')
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
     stores.current.get('ws-1')!.working = { 'chat-1': true }
     renderBand()
     expect(screen.getByRole('button', { name: 'Close Chat One' })).toBeInTheDocument()
@@ -207,7 +184,7 @@ describe('RecentsBand', () => {
   })
 
   it('a lone showing row takes over the row margin once, at a tree row’s height', () => {
-    actions().openChat('chat-1')
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
     renderBand()
     const rowWrapper = screen.getByTestId('recents-row-chat-1')
     const shellWrapper = rowWrapper.parentElement!
@@ -239,7 +216,7 @@ describe('RecentsBand', () => {
 
   it('an untitled chat renders the UNTITLED_CHAT_LABEL fallback', () => {
     stores.current.get('ws-1')!.chats[0] = { id: 'chat-1', workspaceId: 'ws-1', title: '' }
-    actions().openChat('chat-1')
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
     renderBand()
     expect(screen.getByText(UNTITLED_CHAT_LABEL)).toBeInTheDocument()
   })
@@ -252,8 +229,8 @@ describe('RecentsBand', () => {
         ]),
       ],
     })
-    actions().openChat('chat-1')
-    actions().openChat('chat-2')
+    actions().openChat('chat-1', { workspaceId: 'ws-1' })
+    actions().openChat('chat-2', { workspaceId: 'ws-1' })
     renderBand()
     expect(within(screen.getByTestId('recents-row-chat-1')).queryByRole('img')).toBeInTheDocument()
     expect(
@@ -264,7 +241,7 @@ describe('RecentsBand', () => {
   // Regression: a working chat whose workspace store is not mounted keeps its
   // row — the row is its record, drawn from the sidebar's own chat list.
   it('a background row survives its workspace store unmounting', () => {
-    actions().adoptBackgroundChat('chat-2', 'p1')
+    actions().adoptBackgroundChat('chat-2', 'p1', 'ws-1')
     stores.current = new Map()
     renderBand()
     expect(screen.getByTestId('recents-row-chat-2')).toBeInTheDocument()
@@ -272,93 +249,22 @@ describe('RecentsBand', () => {
   })
 
   // Regression: a record whose chat no cache knew rendered null — an
-  // invisible row nobody could close.
+  // invisible row nobody could close. It draws from its record (loading)
+  // until the sidebar's tree names the chat; nothing is fetched for it.
   describe('a row whose chat data has not resolved', () => {
     const unknownChat = () => {
       useSidebarStore.setState({
         repos: [{ ...repo(SIDEBAR_CHATS), defaultWorkspaceId: 'ws-1' }],
       })
-      actions().adoptBackgroundChat('chat-9', 'p1')
+      actions().adoptBackgroundChat('chat-9', 'p1', 'ws-1')
     }
 
     it('still draws with a loading label, and its × closes it', () => {
-      getChatFn.mockReturnValue(new Promise(() => {}))
       unknownChat()
       const { props } = renderBand()
       expect(screen.getByTestId('recents-row-chat-9')).toBeInTheDocument()
       screen.getByRole('button', { name: 'Close Loading…' }).click()
       expect(props.onClose).toHaveBeenCalledWith(viewOf('chat-9'))
-    })
-
-    it('fetches the title once through a project mount', async () => {
-      getChatFn.mockResolvedValue({ id: 'chat-9', workspaceId: 'ws-1', title: 'Nine' })
-      unknownChat()
-      renderBand()
-      await settle()
-      expect(screen.getByText('Nine')).toBeInTheDocument()
-      expect(getChatFn).toHaveBeenCalledTimes(1)
-      expect(getChatFn).toHaveBeenCalledWith('ws-1', 'chat-9')
-    })
-
-    it('a 404 from every mount of an ownerless chat forgets it and its row', async () => {
-      getChatFn.mockRejectedValue(new ApiError('not found', 404))
-      unknownChat()
-      renderBand()
-      await settle()
-      expect(chatPaneIndex(windowPaneStore.getState().panes).has('chat-9')).toBe(false)
-      expect(windowPaneStore.getState().viewOrder).toEqual([])
-    })
-
-    it('a 404 from the owner mount forgets it; no other mount is asked', async () => {
-      getOrCreateWorkspaceStore('ws-own')
-        .getState()
-        .seedAgentChats([{ id: 'chat-9', workspaceId: 'ws-own', title: '' } as AgentChat])
-      try {
-        getChatFn.mockRejectedValue(new ApiError('not found', 404))
-        unknownChat()
-        renderBand()
-        await settle()
-        expect(getChatFn.mock.calls).toEqual([['ws-own', 'chat-9']])
-        expect(windowPaneStore.getState().viewOrder).toEqual([])
-      } finally {
-        destroyWorkspaceStore('ws-own')
-      }
-    })
-
-    it('a transient failure keeps the row loading and retries after a reconnect', async () => {
-      getChatFn
-        .mockRejectedValueOnce(new Error('network down'))
-        .mockResolvedValueOnce({ id: 'chat-9', workspaceId: 'ws-1', title: 'Nine' })
-      unknownChat()
-      renderBand()
-      await settle()
-      expect(screen.getByTestId('recents-row-chat-9')).toBeInTheDocument()
-      expect(screen.getByText('Loading…')).toBeInTheDocument()
-      expect(getChatFn).toHaveBeenCalledTimes(1)
-
-      await act(async () => useFolderSignalStore.getState().bump('r1'))
-      await settle()
-      expect(getChatFn).toHaveBeenCalledTimes(2)
-      expect(screen.getByText('Nine')).toBeInTheDocument()
-    })
-
-    it('one 404 among transient failures is not a deletion', async () => {
-      useSidebarStore.setState({
-        repos: [
-          {
-            ...repo(SIDEBAR_CHATS, [{ id: 'ws-2' } as Repo['workspaces'][number]]),
-            defaultWorkspaceId: 'ws-1',
-          },
-        ],
-      })
-      actions().adoptBackgroundChat('chat-9', 'p1')
-      getChatFn.mockImplementation((wsId: string) =>
-        Promise.reject(wsId === 'ws-1' ? new ApiError('not found', 404) : new Error('503')),
-      )
-      renderBand()
-      await settle()
-      expect(getChatFn).toHaveBeenCalledTimes(2)
-      expect(screen.getByTestId('recents-row-chat-9')).toBeInTheDocument()
     })
   })
 })

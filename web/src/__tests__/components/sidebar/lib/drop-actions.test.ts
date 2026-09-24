@@ -2218,7 +2218,7 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
  *
  * The mechanism the refusal stood in for is now built — `resolveChatWorkspaceId`
  * (features/panes/lib/pane-chat-workspace.ts), read by `PaneContainer` through
- * `useChatWorkspaceId` — so the drop is a drop.
+ * the member's recorded workspace — so the drop is a drop.
  */
 describe('performSidebarPaneDrop — cross-workspace', () => {
   it('splits for a chat whose workspace is not the routed one', () => {

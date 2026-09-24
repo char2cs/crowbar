@@ -139,7 +139,9 @@ export function usePaneKeyboard() {
             }
             workspaceStore.getState().setActiveAgentChatId(chatId)
             // A brand-new chat has no runner yet — null until it spawns one.
-            windowPaneStore.getState().paneActions.openChat(chatId)
+            windowPaneStore
+              .getState()
+              .paneActions.openChat(chatId, { workspaceId: state.workspaceId })
           })
           .catch((err: unknown) => toastSpawnFailure(err, provider.displayName, 'start'))
         return

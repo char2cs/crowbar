@@ -11,11 +11,15 @@ import type { WorkspaceLayout } from './schemas'
  */
 export const WINDOW_SESSION_ID = 'window'
 
+/** 2: every chat pane records its workspace (`PaneGroup.workspaceId`). */
+export const WINDOW_LAYOUT_VERSION = 2
+
 export async function saveWorkspaceLayout(layout: WorkspaceLayout): Promise<void> {
   const db = await getDB()
   await db.put('workspace-layout', {
     ...layout,
     workspaceId: WINDOW_SESSION_ID,
+    version: WINDOW_LAYOUT_VERSION,
     updatedAt: Date.now(),
   })
 }

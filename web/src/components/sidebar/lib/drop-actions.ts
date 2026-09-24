@@ -5,7 +5,6 @@ import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { viewChatIds } from '@/features/panes/lib/view-state'
-import { isKnownChatId, resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
 import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
 import {
   levelWorkspaceOfBranchRow,
@@ -961,19 +960,15 @@ interface PaneChatSubject {
  * stay null — a no-op rather than a guess at behaviour nothing has defined.
  */
 function paneChatSubject(row: SidebarRow): PaneChatSubject | null {
+  // The row carries the daemon's own answer for its workspace: that is what
+  // the view member records (C3).
   if (row.kind === 'chat') {
-    const workspaceId = resolveChatWorkspaceId(row.id, row.workspaceId)
-    return workspaceId ? { chatId: row.id, workspaceId } : null
+    return row.workspaceId ? { chatId: row.id, workspaceId: row.workspaceId } : null
   }
   if (row.kind !== 'branch' || !row.workspaceId) return null
-  const owner =
-    owningChatIdOfWorkspace(useSidebarStore.getState().repos, row.workspaceId) ??
-    (isKnownChatId(row.id) ? row.id : null)
+  const owner = owningChatIdOfWorkspace(useSidebarStore.getState().repos, row.workspaceId)
   if (!owner) return null
-  return {
-    chatId: owner,
-    workspaceId: resolveChatWorkspaceId(owner, row.workspaceId) ?? row.workspaceId,
-  }
+  return { chatId: owner, workspaceId: row.workspaceId }
 }
 
 /**
@@ -1000,6 +995,7 @@ export function openChatInOwnPane(subject: SidebarRow): void {
   if (!resolved) return
   windowPaneStore.getState().paneActions.openChat(resolved.chatId, {
     projectId: resolveChatProjectId(resolved.chatId, resolved.workspaceId) ?? undefined,
+    workspaceId: resolved.workspaceId,
   })
 }
 
@@ -1023,5 +1019,5 @@ export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: Side
     toast.error('That chat belongs to a different space')
     return
   }
-  paneActions.dropChatOnPane(resolved.chatId, paneId, zone)
+  paneActions.dropChatOnPane(resolved.chatId, paneId, zone, resolved.workspaceId)
 }

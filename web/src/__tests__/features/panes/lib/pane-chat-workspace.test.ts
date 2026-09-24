@@ -1,157 +1,62 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-// Real registry, real workspace stores — the whole point of this resolver is
-// which store actually holds a chat. Only the persistence side effects those
-// stores fire on creation are stubbed, the same way drop-actions.test.ts does
-// it.
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
 }))
-vi.mock('@/features/editor/stores/buffer-session-persistence', () => ({
-  saveSessionToStore: vi.fn(),
-  clearQueuedWorkspaceSessionSave: vi.fn(),
-}))
 
 import {
-  isKnownChatId,
   resolveChatWorkspaceId,
   resolveOnscreenPaneForWorkspace,
 } from '@/features/panes/lib/pane-chat-workspace'
-import {
-  destroyWorkspaceStore,
-  getAllActiveWorkspaceIds,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import type { AgentChat } from '@/features/agent/api/agent-api'
 
-const chat = (id: string, wsId: string, over: Partial<AgentChat> = {}): AgentChat => ({
-  id,
-  workspaceId: wsId,
-  title: id,
-  liveRunnerId: '',
-  terminalSessionId: '',
-  activeProviderId: 'claude',
-  createdAt: '2026-01-01T00:00:00Z',
-  order: 0,
-  parentId: '',
-  ...over,
-})
+const paneActions = () => windowPaneStore.getState().paneActions
 
-/** Seed `wsId`'s store with a chat list, as its own agent-chats stream does. */
-function seed(wsId: string, chats: AgentChat[]): void {
-  getOrCreateWorkspaceStore(wsId).getState().seedAgentChats(chats)
-}
-
-afterEach(() => {
-  getAllActiveWorkspaceIds().forEach((id) => destroyWorkspaceStore(id))
+beforeEach(() => {
+  resetWindowPaneStoreForTests()
 })
 
 /**
- * `resolveChatWorkspaceId` — "which workspace does this chat belong to",
- * answered without asking which workspace happens to be routed.
- *
- * The question the pane render path had no way to ask, and the reason a drag
- * from any row outside the active workspace was refused outright.
+ * `resolveChatWorkspaceId` — "which workspace does this chat belong to". A
+ * chat on screen answers from its view member's record (C3); anything else
+ * from the caller's own row. No workspace store is consulted.
  */
 describe('resolveChatWorkspaceId', () => {
-  it('answers from the chat record itself', () => {
-    seed('ws-a', [chat('c1', 'ws-a')])
-
+  it('answers from the pane record the opening gesture wrote', () => {
+    paneActions().openChat('c1', { workspaceId: 'ws-a' })
     expect(resolveChatWorkspaceId('c1')).toBe('ws-a')
   })
 
-  it('does NOT answer with the registry key it happened to be found under', () => {
-    // `listChats` is REPO-scoped: every workspace store in a repo is seeded
-    // with that whole repo's chats, so `ws-b`'s store legitimately holds a
-    // chat that belongs to `ws-a`. Returning "where I found it" here is the
-    // bug this ordering exists to avoid — it would name ws-b as the owner of
-    // every chat in the repo.
-    seed('ws-b', [chat('c1', 'ws-a'), chat('c2', 'ws-b')])
-
-    expect(resolveChatWorkspaceId('c1')).toBe('ws-a')
-    expect(resolveChatWorkspaceId('c2')).toBe('ws-b')
+  it('prefers the record over the caller’s hint when the two disagree', () => {
+    paneActions().openChat('c1', { workspaceId: 'ws-a' })
+    expect(resolveChatWorkspaceId('c1', 'ws-other')).toBe('ws-a')
   })
 
-  it('prefers the chat record over the caller’s hint when the two disagree', () => {
-    seed('ws-a', [chat('c1', 'ws-a')])
-
-    expect(resolveChatWorkspaceId('c1', 'ws-stale')).toBe('ws-a')
-  })
-
-  it('falls back to the hint for a chat no store has been seeded with yet', () => {
-    // The routine case for a workspace the user has never opened: the sidebar
-    // knows the row, no workspace store knows the chat.
+  it('falls back to the hint for a chat not on screen', () => {
     expect(resolveChatWorkspaceId('c1', 'ws-a')).toBe('ws-a')
   })
 
-  it('is null when nothing in the app can name a workspace for the chat', () => {
-    expect(resolveChatWorkspaceId('nobody-knows-me')).toBeNull()
-    expect(resolveChatWorkspaceId('nobody-knows-me', null)).toBeNull()
-  })
-
-  it('survives its owning workspace being evicted, via any other store in the repo', () => {
-    seed('ws-a', [chat('c1', 'ws-a')])
-    seed('ws-b', [chat('c1', 'ws-a'), chat('c2', 'ws-b')]) // repo-scoped seed
-    destroyWorkspaceStore('ws-a')
-
-    // A pane holding c1 outlives ws-a's eviction by design (Task 26) — and
-    // still resolves the right owner, because the answer rides on the chat.
-    expect(resolveChatWorkspaceId('c1')).toBe('ws-a')
+  it('is null when nothing can name a workspace for the chat', () => {
+    expect(resolveChatWorkspaceId('c-ghost')).toBeNull()
   })
 })
 
-/**
- * `isKnownChatId` — the CHECK the hint clause deliberately is not.
- *
- * A `branch` row is id'd from the chat that owns its workspace, but falls back
- * to its own WORKSPACE id when that chat cannot be resolved
- * (`rows-from-repo.ts`). Handing that id to a pane would point it at a chat
- * that does not exist, so the pane-drop path asks this before treating a row
- * id as a chat id.
- */
-describe('isKnownChatId', () => {
-  it('is true only for an id some registered store actually holds as a chat', () => {
-    seed('ws-a', [chat('c1', 'ws-a')])
-
-    expect(isKnownChatId('c1')).toBe(true)
-    expect(isKnownChatId('ws-a')).toBe(false)
-    expect(isKnownChatId('never-existed')).toBe(false)
-  })
-})
-
-/**
- * `resolveOnscreenPaneForWorkspace` — live-reported: "I open a file on a
- * given chat, and the file gets open in another chat from the same group."
- * Two chats sharing a workspace can sit side by side on screen while
- * `activePaneId` (a single window-level value, only updated by a literal
- * click INSIDE a pane) still names whichever one was last actually clicked.
- */
 describe('resolveOnscreenPaneForWorkspace', () => {
-  const paneActions = () => windowPaneStore.getState().paneActions
-
-  beforeEach(() => {
-    resetWindowPaneStoreForTests()
-  })
-
   it('returns null when the active pane already belongs to the target workspace', () => {
-    seed('ws-a', [chat('c1', 'ws-a')])
-    paneActions().openChat('c1')
+    paneActions().openChat('c1', { workspaceId: 'ws-a' })
     paneActions().setActivePane(ROOT_PANE_ID)
 
     expect(resolveOnscreenPaneForWorkspace('ws-a')).toBeNull()
   })
 
   it('names the on-screen sibling pane that belongs to the target workspace', () => {
-    seed('ws-a', [chat('c1', 'ws-a')])
-    seed('ws-b', [chat('c2', 'ws-b')])
-    paneActions().openChat('c1')
-    paneActions().dropChatOnPane('c2', ROOT_PANE_ID, 'right')
+    paneActions().openChat('c1', { workspaceId: 'ws-a' })
+    paneActions().dropChatOnPane('c2', ROOT_PANE_ID, 'right', 'ws-b')
     const secondPaneId = chatPaneIndex(windowPaneStore.getState().panes).get('c2')
     // The user's last literal click landed in the ws-a pane...
     paneActions().setActivePane(ROOT_PANE_ID)
@@ -161,20 +66,17 @@ describe('resolveOnscreenPaneForWorkspace', () => {
   })
 
   it('returns null when no on-screen pane belongs to the target workspace', () => {
-    seed('ws-a', [chat('c1', 'ws-a')])
-    paneActions().openChat('c1')
+    paneActions().openChat('c1', { workspaceId: 'ws-a' })
     paneActions().setActivePane(ROOT_PANE_ID)
 
     expect(resolveOnscreenPaneForWorkspace('ws-nobody-showing')).toBeNull()
   })
 
   it('never targets a pane sitting in a PARKED (off-screen) view', () => {
-    seed('ws-a', [chat('c1', 'ws-a')])
-    seed('ws-b', [chat('c2', 'ws-b')])
-    paneActions().openChat('c2')
+    paneActions().openChat('c2', { workspaceId: 'ws-b' })
     // A second chat takes the screen as a view of its own; the ws-b pane is
     // off screen, and a file click must never reveal it.
-    paneActions().openChat('c1')
+    paneActions().openChat('c1', { workspaceId: 'ws-a' })
 
     expect(resolveOnscreenPaneForWorkspace('ws-b')).toBeNull()
   })

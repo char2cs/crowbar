@@ -1,6 +1,9 @@
 import { getDB } from './idb'
 import type { EditorState, UIPreferences, WorkspaceLayout } from './schemas'
-import { loadWindowPaneLayout } from './workspace-layout'
+import { loadWindowPaneLayout, WINDOW_LAYOUT_VERSION } from './workspace-layout'
+import { getAllEntities } from './entity-cache'
+import type { ChatDTO } from '@/lib/types'
+import type { PaneGroup } from '@/features/panes/types/pane'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { ViewState } from '@/features/panes/lib/view-state'
 import { repairViewState } from '@/features/panes/lib/view-repair'
@@ -49,8 +52,9 @@ export async function hydratePreferences(): Promise<UIPreferences | null> {
  * replaced a frame later crashes.
  */
 export async function hydrateWindowPaneLayout(): Promise<void> {
-  const layout = await loadWindowPaneLayout()
-  if (!layout) return
+  const stored = await loadWindowPaneLayout()
+  if (!stored) return
+  const layout = await upgradeWindowPaneLayout(stored)
   const restored = restoreWindowPaneState(layout)
   if (!restored) return
   const { panes, buffers } = validateLoadedBuffers({
@@ -63,6 +67,33 @@ export async function hydrateWindowPaneLayout(): Promise<void> {
     activeProjectId: windowPaneStore.getState().activeProjectId,
     buffers: buffers.map(restoreBufferDirtyState),
   })
+}
+
+/**
+ * The one load-time upgrade of an older saved layout to the current shape.
+ *
+ * v1 → v2: a chat pane records the workspace its chat belongs to. A v1 pane
+ * carries only the chat id, so the workspace is read from the chat's own
+ * cached record (the daemon's answer, `crowbar_chats`). A member whose chat
+ * the cache does not know cannot be given a workspace without guessing, so it
+ * is not restored; a view left without members goes with it (repair).
+ */
+export async function upgradeWindowPaneLayout(layout: WorkspaceLayout): Promise<WorkspaceLayout> {
+  if ((layout.version ?? 1) >= WINDOW_LAYOUT_VERSION) return layout
+  const owner = new Map<string, string>()
+  for (const chat of await getAllEntities<ChatDTO>('crowbar_chats')) {
+    if (chat.workspaceId) owner.set(chat.id, chat.workspaceId)
+  }
+  const panes: Record<string, PaneGroup> = {}
+  for (const [id, pane] of Object.entries(layout.panes ?? {})) {
+    if (!pane.chatId) {
+      panes[id] = { ...pane, workspaceId: null }
+      continue
+    }
+    const workspaceId = pane.workspaceId || owner.get(pane.chatId)
+    if (workspaceId) panes[id] = { ...pane, workspaceId }
+  }
+  return { ...layout, panes, version: WINDOW_LAYOUT_VERSION }
 }
 
 /**

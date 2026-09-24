@@ -1,8 +1,5 @@
 import { createWorkspaceStore, type WorkspaceStore } from './workspace-store'
 import { loadFromLocalStorage } from './workspace-persistence'
-import { useHistoryStore } from '@/features/editor/stores/history-store'
-import { cleanupBufferHistoryTracking } from '@/features/editor/stores/buffer-history-tracking'
-import type { TerminalContent } from '@/features/panes/types/pane-content'
 import { isEditorContent } from '@/features/panes/types/pane-content'
 import { setActiveScopeWorkspaceId } from '@/lib/workspace-scope'
 import { bestEffort } from '@/lib/best-effort'
@@ -105,7 +102,6 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
  *
  * - `'registered'`: a brand-new store was just minted. Every registry-wide
  *   answer this module exposes ({@link isChatWorking},
- *   {@link resolveWorkspaceIdForChat}, {@link resolveChatOwnerWorkspaceId},
  *   {@link readChatWorking}, and the `agentChats` scans built on
  *   {@link getAllActiveWorkspaceIds}) is derived from `agentChats`, which a
  *   freshly created store has none of — `createWorkspaceStore`'s persisted
@@ -116,8 +112,7 @@ export function getOrCreateWorkspaceStore(wsId: string): WorkspaceStore {
  *   a workspace forced into the mounted set by the route has no store until
  *   its own render mints one — so the push landed inside React's render phase
  *   and updated `IDEShell`'s `useSyncExternalStore` hooks
- *   (`useActivePaneWorkspaceId` / `useViewWorkspaceIds` /
- *   `usePaneWorkspaceIds`) while `WorkspaceView` was still rendering:
+ *   while `WorkspaceView` was still rendering:
  *   "Cannot update a component (`IDEShell`) while rendering a different
  *   component (`WorkspaceView`)". The RE-BIND still has to happen
  *   synchronously — the very next write to the new store (its chats stream
@@ -149,7 +144,7 @@ export function subscribeWorkspaceRegistry(
  * whenever the set of registered stores itself changes.
  *
  * The subscribe half of the registry-wide scans this module already exposes
- * ({@link resolveChatOwnerWorkspaceId}, {@link isChatWorking}) — those answer
+ * ({@link isChatWorking}) — those answer
  * "right now" and had no way to say "ask again". A render path resolving a
  * chat's owning workspace needs both: which workspace a pane's chat belongs to
  * is unknowable until SOME store has been seeded with that chat, and the pane
@@ -248,78 +243,6 @@ export function isChatWorking(chatId: string): boolean {
   return false
 }
 
-/**
- * Which registered workspace store's `agentChats.chats` names `chatId`, or
- * null if none does — the general single-chat form of `isChatWorking`'s own
- * scan (a chat's owning workspace is not encoded in its id, so every
- * registered store has to be searched), returning the owning id itself
- * rather than a boolean.
- *
- * The single-id form for a caller that has
- * exactly one chat to resolve, no project to scope the scan to, and needs
- * the id itself rather than a batch.
- *
- * Returns the REGISTRY KEY the chat was found under, not `chat.workspaceId`
- * (a field `AgentChat` also carries) — the registry key is what tells a
- * caller "this workspace has a live store right now", which is what every
- * caller of this resolver actually needs (a store to read/act against), and
- * doesn't require trusting a denormalized field on the chat record to agree
- * with where it was actually found.
- *
- * NOT THE CHAT'S OWNING WORKSPACE, and not a near-enough stand-in for it:
- * `listChats` is REPO-scoped (`chatBase` → `/repos/:r/chats`), so every
- * workspace store in a repo is seeded with that whole repo's chats and the
- * first key iterated matches ANY of them. Use
- * {@link resolveChatOwnerWorkspaceId} for "which workspace does this chat
- * belong to" — its doc has the bug this distinction was found through.
- *
- * REGISTRY-SCOPED, NOT OMNISCIENT: only searches currently-REGISTERED
- * stores (`WorkspaceHost`'s keep-alive set). `WorkspaceHost` evicts and
- * destroys a workspace's store on its own age/LRU window, while a pane
- * holding that workspace's chat deliberately outlives the eviction — that
- * survival is the entire point of Task 26's window-level pane hoist. So a
- * pane whose chat belongs to an EVICTED (no longer registered) workspace —
- * exactly the case this resolver exists to serve — resolves to null here,
- * same as a chat that never existed. A caller that must survive eviction
- * needs a second source (e.g. persisted chat metadata) this function
- * intentionally does not attempt to be.
- */
-export function resolveWorkspaceIdForChat(chatId: string): string | null {
-  for (const [wsId, store] of registry.entries()) {
-    if (store.getState().agentChats.chats.some((chat) => chat.id === chatId)) return wsId
-  }
-  return null
-}
-
-/**
- * The workspace `chatId` actually BELONGS to — `chat.workspaceId` off the
- * record itself — or null when no registered store knows the chat.
- *
- * The counterpart to {@link resolveWorkspaceIdForChat}, and NOT
- * interchangeable with it. That one answers "which registry key was this
- * found under", which is the right answer for building a workspace-scoped
- * URL against a live store — but it is NOT the chat's owning workspace,
- * because `listChats` is REPO-scoped (`chatBase` → `repoChatsBaseForWorkspace`,
- * i.e. `/repos/:r/chats`): every workspace store in a repo is seeded with
- * that whole repo's chat list, so the first registry key iterated matches any
- * chat of the repo. Measured live: closing a view asked "does this workspace
- * still have a chat on screen?" through the registry key and got yes for
- * panes holding OTHER workspaces' chats entirely, so nothing was ever torn
- * down.
- *
- * The id returned here names the real owner and may well have no live store
- * (a workspace nobody opened) — which is exactly what a caller deciding
- * whether a workspace is still in use needs, and why it cannot be answered by
- * "where did I find it".
- */
-export function resolveChatOwnerWorkspaceId(chatId: string): string | null {
-  for (const store of registry.values()) {
-    const chat = store.getState().agentChats.chats.find((c) => c.id === chatId)
-    if (chat) return chat.workspaceId || null
-  }
-  return null
-}
-
 export function destroyWorkspaceStore(wsId: string): void {
   const store = registry.get(wsId)
   // planRetention decides eviction from hasViewChat/RETENTION_CAP alone — it
@@ -339,109 +262,20 @@ export function destroyWorkspaceStore(wsId: string): void {
   // own EditorManager still has a widget mounted into a real pane.
   if (store?.editorManager?.hasMountedPanes()) return
   if (store) {
-    // Task 26: buffers are window-level now (window-pane-store.ts), not part
-    // of this store's own state — scope the lookup to this workspace's own
-    // buffers via `workspaceId` (a buffer persists past this destroy; only
-    // the LIVE per-workspace resources below — the terminal transport, the
-    // blame cache, the undo history, the Monaco model — are torn down here).
-    // Dynamic import avoids a registry ↔ window-pane-store cycle (the pane
-    // slice itself resolves an editor manager BY workspace id through this
-    // very module).
+    // Every buffer that exists is listed by some pane (invariant C2): one of
+    // this workspace's is on screen and keeps its resources, which are freed
+    // when its last pane lets go (buffer-release.ts) — not here. What this
+    // store alone owns is the Monaco model registry, disposed once none of
+    // its editor buffers survive. Dynamic import avoids a registry ↔
+    // window-pane-store cycle.
     bestEffort(
       import('@/features/panes/stores/window-pane-store').then(({ windowPaneStore }) => {
-        const paneState = windowPaneStore.getState()
-        // Task 26 fix round 1 (I2): a buffer belonging to this workspace can
-        // still be open in a pane RIGHT NOW — buffers/panes are window-level
-        // and outlive this workspace's own destroy by design (that is the
-        // whole point of the hoist). Tearing down its live resources anyway
-        // would leave a still-visible terminal with a detached transport, or
-        // a still-open editor with a disposed Monaco model and wiped undo
-        // history. Only buffers no pane currently references (closed
-        // everywhere, just not yet swept from the flat list) are safe to
-        // tear down here.
-        const openEditorTabIds = new Set(
-          Object.values(paneState.panes).flatMap((pane) => pane.editorTabIds),
-        )
-        const buffers = paneState.buffers.filter(
-          (b) => b.workspaceId === wsId && !openEditorTabIds.has(b.id),
-        )
-
-        // Detach (not kill) pane terminal PTY sessions on workspace switch.
-        // The PTY stays alive in the daemon; the WS transport is closed and the
-        // connectionId is persisted to localStorage so re-entry can re-attach with
-        // scrollback replay. killTerminalSession is still used on real tab close.
-        const terminalBuffers = buffers.filter((b) => b.type === 'terminal')
-        if (terminalBuffers.length > 0) {
-          bestEffort(
-            import('@/features/terminal/lib/detach-terminal-session').then(
-              ({ detachTerminalSession }) => {
-                for (const buf of terminalBuffers) {
-                  void detachTerminalSession(wsId, (buf as TerminalContent).sessionId).catch(
-                    () => {},
-                  )
-                }
-              },
-            ),
-            'detach terminal sessions',
-          )
-        }
-
-        // Free cached git-blame for this workspace's open files. The blame store is a
-        // global singleton keyed by file path, so clearAllBlame() would wipe blame for
-        // OTHER still-active workspaces; we instead clear only this workspace's editor
-        // buffer paths.
-        const editorPaths: string[] = []
-        for (const b of buffers) {
-          if (isEditorContent(b) && b.path) editorPaths.push(b.path)
-        }
-        if (editorPaths.length > 0) {
-          bestEffort(
-            import('@/features/git/stores/git-blame-store').then(({ useGitBlameStore }) => {
-              const { clearBlameForFile } = useGitBlameStore.getState()
-              for (const path of editorPaths) {
-                clearBlameForFile(path)
-              }
-            }),
-            'clear blame for disposed workspace',
-          )
-        }
-
-        // Cleanup undo tracker and history for each buffer
-        for (const buf of buffers) {
-          cleanupBufferHistoryTracking(buf.id)
-          useHistoryStore.getState().actions.clearHistory(buf.id)
-        }
-
-        // Dispose editor resources (only if the workspace ever armed the
-        // editor — a terminal/agent-only workspace never constructs the
-        // manager) — and only when NONE of this workspace's editor buffers
-        // are still open in a live pane. disposeAll() unmounts every pane
-        // this workspace's EditorManager has a Monaco editor mounted into and
-        // disposes its whole model registry; doing that while a buffer it
-        // owns is still visible would kill a live editor out from under the
-        // user (disposed model, wiped undo history) rather than merely
-        // freeing a resource nobody can see any more.
-        //
-        // Task 26 fix round 2 (I2 revisited) reverted this gate to
-        // unconditional, reasoning that editor-surface.tsx resolved its
-        // EditorManager from the AMBIENT workspace, never from
-        // `buf.workspaceId` — so a still-visible copy of this buffer,
-        // rendered by a different WorkspaceView, could never be using the
-        // manager being destroyed, making the gate dead weight that only cost
-        // a permanent leak. editor-pane.tsx/editor-surface.tsx now resolve
-        // the manager via `getWorkspaceStore(buf.workspaceId)` instead (the
-        // ambient-hidden-copy leak that round 2 traded this gate away for),
-        // which makes round 2's premise false: a still-open buffer's REAL
-        // manager is once again this one, wherever it is rendered from. The
-        // gate is restored so disposeAll() cannot yank a live widget's model.
-        const hasSurvivingEditorBuffer = paneState.buffers.some(
-          (b) => b.workspaceId === wsId && isEditorContent(b) && openEditorTabIds.has(b.id),
-        )
-        if (!hasSurvivingEditorBuffer) {
-          store.editorManager?.disposeAll()
-        }
+        const survives = windowPaneStore
+          .getState()
+          .buffers.some((b) => b.workspaceId === wsId && isEditorContent(b))
+        if (!survives) store.editorManager?.disposeAll()
       }),
-      'window-pane-store buffer teardown',
+      'dispose editor models',
     )
   }
 

@@ -1581,7 +1581,9 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     getOrCreateWorkspaceStore('w-owner')
       .getState()
       .seedAgentChats([chatRecord('chat-1', 'w-owner')])
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    windowPaneStore
+      .getState()
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
 
     // Rendered under a DIFFERENT workspace's context — the one on screen.
     await renderPane(createWorkspaceStore('w-onscreen'))
@@ -1607,7 +1609,9 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     getOrCreateWorkspaceStore('w-owner')
       .getState()
       .seedAgentChats([chatRecord('chat-1', 'w-owner')])
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    windowPaneStore
+      .getState()
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
 
     await renderPane(createWorkspaceStore('w-onscreen'))
 
@@ -1624,7 +1628,9 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     getOrCreateWorkspaceStore('w-owner')
       .getState()
       .seedAgentChats([chatRecord('chat-1', 'w-owner')])
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    windowPaneStore
+      .getState()
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'w-owner' })
 
     // Rendered under a DIFFERENT workspace's context — e.g. a split's other
     // pane, or whichever WorkspaceView happens to be on screen.

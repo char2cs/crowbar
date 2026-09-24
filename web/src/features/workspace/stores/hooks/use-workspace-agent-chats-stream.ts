@@ -18,10 +18,8 @@ import {
 import { createStreamingMessageBatcher } from '@/features/workspace/stores/hooks/lib/streaming-message-batcher'
 import { getWorkspaceScope, useWorkspaceScopeReady } from '@/lib/workspace-scope'
 import { useFolderSignalStore } from '@/lib/store/folder-signal'
-import {
-  getOrCreateWorkspaceStore,
-  resolveChatOwnerWorkspaceId,
-} from '@/features/workspace/stores/workspace-store-registry'
+import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
+import { chatWorkspaceIn } from '@/features/panes/lib/view-state'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
@@ -467,7 +465,7 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     // Only the chat's own workspace may confirm it gone: stores hold other
     // workspaces' chats, and asking through the wrong mount 404s a live chat.
     const forgetIfGone = async (chatId: string, recordOwner: string) => {
-      const owner = recordOwner || resolveChatOwnerWorkspaceId(chatId)
+      const owner = recordOwner || chatWorkspaceIn(windowPaneStore.getState().panes, chatId)
       if (owner !== wsId) return
       try {
         await getChat(owner, chatId)
@@ -638,8 +636,11 @@ export function useWorkspaceAgentChatsStream(wsId: string): void {
     const adoptIfViewless = (chatId: string) => {
       const { panes, paneActions } = windowPaneStore.getState()
       if (chatPaneIndex(panes).has(chatId)) return
-      const projectId = getWorkspaceScope(wsId)?.projectId || resolveChatProjectId(chatId, wsId)
-      if (projectId) paneActions.adoptBackgroundChat(chatId, projectId)
+      const workspaceId =
+        stateOf().agentChats.chats.find((c) => c.id === chatId)?.workspaceId || wsId
+      const projectId =
+        getWorkspaceScope(wsId)?.projectId || resolveChatProjectId(chatId, workspaceId)
+      if (projectId) paneActions.adoptBackgroundChat(chatId, projectId, workspaceId)
     }
 
     const onRunnerFrame = (ev: AgentStreamEvent & { runnerId: string }) => {

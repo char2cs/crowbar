@@ -45,7 +45,7 @@ afterEach(() => {
  * (the routed one, a pane's one) no store exists until that render runs.
  * Registering it notified the registry's watchers, and `IDEShell`'s own
  * `useSyncExternalStore` hooks (`useActivePaneWorkspaceId`,
- * `useViewWorkspaceIds`, `usePaneWorkspaceIds`) are exactly those watchers —
+ * `useViewWorkspaceIds`) were exactly those watchers —
  * so React was told to re-render a still-rendering ancestor:
  *
  *   Cannot update a component (`IDEShell`) while rendering a different
@@ -89,7 +89,7 @@ describe('workspace registry notifications vs. the render path', () => {
       // 'ws-a' with NO store registered for 'ws-a' yet, so the child's own
       // render is what mints it.
       useSidebarStore.setState({ repos: [repoWithChat('c1', 'ws-a')] })
-      windowPaneStore.getState().paneActions.openChat('c1')
+      windowPaneStore.getState().paneActions.openChat('c1', { workspaceId: 'ws-a' })
     })
 
     expect(renderPhaseUpdates(errors.mock.calls)).toEqual([])

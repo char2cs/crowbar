@@ -51,8 +51,8 @@ export function WorkspaceHost({
 }: {
   activeWsId: string | null
   /**
-   * Every workspace id some PANE currently holds a chat for (see
-   * `use-chat-workspace-id.ts`'s `usePaneWorkspaceIds`) — not just the active
+   * Every workspace id some PANE currently holds a chat or editor tab for
+   * (the members' recorded workspaces, `use-chat-workspace-id.ts`) — not just the active
    * one. A split can show chats from workspaces this host never mounted
    * (never routed to, never clicked into): with no real store to read,
    * `PaneContainer`'s `chatStore` fell back to whichever workspace happened

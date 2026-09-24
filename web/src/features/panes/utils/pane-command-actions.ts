@@ -124,7 +124,7 @@ export function ensurePaneChatThenOpen(
     return
   }
 
-  paneActions.dropChatOnPane(owningChatId, paneId, 'center')
+  paneActions.dropChatOnPane(owningChatId, paneId, 'center', wsId)
   openIn(paneId)
 }
 

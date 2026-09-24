@@ -44,8 +44,7 @@ function chat(id: string, wsId: string): AgentChat {
   }
 }
 
-/** Registry state a chat has to be in for `resolveWorkspaceIdForChat` to
- *  find it: a real, registered store whose `agentChats.chats` names it. */
+/** A real, registered store whose `agentChats.chats` names the chats. */
 function seedWorkspace(wsId: string, chats: AgentChat[], working: Record<string, boolean> = {}) {
   const store = getOrCreateWorkspaceStore(wsId)
   store.getState().seedAgentChats(chats)
@@ -95,7 +94,9 @@ afterEach(() => {
 describe('closePane tears the closed chat down on both sides', () => {
   it("stops the closed chat's vendor CLI", async () => {
     seedWorkspace('ws-1', [chat('chat-1', 'ws-1')])
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    windowPaneStore
+      .getState()
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'ws-1' })
 
     windowPaneStore.getState().paneActions.closePane(ROOT_PANE_ID)
     await settle()
@@ -105,7 +106,9 @@ describe('closePane tears the closed chat down on both sides', () => {
 
   it('drops the workspace store outside the keep-alive window entirely', async () => {
     seedWorkspace('ws-1', [chat('chat-1', 'ws-1')])
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    windowPaneStore
+      .getState()
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'ws-1' })
 
     windowPaneStore.getState().paneActions.closePane(ROOT_PANE_ID)
     await settle()
@@ -128,8 +131,8 @@ describe('closePane tears the closed chat down on both sides', () => {
   it('removing ONE pane from a merged view stops only that pane’s chat', async () => {
     seedWorkspace('ws-1', [chat('chat-1', 'ws-1'), chat('chat-2', 'ws-1')])
     const { paneActions } = windowPaneStore.getState()
-    paneActions.openChat('chat-1', { runnerId: 'runner-1' })
-    paneActions.dropChatOnPane('chat-2', ROOT_PANE_ID, 'right')
+    paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'ws-1' })
+    paneActions.dropChatOnPane('chat-2', ROOT_PANE_ID, 'right', 'ws-1')
     const merged = windowPaneStore
       .getState()
       .paneActions.getAllPaneGroups()
@@ -153,8 +156,8 @@ describe('closePane tears the closed chat down on both sides', () => {
   it('closeView on a merged view stops EVERY member’s chat, not just one', async () => {
     seedWorkspace('ws-1', [chat('chat-1', 'ws-1'), chat('chat-2', 'ws-1')])
     const { paneActions } = windowPaneStore.getState()
-    paneActions.openChat('chat-1', { runnerId: 'runner-1' })
-    paneActions.dropChatOnPane('chat-2', ROOT_PANE_ID, 'right')
+    paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'ws-1' })
+    paneActions.dropChatOnPane('chat-2', ROOT_PANE_ID, 'right', 'ws-1')
     const view = windowPaneStore.getState().panes[ROOT_PANE_ID].viewId!
 
     windowPaneStore.getState().paneActions.closeView(view)
@@ -177,8 +180,8 @@ describe('closePane tears the closed chat down on both sides', () => {
     seedWorkspace('ws-1', [chat('chat-1', 'ws-1')])
     seedWorkspace('ws-2', [chat('chat-2', 'ws-2')])
     const { paneActions } = windowPaneStore.getState()
-    paneActions.openChat('chat-1', { runnerId: 'runner-1' })
-    paneActions.dropChatOnPane('chat-2', ROOT_PANE_ID, 'right')
+    paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'ws-1' })
+    paneActions.dropChatOnPane('chat-2', ROOT_PANE_ID, 'right', 'ws-2')
     const view = windowPaneStore.getState().panes[ROOT_PANE_ID].viewId!
 
     windowPaneStore.getState().paneActions.closeView(view)
@@ -193,7 +196,9 @@ describe('closePane tears the closed chat down on both sides', () => {
   it('keeps the workspace the route is currently on, whose view is still mounted', async () => {
     seedWorkspace('ws-1', [chat('chat-1', 'ws-1')])
     setActiveWorkspaceId('ws-1')
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    windowPaneStore
+      .getState()
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'ws-1' })
 
     windowPaneStore.getState().paneActions.closePane(ROOT_PANE_ID)
     await settle()
@@ -207,7 +212,9 @@ describe('closePane tears the closed chat down on both sides', () => {
   // working map live on. Nothing may be dropped before the stop has settled.
   it('stops a WORKING chat before anything asks for its store to go', async () => {
     seedWorkspace('ws-1', [chat('chat-1', 'ws-1')], { 'chat-1': true })
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    windowPaneStore
+      .getState()
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'ws-1' })
     const order: string[] = []
     stop.mockImplementation(async () => {
       order.push('stop')
@@ -227,7 +234,9 @@ describe('closePane tears the closed chat down on both sides', () => {
   it('leaves a working chat’s store alone when the stop never landed', async () => {
     seedWorkspace('ws-1', [chat('chat-1', 'ws-1')], { 'chat-1': true })
     stop.mockRejectedValue(new Error('daemon unreachable'))
-    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    windowPaneStore
+      .getState()
+      .paneActions.openChat('chat-1', { runnerId: 'runner-1', workspaceId: 'ws-1' })
 
     windowPaneStore.getState().paneActions.closePane(ROOT_PANE_ID)
     await settle()

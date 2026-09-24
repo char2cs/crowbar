@@ -27,6 +27,12 @@ export interface WorkspaceLayout {
    * is the real per-buffer scoping now.
    */
   workspaceId: string
+  /**
+   * The shape version (`WINDOW_LAYOUT_VERSION`). Absent on a layout written
+   * before view members carried their workspace; `hydrate.ts` upgrades it
+   * once at load.
+   */
+  version?: number
   panes: Record<string, PaneGroup>
   /** The Recents rows. A record without them hydrates to an empty band. */
   views?: Record<string, ViewRecord>

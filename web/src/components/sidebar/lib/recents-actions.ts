@@ -3,9 +3,7 @@ import { openChatRoute } from '@/components/layout/space-content-actions'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import { useHomeTreeStore } from '@/lib/store/home-tree'
 import type { Repo } from '@/lib/store/sidebar'
-import { recentsChatWorkspaceId } from './recents-for-project'
 
 type NavigateFn = ReturnType<typeof useNavigate>
 
@@ -23,16 +21,10 @@ export function focusRecent(viewId: string, repos: readonly Repo[], navigate: Na
   const members = getAllLeafIds(view.layout).filter((id) => panes[id]?.chatId)
   const memberSet = new Set(members)
   const paneId = mostRecentActivePaneIds.find((id) => memberSet.has(id)) ?? members[0]
-  const chatId = paneId ? panes[paneId]?.chatId : null
-  if (!paneId || !chatId) return
+  const pane = paneId ? panes[paneId] : undefined
+  if (!paneId || !pane?.chatId) return
   paneActions.setActivePane(paneId)
-  const wsId = recentsChatWorkspaceId(
-    repos,
-    useHomeTreeStore.getState().trees,
-    view.projectId,
-    chatId,
-  )
-  openChatRoute(repos, chatId, wsId, navigate)
+  openChatRoute(repos, pane.chatId, pane.workspaceId ?? '', navigate)
 }
 
 /** The row's × — ends the whole view, with the full per-chat teardown. */

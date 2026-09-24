@@ -55,12 +55,12 @@ function seedHomeChat() {
 /** A view split into a home-chat pane and a branch-chat pane; returns both pane ids. */
 function openSplit() {
   const { paneActions } = windowPaneStore.getState()
-  paneActions.openChat('home-chat')
+  paneActions.openChat('home-chat', { workspaceId: 'ws-home' })
   const homePane = windowPaneStore.getState().activePaneId
   const branchPane = paneActions.splitPane(homePane, 'horizontal')
   if (!branchPane) throw new Error('split failed')
   paneActions.setActivePane(branchPane)
-  paneActions.openChat('branch-chat')
+  paneActions.openChat('branch-chat', { workspaceId: 'ws-branch' })
   return { homePane, branchPane }
 }
 

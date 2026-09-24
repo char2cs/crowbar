@@ -32,7 +32,6 @@ const {
   forgetChat,
   toastInfo,
   toastError,
-  resolveOwnerFn,
 } = vi.hoisted(() => ({
   subscribe: vi.fn(() => () => {}),
   chatBaseFn: vi.fn(),
@@ -63,7 +62,6 @@ const {
   forgetChat: vi.fn(),
   toastInfo: vi.fn(),
   toastError: vi.fn(),
-  resolveOwnerFn: vi.fn((): string | null => null),
 }))
 
 // Mutable fixtures the mocked stores' getState() reads from — tests set them
@@ -130,7 +128,6 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 }))
 
 vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
-  resolveChatOwnerWorkspaceId: (...a: unknown[]) => resolveOwnerFn(...(a as [])),
   getOrCreateWorkspaceStore: () => ({
     getState: () => ({
       agentChats: {
@@ -608,7 +605,7 @@ describe('useWorkspaceAgentChatsStream', () => {
 
     // Only the not-working → working edge adopts; a repeat or a burst mints nothing.
     expect(adoptBackgroundChat).toHaveBeenCalledTimes(1)
-    expect(adoptBackgroundChat).toHaveBeenCalledWith('c1', 'p1')
+    expect(adoptBackgroundChat).toHaveBeenCalledWith('c1', 'p1', 'w1')
   })
 
   it('a working chat that already has a pane adopts nothing', async () => {
@@ -680,7 +677,7 @@ describe('useWorkspaceAgentChatsStream', () => {
         onFrame({ chatId: 'new', workspaceId: 'w1', kind: 'turn_started', working: true })
         land([chat('c1'), working])
         await flush()
-        expect(adoptBackgroundChat.mock.calls).toEqual([['new', 'p1']])
+        expect(adoptBackgroundChat.mock.calls).toEqual([['new', 'p1', 'w1']])
       })
 
       it('reseed already reporting it working, then the frame', async () => {
@@ -689,7 +686,7 @@ describe('useWorkspaceAgentChatsStream', () => {
         land([chat('c1'), working])
         await flush()
         onFrame({ chatId: 'new', workspaceId: 'w1', kind: 'turn_started', working: true })
-        expect(adoptBackgroundChat.mock.calls).toEqual([['new', 'p1']])
+        expect(adoptBackgroundChat.mock.calls).toEqual([['new', 'p1', 'w1']])
       })
 
       it('reseed reporting it idle, then the frame', async () => {
@@ -699,7 +696,7 @@ describe('useWorkspaceAgentChatsStream', () => {
         await flush()
         onFrame({ chatId: 'new', workspaceId: 'w1', kind: 'turn_started', working: true })
         onFrame({ chatId: 'new', workspaceId: 'w1', kind: 'turn_stopped', working: true })
-        expect(adoptBackgroundChat.mock.calls).toEqual([['new', 'p1']])
+        expect(adoptBackgroundChat.mock.calls).toEqual([['new', 'p1', 'w1']])
       })
 
       it('a created frame racing the boot seed is not a live birth', async () => {
@@ -1761,7 +1758,6 @@ describe('useWorkspaceAgentChatsStream', () => {
     captureCb()({ reconnected: true })
     await flush()
 
-    expect(resolveOwnerFn).toHaveBeenCalledWith('x')
     expect(forgetChat).not.toHaveBeenCalled()
   })
 

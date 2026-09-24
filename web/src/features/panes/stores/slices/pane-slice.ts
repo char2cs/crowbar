@@ -17,6 +17,8 @@ export type PaneDropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
 export interface OpenChatOptions {
   /** The chat's project; defaults to the active one. */
   projectId?: string
+  /** The chat's workspace, recorded on its pane (C3). */
+  workspaceId?: string | null
   runnerId?: string | null
 }
 
@@ -37,7 +39,12 @@ export interface PaneActions {
   openChat(chatId: string, opts?: OpenChatOptions): void
   /** Row: fill a chatless pane or split the target — the chat joins the
    *  target's view; an already-open chat is moved. */
-  dropChatOnPane(chatId: string, paneId: string, zone: PaneDropZone): void
+  dropChatOnPane(
+    chatId: string,
+    paneId: string,
+    zone: PaneDropZone,
+    workspaceId?: string | null,
+  ): void
   /** Row: a group member becomes a record of its own, right after the group. */
   detachPane(paneId: string): void
   /** Row: a view left without a chat is removed. */
@@ -51,7 +58,7 @@ export interface PaneActions {
   retargetPane(paneId: string, chatId: string, runnerId: string | null): void
   setPaneRunner(paneId: string, runnerId: string | null): void
   /** Row: a chat turned working with no pane — a background record, not shown. */
-  adoptBackgroundChat(chatId: string, projectId: string): void
+  adoptBackgroundChat(chatId: string, projectId: string, workspaceId?: string | null): void
   /** Put a record on screen (another project's is only remembered). */
   activateView(viewId: string): void
   setActivePane(paneId: string): void

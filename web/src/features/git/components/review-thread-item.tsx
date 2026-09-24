@@ -360,6 +360,7 @@ function openReviewChat(wsId: string, chatId: string): void {
   getOrCreateWorkspaceStore(wsId).getState().setActiveAgentChatId(chatId)
   windowPaneStore.getState().paneActions.openChat(chatId, {
     projectId: resolveChatProjectId(chatId, wsId) ?? undefined,
+    workspaceId: wsId,
   })
 }
 

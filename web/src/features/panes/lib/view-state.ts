@@ -5,6 +5,7 @@ import type {
   PaneGroup,
   SplitDirection,
   SplitPlacement,
+  ViewMember,
   ViewRecord,
 } from '@/features/panes/types/pane'
 import { createLeaf, findLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
@@ -40,6 +41,7 @@ export function makePane(
     type: 'group',
     chatId: null,
     runnerId: null,
+    workspaceId: null,
     editorTabIds: [],
     activeEditorTabId: null,
     editorOpen: false,
@@ -123,6 +125,32 @@ export function viewChatIds(state: Pick<ViewState, 'panes' | 'views'>, viewId: s
     if (chatId) out.push(chatId)
   }
   return out
+}
+
+/** A view's members — its chats with their workspaces — in layout order. */
+export function viewMembers(
+  state: Pick<ViewState, 'panes' | 'views'>,
+  viewId: string,
+): ViewMember[] {
+  const view = state.views[viewId]
+  if (!view) return []
+  const out: ViewMember[] = []
+  for (const id of getAllLeafIds(view.layout)) {
+    const pane = state.panes[id]
+    if (pane?.chatId) out.push({ chatId: pane.chatId, workspaceId: pane.workspaceId ?? null })
+  }
+  return out
+}
+
+/** The workspace recorded for `chatId` by the pane showing it, if any. */
+export function chatWorkspaceIn(
+  panes: Readonly<Record<string, PaneGroup>>,
+  chatId: string,
+): string | null {
+  for (const pane of Object.values(panes)) {
+    if (pane.chatId === chatId) return pane.workspaceId ?? null
+  }
+  return null
 }
 
 export function viewHasChat(state: ViewState, viewId: string): boolean {

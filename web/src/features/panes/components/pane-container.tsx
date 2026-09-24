@@ -10,10 +10,6 @@ import {
   WorkspaceStoreContext,
 } from '@/features/workspace/stores/workspace-context'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
-import {
-  useChatWorkspaceId,
-  useChatWorkspaceHint,
-} from '@/features/panes/hooks/use-chat-workspace-id'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useSettingsStore } from '@/features/settings/store'
@@ -136,19 +132,12 @@ export function PaneContainer({
   // chat from another workspace render permanently blank (its id is not in
   // the on-screen workspace's `agentChats.chats`, so nothing ever attaches),
   // and is the gap `openChatIntoPane`'s active-workspace refusal stood in for.
-  // `useChatWorkspaceId` resolves the real owner (features/panes/lib/
-  // pane-chat-workspace.ts); the ambient id remains the fallback for a chat
-  // nothing can name a workspace for yet. `useChatWorkspaceHint` is what
-  // makes that resolution work on the FIRST render a pane holds a chat
-  // nothing has mounted yet — without it, resolution could only come from
-  // the registry, populated by WorkspaceHost's reconcile effect AFTER the
-  // click that made this pane active, not synchronously with it: a flash of
-  // the wrong ambient content on every such click, self-correcting a frame
-  // or two later — caught live.
+  // The pane's own record names it (C3) — recorded by the gesture that put
+  // the chat here, so it answers on the first render, before any store for
+  // it has mounted. The ambient id is only the fallback for a chatless pane.
   const ambientWsId = useWorkspaceStoreContext((s) => s.workspaceId)
   const ambientStore = useWorkspaceStore()
-  const chatWsHint = useChatWorkspaceHint(pane.chatId)
-  const chatWsId = useChatWorkspaceId(pane.chatId, chatWsHint)
+  const chatWsId = pane.chatId ? (pane.workspaceId ?? null) : null
   const wsId = chatWsId ?? ambientWsId
   // The STORE half of the same answer. `getWorkspaceStore` never mints one —
   // a workspace `WorkspaceHost` did not mount has no store to read and would
