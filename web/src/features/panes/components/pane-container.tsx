@@ -152,7 +152,6 @@ export function PaneContainer({
         name?: string
         command?: string
         workingDirectory?: string
-        remoteConnectionId?: string
         sessionId?: string
       },
     ): string =>
@@ -488,7 +487,6 @@ export function PaneContainer({
       let terminalName: string | undefined
       let initialCommand: string | undefined
       let currentDirectory: string | undefined
-      let remoteConnectionId: string | undefined
       try {
         const tabData = JSON.parse(tabDataString)
         bufferId = tabData.bufferId
@@ -498,7 +496,6 @@ export function PaneContainer({
         terminalName = tabData.name
         initialCommand = tabData.initialCommand
         currentDirectory = tabData.currentDirectory
-        remoteConnectionId = tabData.remoteConnectionId
       } catch {
         return
       }
@@ -520,7 +517,6 @@ export function PaneContainer({
             name: terminalName,
             command: initialCommand,
             workingDirectory: currentDirectory,
-            remoteConnectionId,
           })
           window.dispatchEvent(
             new CustomEvent('terminal-detach-to-buffer', {
@@ -547,7 +543,6 @@ export function PaneContainer({
           name: terminalName,
           command: initialCommand,
           workingDirectory: currentDirectory,
-          remoteConnectionId,
         })
         window.dispatchEvent(
           new CustomEvent('terminal-detach-to-buffer', {

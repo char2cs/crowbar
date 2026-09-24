@@ -288,7 +288,6 @@ export const createBufferSlice: StateCreator<
             name: spec.name ?? `Terminal ${terminalCount + 1}`,
             initialCommand: spec.command,
             workingDirectory: spec.workingDirectory,
-            remoteConnectionId: spec.remoteConnectionId,
             isPinned: false,
             isPreview: false,
             workspaceId,
