@@ -7,6 +7,7 @@ package holder
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -56,7 +57,10 @@ func Resolve(
 	branch string,
 	crowbarHome string,
 ) (Outcome, error) {
-	_ = git.WorktreePrune(ctx, repoPath)
+	if err := git.WorktreePrune(ctx, repoPath); err != nil {
+		slog.WarnContext(ctx, "holder: prune dead worktree registrations (classifying the unpruned list)",
+			"repo", repoPath, "err", err)
+	}
 	entries, err := git.WorktreeList(ctx, repoPath)
 	if err != nil {
 		return Outcome{}, err

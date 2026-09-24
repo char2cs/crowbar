@@ -14,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/cascade"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/holder"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/provision"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -734,7 +735,7 @@ func (u *hierarchyUsecase) checkoutRemoteBranch(
 	if err != nil {
 		return addedWorktree{}, fmt.Errorf("create child: worktree checkout: %w", err)
 	}
-	u.warnOnDiscardedLocalTip(ctx, in.RepoPath, in.Branch, localTip, forkPoint)
+	provision.WarnOnDiscardedLocalTip(ctx, u.git, in.RepoPath, in.Branch, localTip, forkPoint)
 	// Link the checked-out branch back to origin/<branch> so it is recognised as
 	// origin's branch — a proper branch-review target (its PR is looked up by
 	// branch NAME, its base by the parent/default branch, but a tracked branch is
@@ -748,31 +749,6 @@ func (u *hierarchyUsecase) checkoutRemoteBranch(
 			"branch", in.Branch, "err", err)
 	}
 	return addedWorktree{startSha: forkPoint, createdBranch: localErr != nil}, nil
-}
-
-// warnOnDiscardedLocalTip logs the local branch tip the import's `-B` reset just
-// moved off, when that tip was NOT already contained in origin's.
-//
-// The reset moves a ref, it does not rewrite history — the old commits stay
-// reachable through the reflog — but a user who had unpushed work on a
-// same-named local branch deserves the SHA in the log to recover it from.
-// Purely diagnostic: every failure is ignored, and it runs after the checkout,
-// so it can never influence whether the import proceeds.
-func (u *hierarchyUsecase) warnOnDiscardedLocalTip(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-	localTip string,
-	originTip string,
-) {
-	if localTip == "" || localTip == originTip {
-		return // no local branch of this name, or it was already at origin's tip
-	}
-	if base, err := u.git.MergeBase(ctx, repoPath, localTip, originTip); err == nil && base == localTip {
-		return // a plain fast-forward; nothing was left behind
-	}
-	slog.WarnContext(ctx, "import: local branch had diverged from origin and was reset to origin's tip (old tip recoverable via reflog)",
-		"branch", branch, "old_local_tip", localTip, "origin_tip", originTip)
 }
 
 // adoptMainWorktree registers the repository's main worktree as a workspace
@@ -1296,65 +1272,11 @@ func (u *hierarchyUsecase) materializeProtectedWorktree(
 	branch string,
 	path string,
 ) (string, error) {
-	if u.originHasBranch(ctx, repoPath, branch) {
-		return u.materializeFromOrigin(ctx, repoPath, branch, path)
-	}
-	if err := u.git.WorktreeAdd(ctx, repoPath, path, branch); err != nil {
-		return "", fmt.Errorf("retry provision: worktree add: %w", err)
-	}
-	sha, err := u.git.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	sha, err := provision.ExistingBranch(ctx, u.git, repoPath, branch, path)
 	if err != nil {
-		return "", nil // fork point non-essential; the worktree is valid
+		return "", fmt.Errorf("retry provision: %w", err)
 	}
 	return sha, nil
-}
-
-// materializeFromOrigin checks branch out AT origin's ref and links it back to
-// origin/<branch>. The explicit SetUpstream is required because
-// `git worktree add -B <branch> <sha>` starts from a SHA and so creates no
-// tracking info of its own — without it `git pull` in the provisioned worktree
-// fails with "There is no tracking information for the current branch".
-func (u *hierarchyUsecase) materializeFromOrigin(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-	path string,
-) (string, error) {
-	localTip, _ := u.git.RevParse(ctx, repoPath, "refs/heads/"+branch)
-	sha, err := u.git.WorktreeAddAtRef(ctx, repoPath, path, branch, "origin/"+branch)
-	if err != nil {
-		return "", fmt.Errorf("retry provision: worktree add: %w", err)
-	}
-	u.warnOnDiscardedLocalTip(ctx, repoPath, branch, localTip, sha)
-	if upErr := u.git.SetUpstream(ctx, repoPath, branch); upErr != nil {
-		slog.WarnContext(ctx, "retry provision: could not set upstream; pull/ahead-behind may not work",
-			"branch", branch, "err", upErr)
-	}
-	return sha, nil
-}
-
-// originHasBranch reports whether origin/<branch> is resolvable, refreshing it
-// first when it is. It answers the one question the checkout needs — "is there
-// remote content to prefer?" — from the LOCAL remote-tracking ref, so a fetch
-// that fails (offline) still yields true when the clone already knows the
-// branch, and a live-query hiccup can never veto it.
-//
-// The local read comes FIRST so a repo with no remote never pays for a network
-// round-trip under the per-clone lock just to be told what the ref already said.
-func (u *hierarchyUsecase) originHasBranch(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) bool {
-	tracking, err := u.git.RemoteTrackingBranchExists(ctx, repoPath, branch)
-	if err != nil || !tracking {
-		return false
-	}
-	if fErr := u.git.FetchRef(ctx, repoPath, branch); fErr != nil {
-		slog.WarnContext(ctx, "provision: could not refresh origin branch; using the local remote-tracking ref",
-			"branch", branch, "err", fErr)
-	}
-	return true
 }
 
 // DetachHolder frees a live holder off a placeholder's branch with consent, then

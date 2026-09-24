@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/avatar"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/defaultbranch"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/holder"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/provision"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -185,6 +186,13 @@ type ImportGitEngine interface {
 		repoPath string,
 		rev string,
 	) (string, error)
+	// MergeBase reports whether a -B checkout left a local tip behind.
+	MergeBase(
+		ctx context.Context,
+		repoPath string,
+		a string,
+		b string,
+	) (string, error)
 }
 
 // ImportProviderEngine is the provider surface the import usecase consumes.
@@ -346,7 +354,7 @@ func (u *projectImport) Create(
 		return domain.Project{}, fmt.Errorf("project create: save project: %w", err)
 	}
 	if err := u.createHomeWorkspace(ctx, project); err != nil {
-		_ = u.deps.Projects.Delete(ctx, project.ID) // best-effort: don't mask the original error
+		u.rollbackProject(ctx, project.ID)
 		return domain.Project{}, fmt.Errorf("project create: home workspace: %w", err)
 	}
 	return project, nil
@@ -370,7 +378,7 @@ func (u *projectImport) Import(
 		return domain.Project{}, fmt.Errorf("project import: save project: %w", err)
 	}
 	if err := u.createHomeWorkspace(ctx, project); err != nil {
-		_ = u.deps.Projects.Delete(ctx, project.ID) // best-effort: don't mask the original error
+		u.rollbackProject(ctx, project.ID)
 		return domain.Project{}, fmt.Errorf("project import: home workspace: %w", err)
 	}
 	if err := u.importRepos(ctx, project, path); err != nil {
@@ -479,9 +487,13 @@ func (u *projectImport) importOneRepo(
 		if committed {
 			return
 		}
-		_ = u.deps.Repos.Delete(ctx, repo.ID)
+		if rbErr := u.deps.Repos.Delete(ctx, repo.ID); rbErr != nil {
+			slog.ErrorContext(ctx, "project import: roll back the repo row", "repo", repo.ID, "err", rbErr)
+		}
 		if u.deps.Nodes != nil {
-			_ = u.deps.Nodes.Forget(ctx, repo.ID)
+			if rbErr := u.deps.Nodes.Forget(ctx, repo.ID); rbErr != nil {
+				slog.ErrorContext(ctx, "project import: roll back the repo's node row", "repo", repo.ID, "err", rbErr)
+			}
 		}
 	}()
 	// Mint the Node row that owns this repo's OWN sidebar position — every
@@ -833,82 +845,31 @@ func (u *projectImport) createPlaceholderWorkspace(
 	return nil
 }
 
-// addProtectedWorktree checks branch out into a fresh worktree at path and
-// returns the branch tip SHA (the workspace's fork point).
-//
-// A branch that is on origin is checked out AT origin's ref (`git worktree add
-// -B`), so the locked worktree holds the REMOTE branch. It previously
-// fast-forwarded via `git fetch origin <b>:<b>` and then checked out the local
-// ref — which git rejects as non-fast-forward whenever the adopted folder's
-// local <b> has diverged, leaving the locked branch-tree root sitting on the
-// user's stale commits. That root is what every imported branch nests under and
-// diffs against, so one diverged local default branch skewed the whole repo.
-// See worktree.checkoutRemoteBranch for the full reasoning.
-//
-// The LOCAL remote-tracking ref is consulted FIRST, and the network fetch runs
-// only when it says there is a remote branch to refresh. Order matters for cost,
-// not just correctness: this runs for every protected branch of every repo
-// import, and an unconditional `git fetch` would put a network round-trip under
-// the per-clone lock even for repos that have no remote at all (where it can
-// only ever fail). Checking the ref first is a local, sub-millisecond read.
-//
-// The fetch is BEST-EFFORT (matching addWorktree): an offline remote or a
-// refused fetch must NOT skip the branch — the worktree is still created at the
-// local origin/<b>, losing only the freshest commits. A branch with no
-// origin/<b> at all checks out from the local ref, which is the only content
-// there is.
+// addProtectedWorktree checks the protected branch out at path through the one
+// provisioner (provision.ExistingBranch) and returns its fork point.
 func (u *projectImport) addProtectedWorktree(
 	ctx context.Context,
 	repo domain.Repository,
 	branch string,
 	path string,
 ) (string, error) {
-	if onRemote, trErr := u.deps.Git.RemoteTrackingBranchExists(ctx, repo.Path, branch); trErr == nil && onRemote {
-		return u.addProtectedWorktreeFromOrigin(ctx, repo, branch, path)
-	}
-	if err := u.deps.Git.WorktreeAdd(ctx, repo.Path, path, branch); err != nil {
-		return "", fmt.Errorf("add worktree for protected branch %q: %w", branch, err)
-	}
-	// Resolve the BRANCH head explicitly: `git rev-parse <name>` resolves a tag of
-	// the same name before the branch, which would record a wrong fork point.
-	sha, err := u.deps.Git.RevParse(ctx, repo.Path, "refs/heads/"+branch)
+	sha, err := provision.ExistingBranch(ctx, u.deps.Git, repo.Path, branch, path)
 	if err != nil {
-		return "", nil // fork point is non-essential; the worktree is valid
+		return "", fmt.Errorf("add worktree for protected branch %q: %w", branch, err)
 	}
 	return sha, nil
 }
 
-// addProtectedWorktreeFromOrigin refreshes origin/<branch> and checks the branch
-// out AT that ref, returning the SHA the checkout resolved — which is therefore
-// by construction the commit the worktree holds.
-//
-// It then sets the upstream EXPLICITLY. `git worktree add -B <branch> <sha>`
-// resolves a SHA, so unlike the plain `git worktree add <path> <branch>` it
-// replaced, it does not DWIM a tracking branch from origin/<branch>. Without
-// this, a protected branch the clone never had locally — anything but the branch
-// `git clone` checked out — lands with no upstream, and `git pull` in its locked
-// worktree fails with "There is no tracking information for the current branch."
-// Best-effort: the content is already correct, so a failure here must never fail
-// the import.
-func (u *projectImport) addProtectedWorktreeFromOrigin(
+// rollbackProject removes the project row of an import that failed after it
+// landed. Best-effort — the import's own failure is what the caller reports —
+// but never silent: a rollback that failed leaves a row behind.
+func (u *projectImport) rollbackProject(
 	ctx context.Context,
-	repo domain.Repository,
-	branch string,
-	path string,
-) (string, error) {
-	if err := u.deps.Git.FetchRef(ctx, repo.Path, branch); err != nil {
-		slog.WarnContext(ctx, "project import: could not refresh origin branch; using the local remote-tracking ref",
-			"repo", repo.Name, "branch", branch, "error", err)
+	projectID string,
+) {
+	if err := u.deps.Projects.Delete(ctx, projectID); err != nil {
+		slog.ErrorContext(ctx, "project import: roll back the project row", "project", projectID, "err", err)
 	}
-	sha, err := u.deps.Git.WorktreeAddAtRef(ctx, repo.Path, path, branch, "origin/"+branch)
-	if err != nil {
-		return "", fmt.Errorf("add worktree for protected branch %q: %w", branch, err)
-	}
-	if err := u.deps.Git.SetUpstream(ctx, repo.Path, branch); err != nil {
-		slog.WarnContext(ctx, "project import: could not set upstream on protected branch; pull/ahead-behind may not work",
-			"repo", repo.Name, "branch", branch, "error", err)
-	}
-	return sha, nil
 }
 
 // createHomeWorkspace persists the project-level home workspace rooted at the
