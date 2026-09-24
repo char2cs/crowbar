@@ -30,6 +30,12 @@ func (t *Turns) handleTelemetry(
 		return nil
 	}
 	t.telemetry.Set(ctx, chat.ID, report)
+	// Pushed, not polled: the gauge moves when the provider reports, which is
+	// about once a turn. Held to the same surface gate the GET applies — a chat
+	// on a surface whose channel carries no report shows no gauge at all.
+	if t.feed.Telemetry != nil && t.runners.TelemetryOnChatSurface(ctx, chat.ID) {
+		t.feed.Telemetry(chat.ID, chat.WorkspaceID, report)
+	}
 	return nil
 }
 

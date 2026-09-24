@@ -391,6 +391,34 @@ func (*configurableListGetUsecase) TelemetryOnChatSurface(context.Context, strin
 	return true
 }
 
+// ChatSnapshot assembles the double's own canned answers the way the snapshot
+// owner does: the chat row (from the list, else the single chat), the runner
+// placed on it, and the in-memory runtime facts.
+func (u *configurableListGetUsecase) ChatSnapshot(
+	_ context.Context,
+	chatID string,
+) (agentusecase.ChatSnapshot, error) {
+	if u.liveErr != nil {
+		return agentusecase.ChatSnapshot{}, u.liveErr
+	}
+	chat := u.chat
+	for _, c := range u.chats {
+		if c.ID == chatID {
+			chat = c
+		}
+	}
+	snap := agentusecase.ChatSnapshot{
+		Chat: chat, Version: 1, Phase: agentusecase.ChatPhaseDormant,
+		TerminalWait: u.terminalWait[chatID],
+	}
+	if r, ok := u.liveRunners[chatID]; ok {
+		snap.Live, snap.Phase = &r, agentusecase.ChatPhaseLive
+		snap.HasLiveAPIConnection = u.hasLiveAPIConn
+		snap.AttachedSessionID, _ = u.AttachedTerminalSession(r.ID)
+	}
+	return snap, nil
+}
+
 func (configurableListGetUsecase) SpawnChat(
 	_ context.Context,
 	_ string,
@@ -528,15 +556,6 @@ func (u *configurableListGetUsecase) ConversationsForChat(
 		return nil, u.convErr
 	}
 	return u.conversations[chatID], nil
-}
-
-func (u *configurableListGetUsecase) LiveRunnersByChat(
-	_ context.Context,
-) (map[string]engineagents.Runner, error) {
-	if u.liveErr != nil {
-		return nil, u.liveErr
-	}
-	return u.liveRunners, nil
 }
 
 func (u *configurableListGetUsecase) Interruptions(

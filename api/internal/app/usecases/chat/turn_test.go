@@ -470,12 +470,13 @@ func TestObservation_CompactionPushesTheLiveEdgeDirectly(t *testing.T) {
 
 	var mu sync.Mutex
 	var calls []bool
-	f.usecase.StartTerminalWaitSweep(f.ctx, nil, nil, nil,
-		func(_, _ string, active bool) {
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
+		Compaction: func(_, _ string, active bool) {
 			mu.Lock()
 			defer mu.Unlock()
 			calls = append(calls, active)
-		}, nil)
+		},
+	})
 
 	hook(t, f, runnerID, "claude", engineagents.HookCompactPre, map[string]any{"trigger": "auto"})
 	hook(t, f, runnerID, "claude", engineagents.HookCompactPost, map[string]any{"trigger": "auto"})
@@ -540,6 +541,34 @@ func TestTelemetry_IsHeldPerChatAndReplacedByTheNextReport(t *testing.T) {
 	got, ok = f.usecase.Telemetry(chatID)
 	require.True(t, ok)
 	assert.InDelta(t, 42, *got.Context.UsedPercent, 0.001)
+}
+
+// §6a: the gauge is pushed, not polled. Every report the chat's surface
+// carries is published on the chat feed the moment it lands.
+func TestTelemetry_IsPushedOnTheChatFeed(t *testing.T) {
+	f := newFixture(t)
+	chatID, runnerID := f.spawn(t, "claude")
+	var mu sync.Mutex
+	var pushed []engineagents.Telemetry
+	f.usecase.StartTerminalWaitSweep(f.ctx, agentusecase.ChatFeed{
+		Telemetry: func(id, _ string, report engineagents.Telemetry) {
+			mu.Lock()
+			defer mu.Unlock()
+			if id == chatID {
+				pushed = append(pushed, report)
+			}
+		},
+	})
+
+	hook(t, f, runnerID, "claude", engineagents.HookTelemetry, map[string]any{
+		"context_window": map[string]any{"context_window_size": 200000, "used_percentage": 19},
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, pushed, 1)
+	require.NotNil(t, pushed[0].Context)
+	assert.InDelta(t, 19, *pushed[0].Context.UsedPercent, 0.001)
 }
 
 func TestTelemetry_AnEmptyReportDoesNotOverwriteTheLastOne(t *testing.T) {

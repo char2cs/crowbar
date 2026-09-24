@@ -382,29 +382,6 @@ func (s *Store) AllLive(
 	return out, nil
 }
 
-// LiveRunnersByChat is LiveRunnerForChat for every placed chat at once: rows in
-// the same newest-arrival order, first per chat wins, so each entry is exactly
-// the runner the single-chat read would return.
-func (s *Store) LiveRunnersByChat(
-	ctx context.Context,
-) (map[string]agents.Runner, error) {
-	var rows []runnerRow
-	if err := s.db.WithContext(ctx).
-		Where("current_chat_id <> ''").
-		Order(newestArrivalFirst).
-		Find(&rows).Error; err != nil {
-		return nil, fmt.Errorf("agentrunner store: live runners by chat: %w", err)
-	}
-	out := make(map[string]agents.Runner, len(rows))
-	for _, row := range rows {
-		r := row.toRunner()
-		if _, seen := out[r.CurrentChatID]; !seen {
-			out[r.CurrentChatID] = r
-		}
-	}
-	return out, nil
-}
-
 // ForgetChat drops the chat's conversation AND placement history. It is the chat
 // delete cascade — the ONLY thing permitted to remove append-only history,
 // because a deleted chat is the one case where the history has nothing left to

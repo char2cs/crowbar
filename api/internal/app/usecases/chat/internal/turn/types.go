@@ -76,6 +76,9 @@ type Runners interface {
 	// own comment for why that combination means the delivery is a redundant
 	// echo.
 	HasLiveAPIConnection(runnerID string) bool
+	// TelemetryOnChatSurface reports whether the chat's current surface
+	// carries its provider's usage report at all.
+	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
 	// ShowingNativeView reports whether runnerID is handed over to its
 	// provider's own view right now (runner.SwitchToTerminal). holdForAnswer
 	// reads it to stay out of a decision the CLI is about to put on screen

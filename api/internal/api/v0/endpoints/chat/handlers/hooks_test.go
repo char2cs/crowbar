@@ -319,6 +319,17 @@ func (f *fakeAgentUsecase) GetChat(
 	return f.getChat, nil
 }
 
+func (f *fakeAgentUsecase) ChatSnapshot(
+	ctx context.Context,
+	chatID string,
+) (agentusecase.ChatSnapshot, error) {
+	chat, err := f.GetChat(ctx, chatID)
+	if err != nil {
+		return agentusecase.ChatSnapshot{}, err
+	}
+	return agentusecase.ChatSnapshot{Chat: chat, Version: 1, Phase: agentusecase.ChatPhaseDormant}, nil
+}
+
 func (f *fakeAgentUsecase) ReadMessages(
 	_ context.Context,
 	chatID string,
@@ -370,12 +381,6 @@ func (f *fakeAgentUsecase) ConversationsForChat(
 	_ context.Context,
 	_ string,
 ) ([]engineagents.ChatConversation, error) {
-	return nil, nil
-}
-
-func (f *fakeAgentUsecase) LiveRunnersByChat(
-	_ context.Context,
-) (map[string]engineagents.Runner, error) {
 	return nil, nil
 }
 

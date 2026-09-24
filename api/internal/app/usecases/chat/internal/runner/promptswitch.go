@@ -65,6 +65,7 @@ func (rs *Runners) SubmitPromptWithSwitch(
 	}
 
 	if switching {
+		defer rs.enterPhase(ctx, chatID, rs.replacementPhase(ctx, chatID))()
 		if _, err := rs.switchProviderLocked(ctx, park, chatID, provider); err != nil {
 			return domain.AgentPromptSubmission{}, err
 		}

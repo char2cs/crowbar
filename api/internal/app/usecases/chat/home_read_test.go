@@ -56,6 +56,10 @@ func (f *fakeChatUsecase) MintChat(context.Context, string, string, string) (str
 	panic("unused")
 }
 
+func (f *fakeChatUsecase) ChatSnapshot(context.Context, string) (agentusecase.ChatSnapshot, error) {
+	panic("unused")
+}
+
 func (f *fakeChatUsecase) RenameChat(context.Context, string, string, string) error {
 	panic("unused")
 }

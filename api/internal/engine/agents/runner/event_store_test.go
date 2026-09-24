@@ -260,31 +260,6 @@ func TestAgentRunner_AllLive_ListsRunningRunnersOnly(t *testing.T) {
 	assert.Equal(t, "r2", live[0].ID)
 }
 
-// LiveRunnersByChat is LiveRunnerForChat for every chat in one read: the same
-// newest-arrival winner where two runners claim a chat, and a displaced
-// runner (on no chat) under no key.
-func TestAgentRunner_LiveRunnersByChat_AgreesWithTheSingleChatRead(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1000, 0).UTC()
-	startRunner(t, ctx, repo, "r1", "chat-a", now)
-	startRunner(t, ctx, repo, "r2", "chat-a", now.Add(time.Second))
-	startRunner(t, ctx, repo, "r3", "chat-b", now)
-	startRunner(t, ctx, repo, "r4", "chat-c", now)
-	_, err := repo.Displace(ctx, "r4")
-	require.NoError(t, err)
-	runner.WaitQuiescentForTest(repo)
-
-	byChat, err := repo.LiveRunnersByChat(ctx)
-	require.NoError(t, err)
-	require.Len(t, byChat, 2)
-	for chatID, got := range byChat {
-		want, err := repo.LiveRunnerForChat(ctx, chatID)
-		require.NoError(t, err)
-		assert.Equal(t, want.ID, got.ID, chatID)
-	}
-	assert.Equal(t, "r2", byChat["chat-a"].ID)
-}
-
 // TestAgentRunner_ForgetChat_DropsHistoryNotTheRunner: the chat-delete cascade
 // removes the chat's conversation history — the one case where history has
 // nothing left to describe — but never hand-deletes the live runner row. That

@@ -80,29 +80,12 @@ type Turns struct {
 	// built together and neither can name the other first.
 	runners Runners
 
-	// messageDelta fans a growing assistant message out to any client watching.
-	// Wired at sweep start rather than at construction, because what it publishes
-	// through is the hub — a layer above this one. Nil until then, and nil forever
-	// in a daemon with no detector.
-	messageDelta func(chatID, workspaceID, messageID, text, kind string)
-
-	// compactionStatus fans the live compact_pre/compact_post edge out to any
-	// client watching, the same way messageDelta fans out a growing message.
-	// It exists as its own direct push rather than riding the ledger's
-	// interruption record: a /compact is always delivered as a bare prompt
-	// that never opens a tracked turn (compact.go), which means
-	// commands.Interrupt's own idle-chat handling marks the ledger record
-	// resolved in the SAME event that creates it — there is no window, live
-	// or polled, in which the ledger says "open". See observation.go's
-	// HookCompactPre/HookCompactPost cases, which call this ALONGSIDE the
-	// (still-needed, for the retroactive divider) ledger calls, never instead
-	// of them. Wired at sweep start, same reasoning as messageDelta.
-	compactionStatus func(chatID, workspaceID string, active bool)
-
-	// planUpdate fans the agent's own to-do list out to any client watching, the
-	// same way compactionStatus does and for the same reason: it is a LIVE view
-	// of a turn in progress, restated wholesale, and nothing durable records it.
-	planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep)
+	// feed publishes the live facts no projection carries — a growing message,
+	// the compaction edge, the plan, the usage report — to any client watching.
+	// Wired at sweep start rather than at construction, because what it
+	// publishes through is the hub, a layer above this one. Zero (every field
+	// nil) until then, and forever in a daemon with no detector wiring.
+	feed seam.ChatFeed
 
 	// messageAwaitTimeout bounds how long closeAssistantTurn will wait on
 	// stream.Streams.AwaitOpen before concluding nothing streamed. It is a
@@ -185,25 +168,9 @@ func (t *Turns) SetRunners(runners Runners) { t.runners = runners }
 // surface: production always uses defaultMessageAwaitTimeout.
 func (t *Turns) SetMessageAwaitTimeout(d time.Duration) { t.messageAwaitTimeout = d }
 
-// SetMessageDelta wires the fan-out for a growing assistant message. It is called
-// at sweep start, not at construction: a daemon with nobody to publish to records
-// the message when it finishes instead.
-func (t *Turns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text, kind string)) {
-	t.messageDelta = fn
-}
-
-// SetCompactionStatus wires the fan-out for the live compact_pre/compact_post
-// edge. Called at sweep start, same as SetMessageDelta: a daemon with nobody
-// to publish to just skips the call (see observation.go), never panics.
-// SetPlanUpdate wires the fan-out for the agent's running to-do list. Called at
-// sweep start, same as SetMessageDelta.
-func (t *Turns) SetPlanUpdate(fn func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
-	t.planUpdate = fn
-}
-
-func (t *Turns) SetCompactionStatus(fn func(chatID, workspaceID string, active bool)) {
-	t.compactionStatus = fn
-}
+// SetFeed wires the live chat feed. Called at sweep start: a daemon with
+// nobody to publish to records the message when it finishes instead.
+func (t *Turns) SetFeed(feed seam.ChatFeed) { t.feed = feed }
 
 // HookDeliveryCount is how many completed delivery ids the dedup set holds.
 func (t *Turns) HookDeliveryCount() int { return t.hookDeliveries.Len() }

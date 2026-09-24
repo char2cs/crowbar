@@ -135,20 +135,17 @@ func (fileProbe) PushWorkspace(_ dto.WorkspaceDTO)             {}
 func (fileProbe) PushThread(_ dto.ThreadDTO)                   {}
 func (fileProbe) PushTerminalSession(_ dto.TerminalSessionDTO) {}
 func (fileProbe) PushGit(_ string, _ gitdomain.GitStatus)      {}
-func (fileProbe) PushAgentChat(_, _, _ string, _ bool)         {}
 
 func (fileProbe) PushAgentChatFolder(_, _, _ string) {}
 
-func (fileProbe) PushAgentChatTerminalWait(_, _ string, _ *dto.AgentTerminalWaitDTO) {}
-
 func (fileProbe) PushAgentChatPromptSettled(_, _, _ string, _ bool) {}
 
-func (fileProbe) PushAgentChatMessageDelta(_, _, _, _, _ string)     {}
-func (fileProbe) PushAgentChatPlan(_, _ string, _ []agents.PlanStep) {}
+func (fileProbe) PushAgentChatMessageDelta(_, _, _, _, _ string)         {}
+func (fileProbe) PushAgentChatPlan(_, _ string, _ []agents.PlanStep)     {}
+func (fileProbe) PushAgentChatTelemetry(_, _ string, _ agents.Telemetry) {}
+func (fileProbe) PushAgentChatEvent(_ dto.AgentChatEvent)                {}
 
 func (fileProbe) PushAgentChatCompaction(_, _ string, _ bool) {}
-
-func (fileProbe) PushAgentRunner(_, _, _, _ string) {}
 
 func (p fileProbe) PushFile(
 	e domain.FileChangeEvent,

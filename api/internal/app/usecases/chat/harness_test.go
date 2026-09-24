@@ -256,8 +256,9 @@ type broadcastCall struct {
 
 // fakeBroadcaster is a thread-safe Broadcaster double for agentchat frames.
 type fakeBroadcaster struct {
-	mu    sync.Mutex
-	calls []broadcastCall
+	mu     sync.Mutex
+	calls  []broadcastCall
+	fanout *agentusecase.Fanout
 }
 
 func (f *fakeBroadcaster) BroadcastAgentChatFolder(_, _, _ string) {}
@@ -283,6 +284,9 @@ func (f *fakeBroadcaster) reset() {
 // frame recorder, so every assertion in this package keeps its current shape.
 func (f *fakeBroadcaster) watchAgentChat(e agentchat.ChatEvent) {
 	f.BroadcastAgentChat(e.ChatID, e.WorkspaceID, e.Kind, e.Working && !e.Forgotten)
+	if f.fanout != nil {
+		f.fanout.ChatWatch()(e)
+	}
 }
 
 func (f *fakeBroadcaster) snapshot() []broadcastCall {
@@ -303,12 +307,18 @@ type runnerFrame struct {
 type fakeRunnerBroadcaster struct {
 	mu     sync.Mutex
 	frames []runnerFrame
+	// fanout feeds the usecase's snapshot owner, exactly as production wires
+	// the repositories' watch seams.
+	fanout *agentusecase.Fanout
 }
 
 // watchAgentRunner adapts the repository's announcement seam onto this fake's
 // existing frame recorder, so every assertion here keeps its current shape.
 func (f *fakeRunnerBroadcaster) watchAgentRunner(e agentrunner.RunnerEvent) {
 	f.BroadcastAgentRunner(e.RunnerID, e.WorkspaceID, e.ChatID, e.Kind)
+	if f.fanout != nil {
+		f.fanout.RunnerWatch()(e)
+	}
 }
 
 func (f *fakeRunnerBroadcaster) BroadcastAgentRunner(runnerID, workspaceID, chatID, kind string) {
@@ -762,8 +772,10 @@ type harnessUsecase struct {
 // aggregates (in-memory), with the terminal engine, the workspace reader and both
 // hub feeds faked.
 type testFixture struct {
-	ctx     context.Context
-	usecase *harnessUsecase
+	// snapFrames records every chat snapshot frame the owner publishes.
+	snapFrames *snapshotFrames
+	ctx        context.Context
+	usecase    *harnessUsecase
 	// own is the SAME usecase as usecase, held at its concrete type for the
 	// handful of methods (SpawnChatWithOwnWorktree) that are a seam reached only
 	// through tree.Agent — not part of any of the five public ports harnessUsecase
@@ -1207,8 +1219,12 @@ func newFixtureUsing(
 	// See apiconn.go's own comment on this same variable.
 	t.Setenv("CROWBAR_DISABLE_API_TRANSPORT", "1")
 
-	bc := &fakeBroadcaster{}
-	rbc := &fakeRunnerBroadcaster{}
+	snaps := agentusecase.NewChatSnapshots()
+	snapFrames := &snapshotFrames{}
+	snaps.SetPublish(snapFrames.record)
+	fan := agentusecase.NewFanout(snaps)
+	bc := &fakeBroadcaster{fanout: fan}
+	rbc := &fakeRunnerBroadcaster{fanout: fan}
 	realChats, waitChats := newChatStore(t, bc.watchAgentChat)
 	realRunners, waitRunners := newRunnerStore(t, rbc.watchAgentRunner)
 	realActivity, waitActivity := newActivityStore(t)
@@ -1335,6 +1351,7 @@ func newFixtureUsing(
 			Idempotency:     agenttools.NewIdempotency(),
 			ThreadBroadcast: noopThreadBroadcast,
 		},
+		Snapshots: snaps,
 	})
 	// closeAssistantTurn's real 3s AwaitOpen wait only matters against a
 	// concurrent delta, which resolves over its wake channel instantly, not by
@@ -1369,6 +1386,7 @@ func newFixtureUsing(
 		folders:       folders,
 		nodes:         nodes,
 		sessions:      map[string]string{},
+		snapFrames:    snapFrames,
 	}
 	return f, realChats, realRunners
 }
@@ -1525,4 +1543,29 @@ func newActivityWriteFaultFixture(t *testing.T) (testFixture, *faultWriteActivit
 		return fa
 	})
 	return f, fa
+}
+
+// snapshotFrames records every frame the chat snapshot owner publishes.
+type snapshotFrames struct {
+	mu     sync.Mutex
+	frames []agentusecase.ChatSnapshotFrame
+}
+
+func (r *snapshotFrames) record(f agentusecase.ChatSnapshotFrame) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.frames = append(r.frames, f)
+}
+
+// forChat returns the frames published about chatID, oldest first.
+func (r *snapshotFrames) forChat(chatID string) []agentusecase.ChatSnapshotFrame {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []agentusecase.ChatSnapshotFrame
+	for _, f := range r.frames {
+		if f.Snapshot.Chat.ID == chatID {
+			out = append(out, f)
+		}
+	}
+	return out
 }

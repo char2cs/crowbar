@@ -150,11 +150,6 @@ type RunnerUsecase interface {
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
 
-	// LiveRunnersByChat returns the runner placed on every live chat, in one read.
-	LiveRunnersByChat(
-		ctx context.Context,
-	) (map[string]engineagents.Runner, error)
-
 	// ReconcileRunnersOnBoot Exits every recorded runner whose PTY did not survive
 	// the restart, closes the turns they died in, and recovers their prompt
 	// journals.
@@ -178,14 +173,7 @@ type RunnerUsecase interface {
 
 	// StartTerminalWaitSweep starts the screen sweep and binds the four publish
 	// callbacks the hub owns. It runs until ctx is cancelled.
-	StartTerminalWaitSweep(
-		ctx context.Context,
-		publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-		promptSettled func(chatID, workspaceID, requestID string, consumed bool),
-		messageDelta func(chatID, workspaceID, messageID, text, kind string),
-		compactionStatus func(chatID, workspaceID string, active bool),
-		planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),
-	)
+	StartTerminalWaitSweep(ctx context.Context, feed ChatFeed)
 }
 
 var _ RunnerUsecase = (*Usecase)(nil)
@@ -408,13 +396,6 @@ func (u *Usecase) ReconcileRunnersOnBoot(
 	return u.conversations.BackfillProviders(ctx)
 }
 
-// LiveRunnersByChat returns the runner placed on every live chat, in one read.
-func (u *Usecase) LiveRunnersByChat(
-	ctx context.Context,
-) (map[string]engineagents.Runner, error) {
-	return u.runners.LiveRunnersByChat(ctx)
-}
-
 // Compact asks the chat's provider to compact its own context, through whichever
 // gesture the provider's descriptor declares for it.
 func (u *Usecase) Compact(ctx context.Context, chatID string) error {
@@ -474,13 +455,6 @@ func (u *Usecase) TerminalWait(chatID string) domain.AgentTerminalWait {
 
 // StartTerminalWaitSweep starts the screen sweep and wires the publish callbacks
 // the hub owns.
-func (u *Usecase) StartTerminalWaitSweep(
-	ctx context.Context,
-	publish func(chatID, workspaceID string, wait domain.AgentTerminalWait),
-	promptSettled func(chatID, workspaceID, requestID string, consumed bool),
-	messageDelta func(chatID, workspaceID, messageID, text, kind string),
-	compactionStatus func(chatID, workspaceID string, active bool),
-	planUpdate func(chatID, workspaceID string, steps []engineagents.PlanStep),
-) {
-	u.runners.StartTerminalWaitSweep(ctx, publish, promptSettled, messageDelta, compactionStatus, planUpdate)
+func (u *Usecase) StartTerminalWaitSweep(ctx context.Context, feed ChatFeed) {
+	u.runners.StartTerminalWaitSweep(ctx, feed)
 }

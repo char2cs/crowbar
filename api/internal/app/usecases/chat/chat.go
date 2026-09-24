@@ -18,6 +18,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/turn"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -32,6 +33,9 @@ import (
 // answerable with no runner in sight, which is why they are separable from the
 // runner lifecycle at all.
 type ChatUsecase interface {
+	// ChatSnapshot is a chat's versioned snapshot — see internal/snapshot.
+	ChatSnapshot(ctx context.Context, chatID string) (ChatSnapshot, error)
+
 	// MintChat creates an empty chat in a workspace and returns its id. No CLI is
 	// started: the chat is dormant until a runner is placed on it.
 	//
@@ -221,6 +225,8 @@ type Usecase struct {
 	// work is the SAME tracker sh.work hands conversations/turns/runners — see
 	// Work in aliases.go.
 	work *inflight.Work
+	// snapshots is the one owner of every chat's versioned snapshot.
+	snapshots *snapshot.Snapshots
 
 	// The five components. Each owns one responsibility, and the delegating
 	// methods in this file and the other five are the whole of what reaches them.
@@ -360,3 +366,12 @@ func (u *Usecase) Ancestors(
 ) ([]string, error) {
 	return u.conversations.Ancestors(ctx, chatID)
 }
+
+// ChatSnapshot returns chatID's current versioned snapshot — the same answer,
+// from the same owner, every chat frame carries.
+func (u *Usecase) ChatSnapshot(ctx context.Context, chatID string) (ChatSnapshot, error) {
+	return u.snapshots.Get(ctx, chatID)
+}
+
+// Snapshots is the owner itself, for a test that wires the fanout over it.
+func (u *Usecase) Snapshots() *ChatSnapshots { return u.snapshots }

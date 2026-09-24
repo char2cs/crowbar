@@ -179,23 +179,6 @@ func (h *Handlers) Telemetry(ctx *gin.Context) {
 		return
 	}
 
-	out := dto.AgentTelemetryDTO{ObservedAt: report.ObservedAt, Source: report.Source}
-	if c := report.Context; c != nil {
-		out.Context = &dto.AgentContextUsageDTO{
-			CapacityTokens: c.CapacityTokens, UsedTokens: c.UsedTokens,
-			UsedPercent: c.UsedPercent, RemainingPercent: c.RemainingPercent,
-		}
-	}
-	for _, w := range report.RateLimits {
-		out.RateLimits = append(out.RateLimits, dto.AgentRateLimitDTO{
-			ID: w.ID, Label: w.Label, UsedPercent: w.UsedPercent, ResetsAt: w.ResetsAt,
-		})
-	}
-	if c := report.Cost; c != nil {
-		out.Cost = &dto.AgentSessionCostDTO{TotalUSD: c.TotalUSD, APIDurationMS: c.APIDurationMS}
-	}
-	if m := report.Model; m != nil {
-		out.Model = &dto.AgentModelIdentityDTO{ID: m.ID, DisplayName: m.DisplayName}
-	}
+	out := dto.AgentTelemetryDTOFrom(report)
 	libs.WriteQueryOK(ctx, out)
 }

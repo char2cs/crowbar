@@ -202,6 +202,13 @@ func (stubUsecase) GetChat(
 	return domain.Chat{ID: id}, nil
 }
 
+func (stubUsecase) ChatSnapshot(
+	_ context.Context,
+	id string,
+) (agentusecase.ChatSnapshot, error) {
+	return agentusecase.ChatSnapshot{Chat: domain.Chat{ID: id}, Phase: agentusecase.ChatPhaseDormant}, nil
+}
+
 func (stubUsecase) ReadMessages(
 	context.Context, string, int, int, int,
 ) (domain.LedgerPage, error) {
@@ -243,12 +250,6 @@ func (stubUsecase) ConversationsForChat(
 	_ context.Context,
 	_ string,
 ) ([]engineagents.ChatConversation, error) {
-	return nil, nil
-}
-
-func (stubUsecase) LiveRunnersByChat(
-	_ context.Context,
-) (map[string]engineagents.Runner, error) {
 	return nil, nil
 }
 

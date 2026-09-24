@@ -24,6 +24,7 @@ func (rs *Runners) SwitchProvider(
 		return "", err
 	}
 	defer release()
+	defer rs.enterPhase(ctx, chatID, rs.replacementPhase(ctx, chatID))()
 	return rs.switchProviderLocked(ctx, park, chatID, targetProviderID)
 }
 

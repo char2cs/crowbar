@@ -216,6 +216,7 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	}
 	rs.attached.set(live.ID, attachedView{termSessID: termSessID, agent: agent, tctx: tctx})
 	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceTerminal)
+	rs.touch(ctx, chatID) // the pane's terminal session is now the native view
 	return termSessID, nil
 }
 
@@ -263,6 +264,7 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 		return nil
 	}
 	rs.attached.drop(live.ID)
+	rs.touch(ctx, chatID)
 
 	if err := rs.term.TerminateGraceful(ctx, view.termSessID); err != nil &&
 		!errors.Is(err, engineterminal.ErrSessionNotFound) {

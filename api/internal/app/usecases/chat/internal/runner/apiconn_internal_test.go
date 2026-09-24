@@ -42,11 +42,7 @@ func (noopTurns) RecordStop(context.Context, string, string) error { return nil 
 
 func (noopTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 
-func (noopTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text, kind string)) {}
-func (noopTurns) SetPlanUpdate(func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
-}
-
-func (noopTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
+func (noopTurns) SetFeed(seam.ChatFeed) {}
 
 func (noopTurns) MatchTerminalPrompt(
 	context.Context, string, string,

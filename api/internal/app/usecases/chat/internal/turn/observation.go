@@ -33,8 +33,8 @@ func (t *Turns) handleObservation(
 	case engineagents.HookPlanUpdate:
 		// Live only, restated wholesale — see turns.planUpdate. Nothing durable is
 		// written, so a provider mapping this cannot corrupt a transcript either.
-		if t.planUpdate != nil && len(ev.Plan) > 0 {
-			t.planUpdate(chat.ID, chat.WorkspaceID, ev.Plan)
+		if t.feed.Plan != nil && len(ev.Plan) > 0 {
+			t.feed.Plan(chat.ID, chat.WorkspaceID, ev.Plan)
 		}
 	case engineagents.HookIdle:
 		// ARMS a reconcile; closes nothing. This routinely arrives microseconds
@@ -148,8 +148,8 @@ func (t *Turns) handleObservation(
 		// can. compact_post is not reliable, so the receiving client is
 		// responsible for a bounded self-heal rather than waiting forever —
 		// see use-workspace-agent-chats-stream.ts.
-		if t.compactionStatus != nil {
-			t.compactionStatus(chat.ID, chat.WorkspaceID, true)
+		if t.feed.Compaction != nil {
+			t.feed.Compaction(chat.ID, chat.WorkspaceID, true)
 		}
 	case engineagents.HookCompactPost:
 		// SAME fallback as compact_pre, and NOT redundant with it: this event's
@@ -167,8 +167,8 @@ func (t *Turns) handleObservation(
 		// this is the defensive twin for the day compaction happens mid-turn
 		// and compact_pre's Interrupt call found the chat genuinely busy.
 		t.settleCompactDelivery(ctx, chat, runner, agent)
-		if t.compactionStatus != nil {
-			t.compactionStatus(chat.ID, chat.WorkspaceID, false)
+		if t.feed.Compaction != nil {
+			t.feed.Compaction(chat.ID, chat.WorkspaceID, false)
 		}
 	}
 	return nil

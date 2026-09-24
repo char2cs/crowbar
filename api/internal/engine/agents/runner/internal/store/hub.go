@@ -40,6 +40,12 @@ type RunnerEvent struct {
 	WorkspaceID string
 	ChatID      string
 	Kind        string
+	// Runner and Previous are the aggregate after and before this event, and
+	// Version its aggregate version: Previous.CurrentChatID is the chat a move
+	// or displacement LEFT, which ChatID alone cannot name.
+	Runner   agents.Runner
+	Previous agents.Runner
+	Version  int64
 }
 
 // WatchFunc receives every projected agentrunner event. It replaces the former
@@ -89,6 +95,9 @@ func (p *hubProjector) onEvent(
 		WorkspaceID: r.WorkspaceID,
 		ChatID:      r.CurrentChatID,
 		Kind:        eventKind(evt.EventName),
+		Runner:      r,
+		Previous:    evt.PreviousAggregate,
+		Version:     evt.Version,
 	})
 }
 

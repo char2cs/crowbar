@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 // createRequest is the POST .../repos/:repoId/chats body. See Create.
@@ -261,21 +259,17 @@ func (h *Handlers) List(
 		return
 	}
 
-	// ONE read of the runner projection for the whole list, not one (or four)
-	// per row: every other runtime fact is an in-memory read.
-	live, err := h.runners.LiveRunnersByChat(rctx)
-	if err != nil {
-		status, msg := libs.StatusAndMessage(err)
-		libs.WriteErr(ctx, status, msg)
-		return
-	}
+	// Every row is its versioned snapshot — the same answer, from the same
+	// in-memory owner, the chat feed's frames carry. No per-row query.
 	runtimes := make(map[string]dto.ChatRuntime, len(chats))
-	for _, c := range chats {
-		var runner *agents.Runner
-		if r, ok := live[c.ID]; ok {
-			runner = &r
+	for i, c := range chats {
+		chat, rt, err := h.chatSnapshot(rctx, c.ID)
+		if err != nil {
+			status, msg := libs.StatusAndMessage(err)
+			libs.WriteErr(ctx, status, msg)
+			return
 		}
-		runtimes[c.ID] = h.liveRuntime(c.ID, runner)
+		chats[i], runtimes[c.ID] = chat, rt
 	}
 
 	libs.WriteQueryOK(ctx, dto.AgentChatDTOList(
@@ -319,7 +313,13 @@ func (h *Handlers) Get(
 		return
 	}
 
-	rt, err := h.chatRuntime(ctx.Request.Context(), chat.ID)
+	snap, rt, err := h.chatSnapshot(ctx.Request.Context(), chat.ID)
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	rt.Conversations, err = h.runners.ConversationsForChat(ctx.Request.Context(), chat.ID)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -327,48 +327,22 @@ func (h *Handlers) Get(
 	}
 
 	libs.WriteQueryOK(ctx, dto.AgentChatDetailDTOFrom(
-		chat, rt, h.chatWorktree(ctx.Request.Context(), chat)))
+		snap, rt, h.chatWorktree(ctx.Request.Context(), snap)))
 }
 
-// chatRuntime derives one chat's process view at read time: the runner PLACED on
-// it (if any) and the conversations it has hosted. Nothing here is read off the
-// chat aggregate, because a chat stores no process facts.
-func (h *Handlers) chatRuntime(
+// chatSnapshot is chatID's versioned snapshot, split into the chat row and its
+// runtime for the DTO. It is the ONE source of every chat body this API serves,
+// the same one every chat frame carries.
+func (h *Handlers) chatSnapshot(
 	ctx context.Context,
 	chatID string,
-) (dto.ChatRuntime, error) {
-	var live *agents.Runner
-	runner, err := h.runners.LiveRunnerForChat(ctx, chatID)
-	switch {
-	case err == nil:
-		live = &runner
-	case !errors.Is(err, agentrunner.ErrNotFound):
-		return dto.ChatRuntime{}, err
-	}
-
-	convs, err := h.runners.ConversationsForChat(ctx, chatID)
+) (domain.Chat, dto.ChatRuntime, error) {
+	s, err := h.chats.ChatSnapshot(ctx, chatID)
 	if err != nil {
-		return dto.ChatRuntime{}, err
+		return domain.Chat{}, dto.ChatRuntime{}, err
 	}
-	rt := h.liveRuntime(chatID, live)
-	rt.Conversations = convs
-	return rt, nil
-}
-
-// liveRuntime joins the in-memory process facts onto a chat's placed runner.
-// TerminalWait, AttachedTerminalSession and HasLiveAPIConnection are plain
-// in-memory reads of the daemon's standing answers — no repository, provider or
-// PTY on the request path.
-func (h *Handlers) liveRuntime(chatID string, live *agents.Runner) dto.ChatRuntime {
-	rt := dto.ChatRuntime{
-		LiveRunner:   live,
-		TerminalWait: h.runners.TerminalWait(chatID),
-	}
-	if live != nil {
-		rt.AttachedSessionID, _ = h.runners.AttachedTerminalSession(live.ID)
-		rt.HasLiveAPIConnection = h.runners.HasLiveAPIConnection(live.ID)
-	}
-	return rt
+	return s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
+		s.TerminalWait, s.AttachedSessionID, s.HasLiveAPIConnection), nil
 }
 
 // requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to
@@ -531,7 +505,7 @@ func (h *Handlers) Promote(
 		return
 	}
 
-	rt, err := h.chatRuntime(ctx.Request.Context(), promoted.ID)
+	_, rt, err := h.chatSnapshot(ctx.Request.Context(), promoted.ID)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)

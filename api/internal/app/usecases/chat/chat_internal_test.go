@@ -67,16 +67,9 @@ var constructorUnsetFields = map[string]string{
 	"runners.promptSettled": "wired by StartTerminalWaitSweep, not New: it " +
 		"publishes through the hub, a layer above this one, and stays nil in a " +
 		"daemon with no detector (internal/runner/runner.go).",
-	"turns.messageDelta": "wired by StartTerminalWaitSweep beside promptSettled, " +
-		"for the same reason: a daemon with nobody to publish to records the " +
-		"message when it finishes instead (internal/turn/turns.go).",
-	"turns.compactionStatus": "wired by StartTerminalWaitSweep beside messageDelta, " +
-		"for the same reason: a daemon with nobody to publish to just skips the " +
-		"call (internal/turn/turns.go).",
-	"turns.planUpdate": "wired by StartTerminalWaitSweep beside messageDelta, for " +
-		"the same reason: the agent's to-do list is a LIVE view with nothing " +
-		"durable behind it, so a daemon with nobody to publish to simply does " +
-		"not send it (internal/turn/turns.go).",
+	"turns.feed": "wired by StartTerminalWaitSweep beside promptSettled, for the " +
+		"same reason: a daemon with nobody to publish to records the message when " +
+		"it finishes instead (internal/turn/turns.go).",
 }
 
 // sharedInstances are the pieces of in-flight state that MUST be one instance

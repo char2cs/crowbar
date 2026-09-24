@@ -61,11 +61,7 @@ func (stubTurns) RecordStop(context.Context, string, string) error { return nil 
 
 func (stubTurns) RecordChatSwitch(context.Context, string, string, string) error { return nil }
 
-func (stubTurns) SetMessageDelta(func(chatID, workspaceID, messageID, text, kind string)) {}
-func (stubTurns) SetPlanUpdate(func(chatID, workspaceID string, steps []engineagents.PlanStep)) {
-}
-
-func (stubTurns) SetCompactionStatus(func(chatID, workspaceID string, active bool)) {}
+func (stubTurns) SetFeed(seam.ChatFeed) {}
 
 func (stubTurns) MatchTerminalPrompt(
 	context.Context, string, string,
@@ -109,7 +105,7 @@ func TestTerminalWait_WithoutADetectorIsNotWaiting(t *testing.T) {
 	assert.False(t, rs.TerminalWait("any-chat").Waiting)
 
 	// And the sweep is a no-op rather than a nil dereference.
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, nil, nil)
+	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{})
 }
 
 // A terminal that CAN render a screen gets a detector, built by SetTurns because
@@ -135,7 +131,7 @@ func TestStartTerminalWaitSweep_WiresMessageDeltaEvenWithNoDetector(t *testing.T
 	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
 	rs.SetTurns(turns)
 
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, func(_, _, _, _, _ string) {}, nil, nil)
+	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{MessageDelta: func(_, _, _, _, _ string) {}})
 
 	require.True(t, turns.wired, "a daemon with no detector still has messages to stream")
 }
@@ -145,8 +141,8 @@ type deltaRecordingTurns struct {
 	wired bool
 }
 
-func (d *deltaRecordingTurns) SetMessageDelta(fn func(chatID, workspaceID, messageID, text, kind string)) {
-	d.wired = fn != nil
+func (d *deltaRecordingTurns) SetFeed(feed seam.ChatFeed) {
+	d.wired = feed.MessageDelta != nil
 }
 
 // StartTerminalWaitSweep wires compactionStatus BEFORE it checks for a
@@ -161,7 +157,7 @@ func TestStartTerminalWaitSweep_WiresCompactionStatusEvenWithNoDetector(t *testi
 	rs := runner.New(runner.Deps{Terminal: plainCommander{}})
 	rs.SetTurns(turns)
 
-	rs.StartTerminalWaitSweep(t.Context(), nil, nil, nil, func(_, _ string, _ bool) {}, nil)
+	rs.StartTerminalWaitSweep(t.Context(), seam.ChatFeed{Compaction: func(_, _ string, _ bool) {}})
 
 	require.True(t, turns.wired, "a daemon with no detector still has compaction status to publish")
 }
@@ -171,8 +167,8 @@ type compactionRecordingTurns struct {
 	wired bool
 }
 
-func (c *compactionRecordingTurns) SetCompactionStatus(fn func(chatID, workspaceID string, active bool)) {
-	c.wired = fn != nil
+func (c *compactionRecordingTurns) SetFeed(feed seam.ChatFeed) {
+	c.wired = feed.Compaction != nil
 }
 
 // ─── from termwait_live_test.go (real PTY) ────────────────────

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/snapshot"
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
@@ -26,6 +27,7 @@ func (rs *Runners) StopChat(
 		return fmt.Errorf("agent: stop chat: %w", err)
 	}
 	defer release()
+	defer rs.enterPhase(ctx, chatID, snapshot.PhaseStopping)()
 
 	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {

@@ -301,7 +301,7 @@ func (h *Handlers) PlaceChat(
 	// visibly stays put despite the PATCH returning 200 (caught live: a chat
 	// dragged above a repo's own header row).
 	h.broadcastFolder(placed.ID, wsID, "placement_set")
-	rt, err := h.chatRuntime(ctx.Request.Context(), placed.ID)
+	_, rt, err := h.chatSnapshot(ctx.Request.Context(), placed.ID)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)

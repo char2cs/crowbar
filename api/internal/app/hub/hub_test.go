@@ -13,18 +13,16 @@ import (
 )
 
 type fakeSubscriber struct {
-	projects    []dto.ProjectDTO
-	repos       []dto.RepoDTO
-	workspaces  []dto.WorkspaceDTO
-	threads     []dto.ThreadDTO
-	terminals   []dto.TerminalSessionDTO
-	gitStatuses []gitdomain.GitStatus
-	fileEvents  []domain.FileChangeEvent
-	agentChats  []agentChatPush
-	agentRunner []agentRunnerPush
+	projects        []dto.ProjectDTO
+	repos           []dto.RepoDTO
+	workspaces      []dto.WorkspaceDTO
+	threads         []dto.ThreadDTO
+	terminals       []dto.TerminalSessionDTO
+	gitStatuses     []gitdomain.GitStatus
+	fileEvents      []domain.FileChangeEvent
+	agentChatEvents []dto.AgentChatEvent
 
 	agentChatFolders []agentChatFolderPush
-	agentChatWaits   []agentChatWaitPush
 	agentCompactions []agentCompactionPush
 	promptSettled    []promptSettledPush
 	messageDeltas    []messageDeltaPush
@@ -50,29 +48,9 @@ type agentCompactionPush struct {
 	active      bool
 }
 
-type agentChatWaitPush struct {
-	chatID      string
-	workspaceID string
-	wait        *dto.AgentTerminalWaitDTO
-}
-
 type agentChatFolderPush struct {
 	folderID    string
 	workspaceID string
-	kind        string
-}
-
-type agentChatPush struct {
-	chatID      string
-	workspaceID string
-	kind        string
-	working     bool
-}
-
-type agentRunnerPush struct {
-	runnerID    string
-	workspaceID string
-	chatID      string
 	kind        string
 }
 
@@ -119,32 +97,6 @@ func (f *fakeSubscriber) PushFile(
 	f.fileEvents = append(f.fileEvents, evt)
 }
 
-func (f *fakeSubscriber) PushAgentChat(
-	chatID string,
-	workspaceID string,
-	kind string,
-	working bool,
-) {
-	f.agentChats = append(f.agentChats, agentChatPush{
-		chatID:      chatID,
-		workspaceID: workspaceID,
-		kind:        kind,
-		working:     working,
-	})
-}
-
-func (f *fakeSubscriber) PushAgentChatTerminalWait(
-	chatID string,
-	workspaceID string,
-	wait *dto.AgentTerminalWaitDTO,
-) {
-	f.agentChatWaits = append(f.agentChatWaits, agentChatWaitPush{
-		chatID:      chatID,
-		workspaceID: workspaceID,
-		wait:        wait,
-	})
-}
-
 func (f *fakeSubscriber) PushAgentChatPromptSettled(
 	chatID string,
 	workspaceID string,
@@ -168,7 +120,11 @@ func (f *fakeSubscriber) PushAgentChatMessageDelta(
 	})
 }
 
-func (f *fakeSubscriber) PushAgentChatPlan(_, _ string, _ []agents.PlanStep) {}
+func (f *fakeSubscriber) PushAgentChatPlan(_, _ string, _ []agents.PlanStep)     {}
+func (f *fakeSubscriber) PushAgentChatTelemetry(_, _ string, _ agents.Telemetry) {}
+func (f *fakeSubscriber) PushAgentChatEvent(ev dto.AgentChatEvent) {
+	f.agentChatEvents = append(f.agentChatEvents, ev)
+}
 
 func (f *fakeSubscriber) PushAgentChatCompaction(
 	chatID string,
@@ -189,17 +145,6 @@ func (f *fakeSubscriber) PushAgentChatFolder(
 		folderID:    folderID,
 		workspaceID: workspaceID,
 		kind:        kind,
-	})
-}
-
-func (f *fakeSubscriber) PushAgentRunner(
-	runnerID string,
-	workspaceID string,
-	chatID string,
-	kind string,
-) {
-	f.agentRunner = append(f.agentRunner, agentRunnerPush{
-		runnerID: runnerID, workspaceID: workspaceID, chatID: chatID, kind: kind,
 	})
 }
 
@@ -301,60 +246,6 @@ func TestHub_BroadcastFile_FansOut(t *testing.T) {
 	assert.Equal(t, "a.go", a.fileEvents[0].Path)
 }
 
-func TestHub_BroadcastAgentChat_FansOut(t *testing.T) {
-	h := hub.NewHub()
-	a := &fakeSubscriber{}
-	b := &fakeSubscriber{}
-	h.Register(a)
-	h.Register(b)
-
-	h.BroadcastAgentChat("c1", "w1", "bound", true)
-
-	assert.Len(t, a.agentChats, 1)
-	assert.Len(t, b.agentChats, 1)
-	assert.Equal(t,
-		agentChatPush{chatID: "c1", workspaceID: "w1", kind: "bound", working: true},
-		a.agentChats[0])
-}
-
-// TestHub_BroadcastAgentChatTerminalWait_FansOut proves the terminal-wait edge
-// reaches every registered subscriber with the chat id, workspace id and payload
-// intact — the same fan-out contract every other Broadcast* method on the hub
-// has, since this is the frame that puts a "waiting in the terminal" banner up.
-func TestHub_BroadcastAgentChatTerminalWait_FansOut(t *testing.T) {
-	h := hub.NewHub()
-	a := &fakeSubscriber{}
-	b := &fakeSubscriber{}
-	h.Register(a)
-	h.Register(b)
-
-	wait := &dto.AgentTerminalWaitDTO{Kind: domain.AgentTerminalWaitTrust}
-	h.BroadcastAgentChatTerminalWait("c1", "w1", wait)
-
-	assert.Len(t, a.agentChatWaits, 1)
-	assert.Len(t, b.agentChatWaits, 1)
-	assert.Equal(t,
-		agentChatWaitPush{chatID: "c1", workspaceID: "w1", wait: wait},
-		a.agentChatWaits[0])
-}
-
-// TestHub_BroadcastAgentChatTerminalWait_ClearingEdgeReachesSubscribers proves a
-// nil payload fans out exactly like a populated one. This is the frame that TAKES
-// A BANNER DOWN: a broadcast that dropped a nil wait on the way to a subscriber
-// would strand a client showing that banner over a chat that is fine again.
-func TestHub_BroadcastAgentChatTerminalWait_ClearingEdgeReachesSubscribers(t *testing.T) {
-	h := hub.NewHub()
-	a := &fakeSubscriber{}
-	h.Register(a)
-
-	h.BroadcastAgentChatTerminalWait("c1", "w1", nil)
-
-	assert.Len(t, a.agentChatWaits, 1)
-	assert.Equal(t,
-		agentChatWaitPush{chatID: "c1", workspaceID: "w1", wait: nil},
-		a.agentChatWaits[0])
-}
-
 // TestHub_BroadcastAgentChatCompaction_FansOut proves the live compaction edge
 // reaches every registered subscriber intact, both ways round — this is the
 // frame the "Compacting…" indicator has to key off, since the ledger's own
@@ -376,25 +267,6 @@ func TestHub_BroadcastAgentChatCompaction_FansOut(t *testing.T) {
 	}
 	assert.Equal(t, want, a.agentCompactions)
 	assert.Equal(t, want, b.agentCompactions)
-}
-
-// TestHub_BroadcastAgentRunner_FansOut pins the runner frame's shape: it carries
-// the CHAT the runner is pointed at as of the event, so a `moved` frame names the
-// chat the CLI moved INTO and a client can re-point the tab following that runner.
-func TestHub_BroadcastAgentRunner_FansOut(t *testing.T) {
-	h := hub.NewHub()
-	a := &fakeSubscriber{}
-	b := &fakeSubscriber{}
-	h.Register(a)
-	h.Register(b)
-
-	h.BroadcastAgentRunner("r1", "w1", "chat-b", "moved")
-
-	assert.Len(t, a.agentRunner, 1)
-	assert.Len(t, b.agentRunner, 1)
-	assert.Equal(t,
-		agentRunnerPush{runnerID: "r1", workspaceID: "w1", chatID: "chat-b", kind: "moved"},
-		a.agentRunner[0])
 }
 
 // TestHub_BroadcastAgentChatPromptSettled_FansOut proves the "prompt retired
@@ -468,4 +340,24 @@ func TestHub_NoSubscribers_DoesNotPanic(t *testing.T) {
 
 func TestHub_ImplementsWebSocketHub(t *testing.T) {
 	var _ hub.WebSocketHub = hub.NewHub()
+}
+
+// A chat snapshot frame reaches every subscriber whole: the chat DTO and its
+// version travel together, which is what lets a client order them.
+func TestHub_BroadcastAgentChatEvent_FansOut(t *testing.T) {
+	h := hub.NewHub()
+	a := &fakeSubscriber{}
+	b := &fakeSubscriber{}
+	h.Register(a)
+	h.Register(b)
+
+	ev := dto.AgentChatEvent{
+		ChatID: "c1", WorkspaceID: "w1", Kind: "moved", RunnerID: "r1", Version: 7,
+		Chat: &dto.AgentChatDTO{ID: "c1", Version: 7, Phase: "live", LiveRunnerID: "r1"},
+	}
+	h.BroadcastAgentChatEvent(ev)
+
+	assert.Len(t, a.agentChatEvents, 1)
+	assert.Len(t, b.agentChatEvents, 1)
+	assert.Equal(t, ev, a.agentChatEvents[0])
 }

@@ -18,6 +18,14 @@ import (
 // It starts no processes and reads no vendor CLI. Every route served off here
 // answers whether or not a runner has ever been placed on the chat.
 type ChatUsecase interface {
+	// ChatSnapshot is chatID's versioned snapshot: the chat, the runner live on
+	// it, its phase and the version that orders it against every frame. Every
+	// chat body this API serves is built from it.
+	ChatSnapshot(
+		ctx context.Context,
+		chatID string,
+	) (agentusecase.ChatSnapshot, error)
+
 	// ListChatsByWorkspace returns every AgentChat anchored to workspaceID. List
 	// calls this when its request still names a workspace (the home mount's
 	// injected :wsId); otherwise it falls back to ListChats below.
@@ -235,12 +243,6 @@ type RunnerUsecase interface {
 		ctx context.Context,
 		chatID string,
 	) ([]engineagents.ChatConversation, error)
-
-	// LiveRunnersByChat answers LiveRunnerForChat for every placed chat in one
-	// read, so the chat list costs one runner query rather than one per row.
-	LiveRunnersByChat(
-		ctx context.Context,
-	) (map[string]engineagents.Runner, error)
 
 	// SwitchProvider quits the chat's current vendor CLI, hands off the accumulated
 	// context, and starts targetProviderID as a new runner on the SAME chat,

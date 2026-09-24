@@ -138,10 +138,12 @@ func New(
 	}
 
 	h := hub.NewHub()
+	chatSnapshots := newChatSnapshots(h)
 	repos, err := newRepositoriesContainer(
 		ctx,
 		adapters,
 		h,
+		chatSnapshots,
 		axReviewThread,
 		axWorkspace,
 		axAgentChat,
@@ -160,8 +162,9 @@ func New(
 	homeFunc := func() (string, error) { return crowbarHome, nil }
 	ucs, err := usecases.New(
 		repos, toUsecaseStores(gormStores), engines, homeFunc, agentThreadBroadcast(h),
-		announceHomeRow(h),
+		announceHomeRow(h, chatSnapshots),
 		announceRepoPlacement(h, gormStores.Repositories),
+		usecases.WithChatSnapshots(chatSnapshots),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("app: usecases: %w", err)
@@ -505,6 +508,7 @@ func newRepositoriesContainer(
 	ctx context.Context,
 	adapters *adapter.Container,
 	h *hub.Hub,
+	chatSnapshots *agentusecase.ChatSnapshots,
 	axReviewThread asynx.Asynx[domain.ReviewThread],
 	axWorkspace asynx.Asynx[domain.Workspace],
 	axAgentChat asynx.Asynx[domain.Chat],
@@ -513,7 +517,7 @@ func newRepositoriesContainer(
 	axNode asynx.Asynx[domain.Node],
 	engines *engine.Container,
 ) (*repositories.Container, error) {
-	agentFanout := agentusecase.NewFanout(h)
+	agentFanout := agentusecase.NewFanout(chatSnapshots)
 	repos, err := repositories.New(
 		ctx,
 		adapters,
@@ -552,6 +556,38 @@ func toUsecaseStores(
 	}
 }
 
+// newChatSnapshots builds the one owner of every chat's versioned snapshot and
+// binds its frames to the hub. Built before the repositories, because their
+// watch seams feed it; handed to the chat usecase, which binds its read model.
+func newChatSnapshots(h *hub.Hub) *agentusecase.ChatSnapshots {
+	snaps := agentusecase.NewChatSnapshots()
+	snaps.SetPublish(func(f agentusecase.ChatSnapshotFrame) {
+		h.BroadcastAgentChatEvent(chatSnapshotEvent(f))
+	})
+	return snaps
+}
+
+// chatSnapshotEvent is one snapshot frame on the wire: the chat's full DTO
+// (worktree state rides its own worktree_state frame) and the kind of the
+// event that produced it.
+func chatSnapshotEvent(f agentusecase.ChatSnapshotFrame) dto.AgentChatEvent {
+	s := f.Snapshot
+	ev := dto.AgentChatEvent{
+		ChatID:      s.Chat.ID,
+		WorkspaceID: s.Chat.WorkspaceID,
+		Kind:        f.Kind,
+		RunnerID:    f.RunnerID,
+		Version:     s.Version,
+	}
+	if f.Deleted {
+		return ev
+	}
+	chat := dto.AgentChatDTOFrom(s.Chat, dto.ChatSnapshotRuntime(s.Live, s.Phase, s.Version,
+		s.TerminalWait, s.AttachedSessionID, s.HasLiveAPIConnection), nil)
+	ev.Chat = &chat
+	return ev
+}
+
 // startTerminalWaitSweep begins the cadence that notices a vendor CLI parked on a
 // modal Crowbar cannot answer — the workspace-trust dialog and its relatives, which
 // reach the daemon through no hook and otherwise leave a chat pane showing nothing
@@ -567,24 +603,13 @@ func startTerminalWaitSweep(
 	h *hub.Hub,
 	ucs *usecases.Container,
 ) {
-	ucs.AgentRunner.StartTerminalWaitSweep(
-		ctx,
-		func(chatID, workspaceID string, wait domain.AgentTerminalWait) {
-			h.BroadcastAgentChatTerminalWait(chatID, workspaceID, dto.TerminalWaitDTOFrom(wait))
-		},
-		func(chatID, workspaceID, requestID string, consumed bool) {
-			h.BroadcastAgentChatPromptSettled(chatID, workspaceID, requestID, consumed)
-		},
-		func(chatID, workspaceID, messageID, text, kind string) {
-			h.BroadcastAgentChatMessageDelta(chatID, workspaceID, messageID, text, kind)
-		},
-		func(chatID, workspaceID string, active bool) {
-			h.BroadcastAgentChatCompaction(chatID, workspaceID, active)
-		},
-		func(chatID, workspaceID string, steps []agents.PlanStep) {
-			h.BroadcastAgentChatPlan(chatID, workspaceID, steps)
-		},
-	)
+	ucs.AgentRunner.StartTerminalWaitSweep(ctx, agentusecase.ChatFeed{
+		PromptSettled: h.BroadcastAgentChatPromptSettled,
+		MessageDelta:  h.BroadcastAgentChatMessageDelta,
+		Compaction:    h.BroadcastAgentChatCompaction,
+		Plan:          h.BroadcastAgentChatPlan,
+		Telemetry:     h.BroadcastAgentChatTelemetry,
+	})
 }
 
 // startModelDiscoveryWarmup kicks a model.discover: source's live probe for
@@ -891,10 +916,13 @@ func sweepTargets(
 // by its own kind: a chat frame names the chat, a folder frame the folder.
 func announceHomeRow(
 	h *hub.Hub,
+	chatSnapshots *agentusecase.ChatSnapshots,
 ) project.HomeRowAnnouncer {
 	return func(id, workspaceID string, kind domain.NodeKind, event string) {
 		if kind == domain.NodeKindChat {
-			h.BroadcastAgentChat(id, workspaceID, event, false)
+			// A versioned snapshot, like every other chat frame: its placement
+			// is read from the Node this write just moved.
+			chatSnapshots.Announce(context.Background(), id, event)
 			return
 		}
 		h.BroadcastAgentChatFolder(id, workspaceID, event)

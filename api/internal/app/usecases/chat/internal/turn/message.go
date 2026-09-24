@@ -33,10 +33,10 @@ func (t *Turns) recordMessageDelta(
 		return
 	}
 
-	if t.messageDelta != nil {
+	if t.feed.MessageDelta != nil {
 		// The empty kind is the ANSWER — the stream that existed before there was
 		// more than one, and the only one that is ever recorded.
-		t.messageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text, "")
+		t.feed.MessageDelta(chat.ID, chat.WorkspaceID, message.ID, message.Text, "")
 	}
 	if !message.Final {
 		return
