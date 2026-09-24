@@ -57,6 +57,7 @@ func (f *fakeDeleteProjects) Delete(_ context.Context, id string) error {
 
 type fakeDeleteRepos struct {
 	repos   []domain.Repository
+	saves   int
 	deleted []string
 	findErr error
 	delErr  error
@@ -71,6 +72,7 @@ func (f *fakeDeleteRepos) FindAll(_ context.Context) ([]domain.Repository, error
 }
 
 func (f *fakeDeleteRepos) Save(_ context.Context, r domain.Repository) error {
+	f.saves++
 	for i := range f.repos {
 		if f.repos[i].ID == r.ID {
 			f.repos[i] = r
@@ -417,6 +419,21 @@ func TestDeleteRepo_RetiresWorkspacesBeforeTheRow(t *testing.T) {
 	assert.Equal(t, []string{"cascade:r1", "row:r1"}, f.log)
 	assert.Equal(t, []string{"r1"}, f.nodes.forgot)
 	assert.NoDirExists(t, repoDir)
+}
+
+// A row the caller already marked (the HTTP handler records the intent before
+// its 202) is not saved again; an unmarked row, or one carrying a previous
+// attempt's error, records the intent first.
+func TestDeleteRepo_RecordsTheIntentOnlyWhenNotYetRecorded(t *testing.T) {
+	f := newDeleteFixture(t)
+	require.NoError(t, f.uc.DeleteRepo(context.Background(),
+		domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true}))
+	assert.Zero(t, f.repos.saves, "a marked row is handed over as-is")
+
+	g := newDeleteFixture(t)
+	require.NoError(t, g.uc.DeleteRepo(context.Background(),
+		domain.Repository{ID: "r1", ProjectID: "p1", Deleting: true, LastError: "earlier"}))
+	assert.Equal(t, 1, g.repos.saves, "a retry clears the previous error before tearing down")
 }
 
 // A cascade that cannot list the repo's workspaces keeps the row: the caller

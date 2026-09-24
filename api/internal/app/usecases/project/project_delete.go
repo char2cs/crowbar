@@ -223,9 +223,13 @@ func (u *projectDelete) DeleteRepo(
 	ctx context.Context,
 	repo domain.Repository,
 ) error {
-	repo, err := u.BeginRepoDelete(ctx, repo)
-	if err != nil {
-		return err
+	// A caller that already recorded the intent (the HTTP handler, before its
+	// 202) hands over the marked row; saving it again would change nothing.
+	if !repo.Deleting || repo.LastError != "" {
+		var err error
+		if repo, err = u.BeginRepoDelete(ctx, repo); err != nil {
+			return err
+		}
 	}
 	if err := u.teardownRepo(ctx, repo); err != nil {
 		repo.LastError = err.Error()
