@@ -19,6 +19,14 @@ interface LoadableConfig<T, K extends unknown[]> {
 
 const DELTA_DEBOUNCE_MS = 120
 
+function sameJson(a: unknown, b: unknown): boolean {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
+}
+
 // Shim types to satisfy Zustand's StateCreator while keeping generic K flexible
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Setter<T> = (partial: Partial<LoadableSlice<T, any>>) => void
@@ -43,21 +51,31 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
     // `working:false` exactly once, so a row that loses this race stays wrong until
     // the next unrelated frame — which is how an idle workspace kept spinning.
     let latestFetch = 0
+    /** Per key, the fetch whose request has not been SENT yet. A caller that
+     *  arrives before the send is served by it — the answer is still at least
+     *  as new as the moment it asked — so a boot burst (route guard, background
+     *  hydrate, sync engine) costs one request, not one each. A caller after
+     *  the send issues its own, so no one is ever handed an answer older than
+     *  its call. */
+    const unsent = new Map<string, Promise<void>>()
 
-    return {
-      data: idle() as Loadable<T>,
-
-      fetch: async (...args: K) => {
-        const seq = ++latestFetch
-        const cached = await loadCache<T>(cfg.store, keyOf(...args))
+    const run = async (key: string, args: K): Promise<void> => {
+      const seq = ++latestFetch
+      let sent = false
+      try {
+        const cached = await loadCache<T>(cfg.store, key)
         if (seq !== latestFetch) return
         set({
           data: loading(cached ? success(cached.data, cached.fetchedAt) : get().data),
         })
         try {
+          unsent.delete(key)
+          sent = true
           const fresh = await cfg.fetcher(...args)
           if (seq !== latestFetch) return
-          await saveCache(cfg.store, keyOf(...args), fresh)
+          // An unchanged answer is not re-written: a warm boot otherwise
+          // re-puts every cached list it just read.
+          if (!cached || !sameJson(cached.data, fresh)) await saveCache(cfg.store, key, fresh)
           // Re-checked AFTER the write, not only before it: the cache write is
           // an await like any other, and a supersede that lands inside it would
           // otherwise still publish here — last, on top of the winner. Same
@@ -68,6 +86,23 @@ export function createLoadableSlice<T, K extends unknown[] = [string]>(cfg: Load
           if (seq !== latestFetch) return
           set({ data: failed(err as Error, get().data) })
         }
+      } finally {
+        if (!sent) unsent.delete(key)
+      }
+    }
+
+    return {
+      data: idle() as Loadable<T>,
+
+      fetch: (...args: K) => {
+        const key = keyOf(...args)
+        const waiting = unsent.get(key)
+        if (waiting) return waiting
+        // `run` always yields (on the cache read) before it sends, so it is
+        // registered here before anything could need to join it.
+        const promise = run(key, args)
+        unsent.set(key, promise)
+        return promise
       },
 
       startSync: (...args: K) => {

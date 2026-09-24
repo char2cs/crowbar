@@ -19,18 +19,36 @@ import { readTerminalThemePayload } from '../hooks/use-terminal-theme'
  * Best-effort by design — a failed push leaves the daemon on its previous value, which is
  * exactly today's behaviour, never a wrong one.
  */
-export async function pushHostTerminalTheme(): Promise<boolean> {
+export function pushHostTerminalTheme(): Promise<boolean> {
   const { background, foreground } = readTerminalThemePayload()
-  try {
-    await apiFetch('/v0/settings/terminal/theme', {
+  const body = JSON.stringify({ bg: background, fg: foreground })
+  // The same pair already sent (or on its way) is not sent again: boot pushes
+  // once and the initial theme application fires a change for the same value.
+  if (lastPush && lastPush.body === body) return lastPush.result
+  const push = {
+    body,
+    result: apiFetch('/v0/settings/terminal/theme', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bg: background, fg: foreground }),
-    })
-    return true
-  } catch {
-    return false
+      body,
+    }).then(
+      () => true,
+      () => {
+        // A failed push is forgotten so the retry really re-sends.
+        if (lastPush === push) lastPush = null
+        return false
+      },
+    ),
   }
+  lastPush = push
+  return push.result
+}
+
+let lastPush: { body: string; result: Promise<boolean> } | null = null
+
+/** Test-only: forget what was last pushed. */
+export function resetHostThemePushForTests(): void {
+  lastPush = null
 }
 
 /**

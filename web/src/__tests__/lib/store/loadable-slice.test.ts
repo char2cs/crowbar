@@ -78,6 +78,35 @@ describe('createLoadableSlice', () => {
     expect((await loadCache('projects-data', 'projects'))?.data).toEqual([1, 2, 3])
   })
 
+  it('asks made before the request is sent share it; an ask after the send gets its own', async () => {
+    const { fetcher, release, startedAt } = parkedFetcher(() => [1])
+    const calls = vi.fn(fetcher)
+    const store = makeStore(calls)
+
+    // A boot burst: route guard, background hydrate, sync engine — same tick.
+    const a = store.getState().fetch('projects')
+    const b = store.getState().fetch('projects')
+    const c = store.getState().fetch('projects')
+    await startedAt[0]
+    expect(calls).toHaveBeenCalledTimes(1)
+
+    // Asked after the request went out: it may reflect a later change.
+    const d = store.getState().fetch('projects')
+    await startedAt[1]
+    expect(calls).toHaveBeenCalledTimes(2)
+    release.forEach((r) => r())
+    await Promise.all([a, b, c, d])
+  })
+
+  it('an unchanged answer is not written back to the cache', async () => {
+    await saveCache('projects-data', 'projects', [7], 100)
+    saveCacheSpy.mockClear()
+    const store = makeStore(async () => [7])
+    await store.getState().fetch('projects')
+    expect(saveCacheSpy).not.toHaveBeenCalled()
+    expect(dataOf(store.getState().data)).toEqual([7])
+  })
+
   it('fetch failure preserves stale data from IDB', async () => {
     await saveCache('projects-data', 'projects', [9, 9], 100)
     const store = makeStore(async () => {
