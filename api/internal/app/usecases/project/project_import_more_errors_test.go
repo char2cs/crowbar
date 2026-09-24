@@ -68,7 +68,7 @@ func TestImport_ProtectedRowFailure_CleanupWorktreeRemoveAlsoFails(t *testing.T)
 		if in.Protected {
 			return domain.Workspace{}, errors.New("row boom")
 		}
-		created := domain.Workspace{ID: in.ID, Kind: in.Kind, IsDefault: in.IsDefault, WorktreePath: in.WorktreePath}
+		created := domain.Workspace{ID: in.ID, Kind: in.Kind, IsDefault: in.IsDefault, WorktreePath: in.WorktreePath, Provisioning: domain.WorkspaceProvisioned}
 		ws.Created = append(ws.Created, created)
 		return created, nil
 	}

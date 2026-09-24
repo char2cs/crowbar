@@ -25,6 +25,7 @@ type CreateWorkspace struct {
 	Kind          domain.WorkspaceKind
 	HeldByPath    string
 	CreatedBranch bool
+	Provisioning  domain.WorkspaceProvisioning
 	Now           time.Time
 }
 
@@ -51,6 +52,27 @@ func (c CreateWorkspace) Validate(
 	}
 	if c.Kind != domain.WorkspaceKindHome && c.RepoID == "" {
 		return fmt.Errorf("create workspace: missing repoId for git workspace: %w", asynxModels.ErrValidation)
+	}
+	return validateProvisioning(c.Provisioning, c.WorktreePath)
+}
+
+// validateProvisioning refuses a create that does not say what its worktree
+// is, or whose path contradicts it: only a placeholder has none.
+func validateProvisioning(
+	p domain.WorkspaceProvisioning,
+	worktreePath string,
+) error {
+	switch p {
+	case domain.WorkspacePlaceholder:
+		if worktreePath != "" {
+			return fmt.Errorf("create workspace: a placeholder has no worktree: %w", asynxModels.ErrValidation)
+		}
+	case domain.WorkspaceProvisioned, domain.WorkspaceShared:
+		if worktreePath == "" {
+			return fmt.Errorf("create workspace: %s workspace needs a worktree path: %w", p, asynxModels.ErrValidation)
+		}
+	default:
+		return fmt.Errorf("create workspace: provisioning %q: %w", p, asynxModels.ErrValidation)
 	}
 	return nil
 }
@@ -86,6 +108,7 @@ func (c CreateWorkspace) EmitEvent(
 		Kind:          kind,
 		HeldByPath:    c.HeldByPath,
 		CreatedBranch: c.CreatedBranch,
+		Provisioning:  c.Provisioning,
 		LastActivity:  c.Now,
 		CreatedAt:     c.Now,
 	}

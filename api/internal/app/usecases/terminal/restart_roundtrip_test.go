@@ -181,6 +181,7 @@ func TestRegression_TerminalSession_RestartRoundTrip_RealStore(t *testing.T) {
 			ProjectID:    projectID,
 			RepoID:       repoID,
 			WorktreePath: cwd,
+			Provisioning: domain.WorkspaceProvisioned,
 		},
 	}
 
@@ -384,6 +385,7 @@ func TestRegression_TerminalSession_MetaRowSurvivesShutdown_RealStore(t *testing
 			ProjectID:    projectID,
 			RepoID:       repoID,
 			WorktreePath: cwd,
+			Provisioning: domain.WorkspaceProvisioned,
 		},
 	}
 
@@ -497,6 +499,7 @@ func TestRegression_CommandSession_NotPersistedAcrossRestart(t *testing.T) {
 			ProjectID:    projectID,
 			RepoID:       repoID,
 			WorktreePath: cwd,
+			Provisioning: domain.WorkspaceProvisioned,
 		},
 	}
 

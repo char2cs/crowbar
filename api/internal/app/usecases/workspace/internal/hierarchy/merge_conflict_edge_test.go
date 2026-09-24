@@ -21,7 +21,7 @@ import (
 // hard failure) and the CHILD is still flagged regardless.
 func TestMergeIntoParent_Conflict_AbortFailure_ParentFlagAlsoFails(t *testing.T) {
 	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat"}
-	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
 	g := &fakeGit{mergeErr: enginegit.ErrConflict, operationAbortErr: errBoom}
 	ws := mergeWS(child, parent, nil)
 	var synced []workspace.SyncInput
@@ -52,8 +52,8 @@ func TestMergeIntoParent_Conflict_AbortFailure_ParentFlagAlsoFails(t *testing.T)
 // READ failure, covered elsewhere) is best-effort: the merge itself already
 // committed durably, so the merge result must still report success.
 func TestMergeIntoParent_ResyncSummary_SyncWriteFails_IsBestEffort(t *testing.T) {
-	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw"}
-	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop"}
+	child := domain.Workspace{ID: "c", ParentID: "p", Branch: "feat", WorktreePath: "/cw", Provisioning: domain.WorkspaceProvisioned}
+	parent := domain.Workspace{ID: "p", WorktreePath: "/pw", Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
 	g := &fakeGit{revParseSha: "ptip"}
 	ws := mergeWS(child, parent, nil)
 	ws.UpdateForkPointFn = func(_ context.Context, _, _ string) (domain.Workspace, error) {

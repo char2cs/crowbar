@@ -48,6 +48,7 @@ func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
 		_, err = ax.SendWait(ctx, wscmds.CreateWorkspace{
 			ID: id, RepoID: "r", ProjectID: "p", Branch: "main",
 			WorktreePath: paths[id], Now: time.Unix(1, 0).UTC(),
+			Provisioning: domain.WorkspaceProvisioned,
 		})
 		require.NoError(t, err)
 	}

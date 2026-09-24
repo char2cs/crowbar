@@ -80,7 +80,7 @@ func (u *hierarchyUsecase) guardRenameBranch(
 		// model): renaming one would desynchronise it from the provider.
 		return fmt.Errorf("%w (workspace %s)", ErrWorkspaceLocked, ws.ID)
 	}
-	if ws.WorktreePath == "" {
+	if ws.Provisioning == domain.WorkspacePlaceholder {
 		// A placeholder has no branch checked out anywhere yet.
 		return fmt.Errorf(
 			"%w (workspace %s has no worktree yet)", ErrParentUnprovisioned, ws.ID)

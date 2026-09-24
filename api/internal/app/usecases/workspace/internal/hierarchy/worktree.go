@@ -325,6 +325,7 @@ func (u *hierarchyUsecase) CreateChild(
 		ParentID:      in.ParentID,
 		Protected:     locked || in.ForceLocked,
 		CreatedBranch: added.createdBranch,
+		Provisioning:  domain.WorkspaceProvisioned,
 	}, u.now())
 	if err != nil {
 		// The worktree + branch are on disk but the workspace row never landed.
@@ -393,6 +394,8 @@ func (u *hierarchyUsecase) createDirectRow(
 		Branch:    in.Branch,
 		ParentID:  in.ParentID,
 		Protected: in.ForceLocked,
+		// No checkout of its own: nothing may run git in it until one exists.
+		Provisioning: domain.WorkspacePlaceholder,
 	}, u.now())
 	if err != nil {
 		return domain.Workspace{}, err
@@ -466,7 +469,7 @@ func (u *hierarchyUsecase) resolveInherited(
 		in.RepoPath = repo.Path
 		in.RemoteURL = repo.RemoteURL
 	}
-	return in, ownWorktreeOrDefault(in, parent.WorktreePath != ""), nil
+	return in, ownWorktreeOrDefault(in, parent.Provisioning.HasWorktree()), nil
 }
 
 func ownWorktreeOrDefault(
@@ -780,7 +783,8 @@ func (u *hierarchyUsecase) adoptMainWorktree(
 		// The adopted main worktree IS the repo's default workspace. Marking it
 		// keeps IsDefault reliable for the one-managed-workspace-per-branch guard,
 		// which must never count the default.
-		IsDefault: true,
+		IsDefault:    true,
+		Provisioning: domain.WorkspaceShared,
 	}, u.now())
 	if err != nil {
 		return domain.Workspace{}, err
@@ -913,7 +917,7 @@ func (u *hierarchyUsecase) guardMerge(
 	parent domain.Workspace,
 	strategy gitdomain.MergeStrategy,
 ) error {
-	if parent.WorktreePath == "" {
+	if parent.Provisioning == domain.WorkspacePlaceholder {
 		return ErrParentUnprovisioned
 	}
 	if parent.Status == domain.WorkspaceStatusLocked {
@@ -1171,7 +1175,7 @@ func (u *hierarchyUsecase) RebaseOntoParent(
 	if err != nil {
 		return domain.Workspace{}, fmt.Errorf("rebase onto parent: get parent: %w", err)
 	}
-	if parent.WorktreePath == "" {
+	if parent.Provisioning == domain.WorkspacePlaceholder {
 		return domain.Workspace{}, ErrParentUnprovisioned
 	}
 	tip, err := u.git.RevParse(ctx, parent.WorktreePath, "HEAD")
@@ -1349,7 +1353,7 @@ func (u *hierarchyUsecase) guardReparent(
 	if child.ID == newParent.ID {
 		return ErrSelfParent
 	}
-	if newParent.WorktreePath == "" {
+	if newParent.Provisioning == domain.WorkspacePlaceholder {
 		return ErrParentUnprovisioned
 	}
 	// A locked (protected) branch is a valid re-parent target: it already adopts
@@ -1371,7 +1375,7 @@ func (u *hierarchyUsecase) guardReparent(
 	// not a rebase target there, it is a different checkout entirely (model spec
 	// invariant 7). A row with no worktree of its own carries none of that, so a
 	// cross-repo move is still a plain reparent for it.
-	if child.RepoID != newParent.RepoID && child.WorktreePath != "" {
+	if child.RepoID != newParent.RepoID && child.Provisioning.HasWorktree() {
 		return ErrCrossRepoWorktreeMove
 	}
 	return nil
@@ -1586,7 +1590,7 @@ func (u *hierarchyUsecase) removeOne(
 	// No repo to run git against, or a placeholder with no worktree of its own
 	// (whose real branch is held elsewhere and must never be git-touched): drop
 	// the row only, so the cascade leaves no ghost behind.
-	if repo.path == "" || ws.WorktreePath == "" {
+	if repo.path == "" || ws.Provisioning == domain.WorkspacePlaceholder {
 		return u.workspaces.Delete(ctx, ws.ID)
 	}
 	locked := ws.Status == domain.WorkspaceStatusLocked

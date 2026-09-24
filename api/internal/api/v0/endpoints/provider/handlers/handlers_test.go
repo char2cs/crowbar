@@ -46,7 +46,7 @@ func (stubReader) List(
 	_ context.Context,
 ) ([]domain.Workspace, error) {
 	return []domain.Workspace{
-		{ID: "ws1", RepoID: "r1", WorktreePath: "/repo", Branch: "main"},
+		{ID: "ws1", RepoID: "r1", WorktreePath: "/repo", Branch: "main", Provisioning: domain.WorkspaceProvisioned},
 	}, nil
 }
 
@@ -61,7 +61,7 @@ func newRouter(
 	h := handlers.New(eng, r)
 	chatScoped := router.Group("/v0/chats/:chatId")
 	chatScoped.Use(func(c *gin.Context) {
-		reqscope.SetWorkspace(c, domain.Workspace{ID: c.Param("chatId"), WorktreePath: "/repo", Branch: "main"})
+		reqscope.SetWorkspace(c, domain.Workspace{ID: c.Param("chatId"), WorktreePath: "/repo", Branch: "main", Provisioning: domain.WorkspaceProvisioned})
 		c.Next()
 	})
 	chatScoped.GET("/provider", h.State)

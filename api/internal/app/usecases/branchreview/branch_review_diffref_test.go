@@ -54,6 +54,7 @@ func newDivergedWorkspaceFixture(
 		WorktreePath: childPath,
 		ParentID:     "parent-ws",
 		ForkPointSha: staleForkSha,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {

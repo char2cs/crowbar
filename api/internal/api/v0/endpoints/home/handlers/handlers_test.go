@@ -132,6 +132,7 @@ func TestGetHome_Returns200WithWorkspace(t *testing.T) {
 		ProjectID:    "proj-1",
 		Kind:         domain.WorkspaceKindHome,
 		WorktreePath: "/projects/myproject",
+		Provisioning: domain.WorkspaceShared,
 	}
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-1").Return(homeWS, nil)
@@ -202,6 +203,7 @@ func TestFileTree_Returns200WhenWorkspaceExists(t *testing.T) {
 		ProjectID:    "proj-2",
 		Kind:         domain.WorkspaceKindHome,
 		WorktreePath: "/projects/myproject2",
+		Provisioning: domain.WorkspaceShared,
 	}
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-2").Return(homeWS, nil)

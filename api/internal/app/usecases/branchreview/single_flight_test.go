@@ -74,6 +74,7 @@ func workspacesByID() *mockWorkspace {
 				Branch:       "feature",
 				WorktreePath: "/wt/" + id,
 				ForkPointSha: "fork-" + id,
+				Provisioning: domain.WorkspaceProvisioned,
 			}, nil
 		},
 	}

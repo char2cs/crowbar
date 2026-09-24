@@ -96,6 +96,9 @@ type Workspace struct {
 	// Rows written before the field existed replay false, which errs on the
 	// side of keeping a branch.
 	CreatedBranch bool `json:"createdBranch,omitempty"`
+	// Provisioning is what stands behind WorktreePath (see its type). A row
+	// written before the field existed is given one by BackfillProvisioning.
+	Provisioning WorkspaceProvisioning `json:"provisioning,omitempty"`
 }
 
 // RendersAsBranch reports whether w should draw its OWN sidebar row — a

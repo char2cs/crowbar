@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
-import type { ChatType, FolderDTO, WorkspaceDTO } from '@/lib/types'
+import type { ChatType, FolderDTO, WorkspaceDTO, WorkspaceProvisioning } from '@/lib/types'
 import {
   sortReposByOrder,
   toSidebarFolder,
@@ -116,10 +116,11 @@ export interface Workspace {
   lastError?: string
   /** On-disk worktree directory, from the backend WorkspaceDTO. */
   localPath?: string
-  /** Holder path for a placeholder workspace (no localPath; locked only when the
-   *  branch is protected); drives the reconstructed reason and whether the
-   *  Detach… action is offered. */
+  /** Holder path for a placeholder workspace; drives the reconstructed reason
+   *  and whether the Detach… action is offered. */
   heldByPath?: string
+  /** WorkspaceDTO.provisioning: whether this workspace has a checkout at all. */
+  provisioning?: WorkspaceProvisioning
   /**
    * The CHAT row that owns this workspace, straight from the daemon
    * (`WorkspaceDTO.owningChatId`) — never guessed here. Every placement the

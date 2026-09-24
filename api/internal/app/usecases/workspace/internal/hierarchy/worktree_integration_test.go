@@ -177,6 +177,7 @@ func newRealUsecase(
 		ProjectID:    projectID,
 		Branch:       baseBranch,
 		WorktreePath: repoPath,
+		Provisioning: domain.WorkspaceProvisioned,
 	}, time.Unix(1000, 0).UTC())
 	require.NoError(t, err)
 

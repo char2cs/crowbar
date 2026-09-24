@@ -92,7 +92,7 @@ var _ handlers.GitEngine = (*recordingGit)(nil)
 // reached for the wrong source would fail these assertions rather than pass
 // them by coincidence.
 func resolvedWorkspace() domain.Workspace {
-	return domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved/path"}
+	return domain.Workspace{ID: "ws-resolved", WorktreePath: "/resolved/path", Provisioning: domain.WorkspaceProvisioned}
 }
 
 // editorRouterForScopes wires editor's one live mount the way router.go

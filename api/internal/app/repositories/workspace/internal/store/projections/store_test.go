@@ -48,6 +48,7 @@ func TestRegisterStore_CreatePersistsRowInReadModel(t *testing.T) {
 	ctx, ax, st := newRegistered(t)
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
 	})
 	require.NoError(t, err)
 
@@ -71,6 +72,7 @@ func TestRegisterStore_DeletedTombstonePersistsThenForgetDropsRow(t *testing.T) 
 	ctx, ax, st := newRegistered(t)
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
 	})
 	require.NoError(t, err)
 

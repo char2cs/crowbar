@@ -325,7 +325,7 @@ func (m *OriginSyncManager) advanceLockedRoot(
 	ctx context.Context,
 	ws domain.Workspace,
 ) {
-	if ws.Status != domain.WorkspaceStatusLocked || ws.IsDefault || ws.WorktreePath == "" {
+	if ws.Status != domain.WorkspaceStatusLocked || ws.Provisioning != domain.WorkspaceProvisioned {
 		return
 	}
 	err := m.git.MergeFFOnly(ctx, ws.WorktreePath, "origin/"+ws.Branch)

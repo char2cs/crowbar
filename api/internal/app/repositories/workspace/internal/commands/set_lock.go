@@ -58,7 +58,7 @@ func (c SetLock) Validate(
 	// else is holding its branch. Unlocking it would promise write access to a
 	// directory that does not exist. Retry provisioning is the way out of that
 	// state, not this.
-	if current.WorktreePath == "" {
+	if current.Provisioning == domain.WorkspacePlaceholder {
 		return fmt.Errorf("set lock: workspace has no worktree: %w", asynxModels.ErrValidation)
 	}
 	return nil

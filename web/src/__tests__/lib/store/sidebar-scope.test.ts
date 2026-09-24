@@ -93,6 +93,7 @@ test('mergeRepos records scopes for appended repos and workspaces', () => {
 test('applyWorkspaceDTO records the scope of an upserted workspace', () => {
   useSidebarStore.getState().setRepos(REPOS)
   const dto: WorkspaceDTO = {
+    provisioning: 'provisioned',
     id: 'ws-dto',
     repoId: 'repo-1',
     projectId: 'proj-1',

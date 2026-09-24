@@ -169,6 +169,7 @@ describe('applyFolderPlacements', () => {
 })
 
 const workspaceDTO = (id: string, order: number, folderId = ''): WorkspaceDTO => ({
+  provisioning: 'provisioned',
   id,
   repoId: 'r1',
   projectId: 'p1',

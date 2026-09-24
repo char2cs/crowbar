@@ -73,6 +73,7 @@ func TestRegression_CreateChildDetachingTheHome_ClearsTheHomeRowBranch(t *testin
 		Branch:       "main",
 		WorktreePath: repoPath,
 		IsDefault:    true,
+		Provisioning: domain.WorkspaceShared,
 	}, time.Unix(1000, 0).UTC())
 	require.NoError(t, err)
 

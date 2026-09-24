@@ -68,7 +68,7 @@ func TestWatcherLifecycle_FilesSubscriberStartsWatcher(t *testing.T) {
 
 	_, err := tc.app.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath, Provisioning: domain.WorkspaceProvisioned},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestWatcherLifecycle_LSPOnlySubscriberDoesNotStartWatcher(t *testing.T) {
 
 	_, err := tc.app.Repositories.Workspace.Create(
 		context.Background(),
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", WorktreePath: repoPath, Provisioning: domain.WorkspaceProvisioned},
 		time.Unix(1, 0).UTC(),
 	)
 	require.NoError(t, err)

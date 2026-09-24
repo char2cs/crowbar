@@ -63,6 +63,7 @@ describe('entity-cache', () => {
 
   it('removeEntity deletes by id', async () => {
     const ws: WorkspaceDTO = {
+      provisioning: 'provisioned',
       id: 'w1',
       repoId: 'r1',
       projectId: 'p1',
@@ -106,6 +107,7 @@ describe('entity-cache', () => {
 
   it('treats a status:"deleted" dto by removing it from the cache', async () => {
     const ws: WorkspaceDTO = {
+      provisioning: 'provisioned',
       id: 'w-del',
       repoId: 'r1',
       projectId: 'p1',

@@ -106,7 +106,7 @@ func TestCreateFromImport_ParentsUnderExistingDefaultBranchWorkspace(t *testing.
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{
-				{ID: "ws-main", RepoID: "r1", Branch: "main", WorktreePath: "/repo"},
+				{ID: "ws-main", RepoID: "r1", Branch: "main", WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned},
 			}, nil
 		},
 		CreateFn: func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {

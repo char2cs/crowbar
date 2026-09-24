@@ -98,14 +98,14 @@ describe('rowsFromRepo', () => {
   // the fact at all.
   it('carries the workspace status and placeholder fact onto the row', () => {
     const { workspace, chat } = makeOwnedWorkspace(
-      { id: 'ws-1', branch: 'feature/x', status: 'pr-conflicts' },
+      { id: 'ws-1', branch: 'feature/x', status: 'pr-conflicts', provisioning: 'placeholder' },
       { id: 'branch-chat-1' },
     )
     const repo = makeTestRepo({ workspaces: [workspace], chats: [chat] })
     const row = rowsFromRepo(repo).find((r) => r.workspaceId === 'ws-1')
     expect(row?.status).toBe('pr-conflicts')
-    // No `localPath` on the fixture — a real placeholder (isPlaceholderWorkspace's
-    // own test), same as a workspace whose worktree is held elsewhere.
+    // A placeholder by the daemon's own record, same as a workspace whose
+    // worktree is held elsewhere.
     expect(row?.isPlaceholder).toBe(true)
   })
 

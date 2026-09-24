@@ -92,6 +92,10 @@ func createWorkspace(
 	worktreePath string,
 ) {
 	t.Helper()
+	provisioning := domain.WorkspaceProvisioned
+	if worktreePath == "" {
+		provisioning = domain.WorkspacePlaceholder
+	}
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID:           id,
 		RepoID:       "r1",
@@ -99,6 +103,7 @@ func createWorkspace(
 		Branch:       "main",
 		WorktreePath: worktreePath,
 		Now:          time.Unix(1, 0).UTC(),
+		Provisioning: provisioning,
 	})
 	require.NoError(t, err)
 }
@@ -186,7 +191,7 @@ func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 	default:
 	}
 
-	reader.release <- domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted, WorktreePath: "/wt/w1/worktree"}
+	reader.release <- domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted, WorktreePath: "/wt/w1/worktree", Provisioning: domain.WorkspaceProvisioned}
 	assert.Equal(t, "/wt/w1/worktree", <-rmCh)
 	gate.WaitIdle(context.Background())
 	exists, err := ax.Exists(ctx, "w1")
@@ -200,7 +205,7 @@ func TestDeleteReactor_Gate_DoesNotPurgeUntilTombstoneObserved(t *testing.T) {
 func TestPurger_Purge_Idempotent(t *testing.T) {
 	ctx, ax := newAx(t)
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
-	tomb := domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted, WorktreePath: "/wt/w1/worktree"}
+	tomb := domain.Workspace{ID: "w1", Status: domain.WorkspaceStatusDeleted, WorktreePath: "/wt/w1/worktree", Provisioning: domain.WorkspaceProvisioned}
 	rmCount := 0
 	purger := NewPurger(ax, noDrop, noDependents, func(string) error { rmCount++; return nil })
 
@@ -271,7 +276,7 @@ func TestDeleteReactor_PersistentFailure_BacksOff(t *testing.T) {
 		attempts.Add(1)
 		return errors.New("wedged")
 	})
-	r := newDeleteReactor(fixedStoreReader{domain.Workspace{ID: "w1", WorktreePath: "/wt"}}, purger, drain.New(),
+	r := newDeleteReactor(fixedStoreReader{domain.Workspace{ID: "w1", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}}, purger, drain.New(),
 		WithRetryBackoff(2*time.Millisecond, 16*time.Millisecond))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
@@ -328,7 +333,7 @@ func TestDeleteReactor_OnEvent_FallsBackToAggregateIDWhenEmpty(t *testing.T) {
 		mu.Lock()
 		awaited = append(awaited, id)
 		mu.Unlock()
-		return domain.Workspace{ID: id, WorktreePath: "/wt/w1/worktree"}, nil
+		return domain.Workspace{ID: id, WorktreePath: "/wt/w1/worktree", Provisioning: domain.WorkspaceProvisioned}, nil
 	})
 	rmCh := make(chan string, 1)
 	gate := drain.New()
@@ -373,7 +378,7 @@ func TestPurger_DependentsError_AbortsPurge(t *testing.T) {
 		func(context.Context, string) error { return errors.New("cascade failed") },
 		func(string) error { rmCalled = true; return nil })
 
-	require.Error(t, purger.Purge(ctx, domain.Workspace{ID: "w1", WorktreePath: "/wt/w1/worktree"}))
+	require.Error(t, purger.Purge(ctx, domain.Workspace{ID: "w1", WorktreePath: "/wt/w1/worktree", Provisioning: domain.WorkspaceProvisioned}))
 	assert.False(t, rmCalled)
 	exists, err := ax.Exists(ctx, "w1")
 	require.NoError(t, err)
@@ -387,7 +392,7 @@ func TestPurger_RemoveWorktreeError_AbortsForget(t *testing.T) {
 	createWorkspace(t, ctx, ax, "w1", "/wt/w1/worktree")
 	purger := NewPurger(ax, noDrop, noDependents, func(string) error { return errors.New("permission denied") })
 
-	require.Error(t, purger.Purge(ctx, domain.Workspace{ID: "w1", WorktreePath: "/wt/w1/worktree"}))
+	require.Error(t, purger.Purge(ctx, domain.Workspace{ID: "w1", WorktreePath: "/wt/w1/worktree", Provisioning: domain.WorkspaceProvisioned}))
 	exists, err := ax.Exists(ctx, "w1")
 	require.NoError(t, err)
 	assert.True(t, exists, "the aggregate must survive a failed rm for a re-drive")

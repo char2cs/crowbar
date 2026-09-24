@@ -39,6 +39,7 @@ const repoDTO = (id: string, projectId: string): RepoDTO => ({
 })
 
 const wsDTO = (id: string, repoId: string, projectId: string): WorkspaceDTO => ({
+  provisioning: 'provisioned',
   id,
   repoId,
   projectId,

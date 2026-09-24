@@ -71,7 +71,7 @@ func TestWave3_WorkspaceCommand_ReachesChatWSClient(t *testing.T) {
 	// cycle completes, so the broadcast has already fired when this returns.
 	_, err = tc.app.Repositories.Workspace.Create(
 		ctx,
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "feat/x"},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "feat/x", Provisioning: domain.WorkspacePlaceholder},
 		now,
 	)
 	require.NoError(t, err)

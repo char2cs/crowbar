@@ -225,7 +225,14 @@ describe('RecentsBand', () => {
     useSidebarStore.setState({
       repos: [
         repo(SIDEBAR_CHATS, [
-          { id: 'ws-1', branch: 'feature/x', age: '', owningChatId: 'chat-1', status: 'locked' },
+          {
+            id: 'ws-1',
+            branch: 'feature/x',
+            age: '',
+            owningChatId: 'chat-1',
+            status: 'locked',
+            provisioning: 'placeholder',
+          },
         ]),
       ],
     })

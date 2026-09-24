@@ -46,7 +46,7 @@ func (s stubWorkspaceRepo) Get(
 }
 
 func TestNewWatcherFactory_ResolvesWorkspaceAndBuildsWatcher(t *testing.T) {
-	repo := stubWorkspaceRepo{ws: domain.Workspace{ID: "w1", WorktreePath: "/repo"}}
+	repo := stubWorkspaceRepo{ws: domain.Workspace{ID: "w1", WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned}}
 	factory := newWatcherFactory(
 		stubFSEngine{watcher: &enginefs.Watcher{}},
 		&gitStatusProvider{engine: stubGitEngine{}},
@@ -76,7 +76,7 @@ func TestNewWatcherFactory_GetErrorPropagates(t *testing.T) {
 }
 
 func TestNewWatcherManager_BuildsProductionManager(t *testing.T) {
-	repo := stubWorkspaceRepo{ws: domain.Workspace{ID: "w1", WorktreePath: "/repo"}}
+	repo := stubWorkspaceRepo{ws: domain.Workspace{ID: "w1", WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned}}
 	m := NewWatcherManager(
 		context.Background(),
 		hub.NewHub(),

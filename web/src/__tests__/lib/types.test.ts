@@ -14,6 +14,7 @@ import type {
 describe('canonical DTO shapes', () => {
   it('WorkspaceDTO carries the §5 7-value status union and fields', () => {
     const ws: WorkspaceDTO = {
+      provisioning: 'provisioned',
       id: 'w1',
       repoId: 'r1',
       projectId: 'p1',

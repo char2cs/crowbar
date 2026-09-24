@@ -604,6 +604,7 @@ func (u *projectImport) adoptRepoHome(
 		Branch:       mainWorktreeBranch(worktrees, repo.Path),
 		WorktreePath: repo.Path,
 		IsDefault:    true,
+		Provisioning: domain.WorkspaceShared,
 		// ForkPointSha stays empty and Protected stays false: the home is the base
 		// the branch tree hangs off, and Crowbar does not operate on it.
 	}
@@ -789,6 +790,7 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 		WorktreePath: path,
 		ForkPointSha: startSha,
 		Protected:    true,
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		// The row failed after the worktree was created on disk — remove the
@@ -813,13 +815,13 @@ func (u *projectImport) createPlaceholderWorkspace(
 	heldByPath string,
 ) error {
 	in := workspace.CreateInput{
-		ID:         uuid.NewString(),
-		RepoID:     repo.ID,
-		ProjectID:  repo.ProjectID,
-		Branch:     branch,
-		Protected:  true, // seeds locked; keeps every protection guard for free (B1)
-		HeldByPath: heldByPath,
-		// WorktreePath + ForkPointSha stay empty — this is the placeholder signal.
+		ID:           uuid.NewString(),
+		RepoID:       repo.ID,
+		ProjectID:    repo.ProjectID,
+		Branch:       branch,
+		Protected:    true, // seeds locked; keeps every protection guard for free (B1)
+		HeldByPath:   heldByPath,
+		Provisioning: domain.WorkspacePlaceholder,
 	}
 	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		return fmt.Errorf("create placeholder workspace for %q: %w", branch, err)
@@ -864,6 +866,7 @@ func (u *projectImport) saveProjectWithHome(
 		ProjectID:    project.ID,
 		WorktreePath: project.Path,
 		Kind:         domain.WorkspaceKindHome,
+		Provisioning: domain.WorkspaceShared,
 	}, u.deps.Now())
 	if err != nil {
 		return domain.Project{}, fmt.Errorf("home workspace: %w", err)

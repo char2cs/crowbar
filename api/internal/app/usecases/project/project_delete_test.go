@@ -210,7 +210,7 @@ func TestProjectDelete_RetiresWorkspacesThroughTheRepoCascade(t *testing.T) {
 	f := newDeleteFixture(t)
 	f.seedProject()
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-home", ProjectID: "p1", Kind: domain.WorkspaceKindHome, WorktreePath: deleteRepoPath},
+		{ID: "w-home", ProjectID: "p1", Kind: domain.WorkspaceKindHome, WorktreePath: deleteRepoPath, Provisioning: domain.WorkspaceShared},
 		{ID: "w-r1", ProjectID: "p1", RepoID: "r1", Branch: "feature"},
 		{ID: "w-other", ProjectID: "p2", RepoID: "r-other", Branch: "x"},
 	}
@@ -345,9 +345,9 @@ func TestRegression_ProjectDelete_NeverRemovesAnotherProjectsWorktree(t *testing
 	movedChats := filepath.Join(filepath.Dir(moved), "chats", "c1")
 	require.NoError(t, os.MkdirAll(movedChats, 0o755))
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-moved", ProjectID: "p2", RepoID: "r-other", WorktreePath: moved},
-		{ID: "w-stale", ProjectID: "p1", RepoID: "r-other", WorktreePath: stale},
-		{ID: "w-mine", ProjectID: "p1", RepoID: "r1", WorktreePath: mine},
+		{ID: "w-moved", ProjectID: "p2", RepoID: "r-other", WorktreePath: moved, Provisioning: domain.WorkspaceProvisioned},
+		{ID: "w-stale", ProjectID: "p1", RepoID: "r-other", WorktreePath: stale, Provisioning: domain.WorkspaceProvisioned},
+		{ID: "w-mine", ProjectID: "p1", RepoID: "r1", WorktreePath: mine, Provisioning: domain.WorkspaceProvisioned},
 	}
 
 	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
@@ -383,7 +383,7 @@ func TestProjectDelete_NeverTouchesTheRealRepoPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(real, "README.md"), []byte("hi"), 0o644))
 	f.projects.projects["p1"] = domain.Project{ID: "p1", Path: real}
 	f.repos.repos = []domain.Repository{{ID: "r1", ProjectID: "p1", Path: real}}
-	f.workspaces.workspaces = []domain.Workspace{{ID: "w-home", ProjectID: "p1", WorktreePath: real}}
+	f.workspaces.workspaces = []domain.Workspace{{ID: "w-home", ProjectID: "p1", WorktreePath: real, Provisioning: domain.WorkspaceProvisioned}}
 
 	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
 

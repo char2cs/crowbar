@@ -109,6 +109,7 @@ func newBenchReviewHarness(
 		ProjectID:    projectID,
 		Branch:       "feature/bench-review",
 		WorktreePath: featurePath,
+		Provisioning: domain.WorkspaceProvisioned,
 	}, fixedNow)
 	require.NoError(b, err)
 

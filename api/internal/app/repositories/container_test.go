@@ -267,10 +267,11 @@ func TestContainer_CreateWorkspace_ProjectsAndBroadcasts(t *testing.T) {
 	c := newContainer(t, h)
 
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
-		ID:        "w1",
-		RepoID:    "r1",
-		ProjectID: "p1",
-		Branch:    "b",
+		ID:           "w1",
+		RepoID:       "r1",
+		ProjectID:    "p1",
+		Branch:       "b",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
@@ -293,6 +294,7 @@ func TestBroadcastWorkspace_WorkingFalse(t *testing.T) {
 
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
@@ -312,6 +314,7 @@ func TestContainer_ListWorkspaces_NoWorkingOverlay(t *testing.T) {
 
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	c.WaitQuiescent()
@@ -334,6 +337,7 @@ func TestContainer_BeginEndWork_BroadcastsWorkingOverlay(t *testing.T) {
 
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	c.WaitQuiescent()
@@ -383,6 +387,7 @@ func TestContainer_ListWorkspaces_WorkingOverlay(t *testing.T) {
 
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	c.WaitQuiescent()
@@ -410,6 +415,7 @@ func TestBroadcastWorkspace_ResolvesMergeEligibility(t *testing.T) {
 
 	_, err := c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "parent", RepoID: "r1", ProjectID: "p1", Branch: "main",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	// Drain the parent's store projection before creating the child. The child's
@@ -421,6 +427,7 @@ func TestBroadcastWorkspace_ResolvesMergeEligibility(t *testing.T) {
 	c.WaitQuiescent()
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "child", RepoID: "r1", ProjectID: "p1", Branch: "feat", ParentID: "parent",
+		Provisioning: domain.WorkspacePlaceholder,
 	}, time.Unix(2, 0).UTC())
 	require.NoError(t, err)
 
@@ -481,6 +488,7 @@ func TestContainer_WireCallbacks_DeleteCascade(t *testing.T) {
 
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", WorktreePath: worktree,
+		Provisioning: domain.WorkspaceProvisioned,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
@@ -538,6 +546,7 @@ func TestContainer_WireCallbacks_DeleteNeverRmsAdoptedCheckout(t *testing.T) {
 	_, err = c.Workspace.Create(ctx, workspace.CreateInput{
 		ID: "home1", RepoID: "r1", ProjectID: "p1", Branch: "main",
 		WorktreePath: adopted, Kind: domain.WorkspaceKindHome,
+		Provisioning: domain.WorkspaceShared,
 	}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 
@@ -616,7 +625,7 @@ func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *test
 	c.PurgeChat = purge.purge
 
 	for _, id := range []string{"w1", "w2"} {
-		_, err := c.Workspace.Create(ctx, workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1", Branch: id}, time.Unix(1, 0).UTC())
+		_, err := c.Workspace.Create(ctx, workspace.CreateInput{ID: id, RepoID: "r1", ProjectID: "p1", Branch: id, Provisioning: domain.WorkspacePlaceholder}, time.Unix(1, 0).UTC())
 		require.NoError(t, err)
 		_, err = c.Node.Create(ctx, id, domain.NodeKindWorkspace, "", 0)
 		require.NoError(t, err)
@@ -652,7 +661,7 @@ func TestRegression_DeleteCascade_ToleratesAChatAlreadyPurged(t *testing.T) {
 	c.PurgeChat = func(context.Context, string) error {
 		return fmt.Errorf("agent: purge chat: get: %w", agentchat.ErrNotFound)
 	}
-	_, err := c.Workspace.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b"}, time.Unix(1, 0).UTC())
+	_, err := c.Workspace.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "b", Provisioning: domain.WorkspacePlaceholder}, time.Unix(1, 0).UTC())
 	require.NoError(t, err)
 	createAgentChat(t, ctx, c, "chat1", "w1")
 	c.WaitQuiescent()

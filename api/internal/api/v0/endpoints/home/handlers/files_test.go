@@ -93,6 +93,7 @@ func homeWorkspaceReader(t *testing.T, projectID, wsID string) *mockHomeReader {
 		ProjectID:    projectID,
 		Kind:         domain.WorkspaceKindHome,
 		WorktreePath: "/projects/" + projectID,
+		Provisioning: domain.WorkspaceShared,
 	}, nil)
 	return reader
 }

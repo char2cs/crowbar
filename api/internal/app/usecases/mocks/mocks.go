@@ -562,6 +562,7 @@ func (r *WorkspaceRepo) Create(
 		IsDefault:     in.IsDefault,
 		Kind:          in.Kind,
 		HeldByPath:    in.HeldByPath,
+		Provisioning:  in.Provisioning,
 		CreatedAt:     now,
 	}
 	r.Created = append(r.Created, ws)

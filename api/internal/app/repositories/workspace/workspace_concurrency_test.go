@@ -27,7 +27,7 @@ import (
 func TestConcurrentSends_NoWriteMu_OCC(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	const n = 20
@@ -89,7 +89,8 @@ func TestConcurrentHomeCreates_OneProjectNeverGetsTwoHomeWorkspaces(t *testing.T
 			<-ready
 			_, err := repo.Create(ctx, workspace.CreateInput{
 				ID: id, ProjectID: "proj-home-race", WorktreePath: "/projects/home-race",
-				Kind: domain.WorkspaceKindHome,
+				Kind:         domain.WorkspaceKindHome,
+				Provisioning: domain.WorkspaceShared,
 			}, now)
 			if err == nil {
 				wins.Add(1)

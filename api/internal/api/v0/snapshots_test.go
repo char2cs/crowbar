@@ -18,6 +18,7 @@ import (
 	v0 "github.com/char2cs/crowbar/api/internal/api/v0"
 	"github.com/char2cs/crowbar/api/internal/app"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
+	"github.com/char2cs/crowbar/api/internal/domain"
 	lspdomain "github.com/char2cs/crowbar/api/internal/domain/lsp"
 	"github.com/char2cs/crowbar/api/internal/engine"
 	enginelsp "github.com/char2cs/crowbar/api/internal/engine/lsp"
@@ -127,13 +128,13 @@ func TestSnapshot_Git_DeliveredOnConnectScoped(t *testing.T) {
 
 	_, err := tc.app.Repositories.Workspace.Create(
 		ctx,
-		workspace.CreateInput{ID: "A", RepoID: "rA", ProjectID: "p1", Branch: "main", WorktreePath: repoA},
+		workspace.CreateInput{ID: "A", RepoID: "rA", ProjectID: "p1", Branch: "main", WorktreePath: repoA, Provisioning: domain.WorkspaceProvisioned},
 		now,
 	)
 	require.NoError(t, err)
 	_, err = tc.app.Repositories.Workspace.Create(
 		ctx,
-		workspace.CreateInput{ID: "B", RepoID: "rB", ProjectID: "p1", Branch: "main", WorktreePath: repoB},
+		workspace.CreateInput{ID: "B", RepoID: "rB", ProjectID: "p1", Branch: "main", WorktreePath: repoB, Provisioning: domain.WorkspaceProvisioned},
 		now,
 	)
 	require.NoError(t, err)
@@ -175,7 +176,7 @@ func TestSnapshot_LSP_DeliveredOnConnect(t *testing.T) {
 
 	_, err := tc.app.Repositories.Workspace.Create(
 		ctx,
-		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"},
+		workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Provisioning: domain.WorkspacePlaceholder},
 		now,
 	)
 	require.NoError(t, err)

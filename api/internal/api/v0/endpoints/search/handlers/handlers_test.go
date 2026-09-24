@@ -60,6 +60,7 @@ func newRouterWith(eng handlers.SearchEngine) *gin.Engine {
 			ID:           c.Param("chatId"),
 			WorktreePath: "/repo",
 			Branch:       "main",
+			Provisioning: domain.WorkspaceProvisioned,
 		})
 		c.Next()
 	})

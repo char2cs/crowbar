@@ -51,6 +51,8 @@ type CreateInput struct {
 	// CreatedBranch: Crowbar created Branch for this workspace, so a teardown
 	// may delete it (domain.Workspace.CreatedBranch).
 	CreatedBranch bool
+	// Provisioning is required: what stands behind WorktreePath.
+	Provisioning domain.WorkspaceProvisioning
 }
 
 // SyncInput carries a recomputed working-tree summary.
@@ -217,6 +219,12 @@ type ReconcileOnOpener interface {
 // main Workspace interface so a boot-recovery concern does not leak into the
 // per-request repository surface; the concrete *workspace satisfies it.
 type BootSweeper interface {
+	// BackfillProvisioning gives every row written before
+	// domain.Workspace.Provisioning existed its explicit value. It runs before
+	// anything reads the field.
+	BackfillProvisioning(
+		ctx context.Context,
+	) error
 	Sweep(
 		ctx context.Context,
 	) error
@@ -440,6 +448,7 @@ func (w *workspace) Create(
 		Kind:          in.Kind,
 		HeldByPath:    in.HeldByPath,
 		CreatedBranch: in.CreatedBranch,
+		Provisioning:  in.Provisioning,
 		Now:           now,
 	})
 	if err != nil {
@@ -759,6 +768,25 @@ func inRepo(
 // and re-drives the one Purger for every residual "deleted" row, from that
 // tombstone's own WorktreePath. Best-effort per row: recovery work never fails
 // boot. It refuses to run before RegisterDeleteReactor has built the Purger.
+func (w *workspace) BackfillProvisioning(
+	ctx context.Context,
+) error {
+	rows, err := w.readModel.List(ctx)
+	if err != nil {
+		return fmt.Errorf("workspace: backfill provisioning: list: %w", err)
+	}
+	for _, ws := range rows {
+		if ws.Provisioning != "" {
+			continue
+		}
+		if _, err := w.sendWithOCC(ctx, commands.BackfillProvisioning{ID: ws.ID}); err != nil &&
+			!errors.Is(err, asynxModels.ErrValidation) {
+			return fmt.Errorf("workspace: backfill provisioning %s: %w", ws.ID, err)
+		}
+	}
+	return nil
+}
+
 func (w *workspace) Sweep(
 	ctx context.Context,
 ) error {

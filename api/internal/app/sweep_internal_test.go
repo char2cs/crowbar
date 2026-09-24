@@ -37,7 +37,7 @@ func TestSweepTargets_FiltersOpenPROnly(t *testing.T) {
 	repo := c.Repositories.Workspace
 	now := time.Unix(1, 0).UTC()
 
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "open", RepoID: "r", ProjectID: "p"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "open", RepoID: "r", ProjectID: "p", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 	_, err = repo.SyncProviderState(ctx, workspace.ProviderInput{
 		ID:       "open",
@@ -46,7 +46,7 @@ func TestSweepTargets_FiltersOpenPROnly(t *testing.T) {
 		PRUrl:    "https://example.test/pr/open",
 	}, now)
 	require.NoError(t, err)
-	_, err = repo.Create(ctx, workspace.CreateInput{ID: "plain", RepoID: "r", ProjectID: "p"}, now)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "plain", RepoID: "r", ProjectID: "p", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	// Create/SyncProviderState commit via async Send, so the store projection that
@@ -84,7 +84,7 @@ func TestSweeper_FiltersByPRUrlAndTerminalState(t *testing.T) {
 	require.Equal(t, domain.WorkspaceStatusPRConflicts, conflicted.Status)
 	require.NotEmpty(t, conflicted.PRUrl)
 	// nopr: no PR at all -> never swept.
-	_, err = repo.Create(ctx, workspace.CreateInput{ID: "nopr", RepoID: "r", ProjectID: "p"}, now)
+	_, err = repo.Create(ctx, workspace.CreateInput{ID: "nopr", RepoID: "r", ProjectID: "p", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	want := map[string]bool{
@@ -118,7 +118,7 @@ func mkProviderWS(
 ) {
 	t.Helper()
 	ctx := context.Background()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: id, RepoID: "r", ProjectID: "p"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: id, RepoID: "r", ProjectID: "p", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 	_, err = repo.SyncProviderState(ctx, workspace.ProviderInput{
 		ID:       id,
@@ -150,7 +150,7 @@ func TestSweepCallback_AppliesProviderState(t *testing.T) {
 	repo := c.Repositories.Workspace
 	now := time.Unix(1, 0).UTC()
 
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r", ProjectID: "p"}, now)
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r", ProjectID: "p", Provisioning: domain.WorkspacePlaceholder}, now)
 	require.NoError(t, err)
 
 	cb := sweepCallback(ctx, c.Usecases)

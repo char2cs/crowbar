@@ -79,6 +79,7 @@ export function toSidebarWorkspace(ws: WorkspaceDTO): Workspace {
     prUrl: ws.prUrl || undefined,
     lastError: ws.lastError ?? '',
     heldByPath: ws.heldByPath ?? '',
+    provisioning: ws.provisioning,
     age: '',
     localPath: ws.localPath || undefined,
     owningChatId: ws.owningChatId ?? '',

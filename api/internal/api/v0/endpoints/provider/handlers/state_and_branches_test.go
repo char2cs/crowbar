@@ -95,7 +95,7 @@ func TestProtectedBranches_RepoNotFound(
 	t *testing.T,
 ) {
 	reader := configurableReader{all: []domain.Workspace{
-		{ID: "ws1", RepoID: "other-repo", WorktreePath: "/repo"},
+		{ID: "ws1", RepoID: "other-repo", WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned},
 	}}
 	r := newRouter(configurableEngine{}, reader)
 
@@ -122,7 +122,7 @@ func TestProtectedBranches_EngineError(
 ) {
 	eng := configurableEngine{branchErr: errors.New("provider unreachable")}
 	reader := configurableReader{all: []domain.Workspace{
-		{ID: "ws1", RepoID: "r1", WorktreePath: "/repo"},
+		{ID: "ws1", RepoID: "r1", WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned},
 	}}
 	r := newRouter(eng, reader)
 
@@ -137,7 +137,7 @@ func TestProtectedBranches_NoBranches(
 ) {
 	eng := configurableEngine{branches: []string{}}
 	reader := configurableReader{all: []domain.Workspace{
-		{ID: "ws1", RepoID: "r1", WorktreePath: "/repo"},
+		{ID: "ws1", RepoID: "r1", WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned},
 	}}
 	r := newRouter(eng, reader)
 
@@ -153,8 +153,8 @@ func TestProtectedBranches_SomeBranches(
 ) {
 	eng := configurableEngine{branches: []string{"main", "release"}}
 	reader := configurableReader{all: []domain.Workspace{
-		{ID: "ws0", RepoID: "other", WorktreePath: "/other"},
-		{ID: "ws1", RepoID: "r1", WorktreePath: "/repo"},
+		{ID: "ws0", RepoID: "other", WorktreePath: "/other", Provisioning: domain.WorkspaceProvisioned},
+		{ID: "ws1", RepoID: "r1", WorktreePath: "/repo", Provisioning: domain.WorkspaceProvisioned},
 	}}
 	r := newRouter(eng, reader)
 

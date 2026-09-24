@@ -15,6 +15,7 @@ func TestRenameBranch_MovesTheBranchAndLeavesThePathAlone(t *testing.T) {
 	cur := &domain.Workspace{
 		ID: "w1", Branch: "testing", WorktreePath: "/home/p/repo/testing/worktree",
 		Status: domain.WorkspaceStatusNew, ParentID: "parent-1", ForkPointSha: "abc123",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 
 	got := commands.RenameBranch{ID: "w1", Branch: "feature/x"}.EmitEvent(cur)
@@ -37,6 +38,7 @@ func TestRenameBranch_MovesTheBranchAndLeavesThePathAlone(t *testing.T) {
 func TestRenameBranch_RenamesIntoItsOwnNamespace(t *testing.T) {
 	cur := &domain.Workspace{
 		ID: "w1", Branch: "testing", WorktreePath: "/home/p/repo/testing/worktree",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 
 	got := commands.RenameBranch{ID: "w1", Branch: "testing/x"}.EmitEvent(cur)
@@ -51,7 +53,7 @@ func TestRenameBranch_Validate_RejectsMissingAggregate(t *testing.T) {
 }
 
 func TestRenameBranch_Validate_RejectsEmptyBranch(t *testing.T) {
-	cur := &domain.Workspace{ID: "w1", Branch: "testing", WorktreePath: "/p"}
+	cur := &domain.Workspace{ID: "w1", Branch: "testing", WorktreePath: "/p", Provisioning: domain.WorkspaceProvisioned}
 	err := commands.RenameBranch{ID: "w1", Branch: ""}.Validate(cur)
 	assert.True(t, errors.Is(err, asynxModels.ErrValidation),
 		"blanking a branch is ClearBranch's job, not a rename")

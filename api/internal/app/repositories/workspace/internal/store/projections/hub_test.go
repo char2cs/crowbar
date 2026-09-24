@@ -92,6 +92,7 @@ func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
 	// hub projection's broadcast has fired by the time it returns.
 	_, err := ax.SendWait(ctx, wscmds.CreateWorkspace{
 		ID: "w1", RepoID: "r1", ProjectID: "p1", Branch: "main", Now: time.Unix(1, 0).UTC(),
+		Provisioning: domain.WorkspacePlaceholder,
 	})
 	require.NoError(t, err)
 

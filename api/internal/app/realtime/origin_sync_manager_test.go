@@ -120,7 +120,7 @@ func (d *originDriver) tick() {
 func protectedWorkspace(
 	id string,
 ) domain.Workspace {
-	return domain.Workspace{ID: id, WorktreePath: "/repo/" + id, Branch: "develop"}
+	return domain.Workspace{ID: id, WorktreePath: "/repo/" + id, Branch: "develop", Provisioning: domain.WorkspaceProvisioned}
 }
 
 // lockedRootWorkspace is a provisioned, LOCKED protected root — the only shape
@@ -136,7 +136,7 @@ func lockedRootWorkspace(
 func childWorkspace(
 	id string,
 ) domain.Workspace {
-	return domain.Workspace{ID: id, WorktreePath: "/repo/" + id, Branch: "feature", ParentID: "parent-1"}
+	return domain.Workspace{ID: id, WorktreePath: "/repo/" + id, Branch: "feature", ParentID: "parent-1", Provisioning: domain.WorkspaceProvisioned}
 }
 
 func TestOriginSyncManager_Acquire_SyncsProtectedWorkspace(t *testing.T) {
@@ -471,8 +471,10 @@ func TestOriginSyncManager_IntervalTickDoesNotFastForward(t *testing.T) {
 func TestOriginSyncManager_OpenSkipsWorkspacesItDoesNotOwn(t *testing.T) {
 	home := lockedRootWorkspace("home")
 	home.IsDefault = true
+	home.Provisioning = domain.WorkspaceShared
 	placeholder := lockedRootWorkspace("ph")
 	placeholder.WorktreePath = ""
+	placeholder.Provisioning = domain.WorkspacePlaceholder
 	unlocked := protectedWorkspace("unlocked") // no locked status
 
 	for _, ws := range []domain.Workspace{home, placeholder, unlocked} {

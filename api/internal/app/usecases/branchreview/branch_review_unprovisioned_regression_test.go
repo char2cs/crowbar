@@ -34,10 +34,11 @@ func TestRegression_BranchReviewOnAPlaceholder_RefusesInsteadOfRunningGitNowhere
 	// The shape project import records for a protected branch another checkout
 	// holds: locked, no worktree, no fork point.
 	placeholder := domain.Workspace{
-		ID:     "ws-placeholder",
-		RepoID: "r1",
-		Branch: "main",
-		Status: domain.WorkspaceStatusLocked,
+		ID:           "ws-placeholder",
+		RepoID:       "r1",
+		Branch:       "main",
+		Status:       domain.WorkspaceStatusLocked,
+		Provisioning: domain.WorkspacePlaceholder,
 	}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return placeholder, nil },

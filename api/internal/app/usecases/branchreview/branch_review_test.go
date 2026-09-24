@@ -90,7 +90,7 @@ func (m *mockWorkspace) ProvisionInPlace(
 	worktreePath string,
 	forkPointSha string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, WorktreePath: worktreePath, ForkPointSha: forkPointSha}, nil
+	return domain.Workspace{ID: id, WorktreePath: worktreePath, ForkPointSha: forkPointSha, Provisioning: domain.WorkspaceProvisioned}, nil
 }
 
 func (m *mockWorkspace) ClearBranch(
@@ -105,7 +105,7 @@ func (m *mockWorkspace) Relocate(
 	id string,
 	worktreePath string,
 ) (domain.Workspace, error) {
-	return domain.Workspace{ID: id, WorktreePath: worktreePath}, nil
+	return domain.Workspace{ID: id, WorktreePath: worktreePath, Provisioning: domain.WorkspaceProvisioned}, nil
 }
 
 func (m *mockWorkspace) RenameBranch(
@@ -517,7 +517,7 @@ func TestBranchReview_Get_WorkspaceNotFound(t *testing.T) {
 func TestBranchReview_GetFiles_RepoNil(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "gone", Branch: "feat", WorktreePath: "/wt"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "gone", Branch: "feat", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}
@@ -536,7 +536,7 @@ func TestBranchReview_GetFiles_RepoNil(t *testing.T) {
 func TestBranchReview_GetFiles_RepoStoreError(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}
@@ -554,7 +554,7 @@ func TestBranchReview_GetFiles_RepoStoreError(t *testing.T) {
 func TestBranchReview_Get_ThreadsError(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "r1", Branch: "feat", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}
 	repo := domain.Repository{ID: "r1", DefaultBranch: "main"}
 
 	wsMock := &mockWorkspace{
@@ -797,6 +797,7 @@ func TestBranchReview_GetFiles_ParentGetError(t *testing.T) {
 		Branch:       "feat",
 		WorktreePath: "/wt",
 		ParentID:     "parent",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, id string) (domain.Workspace, error) {
@@ -832,6 +833,7 @@ func TestBranchReview_GetFiles_FallsBackToForkPointSha(t *testing.T) {
 		Branch:       "feature",
 		WorktreePath: "/wt/feature",
 		ForkPointSha: "sha123",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
@@ -869,6 +871,7 @@ func TestBranchReview_GetFiles_PrefersLiveMergeBaseOverStaleForkPoint(t *testing
 		WorktreePath: "/wt/child",
 		ParentID:     "parent",
 		ForkPointSha: "stale-fork-sha",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	parent := domain.Workspace{ID: "parent", Branch: "develop"}
 	wsMock := &mockWorkspace{
@@ -935,6 +938,7 @@ func TestBranchReview_GetFiles_RootUsesDefaultBranch(t *testing.T) {
 		Branch:        "feature",
 		WorktreePath:  "/wt/feature",
 		MergeStrategy: gitdomain.MergeStrategyMerge,
+		Provisioning:  domain.WorkspaceProvisioned,
 	}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
@@ -980,6 +984,7 @@ func TestBranchReview_GetFiles_ChildUsesParentBranch(t *testing.T) {
 		Branch:       "feat/child",
 		WorktreePath: "/wt/child",
 		ParentID:     "parent",
+		Provisioning: domain.WorkspaceProvisioned,
 	}
 	parent := domain.Workspace{ID: "parent", Branch: "develop"}
 
@@ -1027,7 +1032,7 @@ func TestBranchReview_GetFiles_ChildUsesParentBranch(t *testing.T) {
 func TestBranchReview_GetFiles_InternalGitError_IsNotNotFound(t *testing.T) {
 	ctx := context.Background()
 
-	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", Branch: "feature", WorktreePath: "/wt"}
+	ws := domain.Workspace{ID: "ws1", RepoID: "repo1", Branch: "feature", WorktreePath: "/wt", Provisioning: domain.WorkspaceProvisioned}
 	wsMock := &mockWorkspace{
 		GetFn: func(_ context.Context, _ string) (domain.Workspace, error) { return ws, nil },
 	}
