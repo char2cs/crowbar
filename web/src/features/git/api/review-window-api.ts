@@ -115,7 +115,7 @@ export interface ReviewPatch {
  *
  * This is the only v0 read that is not a JSON envelope, so it cannot go through
  * apiFetch — the body is patch text and the truncation flag lives in a response
- * header. apiFetchRaw underneath still supplies the chaos headers, the
+ * header. apiFetchRaw underneath still supplies the
  * cold-start transport retry and the ApiError decoding of an error envelope.
  *
  * `maxLines` omitted takes the server's default cap. `maxLines <= 0` is the

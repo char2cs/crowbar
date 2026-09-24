@@ -10,7 +10,6 @@
     "refresh:tree-sitter": "node scripts/refresh-tree-sitter-grammars.mjs",
     "predev": "node scripts/provision-tree-sitter.mjs",
     "dev": "vite",
-    "dev:mock": "vite --mode mock",
     "prebuild": "node scripts/provision-tree-sitter.mjs",
     "build": "tsc && vite build",
     "postbuild": "node scripts/verify-worker-bundles.mjs",
@@ -113,7 +112,6 @@
     "fake-indexeddb": "^6.2.5",
     "globals": "^17.11.0",
     "jsdom": "^30.0.0",
-    "msw": "^2.15.0",
     "prettier": "^3.9.6",
     "react-doctor": "0.9.1",
     "react-scan": "^0.5.7",
@@ -125,14 +123,8 @@
     "web-vitals": "^6.1.1"
   },
   "overrides": {
-    "hono": ">=4.12.25",
     "lodash-es": "^4.17.21",
     "dompurify": ">=3.4.11"
-  },
-  "msw": {
-    "workerDirectory": [
-      "public"
-    ]
   },
   "patchedDependencies": {
     "@xterm/addon-webgl@0.19.0": "patches/@xterm%2Faddon-webgl@0.19.0.patch"

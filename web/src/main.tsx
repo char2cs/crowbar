@@ -123,18 +123,6 @@ function renderApp() {
 
 hydrateProjectsInBackground()
 
-// In mock mode, wait for MSW to register its service worker before rendering
-// so that all API calls from keepMounted components are intercepted.
-// Use finally so a failed MSW startup still renders the app.
-if (import.meta.env.VITE_USE_MOCK === 'true') {
-  Promise.all([
-    hydrateCriticalStores(),
-    import('./mocks/browser').then(({ worker }) => worker.start({ onUnhandledRequest: 'warn' })),
-  ])
-    .catch(console.error)
-    .finally(renderApp)
-} else {
-  hydrateCriticalStores()
-    .catch(() => {})
-    .finally(renderApp)
-}
+hydrateCriticalStores()
+  .catch(() => {})
+  .finally(renderApp)
