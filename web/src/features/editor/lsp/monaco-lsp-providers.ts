@@ -1,17 +1,11 @@
 /**
  * Monaco language-feature providers backed by the daemon's /lsp routes
  * (owner decision 1): completion, hover, signature help, definition,
- * references, rename, code actions, document symbols, code lens and document
- * formatting. Monaco owns every widget (suggest, hover, parameter hints, peek,
- * rename box, lightbulb, lenses, outline); this module only answers queries.
- *
- * Every request:
- *  - targets the model's OWN workspace (its uri names it), never "whatever
- *    workspace is active";
- *  - first flushes the document's pending didChange, so the server answers
- *    against the text on screen;
- *  - is aborted when Monaco cancels the query (CancellationToken →
- *    AbortController on the fetch).
+ * references, rename, code actions, document symbols, code lens, semantic
+ * tokens and document formatting. Monaco owns every widget (suggest, hover,
+ * parameter hints, peek, rename box, lightbulb, lenses, outline); this module
+ * only answers queries (each through `lsp-query.ts`) and runs the server
+ * commands lenses and actions carry.
  */
 import { editor as monacoEditor, languages, Uri } from 'monaco-editor/esm/vs/editor/editor.api.js'
 import type * as Monaco from 'monaco-editor'
@@ -37,6 +31,8 @@ import { fileUri, uriToFsPath, uriToWorkspaceId } from '../lib/editor-uri'
 import { langForUri } from '../lib/monaco-adapters'
 import { revealInEditor } from '../lib/reveal'
 import { LspClient } from './lsp-client'
+import { modelTarget, query } from './lsp-query'
+import { lspDocumentSemanticTokensProvider } from './semantic-tokens'
 import {
   completionToMonaco,
   documentSymbolsToMonaco,
@@ -56,62 +52,11 @@ import { applyWorkspaceEdit } from './workspace-edit'
 /** Monaco language ids the daemon's server registry covers. */
 const LSP_LANGUAGES = ['go', 'typescript', 'javascript', 'python', 'java', 'c', 'cpp']
 
-const APPLY_EDIT_COMMAND = 'crowbar.lsp.applyWorkspaceEdit'
-
-interface ModelTarget {
-  wsId: string
-  path: string
-}
-
-function modelTarget(model: Monaco.editor.ITextModel): ModelTarget | null {
-  const uri = model.uri.toString()
-  const wsId = uriToWorkspaceId(uri)
-  return wsId ? { wsId, path: uriToFsPath(uri) } : null
-}
+/** Monaco command running a server command (and any edit it carries) for a lens or action. */
+const RUN_COMMAND = 'crowbar.lsp.runCommand'
 
 function isOutsideWorkspace(path: string): boolean {
   return /^([A-Za-z]:)?[\\/]/.test(path)
-}
-
-function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError'
-}
-
-/**
- * One cancellable daemon request for `model`. Background queries (hover,
- * completion, lenses) degrade to null on failure; user-invoked ones pass
- * `surface` to be told.
- */
-async function query<T>(
-  model: Monaco.editor.ITextModel,
-  route: string,
-  body: Record<string, unknown>,
-  token: Monaco.CancellationToken,
-  surface?: string,
-): Promise<{ target: ModelTarget; result: T | null } | null> {
-  const target = modelTarget(model)
-  if (!target || token.isCancellationRequested) return null
-  const client = LspClient.getInstance()
-  const controller = new AbortController()
-  const cancel = token.onCancellationRequested(() => controller.abort())
-  try {
-    await client.flushChange(target.path)
-    if (token.isCancellationRequested) return null
-    const result = await client.request<T>(
-      target.wsId,
-      route,
-      { path: target.path, ...body },
-      controller.signal,
-    )
-    return { target, result }
-  } catch (error) {
-    if (!isAbort(error) && surface) {
-      toast.error(surface, error instanceof Error ? error.message : undefined)
-    }
-    return null
-  } finally {
-    cancel.dispose()
-  }
 }
 
 function modelFor(wsId: string, path: string): Monaco.editor.ITextModel | null {
@@ -145,6 +90,92 @@ function splitWorkspaceEdit(
   }
   const rest = Object.keys(restChanges).length > 0 ? { changes: restChanges } : null
   return { monacoEdits, rest }
+}
+
+/**
+ * Apply an edit the server produced: files open in Monaco are edited through
+ * their models (one undo step each), the rest through the buffers/disk.
+ */
+async function applyEdit(wsId: string, edit: DaemonWorkspaceEdit): Promise<void> {
+  const rest: Record<string, TextEdit[]> = {}
+  for (const [path, edits] of workspaceEditByPath(edit)) {
+    const model = modelFor(wsId, path)
+    if (!model) {
+      rest[path] = edits
+      continue
+    }
+    model.pushStackElement()
+    model.pushEditOperations(
+      [],
+      edits.map((e) => ({ range: toMonacoRange(e.range), text: e.newText })),
+      () => null,
+    )
+    model.pushStackElement()
+  }
+  if (Object.keys(rest).length > 0) await applyWorkspaceEdit({ changes: rest }, wsId)
+}
+
+/**
+ * Run a lens's or action's server command: the daemon executes it and hands
+ * back the edits the server applied through the editor while it ran.
+ */
+async function runCommand(
+  wsId: string,
+  path: string,
+  edit: DaemonWorkspaceEdit | null,
+  command: Command | null,
+): Promise<void> {
+  if (edit) await applyEdit(wsId, edit)
+  if (!command) return
+  const outcome = await LspClient.getInstance().request<{ edits: DaemonWorkspaceEdit[] }>(
+    wsId,
+    'executeCommand',
+    { path, command: command.command, arguments: command.arguments },
+  )
+  for (const commandEdit of outcome?.edits ?? []) await applyEdit(wsId, commandEdit)
+}
+
+function runCommandFor(
+  target: { wsId: string; path: string },
+  title: string,
+  command: Command | null,
+  edit: DaemonWorkspaceEdit | null = null,
+): Monaco.languages.Command {
+  return { id: RUN_COMMAND, title, arguments: [target.wsId, target.path, edit, command] }
+}
+
+/** A lens command the daemon left empty is a label the server cannot run. */
+function lensCommand(
+  target: { wsId: string; path: string },
+  command: Command | undefined,
+): Monaco.languages.Command | undefined {
+  if (!command) return undefined
+  return command.command
+    ? runCommandFor(target, command.title, command)
+    : { id: '', title: command.title }
+}
+
+/**
+ * An LSP code action as Monaco's: edits to open files go through `edit` (the
+ * undo stack); edits to other files and the server command (the daemon only
+ * passes on commands the server runs) go through RUN_COMMAND.
+ */
+function toCodeAction(
+  target: { wsId: string; path: string },
+  action: Command | CodeAction,
+): Monaco.languages.CodeAction {
+  if (isCommand(action)) {
+    return { title: action.title, command: runCommandFor(target, action.title, action) }
+  }
+  const { monacoEdits, rest } = splitWorkspaceEdit(target.wsId, action.edit ?? null)
+  const command = action.command ?? null
+  return {
+    title: action.title,
+    kind: action.kind,
+    isPreferred: action.isPreferred,
+    edit: monacoEdits.length > 0 ? { edits: monacoEdits } : undefined,
+    command: rest || command ? runCommandFor(target, action.title, command, rest) : undefined,
+  }
 }
 
 // Models created only so the references peek can preview files that are not
@@ -259,10 +290,16 @@ export function registerLspProviders(): void {
 
   // Page-lifetime registrations: Monaco is a page singleton and so are these.
   monacoEditor.registerCommand(
-    APPLY_EDIT_COMMAND,
-    (_accessor: unknown, wsId: string, edit: DaemonWorkspaceEdit) => {
-      void applyWorkspaceEdit(edit, wsId).catch((error: unknown) =>
-        toast.error('Could not apply the edit', error instanceof Error ? error.message : undefined),
+    RUN_COMMAND,
+    (
+      _accessor: unknown,
+      wsId: string,
+      path: string,
+      edit: DaemonWorkspaceEdit | null,
+      command: Command | null,
+    ) => {
+      void runCommand(wsId, path, edit, command).catch((error: unknown) =>
+        toast.error('Command failed', error instanceof Error ? error.message : undefined),
       )
     },
   )
@@ -402,28 +439,8 @@ export function registerLspProviders(): void {
         { range: toLspRange(range), diagnostics: markers.map(markerToLspDiagnostic) },
         token,
       )
-      const wsId = response?.target.wsId
-      const actions: Monaco.languages.CodeAction[] = []
-      for (const action of response?.result ?? []) {
-        // Server-side commands would need workspace/executeCommand, which
-        // the daemon does not proxy; offer only actions that carry edits.
-        if (isCommand(action) || !action.edit || !wsId) continue
-        const { monacoEdits, rest } = splitWorkspaceEdit(wsId, action.edit)
-        actions.push({
-          title: action.title,
-          kind: action.kind,
-          isPreferred: action.isPreferred,
-          ...(rest
-            ? {
-                command: {
-                  id: APPLY_EDIT_COMMAND,
-                  title: action.title,
-                  arguments: [wsId, action.edit],
-                },
-              }
-            : { edit: { edits: monacoEdits } }),
-        })
-      }
+      if (!response) return { actions: [], dispose() {} }
+      const actions = (response.result ?? []).map((action) => toCodeAction(response.target, action))
       return { actions, dispose() {} }
     },
   })
@@ -443,23 +460,26 @@ export function registerLspProviders(): void {
   languages.registerCodeLensProvider(selector, {
     async provideCodeLenses(model, token) {
       const response = await query<CodeLens[]>(model, 'codeLens', {}, token)
-      const lenses = (response?.result ?? []).map((lens) => ({
-        range: toMonacoRange(lens.range),
-        // Titles only: lens commands run server-side (executeCommand), which
-        // the daemon does not proxy, so a lens is informational.
-        command: lens.command ? { id: '', title: lens.command.title } : undefined,
-        raw: lens,
-      }))
+      const target = response?.target
+      const lenses = target
+        ? (response.result ?? []).map((lens) => ({
+            range: toMonacoRange(lens.range),
+            command: lensCommand(target, lens.command),
+            raw: lens,
+          }))
+        : []
       return { lenses, dispose() {} }
     },
     async resolveCodeLens(model, lens, token) {
       const raw = (lens as Monaco.languages.CodeLens & { raw?: CodeLens }).raw
       if (lens.command || !raw) return lens
       const response = await query<CodeLens>(model, 'codeLensResolve', { lens: raw }, token)
-      const title = response?.result?.command?.title
-      return title ? { ...lens, command: { id: '', title } } : lens
+      const command = response ? lensCommand(response.target, response.result?.command) : undefined
+      return command ? { ...lens, command } : lens
     },
   })
+
+  languages.registerDocumentSemanticTokensProvider(selector, lspDocumentSemanticTokensProvider)
 
   languages.registerDocumentFormattingEditProvider(selector, {
     async provideDocumentFormattingEdits(model, options, token) {

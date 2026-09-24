@@ -93,7 +93,20 @@ describe('buildMonacoThemeData', () => {
     expect(fg('function')).toBe('6fb0e0')
     expect(fg('type')).toBe('c4a6dd')
     expect(fg('property')).toBe('cfc9bd') // not present in the Monarch TOKEN_MAP
-    expect(fg('punctuation')).toBe('999999') // not present in the Monarch TOKEN_MAP
+    expect(fg('method')).toBe('6fb0e0') // server types share their category's color
+    expect(fg('decorator')).toBe('d6a95c')
     expect(fg('attribute')).toBe('d6a95c')
+  })
+
+  it('colors readonly variables (and shiki constants) as constants', () => {
+    const { rules } = buildMonacoThemeData({
+      isDark: true,
+      syntax: { variable: '#aaaaaa', constant: '#bb5555' },
+      ui: UI,
+    })
+    const fg = (t: string) => rules.find((r) => r.token === t)?.foreground
+    expect(fg('variable')).toBe('aaaaaa')
+    expect(fg('variable.readonly')).toBe('bb5555')
+    expect(fg('enumMember')).toBe('bb5555')
   })
 })

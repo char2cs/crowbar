@@ -1,11 +1,9 @@
 /**
- * Shiki semantic tokens — the grammar-backed fallback beside the Tree-sitter path.
+ * Shiki semantic tokens — the grammar tier beside the language servers' tokens.
  *
- * Shiki carries the same TextMate grammars VSCode ships (~240 languages against
- * the 38 parsers in `public/tree-sitter/parsers`), so the fallback is now real
- * grammar output rather than identifier regexes. It emits the same
- * `HighlightToken` shape and flows through the same `encodeTokens` + theme
- * pipeline as Tree-sitter.
+ * Shiki carries the same TextMate grammars VSCode ships (~240 languages), so
+ * every file gets identifier coloring (function, type, constant, property …)
+ * on top of Monarch, whether or not a language server covers it.
  *
  * SYNCHRONOUS by construction. `semantic-tokens-provider.ts` documents why the
  * provider must never await: Monaco wraps every call in createCancelablePromise
@@ -23,7 +21,7 @@
  * yields no tokens for that pass and advances the stacks on a background timer.
  */
 import type { StateStack } from 'shiki/textmate'
-import type { HighlightToken } from '@/features/editor/lib/wasm-parser/types'
+import { toMonacoLanguageId } from './language'
 
 /** The subset of Monaco's ITextModel this needs. */
 export interface TokenizerModel {
@@ -53,9 +51,27 @@ export interface TokenizerGrammar {
   }
 }
 
-/** Categories this emits — a subset of SEMANTIC_TOKEN_TYPES. */
+/** Categories this emits; `semantic-tokens-legend.ts` maps each onto the legend. */
 export type ShikiCategory =
-  'function' | 'type' | 'constant' | 'variable' | 'property' | 'tag' | 'attribute'
+  | 'function'
+  | 'type'
+  | 'constant'
+  | 'variable'
+  | 'property'
+  | 'tag'
+  | 'attribute'
+  | StructuralCategory
+
+/** What Monarch colors — emitted only where Monaco has no grammar at all. */
+type StructuralCategory = 'keyword' | 'string' | 'comment' | 'number' | 'operator'
+
+/** One categorized span on one row (0-based row, [start, end) columns). */
+export interface ShikiToken {
+  category: ShikiCategory
+  row: number
+  start: number
+  end: number
+}
 
 // ── Scope → category ──────────────────────────────────────────────────────────
 
@@ -68,7 +84,7 @@ export type ShikiCategory =
  * Monarch already colors those for every language Monaco registers; re-emitting
  * them would fight the base grammar for no gain and multiply the token count.
  *
- * Keys are matched like `mapCaptureToClass`: exact, then with trailing
+ * Keys are matched exact first, then with trailing
  * `.segments` dropped — which also strips the per-grammar language suffix
  * (`entity.name.function.ts` → `entity.name.function`). Longer keys therefore
  * win over their own prefixes (`support.type.property-name` over `support.type`).
@@ -133,22 +149,37 @@ const SCOPE_CATEGORY = new Map<string, ShikiCategory | null>([
 ])
 
 /**
+ * For a language Monaco has no grammar for (its Monaco id is plaintext, e.g.
+ * nix, dotenv), nothing else colors keywords, strings, comments or numbers, so
+ * the grammar tier emits them too. Checked before SCOPE_CATEGORY's nulls.
+ */
+const STRUCTURAL_CATEGORY = new Map<string, StructuralCategory>([
+  ['keyword.operator', 'operator'],
+  ['keyword', 'keyword'],
+  ['storage', 'keyword'],
+  ['string', 'string'],
+  ['constant.numeric', 'number'],
+])
+
+/**
  * Classify one TextMate token by its scope stack (outermost → innermost).
  *
  * Innermost wins, since that is the scope that named the token; outer scopes are
  * only consulted when the inner one is unknown down to its root. A token any
  * part of whose stack is a comment is never re-colored — jsdoc/doc-comment
  * grammars emit real `entity.name.type` scopes *inside* a comment, and coloring
- * those would paint prose as code.
+ * those would paint prose as code. `structural` adds STRUCTURAL_CATEGORY.
  */
-export function scopeCategory(scopes: readonly string[]): ShikiCategory | null {
+export function scopeCategory(scopes: readonly string[], structural = false): ShikiCategory | null {
   for (const scope of scopes) {
-    if (scope === 'comment' || scope.startsWith('comment.')) return null
+    if (scope === 'comment' || scope.startsWith('comment.')) return structural ? 'comment' : null
   }
 
   for (let i = scopes.length - 1; i >= 0; i--) {
     let probe = scopes[i]
     for (;;) {
+      const structuralHit = structural ? STRUCTURAL_CATEGORY.get(probe) : undefined
+      if (structuralHit) return structuralHit
       const hit = SCOPE_CATEGORY.get(probe)
       if (hit !== undefined) return hit
       const dot = probe.lastIndexOf('.')
@@ -182,7 +213,8 @@ export function tokenizeRows(
   stacks: (StateStack | null)[],
   startRow: number,
   endRow: number,
-  out: HighlightToken[],
+  out: ShikiToken[],
+  structural = false,
 ): void {
   for (let row = startRow; row <= endRow; row++) {
     const line = getLine(row)
@@ -197,7 +229,7 @@ export function tokenizeRows(
     stacks[row + 1] = result.ruleStack
 
     for (const token of result.tokens) {
-      const category = scopeCategory(token.scopes)
+      const category = scopeCategory(token.scopes, structural)
       if (category === null) continue
 
       // Grammars routinely pad a token with the whitespace around it; emitting
@@ -208,13 +240,7 @@ export function tokenizeRows(
       while (end > start && WHITESPACE.test(line[end - 1])) end--
       if (start >= end) continue
 
-      out.push({
-        type: `token-${category}`,
-        startIndex: start,
-        endIndex: end,
-        startPosition: { row, column: start },
-        endPosition: { row, column: end },
-      })
+      out.push({ category, row, start, end })
     }
   }
 }
@@ -451,7 +477,7 @@ export function shikiTokensInRange(
   startRow: number,
   endRow: number,
   onReady: () => void,
-): HighlightToken[] | null {
+): ShikiToken[] | null {
   const language = languageStates.get(languageId)
   if (!language) {
     warmLanguage(languageId, onReady)
@@ -482,8 +508,9 @@ export function shikiTokensInRange(
     return null
   }
 
-  const tokens: HighlightToken[] = []
-  tokenizeRows(state.grammar, getLine, state.stacks, start, end, tokens)
+  const tokens: ShikiToken[] = []
+  const structural = toMonacoLanguageId(languageId) === 'plaintext'
+  tokenizeRows(state.grammar, getLine, state.stacks, start, end, tokens, structural)
   return tokens
 }
 

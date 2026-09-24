@@ -15,7 +15,7 @@ import {
   type SyntaxTokenKey,
   withAlpha,
 } from '@/features/editor/theme/resolve-css-color'
-import { SEMANTIC_TOKEN_TYPES } from './semantic-tokens-encode'
+import { SEMANTIC_TOKEN_RULES } from './semantic-tokens-legend'
 
 /** Monaco token scope → our syntax palette key. */
 const TOKEN_MAP: Array<[monacoToken: string, syntaxKey: SyntaxTokenKey]> = [
@@ -78,12 +78,11 @@ export function buildMonacoThemeData(input: MonacoThemeInput): MonacoThemeData {
     return color ? [{ token, foreground: stripHash(color) }] : []
   })
 
-  // Semantic-token coloring: Monaco resolves a semantic token's color by matching
-  // its legend type name against theme rules. Bind each legend type to the same
-  // CSS-first palette. Single source of truth: SEMANTIC_TOKEN_TYPES (the provider's legend).
-  for (const key of SEMANTIC_TOKEN_TYPES) {
-    const color = syntax[key as SyntaxTokenKey]
-    if (color) rules.push({ token: key, foreground: stripHash(color) })
+  // Semantic tokens are colored by matching their legend type (and modifiers)
+  // against theme rules, bound here to the same CSS-first palette.
+  for (const [token, key] of SEMANTIC_TOKEN_RULES) {
+    const color = syntax[key]
+    if (color) rules.push({ token, foreground: stripHash(color) })
   }
 
   return {
