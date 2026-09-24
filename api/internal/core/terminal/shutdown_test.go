@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
 // TestShutdown_FlushPersistNoBufDelete is the TDD spec test for Phase 3 graceful
@@ -209,6 +210,24 @@ func TestShutdown_RefusesNewSessions(t *testing.T) {
 	_, err = eng.Create(ctx, "chat-after-shutdown", t.TempDir(), nil)
 	assert.ErrorIs(t, err, terminal.ErrShuttingDown,
 		"Create must refuse after Shutdown for the same reason: the kill loop has already been and gone")
+}
+
+// TestShutdown_RefusesBeforeStartingTheChild pins the ORDER of the refusal: admission is
+// checked before anything is exec'd, so a refused birth never runs even briefly. A binary
+// that does not exist makes that observable — spawning it first would surface the exec
+// failure instead of ErrShuttingDown.
+func TestShutdown_RefusesBeforeStartingTheChild(t *testing.T) {
+	eng := terminal.New()
+	terminal.StopMaintenanceForTest(eng)
+	ctx := context.Background()
+	eng.Shutdown()
+
+	missing := filepath.Join(t.TempDir(), "no-such-binary")
+	_, err := eng.CreateCommand(ctx, "chat-refused", t.TempDir(), []string{missing}, os.Environ(), nil)
+	require.ErrorIs(t, err, terminal.ErrShuttingDown, "CreateCommand must refuse before exec")
+
+	_, err = eng.Create(ctx, "chat-refused", t.TempDir(), &domain.TerminalProfile{Shell: missing})
+	require.ErrorIs(t, err, terminal.ErrShuttingDown, "Create must refuse before exec")
 }
 
 // TestShutdown_RefusedRestoreKeepsPersistedState is the guard for the way the
