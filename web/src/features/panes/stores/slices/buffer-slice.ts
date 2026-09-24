@@ -10,7 +10,6 @@ import type {
   MarkdownPreviewContent,
   HtmlPreviewContent,
   CsvPreviewContent,
-  ExternalEditorContent,
   ClosedBuffer,
   PendingClose,
 } from '@/features/panes/types/pane-content'
@@ -29,9 +28,8 @@ import { bestEffort } from '@/lib/best-effort'
 
 // A pane with zero editorTabIds falls back to rendering its New Tab surface
 // for free (PaneContainer) — there is no placeholder buffer to protect any
-// more, only the always-live externalEditor/terminal types stay exempt from
-// auto-eviction.
-const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['externalEditor', 'terminal'])
+// more, only the always-live terminal type stays exempt from auto-eviction.
+const AUTO_EVICTION_PROTECTED = new Set<PaneContent['type']>(['terminal'])
 
 // ── Actions ──────────────────────────────────────────────────────────
 
@@ -161,14 +159,6 @@ export const createBufferSlice: StateCreator<
             return get().buffers.find(
               (b) =>
                 b.type === 'csvPreview' && b.path === spec.path && b.workspaceId === workspaceId,
-            )
-          }
-          if (spec.type === 'externalEditor') {
-            return get().buffers.find(
-              (b) =>
-                b.type === 'externalEditor' &&
-                b.path === spec.path &&
-                b.workspaceId === workspaceId,
             )
           }
           return undefined
@@ -325,7 +315,8 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             workspaceId,
           } satisfies HtmlPreviewContent
-        } else if (spec.type === 'csvPreview') {
+        } else {
+          // spec.type === 'csvPreview'
           buf = {
             id,
             type: 'csvPreview',
@@ -337,18 +328,6 @@ export const createBufferSlice: StateCreator<
             isPreview: false,
             workspaceId,
           } satisfies CsvPreviewContent
-        } else {
-          // spec.type === 'externalEditor'
-          buf = {
-            id,
-            type: 'externalEditor',
-            path: spec.path,
-            name: spec.name,
-            terminalConnectionId: spec.terminalConnectionId,
-            isPinned: false,
-            isPreview: false,
-            workspaceId,
-          } satisfies ExternalEditorContent
         }
 
         set((state) => {

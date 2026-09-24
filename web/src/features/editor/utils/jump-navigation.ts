@@ -47,7 +47,6 @@ export async function navigateToJumpEntry(entry: JumpListEntry): Promise<boolean
       workspaceId: wsStore.workspaceId,
       path,
       position: { line: entry.line, character: entry.column },
-      scroll: { top: entry.scrollTop, left: entry.scrollLeft },
       beforeShow: (bufferId) => {
         if (bufferId !== entry.bufferId) jumpActions().retargetNavigation(bufferId)
       },

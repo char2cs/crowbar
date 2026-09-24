@@ -22,21 +22,6 @@ const RENDER_WHITESPACE_MODES = new Set<Settings['renderWhitespace']>([
   'trailing',
   'all',
 ])
-const EDITOR_ENGINES = new Set<Settings['editorEngine']>([
-  'monaco',
-  'nvim',
-  'helix',
-  'vim',
-  'custom',
-])
-const EXTERNAL_EDITOR_MODES = new Set<Settings['externalEditor']>([
-  'none',
-  'nvim',
-  'helix',
-  'vim',
-  'custom',
-])
-
 function normalizeEditorLineHeight(value: number): number {
   if (!Number.isFinite(value)) {
     return 1.4
@@ -103,32 +88,6 @@ function normalizeRenderWhitespace(value: unknown): Settings['renderWhitespace']
   return 'none'
 }
 
-function normalizeEditorEngine(
-  value: unknown,
-  _customEditorCommand: string | undefined,
-): Settings['editorEngine'] {
-  if (!EDITOR_ENGINES.has(value as Settings['editorEngine'])) {
-    return 'monaco'
-  }
-
-  return value as Settings['editorEngine']
-}
-
-function normalizeExternalEditor(
-  value: unknown,
-  customEditorCommand: string | undefined,
-): Settings['externalEditor'] {
-  if (!EXTERNAL_EDITOR_MODES.has(value as Settings['externalEditor'])) {
-    return 'none'
-  }
-
-  if (value === 'custom' && !customEditorCommand?.trim()) {
-    return 'none'
-  }
-
-  return value as Settings['externalEditor']
-}
-
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = { ...settings }
   normalizedSettings.uiFontSize = normalizeUiFontSize(normalizedSettings.uiFontSize)
@@ -156,23 +115,6 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.renderWhitespace = normalizeRenderWhitespace(
     (normalizedSettings as { renderWhitespace?: unknown }).renderWhitespace,
   )
-  normalizedSettings.externalEditor = normalizeExternalEditor(
-    (normalizedSettings as { externalEditor?: unknown }).externalEditor,
-    normalizedSettings.customEditorCommand,
-  )
-  normalizedSettings.editorEngine = normalizeEditorEngine(
-    (normalizedSettings as { editorEngine?: unknown }).editorEngine,
-    normalizedSettings.customEditorCommand,
-  )
-  if (
-    normalizedSettings.editorEngine === 'custom' &&
-    !normalizedSettings.customEditorCommand.trim()
-  ) {
-    normalizedSettings.editorEngine = 'monaco'
-  }
-  if (normalizedSettings.externalEditor !== 'none') {
-    normalizedSettings.editorEngine = normalizedSettings.externalEditor
-  }
   normalizedSettings.fileTreeIndentSize = normalizeFileTreeIndentSize(
     normalizedSettings.fileTreeIndentSize,
   )
@@ -226,10 +168,6 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === 'renderWhitespace') {
     return normalizeRenderWhitespace(value) as Settings[K]
-  }
-
-  if (key === 'editorEngine') {
-    return normalizeEditorEngine(value, undefined) as Settings[K]
   }
 
   if (key === 'fileTreeIndentSize') {

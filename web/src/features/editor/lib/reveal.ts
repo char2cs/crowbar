@@ -26,8 +26,6 @@ export interface RevealTarget {
   path: string
   /** 0-based LSP-style position. */
   position?: { line: number; character: number }
-  /** Restore an exact scroll offset (jump list) instead of centering. */
-  scroll?: { top: number; left: number }
   /** Called with the buffer that will be shown, just before it is activated. */
   beforeShow?: (bufferId: string) => void
 }
@@ -44,7 +42,7 @@ function findEditorBufferId(workspaceId: string, path: string): string | null {
  * the active pane when none does (a pane only renders tabs in its own
  * editorTabIds — activating one it does not hold leaves it blank).
  */
-export function showBufferInPane(bufferId: string): string {
+function showBufferInPane(bufferId: string): string {
   const state = windowPaneStore.getState()
   const holding = state.paneActions.getPaneByEditorTabId(bufferId)
   if (holding) {
@@ -68,7 +66,7 @@ function registriesFor(workspaceId: string): ActiveEditorRegistry[] {
  * moves to another tab (or the buffer closes) first. No timeout: the pane
  * either shows the buffer or the user navigated away.
  */
-export function editorReadyFor(
+function editorReadyFor(
   paneId: string,
   workspaceId: string,
   path: string,
@@ -118,10 +116,7 @@ function placeCursor(editor: CodeEditor, target: RevealTarget): void {
       endLineNumber: position.lineNumber,
       endColumn: position.column,
     })
-    if (!target.scroll) editor.revealPositionInCenterIfOutsideViewport(position)
-  }
-  if (target.scroll) {
-    editor.setScrollPosition({ scrollTop: target.scroll.top, scrollLeft: target.scroll.left })
+    editor.revealPositionInCenterIfOutsideViewport(position)
   }
   editor.focus()
 }

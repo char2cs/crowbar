@@ -10,7 +10,6 @@
 import type * as Monaco from 'monaco-editor'
 import type {
   CodeAction,
-  CodeLens,
   Command,
   CompletionItem,
   CompletionList,
@@ -92,7 +91,7 @@ const COMPLETION_KIND: Record<number, number> = {
 const MONACO_COMPLETION_TEXT = 18
 const INSERT_AS_SNIPPET = 4
 
-export function toMarkdown(
+function toMarkdown(
   content: MarkupContent | MarkedString | MarkedString[] | string | undefined | null,
 ): Monaco.IMarkdownString[] {
   if (content === undefined || content === null) return []
@@ -266,5 +265,3 @@ export function workspaceEditByPath(edit: DaemonWorkspaceEdit | null): Map<strin
 export function isCommand(action: Command | CodeAction): action is Command {
   return typeof (action as Command).command === 'string'
 }
-
-export type { CodeAction, CodeLens, Command }

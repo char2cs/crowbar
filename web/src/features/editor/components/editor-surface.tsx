@@ -4,10 +4,10 @@ import 'monaco-editor/min/vs/editor/editor.main.css'
 import '../styles/monaco-editor.css'
 
 import { useCallback, useEffect, useRef } from 'react'
+import { useStore } from 'zustand'
 import { getWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
-import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
 import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
@@ -15,7 +15,6 @@ import { hasTextContent } from '@/features/panes/types/pane-content'
 import { registerLspProviders } from '../lsp/monaco-lsp-providers'
 import { EditorStylesheet } from './stylesheet'
 import Breadcrumb, { type BreadcrumbProps } from './toolbar/breadcrumb'
-import { PaneEditorStateBridge } from './pane-editor-state-bridge'
 import { usePaneEditorController } from '../hooks/use-pane-editor-controller'
 import { usePaneEditorSatellites } from '../hooks/use-pane-editor-satellites'
 import { defineMonacoTheme } from '../monaco/define-theme'
@@ -87,8 +86,6 @@ export interface EditorSurfaceProps {
  * leaf children that each subscribe independently, so a tab switch updates only
  * those leaves instead of reconciling this whole subtree:
  *  - {@link Breadcrumb} self-resolves the active path via `paneId`.
- *  - {@link PaneEditorStateBridge} mirrors the active buffer's identity into the
- *    shared editor-state store (status-bar view-key + legacy seam).
  */
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive editor surface — hosts one Monaco viewport plus its overlays/resize observer sharing the same editor ref; splitting fragments that ref coordination.
 export function EditorSurface({
@@ -114,7 +111,7 @@ export function EditorSurface({
   const editorManager = workspaceStore.editorManager!
   const registry = workspaceStore.activeEditorRegistry
 
-  const { setRefs, setCursorAndSelection } = useEditorStateStore.use.actions()
+  const { setActiveEditorViewKey, setCursorAndSelection } = useEditorStateStore.use.actions()
 
   const zoomLevel = useZoomStore.use.editorZoomLevel()
 
@@ -133,7 +130,6 @@ export function EditorSurface({
     setCursorAndSelection(
       toEditorPosition(model, position),
       selection ? toEditorRange(model, selection) : undefined,
-      { ensureVisible: false },
     )
   }, [editorManager, paneId, setCursorAndSelection])
 
@@ -167,9 +163,8 @@ export function EditorSurface({
       const raw = editorManager.getRawEditor(paneId) as Monaco.editor.IStandaloneCodeEditor | null
       // Initial theme to avoid a flash; the satellites theme effect (which also
       // subscribes to theme changes) is authoritative right after mount.
-      const editorSettingsTheme = useEditorSettingsStore.getState().theme
       raw?.updateOptions({
-        theme: defineMonacoTheme(useSettingsStore.getState().settings.theme || editorSettingsTheme),
+        theme: defineMonacoTheme(useSettingsStore.getState().settings.theme || 'crowbar-dark'),
       })
 
       let layoutRafId: number | null = null
@@ -284,10 +279,6 @@ export function EditorSurface({
     [paneId],
   )
 
-  // Legacy 5-arg seam handed to the state bridge / editorAPI (no bufferId →
-  // active buffer). Identity is stable; extra legacy args are ignored here.
-  const onContentChange = useCallback((content: string) => writeContent(content), [writeContent])
-
   // Controller seam: the imperative ContentSink flush passes the buffer it was
   // tracking so the write targets the edited buffer (I3 fix).
   const onControllerContentChange = useCallback(
@@ -346,11 +337,15 @@ export function EditorSurface({
     externalApplyRef,
   })
 
-  // ── Editor-state store refs (active surface only) ──────────────────────────
+  // ── Status-bar cursor: which pane/buffer the mirrored cursor belongs to ───
+  const activeBufferId = useStore(
+    windowPaneStore,
+    useCallback((state) => state.panes[paneId]?.activeEditorTabId ?? null, [paneId]),
+  )
   useEffect(() => {
-    if (!isActiveSurface) return
-    setRefs({ editorRef: overlayContainerRef })
-  }, [isActiveSurface, setRefs])
+    if (isActiveSurface)
+      setActiveEditorViewKey(activeBufferId ? `${paneId}:${activeBufferId}` : null)
+  }, [activeBufferId, isActiveSurface, paneId, setActiveEditorViewKey])
 
   // The toolbar's search button opens Monaco's own find widget.
   const openFind = useCallback(() => {
@@ -366,12 +361,7 @@ export function EditorSurface({
   return (
     <>
       <EditorStylesheet />
-      <PaneEditorStateBridge
-        paneId={paneId}
-        isActiveSurface={isActiveSurface}
-        onContentChange={onContentChange}
-        registry={registry}
-      />
+
       <div className="absolute inset-0 flex flex-col overflow-hidden">
         {/* `bufferId` passed explicitly — see EditorHostRegistry's own doc:
             this EditorSurface can now be the pane's RETAINED editor while a

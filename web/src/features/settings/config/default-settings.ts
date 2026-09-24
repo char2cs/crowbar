@@ -18,7 +18,6 @@ export const defaultSettings: Settings = {
   sidebarPosition: 'left',
   // Editor
   fontFamily: DEFAULT_MONO_FONT_FAMILY,
-  editorEngine: 'monaco',
   fontSize: DEFAULT_CODE_FONT_SIZE,
   markdownFontSize: MARKDOWN_FONT_SIZE_DEFAULT,
   editorLineHeight: 1.4,
@@ -61,9 +60,6 @@ export const defaultSettings: Settings = {
   inlineBlame: true,
   autoCompletion: true,
   parameterHints: true,
-  // External Editor
-  externalEditor: 'none',
-  customEditorCommand: '',
   // Features
   coreFeatures: {
     breadcrumbs: true,

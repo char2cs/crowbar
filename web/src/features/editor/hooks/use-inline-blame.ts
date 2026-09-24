@@ -16,7 +16,7 @@ import { formatRelativeDate } from '@/utils/date'
 
 const UNCOMMITTED = /^0+$/
 
-export function blameLabel(entry: BlameEntry): string {
+function blameLabel(entry: BlameEntry): string {
   if (UNCOMMITTED.test(entry.commitHash)) return 'You · Uncommitted changes'
   const summary = entry.commitMessage.split('\n')[0] ?? ''
   return `${entry.author}, ${formatRelativeDate(entry.date)} · ${summary}`

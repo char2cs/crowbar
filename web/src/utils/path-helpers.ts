@@ -14,7 +14,6 @@ export const stripTrailingPathSeparators = (path: string): string => {
 }
 
 export const getPathSeparator = (path: string): '/' | '\\' => {
-  if (path.startsWith('remote://')) return '/'
   return path.includes('\\') || /^[A-Za-z]:/.test(path) ? '\\' : '/'
 }
 

@@ -32,7 +32,6 @@ function fakeEditor() {
   return {
     setSelection: vi.fn(),
     revealPositionInCenterIfOutsideViewport: vi.fn(),
-    setScrollPosition: vi.fn(),
     focus: vi.fn(),
   }
 }
@@ -122,23 +121,6 @@ describe('revealInEditor', () => {
     windowPaneStore.getState().paneActions.activateEditorTabInPane(paneId, other)
 
     expect(await pending).toBeNull()
-  })
-
-  it('restores an exact scroll offset for jump-list entries', async () => {
-    openBuffer('src/lib/target.ts')
-    const paneId = windowPaneStore.getState().activePaneId
-    const editor = fakeEditor()
-    showInPane(paneId, 'src/lib/target.ts', editor)
-
-    await revealInEditor({
-      workspaceId: 'ws-1',
-      path: 'src/lib/target.ts',
-      position: { line: 10, character: 2 },
-      scroll: { top: 400, left: 0 },
-    })
-
-    expect(editor.setScrollPosition).toHaveBeenCalledWith({ scrollTop: 400, scrollLeft: 0 })
-    expect(editor.revealPositionInCenterIfOutsideViewport).not.toHaveBeenCalled()
   })
 
   it('propagates a failed read so the caller can tell the user', async () => {

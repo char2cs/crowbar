@@ -54,7 +54,7 @@ import {
 import { applyWorkspaceEdit } from './workspace-edit'
 
 /** Monaco language ids the daemon's server registry covers. */
-export const LSP_LANGUAGES = ['go', 'typescript', 'javascript', 'python', 'java', 'c', 'cpp']
+const LSP_LANGUAGES = ['go', 'typescript', 'javascript', 'python', 'java', 'c', 'cpp']
 
 const APPLY_EDIT_COMMAND = 'crowbar.lsp.applyWorkspaceEdit'
 

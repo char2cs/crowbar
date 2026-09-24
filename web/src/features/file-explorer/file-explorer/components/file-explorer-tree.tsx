@@ -740,19 +740,11 @@ function FileExplorerTreeComponent({
   const handleOpenAllFilesInDirectory = useCallback(
     async (directoryPath: string) => {
       let filePaths: string[]
-
-      if (directoryPath.startsWith('remote://')) {
+      try {
+        filePaths = await collectLocalFilesInDirectory(directoryPath)
+      } catch (error) {
+        console.error('Failed to scan directory for Open All, falling back to loaded tree:', error)
         filePaths = collectLoadedFilesInDirectory(directoryPath)
-      } else {
-        try {
-          filePaths = await collectLocalFilesInDirectory(directoryPath)
-        } catch (error) {
-          console.error(
-            'Failed to scan directory for Open All, falling back to loaded tree:',
-            error,
-          )
-          filePaths = collectLoadedFilesInDirectory(directoryPath)
-        }
       }
 
       const uniqueFilePaths = Array.from(new Set(filePaths))

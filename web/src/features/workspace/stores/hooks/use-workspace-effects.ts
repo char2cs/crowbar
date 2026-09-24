@@ -195,8 +195,8 @@ export function useWorkspaceEffects(wsId: string) {
       // Reveal in Finder (explorer + tab context menus). The tab menu passes
       // the buffer's workspace-relative path; the explorer passes an absolute
       // one (already joined with the worktree root). Resolve relative paths
-      // against the on-disk workspace root; virtual buffers (remote://,
-      // diff:// …) have no disk presence to reveal. Failures surface as a
+      // against the on-disk workspace root; virtual buffers
+      // (diff:// …) have no disk presence to reveal. Failures surface as a
       // toast instead of vanishing into an uncaught rejection.
       handleRevealInFolder: (path: string) => {
         if (path.includes('://')) return
