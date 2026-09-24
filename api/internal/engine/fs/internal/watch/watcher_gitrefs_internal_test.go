@@ -77,6 +77,9 @@ func startWatcher(
 // paths instead: HEAD in the worktree's own gitdir, the ref tree in the common dir.
 func TestStart_WatchesResolvedRefPathsOfLinkedWorktree(t *testing.T) {
 	worktree, commonDir := newLinkedWorktree(t)
+	// Whether `git worktree add` creates the private refs/ dir up front depends on
+	// the git version (2.43 does not); a per-worktree ref makes it exist on all.
+	git(t, worktree, "update-ref", "refs/bisect/bad", "HEAD")
 	w := startWatcher(t, worktree)
 
 	gitDir := w.gitDir()
