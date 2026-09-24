@@ -172,6 +172,7 @@ func New(
 	}
 	startRestoreTerminalSessions(ctx, ucs)
 	reconcileAgentRunners(ctx, ucs)
+	startOwningChatReconcile(ctx, repos, ucs)
 	startTerminalWaitSweep(ctx, h, ucs)
 	startModelDiscoveryWarmup(ctx, engines, crowbarHome)
 
@@ -639,6 +640,31 @@ func reconcileAgentRunners(
 	if err := ucs.AgentRunner.ReconcileRunnersOnBoot(context.WithoutCancel(ctx)); err != nil {
 		slog.WarnContext(ctx, "app: reconcile agent runners on boot", "err", err)
 	}
+}
+
+// startOwningChatReconcile runs the D4 boot reconcile (owning_chats_reconcile.go)
+// SYNCHRONOUSLY, before anything is served. A listing failure is logged: the
+// daemon still boots, and the next boot tries again.
+func startOwningChatReconcile(
+	ctx context.Context,
+	repos *repositories.Container,
+	ucs *usecases.Container,
+) {
+	if ucs.AgentChat == nil || ucs.AgentChatFolder == nil {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	workspaces, err := repos.Workspace.List(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "app: boot: list workspaces for the owning-chat reconcile", "err", err)
+		return
+	}
+	chats, err := ucs.AgentChat.ListChats(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "app: boot: list chats for the owning-chat reconcile", "err", err)
+		return
+	}
+	reconcileOwningChats(ctx, workspaces, chats, ucs.AgentChatFolder)
 }
 
 // shutdownAgentRunners kills every live api-transport connection before the
