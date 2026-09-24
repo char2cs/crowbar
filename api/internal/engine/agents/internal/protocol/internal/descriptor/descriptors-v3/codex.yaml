@@ -987,10 +987,8 @@ mcp_injection:
 # REPLACES codex's system prompt.
 context_inject:
   - pass_arg: { arg: "-c", value: "developer_instructions={context}" }
-# NO resume_context_inject, deliberately: a resumed codex session is
-# entirely api-transport-owned, and the redundant hooks-only PTY never
-# resumes the same thread — there is no CLI argv left to ride. The api
-# connection delivers {context} instead, via inject: at: context above.
+# NO resume_context_inject: a resumed chat-surface session is resumed over
+# the api connection, which delivers {context} via inject: at: context above.
 #
 # UNKINDED, unlike claude's pair: "Press enter to continue" is generic
 # confirmation text, so a match only proves the CLI is blocked, not why.

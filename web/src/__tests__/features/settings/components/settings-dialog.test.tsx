@@ -22,6 +22,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   listProviders: vi.fn().mockResolvedValue([]),
   getDefaultPermissionLevel: vi.fn().mockResolvedValue('guarded'),
   updateDefaultPermissionLevel: vi.fn(),
+  getDescriptorReports: vi.fn().mockResolvedValue([]),
   PERMISSION_LEVEL_OPTIONS: [
     { value: 'guarded', label: 'Guarded' },
     { value: 'trusted', label: 'Trusted' },

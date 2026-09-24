@@ -1066,9 +1066,7 @@ export async function setChatPermissionLevel(
  * 2.5). It is not the same thing as `presetChatLandingPresentation`, which
  * only tells the pane where to open: this decides what the daemon actually
  * forks. For a mixed-transport provider (codex) a chat born on 'terminal'
- * gets NO api connection at all, so its own PTY is the conversation rather
- * than a companion the chat DTO then hides — which is why such a chat used to
- * land on "This agent has no terminal view attached right now". Omitted means
+ * gets NO api connection at all: its own PTY is the conversation. Omitted means
  * the provider's own default face, byte-identical to every create before this
  * argument existed.
  */

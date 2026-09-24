@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { ComposerSignpost } from '@/features/agent/composer/composer-signpost'
 import {
   getChat,
-  resumeChat,
   switchProvider,
   switchToNative,
   switchToTerminal,
@@ -13,15 +12,13 @@ import {
 import { useEffectiveChordMap } from '@/features/keymaps/hooks/use-effective-keymap'
 import { AGENT_CYCLE_PROVIDER, AGENT_TOGGLE_VIEW_MODE } from '@/features/keymaps/registry'
 import { eventMatchesChord } from '@/features/keymaps/utils/chord'
-import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
-import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
 import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
-import { describeDormant, describeRung, sessionView } from '@/features/agent/lib/session-status'
+import { usePaneSession } from '@/features/agent/hooks/use-pane-session'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
 import {
   SPLIT_MIN_HALF_PX,
@@ -37,37 +34,7 @@ import {
   AgentTerminalWaitBanner,
 } from '@/features/agent/components/agent-terminal-wait-banner'
 import { AgentChatView, type AgentChatViewHandle } from '@/features/agent/chat/agent-chat-view'
-import type { ComposerRevival } from '@/features/agent/composer/lib/composer-state'
-import {
-  AgentTerminalSurface,
-  type TerminalAttachment,
-} from '@/features/agent/terminal/agent-terminal-surface'
-
-// seedAttach pre-seeds the terminal-store mapping (connectionId = terminalSessionId)
-// plus the localStorage reconnect backstop, so XtermTerminal's
-// resolveTerminalConnection ATTACHES the agent's already-running PTY instead of
-// spawning a fresh shell.
-//
-// Why this attaches (and does not spawn): XtermTerminal mounts with
-// `sessionId = terminalSessionId`, reads getSession(sessionId).connectionId — now
-// pre-seeded to the same id — and passes it to resolveTerminalConnection as
-// `storeConnectionId`. On a fresh mount there is no live WS transport yet, so the
-// resolver lists the daemon's live sessions, finds this PTY among them, and calls
-// terminalAttach (the in-memory-store reuse branch).
-//
-// It must therefore NEVER be handed a dead PTY: resolveTerminalConnection's fallback
-// for an unknown connection id is createTerminal(), so seeding a dead id would spawn a
-// BARE SHELL inside the agent pane and persist that shell into the reconnect map.
-//
-// The caller's guard used to be TWO questions — is the segment still `active`, AND does
-// the daemon still list its PTY as live — because those two could disagree. They cannot
-// any more. A chat's terminalSessionId comes from its LIVE RUNNER, and a live-runner row
-// exists exactly while its PTY does, so `liveRunnerId` being present IS the liveness
-// answer. One authority, no second round trip, nothing left to drift.
-function seedAttach(wsId: string, terminalSessionId: string): void {
-  useTerminalStore.getState().updateSession(terminalSessionId, { connectionId: terminalSessionId })
-  saveReconnect(wsId, terminalSessionId, terminalSessionId)
-}
+import { AgentTerminalSurface } from '@/features/agent/terminal/agent-terminal-surface'
 
 // ── The split view's geometry ─────────────────────────────────────────────
 //
@@ -89,12 +56,6 @@ function seedAttach(wsId: string, terminalSessionId: string): void {
 //     so the split STACKS instead of shrinking — a short terminal at the FULL pane
 //     width still wraps the way the CLI intended, where a tall narrow one does not.
 
-// The pane's attach outcome, DERIVED from the daemon's snapshot (liveRunnerId,
-// phase, session) — see sessionView. The pane never orchestrates a revive: sending
-// to a dormant chat revives it server-side, and the terminal's "Start session"
-// is the one explicit intent.
-type Attachment = TerminalAttachment
-
 interface AgentChatPaneProps {
   /** The chat this pane is pointed at. NOT stable for its life: the pane re-points it. */
   chatId: string
@@ -107,10 +68,8 @@ interface AgentChatPaneProps {
   /**
    * Whether this tab is the ACTIVE (visible) tab in its pane — distinct from
    * isActivePane (whether the pane has focus). The pane keeps every chat mounted
-   * `visibility:hidden` for keep-alive, so a chat can be MOUNTED-BUT-HIDDEN. This
-   * gates auto-revive: a hidden DORMANT chat must never spawn a CLI (N hidden
-   * dormant tabs would each spawn one on workspace load) — it revives only once it
-   * becomes visible. An already-attached chat stays attached while hidden.
+   * `visibility:hidden` for keep-alive, so a chat can be MOUNTED-BUT-HIDDEN; an
+   * attached chat stays attached while hidden.
    */
   isVisible: boolean
   /**
@@ -203,40 +162,9 @@ export function AgentChatPane({
   // the tab follows), else the chat the tab was pointed at (which may be dormant).
   const shownChatId = runnerChatId || chatId
 
-  // Does the store KNOW this chat at all? "Not in the store yet" (the seed is in flight)
-  // is not "dormant", and must not render the Resume button — see `pending` above.
-  const known = useStore(store, (s) => s.agentChats.chats.some((c) => c.id === shownChatId))
   // Has an authoritative list ever landed? That is what turns `!known` from
   // "not yet" into "not in it" — see the resolve effect below.
   const listSeeded = useStore(store, (s) => s.agentChats.listSeeded)
-  // The runner on the shown chat — mine, or whoever replaced it. '' = dormant.
-  const liveRunnerId = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.liveRunnerId ?? '',
-  )
-  // That runner's PTY, if it has one to show right now. NOT a second liveness
-  // signal — a non-hotswap api-transport runner (codex) is legitimately live
-  // with this empty (nothing attached), so liveRunnerId above is the only
-  // thing that means "no runner, nothing to attach".
-  const sessionId = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.terminalSessionId ?? '',
-  )
-  // The daemon's own lifecycle facts: what it is doing to this chat right now,
-  // and (from its session supervisor) how the conversation continues / why it
-  // is dormant. Rendered, never inferred.
-  const phase = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.phase ?? 'dormant',
-  )
-  const exitReason = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.session?.exitReason ?? '',
-  )
-  const rung = useStore(
-    store,
-    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.session?.rung,
-  )
   const activeProviderId = useStore(
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
@@ -371,34 +299,16 @@ export function AgentChatPane({
   // repainting it, and it's scoped to the chat surface only (the terminal has
   // its own font-size-based terminalZoomLevel).
   const chatZoom = useZoomStore.use.zoom()
-  // The terminal session this pane has seeded for attach. Seeding must precede
-  // XtermTerminal mounting (React runs child effects first — see seedAttach), so
-  // `attached` waits one render for it.
-  const [seededSessionId, setSeededSessionId] = useState('')
-  useEffect(() => {
-    if (!liveRunnerId || !sessionId) {
-      setSeededSessionId('')
-      return
-    }
-    seedAttach(wsId, sessionId)
-    setSeededSessionId(sessionId)
-  }, [wsId, liveRunnerId, sessionId])
-
   const providerName = providers.find((p) => p.id === activeProviderId)?.displayName || 'the agent'
-  const view = sessionView({ known, liveRunnerId, phase, exitReason })
-  const attachment: Attachment =
-    view.state === 'pending'
-      ? { state: 'pending' }
-      : view.state === 'starting'
-        ? { state: 'reviving', message: `Starting ${providerName}…` }
-        : view.state === 'dormant'
-          ? { state: 'idle', message: describeDormant(view.exitReason) }
-          : !sessionId || seededSessionId === sessionId
-            ? { state: 'attached', sessionId: sessionId || null }
-            : seededSessionId
-              ? // A replacement PTY: keep the mounted terminal until it is seeded.
-                { state: 'attached', sessionId: seededSessionId }
-              : { state: 'pending' }
+  const { known, liveRunnerId, attachment, revival, sessionNote, canSend, startSession } =
+    usePaneSession({
+      store,
+      wsId,
+      chatId: shownChatId,
+      providerName,
+      presentation,
+      promptReplacing,
+    })
 
   // Whether each blank-chat signpost below is ABOUT to occupy
   // AgentEmptyDocument's own control-bar slot this pass. At most one renders
@@ -406,29 +316,6 @@ export function AgentChatPane({
   const waitingBannerShown = waiting && chatBlank
   const revivingBannerShown =
     presentation !== 'terminal' && chatBlank && attachment.state === 'reviving' && !promptReplacing
-
-  // The composer's words for a daemon still placing a CLI — chat side only,
-  // since the terminal surface carries its own copy of the same state. A
-  // prompt's own replacement is not one: that pane is mid-send, not waiting.
-  const revival: ComposerRevival | undefined =
-    presentation !== 'terminal' && attachment.state === 'reviving' && !promptReplacing
-      ? { state: 'reviving', message: attachment.message }
-      : undefined
-
-  // One line on how this conversation continues: why a dormant chat is dormant
-  // (sending revives it), or that a revive continued from the transcript.
-  const sessionNote =
-    presentation === 'terminal' || promptReplacing
-      ? undefined
-      : attachment.state === 'idle'
-        ? attachment.message
-        : attachment.state === 'attached'
-          ? describeRung({ rung })
-          : undefined
-
-  // A send is dispatchable unless the chat is unknown or the daemon is still
-  // placing a CLI: a dormant chat is revived by the send itself.
-  const canSend = attachment.state === 'attached' || attachment.state === 'idle'
 
   // The two layout divs whose empty space belongs to the terminal, and the terminal's
   // own imperative handle — see focusTerminalFromEmptySpace.
@@ -581,15 +468,6 @@ export function AgentChatPane({
         // wait, and the user drives from the sidebar.
       })
   }, [store, wsId, listSeeded, known, shownChatId])
-
-  // The one explicit lifecycle intent besides send: bring the chat's provider
-  // back without sending anything (the terminal surface's "Start session"). The
-  // daemon runs the resume ladder; its phase and snapshot frames drive the pane.
-  const startSession = useCallback(() => {
-    void resumeChat(wsId, shownChatId).catch((err: unknown) => {
-      toastSpawnFailure(err, providerName, 'resume')
-    })
-  }, [wsId, shownChatId, providerName])
 
   // Switch the provider ON THE CHAT THE RUNNER IS IN NOW (shownChatId — after a
   // /clear the pane shows a different conversation than the one it opened on).
