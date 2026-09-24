@@ -259,6 +259,9 @@ var (
 	// missing runner, which is the ordinary dormant state and the reason the
 	// resume was asked for in the first place.
 	ErrChatProviderUnknown = runner.ErrChatProviderUnknown
+	// ErrStopped is a switch or resume that was parked when the user pressed
+	// Stop; Stop preempted it and it changed nothing.
+	ErrStopped = runner.ErrStopped
 	// ErrTreeNameRequired is a folder create or rename with a blank name.
 	ErrTreeNameRequired = tree.ErrNameRequired
 	// ErrTreeCycle is a move that would make a node its own ancestor.

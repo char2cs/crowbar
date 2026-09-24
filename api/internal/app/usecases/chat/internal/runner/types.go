@@ -125,7 +125,8 @@ type Turns interface {
 		chatID string,
 	) (bool, error)
 	// RecordStop notes, durably, that a person cut chatID's in-flight turn
-	// short. A no-op when the chat is idle. runnerID serialises this against
+	// short. It always records: the caller decides whether a turn was open,
+	// before tearing anything down. runnerID serialises this against
 	// that runner's own in-flight hook ingestion — see the implementation's
 	// doc for why.
 	RecordStop(

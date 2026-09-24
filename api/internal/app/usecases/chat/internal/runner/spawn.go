@@ -24,7 +24,11 @@ func (rs *Runners) SpawnChat(
 	providerID string,
 ) (chatID, runnerID string, err error) {
 	chatID = uuid.NewString()
-	defer rs.spawns.Lock(chatID)()
+	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", "", err
+	}
+	defer release()
 
 	runnerID, err = rs.spawnRunner(ctx, chatID, workspaceID, providerID, "", nil, nil, "", 0, false, "", true, "")
 	if err != nil {
@@ -38,7 +42,11 @@ func (rs *Runners) StartRunner(
 	chatID string,
 	providerID string,
 ) (string, error) {
-	defer rs.spawns.Lock(chatID)()
+	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	chat, err := rs.chats.GetChat(ctx, chatID)
 	if err != nil {

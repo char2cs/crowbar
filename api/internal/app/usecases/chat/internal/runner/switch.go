@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
@@ -18,16 +19,26 @@ func (rs *Runners) SwitchProvider(
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
-	defer rs.spawns.Lock(chatID)()
-	return rs.switchProviderLocked(ctx, chatID, targetProviderID)
+	park, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	return rs.switchProviderLocked(ctx, park, chatID, targetProviderID)
 }
 
 // The caller already holds chatID's spawn gate: SwitchProvider above takes it,
 // and ResumeChat reaches this from inside its own. inflight.Gate is not reentrant, so
 // wiring either caller to SwitchProvider instead compiles and deadlocks that
 // goroutine on its own gate forever.
+//
+// park is the gate's park context: the two waits below park on it, so a Stop
+// that preempts the gate abandons them with nothing destroyed (ErrStopped).
+// Everything after the waits runs on ctx and is bounded, so a preemption never
+// leaves a switch half-done.
 func (rs *Runners) switchProviderLocked(
 	ctx context.Context,
+	park context.Context,
 	chatID string,
 	targetProviderID string,
 ) (string, error) {
@@ -56,8 +67,8 @@ func (rs *Runners) switchProviderLocked(
 		// The interlocked check inside displaceForSwitch still refuses outright:
 		// that one runs under turnStarts, which the hook that would release it
 		// must take.
-		if err := rs.awaitPromptDeliverySettled(ctx, chat); err != nil {
-			return "", err
+		if err := rs.awaitPromptDeliverySettled(park, chat); err != nil {
+			return "", parkErr(park, err)
 		}
 		// Resolve the target while the outgoing CLI is still alive. A missing or
 		// malformed provider descriptor is a deterministic planning failure, not a
@@ -92,8 +103,8 @@ func (rs *Runners) switchProviderLocked(
 		// assembled below contains the turn we waited for.
 		//
 		// Bounded, not open-ended: see awaitTurnOrForce.
-		if err := rs.awaitTurnOrForce(ctx, chatID); err != nil {
-			return "", err
+		if err := rs.awaitTurnOrForce(ctx, park, chatID); err != nil {
+			return "", parkErr(park, err)
 		}
 
 		priorSessionID, leftAt, err := rs.resumableConversation(ctx, chat, targetProviderID)
@@ -181,6 +192,15 @@ func (rs *Runners) switchProviderLocked(
 		}
 		return runnerID, nil
 	}
+}
+
+// parkErr reports a wait abandoned because Stop preempted the gate as
+// ErrStopped, and passes every other failure through.
+func parkErr(park context.Context, err error) error {
+	if inflight.Preempted(park) {
+		return ErrStopped
+	}
+	return err
 }
 
 func (rs *Runners) displaceForSwitch(

@@ -20,6 +20,12 @@ var (
 	ErrSlashCatalogSuperseded  = fmt.Errorf("agent: slash catalog request was superseded by a newer request: %w", apperr.ErrConflict)
 )
 
+// ErrStopped is returned by a switch or resume that was parked (on the
+// outgoing turn, or on a prompt delivery) when the user pressed Stop. Stop
+// preempts the parked request rather than queueing behind it (invariant A2),
+// and the preempted request has changed nothing.
+var ErrStopped = fmt.Errorf("agent: the chat was stopped while this request waited: %w", apperr.ErrConflict)
+
 // ErrProviderExitedDuringStartup is returned when a provider's vendor CLI died
 // before its runner row could even be persisted.
 //

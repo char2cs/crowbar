@@ -133,7 +133,11 @@ var ErrNativeViewNotYetAvailable = fmt.Errorf("agent: provider has no completed 
 // it can point its existing terminal-rendering path at it — the same one a
 // hotswap provider's terminal view already uses.
 func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string, error) {
-	defer rs.spawns.Lock(chatID)()
+	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {
@@ -241,7 +245,11 @@ func (rs *Runners) moveSurface(ctx context.Context, chatID, runnerID, surface st
 // session id is already known — it just resumes). Idempotent: a chat with
 // nothing attached returns nil, since there is nothing to switch back FROM.
 func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
-	defer rs.spawns.Lock(chatID)()
+	_, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
 	if errors.Is(err, agentrunner.ErrNotFound) {

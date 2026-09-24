@@ -15,7 +15,11 @@ func (rs *Runners) ResumeChat(
 	ctx context.Context,
 	chatID string,
 ) (string, error) {
-	defer rs.spawns.Lock(chatID)()
+	park, release, err := rs.spawns.Acquire(ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	live, err := rs.runnerStore.LiveRunnerForChat(ctx, chatID)
 	if err == nil {
@@ -29,7 +33,7 @@ func (rs *Runners) ResumeChat(
 		return "", fmt.Errorf("agent: resume chat: %w", err)
 	}
 	// The gate is already held: call the inner body, never SwitchProvider itself.
-	return rs.switchProviderLocked(ctx, chatID, providerID)
+	return rs.switchProviderLocked(ctx, park, chatID, providerID)
 }
 
 // lastActiveProviderID answers "who was really running here" for a dormant chat —

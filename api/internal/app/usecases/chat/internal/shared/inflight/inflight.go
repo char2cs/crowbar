@@ -22,11 +22,16 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight/internal/turnstate"
 )
 
-// Gate serialises the user-initiated spawn paths of one chat.
+// Gate serialises work on one chat (or runner) and lets a Stop preempt a
+// holder parked on it.
 type Gate = gate.Gate
 
 // NewGate returns an empty per-chat gate.
 func NewGate() *Gate { return gate.New() }
+
+// Preempted reports whether a park context Gate.Acquire handed out was
+// cancelled because a Stop wanted the gate.
+func Preempted(park context.Context) bool { return gate.Preempted(park) }
 
 // Turns is the registry of turns currently in flight, keyed by runner.
 type Turns = turnstate.Turns
