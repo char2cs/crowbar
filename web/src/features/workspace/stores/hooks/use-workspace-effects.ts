@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { markGitStatusChanged, onGitRefreshRequested } from '@/features/git/stores/git-refresh'
 import deepEqual from 'fast-deep-equal'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
@@ -446,7 +447,7 @@ export function useWorkspaceEffects(wsId: string) {
           .getState()
           .actions.reloadStatusAndLog(wsId)
           .then(() => {
-            if (!cancelled) window.dispatchEvent(new CustomEvent('git-status-changed'))
+            if (!cancelled) markGitStatusChanged(wsId)
           })
           .catch(() => {})
       }, GIT_REFRESH_DEBOUNCE_MS)
@@ -462,14 +463,14 @@ export function useWorkspaceEffects(wsId: string) {
       lastFrame = frame
       scheduleStatusReload()
     })
-    // Editor saves dispatch "git-status-updated" after a successful write.
-    // Refresh on it directly so the Changes panel updates deterministically,
-    // without depending on the backend watcher's git event arriving.
-    window.addEventListener('git-status-updated', scheduleStatusReload)
+    // Local actions that know THIS workspace's status is stale (an editor
+    // save, push/pull) request a refresh through the git-refresh store, so
+    // the Changes panel updates without waiting for the backend watcher.
+    const stopRefreshRequests = onGitRefreshRequested(wsId, scheduleStatusReload)
     return () => {
       cancelled = true
       if (timer) clearTimeout(timer)
-      window.removeEventListener('git-status-updated', scheduleStatusReload)
+      stopRefreshRequests()
       unsubscribe()
       // Preserve the last-seen frame so a quick warm return dedupes the re-push.
       saveGitFrame(wsId, lastFrame)

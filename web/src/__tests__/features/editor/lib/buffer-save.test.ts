@@ -23,7 +23,14 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOri
 })
 
 import { apiFetch } from '@/lib/api'
-import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
+import {
+  AUTOSAVE_DELAY_MS,
+  saveActiveBuffer,
+  saveAllDirtyBuffers,
+  saveBuffer,
+  setBufferContent,
+} from '@/features/editor/lib/buffer-save'
+import { useSettingsStore } from '@/features/settings/store'
 import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
@@ -98,11 +105,11 @@ afterEach(() => {
 // filesBase() -> getActiveWorkspaceId() — i.e. B, not the buffer's own A —
 // silently overwriting B's file with A's content. These MUST fail against
 // the pre-fix-round-1 code and pass at HEAD.
-describe("editor-app-store — Critical 1: saves target the BUFFER's own workspace, not the active one", () => {
+describe("buffer-save — Critical 1: saves target the BUFFER's own workspace, not the active one", () => {
   it("handleSave writes to the dirty buffer's own workspace", async () => {
     openDirtyBuffer('ws-owner', 'a.ts', 'edited content')
 
-    await useEditorAppStore.getState().actions.handleSave()
+    await saveActiveBuffer()
 
     expect(mockFetch).toHaveBeenCalledTimes(1)
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
@@ -114,7 +121,7 @@ describe("editor-app-store — Critical 1: saves target the BUFFER's own workspa
     })
   })
 
-  it("saveEditorBufferById (Save As, an untitled buffer) writes to the buffer's own workspace", async () => {
+  it("saveActiveBuffer (Save As, an untitled buffer) writes to the buffer's own workspace", async () => {
     const id = windowPaneStore.getState().bufferActions.openContent({
       type: 'editor',
       path: 'untitled:Untitled-1',
@@ -128,11 +135,7 @@ describe("editor-app-store — Critical 1: saves target the BUFFER's own workspa
       vi.fn(() => 'new-name.ts'),
     )
 
-    // saveEditorBufferById itself isn't exported from the module — drive it
-    // the same way the rest of the app does, through handleSave (this buffer
-    // is on the active pane, exactly as a real Save-As keystroke would find
-    // it).
-    await useEditorAppStore.getState().actions.handleSave()
+    await saveActiveBuffer()
 
     expect(mockFetch).toHaveBeenCalledTimes(1)
     const [url] = mockFetch.mock.calls[0] as [string]
@@ -146,7 +149,7 @@ describe("editor-app-store — Critical 1: saves target the BUFFER's own workspa
     openDirtyBuffer('ws-owner', 'a.ts', 'from ws-owner')
     openDirtyBuffer('ws-active', 'b.ts', 'from ws-active')
 
-    const savedCount = await useEditorAppStore.getState().actions.handleSaveAll()
+    const savedCount = await saveAllDirtyBuffers()
 
     expect(savedCount).toBe(2)
     expect(mockFetch).toHaveBeenCalledTimes(2)
@@ -162,5 +165,104 @@ describe("editor-app-store — Critical 1: saves target the BUFFER's own workspa
     const activeCall = calls.find((c) => c.path === 'b.ts')
     expect(ownerCall?.url).toContain('/chats/chat-owner/')
     expect(activeCall?.url).toContain('/chats/chat-active/')
+  })
+})
+
+function writesFor(path: string): string[] {
+  return mockFetch.mock.calls
+    .map(
+      ([, init]) =>
+        JSON.parse((init as RequestInit).body as string) as { path: string; content: string },
+    )
+    .filter((body) => body.path === path)
+    .map((body) => body.content)
+}
+
+function openCleanBuffer(workspaceId: string, path: string, content: string): string {
+  return windowPaneStore.getState().bufferActions.openContent({
+    type: 'editor',
+    path,
+    name: path,
+    content,
+    workspaceId,
+  })
+}
+
+describe('buffer-save — P0-10: autosave is per buffer and never mislabels edits', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, autoSave: true } }))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, autoSave: false } }))
+  })
+
+  it("editing buffer B does not cancel buffer A's pending autosave", async () => {
+    const a = openCleanBuffer('ws-owner', 'a.ts', 'a0')
+    const b = openCleanBuffer('ws-owner', 'b.ts', 'b0')
+
+    setBufferContent(a, 'a1')
+    setBufferContent(b, 'b1')
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+
+    expect(writesFor('a.ts')).toEqual(['a1'])
+    expect(writesFor('b.ts')).toEqual(['b1'])
+    expect(bufferById(a).isDirty).toBe(false)
+    expect(bufferById(b).isDirty).toBe(false)
+  })
+
+  it('an edit that lands while the write is in flight keeps the buffer dirty', async () => {
+    const id = openCleanBuffer('ws-owner', 'a.ts', 'v0')
+    let finishWrite: () => void = () => {}
+    mockFetch.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finishWrite = () => resolve())),
+    )
+
+    setBufferContent(id, 'v1')
+    const save = saveBuffer(id)
+    await vi.advanceTimersByTimeAsync(0)
+    setBufferContent(id, 'v2')
+    finishWrite()
+    await save
+
+    expect(bufferById(id)).toMatchObject({ content: 'v2', savedContent: 'v1', isDirty: true })
+    // ...and autosave catches the late edit up.
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(writesFor('a.ts')).toEqual(['v1', 'v2'])
+    expect(bufferById(id).isDirty).toBe(false)
+  })
+
+  it('a failed write leaves the buffer dirty with its previous saved baseline', async () => {
+    const id = openCleanBuffer('ws-owner', 'a.ts', 'v0')
+    mockFetch.mockRejectedValueOnce(new Error('disk full'))
+
+    setBufferContent(id, 'v1')
+    expect(await saveBuffer(id)).toBe(false)
+
+    expect(bufferById(id)).toMatchObject({ content: 'v1', savedContent: 'v0', isDirty: true })
+  })
+
+  it('saves of one buffer are serialized, newest content last', async () => {
+    const id = openCleanBuffer('ws-owner', 'a.ts', 'v0')
+    const resolvers: Array<() => void> = []
+    mockFetch.mockImplementation(() => new Promise<void>((r) => resolvers.push(() => r())))
+
+    setBufferContent(id, 'v1')
+    const first = saveBuffer(id)
+    await vi.advanceTimersByTimeAsync(0)
+    setBufferContent(id, 'v2')
+    const second = saveBuffer(id)
+    await vi.advanceTimersByTimeAsync(0)
+    // Only the first write is in flight until it settles.
+    expect(resolvers).toHaveLength(1)
+    resolvers[0]?.()
+    await first
+    await vi.advanceTimersByTimeAsync(0)
+    resolvers[1]?.()
+    await second
+
+    expect(writesFor('a.ts')).toEqual(['v1', 'v2'])
+    expect(bufferById(id)).toMatchObject({ savedContent: 'v2', isDirty: false })
   })
 })

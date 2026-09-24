@@ -8,8 +8,7 @@ import { resolveBranchAction } from '../lib/branch-action'
 import { pushChanges, pullChanges } from '../api/git-remotes-api'
 import { rebaseOntoParent } from '@/lib/api/workspace'
 import type { GitFile } from '../types/git-types'
-
-const refresh = () => window.dispatchEvent(new Event('git-status-changed'))
+import { requestGitRefresh } from '../stores/git-refresh'
 
 interface BranchSectionProps {
   wsId: string
@@ -52,7 +51,7 @@ export function BranchSection({
     setRebaseError(null)
     try {
       await rebaseOntoParent(wsId)
-      refresh()
+      requestGitRefresh(wsId)
     } catch (e) {
       setRebaseError(e instanceof Error ? e.message : 'Rebase failed')
     } finally {
@@ -66,7 +65,7 @@ export function BranchSection({
     try {
       const res = kind === 'push' ? await pushChanges(wsId) : await pullChanges(wsId)
       if (res.success) {
-        refresh()
+        requestGitRefresh(wsId)
       } else {
         setRemoteError(res.error || `Failed to ${kind}`)
       }
@@ -118,7 +117,7 @@ export function BranchSection({
         {statusLine}
       </div>
 
-      <CommitBox wsId={wsId} files={files} onCommitted={refresh} />
+      <CommitBox wsId={wsId} files={files} onCommitted={() => requestGitRefresh(wsId)} />
 
       {hasSecondaryAction && (
         <div className="flex items-center gap-2">

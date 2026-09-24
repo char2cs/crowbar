@@ -7,7 +7,7 @@ import { Plate, PlateContent, usePlateEditor } from 'platejs/react'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { useBufferById } from '@/features/workspace/stores/hooks/use-buffer-store'
 import { WorkspaceStoreContext } from '@/features/workspace/stores/workspace-context'
-import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
+import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { usePreservedScroll } from '@/features/editor/hooks/use-preserved-scroll'
 import { MarkdownAssetContext, type MarkdownAssetInfo } from './markdown-asset'
 import { hasTextContent } from '@/features/panes/types/pane-content'
@@ -109,8 +109,6 @@ function MarkdownRichEditor({
   isPreview?: boolean
   onPromote?: () => void
 }) {
-  const { handleContentChange } = useEditorAppStore.use.actions()
-
   // Split off any leading YAML frontmatter BEFORE it ever reaches Plate.
   // Markdown parses a leading `---` block as a thematic break + setext
   // heading, so feeding it whole into Plate and serializing back out
@@ -222,19 +220,14 @@ function MarkdownRichEditor({
     }
     if (isPreviewRef.current) onPromoteRef.current?.()
     // Pin the write to THIS pane's buffer rather than the active buffer — this
-    // pane may not be active when a flush lands (tab-switch race). Skip Plate's
-    // own undo grouping so it doesn't double-write Monaco's undo stack; Plate
-    // holds the text (not the buffer), so handleContentChange must apply it.
-    void handleContentChange(md, undefined, undefined, undefined, {
-      targetBufferId: bufferId,
-      skipUndoGrouping: true,
-    })
+    // pane may not be active when a flush lands (tab-switch race).
+    setBufferContent(bufferId, md)
     baselineRef.current = md
     // The store is about to hand this exact text back as `content`; record it
     // so the resync effect recognises the echo instead of re-parsing it (which
     // would reset the caret mid-typing).
     syncedContentRef.current = md
-  }, [bufferId, editor, handleContentChange])
+  }, [bufferId, editor])
 
   const onChange = useCallback(() => {
     // Selection-only events (a click, an arrow key) can never change the

@@ -11,7 +11,7 @@ import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { useEditorSettingsStore } from '@/features/editor/stores/settings-store'
 import { useEditorStateStore } from '@/features/editor/stores/state-store'
-import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
+import { setBufferContent } from '@/features/editor/lib/buffer-save'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { hasTextContent } from '@/features/panes/types/pane-content'
 import type {
@@ -283,12 +283,11 @@ export function EditorSurface({
   const isActiveSurfaceRef = useRef(isActiveSurface)
   isActiveSurfaceRef.current = isActiveSurface
   const externalApplyRef = useRef<string | null>(null)
-  const { handleContentChange } = useEditorAppStore.use.actions()
 
   // Shared write core. `targetBufferId` (when known) pins the write to a SPECIFIC
   // buffer so a flush during a fast tab switch attributes content to the edited
-  // buffer, not the now-active one (I3). When omitted, handleContentChange falls
-  // back to the active buffer (legacy seam behavior).
+  // buffer, not the now-active one (I3). When omitted, the write targets this
+  // pane's active buffer.
   const writeContent = useCallback(
     (content: string, targetBufferId?: string) => {
       if (externalApplyRef.current === content) {
@@ -297,12 +296,11 @@ export function EditorSurface({
       }
       if (!isActiveSurfaceRef.current) return
       if (isPreviewRef.current) onPromoteRef.current?.()
-      void handleContentChange(content, undefined, undefined, undefined, {
-        contentAlreadyApplied: false,
-        targetBufferId,
-      })
+      const bufferId =
+        targetBufferId ?? windowPaneStore.getState().panes[paneId]?.activeEditorTabId ?? null
+      if (bufferId) setBufferContent(bufferId, content)
     },
-    [handleContentChange],
+    [paneId],
   )
 
   // Legacy 5-arg seam handed to the state bridge / editorAPI (no bufferId →

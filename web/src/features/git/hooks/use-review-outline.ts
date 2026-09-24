@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { getReviewOutline, type FileOutline } from '@/features/git/api/review-window-api'
 import { getOwningChatId, subscribeToWorkspaceScope } from '@/lib/workspace-scope'
+import { onGitStatusChanged } from '@/features/git/stores/git-refresh'
 
 export interface UseReviewOutlineResult {
   outline: FileOutline[]
@@ -12,10 +13,6 @@ export interface UseReviewOutlineResult {
 // across renders and workspaces, so a selector returning it never looks like a
 // new value (see use-review-files-summary.ts).
 const EMPTY_OUTLINE: FileOutline[] = []
-
-// The daemon can fire `git-status-changed` at ~2-3Hz while a terminal churns
-// the tree. Coalesce a burst into one refetch, matching the summary hook.
-const GIT_STATUS_DEBOUNCE_MS = 250
 
 /**
  * Fetches the branch-review outline: per-file hunk GEOMETRY, no line content.
@@ -30,7 +27,7 @@ const GIT_STATUS_DEBOUNCE_MS = 250
  *
  * `commit` scopes the outline to one commit instead of the branch. A
  * commit-scoped outline describes two immutable trees, so it also drops the
- * `git-status-changed` refetch: nothing the working tree does can change it,
+ * status-change refetch: nothing the working tree does can change it,
  * and refetching on every keystroke in a terminal would be pure waste.
  */
 export function useReviewOutline(wsId: string | null, commit?: string): UseReviewOutlineResult {
@@ -53,7 +50,7 @@ export function useReviewOutline(wsId: string | null, commit?: string): UseRevie
   // that records one races WorkspaceView's own (often faster) hydration, so on
   // a workspace that just activated this can still be null; firing anyway used
   // to hit the throw, land in the catch below, and leave the outline empty
-  // until an unrelated git-status-changed tick happened to retry it.
+  // until an unrelated git status change happened to retry it.
   // Subscribing makes the id a piece of React state so the effect re-runs the
   // moment the sidebar records one — same fix as useWorkspaceEffects'
   // useOwningChatId.
@@ -67,7 +64,6 @@ export function useReviewOutline(wsId: string | null, commit?: string): UseRevie
     if (owningChatId === null) return
 
     let cancelled = false
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
     const fetchOutline = async () => {
       try {
@@ -89,19 +85,12 @@ export function useReviewOutline(wsId: string | null, commit?: string): UseRevie
         cancelled = true
       }
 
-    const handler = () => {
-      if (debounceTimer) clearTimeout(debounceTimer)
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null
-        void fetchOutline()
-      }, GIT_STATUS_DEBOUNCE_MS)
-    }
-    window.addEventListener('git-status-changed', handler)
+    // Status changes arrive already coalesced by the workspace's git effect.
+    const stop = onGitStatusChanged(wsId, () => void fetchOutline())
 
     return () => {
       cancelled = true
-      if (debounceTimer) clearTimeout(debounceTimer)
-      window.removeEventListener('git-status-changed', handler)
+      stop()
     }
   }, [wsId, commit, owningChatId])
 
