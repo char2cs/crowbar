@@ -2,9 +2,8 @@
 // singleton axWorkspace fans events into. store.go is the SAVE-ONLY durable
 // projection (spec §3.5 delivery, decision 5): it folds evt.Aggregate into the
 // durable read model at state/store/workspace.db and, on Forget, deletes the
-// row. The distinct hub projection (hub.go, Task 6) owns WS fan-out, so the
-// durable read model and the broadcast frame derive independently from
-// evt.Aggregate and cannot drift.
+// row. Once a hub is registered (hub.go) it announces each event after saving
+// it, so no frame ever reaches a client before the read model holds it.
 package projections
 
 import (
@@ -14,6 +13,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -56,6 +56,8 @@ type Store struct {
 	// left the client holding a ghost row it was never told had gone.
 	expectAnnouncements bool
 	announced           map[string]struct{}
+	// announce broadcasts a saved event's frame; nil until RegisterHub.
+	announce atomic.Pointer[func(ctx context.Context, ws domain.Workspace)]
 }
 
 // NewStore builds the durable read-model store over the read-model DB
@@ -268,13 +270,11 @@ func unmarshalWorkspace(
 	return &ws, nil
 }
 
-// RegisterStore subscribes the SAVE-ONLY read-model projection to every workspace
-// event on the singleton axWorkspace: it folds evt.Aggregate into the durable
-// read model and, on Forget, deletes the aggregate's row (a cheap, synchronous
-// OnForget row-delete — spec §3.6, no fs/git/network io). Unlike the retired
-// combined projector it does NOT broadcast; the hub projection owns fan-out
-// (decision 5). It is designed to register ONCE on the singleton, not per
-// aggregate.
+// RegisterStore subscribes the read-model projection to every workspace event on
+// the singleton axWorkspace: it folds evt.Aggregate into the durable read model,
+// then announces it on the hub when one is registered, and on Forget deletes
+// the aggregate's row (a cheap, synchronous OnForget row-delete — spec §3.6, no
+// fs/git/network io). It is designed to register ONCE on the singleton.
 func RegisterStore(
 	st *Store,
 	ax asynx.Asynx[domain.Workspace],
@@ -299,6 +299,9 @@ func (p *storeProjector) onEvent(
 ) {
 	if err := p.saveWithRetry(ctx, evt.Aggregate); err != nil {
 		slog.ErrorContext(ctx, "workspace store projection: save", "id", evt.Aggregate.ID, "err", err)
+	}
+	if announce := p.store.announce.Load(); announce != nil {
+		(*announce)(ctx, evt.Aggregate)
 	}
 }
 

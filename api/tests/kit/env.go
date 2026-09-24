@@ -72,6 +72,9 @@ type Env struct {
 	client     *http.Client
 	dialer     *websocket.Dialer
 	closeOnce  sync.Once
+	// quiesceMu orders the kit's own writes (read side) against Quiesce
+	// (write side); see Quiesce.
+	quiesceMu sync.RWMutex
 }
 
 // BuildEnv spins up the full server stack (engine → adapter → app → api),
@@ -1185,26 +1188,26 @@ func (e *Env) createWorkspace(
 	parentID string,
 ) (wsID string, chatID string) {
 	t.Helper()
-	return e.createWorkspaceQuiesced(t, projectID, repoID, branch, parentID, true)
+	wsID, chatID = e.createWorkspaceWrites(t, projectID, repoID, branch, parentID)
+	// The create's own writes are asynx commands; drain them so a caller that
+	// reads the row (or dials its chat) next sees it rather than racing it.
+	e.Quiesce()
+	return wsID, chatID
 }
 
-// createWorkspaceQuiesced is createWorkspace with the trailing e.Quiesce()
-// made optional. Quiesce calls WaitPublish on the shared per-type asynx
-// dispatcher, which refuses every OTHER in-flight Dispatch for the duration
-// (see asynx's Dispatcher.waiting) — safe for one caller at a time, but a
-// concurrent-fanout caller running N of these at once has N siblings each
-// briefly blocking every other's in-flight command with ErrDispatcherClosed.
-// quiesce=false lets a fanout caller skip that and settle once after its own
-// WaitGroup, instead of each goroutine racing its siblings' dispatches.
-func (e *Env) createWorkspaceQuiesced(
+// createWorkspaceWrites issues a create's commands inside the kit's write
+// window: a Quiesce from a sibling goroutine waits for them instead of making
+// the dispatcher refuse them (see Env.quiesceMu).
+func (e *Env) createWorkspaceWrites(
 	t *testing.T,
 	projectID string,
 	repoID string,
 	branch string,
 	parentID string,
-	quiesce bool,
 ) (wsID string, chatID string) {
 	t.Helper()
+	e.quiesceMu.RLock()
+	defer e.quiesceMu.RUnlock()
 	ctx := context.Background()
 	repo, err := e.app.GORM.Repositories.FindByKey(ctx, repoID)
 	require.NoError(t, err, "createWorkspace: read repo %s", repoID)
@@ -1247,12 +1250,6 @@ func (e *Env) createWorkspaceQuiesced(
 
 	require.NoError(t, e.app.Usecases.AgentChatFolder.AttachOwningWorkspace(ctx, mintedChatID, ws),
 		"createWorkspace: attach the minted chat to its workspace")
-
-	// The create's own writes are asynx commands; drain them so a caller that
-	// reads the row (or dials its chat) next sees it rather than racing it.
-	if quiesce {
-		e.Quiesce()
-	}
 	return ws.ID, mintedChatID
 }
 
@@ -1268,22 +1265,6 @@ func (e *Env) CreateWorkspaceWithChat(
 ) (string, string) {
 	t.Helper()
 	return e.createWorkspace(t, projectID, repoID, branch, parentID)
-}
-
-// CreateWorkspaceWithChatConcurrent is CreateWorkspaceWithChat for a caller
-// running many of these at once (see createWorkspaceQuiesced's own doc):
-// no per-call Quiesce, so N siblings never refuse each other's in-flight
-// dispatch. Call e.Quiesce() once after the fanout's WaitGroup if the caller
-// needs the read model settled.
-func (e *Env) CreateWorkspaceWithChatConcurrent(
-	t *testing.T,
-	projectID string,
-	repoID string,
-	branch string,
-	parentID string,
-) (string, string) {
-	t.Helper()
-	return e.createWorkspaceQuiesced(t, projectID, repoID, branch, parentID, false)
 }
 
 // ImportedRepo bundles the ids a full project+repo import yields: the project,
@@ -1311,7 +1292,13 @@ type ImportedRepo struct {
 // (WS), but the store/list read model is an INDEPENDENT async projection that can
 // trail the WS frame; call Quiesce after a mutation so a subsequent read of the
 // list/store is guaranteed consistent, with no polling and no timeouts.
+//
+// asynx's barrier refuses every command dispatched while it waits, so Quiesce
+// holds quiesceMu exclusively: kit writes in flight on other goroutines finish
+// first, and new ones wait for the barrier instead of failing.
 func (e *Env) Quiesce() {
+	e.quiesceMu.Lock()
+	defer e.quiesceMu.Unlock()
 	e.app.Repositories.WaitQuiescent()
 }
 

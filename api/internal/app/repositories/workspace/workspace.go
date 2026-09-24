@@ -321,7 +321,7 @@ func RegisterHubProjection[F any](
 	if !ok {
 		return fmt.Errorf("workspace: hub projection needs the concrete repository")
 	}
-	return store.RegisterHub(w.readModel, w.ax, enrich, broadcast)
+	return store.RegisterHub(w.readModel, enrich, broadcast)
 }
 
 // sendFunc issues one command attempt against the aggregate.
