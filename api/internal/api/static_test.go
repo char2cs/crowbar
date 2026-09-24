@@ -113,7 +113,7 @@ func serveStatic(t *testing.T, staticFS fs.FS, target, acceptEncoding string) *h
 	router := gin.New()
 	crowbarapi.RegisterStatic(router, staticFS)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", target, nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, http.NoBody)
 	if acceptEncoding != "" {
 		req.Header.Set("Accept-Encoding", acceptEncoding)
 	}

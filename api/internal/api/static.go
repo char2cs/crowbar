@@ -42,19 +42,28 @@ func RegisterStatic(router *gin.Engine, staticFS fs.FS) {
 			c.Header("Cache-Control", "public, max-age=31536000, immutable")
 		}
 
-		if info, err := fs.Stat(staticFS, name+".gz"); err == nil && !info.IsDir() {
-			c.Header("Vary", "Accept-Encoding")
-			if acceptsGzip(c.Request) {
-				if ctype := mime.TypeByExtension(path.Ext(name)); ctype != "" {
-					c.Header("Content-Type", ctype)
-				}
-				c.Header("Content-Encoding", "gzip")
-				c.Request.URL.Path = "/" + name + ".gz"
-			}
-		}
-
+		preferGzipSibling(c, staticFS, name)
 		fileServer.ServeHTTP(c.Writer, c.Request)
 	})
+}
+
+// preferGzipSibling points the request at name's precompressed ".gz" sibling when one
+// exists and the client accepts gzip, setting the headers that sibling needs. Any
+// response for a name that has a sibling varies on Accept-Encoding.
+func preferGzipSibling(c *gin.Context, staticFS fs.FS, name string) {
+	info, err := fs.Stat(staticFS, name+".gz")
+	if err != nil || info.IsDir() {
+		return
+	}
+	c.Header("Vary", "Accept-Encoding")
+	if !acceptsGzip(c.Request) {
+		return
+	}
+	if ctype := mime.TypeByExtension(path.Ext(name)); ctype != "" {
+		c.Header("Content-Type", ctype)
+	}
+	c.Header("Content-Encoding", "gzip")
+	c.Request.URL.Path = "/" + name + ".gz"
 }
 
 // acceptsGzip reports whether the request's Accept-Encoding lists gzip with a

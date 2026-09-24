@@ -78,7 +78,8 @@ func (e *terminalEngine) Attach(
 			return fmt.Errorf("terminal: attach: %w", err)
 		}
 	case stateLive:
-	default:
+		// Already running: attach to it below.
+	case stateExited, stateRemoved:
 		ent.mu.Unlock()
 		return fmt.Errorf("terminal: attach: %w: %s", ErrSessionNotFound, sessionID)
 	}
@@ -168,16 +169,19 @@ func (e *terminalEngine) writePump(
 	}
 
 	var pending *session.OutputFrame // a snapshot that ended the previous drain
-	for {
-		var frame session.OutputFrame
-		if pending != nil {
-			frame, pending = *pending, nil
-		} else {
+	recv := func() (session.OutputFrame, bool) {
+		if pending == nil {
 			f, ok := <-ch
-			if !ok {
-				break
-			}
-			frame = f
+			return f, ok
+		}
+		f := *pending
+		pending = nil
+		return f, true
+	}
+	for {
+		frame, ok := recv()
+		if !ok {
+			break
 		}
 		if frame.Snapshot {
 			start(FrameSnapshot, frame.Data)

@@ -2,6 +2,7 @@ package session
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"image/color"
@@ -266,6 +267,7 @@ func applyBirthTheme(
 // model-driven (spec 2026-07-03): clients receive model-derived frames, and raw streaming
 // survives only as the degraded fallback.
 func New(
+	ctx context.Context,
 	id string,
 	shell string,
 	cwd string,
@@ -281,7 +283,7 @@ func New(
 	for _, o := range opts {
 		o(&p)
 	}
-	if err := s.spawn(exec.Command(shell), env, p); err != nil { //nolint:gosec // G204: shell is the operator-configured login shell path, not attacker-controlled; spawning it is the whole point of a terminal session.
+	if err := s.spawn(ctx, shell, nil, env, p); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -292,6 +294,7 @@ func New(
 // the PTY to it BEFORE the first read, and feeds the redraw bytes into the fresh model
 // before the pump starts so the restored screen is reproduced exactly.
 func NewRestored(
+	ctx context.Context,
 	id string,
 	shell string,
 	cwd string,
@@ -305,23 +308,33 @@ func NewRestored(
 	for _, o := range opts {
 		o(&p)
 	}
-	if err := s.spawn(exec.Command(shell), env, p); err != nil { //nolint:gosec // G204: see New.
+	if err := s.spawn(ctx, shell, nil, env, p); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
 // spawn is the single PTY-birth helper shared by the create, restore and command paths. It
-// starts cmd under a PTY, sizes it to the resolved dimensions BEFORE the first read
+// starts name+args under a PTY, sizes it to the resolved dimensions BEFORE the first read
 // (preserving the model==PTY size invariant, §4.2), builds the model+serializer at that
 // size, replays the restore redraw (if any) into the model, and launches the pump goroutine.
+//
+// The child is bound to the SESSION's lifetime — it ends when Kill takes its process group
+// or it exits on its own — never to ctx's: a PTY outlives the request that created it by
+// design, so ctx contributes its values but context.WithoutCancel drops its cancellation.
+// (With no Done channel, exec also starts no watcher goroutine for it.)
 func (s *Session) spawn(
-	cmd *exec.Cmd,
+	ctx context.Context,
+	name string,
+	args []string,
 	env []string,
 	p spawnParams,
 ) error {
 	cols, rows, sbLines, redraw := s.resolveBirth(p)
 
+	// name is the operator-configured login shell or agent command (resolved through
+	// binpath), not attacker-controlled; spawning it is the whole point of a session.
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), name, args...) //nolint:gosec // G204: see above.
 	cmd.Dir = s.cwd
 	cmd.Env = env
 
@@ -355,6 +368,7 @@ func (s *Session) spawn(
 // agentic engine to launch vendor CLIs (claude/codex) with descriptor-built args
 // and env. The joined argv is stored as the display "shell".
 func NewCommand(
+	ctx context.Context,
 	id string,
 	argv []string,
 	cwd string,
@@ -373,7 +387,7 @@ func NewCommand(
 	for _, o := range opts {
 		o(&p)
 	}
-	if err := s.spawn(exec.Command(argv[0], argv[1:]...), env, p); err != nil { //nolint:gosec // G204: argv is the operator-configured agent command, resolved through binpath; spawning it is the whole point of a command session.
+	if err := s.spawn(ctx, argv[0], argv[1:], env, p); err != nil {
 		return nil, err
 	}
 	return s, nil

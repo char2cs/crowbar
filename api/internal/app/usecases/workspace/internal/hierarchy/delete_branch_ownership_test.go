@@ -61,10 +61,14 @@ func TestRegression_DeleteRepoWorkspaces_KeepsTheDefaultBranch(t *testing.T) {
 // dirty one, and its branch — which Crowbar never created — survives.
 func TestRegression_DeleteRepoWorkspaces_NeverForcesALockedWorktree(t *testing.T) {
 	ws, deleted := repoDeleteFixture([]domain.Workspace{
-		{ID: "w-main", RepoID: "r1", Branch: "main", Status: domain.WorkspaceStatusLocked,
-			WorktreePath: "/wt/main/worktree"},
-		{ID: "w-rel", RepoID: "r1", Branch: "release", Status: domain.WorkspaceStatusLocked,
-			WorktreePath: "/wt/rel/worktree", CreatedBranch: true},
+		{
+			ID: "w-main", RepoID: "r1", Branch: "main", Status: domain.WorkspaceStatusLocked,
+			WorktreePath: "/wt/main/worktree",
+		},
+		{
+			ID: "w-rel", RepoID: "r1", Branch: "release", Status: domain.WorkspaceStatusLocked,
+			WorktreePath: "/wt/rel/worktree", CreatedBranch: true,
+		},
 	})
 	g := &fakeGit{}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())

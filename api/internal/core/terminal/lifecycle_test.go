@@ -258,7 +258,7 @@ func TestMaintenance_AttachedSessionSkipped(t *testing.T) {
 	terminal.RunMaintenanceOnceForTest(eng, ctx)
 	st, _ = eng.StateOf(sid)
 	assert.Equal(t, "active", st, "an attached session must never be suspended by maintenance")
-	conn.Close()
+	require.NoError(t, conn.Close())
 	<-attachReturned
 }
 

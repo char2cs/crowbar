@@ -97,7 +97,7 @@ func quiesce(t *testing.T, s *Session, ch <-chan OutputFrame) {
 }
 
 func TestModelDriven_OutputIsModelDerived(t *testing.T) {
-	s, err := New("sid-md", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
+	s, err := New(t.Context(), "sid-md", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -158,7 +158,7 @@ func TestModelDriven_HealthyAttachSnapshotHasNoPendingInput(t *testing.T) {
 // absolute-addressed diff), so the very next model-derived frame after a
 // resize is a Snapshot keyframe rather than an incremental diff.
 func TestModelDriven_ResizeInvalidatesEmitterForcingNextKeyframe(t *testing.T) {
-	s, err := New("sid-md-resize", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
+	s, err := New(t.Context(), "sid-md-resize", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 
@@ -348,7 +348,7 @@ func TestModelDriven_BurstCoalescesFrames(t *testing.T) {
 // assertion did while still exercising the real spawn → pump → pumpStep path
 // end to end against a live shell.
 func TestModelDriven_BurstOverLivePTYDeliversAllOutput(t *testing.T) {
-	s, err := New("sid-md-burst-live", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 2000)
+	s, err := New(t.Context(), "sid-md-burst-live", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 2000)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	ch, err := s.Attach()
@@ -370,7 +370,7 @@ func TestModelDriven_BurstOverLivePTYDeliversAllOutput(t *testing.T) {
 // entirely inside one 8ms coalesce window still reaches the client: the
 // trailing timer must fire and flush it rather than losing it.
 func TestModelDriven_TrailingTimerFlushesFinalState(t *testing.T) {
-	s, err := New("sid-md-trail", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
+	s, err := New(t.Context(), "sid-md-trail", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	ch, err := s.Attach()
@@ -557,7 +557,7 @@ func TestModelDriven_CPRQueryAnsweredToPTY(t *testing.T) {
 	if err != nil {
 		t.Skip("bash unavailable; CPR read vehicle requires bash (read -s/-d/-t)")
 	}
-	s, err := New("sid-md-cpr", bash, t.TempDir(), "", os.Environ(), 80, 24, 200)
+	s, err := New(t.Context(), "sid-md-cpr", bash, t.TempDir(), "", os.Environ(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 	ch, err := s.Attach()
@@ -607,7 +607,7 @@ func TestModelDriven_CPRQueryAnsweredToPTY(t *testing.T) {
 // sink is installed — and the next frame to every client is a keyframe of it. There is no
 // raw fallback, so the client's own xterm never becomes a second answerer.
 func TestModelDriven_ModelResetKeepsOneAnswerer(t *testing.T) {
-	s, err := New("sid-md-sink-reset", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
+	s, err := New(t.Context(), "sid-md-sink-reset", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 200)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 

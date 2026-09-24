@@ -632,11 +632,11 @@ func TestContainer_DeleteCascade_PurgesEveryChatAndNodeRowOfTheWorkspace(t *test
 	assert.ElementsMatch(t, []string{"chat1", "chat2"}, purge.all())
 	for _, id := range []string{"chat1", "chat2", "w1"} {
 		_, err := c.Node.GetNode(ctx, id)
-		assert.Error(t, err, "%s's Node row must not outlive the delete", id)
+		require.Error(t, err, "%s's Node row must not outlive the delete", id)
 	}
 	for _, id := range []string{"chat-other", "w2"} {
 		_, err := c.Node.GetNode(ctx, id)
-		assert.NoError(t, err, "%s belongs to an untouched workspace", id)
+		require.NoError(t, err, "%s belongs to an untouched workspace", id)
 	}
 	_, err := c.AgentChat.GetChat(ctx, "chat-other")
 	assert.NoError(t, err)

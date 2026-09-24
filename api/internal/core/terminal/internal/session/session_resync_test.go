@@ -37,7 +37,7 @@ func waitSnapshotFrame(ch <-chan OutputFrame) bool {
 // the client applies it onto a reset buffer, so it must be distinguishable
 // from incremental output.
 func TestAttach_FirstFrameIsSnapshot(t *testing.T) {
-	s, err := New("sid-snap-attach", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 0)
+	s, err := New(t.Context(), "sid-snap-attach", "/bin/sh", t.TempDir(), "", testEnv(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 

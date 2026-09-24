@@ -706,7 +706,9 @@ func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T
 // A sweep with no purger registered is a wiring error, never a silent no-op.
 func TestWorkspace_Sweep_RefusesWithoutAPurger(t *testing.T) {
 	ctx, repo := newRepo(t)
-	require.Error(t, repo.(workspace.BootSweeper).Sweep(ctx))
+	sweeper, ok := repo.(workspace.BootSweeper)
+	require.True(t, ok, "the workspace repository must be a BootSweeper")
+	require.Error(t, sweeper.Sweep(ctx))
 }
 
 // spyReconciler records the ids passed to OnOpen so a test can assert which read

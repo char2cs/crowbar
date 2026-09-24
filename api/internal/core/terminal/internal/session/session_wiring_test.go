@@ -46,7 +46,7 @@ func TestResolveBirthDefaults(t *testing.T) {
 // 80×24 default and the default scrollback depth, surfaced in the CRWB1 header.
 func TestSession_DefaultSizeHeader(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New("sid-defsize", "/bin/sh", dir, "", os.Environ(), 0, 0, 0)
+	s, err := New(t.Context(), "sid-defsize", "/bin/sh", dir, "", os.Environ(), 0, 0, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 

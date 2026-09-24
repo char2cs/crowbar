@@ -7,11 +7,12 @@ package purge
 
 import (
 	"fmt"
-	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 )
 
 // WorktreeRemover builds the one bounded fs delete a workspace purge uses to

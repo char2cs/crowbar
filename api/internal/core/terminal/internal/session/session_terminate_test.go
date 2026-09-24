@@ -33,7 +33,7 @@ func TestSession_Terminate_GracefulExit_UsesSIGTERM(t *testing.T) {
 	// `cat` holds the PTY open exactly as a shell does but keeps the DEFAULT SIGTERM
 	// disposition, so "a child that honours SIGTERM exits, and Terminate never reaches its
 	// fallback" becomes a property of the child rather than a bet on scheduling.
-	s, err := New("sid-terminate-graceful", "/bin/cat", dir, "", testEnv(), 80, 24, 0)
+	s, err := New(t.Context(), "sid-terminate-graceful", "/bin/cat", dir, "", testEnv(), 80, 24, 0)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
 

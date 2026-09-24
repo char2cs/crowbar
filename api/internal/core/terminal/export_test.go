@@ -2,20 +2,30 @@ package terminal
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
+
+// impl unwraps the Engine interface to the concrete engine the helpers below reach into.
+func impl(eng Engine) *terminalEngine {
+	e, ok := eng.(*terminalEngine)
+	if !ok {
+		panic(fmt.Sprintf("terminal: test helper given %T, not the terminal engine", eng))
+	}
+	return e
+}
 
 // RunMaintenanceOnceForTest exposes runMaintenanceOnce for unit tests so they
 // can drive the maintenance sweep directly without waiting for the ticker.
 func RunMaintenanceOnceForTest(eng Engine, ctx context.Context) {
-	eng.(*terminalEngine).runMaintenanceOnce(ctx)
+	impl(eng).runMaintenanceOnce(ctx)
 }
 
 // setCfg applies fn to eng's config and returns a function restoring the old one. Tests
 // must have stopped the maintenance goroutine first (StopMaintenanceForTest), which is the
 // only other reader.
 func setCfg(eng Engine, fn func(*config)) (restore func()) {
-	e := eng.(*terminalEngine)
+	e := impl(eng)
 	old := e.cfg
 	fn(&e.cfg)
 	return func() { e.cfg = old }
@@ -59,7 +69,7 @@ func NewWithWriteWaitForTest(d time.Duration) Engine {
 // SetLastActiveForTest sets a session's last-active time, so tests control LRU ordering
 // without real delays.
 func SetLastActiveForTest(eng Engine, id string, t time.Time) {
-	ent, ok := eng.(*terminalEngine).lookup(id)
+	ent, ok := impl(eng).lookup(id)
 	if !ok {
 		return
 	}
@@ -70,7 +80,7 @@ func SetLastActiveForTest(eng Engine, id string, t time.Time) {
 
 // IsIdleForTest reports whether the live session with the given ID is idle.
 func IsIdleForTest(eng Engine, id string) bool {
-	s := eng.(*terminalEngine).liveSession(id)
+	s := impl(eng).liveSession(id)
 	return s != nil && s.IsIdle()
 }
 
@@ -78,7 +88,7 @@ func IsIdleForTest(eng Engine, id string) bool {
 // session.PumpNotifyForTest). Returns nil if the session is not live — a caller blocking on
 // a nil channel blocks forever, which `go test -timeout` reports as the hang it is.
 func PumpNotifyForTest(eng Engine, id string) <-chan struct{} {
-	s := eng.(*terminalEngine).liveSession(id)
+	s := impl(eng).liveSession(id)
 	if s == nil {
 		return nil
 	}
@@ -87,7 +97,7 @@ func PumpNotifyForTest(eng Engine, id string) <-chan struct{} {
 
 // SerializedForTest returns the live session's current serialized screen (non-consuming).
 func SerializedForTest(eng Engine, id string) []byte {
-	s := eng.(*terminalEngine).liveSession(id)
+	s := impl(eng).liveSession(id)
 	if s == nil {
 		return nil
 	}
@@ -96,7 +106,7 @@ func SerializedForTest(eng Engine, id string) []byte {
 
 // SessionDoneForTest returns the live session's death channel, or nil.
 func SessionDoneForTest(eng Engine, id string) <-chan struct{} {
-	s := eng.(*terminalEngine).liveSession(id)
+	s := impl(eng).liveSession(id)
 	if s == nil {
 		return nil
 	}
@@ -107,7 +117,7 @@ func SessionDoneForTest(eng Engine, id string) <-chan struct{} {
 // session, so a test that drives maintenance manually or changes limits races nothing.
 // Shutdown remains safe afterwards.
 func StopMaintenanceForTest(eng Engine) {
-	te := eng.(*terminalEngine)
+	te := impl(eng)
 	te.stopOnce.Do(func() { close(te.stop) })
 	<-te.maintDone
 }
@@ -116,7 +126,7 @@ func StopMaintenanceForTest(eng Engine) {
 // deregistering anything: the state Shutdown occupies from the moment it starts draining
 // until its walk reaches a given session.
 func BeginDrainForTest(eng Engine) {
-	_ = eng.(*terminalEngine).reaps.drain()
+	_ = impl(eng).reaps.drain()
 }
 
 // DefaultLocaleForTest exposes the internal defaultLocale decision to the
@@ -133,7 +143,7 @@ func DefaultLocaleForTest(
 
 // ParseOutputFrame splits one binary output message into its payload and
 // whether it is a snapshot; ok is false for anything that is not an output frame.
-func ParseOutputFrame(msg []byte) (payload []byte, snapshot bool, ok bool) {
+func ParseOutputFrame(msg []byte) (payload []byte, snapshot, ok bool) {
 	if len(msg) == 0 || msg[0] > FrameSnapshot {
 		return nil, false, false
 	}

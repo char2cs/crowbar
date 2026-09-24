@@ -189,9 +189,10 @@ func (ent *sessionEntry) stateStringLocked() string {
 		return "detached"
 	case stateSuspended:
 		return "suspended"
-	default:
+	case stateExited, stateRemoved:
 		return ""
 	}
+	return ""
 }
 
 // StateOf returns the session's state string ("active", "detached", or "suspended") and
@@ -272,16 +273,16 @@ type engineBirth struct {
 // spawnShell starts a live shell session. The host theme is seeded at birth so the model
 // answers OSC 10/11 truthfully before the process can ask. The caller registers the
 // session and must then call startReaper.
-func (e *terminalEngine) spawnShell(id, shell, cwd, profileID string, b engineBirth) (*session.Session, error) {
+func (e *terminalEngine) spawnShell(ctx context.Context, id, shell, cwd, profileID string, b engineBirth) (*session.Session, error) {
 	bg, fg := e.hostTheme()
 	var (
 		s   *session.Session
 		err error
 	)
 	if b.Blob != nil {
-		s, err = session.NewRestored(id, shell, cwd, profileID, ptyEnv(), b.Blob, session.WithTheme(bg, fg))
+		s, err = session.NewRestored(ctx, id, shell, cwd, profileID, ptyEnv(), b.Blob, session.WithTheme(bg, fg))
 	} else {
-		s, err = session.New(id, shell, cwd, profileID, ptyEnv(), b.Cols, b.Rows, b.ScrollbackLines,
+		s, err = session.New(ctx, id, shell, cwd, profileID, ptyEnv(), b.Cols, b.Rows, b.ScrollbackLines,
 			session.WithTheme(bg, fg))
 	}
 	if err != nil {
@@ -307,16 +308,18 @@ func (e *terminalEngine) admit(s *session.Session) error {
 	return ErrShuttingDown
 }
 
-// startReaper watches s for its own death. Deliberately detached from any request
-// context: a PTY is reaped when its process exits, long after the request that created it
-// returned. It is joined by e.reaps, which Shutdown drains.
-func (e *terminalEngine) startReaper(ent *sessionEntry, s *session.Session) {
-	go e.reap(ent, s) //nolint:gosec // G118: detached by design; joined by e.reaps, not by the caller's ctx.
+// startReaper watches s for its own death. The reaper runs under context.WithoutCancel of
+// the birth context: a PTY is reaped when its process exits, long after the request that
+// created it returned, so the request's cancellation must not reach it — but its values
+// (trace/log scope) still describe the session's origin. It is joined by e.reaps, which
+// Shutdown drains, not by the caller's ctx.
+func (e *terminalEngine) startReaper(ctx context.Context, ent *sessionEntry, s *session.Session) {
+	go e.reap(context.WithoutCancel(ctx), ent, s)
 }
 
 // reap waits for s to die and, if s is still the entry's live session, moves the entry to
 // Exited. If a Kill or suspend already moved the entry on, it has nothing left to do.
-func (e *terminalEngine) reap(ent *sessionEntry, s *session.Session) {
+func (e *terminalEngine) reap(ctx context.Context, ent *sessionEntry, s *session.Session) {
 	// Registered FIRST so it runs LAST: even a panic recovered below must retire this
 	// reap, or Shutdown's drain would wait on a goroutine that is already gone.
 	defer e.reaps.done()
@@ -325,14 +328,14 @@ func (e *terminalEngine) reap(ent *sessionEntry, s *session.Session) {
 	ent.mu.Lock()
 	var fx effects
 	if ent.state == stateLive && ent.sess.Load() == s {
-		fx = e.endLocked(context.Background(), ent, stateExited, s.ExitCode())
+		fx = e.endLocked(ctx, ent, stateExited, s.ExitCode())
 	}
 	ent.mu.Unlock()
 	fx.run()
 }
 
 func (e *terminalEngine) Create(
-	_ context.Context,
+	ctx context.Context,
 	chatID string,
 	workspaceDir string,
 	prof *domain.TerminalProfile,
@@ -342,7 +345,7 @@ func (e *terminalEngine) Create(
 
 	// Create births at the historical 80×24 default; a fresh attach's first resize
 	// reshapes both PTY and model.
-	s, err := e.spawnShell(id, resolved.Shell, resolved.CWD, "", engineBirth{})
+	s, err := e.spawnShell(ctx, id, resolved.Shell, resolved.CWD, "", engineBirth{})
 	if err != nil {
 		return "", fmt.Errorf("terminal: create: %w", err)
 	}
@@ -355,7 +358,7 @@ func (e *terminalEngine) Create(
 	}
 	ent.sess.Store(s)
 	e.register(ent)
-	e.startReaper(ent, s)
+	e.startReaper(ctx, ent, s)
 
 	for _, cmd := range resolved.Startup {
 		if err := s.Write([]byte(cmd + "\n")); err != nil {
@@ -370,7 +373,7 @@ func (e *terminalEngine) Create(
 // CreateCommand spawns an explicit argv+env as a registered session. onExit, if non-nil,
 // is invoked exactly once when the session reaches Exited — see the Engine interface.
 func (e *terminalEngine) CreateCommand(
-	_ context.Context,
+	ctx context.Context,
 	chatID string,
 	cwd string,
 	argv []string,
@@ -382,7 +385,7 @@ func (e *terminalEngine) CreateCommand(
 	// are absent; backfill the terminal defaults for any keys not already set.
 	env = withTerminalDefaults(env)
 	bg, fg := e.hostTheme()
-	s, err := session.NewCommand(id, argv, cwd, env, 80, 24, 0, session.WithTheme(bg, fg))
+	s, err := session.NewCommand(ctx, id, argv, cwd, env, 80, 24, 0, session.WithTheme(bg, fg))
 	if err != nil {
 		// exec.ErrNotFound means argv[0] is not installed / not executable — a fact about
 		// the USER'S MACHINE, not a server fault.
@@ -407,7 +410,7 @@ func (e *terminalEngine) CreateCommand(
 	}
 	ent.sess.Store(s)
 	e.register(ent)
-	e.startReaper(ent, s)
+	e.startReaper(ctx, ent, s)
 	return id, nil
 }
 
@@ -465,7 +468,7 @@ func (e *terminalEngine) endLocked(ctx context.Context, ent *sessionEntry, to se
 // shutting down stays Suspended, so the next daemon start restores it. Caller holds ent.mu.
 func (e *terminalEngine) restoreLocked(ctx context.Context, ent *sessionEntry) (effects, error) {
 	cwd, notice := resolveRestoreCWD(ent.cwd)
-	s, err := e.spawnShell(ent.id, ent.shell, cwd, ent.profileID, engineBirth{Blob: ent.blob, Notice: notice})
+	s, err := e.spawnShell(ctx, ent.id, ent.shell, cwd, ent.profileID, engineBirth{Blob: ent.blob, Notice: notice})
 	if err != nil {
 		if errors.Is(err, ErrShuttingDown) {
 			return nil, fmt.Errorf("terminal: restore: %w", err)
@@ -476,7 +479,7 @@ func (e *terminalEngine) restoreLocked(ctx context.Context, ent *sessionEntry) (
 	ent.sess.Store(s)
 	ent.cwd = cwd
 	ent.blob = nil
-	e.startReaper(ent, s)
+	e.startReaper(ctx, ent, s)
 	e.saveMeta(ctx, ent, "detached")
 	return effects{func() { e.fireState(ctx, ent.chatID, ent.id, "detached") }}, nil
 }
@@ -507,6 +510,14 @@ func (e *terminalEngine) suspendLocked(ctx context.Context, ent *sessionEntry, f
 		slog.Warn("terminal: suspend: keeping session live, screen not persisted", "session", ent.id, "err", err)
 		return nil
 	}
+	e.parkLocked(ctx, ent, s, blob)
+	return effects{func() { e.fireState(ctx, ent.chatID, ent.id, "suspended") }}
+}
+
+// parkLocked completes a Live → Suspended transition whose screen blob has already been
+// captured: it records the "suspended" meta row, moves the entry to Suspended holding
+// blob, and kills the process. Caller holds ent.mu and has checked ent is Live with s.
+func (e *terminalEngine) parkLocked(ctx context.Context, ent *sessionEntry, s *session.Session, blob []byte) {
 	ent.cwd = s.CWD()
 	ent.lastActive = time.Now()
 	e.saveMeta(ctx, ent, "suspended")
@@ -515,7 +526,6 @@ func (e *terminalEngine) suspendLocked(ctx context.Context, ent *sessionEntry, f
 	ent.blob = blob
 	// The reaper wakes on this death, sees the entry has moved on, and does nothing.
 	s.Kill()
-	return effects{func() { e.fireState(ctx, ent.chatID, ent.id, "suspended") }}
 }
 
 // killLocked ends ent immediately: a Live process group is SIGKILLed and reaped, a
@@ -528,9 +538,10 @@ func (e *terminalEngine) killLocked(ctx context.Context, ent *sessionEntry) effe
 		return e.endLocked(ctx, ent, stateExited, s.ExitCode())
 	case stateSuspended:
 		return e.endLocked(ctx, ent, stateRemoved, -1)
-	default:
+	case stateExited, stateRemoved:
 		return nil
 	}
+	return nil
 }
 
 // ── operations ───────────────────────────────────────────────────────────────
@@ -606,26 +617,7 @@ func (e *terminalEngine) Shutdown() {
 	ctx := context.Background()
 	for _, ent := range e.snapshot() {
 		ent.mu.Lock()
-		var fx effects
-		if ent.state == stateLive {
-			s := ent.sess.Load()
-			if ent.command {
-				s.Kill()
-				fx = e.endLocked(ctx, ent, stateExited, s.ExitCode())
-			} else {
-				blob, _ := s.Snapshot()
-				if err := e.writeBuf(ctx, ent, blob); err != nil {
-					slog.Warn("terminal: shutdown: screen not persisted", "session", ent.id, "err", err)
-				}
-				ent.cwd = s.CWD()
-				ent.lastActive = time.Now()
-				e.saveMeta(ctx, ent, "suspended")
-				ent.state = stateSuspended
-				ent.sess.Store(nil)
-				ent.blob = blob
-				s.Kill()
-			}
-		}
+		fx := e.shutdownLocked(ctx, ent)
 		// Unload: the persisted rows are the next boot's to restore.
 		e.unregister(ent)
 		ent.mu.Unlock()
@@ -635,6 +627,29 @@ func (e *terminalEngine) Shutdown() {
 	// were walking have RUN too. Each reaper's first act is to wait on a Done channel the
 	// loop above has already closed, so this converges on the work itself.
 	<-reaped
+}
+
+// shutdownLocked ends ent's process for Shutdown: a live command session is killed and
+// Exited; a live shell is persisted and Suspended, even when its screen cannot be written
+// (the meta row still lets the next boot restore it). Caller holds ent.mu.
+func (e *terminalEngine) shutdownLocked(ctx context.Context, ent *sessionEntry) effects {
+	switch ent.state {
+	case stateLive:
+		s := ent.sess.Load()
+		if ent.command {
+			s.Kill()
+			return e.endLocked(ctx, ent, stateExited, s.ExitCode())
+		}
+		blob, _ := s.Snapshot()
+		if err := e.writeBuf(ctx, ent, blob); err != nil {
+			slog.Warn("terminal: shutdown: screen not persisted", "session", ent.id, "err", err)
+		}
+		e.parkLocked(ctx, ent, s, blob)
+		return nil
+	case stateSuspended, stateExited, stateRemoved:
+		return nil
+	}
+	return nil
 }
 
 // resolveRestoreCWD returns a working directory guaranteed to exist for a restore spawn,
