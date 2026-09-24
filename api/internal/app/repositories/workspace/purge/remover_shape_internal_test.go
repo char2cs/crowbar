@@ -13,9 +13,9 @@ import (
 // worktree sits in a root beside its chats tree. That parent is only the right
 // thing to delete when the path really is an identity-keyed worktree.
 //
-// A pre-leaf workspace recorded at <slug>/<branch> has <slug> as its parent —
-// the directory holding EVERY branch of that repo. Under a prefix-only "is it
-// under the home" guard, removing one such workspace would take all of them.
+// A path whose parent is NOT a workspace root (e.g. <slug>/<branch>, whose
+// parent holds every branch of a repo) loses nothing: the remover only deletes
+// the entries Crowbar makes in a root, and the root only once it is empty.
 func TestWorktreeRemover_RefusesAPathThatIsNotAWorkspaceWorktree(t *testing.T) {
 	home := t.TempDir()
 	slug := filepath.Join(home, "projects", "P", "github.com/acme/app")

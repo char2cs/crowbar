@@ -658,28 +658,6 @@ func TestGetHomeForProject_StorageError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestCreateHome_ProvisionsAHomeWorkspaceFindableByProject proves CreateHome's
-// happy path end to end: it mints a fresh id, sets Kind=home, and the result is
-// durably findable via GetHomeForProject — the whole point of the lazy
-// provisioning GetHomeForProject's own ErrNotFound path exists to trigger.
-func TestCreateHome_ProvisionsAHomeWorkspaceFindableByProject(t *testing.T) {
-	ctx, repo := newRepo(t)
-	now := time.Unix(1000, 0).UTC()
-
-	created, err := repo.CreateHome(ctx, "p1", "/projects/p1", now)
-
-	require.NoError(t, err)
-	assert.Equal(t, domain.WorkspaceKindHome, created.Kind)
-	assert.Equal(t, "p1", created.ProjectID)
-	assert.Equal(t, "/projects/p1", created.WorktreePath)
-	assert.NotEmpty(t, created.ID, "CreateHome must mint a fresh id")
-
-	workspace.WaitQuiescentForTest(repo)
-	found, err := repo.GetHomeForProject(ctx, "p1")
-	require.NoError(t, err)
-	assert.Equal(t, created.ID, found.ID)
-}
-
 // TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow proves the
 // boot orphan-sweep seam (spec §3.8, §7-D): every row the durable read model
 // still carries as Status=deleted — here, tombstones whose reactor a draining

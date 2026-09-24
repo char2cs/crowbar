@@ -20,14 +20,10 @@ import (
 type WSConn = engineterminal.WSConn
 
 // ProjectReader resolves a project by ID — used for lazy home provisioning.
-type ProjectReader interface {
-	FindByKey(ctx context.Context, id string) (*domain.Project, error)
-}
 
 // HomeWorkspaces is the workspace surface the home handlers need.
 type HomeWorkspaces interface {
 	GetHomeForProject(ctx context.Context, projectID string) (domain.Workspace, error)
-	CreateHome(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error)
 }
 
 // Files is the file usecase surface needed by home file handlers.
@@ -155,32 +151,10 @@ type WorkSignal interface {
 	) bool
 }
 
-// NodeCreator is the narrow write-only Node surface resolveHome's lazy
-// provisioning needs to mint a legacy project's home workspace its own
-// position row the instant it creates one (2026-09-08
-// sidebar-placement-unification Task 7) — every OTHER home-workspace creation
-// path (a fresh project import) already mints one via project.ImportDeps.Nodes;
-// this is the one lazy-provisioning path that lives outside that usecase.
-//
-// CreateIdempotent, not Create: the node's own id here is homeWorkspaceID's
-// deterministic one (workspace.go's own doc), which a concurrent caller can
-// legitimately race to create too — see node.EventStore.CreateIdempotent's
-// own doc for why that specific id shape is what makes tolerating the loss
-// safe, rather than masking a real bug.
-type NodeCreator interface {
-	CreateIdempotent(
-		ctx context.Context,
-		id string,
-		kind domain.NodeKind,
-		parentID string,
-		order int,
-	) (domain.Node, error)
-}
-
-// OwnerResolver answers the chat that owns a workspace, minting one when
-// none records ownership — the chat handlers' EnsureOwner.
+// OwnerResolver answers the chat that owns a workspace — the chat handlers'
+// OwnerOf.
 type OwnerResolver interface {
-	EnsureOwner(
+	OwnerOf(
 		ctx context.Context,
 		ws domain.Workspace,
 	) string
@@ -189,26 +163,22 @@ type OwnerResolver interface {
 // Handlers serves all /home/* routes.
 type Handlers struct {
 	workspaces HomeWorkspaces
-	projects   ProjectReader
 	files      Files
 	termEng    TerminalEngine
 	working    WorkSignal
 	chats      ChatResolver
 	owners     OwnerResolver
-	nodes      NodeCreator
 }
 
 // New builds Handlers.
 func New(
 	workspaces HomeWorkspaces,
-	projects ProjectReader,
 	files Files,
 	termEng TerminalEngine,
 	working WorkSignal,
 ) *Handlers {
 	return &Handlers{
 		workspaces: workspaces,
-		projects:   projects,
 		files:      files,
 		termEng:    termEng,
 		working:    working,
@@ -228,7 +198,7 @@ func (h *Handlers) WithChats(
 }
 
 // WithOwners wires the owner resolver Get answers WorkspaceDTO.OwningChatID
-// through, so a home no chat records ownership of gets one minted on read.
+// through.
 func (h *Handlers) WithOwners(
 	owners OwnerResolver,
 ) *Handlers {
@@ -238,90 +208,20 @@ func (h *Handlers) WithOwners(
 	return h
 }
 
-// WithNodes wires the Node surface the lazy home-provisioning path in
-// resolveHome mints a legacy project's home workspace's own position row
-// through. Unlike WithChats this is NOT optional in effect: resolveHome
-// refuses the request when CreateHome runs but no Nodes surface was wired,
-// the same ErrNoNodesWired-style refusal project.ImportDeps.Nodes already
-// enforces for every other workspace-creation path (2026-09-08
-// sidebar-placement-unification Task 7) — a lazily-provisioned home workspace
-// must not persist with no position row any more than a freshly-imported one
-// may.
-func (h *Handlers) WithNodes(
-	nodes NodeCreator,
-) *Handlers {
-	h.nodes = nodes
-	return h
-}
-
-// resolveHome fetches the home workspace for the project. If not yet
-// provisioned (ErrNotFound), it looks up the project path and creates one
-// lazily — supporting projects created before the home feature was introduced.
-//
-// The provisioning branch used to be a plain read (GetHomeForProject) then a
-// write (CreateHome) with nothing serializing the two: two requests landing
-// before the first's write was visible both read ErrNotFound and both
-// provisioned, and CreateHome minted a fresh random uuid every call with
-// nothing to stop it, so the project ended up with TWO home workspaces.
-// Nothing after ever noticed: each caller's own response carried whichever
-// one IT just made, and the frontend resolver (home-workspace-resolver.ts)
-// caches that id for the rest of the session, "a lookup, not a mint" per its
-// own doc — a guarantee that race broke. Caught live: a project's home
-// stopped minting CLIs entirely, every attempt failing "asynx: aggregate not
-// found" — the frontend had cached the LOSING workspace's id, which every
-// later GetHomeForProject scan (the winner, whichever id it happens to
-// return) never answers again.
-//
-// Fixed at the root rather than by adding a lock in front of it:
-// CreateHome/nodes.CreateIdempotent no longer mint a random id for a
-// project's home — they derive it deterministically from the project id
-// (workspace.homeWorkspaceID's own doc), so two concurrent provisions for
-// the SAME project now contend for the SAME aggregate, which asynx's own
-// per-aggregate command serialization already resolves exactly like every
-// other write in this system: one commits, the other is refused and reads
-// the winner back directly. This handler has nothing left to serialize
-// itself — no mutex, no singleflight, nothing process-local that a second
-// daemon instance or a retried request years apart would need again.
+// resolveHome fetches the project's home workspace. Every project gets its home
+// at creation (project import's createHomeWorkspace), so a missing one is a
+// 404, never provisioned on a read.
 func (h *Handlers) resolveHome(c *gin.Context) (domain.Workspace, bool) {
-	ctx := c.Request.Context()
-	projectID := c.Param("projectId")
-	ws, err := h.workspaces.GetHomeForProject(ctx, projectID)
+	ws, err := h.workspaces.GetHomeForProject(c.Request.Context(), c.Param("projectId"))
 	if err == nil {
 		return ws, true
 	}
-	if !errors.Is(err, apperr.ErrNotFound) {
-		libs.WriteErr(c, http.StatusInternalServerError, "failed to resolve home workspace")
+	if errors.Is(err, apperr.ErrNotFound) {
+		libs.WriteErr(c, http.StatusNotFound, "home workspace not found")
 		return domain.Workspace{}, false
 	}
-
-	// Lazily provision: look up the project to get its path, then create.
-	project, pErr := h.projects.FindByKey(ctx, projectID)
-	if pErr != nil || project == nil {
-		libs.WriteErr(c, http.StatusNotFound, "project not found")
-		return domain.Workspace{}, false
-	}
-	ws, cErr := h.workspaces.CreateHome(ctx, projectID, project.Path, time.Now())
-	if cErr != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "failed to provision home workspace")
-		return domain.Workspace{}, false
-	}
-	// The freshly-provisioned home workspace mints its OWN Node{Kind:workspace}
-	// row unconditionally, right here at creation — mirrors every other
-	// workspace-creation path (project.createOwnedWorkspace,
-	// hierarchy.CreateChild/adoptMainWorktree/importPlaceholder). CreateHome
-	// already resolved the "who actually gets to provision" race for ws
-	// itself; this node row rides the SAME id, so it needs the SAME
-	// tolerance for losing to a concurrent winner — CreateIdempotent, not
-	// Create.
-	if h.nodes == nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "no node creator wired")
-		return domain.Workspace{}, false
-	}
-	if _, nErr := h.nodes.CreateIdempotent(ctx, ws.ID, domain.NodeKindWorkspace, "", 0); nErr != nil {
-		libs.WriteErr(c, http.StatusInternalServerError, "failed to provision home workspace position")
-		return domain.Workspace{}, false
-	}
-	return ws, true
+	libs.WriteErr(c, http.StatusInternalServerError, "failed to resolve home workspace")
+	return domain.Workspace{}, false
 }
 
 // RequireHomeWorkspace resolves the project's home workspace and injects its id

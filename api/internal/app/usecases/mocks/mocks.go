@@ -124,6 +124,10 @@ type RepositoryStore struct {
 	// after a cross-project repo move) to fail while another (the destination
 	// project) succeeds, which a single blanket FindErr cannot express.
 	FindWhereFn func(match domain.Repository) ([]domain.Repository, error)
+	// Nodes, when set, gets a repo Node row for every NEW repo saved — the
+	// row importOneRepo mints alongside it in production, so a seeded repo is
+	// never Node-less (all placement lives on the Node model).
+	Nodes *NodePlacements
 }
 
 // NewRepositoryStore returns an empty RepositoryStore.
@@ -151,6 +155,11 @@ func (s *RepositoryStore) Save(
 		}
 	}
 	s.Saved = append(s.Saved, item)
+	if s.Nodes != nil {
+		if _, err := s.Nodes.GetNode(ctx, item.ID); err != nil {
+			s.Nodes.Rows = append(s.Nodes.Rows, domain.Node{ID: item.ID, Kind: domain.NodeKindRepo})
+		}
+	}
 	return nil
 }
 

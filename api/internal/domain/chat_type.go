@@ -24,16 +24,9 @@ const (
 	ChatTypeWorkflow ChatType = "workflow"
 )
 
-// IsChat reports whether c is an ordinary conversation. A row minted before
-// Type existed replays with "" (no event ever wrote one), and is a chat.
+// IsChat reports whether c is an ordinary conversation. Create refuses a
+// row without a valid Type (commands.validChatType), so there is no untyped
+// row to normalise.
 func (c Chat) IsChat() bool {
-	return c.Type == "" || c.Type == ChatTypeChat
-}
-
-// EffectiveType is Type with the pre-Type legacy "" normalised to chat.
-func (c Chat) EffectiveType() ChatType {
-	if c.Type == "" {
-		return ChatTypeChat
-	}
-	return c.Type
+	return c.Type == ChatTypeChat
 }

@@ -1,8 +1,8 @@
 // Package purge holds the hardened on-disk half of a workspace purge: the one
 // function allowed to delete a workspace's root under the crowbar home. The
 // delete reactor and the boot sweep both reach it through reactors.Purger, so
-// the guards below (under the home, the "worktree" leaf shape, no foreign
-// entries, no checkout git still registers) hold on every path.
+// the guards below (under the home, no foreign entries, no checkout git
+// still registers) hold on every path.
 package purge
 
 import (
@@ -24,8 +24,7 @@ import (
 //
 // It is GUARDED: only a path strictly under the crowbar home is ever touched —
 // an adopted home or main worktree's path is the user's REAL checkout, outside
-// the home, and is never deleted — and only when it has the one shape a managed
-// worktree has. A blank path, a path outside the home, or an already-gone dir is
+// the home, and is never deleted. A blank path, a path outside the home, or an already-gone dir is
 // an idempotent no-op, so a crash re-driven purge rm's to nothing.
 func WorktreeRemover(
 	crowbarHome string,
@@ -48,20 +47,6 @@ func WorktreeRemover(
 		if !worktreepath.UnderHome(root, crowbarHome) {
 			slog.Warn("purge: refusing to rm workspace root at or above the crowbar home",
 				"root", root, "path", path, "home", crowbarHome)
-			return nil
-		}
-		// The parent is only the right thing to delete when the path really is an
-		// identity-keyed worktree. A workspace still recorded at its pre-leaf path
-		// (<slug>/<branch>, the shape used before the worktree leaf existed) has
-		// the SLUG directory as its parent — the directory holding every branch of
-		// that repo — so removing one such workspace would take all of them.
-		//
-		// "Under the home" cannot catch that: the slug directory is under the home.
-		// The shape is what distinguishes them, and there is exactly one shape a
-		// managed worktree can have.
-		if !isWorkspaceWorktree(path) {
-			slog.Warn("purge: refusing to rm a path that is not a workspace worktree",
-				"path", path, "root", root)
 			return nil
 		}
 		if err := removeWorkspaceRoot(root); err != nil {
@@ -163,19 +148,4 @@ func projectDirOf(
 		return "", false
 	}
 	return filepath.Join(crowbarHome, parts[0], parts[1]), true
-}
-
-// isWorkspaceWorktree reports whether a path is a worktree whose PARENT is a
-// workspace root — the one thing that makes deleting that parent safe.
-//
-// The test is the "worktree" leaf, and it holds for both managed layouts: the
-// identity-keyed <...>/workspaces/<id>/worktree and the older name-keyed
-// <slug>/<branch>/worktree both put the worktree inside its own workspace's
-// root. What it excludes is the PRE-LEAF shape, <slug>/<branch>, whose parent is
-// the slug directory holding every branch of the repo.
-//
-// A shape test, not a location test — managedWorktreePath already answers "is
-// this ours".
-func isWorkspaceWorktree(path string) bool {
-	return filepath.Base(path) == "worktree"
 }

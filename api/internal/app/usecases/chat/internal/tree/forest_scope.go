@@ -258,8 +258,7 @@ func (u *chatFolderUsecase) levelAliasesOf(
 ) levelAliases {
 	holders := map[string][]domain.Chat{}
 	for _, row := range rows {
-		if row.WorkspaceID != "" && row.Type != workspaceAnchorType &&
-			(row.OwnsWorkspace || row.Type == domain.ChatTypeBranch) {
+		if row.WorkspaceID != "" && row.Type != workspaceAnchorType && row.OwnsWorkspace {
 			holders[row.WorkspaceID] = append(holders[row.WorkspaceID], row)
 		}
 	}
@@ -267,29 +266,12 @@ func (u *chatFolderUsecase) levelAliasesOf(
 	defaults := map[string]string{}
 	for wsID, group := range holders {
 		ownerID := ""
-		if owner, ok := domain.ResolveOwningChat(group, u.sharedGround(ctx, wsID)); ok {
+		if owner, ok := domain.ResolveOwningChat(group); ok {
 			ownerID = owner.ID
 		}
 		u.aliasLevel(ctx, aliases, defaults, wsID, ownerID)
 	}
 	return aliases
-}
-
-// sharedGround is domain.Workspace.SharedGround answered through the port; a
-// workspace the port cannot place is treated as shared, never hijacked.
-func (u *chatFolderUsecase) sharedGround(
-	ctx context.Context,
-	wsID string,
-) bool {
-	repoID, err := u.workspaces.RepoOf(ctx, wsID)
-	if err != nil || repoID == "" {
-		return true
-	}
-	if def, dErr := u.workspaces.DefaultWorkspaceOf(ctx, repoID); dErr == nil && def == wsID {
-		return true
-	}
-	renders, rErr := u.workspaces.RendersAsBranch(ctx, wsID)
-	return rErr != nil || renders
 }
 
 // aliasLevel records the level wsID and its owner ownerID name together.

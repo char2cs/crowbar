@@ -204,14 +204,6 @@ type Workspace interface {
 		ctx context.Context,
 		projectID string,
 	) (domain.Workspace, error)
-	// CreateHome provisions the home workspace for a project. Callers use this
-	// for lazy provisioning when GetHomeForProject returns ErrNotFound.
-	CreateHome(
-		ctx context.Context,
-		projectID string,
-		worktreePath string,
-		now time.Time,
-	) (domain.Workspace, error)
 }
 
 // ReconcileOnOpener triggers a lazy, deduplicated, one-shot background reconcile
@@ -439,7 +431,9 @@ func (w *workspace) Create(
 	in CreateInput,
 	now time.Time,
 ) (domain.Workspace, error) {
-	evt, err := w.sendWithOCC(ctx, commands.CreateWorkspace{
+	// SendWait: the row is readable (GetHomeForProject, ListInRepo) when Create
+	// returns, so whatever the caller announces next can be looked up at once.
+	evt, err := occSend(ctx, w.ax.SendWait, commands.CreateWorkspace{
 		ID:            in.ID,
 		RepoID:        in.RepoID,
 		ProjectID:     in.ProjectID,
@@ -829,7 +823,7 @@ func (w *workspace) GetHomeForProject(ctx context.Context, projectID string) (do
 // unrelated part of the system derives the same way from an unrelated name.
 var homeWorkspaceNamespace = uuid.MustParse("f9a1b2c3-2026-4a1a-8b1c-c70de5e8f001")
 
-// homeWorkspaceID derives a project's home workspace id deterministically
+// ProjectHomeID derives a project's home workspace id deterministically
 // from its project id, in place of minting a fresh random one on every call.
 //
 // This is the actual fix for a live bug that used to duplicate a project's
@@ -852,56 +846,15 @@ var homeWorkspaceNamespace = uuid.MustParse("f9a1b2c3-2026-4a1a-8b1c-c70de5e8f00
 // server-randomised one. No new locking primitive, no process-local mutex:
 // a second daemon instance, or a retried request years apart, gets the
 // exact same outcome.
-func homeWorkspaceID(projectID string) string {
+func ProjectHomeID(projectID string) string {
 	return uuid.NewSHA1(homeWorkspaceNamespace, []byte(projectID)).String()
 }
 
 // RepoHomeID derives a repo's home (IsDefault) workspace id deterministically
-// from the repo id, for the reason homeWorkspaceID gives: two concurrent adopts
+// from the repo id, for the reason ProjectHomeID gives: two concurrent adopts
 // of the same repo's main folder target the SAME aggregate, so the second is
 // refused by CreateWorkspace's own Validate instead of leaving the repo with two
 // default workspaces (invariant D2). Namespaced apart from the project home's.
 func RepoHomeID(repoID string) string {
 	return uuid.NewSHA1(homeWorkspaceNamespace, []byte("repo-home:"+repoID)).String()
-}
-
-// CreateHome provisions the home workspace for a project, used for lazy
-// provisioning when GetHomeForProject returns ErrNotFound.
-//
-// Idempotent under real concurrency, not merely safe: a caller that loses
-// the race homeWorkspaceID's own doc describes does not get an error back at
-// all — it reads the winner's own committed workspace directly from the
-// event store (never the read model, which may still be catching up to that
-// commit) and returns it exactly as if it had won itself. Reading it there
-// rather than surfacing apperr.ErrConflict for a caller to recover from is
-// safe done HERE, unlike inside the shared Create/Validate this calls
-// through, because every argument on THIS call is fixed by construction (a
-// non-empty id, WorkspaceKindHome needing no RepoID): the ONLY way
-// CreateWorkspace's Validate can refuse it is "current != nil," never one of
-// its other validation branches, so an ErrValidation reaching here can only
-// ever mean one thing — mirrors node.EventStore.CreateIdempotent's own,
-// identically-scoped reasoning.
-func (w *workspace) CreateHome(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error) {
-	id := homeWorkspaceID(projectID)
-	ws, err := w.Create(ctx, CreateInput{
-		ID:           id,
-		ProjectID:    projectID,
-		WorktreePath: worktreePath,
-		Kind:         domain.WorkspaceKindHome,
-	}, now)
-	if err == nil {
-		return ws, nil
-	}
-	if !errors.Is(err, asynxModels.ErrValidation) {
-		return domain.Workspace{}, fmt.Errorf("create home workspace: %w", err)
-	}
-	won, getErr := w.ax.Get(ctx, id)
-	if getErr != nil {
-		// The winner's commit isn't visible yet even at the event-store layer
-		// (Get, not the read model) — genuinely unexpected for a same-process
-		// serialized aggregate, so surface the ORIGINAL refusal rather than a
-		// getErr that names no cause a caller could act on.
-		return domain.Workspace{}, fmt.Errorf("create home workspace: %w", err)
-	}
-	return won, nil
 }

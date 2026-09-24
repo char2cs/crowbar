@@ -98,15 +98,6 @@ func (u *projectUsecase) withNodelessRows(
 	seen map[string]bool,
 	exclude string,
 ) []homeRow {
-	for id := range repoIDs {
-		if seen[id] || id == exclude {
-			continue
-		}
-		if _, gErr := u.nodes.GetNode(ctx, id); gErr == nil {
-			continue // Node-backed, filed elsewhere
-		}
-		rows = append(rows, homeRow{Node: domain.Node{ID: id, Kind: domain.NodeKindRepo}, fresh: true})
-	}
 	for _, c := range chats {
 		if seen[c.ID] || c.ID == exclude {
 			continue
@@ -177,7 +168,7 @@ func (u *projectUsecase) homeMember(
 func withoutHomeOwner(
 	chats []domain.Chat,
 ) []domain.Chat {
-	owner, ok := domain.ResolveOwningChat(chats, true)
+	owner, ok := domain.ResolveOwningChat(chats)
 	if !ok {
 		return chats
 	}

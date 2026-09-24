@@ -541,7 +541,7 @@ func (c *Container) resolveOwningChat(
 	if err != nil {
 		return domain.Chat{}, false
 	}
-	return domain.ResolveOwningChat(rows, ws.SharedGround())
+	return domain.ResolveOwningChat(rows)
 }
 
 // broadcastWorkspace enriches ws and pushes it to the hub. It backs the

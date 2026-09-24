@@ -20,7 +20,7 @@ import (
 func TestRegression_PlaceChat_ReportsAShiftedWorkspaceAnchorSibling(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
 	chats.Rows = append(chats.Rows,
-		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, OwnsWorkspace: true, WorkspaceID: "ws-branch-1"},
 		domain.Chat{ID: "c1", Type: domain.ChatTypeChat, WorkspaceID: workspaceID},
 	)
 	nodes.Rows = append(nodes.Rows,
@@ -48,8 +48,8 @@ func TestRegression_PlaceChat_ReportsAShiftedWorkspaceAnchorSibling(t *testing.T
 func TestRegression_PlaceWorkspace_ReportsAShiftedWorkspaceAnchorSibling(t *testing.T) {
 	chats, _, nodes, gitStatus, uc := newWorkspacePlacementUsecase(t)
 	chats.Rows = append(chats.Rows,
-		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-1"},
-		domain.Chat{ID: "branch-2", Type: domain.ChatTypeBranch, WorkspaceID: "ws-branch-2"},
+		domain.Chat{ID: "branch-1", Type: domain.ChatTypeBranch, OwnsWorkspace: true, WorkspaceID: "ws-branch-1"},
+		domain.Chat{ID: "branch-2", Type: domain.ChatTypeBranch, OwnsWorkspace: true, WorkspaceID: "ws-branch-2"},
 	)
 	nodes.Rows = append(nodes.Rows,
 		domain.Node{ID: "ws-branch-1", Kind: domain.NodeKindWorkspace, Order: 0},

@@ -344,18 +344,9 @@ func (u *projectImport) Create(
 	if err := u.validateImportPath(path); err != nil {
 		return domain.Project{}, err
 	}
-	project := domain.Project{
-		ID:           uuid.NewString(),
-		Name:         name,
-		Path:         path,
-		LastActivity: u.deps.Now(),
-	}
-	if err := u.deps.Projects.Save(ctx, project); err != nil {
-		return domain.Project{}, fmt.Errorf("project create: save project: %w", err)
-	}
-	if err := u.createHomeWorkspace(ctx, project); err != nil {
-		u.rollbackProject(ctx, project.ID)
-		return domain.Project{}, fmt.Errorf("project create: home workspace: %w", err)
+	project, err := u.saveProjectWithHome(ctx, name, path)
+	if err != nil {
+		return domain.Project{}, fmt.Errorf("project create: %w", err)
 	}
 	return project, nil
 }
@@ -368,18 +359,9 @@ func (u *projectImport) Import(
 	if err := u.validateImportPath(path); err != nil {
 		return domain.Project{}, err
 	}
-	project := domain.Project{
-		ID:           uuid.NewString(),
-		Name:         name,
-		Path:         path,
-		LastActivity: u.deps.Now(),
-	}
-	if err := u.deps.Projects.Save(ctx, project); err != nil {
-		return domain.Project{}, fmt.Errorf("project import: save project: %w", err)
-	}
-	if err := u.createHomeWorkspace(ctx, project); err != nil {
-		u.rollbackProject(ctx, project.ID)
-		return domain.Project{}, fmt.Errorf("project import: home workspace: %w", err)
+	project, err := u.saveProjectWithHome(ctx, name, path)
+	if err != nil {
+		return domain.Project{}, fmt.Errorf("project import: %w", err)
 	}
 	if err := u.importRepos(ctx, project, path); err != nil {
 		return domain.Project{}, err
@@ -860,31 +842,42 @@ func (u *projectImport) addProtectedWorktree(
 	return sha, nil
 }
 
-// rollbackProject removes the project row of an import that failed after it
-// landed. Best-effort — the import's own failure is what the caller reports —
-// but never silent: a rollback that failed leaves a row behind.
-func (u *projectImport) rollbackProject(
-	ctx context.Context,
-	projectID string,
-) {
-	if err := u.deps.Projects.Delete(ctx, projectID); err != nil {
-		slog.ErrorContext(ctx, "project import: roll back the project row", "project", projectID, "err", err)
-	}
-}
 
-// createHomeWorkspace persists the project-level home workspace rooted at the
-// project's own path. It has no repo, branch, or git operations.
-func (u *projectImport) createHomeWorkspace(ctx context.Context, project domain.Project) error {
-	_, err := u.createOwnedWorkspace(ctx, workspace.CreateInput{
+// saveProjectWithHome creates the project's home workspace (rooted at the
+// project's own path; no repo, branch or git) and THEN saves the project row.
+// Saving the row announces the project, and a client asks for its home the
+// moment it hears of it, so the home has to exist first — there is no lazy
+// mint on the read. A row that fails to save takes its home back out.
+func (u *projectImport) saveProjectWithHome(
+	ctx context.Context,
+	name string,
+	path string,
+) (domain.Project, error) {
+	project := domain.Project{
 		ID:           uuid.NewString(),
+		Name:         name,
+		Path:         path,
+		LastActivity: u.deps.Now(),
+	}
+	home, err := u.createOwnedWorkspace(ctx, workspace.CreateInput{
+		// Deterministic, so a project can never get two homes (invariant D2).
+		ID:           workspace.ProjectHomeID(project.ID),
 		ProjectID:    project.ID,
 		WorktreePath: project.Path,
 		Kind:         domain.WorkspaceKindHome,
 	}, u.deps.Now())
 	if err != nil {
-		return fmt.Errorf("project create home workspace: %w", err)
+		return domain.Project{}, fmt.Errorf("home workspace: %w", err)
 	}
-	return nil
+	if err := u.deps.Projects.Save(ctx, project); err != nil {
+		// The tombstone's reactor forgets the home's chats and Node row too.
+		if dErr := u.deps.Workspaces.Delete(ctx, home.ID); dErr != nil {
+			slog.ErrorContext(ctx, "project import: roll back the home workspace",
+				"workspace_id", home.ID, "err", dErr)
+		}
+		return domain.Project{}, fmt.Errorf("save project: %w", err)
+	}
+	return project, nil
 }
 
 func (u *projectImport) validateImportPath(

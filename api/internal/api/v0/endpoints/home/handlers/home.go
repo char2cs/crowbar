@@ -35,18 +35,15 @@ func (h *Handlers) Get(c *gin.Context) {
 		dto.WorkspaceDTOFrom(c.Request.Context(), ws, wsrepo.MergeEligibility{}, owningChatID, nil))
 }
 
-// resolveOwningChatID answers the home workspace's real owning chat id for
-// the wire DTO: the chat handlers' own EnsureOwner when wired, which mints an
-// owner for a home none records one for — a home read over zero chats is
-// otherwise the one read that never mints, and the first thread started
-// there became the lone candidate. Without it, the same heuristic the
-// workspaces handlers use; an unwired chats seam degrades to "".
+// resolveOwningChatID answers the home workspace's owning chat id for the wire
+// DTO, through the chat handlers' OwnerOf when wired; an unwired seam degrades
+// to "".
 func (h *Handlers) resolveOwningChatID(
 	ctx context.Context,
 	ws domain.Workspace,
 ) string {
 	if h.owners != nil {
-		return h.owners.EnsureOwner(ctx, ws)
+		return h.owners.OwnerOf(ctx, ws)
 	}
 	if h.chats == nil {
 		return ""
@@ -55,7 +52,7 @@ func (h *Handlers) resolveOwningChatID(
 	if err != nil {
 		return ""
 	}
-	owner, ok := domain.ResolveOwningChat(rows, true)
+	owner, ok := domain.ResolveOwningChat(rows)
 	if !ok {
 		return ""
 	}

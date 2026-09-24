@@ -107,7 +107,7 @@ func TestRegression_List_AnOrdinaryForksPlacementReadsItsOwningChatsOwnFields(t 
 	uc := &configurableListGetUsecase{chats: []domain.Chat{
 		// The fork's owning chat, carrying the placement a real drag wrote —
 		// its OWN ParentID/Order, never a Node row.
-		{ID: "fork-chat", WorkspaceID: "ws-fork", ParentID: "branch-1", Order: 3},
+		{ID: "fork-chat", WorkspaceID: "ws-fork", ParentID: "branch-1", Order: 3, OwnsWorkspace: true},
 	}}
 	worktrees := &fakeWorktreeReads{rows: []domain.Workspace{
 		{ID: "ws-fork", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", Status: domain.WorkspaceStatusNew},
@@ -212,7 +212,7 @@ func TestList_ABubbleCarriesNoWorktree(t *testing.T) {
 // client.
 func TestList_EveryChatSharingAWorktreeNamesTheSameOwner(t *testing.T) {
 	uc := &configurableListGetUsecase{chats: []domain.Chat{
-		{ID: "owner", WorkspaceID: "ws-1", Type: domain.ChatTypeBranch},
+		{ID: "owner", WorkspaceID: "ws-1", OwnsWorkspace: true},
 		{ID: "thread", WorkspaceID: "ws-1", ParentID: "owner"},
 	}}
 	worktrees := &fakeWorktreeReads{
@@ -283,8 +283,8 @@ func TestList_UnwiredWorktreeReadsDegradeToAbsent(t *testing.T) {
 // its branch.
 func TestGet_ByIdCarriesTheWorktreeToo(t *testing.T) {
 	uc := &configurableListGetUsecase{
-		chat:  domain.Chat{ID: "c1", WorkspaceID: "ws-1"},
-		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws-1"}},
+		chat:  domain.Chat{ID: "c1", WorkspaceID: "ws-1", OwnsWorkspace: true},
+		chats: []domain.Chat{{ID: "c1", WorkspaceID: "ws-1", OwnsWorkspace: true}},
 	}
 	worktrees := &fakeWorktreeReads{rows: []domain.Workspace{
 		{ID: "ws-1", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", Added: 9},
@@ -337,20 +337,4 @@ func (m *mintingTree) DiscardOwningChat(
 ) error {
 	m.discards++
 	return nil
-}
-
-// EnsureOwner is the one chat-first mint with no compensating discard: every
-// other caller of MintOwningChat rolls the chat back when the step after it
-// fails (owning_chat.go's contract). Here a failed attach leaves a placed,
-// workspace-less "Untitled chat" under the parent row — and the next read
-// mints another one.
-func TestRegression_EnsureOwner_DiscardsTheMintedChatWhenAttachFails(t *testing.T) {
-	tree := &mintingTree{}
-	h := handlers.New(&fakeAgentUsecase{}, &fakeAgentUsecase{}, &fakeAgentUsecase{}, &fakeAgentUsecase{}, &fakeAgentUsecase{}, tree, nil)
-
-	owner := h.EnsureOwner(context.Background(), domain.Workspace{ID: "ws-legacy", ParentID: "ws-main"})
-
-	assert.Equal(t, "", owner)
-	require.Equal(t, 1, tree.minted)
-	assert.Equal(t, 1, tree.discards, "the minted chat must not outlive the failed attach")
 }

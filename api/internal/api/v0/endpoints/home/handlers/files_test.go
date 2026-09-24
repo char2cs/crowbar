@@ -124,7 +124,7 @@ func TestFileTree_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("storage down"))
 	files := &mockFiles{}
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.GET("/projects/:projectId/home/files/tree", h.FileTree)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-x/home/files/tree", nil)
@@ -141,7 +141,7 @@ func TestFileTree_ErrorFromUsecase_Returns500(t *testing.T) {
 	files.On("Tree", mock.Anything, "ws-1", ".", mock.Anything).
 		Return(nil, errors.New("boom"))
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.GET("/projects/:projectId/home/files/tree", h.FileTree)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/files/tree", nil)
@@ -158,7 +158,7 @@ func TestFileTree_NilNodes_ReturnsEmptyArray(t *testing.T) {
 	files.On("Tree", mock.Anything, "ws-1", "sub", mock.Anything).
 		Return(nil, nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.GET("/projects/:projectId/home/files/tree", h.FileTree)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/files/tree?path=sub", nil)
@@ -183,7 +183,7 @@ func TestFileContent_Returns200WithContent(t *testing.T) {
 	files.On("ReadContent", mock.Anything, "ws-1", "a.txt").
 		Return(domain.FileContent{Content: "hello"}, nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.GET("/projects/:projectId/home/files/content", h.FileContent)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/files/content?path=a.txt", nil)
@@ -202,7 +202,7 @@ func TestFileContent_MissingPath_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.GET("/projects/:projectId/home/files/content", h.FileContent)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/files/content", nil)
@@ -218,7 +218,7 @@ func TestFileContent_NotFound_Returns404(t *testing.T) {
 	files.On("ReadContent", mock.Anything, "ws-1", "missing.txt").
 		Return(domain.FileContent{}, apperr.ErrNotFound)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.GET("/projects/:projectId/home/files/content", h.FileContent)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-1/home/files/content?path=missing.txt", nil)
@@ -234,7 +234,7 @@ func TestFileContent_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("storage down"))
 	files := &mockFiles{}
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.GET("/projects/:projectId/home/files/content", h.FileContent)
 
 	rec := doReq(r, http.MethodGet, "/projects/proj-x/home/files/content?path=a.txt", nil)
@@ -253,7 +253,7 @@ func TestSaveFileContent_Returns200(t *testing.T) {
 	files.On("WriteContent", mock.Anything, "ws-1", "a.txt", "new body", "", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
 
 	rec := doReq(r, http.MethodPut, "/projects/proj-1/home/files/content", map[string]any{
@@ -268,7 +268,7 @@ func TestSaveFileContent_BadJSON_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
 
 	rec := httptest.NewRecorder()
@@ -283,7 +283,7 @@ func TestSaveFileContent_MissingPath_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
 
 	rec := doReq(r, http.MethodPut, "/projects/proj-1/home/files/content", map[string]any{"content": "x"})
@@ -302,7 +302,7 @@ func TestSaveFileContent_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("storage down"))
 	files := &mockFiles{}
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
 
 	rec := doReq(r, http.MethodPut, "/projects/proj-x/home/files/content", map[string]any{
@@ -321,7 +321,7 @@ func TestSaveFileContent_UsecaseError_Returns500(t *testing.T) {
 	files.On("WriteContent", mock.Anything, "ws-1", "a.txt", "x", "", mock.AnythingOfType("time.Time")).
 		Return(errors.New("disk full"))
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.PUT("/projects/:projectId/home/files/content", h.SaveFileContent)
 
 	rec := doReq(r, http.MethodPut, "/projects/proj-1/home/files/content", map[string]any{
@@ -341,7 +341,7 @@ func TestCreateFile_File_Returns201(t *testing.T) {
 	files.On("CreateFile", mock.Anything, "ws-1", "new.txt", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files", h.CreateFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files", map[string]any{"path": "new.txt"})
@@ -358,7 +358,7 @@ func TestCreateFile_Directory_Returns201(t *testing.T) {
 	files.On("CreateDir", mock.Anything, "ws-1", "newdir", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files", h.CreateFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files", map[string]any{"path": "newdir", "type": "dir"})
@@ -375,7 +375,7 @@ func TestCreateFile_DirectoryTypeAlias_Returns201(t *testing.T) {
 	files.On("CreateDir", mock.Anything, "ws-1", "newdir2", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files", h.CreateFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files", map[string]any{"path": "newdir2", "type": "directory"})
@@ -392,7 +392,7 @@ func TestCreateFile_DirectoryUsecaseError_Returns500(t *testing.T) {
 	files.On("CreateDir", mock.Anything, "ws-1", "faildir", mock.AnythingOfType("time.Time")).
 		Return(errors.New("mkdir failed"))
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files", h.CreateFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files", map[string]any{"path": "faildir", "type": "dir"})
@@ -405,7 +405,7 @@ func TestCreateFile_MissingPath_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files", h.CreateFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files", map[string]any{})
@@ -424,7 +424,7 @@ func TestCreateFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("storage down"))
 	files := &mockFiles{}
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files", h.CreateFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-x/home/files", map[string]any{"path": "new.txt"})
@@ -442,7 +442,7 @@ func TestCreateFile_BadJSON_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files", h.CreateFile)
 
 	rec := httptest.NewRecorder()
@@ -461,7 +461,7 @@ func TestCreateFile_AlreadyExists_ReturnsConflictMapping(t *testing.T) {
 	files.On("CreateFile", mock.Anything, "ws-1", "exists.txt", mock.AnythingOfType("time.Time")).
 		Return(errors.New("already exists"))
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files", h.CreateFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files", map[string]any{"path": "exists.txt"})
@@ -479,7 +479,7 @@ func TestCopyFile_Returns201(t *testing.T) {
 	files.On("Copy", mock.Anything, "ws-1", "a.txt", "a copy.txt", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files/copy", map[string]any{
@@ -494,7 +494,7 @@ func TestCopyFile_MissingFields_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files/copy", map[string]any{"sourcePath": "a.txt"})
@@ -506,7 +506,7 @@ func TestCopyFile_BadJSON_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
 
 	rec := httptest.NewRecorder()
@@ -527,7 +527,7 @@ func TestCopyFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("storage down"))
 	files := &mockFiles{}
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-x/home/files/copy", map[string]any{
@@ -546,7 +546,7 @@ func TestCopyFile_UsecaseError_Returns404WhenNotFound(t *testing.T) {
 	files.On("Copy", mock.Anything, "ws-1", "ghost.txt", "ghost copy.txt", mock.AnythingOfType("time.Time")).
 		Return(errors.New("no such file or directory"))
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.POST("/projects/:projectId/home/files/copy", h.CopyFile)
 
 	rec := doReq(r, http.MethodPost, "/projects/proj-1/home/files/copy", map[string]any{
@@ -566,7 +566,7 @@ func TestRenameFile_Returns200(t *testing.T) {
 	files.On("Rename", mock.Anything, "ws-1", "old.txt", "new.txt", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
 
 	rec := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{
@@ -590,7 +590,7 @@ func TestRegression_RenameFile_AcceptsPathNewPathContract(t *testing.T) {
 	files.On("Rename", mock.Anything, "ws-1", "a.txt", "b.txt", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
 
 	rec := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{
@@ -619,7 +619,7 @@ func TestRenameFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("storage down"))
 	files := &mockFiles{}
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
 
 	rec := doReq(r, http.MethodPatch, "/projects/proj-x/home/files", map[string]any{
@@ -634,7 +634,7 @@ func TestRenameFile_MissingFields_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
 
 	rec := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{"path": "old.txt"})
@@ -646,7 +646,7 @@ func TestRenameFile_BadJSON_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
 
 	rec := httptest.NewRecorder()
@@ -665,7 +665,7 @@ func TestRenameFile_UsecaseError_Returns404WhenNotFound(t *testing.T) {
 	files.On("Rename", mock.Anything, "ws-1", "ghost.txt", "new.txt", mock.AnythingOfType("time.Time")).
 		Return(errors.New("no such file or directory"))
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.PATCH("/projects/:projectId/home/files", h.RenameFile)
 
 	rec := doReq(r, http.MethodPatch, "/projects/proj-1/home/files", map[string]any{
@@ -685,7 +685,7 @@ func TestDeleteFile_JSONBody_Returns200(t *testing.T) {
 	files.On("Delete", mock.Anything, "ws-1", "a.txt", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.DELETE("/projects/:projectId/home/files", h.DeleteFile)
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-1/home/files", map[string]any{"path": "a.txt"})
@@ -702,7 +702,7 @@ func TestDeleteFile_QueryParamFallback_Returns200(t *testing.T) {
 	files.On("Delete", mock.Anything, "ws-1", "b.txt", mock.AnythingOfType("time.Time")).
 		Return(nil)
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.DELETE("/projects/:projectId/home/files", h.DeleteFile)
 
 	// No body at all — DELETE with an empty request falls through ShouldBindJSON's
@@ -724,7 +724,7 @@ func TestDeleteFile_WorkspaceResolutionFails_NoUsecaseCall(t *testing.T) {
 		Return(domain.Workspace{}, errors.New("storage down"))
 	files := &mockFiles{}
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.DELETE("/projects/:projectId/home/files", h.DeleteFile)
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-x/home/files", map[string]any{"path": "a.txt"})
@@ -737,7 +737,7 @@ func TestDeleteFile_MissingPath_Returns400(t *testing.T) {
 	r := gin.New()
 
 	reader := homeWorkspaceReader(t, "proj-1", "ws-1")
-	h := handlers.New(reader, nil, &mockFiles{}, nil, stubWork{})
+	h := handlers.New(reader, &mockFiles{}, nil, stubWork{})
 	r.DELETE("/projects/:projectId/home/files", h.DeleteFile)
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-1/home/files", nil)
@@ -753,7 +753,7 @@ func TestDeleteFile_UsecaseError_Returns500(t *testing.T) {
 	files.On("Delete", mock.Anything, "ws-1", "a.txt", mock.AnythingOfType("time.Time")).
 		Return(errors.New("permission denied"))
 
-	h := handlers.New(reader, nil, files, nil, stubWork{})
+	h := handlers.New(reader, files, nil, stubWork{})
 	r.DELETE("/projects/:projectId/home/files", h.DeleteFile)
 
 	rec := doReq(r, http.MethodDelete, "/projects/proj-1/home/files", map[string]any{"path": "a.txt"})
