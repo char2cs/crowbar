@@ -55,6 +55,17 @@ func (b *baseEra) workspace(
 		"INSERT OR REPLACE INTO read_workspaces (id, data) VALUES (?, ?)", ws.ID, data).Error)
 }
 
+// chat writes c as base did; base's chat JSON has the current shape.
+func (b *baseEra) chat(
+	c domain.Chat,
+) {
+	b.t.Helper()
+	data := b.appendEvent(b.adapters.AgentChatES(), "agentchat.created."+c.ID, c.ID, 1, c)
+	require.NoError(b.t, b.adapters.AgentChatReadDB().Exec(
+		"INSERT OR REPLACE INTO agent_chats_read (id, workspace_id, data) VALUES (?, ?, ?)",
+		c.ID, c.WorkspaceID, data).Error)
+}
+
 // tombstone records the delete of an existing workspace as the delete command
 // writes it — the event a crash can leave with the purge still to run.
 func (b *baseEra) tombstone(
