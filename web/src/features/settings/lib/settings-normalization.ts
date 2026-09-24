@@ -22,6 +22,16 @@ const RENDER_WHITESPACE_MODES = new Set<Settings['renderWhitespace']>([
   'trailing',
   'all',
 ])
+// The static "Geist Mono" cut is no longer bundled; its variable cut replaces it.
+const REMOVED_STATIC_GEIST_MONO = /^(\s*)(['"]?)Geist Mono\2(\s*(?:,|$))/i
+
+function normalizeMonoFontFamily(fontFamily: string): string {
+  return normalizeConfiguredFontFamily(fontFamily, DEFAULT_MONO_FONT_FAMILY).replace(
+    REMOVED_STATIC_GEIST_MONO,
+    '$1$2Geist Mono Variable$2$3',
+  )
+}
+
 function normalizeEditorLineHeight(value: number): number {
   if (!Number.isFinite(value)) {
     return 1.4
@@ -94,13 +104,9 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.markdownFontSize = normalizeMarkdownFontSize(
     (normalizedSettings as { markdownFontSize?: unknown }).markdownFontSize,
   )
-  normalizedSettings.fontFamily = normalizeConfiguredFontFamily(
-    normalizedSettings.fontFamily,
-    DEFAULT_MONO_FONT_FAMILY,
-  )
-  normalizedSettings.terminalFontFamily = normalizeConfiguredFontFamily(
+  normalizedSettings.fontFamily = normalizeMonoFontFamily(normalizedSettings.fontFamily)
+  normalizedSettings.terminalFontFamily = normalizeMonoFontFamily(
     normalizedSettings.terminalFontFamily,
-    DEFAULT_MONO_FONT_FAMILY,
   )
   normalizedSettings.uiFontFamily = normalizeConfiguredFontFamily(
     normalizedSettings.uiFontFamily,
@@ -146,12 +152,8 @@ export function normalizeSettingValue<K extends keyof Settings>(
     return normalizeMarkdownFontSize(value) as Settings[K]
   }
 
-  if (key === 'fontFamily') {
-    return normalizeConfiguredFontFamily(value as string, DEFAULT_MONO_FONT_FAMILY) as Settings[K]
-  }
-
-  if (key === 'terminalFontFamily') {
-    return normalizeConfiguredFontFamily(value as string, DEFAULT_MONO_FONT_FAMILY) as Settings[K]
+  if (key === 'fontFamily' || key === 'terminalFontFamily') {
+    return normalizeMonoFontFamily(value as string) as Settings[K]
   }
 
   if (key === 'uiFontFamily') {
