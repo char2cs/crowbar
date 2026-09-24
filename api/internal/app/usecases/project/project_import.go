@@ -176,6 +176,7 @@ type ImportGitEngine interface {
 		ctx context.Context,
 		repoPath string,
 		worktreePath string,
+		force bool,
 	) error
 	// RevParse resolves a rev (e.g. a branch name) to a commit SHA, recorded as a
 	// managed worktree's fork point.
@@ -798,7 +799,7 @@ func (u *projectImport) provisionProtectedBranchWorktree(
 	if _, err := u.createOwnedWorkspace(ctx, in, u.deps.Now()); err != nil {
 		// The row failed after the worktree was created on disk — remove the
 		// orphaned worktree so a later retry can recreate it cleanly.
-		if rmErr := u.deps.Git.WorktreeRemove(ctx, repo.Path, path); rmErr != nil {
+		if rmErr := u.deps.Git.WorktreeRemove(ctx, repo.Path, path, true); rmErr != nil {
 			slog.WarnContext(ctx, "project import: failed to clean up orphaned worktree",
 				"path", path, "error", rmErr)
 		}

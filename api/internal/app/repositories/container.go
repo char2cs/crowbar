@@ -1105,11 +1105,22 @@ var workspaceRootOwned = []string{"worktree", "chats", "storages", "threads", ".
 // beside the managed one, so deleting that workspace would have taken 4.5GB of
 // checkouts Crowbar never created. A foreign entry now keeps the root alive and
 // is reported instead of destroyed.
+//
+// The worktree leaf is the one owned entry it may still refuse: while it holds a
+// `.git` link it is a checkout git still has registered — one `git worktree
+// remove` declined, typically a protected worktree holding uncommitted work
+// (spec §3 P0-1). Git owns removing a registered worktree; an rm -rf would
+// both destroy that work and leave a dangling registration in the user's repo.
 func removeWorkspaceRoot(
 	root string,
 ) error {
 	for _, name := range workspaceRootOwned {
-		if err := os.RemoveAll(filepath.Join(root, name)); err != nil {
+		entry := filepath.Join(root, name)
+		if name == "worktree" && isLiveCheckout(entry) {
+			slog.Warn("repositories: keeping a worktree git still has registered", "worktree", entry)
+			continue
+		}
+		if err := os.RemoveAll(entry); err != nil {
 			return err
 		}
 	}
@@ -1128,6 +1139,13 @@ func removeWorkspaceRoot(
 	slog.Warn("repositories: workspace root kept; it holds entries crowbar did not create",
 		"root", root, "kept", kept)
 	return nil
+}
+
+// isLiveCheckout reports whether dir is a git checkout: it holds a `.git`
+// entry (a file, for a linked worktree).
+func isLiveCheckout(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
 }
 
 // pruneEmptiedWorkspaceParents removes the directories a workspace-root removal

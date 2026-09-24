@@ -424,9 +424,10 @@ func TestDeleteRepo_FindError_5xx(
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-// TestDeleteRepo_DeleteError_NoBroadcast pins that a failed background delete
-// broadcasts no tombstone.
-func TestDeleteRepo_DeleteError_NoBroadcast(
+// TestDeleteRepo_DeleteError_ReannouncesTheRepo pins that a failed background
+// delete broadcasts no tombstone — and is not silent either: the repo the client
+// was told is being deleted is announced again as still present.
+func TestDeleteRepo_DeleteError_ReannouncesTheRepo(
 	t *testing.T,
 ) {
 	home := t.TempDir()
@@ -447,6 +448,10 @@ func TestDeleteRepo_DeleteError_NoBroadcast(
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
+	h.WaitAsync()
+	frame := <-bc.ch
+	assert.Equal(t, "r1", frame.ID)
+	assert.Empty(t, frame.Status, "the repo is re-announced live, never tombstoned")
 	assertNoBroadcast(t, h, bc)
 }
 

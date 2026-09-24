@@ -279,7 +279,8 @@ func TestRegression_WorktreeRemover_KeepsForeignSiblingsInTheWorkspaceRoot(t *te
 	worktreeLeaf := filepath.Join(root, "worktree")
 
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "chats", "chatA"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(worktreeLeaf, ".git"), 0o755))
+	// What `git worktree remove` left of the leaf: untracked litter, no .git link.
+	require.NoError(t, os.MkdirAll(filepath.Join(worktreeLeaf, "node_modules"), 0o755))
 	// A worktree someone else created beside the managed one, holding real work.
 	foreign := filepath.Join(root, "wt-p3.31-dropdown")
 	require.NoError(t, os.MkdirAll(filepath.Join(foreign, "src"), 0o755))
@@ -295,4 +296,24 @@ func TestRegression_WorktreeRemover_KeepsForeignSiblingsInTheWorkspaceRoot(t *te
 		"a worktree crowbar did not create must survive the delete")
 	assert.DirExists(t, root,
 		"the root must survive while a foreign entry is still in it")
+}
+
+// A worktree leaf that still holds its `.git` link is a checkout git still has
+// registered — one `git worktree remove` refused, like a protected worktree with
+// uncommitted work (spec §3 P0-1). The purger must not rm -rf it: that would
+// destroy the work and leave a dangling registration in the user's repository.
+func TestRegression_WorktreeRemover_KeepsACheckoutGitStillRegisters(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "projects", "p1", "repo", "workspaces", "w1")
+	worktreeLeaf := filepath.Join(root, "worktree")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "chats", "chatA"), 0o755))
+	require.NoError(t, os.MkdirAll(worktreeLeaf, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(worktreeLeaf, ".git"), []byte("gitdir: /repo/.git/worktrees/w1"), 0o644))
+	unsaved := filepath.Join(worktreeLeaf, "unsaved.txt")
+	require.NoError(t, os.WriteFile(unsaved, []byte("work"), 0o644))
+
+	require.NoError(t, worktreeRemover(home)(worktreeLeaf))
+
+	assert.FileExists(t, unsaved, "uncommitted work in a registered checkout survives")
+	assert.NoDirExists(t, filepath.Join(root, "chats"), "crowbar's own chats tree still goes")
 }

@@ -50,6 +50,9 @@ type CreateInput struct {
 	IsDefault     bool
 	Kind          domain.WorkspaceKind
 	HeldByPath    string
+	// CreatedBranch: Crowbar created Branch for this workspace, so a teardown
+	// may delete it (domain.Workspace.CreatedBranch).
+	CreatedBranch bool
 }
 
 // SyncInput carries a recomputed working-tree summary.
@@ -474,6 +477,7 @@ func (w *workspace) Create(
 		MergeStrategy: in.MergeStrategy,
 		Kind:          in.Kind,
 		HeldByPath:    in.HeldByPath,
+		CreatedBranch: in.CreatedBranch,
 		Now:           now,
 	})
 	if err != nil {

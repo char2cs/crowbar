@@ -118,7 +118,7 @@ func TestWorktreeAdd_ExecError(t *testing.T) {
 
 func TestWorktreeRemove_ExecError(t *testing.T) {
 	ctx := context.Background()
-	err := errEngine().WorktreeRemove(ctx, t.TempDir(), "/tmp/wt")
+	err := errEngine().WorktreeRemove(ctx, t.TempDir(), "/tmp/wt", true)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "injected exec error")
 }

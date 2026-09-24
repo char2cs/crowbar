@@ -626,14 +626,16 @@ type GitEngine struct {
 	CheckedOut   []WorktreeAddCall // (path, branch) re-attach calls
 	WorktreeAdds []WorktreeAddCall // (path, branch) worktrees materialised, by EITHER add
 	//nolint:lll // the trailing note is the point: this log is the -B subset of WorktreeAdds.
-	WorktreeAddAtRefs      []WorktreeAddAtRefCall // the subset added AT a start ref (`git worktree add -B`)
-	WorktreeRemoves        []string               // worktree paths force-removed
-	FetchedRefs            []string               // branches fetched from origin (FetchRef)
-	FastForwardedBranches  []string               // branches fast-forwarded from origin (FastForwardBranch)
-	RemoteBranches         map[string]bool        // branch -> exists on origin live (default false)
-	RemoteTrackingBranches map[string]bool        // branch -> local refs/remotes/origin/<branch> present (default false)
-	RevParseShas           map[string]string      // rev -> sha (default "")
-	DetachErr              error                  // forces DetachWorktree to fail
+	WorktreeAddAtRefs []WorktreeAddAtRefCall // the subset added AT a start ref (`git worktree add -B`)
+	WorktreeRemoves   []string               // worktree paths removed
+	// WorktreeRemovesUnforced are the removals asked for WITHOUT --force.
+	WorktreeRemovesUnforced []string
+	FetchedRefs             []string          // branches fetched from origin (FetchRef)
+	FastForwardedBranches   []string          // branches fast-forwarded from origin (FastForwardBranch)
+	RemoteBranches          map[string]bool   // branch -> exists on origin live (default false)
+	RemoteTrackingBranches  map[string]bool   // branch -> local refs/remotes/origin/<branch> present (default false)
+	RevParseShas            map[string]string // rev -> sha (default "")
+	DetachErr               error             // forces DetachWorktree to fail
 	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
 	WorktreeAddErrByBranch map[string]error
 	// Pruned records repo paths WorktreePrune was called on.
@@ -820,7 +822,11 @@ func (g *GitEngine) WorktreeRemove(
 	ctx context.Context,
 	repoPath string,
 	worktreePath string,
+	force bool,
 ) error {
+	if !force {
+		g.WorktreeRemovesUnforced = append(g.WorktreeRemovesUnforced, worktreePath)
+	}
 	if g.WorktreeRemoveErr != nil {
 		return g.WorktreeRemoveErr
 	}

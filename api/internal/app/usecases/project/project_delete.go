@@ -58,6 +58,7 @@ type DeleteGitEngine interface {
 		ctx context.Context,
 		repoPath string,
 		worktreePath string,
+		force bool,
 	) error
 	ForceDeleteBranch(
 		ctx context.Context,
@@ -283,9 +284,14 @@ func (u *projectDelete) removeWorktreeIfCrowbarManaged(
 	if !strings.HasPrefix(ws.WorktreePath, home+"/") {
 		return
 	}
-	if err := u.deps.Git.WorktreeRemove(ctx, repo.Path, ws.WorktreePath); err != nil {
+	if err := u.deps.Git.WorktreeRemove(ctx, repo.Path, ws.WorktreePath, true); err != nil {
 		slog.WarnContext(ctx, "project delete: worktree remove failed; continuing record cascade",
 			"workspace_id", ws.ID, "worktree_path", ws.WorktreePath, "err", err)
+		return
+	}
+	// Only a branch Crowbar created goes with its workspace; the default branch
+	// and any branch that existed before the workspace are the user's.
+	if !ws.CreatedBranch || ws.Branch == "" || ws.Branch == repo.DefaultBranch {
 		return
 	}
 	if err := u.deps.Git.ForceDeleteBranch(ctx, repo.Path, ws.Branch); err != nil {

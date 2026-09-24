@@ -265,14 +265,14 @@ type Usecase interface {
 		ctx context.Context,
 		rootID string,
 	) error
-	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo's
-	// path from the caller rather than resolving it from the (possibly
-	// already-deleted) repo row.
+	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo
+	// (path + default branch) from the caller rather than resolving it from the
+	// (possibly already-deleted) repo row. It never deletes a branch Crowbar did
+	// not create and never --forces a locked worktree.
 	DeleteRepoWorkspaces(
 		ctx context.Context,
-		repoID string,
-		repoPath string,
-	) ([]string, error)
+		repo domain.Repository,
+	) error
 	// SetChatObserver wires the chat-usecase surface guardReparent's
 	// working-chat check needs (invariant 5). It is a post-construction setter
 	// because the chat usecase itself depends on this one (Promote forks a

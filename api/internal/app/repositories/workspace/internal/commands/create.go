@@ -24,6 +24,7 @@ type CreateWorkspace struct {
 	MergeStrategy gitdomain.MergeStrategy
 	Kind          domain.WorkspaceKind
 	HeldByPath    string
+	CreatedBranch bool
 	Now           time.Time
 }
 
@@ -84,6 +85,7 @@ func (c CreateWorkspace) EmitEvent(
 		IsDefault:     c.IsDefault,
 		Kind:          kind,
 		HeldByPath:    c.HeldByPath,
+		CreatedBranch: c.CreatedBranch,
 		LastActivity:  c.Now,
 		CreatedAt:     c.Now,
 	}

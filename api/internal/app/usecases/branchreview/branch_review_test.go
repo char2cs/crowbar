@@ -387,7 +387,7 @@ func (g *mockGitEngine) WorktreeAdd(ctx context.Context, repoPath, worktreePath,
 	return nil
 }
 
-func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePath string) error {
+func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePath string, _ bool) error {
 	return nil
 }
 

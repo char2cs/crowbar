@@ -297,11 +297,15 @@ type Engine interface {
 		branch string,
 	) error
 
-	// WorktreeRemove removes a git worktree (--force) (04 / 07).
+	// WorktreeRemove removes a git worktree (04 / 07). force passes --force,
+	// discarding uncommitted changes; without it git refuses a dirty worktree,
+	// which is the only safe way to remove one whose work is not Crowbar's to
+	// throw away (a protected or locked worktree).
 	WorktreeRemove(
 		ctx context.Context,
 		repoPath string,
 		worktreePath string,
+		force bool,
 	) error
 
 	// WorktreeRepair repoints the repo's admin files at a worktree that has

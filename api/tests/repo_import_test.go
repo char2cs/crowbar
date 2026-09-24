@@ -288,12 +288,8 @@ func TestRegression_RepoImport_ProtectedBranchHeldByAnOrphanWorktree_StillGetsAR
 	readUntil(t, reposWS, func(m map[string]any) bool {
 		return m["id"] == firstRepoID && m["status"] == "deleted"
 	})
-	// The tombstone above fires BEFORE removeRepoWorkspaces even runs (DeleteRepo
-	// broadcasts "deleted" first so a loaded machine still admits the delete
-	// promptly, then tears the workspace down off the request path — see its own
-	// doc comment). A single QuiesceReactors call made right here can therefore
-	// observe nothing dispatched yet and return having drained none of the
-	// cascade: waitWorkspaceGone below is what actually joins it.
+	// The tombstone above fires once every workspace of the repo has been
+	// tombstoned; waitWorkspaceGone joins the delete reactor that purges them.
 	waitWorkspaceGone(t, h, orphan.ID)
 	// --force because the cascade above only guarantees the ROW (and the git
 	// teardown that precedes it) is gone, not that a later step (e.g. a

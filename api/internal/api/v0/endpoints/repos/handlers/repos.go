@@ -103,21 +103,6 @@ type WorkspaceReader interface {
 	List(ctx context.Context) ([]domain.Workspace, error)
 }
 
-// WorkspacePurger drops a workspace ROW outright.
-//
-// It is the backstop for the repo cascade: DeleteCascade refuses a LOCKED
-// workspace, which is right when a user deletes one on its own — a protected
-// branch owns its worktree — and wrong when the repo it belongs to is going.
-// Without this, the repo's protected-branch placeholder outlives its repo as a
-// record nothing can resolve or ever delete again.
-//
-// Deliberately NOT folded into WorkspaceReader: a reader that deletes is a lie
-// about what a dependency is allowed to do, and the Branches endpoint takes the
-// reader precisely because it should not be able to.
-type WorkspacePurger interface {
-	Delete(ctx context.Context, id string) error
-}
-
 // WorkspaceRemover is the one operation a repo delete needs from the workspace
 // side: retire a workspace through the SAME path a user-initiated delete takes,
 // so the worktree is unregistered from git, its root is removed and its record
@@ -128,7 +113,7 @@ type WorkspacePurger interface {
 // workspace record orphaned, and a live worktree registration in the user's own
 // repository for each one.
 type WorkspaceRemover interface {
-	DeleteRepoWorkspaces(ctx context.Context, repoID, repoPath string) ([]string, error)
+	DeleteRepoWorkspaces(ctx context.Context, repo domain.Repository) error
 }
 
 // RemoteRefresher is the narrow git surface the Branches handler uses to make
@@ -212,7 +197,6 @@ type Handlers struct {
 	provider    BranchProviderEngine
 	wsReader    WorkspaceReader
 	wsRemover   WorkspaceRemover
-	wsPurger    WorkspacePurger
 	remote      RemoteRefresher
 	importer    RepoImporter
 	updater     RepoUpdater
@@ -270,10 +254,8 @@ func NewWithDeps(
 // workspaces are unaffected, and any real wiring passes one.
 func (h *Handlers) WithWorkspaceRemover(
 	remover WorkspaceRemover,
-	purger WorkspacePurger,
 ) *Handlers {
 	h.wsRemover = remover
-	h.wsPurger = purger
 	return h
 }
 
@@ -752,11 +734,19 @@ func (h *Handlers) bindRepoUpdate(
 
 // DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. It validates
 // the repo exists synchronously (4xx if not), then returns 202 and runs the
-// removal in the background: the GORM record is deleted and the entity-scoped
-// repo directory (worktrees, icon, storages) is torn down on disk. A
-// deleted-status RepoDTO tombstone is broadcast on the Repos WebSocket stream
-// so the client cache drops the entity (00 §6). The user's real repository
-// directory (repo.Path) is never touched — only the ~/.crowbar entity dir.
+// removal in the background, in the one order a crash cannot corrupt:
+//
+//  1. every workspace of the repo is retired through the workspace cascade —
+//     its git teardown, then its tombstone, which the delete reactor (or, after
+//     a crash, the boot sweep) finishes physically;
+//  2. only then is the repo row deleted, with its Node row and entity
+//     directory, and the deleted-status RepoDTO tombstone broadcast.
+//
+// Deleting the row FIRST left workspaces a crash could strand with no repo to
+// resolve, and ran their teardown without the default branch (spec §3 P0-1).
+// A failure is never silent: the repo is re-broadcast as still present, so the
+// client does not believe in a removal that did not happen. The user's real
+// repository directory (repo.Path) is never touched.
 func (h *Handlers) DeleteRepo(
 	c *gin.Context,
 ) {
@@ -773,17 +763,16 @@ func (h *Handlers) DeleteRepo(
 		return
 	}
 	home, _ := h.crowbarHome()
-	repoPath := repo.Path
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
-		// The ROW goes first, and the tombstone with it. It is the one step that
-		// can still refuse, so a failure has to reach the client as "still there"
-		// rather than a repo it was told had gone. Everything after this is
-		// teardown the client does not wait for: the cascade removes a worktree
-		// per workspace with synchronous git work in each, and holding the frame
-		// behind all of it made a loaded machine take over half a minute to admit
-		// a repo was deleted.
+		if err := h.removeRepoWorkspaces(ctx, *repo); err != nil {
+			slog.ErrorContext(ctx, "delete repo: remove workspaces; the repo stays", "repo", repoID, "err", err)
+			h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(ctx, repoID)))
+			return
+		}
 		if err := h.store.Delete(ctx, repoID); err != nil {
+			slog.ErrorContext(ctx, "delete repo: delete row; the repo stays", "repo", repoID, "err", err)
+			h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(ctx, repoID)))
 			return
 		}
 		// The header's slot goes with the row, or a ghost keeps counting in
@@ -794,71 +783,23 @@ func (h *Handlers) DeleteRepo(
 			}
 		}
 		h.broadcast(dto.RepoDTO{ID: repoID, ProjectID: projectID, Status: "deleted"})
-		// repoPath was read BEFORE the row was deleted, which is what lets this
-		// run afterwards. Without it the cascade cannot resolve the repo, skips
-		// `git worktree remove`, and leaves a live worktree registration in the
-		// user's own repository for every workspace.
-		h.removeRepoWorkspaces(ctx, repoID, repoPath)
 		if home != "" {
-			_ = os.RemoveAll(repoDir(home, projectID, repoID))
+			if err := os.RemoveAll(repoDir(home, projectID, repoID)); err != nil {
+				slog.ErrorContext(ctx, "delete repo: remove entity dir", "repo", repoID, "err", err)
+			}
 		}
 	})
 }
 
-// removeRepoWorkspaces retires every workspace belonging to the repo, then drops
-// any row the cascade could not take.
+// removeRepoWorkspaces retires every workspace belonging to the repo.
 func (h *Handlers) removeRepoWorkspaces(
 	ctx context.Context,
-	repoID string,
-	repoPath string,
-) {
+	repo domain.Repository,
+) error {
 	if h.wsRemover == nil {
-		return
+		return nil
 	}
-	handled, err := h.wsRemover.DeleteRepoWorkspaces(ctx, repoID, repoPath)
-	if err != nil {
-		slog.ErrorContext(ctx, "delete repo: remove workspaces", "repo", repoID, "err", err)
-	}
-	done := make(map[string]struct{}, len(handled))
-	for _, id := range handled {
-		done[id] = struct{}{}
-	}
-	h.purgeRemainingWorkspaceRows(ctx, repoID, done)
-}
-
-// purgeRemainingWorkspaceRows drops any row the cascade would not take — the
-// repo's locked, protected-branch placeholders. Their worktrees, where they have
-// one, were already removed by the cascade above; what is left is a record whose
-// repo no longer exists, and nothing can ever resolve or delete it again.
-func (h *Handlers) purgeRemainingWorkspaceRows(
-	ctx context.Context,
-	repoID string,
-	done map[string]struct{},
-) {
-	if h.wsPurger == nil {
-		return
-	}
-	all, err := h.wsReader.List(ctx)
-	if err != nil {
-		return
-	}
-	for _, ws := range all {
-		if ws.RepoID != repoID {
-			continue
-		}
-		// Already taken by the cascade. The list above is a READ MODEL and lags
-		// the aggregate, so a row can still read as live here when its aggregate
-		// is already deleted; deleting it again emits a second tombstone, and the
-		// two delete reactors race — the loser fails its Forget on a version
-		// conflict and holds the drain gate open long after the repo is gone.
-		if _, taken := done[ws.ID]; taken {
-			continue
-		}
-		if err := h.wsPurger.Delete(ctx, ws.ID); err != nil {
-			slog.ErrorContext(ctx, "delete repo: purge workspace row",
-				"repo", repoID, "ws", ws.ID, "err", err)
-		}
-	}
+	return h.wsRemover.DeleteRepoWorkspaces(ctx, repo)
 }
 
 // repoDir mirrors worktreepath.RepoDir without importing the usecase-internal

@@ -129,7 +129,6 @@ func (c *Container) Register(
 		c.app.Repositories.Node,
 		c.eng.Git,
 		c.app.Usecases.Workspace,
-		c.app.Repositories.Workspace,
 		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
 		ws.DualServe,

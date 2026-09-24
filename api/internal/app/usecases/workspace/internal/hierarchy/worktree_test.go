@@ -535,8 +535,9 @@ func (f *fakeGit) WorktreeRemove(
 	_ context.Context,
 	repoPath string,
 	worktreePath string,
+	force bool,
 ) error {
-	f.record("WorktreeRemove", repoPath, worktreePath)
+	f.record("WorktreeRemove", repoPath, worktreePath, fmt.Sprint(force))
 	return f.removeErr
 }
 
@@ -814,6 +815,7 @@ func TestCreateChild_RemoteBranchAbsent_CreatesLocal(t *testing.T) {
 	assert.Equal(t, []string{"/repo", created.WorktreePath, "feature/x", "develop"}, g.calls[3].args)
 	// Fork point comes from the create-local startSha.
 	assert.Equal(t, "localfork", created.ForkPointSha)
+	assert.True(t, created.CreatedBranch, "a branch `worktree add -b` made is Crowbar's to delete later")
 }
 
 // TestCreateChild_RemoteBranchExists_ChecksOut verifies the spec-§3 decision:
@@ -878,6 +880,8 @@ func TestCreateChild_RemoteBranchExists_ChecksOut(t *testing.T) {
 	// origin <b>:<b>` is refused whenever <b> is checked out anywhere.
 	assert.NotContains(t, g.ops(), "FastForwardBranch")
 	assert.Equal(t, "remotefork", created.ForkPointSha)
+	assert.False(t, created.CreatedBranch,
+		"a local branch that already existed before the -B checkout stays the user's")
 }
 
 // TestCreateChild_NewBranch_ForksFromOriginParentTip is the direct regression for
@@ -1272,7 +1276,8 @@ func TestCreateChild_RollsBackDetachWhenRetryFails(t *testing.T) {
 // folder to that branch and NEVER force-deletes it (the shared integration
 // branch must survive).
 func TestRemoveOne_DefaultBranchWorkspace_ReattachesMainAndKeepsBranch(t *testing.T) {
-	g := &fakeGit{}
+	// The main folder is exactly as a create's detach left it: detached at the tip.
+	g := &fakeGit{worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Head: "tip"}}, revParseSha: "tip"}
 	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
@@ -1299,7 +1304,7 @@ func TestRemoveOne_FeatureBranchWorkspace_ForceDeletesBranch(t *testing.T) {
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {
 			return []domain.Workspace{
-				{ID: "w1", RepoID: "r1", Branch: "feature/x", WorktreePath: "/managed"},
+				{ID: "w1", RepoID: "r1", Branch: "feature/x", WorktreePath: "/managed", CreatedBranch: true},
 			}, nil
 		},
 		DeleteFn: func(_ context.Context, _ string) error { return nil },
@@ -2081,10 +2086,10 @@ func TestDeleteCascade_KillsTerminalSessions(t *testing.T) {
 
 func TestDeleteCascade_SkipsLockedStatus(t *testing.T) {
 	all := []domain.Workspace{
-		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/wt/root"},
-		{ID: "a", ParentID: "root", RepoID: "r", Branch: "b-a", WorktreePath: "/wt/a"},
+		{ID: "root", RepoID: "r", Branch: "b-root", WorktreePath: "/wt/root", CreatedBranch: true},
+		{ID: "a", ParentID: "root", RepoID: "r", Branch: "b-a", WorktreePath: "/wt/a", CreatedBranch: true},
 		{ID: "b", ParentID: "a", Status: domain.WorkspaceStatusLocked, RepoID: "r", Branch: "b-b", WorktreePath: "/wt/b"},
-		{ID: "c", ParentID: "b", RepoID: "r", Branch: "b-c", WorktreePath: "/wt/c"},
+		{ID: "c", ParentID: "b", RepoID: "r", Branch: "b-c", WorktreePath: "/wt/c", CreatedBranch: true},
 	}
 	g := &fakeGit{}
 	var deleted []string
@@ -2104,7 +2109,7 @@ func TestDeleteCascade_SkipsLockedStatus(t *testing.T) {
 		"WorktreeRemove", "ForceDeleteBranch",
 		"WorktreeRemove", "ForceDeleteBranch",
 	}, g.ops())
-	assert.Equal(t, []string{"/repo", "/wt/c"}, g.calls[0].args)
+	assert.Equal(t, []string{"/repo", "/wt/c", "true"}, g.calls[0].args)
 	assert.Equal(t, []string{"/repo", "b-c"}, g.calls[1].args)
 }
 
@@ -2654,7 +2659,7 @@ func TestDeleteRepoWorkspaces_UsesTheCallersPathWhenTheRepoRowIsGone(t *testing.
 	// whole situation this method is for.
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())
 
-	_, err := uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo")
+	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"w1"}, deleted, "only the repo's own workspaces are removed")
@@ -2691,7 +2696,7 @@ func TestDeleteRepoWorkspaces_RemovesEvenWhenTheAliasCannotBeResolved(t *testing
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{},
 		&fakeRepoStore{err: assert.AnError}, newNow(), fakeHome())
 
-	_, err := uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo")
+	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"w1"}, deleted)
 }
@@ -2722,7 +2727,7 @@ func TestDeleteRepoWorkspaces_HandlesPlaceholdersAndBranchlessRows(t *testing.T)
 	g := &fakeGit{}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{missing: true}, newNow(), fakeHome())
 
-	_, err := uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo")
+	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"})
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{"w-placeholder", "w-branchless"}, deleted)
@@ -2740,6 +2745,6 @@ func TestDeleteRepoWorkspaces_ReportsAListingFailure(t *testing.T) {
 	}
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{}, newNow(), fakeHome())
 
-	_, err := uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo")
+	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"})
 	require.Error(t, err)
 }

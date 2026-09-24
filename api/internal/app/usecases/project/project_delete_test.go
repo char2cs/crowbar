@@ -112,6 +112,7 @@ func (f *fakeDeleteGit) WorktreeRemove(
 	_ context.Context,
 	_ string,
 	worktreePath string,
+	_ bool,
 ) error {
 	if f.removeErr != nil {
 		return f.removeErr
@@ -185,7 +186,7 @@ func TestProjectDelete_CascadesRecords_RemovesOnlyCrowbarWorktrees(t *testing.T)
 	f.workspaces.workspaces = []domain.Workspace{
 		{ID: "w-main", RepoID: "r1", ProjectID: "p1", Branch: "main", WorktreePath: deleteRepoPath, Status: domain.WorkspaceStatusLocked},
 		{ID: "w-adopted", RepoID: "r1", ProjectID: "p1", Branch: "spike", WorktreePath: "/home/u/elsewhere/spike"},
-		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath},
+		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath, CreatedBranch: true},
 	}
 
 	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
@@ -196,6 +197,25 @@ func TestProjectDelete_CascadesRecords_RemovesOnlyCrowbarWorktrees(t *testing.T)
 	assert.Equal(t, []string{crowbarPath}, f.git.removedWorktrees,
 		"only the crowbar-created worktree may be removed from disk")
 	assert.Equal(t, []string{"feature/x"}, f.git.deletedBranches)
+}
+
+// A project delete removes a managed worktree, but deletes its branch only when
+// Crowbar created it and it is not the repo's default branch (spec §3 P0-1).
+func TestRegression_ProjectDelete_KeepsBranchesCrowbarDidNotCreate(t *testing.T) {
+	f := newDeleteFixture(t)
+	f.seedProject()
+	f.repos.repos[0].DefaultBranch = "develop"
+	base := "/home/u/.crowbar/projects/p1/repo/"
+	f.workspaces.workspaces = []domain.Workspace{
+		{ID: "w-dev", RepoID: "r1", ProjectID: "p1", Branch: "develop", WorktreePath: base + "dev/worktree", CreatedBranch: true},
+		{ID: "w-imported", RepoID: "r1", ProjectID: "p1", Branch: "theirs", WorktreePath: base + "theirs/worktree"},
+		{ID: "w-mine", RepoID: "r1", ProjectID: "p1", Branch: "mine", WorktreePath: base + "mine/worktree", CreatedBranch: true},
+	}
+
+	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
+
+	assert.Len(t, f.git.removedWorktrees, 3)
+	assert.Equal(t, []string{"mine"}, f.git.deletedBranches)
 }
 
 func TestProjectDelete_UnlockedAdoptedMainWorktree_RecordOnly(t *testing.T) {
@@ -234,7 +254,7 @@ func TestProjectDelete_WorktreeRemoveFailure_StillDeletesRecords(t *testing.T) {
 	f.git.removeErr = errors.New("stale worktree")
 	crowbarPath := "/home/u/.crowbar/projects/github.com/test/repo/workspaces/w-child"
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath},
+		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath, CreatedBranch: true},
 	}
 
 	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
@@ -404,7 +424,7 @@ func TestProjectDelete_ForceDeleteBranchFailure_StillDeletesRecords(t *testing.T
 	f.git.forceDeleteErr = errors.New("branch checked out elsewhere")
 	crowbarPath := "/home/u/.crowbar/projects/github.com/test/repo/workspaces/w-child"
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath},
+		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath, CreatedBranch: true},
 	}
 
 	require.NoError(t, f.uc.Delete(context.Background(), "p1"))
@@ -482,7 +502,7 @@ func TestProjectDelete_CrowbarHomeError_SkipsDiskTeardown(t *testing.T) {
 	})
 	crowbarPath := "/home/u/.crowbar/projects/p1/workspaces/w-child"
 	f.workspaces.workspaces = []domain.Workspace{
-		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath},
+		{ID: "w-child", RepoID: "r1", ProjectID: "p1", Branch: "feature/x", WorktreePath: crowbarPath, CreatedBranch: true},
 	}
 
 	require.NoError(t, f.uc.Delete(context.Background(), "p1"))

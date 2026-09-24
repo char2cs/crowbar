@@ -45,9 +45,14 @@ func (e *engine) WorktreeRemove(
 	ctx context.Context,
 	repoPath string,
 	worktreePath string,
+	force bool,
 ) error {
 	defer e.lockRepo(ctx, repoPath)()
-	r := e.exec(ctx, repoPath, "worktree", "remove", "--force", worktreePath)
+	args := []string{"worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	r := e.exec(ctx, repoPath, append(args, worktreePath)...)
 	return gitexec.RequireSuccess("worktree remove", r)
 }
 
