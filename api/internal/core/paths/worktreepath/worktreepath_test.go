@@ -1,7 +1,6 @@
 package worktreepath
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -152,50 +151,6 @@ func TestDetectClash_NoClash(t *testing.T) {
 	err := DetectClash(existing, "/h/projects/p/github.com/o/repo/feature")
 	require.NoError(t, err)
 }
-
-func TestMove_Success(t *testing.T) {
-	var gitCalls, mapCalls int
-	err := Move(
-		"/old",
-		"/new",
-		func(from, to string) error {
-			gitCalls++
-			assert.Equal(t, "/old", from)
-			assert.Equal(t, "/new", to)
-			return nil
-		},
-		func() error { mapCalls++; return nil },
-	)
-	require.NoError(t, err)
-	assert.Equal(t, 1, gitCalls)
-	assert.Equal(t, 1, mapCalls)
-}
-
-func TestMove_GitFailure_KeepsOldMapEntry(t *testing.T) {
-	sentinel := errors.New("git move failed")
-	mapCalled := false
-	err := Move(
-		"/old",
-		"/new",
-		func(from, to string) error { return sentinel },
-		func() error { mapCalled = true; return nil },
-	)
-	require.ErrorIs(t, err, sentinel)
-	assert.False(t, mapCalled, "map must not update when git move fails")
-}
-
-func TestMove_MapUpdateFailure(t *testing.T) {
-	sentinel := errors.New("map update failed")
-	err := Move(
-		"/old",
-		"/new",
-		func(from, to string) error { return nil },
-		func() error { return sentinel },
-	)
-	require.ErrorIs(t, err, sentinel)
-}
-
-// --- Workspace-root split: sibling worktree/ + chats/ (Task 1, spec §3.5) ---
 
 func TestDerive_AppendsWorktreeLeaf(t *testing.T) {
 	got, err := Derive("/home/.crowbar", "proj1", "github.com/acme/repo", "feat-x")

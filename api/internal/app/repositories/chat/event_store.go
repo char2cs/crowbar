@@ -290,11 +290,9 @@ type EventStore interface {
 	// Forget purges the chat aggregate outright via ax.Forget: its synchronous
 	// OnForget drops the read-model row AND the underlying event log is
 	// erased, so a subsequent GetChat/ListByWorkspace genuinely reports not
-	// found. Two callers: the workspace-delete cascade
-	// (repositories.Container.forgetAgentChats, Task 12), when the owning
-	// workspace itself is gone and the chat has nowhere left to live; and the
-	// standalone hard delete (agent.ChatUsecase.PurgeChat, Task 5), which reaps a
-	// single chat on user request. Mirrors reviewthread's DeleteThread.
+	// found. Its one caller is the hard delete (agent.ChatUsecase.PurgeChat),
+	// reached both on user request and from the workspace-delete cascade.
+	// Mirrors reviewthread's DeleteThread.
 	Forget(
 		ctx context.Context,
 		id string,

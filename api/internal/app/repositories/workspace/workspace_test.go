@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
-	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
+	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -51,20 +51,18 @@ func wsAx(
 func buildRepo(
 	t *testing.T,
 	ad *adapter.Container,
-) (workspace.Workspace, wspaths.WorkspacePaths) {
+) workspace.Workspace {
 	t.Helper()
-	pathsStore, err := wspaths.NewWorkspacePaths(ad.GlobalView())
+	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView())
 	require.NoError(t, err)
-	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView(), pathsStore)
-	require.NoError(t, err)
-	return repo, pathsStore
+	return repo
 }
 
 func newRepo(
 	t *testing.T,
 ) (context.Context, workspace.Workspace) {
 	t.Helper()
-	repo, _ := buildRepo(t, newAdapter(t, t.TempDir()))
+	repo := buildRepo(t, newAdapter(t, t.TempDir()))
 	return context.Background(), repo
 }
 
@@ -131,39 +129,14 @@ func TestWorkspace_Create_RoundTrips(t *testing.T) {
 	assert.Equal(t, "p1", reloaded.ProjectID)
 }
 
-// TestCreate_WritesPathRow proves §3.9 write-point (a): Create records the
-// workspace id→worktree-path row in view.db's rename-resilience map.
-func TestCreate_WritesPathRow(t *testing.T) {
+// TestRegression_RenameBranch_LeavesTheWorktreePathUntouched pins that a rename
+// never moves the workspace: the directory is fixed at creation and never tracks
+// the branch. The purge removes exactly the tombstone's WorktreePath, so a
+// rename that repointed it would aim a later delete at whatever now occupies
+// the other name.
+func TestRegression_RenameBranch_LeavesTheWorktreePathUntouched(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
-	repo, pathsStore := buildRepo(t, ad)
-	ctx := context.Background()
-
-	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID:           "w1",
-		RepoID:       "r1",
-		ProjectID:    "p1",
-		Branch:       "b",
-		WorktreePath: "/h/projects/p1/github.com/o/r/b",
-	}, time.Unix(1, 0).UTC())
-	require.NoError(t, err)
-
-	got, err := pathsStore.Get(ctx, "w1")
-	require.NoError(t, err)
-	assert.Equal(t, "/h/projects/p1/github.com/o/r/b", got)
-}
-
-// TestRegression_RenameBranch_LeavesThePathRowUntouched pins the invariant that
-// replaced three tests here.
-//
-// The id→path index used to have to FOLLOW a rename, because the rename moved
-// the workspace on disk. It does not move now: the directory is fixed at
-// creation and never tracks the branch, so the row already names the right tree
-// and touching it could only be wrong. The delete reactor resolves what it
-// rm -rf's from exactly this index, so a rename that repointed it would aim a
-// later delete at whatever now occupies the other name.
-func TestRegression_RenameBranch_LeavesThePathRowUntouched(t *testing.T) {
-	ad := newAdapter(t, t.TempDir())
-	repo, pathsStore := buildRepo(t, ad)
+	repo := buildRepo(t, ad)
 	ctx := context.Background()
 	const path = "/h/projects/p1/github.com/o/r/a/worktree"
 
@@ -176,10 +149,6 @@ func TestRegression_RenameBranch_LeavesThePathRowUntouched(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "b", renamed.Branch, "the branch must move")
 	assert.Equal(t, path, renamed.WorktreePath, "the worktree path must not")
-
-	got, err := pathsStore.Get(ctx, "w1")
-	require.NoError(t, err)
-	assert.Equal(t, path, got, "the id→path row must still name the original tree")
 }
 
 func TestGet_FoldsFromLog(t *testing.T) {
@@ -247,9 +216,7 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 		WithShardingOpts(asynx.ShardingOpts{Shards: 8, QueueDepth: 1000}).
 		Build()
 	require.NoError(t, err)
-	paths1, err := wspaths.NewWorkspacePaths(first.GlobalView())
-	require.NoError(t, err)
-	repo1, err := workspace.New(ax1, first.WorkspaceES(), first.WorkspaceView(), paths1)
+	repo1, err := workspace.New(ax1, first.WorkspaceES(), first.WorkspaceView())
 	require.NoError(t, err)
 
 	_, err = repo1.Create(ctx, workspace.CreateInput{
@@ -266,7 +233,7 @@ func TestPersistence_AcrossReopen(t *testing.T) {
 	require.NoError(t, first.Close())     // WAL checkpoint + close all DBs
 
 	second := newAdapter(t, home)
-	repo2, _ := buildRepo(t, second)
+	repo2 := buildRepo(t, second)
 
 	got, err := repo2.Get(ctx, "w1")
 	require.NoError(t, err)
@@ -561,42 +528,15 @@ func TestCreate_PersistsIsDefault(t *testing.T) {
 
 func TestWorkspace_New_NilGuards(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
-	pathsStore, err := wspaths.NewWorkspacePaths(ad.GlobalView())
-	require.NoError(t, err)
 
-	_, err = workspace.New(nil, ad.WorkspaceES(), ad.WorkspaceView(), pathsStore)
+	_, err := workspace.New(nil, ad.WorkspaceES(), ad.WorkspaceView())
 	assert.Error(t, err, "nil asynx must error")
 
-	_, err = workspace.New(wsAx(t, ad), nil, ad.WorkspaceView(), pathsStore)
+	_, err = workspace.New(wsAx(t, ad), nil, ad.WorkspaceView())
 	assert.Error(t, err, "nil event store must error")
 
-	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), nil, pathsStore)
+	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), nil)
 	assert.Error(t, err, "nil store db must error")
-
-	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView(), nil)
-	assert.Error(t, err, "nil paths store must error")
-}
-
-// TestWorkspace_Create_RollsBackPathRowOnFailure proves the Create rollback:
-// when the command is rejected (here an empty ProjectID fails CreateWorkspace's
-// Validate), the id→path row written before the send is rolled back rather than
-// orphaned in the rename-resilience map.
-func TestWorkspace_Create_RollsBackPathRowOnFailure(t *testing.T) {
-	ad := newAdapter(t, t.TempDir())
-	repo, pathsStore := buildRepo(t, ad)
-	ctx := context.Background()
-
-	_, err := repo.Create(ctx, workspace.CreateInput{
-		ID:           "w1",
-		RepoID:       "r1",
-		ProjectID:    "", // invalid → CreateWorkspace.Validate rejects
-		WorktreePath: "/some/path",
-	}, time.Unix(1, 0).UTC())
-	require.Error(t, err)
-
-	_, getErr := pathsStore.Get(ctx, "w1")
-	assert.ErrorIs(t, getErr, wspaths.ErrNotFound,
-		"a failed Create must roll back its id→path row, not orphan it")
 }
 
 // TestWorkspace_New_ErrorFromUnderlyingStore proves New surfaces a failure from
@@ -606,45 +546,17 @@ func TestWorkspace_Create_RollsBackPathRowOnFailure(t *testing.T) {
 // a dead connection.
 func TestWorkspace_New_ErrorFromUnderlyingStore(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
-	pathsStore, err := wspaths.NewWorkspacePaths(ad.GlobalView())
-	require.NoError(t, err)
 
 	storeDB := ad.WorkspaceView()
 	sqlDB, err := storeDB.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), storeDB, pathsStore)
+	_, err = workspace.New(wsAx(t, ad), ad.WorkspaceES(), storeDB)
 	assert.Error(t, err)
 }
 
-// TestWorkspace_Create_ErrorWhenPathsStoreWriteFails proves Create surfaces a
-// paths-store write failure BEFORE it ever attempts to send the CreateWorkspace
-// command — the id→path row must be recorded durably up front (§3.9), so a
-// write failure here must abort the create rather than proceed to an aggregate
-// with no resolvable on-disk path.
-func TestWorkspace_Create_ErrorWhenPathsStoreWriteFails(t *testing.T) {
-	ad := newAdapter(t, t.TempDir())
-	repo, _ := buildRepo(t, ad)
-	ctx := context.Background()
-
-	// pathsStore is built over ad.GlobalView(); closing its connection after the
-	// repo is built (but before the write) forces Put to fail.
-	sqlDB, err := ad.GlobalView().DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
-
-	_, err = repo.Create(ctx, workspace.CreateInput{
-		ID:           "w1",
-		RepoID:       "r1",
-		ProjectID:    "p1",
-		WorktreePath: "/some/path",
-	}, time.Unix(1, 0).UTC())
-
-	assert.Error(t, err)
-}
-
-func TestListInRepo_ScopesToRepo(t *testing.T) {
+func TestListInRepo_ScopesToTheRepoWhateverARowsProjectSays(t *testing.T) {
 	ctx, repo := newRepo(t)
 	_, err := repo.Create(ctx, workspace.CreateInput{
 		ID: "w1", ProjectID: "p1", RepoID: "r1", Branch: "main",
@@ -663,8 +575,13 @@ func TestListInRepo_ScopesToRepo(t *testing.T) {
 	rows, err := repo.ListInRepo(ctx, "p1", "r1")
 
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, "w1", rows[0].ID)
+	ids := []string{}
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	// w3 is r1's row whose own ProjectID a repo move never got to: the repo row
+	// owns the project assignment, so r1's rows are all of them (spec §3 P0-3).
+	assert.ElementsMatch(t, []string{"w1", "w3"}, ids)
 }
 
 func TestListInRepo_NoMatchesReturnsEmpty(t *testing.T) {
@@ -707,7 +624,7 @@ func TestGetHomeForProject_NotFound(t *testing.T) {
 
 func TestWorkspace_List_StorageError(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
-	repo, _ := buildRepo(t, ad)
+	repo := buildRepo(t, ad)
 	sqlDB, err := ad.WorkspaceView().DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
@@ -719,7 +636,7 @@ func TestWorkspace_List_StorageError(t *testing.T) {
 
 func TestListInRepo_StorageError(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
-	repo, _ := buildRepo(t, ad)
+	repo := buildRepo(t, ad)
 	sqlDB, err := ad.WorkspaceView().DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
@@ -731,28 +648,12 @@ func TestListInRepo_StorageError(t *testing.T) {
 
 func TestGetHomeForProject_StorageError(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
-	repo, _ := buildRepo(t, ad)
+	repo := buildRepo(t, ad)
 	sqlDB, err := ad.WorkspaceView().DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
 	_, err = repo.GetHomeForProject(context.Background(), "p1")
-
-	assert.Error(t, err)
-}
-
-// TestCreateHome_ErrorPropagatesFromCreate proves CreateHome wraps and
-// surfaces a failure from the underlying Create call (here, a paths-store write
-// failure) rather than swallowing it — a lazily-provisioned home workspace must
-// never appear to succeed while leaving no resolvable on-disk path.
-func TestCreateHome_ErrorPropagatesFromCreate(t *testing.T) {
-	ad := newAdapter(t, t.TempDir())
-	repo, _ := buildRepo(t, ad)
-	sqlDB, err := ad.GlobalView().DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
-
-	_, err = repo.CreateHome(context.Background(), "p1", "/some/path", time.Unix(1, 0).UTC())
 
 	assert.Error(t, err)
 }
@@ -780,13 +681,33 @@ func TestCreateHome_ProvisionsAHomeWorkspaceFindableByProject(t *testing.T) {
 }
 
 // TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow proves the
-// boot orphan-sweep seam (spec §3.8): every row the durable read model still
-// carries as Status=deleted is handed to the caller-supplied purge, exactly
-// once, so a crash mid-cascade is recovered on the next boot.
+// boot orphan-sweep seam (spec §3.8, §7-D): every row the durable read model
+// still carries as Status=deleted — here, tombstones whose reactor a draining
+// gate refused, exactly as at a shutdown — is re-purged by the SAME Purger the
+// reactor runs, from the tombstone's own WorktreePath. The live workspace is
+// left alone.
+//
+// w1 is the P0-4 case: a placeholder (no path at creation) provisioned in place
+// later. The retired id→path index was written only at creation, so the sweep
+// used to find no path for it and leak its worktree.
 func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T) {
 	ctx, repo := newRepo(t)
 	now := time.Unix(1000, 0).UTC()
-	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1"}, now)
+
+	var purged, removed []string
+	gate := drain.New()
+	gate.Wait(ctx) // draining: the reactor refuses every event, as at shutdown
+	registrar, ok := repo.(workspace.DeleteReactorRegistrar)
+	require.True(t, ok)
+	require.NoError(t, registrar.RegisterDeleteReactor(
+		func(_ context.Context, wsID string) error { purged = append(purged, wsID); return nil },
+		func(path string) error { removed = append(removed, path); return nil },
+		gate,
+	))
+
+	_, err := repo.Create(ctx, workspace.CreateInput{ID: "w1", RepoID: "r1", ProjectID: "p1", Protected: true}, now)
+	require.NoError(t, err)
+	_, err = repo.ProvisionInPlace(ctx, "w1", "/h/projects/p1/r/w1/worktree", "sha")
 	require.NoError(t, err)
 	_, err = repo.Create(ctx, workspace.CreateInput{ID: "w2", RepoID: "r1", ProjectID: "p1"}, now)
 	require.NoError(t, err)
@@ -795,14 +716,19 @@ func TestWorkspace_Sweep_RedrivesThePurgeForEveryResidualDeletedRow(t *testing.T
 
 	sweeper, ok := repo.(workspace.BootSweeper)
 	require.True(t, ok, "the concrete repo must satisfy BootSweeper")
+	require.NoError(t, sweeper.Sweep(ctx))
 
-	var purged []string
-	sweeper.Sweep(ctx, func(_ context.Context, wsID string) error {
-		purged = append(purged, wsID)
-		return nil
-	})
+	assert.Equal(t, []string{"w1"}, purged, "only the residual deleted row is re-purged")
+	assert.Equal(t, []string{"/h/projects/p1/r/w1/worktree"}, removed,
+		"the purge removes the tombstone's own (provisioned) worktree path")
+	exists, err := repo.Get(ctx, "w1")
+	assert.Error(t, err, "the purged aggregate is Forgotten: %+v", exists)
+}
 
-	assert.Equal(t, []string{"w1"}, purged, "only the residual deleted row is re-purged; the live workspace is left alone")
+// A sweep with no purger registered is a wiring error, never a silent no-op.
+func TestWorkspace_Sweep_RefusesWithoutAPurger(t *testing.T) {
+	ctx, repo := newRepo(t)
+	require.Error(t, repo.(workspace.BootSweeper).Sweep(ctx))
 }
 
 // spyReconciler records the ids passed to OnOpen so a test can assert which read
@@ -833,9 +759,7 @@ func buildRepoWithReconciler(
 	r workspace.ReconcileOnOpener,
 ) workspace.Workspace {
 	t.Helper()
-	pathsStore, err := wspaths.NewWorkspacePaths(ad.GlobalView())
-	require.NoError(t, err)
-	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView(), pathsStore, workspace.WithReconciler(r))
+	repo, err := workspace.New(wsAx(t, ad), ad.WorkspaceES(), ad.WorkspaceView(), workspace.WithReconciler(r))
 	require.NoError(t, err)
 	return repo
 }
@@ -914,7 +838,7 @@ func TestWorkspace_SetProject_ErrorOnMissing(t *testing.T) {
 // state and the case a version-bumping no-op hides in.
 func TestRegression_SyncProviderState_UnchangedPollAppendsNothing(t *testing.T) {
 	ad := newAdapter(t, t.TempDir())
-	repo, _ := buildRepo(t, ad)
+	repo := buildRepo(t, ad)
 	ctx := context.Background()
 	es := ad.WorkspaceES()
 	now := time.Unix(1000, 0).UTC()

@@ -1329,6 +1329,14 @@ func (e *Env) QuiesceReactors() {
 	e.app.Repositories.QuiesceReactors(context.Background())
 }
 
+// HoldReactors parks every post-commit reactor admitted from now on at the drain
+// gate's door, so a test can crash the daemon with a purge DETERMINISTICALLY
+// still pending — the state the boot sweep exists for — instead of racing the
+// reactor to it. Nothing releases the hold; it is for a test that crashes next.
+func (e *Env) HoldReactors() {
+	e.app.Repositories.Drain().Gate.Hold()
+}
+
 // ImportRepo creates a real git repo at the supplied path (or inits a fresh one
 // when path is empty), imports it as a project, and runs the full per-repo
 // import (RegisterRepo) which adopts the default-branch worktree as a workspace.

@@ -7,8 +7,7 @@
 // RemoteSlug) keys the git worktree by its natural identity —
 // <home>/projects/<project>/<host>/<owner>/<repo>/<branch>/ — so navigable
 // paths carry no UUIDs (spec §3.9). DetectClash rejects case-only collisions on
-// case-insensitive filesystems and Move relocates a worktree while keeping the
-// id↔path map consistent.
+// case-insensitive filesystems.
 package worktreepath
 
 import (
@@ -204,27 +203,6 @@ func DetectClash(
 				existing,
 			)
 		}
-	}
-	return nil
-}
-
-// Move relocates a worktree from oldPath to newPath via the injected gitMove
-// (a git worktree move) and then commits the id↔path map update via updateMap.
-//
-// If gitMove fails the map is left untouched, so the old map entry still
-// resolves the worktree (spec §3.9). IO is injected so this helper stays pure
-// and testable.
-func Move(
-	oldPath string,
-	newPath string,
-	gitMove func(from, to string) error,
-	updateMap func() error,
-) error {
-	if err := gitMove(oldPath, newPath); err != nil {
-		return fmt.Errorf("worktreepath: git worktree move: %w", err)
-	}
-	if err := updateMap(); err != nil {
-		return fmt.Errorf("worktreepath: update path map: %w", err)
 	}
 	return nil
 }

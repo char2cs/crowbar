@@ -46,6 +46,20 @@ type Store interface {
 		ctx context.Context,
 		id string,
 	) (*domain.Workspace, error)
+	// Drop deletes id's durable row directly. It exists for the one row the
+	// projection can no longer delete: a tombstone whose aggregate was already
+	// Forgotten before its OnForget row delete landed.
+	Drop(
+		ctx context.Context,
+		id string,
+	) error
+	// AwaitTombstone blocks until the durable projection has persisted id's
+	// "deleted" row and returns it — woken by that save, never by polling. It
+	// satisfies the delete reactor's StoreReader seam.
+	AwaitTombstone(
+		ctx context.Context,
+		id string,
+	) (domain.Workspace, error)
 	// ListOrRebuild returns the read model (which doubles as the location index,
 	// §3.7), first healing it via whole-model lazy Replay when the model is empty
 	// but the event log still holds aggregates (spec §3.7, decision 7). The
@@ -99,4 +113,21 @@ func (s *service) Get(
 	id string,
 ) (*domain.Workspace, error) {
 	return s.store.Get(ctx, id)
+}
+
+// AwaitTombstone delegates to the save-only store projection, which wakes the
+// waiter from the save that persists the tombstone.
+func (s *service) AwaitTombstone(
+	ctx context.Context,
+	id string,
+) (domain.Workspace, error) {
+	return s.store.AwaitTombstone(ctx, id)
+}
+
+// Drop deletes id's durable read-model row directly.
+func (s *service) Drop(
+	ctx context.Context,
+	id string,
+) error {
+	return s.store.Drop(ctx, id)
 }

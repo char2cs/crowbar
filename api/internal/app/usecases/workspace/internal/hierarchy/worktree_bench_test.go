@@ -14,7 +14,6 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -23,7 +22,7 @@ import (
 )
 
 // newWorkspaceRepo builds the singleton-backed workspace repository over the
-// adapter's per-type event store + read-model DB + view.db id↔path index, shutting
+// adapter's per-type event store + read-model DB, shutting
 // the asynx down before the adapter closes (it sits on the ES handle). Shared by
 // the worktree bench + integration harnesses.
 //
@@ -45,9 +44,7 @@ func newWorkspaceRepo(
 		Build()
 	require.NoError(tb, err)
 	tb.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
-	pathsStore, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
-	require.NoError(tb, err)
-	repo, err := workspace.New(ax, adapters.WorkspaceES(), adapters.WorkspaceView(), pathsStore)
+	repo, err := workspace.New(ax, adapters.WorkspaceES(), adapters.WorkspaceView())
 	require.NoError(tb, err)
 	return repo, ax.WaitPublish
 }

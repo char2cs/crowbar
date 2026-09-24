@@ -25,7 +25,6 @@ import (
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	"github.com/char2cs/crowbar/api/internal/adapter/store"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
@@ -462,13 +461,10 @@ func newPerfWorkspaces(
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = ax.Shutdown(context.Background()) })
 
-	paths, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
-	require.NoError(b, err)
 	repo, err := workspace.New(
 		ax,
 		adapters.WorkspaceES(),
 		adapters.WorkspaceView(),
-		paths,
 		workspace.WithReconciler(reconciler),
 	)
 	require.NoError(b, err)

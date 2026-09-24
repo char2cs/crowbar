@@ -675,7 +675,7 @@ func (h *Handlers) broadcastShiftedRepos(
 // would outlive every way of reaching it.
 //
 // Worktrees are NOT relocated and do not need to be: their paths were derived
-// once and are stored absolute in both the record and the id↔path index, so they
+// once and are stored absolute on the record, so they
 // keep resolving from where they are. Only newly derived paths land under the new
 // project.
 //

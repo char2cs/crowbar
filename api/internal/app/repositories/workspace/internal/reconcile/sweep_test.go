@@ -63,15 +63,15 @@ func TestSweep_ReapsDeletedLingering_LeavesCleanIntact(t *testing.T) {
 	// purge re-drives the same idempotent teardown a delete reactor would: rm -rf
 	// the worktree, then Forget the aggregate (OnForget drops the read-model row).
 	var purged []string
-	purge := func(ctx context.Context, wsID string) error {
-		purged = append(purged, wsID)
-		if p := paths[wsID]; p != "" {
+	purge := func(ctx context.Context, tomb domain.Workspace) error {
+		purged = append(purged, tomb.ID)
+		if p := paths[tomb.ID]; p != "" {
 			if rmErr := os.RemoveAll(p); rmErr != nil {
 				return rmErr
 			}
 		}
-		delete(paths, wsID)
-		return ax.Forget(ctx, wsID)
+		delete(paths, tomb.ID)
+		return ax.Forget(ctx, tomb.ID)
 	}
 
 	NewSweeper(st.List, purge).Sweep(ctx)
@@ -108,7 +108,7 @@ func TestSweep_EmptyModel_NoReplay(t *testing.T) {
 	// path, replays would increment — the Sweeper simply has no such dependency.
 	directList := func(context.Context) ([]domain.Workspace, error) { return nil, nil }
 	purgeCalled := false
-	purge := func(context.Context, string) error { purgeCalled = true; return nil }
+	purge := func(context.Context, domain.Workspace) error { purgeCalled = true; return nil }
 
 	NewSweeper(directList, purge).Sweep(context.Background())
 
@@ -129,7 +129,7 @@ func TestSweep_CleanModel_NoPurge(t *testing.T) {
 		}, nil
 	}
 	var purged []string
-	purge := func(_ context.Context, id string) error { purged = append(purged, id); return nil }
+	purge := func(_ context.Context, ws domain.Workspace) error { purged = append(purged, ws.ID); return nil }
 
 	NewSweeper(list, purge).Sweep(context.Background())
 
@@ -145,7 +145,7 @@ func TestSweep_ListError_SkipsPurge(t *testing.T) {
 		return nil, errors.New("read model unavailable")
 	}
 	purgeCalled := false
-	purge := func(context.Context, string) error { purgeCalled = true; return nil }
+	purge := func(context.Context, domain.Workspace) error { purgeCalled = true; return nil }
 
 	NewSweeper(list, purge).Sweep(context.Background())
 
@@ -164,9 +164,9 @@ func TestSweep_PurgeError_ContinuesToNextDeleted(t *testing.T) {
 		}, nil
 	}
 	var purged []string
-	purge := func(_ context.Context, id string) error {
-		purged = append(purged, id)
-		if id == "boom" {
+	purge := func(_ context.Context, ws domain.Workspace) error {
+		purged = append(purged, ws.ID)
+		if ws.ID == "boom" {
 			return errors.New("rm failed")
 		}
 		return nil

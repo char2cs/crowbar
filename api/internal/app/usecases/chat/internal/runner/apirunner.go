@@ -173,19 +173,6 @@ func (rs *Runners) abandonAdoptedSpawn(ctx context.Context, req forkRequest) {
 	worktreepath.RemoveUnderHome(ctx, req.crowbarHome, req.tmpDir)
 }
 
-// RetireAPIConnection ends runnerID's process when that process is an api
-// connection rather than a PTY — the workspace-delete cascade's second seam
-// (repositories.Container.RetireAgentRunner).
-//
-// That cascade only knows how to terminate a terminal session, and an
-// api-driven runner has none. Dropping the connection kills its `serve`
-// process, and watchExit's own reconcile then carries the runner row away —
-// the same sequence a PTY death already drives. A no-op for a hooks-only
-// runner, which has no connection to drop.
-func (rs *Runners) RetireAPIConnection(runnerID string) {
-	rs.apiConns.drop(runnerID)
-}
-
 // handOverAPIConn marks runnerID's connection as being torn down in favour of
 // another process for the SAME runner, so the kill that follows is not read
 // as the runner ending. Called before the drop, never after: the watcher can

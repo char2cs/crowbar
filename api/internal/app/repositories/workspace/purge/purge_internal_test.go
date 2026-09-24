@@ -1,4 +1,4 @@
-package repositories
+package purge
 
 import (
 	"os"
@@ -30,7 +30,7 @@ func TestWorktreeRemover_RemovesWorkspaceRootIncludingSiblingChatsDir(t *testing
 	// thing that keeps a deleted workspace's directory alive forever.
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".DS_Store"), []byte("x"), 0o644))
 
-	remove := worktreeRemover(home)
+	remove := WorktreeRemover(home)
 	require.NoError(t, remove(worktreeLeaf))
 
 	_, err := os.Stat(root)
@@ -47,7 +47,7 @@ func TestWorktreeRemover_RefusesPathOutsideCrowbarHome(t *testing.T) {
 	userRepo := filepath.Join(outside, "user-repo")
 	require.NoError(t, os.MkdirAll(userRepo, 0o755))
 
-	remove := worktreeRemover(home)
+	remove := WorktreeRemover(home)
 	require.NoError(t, remove(userRepo))
 
 	_, err := os.Stat(userRepo)
@@ -69,7 +69,7 @@ func TestWorktreeRemover_HomeKindWorkspace_NeverRemovesRepoPath(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(repoPath, ".git"), 0o755))
 	require.NoError(t, os.MkdirAll(sibling, 0o755))
 
-	remove := worktreeRemover(home)
+	remove := WorktreeRemover(home)
 	require.NoError(t, remove(repoPath))
 
 	_, err := os.Stat(repoPath)
@@ -89,7 +89,7 @@ func TestWorktreeRemover_RefusesDegenerateLeafDirectlyUnderHome(t *testing.T) {
 	require.NoError(t, os.MkdirAll(leaf, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(home, "sentinel"), []byte("x"), 0o644))
 
-	remove := worktreeRemover(home)
+	remove := WorktreeRemover(home)
 	require.NoError(t, remove(leaf))
 
 	_, err := os.Stat(home)
@@ -109,7 +109,7 @@ func TestRegression_WorktreeRemover_PrunesTheEmptiedNestedParent(t *testing.T) {
 	root := filepath.Join(slug, "feature", "x")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "worktree"), 0o755))
 
-	remove := worktreeRemover(home)
+	remove := WorktreeRemover(home)
 	require.NoError(t, remove(filepath.Join(root, "worktree")))
 
 	assert.NoDirExists(t, filepath.Join(slug, "feature"),
@@ -125,7 +125,7 @@ func TestWorktreeRemover_KeepsTheNestedParentASiblingStillOccupies(t *testing.T)
 	require.NoError(t, os.MkdirAll(filepath.Join(slug, "feature", "x", "worktree"), 0o755))
 	require.NoError(t, os.MkdirAll(sibling, 0o755))
 
-	remove := worktreeRemover(home)
+	remove := WorktreeRemover(home)
 	require.NoError(t, remove(filepath.Join(slug, "feature", "x", "worktree")))
 
 	assert.DirExists(t, sibling, "a sibling under the same nested parent must survive")
@@ -142,80 +142,13 @@ func TestWorktreeRemover_PruneStopsAtTheProjectDirectory(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "worktree"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "workspaces"), 0o755))
 
-	remove := worktreeRemover(home)
+	remove := WorktreeRemover(home)
 	require.NoError(t, remove(filepath.Join(root, "worktree")))
 
 	assert.DirExists(t, projectDir, "the project directory itself is never a candidate")
 	assert.DirExists(t, filepath.Join(projectDir, "workspaces"), "project state must survive")
 	assert.NoDirExists(t, filepath.Join(projectDir, "github.com"),
 		"the emptied slug tree above the workspace is litter and goes")
-}
-
-// The navigable alias pointed INTO the removed root, so it is dangling the
-// moment the root goes. Left behind it is a broken link in the tree a human
-// browses.
-func TestSweepDanglingAliases_UnlinksBrokenLinksAndTheirEmptiedParents(t *testing.T) {
-	home := t.TempDir()
-	projectDir := filepath.Join(home, "projects", "p1")
-	root := filepath.Join(projectDir, "workspaces", "w1")
-	alias := filepath.Join(projectDir, "github.com", "acme", "repo", "feature", "x")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "worktree"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Dir(alias), 0o755))
-	require.NoError(t, os.Symlink(root, alias))
-
-	remove := worktreeRemover(home)
-	require.NoError(t, remove(filepath.Join(root, "worktree")))
-	assert.Equal(t, 1, SweepDanglingAliases(home))
-
-	_, err := os.Lstat(alias)
-	assert.True(t, os.IsNotExist(err), "the dangling alias must be unlinked")
-	assert.NoDirExists(t, filepath.Join(projectDir, "github.com", "acme", "repo", "feature"),
-		"and the directory it emptied must not squat the name")
-}
-
-// A LIVE alias — one pointing at a root that still exists — is another
-// workspace's navigable name and must survive its neighbour's removal.
-func TestSweepDanglingAliases_KeepsAliasesThatStillPointSomewhere(t *testing.T) {
-	home := t.TempDir()
-	projectDir := filepath.Join(home, "projects", "p1")
-	gone := filepath.Join(projectDir, "workspaces", "w1")
-	kept := filepath.Join(projectDir, "workspaces", "w2")
-	keptAlias := filepath.Join(projectDir, "slug", "keeper")
-	require.NoError(t, os.MkdirAll(filepath.Join(gone, "worktree"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(kept, "worktree"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Dir(keptAlias), 0o755))
-	require.NoError(t, os.Symlink(kept, keptAlias))
-
-	remove := worktreeRemover(home)
-	require.NoError(t, remove(filepath.Join(gone, "worktree")))
-	SweepDanglingAliases(home)
-
-	target, err := os.Readlink(keptAlias)
-	require.NoError(t, err, "a live alias must survive")
-	assert.Equal(t, kept, target)
-}
-
-// The sweep must be a no-op on a home it was handed nothing for, and must never
-// walk out of the projects tree.
-func TestSweepDanglingAliases_NoOpOnAnEmptyHome(t *testing.T) {
-	assert.Equal(t, 0, SweepDanglingAliases(t.TempDir()))
-	assert.Equal(t, 0, SweepDanglingAliases(""))
-}
-
-// A nested chain of emptied alias directories is taken whole, but the projects
-// directory that holds every project is never a candidate.
-func TestSweepDanglingAliases_StopsAtTheProjectsDirectory(t *testing.T) {
-	home := t.TempDir()
-	projects := filepath.Join(home, "projects")
-	alias := filepath.Join(projects, "p1", "github.com", "acme", "repo", "a", "b")
-	require.NoError(t, os.MkdirAll(filepath.Dir(alias), 0o755))
-	require.NoError(t, os.Symlink(filepath.Join(home, "gone"), alias))
-
-	assert.Equal(t, 1, SweepDanglingAliases(home))
-
-	assert.NoDirExists(t, filepath.Join(projects, "p1", "github.com"),
-		"every directory the broken link emptied goes")
-	assert.DirExists(t, projects, "the projects directory itself is never a candidate")
 }
 
 // projectDirOf is the floor every walk in here leans on. It answers only for a
@@ -287,7 +220,7 @@ func TestRegression_WorktreeRemover_KeepsForeignSiblingsInTheWorkspaceRoot(t *te
 	require.NoError(t, os.WriteFile(
 		filepath.Join(foreign, "src", "main.rs"), []byte("fn main() {}"), 0o644))
 
-	require.NoError(t, worktreeRemover(home)(worktreeLeaf))
+	require.NoError(t, WorktreeRemover(home)(worktreeLeaf))
 
 	assert.NoFileExists(t, filepath.Join(root, "chats", "chatA"),
 		"crowbar's own chats tree must still be removed")
@@ -312,7 +245,7 @@ func TestRegression_WorktreeRemover_KeepsACheckoutGitStillRegisters(t *testing.T
 	unsaved := filepath.Join(worktreeLeaf, "unsaved.txt")
 	require.NoError(t, os.WriteFile(unsaved, []byte("work"), 0o644))
 
-	require.NoError(t, worktreeRemover(home)(worktreeLeaf))
+	require.NoError(t, WorktreeRemover(home)(worktreeLeaf))
 
 	assert.FileExists(t, unsaved, "uncommitted work in a registered checkout survives")
 	assert.NoDirExists(t, filepath.Join(root, "chats"), "crowbar's own chats tree still goes")
