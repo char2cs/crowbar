@@ -210,6 +210,8 @@ type Agent interface {
 
 type service struct {
 	injected *registry.Registry
+	// acceptOverride is WithOverrideCheck's predicate, nil to admit all.
+	acceptOverride func(raw []byte) bool
 
 	resolved sync.Mutex
 	// descriptors caches Get's answer per (homeDir, id), because Get sits on
@@ -265,7 +267,8 @@ type descriptorCacheEntry struct {
 // serviceOpts is New's own option set — currently just the lifecycle context
 // its model-discovery cache forks background work against.
 type serviceOpts struct {
-	lifecycle context.Context
+	lifecycle      context.Context
+	acceptOverride func(raw []byte) bool
 }
 
 // Option configures New.
@@ -283,21 +286,29 @@ func WithLifecycle(ctx context.Context) Option {
 	return func(o *serviceOpts) { o.lifecycle = ctx }
 }
 
+// WithOverrideCheck admits an on-disk descriptor override only when accept
+// passes it; a refused override runs the shipped default instead. Omitted,
+// every override is loaded as written.
+func WithOverrideCheck(accept func(raw []byte) bool) Option {
+	return func(o *serviceOpts) { o.acceptOverride = accept }
+}
+
 func New(opts ...Option) Agents {
 	cfg := serviceOpts{lifecycle: context.Background()}
 	for _, o := range opts {
 		o(&cfg)
 	}
 	return &service{
-		injected:    registry.New(),
-		descriptors: map[string]descriptorCacheEntry{},
-		discovery:   modeldiscovery.NewCache(cfg.lifecycle),
-		sessions:    sessionstore.New(),
+		acceptOverride: cfg.acceptOverride,
+		injected:       registry.New(),
+		descriptors:    map[string]descriptorCacheEntry{},
+		discovery:      modeldiscovery.NewCache(cfg.lifecycle),
+		sessions:       sessionstore.New(),
 	}
 }
 
 func (s *service) List(ctx context.Context, homeDir string) ([]Agent, error) {
-	descriptors, err := protocol.All(ctx, homeDir)
+	descriptors, err := protocol.All(ctx, homeDir, s.acceptOverride)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +331,7 @@ func (s *service) Get(ctx context.Context, homeDir, id string) (Agent, error) {
 		return cached.agent, nil
 	}
 
-	d, err := protocol.Resolve(ctx, homeDir, id)
+	d, err := protocol.Resolve(ctx, homeDir, id, s.acceptOverride)
 	if err != nil {
 		return nil, err
 	}

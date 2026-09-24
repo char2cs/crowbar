@@ -18,8 +18,8 @@ import (
 func TestLogAll_ABlockedDescriptorIsAnErrorWithItsRuleAndLine(t *testing.T) {
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "codex.yaml"),
-		[]byte("id: codex\nspawn:\n  cmd: codex\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "acme.yaml"),
+		[]byte("id: acme\nspawn:\n  cmd: acme\n"), 0o600))
 	var out bytes.Buffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&out, nil)))
@@ -30,8 +30,28 @@ func TestLogAll_ABlockedDescriptorIsAnErrorWithItsRuleAndLine(t *testing.T) {
 	logged := out.String()
 	assert.Contains(t, logged, "level=ERROR")
 	assert.Contains(t, logged, `msg="agent: descriptor blocked"`)
-	assert.Contains(t, logged, "provider=codex")
+	assert.Contains(t, logged, "provider=acme")
 	assert.Contains(t, logged, "rule=load.spawn_command")
 	assert.Contains(t, logged, "line=2")
 	assert.NotContains(t, logged, "provider=claude", "the shipped claude descriptor is clean")
+}
+
+// An override refused in favour of the shipped descriptor says so, and why,
+// without claiming the provider is blocked.
+func TestLogAll_ARefusedOverrideSaysTheShippedDescriptorRuns(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "codex.yaml"),
+		[]byte("id: codex\nspawn:\n  cmd: codex\n"), 0o600))
+	var out bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&out, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	descriptorcheck.LogAll(context.Background(), home)
+
+	logged := out.String()
+	assert.Contains(t, logged, "running the shipped descriptor")
+	assert.Contains(t, logged, "rule=load.spawn_command")
+	assert.NotContains(t, logged, "descriptor blocked")
 }

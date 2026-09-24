@@ -1008,6 +1008,8 @@ export interface DescriptorReport {
   /** The override file, absent for the shipped descriptor. */
   source?: string
   findings: DescriptorFinding[]
+  /** The override at `source` was refused for its errors; the shipped descriptor runs. */
+  fellBack?: boolean
 }
 
 export async function getDescriptorReports(): Promise<DescriptorReport[]> {

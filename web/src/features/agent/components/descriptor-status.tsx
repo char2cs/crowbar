@@ -8,7 +8,8 @@ type Load =
 
 /**
  * Each provider descriptor's static validation, as the daemon runs it at boot:
- * an error blocks the provider (it is never enabled), a warning is advice.
+ * an error blocks the provider (it is never enabled), a warning is advice. An
+ * override with errors is refused in favour of the shipped descriptor.
  */
 export function DescriptorStatus() {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
@@ -54,7 +55,9 @@ function DescriptorReportRow({ report }: { report: DescriptorReport }) {
         <span className="ui-font ui-text-xs truncate text-muted-foreground">
           {report.source ?? 'shipped'}
         </span>
-        {errors > 0 ? (
+        {report.fellBack ? (
+          <Badge variant="warning">Override refused — using shipped</Badge>
+        ) : errors > 0 ? (
           <Badge variant="error">Blocked</Badge>
         ) : warnings > 0 ? (
           <Badge variant="warning">

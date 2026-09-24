@@ -1,6 +1,7 @@
 package descriptorcheck_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/char2cs/crowbar/api/internal/engine/agents"
 	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
@@ -38,6 +40,60 @@ func TestValidateAll_AnOverrideShadowsTheShippedDescriptor(t *testing.T) {
 			assert.Equal(t, override, rep.Source)
 			assert.False(t, rep.OK(), "an override missing its spawn block is blocked")
 		}
+	}
+}
+
+// A user who copied the pre-audit shipped descriptor into ~/.crowbar/descriptors
+// has an override the current rules refuse (retired keys, hooks no longer
+// wired the old way). It must not take the provider down: the shipped
+// descriptor runs, and the status report says the override was refused and why.
+func TestValidateAll_AnOverrideCopiedFromAnOldShippedDescriptorFallsBack(t *testing.T) {
+	for _, id := range []string{"claude", "codex"} {
+		t.Run(id, func(t *testing.T) {
+			home := t.TempDir()
+			dir := filepath.Join(home, "descriptors")
+			require.NoError(t, os.MkdirAll(dir, 0o750))
+			old, err := os.ReadFile(filepath.Join("testdata", "base-70ec430", id+".yaml"))
+			require.NoError(t, err)
+			// Renamed so the test can tell which document actually runs.
+			old = []byte(strings.Replace(string(old), "display_name: ", "display_name: My ", 1))
+			override := filepath.Join(dir, id+".yaml")
+			require.NoError(t, os.WriteFile(override, old, 0o600))
+
+			reports, err := descriptorcheck.ValidateAll(home)
+			require.NoError(t, err)
+			var rep descriptorcheck.Report
+			for _, r := range reports {
+				if r.ID == id {
+					rep = r
+				}
+			}
+			assert.Equal(t, override, rep.Source)
+			assert.True(t, rep.FellBack, "the shipped descriptor runs in its place")
+			findingFor(t, rep, "hooks.in_config_injection")
+			assert.False(t, descriptorcheck.AcceptOverride(old))
+
+			require.NoError(t, descriptorcheck.NewGate().Require(home, id),
+				"the provider stays enabled on the shipped descriptor")
+			a, err := agents.New(agents.WithOverrideCheck(descriptorcheck.AcceptOverride)).
+				Get(context.Background(), home, id)
+			require.NoError(t, err)
+			assert.NotContains(t, a.Display().Name, "My ", "the refused override is not what runs")
+		})
+	}
+}
+
+// An override with no shipped default to fall back to is still blocked.
+func TestGate_AnOverrideWithNoShippedDefaultIsStillBlocked(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, "descriptors"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, "descriptors", "acme.yaml"), []byte("id: acme\n"), 0o600))
+
+	require.ErrorIs(t, descriptorcheck.NewGate().Require(home, "acme"), descriptorcheck.ErrBlocked)
+	reports, err := descriptorcheck.ValidateAll(home)
+	require.NoError(t, err)
+	for _, r := range reports {
+		assert.False(t, r.FellBack, r.ID)
 	}
 }
 

@@ -68,14 +68,19 @@ func DescriptorSourceFor(homeDir, id string) (DescriptorSource, bool) {
 	return descriptor.SourceFor(homeDir, id)
 }
 
+// EmbeddedDescriptorSource is the shipped default for id.
+func EmbeddedDescriptorSource(id string) (DescriptorSource, bool) {
+	return descriptor.EmbeddedSource(id)
+}
+
 // DescriptorSources lists every descriptor document, overrides shadowing defaults.
 func DescriptorSources(homeDir string) ([]DescriptorSource, error) {
 	return descriptor.Sources(homeDir)
 }
 
 // All returns every descriptor Crowbar can resolve, sorted by id.
-func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {
-	return descriptor.All(ctx, homeDir)
+func All(ctx context.Context, homeDir string, accept func(raw []byte) bool) ([]*spec.Descriptor, error) {
+	return descriptor.All(ctx, homeDir, accept)
 }
 
 // EmbeddedModelManifest is descriptor.EmbeddedModelManifest, re-exported so a
@@ -86,9 +91,10 @@ func EmbeddedModelManifest() []byte {
 	return descriptor.EmbeddedModelManifest()
 }
 
-// Resolve loads one provider's descriptor, preferring an on-disk override.
-func Resolve(ctx context.Context, homeDir, id string) (*spec.Descriptor, error) {
-	return descriptor.Resolve(ctx, homeDir, id)
+// Resolve loads one provider's descriptor, preferring an on-disk override
+// that accept admits.
+func Resolve(ctx context.Context, homeDir, id string, accept func(raw []byte) bool) (*spec.Descriptor, error) {
+	return descriptor.Resolve(ctx, homeDir, id, accept)
 }
 
 // OverridePath is descriptor.OverridePath, re-exported for a caller that

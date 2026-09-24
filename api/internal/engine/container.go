@@ -6,6 +6,7 @@ import (
 
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 	enginefs "github.com/char2cs/crowbar/api/internal/engine/fs"
 	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 	enginelsp "github.com/char2cs/crowbar/api/internal/engine/lsp"
@@ -66,7 +67,8 @@ func New(
 	}
 	_ = cfg
 	return &Container{
-		Agents:   engineagents.New(engineagents.WithLifecycle(ctx)),
+		Agents: engineagents.New(engineagents.WithLifecycle(ctx),
+			engineagents.WithOverrideCheck(descriptorcheck.AcceptOverride)),
 		Git:      enginegit.New(),
 		FS:       enginefs.New(),
 		Provider: engineprovider.New(),

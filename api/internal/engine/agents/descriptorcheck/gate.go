@@ -40,6 +40,10 @@ func (g *Gate) Require(homeDir, id string) error {
 		return nil
 	}
 	rep := g.report(src)
+	if fallsBack(src, rep) {
+		src, _ = protocol.EmbeddedDescriptorSource(id)
+		rep = g.report(src)
+	}
 	for _, f := range rep.Findings {
 		if f.Severity == SeverityError {
 			return fmt.Errorf("%w: %s (line %d): %s", ErrBlocked, id, f.Line, f.Message)

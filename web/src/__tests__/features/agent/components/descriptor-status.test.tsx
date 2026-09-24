@@ -65,6 +65,31 @@ describe('DescriptorStatus', () => {
     expect(screen.queryByText('Blocked')).not.toBeInTheDocument()
   })
 
+  it('shows a refused override as falling back to the shipped descriptor, with why', async () => {
+    getDescriptorReportsFn.mockResolvedValue([
+      {
+        id: 'claude',
+        source: '/home/me/.crowbar/descriptors/claude.yaml',
+        fellBack: true,
+        findings: [
+          {
+            rule: 'hooks.in_config_injection',
+            severity: 'error',
+            path: 'config_injection[0]',
+            line: 40,
+            message: 'hooks belong in hooks_injection',
+          },
+        ],
+      },
+    ])
+    render(<DescriptorStatus />)
+
+    const claude = await screen.findByTestId('descriptor-claude')
+    expect(within(claude).getByText('Override refused — using shipped')).toBeInTheDocument()
+    expect(within(claude).queryByText('Blocked')).not.toBeInTheDocument()
+    expect(claude).toHaveTextContent('config_injection[0] line 40: hooks belong in hooks_injection')
+  })
+
   it('says so when the daemon cannot be reached', async () => {
     getDescriptorReportsFn.mockRejectedValue(new Error('offline'))
     render(<DescriptorStatus />)

@@ -51,7 +51,11 @@ func Load(data []byte) (*spec.Descriptor, error) {
 	return d, nil
 }
 
-func Resolve(ctx context.Context, homeDir, id string) (*spec.Descriptor, error) {
+// Resolve loads id's descriptor: its on-disk override when accept admits it
+// (a nil accept admits every override), else the shipped default. An override
+// accept refuses — one copied from an older shipped descriptor, say — never
+// takes the provider down with it while a default exists.
+func Resolve(ctx context.Context, homeDir, id string, accept func(raw []byte) bool) (*spec.Descriptor, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -59,7 +63,8 @@ func Resolve(ctx context.Context, homeDir, id string) (*spec.Descriptor, error) 
 		return nil, fmt.Errorf("%w: %q", ErrUnknown, id)
 	}
 	if override := OverridePath(homeDir, id); override != "" {
-		if data, err := os.ReadFile(override); err == nil { //nolint:gosec // id is validated above; homeDir is daemon-owned
+		data, err := os.ReadFile(override) //nolint:gosec // id is validated above; homeDir is daemon-owned
+		if err == nil && (accept == nil || accept(data) || !hasEmbedded(id)) {
 			return Load(data)
 		}
 	}
@@ -85,7 +90,7 @@ func OverridePath(homeDir, id string) string {
 	return filepath.Join(homeDir, overrideDir, id+yamlSuffix)
 }
 
-func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {
+func All(ctx context.Context, homeDir string, accept func(raw []byte) bool) ([]*spec.Descriptor, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -103,7 +108,7 @@ func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {
 
 	out := make([]*spec.Descriptor, 0, len(ids))
 	for id := range ids {
-		d, err := Resolve(ctx, homeDir, id)
+		d, err := Resolve(ctx, homeDir, id, accept)
 		if err != nil {
 			continue
 		}
@@ -111,6 +116,11 @@ func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+func hasEmbedded(id string) bool {
+	_, err := embedded.ReadFile(embeddedDir + "/" + id + yamlSuffix)
+	return err == nil
 }
 
 // EmbeddedModelManifest is the bundled model.manifest: fallback — read fresh
