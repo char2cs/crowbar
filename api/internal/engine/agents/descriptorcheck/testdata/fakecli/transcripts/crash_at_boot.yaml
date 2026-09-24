@@ -1,0 +1,5 @@
+version: "fakecli 1.4.2"
+help: "--resume --fake-tui"
+boot:
+  screen: "fatal: config is corrupt\n"
+  exit_code: 3

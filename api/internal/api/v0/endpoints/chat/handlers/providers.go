@@ -27,6 +27,20 @@ func (h *Handlers) Providers(
 	libs.WriteQueryOK(ctx, providerDTOs(providers))
 }
 
+// DescriptorReports handles GET /v0/settings/chat/descriptors: every
+// descriptor's static findings (rule, severity, YAML path and line, hint).
+func (h *Handlers) DescriptorReports(
+	ctx *gin.Context,
+) {
+	reports, err := h.providers.DescriptorReports(ctx.Request.Context())
+	if err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(ctx, status, msg)
+		return
+	}
+	libs.WriteQueryOK(ctx, reports)
+}
+
 // UpdateProviderPreferences handles PUT /v0/settings/chat/providers: the full
 // ordered preference set (spec §3.2). The body is the COMPLETE ordered list of
 // known providers; the array position defines the new priority. The handler

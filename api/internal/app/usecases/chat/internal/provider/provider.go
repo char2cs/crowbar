@@ -17,6 +17,7 @@ import (
 	agenttools "github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/tools"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
 // ErrProviderDisabled is returned when a request names a provider the user has
@@ -160,6 +161,22 @@ func (p *Providers) ResolveProviders(
 		return out[i].ID < out[j].ID
 	})
 	return out, nil
+}
+
+// DescriptorReports validates every descriptor this machine would load. A
+// report with an error is a provider the daemon refuses to enable.
+func (p *Providers) DescriptorReports(
+	_ context.Context,
+) ([]descriptorcheck.Report, error) {
+	home, err := p.home()
+	if err != nil {
+		return nil, fmt.Errorf("agent: descriptor reports: home: %w", err)
+	}
+	reports, err := descriptorcheck.ValidateAll(home)
+	if err != nil {
+		return nil, fmt.Errorf("agent: descriptor reports: %w", err)
+	}
+	return reports, nil
 }
 
 func (p *Providers) ReplaceProviderPreferences(

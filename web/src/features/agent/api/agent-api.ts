@@ -991,6 +991,30 @@ export const PERMISSION_LEVEL_OPTIONS: ReadonlyArray<{
   { value: 'full-auto', label: 'Full Auto' },
 ]
 
+/** One problem the daemon's descriptor validator found. */
+export interface DescriptorFinding {
+  rule: string
+  severity: 'error' | 'warning'
+  /** YAML path, e.g. `session.locate.glob[0]`. */
+  path: string
+  line: number
+  message: string
+  hint?: string
+}
+
+/** A descriptor's static validation; any error means the daemon will not enable it. */
+export interface DescriptorReport {
+  id: string
+  /** The override file, absent for the shipped descriptor. */
+  source?: string
+  findings: DescriptorFinding[]
+}
+
+export async function getDescriptorReports(): Promise<DescriptorReport[]> {
+  const raw = await apiFetch<DescriptorReport[]>(`/v0/settings/chat/descriptors`)
+  return (raw ?? []).map((r) => ({ ...r, findings: r.findings ?? [] }))
+}
+
 export async function getDefaultPermissionLevel(): Promise<PermissionLevel> {
   const res = await apiFetch<{ level: PermissionLevel }>(`/v0/settings/chat/permission-level`)
   return res.level

@@ -1,0 +1,4 @@
+version: "fakecli 1.4.2"
+help: "--resume"
+boot:
+  screen: "fake ready\n> "

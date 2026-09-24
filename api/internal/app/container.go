@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 
 	"github.com/char2cs/asynx"
 
@@ -178,6 +179,7 @@ func New(
 	startOwningChatReconcile(ctx, repos, ucs)
 	startTerminalWaitSweep(ctx, h, ucs)
 	startModelDiscoveryWarmup(ctx, engines, crowbarHome)
+	go descriptorcheck.LogAll(context.WithoutCancel(ctx), crowbarHome)
 
 	rt := realtime.New(
 		ctx,

@@ -8,6 +8,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
 // ChatUsecase is the chat aggregate as the handlers need it: the rows a
@@ -382,6 +383,12 @@ type ProviderUsecase interface {
 	ResolveProviders(
 		ctx context.Context,
 	) ([]domain.AgentProvider, error)
+
+	// DescriptorReports validates every descriptor this machine would load; it
+	// backs GET /v0/settings/chat/descriptors.
+	DescriptorReports(
+		ctx context.Context,
+	) ([]descriptorcheck.Report, error)
 
 	// ReplaceProviderPreferences rewrites the whole global preference table from the
 	// submitted ordered set (array position → priority), validating ids against the

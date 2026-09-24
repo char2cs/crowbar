@@ -1,0 +1,7 @@
+version: "fakecli 1.4.2"
+help: "--resume --fake-tui"
+boot:
+  screen: "fake ready\n> "
+turn:
+  hooks: [user_prompt, turn_stop]
+  write_session: false

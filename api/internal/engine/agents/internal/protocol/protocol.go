@@ -52,6 +52,22 @@ type ForeignPayloadError = inbound.ForeignConversationError
 // declared required: mapping resolved to nothing against (design spec 2.3).
 type RequiredFieldError = inbound.RequiredFieldError
 
+// DescriptorRuleFailure is one load rule a descriptor breaks.
+type DescriptorRuleFailure = descriptor.RuleFailure
+
+// DescriptorSource is one descriptor document Crowbar would load.
+type DescriptorSource = descriptor.Source
+
+// CheckDescriptor parses raw and reports every load rule it breaks.
+func CheckDescriptor(raw []byte) (*spec.Descriptor, []DescriptorRuleFailure) {
+	return descriptor.Check(raw)
+}
+
+// DescriptorSources lists every descriptor document, overrides shadowing defaults.
+func DescriptorSources(homeDir string) ([]DescriptorSource, error) {
+	return descriptor.Sources(homeDir)
+}
+
 // All returns every descriptor Crowbar can resolve, sorted by id.
 func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {
 	return descriptor.All(ctx, homeDir)

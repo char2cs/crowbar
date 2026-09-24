@@ -57,6 +57,9 @@ func PrependArgs(d *spec.Descriptor, ctx models.TemplateCtx, plan *models.SpawnP
 	plan.Argv = append(args, plan.Argv...)
 }
 
+// KnownVerb reports whether verb names an inject step Crowbar can apply.
+func KnownVerb(verb string) bool { return verbs.Known(verb) }
+
 // Inject applies a descriptor's MCPInject, ConfigInjection and HooksInjection
 // steps, plus any caller-supplied extra, onto a PTY plan — in that order. A PTY
 // reports over the hooks channel, so it is the one process that gets hooks.

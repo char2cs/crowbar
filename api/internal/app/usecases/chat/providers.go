@@ -5,6 +5,7 @@ import (
 
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/provider"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 )
 
 // ProviderUsecase owns the agent PROVIDERS themselves: which ones exist, which
@@ -19,6 +20,11 @@ type ProviderUsecase interface {
 	ResolveProviders(
 		ctx context.Context,
 	) ([]domain.AgentProvider, error)
+
+	// DescriptorReports validates every descriptor this machine would load.
+	DescriptorReports(
+		ctx context.Context,
+	) ([]descriptorcheck.Report, error)
 
 	// ReplaceProviderPreferences overwrites the whole preference table and
 	// returns the resolved list the caller should broadcast. A provider the
@@ -96,6 +102,14 @@ func (u *Usecase) ResolveProviders(
 	ctx context.Context,
 ) ([]domain.AgentProvider, error) {
 	return u.providers.ResolveProviders(ctx)
+}
+
+// DescriptorReports is every descriptor's static validation, for the provider
+// settings: a report with an error is a provider the daemon refuses to enable.
+func (u *Usecase) DescriptorReports(
+	ctx context.Context,
+) ([]descriptorcheck.Report, error) {
+	return u.providers.DescriptorReports(ctx)
 }
 
 // ReplaceProviderPreferences rewrites the whole preference table and returns the

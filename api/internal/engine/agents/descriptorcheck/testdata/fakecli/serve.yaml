@@ -1,0 +1,11 @@
+# The fake CLI as an api-transport provider: only its app-server is checked.
+id: fakeserve
+runtime:
+  transport: api
+  api:
+    protocol: jsonrpc2
+    serve: [BIN, app-server, --listen, "unix://{socket}"]
+    handshake: { call: initialize }
+spawn:
+  cmd: BIN
+  interactive_required: true

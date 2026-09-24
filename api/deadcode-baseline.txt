@@ -38,13 +38,8 @@ internal/core/terminal/internal/session/session_testseams.go: SetNewModelForTest
 internal/engine/agents/internal/catalog/catalog.go: ProbeWith
 internal/engine/agents/internal/exec/runner.go: ExitCode
 internal/engine/agents/internal/promptorigin/promptorigin.go: Declared
-internal/engine/agents/internal/protocol/internal/descriptor/v3.go: CheckProtocolVersion
-internal/engine/agents/internal/protocol/internal/descriptor/v3.go: component
-internal/engine/agents/internal/protocol/internal/descriptor/v3.go: versionLess
 internal/engine/agents/internal/protocol/internal/translate/outbound/outbound.go: Declared
-internal/engine/agents/internal/protocol/protocol.go: CheckVersion
 internal/engine/agents/internal/protocol/protocol.go: Sends
-internal/engine/agents/internal/spec/inject.go: InjectStep.UnmarshalYAML
 internal/engine/lsp/internal/manager/manager.go: WithLookPath
 internal/engine/lsp/internal/server/server.go: newOverTransport
 internal/engine/provider/providers/github/github.go: NewWithExec

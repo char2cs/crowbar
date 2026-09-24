@@ -20,6 +20,7 @@ import (
 	agentusecase "github.com/char2cs/crowbar/api/internal/app/usecases/chat"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
+	"github.com/char2cs/crowbar/api/internal/engine/agents/descriptorcheck"
 	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
@@ -646,6 +647,12 @@ func (configurableListGetUsecase) PurgeChat(
 	_ string,
 ) error {
 	return nil
+}
+
+func (configurableListGetUsecase) DescriptorReports(
+	context.Context,
+) ([]descriptorcheck.Report, error) {
+	return nil, nil
 }
 
 func (configurableListGetUsecase) ResolveProviders(

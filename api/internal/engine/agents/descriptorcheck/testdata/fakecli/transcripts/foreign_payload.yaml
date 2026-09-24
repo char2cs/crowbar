@@ -1,0 +1,7 @@
+version: "fakecli 1.4.2"
+help: "--resume --fake-tui"
+boot:
+  screen: "fake ready\n> "
+  hooks: [session_start]
+payloads:
+  session_start: "{\"sessionId\":\"{session}\"}"
