@@ -118,3 +118,24 @@ func StopMaintenanceForTest(eng Engine) {
 func BeginDrainForTest(eng Engine) {
 	_ = eng.(*terminalEngine).reaps.drain()
 }
+
+// DefaultLocaleForTest exposes the internal defaultLocale decision to the
+// package's external unit tests so they can assert ptyEnv's per-GOOS UTF-8
+// fallback for a synthetic environment without mutating the real process
+// environment. It returns the LANG value ptyEnv would inject for the given base
+// environment and GOOS, or "" when a locale is already set.
+func DefaultLocaleForTest(
+	base []string,
+	goos string,
+) string {
+	return defaultLocale(base, goos)
+}
+
+// ParseOutputFrame splits one binary output message into its payload and
+// whether it is a snapshot; ok is false for anything that is not an output frame.
+func ParseOutputFrame(msg []byte) (payload []byte, snapshot bool, ok bool) {
+	if len(msg) == 0 || msg[0] > FrameSnapshot {
+		return nil, false, false
+	}
+	return msg[1:], msg[0] == FrameSnapshot, true
+}

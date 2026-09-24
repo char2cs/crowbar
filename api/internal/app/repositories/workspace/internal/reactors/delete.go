@@ -1,11 +1,10 @@
 // Package reactors holds the workspace aggregate's post-commit, cross-aggregate
-// reactions. delete.go is the async delete reactor: it subscribes to the terminal
-// workspace.deleted.<id> event and performs the physical teardown OFF the
-// synchronous write path (cascade review-thread Forgets + rm -rf worktree +
-// axWorkspace.Forget), all of which the pure Delete command deliberately does NOT
-// do (spec §3.6 cross-aggregate reactions, §3.8 delete lifecycle). The reactor is
-// gated, timeout-bounded, and idempotent so a crash mid-cascade re-drives cleanly
-// via the boot orphan-sweep.
+// reactions. delete.go is the physical half of a workspace delete: the Purger
+// that tears a tombstoned workspace down, and the async delete reactor that runs
+// it when the terminal workspace.deleted.<id> event lands (spec §3.6/§3.8). The
+// Purger is the ONLY physical purger — the boot sweep re-drives the very same
+// Purge for a tombstone a crash left behind (spec §7-D) — so the two paths cannot
+// diverge again.
 package reactors
 
 import (
@@ -18,35 +17,105 @@ import (
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
 
-	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/domain"
 
 	"github.com/char2cs/crowbar/api/internal/app/repositories/drain"
 )
 
 const (
-	defaultReactorTimeout   = 2 * time.Minute
-	defaultGatePollInterval = 25 * time.Millisecond
+	defaultReactorTimeout = 2 * time.Minute
+	defaultRetryBase      = 25 * time.Millisecond
+	defaultRetryCap       = 2 * time.Second
 )
 
-// StoreReader observes the durable workspace read model so the reactor can gate
-// its purge on the persisted "deleted" tombstone row (spec §3.6 ordering
-// contract). Get returns nil when the read model has no row for the id. The
-// save-only store projection's *Store satisfies this.
-type StoreReader interface {
-	Get(
+// Forgetter purges an aggregate's event log; its synchronous OnForget drops the
+// read-model row. asynx.Asynx satisfies it.
+type Forgetter interface {
+	Forget(
 		ctx context.Context,
 		id string,
-	) (*domain.Workspace, error)
+	) error
 }
 
-// Opt configures the delete reactor's bounded-wait tunables. Production wiring
-// (Task 14) uses the defaults; tests inject short intervals for deterministic,
-// fast gate assertions.
+// Purger physically tears down one tombstoned workspace: its dependents (review
+// threads, agent chats and everything they own), its on-disk root, and finally
+// the aggregate itself. It reads everything it needs off the TOMBSTONE — the
+// persisted "deleted" row — so it needs no side index and works identically for
+// the reactor and for the boot sweep.
+type Purger struct {
+	ax               Forgetter
+	dropRow          func(ctx context.Context, id string) error
+	forgetDependents func(ctx context.Context, wsID string) error
+	removeWorktree   func(path string) error
+}
+
+// NewPurger builds the one physical purger. dropRow deletes the read-model row
+// directly; removeWorktree is the hardened workspace-root remover
+// (repositories/workspace/purge.WorktreeRemover).
+func NewPurger(
+	ax Forgetter,
+	dropRow func(ctx context.Context, id string) error,
+	forgetDependents func(ctx context.Context, wsID string) error,
+	removeWorktree func(path string) error,
+) *Purger {
+	return &Purger{ax: ax, dropRow: dropRow, forgetDependents: forgetDependents, removeWorktree: removeWorktree}
+}
+
+// Purge runs the teardown once. Every step is idempotent, so a re-drive after a
+// crash or a transient failure converges: the dependents are forgotten FIRST,
+// while they are still listable (their rows live beside the worktree); the root
+// is removed from the tombstone's own WorktreePath (an unprovisioned placeholder
+// has none); the aggregate is Forgotten LAST, so a failure anywhere earlier
+// leaves the tombstone for the next re-drive.
+//
+// Forget's OnForget drops the read-model row. When the aggregate is ALREADY
+// Forgotten (ErrValidation) that projection will never run again — a crash
+// between the Forget and its row delete leaves exactly this state — so the row
+// is dropped here directly. Without it the tombstone outlived every boot sweep.
+func (p *Purger) Purge(
+	ctx context.Context,
+	tomb domain.Workspace,
+) error {
+	if err := p.forgetDependents(ctx, tomb.ID); err != nil {
+		return fmt.Errorf("forget dependents: %w", err)
+	}
+	if tomb.WorktreePath != "" {
+		if err := p.removeWorktree(tomb.WorktreePath); err != nil {
+			return fmt.Errorf("remove worktree %q: %w", tomb.WorktreePath, err)
+		}
+	}
+	err := p.ax.Forget(ctx, tomb.ID)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, asynxModels.ErrValidation):
+		if dropErr := p.dropRow(ctx, tomb.ID); dropErr != nil {
+			return fmt.Errorf("drop the row of an already-forgotten aggregate: %w", dropErr)
+		}
+		return nil
+	default:
+		return fmt.Errorf("forget aggregate: %w", err)
+	}
+}
+
+// StoreReader observes the durable workspace read model so the reactor purges
+// only a PERSISTED tombstone (spec §3.6 ordering contract): a tombstone the
+// projection has not yet saved could otherwise be re-saved after the worktree is
+// gone, or be lost to a crash with nothing left for the boot sweep to find.
+type StoreReader interface {
+	// AwaitTombstone blocks until the read model holds id's "deleted" row and
+	// returns it. It is woken by the projection's save, not by polling.
+	AwaitTombstone(
+		ctx context.Context,
+		id string,
+	) (domain.Workspace, error)
+}
+
+// Opt configures the delete reactor's bounded-wait tunables.
 type Opt func(*deleteReactor)
 
-// WithReactorTimeout bounds the whole post-commit purge (gate wait + fs delete +
-// Forget). Non-positive values are ignored.
+// WithReactorTimeout bounds the whole post-commit purge (tombstone wait + every
+// retry). Non-positive values are ignored.
 func WithReactorTimeout(
 	d time.Duration,
 ) Opt {
@@ -57,43 +126,25 @@ func WithReactorTimeout(
 	}
 }
 
-// WithGatePollInterval sets how often the ordering gate re-reads the read model
-// while waiting for the persisted "deleted" row. Non-positive values are ignored.
-func WithGatePollInterval(
-	d time.Duration,
-) Opt {
-	return func(r *deleteReactor) {
-		if d > 0 {
-			r.pollInterval = d
-		}
-	}
-}
-
 // RegisterDeleteReactor subscribes the async delete reactor to the terminal
 // workspace.deleted.<id> event on the singleton axWorkspace. The topic MUST be
 // "workspace.deleted.*" (asynx anchors it to ^workspace\.deleted\..*$, matching
 // the id-suffixed event); a bare "workspace.deleted" would never fire, silently
 // leaking every deleted worktree (spec §3.6).
 //
-// For each event the reactor detaches into its own goroutine (registered on
-// drainWG for graceful shutdown) so the purge outlives the triggering request and
-// so axWorkspace.Forget — itself a SendWait that re-enters the same shard's
+// For each event the reactor detaches into its own goroutine (joined to the drain
+// gate for graceful shutdown) so the purge outlives the triggering request and so
+// axWorkspace.Forget — itself a SendWait that re-enters the same shard's
 // dispatcher — cannot deadlock against the projection-bus goroutine that invoked
-// the handler. The goroutine gates on the persisted "deleted" row, then resolves
-// the worktree path (pathsStore), cascades reviewThreadForget, rm -rf's the
-// worktree, deletes the id↔path row (§3.9 write-point (c)), and finally Forgets
-// the aggregate (its synchronous OnForget drops the read-model row). Every step
-// is idempotent, so the boot orphan-sweep can re-drive it verbatim after a crash.
+// the handler.
 func RegisterDeleteReactor(
 	ax asynx.Asynx[domain.Workspace],
 	storeReader StoreReader,
-	pathsStore wspaths.WorkspacePaths,
-	reviewThreadForget func(ctx context.Context, wsID string) error,
-	rmWorktree func(path string) error,
+	purger *Purger,
 	gate *drain.Gate,
 	opts ...Opt,
 ) error {
-	r := newDeleteReactor(ax, storeReader, pathsStore, reviewThreadForget, rmWorktree, gate, opts...)
+	r := newDeleteReactor(storeReader, purger, gate, opts...)
 	if _, err := ax.Subscribe(asynx.Topic("workspace.deleted.*"), r.onEvent); err != nil {
 		return fmt.Errorf("workspace delete reactor: subscribe: %w", err)
 	}
@@ -101,34 +152,27 @@ func RegisterDeleteReactor(
 }
 
 type deleteReactor struct {
-	ax                 asynx.Asynx[domain.Workspace]
-	storeReader        StoreReader
-	pathsStore         wspaths.WorkspacePaths
-	reviewThreadForget func(ctx context.Context, wsID string) error
-	rmWorktree         func(path string) error
-	gate               *drain.Gate
-	timeout            time.Duration
-	pollInterval       time.Duration
+	storeReader StoreReader
+	purger      *Purger
+	gate        *drain.Gate
+	timeout     time.Duration
+	retryBase   time.Duration
+	retryCap    time.Duration
 }
 
 func newDeleteReactor(
-	ax asynx.Asynx[domain.Workspace],
 	storeReader StoreReader,
-	pathsStore wspaths.WorkspacePaths,
-	reviewThreadForget func(ctx context.Context, wsID string) error,
-	rmWorktree func(path string) error,
+	purger *Purger,
 	gate *drain.Gate,
 	opts ...Opt,
 ) *deleteReactor {
 	r := &deleteReactor{
-		ax:                 ax,
-		storeReader:        storeReader,
-		pathsStore:         pathsStore,
-		reviewThreadForget: reviewThreadForget,
-		rmWorktree:         rmWorktree,
-		gate:               gate,
-		timeout:            defaultReactorTimeout,
-		pollInterval:       defaultGatePollInterval,
+		storeReader: storeReader,
+		purger:      purger,
+		gate:        gate,
+		timeout:     defaultReactorTimeout,
+		retryBase:   defaultRetryBase,
+		retryCap:    defaultRetryCap,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -167,151 +211,49 @@ func (r *deleteReactor) run(
 	r.purgeUntilDone(bg, wsID)
 }
 
-// purgeUntilDone retries purge on a transient failure in any of its steps
-// until it fully completes or ctx's deadline passes. Every step purge runs is
-// individually idempotent (it's what lets the boot orphan-sweep re-drive the
-// same cascade verbatim after a crash), so re-running the whole sequence after
-// a blip is safe: a step that already landed is a no-op the second time.
-// Without this, a single transient hiccup — a busy store, a momentarily-EBUSY
-// rm — abandons the physical purge until the daemon's next restart instead of
-// its next tick.
+// purgeUntilDone waits for the persisted tombstone, then purges it, retrying a
+// transient failure in either with capped exponential backoff until it succeeds
+// or ctx's deadline passes. Re-running is safe — every step is idempotent — and
+// the backoff keeps a persistent failure (a wedged rm, a store that is down) to
+// a few dozen attempts over the reactor's lifetime instead of thousands. Past the
+// deadline the tombstone is left for the boot sweep.
 func (r *deleteReactor) purgeUntilDone(
 	ctx context.Context,
 	wsID string,
 ) {
-	for {
-		if r.purge(ctx, wsID) {
+	delay := r.retryBase
+	for attempt := 1; ; attempt++ {
+		err := r.attempt(ctx, wsID)
+		if err == nil {
 			return
 		}
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
+			slog.ErrorContext(ctx, "workspace delete reactor: purge did not complete; deferring to boot sweep",
+				"id", wsID, "attempts", attempt, "err", err)
 			return
-		case <-time.After(r.pollInterval):
 		}
-	}
-}
-
-// purge runs the workspace's physical teardown once and reports whether every
-// step completed. The caller (purgeUntilDone) retries on false.
-func (r *deleteReactor) purge(
-	ctx context.Context,
-	wsID string,
-) bool {
-	if !r.awaitTombstone(ctx, wsID) {
-		slog.WarnContext(ctx, "workspace delete reactor: tombstone not observed before deadline; deferring to boot sweep", "id", wsID)
-		return false
-	}
-	path, ok := r.resolvePath(ctx, wsID)
-	if !ok {
-		return false
-	}
-	if err := r.reviewThreadForget(ctx, wsID); err != nil {
-		// The injected callback is the composed cross-aggregate forget cascade
-		// (review threads + agent chats — see repositories.Container.forgetDependents),
-		// so this label stays generic; the wrapped err names the half that failed.
-		slog.ErrorContext(ctx, "workspace delete reactor: delete cascade", "id", wsID, "err", err)
-		return false
-	}
-	if !r.removeWorktree(path, wsID) {
-		return false
-	}
-	if err := r.pathsStore.Delete(ctx, wsID); err != nil {
-		slog.ErrorContext(ctx, "workspace delete reactor: delete id-path row", "id", wsID, "err", err)
-		return false
-	}
-	r.forget(ctx, wsID)
-	return true
-}
-
-func (r *deleteReactor) awaitTombstone(
-	ctx context.Context,
-	wsID string,
-) bool {
-	ticker := time.NewTicker(r.pollInterval)
-	defer ticker.Stop()
-	for {
-		if r.tombstonePresent(ctx, wsID) {
-			return true
-		}
+		slog.WarnContext(ctx, "workspace delete reactor: purge failed; retrying",
+			"id", wsID, "attempt", attempt, "retry_in", delay, "err", err)
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
-			return false
-		case <-ticker.C:
+			timer.Stop()
+			slog.ErrorContext(ctx, "workspace delete reactor: purge did not complete; deferring to boot sweep",
+				"id", wsID, "attempts", attempt, "err", err)
+			return
+		case <-timer.C:
 		}
+		delay = min(delay*2, r.retryCap)
 	}
 }
 
-func (r *deleteReactor) tombstonePresent(
+func (r *deleteReactor) attempt(
 	ctx context.Context,
 	wsID string,
-) bool {
-	ws, err := r.storeReader.Get(ctx, wsID)
-	return err == nil && ws != nil && ws.Status == domain.WorkspaceStatusDeleted
-}
-
-// resolvePath returns the worktree path to remove.
-//
-// The id↔path row is consulted first because it survives a workspace whose
-// aggregate is already gone, but it is NOT the source of truth: it can be missing
-// and it can hold an EMPTY path, and an empty path used to end the purge right
-// here — reported as success, with the whole workspace root (worktree, chats and
-// every agent ledger in them) left on disk forever. The record's own
-// WorktreePath is the authority, so fall back to it before concluding there is
-// nothing to remove.
-//
-// Only when BOTH are empty is there genuinely nothing to rm — an unprovisioned
-// placeholder — and that is said out loud rather than passed off as a removal
-// that happened. A real store error aborts the purge so the tombstone survives
-// for the boot sweep to re-drive.
-func (r *deleteReactor) resolvePath(
-	ctx context.Context,
-	wsID string,
-) (string, bool) {
-	path, err := r.pathsStore.Get(ctx, wsID)
-	switch {
-	case errors.Is(err, wspaths.ErrNotFound):
-		path = ""
-	case err != nil:
-		slog.ErrorContext(ctx, "workspace delete reactor: resolve id-path row", "id", wsID, "err", err)
-		return "", false
+) error {
+	tomb, err := r.storeReader.AwaitTombstone(ctx, wsID)
+	if err != nil {
+		return fmt.Errorf("await tombstone: %w", err)
 	}
-	if path != "" {
-		return path, true
-	}
-	if ws, getErr := r.storeReader.Get(ctx, wsID); getErr == nil && ws != nil {
-		path = ws.WorktreePath
-	}
-	if path == "" {
-		slog.InfoContext(ctx, "workspace delete reactor: no worktree path to remove",
-			"id", wsID)
-	}
-	return path, true
-}
-
-func (r *deleteReactor) removeWorktree(
-	path string,
-	wsID string,
-) bool {
-	if path == "" {
-		return true
-	}
-	if err := r.rmWorktree(path); err != nil {
-		slog.Error("workspace delete reactor: rm worktree", "id", wsID, "path", path, "err", err)
-		return false
-	}
-	return true
-}
-
-// forget purges the aggregate as the terminal step. An ErrValidation means the
-// aggregate is already Forgotten (an idempotent re-drive) and is swallowed; any
-// other error leaves the tombstone for the boot sweep to re-drive.
-func (r *deleteReactor) forget(
-	ctx context.Context,
-	wsID string,
-) {
-	err := r.ax.Forget(ctx, wsID)
-	if err == nil || errors.Is(err, asynxModels.ErrValidation) {
-		return
-	}
-	slog.ErrorContext(ctx, "workspace delete reactor: forget aggregate", "id", wsID, "err", err)
+	return r.purger.Purge(ctx, tomb)
 }

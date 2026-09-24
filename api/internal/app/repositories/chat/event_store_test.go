@@ -176,7 +176,7 @@ func TestAgentChat_SetTitle_UserSourceLocksAgainstAgent(t *testing.T) {
 // the synchronous OnForget drops the read-model row AND the underlying event
 // log is erased, so a subsequent GetChat cannot self-heal it back via lazy
 // Replay and genuinely reports chat.ErrNotFound. This is the primitive
-// the workspace-delete cascade (repositories.Container.forgetAgentChats) uses.
+// the hard delete (agent.ChatUsecase.PurgeChat) uses.
 func TestAgentChat_Forget_ErasesAggregate(t *testing.T) {
 	ctx, repo, db, _ := newRepoWithDeps(t)
 	createChat(t, ctx, repo, "c1", "w1", time.Unix(1, 0).UTC())

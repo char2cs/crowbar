@@ -137,10 +137,6 @@ func (m *mockWorkspace) GetHomeForProject(_ context.Context, _ string) (domain.W
 	return domain.Workspace{}, nil
 }
 
-func (m *mockWorkspace) CreateHome(_ context.Context, _, _ string, _ time.Time) (domain.Workspace, error) {
-	return domain.Workspace{}, nil
-}
-
 func (m *mockWorkspace) ListInRepo(_ context.Context, _, _ string) ([]domain.Workspace, error) {
 	return nil, nil
 }
@@ -385,7 +381,7 @@ func (g *mockGitEngine) WorktreeAdd(ctx context.Context, repoPath, worktreePath,
 	return nil
 }
 
-func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePath string) error {
+func (g *mockGitEngine) WorktreeRemove(ctx context.Context, repoPath, worktreePath string, _ bool) error {
 	return nil
 }
 

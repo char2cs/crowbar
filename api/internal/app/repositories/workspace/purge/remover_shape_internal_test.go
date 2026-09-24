@@ -1,4 +1,4 @@
-package repositories
+package purge
 
 import (
 	"os"
@@ -13,9 +13,9 @@ import (
 // worktree sits in a root beside its chats tree. That parent is only the right
 // thing to delete when the path really is an identity-keyed worktree.
 //
-// A pre-leaf workspace recorded at <slug>/<branch> has <slug> as its parent —
-// the directory holding EVERY branch of that repo. Under a prefix-only "is it
-// under the home" guard, removing one such workspace would take all of them.
+// A path whose parent is NOT a workspace root (e.g. <slug>/<branch>, whose
+// parent holds every branch of a repo) loses nothing: the remover only deletes
+// the entries Crowbar makes in a root, and the root only once it is empty.
 func TestWorktreeRemover_RefusesAPathThatIsNotAWorkspaceWorktree(t *testing.T) {
 	home := t.TempDir()
 	slug := filepath.Join(home, "projects", "P", "github.com/acme/app")
@@ -24,7 +24,7 @@ func TestWorktreeRemover_RefusesAPathThatIsNotAWorkspaceWorktree(t *testing.T) {
 	require.NoError(t, os.MkdirAll(victim, 0o755))
 	require.NoError(t, os.MkdirAll(sibling, 0o755))
 
-	require.NoError(t, worktreeRemover(home)(victim))
+	require.NoError(t, WorktreeRemover(home)(victim))
 
 	assert.DirExists(t, sibling, "removing one workspace must never take its siblings")
 	assert.DirExists(t, slug, "the slug directory is not a workspace root")
@@ -38,7 +38,7 @@ func TestWorktreeRemover_RemovesAnIdentityKeyedRoot(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "worktree"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "chats"), 0o755))
 
-	require.NoError(t, worktreeRemover(home)(filepath.Join(root, "worktree")))
+	require.NoError(t, WorktreeRemover(home)(filepath.Join(root, "worktree")))
 
 	assert.NoDirExists(t, root, "the whole workspace root is the footprint")
 }

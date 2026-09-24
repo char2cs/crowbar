@@ -60,7 +60,7 @@ func (u *chatFolderUsecase) PlaceWorkspace(
 	var current domain.Chat
 	if renders, rErr := u.workspaces.RendersAsBranch(ctx, workspaceID); rErr == nil && !renders {
 		if rows, cErr := u.chats.ListByWorkspace(ctx, workspaceID); cErr == nil {
-			if owner, ok := domain.ResolveOwningChat(rows, u.sharedGround(ctx, workspaceID)); ok {
+			if owner, ok := domain.ResolveOwningChat(rows); ok {
 				nodeID = owner.ID
 				// The REAL chat, not a synthetic workspaceAnchorType stand-in:
 				// an ordinary fork already has an honest domain.Chat (its own

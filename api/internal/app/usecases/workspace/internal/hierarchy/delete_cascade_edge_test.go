@@ -10,6 +10,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/workspace/internal/hierarchy"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	enginegit "github.com/char2cs/crowbar/api/internal/engine/git"
 )
 
 func TestDeleteCascade_RootNotFound(t *testing.T) {
@@ -47,16 +48,20 @@ func TestDeleteRepoWorkspaces_SkipsNonRootWorkspaces(t *testing.T) {
 		{ID: "root", RepoID: "r1", ProjectID: "p1", Branch: "b-root", WorktreePath: "/wt/root/worktree"},
 		{ID: "child", ParentID: "root", RepoID: "r1", ProjectID: "p1", Branch: "b-child", WorktreePath: "/wt/child/worktree"},
 	}
+	var deleted []string
 	ws := &fakeWorkspace{
-		ListFn:   func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
-		DeleteFn: func(_ context.Context, _ string) error { return nil },
+		ListFn: func(_ context.Context) ([]domain.Workspace, error) { return all, nil },
+		DeleteFn: func(_ context.Context, id string) error {
+			deleted = append(deleted, id)
+			return nil
+		},
 	}
 	g := &fakeGit{}
 	uc := hierarchy.New(ws, g, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 
-	handled, err := uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo")
+	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"child", "root"}, handled, "deepest-first, and each id exactly once")
+	assert.Equal(t, []string{"child", "root"}, deleted, "deepest-first, and each id exactly once")
 	assert.Equal(t, 2, countOp(g.ops(), "WorktreeRemove"), "each workspace's worktree is removed exactly once")
 }
 
@@ -70,16 +75,15 @@ func TestDeleteRepoWorkspaces_RemoveErrorIsBestEffort(t *testing.T) {
 	}
 	uc := hierarchy.New(ws, &fakeGit{}, &fakeProvider{}, &fakeRepoStore{path: "/repo"}, newNow(), fakeHome())
 
-	handled, err := uc.DeleteRepoWorkspaces(context.Background(), "r1", "/repo")
+	err := uc.DeleteRepoWorkspaces(context.Background(), domain.Repository{ID: "r1", Path: "/repo"})
 	require.NoError(t, err, "a per-workspace removal failure must not fail the whole sweep")
-	assert.Equal(t, []string{"w1"}, handled)
 }
 
 // TestRemoveOne_DefaultBranchReattachFails_IsBestEffort proves a failed
 // re-attach of the main folder to the default branch never aborts the cascade
 // — the row is still dropped and the branch is still never force-deleted.
 func TestRemoveOne_DefaultBranchReattachFails_IsBestEffort(t *testing.T) {
-	g := &fakeGit{checkoutErr: errBoom}
+	g := &fakeGit{checkoutErr: errBoom, worktrees: []enginegit.WorktreeEntry{{Path: "/repo", Head: "tip"}}, revParseSha: "tip"}
 	repos := &fakeRepoStore{path: "/repo", defaultBranch: "develop"}
 	ws := &fakeWorkspace{
 		ListFn: func(_ context.Context) ([]domain.Workspace, error) {

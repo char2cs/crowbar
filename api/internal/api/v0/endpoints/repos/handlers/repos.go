@@ -13,11 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 
 	"github.com/char2cs/crowbar/api/internal/api/libs"
 	"github.com/char2cs/crowbar/api/internal/api/v0/dto"
@@ -25,51 +22,11 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/project"
 	"github.com/char2cs/crowbar/api/internal/core/binpath"
+	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
+	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
 	providertypes "github.com/char2cs/crowbar/api/internal/engine/provider/types"
 )
-
-var avatarColors = []string{
-	"bg-indigo-700", "bg-emerald-700", "bg-orange-700", "bg-sky-700",
-	"bg-rose-700", "bg-violet-700", "bg-teal-700", "bg-amber-700",
-}
-
-// repoAvatar derives a 1-2 char label and deterministic Tailwind color from a repo name.
-func repoAvatar(name string) (label, color string) {
-	words := strings.Fields(strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsSpace(r) {
-			return r
-		}
-		return ' '
-	}, name))
-	switch len(words) {
-	case 0:
-		label = "R"
-	case 1:
-		r, _ := utf8.DecodeRuneInString(words[0])
-		label = strings.ToUpper(string(r))
-	default:
-		r0, _ := utf8.DecodeRuneInString(words[0])
-		r1, _ := utf8.DecodeRuneInString(words[1])
-		label = strings.ToUpper(string(r0) + string(r1))
-	}
-	hash := 0
-	for _, c := range name {
-		hash = (hash*31 + int(c)) & 0xFFFFFF
-	}
-	color = avatarColors[hash%len(avatarColors)]
-	return label, color
-}
-
-// gitRemoteURL returns the origin remote URL for the repo at path, or "".
-func gitRemoteURL(path string) string {
-	//nolint:gosec // G204: fixed git subcommand; path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
-	out, err := exec.Command(binpath.Git(), "-C", path, "remote", "get-url", "origin").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
 
 // Store is the full surface the repos handlers need over the repository GORM
 // table: list every repo, fetch one by id, persist a new one, and remove one.
@@ -103,32 +60,11 @@ type WorkspaceReader interface {
 	List(ctx context.Context) ([]domain.Workspace, error)
 }
 
-// WorkspacePurger drops a workspace ROW outright.
-//
-// It is the backstop for the repo cascade: DeleteCascade refuses a LOCKED
-// workspace, which is right when a user deletes one on its own — a protected
-// branch owns its worktree — and wrong when the repo it belongs to is going.
-// Without this, the repo's protected-branch placeholder outlives its repo as a
-// record nothing can resolve or ever delete again.
-//
-// Deliberately NOT folded into WorkspaceReader: a reader that deletes is a lie
-// about what a dependency is allowed to do, and the Branches endpoint takes the
-// reader precisely because it should not be able to.
-type WorkspacePurger interface {
-	Delete(ctx context.Context, id string) error
-}
-
-// WorkspaceRemover is the one operation a repo delete needs from the workspace
-// side: retire a workspace through the SAME path a user-initiated delete takes,
-// so the worktree is unregistered from git, its root is removed and its record
-// is purged by machinery that already gets all three right.
-//
-// DeleteRepo used to skip this entirely — it deleted its own row and its
-// id-keyed directory and stopped, leaving every worktree on disk, every
-// workspace record orphaned, and a live worktree registration in the user's own
-// repository for each one.
-type WorkspaceRemover interface {
-	DeleteRepoWorkspaces(ctx context.Context, repoID, repoPath string) ([]string, error)
+// RepoDeleter removes a repo and everything it owns through the one delete
+// lifecycle (project.DeleteUsecase.DeleteRepo): workspaces retired first, then
+// the row, its Node row and its entity directory. The handler only binds HTTP.
+type RepoDeleter interface {
+	DeleteRepo(ctx context.Context, repo domain.Repository) error
 }
 
 // RemoteRefresher is the narrow git surface the Branches handler uses to make
@@ -137,6 +73,7 @@ type WorkspaceRemover interface {
 // takes the same per-clone lock every other git operation does.
 type RemoteRefresher interface {
 	FetchPrune(ctx context.Context, repoPath string) error
+	Branches(ctx context.Context, repoPath string) ([]gitdomain.Branch, error)
 }
 
 // BranchEntry is one item in the GET /v0/projects/:projectId/repos/:repoId/branches response.
@@ -211,8 +148,7 @@ type Handlers struct {
 	store       Store
 	provider    BranchProviderEngine
 	wsReader    WorkspaceReader
-	wsRemover   WorkspaceRemover
-	wsPurger    WorkspacePurger
+	deleter     RepoDeleter
 	remote      RemoteRefresher
 	importer    RepoImporter
 	updater     RepoUpdater
@@ -264,16 +200,11 @@ func NewWithDeps(
 	}
 }
 
-// WithWorkspaceRemover wires the cascade a repo delete runs over the repo's
-// workspaces. A nil arg leaves DeleteRepo removing only its own row and
-// directory, which is what it did before this existed — tests that never create
-// workspaces are unaffected, and any real wiring passes one.
-func (h *Handlers) WithWorkspaceRemover(
-	remover WorkspaceRemover,
-	purger WorkspacePurger,
+// WithRepoDeleter wires the delete lifecycle DeleteRepo runs.
+func (h *Handlers) WithRepoDeleter(
+	deleter RepoDeleter,
 ) *Handlers {
-	h.wsRemover = remover
-	h.wsPurger = purger
+	h.deleter = deleter
 	return h
 }
 
@@ -482,12 +413,14 @@ func (h *Handlers) Create(
 	// import itself runs after the 202, where its only channel back to the client
 	// is a broadcast that never comes — the dialog would sit on a 30s wait and
 	// then blame a timeout for what is a plain, answerable conflict.
-	if h.importer != nil {
-		if err := h.importer.CheckRepoImportable(c.Request.Context(), body.ProjectID, body.Path); err != nil {
-			status, msg := libs.StatusAndMessage(err)
-			libs.WriteErr(c, status, msg)
-			return
-		}
+	if h.importer == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "repo import is not wired")
+		return
+	}
+	if err := h.importer.CheckRepoImportable(c.Request.Context(), body.ProjectID, body.Path); err != nil {
+		status, msg := libs.StatusAndMessage(err)
+		libs.WriteErr(c, status, msg)
+		return
 	}
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
@@ -499,92 +432,19 @@ func (h *Handlers) Create(
 	})
 }
 
-// persistRepo runs the background create work. When a full RepoImporter is
-// wired it runs the complete import (default-branch workspace adoption +
-// protected-branch stubs + GitHub avatar), which also broadcasts the adopted
-// workspaces via the workspace repo callback. Without an importer it falls back
-// to the bare buildRepo+Save path. ok is false when the work failed and no
-// RepoDTO should be broadcast (no per-repo LastError sink).
+// persistRepo runs the background create work: the complete import
+// (default-branch workspace adoption, protected-branch rows, GitHub avatar).
+// ok is false when it failed and no RepoDTO should be broadcast.
 func (h *Handlers) persistRepo(
 	ctx context.Context,
 	body createRequest,
 ) (domain.Repository, bool) {
-	if h.importer != nil {
-		repo, err := h.importer.ImportRepo(ctx, body.ProjectID, body.Name, body.Path)
-		if err != nil {
-			return domain.Repository{}, false
-		}
-		return repo, true
-	}
-	repo := buildRepo(body)
-	if err := h.store.Save(ctx, repo); err != nil {
+	repo, err := h.importer.ImportRepo(ctx, body.ProjectID, body.Name, body.Path)
+	if err != nil {
+		slog.ErrorContext(ctx, "create repo: import", "path", body.Path, "err", err)
 		return domain.Repository{}, false
 	}
 	return repo, true
-}
-
-// buildRepo derives the persisted Repository from the validated create request:
-// a generated id when absent, the git-derived default branch and remote URL when
-// a local path is present, the on-disk path slug, and the generated label/color
-// avatar.
-func buildRepo(
-	body createRequest,
-) domain.Repository {
-	defaultBranch := body.DefaultBranch
-	if defaultBranch == "" && body.Path != "" {
-		defaultBranch = gitDefaultBranch(body.Path)
-	}
-	id := body.ID
-	if id == "" {
-		id = uuid.NewString()
-	}
-	remoteURL := ""
-	if body.Path != "" {
-		remoteURL = gitRemoteURL(body.Path)
-	}
-	label, color := repoAvatar(body.Name)
-	return domain.Repository{
-		ID:            id,
-		ProjectID:     body.ProjectID,
-		Name:          body.Name,
-		Path:          body.Path,
-		PathSlug:      pathSlug(body.Path),
-		DefaultBranch: defaultBranch,
-		RemoteURL:     remoteURL,
-		AvatarLabel:   label,
-		AvatarColor:   color,
-	}
-}
-
-// pathSlug returns the immutable on-disk identity persisted as
-// Repository.PathSlug: the repo directory's own base name.
-//
-// The slug chain that consumes it (worktreepath.RemoteSlug) resolves the git
-// remote FIRST and only then this value, and the RemoteURL persisted beside it
-// is never rewritten afterwards — so a repo with a parseable remote keeps its
-// host/owner/repo layout either way, and this is the leaf identity for every
-// repo without one. What it must never be is the display Name: that is
-// user-renameable, and a slug that moved with a rename would strand every
-// already-derived worktree under the previous slug.
-//
-// The path is only stat'd by Create, never normalised, so it is CLEANED before
-// its leaf is taken and a leaf that is not a usable directory name yields "" —
-// the same shape safeRepoName refuses for the display name, and for the same
-// reason: "." and ".." are joined into the derived worktree path, where they
-// silently collapse a level out of the layout. "" falls the chain through to the
-// already-validated name. Mirrors worktreepath.SeedPathSlug, which the api layer
-// may not import (usecase-internal).
-func pathSlug(
-	repoPath string,
-) string {
-	if repoPath == "" {
-		return ""
-	}
-	leaf := filepath.Base(filepath.Clean(repoPath))
-	if strings.ContainsAny(leaf, `/\`) || strings.Trim(leaf, ".") == "" {
-		return ""
-	}
-	return leaf
 }
 
 // patchRequest is the PATCH .../repos/:repoId body. Every field is optional and
@@ -693,7 +553,7 @@ func (h *Handlers) broadcastShiftedRepos(
 // would outlive every way of reaching it.
 //
 // Worktrees are NOT relocated and do not need to be: their paths were derived
-// once and are stored absolute in both the record and the id↔path index, so they
+// once and are stored absolute on the record, so they
 // keep resolving from where they are. Only newly derived paths land under the new
 // project.
 //
@@ -711,8 +571,8 @@ func (h *Handlers) relocateEntityDir(
 	if err != nil || home == "" {
 		return
 	}
-	from := repoDir(home, fromProjectID, repo.ID)
-	to := repoDir(home, repo.ProjectID, repo.ID)
+	from := worktreepath.RepoDir(home, fromProjectID, repo.ID)
+	to := worktreepath.RepoDir(home, repo.ProjectID, repo.ID)
 	if mkErr := os.MkdirAll(filepath.Dir(to), 0o755); mkErr != nil { //nolint:gosec // G301: 0o755 matches the perm the daemon already creates its own project directories with.
 		slog.WarnContext(c.Request.Context(), "repo move: could not create the destination project dir",
 			"repo", repo.ID, "to", to, "err", mkErr)
@@ -752,11 +612,11 @@ func (h *Handlers) bindRepoUpdate(
 
 // DeleteRepo handles DELETE /v0/projects/:projectId/repos/:repoId. It validates
 // the repo exists synchronously (4xx if not), then returns 202 and runs the
-// removal in the background: the GORM record is deleted and the entity-scoped
-// repo directory (worktrees, icon, storages) is torn down on disk. A
-// deleted-status RepoDTO tombstone is broadcast on the Repos WebSocket stream
-// so the client cache drops the entity (00 §6). The user's real repository
-// directory (repo.Path) is never touched — only the ~/.crowbar entity dir.
+// removal in the background through the one delete lifecycle
+// (RepoDeleter.DeleteRepo), broadcasting the deleted-status RepoDTO tombstone
+// once it is done. A failure is never silent: the repo is re-broadcast as still
+// present, so the client does not believe in a removal that did not happen. The
+// user's real repository directory (repo.Path) is never touched.
 func (h *Handlers) DeleteRepo(
 	c *gin.Context,
 ) {
@@ -772,117 +632,19 @@ func (h *Handlers) DeleteRepo(
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	home, _ := h.crowbarHome()
-	repoPath := repo.Path
+	if h.deleter == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "repo delete is not wired")
+		return
+	}
 	libs.WriteAccepted(c)
 	h.runAsync(c.Request.Context(), func(ctx context.Context) {
-		// The ROW goes first, and the tombstone with it. It is the one step that
-		// can still refuse, so a failure has to reach the client as "still there"
-		// rather than a repo it was told had gone. Everything after this is
-		// teardown the client does not wait for: the cascade removes a worktree
-		// per workspace with synchronous git work in each, and holding the frame
-		// behind all of it made a loaded machine take over half a minute to admit
-		// a repo was deleted.
-		if err := h.store.Delete(ctx, repoID); err != nil {
+		if err := h.deleter.DeleteRepo(ctx, *repo); err != nil {
+			slog.ErrorContext(ctx, "delete repo: the repo stays", "repo", repoID, "err", err)
+			h.broadcast(dto.RepoDTOFrom(*repo, h.placementOf(ctx, repoID)))
 			return
 		}
-		// The header's slot goes with the row, or a ghost keeps counting in
-		// whatever home container it was filed in.
-		if h.nodes != nil {
-			if err := h.nodes.Forget(ctx, repoID); err != nil {
-				slog.WarnContext(ctx, "delete repo: forget node row", "repo", repoID, "err", err)
-			}
-		}
 		h.broadcast(dto.RepoDTO{ID: repoID, ProjectID: projectID, Status: "deleted"})
-		// repoPath was read BEFORE the row was deleted, which is what lets this
-		// run afterwards. Without it the cascade cannot resolve the repo, skips
-		// `git worktree remove`, and leaves a live worktree registration in the
-		// user's own repository for every workspace.
-		h.removeRepoWorkspaces(ctx, repoID, repoPath)
-		if home != "" {
-			_ = os.RemoveAll(repoDir(home, projectID, repoID))
-		}
 	})
-}
-
-// removeRepoWorkspaces retires every workspace belonging to the repo, then drops
-// any row the cascade could not take.
-func (h *Handlers) removeRepoWorkspaces(
-	ctx context.Context,
-	repoID string,
-	repoPath string,
-) {
-	if h.wsRemover == nil {
-		return
-	}
-	handled, err := h.wsRemover.DeleteRepoWorkspaces(ctx, repoID, repoPath)
-	if err != nil {
-		slog.ErrorContext(ctx, "delete repo: remove workspaces", "repo", repoID, "err", err)
-	}
-	done := make(map[string]struct{}, len(handled))
-	for _, id := range handled {
-		done[id] = struct{}{}
-	}
-	h.purgeRemainingWorkspaceRows(ctx, repoID, done)
-}
-
-// purgeRemainingWorkspaceRows drops any row the cascade would not take — the
-// repo's locked, protected-branch placeholders. Their worktrees, where they have
-// one, were already removed by the cascade above; what is left is a record whose
-// repo no longer exists, and nothing can ever resolve or delete it again.
-func (h *Handlers) purgeRemainingWorkspaceRows(
-	ctx context.Context,
-	repoID string,
-	done map[string]struct{},
-) {
-	if h.wsPurger == nil {
-		return
-	}
-	all, err := h.wsReader.List(ctx)
-	if err != nil {
-		return
-	}
-	for _, ws := range all {
-		if ws.RepoID != repoID {
-			continue
-		}
-		// Already taken by the cascade. The list above is a READ MODEL and lags
-		// the aggregate, so a row can still read as live here when its aggregate
-		// is already deleted; deleting it again emits a second tombstone, and the
-		// two delete reactors race — the loser fails its Forget on a version
-		// conflict and holds the drain gate open long after the repo is gone.
-		if _, taken := done[ws.ID]; taken {
-			continue
-		}
-		if err := h.wsPurger.Delete(ctx, ws.ID); err != nil {
-			slog.ErrorContext(ctx, "delete repo: purge workspace row",
-				"repo", repoID, "ws", ws.ID, "err", err)
-		}
-	}
-}
-
-// repoDir mirrors worktreepath.RepoDir without importing the usecase-internal
-// package (forbidden from the api layer):
-// <crowbarHome>/projects/<projectID>/<repoID>.
-func repoDir(
-	crowbarHome string,
-	projectID string,
-	repoID string,
-) string {
-	return filepath.Join(crowbarHome, "projects", projectID, repoID)
-}
-
-// gitDefaultBranch reads the current branch from a git repository at path.
-// Returns "" if path is not a git repo or the command fails.
-func gitDefaultBranch(
-	path string,
-) string {
-	//nolint:gosec // G204: fixed git subcommand; path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
-	out, err := exec.Command(binpath.Git(), "-C", path, "symbolic-ref", "HEAD", "--short").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
 }
 
 // Icon handles GET /v0/projects/:projectId/repos/:repoId/icon. It serves the
@@ -1030,27 +792,33 @@ func (h *Handlers) Branches(c *gin.Context) {
 		libs.WriteErr(c, http.StatusNotFound, "repo not found")
 		return
 	}
-	if h.remote != nil {
-		if fErr := h.remote.FetchPrune(c.Request.Context(), repo.Path); fErr != nil {
-			slog.WarnContext(c.Request.Context(), "branches: could not refresh origin; listing cached remote-tracking refs",
-				"repo", repo.Name, "err", fErr)
-		}
+	ctx := c.Request.Context()
+	if h.remote == nil {
+		libs.WriteErr(c, http.StatusInternalServerError, "branch listing is not wired")
+		return
 	}
-
-	// List remote branches via git branch -r
-	//nolint:gosec // G204: fixed git subcommand; repo.Path is a daemon-managed repo path, not shell-interpreted or attacker-controlled.
-	cmd := exec.CommandContext(c.Request.Context(), "git", "-C", repo.Path, "branch", "-r", "--format=%(refname:short)")
-	out, err := cmd.Output()
+	if fErr := h.remote.FetchPrune(ctx, repo.Path); fErr != nil {
+		slog.WarnContext(ctx, "branches: could not refresh origin; listing cached remote-tracking refs",
+			"repo", repo.Name, "err", fErr)
+	}
+	// Through the git engine and its per-repo lock, never a bare shell-out.
+	all, err := h.remote.Branches(ctx, repo.Path)
 	if err != nil {
 		libs.WriteErr(c, http.StatusInternalServerError, "failed to list branches")
 		return
 	}
-	rawBranches := parseRemoteBranches(string(out))
+	rawBranches := originBranches(all)
 
-	// Annotate with protected status
+	// A protection lookup that fails must not report every branch as
+	// unprotected: the picker would offer to import a protected branch as an
+	// ordinary one.
 	protected := map[string]bool{}
 	if h.provider != nil {
-		list, _ := h.provider.ProtectedBranches(c.Request.Context(), repo.Path)
+		list, pErr := h.provider.ProtectedBranches(ctx, repo.Path)
+		if pErr != nil {
+			libs.WriteErr(c, http.StatusBadGateway, "failed to read protected branches")
+			return
+		}
 		for _, b := range list {
 			protected[b] = true
 		}
@@ -1063,9 +831,13 @@ func (h *Handlers) Branches(c *gin.Context) {
 	// workspace. Skip IsDefault here.
 	hasWS := map[string]bool{}
 	if h.wsReader != nil {
-		all, _ := h.wsReader.List(c.Request.Context())
-		for _, ws := range all {
-			if ws.RepoID == repo.ID && !ws.IsDefault {
+		rows, lErr := h.wsReader.List(ctx)
+		if lErr != nil {
+			libs.WriteErr(c, http.StatusInternalServerError, "failed to list workspaces")
+			return
+		}
+		for _, ws := range rows {
+			if ws.RepoID == repo.ID && !ws.IsDefault && ws.Status != domain.WorkspaceStatusDeleted {
 				hasWS[ws.Branch] = true
 			}
 		}
@@ -1120,22 +892,19 @@ func (h *Handlers) PullRequests(c *gin.Context) {
 	libs.WriteQueryOK(c, links)
 }
 
-// parseRemoteBranches strips the "origin/" prefix from git branch -r output and
-// skips HEAD pointer lines.
-//
-// Only `origin/` refs are kept. `git branch -r` lists EVERY remote, and the old
-// cut-at-the-first-slash rule turned an `upstream/x` into a plain `x` the picker
-// offered as importable — a branch the import then resolved against `origin/x`,
-// which may be a different branch or none at all.
-func parseRemoteBranches(out string) []string {
+// originBranches keeps the engine's origin/ remote-tracking branches, with the
+// "origin/" prefix stripped. Only origin is kept: every other remote's branch
+// would be offered as importable and then resolved against origin/<name>,
+// which may be a different branch or none at all. origin/HEAD (short name
+// "origin") has no prefix and falls away.
+func originBranches(all []gitdomain.Branch) []string {
 	var result []string
 	seen := map[string]bool{}
-	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.Contains(line, "->") {
+	for _, b := range all {
+		if !b.IsRemote {
 			continue
 		}
-		name, ok := strings.CutPrefix(line, "origin/")
+		name, ok := strings.CutPrefix(b.Name, "origin/")
 		if !ok || name == "" || seen[name] {
 			continue
 		}

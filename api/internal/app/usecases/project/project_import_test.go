@@ -1480,3 +1480,31 @@ func TestCheckRepoImportable_RepoReadErrorDoesNotBlock(t *testing.T) {
 	// existingRepo.
 	require.NoError(t, uc.CheckRepoImportable(context.Background(), "proj-1", "/repoA"))
 }
+
+// A project is announced the moment its row is saved, and the client asks for
+// its home straight away — so the home must exist BEFORE the row does.
+func TestCreate_TheHomeExistsBeforeTheProjectRowIsSaved(t *testing.T) {
+	projects, _, ws, _, _, uc := newImport(t)
+	ws.CreateFn = func(_ context.Context, in workspace.CreateInput, _ time.Time) (domain.Workspace, error) {
+		assert.Empty(t, projects.Saved, "the project row must not be announced before its home exists")
+		row := domain.Workspace{ID: in.ID, ProjectID: in.ProjectID, Kind: in.Kind, WorktreePath: in.WorktreePath}
+		ws.Created = append(ws.Created, row)
+		return row, nil
+	}
+
+	_, err := uc.Create(context.Background(), "myproject", t.TempDir())
+	require.NoError(t, err)
+	require.Len(t, ws.Created, 1)
+	require.Len(t, projects.Saved, 1)
+}
+
+// A project row that cannot be saved takes its home back out.
+func TestCreate_AFailedProjectSaveDeletesTheHome(t *testing.T) {
+	projects, _, ws, _, _, uc := newImport(t)
+	projects.SaveErr = errors.New("disk full")
+
+	_, err := uc.Create(context.Background(), "myproject", t.TempDir())
+	require.ErrorContains(t, err, "disk full")
+	require.Len(t, ws.Created, 1)
+	assert.Equal(t, []string{ws.Created[0].ID}, ws.Deleted)
+}

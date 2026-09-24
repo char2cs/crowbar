@@ -648,9 +648,7 @@ func (e *Env) OwningChatID(
 
 	rows, err := e.app.Usecases.AgentChat.ListChatsByWorkspace(ctx, wsID)
 	require.NoError(t, err, "OwningChatID: list the chats holding %s", wsID)
-	ws, err := e.app.Usecases.Workspace.Get(ctx, wsID)
-	require.NoError(t, err, "OwningChatID: read workspace %s", wsID)
-	owner, ok := domain.ResolveOwningChat(rows, ws.SharedGround())
+	owner, ok := domain.ResolveOwningChat(rows)
 	require.Truef(
 		t,
 		ok,
@@ -1327,6 +1325,14 @@ func (e *Env) Quiesce() {
 // for why a reactor is never let past the drain gate WHILE a drain waits.
 func (e *Env) QuiesceReactors() {
 	e.app.Repositories.QuiesceReactors(context.Background())
+}
+
+// HoldReactors parks every post-commit reactor admitted from now on at the drain
+// gate's door, so a test can crash the daemon with a purge DETERMINISTICALLY
+// still pending — the state the boot sweep exists for — instead of racing the
+// reactor to it. Nothing releases the hold; it is for a test that crashes next.
+func (e *Env) HoldReactors() {
+	e.app.Repositories.Drain().Gate.Hold()
 }
 
 // ImportRepo creates a real git repo at the supplied path (or inits a fresh one

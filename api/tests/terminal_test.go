@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/char2cs/crowbar/api/internal/core/terminal"
+	"github.com/char2cs/crowbar/api/tests/kit"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,7 +74,7 @@ func readTerminalUntil(
 		if mt != websocket.BinaryMessage {
 			continue
 		}
-		data, _, ok := terminal.ParseOutputFrame(raw)
+		data, _, ok := kit.ParseTerminalFrame(raw)
 		if ok && strings.Contains(string(data), want) {
 			return true
 		}

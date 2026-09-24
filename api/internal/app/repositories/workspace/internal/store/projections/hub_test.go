@@ -86,7 +86,7 @@ func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
 		mu.Unlock()
 	}
 
-	require.NoError(t, RegisterHub(ax, enrich, broadcast))
+	require.NoError(t, RegisterHub(ax, newTestStore(t), enrich, broadcast))
 
 	// SendWait blocks until every matching projection handler completes, so the
 	// hub projection's broadcast has fired by the time it returns.
@@ -132,6 +132,7 @@ func TestRegisterHub_ProjectionFrameMatchesDirectRebroadcast(t *testing.T) {
 func TestRegisterHub_SubscribeError(t *testing.T) {
 	err := RegisterHub(
 		&fakeAx{subscribeErr: errors.New("bus down")},
+		newTestStore(t),
 		func(context.Context, domain.Workspace) stubFrame { return stubFrame{} },
 		func(stubFrame) {},
 	)

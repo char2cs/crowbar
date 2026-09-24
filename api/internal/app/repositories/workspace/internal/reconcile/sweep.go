@@ -15,12 +15,12 @@ import (
 // production this is the workspace repository's raw read-model List.
 type SweepListFunc func(ctx context.Context) ([]domain.Workspace, error)
 
-// SweepPurgeFunc re-drives the idempotent teardown for one lingering workspace —
-// the SAME purge a delete reactor would run (cascade Forget + rm -rf worktree +
-// axWorkspace.Forget, spec §3.6/§3.8). It is injected so this package holds no
-// git/fs/asynx dependency, mirroring the reconcile-on-open Reconciler. It must be
+// SweepPurgeFunc re-drives the idempotent teardown for one lingering tombstone —
+// the SAME reactors.Purger.Purge the delete reactor runs (spec §3.6/§3.8, §7-D),
+// handed the tombstone row itself so it purges from the row's own WorktreePath.
+// It is injected so this package holds no git/fs/asynx dependency. It must be
 // idempotent: a re-drive over an already-purged workspace is a no-op.
-type SweepPurgeFunc func(ctx context.Context, wsID string) error
+type SweepPurgeFunc func(ctx context.Context, tomb domain.Workspace) error
 
 // Sweeper is the cheap, proactive boot orphan-sweep (spec §3.8). A delete reactor
 // that crashed mid-cascade leaves a workspace stuck in Status="deleted" with its
@@ -68,7 +68,7 @@ func (s *Sweeper) Sweep(
 		if ws.Status != domain.WorkspaceStatusDeleted {
 			continue
 		}
-		if err := s.purge(ctx, ws.ID); err != nil {
+		if err := s.purge(ctx, ws); err != nil {
 			slog.ErrorContext(ctx, "workspace boot orphan-sweep: purge", "id", ws.ID, "err", err)
 		}
 	}

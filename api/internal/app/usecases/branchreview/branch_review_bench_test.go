@@ -13,7 +13,6 @@ import (
 	"github.com/char2cs/crowbar/api/internal/adapter"
 	eventsqlite "github.com/char2cs/crowbar/api/internal/adapter/eventstore/sqlite"
 	storesqlite "github.com/char2cs/crowbar/api/internal/adapter/store/sqlite"
-	"github.com/char2cs/crowbar/api/internal/adapter/store/wspaths"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/reviewthread"
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/branchreview"
@@ -69,9 +68,7 @@ func newBenchReviewHarness(
 		Build()
 	require.NoError(b, err)
 	b.Cleanup(func() { _ = wsAx.Shutdown(ctx) })
-	wsPaths, err := wspaths.NewWorkspacePaths(adapters.GlobalView())
-	require.NoError(b, err)
-	workspaces, err := workspace.New(wsAx, adapters.WorkspaceES(), adapters.WorkspaceView(), wsPaths)
+	workspaces, err := workspace.New(wsAx, adapters.WorkspaceES(), adapters.WorkspaceView())
 	require.NoError(b, err)
 
 	threads, err := reviewthread.New(axRT, rtES, adapters.ReviewThreadView(), func(domain.ReviewThread) {})

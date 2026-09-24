@@ -163,13 +163,14 @@ func (u *chatFolderUsecase) ownsWorktree(
 			holders = append(holders, r)
 		}
 	}
-	owner, ok := domain.ResolveOwningChat(holders, u.sharedGround(ctx, row.WorkspaceID))
+	owner, ok := domain.ResolveOwningChat(holders)
 	return ok && owner.ID == row.ID
 }
 
 // remintOwners gives each workspace a delete just left ownerless a fresh
 // owning row, placed where its git parent's row is. Best-effort: the delete
-// already happened, and a read mints an owner too (EnsureOwner).
+// already happened, and the boot reconcile (reconcileOwningChats) mints any
+// owner still missing.
 func (u *chatFolderUsecase) remintOwners(
 	ctx context.Context,
 	workspaceIDs []string,

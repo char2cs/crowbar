@@ -87,6 +87,15 @@ type Workspace struct {
 	// does. Both survive provider polls, which is the entire point: a user who
 	// unlocked main must not find it locked again a minute later.
 	LockOverride *bool `json:"lockOverride,omitempty"`
+	// CreatedBranch records that Crowbar itself created Branch when it made
+	// this workspace (`git worktree add -b`, or a -B import of a remote branch
+	// that had no local ref yet). It is the ONLY licence a teardown has to
+	// delete the branch: a branch that existed before the workspace — the
+	// default branch, a protected branch, a user's own local branch — is the
+	// user's, and removing the workspace never removes it (spec §3 P0-1, D5).
+	// Rows written before the field existed replay false, which errs on the
+	// side of keeping a branch.
+	CreatedBranch bool `json:"createdBranch,omitempty"`
 }
 
 // RendersAsBranch reports whether w should draw its OWN sidebar row — a

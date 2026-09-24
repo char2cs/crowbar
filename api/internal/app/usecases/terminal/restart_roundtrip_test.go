@@ -66,8 +66,8 @@ func newRestartConn() *restartConn {
 func (r *restartConn) WriteMessage(_ int, data []byte) error {
 	var f restartFrame
 	// A frame that is not output (the JSON exit frame) simply matches nothing.
-	if payload, snapshot, ok := engineterminal.ParseOutputFrame(data); ok {
-		f = restartFrame{Data: string(payload), Snapshot: snapshot}
+	if len(data) > 0 && data[0] <= engineterminal.FrameSnapshot {
+		f = restartFrame{Data: string(data[1:]), Snapshot: data[0] == engineterminal.FrameSnapshot}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

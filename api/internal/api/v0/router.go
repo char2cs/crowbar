@@ -128,8 +128,7 @@ func (c *Container) Register(
 		c.app.Usecases.Project,
 		c.app.Repositories.Node,
 		c.eng.Git,
-		c.app.Usecases.Workspace,
-		c.app.Repositories.Workspace,
+		c.app.Usecases.ProjectDelete,
 		c.app.Hub.BroadcastRepo,
 		c.repos.Handle,
 		ws.DualServe,
@@ -137,7 +136,6 @@ func (c *Container) Register(
 	homePkg.Register(
 		projectScoped,
 		c.app.Repositories.Workspace,
-		c.app.GORM.Projects,
 		c.app.Usecases.File,
 		c.eng.Terminal,
 		// The working-overlay read seam (the repositories Container's WorkingFor,
@@ -146,9 +144,6 @@ func (c *Container) Register(
 		// workspace's only REST read, so it stamps Working from here to agree with
 		// the frames the container broadcasts for that same workspace.
 		c.app.Repositories,
-		// Mints a lazily-provisioned legacy project's home workspace its own
-		// Node row (2026-09-08 sidebar-placement-unification Task 7).
-		c.app.Repositories.Node,
 		// Reused from the workspace-scoped surface: the file-change WS handler and
 		// the review-thread store/broadcaster/WS, dual-served via the same wrapper.
 		// home.Register injects the resolved home :wsId so these scope correctly.

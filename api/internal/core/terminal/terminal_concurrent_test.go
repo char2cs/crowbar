@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/char2cs/crowbar/api/internal/core/terminal"
-	"github.com/char2cs/crowbar/api/internal/core/terminal/internal/persistence"
 )
 
 // TestRestore_ConcurrentAttach_NoOrphan verifies that N concurrent Attach calls
@@ -37,7 +36,7 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 	sid := "concurrent-restore-orphan"
 	scrollback := []byte("old scrollback\r\n")
 
-	// Write scrollback to disk so restore() can read it via persistence.ReadBuf.
+	// Write scrollback to disk so restore() can read it.
 	bufPath := filepath.Join(store.dir, sid+".buf")
 	require.NoError(t, os.WriteFile(bufPath, scrollback, 0o644))
 
@@ -387,7 +386,7 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			assert.False(t, eng.SessionExists(ctx, sid),
 				"registry must not contain the reaped session")
 
-			buf, readErr := persistence.ReadBuf(store.dir, sid)
+			buf, readErr := readBuf(store.dir, sid)
 			require.NoError(t, readErr)
 			assert.Nil(t, buf,
 				".buf must stay deleted — a flush/detach write resurrected it")
@@ -400,7 +399,7 @@ func TestReap_NoResurrection_OnSelfExit(t *testing.T) {
 			terminal.StopMaintenanceForTest(fresh)
 			fresh.SetMetaStore(store.fakeMetaStore)
 			for _, m := range store.liveRows() {
-				sb, _ := persistence.ReadBuf(store.dir, m.SessionID)
+				sb, _ := readBuf(store.dir, m.SessionID)
 				_ = fresh.LoadPlaceholder(ctx, m, sb)
 			}
 			assert.False(t, fresh.SessionExists(ctx, sid),
@@ -464,4 +463,13 @@ func TestFlush_Serialized_NewestWins(t *testing.T) {
 		".buf must exist after concurrent maintenance flushes")
 
 	require.NoError(t, eng.Kill(ctx, sid))
+}
+
+// readBuf returns a session's persisted scrollback, or nil when there is none.
+func readBuf(dir, sessionID string) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Join(dir, sessionID+".buf"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	return data, err
 }

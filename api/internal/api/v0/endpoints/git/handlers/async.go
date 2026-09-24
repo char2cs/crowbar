@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/char2cs/crowbar/api/internal/core/safego"
 )
@@ -30,12 +31,25 @@ func (h *Handlers) runAsync(
 		// as an error) instead of vanishing.
 		defer safego.RecoverFn("git.runAsync", func(r any) {
 			h.working.EndWork(ctx, wsID)
-			_, _ = h.lastErrors.SetLastError(ctx, wsID, fmt.Sprintf("internal error: %v", r))
+			h.recordLastError(ctx, wsID, fmt.Sprintf("internal error: %v", r))
 		})
 		err := fn(ctx)
 		h.working.EndWork(ctx, wsID)
 		if err != nil {
-			_, _ = h.lastErrors.SetLastError(ctx, wsID, err.Error())
+			h.recordLastError(ctx, wsID, err.Error())
 		}
 	}()
+}
+
+// recordLastError surfaces a failed op on the workspace entity. It is the
+// failure sink itself, so its own failure is logged: dropping it would leave
+// an op that failed with no trace at all.
+func (h *Handlers) recordLastError(
+	ctx context.Context,
+	wsID string,
+	message string,
+) {
+	if _, err := h.lastErrors.SetLastError(ctx, wsID, message); err != nil {
+		slog.ErrorContext(ctx, "git: record the failed op on the workspace", "ws", wsID, "op_err", message, "err", err)
+	}
 }

@@ -29,15 +29,6 @@ const (
 	FrameSnapshot byte = 1
 )
 
-// ParseOutputFrame splits one binary output message into its payload and whether it is a
-// snapshot. ok is false for anything that is not a well-formed output frame.
-func ParseOutputFrame(msg []byte) (payload []byte, snapshot bool, ok bool) {
-	if len(msg) == 0 || msg[0] > FrameSnapshot {
-		return nil, false, false
-	}
-	return msg[1:], msg[0] == FrameSnapshot, true
-}
-
 // exitMsg is the server→client frame that says the session's process EXITED — sent once,
 // right before the engine closes the conn. It is what lets the client tell "the shell
 // ended" (close the tab) from "the transport dropped" (reconnect): a conn that closes

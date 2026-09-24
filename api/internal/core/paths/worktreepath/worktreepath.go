@@ -7,8 +7,7 @@
 // RemoteSlug) keys the git worktree by its natural identity —
 // <home>/projects/<project>/<host>/<owner>/<repo>/<branch>/ — so navigable
 // paths carry no UUIDs (spec §3.9). DetectClash rejects case-only collisions on
-// case-insensitive filesystems and Move relocates a worktree while keeping the
-// id↔path map consistent.
+// case-insensitive filesystems.
 package worktreepath
 
 import (
@@ -171,6 +170,55 @@ func UnderHome(
 	return strings.HasPrefix(path, strings.TrimRight(home, "/")+"/")
 }
 
+// ResolvePath resolves symlinks in p, falling back to a lexical clean when p
+// cannot be resolved (e.g. it no longer exists on disk).
+func ResolvePath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
+}
+
+// SamePath reports whether two paths refer to the same location, resolving
+// symlinks first: git worktree list emits fully-resolved paths (macOS /var ->
+// /private/var, a symlinked home or network mount), while a repo's Path is the
+// path as imported, so a plain string compare never matches them.
+func SamePath(a, b string) bool {
+	return ResolvePath(a) == ResolvePath(b)
+}
+
+// IsLiveCheckout reports whether dir is a git checkout: it holds a `.git`
+// entry (a file, for a linked worktree). A checkout git still has registered is
+// git's to remove — never a delete's rm -rf.
+func IsLiveCheckout(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// SiblingRoots lists the existing workspace roots under a repo's slug directory
+// (<home>/projects/<projectID>/<slug>/*), so a create can reject a
+// case-insensitive path clash. A slug directory that does not exist yet has
+// none.
+func SiblingRoots(
+	crowbarHome string,
+	projectID string,
+	slug string,
+) ([]string, error) {
+	parent := filepath.Join(crowbarHome, "projects", projectID, slug)
+	entries, err := os.ReadDir(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		paths = append(paths, filepath.Join(parent, entry.Name()))
+	}
+	return paths, nil
+}
+
 // DetectClash returns ErrPathClash when candidate is case-insensitively equal
 // to any path in existingPaths.
 //
@@ -190,27 +238,6 @@ func DetectClash(
 				existing,
 			)
 		}
-	}
-	return nil
-}
-
-// Move relocates a worktree from oldPath to newPath via the injected gitMove
-// (a git worktree move) and then commits the id↔path map update via updateMap.
-//
-// If gitMove fails the map is left untouched, so the old map entry still
-// resolves the worktree (spec §3.9). IO is injected so this helper stays pure
-// and testable.
-func Move(
-	oldPath string,
-	newPath string,
-	gitMove func(from, to string) error,
-	updateMap func() error,
-) error {
-	if err := gitMove(oldPath, newPath); err != nil {
-		return fmt.Errorf("worktreepath: git worktree move: %w", err)
-	}
-	if err := updateMap(); err != nil {
-		return fmt.Errorf("worktreepath: update path map: %w", err)
 	}
 	return nil
 }

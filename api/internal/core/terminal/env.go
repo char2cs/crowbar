@@ -72,18 +72,6 @@ func defaultLocale(
 	return "C.UTF-8"
 }
 
-// DefaultLocaleForTest exposes the internal defaultLocale decision to the
-// package's external unit tests so they can assert ptyEnv's per-GOOS UTF-8
-// fallback for a synthetic environment without mutating the real process
-// environment. It returns the LANG value ptyEnv would inject for the given base
-// environment and GOOS, or "" when a locale is already set.
-func DefaultLocaleForTest(
-	base []string,
-	goos string,
-) string {
-	return defaultLocale(base, goos)
-}
-
 // ParseHexColor converts the frontend's resolved CSS colour ("#rgb", "#rrggbb", or
 // "#rrggbbaa" — the form resolve-css-color.ts emits) into a color.Color, or nil when the
 // string is empty/unparseable. Alpha is dropped: the value feeds an OSC 11/10 default-colour

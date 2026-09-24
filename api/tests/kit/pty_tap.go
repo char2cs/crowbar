@@ -200,7 +200,7 @@ type PTYAttacher interface {
 // to — so the engine cannot tell a test from a browser.
 var _ terminal.WSConn = (*PTYTap)(nil)
 
-// WriteMessage receives one binary PTY output frame (see terminal.ParseOutputFrame),
+// WriteMessage receives one binary PTY output frame (see ParseTerminalFrame),
 // appends its payload to the tap's buffer and fires the tap's Signal. Every
 // waiter re-checks its predicate against the new screen content. Text frames (the
 // exit frame) carry no screen content.
@@ -208,7 +208,7 @@ func (p *PTYTap) WriteMessage(
 	_ int,
 	msg []byte,
 ) error {
-	data, _, ok := terminal.ParseOutputFrame(msg)
+	data, _, ok := ParseTerminalFrame(msg)
 	if !ok || len(data) == 0 {
 		return nil
 	}

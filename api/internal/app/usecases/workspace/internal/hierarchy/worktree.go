@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +14,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/repositories/workspace"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/cascade"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/holder"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/internal/provision"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	"github.com/char2cs/crowbar/api/internal/domain"
 	gitdomain "github.com/char2cs/crowbar/api/internal/domain/git"
@@ -107,8 +106,9 @@ type Usecase interface {
 		ctx context.Context,
 		rootID string,
 	) error
-	// DeleteRepoWorkspaces removes every workspace of a repo, taking the repo's
-	// path from the CALLER rather than resolving it from the repo row.
+	// DeleteRepoWorkspaces removes every workspace of a repo — locked ones
+	// included, though never by force — taking the repo (its path and default
+	// branch) from the CALLER rather than resolving it from the repo row.
 	//
 	// That is the whole point: a repo delete has to broadcast its tombstone the
 	// moment the row is gone, and the teardown below removes a worktree per
@@ -118,17 +118,10 @@ type Usecase interface {
 	// if it no longer needs that row — otherwise removeOne cannot resolve the
 	// repo, skips `git worktree remove`, and leaves a live registration in the
 	// user's own repository for every workspace.
-	//
-	// It returns the ids it deleted, so a caller that sweeps up afterwards does
-	// not delete them a SECOND time: the read model it would sweep from lags the
-	// aggregate, so a row still reads as live when its aggregate is already gone,
-	// and deleting it again emits a second tombstone whose reactor loses the
-	// version race and leaves the drain gate open.
 	DeleteRepoWorkspaces(
 		ctx context.Context,
-		repoID string,
-		repoPath string,
-	) ([]string, error)
+		repo domain.Repository,
+	) error
 	// SetChatObserver wires the chat-usecase surface guardReparent's
 	// working-chat check needs. It is a post-construction setter rather than a
 	// New(...) option because the chat usecase itself depends on this one
@@ -304,7 +297,7 @@ func (u *hierarchyUsecase) CreateChild(
 		return domain.Workspace{}, err
 	}
 	detached := false
-	startSha, err := u.addWorktree(ctx, in, path)
+	added, err := u.addWorktree(ctx, in, path)
 	if err != nil { //nolint:nestif // main-folder detach-and-retry rollback; flattening risks the detach/reattach invariant
 		// git refuses a worktree on a branch that's already checked out. If the
 		// holder is the repo's MAIN folder (the unmanaged default workspace),
@@ -314,7 +307,7 @@ func (u *hierarchyUsecase) CreateChild(
 		if outcome, hErr := holder.Resolve(ctx, u.git, in.RepoPath, in.Branch, home); hErr == nil && outcome.Kind == holder.HeldByHome {
 			if dErr := u.git.DetachWorktree(ctx, in.RepoPath); dErr == nil {
 				detached = true
-				startSha, err = u.addWorktree(ctx, in, path)
+				added, err = u.addWorktree(ctx, in, path)
 			}
 		}
 		if err != nil {
@@ -323,20 +316,21 @@ func (u *hierarchyUsecase) CreateChild(
 		}
 	}
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
-		ID:           wsID,
-		RepoID:       in.RepoID,
-		ProjectID:    in.ProjectID,
-		Branch:       in.Branch,
-		WorktreePath: path,
-		ForkPointSha: startSha,
-		ParentID:     in.ParentID,
-		Protected:    locked || in.ForceLocked,
+		ID:            wsID,
+		RepoID:        in.RepoID,
+		ProjectID:     in.ProjectID,
+		Branch:        in.Branch,
+		WorktreePath:  path,
+		ForkPointSha:  added.startSha,
+		ParentID:      in.ParentID,
+		Protected:     locked || in.ForceLocked,
+		CreatedBranch: added.createdBranch,
 	}, u.now())
 	if err != nil {
 		// The worktree + branch are on disk but the workspace row never landed.
 		// Clean them up best-effort so a fresh-wsID retry isn't blocked by the
 		// orphaned branch and the worktree dir doesn't dangle forever.
-		u.cleanupFailedWorktree(ctx, in.RepoPath, path, in.Branch, detached)
+		u.cleanupFailedWorktree(ctx, in.RepoPath, path, in.Branch, detached, added.createdBranch)
 		return domain.Workspace{}, err
 	}
 	if nErr := u.mintWorkspaceNode(ctx, ws.ID); nErr != nil {
@@ -345,7 +339,7 @@ func (u *hierarchyUsecase) CreateChild(
 		// a failed Create above does, plus the row itself: a Workspace must
 		// never survive with no Node row of its own (2026-09-08
 		// sidebar-placement-unification Task 7 review fix).
-		u.cleanupFailedWorktree(ctx, in.RepoPath, path, in.Branch, detached)
+		u.cleanupFailedWorktree(ctx, in.RepoPath, path, in.Branch, detached, added.createdBranch)
 		u.discardWorkspaceRow(ctx, ws.ID, "create child")
 		return domain.Workspace{}, nErr
 	}
@@ -410,25 +404,31 @@ func (u *hierarchyUsecase) createDirectRow(
 	return ws, nil
 }
 
-// cleanupFailedWorktree removes a worktree + branch created for a workspace
-// row that then failed to fully land — either the row create itself, or a
-// later Node mint — reattaching the main folder FIRST when it was detached to
-// free the branch (this restores the folder AND re-checks-out the branch, so
-// the force-delete cannot destroy an adopted (pre-existing) branch like the
-// default branch). Best-effort: every failure here is logged, never returned
-// — the ORIGINAL failure this cleanup runs for is what the caller reports.
+// cleanupFailedWorktree removes a worktree created for a workspace row that
+// then failed to fully land — either the row create itself, or a later Node
+// mint — reattaching the main folder FIRST when it was detached to free the
+// branch. The branch goes too only when this create made it: an imported
+// branch that already existed locally is the user's, whatever became of the
+// workspace. Best-effort: every failure here is logged, never returned — the
+// ORIGINAL failure this cleanup runs for is what the caller reports.
 func (u *hierarchyUsecase) cleanupFailedWorktree(
 	ctx context.Context,
 	repoPath string,
 	path string,
 	branch string,
 	detached bool,
+	createdBranch bool,
 ) {
-	if rmErr := u.git.WorktreeRemove(ctx, repoPath, path); rmErr != nil {
+	// The worktree was created a moment ago by this very call, so nothing in
+	// it can be anyone's uncommitted work: force is safe.
+	if rmErr := u.git.WorktreeRemove(ctx, repoPath, path, true); rmErr != nil {
 		slog.WarnContext(ctx, "create child: cleanup worktree after failed create",
 			"worktree", path, "err", rmErr)
 	}
 	u.reattachMain(ctx, detached, repoPath, branch)
+	if !createdBranch {
+		return
+	}
 	if delErr := u.git.ForceDeleteBranch(ctx, repoPath, branch); delErr != nil {
 		slog.WarnContext(ctx, "create child: cleanup branch after failed create",
 			"branch", branch, "err", delErr)
@@ -504,7 +504,7 @@ func (u *hierarchyUsecase) deriveWorktreePath(
 	if err != nil {
 		return "", fmt.Errorf("resolve worktree slug: %w", err)
 	}
-	siblings, err := siblingWorktreePaths(home, projectID, slug)
+	siblings, err := worktreepath.SiblingRoots(home, projectID, slug)
 	if err != nil {
 		return "", fmt.Errorf("scan sibling worktrees: %w", err)
 	}
@@ -550,29 +550,6 @@ func (u *hierarchyUsecase) resolveSlug(
 	return worktreepath.RemoteSlug(*repo), nil
 }
 
-// siblingWorktreePaths lists the existing branch-leaf worktrees under a repo's
-// derived slug directory, so a create can reject a case-insensitive path clash.
-// A not-yet-created slug directory yields no siblings.
-func siblingWorktreePaths(
-	home string,
-	projectID string,
-	slug string,
-) ([]string, error) {
-	parent := filepath.Join(home, "projects", projectID, slug)
-	entries, err := os.ReadDir(parent)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		paths = append(paths, filepath.Join(parent, entry.Name()))
-	}
-	return paths, nil
-}
-
 // addWorktree applies the spec-§3 checkout-vs-create decision and returns the
 // fork-point SHA the workspace aggregate should record.
 //
@@ -590,10 +567,10 @@ func (u *hierarchyUsecase) addWorktree(
 	ctx context.Context,
 	in CreateChildInput,
 	path string,
-) (string, error) {
+) (addedWorktree, error) {
 	onRemote, err := u.branchIsRemoteBranch(ctx, in.RepoPath, in.Branch)
 	if err != nil {
-		return "", err
+		return addedWorktree{}, err
 	}
 	if onRemote {
 		return u.checkoutRemoteBranch(ctx, in, path)
@@ -606,9 +583,19 @@ func (u *hierarchyUsecase) addWorktree(
 	startPoint := u.parentStartPoint(ctx, in)
 	startSha, err := u.git.WorktreeAddBranch(ctx, in.RepoPath, path, in.Branch, startPoint)
 	if err != nil {
-		return "", fmt.Errorf("create child: worktree add: %w", err)
+		return addedWorktree{}, fmt.Errorf("create child: worktree add: %w", err)
 	}
-	return startSha, nil
+	// `worktree add -b` refuses an existing branch, so success means the branch
+	// is new — Crowbar's to delete with the workspace.
+	return addedWorktree{startSha: startSha, createdBranch: true}, nil
+}
+
+// addedWorktree is what a successful worktree add reports: the fork point to
+// record, and whether the branch was created by the add (and so is Crowbar's
+// to delete later) or already existed (and so never is).
+type addedWorktree struct {
+	startSha      string
+	createdBranch bool
 }
 
 // parentStartPoint resolves the git start point the new local branch should fork
@@ -731,22 +718,24 @@ func (u *hierarchyUsecase) checkoutRemoteBranch(
 	ctx context.Context,
 	in CreateChildInput,
 	path string,
-) (string, error) {
+) (addedWorktree, error) {
 	if fetchErr := u.git.FetchRef(ctx, in.RepoPath, in.Branch); fetchErr != nil {
 		tracking, trErr := u.git.RemoteTrackingBranchExists(ctx, in.RepoPath, in.Branch)
 		if trErr != nil || !tracking {
-			return "", fmt.Errorf("create child: fetch origin branch: %w", fetchErr)
+			return addedWorktree{}, fmt.Errorf("create child: fetch origin branch: %w", fetchErr)
 		}
 		slog.WarnContext(ctx, "create child: could not fetch origin branch; checking out from local remote-tracking ref",
 			"branch", in.Branch, "err", fetchErr)
 	}
 	// Read BEFORE the reset moves it; reported after, once origin's tip is known.
-	localTip, _ := u.git.RevParse(ctx, in.RepoPath, "refs/heads/"+in.Branch)
+	// An unresolvable local ref is the one case where `-B` creates the branch;
+	// a local branch that already existed stays the user's (CreatedBranch false).
+	localTip, localErr := u.git.RevParse(ctx, in.RepoPath, "refs/heads/"+in.Branch)
 	forkPoint, err := u.git.WorktreeAddAtRef(ctx, in.RepoPath, path, in.Branch, "origin/"+in.Branch)
 	if err != nil {
-		return "", fmt.Errorf("create child: worktree checkout: %w", err)
+		return addedWorktree{}, fmt.Errorf("create child: worktree checkout: %w", err)
 	}
-	u.warnOnDiscardedLocalTip(ctx, in.RepoPath, in.Branch, localTip, forkPoint)
+	provision.WarnOnDiscardedLocalTip(ctx, u.git, in.RepoPath, in.Branch, localTip, forkPoint)
 	// Link the checked-out branch back to origin/<branch> so it is recognised as
 	// origin's branch — a proper branch-review target (its PR is looked up by
 	// branch NAME, its base by the parent/default branch, but a tracked branch is
@@ -759,32 +748,7 @@ func (u *hierarchyUsecase) checkoutRemoteBranch(
 		slog.WarnContext(ctx, "create child: could not set upstream on imported branch; content is correct but ahead/behind may not report",
 			"branch", in.Branch, "err", err)
 	}
-	return forkPoint, nil
-}
-
-// warnOnDiscardedLocalTip logs the local branch tip the import's `-B` reset just
-// moved off, when that tip was NOT already contained in origin's.
-//
-// The reset moves a ref, it does not rewrite history — the old commits stay
-// reachable through the reflog — but a user who had unpushed work on a
-// same-named local branch deserves the SHA in the log to recover it from.
-// Purely diagnostic: every failure is ignored, and it runs after the checkout,
-// so it can never influence whether the import proceeds.
-func (u *hierarchyUsecase) warnOnDiscardedLocalTip(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-	localTip string,
-	originTip string,
-) {
-	if localTip == "" || localTip == originTip {
-		return // no local branch of this name, or it was already at origin's tip
-	}
-	if base, err := u.git.MergeBase(ctx, repoPath, localTip, originTip); err == nil && base == localTip {
-		return // a plain fast-forward; nothing was left behind
-	}
-	slog.WarnContext(ctx, "import: local branch had diverged from origin and was reset to origin's tip (old tip recoverable via reflog)",
-		"branch", branch, "old_local_tip", localTip, "origin_tip", originTip)
+	return addedWorktree{startSha: forkPoint, createdBranch: localErr != nil}, nil
 }
 
 // adoptMainWorktree registers the repository's main worktree as a workspace
@@ -803,7 +767,9 @@ func (u *hierarchyUsecase) adoptMainWorktree(
 		return domain.Workspace{}, fmt.Errorf("create child: adopt main worktree: locked: %w", err)
 	}
 	ws, err := u.workspaces.Create(ctx, workspace.CreateInput{
-		ID:           uuid.NewString(),
+		// Deterministic: a concurrent second adopt of the same folder is refused
+		// by the aggregate itself rather than minting a second default (D2).
+		ID:           workspace.RepoHomeID(in.RepoID),
 		RepoID:       in.RepoID,
 		ProjectID:    in.ProjectID,
 		Branch:       in.Branch,
@@ -1282,7 +1248,7 @@ func (u *hierarchyUsecase) RetryProvision(
 	if err != nil {
 		// The worktree is on disk but the row never landed — clean it up so a
 		// later retry isn't blocked by the orphaned worktree.
-		if rmErr := u.git.WorktreeRemove(ctx, repoPath, path); rmErr != nil {
+		if rmErr := u.git.WorktreeRemove(ctx, repoPath, path, true); rmErr != nil {
 			slog.WarnContext(ctx, "retry provision: cleanup worktree after failed provision",
 				"worktree", path, "err", rmErr)
 		}
@@ -1308,65 +1274,11 @@ func (u *hierarchyUsecase) materializeProtectedWorktree(
 	branch string,
 	path string,
 ) (string, error) {
-	if u.originHasBranch(ctx, repoPath, branch) {
-		return u.materializeFromOrigin(ctx, repoPath, branch, path)
-	}
-	if err := u.git.WorktreeAdd(ctx, repoPath, path, branch); err != nil {
-		return "", fmt.Errorf("retry provision: worktree add: %w", err)
-	}
-	sha, err := u.git.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	sha, err := provision.ExistingBranch(ctx, u.git, repoPath, branch, path)
 	if err != nil {
-		return "", nil // fork point non-essential; the worktree is valid
+		return "", fmt.Errorf("retry provision: %w", err)
 	}
 	return sha, nil
-}
-
-// materializeFromOrigin checks branch out AT origin's ref and links it back to
-// origin/<branch>. The explicit SetUpstream is required because
-// `git worktree add -B <branch> <sha>` starts from a SHA and so creates no
-// tracking info of its own — without it `git pull` in the provisioned worktree
-// fails with "There is no tracking information for the current branch".
-func (u *hierarchyUsecase) materializeFromOrigin(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-	path string,
-) (string, error) {
-	localTip, _ := u.git.RevParse(ctx, repoPath, "refs/heads/"+branch)
-	sha, err := u.git.WorktreeAddAtRef(ctx, repoPath, path, branch, "origin/"+branch)
-	if err != nil {
-		return "", fmt.Errorf("retry provision: worktree add: %w", err)
-	}
-	u.warnOnDiscardedLocalTip(ctx, repoPath, branch, localTip, sha)
-	if upErr := u.git.SetUpstream(ctx, repoPath, branch); upErr != nil {
-		slog.WarnContext(ctx, "retry provision: could not set upstream; pull/ahead-behind may not work",
-			"branch", branch, "err", upErr)
-	}
-	return sha, nil
-}
-
-// originHasBranch reports whether origin/<branch> is resolvable, refreshing it
-// first when it is. It answers the one question the checkout needs — "is there
-// remote content to prefer?" — from the LOCAL remote-tracking ref, so a fetch
-// that fails (offline) still yields true when the clone already knows the
-// branch, and a live-query hiccup can never veto it.
-//
-// The local read comes FIRST so a repo with no remote never pays for a network
-// round-trip under the per-clone lock just to be told what the ref already said.
-func (u *hierarchyUsecase) originHasBranch(
-	ctx context.Context,
-	repoPath string,
-	branch string,
-) bool {
-	tracking, err := u.git.RemoteTrackingBranchExists(ctx, repoPath, branch)
-	if err != nil || !tracking {
-		return false
-	}
-	if fErr := u.git.FetchRef(ctx, repoPath, branch); fErr != nil {
-		slog.WarnContext(ctx, "provision: could not refresh origin branch; using the local remote-tracking ref",
-			"branch", branch, "err", fErr)
-	}
-	return true
 }
 
 // DetachHolder frees a live holder off a placeholder's branch with consent, then
@@ -1564,68 +1476,100 @@ func (u *hierarchyUsecase) DeleteCascade(
 	if workingErr := u.guardNotWorking(ctx, rootID); workingErr != nil {
 		return workingErr
 	}
+	repo := u.repoRefFor(ctx, root.RepoID)
 	order := cascade.Plan(rootID, nodesFrom(all))
 	for _, id := range order {
 		if index[id].Status == domain.WorkspaceStatusDeleted {
 			continue
 		}
-		if removeErr := u.removeOne(ctx, index[id], ""); removeErr != nil {
+		if removeErr := u.removeOne(ctx, index[id], repo); removeErr != nil {
 			return fmt.Errorf("delete cascade: remove %s: %w", id, removeErr)
 		}
 	}
 	return nil
 }
 
-// DeleteRepoWorkspaces removes every workspace of a repo, using the repo path
-// the caller supplies so it works after the repo row is already gone.
+// DeleteRepoWorkspaces removes every workspace of a repo, using the repo the
+// caller supplies so it works after the repo row is already gone.
 //
-// It walks ROOTS only — a workspace whose parent is another of the same repo is
-// taken by that one's cascade — and tolerates individual failures so one wedged
-// worktree cannot strand the rest. A LOCKED workspace is removed here rather
-// than refused: the guard exists so a user cannot delete a protected branch's
-// worktree on its own, and that reason is gone once the repo it belongs to is.
+// It takes EVERY row of the repo, locked ones included: the lock guard exists
+// so a user cannot delete a protected branch's worktree on its own, and that
+// reason is gone once the repo it belongs to is. Taking a locked row is not
+// forcing it, though — removeOne never --forces a locked worktree and never
+// deletes a branch Crowbar did not create, so the repo's default and
+// protected branches, and any uncommitted work in their worktrees, survive
+// the repo's removal (spec §3 P0-1). Individual failures are tolerated so one
+// wedged worktree cannot strand the rest.
 func (u *hierarchyUsecase) DeleteRepoWorkspaces(
 	ctx context.Context,
-	repoID string,
-	repoPath string,
-) ([]string, error) {
+	repo domain.Repository,
+) error {
 	all, err := u.workspaces.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("delete repo workspaces: list: %w", err)
+		return fmt.Errorf("delete repo workspaces: list: %w", err)
 	}
-	handled := []string{}
-	mine := make(map[string]struct{}, len(all))
+	index := indexByID(all)
+	mine := make([]cascade.Node, 0, len(all))
 	for _, ws := range all {
-		if ws.RepoID == repoID {
-			mine[ws.ID] = struct{}{}
+		if ws.RepoID == repo.ID && ws.Status != domain.WorkspaceStatusDeleted {
+			// Locked is left false: the whole repo goes, so no lock stops the walk.
+			mine = append(mine, cascade.Node{ID: ws.ID, Parent: ws.ParentID})
 		}
 	}
-	for _, ws := range all {
-		if ws.RepoID != repoID {
-			continue
+	ref := repoRef{path: repo.Path, defaultBranch: repo.DefaultBranch}
+	for _, n := range mine {
+		if parent, ok := index[n.Parent]; ok && parent.RepoID == repo.ID &&
+			parent.Status != domain.WorkspaceStatusDeleted {
+			continue // taken by its parent's cascade
 		}
-		if _, parentIsMine := mine[ws.ParentID]; parentIsMine {
-			continue
-		}
-		for _, id := range cascade.Plan(ws.ID, nodesFrom(all)) {
-			target, ok := indexByID(all)[id]
-			if !ok {
-				continue
-			}
-			handled = append(handled, id)
-			if removeErr := u.removeOne(ctx, target, repoPath); removeErr != nil {
+		for _, id := range cascade.Plan(n.ID, mine) {
+			if removeErr := u.removeOne(ctx, index[id], ref); removeErr != nil {
 				slog.ErrorContext(ctx, "delete repo workspaces: remove",
-					"repo", repoID, "ws", id, "err", removeErr)
+					"repo", repo.ID, "ws", id, "err", removeErr)
 			}
 		}
 	}
-	return handled, nil
+	return nil
 }
 
+// repoRef is what a workspace teardown needs of its repository: the main
+// checkout git runs against, and the default branch that must never be
+// deleted. A zero path means the repo could not be resolved.
+type repoRef struct {
+	path          string
+	defaultBranch string
+}
+
+// repoRefFor resolves a workspace's repository for its teardown. A missing
+// or unreadable row resolves to a zero repoRef — the teardown then drops the
+// row without touching git, so a cascade never strands a ghost workspace.
+func (u *hierarchyUsecase) repoRefFor(
+	ctx context.Context,
+	repoID string,
+) repoRef {
+	repo, err := u.repos.FindByKey(ctx, repoID)
+	if err != nil || repo == nil {
+		slog.WarnContext(ctx, "cascade: repo unresolved; dropping rows without git teardown",
+			"repo", repoID, "err", err)
+		return repoRef{}
+	}
+	return repoRef{path: repo.Path, defaultBranch: repo.DefaultBranch}
+}
+
+// removeOne tears one workspace down and tombstones its row.
+//
+// The git half obeys the one rule a teardown has (spec §3 P0-1, invariant
+// D5): it removes only what Crowbar made. The worktree is --forced only when
+// it is an ordinary unlocked workspace; a locked (protected) worktree is
+// removed without force, so git refuses rather than discards uncommitted work.
+// The branch is deleted only when Crowbar created it (CreatedBranch), the
+// workspace is not locked, and it is not the repo's default branch — the
+// default branch instead gets the main folder re-attached to it, since a
+// managed worktree on it is the reason the folder was detached.
 func (u *hierarchyUsecase) removeOne(
 	ctx context.Context,
 	ws domain.Workspace,
-	repoPathFallback string,
+	repo repoRef,
 ) error {
 	// Kill the workspace's live PTY sessions FIRST, before the worktree is removed.
 	// They otherwise survive the delete as orphaned shell processes with a
@@ -1634,56 +1578,57 @@ func (u *hierarchyUsecase) removeOne(
 	// cascade. Runs even when the repo path can't be resolved below.
 	u.reapTerminals(ctx, ws.ID)
 
-	// defaultBranch is only consulted to decide whether to reattach the repo's
-	// main checkout, which needs the row. A caller-supplied path means the row is
-	// already gone, and then there is no main checkout left to reattach to.
-	repoPath, defaultBranch := repoPathFallback, ""
-	repo, err := u.repos.FindByKey(ctx, ws.RepoID)
-	switch {
-	case err == nil && repo != nil:
-		repoPath, defaultBranch = repo.Path, repo.DefaultBranch
-	case repoPath != "":
-		// The caller already held the path — a repo delete that has removed its
-		// own row and still owes its workspaces a git teardown. Without this the
-		// unresolvable repo below would skip WorktreeRemove and strand a live
-		// registration in the user's repository.
-	default:
-		// Can't resolve the repo — still drop the read-model row so the cascade
-		// doesn't leave a ghost workspace pointing at an unreachable worktree.
-		slog.WarnContext(ctx, "cascade: repo unresolved; dropping row best-effort",
-			"ws", ws.ID, "err", err)
+	// No repo to run git against, or a placeholder with no worktree of its own
+	// (whose real branch is held elsewhere and must never be git-touched): drop
+	// the row only, so the cascade leaves no ghost behind.
+	if repo.path == "" || ws.WorktreePath == "" {
 		return u.workspaces.Delete(ctx, ws.ID)
 	}
-	// A placeholder (empty WorktreePath) has no worktree, no managed branch
-	// checkout, and its real branch must never be git-touched: drop the row only.
-	// Defense-in-depth — the locked status already blocks DeleteCascade, but a
-	// direct removeOne must not run git against "" or -D the protected branch.
-	if ws.WorktreePath == "" {
-		return u.workspaces.Delete(ctx, ws.ID)
-	}
-	// Best-effort git teardown: a failure here (branch checked out elsewhere, a
-	// transient index lock, an already-removed worktree) must NOT abort the cascade
-	// or leave a GHOST row pointing at a gone worktree — that breaks every future op
-	// on it and makes a re-run cascade fail too. Log and continue; the row is always
-	// dropped, and an orphaned worktree on disk is reaped by `git worktree prune`.
-	if removeErr := u.git.WorktreeRemove(ctx, repoPath, ws.WorktreePath); removeErr != nil {
+	locked := ws.Status == domain.WorkspaceStatusLocked
+	// Best-effort git teardown: a failure here (a dirty locked worktree, a
+	// transient index lock, an already-removed worktree) must NOT abort the
+	// cascade or leave a GHOST row pointing at a gone worktree. Log and
+	// continue; the row is always dropped. A worktree git refused to remove is
+	// left on disk — the purger never deletes a live checkout.
+	if removeErr := u.git.WorktreeRemove(ctx, repo.path, ws.WorktreePath, !locked); removeErr != nil {
 		slog.WarnContext(ctx, "cascade: worktree remove failed (continuing)",
-			"ws", ws.ID, "worktree", ws.WorktreePath, "err", removeErr)
+			"ws", ws.ID, "worktree", ws.WorktreePath, "locked", locked, "err", removeErr)
 	}
-	if ws.Branch != "" && ws.Branch == defaultBranch { //nolint:nestif // default-branch reattach vs force-delete teardown; the branch guard is load-bearing
-		// The default branch is the unmanaged main folder's branch and the shared
-		// integration branch — NEVER delete it on workspace removal. If the main
-		// folder was detached to free it for this managed worktree, re-attach it
-		// (removing the worktree above freed the branch); a no-op otherwise.
-		if reErr := u.git.CheckoutBranch(ctx, repoPath, ws.Branch); reErr != nil {
-			slog.WarnContext(ctx, "cascade: re-attach main folder to default branch (continuing)",
-				"ws", ws.ID, "branch", ws.Branch, "err", reErr)
+	switch {
+	case ws.Branch == "":
+	case ws.Branch == repo.defaultBranch:
+		u.reattachMainIfDetachedAt(ctx, repo.path, ws.Branch)
+	case ws.CreatedBranch && !locked:
+		if delErr := u.git.ForceDeleteBranch(ctx, repo.path, ws.Branch); delErr != nil {
+			slog.WarnContext(ctx, "cascade: branch delete failed (continuing)",
+				"ws", ws.ID, "branch", ws.Branch, "err", delErr)
 		}
-	} else if delErr := u.git.ForceDeleteBranch(ctx, repoPath, ws.Branch); delErr != nil {
-		slog.WarnContext(ctx, "cascade: branch delete failed (continuing)",
-			"ws", ws.ID, "branch", ws.Branch, "err", delErr)
 	}
 	return u.workspaces.Delete(ctx, ws.ID)
+}
+
+// reattachMainIfDetachedAt puts the repo's main folder back on branch once the
+// managed worktree that held it is gone — but only when the folder is in the
+// exact state a create's detach left it in: a detached HEAD sitting on the
+// branch's tip. A folder on another branch, or one the user has moved since,
+// is the user's checkout and is left alone. Best-effort.
+func (u *hierarchyUsecase) reattachMainIfDetachedAt(
+	ctx context.Context,
+	repoPath string,
+	branch string,
+) {
+	entries, err := u.git.WorktreeList(ctx, repoPath)
+	if err != nil || len(entries) == 0 || entries[0].Branch != "" {
+		return // unreadable, or the main folder is on a branch of its own
+	}
+	tip, err := u.git.RevParse(ctx, repoPath, "refs/heads/"+branch)
+	if err != nil || tip != entries[0].Head {
+		return
+	}
+	if reErr := u.git.CheckoutBranch(ctx, repoPath, branch); reErr != nil {
+		slog.WarnContext(ctx, "cascade: re-attach main folder to default branch (continuing)",
+			"branch", branch, "err", reErr)
+	}
 }
 
 // reapTerminals terminates every live PTY session running in wsID's worktree.

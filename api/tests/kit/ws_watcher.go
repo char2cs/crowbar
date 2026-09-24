@@ -11,8 +11,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
-
-	"github.com/char2cs/crowbar/api/internal/core/terminal"
 )
 
 // WSWatcher dials a WebSocket topic and provides event-driven WaitFor methods.
@@ -96,7 +94,7 @@ func (w *WSWatcher) ReadUntil(
 		if mt == websocket.BinaryMessage {
 			// A PTY output frame (the only binary topic): surface it in the same map
 			// shape as the JSON frames so one predicate style serves every stream.
-			data, snapshot, ok := terminal.ParseOutputFrame(raw)
+			data, snapshot, ok := ParseTerminalFrame(raw)
 			require.True(t, ok, "ws: malformed binary terminal frame")
 			msg = map[string]any{"data": string(data), "snapshot": snapshot}
 		} else {

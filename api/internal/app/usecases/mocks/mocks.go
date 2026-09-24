@@ -124,6 +124,10 @@ type RepositoryStore struct {
 	// after a cross-project repo move) to fail while another (the destination
 	// project) succeeds, which a single blanket FindErr cannot express.
 	FindWhereFn func(match domain.Repository) ([]domain.Repository, error)
+	// Nodes, when set, gets a repo Node row for every NEW repo saved — the
+	// row importOneRepo mints alongside it in production, so a seeded repo is
+	// never Node-less (all placement lives on the Node model).
+	Nodes *NodePlacements
 }
 
 // NewRepositoryStore returns an empty RepositoryStore.
@@ -151,6 +155,11 @@ func (s *RepositoryStore) Save(
 		}
 	}
 	s.Saved = append(s.Saved, item)
+	if s.Nodes != nil {
+		if _, err := s.Nodes.GetNode(ctx, item.ID); err != nil {
+			s.Nodes.Rows = append(s.Nodes.Rows, domain.Node{ID: item.ID, Kind: domain.NodeKindRepo})
+		}
+	}
 	return nil
 }
 
@@ -622,17 +631,19 @@ type GitEngine struct {
 	WorktreeListFn func(repoPath string) ([]gitengine.WorktreeEntry, error)
 
 	// Protected-branch managed-worktree provisioning fakes (project import).
-	Detached               []string               // worktree paths detached to HEAD
-	CheckedOut             []WorktreeAddCall      // (path, branch) re-attach calls
-	WorktreeAdds           []WorktreeAddCall      // (path, branch) worktrees materialised, by EITHER add
-	WorktreeAddAtRefs      []WorktreeAddAtRefCall // the subset added AT a start ref (`git worktree add -B`)
-	WorktreeRemoves        []string               // worktree paths force-removed
-	FetchedRefs            []string               // branches fetched from origin (FetchRef)
-	FastForwardedBranches  []string               // branches fast-forwarded from origin (FastForwardBranch)
-	RemoteBranches         map[string]bool        // branch -> exists on origin live (default false)
-	RemoteTrackingBranches map[string]bool        // branch -> local refs/remotes/origin/<branch> present (default false)
-	RevParseShas           map[string]string      // rev -> sha (default "")
-	DetachErr              error                  // forces DetachWorktree to fail
+	Detached          []string               // worktree paths detached to HEAD
+	CheckedOut        []WorktreeAddCall      // (path, branch) re-attach calls
+	WorktreeAdds      []WorktreeAddCall      // (path, branch) worktrees materialised, by EITHER add
+	WorktreeAddAtRefs []WorktreeAddAtRefCall // the subset added AT a start ref (`git worktree add -B`)
+	WorktreeRemoves   []string               // worktree paths removed
+	// WorktreeRemovesUnforced are the removals asked for WITHOUT --force.
+	WorktreeRemovesUnforced []string
+	FetchedRefs             []string          // branches fetched from origin (FetchRef)
+	FastForwardedBranches   []string          // branches fast-forwarded from origin (FastForwardBranch)
+	RemoteBranches          map[string]bool   // branch -> exists on origin live (default false)
+	RemoteTrackingBranches  map[string]bool   // branch -> local refs/remotes/origin/<branch> present (default false)
+	RevParseShas            map[string]string // rev -> sha (default "")
+	DetachErr               error             // forces DetachWorktree to fail
 	// WorktreeAddErrByBranch forces WorktreeAdd to fail for specific branches.
 	WorktreeAddErrByBranch map[string]error
 	// Pruned records repo paths WorktreePrune was called on.
@@ -819,7 +830,11 @@ func (g *GitEngine) WorktreeRemove(
 	ctx context.Context,
 	repoPath string,
 	worktreePath string,
+	force bool,
 ) error {
+	if !force {
+		g.WorktreeRemovesUnforced = append(g.WorktreeRemovesUnforced, worktreePath)
+	}
 	if g.WorktreeRemoveErr != nil {
 		return g.WorktreeRemoveErr
 	}

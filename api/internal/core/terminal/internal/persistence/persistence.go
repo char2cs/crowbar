@@ -89,21 +89,6 @@ func WriteBuf(dir, sessionID string, data []byte) error {
 	return nil
 }
 
-// ReadBuf returns the contents of <dir>/<sessionID>.buf.
-// If the file does not exist it returns (nil, nil) — a session may have no
-// persisted scrollback yet. Real IO errors are wrapped and returned.
-func ReadBuf(dir, sessionID string) ([]byte, error) {
-	path := filepath.Join(dir, sessionID+".buf")
-	data, err := os.ReadFile(path) //nolint:gosec // path controlled by callers
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("persistence: read %s: %w", sessionID, err)
-	}
-	return data, nil
-}
-
 // DeleteBuf removes <dir>/<sessionID>.buf.
 // A missing file is not an error.
 func DeleteBuf(dir, sessionID string) error {

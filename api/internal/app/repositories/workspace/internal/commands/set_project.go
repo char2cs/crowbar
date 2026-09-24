@@ -15,7 +15,7 @@ import (
 // repo whose workspaces were left behind would keep them but stop showing them.
 //
 // It moves no worktree. The on-disk path was derived once, at create time, and is
-// stored absolute in both the record and the id↔path index, so it keeps resolving
+// stored absolute on the record, so it keeps resolving
 // from wherever it already is; only newly derived paths land under the new project.
 type SetProject struct {
 	ID        string

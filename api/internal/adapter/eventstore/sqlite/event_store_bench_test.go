@@ -2,8 +2,23 @@ package sqlite
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 )
+
+// BenchmarkEventStore_AppendOnDisk measures an append against a real file, where
+// the synchronous pragma decides whether every commit pays an fsync.
+func BenchmarkEventStore_AppendOnDisk(b *testing.B) {
+	s, err := NewEventStore(filepath.Join(b.TempDir(), "events.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	ctx := context.Background()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = s.Append(ctx, "agg-bench", int64(i+1), []byte("payload"))
+	}
+}
 
 func BenchmarkEventStore_Append(b *testing.B) {
 	s, err := NewEventStore(":memory:")

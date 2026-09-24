@@ -734,7 +734,7 @@ func TestEngine_LoadPlaceholder_ThenAttach_Restores(t *testing.T) {
 	// so after restore→attach the serialized screen reproduces it.
 	scrollback := []byte("CRWB1 80 24 0 10000\n$ echo " + marker + "\r\n" + marker + "\r\n")
 
-	// Write the blob to disk so restore() can read it via persistence.ReadBuf.
+	// Write the blob to disk so restore() can read it.
 	// (restore re-reads from disk, not from the placeholder.)
 	bufPath := filepath.Join(store.dir, sid+".buf")
 	require.NoError(t, os.WriteFile(bufPath, scrollback, 0o644))

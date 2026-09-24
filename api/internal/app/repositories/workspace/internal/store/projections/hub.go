@@ -29,19 +29,26 @@ import (
 // — the store projection (store.go) owns that. The two derive independently from
 // evt.Aggregate and cannot drift (decision 5). Designed to register ONCE on the
 // singleton, not per aggregate.
+//
+// Every tombstone frame it broadcasts is reported to st (Store.Announced), and
+// st is told to expect that: the delete reactor purges a tombstone — the
+// workspace's owning chat included — only after its frame has gone out.
 func RegisterHub[F any](
 	ax asynx.Asynx[domain.Workspace],
+	st *Store,
 	enrich func(ctx context.Context, ws domain.Workspace) F,
 	broadcast func(frame F),
 ) error {
-	p := &hubProjector[F]{enrich: enrich, broadcast: broadcast}
+	p := &hubProjector[F]{store: st, enrich: enrich, broadcast: broadcast}
 	if _, err := ax.Subscribe(asynx.Topic("workspace.*"), p.onEvent); err != nil {
 		return fmt.Errorf("workspace hub projection: subscribe: %w", err)
 	}
+	st.ExpectAnnouncements()
 	return nil
 }
 
 type hubProjector[F any] struct {
+	store     *Store
 	enrich    func(ctx context.Context, ws domain.Workspace) F
 	broadcast func(frame F)
 }
@@ -54,4 +61,5 @@ func (p *hubProjector[F]) onEvent(
 	evt asynxModels.Event[domain.Workspace],
 ) {
 	p.broadcast(p.enrich(ctx, evt.Aggregate))
+	p.store.Announced(evt.Aggregate)
 }

@@ -72,7 +72,6 @@ func newContainerDeps(
 		newTestAsynx[agents.Runner](t, adapters.AgentRunnerES()),
 		newTestAsynx[domain.Node](t, adapters.NodeES()),
 		nil, // git conflict-checker not exercised by this test
-		nil, // terminateSession not exercised by this test
 		noChatWatch,
 		noRunnerWatch,
 		noNodeWatch,

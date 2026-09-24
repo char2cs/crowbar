@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/char2cs/asynx"
 	asynxModels "github.com/char2cs/asynx/models"
@@ -43,6 +44,18 @@ type Store struct {
 		FindByKey(ctx context.Context, key string) (*workspaceRow, error)
 		FindAll(ctx context.Context) ([]workspaceRow, error)
 	}
+	// tombstoneWaiters are the AwaitTombstone callers parked on an id, woken by
+	// the save that persists that id's "deleted" row — and, once announcements
+	// are expected, by the hub frame that announces it.
+	mu               sync.Mutex
+	tombstoneWaiters map[string][]chan struct{}
+	// expectAnnouncements is set once a hub projection is registered: from then
+	// on a tombstone is ready for its purge only once it is both persisted and
+	// ANNOUNCED — its frame broadcast. The frame is addressed through the
+	// workspace's owning chat, which the purge deletes; a purge that ran first
+	// left the client holding a ghost row it was never told had gone.
+	expectAnnouncements bool
+	announced           map[string]struct{}
 }
 
 // NewStore builds the durable read-model store over the read-model DB
@@ -54,7 +67,112 @@ func NewStore(
 	if err != nil {
 		return nil, fmt.Errorf("workspace store projection: %w", err)
 	}
-	return &Store{inner: inner}, nil
+	return &Store{
+		inner:            inner,
+		tombstoneWaiters: map[string][]chan struct{}{},
+		announced:        map[string]struct{}{},
+	}, nil
+}
+
+// ExpectAnnouncements makes AwaitTombstone also wait for each tombstone's hub
+// frame (see Store.expectAnnouncements). RegisterHub calls it.
+func (s *Store) ExpectAnnouncements() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.expectAnnouncements = true
+}
+
+// Announced records that ws's tombstone frame has been broadcast.
+func (s *Store) Announced(
+	ws domain.Workspace,
+) {
+	if ws.Status != domain.WorkspaceStatusDeleted {
+		return
+	}
+	s.mu.Lock()
+	s.announced[ws.ID] = struct{}{}
+	s.mu.Unlock()
+	s.wakeTombstoneWaiters(ws.ID)
+}
+
+// takeAnnouncement reports whether id's tombstone may be purged as far as the
+// hub is concerned, consuming the record.
+func (s *Store) takeAnnouncement(
+	id string,
+) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.expectAnnouncements {
+		return true
+	}
+	if _, ok := s.announced[id]; !ok {
+		return false
+	}
+	delete(s.announced, id)
+	return true
+}
+
+// AwaitTombstone blocks until the read model holds id's persisted "deleted" row
+// — and, with a hub registered, until that tombstone's frame is broadcast — and
+// returns it, or until ctx ends. It is woken by the save and the broadcast —
+// no polling: the waiter registers BEFORE it reads, so a wake that lands
+// between the read and the wait is not lost.
+func (s *Store) AwaitTombstone(
+	ctx context.Context,
+	id string,
+) (domain.Workspace, error) {
+	wake := make(chan struct{}, 1)
+	s.mu.Lock()
+	s.tombstoneWaiters[id] = append(s.tombstoneWaiters[id], wake)
+	s.mu.Unlock()
+	defer s.stopWaiting(id, wake)
+	for {
+		ws, err := s.Get(ctx, id)
+		if err != nil {
+			return domain.Workspace{}, err
+		}
+		if ws != nil && ws.Status == domain.WorkspaceStatusDeleted && s.takeAnnouncement(id) {
+			return *ws, nil
+		}
+		select {
+		case <-wake:
+		case <-ctx.Done():
+			return domain.Workspace{}, ctx.Err()
+		}
+	}
+}
+
+func (s *Store) stopWaiting(
+	id string,
+	wake chan struct{},
+) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	waiters := s.tombstoneWaiters[id]
+	for i, w := range waiters {
+		if w == wake {
+			waiters = append(waiters[:i], waiters[i+1:]...)
+			break
+		}
+	}
+	if len(waiters) == 0 {
+		delete(s.tombstoneWaiters, id)
+		return
+	}
+	s.tombstoneWaiters[id] = waiters
+}
+
+func (s *Store) wakeTombstoneWaiters(
+	id string,
+) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, wake := range s.tombstoneWaiters[id] {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // List returns every workspace currently in the read model.
@@ -112,14 +230,32 @@ func (s *Store) save(
 	if err != nil {
 		return fmt.Errorf("workspace store projection: marshal: %w", err)
 	}
-	return s.inner.Save(ctx, workspaceRow{ID: ws.ID, Data: data})
+	if err := s.inner.Save(ctx, workspaceRow{ID: ws.ID, Data: data}); err != nil {
+		return err
+	}
+	if ws.Status == domain.WorkspaceStatusDeleted {
+		s.wakeTombstoneWaiters(ws.ID)
+	}
+	return nil
 }
 
 func (s *Store) delete(
 	ctx context.Context,
 	id string,
 ) error {
+	s.mu.Lock()
+	delete(s.announced, id)
+	s.mu.Unlock()
 	return s.inner.Delete(ctx, id)
+}
+
+// Drop deletes id's row directly — for a tombstone whose aggregate is already
+// Forgotten, which no projection event will ever reach again.
+func (s *Store) Drop(
+	ctx context.Context,
+	id string,
+) error {
+	return s.delete(ctx, id)
 }
 
 func unmarshalWorkspace(

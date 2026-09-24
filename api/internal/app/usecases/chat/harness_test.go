@@ -1231,7 +1231,7 @@ func newFixtureUsing(
 	// worktree = <home>/projects/p1/slug/branch/worktree, so its sibling chats dir
 	// (worktreepath.ChatsDir) is <home>/projects/p1/slug/branch/chats — strictly under
 	// home. This mirrors production and is load-bearing now that every agent-path
-	// removal is guarded by RemoveUnderHome (a chats dir NOT under home is refused).
+	// removal is guarded by worktreepath.RemoveUnderHome (a chats dir NOT under home is refused).
 	home := t.TempDir()
 	worktree := filepath.Join(home, "projects", "p1", "slug", "branch", "worktree")
 	ws := &fakeWorkspace{

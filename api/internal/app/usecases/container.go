@@ -75,12 +75,7 @@ type Container struct {
 	// usecase's job, and this one only decides which chats a delete takes.
 	AgentChatFolder agentusecase.TreeUsecase
 	// AgentWorkspaceReader is the SAME agentusecase.WorkspaceReader (AgentChatsDir +
-	// WorktreeDir) instance the chat usecase was built with, exposed so the app layer can
-	// wire the workspace-delete cascade's on-disk reap seam
-	// (repositories.Container.ReapChatFiles) off the identical path resolution
-	// PurgeChat already uses — without reimplementing it. It cannot be threaded
-	// into repositories.New itself: the reader is built from repos.Workspace,
-	// which does not exist until repositories.New returns.
+	// WorktreeDir) instance the chat usecase was built with.
 	AgentWorkspaceReader agentusecase.WorkspaceReader
 	// Worktree resolves a chat to the workspace whose worktree it reads and
 	// writes through (internal/app/usecases/worktree, spec
@@ -220,11 +215,12 @@ func New(
 	)
 	projectImport := newProjectImport(repos, gormStores, engines, crowbarHome, projectUsecase)
 	projectDelete := project.NewDelete(project.DeleteDeps{
-		Projects:    gormStores.Projects,
-		Repos:       gormStores.Repositories,
-		Workspaces:  repos.Workspace,
-		Git:         engines.Git,
-		CrowbarHome: crowbarHome,
+		Projects:       gormStores.Projects,
+		Repos:          gormStores.Repositories,
+		Workspaces:     repos.Workspace,
+		RepoWorkspaces: workspaceUsecase,
+		Nodes:          repos.Node,
+		CrowbarHome:    crowbarHome,
 	})
 	branchReview := branchreview.New(
 		repos.Workspace,

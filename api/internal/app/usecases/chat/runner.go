@@ -125,11 +125,6 @@ type RunnerUsecase interface {
 	// be on different surfaces. See runner/capabilities.go.
 	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
 
-	// RetireAPIConnection ends ONE runner's api-transport connection — the
-	// workspace-delete cascade's seam for a runner whose process is that
-	// connection rather than a PTY. See the implementation's own doc.
-	RetireAPIConnection(runnerID string)
-
 	// ShutdownAPIConnections kills every live api-transport connection this
 	// daemon still holds. It is the shutdown-time counterpart to
 	// ReconcileRunnersOnBoot: that call cleans up the PREVIOUS run's dead
@@ -447,12 +442,6 @@ func (u *Usecase) HasLiveAPIConnection(runnerID string) bool {
 // reports on the surface it is on now.
 func (u *Usecase) TelemetryOnChatSurface(ctx context.Context, chatID string) bool {
 	return u.runners.TelemetryOnChatSurface(ctx, chatID)
-}
-
-// RetireAPIConnection ends one runner's api-transport connection, for the
-// workspace-delete cascade's PTY-less runners.
-func (u *Usecase) RetireAPIConnection(runnerID string) {
-	u.runners.RetireAPIConnection(runnerID)
 }
 
 // ShutdownAPIConnections kills every live api-transport connection this

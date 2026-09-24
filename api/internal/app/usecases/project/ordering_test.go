@@ -14,6 +14,15 @@ import (
 	"github.com/char2cs/crowbar/api/internal/domain"
 )
 
+// withRepoNodes seeds the repo Node row every imported repo carries.
+func withRepoNodes(ids ...string) *mocks.NodePlacements {
+	nodes := mocks.NewNodePlacements()
+	for _, id := range ids {
+		nodes.Rows = append(nodes.Rows, domain.Node{ID: id, Kind: domain.NodeKindRepo})
+	}
+	return nodes
+}
+
 // nodeRow returns the Node row a fake NodePlacements holds for id, failing the
 // test if there is none — every test below that reads a repo's own position
 // seeds the Node fake itself, so a missing row is a fixture bug, not a "not
@@ -118,49 +127,6 @@ func TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, nodeRow(t, nodes, "repo-1").Order,
 		"the repo's position must be stable across an identical re-drag")
-}
-
-// TestRegression_UpdateRepo_PreExistingRepoWithNoNodeRowStillReorders pins a
-// second, DISTINCT live bug from the one above: a repo that predates the Node
-// migration entirely (no Node row was ever created for it — every real
-// pre-existing repo in production, since this migration deliberately ships
-// with no backfill) failed EVERY reorder with "node: set order: no node:
-// asynx: validation failed", caught live by dragging the sole repo in a real
-// seeded dev project.
-//
-// getRepoNode's own doc comment already promised this: "a repo seeded
-// directly... has no Node row... every UpdateRepo call... even a bare
-// rename... must still work" — true for a bare rename (never touches
-// nodes.SetOrder/SetPlacement), false for a reorder. The zero-value phantom
-// Node{ParentID:""} it degrades to happens to equal folderID ("") at the bare
-// root, so `reparenting` computes false and writeNode calls SetOrder on a row
-// that has never been Created — which the real command (and, since this
-// test, the fake) correctly refuses.
-//
-// This escaped every prior test because every OTHER test in this file that
-// exercises a repo's own reorder seeds nodes.Rows with that repo's Node row
-// FIRST (see TestRegression_UpdateRepo_SingleRepoDragDoesNotClampToZero,
-// immediately above) — none of them left it genuinely absent.
-func TestRegression_UpdateRepo_PreExistingRepoWithNoNodeRowStillReorders(t *testing.T) {
-	repos := mocks.NewRepositoryStore()
-	nodes := mocks.NewNodePlacements()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), nodes, nil, nil)
-	ctx := context.Background()
-	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "legacy-repo", ProjectID: "p1"}))
-	// Deliberately no nodes.Rows entry for "legacy-repo" — this is the whole point.
-
-	_, err := uc.UpdateRepo(ctx, "legacy-repo", project.RepoUpdate{Order: index(0)})
-	require.NoError(t, err, "a pre-existing repo with no Node row must mint one on its first reorder, not fail")
-
-	got := nodeRow(t, nodes, "legacy-repo")
-	assert.Equal(t, domain.NodeKindRepo, got.Kind)
-	assert.Equal(t, "", got.ParentID)
-	assert.Equal(t, 0, got.Order)
-
-	// A second reorder must now be a genuine SetOrder/SetPlacement against the
-	// row this first call minted, not another mint attempt.
-	_, err = uc.UpdateRepo(ctx, "legacy-repo", project.RepoUpdate{Order: index(0)})
-	require.NoError(t, err)
 }
 
 // TestUpdateRepo_PlacesAgainstHomeChatsToo pins placeRepoAmongHomeSiblings'
@@ -453,7 +419,7 @@ func TestUpdateRepo_FilesIntoAHomeFolder(t *testing.T) {
 // repos, and letting a repo land there would be a repo containing itself.
 func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	nodes := mocks.NewNodePlacements()
+	nodes := withRepoNodes("r1")
 	folders := mocks.NewFolderStore()
 	folders.Saved = append(folders.Saved, domain.Folder{ID: "repo-folder", RepoID: "other-repo"})
 	uc := project.New(mocks.NewProjectStore(), repos, nil, folders, nodes, nil, nil)
@@ -474,7 +440,7 @@ func TestUpdateRepo_RefusesARepoInternalFolder(t *testing.T) {
 // project-home folder" refusal TestUpdateRepo_RefusesAnUnknownFolder pins.
 func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -484,7 +450,7 @@ func TestUpdateRepo_RefusesANonFolderTarget(t *testing.T) {
 
 func TestUpdateRepo_RefusesAnUnknownFolder(t *testing.T) {
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil, nil)
 	ctx := context.Background()
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
 
@@ -567,7 +533,7 @@ func TestUpdateRepo_SurfacesAStoreError(t *testing.T) {
 func TestUpdateRepo_ProjectMoveNeedsARelocator(t *testing.T) {
 	projects := mocks.NewProjectStore()
 	repos := mocks.NewRepositoryStore()
-	uc := project.New(projects, repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
+	uc := project.New(projects, repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil, nil)
 	ctx := context.Background()
 	require.NoError(t, projects.Save(ctx, domain.Project{ID: "p2"}))
 	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "r1", ProjectID: "p1"}))
@@ -788,7 +754,7 @@ func (s *repositoryStoreMissingAfterSave) FindWhere(
 // failed — the caller gets back what it just wrote instead of an error.
 func TestRegression_UpdateRepo_ReturnsInMemoryRowWhenPostSaveRefetchComesBackEmpty(t *testing.T) {
 	repos := &repositoryStoreMissingAfterSave{row: domain.Repository{ID: "r1", ProjectID: "p1", Name: "widget"}}
-	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), mocks.NewNodePlacements(), nil, nil)
+	uc := project.New(mocks.NewProjectStore(), repos, nil, mocks.NewFolderStore(), withRepoNodes("r1"), nil, nil)
 
 	updated, err := uc.UpdateRepo(context.Background(), "r1", project.RepoUpdate{Name: name("renamed")})
 	got := updated.Repo

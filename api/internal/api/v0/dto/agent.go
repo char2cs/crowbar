@@ -215,7 +215,7 @@ func AgentChatDTOFrom(
 		ID:               c.ID,
 		WorkspaceID:      c.WorkspaceID,
 		Title:            c.Title,
-		Type:             c.EffectiveType(),
+		Type:             c.Type,
 		Surface:          c.Surface,
 		ActiveProviderID: activeProviderID(c, rt),
 		Working:          c.Working,

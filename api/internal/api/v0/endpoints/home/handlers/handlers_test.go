@@ -28,29 +28,6 @@ func (m *mockHomeReader) GetHomeForProject(ctx context.Context, projectID string
 	return args.Get(0).(domain.Workspace), args.Error(1)
 }
 
-func (m *mockHomeReader) CreateHome(ctx context.Context, projectID, worktreePath string, now time.Time) (domain.Workspace, error) {
-	args := m.Called(ctx, projectID, worktreePath, now)
-	return args.Get(0).(domain.Workspace), args.Error(1)
-}
-
-// ── ProjectReader stub — always returns "not found" ──────────────────────────
-
-type stubProjectReader struct{}
-
-func (stubProjectReader) FindByKey(_ context.Context, _ string) (*domain.Project, error) {
-	return nil, apperr.ErrNotFound
-}
-
-// ── ProjectReader mock — controllable for lazy home provisioning tests ───────
-
-type mockProjectReader struct{ mock.Mock }
-
-func (m *mockProjectReader) FindByKey(ctx context.Context, id string) (*domain.Project, error) {
-	args := m.Called(ctx, id)
-	proj, _ := args.Get(0).(*domain.Project)
-	return proj, args.Error(1)
-}
-
 // ── Files stub (no-op, always returns empty results) ──────────────────────────
 
 type stubFiles struct{}
@@ -124,7 +101,7 @@ func TestGetHome_StampsWorkingFromSignal(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-1").
 		Return(domain.Workspace{ID: "ws-home-1", ProjectID: "proj-1", Kind: domain.WorkspaceKindHome}, nil)
 
-	h := handlers.New(reader, nil, nil, stubWork{working: true})
+	h := handlers.New(reader, nil, stubWork{working: true})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -159,7 +136,7 @@ func TestGetHome_Returns200WithWorkspace(t *testing.T) {
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-1").Return(homeWS, nil)
 
-	h := handlers.New(reader, nil, nil, stubWork{})
+	h := handlers.New(reader, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -182,7 +159,7 @@ func TestGetHome_Returns404WhenNotFound(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-missing").
 		Return(domain.Workspace{}, apperr.ErrNotFound)
 
-	h := handlers.New(reader, stubProjectReader{}, nil, stubWork{})
+	h := handlers.New(reader, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -203,7 +180,7 @@ func TestGetHome_Returns500OnStorageError(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-err").
 		Return(domain.Workspace{}, errors.New("asynx: read failed"))
 
-	h := handlers.New(reader, nil, nil, stubWork{})
+	h := handlers.New(reader, nil, stubWork{})
 	r.GET("/projects/:projectId/home", h.Get)
 
 	w := httptest.NewRecorder()
@@ -229,7 +206,7 @@ func TestFileTree_Returns200WhenWorkspaceExists(t *testing.T) {
 	reader := &mockHomeReader{}
 	reader.On("GetHomeForProject", mock.Anything, "proj-2").Return(homeWS, nil)
 
-	h := handlers.New(reader, nil, &stubFiles{}, stubWork{})
+	h := handlers.New(reader, &stubFiles{}, stubWork{})
 	r.GET("/projects/:projectId/home/files/tree", h.FileTree)
 
 	w := httptest.NewRecorder()
@@ -239,181 +216,6 @@ func TestFileTree_Returns200WhenWorkspaceExists(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	reader.AssertExpectations(t)
 }
-
-// ── resolveHome — lazy provisioning ───────────────────────────────────────
-
-// TestGetHome_LazilyProvisions verifies that when GetHomeForProject reports
-// ErrNotFound, resolveHome falls back to looking up the project and creating
-// a home workspace from its path, supporting projects created before the
-// home feature existed — and that the new home workspace mints its own
-// Node{Kind:workspace} row unconditionally at the same instant (2026-09-08
-// sidebar-placement-unification Task 7), with no separate backfill step.
-func TestGetHome_LazilyProvisions(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := &mockHomeReader{}
-	reader.On("GetHomeForProject", mock.Anything, "proj-legacy").
-		Return(domain.Workspace{}, apperr.ErrNotFound)
-	newWS := domain.Workspace{
-		ID:           "ws-new",
-		ProjectID:    "proj-legacy",
-		Kind:         domain.WorkspaceKindHome,
-		WorktreePath: "/projects/legacy",
-	}
-	reader.On("CreateHome", mock.Anything, "proj-legacy", "/projects/legacy", mock.AnythingOfType("time.Time")).
-		Return(newWS, nil)
-
-	projects := &mockProjectReader{}
-	projects.On("FindByKey", mock.Anything, "proj-legacy").
-		Return(&domain.Project{ID: "proj-legacy", Path: "/projects/legacy"}, nil)
-
-	nodes := &mockNodeCreator{}
-	nodes.On("CreateIdempotent", mock.Anything, "ws-new", domain.NodeKindWorkspace, "", 0).
-		Return(domain.Node{ID: "ws-new", Kind: domain.NodeKindWorkspace}, nil)
-
-	h := handlers.New(reader, projects, nil, stubWork{}).WithNodes(nodes)
-	r.GET("/projects/:projectId/home", h.Get)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/projects/proj-legacy/home", nil)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusOK, w.Code)
-	reader.AssertExpectations(t)
-	projects.AssertExpectations(t)
-	nodes.AssertExpectations(t)
-}
-
-// TestGetHome_LazyProvisionNodeMintFails verifies that a lazily-provisioned
-// home workspace whose own Node row fails to mint surfaces as a 500, the same
-// way a CreateHome failure itself already does — a home workspace must never
-// persist with no position row.
-func TestGetHome_LazyProvisionNodeMintFails(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := &mockHomeReader{}
-	reader.On("GetHomeForProject", mock.Anything, "proj-legacy3").
-		Return(domain.Workspace{}, apperr.ErrNotFound)
-	newWS := domain.Workspace{ID: "ws-new3", ProjectID: "proj-legacy3", Kind: domain.WorkspaceKindHome}
-	reader.On("CreateHome", mock.Anything, "proj-legacy3", "/projects/legacy3", mock.AnythingOfType("time.Time")).
-		Return(newWS, nil)
-
-	projects := &mockProjectReader{}
-	projects.On("FindByKey", mock.Anything, "proj-legacy3").
-		Return(&domain.Project{ID: "proj-legacy3", Path: "/projects/legacy3"}, nil)
-
-	nodes := &mockNodeCreator{}
-	nodes.On("CreateIdempotent", mock.Anything, "ws-new3", domain.NodeKindWorkspace, "", 0).
-		Return(domain.Node{}, errors.New("node create boom"))
-
-	h := handlers.New(reader, projects, nil, stubWork{}).WithNodes(nodes)
-	r.GET("/projects/:projectId/home", h.Get)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/projects/proj-legacy3/home", nil)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	nodes.AssertExpectations(t)
-}
-
-// TestGetHome_LazyProvisionNoNodesWired verifies that lazy provisioning
-// refuses outright — rather than silently persisting a home workspace with no
-// position row — when the Node surface was never wired at all.
-func TestGetHome_LazyProvisionNoNodesWired(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := &mockHomeReader{}
-	reader.On("GetHomeForProject", mock.Anything, "proj-legacy4").
-		Return(domain.Workspace{}, apperr.ErrNotFound)
-	newWS := domain.Workspace{ID: "ws-new4", ProjectID: "proj-legacy4", Kind: domain.WorkspaceKindHome}
-	reader.On("CreateHome", mock.Anything, "proj-legacy4", "/projects/legacy4", mock.AnythingOfType("time.Time")).
-		Return(newWS, nil)
-
-	projects := &mockProjectReader{}
-	projects.On("FindByKey", mock.Anything, "proj-legacy4").
-		Return(&domain.Project{ID: "proj-legacy4", Path: "/projects/legacy4"}, nil)
-
-	h := handlers.New(reader, projects, nil, stubWork{}) // no .WithNodes
-	r.GET("/projects/:projectId/home", h.Get)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/projects/proj-legacy4/home", nil)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-// TestGetHome_LazyProvisionCreateFails verifies that a CreateHome failure
-// during lazy provisioning surfaces as a 500.
-func TestGetHome_LazyProvisionCreateFails(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := &mockHomeReader{}
-	reader.On("GetHomeForProject", mock.Anything, "proj-legacy2").
-		Return(domain.Workspace{}, apperr.ErrNotFound)
-	reader.On("CreateHome", mock.Anything, "proj-legacy2", "/projects/legacy2", mock.AnythingOfType("time.Time")).
-		Return(domain.Workspace{}, errors.New("write failed"))
-
-	projects := &mockProjectReader{}
-	projects.On("FindByKey", mock.Anything, "proj-legacy2").
-		Return(&domain.Project{ID: "proj-legacy2", Path: "/projects/legacy2"}, nil)
-
-	h := handlers.New(reader, projects, nil, stubWork{})
-	r.GET("/projects/:projectId/home", h.Get)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/projects/proj-legacy2/home", nil)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	reader.AssertExpectations(t)
-	projects.AssertExpectations(t)
-}
-
-// TestGetHome_LazyProvisionProjectLookupErrors verifies that a non-nil error
-// from the project lookup (distinct from a nil project) also yields 404.
-func TestGetHome_LazyProvisionProjectLookupErrors(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-
-	reader := &mockHomeReader{}
-	reader.On("GetHomeForProject", mock.Anything, "proj-err").
-		Return(domain.Workspace{}, apperr.ErrNotFound)
-
-	projects := &mockProjectReader{}
-	projects.On("FindByKey", mock.Anything, "proj-err").
-		Return(nil, errors.New("db unreachable"))
-
-	h := handlers.New(reader, projects, nil, stubWork{})
-	r.GET("/projects/:projectId/home", h.Get)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/projects/proj-err/home", nil)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusNotFound, w.Code)
-	reader.AssertExpectations(t)
-	projects.AssertExpectations(t)
-}
-
-// Concurrency-safety for GET .../home's lazy provisioning is no longer a
-// property of THIS handler — resolveHome no longer serializes anything
-// itself (no mutex, no singleflight). It is now a property of
-// workspace.CreateHome and node.EventStore.CreateIdempotent, which derive a
-// deterministic id and lean on asynx's own per-aggregate command
-// serialization instead — see TestConcurrentCreateHome_OneProjectNeverGetsTwoHomeWorkspaces
-// in the workspace repository's own test suite (workspace_concurrency_test.go),
-// which proves it against the REAL asynx event store, and
-// concurrency.TestConcurrency_ParallelHomeResolvesProvisionExactlyOneWorkspace
-// in tests/integration, which proves it through the real HTTP surface. A mock
-// of HomeWorkspaces/NodeCreator has no aggregate to serialize, so a test here
-// could only ever assert on this handler's OWN sequencing — which the fix
-// deliberately removed — not on the actual guarantee.
 
 // ── RequireHomeWorkspace ───────────────────────────────────────────────────
 
@@ -431,7 +233,7 @@ func TestRequireHomeWorkspace_SetsWsIdAndCallsNext(t *testing.T) {
 		Kind:      domain.WorkspaceKindHome,
 	}, nil)
 
-	h := handlers.New(reader, nil, nil, stubWork{})
+	h := handlers.New(reader, nil, stubWork{})
 	var capturedWsID string
 	r.GET("/projects/:projectId/home/thing", h.RequireHomeWorkspace, func(c *gin.Context) {
 		capturedWsID = c.Param("wsId")
@@ -458,7 +260,7 @@ func TestRequireHomeWorkspace_AbortsChainOnFailure(t *testing.T) {
 	reader.On("GetHomeForProject", mock.Anything, "proj-abort").
 		Return(domain.Workspace{}, errors.New("storage error"))
 
-	h := handlers.New(reader, nil, nil, stubWork{})
+	h := handlers.New(reader, nil, stubWork{})
 	called := false
 	r.GET("/projects/:projectId/home/thing", h.RequireHomeWorkspace, func(c *gin.Context) {
 		called = true

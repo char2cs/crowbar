@@ -33,14 +33,9 @@ import (
 func Register(
 	projectScoped *gin.RouterGroup,
 	workspaces homehandlers.HomeWorkspaces,
-	projects homehandlers.ProjectReader,
 	files homehandlers.Files,
 	termEng termhandlers.TerminalEngine,
 	working homehandlers.WorkSignal,
-	// nodes mints a lazily-provisioned legacy project's home workspace its own
-	// Node{Kind:workspace} row the instant resolveHome creates one (2026-09-08
-	// sidebar-placement-unification Task 7) — see homehandlers.WithNodes.
-	nodes homehandlers.NodeCreator,
 	filesWS gin.HandlerFunc,
 	threadStore threadhandlers.ThreadStore,
 	threadBroadcast threadhandlers.ThreadBroadcaster,
@@ -67,10 +62,10 @@ func Register(
 		agentChats, agentTurns, agentRunners, agentAnswers, agentProviders,
 		agentFolders, agentBroadcastFolder,
 	).WithWorktrees(agentWorktrees).WithNodes(agentNodes)
-	// GET /home resolves its owner through the SAME EnsureOwner the home chat
-	// list does, under the same mint lock.
-	h := homehandlers.New(workspaces, projects, files, working).
-		WithChats(agentChats).WithOwners(ah).WithNodes(nodes)
+	// GET /home resolves its owner through the SAME OwnerOf the home chat list
+	// does.
+	h := homehandlers.New(workspaces, files, working).
+		WithChats(agentChats).WithOwners(ah)
 	th := threadhandlers.New(threadStore, threadBroadcast)
 	home := projectScoped.Group("/home")
 

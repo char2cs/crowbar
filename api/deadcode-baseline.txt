@@ -9,8 +9,6 @@ internal/api/v0/endpoints/repos/handlers/repos.go: Handlers.WithIconStorage
 internal/api/v0/endpoints/repos/handlers/repos.go: Handlers.WithStat
 internal/api/v0/endpoints/repos/handlers/repos.go: New
 internal/api/v0/endpoints/worktree/handlers/async.go: Handlers.WaitAsync
-internal/app/repositories/container.go: SweepDanglingAliases
-internal/app/repositories/workspace/internal/reactors/delete.go: WithGatePollInterval
 internal/app/repositories/workspace/internal/reactors/delete.go: WithReactorTimeout
 internal/app/repositories/workspace/internal/reconcile/reconcile.go: New
 internal/app/repositories/workspace/internal/reconcile/reconcile.go: Reconciler.OnOpen
@@ -31,18 +29,12 @@ internal/app/usecases/chat/internal/tree/walk.go: CwdWorkspaceID
 internal/app/usecases/chat/internal/tree/walk.go: ForkParentID
 internal/core/binpath/git.go: InvalidateGit
 internal/core/paths/worktreepath/worktreepath.go: GlobalStateDir
-internal/core/paths/worktreepath/worktreepath.go: Move
 internal/core/paths/worktreepath/worktreepath.go: ProjectStorageDir
 internal/core/paths/worktreepath/worktreepath.go: RepoStorageDir
 internal/core/paths/worktreepath/worktreepath.go: ThreadsStorageDir
 internal/core/terminal/internal/model/vt_model.go: ResponseSinkInstalledForTest
 internal/core/terminal/internal/model/vt_serializer.go: encodeGridRow
-internal/core/terminal/internal/session/session.go: Session.fanOut
-internal/core/terminal/internal/session/session_testseams.go: NewDoneClosedForTest
 internal/core/terminal/internal/session/session_testseams.go: SetNewModelForTest
-internal/core/terminal/internal/session/session_testseams.go: forceEmitPanicForTest
-internal/core/terminal/internal/session/session_testseams.go: forceModelPanicForTest
-internal/core/terminal/terminal.go: DefaultLocaleForTest
 internal/engine/agents/internal/catalog/catalog.go: ProbeWith
 internal/engine/agents/internal/exec/runner.go: ExitCode
 internal/engine/agents/internal/promptorigin/promptorigin.go: Declared
