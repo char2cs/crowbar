@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid'
 import { BOTTOM_PANE_ID, ROOT_PANE_ID } from '@/features/panes/constants/pane'
 import type { LayoutNode, PaneGroup, ViewRecord } from '@/features/panes/types/pane'
 import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
-import { makePane, showingLayout, type ViewState } from './view-state'
+import { makePane, settleFocus, type ViewState } from './view-state'
 
 /** Drop the leaves `keep` refuses, collapsing emptied splits; null when none survive. */
 function pruneLayout(node: LayoutNode, keep: (paneId: string) => boolean): LayoutNode | null {
@@ -99,11 +99,6 @@ export function repairViewState(input: Partial<ViewState>): ViewState {
     fullscreenPaneId:
       input.fullscreenPaneId && panes[input.fullscreenPaneId] ? input.fullscreenPaneId : null,
   }
-  const showing = getAllLeafIds(showingLayout(repaired))
-  const reachable = new Set([...showing, ...getAllLeafIds(bottomLayout)])
-  if (!reachable.has(repaired.activePaneId)) {
-    const showingSet = new Set(showing)
-    repaired.activePaneId = mostRecentActivePaneIds.find((id) => showingSet.has(id)) ?? showing[0]
-  }
+  settleFocus(repaired)
   return repaired
 }

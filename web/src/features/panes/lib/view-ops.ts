@@ -10,7 +10,7 @@ import {
 } from '@/features/panes/utils/pane-layout'
 import {
   forgetPaneId,
-  healActivePane,
+  settleFocus,
   homeOf,
   layoutOf,
   nextViewFor,
@@ -27,8 +27,16 @@ import {
  * The only structural writers. Every write that adds, removes or moves a pane
  * goes through `insertPane` / `removePane` / `movePane` (and `fillPane` for a
  * chat landing in a chatless pane), so the invariants `view-integrity.ts`
- * checks are kept in exactly one place.
+ * checks are kept in exactly one place. None of them repairs focus: every
+ * write is applied through `commitViewWrite`, which settles it once at the
+ * end, so no writer can forget to.
  */
+
+/** Apply one pane write; afterwards `activePaneId` names a pane on screen. */
+export function commitViewWrite<S extends ViewState>(state: S, recipe: (state: S) => void): void {
+  recipe(state)
+  settleFocus(state)
+}
 
 /** Drop a record and every pane still in its layout; show the next view of
  *  the same project when it was the one on screen. */
@@ -53,7 +61,6 @@ function dropRecord(state: ViewState, viewId: string): void {
   if (state.activeViewId === viewId) {
     showView(state, nextViewFor(state, state.activeProjectId ?? view.projectId))
   }
-  healActivePane(state)
 }
 
 /** The stage holds a chat now: its layout becomes a new record. */
@@ -70,7 +77,6 @@ function promoteStage(state: ViewState, projectId: string): string {
     state.activeViewId = id
     if (projectId) state.activeViewByProject[projectId] = id
   }
-  healActivePane(state)
   return id
 }
 
@@ -150,7 +156,6 @@ export function removePane(state: ViewState, paneId: string): void {
   if (!home) {
     delete state.panes[paneId]
     forgetPaneId(state, paneId)
-    healActivePane(state)
     return
   }
   const rest = closeLayout(layoutOf(state, home), paneId)
@@ -168,14 +173,12 @@ export function removePane(state: ViewState, paneId: string): void {
   if (home.kind === 'view') {
     if (!rest) dropRecord(state, home.viewId)
     else if (!viewHasChat(state, home.viewId)) removeView(state, home.viewId)
-    healActivePane(state)
     return
   }
   if (!rest) {
     if (home.kind === 'stage') resetStage(state)
     else resetBottom(state)
   }
-  healActivePane(state)
 }
 
 /**
@@ -202,7 +205,6 @@ export function movePane(state: ViewState, paneId: string, at: InsertAt): boolea
     else order.splice(afterIndex + 1, 0, id)
     state.viewOrder = order
     if (from.kind === 'view' && !viewHasChat(state, from.viewId)) removeView(state, from.viewId)
-    healActivePane(state)
     return true
   }
 
@@ -239,7 +241,6 @@ export function movePane(state: ViewState, paneId: string, at: InsertAt): boolea
     else resetBottom(state)
   }
   if (pane.chatId && to.kind === 'stage') promoteStage(state, state.activeProjectId ?? '')
-  healActivePane(state)
   return true
 }
 

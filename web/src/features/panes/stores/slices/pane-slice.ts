@@ -11,6 +11,7 @@ import { createEditorTabActions } from './pane-actions/editor-tab-actions'
 import type { PaneSet } from './pane-actions/context'
 import type { PaneContent } from '@/features/panes/types/pane-content'
 import { disposeBuffers, releaseUnreferencedBuffers } from '@/features/panes/lib/buffer-release'
+import { commitViewWrite } from '@/features/panes/lib/view-ops'
 
 export type PaneDropZone = 'center' | 'left' | 'right' | 'top' | 'bottom'
 
@@ -98,13 +99,14 @@ export const createPaneSlice: StateCreator<
   [],
   PaneSlice
 > = (rawSet, get) => {
-  // Every pane write releases the buffers it left unreferenced in the same
-  // `set` (invariant C2): closing a view, a pane or a tab can never strand a
-  // buffer, or the terminal PTY behind one.
+  // Every pane write settles focus (`commitViewWrite`) and releases the
+  // buffers it left unreferenced in the same `set` (invariant C2): closing a
+  // view, a pane or a tab can never strand a buffer, or the terminal PTY
+  // behind one, nor leave focus on a pane that is gone.
   const set: PaneSet = (recipe) => {
     let released: PaneContent[] = []
     rawSet((state) => {
-      recipe(state)
+      commitViewWrite(state, recipe)
       released = releaseUnreferencedBuffers(state)
     })
     disposeBuffers(released)

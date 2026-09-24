@@ -185,6 +185,8 @@ function runSequence(seed: number, length: number): void {
     }
     const after = store.getState()
     assertViewIntegrity(after)
+    // Focus is derived from pane writes: it always names a pane that exists.
+    expect(after.panes[after.activePaneId], label).toBeDefined()
     if (!step.row) expect(rowSet(after), label).toBe(rowSet(before))
     // Invariant 5: a pane's chat never changes to a different chat except by
     // retargetPane.
