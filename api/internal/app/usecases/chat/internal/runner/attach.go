@@ -283,20 +283,31 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 // the same "nothing left to show" recovery StopChat's own retire() gives a
 // dead runner elsewhere: a chat left pointing at a terminal session that no
 // longer exists is worse than one quietly resuming its api connection.
+//
+// Off the caller: the terminal engine runs this inside TerminateGraceful, and
+// every deliberate teardown (SwitchToNative, Stop, retire) calls that while
+// holding the chat's spawn gate — taking the gate here, in line, deadlocked
+// the chat for good.
 func (rs *Runners) onAttachExit(chatID, runnerID string) func() {
 	return func() {
-		if _, ok := rs.attached.get(runnerID); ok {
-			if err := rs.SwitchToNative(context.Background(), chatID); err != nil {
-				slog.Error("agent: native view exited: switch back to api transport (best-effort)",
-					"chat_id", chatID, "runner_id", runnerID, "err", err)
+		rs.background.run(func(ctx context.Context) {
+			if _, ok := rs.attached.get(runnerID); ok {
+				if err := rs.SwitchToNative(ctx, chatID); err != nil {
+					slog.Error("agent: native view exited: switch back to api transport (best-effort)",
+						"chat_id", chatID, "runner_id", runnerID, "err", err)
+				}
+				return // SwitchToNative already settled what this runner is now
 			}
-			return // SwitchToNative already settled what this runner is now
-		}
-		// Torn down deliberately by something that replaces it with NOTHING —
-		// retire, or a provider switch. For a runner with no PTY of its own
-		// this view was its last process, and nothing else would ever carry
-		// its row away.
-		defer rs.spawns.Lock(chatID)()
-		rs.exitProcesslessRunner(runnerID)
+			// Torn down deliberately by something that replaces it with NOTHING —
+			// retire, or a provider switch. For a runner with no PTY of its own
+			// this view was its last process, and nothing else would ever carry
+			// its row away.
+			_, release, err := rs.spawns.Acquire(ctx, chatID)
+			if err != nil {
+				return
+			}
+			defer release()
+			rs.exitProcesslessRunner(runnerID)
+		})
 	}
 }
