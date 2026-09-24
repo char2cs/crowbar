@@ -60,8 +60,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: (...a: unknown[]) => toastErrorFn(...a) },
 }))
 
-vi.mock('@/features/terminal/components/terminal', () => ({
-  XtermTerminal: ({ sessionId }: { sessionId: string }) =>
+vi.mock('@/features/terminal/components/lazy-terminal', () => ({
+  LazyXtermTerminal: ({ sessionId }: { sessionId: string }) =>
     createElement('div', { 'data-testid': 'xterm', 'data-session-id': sessionId }),
 }))
 

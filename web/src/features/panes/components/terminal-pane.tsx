@@ -16,7 +16,6 @@ interface TerminalPaneProps {
   workspaceId: string
   initialCommand?: string
   workingDirectory?: string
-  remoteConnectionId?: string
   isActive: boolean
   isVisible?: boolean
 }
@@ -28,7 +27,6 @@ export function TerminalPane({
   workspaceId,
   initialCommand,
   workingDirectory,
-  remoteConnectionId,
   isActive,
   isVisible,
 }: TerminalPaneProps) {
@@ -42,7 +40,6 @@ export function TerminalPane({
         workspaceId={workspaceId}
         initialCommand={initialCommand}
         workingDirectory={workingDirectory}
-        remoteConnectionId={remoteConnectionId}
         isActive={isActive}
         isVisible={isVisible}
       />

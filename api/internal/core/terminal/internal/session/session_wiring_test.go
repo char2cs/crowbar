@@ -161,9 +161,8 @@ func TestSession_DropCachedBlobReclaimsAndDirties(t *testing.T) {
 	_, changed := s.Snapshot()
 	assert.True(t, changed, "after dropping the cache the next snapshot must re-serialize")
 
-	// A second drop with the cache already populated again is fine; a placeholder reclaims 0.
-	ph := NewPlaceholder("ph-drop", "/bin/sh", "/tmp", "", []byte("CRWB1 80 24 0 10000\n"))
-	assert.Zero(t, ph.DropCachedBlob(), "a placeholder has no cache to drop")
+	s.DropCachedBlob()
+	assert.Zero(t, s.DropCachedBlob(), "a second drop with nothing cached reclaims 0")
 }
 
 func firstLine(

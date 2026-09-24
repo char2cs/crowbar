@@ -50,9 +50,8 @@ func TestNewCommand_IsCommandAndNeverSuspendEligible(t *testing.T) {
 	t.Cleanup(s.Kill)
 
 	assert.True(t, s.IsCommand(), "a NewCommand session must report IsCommand()==true")
-	assert.False(t, s.BeginSuspendIfEligible(), "a command session must never be idle-suspend eligible")
-	assert.False(t, s.BeginForceSuspend(), "a command session must never be force-suspend eligible")
-	assert.False(t, s.Suspending(), "the suspending flag must remain unset after rejected suspend attempts")
+	assert.False(t, s.SuspendEligible(false), "a command session must never be idle-suspend eligible")
+	assert.False(t, s.SuspendEligible(true), "a command session must never be force-suspend eligible")
 }
 
 // TestNew_ShellSession_IsNotCommand_StillSuspendEligible is the regression guard for the
@@ -68,5 +67,5 @@ func TestNew_ShellSession_IsNotCommand_StillSuspendEligible(t *testing.T) {
 	assert.False(t, s.IsCommand(), "a New() shell session must report IsCommand()==false")
 
 	waitIdlePrompt(t, s)
-	assert.True(t, s.BeginSuspendIfEligible(), "an idle, detached shell session must remain suspend-eligible")
+	assert.True(t, s.SuspendEligible(false), "an idle, detached shell session must remain suspend-eligible")
 }

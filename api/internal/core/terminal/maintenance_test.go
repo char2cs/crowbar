@@ -146,11 +146,10 @@ func TestMaintenance_CadenceFlush(t *testing.T) {
 func TestMaintenance_SoftLimit(t *testing.T) {
 	pinShell(t)
 
-	restore := terminal.SetSoftLimitPerChatForTest(2)
-	defer restore()
-
 	eng := terminal.New()
-	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
+	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit writes
+	restore := terminal.SetSoftLimitPerChatForTest(eng, 2)
+	defer restore()
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -210,11 +209,10 @@ func TestMaintenance_SoftLimit(t *testing.T) {
 func TestMaintenance_RunningNeverIdleSuspended(t *testing.T) {
 	pinShell(t)
 
-	restore := terminal.SetSoftLimitPerChatForTest(1)
-	defer restore()
-
 	eng := terminal.New()
-	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
+	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit writes
+	restore := terminal.SetSoftLimitPerChatForTest(eng, 1)
+	defer restore()
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)
@@ -294,7 +292,7 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 	// that (between one and two models) so the global byte ceiling fires and a
 	// single force-suspend brings us back under.
 	_, _, _, modelBytes, _, _ := eng.Stats()
-	restoreBytes := terminal.SetMaxTotalModelBytesForTest(modelBytes * 3 / 4)
+	restoreBytes := terminal.SetMaxTotalModelBytesForTest(eng, modelBytes*3/4)
 	defer restoreBytes()
 
 	// Give both a running foreground child. startForeground blocks until TIOCGPGRP already
@@ -347,13 +345,12 @@ func TestMaintenance_GlobalForceLastResort(t *testing.T) {
 // instead of the original binary) — so these sessions must be entirely invisible to the
 // sweep's candidate-collection loops.
 func TestMaintenance_CommandSessionsNeverSuspended(t *testing.T) {
-	restoreSoft := terminal.SetSoftLimitPerChatForTest(0)
-	defer restoreSoft()
-	restoreCeiling := terminal.SetMaxTotalSessionsForTest(1)
-	defer restoreCeiling()
-
 	eng := terminal.New()
-	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit-var writes
+	terminal.StopMaintenanceForTest(eng) // prevent ticker from racing with limit writes
+	restoreSoft := terminal.SetSoftLimitPerChatForTest(eng, 0)
+	defer restoreSoft()
+	restoreCeiling := terminal.SetMaxTotalSessionsForTest(eng, 1)
+	defer restoreCeiling()
 	ctx := context.Background()
 	dir := t.TempDir()
 	store := newFakeMetaStore(t)

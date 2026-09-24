@@ -89,19 +89,6 @@ func TestSession_WriteModelPanicRecovered(t *testing.T) {
 	assert.Greater(t, after, before, "a recovered model-Write panic must bump modelPanics")
 }
 
-// TestSession_InjectLocal_Placeholder covers injectLocalLocked's model==nil guard: injecting
-// into a placeholder (no model) is a no-op and never changes its persisted blob.
-func TestSession_InjectLocal_Placeholder(t *testing.T) {
-	raw := []byte("CRWB1 80 24 0 10000\nplaceholder body")
-	ph := NewPlaceholder("ph-inject", "/bin/sh", "/tmp", "", raw)
-
-	ph.InjectLocal([]byte("ignored notice"))
-
-	blob, changed := ph.Snapshot()
-	assert.Equal(t, raw, blob, "InjectLocal on a placeholder must not mutate its blob")
-	assert.False(t, changed)
-}
-
 // TestSession_InjectLocal_ExitsAltBeforeNotice covers injectLocalLocked's alt-screen exit
 // branch: when the model is in the alt buffer at injection time, the notice is preceded by
 // the alt-exit sequence so the daemon notice can never land in a transient alt buffer.
@@ -129,47 +116,19 @@ func TestSession_InjectLocal_ExitsAltBeforeNotice(t *testing.T) {
 		"the injected notice must survive the alt-exit and surface in the primary blob")
 }
 
-// TestSession_ForceSuspendSnapshot_Placeholder covers ForceSuspendSnapshot's model==nil
-// fast-path: a placeholder returns its stored blob verbatim.
-func TestSession_ForceSuspendSnapshot_Placeholder(t *testing.T) {
-	raw := []byte("CRWB1 80 24 0 10000\nsuspended already")
-	ph := NewPlaceholder("ph-force", "/bin/sh", "/tmp", "", raw)
-
-	got := ph.ForceSuspendSnapshot([]byte("\r\nnotice\r\n"))
-	assert.Equal(t, raw, got, "a placeholder ForceSuspendSnapshot must return its stored blob verbatim")
-}
-
-// TestSession_BeginForceSuspend_Guards covers BeginForceSuspend's reject branch: it succeeds
-// once on a detached live session, then returns false when already suspending, and returns
-// false when a client is attached.
-func TestSession_BeginForceSuspend_Guards(t *testing.T) {
+// TestSession_SuspendEligible_Force covers the force flag: a detached session that is not
+// at an idle prompt is eligible only by force, and never while a client is attached.
+func TestSession_SuspendEligible_Force(t *testing.T) {
 	dir := t.TempDir()
-
-	// (1) already-suspending guard.
 	s, err := newTestSession(t, "sid-bfs1", dir)
 	require.NoError(t, err)
 	t.Cleanup(s.Kill)
-	assert.True(t, s.BeginForceSuspend(), "first force-suspend on a detached session must begin")
-	assert.True(t, s.Suspending())
-	assert.False(t, s.BeginForceSuspend(), "a second force-suspend must be rejected (already suspending)")
+	assert.True(t, s.SuspendEligible(true), "force-suspend of a detached session is allowed")
 
-	// (2) has-clients guard.
-	s2, err := newTestSession(t, "sid-bfs2", dir)
+	ch, err := s.Attach()
 	require.NoError(t, err)
-	t.Cleanup(s2.Kill)
-	ch, err := s2.Attach()
-	require.NoError(t, err)
-	defer s2.Detach(ch)
-	assert.False(t, s2.BeginForceSuspend(), "force-suspend must be rejected while a client is attached")
-}
-
-// TestSession_SerializedLen_Placeholder covers SerializedLen's model==nil branch: a
-// placeholder reports its stored blob length.
-func TestSession_SerializedLen_Placeholder(t *testing.T) {
-	raw := []byte("CRWB1 80 24 0 10000\nstored")
-	ph := NewPlaceholder("ph-len", "/bin/sh", "/tmp", "", raw)
-	assert.Equal(t, len(raw), ph.SerializedLen(),
-		"a placeholder SerializedLen must equal its stored blob length")
+	defer s.Detach(ch)
+	assert.False(t, s.SuspendEligible(true), "force-suspend must be rejected while a client is attached")
 }
 
 // TestParseLastOSC7_Branches covers the non-happy parseLastOSC7 paths: an unterminated
@@ -218,10 +177,10 @@ func fgSession(t *testing.T) *Session {
 	return s
 }
 
-// TestIsIdleLocked_NotLive covers the not-live guard: a placeholder (no ptmx) is never idle.
+// TestIsIdleLocked_NotLive covers the not-live guard: a session with no PTY is never idle.
 func TestIsIdleLocked_NotLive(t *testing.T) {
-	ph := NewPlaceholder("ph-idle", "/bin/sh", "/tmp", "", nil)
-	assert.False(t, ph.IsIdle(), "a placeholder (no live PTY) must report not-idle")
+	ph := newBareSession("ph-idle", "/bin/sh", "/tmp", "")
+	assert.False(t, ph.IsIdle(), "a session with no live PTY must report not-idle")
 }
 
 // TestIsIdleLocked_IoctlError covers isIdleLocked's ioctl-error branch via the seam.

@@ -740,7 +740,6 @@ export function PaneContainer({
               workspaceId={buffer.workspaceId}
               initialCommand={buffer.initialCommand}
               workingDirectory={buffer.workingDirectory}
-              remoteConnectionId={buffer.remoteConnectionId}
               isActive={isActivePane}
             />
           )

@@ -1,6 +1,6 @@
 // Crowbar system operations backed by the Go daemon's /v0 API.
 
-import { Channel, convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
+import { convertFileSrc as tauriConvertFileSrc } from '@tauri-apps/api/core'
 import { Menu } from '@tauri-apps/api/menu'
 import type {
   MenuItemOptions,
@@ -10,200 +10,202 @@ import type {
 
 import { apiFetch } from '@/lib/api'
 import { wsUrl } from '@/lib/ws/url'
+import { TauriWebSocket } from '@/lib/ws/tauri-transport'
 import type { ContextMenuItem } from '@/components/ui/context-menu'
 
 // ── Terminal PTY ──────────────────────────────────────────────────────────────
-// Each session is a WebSocket to the daemon's PTY handler. The wire protocol is
-// JSON: server→client {sessionId, data}; client→server {data} for input and
-// {type:'resize', cols, rows} for SIGWINCH.
+// A terminal VIEW streams one daemon PTY session over its own WebSocket — a
+// TerminalConnection. Every view gets its own transport: the daemon sends each
+// attached client its own snapshot, so a view is always painted on attach, and
+// closing one view's transport never touches another's.
 //
-// On the desktop app the browser WebSocket API can't reach the daemon (its only
-// endpoint is the `crowbar://` unix-socket proxy, and `new WebSocket` rejects
-// every scheme but ws/wss). There, Rust is the WebSocket client and bridges the
-// PTY to the webview over a Tauri Channel — see the `isTauri()` branches below
-// and desktop/src-tauri/src/terminal.rs. Both paths honour the same contract.
+// Wire protocol (see api/internal/core/terminal/transport.go):
+//   daemon → client  BINARY  [tag][bytes]   tag 0 = output (append),
+//                                           tag 1 = snapshot (reset, then apply)
+//                    TEXT    {"type":"exit","code":N}  — the process exited
+//   client → daemon  TEXT    {data} input, {type:"resize",cols,rows},
+//                             {type:"theme",bg,fg,dark}
+//
+// A socket that closes WITHOUT an exit frame is a transport drop: the view
+// re-resolves and re-attaches. An exit frame is the only thing that ends a
+// terminal — nothing here ever infers one from what the user typed.
+//
+// On the desktop app the browser WebSocket cannot reach the daemon (its only
+// endpoint is the `crowbar://` unix-socket proxy); there the TauriWebSocket
+// shim dials it through Rust (desktop/src-tauri/src/ws_bridge.rs). Both
+// present the same socket interface, so this module has one code path.
 
-// One parsed daemon→client terminal frame. `snapshot` marks a self-contained
-// ground-state redraw (the daemon's serialized screen model) that must be
-// applied onto a RESET xterm buffer — the attach redraw and the post-resize
-// resync — as opposed to incremental PTY output that appends.
-export interface TerminalFrame {
-  data: string
-  snapshot: boolean
+// One parsed daemon→client terminal frame, in wire order.
+export type TerminalFrame =
+  { exit?: undefined; data: Uint8Array; snapshot: boolean } | { exit: true; code: number }
+
+// Output-frame tags: 0 = output (append), 1 = snapshot (reset, then apply).
+const FRAME_SNAPSHOT = 1
+
+// A healthy terminal socket is never silent for long — the daemon pings every
+// 45s — so on desktop, where Rust owns the socket, one that delivers nothing for
+// two ping periods is judged half-open and reported as a drop.
+const TERMINAL_READ_IDLE_TIMEOUT_MS = 90_000
+
+// The subset of the WebSocket interface both transports implement.
+interface TerminalSocket {
+  onopen: (() => void) | null
+  onmessage: ((event: { data: string | ArrayBuffer }) => void) | null
+  onclose: (() => void) | null
+  send(data: string): void
+  close(): void
 }
 
-// parseTerminalFrame decodes one wire frame ({sessionId, data, snapshot?})
-// shared by both transports (browser WebSocket text frames and the whole-frame
-// strings Rust forwards down the Tauri channel). Returns null for malformed
-// frames.
-function parseTerminalFrame(raw: string): TerminalFrame | null {
+function decodeFrame(raw: unknown): TerminalFrame | null {
+  if (raw instanceof ArrayBuffer) {
+    const bytes = new Uint8Array(raw)
+    if (bytes.length === 0 || bytes[0] > FRAME_SNAPSHOT) return null
+    return { data: bytes.subarray(1), snapshot: bytes[0] === FRAME_SNAPSHOT }
+  }
+  if (typeof raw !== 'string') return null
   try {
-    const msg = JSON.parse(raw) as { data?: unknown; snapshot?: unknown }
-    if (typeof msg.data !== 'string') return null
-    return { data: msg.data, snapshot: msg.snapshot === true }
+    const msg = JSON.parse(raw) as { type?: unknown; code?: unknown }
+    if (msg.type !== 'exit') return null
+    return { exit: true, code: typeof msg.code === 'number' ? msg.code : -1 }
   } catch {
     return null
   }
 }
 
-interface TerminalConnection {
-  ws: WebSocket
-  listener: ((frame: TerminalFrame) => void) | null
-  outputBuffer: TerminalFrame[]
-  inputQueue: string[]
-  // The most recent theme frame pushed before the socket opened. Unlike input, only the
-  // LAST theme matters, so it coalesces to one frame flushed on open — this is what makes
-  // the initial on-attach theme push (which races the WS handshake) reach the daemon, so a
-  // freshly started app detects the right background instead of the default.
-  pendingTheme: string | null
-  open: boolean
+export type TerminalConnectionState = 'connecting' | 'open' | 'exited' | 'dropped' | 'closed'
+
+/**
+ * One view's live stream to one daemon PTY session.
+ *
+ * Frames that arrive before the first listener (the attach snapshot, usually)
+ * are held and replayed to it. Input sent before the socket opens is queued and
+ * flushed in order on open; a theme push coalesces to the last one.
+ */
+export class TerminalConnection {
+  readonly sessionId: string
+  private state_: TerminalConnectionState = 'connecting'
+  private readonly socket: TerminalSocket
+  private outbox: string[] = []
+  private pendingTheme: string | null = null
+  private backlog: TerminalFrame[] = []
+  private readonly listeners = new Set<(frame: TerminalFrame) => void>()
+  private readonly dropListeners = new Set<() => void>()
+
+  constructor(sessionId: string, path: string, socket?: TerminalSocket) {
+    this.sessionId = sessionId
+    this.socket = socket ?? openSocket(path)
+    this.socket.onopen = () => {
+      if (this.state_ !== 'connecting') return
+      this.state_ = 'open'
+      for (const frame of this.outbox) this.socket.send(frame)
+      this.outbox = []
+      if (this.pendingTheme) this.socket.send(this.pendingTheme)
+      this.pendingTheme = null
+    }
+    this.socket.onmessage = (event) => {
+      if (this.state_ === 'closed') return
+      const frame = decodeFrame(event.data)
+      if (!frame) return
+      // Latched BEFORE the daemon's close arrives, so that close is not
+      // mistaken for a drop.
+      if (frame.exit) this.state_ = 'exited'
+      if (this.listeners.size === 0) this.backlog.push(frame)
+      else for (const listener of this.listeners) listener(frame)
+    }
+    this.socket.onclose = () => {
+      if (this.state_ !== 'connecting' && this.state_ !== 'open') return
+      this.state_ = 'dropped'
+      for (const cb of this.dropListeners) cb()
+    }
+  }
+
+  get state(): TerminalConnectionState {
+    return this.state_
+  }
+
+  /** True while the transport can still carry frames (connecting or open). */
+  get alive(): boolean {
+    return this.state_ === 'connecting' || this.state_ === 'open'
+  }
+
+  /** Receive frames in wire order; the first listener also gets the backlog. */
+  listen(onFrame: (frame: TerminalFrame) => void): () => void {
+    this.listeners.add(onFrame)
+    if (this.backlog.length > 0) {
+      const held = this.backlog
+      this.backlog = []
+      for (const frame of held) onFrame(frame)
+    }
+    return () => this.listeners.delete(onFrame)
+  }
+
+  /** Called once if the transport dies without the session having exited. */
+  onDrop(cb: () => void): () => void {
+    this.dropListeners.add(cb)
+    return () => this.dropListeners.delete(cb)
+  }
+
+  write(data: string): void {
+    this.send(JSON.stringify({ data }))
+  }
+
+  resize(rows: number, cols: number): void {
+    this.send(JSON.stringify({ type: 'resize', cols, rows }))
+  }
+
+  /**
+   * Push the host light/dark theme so a foreground app's automatic theme can
+   * follow a Crowbar theme switch (see the daemon's Session.SetTheme). Only the
+   * LAST theme matters, so one sent before the socket opens coalesces.
+   */
+  setTheme(theme: { background: string; foreground: string; dark: boolean }): void {
+    const frame = JSON.stringify({
+      type: 'theme',
+      bg: theme.background,
+      fg: theme.foreground,
+      dark: theme.dark,
+    })
+    if (this.state_ === 'open') this.socket.send(frame)
+    else if (this.state_ === 'connecting') this.pendingTheme = frame
+  }
+
+  /** Detach this view: close the transport. The PTY keeps running. */
+  close(): void {
+    if (this.state_ === 'closed') return
+    this.state_ = 'closed'
+    this.listeners.clear()
+    this.dropListeners.clear()
+    this.socket.close()
+  }
+
+  private send(frame: string): void {
+    if (this.state_ === 'open') this.socket.send(frame)
+    else if (this.state_ === 'connecting') this.outbox.push(frame)
+  }
 }
 
-const terminals = new Map<string, TerminalConnection>()
-
-// Transport-drop notification: registered callbacks fire when the WS closes
-// unexpectedly (e.g. daemon restart) while the entry is still in `terminals`.
-// A clean terminalDetach removes the entry BEFORE calling ws.close(), so the
-// `terminals.has(connectionId)` check correctly distinguishes unexpected drops
-// from intentional detaches.
-const dropCallbacks = new Map<string, Set<() => void>>()
-
-// Desktop transport: output arrives over a Tauri Channel instead of a WebSocket.
-// Same buffer-until-listener semantics as the browser TerminalConnection.
-interface TauriTerminal {
-  listener: ((frame: TerminalFrame) => void) | null
-  outputBuffer: TerminalFrame[]
-  unlisten?: () => void // unsubscribe fn for the terminal:transport-dropped listener
+function openSocket(path: string): TerminalSocket {
+  if (isTauri()) {
+    return new TauriWebSocket(path, { idleTimeoutMs: TERMINAL_READ_IDLE_TIMEOUT_MS })
+  }
+  const ws = new WebSocket(wsUrl(path))
+  ws.binaryType = 'arraybuffer'
+  return ws as unknown as TerminalSocket
 }
 
-const tauriTerminals = new Map<string, TauriTerminal>()
-
-// PTY routes are CHAT-scoped (/v0/chats/:chatId/terminals[/:id/ws]): a terminal
-// belongs to the chat that opened it, not to the worktree it runs in, so sibling
-// chats sharing a worktree never see each other's shells.
-//
-// terminalClose receives only the sessionId, so we record the base per session
-// at create time to build the DELETE/PTY-WS paths. This module deliberately does
-// NOT build that base itself — callers pass one in — which is what keeps the
-// route shape in one place (workspace-scope-url) instead of two.
+// PTY routes are CHAT-scoped (/v0/chats/:chatId/terminals[/:id/ws]); the home
+// workspace's are under /v0/projects/:projectId/home/terminals. Callers pass the
+// resolved base (workspace-scope-url) so the route shape lives in one place.
+// The base is recorded per session so a later kill can build its DELETE.
 const sessionBases = new Map<string, string>()
 
-// Wire a browser WebSocket for a connectionId into the `terminals` map.
-// Extracted from terminalCreate so terminalAttach can reuse it without a POST.
-function openBrowserSocket(connectionId: string, base: string): void {
-  const ws = new WebSocket(wsUrl(`${base}/${encodeURIComponent(connectionId)}/ws`))
-  const conn: TerminalConnection = {
-    ws,
-    listener: null,
-    outputBuffer: [],
-    inputQueue: [],
-    pendingTheme: null,
-    open: false,
-  }
-  ws.onopen = () => {
-    conn.open = true
-    for (const data of conn.inputQueue) ws.send(JSON.stringify({ data }))
-    conn.inputQueue = []
-    if (conn.pendingTheme) {
-      ws.send(conn.pendingTheme)
-      conn.pendingTheme = null
-    }
-  }
-  ws.onmessage = (event) => {
-    const frame = parseTerminalFrame(event.data as string)
-    if (!frame) return
-    if (conn.listener) conn.listener(frame)
-    else conn.outputBuffer.push(frame)
-  }
-  ws.onerror = () => {
-    // Error events are followed by a close event on the same socket; all
-    // cleanup is handled in the onclose handler below.
-  }
-  ws.onclose = () => {
-    // Only treat the close as unexpected if THIS connection is still the one
-    // registered. terminalDetach removes the entry BEFORE calling ws.close(), so a
-    // clean detach never reaches the drop-notification branch.
-    //
-    // Identity, not presence: an attach-only terminal detaches on unmount and
-    // re-attaches on the next mount (a chat tab switch — and every mount under
-    // StrictMode), so a NEW connection can be registered under the same
-    // connectionId while the old socket's close is still in flight. A `has()` check
-    // cannot tell the two apart, and would let the dead socket delete the live
-    // entry and fire a spurious transport-drop against it.
-    if (terminals.get(connectionId) !== conn) return
-    terminals.delete(connectionId)
-    const cbs = dropCallbacks.get(connectionId)
-    if (cbs) {
-      for (const cb of cbs) cb()
-    }
-  }
-  terminals.set(connectionId, conn)
+/** Open a view's stream to an existing daemon PTY session. */
+export function openTerminal(sessionId: string, base: string): TerminalConnection {
+  sessionBases.set(sessionId, base)
+  return new TerminalConnection(sessionId, `${base}/${encodeURIComponent(sessionId)}/ws`)
 }
 
-// Wire a Tauri channel for a connectionId into the `tauriTerminals` map and ask
-// Rust to open the WS. `terminal_open` REQUIRES an `onData: Channel<string>`
-// (see desktop/src-tauri/src/terminal.rs) — omitting it makes the invoke reject.
-// Extracted from terminalCreate so terminalAttach can reuse it without a POST.
-async function openTauriSocket(connectionId: string, wsPath: string): Promise<void> {
-  const conn: TauriTerminal = { listener: null, outputBuffer: [] }
-  const channel = new Channel<string>()
-  channel.onmessage = (raw) => {
-    // Rust forwards the wire frame whole; parse it here so both transports
-    // share one frame decoder.
-    const frame = parseTerminalFrame(raw)
-    if (!frame) return
-    if (conn.listener) conn.listener(frame)
-    else conn.outputBuffer.push(frame)
-  }
-  tauriTerminals.set(connectionId, conn)
-
-  // Mirror openBrowserSocket's ws.onclose semantics for the Tauri path: subscribe
-  // to `terminal:transport-dropped` events emitted by Rust after the reader loop
-  // exits. Only treat the event as an unexpected drop when the entry is still in
-  // `tauriTerminals` — a clean terminalClose/terminalDetach deletes the entry
-  // BEFORE invoking terminal_close, so the guard sees has()===false and no-ops.
-  const { listen } = await import('@tauri-apps/api/event')
-  const unlisten = await listen<string>('terminal:transport-dropped', (event) => {
-    if (event.payload !== connectionId) return
-    // Identity, not presence — same reason as openBrowserSocket's onclose: a
-    // detach→re-attach cycle on one connectionId (chat tab switch, StrictMode
-    // remount) can register a fresh entry before the dead one's drop event lands.
-    if (tauriTerminals.get(connectionId) !== conn) return
-    tauriTerminals.delete(connectionId)
-    // Unsubscribe on the way out. Deleting the entry above is what makes every later
-    // firing a no-op, so the listener is dead weight from here on — but it is dead
-    // weight held in Rust's listener registry, and terminalClose/terminalDetach can no
-    // longer reach it (they only unlisten while the entry still exists). Every daemon
-    // restart drops all sessions and re-attaches them, so without this the registry
-    // grows by one listener per terminal per restart, for the life of the app.
-    conn.unlisten?.()
-    const cbs = dropCallbacks.get(connectionId)
-    if (cbs) {
-      for (const cb of cbs) cb()
-    }
-  })
-  conn.unlisten = unlisten
-
-  try {
-    await tauriInvoke('terminal_open', { sessionId: connectionId, wsPath, onData: channel })
-  } catch (err) {
-    // terminal_open rejected: the map entry and the transport-dropped listener
-    // were registered up-front (so buffered output isn't lost in the race window).
-    // On failure they must be torn down, or a phantom tauriTerminals entry lingers
-    // — terminalHasTransport would report a live transport that never opened, and a
-    // later attach/create would reuse the dead entry instead of re-dialing.
-    tauriTerminals.delete(connectionId)
-    unlisten()
-    throw err
-  }
-}
-
-// Create a PTY session owned by a chat and open its stream. Returns the
-// sessionId, which the terminal hooks use as the connection id.
-//
-// `base` is the caller's already-resolved `/v0/chats/:chatId/terminals` — the
-// same string it passes to terminalListLive — so create, list, attach, and
-// delete cannot drift onto different scopes.
+/** Create a PTY session owned by the base's chat; returns its session id. */
 export async function terminalCreate(base: string, profileId?: string): Promise<string> {
   const { sessionId } = await apiFetch<{ sessionId: string }>(base, {
     method: 'POST',
@@ -211,246 +213,28 @@ export async function terminalCreate(base: string, profileId?: string): Promise<
     body: JSON.stringify(profileId ? { profileId } : {}),
   })
   sessionBases.set(sessionId, base)
-
-  // Desktop: hand a Channel to Rust, which opens the WS over the unix socket and
-  // pumps PTY output back through it. Pass the full PTY path so Rust dials the
-  // chat-scoped route.
-  if (isTauri()) {
-    await openTauriSocket(sessionId, `${base}/${encodeURIComponent(sessionId)}/ws`)
-    return sessionId
-  }
-
-  openBrowserSocket(sessionId, base)
   return sessionId
 }
 
-export async function terminalWrite(id: string, data: string): Promise<void> {
-  if (isTauri()) {
-    // A send can race the transport being retired underneath us. When Rust detects a
-    // broken/half-open socket it retires the session and emits `terminal:transport-dropped`
-    // (Phase 0); a `terminal_send` that lands in the window between that retirement and the
-    // drop event deleting our map entry rejects with "no open terminal session". Swallow it
-    // — the drop event drives the re-attach — so a transient rejection never propagates into
-    // the write buffer (writeChunk awaits this). Best-effort, matching terminalResize.
-    if (tauriTerminals.has(id))
-      await tauriInvoke('terminal_send', { sessionId: id, data }).catch(() => {})
-    return
-  }
-  const conn = terminals.get(id)
-  if (!conn) return
-  if (conn.open) conn.ws.send(JSON.stringify({ data }))
-  else conn.inputQueue.push(data)
+/**
+ * Kill a PTY session for good (the tab was closed). Open views see its exit
+ * frame. A session whose base this page never learned (created before a
+ * reload and never re-opened) cannot be addressed; nothing is sent.
+ */
+export async function terminalKill(sessionId: string): Promise<void> {
+  const base = sessionBases.get(sessionId)
+  sessionBases.delete(sessionId)
+  if (!base) return
+  await apiFetch(`${base}/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(() => {})
 }
 
-export async function terminalResize(id: string, rows: number, cols: number): Promise<void> {
-  if (isTauri()) {
-    if (tauriTerminals.has(id)) await tauriInvoke('terminal_resize', { sessionId: id, rows, cols })
-    return
-  }
-  const conn = terminals.get(id)
-  if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resize', cols, rows }))
-}
-
-// Ask the daemon to re-emit its model snapshot for this session (post-resize
-// convergence). The daemon no-ops at an idle shell prompt; when a foreground
-// app is running, a snapshot frame arrives on the output stream and the
-// terminal hook resets the local buffer with it.
-export async function terminalResync(id: string): Promise<void> {
-  if (isTauri()) {
-    if (tauriTerminals.has(id)) await tauriInvoke('terminal_resync', { sessionId: id })
-    return
-  }
-  const conn = terminals.get(id)
-  if (conn?.open) conn.ws.send(JSON.stringify({ type: 'resync' }))
-}
-
-// Push the host terminal's light/dark theme to the daemon so a foreground app's automatic
-// theme can follow a Crowbar theme switch: `bg`/`fg` are the resolved default colours (an
-// OSC 11/10 query answers with them) and `dark` is the light/dark polarity for the daemon's
-// DEC 2031 CSI ?997;n theme-change report. Best-effort and idempotent — the daemon updates the
-// query colours every call and dedupes the notification by polarity.
-export async function terminalSetTheme(
-  id: string,
-  theme: { background: string; foreground: string; dark: boolean },
-): Promise<void> {
-  if (isTauri()) {
-    if (tauriTerminals.has(id)) {
-      await tauriInvoke('terminal_set_theme', {
-        sessionId: id,
-        bg: theme.background,
-        fg: theme.foreground,
-        dark: theme.dark,
-      })
-    }
-    return
-  }
-  const conn = terminals.get(id)
-  if (!conn) return
-  const frame = JSON.stringify({
-    type: 'theme',
-    bg: theme.background,
-    fg: theme.foreground,
-    dark: theme.dark,
-  })
-  // Coalesce-until-open: the on-attach push can beat the WS handshake, and unlike input a
-  // dropped theme frame would never be retried (there is no theme equivalent of a follow-up
-  // keystroke), leaving the daemon on its default background.
-  if (conn.open) conn.ws.send(frame)
-  else conn.pendingTheme = frame
-}
-
-export async function terminalClose(id: string): Promise<void> {
-  // The DELETE is .../terminals/:sessionId under the chat base recorded at
-  // create time. If the base is unknown (e.g. a session created before a
-  // reload), skip the REST call — the PTY is still torn down locally.
-  const base = sessionBases.get(id)
-  const deletePath = base ? `${base}/${encodeURIComponent(id)}` : null
-  if (isTauri()) {
-    const tconn = tauriTerminals.get(id)
-    if (tconn) {
-      tauriTerminals.delete(id)
-      tconn.unlisten?.()
-      await tauriInvoke('terminal_close', { sessionId: id })
-    }
-    if (deletePath) await apiFetch(deletePath, { method: 'DELETE' }).catch(() => {})
-    sessionBases.delete(id)
-    return
-  }
-  const conn = terminals.get(id)
-  if (conn) {
-    terminals.delete(id)
-    conn.ws.close()
-  }
-  if (deletePath) await apiFetch(deletePath, { method: 'DELETE' }).catch(() => {})
-  sessionBases.delete(id)
-}
-
-// Register the output sink for a session, flushing any frames that arrived
-// before the listener attached (e.g. the shell's first prompt / the attach
-// snapshot). The listener receives parsed TerminalFrames — check `snapshot`
-// to distinguish reset-and-redraw frames from incremental output.
-export function terminalListen(id: string, onFrame: (frame: TerminalFrame) => void): () => void {
-  if (isTauri()) {
-    const conn = tauriTerminals.get(id)
-    if (!conn) return () => {}
-    conn.listener = onFrame
-    if (conn.outputBuffer.length > 0) {
-      for (const frame of conn.outputBuffer) onFrame(frame)
-      conn.outputBuffer = []
-    }
-    return () => {
-      if (conn.listener === onFrame) conn.listener = null
-    }
-  }
-  const conn = terminals.get(id)
-  if (!conn) return () => {}
-  conn.listener = onFrame
-  if (conn.outputBuffer.length > 0) {
-    for (const frame of conn.outputBuffer) onFrame(frame)
-    conn.outputBuffer = []
-  }
-  return () => {
-    if (conn.listener === onFrame) conn.listener = null
-  }
-}
-
-// Detach the WS transport for a workspace switch: closes the socket (the daemon
-// records a per-client detach and keeps the PTY running) WITHOUT issuing DELETE.
-// `sessionBases` is intentionally retained so terminalAttach can re-dial later.
-export async function terminalDetach(connectionId: string): Promise<void> {
-  if (isTauri()) {
-    const tconn = tauriTerminals.get(connectionId)
-    if (tconn) {
-      tauriTerminals.delete(connectionId)
-      tconn.unlisten?.()
-      await tauriInvoke('terminal_close', { sessionId: connectionId }).catch(() => {})
-    }
-    return
-  }
-  const conn = terminals.get(connectionId)
-  if (conn) {
-    terminals.delete(connectionId)
-    conn.ws.close()
-  }
-}
-
-// True when a live WS/channel transport exists for this connectionId. Used by the
-// reconnect resolver: a surviving store entry whose transport was detached on a
-// workspace switch must be RE-ATTACHED, not reused as-is.
-//
-// This is LIVENESS, not just "we once created this": map presence is now truthful
-// because a dead transport is actively removed from the map. The browser path deletes
-// its entry on ws.onclose; the Tauri path deletes its entry when Rust emits
-// `terminal:transport-dropped`, which Phase 0 makes fire for EVERY way a socket dies —
-// a daemon close, a writer-side send failure, AND a silent half-open socket (read-idle
-// timeout). So a session that is not provably alive is no longer left in the map for the
-// resolver to reuse as a corpse: it is gone, `has()` is false, and the resolver re-attaches.
-export function terminalHasTransport(connectionId: string): boolean {
-  return terminals.has(connectionId) || tauriTerminals.has(connectionId)
-}
-
-// Attach to an EXISTING daemon PTY (after a workspace switch) without creating a
-// new one. The daemon replays its ring snapshot on attach, restoring scrollback.
-export async function terminalAttach(connectionId: string, base: string): Promise<void> {
-  sessionBases.set(connectionId, base)
-  if (isTauri()) {
-    await openTauriSocket(connectionId, `${base}/${encodeURIComponent(connectionId)}/ws`)
-    return
-  }
-  openBrowserSocket(connectionId, base)
-}
-
-// List the daemon's live session connectionIds for one chat. The `base` is
-// `/v0/chats/:chatId/terminals` (see terminalsBaseForWorkspace / chatBase).
-// Used by resolveTerminalConnection to confirm a persisted id is still alive
-// before re-attaching.
-//
-// The answer covers ONLY the addressed chat's own sessions — a sibling chat on
-// the same worktree has its own, disjoint list.
+/**
+ * The daemon's live (and suspended) session ids for one owner — ONLY that
+ * owner's; a sibling chat on the same worktree has its own, disjoint list.
+ */
 export async function terminalListLive(base: string): Promise<string[]> {
-  // Two response shapes exist: the chat endpoint returns TerminalSessionDTO[]
-  // (objects with id/status), while the project-home endpoint still returns a
-  // plain string[] of session ids. Handle BOTH — mapping `.id` over a string[]
-  // yields [undefined] (→ [null] on the wire), which silently broke
-  // home-workspace reconnect.
-  const list = await apiFetch<Array<string | { id?: string; status?: string }>>(base)
-  const ids: string[] = []
-  for (const item of list) {
-    if (typeof item === 'string') {
-      ids.push(item)
-    } else if (item && typeof item === 'object' && item.id && item.status !== 'ended') {
-      ids.push(item.id)
-    }
-  }
-  return ids
-}
-
-// Register a callback that fires when the browser-socket transport for
-// `connectionId` drops unexpectedly (daemon restart, network loss). Returns
-// an unsubscribe function. Multiple subscribers are supported but a single
-// mounted terminal tab is the normal case.
-//
-// Tauri path: channel-drop is wired — Rust emits `terminal:transport-dropped`
-// after its reader loop exits (commit 8d47530); openTauriChannel subscribes and
-// fires the registered callbacks. The browser path fires on ws.onclose instead.
-export function onTransportDrop(connectionId: string, cb: () => void): () => void {
-  let cbs = dropCallbacks.get(connectionId)
-  if (!cbs) {
-    cbs = new Set()
-    dropCallbacks.set(connectionId, cbs)
-  }
-  cbs.add(cb)
-  return () => {
-    const set = dropCallbacks.get(connectionId)
-    if (!set) return
-    set.delete(cb)
-    if (set.size === 0) dropCallbacks.delete(connectionId)
-  }
-}
-
-// Test-only: expose internal maps for unit tests. Do not use in app code.
-export function __getBridgeInternals() {
-  return { terminals, tauriTerminals, sessionBases, dropCallbacks }
+  const list = await apiFetch<Array<{ id: string; status: string }>>(base)
+  return list.filter((s) => s.status !== 'ended').map((s) => s.id)
 }
 
 // The file clipboard used to live here as an in-memory copy/cut store whose

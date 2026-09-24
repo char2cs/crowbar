@@ -5,7 +5,10 @@ import type { AgentProvider } from '@/features/agent/api/agent-api'
 import { ProviderSwitchDropdown } from '@/features/agent/components/provider-switch-dropdown'
 import { ViewSwitcher } from '@/features/agent/controls/view-switcher'
 import type { ChatPresentation } from '@/features/settings/lib/chat-presentation'
-import { XtermTerminal } from '@/features/terminal/components/terminal'
+import {
+  LazyXtermTerminal,
+  type XtermTerminalProps,
+} from '@/features/terminal/components/lazy-terminal'
 import { cn } from '@/lib/utils'
 
 /**
@@ -27,9 +30,7 @@ export type TerminalAttachment =
   | { state: 'idle'; reason: 'exited' | 'failed' }
 
 /** The imperative handle XtermTerminal hands back. */
-export type AgentTerminalApi = Parameters<
-  NonNullable<React.ComponentProps<typeof XtermTerminal>['onTerminalRef']>
->[0]
+export type AgentTerminalApi = Parameters<NonNullable<XtermTerminalProps['onTerminalRef']>>[0]
 
 export interface AgentTerminalSurfaceProps {
   wsId: string
@@ -144,7 +145,7 @@ export function AgentTerminalSurface({
         // liveness half, and in split it is simply true: both surfaces really
         // are on screen. Both still hang off the pane's own axes, so a split in
         // a hidden tab stays as dormant as one in terminal mode does.
-        <XtermTerminal
+        <LazyXtermTerminal
           sessionId={attachment.sessionId}
           workspaceId={wsId}
           chatId={chatId}

@@ -45,8 +45,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({ toast: { error: vi.fn()
 // jsdom cannot run xterm/WebGL. The marker records the visibility props the pane
 // threads down, which is how "the terminal surface is the selected one" is proven
 // without reading a class name.
-vi.mock('@/features/terminal/components/terminal', () => ({
-  XtermTerminal: ({ sessionId, isVisible }: { sessionId: string; isVisible?: boolean }) =>
+vi.mock('@/features/terminal/components/lazy-terminal', () => ({
+  LazyXtermTerminal: ({ sessionId, isVisible }: { sessionId: string; isVisible?: boolean }) =>
     createElement('div', {
       'data-testid': 'xterm',
       'data-session-id': sessionId,

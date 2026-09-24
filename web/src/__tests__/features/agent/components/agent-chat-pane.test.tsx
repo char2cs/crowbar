@@ -82,8 +82,8 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 // pane's half of the "the PTY died under a mounted pane" contract. Click reports
 // the session it is MOUNTED with (what real xterm does); double-click reports a
 // stale id, standing in for a displaced PTY whose death lands late.
-vi.mock('@/features/terminal/components/terminal', () => ({
-  XtermTerminal: ({
+vi.mock('@/features/terminal/components/lazy-terminal', () => ({
+  LazyXtermTerminal: ({
     sessionId,
     isActive,
     isVisible,

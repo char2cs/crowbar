@@ -2,7 +2,6 @@ package terminal_test
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -104,13 +103,11 @@ func TestRestore_ConcurrentAttach_NoOrphan(t *testing.T) {
 	for i, c := range conns {
 		found := false
 		for _, raw := range c.allReceived() {
-			var msg struct {
-				Data string `json:"data"`
-			}
-			if err := json.Unmarshal(raw, &msg); err != nil {
+			data, _, ok := terminal.ParseOutputFrame(raw)
+			if !ok {
 				continue
 			}
-			if containsStr(msg.Data, liveProbe) {
+			if containsStr(string(data), liveProbe) {
 				found = true
 				break
 			}

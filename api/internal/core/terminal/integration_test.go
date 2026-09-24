@@ -4,9 +4,9 @@ package terminal_test
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -42,6 +42,8 @@ func (p *pipeConn) WriteMessage(
 	}
 	return nil
 }
+
+func (p *pipeConn) SetWriteDeadline(time.Time) error { return nil }
 
 func (p *pipeConn) ReadMessage() (int, []byte, error) {
 	select {
@@ -82,13 +84,11 @@ func waitForOutput(
 ) {
 	t.Helper()
 	for raw := range conn.inbox {
-		var msg struct {
-			Data string `json:"data"`
-		}
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		data, _, ok := terminal.ParseOutputFrame(raw)
+		if !ok {
 			continue
 		}
-		if pred(msg.Data) {
+		if pred(string(data)) {
 			return
 		}
 	}

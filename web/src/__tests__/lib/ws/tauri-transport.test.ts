@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // the open/send/close handlers invoke the right ws_* commands.
 
 interface MockChannel {
-  onmessage: ((data: string) => void) | null
+  onmessage: ((data: string | ArrayBuffer) => void) | null
 }
 
 const channels: MockChannel[] = []
@@ -14,7 +14,7 @@ const invoke = vi.fn(async () => undefined)
 
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: class {
-    onmessage: ((data: string) => void) | null = null
+    onmessage: ((data: string | ArrayBuffer) => void) | null = null
     constructor() {
       channels.push(this)
     }
@@ -50,6 +50,8 @@ describe('TauriWebSocket', () => {
       connId: 'conn-fixed-id',
       path: '/v0/projects/p/repos/r/workspaces',
       onMessage: channels[0],
+      // No read-idle timeout unless the stream asks for one (only the terminal's does).
+      idleTimeoutMs: null,
     })
     await vi.waitFor(() => expect(onopen).toHaveBeenCalled())
     expect(sock.readyState).toBe(TauriWebSocket.OPEN)
@@ -81,6 +83,25 @@ describe('TauriWebSocket', () => {
     expect(onclose).toHaveBeenCalledTimes(1)
     expect(onmessage).not.toHaveBeenCalled()
     expect(sock.readyState).toBe(TauriWebSocket.CLOSED)
+  })
+
+  it('passes a read-idle timeout through to the bridge when asked', async () => {
+    new TauriWebSocket('/v0/chats/c/terminals/s/ws', { idleTimeoutMs: 90_000 })
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        'ws_open',
+        expect.objectContaining({ idleTimeoutMs: 90_000 }),
+      ),
+    )
+  })
+
+  it('surfaces a binary frame (terminal output) as its ArrayBuffer', async () => {
+    const sock = new TauriWebSocket('/v0/chats/c/terminals/s/ws')
+    const onmessage = vi.fn()
+    sock.onmessage = onmessage
+    const bytes = new Uint8Array([0, 104, 105]).buffer
+    channels[channels.length - 1].onmessage?.(bytes)
+    expect(onmessage).toHaveBeenCalledWith({ data: bytes })
   })
 
   it('send() invokes ws_send with the conn id and raw data', async () => {

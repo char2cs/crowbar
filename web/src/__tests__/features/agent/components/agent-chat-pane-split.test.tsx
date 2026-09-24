@@ -94,8 +94,8 @@ vi.mock('@/features/agent/chat/agent-chat-view', async () => {
   }
 })
 
-vi.mock('@/features/terminal/components/terminal', () => ({
-  XtermTerminal: ({
+vi.mock('@/features/terminal/components/lazy-terminal', () => ({
+  LazyXtermTerminal: ({
     sessionId,
     isActive,
     isVisible,
