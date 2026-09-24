@@ -1092,6 +1092,25 @@ func TestAgent_ClaudeInjectsAnExplicitTimeoutOnEveryHookItHoldsOpen(t *testing.T
 	}
 }
 
+// A daemon started inside a Claude Code session inherits that session's
+// identity; passed on, every chat's CLI would adopt the one session id
+// (found by the live conformance run).
+func TestAgent_ClaudeNeverInheritsASessionIdentity(t *testing.T) {
+	tmp := t.TempDir()
+	inherited := []string{
+		"PATH=/bin", "CLAUDE_CODE_SESSION_ID=parent", "CLAUDE_CODE_REMOTE_SESSION_ID=parent",
+		"CLAUDE_CODE_ENTRYPOINT=cli", "CLAUDE_PID=1", "CLAUDECODE=1",
+	}
+	plan, err := get(t, "claude").SpawnPlan(agents.TemplateCtx{
+		Tmp: tmp, Segid: "seg", CrowbarHook: "/bin/crowbar", Cwd: tmp,
+	}, inherited, nil)
+	require.NoError(t, err)
+	if plan.Cleanup != nil {
+		t.Cleanup(plan.Cleanup)
+	}
+	assert.Equal(t, []string{"PATH=/bin"}, plan.Env)
+}
+
 func TestMatchTerminalPrompt_ClaudeIdentifiesItsTrustDialog(t *testing.T) {
 	screen := strings.Join([]string{
 		"╭──────────────────────────────────────╮",
