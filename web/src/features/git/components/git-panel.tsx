@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { useRouterState } from '@tanstack/react-router'
 import { GitPullRequest, GitBranch, ClockCounterClockwise, CaretRight } from '@phosphor-icons/react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/utils/cn'
-import { openBranchReviewForActiveWorkspace } from '@/features/panes/utils/pane-command-actions'
+import { openBranchReviewForWorkspace } from '@/features/panes/utils/pane-command-actions'
 import { useSidebarStore } from '@/lib/store/sidebar'
 import { useGitStore } from '@/features/git/stores/git-store'
-import { parseWorkspaceScopeFromPath } from '@/lib/workspace-scope'
+import {
+  hasRepoWorkspace,
+  useFocusedWorkspaceContextStore,
+} from '@/features/window/stores/focused-workspace-context-store'
 import { useSidebarChangedFiles } from '@/features/git/hooks/use-sidebar-changed-files'
 import { getOrCreateWorkspaceStore } from '@/features/workspace/stores/workspace-store-registry'
 import { ChangedFilesTree } from './changed-files-tree'
@@ -21,11 +23,9 @@ export function GitPanel() {
   // scroll functionality, so it stays — folded below the three required
   // sections behind a disclosure rather than a competing top-level tab.
   const [historyOpen, setHistoryOpen] = useState(false)
-  // I1 fix: derive wsId reactively from the route so a workspace switch without
-  // remount keeps all API calls and store lookups pointed at the active workspace.
-  // Pattern mirrors sidebar-carousel.tsx and context-pill.tsx.
-  const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const wsId = parseWorkspaceScopeFromPath(pathname)?.wsId ?? null
+  // Scoped to the focused workspace context, never the route: a split can focus
+  // a branch chat while the route names project home. Null for non-repo scopes.
+  const wsId = useFocusedWorkspaceContextStore((s) => (hasRepoWorkspace(s) ? s.workspaceId : null))
 
   // Narrow selectors: pull only the fields we need from each store.
   const gitStatus = useGitStore((s) => s.gitStatus)
@@ -53,8 +53,8 @@ export function GitPanel() {
   // tree silently opened the tab at the top. The surface addresses files by
   // path, so ask for one.
   const handleFileOpen = (filePath: string) => {
-    openBranchReviewForActiveWorkspace()
     if (!wsId) return
+    openBranchReviewForWorkspace(wsId)
     getOrCreateWorkspaceStore(wsId).getState().revealBranchReviewFile(filePath)
   }
 
@@ -115,7 +115,7 @@ export function GitPanel() {
           <button
             type="button"
             className="mx-1.5 flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-foreground hover:bg-accent"
-            onClick={() => openBranchReviewForActiveWorkspace()}
+            onClick={() => openBranchReviewForWorkspace(wsId)}
           >
             <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-left">Review this branch</span>
@@ -149,7 +149,7 @@ export function GitPanel() {
         </button>
         {historyOpen && (
           <div className="flex h-64 flex-col overflow-hidden border-t border-border">
-            <GitHistoryList />
+            <GitHistoryList wsId={wsId} />
           </div>
         )}
       </div>

@@ -17,6 +17,7 @@ import { saveReconnect } from '@/features/terminal/lib/terminal-reconnect-map'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { useZoomStore } from '@/features/window/stores/zoom-store'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace-context'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { toastSpawnFailure } from '@/features/agent/lib/spawn-error'
@@ -189,10 +190,7 @@ interface AgentChatPaneProps {
   /** The runner this pane follows, or '' when it has none (a dormant chat). */
   runnerId: string
   wsId: string
-  /** The `PaneGroup` this surface renders inside — the thing that gets
-   *  re-pointed (`paneActions.setPaneChat`) when the runner moves. Was a
-   *  buffer id until Task 1 made `chatId`/`runnerId` fields on the pane
-   *  itself; a chat has not been a buffer since. */
+  /** The `PaneGroup` this surface renders inside. */
   paneId: string
   isActivePane: boolean
   /**
@@ -317,6 +315,17 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.activeProviderId ?? '',
   )
+  // The surface this chat is on RIGHT NOW (design spec 2.5, domain.Chat.Surface
+  // — birth seeds it and the switch calls move it). Two things read it:
+  //
+  //   enterTerminal — 'terminal' means the daemon has no api connection for
+  //     this chat, so there is no native view left to ask for.
+  //   the compaction control — Crowbar offers it on its own chat only, and
+  //     the daemon refuses one issued from the provider's terminal.
+  const onTerminalSurface = useStore(
+    store,
+    (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.surface === 'terminal',
+  )
   const working = useStore(store, (s) => s.agentChats.working[shownChatId] ?? false)
   // Live mid-compaction, from the direct WS push — never derived from
   // `activity`. See AgentChatsState.compacting's own doc comment for why.
@@ -346,7 +355,30 @@ export function AgentChatPane({
     store,
     (s) => s.agentChats.chats.find((c) => c.id === shownChatId)?.launchModel ?? '',
   )
-  const providers = useStore(store, (s) => s.agentChats.providers)
+  // THE MACHINE-LEVEL LIST WHEN THIS WORKSPACE HAS NO COPY OF ITS OWN.
+  //
+  // `agentChats.providers` is seeded by use-workspace-agent-chats-stream, which
+  // only runs while that workspace is MOUNTED. A pane outlives its workspace's
+  // visibility by design (WorkspaceView's own doc), and
+  // getOrCreateWorkspaceStore happily mints an empty store for a workspace
+  // nothing has opened — so reopening an already-run conversation could land
+  // here with `[]`. Every provider control is absence-not-disabled, so an empty
+  // catalogue does not grey the picker out, it DELETES it
+  // (agent-selection-picker's own `catalogueProviders.length === 0` guard):
+  // the chat renders with no provider named and no control to name one with,
+  // recoverable only by toggling a provider in Settings, whose write path
+  // repairs this copy as a side effect. Same reasoning space-content-actions.ts
+  // already reached for the New-thread button.
+  const wsProviders = useStore(store, (s) => s.agentChats.providers)
+  const globalProviders = useAgentProvidersStore((s) => s.providers)
+  const providers = wsProviders.length > 0 ? wsProviders : globalProviders
+  // Neither copy populated: this pane is the first surface to need the list, so
+  // it asks. The store owns the read/write generation rules, so a load issued
+  // here cannot clobber a preferences write it races.
+  useEffect(() => {
+    if (wsProviders.length > 0 || globalProviders.length > 0) return
+    void useAgentProvidersStore.getState().load(wsId)
+  }, [wsProviders.length, globalProviders.length, wsId])
   // The provider this chat last ran under — what a failed revive has to NAME ("Claude
   // isn’t installed"), since a dormant chat has no live runner to ask.
   const chatProviderId = useStore(
@@ -497,25 +529,14 @@ export function AgentChatPane({
     attachment.state === 'attached' && presentation === 'terminal',
   )
 
-  // Re-point the PANE at what this surface is actually showing. This is the write that
-  // makes the view follow: pane-container feeds the pane's chatId/runnerId straight
-  // back in as our props, so the next render is already looking at the new chat.
-  //
-  // It converges in one step and cannot loop — once the pane holds the pair computed
-  // here, the effect's deps are unchanged and it does not re-run, and `setPaneChat`'s
-  // own writes are same-value no-ops under immer. Writing null as the runnerId of a
-  // dormant chat is deliberate: a pane must not go on claiming a runner that no longer
-  // exists.
-  //
-  // `setPaneChat` (not the deleted `repointAgentChatBuffer`, which guarded on a buffer
-  // type Task 1 removed and had therefore been a permanent no-op) also archives the
-  // conversation the CLI walked OUT of into Recents when this is a real move — spec
-  // §5.5's "the view dies, the row does not."
+  // Keep the pane's runner in step with its OWN chat. Following the runner
+  // onto a different chat is the stream's `retargetPane` alone — it also runs
+  // when no pane is mounted.
   useEffect(() => {
-    if (!known) return // nothing authoritative to re-point at yet
-    if (shownChatId === chatId && liveRunnerId === runnerId) return
-    windowPaneStore.getState().paneActions.setPaneChat(paneId, shownChatId, liveRunnerId || null)
-  }, [store, paneId, known, chatId, runnerId, shownChatId, liveRunnerId])
+    if (!known || shownChatId !== chatId) return
+    if (liveRunnerId === runnerId) return
+    windowPaneStore.getState().paneActions.setPaneRunner(paneId, liveRunnerId || null)
+  }, [paneId, known, chatId, runnerId, shownChatId, liveRunnerId])
 
   // NO TAB RELABEL HERE ANY MORE. A chat used to be a buffer whose `name` was the tab
   // label, so a title arriving after the tab opened (the agent auto-titles the chat via
@@ -608,7 +629,8 @@ export function AgentChatPane({
       // A non-hotswap api-transport runner (codex) is legitimately live with nothing
       // attached: empty here means "no terminal to show right now", not "no runner".
       if (!chat.liveRunnerId) return false
-      windowPaneStore.getState().paneActions.setPaneChat(paneId, chat.id, chat.liveRunnerId)
+      const { panes, paneActions } = windowPaneStore.getState()
+      if (panes[paneId]?.chatId === chat.id) paneActions.setPaneRunner(paneId, chat.liveRunnerId)
       if (chat.terminalSessionId) seedAttach(wsId, chat.terminalSessionId)
       setAttachment({ state: 'attached', sessionId: chat.terminalSessionId || null })
       return true
@@ -758,11 +780,20 @@ export function AgentChatPane({
   // from the PATH. Both land in `idle: failed`, which is the one place the Resume button
   // still appears. It never retries by itself.
   //
-  // A chat with no `activeProviderId` has never had ANY runner placed on it — no CLI
-  // ever reached its session-start hook, so there is no conversation on record at all.
-  // resumeChat is REFUSED OUTRIGHT for it every time; switchProviderLocked's own doc
-  // comment names this exact case as the one it already handles correctly, so that is
-  // the call a never-run chat needs — an ordinary fresh spawn, not a resume.
+  // IT NEVER PICKS A PROVIDER. This used to read an empty `activeProviderId` as
+  // "this chat has never run" and start `providers.find((p) => p.enabled)` on it —
+  // the first ENABLED provider, which is claude. That was a guess standing in for a
+  // fact the pane does not have, and it was wrong in the one case it actually fired:
+  // a dormant CODEX chat, whose provider the daemon could not name because codex
+  // binds by its own connection identity and so records nothing. Clicking such a
+  // chat's sidebar row silently converted it — codex transcript, claude composer,
+  // no warning and no marker. Reproduced 3/3 live.
+  //
+  // resumeChat is the only call here now, and resolving the provider is ITS job:
+  // the daemon reads the chat's own durable vendor (domain.Chat.ProviderID) and
+  // brings that one back. A chat it genuinely cannot name is refused, lands in
+  // `idle: failed` like any other refusal, and the user names it themselves from
+  // the picker. An honest unknown beats a confident wrong answer.
   //
   // `externalSignal` lets a CALLER's own cleanup (the auto-revive effect below)
   // cancel a revive still in flight when it unmounts or re-runs — without it,
@@ -775,13 +806,7 @@ export function AgentChatPane({
   const revive = useCallback(
     async (externalSignal?: AbortSignal) => {
       attemptedRef.current.add(shownChatId) // spend the budget BEFORE awaiting anything
-      const neverRan = activeProviderId === ''
-      const startProvider = neverRan ? providers.find((p) => p.enabled) : undefined
-      const verb = neverRan ? 'start' : 'resume'
-      setAttachment({
-        state: 'reviving',
-        message: neverRan ? 'Starting this chat…' : 'Resuming this chat…',
-      })
+      setAttachment({ state: 'reviving', message: 'Resuming this chat…' })
       revivesInFlight.current += 1
       // BOUND THE REQUEST, not the UI. The pane still moves on this request's own
       // outcome — an abort IS an outcome, and it lands in the same `fail()` every other
@@ -827,12 +852,7 @@ export function AgentChatPane({
       // request is actually outstanding.
       const run = (async () => {
         try {
-          if (neverRan) {
-            if (!startProvider) throw new Error('No agent provider is enabled')
-            await switchProvider(wsId, shownChatId, startProvider.id, abort.signal)
-          } else {
-            await resumeChat(wsId, shownChatId, abort.signal)
-          }
+          await resumeChat(wsId, shownChatId, abort.signal)
           // SAME signal, not a second, unbounded request — adopt()'s own
           // getChat read sits right after the spawn request's, and without a
           // signal of its own it could hang forever with the bound above
@@ -853,7 +873,7 @@ export function AgentChatPane({
           toastSpawnFailure(
             abort.signal.aborted ? new Error('The daemon did not answer the resume.') : err,
             name,
-            verb,
+            'resume',
           )
         } finally {
           clearTimeout(bound)
@@ -873,7 +893,7 @@ export function AgentChatPane({
         }
       }
     },
-    [wsId, shownChatId, adopt, fail, providers, chatProviderId, activeProviderId],
+    [wsId, shownChatId, adopt, fail, providers, chatProviderId],
   )
 
   // A CHAT THE LIST NEVER MENTIONS.
@@ -1242,10 +1262,15 @@ export function AgentChatPane({
     () => isActivePane && isVisible && getActiveWorkspaceId() === wsId,
   )
 
-  // Flips presentation to 'terminal' — but a HOTSWAP provider's terminal is
-  // already live (a pure rendering choice), where a provider that hands its
-  // turn over instead (codex: attach declared, hotswap false) has no terminal
-  // session to render until Crowbar asks for one over switchToTerminal. Every
+  // Flips presentation to 'terminal' — but only a chat with NOTHING on its
+  // terminal surface yet has to ask Crowbar to fork one (switchToTerminal).
+  // Two kinds already have one and must not: a HOTSWAP provider, whose PTY is
+  // live from the spawn, and a chat BORN on the terminal surface (chat.surface),
+  // for which the daemon opened no api connection at all, so its own PTY IS the
+  // conversation. Asking anyway is what produced "provider has no completed turn
+  // yet to show its native view of" on a chat the user had just created on the
+  // CLI: that attach is `codex resume {id}`, which resumes an api session a
+  // terminal-born chat never had. Every
   // path onto the terminal surface shares this check — the escort below, the
   // wait banner's own button (openTerminalFromBanner), and the composer's
   // (onOpenTerminal) — so none of them can strand a non-hotswap provider on a
@@ -1265,7 +1290,7 @@ export function AgentChatPane({
   const enterTerminal = (providerIdOverride?: string) => {
     const chatProvider = providers.find((p) => p.id === (providerIdOverride ?? chatProviderId))
     const hotswap = chatProvider ? chatProvider.hotswap === true : true
-    if (hotswap) {
+    if (hotswap || onTerminalSurface) {
       setPresentation('terminal')
       return
     }
@@ -1730,12 +1755,18 @@ export function AgentChatPane({
                   }
                 })()
               }}
+              onTerminalSurface={onTerminalSurface}
               onPromptSpawned={handlePromptSpawned}
               onRefreshChat={refreshChatWorking}
               provider={effectiveProviderId}
               model={effectiveModel}
               effort={effectiveEffort}
               launchModel={launchModel}
+              // `known` is this pane's whole basis for "do we know what this
+              // chat is" — until it flips, effectiveModel/Effort are just
+              // their '' fallbacks, which the send would otherwise commit as
+              // a deliberate clear. See AgentChatViewProps.selectionKnown.
+              selectionKnown={known}
               onSelectionChange={stageSelection}
               onSelectionCommitted={commitSelection}
               onQueueCountChange={setQueuedPromptCount}

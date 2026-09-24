@@ -369,6 +369,29 @@ describe('agent-api', () => {
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
+  // THE BUG: a chat "started on the CLI" was only ever a client-side landing
+  // seed. The daemon spawned it on the provider's own default face, which for
+  // a mixed-transport provider means an api connection — and a chat with one
+  // of those has its PTY hidden outright, so the terminal surface it landed on
+  // showed "This agent has no terminal view attached right now". The surface
+  // has to travel on the CREATE, because it decides what gets forked.
+  it('createChat carries the SURFACE the chat is born on', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChat('w1', 'codex', '', 'terminal')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.surface).toBe('terminal')
+  })
+
+  // Omitted means the provider's own default face — and the key is ABSENT,
+  // not "", so the wire shape for an ordinary create is byte-identical to
+  // what it was before this argument existed.
+  it('createChat omits surface entirely when none is asked for', async () => {
+    apiFetch.mockResolvedValue({ id: 'c9' })
+    await api.createChat('w1', 'codex')
+    const body = JSON.parse((apiFetch.mock.calls[0][1] as RequestInit).body as string)
+    expect('surface' in body).toBe(false)
+  })
+
   // Task 8: the sidebar's "create workspace" affordance — no workspace exists
   // yet to derive a chatBase scope from, so this is built straight off
   // project+repo instead.
@@ -559,6 +582,34 @@ describe('agent-api', () => {
     const out = await api.listProviders('w1')
     expect(out[0].hasTerminal).toBe(false)
     expect(out[0].hotswap).toBe(true)
+  })
+
+  // terminalStartHere (design spec 2.5) defaults OFF, the SAME direction as
+  // hotswap/compaction/the selection capabilities — NOT hasTerminal's
+  // opposite-direction default. Silence means the descriptor's surfaces:
+  // block omits start_here (or omits the whole block), and that must not be
+  // read as permission to launch a brand-new chat onto a surface the
+  // provider never said was a landing target.
+  it('listProviders defaults terminalStartHere to false when omitted', async () => {
+    apiFetch.mockResolvedValueOnce([
+      { id: 'claude', displayName: 'Claude', icon: '<svg/>', hasTerminal: true },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].terminalStartHere).toBe(false)
+  })
+
+  it('listProviders carries terminalStartHere:true through unchanged', async () => {
+    apiFetch.mockResolvedValueOnce([
+      {
+        id: 'claude',
+        displayName: 'Claude',
+        icon: '<svg/>',
+        hasTerminal: true,
+        terminalStartHere: true,
+      },
+    ])
+    const out = await api.listProviders('w1')
+    expect(out[0].terminalStartHere).toBe(true)
   })
 
   // The selection catalogue: WHETHER each picker exists at all, plus the models

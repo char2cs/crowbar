@@ -1,11 +1,13 @@
 package turn
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	agentactivity "github.com/char2cs/crowbar/api/internal/app/repositories/chat/activity"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/answerdesk"
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/inflight"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -119,4 +121,104 @@ func TestRegression_NativeViewLeavesThePromptToTheCLI(t *testing.T) {
 func TestHoldForAnswer_ParksTheRelayWhenCrowbarIsTheSurface(t *testing.T) {
 	assert.True(t, heldForAnswer(t, false),
 		"a chat Crowbar is driving must still park the relay so its card can answer")
+}
+
+// endedSubagentActivity holds ONE subagent that already ran and stopped, and
+// answers both reads openNestedSubagent can make about it: it is not open, and
+// it is on the chat's record with a real EndedAt. Every OpenNestedSubagent call
+// is recorded, so a resurrection is visible rather than silent.
+type endedSubagentActivity struct {
+	agentactivity.EventStore
+
+	id      string
+	endedAt time.Time
+
+	opened []string
+}
+
+func (a *endedSubagentActivity) IsSubagentOpen(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
+func (a *endedSubagentActivity) Subagents(
+	context.Context, string,
+) ([]domain.ActivitySubagent, error) {
+	ended := a.endedAt
+	return []domain.ActivitySubagent{{
+		ID: a.id, StartedAt: ended.Add(-time.Minute), EndedAt: &ended,
+	}}, nil
+}
+
+func (a *endedSubagentActivity) OpenNestedSubagent(
+	_ context.Context, _, subagentID string, _ time.Time,
+) error {
+	a.opened = append(a.opened, subagentID)
+	return nil
+}
+
+// TestRegression_ANestedSubagentIsNeverReopenedAfterItStopped pins the live
+// wedge measured on chat a37942f9 (2026-09-23): three collab children all
+// finished and were closed, and every one of them was then RE-OPENED, leaving
+// the chat Working forever with no turn open and no tool running.
+//
+// The shape, straight out of the event store: subagent_stopped for a child at
+// 19:54:54.669, then nested_subagent_opened for the SAME id at 19:54:54.673.
+// codex's `wait` tool completes BECAUSE the child finished, and its own
+// item/completed still names that child in receiverThreadIds[0] — which
+// codex.yaml maps to nested_session_id on tool_post. openNestedSubagent asked
+// only "is it open RIGHT NOW", which a child that just stopped answers false
+// to, so it opened it again; SaveSubagent upserts, clearing ended_at back to
+// NULL, and OpenWork reads that row as live work forever.
+//
+// The predicate has to be "has this chat ever recorded this id", not "is it
+// open": a stopped subagent can never be resurrected.
+func TestRegression_ANestedSubagentIsNeverReopenedAfterItStopped(t *testing.T) {
+	const childID = "01a0d079-bfdd-7ed3-baf2-b5d55182a829"
+	activity := &endedSubagentActivity{id: childID, endedAt: time.Unix(10_000_000, 0)}
+	turns := New(Deps{Activity: activity})
+
+	turns.openNestedSubagent(t.Context(), "chat-1", engineagents.CanonicalEvent{
+		Tool: &engineagents.ToolEvent{NestedSessionID: childID},
+	}, time.Unix(10_000_060, 0))
+
+	assert.Empty(t, activity.opened,
+		"a collab tool completion naming a child that already stopped must never re-open it")
+}
+
+// unknownSubagentActivity is the twin: this chat has recorded no subagent at
+// all, so the very first completion naming one must still open it — the
+// spawnAgent case the whole mechanism exists for.
+type unknownSubagentActivity struct {
+	agentactivity.EventStore
+
+	opened []string
+}
+
+func (a *unknownSubagentActivity) IsSubagentOpen(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
+func (a *unknownSubagentActivity) Subagents(
+	context.Context, string,
+) ([]domain.ActivitySubagent, error) {
+	return nil, nil
+}
+
+func (a *unknownSubagentActivity) OpenNestedSubagent(
+	_ context.Context, _, subagentID string, _ time.Time,
+) error {
+	a.opened = append(a.opened, subagentID)
+	return nil
+}
+
+func TestOpenNestedSubagent_OpensAnIdTheChatHasNeverSeen(t *testing.T) {
+	activity := &unknownSubagentActivity{}
+	turns := New(Deps{Activity: activity})
+
+	turns.openNestedSubagent(t.Context(), "chat-1", engineagents.CanonicalEvent{
+		Tool: &engineagents.ToolEvent{NestedSessionID: "child-1"},
+	}, time.Unix(10_000_000, 0))
+
+	assert.Equal(t, []string{"child-1"}, activity.opened,
+		"the first completion naming a brand-new child must still open it")
 }

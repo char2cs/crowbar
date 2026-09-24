@@ -87,7 +87,7 @@ func TestStart_HandshakeThenDeliversCanonicalEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -122,7 +122,7 @@ func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -130,6 +130,52 @@ func TestStart_AsksCarryAReplyChannel(t *testing.T) {
 	require.Equal(t, "permission", ev.Canonical)
 	require.NotNil(t, ev.AskID)
 	require.NoError(t, drv.Reply(ev.AskID, []byte(`{"decision":"accept"}`)))
+}
+
+// TestStart_ByWireOverlayNamesTheToolOnThePermissionCard is F1 of the
+// descriptor channel-split design, proven end to end over the real transport:
+// codex's api-side permission payload carries no `tool`/`params` field on
+// EITHER wire method (confirmed live, codex-cli 0.149.1 — see codex.yaml's
+// own comment on permission.api), so before by_wire: existed the resulting
+// card's tool name was always empty. by_wire: derives it from WHICH wire
+// method actually matched — this drives both real wire names through the
+// SAME live translateLoop production uses and checks the literal each one
+// injects.
+func TestStart_ByWireOverlayNamesTheToolOnThePermissionCard(t *testing.T) {
+	for wire, want := range map[string]string{
+		"item/commandExecution/requestApproval": "commandExecution",
+		"item/fileChange/requestApproval":       "fileChange",
+	} {
+		t.Run(wire, func(t *testing.T) {
+			sockPath := fakeCodexServer(t, func(conn *websocket.Conn) {
+				ask, _ := json.Marshal(map[string]any{
+					"id": 7, "method": wire,
+					// Neither real payload carries `tool` or `params` — see
+					// codex.yaml's own comment. reason is the one field both
+					// real captures share.
+					"params": map[string]string{"reason": "why"},
+				})
+				require.NoError(t, conn.WriteMessage(websocket.TextMessage, ask))
+				_, _, _ = conn.ReadMessage() // block until the client replies/closes
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			d := loadCodexAPIDescriptor(t)
+			drv, err := apidriver.Start(ctx, d, sockPath, nil)
+			require.NoError(t, err)
+			defer drv.Close()
+
+			ev := <-drv.Events()
+			require.Equal(t, "permission", ev.Canonical)
+
+			var params map[string]any
+			require.NoError(t, json.Unmarshal(ev.Raw, &params))
+			assert.Equal(t, want, params["tool"],
+				"by_wire: must derive the tool identity from the matched wire method")
+			require.NoError(t, drv.Reply(ev.AskID, []byte(`{"decision":"accept"}`)))
+		})
+	}
 }
 
 func TestStart_MalformedParamsAreDroppedNotFatal(t *testing.T) {
@@ -148,7 +194,7 @@ func TestStart_MalformedParamsAreDroppedNotFatal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -212,7 +258,7 @@ func TestEstablishSession_NoKnownSessionRunsFreshAndCapturesTheNewID(t *testing.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -244,7 +290,7 @@ func TestRegression_EstablishSessionFreshCarriesTheHandoffAsDeveloperInstruction
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -264,7 +310,7 @@ func TestEstablishSession_KnownSessionRunsResumeNotFresh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -272,6 +318,48 @@ func TestEstablishSession_KnownSessionRunsResumeNotFresh(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "known-1", out["session_id"], "resume keeps the id the caller already had")
 	require.Contains(t, (*seen)[0], `"threadId":"known-1"`)
+}
+
+// TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel
+// pins the codex resume gap: thread/resume's own send: template used to
+// carry only threadId/cwd, never {permission.sandbox}/{permission.
+// approvalPolicy} — unlike thread/start's. So a chat whose permission level
+// changed (an explicit SetChatPermissionLevel pick, or an inherited chat
+// following a later global-default change — see selection.go) after its
+// codex thread had already started kept resuming under the sandbox the
+// thread was ORIGINALLY created with, forever: RestartRequired forces a
+// restart on the level change, but a restart that only ever RESUMES never
+// applied the new choice.
+//
+// Confirmed live and safe against the real codex-cli 0.154.0 app-server
+// (throwaway CODEX_HOME/cwd, no repos or ~/.crowbar touched): thread/resume
+// accepted sandbox/approvalPolicy in its params with no parse/validation
+// error, failing only on the separate, already-documented "no rollout yet"
+// condition (session_lost_codes) for a thread with no completed turn —
+// exactly what codex.yaml's own comment on that code already says to
+// expect. ThreadResumeParams's own published JSON schema (`codex app-server
+// generate-json-schema`) also declares both fields, typed identically to
+// ThreadStartParams's.
+func TestRegression_EstablishSessionResumeAlsoCarriesTheCurrentPermissionLevel(t *testing.T) {
+	sockPath, seen := scriptedServer(t, []scriptedCall{
+		{method: "thread/resume", result: `{"thread":{"id":"known-1"},"cwd":"/work","model":"m","modelProvider":"p","sandbox":{"type":"dangerFullAccess"},"approvalPolicy":"never","approvalsReviewer":"user"}`},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
+	require.NoError(t, err)
+	defer drv.Close()
+
+	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{
+		"session_id": "known-1", "cwd": "/work",
+		"permission.sandbox": "danger-full-access", "permission.approvalPolicy": "never",
+	})
+	require.NoError(t, err)
+	require.Contains(t, (*seen)[0], `"sandbox":"danger-full-access"`,
+		"a resumed thread must be handed the CURRENT permission level too, not just a fresh one")
+	require.Contains(t, (*seen)[0], `"approvalPolicy":"never"`)
 }
 
 func TestEstablishSession_SecondCallOnAnEstablishedConnectionIsANoop(t *testing.T) {
@@ -282,7 +370,7 @@ func TestEstablishSession_SecondCallOnAnEstablishedConnectionIsANoop(t *testing.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -317,7 +405,7 @@ func TestRegression_EstablishSessionAlreadyEstablished_BlankCallerSessionIDFalls
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -340,7 +428,7 @@ func TestDispatch_SendsTheStructuredActionPayloadAfterEstablishing(t *testing.T)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -374,7 +462,7 @@ func TestDispatch_ASecondMessageOnAnEstablishedConnectionSkipsStraightToAction(t
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -406,7 +494,7 @@ events:
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err = apidriver.Start(ctx, d, "/nonexistent.sock")
+	_, err = apidriver.Start(ctx, d, "/nonexistent.sock", nil)
 	require.Error(t, err)
 }
 
@@ -426,7 +514,7 @@ func TestSend_MergesValuesRememberedFromEarlierCaptures(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -503,7 +591,7 @@ func TestRegression_InterruptRacingANewTurnStart_MustNotSendTheStalePreviousTurn
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -571,7 +659,7 @@ func TestSend_PropagatesAJSONRPCErrorFromTheReply(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -610,7 +698,7 @@ func TestInjectAt_RunsTheDeclaredContextStepAfterResume(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -655,7 +743,7 @@ func TestInjectAt_UndeclaredMomentIsANoop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -695,7 +783,8 @@ func TestRegression_LostSessionOnResumeRebindsToAFreshThread(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	origins := &recordedOrigins{}
+	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -711,20 +800,112 @@ func TestRegression_LostSessionOnResumeRebindsToAFreshThread(t *testing.T) {
 		"the replacement thread must be born with the same settings as the original")
 	require.Contains(t, (*seen)[1], `"developerInstructions":"what came before"`,
 		"the replacement thread must carry the handoff, or the chat silently loses its history")
+
+	// The failed resume's OWN claim must be settled before establishFresh opens
+	// its own: claims nest via originatedSessions' pending counter rather than
+	// handing over, so one left open here never closes — and a permanently
+	// pending claim makes the hook ingress read EVERY conversation the provider
+	// announces on this connection, child threads included, as Crowbar's own.
+	assert.Equal(t, []string{"t-new"}, origins.ids,
+		"only the replacement actually came of this: the dead id must report nothing")
+	assert.Equal(t, 2, origins.claims, "the failed establish and its fresh replacement each claim once")
+	assert.Zero(t, origins.open, "every claim must be closed, the failed one included")
 }
 
-// TestRegression_LostSessionOnTurnStartRebindsAndDeliversThePrompt pins the
-// other half: `established` is a claim about this CONNECTION's history, set
-// once and never cleared by anything on the wire. A session that dies after it
-// was set leaves EstablishSession short-circuiting forever, so every prompt
-// went out naming a thread the server had forgotten, was refused, and was
-// recorded as an uncertain delivery — which blocks the frontend prompt queue's
-// head permanently, so nothing streams and every prompt typed afterwards piles
-// up behind it. The prompt must reach a live thread instead.
-func TestRegression_LostSessionOnTurnStartRebindsAndDeliversThePrompt(t *testing.T) {
+// recordedOrigins collects the sessions a connection reports having produced
+// ITSELF, and asserts the claim was open before the id existed — the ordering
+// the runner layer depends on, since a provider can announce a new session over
+// this same connection before the call that creates it has returned.
+type recordedOrigins struct {
+	open   int
+	claims int
+	ids    []string
+}
+
+func (r *recordedOrigins) claim() func(string) {
+	r.open++
+	r.claims++
+	return func(id string) {
+		r.open--
+		if id != "" {
+			r.ids = append(r.ids, id)
+		}
+	}
+}
+
+// establishAtSpawn runs the spawn-time establish the recovery tests below all
+// start from: it is what latches `established`, and the only call ever handed
+// the sandbox/approval/context settings a later message push does not carry.
+func establishAtSpawn(t *testing.T, ctx context.Context, drv *apidriver.Driver) {
+	t.Helper()
+	_, err := drv.EstablishSession(ctx, "prompt", map[string]string{
+		"session_id": "", "cwd": "/work", "context": "what came before",
+		"permission.sandbox": "workspace-write", "permission.approvalPolicy": "on-request",
+	})
+	require.NoError(t, err)
+}
+
+// TestRegression_LostSessionOnTurnStartReentersTheSameConversation pins what a
+// provider actually means when it says it does not have a thread: an app-server
+// pages an idle thread out of memory, which is precisely what thread/resume
+// exists for. Measured against the real incident — the same app-server process
+// that had created the thread nine hours earlier, still alive, reported it
+// unknown on the next prompt.
+//
+// The recovery used to blank the id and run Fresh, which starts an EMPTY
+// conversation: the user's own history was abandoned while the descriptor was
+// still declaring, for this same event, a provider-sanctioned way back into it.
+// Resume with the id we still hold comes FIRST.
+func TestRegression_LostSessionOnTurnStartReentersTheSameConversation(t *testing.T) {
 	sockPath, seen := scriptedServer(t, []scriptedCall{
 		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
 		{method: "turn/start", errCode: lostSessionCode, errMessage: lostOnTurnStartError},
+		{method: "thread/resume", result: `{"thread":{"id":"t-1"}}`},
+		{method: "turn/start", result: `{"turn":{"id":"turn-9"}}`},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	origins := &recordedOrigins{}
+	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	require.NoError(t, err)
+	defer drv.Close()
+	establishAtSpawn(t, ctx, drv)
+
+	// A later message push: carries only the fields a prompt has, exactly as
+	// pushPromptOverAPI sends them.
+	out, err := drv.Dispatch(ctx, "prompt", map[string]string{
+		"session_id": "t-1", "cwd": "/work", "text": "are you there?",
+	})
+	require.NoError(t, err, "a prompt refused for a paged-out thread must be re-delivered, not wedged")
+	require.Equal(t, "t-1", out["session_id"],
+		"the recovered session is the user's OWN conversation, not a replacement for it")
+
+	require.Len(t, *seen, 4, "expected start, failed turn, resume, retried turn")
+	require.Contains(t, (*seen)[2], `"threadId":"t-1"`,
+		"recovery must re-enter the held conversation before it considers abandoning it")
+	require.Contains(t, (*seen)[2], `"sandbox":"workspace-write"`,
+		"recovery must reuse the settings the connection was born with, "+
+			"not the bare field set a message push carries")
+	require.Contains(t, (*seen)[3], `"threadId":"t-1"`, "the retry must name the SAME thread")
+	require.Contains(t, (*seen)[3], `"are you there?"`, "the user's prompt must actually be delivered")
+
+	assert.Equal(t, []string{"t-1", "t-1"}, origins.ids,
+		"the spawn-time establish claims the thread it minted, and the recovery claims the "+
+			"same conversation again — a recovered session is Crowbar's own even when its id did not change")
+	assert.Zero(t, origins.open, "every claim must be closed")
+}
+
+// TestRegression_LostSessionFallsBackToFreshOnlyAfterResumeAlsoFails is the
+// other half of the same rule. Fresh throws the conversation away, so it is the
+// LAST answer, taken only once the provider has refused the held id on its own
+// declared resume path too — a thread that genuinely no longer exists anywhere.
+func TestRegression_LostSessionFallsBackToFreshOnlyAfterResumeAlsoFails(t *testing.T) {
+	sockPath, seen := scriptedServer(t, []scriptedCall{
+		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
+		{method: "turn/start", errCode: lostSessionCode, errMessage: lostOnTurnStartError},
+		{method: "thread/resume", errCode: lostSessionCode, errMessage: lostOnResumeMessage},
 		{method: "thread/start", result: `{"thread":{"id":"t-2"}}`},
 		{method: "turn/start", result: `{"turn":{"id":"turn-9"}}`},
 	})
@@ -732,32 +913,30 @@ func TestRegression_LostSessionOnTurnStartRebindsAndDeliversThePrompt(t *testing
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	origins := &recordedOrigins{}
+	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
 	require.NoError(t, err)
 	defer drv.Close()
+	establishAtSpawn(t, ctx, drv)
 
-	// Spawn-time establish: this is what latches `established` and is the only
-	// call that is ever handed the sandbox/approval/context settings.
-	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{
-		"session_id": "", "cwd": "/work", "context": "what came before",
-		"permission.sandbox": "workspace-write", "permission.approvalPolicy": "on-request",
-	})
-	require.NoError(t, err)
-
-	// A later message push: carries only the fields a prompt has, exactly as
-	// pushPromptOverAPI sends them.
 	out, err := drv.Dispatch(ctx, "prompt", map[string]string{
 		"session_id": "t-1", "cwd": "/work", "text": "are you there?",
 	})
-	require.NoError(t, err, "a prompt refused for a dead thread must be re-delivered, not wedged")
+	require.NoError(t, err, "an unrecoverable thread must still deliver the prompt somewhere live")
 	require.Equal(t, "t-2", out["session_id"])
 
-	require.Len(t, *seen, 4, "expected start, failed turn, rebind start, retried turn")
-	require.Contains(t, (*seen)[2], `"sandbox":"workspace-write"`,
-		"the rebind must reuse the settings the connection was born with, "+
-			"not the bare field set a message push carries")
-	require.Contains(t, (*seen)[3], `"threadId":"t-2"`, "the retry must name the NEW thread")
-	require.Contains(t, (*seen)[3], `"are you there?"`, "the user's prompt must actually be delivered")
+	require.Len(t, *seen, 5, "expected start, failed turn, failed resume, fresh start, retried turn")
+	require.Contains(t, (*seen)[3], `"sandbox":"workspace-write"`,
+		"the replacement thread must be born with the same settings as the original")
+	require.Contains(t, (*seen)[3], `"developerInstructions":"what came before"`,
+		"the replacement thread must carry the handoff, or the chat silently loses its history")
+	require.Contains(t, (*seen)[4], `"threadId":"t-2"`, "the retry must name the NEW thread")
+	require.Contains(t, (*seen)[4], `"are you there?"`, "the user's prompt must actually be delivered")
+
+	assert.Equal(t, []string{"t-1", "t-2"}, origins.ids,
+		"the spawn-time thread and its replacement are both Crowbar's own, or the ingest reads "+
+			"the replacement as a user-typed /clear")
+	assert.Zero(t, origins.open, "every claim must be closed, including the failed resume's")
 }
 
 // TestRegression_UndeclaredErrorCodeIsStillFatal keeps the recovery narrow: it
@@ -773,7 +952,7 @@ func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := loadCodexAPIDescriptor(t)
-	drv, err := apidriver.Start(ctx, d, sockPath)
+	drv, err := apidriver.Start(ctx, d, sockPath, nil)
 	require.NoError(t, err)
 	defer drv.Close()
 
@@ -784,4 +963,96 @@ func TestRegression_UndeclaredErrorCodeIsStillFatal(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid params")
 	require.Len(t, *seen, 2, "a code the descriptor does not declare must not mint a new session")
+}
+
+// TestRegression_EstablishSessionFreshReportsTheSessionItMinted pins the root
+// cause of the 2026-09-23 collab-agents transcript bleed. Only the RECOVERY
+// paths used to claim what they produced; EstablishSession's ordinary success
+// path — the one EVERY fresh api-transport chat's first message takes — ran its
+// steps and returned, so the thread this connection had just minted was never
+// recorded as ours. Downstream, the runner row keeps CurrentSession AND
+// LaunchSessionID empty on this path (measured 47 of 49 real codex turn rows),
+// which left the hook ingress with no way to tell the parent conversation from
+// the child threads codex pushes down the very same websocket: the children's
+// assistant messages landed in the user's transcript and a child's
+// turn/completed closed the user's turn 83 seconds early.
+func TestRegression_EstablishSessionFreshReportsTheSessionItMinted(t *testing.T) {
+	sockPath, _ := scriptedServer(t, []scriptedCall{
+		{method: "thread/start", result: `{"thread":{"id":"t-minted"}}`},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	origins := &recordedOrigins{}
+	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	require.NoError(t, err)
+	defer drv.Close()
+
+	out, err := drv.EstablishSession(ctx, "prompt", map[string]string{
+		"session_id": "", "cwd": "/work",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "t-minted", out["session_id"])
+
+	assert.Equal(t, []string{"t-minted"}, origins.ids,
+		"the thread this connection minted itself must be reported, or every child thread the "+
+			"provider opens on it reads as the runner's own conversation")
+	assert.Zero(t, origins.open, "the claim must be closed")
+}
+
+// A resume is an establish too: the conversation this connection loaded is the
+// one it legitimately runs on, so it is claimed exactly as a fresh mint is.
+// Resume's own steps declare no capture — session_id survives only because it
+// went IN non-empty — which is why this asserts the id and not just the count.
+func TestEstablishSession_ResumeReportsTheSessionItEntered(t *testing.T) {
+	sockPath, _ := scriptedServer(t, []scriptedCall{
+		{method: "thread/resume", result: `{"thread":{"id":"known-1"}}`},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	origins := &recordedOrigins{}
+	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	require.NoError(t, err)
+	defer drv.Close()
+
+	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "known-1", "cwd": "/work"})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"known-1"}, origins.ids)
+	assert.Zero(t, origins.open, "the claim must be closed")
+}
+
+// TestEstablishSession_AnAlreadyEstablishedConnectionOpensNoClaim keeps the
+// claim tied to an actual establish. The short-circuit produces NO session — it
+// hands back what this connection already remembers — and a claim opened there
+// would sit open for nothing while biasing originatedSessions.has (runner
+// package) to true, admitting whatever the provider announced in that window as
+// Crowbar's own doing.
+func TestEstablishSession_AnAlreadyEstablishedConnectionOpensNoClaim(t *testing.T) {
+	sockPath, seen := scriptedServer(t, []scriptedCall{
+		{method: "thread/start", result: `{"thread":{"id":"t-1"}}`},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	d := loadCodexAPIDescriptor(t)
+	origins := &recordedOrigins{}
+	drv, err := apidriver.Start(ctx, d, sockPath, origins.claim)
+	require.NoError(t, err)
+	defer drv.Close()
+
+	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "", "cwd": "/work"})
+	require.NoError(t, err)
+	require.Equal(t, 1, origins.claims, "the first establish claims exactly once")
+
+	_, err = drv.EstablishSession(ctx, "prompt", map[string]string{"session_id": "t-1", "cwd": "/work"})
+	require.NoError(t, err)
+
+	require.Len(t, *seen, 1, "only the first EstablishSession may reach the wire")
+	assert.Equal(t, 1, origins.claims, "a connection that produces no session claims nothing")
+	assert.Equal(t, []string{"t-1"}, origins.ids)
+	assert.Zero(t, origins.open)
 }

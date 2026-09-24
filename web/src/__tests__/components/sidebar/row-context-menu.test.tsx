@@ -14,6 +14,7 @@ import * as sidebarPlacement from '@/lib/api/sidebar-placement'
 import * as homeWorkspaceResolver from '@/features/workspace/lib/home-workspace-resolver'
 import * as spaceContentActions from '@/components/layout/space-content-actions'
 import { toast } from '@/features/window/stores/toast-store'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -22,6 +23,14 @@ vi.mock('@/features/window/stores/toast-store', () => ({
 vi.mock('@/components/layout/space-content-actions', async (importOriginal) => ({
   ...(await importOriginal<typeof spaceContentActions>()),
   handleTrashRepo: vi.fn(),
+  handleCreate: vi.fn(),
+}))
+
+// row-context-menu.tsx needs a router `navigate` for handleCreate's fallback
+// (a row whose workspace isn't currently active) — same stub
+// space-scroller.test.tsx already uses for the identical need.
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => vi.fn(),
 }))
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -494,5 +503,93 @@ describe('SidebarRowContextMenu', () => {
     const { treeRef } = renderMenu()
     rightClick(treeRef.current, 'nonexistent')
     expect(screen.queryByText('Rename')).not.toBeInTheDocument()
+  })
+})
+
+// THE BUG: "can't start chats directly on a CLI, it always obligates me to
+// use the native chat" — this menu had a Thread-shaped verb (New folder)
+// but nothing that landed a new chat on Terminal, and neither does the
+// row's own plain "+" button. This is the discoverable, visible affordance:
+// same handleCreate the "+" button calls, with the optional 4th
+// (presentation) argument the fix added.
+describe('SidebarRowContextMenu — "New thread in Terminal"', () => {
+  beforeEach(() => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [
+        { id: 'claude', enabled: true, hasTerminal: true, terminalStartHere: true },
+      ] as never,
+    })
+  })
+
+  it('offers it alongside New folder on a plain repo-scoped thread row', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    expect(screen.getByText('New thread in Terminal')).toBeInTheDocument()
+  })
+
+  it('clicking it creates a thread on THIS row, presetting Terminal — the same handleCreate the "+" button uses', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    fireEvent.click(screen.getByText('New thread in Terminal'))
+    expect(spaceContentActions.handleCreate).toHaveBeenCalledWith(
+      THREAD_ROW_ID,
+      'thread',
+      expect.any(Function),
+      'terminal',
+    )
+  })
+
+  it('offers it on a project-home thread row too', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, HOME_THREAD_ROW_ID)
+    expect(screen.getByText('New thread in Terminal')).toBeInTheDocument()
+  })
+
+  it('offers it on a locked branch row, same as the plain Thread button does', () => {
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, LOCKED_ROW_ID)
+    expect(screen.getByText('New thread in Terminal')).toBeInTheDocument()
+  })
+
+  // House rule: absence, not a disabled control. A provider with no
+  // terminal at all gets NO such item — never a greyed-out one.
+  it('is ABSENT, not disabled, when the enabled provider declares no terminal', () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true, hasTerminal: false }] as never,
+    })
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    expect(screen.queryByText('New thread in Terminal')).not.toBeInTheDocument()
+    // The plain "New folder" verb is unaffected — this is about ONE item, not
+    // the whole menu.
+    expect(screen.getByText('New folder')).toBeInTheDocument()
+  })
+
+  // THE surfaces: fix (design spec 2.5): hasTerminal alone used to gate this.
+  // codex HAS a terminal (attach) that is only reachable by switching to it
+  // after a turn — never a launch target for a chat that does not exist yet.
+  // terminalStartHere is the fact that distinguishes "has one" from "may
+  // launch straight onto it".
+  it('is ABSENT when the enabled provider has a terminal that is not a start_here surface', () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'codex', enabled: true, hasTerminal: true }] as never,
+    })
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    expect(screen.queryByText('New thread in Terminal')).not.toBeInTheDocument()
+    expect(screen.getByText('New folder')).toBeInTheDocument()
+  })
+
+  // No enabled provider resolved yet is not evidence of "no terminal" — the
+  // plain Thread button offers itself unconditionally too and lets the
+  // click-time `enabledProvider()` toast the refusal; this item matches it.
+  it('is still offered when no provider is enabled — the refusal happens at click time, same as the plain Thread button', () => {
+    useAgentProvidersStore.setState({ status: 'ready', providers: [] })
+    const { treeRef } = renderMenu()
+    rightClick(treeRef.current, THREAD_ROW_ID)
+    expect(screen.getByText('New thread in Terminal')).toBeInTheDocument()
   })
 })

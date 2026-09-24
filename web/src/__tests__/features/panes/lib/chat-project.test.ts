@@ -1,8 +1,8 @@
 // §3.5 of the project-scoped panes design: "a chat resolves to exactly one
 // project, and cannot resolve to two" — chat → workspace → repo → project,
 // with project home resolving through the project's own home workspace. This
-// is the derivation the pane store deliberately never performs; it runs once
-// at hydrate and once per drop, never in a render path.
+// is the derivation the pane store deliberately never performs; it runs when
+// a record is minted and once per drop, never in a render path.
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 
 const homeWorkspaces: Record<string, string> = {}
@@ -12,14 +12,9 @@ vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   getHomeOwningChatId: () => null,
 }))
 
-import {
-  resolveChatProjectId,
-  resolveWorkspaceProjectId,
-  resolveViewProjectId,
-} from '@/features/panes/lib/chat-project'
+import { resolveChatProjectId, resolveWorkspaceProjectId } from '@/features/panes/lib/chat-project'
 import { useSidebarStore, type Chat, type Repo, type Workspace } from '@/lib/store/sidebar'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import type { PaneGroup } from '@/features/panes/types/pane'
 
 const workspace = (id: string): Workspace => ({ id, branch: id, age: '1m' })
 
@@ -39,20 +34,6 @@ const repo = (over: Partial<Repo>): Repo => ({
   workspaces: [],
   ...over,
 })
-
-function pane(id: string, chatId: string | null): PaneGroup {
-  return {
-    id,
-    type: 'group',
-    chatId,
-    runnerId: null,
-    editorTabIds: [],
-    activeEditorTabId: null,
-    editorOpen: false,
-    chatSelected: true,
-    viewId: id,
-  }
-}
 
 beforeEach(() => {
   for (const key of Object.keys(homeWorkspaces)) delete homeWorkspaces[key]
@@ -137,19 +118,5 @@ describe('resolveChatProjectId', () => {
 
   it('answers null when nothing loaded can name a project', () => {
     expect(resolveChatProjectId('chat-nowhere')).toBeNull()
-  })
-})
-
-describe('resolveViewProjectId', () => {
-  it('takes the first member that resolves, skipping chatless panes', () => {
-    const resolve = (chatId: string) => (chatId === 'chat-b' ? 'project-a' : null)
-
-    expect(resolveViewProjectId([pane('p1', null), pane('p2', 'chat-b')], resolve)).toBe(
-      'project-a',
-    )
-  })
-
-  it('answers null for a view holding no chat at all — the empty stage', () => {
-    expect(resolveViewProjectId([pane('p1', null)], () => 'project-a')).toBeNull()
   })
 })

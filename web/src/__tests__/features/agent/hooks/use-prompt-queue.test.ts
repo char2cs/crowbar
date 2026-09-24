@@ -339,3 +339,82 @@ describe('usePromptQueue recovering a lost prompt from the backend', () => {
     ).toHaveLength(1)
   })
 })
+
+// '' IS A PICK — "the provider's own default", a real value the daemon
+// stores as distinct from any declared model — so it has to reach the wire
+// as '' and nothing else. Coercing an item that staged NOTHING to '' at
+// dispatch (as this once did) made the two indistinguishable, which left the
+// daemon only one safe reading of '': "absent, keep what you have". A chat
+// pinned to a model then had no way back to the default at all, since the
+// picker no longer PATCHes .../selection on its own.
+describe('usePromptQueue staged selection', () => {
+  beforeEach(() => {
+    submitAgentPrompt.mockReset()
+    submitAgentPrompt.mockResolvedValue({ runnerId: 'r1' })
+    getPendingPrompt.mockReset()
+    getPendingPrompt.mockResolvedValue(null)
+    localStorage.clear()
+  })
+
+  it('sends no model/effort at all when the composer staged none', async () => {
+    const { result } = mount(options())
+
+    await act(async () => {
+      result.current.enqueue('go')
+    })
+
+    expect(submitAgentPrompt).toHaveBeenCalledWith(
+      'ws1',
+      'c1',
+      'go',
+      expect.any(String),
+      '',
+      undefined,
+      undefined,
+    )
+  })
+
+  it("sends an explicitly staged empty pick as '' on both halves", async () => {
+    const { result } = mount(options())
+
+    await act(async () => {
+      result.current.enqueue('go', '', '', '')
+    })
+
+    expect(submitAgentPrompt).toHaveBeenCalledWith(
+      'ws1',
+      'c1',
+      'go',
+      expect.any(String),
+      '',
+      '',
+      '',
+    )
+  })
+
+  // The daemon's 200 is the only confirmation a staged pick ever gets — the
+  // prompt response carries no body — so an accepted CLEAR has to be folded
+  // back into the caller's cache exactly like an accepted model does, or the
+  // picker keeps painting the model the chat no longer holds.
+  it('reports an accepted empty pick as committed, same as any other', async () => {
+    const onSelectionCommitted = vi.fn()
+    const { result } = mount(options({ onSelectionCommitted }))
+
+    await act(async () => {
+      result.current.enqueue('go', '', '', '')
+    })
+
+    expect(onSelectionCommitted).toHaveBeenCalledWith('', '')
+  })
+
+  it('reports nothing committed when the composer staged nothing', async () => {
+    const onSelectionCommitted = vi.fn()
+    const { result } = mount(options({ onSelectionCommitted }))
+
+    await act(async () => {
+      result.current.enqueue('go')
+    })
+
+    expect(onSelectionCommitted).not.toHaveBeenCalled()
+  })
+})

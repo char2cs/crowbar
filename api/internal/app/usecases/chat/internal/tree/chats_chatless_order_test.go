@@ -21,10 +21,10 @@ func TestRegression_CreateChat_SecondThreadUnderAnUnlockedChatlessWorkspace_Gets
 	ctx := context.Background()
 
 	chats.NextID = "c-first"
-	_, _, err := uc.CreateChat(ctx, workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone})
+	_, _, err := uc.CreateChat(ctx, workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	chats.NextID = "c-second"
-	_, _, err = uc.CreateChat(ctx, workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone})
+	_, _, err = uc.CreateChat(ctx, workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 
 	first := nodeRowFor(t, nodes, "c-first")

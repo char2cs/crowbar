@@ -255,11 +255,7 @@ export function isChatWorking(chatId: string): boolean {
  * registered store has to be searched), returning the owning id itself
  * rather than a boolean.
  *
- * This is the real mechanism `recents-for-project.ts`'s `recentsForProject`
- * already uses inline to build a whole project's chatId->workspaceId map in
- * one pass (batch, not exposed as a per-chat function there because a
- * project's Recents band needs the map for every chat at once, not one
- * lookup at a time) — this is the single-id form for a caller that has
+ * The single-id form for a caller that has
  * exactly one chat to resolve, no project to scope the scan to, and needs
  * the id itself rather than a batch.
  *

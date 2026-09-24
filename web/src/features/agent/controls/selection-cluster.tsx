@@ -8,6 +8,8 @@ export interface SelectionClusterProps {
   providers: AgentProvider[]
   model: string
   effort: string
+  /** See AgentSelectionPicker's own doc — display only, forwarded untouched. */
+  reportedModel?: string
   presentation: ChatPresentation
   splitEnabled: boolean
   /** Draw the surface switcher. Exactly one exists on a pane. */
@@ -34,6 +36,7 @@ export function SelectionCluster({
   providers,
   model,
   effort,
+  reportedModel,
   presentation,
   splitEnabled,
   showSwitcher,
@@ -55,8 +58,14 @@ export function SelectionCluster({
         providers={providers}
         model={model}
         effort={effort}
+        reportedModel={reportedModel}
         disabled={switchDisabled}
         onSelectionChange={onSelectionChange}
+        // "Default" is display only, the honest "provider decides" — never
+        // baked into `model`/`effort` themselves, which stay '' when unset
+        // all the way up through AgentChatView. See AgentSelectionPicker's
+        // own doc on `unsetLabel`.
+        unsetLabel="Default"
       />
       {showSwitcher && <span className="sep" />}
       {showSwitcher && (

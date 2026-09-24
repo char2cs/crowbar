@@ -23,6 +23,8 @@ func (t *Turns) CloseStalledTurn(ctx context.Context, stall seam.Stall) {
 		return
 	}
 
+	t.salvageStalledMessage(ctx, stall)
+
 	if err := t.activity.Abandon(ctx, stall.ChatID, time.Now()); err != nil {
 		slog.WarnContext(ctx, "agent: close stalled turn: abandon conversation record",
 			"chat_id", stall.ChatID, "err", err)
@@ -45,6 +47,27 @@ func (t *Turns) CloseStalledTurn(ctx context.Context, stall seam.Stall) {
 	slog.InfoContext(ctx, "agent: closed a turn its provider abandoned",
 		"chat_id", stall.ChatID, "provider", stall.ProviderID,
 		"runner_id", stall.RunnerID, "notice", stall.Notice.Kind)
+}
+
+// salvageStalledMessage records whatever the runner already streamed before its
+// turn is declared stalled — the same salvage AbandonMessage/AbandonMessageForRunner
+// already do on their own doors (message.go). Without it, text already received
+// and broadcast live never lands in the ledger: the chat's Working flag clears
+// here regardless, but a client matching its own live bubble against the ledger
+// by turn id never finds a row and never stops treating it as in progress.
+func (t *Turns) salvageStalledMessage(ctx context.Context, stall seam.Stall) {
+	runner, err := t.runnerStore.Get(ctx, stall.RunnerID)
+	if err != nil {
+		return
+	}
+	chat, err := t.chats.GetChat(ctx, stall.ChatID)
+	if err != nil {
+		return
+	}
+	if _, err := t.salvageUnfinished(ctx, chat, runner); err != nil {
+		slog.WarnContext(ctx, "agent: close stalled turn: salvage streamed text",
+			"chat_id", stall.ChatID, "err", err)
+	}
 }
 
 func (t *Turns) recordStallNotice(ctx context.Context, stall seam.Stall) {
@@ -88,11 +111,15 @@ func (t *Turns) MatchTerminalNotice(
 }
 
 func (t *Turns) OpenWork(ctx context.Context, chatID string) (bool, error) {
+	now := time.Now()
 	tools, err := t.activity.ToolCalls(ctx, chatID, 0, 0)
 	if err != nil {
 		return false, err
 	}
-	for _, t := range tools {
+	// Through the staleness net, same as the subagents below: a tool_pre whose
+	// tool_post never arrives would otherwise vouch for live work forever. See
+	// withStaleToolCallsClosed.
+	for _, t := range withStaleToolCallsClosed(tools, now) {
 		if t.Status == domain.ToolStatusRunning {
 			return true, nil
 		}
@@ -101,7 +128,7 @@ func (t *Turns) OpenWork(ctx context.Context, chatID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for _, s := range withStaleSubagentsClosed(subagents, time.Now()) {
+	for _, s := range withStaleSubagentsClosed(subagents, now) {
 		if s.EndedAt == nil {
 			return true, nil
 		}

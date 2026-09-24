@@ -14,6 +14,13 @@ type (
 	Runner           = models.Runner
 	ChatConversation = models.ChatConversation
 
+	// Channel is which wire a delivery actually arrived on — the api
+	// connection or a hook relay POST — decided by the caller at receive
+	// time and threaded down to ParseHook so it can select the SAME
+	// canonical event's own channel-scoped field map, never infer it from
+	// the payload's shape. See spec.Channel's own doc comment.
+	Channel = spec.Channel
+
 	TemplateCtx    = models.TemplateCtx
 	SpawnPlan      = models.SpawnPlan
 	InjectStep     = spec.InjectStep
@@ -56,6 +63,29 @@ type (
 	// layer of indirection rather than re-exporting apidriver's types directly).
 	APIEvent = protocol.APIEvent
 	APIConn  = protocol.APIConn
+	// APISessionOrigin is how the runner layer learns which sessions a
+	// connection minted or re-entered ITSELF — see protocol's own alias.
+	APISessionOrigin = protocol.APISessionOrigin
+)
+
+const (
+	ChannelAPI   = spec.ChannelAPI
+	ChannelHooks = spec.ChannelHooks
+)
+
+// Owner is which channel is authoritative for a dual-channel event — design
+// spec P6b tag 1.
+const (
+	OwnerAPI    = spec.OwnerAPI
+	OwnerHooks  = spec.OwnerHooks
+	OwnerEither = spec.OwnerEither
+)
+
+// Surface is which VIEW an event is worth ingesting on — design spec P6b
+// tag 2.
+const (
+	SurfaceChat     = spec.SurfaceChat
+	SurfaceTerminal = spec.SurfaceTerminal
 )
 
 const (

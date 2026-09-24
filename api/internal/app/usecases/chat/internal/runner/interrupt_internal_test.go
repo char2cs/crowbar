@@ -97,7 +97,7 @@ func TestInterruptTurn_ReturnsFalse_WhenDescriptorDeclaresNoInterrupt(t *testing
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath)
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
@@ -136,7 +136,7 @@ func TestInterruptTurn_SendsTheInterruptAndReturnsTrue(t *testing.T) {
 	agent := interruptTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath)
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 

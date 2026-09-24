@@ -55,6 +55,14 @@ type TurnUsecase interface {
 		chatID string,
 	) ([]domain.ActivityChoice, error)
 
+	// Interruptions returns a chat's durable interruption ledger — the fallback
+	// engineagents.ActiveProviderID needs once a provider that binds via its own
+	// connection identity never wrote a conversation row.
+	Interruptions(
+		ctx context.Context,
+		chatID string,
+	) ([]domain.ActivityInterruption, error)
+
 	// ReadToolPayload returns one tool call's stored request or result body.
 	// side is "result" for the result, anything else for the request.
 	ReadToolPayload(
@@ -67,6 +75,14 @@ type TurnUsecase interface {
 	Telemetry(
 		chatID string,
 	) (engineagents.Telemetry, bool)
+	// TelemetryOnChatSurface reports whether the report above can still be
+	// TRUE: the store is durable, so a chat that moved to a surface whose
+	// channel carries no usage would otherwise go on serving the last number
+	// it earned somewhere else. See runner/capabilities.go.
+	TelemetryOnChatSurface(
+		ctx context.Context,
+		chatID string,
+	) bool
 
 	// OpenWork reports whether the chat has a tool call or a subagent still
 	// running. It is the second opinion the stall detector needs before it closes
@@ -160,6 +176,14 @@ func (u *Usecase) ReadPendingChoices(
 	return u.turns.ReadPendingChoices(ctx, chatID)
 }
 
+// Interruptions returns the chat's durable interruption ledger.
+func (u *Usecase) Interruptions(
+	ctx context.Context,
+	chatID string,
+) ([]domain.ActivityInterruption, error) {
+	return u.turns.Interruptions(ctx, chatID)
+}
+
 // ReadToolPayload returns one side — request or result — of a recorded tool call.
 func (u *Usecase) ReadToolPayload(
 	ctx context.Context,
@@ -170,6 +194,11 @@ func (u *Usecase) ReadToolPayload(
 
 // Telemetry returns the chat provider's last usage report. ok is false when no
 // provider has reported for the chat in this process.
+//
+// It says nothing about whether that report can still be TRUE — the store is
+// durable and a chat can move to a surface whose channel carries no usage at
+// all. TelemetryOnChatSurface is that question, asked separately so this one
+// stays a plain read.
 func (u *Usecase) Telemetry(chatID string) (engineagents.Telemetry, bool) {
 	return u.turns.Telemetry(chatID)
 }

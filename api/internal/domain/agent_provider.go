@@ -42,6 +42,15 @@ type AgentProvider struct {
 	Hotswap     bool
 	HasTerminal bool
 
+	// TerminalStartHere is engine.Capabilities.TerminalStartHere, carried
+	// through unchanged: whether a brand-new chat may be launched DIRECTLY
+	// onto this provider's terminal surface (design spec 2.5's
+	// `surfaces.terminal.start_here`), as opposed to reached only by
+	// switching to it after spawn. False whenever HasTerminal is false, and
+	// may be false even when HasTerminal is true (codex: has a terminal,
+	// idle-only handoff, never a launch target).
+	TerminalStartHere bool
+
 	ModelSelect  bool
 	EffortSelect bool
 
@@ -58,6 +67,14 @@ type AgentProvider struct {
 	// exist" where an empty array would not.
 	Models  []string
 	Efforts map[string][]string
+
+	// DefaultModel is whichever model id the provider's OWN descriptor
+	// states is its default — empty means unknown, a legitimate terminal
+	// state, never a cue to fall back to Models[0]. A provider whose model
+	// list is discovered rather than declared (model.discover:) reports
+	// this only when the live source itself states it (default_when:); one
+	// that states nothing per-model leaves it unknown.
+	DefaultModel string
 
 	// PermissionLevels is which of Crowbar's own guarded/trusted/full-auto
 	// names this provider's descriptor actually declares (its own

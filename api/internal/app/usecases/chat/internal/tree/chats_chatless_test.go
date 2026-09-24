@@ -20,7 +20,7 @@ func TestCreateChat_ThreadUnderAChatlessWorkspaceNode_IsPlacedUnderTheWorkspaceI
 	nodes.Rows = append(nodes.Rows, domain.Node{ID: workspaceID, Kind: domain.NodeKindWorkspace})
 	chats.NextID = "c-new"
 
-	chatID, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone})
+	chatID, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)
 	assert.Equal(t, workspaceID, nodeRowFor(t, nodes, "c-new").ParentID)
@@ -31,7 +31,7 @@ func TestCreateChat_ForkUnderAChatlessWorkspaceNode_PlacesThenSpawns(t *testing.
 	nodes.Rows = append(nodes.Rows, domain.Node{ID: workspaceID, Kind: domain.NodeKindWorkspace})
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), "", "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeFork})
+	_, _, err := uc.CreateChat(context.Background(), "", "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	require.Len(t, chats.SpawnedOwnWorktree, 1)
 	assert.Equal(t, workspaceID, chats.SpawnedOwnWorktree[0].ParentAtStart)
@@ -41,14 +41,14 @@ func TestRegression_CreateChat_UnderAChatlessWorkspaceWithNoNodeRow_MintsTheAnch
 	chats, _, nodes, uc, _ := newUsecaseWithStores(t)
 	chats.NextID = "c-new"
 
-	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone})
+	_, _, err := uc.CreateChat(context.Background(), workspaceID, "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeNone}, "")
 	require.NoError(t, err)
 	anchor := nodeRowFor(t, nodes, workspaceID)
 	assert.Equal(t, domain.NodeKindWorkspace, anchor.Kind)
 	assert.Equal(t, workspaceID, nodeRowFor(t, nodes, "c-new").ParentID)
 
 	chats.NextID = "c-fork"
-	_, _, err = uc.CreateChat(context.Background(), "", "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeFork})
+	_, _, err = uc.CreateChat(context.Background(), "", "claude", workspaceID, tree.WorktreeSpec{Mode: tree.WorktreeFork}, "")
 	require.NoError(t, err)
 	require.Len(t, chats.SpawnedOwnWorktree, 1)
 	assert.Equal(t, workspaceID, chats.SpawnedOwnWorktree[0].ParentAtStart)

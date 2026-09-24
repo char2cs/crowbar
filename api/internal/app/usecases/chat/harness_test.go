@@ -31,8 +31,9 @@ import (
 )
 
 // mustJSON encodes one vendor hook payload. Every payload in this package is a hook
-// payload, so it stamps the field every real hook of a real conversation carries and
-// no test should have to remember: the transcript it belongs to.
+// payload, so it stamps the fields every real hook of a real conversation carries and
+// no test should have to remember: the transcript it belongs to, and the session it
+// names.
 //
 // That is not decoration. Verified against codex 0.146.0, transcript_path is present
 // on a fresh start, on a resume, and on every turn hook in between — and NULL on the
@@ -41,10 +42,19 @@ import (
 // require_payload_fields, and TestOwnsConversation_CodexInternalMemorySession). A
 // payload with no transcript is therefore a MEANINGFUL payload here, not a shorthand,
 // and a test that wants one says so by setting transcript_path to nil itself.
+//
+// session_id defaults the same way: both descriptors' required: (design spec 2.3)
+// now enforce it as a hard, per-event error, and a hand-built hooks-shaped payload
+// missing it is not testing anything the real vendor CLI ever sends — every real
+// hook payload names a session. A test exercising a genuinely absent/empty session
+// id says so explicitly by setting the key itself, same as transcript_path.
 func mustJSON(t *testing.T, m map[string]any) []byte {
 	t.Helper()
 	if _, set := m["transcript_path"]; !set {
 		m["transcript_path"] = "/rollouts/transcript.jsonl"
+	}
+	if _, set := m["session_id"]; !set {
+		m["session_id"] = "s1"
 	}
 	b, err := json.Marshal(m)
 	require.NoError(t, err)
@@ -795,6 +805,28 @@ type testFixture struct {
 	// instead of usedChats.Create.
 	folders *mocks.FolderStore
 	nodes   *mocks.NodePlacements
+	// sessions is the vendor-reported session id most recently announce()d per
+	// runnerID — a map, so it stays shared across every copy of this
+	// value-typed testFixture. turn()/hook() consult it (withTrackedSession)
+	// so a hooks-shaped payload that does not care about its own session_id
+	// still reports the SAME one session_start already announced, matching a
+	// real CLI's own hooks across one conversation — required: (design spec
+	// 2.3) now enforces session_id is never empty, and a test payload
+	// carrying a DIFFERENT placeholder id than the one it announced silently
+	// broke resume/identity checks that key off session_id.
+	sessions map[string]string
+}
+
+// withTrackedSession fills payload["session_id"] from sessions[runnerID] —
+// the id this runner's OWN most recent announce() reported — unless the
+// caller already set one explicitly. See the sessions field's own doc.
+func (f testFixture) withTrackedSession(runnerID string, payload map[string]any) {
+	if _, set := payload["session_id"]; set {
+		return
+	}
+	if id, ok := f.sessions[runnerID]; ok {
+		payload["session_id"] = id
+	}
 }
 
 // fixtureChatReader adapts the chat EventStore into agenttools.ChatReader, whose
@@ -949,6 +981,9 @@ func (f testFixture) spawn(t *testing.T, provider string) (chatID, runnerID stri
 // — see the codex descriptor's require_payload_fields). mustJSON stamps it.
 func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 	t.Helper()
+	if sessionID != "" {
+		f.sessions[runnerID] = sessionID
+	}
 	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, "", "session_start",
 		mustJSON(t, map[string]any{"session_id": sessionID})))
 	f.wait()
@@ -960,8 +995,9 @@ func (f testFixture) announce(t *testing.T, runnerID, sessionID string) {
 // ledger's provider tag and timestamps are exactly what the resume path later reads.
 func turn(t *testing.T, f testFixture, runnerID, provider, content string) {
 	t.Helper()
-	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, "turn_stop",
-		mustJSON(t, map[string]any{"last_assistant_message": content})))
+	payload := map[string]any{"last_assistant_message": content}
+	f.withTrackedSession(runnerID, payload)
+	require.NoError(t, f.usecase.IngestHook(f.ctx, runnerID, provider, "turn_stop", mustJSON(t, payload)))
 	f.wait()
 }
 
@@ -1331,6 +1367,7 @@ func newFixtureUsing(
 		minter:        minter,
 		folders:       folders,
 		nodes:         nodes,
+		sessions:      map[string]string{},
 	}
 	return f, realChats, realRunners
 }
@@ -1350,6 +1387,9 @@ func indexOf(ss []string, target string) int {
 // reaches this directly.
 func (f testFixture) runnersMove(t *testing.T, runnerID, chatID, sessionID string) error {
 	t.Helper()
+	if sessionID != "" {
+		f.sessions[runnerID] = sessionID
+	}
 	_, err := f.runners.Move(f.ctx, runnerID, chatID, sessionID, false, time.Now(), "", "")
 	f.wait()
 	return err

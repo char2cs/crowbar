@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -16,9 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/shared/promptsigil"
 	"github.com/char2cs/crowbar/api/internal/core/paths/worktreepath"
 	engineterminal "github.com/char2cs/crowbar/api/internal/core/terminal"
-	"github.com/char2cs/crowbar/api/internal/domain"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
-	agentrunner "github.com/char2cs/crowbar/api/internal/engine/agents/runner"
 )
 
 func (rs *Runners) SpawnChat(
@@ -182,8 +179,15 @@ func (rs *Runners) spawnRunner(
 	// on every restart and every switch back. Still never a reason to fail the
 	// spawn: a connection that does not come up leaves apiResumes false and the
 	// session runs over hooks alone, exactly as design spec §2.2b requires.
-	attachArgv := rs.applyAPITransport(
-		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(resuming, inject, tctx),
+	// The surface this process actually lands on, recorded before anything can
+	// ask: it is the runner's CURRENT surface from here until a switch moves
+	// it, and ShowingNativeView reads exactly this (surface.go).
+	rs.surfaces.set(runnerID, surfaceForSpawn(descriptor, pre.surface))
+	// tctx carries the selection, so the serve argv this renders takes the
+	// chat's model/effort on the api channel (APIServeArgv) exactly as the
+	// spawn plan below takes them on the argv one.
+	attachArgv := rs.apiTransportForSurface(
+		ctx, runnerID, providerID, descriptor, tctx, resumeContextFor(resuming, inject, tctx), pre.surface,
 	)
 	steps := buildSpawnSteps(
 		descriptor, resuming, inject, rs.apiResumes(descriptor, runnerID), sel, resumeSteps, finalSteps,
@@ -210,23 +214,31 @@ func (rs *Runners) spawnRunner(
 	// misses ~/.local/bin, where claude and codex install, so a bare name made every
 	// spawn die with "executable file not found in $PATH". An unresolvable cmd passes
 	// through unchanged, preserving that error for a CLI that genuinely is not installed.
-	argv := append([]string{plan.Executable}, plan.Argv...)
-	termSessID, err := rs.forkCLI(ctx, forkRequest{
+	termSessID, carried, err := rs.forkOrAdopt(ctx, forkRequest{
 		runnerID:    runnerID,
 		providerID:  providerID,
 		chatID:      chatID,
 		worktree:    worktree,
 		crowbarHome: crowbarHome,
 		tmpDir:      tmpDir,
-		argv:        argv,
+		argv:        append([]string{plan.Executable}, plan.Argv...),
 		env:         plan.Env,
-	})
+		// The SAME text the descriptor's prompt_submit steps just rendered into
+		// plan.Argv — never the raw ledger text: attachments are materialized
+		// and the leading-sigil escape applied above, and the carrier that ends
+		// up delivering it must send exactly what the argv would have.
+		promptMessage: dispatchMessage,
+		// What each carrier would take, computed before either runs;
+		// forkOrAdopt returns whichever one actually did.
+		argvSelection: carriedSelection(sel, descriptor.SelectionSteps),
+		apiSelection:  carriedSelection(sel, descriptor.SelectionAPISteps),
+	}, attachArgv)
 	if err != nil {
 		return "", err
 	}
 
 	if err := rs.recordRunner(
-		ctx, chatID, workspaceID, providerID, runnerID, termSessID, launchSessionID, sel, create,
+		ctx, chatID, workspaceID, providerID, runnerID, termSessID, launchSessionID, carried, create,
 	); err != nil {
 		rs.pendingHooks.Discard(runnerID)
 		rs.agents.ForgetRunner(runnerID)
@@ -290,77 +302,6 @@ func (rs *Runners) forkCLI(
 	return "", fmt.Errorf("agent: spawn runner: create command: %w", err)
 }
 
-func (rs *Runners) recordRunner(
-	ctx context.Context,
-	chatID string,
-	workspaceID string,
-	providerID string,
-	runnerID string,
-	termSessID string,
-	launchSessionID string,
-	sel engineagents.Selection,
-	create bool,
-) error {
-	now := time.Now()
-	if create {
-		created, err := rs.chats.Create(ctx, agentchat.CreateInput{
-			ID:          chatID,
-			WorkspaceID: workspaceID,
-			Type:        domain.ChatTypeChat,
-			Now:         now,
-		})
-		if err != nil {
-			return rs.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
-				fmt.Errorf("agent: spawn runner: create chat: %w", err))
-		}
-		rs.work.Set(chatID, created.Working)
-		rs.seedPermissionLevel(ctx, chatID)
-	}
-	if _, err := rs.runnerStore.Start(ctx, agentrunner.StartInput{
-		RunnerID:        runnerID,
-		WorkspaceID:     workspaceID,
-		ProviderID:      providerID,
-		TerminalSession: termSessID,
-		ChatID:          chatID,
-		LaunchSessionID: launchSessionID,
-		// The selection this process was ACTUALLY launched with, recorded from the
-		// same read that rendered its argv. It is the only authority on what this
-		// CLI is running: nothing can ask the process later.
-		LaunchModel:  sel.Model,
-		LaunchEffort: sel.Effort,
-		// The RESOLVED level — after resolvePermissionLevel's clamp, not the
-		// chat's own raw stored intent — because this is a record of what
-		// actually got launched, the same fact LaunchModel/LaunchEffort are.
-		LaunchPermissionLevel: sel.PermissionLevel,
-		Now:                   now,
-	}); err != nil {
-		return rs.teardownAfterPersistFailure(ctx, chatID, runnerID, termSessID,
-			fmt.Errorf("agent: spawn runner: start runner: %w", err))
-	}
-
-	// A Start is a PLACEMENT, so it obeys the same rule a Move does: whoever else is on this
-	// chat is retired. The spawn gate cannot cover this, and it is not a hairline window —
-	// it is as wide as a process fork:
-	//
-	//	a gated SwitchProvider quits and DISPLACES the outgoing CLI, leaving the chat with
-	//	nobody on it; a HOOK (never gated, and never may be) moves another live CLI onto it,
-	//	evicting nobody because nobody is there; and only THEN do we resolve a descriptor,
-	//	render a tmp dir, fork a process and land here.
-	//
-	// Without this the chat ends up holding both, indefinitely — and the loser is INVISIBLE,
-	// because the serving read hands out the newest arrival while the other one goes on
-	// appending to the chat's ledger. Start is SendWait, so this read already sees us.
-	rs.retireOthersOn(ctx, chatID, runnerID)
-	return nil
-}
-
-func (rs *Runners) mintRunnerToken(runnerID string) string {
-	if rs.minter == nil {
-		return ""
-	}
-	return rs.minter.Mint(runnerID)
-}
-
 func newRunnerID(
 	preallocated string,
 ) string {
@@ -403,6 +344,8 @@ type spawnPreflight struct {
 	mcpOn     bool
 	threads   string
 	selection engineagents.Selection
+	// surface is the chat's own stored landing VIEW — see storedSurface.
+	surface string
 }
 
 func (rs *Runners) spawnPreflight(
@@ -433,7 +376,11 @@ func (rs *Runners) spawnPreflight(
 	if err != nil {
 		return spawnPreflight{}, err
 	}
-	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel}, nil
+	surface, err := rs.storedSurface(ctx, chatID, create)
+	if err != nil {
+		return spawnPreflight{}, err
+	}
+	return spawnPreflight{mcpOn: mcpOn, threads: threads, selection: sel, surface: surface}, nil
 }
 
 type forkRequest struct {
@@ -448,6 +395,18 @@ type forkRequest struct {
 	tmpDir      string
 	argv        []string
 	env         []string
+	// promptMessage is the user text this spawn exists to deliver, "" when it
+	// carries none. It is here, and not only inside argv, because argv is not
+	// always a carrier: forkOrAdopt's adopt branch forks no process at all, so
+	// whichever branch runs has to be able to SEE that it owes a delivery.
+	// See carryPromptOverAPIConn (apirunner.go) for the invariant.
+	promptMessage string
+	// argvSelection/apiSelection are the SAME invariant for the model/effort
+	// choice: the part of it each carrier renders. The branch that runs
+	// returns its own (forkOrAdopt), so recordRunner cannot stamp a selection
+	// the process never received — see carriedSelection (apirunner.go).
+	argvSelection engineagents.Selection
+	apiSelection  engineagents.Selection
 }
 
 func (rs *Runners) teardownAfterPersistFailure(

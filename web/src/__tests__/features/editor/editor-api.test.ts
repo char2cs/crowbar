@@ -77,6 +77,7 @@ function setWorkspaceBuffer(store: WorkspaceStore, buffer: EditorContent): void 
       editorTabIds: [buffer.id],
       activeEditorTabId: buffer.id,
       editorOpen: true,
+      viewId: null,
     }
     return state
   })

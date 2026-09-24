@@ -29,6 +29,8 @@ export function rowsFromPending(entries: readonly PendingCreateEntry[]): Sidebar
   return entries.map(rowFromPending)
 }
 
+const EMPTY_REPO_SCOPE: ReadonlyMap<string, string> = new Map()
+
 /**
  * `projectId`'s panel rows minus the real row of every create still in
  * flight, so the pending row is the ONE stand-in until its entry clears.
@@ -37,23 +39,43 @@ export function rowsFromPending(entries: readonly PendingCreateEntry[]): Sidebar
  * worktree finish — see `PendingCreateEntry.rowIdsAtClick`) any row the
  * panel did not hold at click time is hidden — wherever it reseeded, since
  * a mint lands at root before its placement write.
+ *
+ * `rowRepoId` (a row id -> repo id lookup, `rows-from-repo.ts`'s
+ * `rowRepoScope`) SCOPES that suppression for an entry carrying its own
+ * `repoId` (a branch import — `row-actions.ts`'s `startImportPendingRows`):
+ * such an entry only ever hides a row this map resolves to that SAME repo,
+ * never a row anywhere else in the project. Without it, one repo's import
+ * would blank out every other repo's (and project home's) freshly-created
+ * rows for its whole provisioning window — a worse regression than the
+ * ghost row this mechanism exists to hide, live-reported. An entry with no
+ * `repoId` (every fork/thread create, `space-content-actions.ts`) is
+ * unaffected: it keeps hiding project-wide exactly as before, since its own
+ * real row can land anywhere in the panel before its placement write
+ * corrects it (this function's own doc above). `rowRepoId` omitted, or a row
+ * absent from it, means a repo-scoped entry suppresses nothing there rather
+ * than risk hiding project-wide.
  */
 export function hideRowsForInFlightCreates(
   rows: readonly SidebarRow[],
   entries: readonly PendingCreateEntry[],
   projectId: string,
+  rowRepoId: ReadonlyMap<string, string> = EMPTY_REPO_SCOPE,
 ): readonly SidebarRow[] {
   const realIds = new Set<string>()
-  const knownAtClick: ReadonlySet<string>[] = []
+  const knownAtClick: { repoId: string | undefined; ids: ReadonlySet<string> }[] = []
   for (const e of entries) {
     if (e.projectId !== projectId) continue
     if (e.realId) realIds.add(e.realId)
-    else if (e.status === 'creating' && e.rowIdsAtClick) knownAtClick.push(new Set(e.rowIdsAtClick))
+    else if (e.status === 'creating' && e.rowIdsAtClick)
+      knownAtClick.push({ repoId: e.repoId, ids: new Set(e.rowIdsAtClick) })
   }
   if (realIds.size === 0 && knownAtClick.length === 0) return rows
-  return rows.filter(
-    (r) =>
-      r.pending !== undefined ||
-      (!realIds.has(r.id) && knownAtClick.every((known) => known.has(r.id))),
-  )
+  return rows.filter((r) => {
+    if (r.pending !== undefined) return true
+    if (realIds.has(r.id)) return false
+    return knownAtClick.every(
+      (known) =>
+        (known.repoId !== undefined && known.repoId !== rowRepoId.get(r.id)) || known.ids.has(r.id),
+    )
+  })
 }

@@ -219,7 +219,7 @@ export function allowedModes(subjects: readonly SidebarRow[], target: DropTarget
 
   // A RECENTS row is not a tree row, and none of the scope rules below apply
   // to it: the band is the project's view switcher, its order is local
-  // per-viewer state (`pane-slice.ts`'s `recentsOrder`), and it deliberately
+  // per-viewer state (`viewOrder`), and it deliberately
   // spans every workspace and repo in the project at once. Sending a drop
   // aimed at one through the repo/workspace walk below refused most of the
   // band outright — a Recents row whose chat owns a workspace wears

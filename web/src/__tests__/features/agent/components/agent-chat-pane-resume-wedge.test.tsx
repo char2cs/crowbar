@@ -10,6 +10,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 
 const {
   getChatFn,
@@ -161,18 +162,7 @@ const paneWorkspace = new Map<string, string>()
 
 function openChatPane(_store: Store, chatId: string, runnerId: string, wsId = 'w1') {
   const id = nanoid()
-  windowPaneStore.setState((s) => {
-    s.panes[id] = {
-      id,
-      type: 'group',
-      chatId,
-      runnerId: runnerId || null,
-      editorTabIds: [],
-      activeEditorTabId: null,
-      editorOpen: false,
-    }
-    return s
-  })
+  seedChatPaneRecord(windowPaneStore, id, chatId, runnerId || null)
   paneWorkspace.set(id, wsId)
   return id
 }

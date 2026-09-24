@@ -1405,7 +1405,10 @@ type AgentChatPlacements struct {
 	Noted     []LineageNote
 	Spawned   []string
 	Minted    []string
-	Started   []StartCall
+	// MintedSurfaces is the landing surface each MintChat call asked for, in
+	// the same order as Minted — "" for the provider's own default.
+	MintedSurfaces []string
+	Started        []StartCall
 	// SpawnedOwnWorktree records each SpawnChatWithOwnWorktree call, in the SAME
 	// StartCall shape Started uses (including ParentAtStart) — CreateChat's
 	// ownWorktree counterpart to Started above, and provable ordering for the
@@ -1802,12 +1805,16 @@ func (s *AgentChatPlacements) SpawnChat(
 func (s *AgentChatPlacements) MintChat(
 	ctx context.Context,
 	workspaceID string,
+	surface string,
 ) (string, error) {
 	if s.MintErr != nil {
 		return "", s.MintErr
 	}
 	s.Minted = append(s.Minted, workspaceID)
-	s.Rows = append(s.Rows, domain.Chat{ID: s.NextID, Type: domain.ChatTypeChat, WorkspaceID: workspaceID})
+	s.MintedSurfaces = append(s.MintedSurfaces, surface)
+	s.Rows = append(s.Rows, domain.Chat{
+		ID: s.NextID, Type: domain.ChatTypeChat, WorkspaceID: workspaceID, Surface: surface,
+	})
 	return s.NextID, nil
 }
 

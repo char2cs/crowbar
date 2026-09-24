@@ -364,7 +364,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 
   it('renders the chat, not NewTabView, when the pane has a chat and zero editor tabs', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     await renderPane(store)
 
@@ -385,7 +385,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
   // over its window-chrome (drag region) and right-pinned actions.
   it('replaces TabBar with ChatOnlyPaneHeader when the pane has a chat and zero editor tabs', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     await renderPane(store)
 
@@ -402,7 +402,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
   // `presentation` for exactly this case.
   it('still hides the editor view when editorOpen is on but there are zero editor tabs', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     windowPaneStore.setState((state) => {
       const pane = state.panes[ROOT_PANE_ID]
       if (pane) pane.editorOpen = true
@@ -423,7 +423,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
   // chat view's own position/identity — only the chrome around it.
   it('never remounts the chat when its pane crosses zero editor tabs in either direction', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     await renderPane(store)
     const chatWithZeroTabs = await screen.findByTestId('chat-chat-1')
@@ -467,7 +467,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 
   it('renders both the chat and the editor tab when the pane holds both', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     // addEditorTabToPane sets pane.editorOpen = true as a side effect — the
     // split-toggle state that gates whether the editor view shows alongside
     // an existing chat (spec §7.1/§7.2).
@@ -481,7 +481,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 
   it('a pane with both a chat and editor tabs, split toggled off, keeps both mounted — the just-activated tab shows, the chat hides', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     // addEditorTabToPane activates the new tab as a side effect — in the
     // collapsed presentation that means the TAB is what's selected (chats/
     // pane redesign: the chat is "just another tab" here), not the chat.
@@ -511,7 +511,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 
   it('opening another file/terminal into a pane whose split was toggled off does not reopen the split', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
     windowPaneStore.setState((state) => {
       const pane = state.panes[ROOT_PANE_ID]
@@ -541,7 +541,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 
   it('selecting the chat in the collapsed presentation hides the editor view instead, still mounted', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
     windowPaneStore.setState((state) => {
       const pane = state.panes[ROOT_PANE_ID]
@@ -561,7 +561,7 @@ describe('PaneContainer — chat/editor-view hosting', () => {
 
   it('keeps the chat mounted (same DOM node) across an editor-tab activation', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
     seedEditorTab(store, ROOT_PANE_ID, 'tab-b')
 
@@ -796,6 +796,63 @@ describe('PaneContainer — mousedown-capture pane activation', () => {
 
     expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
   })
+
+  // Live bug report: "clicking on a full split tab (like monaco) in a split
+  // chat view that has another chat focused doesn't focus the chat that has
+  // that tab opened." The two tests above cover raw DOM nodes appended
+  // directly under `[data-pane-id]` — a reasonable proxy for a literal
+  // <textarea>, but NOT for the real EditorPane/Monaco widget, which is
+  // never a React DESCENDANT of PaneContainer at all: editor-host-registry.tsx
+  // portals it in from EditorHostRegistry, a REACT SIBLING of the whole pane
+  // tree (rendered alongside SplitViewRoot in workspace-layout-root.tsx). Its
+  // DOM node still lands inside this pane's own subtree (the portal TARGET
+  // div PaneContainer publishes via editor-portal-registry.ts), but React's
+  // synthetic event dispatch collects ancestor handlers by walking the FIBER
+  // tree, not the DOM tree — a portal's bubble path goes to the portal's
+  // React parent (EditorHostSlot), never to PaneContainer. That is why the
+  // OLD `onMouseDownCapture`/`onClick` React props on this pane's own root
+  // (still exercised above) never fired for a genuine click landing on
+  // Monaco, no matter how many explicit `setActivePane` calls got sprinkled
+  // into individual handlers elsewhere (tab-bar.tsx's tab-strip click, etc.)
+  // — none of them sit on the click's REAL path. `renderPane` mounts
+  // EditorHostRegistry as a true sibling here too, exactly like production,
+  // so these tests exercise the real portal boundary, not a stand-in for it.
+  it('activates an inactive pane on a mousedown landing inside the PORTALED editor surface — side by side with the chat (the reported "full split tab" case)', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
+    makeRootPaneInactive()
+
+    await renderPane(store)
+    expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
+
+    const editorMarker = await screen.findByTestId('editor-marker-tab-a')
+    fireEvent.mouseDown(editorMarker)
+
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+  })
+
+  it('activates an inactive pane on a mousedown landing inside the portaled editor surface when the tab fills the WHOLE pane (collapsed presentation, editor selected over the chat)', async () => {
+    const store = createWorkspaceStore('w1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
+    seedEditorTab(store, ROOT_PANE_ID, 'tab-a') // addEditorTabToPane also selects the tab over the chat
+    windowPaneStore.setState((state) => {
+      const pane = state.panes[ROOT_PANE_ID]
+      if (pane) pane.editorOpen = false // collapses to the 'tabs' presentation
+      return state
+    })
+    makeRootPaneInactive()
+
+    await renderPane(store)
+    expect(windowPaneStore.getState().activePaneId).not.toBe(ROOT_PANE_ID)
+
+    const editorMarker = await screen.findByTestId('editor-marker-tab-a')
+    // Sanity: this IS the surface actually on screen, not a hidden sibling.
+    expect(editorMarker.closest('[hidden]')).toBeNull()
+    fireEvent.mouseDown(editorMarker)
+
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
+  })
 })
 
 // Task 18: usePaneViewPresentation wired into the chat/editor arrangement,
@@ -836,7 +893,7 @@ describe('PaneContainer — the active-pane accent ring', () => {
 
   it('leaves the pane box its neutral border in BOTH states — only the overlay changes', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     const other = splitSoTheRingApplies()
     windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)
 
@@ -854,7 +911,7 @@ describe('PaneContainer — the active-pane accent ring', () => {
 
   it('fades the overlay opacity between active and inactive, on the box’s own border geometry', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     const other = splitSoTheRingApplies()
     windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)
 
@@ -884,7 +941,7 @@ describe('PaneContainer — the active-pane accent ring', () => {
 
   it('never rings a lone pane — there is nothing to distinguish it from', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)
 
     await renderPane(store)
@@ -904,7 +961,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
    *  suite gets for free without overriding anything. */
   it('an unmeasured pane with the split on defaults to side by side: a divider, and the editor is not hidden', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a') // addEditorTabToPane sets editorOpen = true
 
     await renderPane(store)
@@ -921,7 +978,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   // box, never spanning over the chat's column/row too.
   it('confines TabBar to the editor’s own box in side-by-side — never spanning over the chat column too', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
     await renderPane(store)
@@ -951,7 +1008,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
   it('with the split off, there is no divider — tabs, not a cramped split', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
     windowPaneStore.setState((state) => {
       const pane = state.panes[ROOT_PANE_ID]
@@ -991,7 +1048,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   it('a portrait pane stacks the two views vertically, with a horizontal-orientation divider', async () => {
     await withPaneBox(500, 1200, async () => {
       const store = createWorkspaceStore('w1')
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
       seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
       await renderPane(store)
@@ -1011,7 +1068,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   it('confines TabBar to the editor’s own box in stacked too, not spanning the chat above it', async () => {
     await withPaneBox(500, 1200, async () => {
       const store = createWorkspaceStore('w1')
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
       seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
       await renderPane(store)
@@ -1060,7 +1117,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
         settings: { ...s.settings, sidebarPosition: 'right' },
       }))
       const store = createWorkspaceStore('w1')
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
       seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
       await renderPane(store)
@@ -1083,7 +1140,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
     it('sidebar on the left (default): unchanged — the chat renders BEFORE the editor, rounding faces left', async () => {
       const store = createWorkspaceStore('w1')
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
       seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
       await renderPane(store)
@@ -1106,7 +1163,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
       }))
       await withPaneBox(500, 1200, async () => {
         const store = createWorkspaceStore('w1')
-        windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+        windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
         seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
         await renderPane(store)
@@ -1145,7 +1202,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   it('a landscape pane presents the two views side by side, with a vertical-orientation divider', async () => {
     await withPaneBox(1600, 500, async () => {
       const store = createWorkspaceStore('w1')
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
       seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
       await renderPane(store)
@@ -1158,7 +1215,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   it('too small on both axes falls back to tabs even with the split on', async () => {
     await withPaneBox(300, 200, async () => {
       const store = createWorkspaceStore('w1')
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
       // addEditorTabToPane activates the new tab — in the collapsed
       // ('tabs') presentation this falls back to, that means the TAB is
       // what's selected (chats/pane redesign), so the chat is the one that
@@ -1178,7 +1235,7 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
 
   it('never unmounts either view across an editorOpen toggle — same DOM nodes throughout', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     seedEditorTab(store, ROOT_PANE_ID, 'tab-a')
 
     await renderPane(store)
@@ -1213,10 +1270,9 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
   // this wiring — a `pane.chatId ? <A/> : <B/>` top-level branch reindexed
   // the editor view's own DOM position, so React unmounted/remounted it (and
   // everything live inside it, e.g. a terminal's PTY) every time
-  // `pane.chatId` toggled. Reachable in production today via `⌘N`
-  // (use-pane-keyboard.ts's `setPaneChat` on the active pane whatever it
-  // already holds) — NOT a hypothetical pane.chatId is not yet set.
-  it('does not remount the editor view — including a live terminal — when pane.chatId toggles on and off', async () => {
+  // `pane.chatId` toggled. Reachable today: a chat filling a pane that already
+  // holds editor tabs.
+  it('does not remount the editor view — including a live terminal — when a chat lands in the pane', async () => {
     terminalMountCount.current = 0
     const store = createWorkspaceStore('w1')
     seedTerminalTab(store, ROOT_PANE_ID, 'term-a')
@@ -1232,21 +1288,12 @@ describe('PaneContainer — chat/editor-view arrangement (spec §7.2)', () => {
     // re-parented one level deeper, under viewsContainerRef, alongside the
     // new chat view and sash.
     await act(async () => {
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+      windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     })
 
     await screen.findByTestId('chat-chat-1')
     expect(screen.getByTestId('terminal-marker-term-a')).toBe(terminalBefore)
     expect(terminalMountCount.current).toBe(1) // still exactly one mount, ever
-
-    // And back: set -> null.
-    await act(async () => {
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, null, null)
-    })
-
-    expect(screen.queryByTestId('chat-chat-1')).not.toBeInTheDocument()
-    expect(screen.getByTestId('terminal-marker-term-a')).toBe(terminalBefore)
-    expect(terminalMountCount.current).toBe(1)
   })
 
   // Editor-portal fix: live-reported regression — switching a pane's active
@@ -1615,7 +1662,7 @@ describe("PaneContainer — the identity row shares the pane's background/roundi
 describe('PaneContainer — a pane in a view that is not on screen', () => {
   it('tells the chat surface it is not visible, and not the active pane', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     await renderPane(store, undefined, false)
 
@@ -1639,7 +1686,7 @@ describe('PaneContainer — a pane in a view that is not on screen', () => {
 
   it('still mounts everything — parked is not closed', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
     seedTerminalTab(store, ROOT_PANE_ID, 'term-1')
 
     await renderPane(store, undefined, false)
@@ -1652,7 +1699,7 @@ describe('PaneContainer — a pane in a view that is not on screen', () => {
 
   it('the showing pane is told the opposite', async () => {
     const store = createWorkspaceStore('w1')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     await renderPane(store, undefined, true)
 
@@ -1668,7 +1715,7 @@ describe('PaneContainer — a pane in a view that is not on screen', () => {
  * workspace-keyed. This used to read the AMBIENT `WorkspaceStoreContext` (the
  * `WorkspaceView` that happens to be rendering the pane), so a chat from
  * another workspace was resolved against the wrong store: never found, never
- * attached, permanently blank — and, since `setPaneChat` persists, blank
+ * attached, permanently blank — and, since the pane persists, blank
  * across reload. That is the gap `openChatIntoPane`'s active-workspace
  * refusal stood in for, and closing it is what makes a cross-workspace drag
  * land.
@@ -1694,7 +1741,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     getOrCreateWorkspaceStore('w-owner')
       .getState()
       .seedAgentChats([chatRecord('chat-1', 'w-owner')])
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     // Rendered under a DIFFERENT workspace's context — the one on screen.
     await renderPane(createWorkspaceStore('w-onscreen'))
@@ -1703,7 +1750,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   })
 
   it('falls back to the ambient workspace while nothing can name an owner yet', async () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-unknown', null)
+    windowPaneStore.getState().paneActions.openChat('chat-unknown')
 
     await renderPane(createWorkspaceStore('w-onscreen'))
 
@@ -1720,7 +1767,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     getOrCreateWorkspaceStore('w-owner')
       .getState()
       .seedAgentChats([chatRecord('chat-1', 'w-owner')])
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     await renderPane(createWorkspaceStore('w-onscreen'))
 
@@ -1737,7 +1784,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
     getOrCreateWorkspaceStore('w-owner')
       .getState()
       .seedAgentChats([chatRecord('chat-1', 'w-owner')])
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-1', { runnerId: 'runner-1' })
 
     // Rendered under a DIFFERENT workspace's context — e.g. a split's other
     // pane, or whichever WorkspaceView happens to be on screen.
@@ -1757,7 +1804,7 @@ describe('PaneContainer — the chat’s own workspace, not the ambient one', ()
   // silently create a buffer tagged with a workspace the chat doesn't belong
   // to at all.
   it("does not open branch review for the ambient workspace while the chat's own owner is still unresolved", async () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-unknown', null)
+    windowPaneStore.getState().paneActions.openChat('chat-unknown')
 
     await renderPane(createWorkspaceStore('w-onscreen'))
 

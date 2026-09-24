@@ -413,6 +413,20 @@ export async function performImportBranches(
  * slot an unfoldered import lands at (`rows-from-repo.ts`'s own home-row
  * parenting) — keyed by branch name so the caller can later clear each one
  * independently as its own real row lands.
+ *
+ * `repoId` + `rowIdsAtClick` together are what makes
+ * `hideRowsForInFlightCreates` (rows-from-pending.ts) suppress the ghost row
+ * this import can otherwise draw: the daemon mints an imported branch's
+ * owning CHAT first, atomically, before its WORKSPACE half (and the
+ * `owningChatId` that folds the two into one branch row) lands, so a
+ * structural reseed can land that bare chat in the tree — with no workspace
+ * to fold onto yet — as an ordinary top-level thread row, which then
+ * "converts" into the branch the instant the workspace half catches up.
+ * Live-reported. `rowIdsAtClick` is `repo`'s own rows only (the same list
+ * `siblingCount` already reads) — sufficient because `repoId` scopes the
+ * suppression to THIS repo alone, so a row anywhere else in the project
+ * (another repo, or project home) is never a candidate to hide regardless of
+ * whether it was known at click time.
  */
 function startImportPendingRows(
   repo: Repo,
@@ -422,7 +436,9 @@ function startImportPendingRows(
   const homeId = repo.defaultWorkspaceId ?? null
   const parentId =
     homeId === null ? '' : resolveHomeOwnerId(homeId, repo.defaultOwningChatId, repo.chats ?? [])
-  const siblingCount = rowsFromRepo(repo).filter((r) => r.parentId === parentId).length
+  const rowsAtClick = rowsFromRepo(repo)
+  const siblingCount = rowsAtClick.filter((r) => r.parentId === parentId).length
+  const rowIdsAtClick = rowsAtClick.map((r) => r.id)
   const pendingIds = new Map<string, string>()
   branches.forEach((branch, i) => {
     const tempId = `pending-${crypto.randomUUID()}`
@@ -431,11 +447,13 @@ function startImportPendingRows(
       tempId,
       kind: 'branch',
       projectId,
+      repoId: repo.id,
       parentId,
       order: siblingCount + i,
       label: branch,
       workspaceId: null,
       ownsWorktree: true,
+      rowIdsAtClick,
     })
   })
   return pendingIds

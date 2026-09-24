@@ -116,9 +116,13 @@ type Agent interface {
 	// thread of it and is told its lineage at spawn, so the parent edge has to be
 	// written first — a create that spawned first would leave the thread's first
 	// session, the one the user is watching, believing it is a standalone chat.
+	//
+	// surface is the VIEW the new chat is born on (design spec 2.5), "" for
+	// the provider's own default landing.
 	MintChat(
 		ctx context.Context,
 		workspaceID string,
+		surface string,
 	) (string, error)
 	// StartRunner launches a vendor CLI on a chat that already exists — the second
 	// half of the create MintChat opens, run once the row is where it belongs.
@@ -377,12 +381,16 @@ type Usecase interface {
 	// the same way a BRANCH parent already is. See createOwnWorktreeChat
 	// (chats.go), createImportedWorktreeChat (imported_chat.go), and the two
 	// agent verbs behind them.
+	//
+	// surface is the VIEW the chat is born on (design spec 2.5), "" for the
+	// provider's own default landing — see domain.Chat.Surface.
 	CreateChat(
 		ctx context.Context,
 		workspaceID string,
 		providerID string,
 		parentID string,
 		worktree WorktreeSpec,
+		surface string,
 	) (chatID, runnerID string, err error)
 	// ImportBranchAsChat materialises one existing branch chat-first and hands
 	// back both ids: the chat minted for it and the workspace it now owns. It

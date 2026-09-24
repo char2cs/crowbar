@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 
 	"github.com/char2cs/crowbar/api/internal/app/apperr"
 	"github.com/char2cs/crowbar/api/internal/domain"
@@ -29,13 +28,22 @@ import (
 // TestRegression_SubmitPromptWithStagedProvider_ConcurrentSendsNeverCrossDeliver
 // (runner_test.go) for the black-box property this closes off.
 //
-// provider/model/effort: same contract as Usecase.SubmitPrompt's own doc —
+// provider/selection: same contract as Usecase.SubmitPrompt's own doc —
 // empty provider is "nothing staged, use current"; a non-empty one equal to
 // the chat's current provider is a no-op (an ordinary resend must not pay for
 // a switch it never asked for).
+//
+// A NON-NIL selection is committed whatever it holds. Gating on "either half
+// is non-empty" instead — as this once did — made a pick of the provider's
+// own default ("" on both halves, a real value, not silence) indistinguishable
+// from staging nothing: the composer could stage "back to Default" and the
+// chat would keep running the model it was already on, forever, with no
+// gesture able to clear it except the separate PATCH the picker no longer
+// makes. Only nil means "nothing staged".
 func (rs *Runners) SubmitPromptWithSwitch(
 	ctx context.Context,
-	chatID, text, clientRequestID, provider, model, effort string,
+	chatID, text, clientRequestID, provider string,
+	selection *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
 	defer rs.spawns.Lock(chatID)()
 
@@ -48,23 +56,8 @@ func (rs *Runners) SubmitPromptWithSwitch(
 		switching = provider != current
 	}
 
-	if model != "" || effort != "" {
-		targetProvider, err := rs.resolveTargetProvider(ctx, chatID, provider)
-		if err != nil {
-			return domain.AgentPromptSubmission{}, err
-		}
-		// VALIDATED BEFORE THE SWITCH COMMITS — the same "refuse before
-		// anything is torn down" rule switchProviderLocked's own disabled-
-		// provider guard follows. Checked against the provider this call is
-		// ABOUT to switch to, not the one SetChatSelection would resolve
-		// AFTER the switch already ran: validating there instead is what let
-		// a bad model/effort pick strand the chat on a freshly switched-to
-		// provider with nothing delivered and no way back but another
-		// switch — the switch had already committed by the time the bad
-		// value was even noticed.
-		if err := rs.validateSelectionForProvider(ctx, chatID, targetProvider, model, effort); err != nil {
-			return domain.AgentPromptSubmission{}, err
-		}
+	if err := rs.validateStagedSelection(ctx, chatID, provider, selection); err != nil {
+		return domain.AgentPromptSubmission{}, err
 	}
 
 	if switching {
@@ -73,8 +66,8 @@ func (rs *Runners) SubmitPromptWithSwitch(
 		}
 	}
 
-	if model != "" || effort != "" {
-		if err := rs.setChatSelectionLocked(ctx, chatID, model, effort); err != nil {
+	if selection != nil {
+		if err := rs.setChatSelectionLocked(ctx, chatID, selection.Model, selection.Effort); err != nil {
 			return domain.AgentPromptSubmission{}, err
 		}
 	}
@@ -131,11 +124,12 @@ func (rs *Runners) validateSelectionForProvider(
 	if err != nil {
 		return fmt.Errorf("agent: submit prompt: validate selection: resolve descriptor: %w", err)
 	}
-	if model != "" && !slices.Contains(agent.Models(), model) {
+	discovered := agent.Capabilities().ModelDiscovery
+	if model != "" && !engineagents.Allowed(agent.Models(), discovered, model) {
 		return fmt.Errorf("agent: set chat selection: %q declares no model %q: %w",
 			agent.ID(), model, apperr.ErrInvalidArgument)
 	}
-	if effort != "" && !slices.Contains(agent.Efforts(model), effort) {
+	if effort != "" && !engineagents.Allowed(agent.Efforts(model), discovered, effort) {
 		return fmt.Errorf("agent: set chat selection: %q declares no effort %q for model %q: %w",
 			agent.ID(), effort, model, apperr.ErrInvalidArgument)
 	}
@@ -175,4 +169,30 @@ func (rs *Runners) setChatSelectionLocked(
 		}
 	}
 	return nil
+}
+
+// validateStagedSelection refuses a staged model/effort BEFORE the switch
+// commits — the same "refuse before anything is torn down" rule
+// switchProviderLocked's own disabled-provider guard follows. Checked against
+// the provider this call is ABOUT to switch to, not the one SetChatSelection
+// would resolve AFTER the switch already ran: validating there is what let a
+// bad pick strand the chat on a freshly switched-to provider with nothing
+// delivered and no way back but another switch.
+//
+// A nil selection is "nothing staged" and validates trivially.
+func (rs *Runners) validateStagedSelection(
+	ctx context.Context,
+	chatID, provider string,
+	selection *domain.ChatSelection,
+) error {
+	if selection == nil {
+		return nil
+	}
+	targetProvider, err := rs.resolveTargetProvider(ctx, chatID, provider)
+	if err != nil {
+		return err
+	}
+	return rs.validateSelectionForProvider(
+		ctx, chatID, targetProvider, selection.Model, selection.Effort,
+	)
 }

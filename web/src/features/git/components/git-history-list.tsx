@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useFileSystemStore } from '@/features/file-system/controllers/store'
 import { useGitStore } from '@/features/git/stores/git-store'
-import { getActiveWorkspaceId } from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { resolveOnscreenPaneForWorkspace } from '@/features/panes/lib/pane-chat-workspace'
 import { dataOf } from '@/lib/loadable'
@@ -10,14 +9,14 @@ import type { GitCommit } from '../types/git-types'
 import { useGitDiffHandlers } from '../hooks/use-git-diff-handlers'
 import { commitDateLabel } from './git-history-list-utils'
 
-export function GitHistoryList() {
+export function GitHistoryList({ wsId: scopedWsId }: { wsId: string | null }) {
   const gitData = useGitStore((s) => s.gitData)
   const commits = useGitStore((s) => s.commits)
   const isLoadingMore = useGitStore((s) => s.isLoadingMoreCommits)
 
   const isLoading = gitData.status === 'idle' || (gitData.status === 'loading' && !dataOf(gitData))
 
-  const wsId = getActiveWorkspaceId() ?? ''
+  const wsId = scopedWsId ?? ''
   // Reuse the same diff-tab plumbing the Changes panel uses — a commit row
   // click opens the commit's multi-file diff tab.
   const { handleViewCommitDiff } = useGitDiffHandlers({

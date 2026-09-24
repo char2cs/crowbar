@@ -22,6 +22,15 @@ export interface PendingCreateEntry {
   projectId: string
   /** The SidebarRow.parentId space this row will land in once real. */
   parentId: string
+  /**
+   * The repo this entry's real row will land in — set only by a branch
+   * import (`row-actions.ts`'s `startImportPendingRows`), whose 202 hands
+   * back no id for `attachRealId` to narrow onto. `hideRowsForInFlightCreates`
+   * (rows-from-pending.ts) reads it to scope suppression to THIS repo alone:
+   * undefined (every fork/thread create) keeps the old project-wide
+   * suppression, which already exits fast via `attachRealId`.
+   */
+  repoId?: string
   /** The sibling order it will land at — computed once, at click time, from
    *  the SAME sibling data the tree already shows, so it never needs to be
    *  recomputed once creation actually lands. */

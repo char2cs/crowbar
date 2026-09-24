@@ -12,6 +12,7 @@ const ROOT = '/root'
 // join that Reveal in Finder and Copy Path perform.
 function baseOptions() {
   return {
+    workspaceId: 'ws-1',
     rootFolderPath: ROOT,
     isLocked: false,
     onFileSelect: vi.fn(),

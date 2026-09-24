@@ -54,6 +54,7 @@ func (rs *Runners) submitPromptLocked(
 		slog.ErrorContext(ctx, "agent: reconcile React prompt before submission (best-effort)",
 			"chat_id", chat.ID, "err", err)
 	}
+	rs.settleDepartedPromptDelivery(ctx, chat)
 
 	result, done, err := rs.replayPriorAttempt(ctx, chat, journalDir, clientRequestID, textHash)
 	if done {
@@ -70,7 +71,7 @@ func (rs *Runners) submitPromptLocked(
 	}
 
 	if submission, handled, pushErr := rs.submitPromptOverAPI(
-		ctx, chat, journalDir, clientRequestID, textHash, live, worktree, text,
+		ctx, chat, journalDir, clientRequestID, textHash, live, descriptor, worktree, text,
 	); handled {
 		return submission, pushErr
 	}
@@ -164,20 +165,39 @@ func (rs *Runners) replayPriorAttempt(
 }
 
 // submitPromptOverAPI delivers text over live's connection when it has one —
-// the mixed-transport case, where a message needs no restart at all: the same
-// connection applyAPITransport opened at spawn carries every message the
-// conversation ever sends, first or hundredth. handled=false means live has no
-// live api connection (every hooks-only provider, and a mixed-transport one
-// whose serve process never came up); the caller falls back to the
-// restart_tui path unchanged.
+// the mixed-transport case, where MOST messages need no restart at all: the
+// same connection applyAPITransport opened at spawn carries every message
+// the conversation sends, first or hundredth, AS LONG AS the chat's desired
+// model/effort/permission level still match what this connection's process
+// was launched with. A changed selection that the descriptor itself declares
+// restart_tui for (selectionRequiresRestart, promptdelivery.go) is refused
+// here instead: pushing it over the stale connection would silently keep
+// running the OLD model/effort forever, since nothing on this fast path ever
+// re-examines the launch argv a running process was started with — confirmed
+// live, this exact gap is why a codex model/effort switch never reached the
+// CLI. handled=false means either no live api connection (every hooks-only
+// provider, and a mixed-transport one whose serve process never came up) or
+// a selection change this connection cannot carry; either way the caller
+// falls back to the restart_tui path, which tears the connection down and
+// respawns with the new selection.
 func (rs *Runners) submitPromptOverAPI(
 	ctx context.Context,
 	chat domain.Chat,
 	journalDir, clientRequestID, textHash string,
 	live engineagents.Runner,
+	descriptor engineagents.Agent,
 	worktree, text string,
 ) (domain.AgentPromptSubmission, bool, error) {
 	if _, ok := rs.apiConns.get(live.ID); !ok {
+		return domain.AgentPromptSubmission{}, false, nil
+	}
+	restart, err := rs.selectionRequiresRestart(ctx, chat.ID, live, descriptor)
+	if err != nil {
+		return domain.AgentPromptSubmission{}, true, fmt.Errorf(
+			"agent: submit prompt: check selection restart: %w", err,
+		)
+	}
+	if restart {
 		return domain.AgentPromptSubmission{}, false, nil
 	}
 
@@ -274,9 +294,14 @@ func (rs *Runners) commitPromptSpawn(
 		RunnerID:          runnerID,
 		TerminalSessionID: spawned.TerminalSession,
 	}
-	if result.TerminalSessionID == "" {
+	// What must exist is a DELIVERY TARGET, not a PTY. An api-driven runner
+	// forks none at all (apirunner.go) and its connection is that target —
+	// refusing it here failed every api-dispatched prompt, which is
+	// submitPromptOverAPI's own success path. A runner with neither is the
+	// case this refusal was written for and still catches.
+	if result.TerminalSessionID == "" && !rs.HasLiveAPIConnection(runnerID) {
 		return domain.AgentPromptSubmission{}, rs.markPromptOutcomeUncertain(
-			ctx, journalDir, clientRequestID, "replacement terminal identity is missing", nil,
+			ctx, journalDir, clientRequestID, "replacement delivery identity is missing", nil,
 		)
 	}
 	committed, err := rs.prompts.MarkSpawned(
@@ -344,6 +369,10 @@ func (rs *Runners) requireNoPendingPromptDelivery(ctx context.Context, chat doma
 	if err != nil {
 		return fmt.Errorf("agent: prompt delivery guard: journal dir: %w", err)
 	}
+	// Ledger evidence above, ownership here: the journal answers from a state
+	// string, which cannot tell a delivery in flight from one whose runner is
+	// gone. See settleDepartedPromptDelivery.
+	rs.settleDepartedPromptDelivery(ctx, chat)
 	pending, err := rs.prompts.HasPendingDelivery(journalDir)
 	if err != nil {
 		return fmt.Errorf("agent: prompt delivery guard: inspect journal: %w", err)

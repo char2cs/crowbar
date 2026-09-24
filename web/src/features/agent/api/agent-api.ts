@@ -1,3 +1,4 @@
+import type { LandingChatPresentation } from '@/features/settings/lib/chat-presentation'
 import { API_BASE, apiFetch } from '@/lib/api'
 import { repoChatsBaseForWorkspace } from '@/lib/workspace-scope-url'
 import { clearPersistedPromptQueue } from '@/features/agent/lib/prompt-queue-persistence'
@@ -53,6 +54,19 @@ export interface AgentChat {
   liveRunnerId: string
   /** That runner's PTY — what a chat pane attaches to. '' exactly when liveRunnerId is. */
   terminalSessionId: string
+  /**
+   * The VIEW this chat is on RIGHT NOW (design spec 2.5). Creating it seeds
+   * this, and `switchToTerminal`/`switchToNative` move it — it never says how
+   * the chat got here. OMITTED for the overwhelming majority, which sit on
+   * their provider's own default face.
+   *
+   * 'terminal' means the daemon has NO api connection for this chat, so
+   * `terminalSessionId` above IS its conversation and there is nothing left to
+   * fork — asking for one anyway (`switchToTerminal`) is refused for a chat
+   * that was born there, because that attach resumes an api session it never
+   * had.
+   */
+  surface?: LandingChatPresentation
   /** The live runner's provider, else the provider of the chat's LAST conversation
    *  (so a dormant chat still shows the right glyph, and Resume knows who to bring
    *  back). '' only on a chat no runner has ever been placed on. */
@@ -308,6 +322,21 @@ export interface AgentProvider {
    * the turn rather than being handed a swap nobody verified.
    */
   hotswap?: boolean
+  /**
+   * Whether a BRAND-NEW chat may be launched DIRECTLY onto this provider's
+   * terminal surface, rather than reached only by switching to it after a
+   * turn (design spec 2.5's `surfaces.terminal.start_here`). `hasTerminal`
+   * says the surface exists at all; this says it may be a LANDING surface —
+   * codex has a terminal (hasTerminal: true) that is idle-only sequential
+   * handoff, unreachable until a turn completes, so it reports this false.
+   *
+   * Defaults to `false` on omission — the SAME direction as hotswap/
+   * compaction/the selection capabilities, unlike hasTerminal's own
+   * opposite-direction default: an older daemon that predates this field is
+   * silent about a NEW capability, not describing an old reality every
+   * provider already had.
+   */
+  terminalStartHere?: boolean
   /** The declared model catalogue, in DESCRIPTOR ORDER. Never re-sorted: the
    *  order is the provider's own ranking. */
   models?: string[]
@@ -356,6 +385,7 @@ function mapChat(c: AgentChat): AgentChat {
     title: c.title,
     liveRunnerId: c.liveRunnerId,
     terminalSessionId: c.terminalSessionId,
+    surface: c.surface,
     activeProviderId: c.activeProviderId,
     working: c.working ?? false,
     createdAt: c.createdAt,
@@ -806,8 +836,12 @@ export async function getPendingPrompt(
  *  prompt. `clientRequestId` is stable across retries.
  *
  *  `provider`/`model`/`effort` are the composer's STAGED pick, if the picker
- *  has one — omit any of them (or pass '') when nothing is staged, which
- *  leaves the chat's current provider / sticky selection exactly as it was.
+ *  has one. OMIT model/effort when nothing is staged, which leaves the chat's
+ *  sticky selection exactly as it was; passing '' is NOT the same thing — it
+ *  is a real pick of the provider's own default, and the daemon clears the
+ *  chat back to it. (Provider has no such reading: a chat always runs some
+ *  provider, so '' there simply means nothing staged.) The two travel as one
+ *  pair, so a body carrying only one half clears the other.
  *  A staged pick is committed on THIS call, atomically with the prompt: the
  *  picker itself never writes selection or switches provider on its own, so
  *  choosing a row never mutates the chat until the user actually sends. A
@@ -877,6 +911,9 @@ function mapProvider(p: AgentProvider): AgentProvider {
     // provider that lacks one — see the field's own doc comment.
     hasTerminal: p.hasTerminal ?? true,
     hotswap: p.hotswap ?? false,
+    // Same conservative direction as hotswap: silence is a daemon that has
+    // not declared this NEW capability, never evidence it should be on.
+    terminalStartHere: p.terminalStartHere ?? false,
     models: p.models ?? [],
     efforts: p.efforts ?? {},
     permissionLevels: p.permissionLevels ?? [],
@@ -886,6 +923,26 @@ function mapProvider(p: AgentProvider): AgentProvider {
 export async function listProviders(wsId: string): Promise<AgentProvider[]> {
   const raw = await apiFetch<AgentProvider[]>(`${chatBase(wsId)}/providers`)
   return (raw ?? []).map(mapProvider)
+}
+
+/**
+ * Whether `provider` may be the target of a chat CREATED directly on its
+ * terminal surface — the shared gate behind every "New thread in Terminal"
+ * affordance (the sidebar row menu, the space header's overflow menu, the
+ * ⌥⌘N chord). `hasTerminal` says the surface exists at all; `terminalStartHere`
+ * says it may be LAUNCHED INTO rather than reached only by switching to it
+ * after a turn (design spec 2.5's `start_here` — codex has a terminal that is
+ * idle-only sequential handoff, so it reports `terminalStartHere: false`
+ * despite `hasTerminal: true`). Both must hold: house rule is absence, not a
+ * disabled control, so a provider silent on either gets no affordance at all.
+ *
+ * `provider` undefined (no enabled provider resolved yet) reads permissive —
+ * the plain Thread button offers itself unconditionally too and leaves the
+ * refusal to click-time resolution; this matches it.
+ */
+export function providerCanStartOnTerminal(provider: AgentProvider | undefined): boolean {
+  if (!provider) return true
+  return provider.hasTerminal !== false && provider.terminalStartHere === true
 }
 
 // updateProviderPreferences rewrites the GLOBAL provider preference set. The body
@@ -966,8 +1023,23 @@ export async function setChatPermissionLevel(
  *
  * A folder INSIDE a chat still yields a thread of that chat: folders carry no
  * turns, so lineage steps straight through them.
+ *
+ * `surface` is which of the provider's FACES the chat is born on (design spec
+ * 2.5). It is not the same thing as `presetChatLandingPresentation`, which
+ * only tells the pane where to open: this decides what the daemon actually
+ * forks. For a mixed-transport provider (codex) a chat born on 'terminal'
+ * gets NO api connection at all, so its own PTY is the conversation rather
+ * than a companion the chat DTO then hides — which is why such a chat used to
+ * land on "This agent has no terminal view attached right now". Omitted means
+ * the provider's own default face, byte-identical to every create before this
+ * argument existed.
  */
-export async function createChat(wsId: string, provider: string, parentId = ''): Promise<string> {
+export async function createChat(
+  wsId: string,
+  provider: string,
+  parentId = '',
+  surface?: LandingChatPresentation,
+): Promise<string> {
   const res = await apiFetch<{ id: string }>(`${chatBase(wsId)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -976,7 +1048,7 @@ export async function createChat(wsId: string, provider: string, parentId = ''):
     // when the URL carries none. Omitting it anchors the chat to "", and a
     // top-level "" chat has no ancestor to resolve a cwd workspace from, so its
     // runner spawn 404s (agentchat: not found) even though the chat minted.
-    body: JSON.stringify({ provider, parentId, workspaceId: wsId }),
+    body: JSON.stringify({ provider, parentId, workspaceId: wsId, ...(surface && { surface }) }),
   })
   return res.id
 }

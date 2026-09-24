@@ -30,14 +30,15 @@ import (
 // Errors surfaced to callers, re-exported so nothing outside has to name the packages
 // underneath.
 var (
-	ErrUnknownProvider   = descriptor.ErrUnknown
-	ErrInvalidDescriptor = descriptor.ErrInvalid
-	ErrUndeclaredEvent   = inbound.ErrUndeclaredEvent
-	ErrForeignPayload    = inbound.ErrForeignConversation
-	ErrUnsupportedFormat = inbound.ErrUnsupportedFormat
-	ErrNotAnswerable     = answer.ErrNotAnswerable
-	ErrUnsupportedAnswer = answer.ErrUnsupportedDecision
-	ErrMalformedAnswer   = answer.ErrMalformedAnswer
+	ErrUnknownProvider      = descriptor.ErrUnknown
+	ErrInvalidDescriptor    = descriptor.ErrInvalid
+	ErrUndeclaredEvent      = inbound.ErrUndeclaredEvent
+	ErrForeignPayload       = inbound.ErrForeignConversation
+	ErrRequiredFieldMissing = inbound.ErrRequiredFieldMissing
+	ErrUnsupportedFormat    = inbound.ErrUnsupportedFormat
+	ErrNotAnswerable        = answer.ErrNotAnswerable
+	ErrUnsupportedAnswer    = answer.ErrUnsupportedDecision
+	ErrMalformedAnswer      = answer.ErrMalformedAnswer
 
 	ErrTelemetryUnsupported    = telemetry.ErrUnsupported
 	ErrTelemetryInvalidWorkdir = telemetry.ErrInvalidWorkdir
@@ -47,9 +48,21 @@ var (
 // was judged to describe another CLI's conversation.
 type ForeignPayloadError = inbound.ForeignConversationError
 
+// RequiredFieldError names the descriptor, event, channel and field a
+// declared required: mapping resolved to nothing against (design spec 2.3).
+type RequiredFieldError = inbound.RequiredFieldError
+
 // All returns every descriptor Crowbar can resolve, sorted by id.
 func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {
 	return descriptor.All(ctx, homeDir)
+}
+
+// EmbeddedModelManifest is descriptor.EmbeddedModelManifest, re-exported so a
+// caller outside protocol/ (modeldiscovery, which the descriptor package's
+// own internal-visibility boundary would otherwise hide this behind) never
+// needs to import descriptor directly.
+func EmbeddedModelManifest() []byte {
+	return descriptor.EmbeddedModelManifest()
 }
 
 // Resolve loads one provider's descriptor, preferring an on-disk override.
@@ -75,9 +88,11 @@ func CheckVersion(d *spec.Descriptor, actual string) error {
 
 // --- inbound: they tell us -------------------------------------------------
 
-// Recv turns one raw provider payload into a canonical event.
-func Recv(d *spec.Descriptor, canonical string, raw []byte) (models.CanonicalEvent, error) {
-	return inbound.Parse(d, canonical, raw)
+// Recv turns one raw provider payload into a canonical event, reading the
+// field map the ACTUAL delivery channel selects (see inbound.Parse and
+// spec.Channel) — never the event's static declared transport.
+func Recv(d *spec.Descriptor, canonical string, raw []byte, channel spec.Channel) (models.CanonicalEvent, error) {
+	return inbound.Parse(d, canonical, raw, channel)
 }
 
 // Observes lists the canonical events this provider reports, sorted.
@@ -155,6 +170,10 @@ func MatchTerminalPrompt(d *spec.Descriptor, screen string) (models.TerminalProm
 // frame. AskID is non-nil exactly when a human decision must be sent back.
 type APIEvent = apidriver.Event
 
+// APISessionOrigin is told which sessions an api connection produced ITSELF,
+// in place of the one its caller named — see apidriver.SessionOrigin.
+type APISessionOrigin = apidriver.SessionOrigin
+
 // APIConn wraps *apidriver.Driver so a caller outside this package's own
 // internal/ boundary (agents.go, one layer up) can hold and call it without
 // ever naming the apidriver package — Go's internal/ visibility is per
@@ -203,8 +222,10 @@ func (c *APIConn) InjectAt(ctx context.Context, at string, values map[string]str
 // handshake, and returns a connection translating inbound frames into canonical
 // events — see apidriver's own doc comment for why this is the one new thing
 // this façade exposes for mixed transport.
-func StartAPIDriver(ctx context.Context, d *spec.Descriptor, socketPath string) (*APIConn, error) {
-	drv, err := apidriver.Start(ctx, d, socketPath)
+func StartAPIDriver(
+	ctx context.Context, d *spec.Descriptor, socketPath string, origin APISessionOrigin,
+) (*APIConn, error) {
+	drv, err := apidriver.Start(ctx, d, socketPath, origin)
 	if err != nil {
 		return nil, err
 	}

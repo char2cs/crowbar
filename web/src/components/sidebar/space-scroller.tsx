@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useStore } from 'zustand'
 import { useNavigate } from '@tanstack/react-router'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SidebarTree } from './sidebar-tree'
 import { SpaceHeader } from './space-header'
-import { RecentsBand, type RecentsBandEntry } from './recents-band'
+import { RecentsBand } from './recents-band'
 import { CARD_BOTTOM_INSET_VAR } from '@/components/layout/sidebar-card-height'
 import { findScrollParent } from '@/components/layout/edge-scroll'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
+import { rowRepoScope } from '@/components/sidebar/lib/rows-from-repo'
 import { hideRowsForInFlightCreates } from '@/components/sidebar/lib/rows-from-pending'
 import { AddRepositoryModal } from '@/components/projects/add-repository-modal'
 import {
@@ -22,22 +24,12 @@ import { usePendingCreatesStore } from '@/lib/store/pending-creates'
 import { useRemovalTrayStore } from '@/lib/store/sidebar-removal'
 import { attachRemovalState, renderedHiddenIds } from '@/components/layout/removal-plan'
 import { recordWorkspaceScope } from '@/lib/workspace-scope'
-import {
-  getAllActiveWorkspaceIds,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import type { WorkspaceState } from '@/features/workspace/stores/workspace-store.types'
+import { selectProjectViewIds } from '@/features/panes/lib/view-selectors'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { DropMode } from '@/components/tree-dnd/drop-core'
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { Project } from '@/lib/types'
-
-// Join delimiter for the id-list dependency keys below — same choice and
-// rationale as workspace-host.tsx's own `ID_DELIM`: a workspace id can never
-// contain NUL, but nothing stops one containing a space or `|`, which a
-// naive join/split would then mis-parse.
-const ID_DELIM = '\u0000'
 
 interface SpaceScrollerProps {
   projects: Project[]
@@ -47,15 +39,13 @@ interface SpaceScrollerProps {
   activeProjectId: string | undefined
   onActiveProjectChange: (id: string) => void
   rowsForProject: (projectId: string) => SidebarRow[]
-  recentsForProject: (projectId: string) => RecentsBandEntry[]
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
-  onFocusRecent: (entry: RecentsBandEntry) => void
-  onCloseRecent: (entry: RecentsBandEntry) => void
-  /** Recents' per-chat × (see `RecentsBand`'s own `onCloseChat` doc) — removes
-   *  one chat from a multi-chat entry without dissolving the rest of it. */
-  onCloseChatRecent: (entry: RecentsBandEntry, chatId: string) => void
+  onFocusRecent: (viewId: string) => void
+  onCloseRecent: (viewId: string) => void
+  /** A group member's own ×: closes that one chat, never the group. */
+  onCloseChatRecent: (chatId: string) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
   /** Spec §9's project-level trash, the one verb the space header's overflow
@@ -64,134 +54,15 @@ interface SpaceScrollerProps {
   onTrashProject: (projectId: string) => void
 }
 
-/** The two `agentChats` fields Recents actually reads, compared by reference
- *  below (immer only replaces a slice's reference when that slice was
- *  actually mutated) - mirrors workspace-store-registry.ts's own
- *  persistence-subscribe idiom, so an unrelated store write (LSP, terminal
- *  output) never triggers a recompute. `panes`/`dormantArrangements` moved to
- *  the window-level pane store (Task 26) — see the separate subscription
- *  below, no longer one of these per-workspace fields. */
-function recentsSlice(state: WorkspaceState) {
-  return {
-    working: state.agentChats.working,
-    chats: state.agentChats.chats,
-  }
-}
-
-/**
- * Re-renders the caller whenever a currently-active workspace's working
- * chats or chat list change, OR the one window-level pane store's panes/
- * dormant arrangements change, so a project's Recents band recomputes with
- * fresh data - a plain `.subscribe(listener)` fires on EVERY store mutation,
- * so the listener drops anything that did not touch one of these fields.
- *
- * `workspaceIds` need not already be filtered to active ones: subscribing is
- * skipped for an id with no live store rather than creating one (see
- * recents-for-project.ts for why calling `getOrCreateWorkspaceStore` on a
- * never-opened workspace would leak it).
- *
- * `refreshSignal` re-runs the subscription setup (re-scanning
- * `getAllActiveWorkspaceIds()`) whenever it changes, independent of
- * `workspaceIds` — the caller passes its own `workingSignal` so a tree
- * workspace flipping `working` (the most common trigger for "a workspace
- * just got a store") re-scans for newly-active stores this effect would
- * otherwise never notice. This is a partial mitigation, not a full fix: a
- * workspace whose store is created without `workingSignal` also changing
- * (e.g. a chat opened into a pane that never starts a turn) still is not
- * picked up until some OTHER re-render happens — see space-scroller's own
- * `SpacePanel` comment and task-30-report.md for the full disclosure.
- */
-/**
- * The actual subscribe/dispose work for {@link useRecentsTick}, pulled out of
- * the effect body into its own small unit: every subscription this creates is
- * pushed onto `unsubs` right where it's created, and the one returned
- * function drains that same array — a pairing that's easy to verify by
- * reading this one function top to bottom, rather than threaded through a
- * `useEffect` body alongside unrelated render-adjacent code.
- */
-function subscribeRecentsTick(ids: string[], onTick: () => void): () => void {
-  const active = new Set(getAllActiveWorkspaceIds())
-  const unsubs: Array<() => void> = []
-  for (const id of ids) {
-    if (!active.has(id)) continue
-    const store = getOrCreateWorkspaceStore(id)
-    let prevSlice = recentsSlice(store.getState())
-    unsubs.push(
-      store.subscribe((state) => {
-        const nextSlice = recentsSlice(state)
-        if (nextSlice.working === prevSlice.working && nextSlice.chats === prevSlice.chats) {
-          return
-        }
-        prevSlice = nextSlice
-        onTick()
-      }),
-    )
-  }
-  // One window-level pane store (Task 26) — panes/dormantArrangements no
-  // longer need a per-workspace subscription loop; any project's Recents
-  // could be affected by a pane change anywhere, so this fires on every
-  // pane/dormant-arrangement mutation regardless of `workspaceIds`.
-  let prevPaneSlice = {
-    panes: windowPaneStore.getState().panes,
-    dormant: windowPaneStore.getState().dormantArrangements,
-    activeView: windowPaneStore.getState().activeViewId,
-    order: windowPaneStore.getState().recentsOrder,
-  }
-  unsubs.push(
-    windowPaneStore.subscribe((state) => {
-      if (
-        state.panes === prevPaneSlice.panes &&
-        state.dormantArrangements === prevPaneSlice.dormant &&
-        // The band's DRAGGED order (`recentsOrder`, spec §8.1) — the one input
-        // to `deriveRecentsEntries` that changes without any pane changing.
-        // Left out, a reorder wrote the new order and the band went on
-        // drawing the old one until something unrelated happened to
-        // re-render it: the drop landed, the rows did not move, and a reload
-        // was the only way to see it — live-reported as "rows on Recents
-        // cannot be reordered", one of that report's two causes.
-        state.recentsOrder === prevPaneSlice.order &&
-        // Recents is the VIEW SWITCHER, so which view is on screen is one of
-        // the facts it draws (`RecentsEntry.showing`) — and switching views
-        // touches neither of the other two: the panes are all still there,
-        // unchanged, just hung on a different tree. Without this the "you
-        // are here" marker stayed on whichever row happened to be showing
-        // when `panes` last changed, which is a switcher that cannot tell
-        // you where you are.
-        state.activeViewId === prevPaneSlice.activeView
-      ) {
-        return
-      }
-      prevPaneSlice = {
-        panes: state.panes,
-        dormant: state.dormantArrangements,
-        activeView: state.activeViewId,
-        order: state.recentsOrder,
-      }
-      onTick()
-    }),
-  )
-  return () => unsubs.forEach((u) => u())
-}
-
-function useRecentsTick(workspaceIds: string[], refreshSignal: string): void {
-  const idsKey = workspaceIds.slice().sort().join(ID_DELIM)
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const ids = idsKey ? idsKey.split(ID_DELIM) : []
-    return subscribeRecentsTick(ids, () => setTick((t) => t + 1))
-  }, [idsKey, refreshSignal])
-}
-
 interface SpacePanelProps {
   project: Project
   rowsForProject: (projectId: string) => SidebarRow[]
-  recentsForProject: (projectId: string) => RecentsBandEntry[]
   onOpen: (id: string) => void
   onTrash: (id: string) => void
   onCreate: (parentId: string, kind: 'workspace' | 'thread') => void
-  onFocusRecent: (entry: RecentsBandEntry) => void
-  onCloseRecent: (entry: RecentsBandEntry) => void
-  onCloseChatRecent: (entry: RecentsBandEntry, chatId: string) => void
+  onFocusRecent: (viewId: string) => void
+  onCloseRecent: (viewId: string) => void
+  onCloseChatRecent: (chatId: string) => void
   onDrop: (subjects: SidebarRow[], target: SidebarRow, mode: DropMode) => void
   onPaneDrop: (subjects: SidebarRow[], paneId: string, zone: SidebarPaneZone) => void
   onTrashProject: (projectId: string) => void
@@ -200,7 +71,6 @@ interface SpacePanelProps {
 function SpacePanel({
   project,
   rowsForProject,
-  recentsForProject,
   onOpen,
   onTrash,
   onCreate,
@@ -213,6 +83,17 @@ function SpacePanel({
 }: SpacePanelProps) {
   const projectId = project.id
   const repoRows = rowsForProject(projectId)
+  // Row id -> repo id, so a repo-scoped pending create (a branch import)
+  // only ever suppresses a stray reseed within ITS OWN repo, never a
+  // brand-new row anywhere else in this project (`hideRowsForInFlightCreates`'s
+  // own doc, rows-from-pending.ts). Read off the canonical store, not
+  // `repoRows` above, since scope only needs the id, never the rendered
+  // (removal-filtered) shape.
+  const allRepos = useSidebarStore((s) => s.repos)
+  const rowRepoId = useMemo(
+    () => rowRepoScope(allRepos.filter((r) => r.projectId === projectId)),
+    [allRepos, projectId],
+  )
   // The REAL project-home workspace — project-scoped, not repo-scoped
   // (home-workspace-resolver.ts: "home is a project-level concept, not a
   // repo workspace"). Target for the header's Thread button and the
@@ -306,7 +187,12 @@ function SpacePanel({
   // The pending row is the ONE stand-in for a create in flight — its real row
   // reseeds in (at root, before its placement write) long before the POST
   // answers, so it is hidden until the entry clears (rows-from-pending.ts).
-  const rows = hideRowsForInFlightCreates([...homeRows, ...repoRows], pendingEntries, projectId)
+  const rows = hideRowsForInFlightCreates(
+    [...homeRows, ...repoRows],
+    pendingEntries,
+    projectId,
+    rowRepoId,
+  )
   const navigate = useNavigate()
   // The tree and Recents sit in ONE shared scroll region (spec §2) and both
   // take `useSidebarDrag` (Task 21) — each resolves its own edge-scroll
@@ -318,32 +204,7 @@ function SpacePanel({
   useEffect(() => {
     viewportRef.current = findScrollParent(contentRef.current)
   })
-  // Narrow, project-scoped selector (not the whole `repos` array) that
-  // changes whenever a tree workspace under this project starts/stops
-  // working. Read for its own re-render (a fresh string forces this
-  // component to re-render when it changes) AND handed to useRecentsTick
-  // below to re-scan `getAllActiveWorkspaceIds()` — a workspace's store
-  // being created for the first time this session most commonly coincides
-  // with its first chat starting to work, so this is what usually catches
-  // it. It is a partial mitigation, not a guarantee: a workspace whose
-  // store appears WITHOUT `working` also flipping (e.g. a pane opened onto
-  // an already-idle/dormant chat) is still missed until some unrelated
-  // re-render happens — there is no general cross-store live-aggregation
-  // primitive in this codebase to close that gap fully (see
-  // task-30-report.md).
-  const workingSignal = useSidebarStore((s) => {
-    const parts: string[] = []
-    for (const r of s.repos) {
-      if (r.projectId !== projectId) continue
-      for (const w of r.workspaces) parts.push(`${w.id}${ID_DELIM}${w.working ? 1 : 0}`)
-    }
-    return parts.join(ID_DELIM)
-  })
-  const workspaceIds = Array.from(
-    new Set(rows.map((r) => r.workspaceId).filter((id): id is string => id != null)),
-  )
-  useRecentsTick(workspaceIds, workingSignal)
-  const entries = recentsForProject(projectId)
+  const viewIds = useStore(windowPaneStore, (s) => selectProjectViewIds(s, projectId))
 
   // Spec §4: "clicking the header folds the space: the tree goes, Recents
   // stays. That is the point of folding — to see nothing but what is up in
@@ -388,6 +249,17 @@ function SpacePanel({
             }
             void handleCreateHomeThread(projectId, homeWorkspaceId, navigate)
           }}
+          // Same create as `onCreateThread` above, landed on Terminal — "start
+          // THIS chat on the CLI" without flipping chatIsDefaultPresentation
+          // (Settings → Chat) for every project-home thread after it. Same
+          // not-yet-resolved refusal as the plain button, same reason.
+          onCreateThreadTerminal={() => {
+            if (!homeWorkspaceId) {
+              toast.error("Can't start a new thread yet")
+              return
+            }
+            void handleCreateHomeThread(projectId, homeWorkspaceId, navigate, 'terminal')
+          }}
           // Imports another repo into this project — opens the same modal
           // the standalone Add-menu button used to.
           onImportRepo={() => setAddRepoOpen(true)}
@@ -413,7 +285,8 @@ function SpacePanel({
             />
           )}
           <RecentsBand
-            entries={entries}
+            projectId={projectId}
+            viewIds={viewIds}
             onFocus={onFocusRecent}
             onClose={onCloseRecent}
             onCloseChat={onCloseChatRecent}
@@ -464,7 +337,6 @@ export function SpaceScroller({
   activeProjectId,
   onActiveProjectChange,
   rowsForProject,
-  recentsForProject,
   onOpen,
   onTrash,
   onCreate,
@@ -592,7 +464,6 @@ export function SpaceScroller({
           key={project.id}
           project={project}
           rowsForProject={rowsForProject}
-          recentsForProject={recentsForProject}
           onOpen={onOpen}
           onTrash={onTrash}
           onCreate={onCreate}

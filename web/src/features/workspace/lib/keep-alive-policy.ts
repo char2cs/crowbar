@@ -1,6 +1,4 @@
-import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
 import type { PaneGroup } from '@/features/panes/types/pane'
-import type { RecentsEntry } from '@/features/panes/types/recents-entry'
 
 /**
  * Pure retention policy for workspace keep-alive — "everything that is in a
@@ -12,20 +10,15 @@ import type { RecentsEntry } from '@/features/panes/types/recents-entry'
  *    even if it owns no chat yet — a brand-new blank workspace has nothing
  *    in Recents to point at it, but destroying the thing the user is
  *    actively looking at is never correct; or
- *  - `hasViewChat` — it currently owns at least one chat present in some
- *    Recents entry, per {@link workspacesWithViewChat} below. That covers
- *    every state `deriveRecentsEntries` tracks (live, working, set, AND
- *    dormant) — a parked/remembered entry is still tracked by Recents, so
- *    per the user's own definition it still counts as "in a view", not just
- *    whatever is on screen this instant.
+ *  - `hasViewChat` — it currently owns at least one chat held by some view
+ *    record, showing or not, per {@link workspacesWithViewChat} below.
  *
  * NO TIME WINDOW. The old policy kept a workspace warm for a grace period
  * after it went inactive, on the theory the user might switch right back.
  * That period bridged a CLOCK; this rule needs none — whether a workspace
- * has a view-chat changes SYNCHRONOUSLY with view state (closing a view's
- * last chat strips it from every Recents entry in the same tick `closePane`
- * / `forgetDormantArrangement` run), so there is nothing left for a timer to
- * wait out. `workspace-host.tsx` reconciles whenever that state changes, not
+ * has a view-chat changes SYNCHRONOUSLY with view state (closing a view
+ * removes its record in the same tick), so there is nothing left for a timer
+ * to wait out. `workspace-host.tsx` reconciles whenever that state changes, not
  * on a schedule.
  *
  * `cap` still applies: Recents can track more workspaces at once than the
@@ -96,36 +89,18 @@ export function planRetention(
 }
 
 /**
- * Which workspaces currently own at least one chat present in some Recents
- * entry — the "in a view" test {@link planRetention} runs on.
- *
- * Pure: derives entries the same way Recents itself always has (a live
- * pane, a working chat, or a persisted dormant/set arrangement —
- * {@link deriveRecentsEntries}) and maps each entry's chats back to their
- * owning workspace via `chatOwner`. The caller builds `chatOwner` from
- * whichever workspace stores are actually live (only a live store's
- * `agentChats.chats` can say who owns a chat) — this function never reads a
- * store itself, so it stays as deterministic and unit-testable as
- * `planRetention`.
- *
- * `order`/`activeViewId` (Recents' own display order and "which one is
- * showing" marker) are deliberately not inputs here — neither changes WHICH
- * chats end up in some entry, only how the band draws them, so retention has
- * no use for either.
+ * Which workspaces own at least one chat held by a view record. Pure: the
+ * caller builds `chatOwner` from the workspace stores that are live.
  */
 export function workspacesWithViewChat(
-  panes: PaneGroup[],
-  working: Record<string, boolean>,
-  dormantArrangements: RecentsEntry[],
+  panes: readonly PaneGroup[],
   chatOwner: ReadonlyMap<string, string>,
 ): Set<string> {
-  const entries = deriveRecentsEntries(panes, working, dormantArrangements)
   const owners = new Set<string>()
-  for (const entry of entries) {
-    for (const chatId of entry.chatIds) {
-      const owner = chatOwner.get(chatId)
-      if (owner) owners.add(owner)
-    }
+  for (const pane of panes) {
+    if (!pane.viewId || !pane.chatId) continue
+    const owner = chatOwner.get(pane.chatId)
+    if (owner) owners.add(owner)
   }
   return owners
 }

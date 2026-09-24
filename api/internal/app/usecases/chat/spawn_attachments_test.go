@@ -30,7 +30,7 @@ func TestSubmitPrompt_MaterializesAttachmentsAndRewritesTheDispatchedMessage(t *
 	require.NoError(t, err)
 
 	text := "check this out ![photo](" + stored.Ref + ")"
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, text, uuid.NewString(), "", "", "")
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, text, uuid.NewString(), "", nil)
 	require.NoError(t, err)
 
 	last := f.term.calls[len(f.term.calls)-1]
@@ -49,7 +49,7 @@ func TestSubmitPrompt_NoAttachmentReference_DispatchesTheTextUnchanged(t *testin
 	chatID, _ := f.spawn(t, "claude")
 
 	text := "just a plain message, no attachments"
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, text, uuid.NewString(), "", "", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, text, uuid.NewString(), "", nil)
 	require.NoError(t, err)
 
 	last := f.term.calls[len(f.term.calls)-1]

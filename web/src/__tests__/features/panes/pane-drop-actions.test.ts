@@ -4,6 +4,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { showingLayout } from '@/features/panes/lib/view-state'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 
 describe('pane drop actions', () => {
@@ -18,7 +19,7 @@ describe('pane drop actions', () => {
 
     expect(targetPaneId).not.toBeNull()
     expect(targetPaneId).not.toBe(ROOT_PANE_ID)
-    const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const rootIds = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(rootIds).toHaveLength(2)
   })
 

@@ -3,11 +3,10 @@ import { resolvesToFirstChild, type DropMode } from '@/components/tree-dnd/drop-
 import type { SidebarPaneZone } from '@/components/sidebar/hooks/use-sidebar-drag'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { openChatIdInOwnView } from '@/features/panes/utils/pane-command-actions'
-import { getPaneSplitDropOptions } from '@/features/panes/utils/pane-drop-zones'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { viewChatIds } from '@/features/panes/lib/view-state'
 import { isKnownChatId, resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
 import { resolveChatProjectId } from '@/features/panes/lib/chat-project'
-import { viewIdOf } from '@/features/panes/lib/pane-views'
 import {
   levelWorkspaceOfBranchRow,
   resolveChatRepo,
@@ -45,8 +44,11 @@ import {
 } from '@/lib/api/sidebar-placement'
 import { reparentWorkspace } from '@/lib/api/workspace'
 import { setChatPlacement } from '@/features/agent/api/agent-api'
-import { recentsForProject } from '@/components/sidebar/lib/recents-for-project'
-import { resolveHomeOwnerId, rowsFromRepo } from '@/components/sidebar/lib/rows-from-repo'
+import {
+  resolveHomeOwnerId,
+  rowsFromRepo,
+  rowRepoScope,
+} from '@/components/sidebar/lib/rows-from-repo'
 import { homeOwnerRowId, rowsFromHome } from '@/components/sidebar/lib/rows-from-home'
 import { compareSidebarRows } from '@/components/sidebar/lib/row-order'
 import { rowsForProject } from '@/components/sidebar/lib/rows-for-project'
@@ -198,7 +200,14 @@ export function renderedProjectRows(repos: readonly Repo[], projectId: string): 
       : []),
     ...rowsForProject(repos, projectId),
   ]
-  return [...hideRowsForInFlightCreates(rows, usePendingCreatesStore.getState().entries, projectId)]
+  return [
+    ...hideRowsForInFlightCreates(
+      rows,
+      usePendingCreatesStore.getState().entries,
+      projectId,
+      rowRepoScope(repos),
+    ),
+  ]
 }
 
 /** `containerId`'s members in the order `SidebarTree` draws them, minus the lifted rows. */
@@ -763,19 +772,8 @@ async function fireRowPlacementCall(call: RowPlacementCall): Promise<void> {
 }
 
 /**
- * Middle of a Recents entry (spec §8.1: "into that view, opened"). `target`
- * is ensured live first — the active pane, if it wasn't already up anywhere
- * (the same "makes its own view" a click already does, §8.4) — and every
- * dragged chat is then merged beside it via `openChatIntoPane`'s own
- * dedup/plain-open/merge rules (never a re-implementation): dropping a chat
- * that is already up goes TO it, and a target already on screen grows
- * instead of reopening.
- *
- * Recents spans every active workspace in a project, so `target` and
- * `dragged` can easily belong to different ones. That used to be silently
- * refused; `resolveChatWorkspaceId` (features/panes/lib/pane-chat-workspace.ts)
- * now answers "which workspace does this chat belong to" for the render path
- * too, so it no longer has to be.
+ * Middle of a Recents row (spec §8.1: "into that view, opened"): every
+ * dragged chat joins the target's view through `openChatIntoPane`'s own rules.
  */
 function openRecentsEntryThenMerge(
   target: SidebarRow,
@@ -783,68 +781,55 @@ function openRecentsEntryThenMerge(
   dragged: readonly SidebarRow[],
 ): void {
   const findPaneFor = (chatId: string) =>
-    Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === chatId)?.id
+    chatPaneIndex(windowPaneStore.getState().panes).get(chatId)
 
   let targetPaneId = findPaneFor(targetChatId)
   if (!targetPaneId) {
-    // Literally "the same 'makes its own view' a click already does" — so it
-    // calls the click's own function rather than re-deriving it from a drop
-    // aimed at the active pane, which would have merged the target into
-    // whatever was already there before the dragged rows even arrived.
     openChatInOwnPane(target)
     targetPaneId = findPaneFor(targetChatId)
   }
   if (!targetPaneId) return
   for (const subject of dragged) {
-    // Dropped onto itself — nothing to merge. Compared by resolved CHAT id,
-    // not row id: a Recents row whose chat owns a workspace is a `branch` row
-    // (see `performRecentsDrop`), and the tree's copy of that same chat can
-    // name it by workspace id instead.
+    // Compared by resolved CHAT id: a Recents row whose chat owns a workspace
+    // is a `branch` row, and the tree's copy may name it by workspace id.
     if (paneChatSubject(subject)?.chatId === targetChatId) continue
     openChatIntoPane(subject, targetPaneId, 'center')
   }
 }
 
 /**
- * Above/below a Recents entry (spec §8.1: "it moves to that slot") — the
- * drag-reorder `planChatDrop`'s own doc used to flag as real remaining work.
- * `subjectChatIds`/`targetChatId` are the CHAT ids the dragged rows name
- * (resolved by `performRecentsDrop`, which a Recents row's `kind` cannot
- * answer on its own — see there), but
- * `pane-slice.ts`'s persisted order is keyed by ENTRY id (a pane id, a
- * merged-set nanoid, or a bare chat id for a working-no-view row — never a
- * chat id on its own, since a SET's members share one slot); both are
- * resolved here against the project's own current, correctly-derived band
- * before being handed to `reorderRecentsEntry`. A SET dragged by one of its
- * members reorders the whole set, since the members have no independent
- * slot of their own.
+ * Above/below a Recents row (spec §8.1: "it moves to that slot"). A member
+ * dragged out of a group leaves it first (`detachPane`); a whole row moves
+ * within `viewOrder`.
  */
 function reorderRecentsEntries(
   subjectChatIds: readonly string[],
-  target: SidebarRow,
   targetChatId: string,
   mode: 'before' | 'after',
 ): void {
-  const repos = useSidebarStore.getState().repos
-  // A home chat's entry carries the project-HOME workspace, which no repo
-  // claims — resolved home-aware, or every drop beside one was a silent no-op.
-  const projectId =
-    resolveHomeRowScope(targetChatId)?.projectId ??
-    projectOfWorkspace(repos, target.workspaceId ?? '')
-  if (!projectId) return
-  const entries = recentsForProject(repos, projectId)
-  const naturalOrder = entries.map((e) => e.id)
-  const targetEntry = entries.find((e) => e.chatIds.includes(targetChatId))
-  if (!targetEntry) return
+  const viewOfChat = (chatId: string) => {
+    const { panes } = windowPaneStore.getState()
+    const paneId = chatPaneIndex(panes).get(chatId)
+    return paneId ? panes[paneId]?.viewId : null
+  }
+  const targetViewId = viewOfChat(targetChatId)
+  if (!targetViewId) return
 
   const moved = new Set<string>()
   for (const chatId of subjectChatIds) {
-    const sourceEntry = entries.find((e) => e.chatIds.includes(chatId))
-    if (!sourceEntry || sourceEntry.id === targetEntry.id || moved.has(sourceEntry.id)) continue
-    moved.add(sourceEntry.id)
-    windowPaneStore
-      .getState()
-      .paneActions.reorderRecentsEntry(sourceEntry.id, targetEntry.id, mode, naturalOrder)
+    const state = windowPaneStore.getState()
+    const paneId = chatPaneIndex(state.panes).get(chatId)
+    const sourceViewId = paneId ? state.panes[paneId]?.viewId : null
+    if (!paneId || !sourceViewId || moved.has(sourceViewId)) continue
+    if (viewChatIds(state, sourceViewId).length > 1) {
+      state.paneActions.detachPane(paneId)
+    } else if (sourceViewId === targetViewId) {
+      continue
+    }
+    const viewId = viewOfChat(chatId)
+    if (!viewId || viewId === targetViewId) continue
+    moved.add(viewId)
+    windowPaneStore.getState().paneActions.reorderView(viewId, targetViewId, mode)
   }
 }
 
@@ -879,7 +864,7 @@ function performRecentsDrop(subjects: SidebarRow[], target: SidebarRow, mode: Dr
     openRecentsEntryThenMerge(target, targetChatId, subjects)
     return
   }
-  reorderRecentsEntries(subjectChatIds, target, targetChatId, mode)
+  reorderRecentsEntries(subjectChatIds, targetChatId, mode)
 }
 
 /**
@@ -1007,181 +992,36 @@ export function performSidebarPaneDrop(
 }
 
 /**
- * One chat, CLICKED — spec §8.4: "clicking a chat in the tree makes its own
- * view." A BRAND-NEW view, every time: a fresh `viewId` nothing else on
- * screen carries, holding this one chat.
- *
- * Its own rule, deliberately NOT `openChatIntoPane`'s. That one answers a
- * DROP, whose entire vocabulary is "into THIS pane, on THAT side" (§8.1) and
- * whose occupied-pane case is a MERGE: a split carved out of the target
- * pane's own share, tagged with the target's own view — "you asked for them
- * side by side, so you get them side by side" (§8.2). A click asks for
- * neither. Routing it through the drop with a synthetic `zone: 'center'` on
- * whichever pane happened to be active is exactly what made clicking a row
- * read as appending a chat to the view you were already in: measured live,
- * four clicks produced one Recents SET of four chats and a 50/25/12.5/12.5
- * cascade of splits nested inside the first pane. Merging two views is the
- * drag-and-drop gesture and only that.
- *
- *   - **already up anywhere → go TO it** (§8.2's "it never opens twice"),
- *     checked FIRST and against every pane, since the clicked row may be live
- *     in a pane other than the active one — including one in a view that is
- *     currently off screen, in which case `setActivePane` brings that whole
- *     view over. Same dedup pattern `openChatIntoPane` and
- *     `open-agent-chat.ts` both use. Its view is left exactly as it is —
- *     revealing a chat is a SWITCH, never a regrouping.
- *   - **an EMPTY pane on screen → it fills that one.** An empty pane is a
- *     fallback, not a view (see `pane-slice.ts`'s `dropEmptiedPanes`), so
- *     there is nothing there to preserve and nothing to open beside. The
- *     active pane first, so a click lands where the user is already looking.
- *   - **otherwise → a brand-new VIEW** (`addPane`), which takes the screen
- *     while the arrangement that was showing is parked whole — never
- *     `splitPane` on the active one, which would charge the view you were in
- *     for the view you asked for, and never a peer leaf tiled beside it,
- *     which is what "a new view" used to amount to and why two separately
- *     clicked chats still ended up side by side.
- *
- * `detachPaneToOwnView` covers the middle case, and is what makes "a brand-
- * new view" true of the whole function rather than only of the `addPane`
- * branch: a reused pane can be one member of a view somebody merged earlier,
- * and filling it in place would have silently added this chat to that group —
- * the same "it appended to what I was looking at" complaint, one level down.
- * It is a no-op for a pane that is already a view of its own, which is the
- * overwhelmingly common case.
- *
- * The chat and its workspace both come from `paneChatSubject`, so this no
- * longer refuses a row belonging to an off-screen workspace: the render path
- * resolves a pane's chat to its own workspace now (see
- * `features/panes/lib/pane-chat-workspace.ts`), which is the mechanism that
- * refusal stood in for. `space-content-actions.ts`'s click still NAVIGATES to
- * a row's workspace first — that is a routing decision about where the user
- * should be, and it is unaffected by this.
+ * One chat, CLICKED — spec §8.4: "clicking a chat makes its own view". A
+ * click never merges; merging is the drag-and-drop gesture alone.
  */
 export function openChatInOwnPane(subject: SidebarRow): void {
   const resolved = paneChatSubject(subject)
   if (!resolved) return
-  // The reveal-or-vacant-or-new-view logic itself lives in
-  // `openChatIdInOwnView` (pane-command-actions.ts) — shared with ⌘N's
-  // new-chat command, which needs the exact same "open as its own view" rule
-  // for a chat id it just minted rather than resolved from a dragged row.
-  openChatIdInOwnView(resolved.chatId)
+  windowPaneStore.getState().paneActions.openChat(resolved.chatId, {
+    projectId: resolveChatProjectId(resolved.chatId, resolved.workspaceId) ?? undefined,
+  })
 }
 
 /**
- * One chat, DROPPED onto one pane — spec §8.1/§8.2. **The only gesture in
- * the app that MERGES two chats into one view.**
- *
- * The merge is a single fact, written once: `splitPane` carves the new pane
- * out of the target's own share of the window AND tags it with the target's
- * `viewId` (pane-slice.ts). Both halves of "one view" — the layout subtree
- * and the group membership — come from that one call, so they cannot drift.
- * This used to need a second, separate write (`groupIntoArrangement`, filing
- * both chat ids into a Recents entry) precisely because grouping had no
- * expression in the pane model at all; Recents now reads the group off the
- * panes, so a merge that lands in the layout is a merge Recents draws.
- *
- * §8.2's "it never opens twice" is a rule against DUPLICATION, not against
- * the merge. Read as a blanket refusal it made a split unreachable: once
- * every chat got a view of its own and only the showing view occupies the
- * screen, every chat the user had ever opened already had a pane — parked,
- * off screen, but a pane — so "already up → go TO it" fired for every
- * Recents row and every previously-clicked tree row, and a drop onto a pane
- * edge switched views instead of splitting. That is the "I can't create a
- * split" this function is the whole of.
- *
- * So the dedup is a MOVE, not a refusal: `mergePaneIntoView` lifts the pane
- * the chat is already in out of whatever view holds it and re-homes it as a
- * split of the target, inheriting the target's `viewId`. Still exactly one
- * pane per chat, still never a second `setPaneChat` — and the view it left
- * dissolves on its own when it held nothing else. Only two drops are still a
- * plain reveal: onto the pane already showing the chat (nothing to
- * rearrange), and onto the MIDDLE of an empty pane, where §8.4's "an empty
- * pane is a fallback, not a view" means there is nobody to be side by side
- * with in the first place.
- *
- * `paneChatSubject` resolves both the chat and its owning workspace, so a
- * row from a workspace other than the routed one lands like any other — the
- * render path resolves a pane's chat to its own workspace now
- * (`features/panes/lib/pane-chat-workspace.ts`), which is what the old
- * active-workspace refusal was standing in for.
- *
- * NOT reachable from a plain click any more — see `openChatInOwnPane` above
- * for why a click needs its own, merge-free rule.
+ * One chat, DROPPED onto one pane — spec §8.1/§8.2, the only gesture that
+ * puts two chats in one view. An already-open chat is moved, never opened a
+ * second time.
  */
 export function openChatIntoPane(subject: SidebarRow, paneId: string, zone: SidebarPaneZone): void {
   const resolved = paneChatSubject(subject)
   if (!resolved) return
-  const { panes, paneActions, viewProjects } = windowPaneStore.getState()
-  const chatId = resolved.chatId
-
+  const { panes, views, paneActions } = windowPaneStore.getState()
   const target = panes[paneId]
   if (!target) return
 
-  // LAW 4 (project-scoped panes §6.5): content never crosses a project.
-  // Belt-and-braces — the geometry already makes this nearly unreachable,
-  // since the only draggable rows are the active project's panel's and the
-  // only pane tree on screen is the active project's — so an UNRESOLVABLE
-  // project on either side is allowed through rather than refused: a sidebar
-  // one frame behind must not break an ordinary same-project drop.
-  const targetProject = viewProjects[viewIdOf(target)]
-  const subjectProject = resolveChatProjectId(chatId, resolved.workspaceId)
+  // LAW 4: content never crosses a project. An unresolvable side is allowed
+  // through — a sidebar one frame behind must not break a same-project drop.
+  const targetProject = target.viewId ? views[target.viewId]?.projectId : undefined
+  const subjectProject = resolveChatProjectId(resolved.chatId, resolved.workspaceId)
   if (targetProject && subjectProject && targetProject !== subjectProject) {
     toast.error('That chat belongs to a different space')
     return
   }
-
-  const existingPane = Object.values(panes).find((p) => p.chatId === chatId)
-
-  // Middle of an EMPTY pane: a plain open, exactly where you dropped it. No
-  // merge — an empty pane is a fallback, not a view, so there is nobody to
-  // be side by side WITH; the pane keeps whatever view it already answers to.
-  if (zone === 'center' && target.chatId === null) {
-    if (existingPane) {
-      paneActions.setActivePane(existingPane.id)
-      return
-    }
-    paneActions.setPaneChat(paneId, chatId, null)
-    paneActions.setActivePane(paneId)
-    return
-  }
-
-  // Every other case is a MERGE — an edge always splits (spec §8.1: "into
-  // this view, on that side"), and the middle of an already-occupied pane
-  // can only ADD, never swap out what is already there (§8.2's rule 1 —
-  // that silent swap is exactly the dwell-to-remove gesture's replacement),
-  // so it falls back to the same split, defaulting to the right.
-  //
-  // "You asked for them side by side, so you get them side by side" (§8.2):
-  // both branches below tag the arriving pane with `target`'s `viewId`, so
-  // the two are one view from this moment — in the layout and in Recents
-  // alike, which now reads its live rows off exactly that tag.
-  const splitOptions = getPaneSplitDropOptions(zone === 'center' ? 'right' : zone)
-  if (!splitOptions) return
-
-  if (existingPane) {
-    // Dropped onto the pane it is already in: the arrangement it is asking
-    // for is the one it has.
-    if (existingPane.id === paneId) {
-      paneActions.setActivePane(paneId)
-      return
-    }
-    paneActions.mergePaneIntoView(
-      existingPane.id,
-      paneId,
-      splitOptions.direction,
-      splitOptions.placement,
-    )
-    paneActions.setActivePane(existingPane.id)
-    return
-  }
-
-  const newPaneId = paneActions.splitPane(
-    paneId,
-    splitOptions.direction,
-    undefined,
-    splitOptions.placement,
-  )
-  if (!newPaneId) return
-  paneActions.setPaneChat(newPaneId, chatId, null)
-  paneActions.setActivePane(newPaneId)
+  paneActions.dropChatOnPane(resolved.chatId, paneId, zone)
 }

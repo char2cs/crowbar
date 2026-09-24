@@ -348,4 +348,120 @@ describe('AgentSelectionPicker', () => {
       expect(screen.getByRole('menuitem', { name }).querySelector('svg')).toBeNull()
     }
   })
+
+  // agent-api.ts's own doc on `AgentProvider.efforts`: "Read it as
+  // efforts[model] where model is '' when the chat has no selection" — a
+  // real, backend-resolved entry, not a gap. `effortLevelsFor` does exactly
+  // that lookup with no special-casing of '' at all, so a caller handing the
+  // picker the RAW unset value ('') finds it and draws the slider, unlike a
+  // label ("Default") baked into the value instead — see AgentChatView's own
+  // `model`/`effectiveEffort`, which is the whole bug this test file's
+  // sibling (agent-chat-view.test.tsx) regression-tests.
+  it("finds the provider's own '' entry and draws the slider when no model is confirmed yet", () => {
+    const withDefaultEfforts: AgentProvider = {
+      ...claude,
+      efforts: { ...claude.efforts, '': ['low', 'medium'] },
+    }
+    render(
+      <AgentSelectionPicker
+        provider={withDefaultEfforts}
+        providers={[withDefaultEfforts, codex]}
+        model=""
+        effort=""
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    openMenu()
+    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
+    const effortSection = slider.parentElement?.parentElement as HTMLElement
+    expect(within(effortSection).getByText('Low')).toBeInTheDocument()
+    expect(within(effortSection).getByText('Medium')).toBeInTheDocument()
+  })
+
+  // The mirror case: a provider with NO '' entry (every fixture above except
+  // the one just added) offers no effort levels at all until a real model is
+  // picked — absence, not a disabled slider, same house rule as the whole
+  // control follows for a provider with no catalogue.
+  it('renders no slider for an unconfirmed model when the provider declares no own-default entry', () => {
+    render(
+      <AgentSelectionPicker
+        provider={claude}
+        providers={[claude, codex]}
+        model=""
+        effort=""
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    openMenu()
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+  })
+
+  // The user-reported bug: a completed turn leaves the trigger reading
+  // "Default" forever, with no clue which model actually answered, even
+  // though the provider told Crowbar. `reportedModel` is display-only — it
+  // must show up on the trigger without becoming the SELECTION.
+  it('shows the provider-reported model next to the unset label when nothing is explicitly picked', () => {
+    render(
+      <AgentSelectionPicker
+        provider={claude}
+        providers={[claude, codex]}
+        model=""
+        effort=""
+        reportedModel="Claude Sonnet 4.5"
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    const trigger = screen.getByRole('button', { name: /Agent:/ })
+    expect(trigger).toHaveTextContent('unset')
+    expect(trigger).toHaveTextContent('(Claude Sonnet 4.5)')
+    expect(trigger).toHaveAccessibleName(
+      'Agent: Claude, model unset (reported Claude Sonnet 4.5), effort unset',
+    )
+  })
+
+  it('an explicit model selection ignores a reported model entirely', () => {
+    render(
+      <AgentSelectionPicker
+        provider={claude}
+        providers={[claude, codex]}
+        model="opus"
+        effort="high"
+        reportedModel="Claude Sonnet 4.5"
+        onSelectionChange={vi.fn()}
+      />,
+    )
+    const trigger = screen.getByRole('button', { name: /Agent:/ })
+    expect(trigger).toHaveTextContent('opus')
+    expect(trigger).not.toHaveTextContent('Sonnet')
+    expect(trigger).toHaveAccessibleName('Agent: Claude, model opus, effort high')
+  })
+
+  // THE REGRESSION this area already broke once: a label baked into `model`
+  // stopped `efforts['']` from resolving. `reportedModel` must not repeat
+  // that mistake — the slider still has to find the provider's own ''
+  // entry, and a pick still has to stage the RAW '' model, never the report.
+  it("a reported model does not break the unset model's own efforts[''] slider or leak into a pick", () => {
+    const withDefaultEfforts: AgentProvider = {
+      ...claude,
+      efforts: { ...claude.efforts, '': ['low', 'medium'] },
+    }
+    const onSelectionChange = vi.fn()
+    render(
+      <AgentSelectionPicker
+        provider={withDefaultEfforts}
+        providers={[withDefaultEfforts, codex]}
+        model=""
+        effort=""
+        reportedModel="Claude Sonnet 4.5"
+        onSelectionChange={onSelectionChange}
+      />,
+    )
+    openMenu()
+    const slider = screen.getByRole('slider', { name: /Reasoning effort/ })
+    const effortSection = slider.parentElement?.parentElement as HTMLElement
+    expect(within(effortSection).getByText('Low')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Medium' }))
+    expect(onSelectionChange).toHaveBeenCalledWith('claude', '', 'medium')
+  })
 })

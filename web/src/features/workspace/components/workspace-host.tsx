@@ -167,9 +167,8 @@ export function WorkspaceHost({
     if (active) map.set(active, now)
 
     // Track every workspace a PANE currently holds a chat for, the same way
-    // `active` is tracked above. A pane's chat is by construction part of a
-    // live Recents entry (deriveRecentsEntries walks the very same panes), so
-    // `viewWsIds` already covers WHY these are retained — this just makes
+    // `active` is tracked above. A pane's chat is by construction held by a
+    // view record, so `viewWsIds` already covers WHY these are retained — this just makes
     // sure they're in the map at all, so they're evaluated (and, once no pane
     // or view names them any longer, actually evicted) instead of rendering
     // forever through the force-mount guard below with no store ever

@@ -65,7 +65,7 @@ func Load() (Vocabulary, error) {
 // every event it does map must be a known one, must carry that event's required
 // fields, and must not carry a field the event does not declare. The last rule is what
 // turns a typo from "maps silently to nothing" into a startup failure.
-func (v Vocabulary) Validate(providerID string, events map[string]map[string]string) error {
+func (v Vocabulary) Validate(providerID string, events map[string]map[string][]string) error {
 	for _, name := range sortedKeys(events) {
 		rule, ok := v.Events[name]
 		if !ok {
@@ -73,7 +73,7 @@ func (v Vocabulary) Validate(providerID string, events map[string]map[string]str
 		}
 		fields := events[name]
 		for _, req := range rule.Required {
-			if fields[req] == "" {
+			if len(fields[req]) == 0 {
 				return fmt.Errorf("%s: event %q must map %q", providerID, name, req)
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	agentchat "github.com/char2cs/crowbar/api/internal/app/repositories/chat"
@@ -108,9 +109,15 @@ func (t *Turns) ingestResolvedHook(
 	// provider's own internal session being filed as the user's conversation, and
 	// a guard a caller can forget to call is one that will eventually be forgotten.
 	//
+	// channelFor(ctx), not canonicalEvent's declared transport: a channel-scoped
+	// event's shape arrives per MESSAGE, not per event declaration (design spec
+	// docs/plans/2026-09-22-descriptor-channel-split.md, 1.1) — the same fact
+	// ownerDropsThisDelivery below already reads off this ctx, for a different
+	// guard.
+	//
 	// Every failure here DROPS the hook rather than failing it. A hook must never
 	// break the vendor CLI's turn.
-	ev, err := descriptor.ParseHook(canonicalEvent, rawPayload)
+	ev, err := descriptor.ParseHook(canonicalEvent, rawPayload, channelFor(ctx))
 	if err != nil {
 		switch {
 		case errors.Is(err, engineagents.ErrForeignConversation):
@@ -118,8 +125,29 @@ func (t *Turns) ingestResolvedHook(
 				"reason", err, "event", canonicalEvent,
 				"provider", runner.ProviderID, "runner_id", runnerID)
 		case errors.Is(err, engineagents.ErrHookUndeclared):
-			slog.DebugContext(ctx, "agent: ingest hook: provider does not map this event",
-				"event", canonicalEvent, "provider", runner.ProviderID, "runner_id", runnerID)
+			// ERROR, not WARN (P5, design spec F2): this is the exact shape a
+			// channel/payload mismatch takes — a delivery landing on a channel
+			// its own event never declared a block for — and it used to drop
+			// silently enough that a harness bug shipping this same mismatch
+			// went unnoticed (docs/plans/2026-09-22-descriptor-channel-
+			// split.md). Still non-fatal to the CLI's own turn — "Every
+			// failure here DROPS the hook rather than failing it" above is
+			// unconditional, a hook relay's exit code must never deny a real
+			// tool call over a Crowbar-side mapping gap — but ERROR is what
+			// makes it an operator-actionable anomaly instead of routine
+			// noise a WARN-level log gets filtered alongside.
+			slog.ErrorContext(ctx, "agent: ingest hook: provider does not map this event on this channel",
+				"event", canonicalEvent, "channel", channelFor(ctx),
+				"provider", runner.ProviderID, "runner_id", runnerID)
+		case errors.Is(err, engineagents.ErrRequiredFieldMissing):
+			// ERROR (design spec 2.3): a field the descriptor itself declared
+			// required resolved to nothing against a REAL delivered payload —
+			// exactly the class of latent mismatch this migration exists to
+			// surface (the tool||tool_name permission bug shipped invisibly
+			// this way). Still non-fatal to the CLI's own turn, same as above.
+			slog.ErrorContext(ctx, "agent: ingest hook: required field resolved to nothing",
+				"err", err, "event", canonicalEvent, "channel", channelFor(ctx),
+				"provider", runner.ProviderID, "runner_id", runnerID)
 		default:
 			slog.WarnContext(ctx, "agent: ingest hook: parse payload",
 				"err", err, "event", canonicalEvent, "runner_id", runnerID)
@@ -127,13 +155,26 @@ func (t *Turns) ingestResolvedHook(
 		return nil
 	}
 
-	if t.apiOwnsThisEvent(ctx, runnerID, descriptor, ev.Kind) {
-		// A hooks delivery of an event this descriptor declares api-owned, for a
-		// runner with a live api connection right now: pumpAPIConn (apiconn.go)
-		// is already forwarding exactly this event kind from that connection's
-		// own driver — TransportFor is how it decides which kinds are its to
-		// forward. This hooks copy is the mirror problem: every api-transport
-		// spawn ALSO forks a real, hooks-wired companion PTY on the SAME session
+	if t.surfaceGated(runnerID, descriptor, ev.Kind) {
+		// design spec P6b tag 2: the descriptor's own surfaces: says this event
+		// is not worth ingesting on the view currently in front of the user
+		// (Runners.ShowingNativeView) — see surfaceGated's own doc comment. NO
+		// CROWBAR-SIDE VETO: whatever the descriptor names is honoured as-is;
+		// TestSurfaceGatedEvents_AreReportedLoudly (descriptor package) is the
+		// visibility side of that, not a rejection here.
+		slog.DebugContext(ctx, "agent: ingest hook: dropping an event gated off the surface in front of the user",
+			"event", ev.Kind, "runner_id", runnerID, "provider", runner.ProviderID)
+		return nil
+	}
+
+	if t.ownerDropsThisDelivery(ctx, runnerID, descriptor, ev.Kind) {
+		// A hooks delivery of an event this descriptor declares owner: api
+		// (design spec P6b tag 1), for a runner with a live, DISPATCHED api
+		// connection right now: pumpAPIConn (apiconn.go) is already forwarding
+		// exactly this event kind from that connection's own driver —
+		// TransportFor is how it decides which kinds are its to forward. This
+		// hooks copy is the mirror problem: every api-transport spawn ALSO
+		// forks a real, hooks-wired companion PTY on the SAME session
 		// (attach.go calls it "a known gap"), and spawn.Inject applies the
 		// descriptor's full hook set to it regardless of TransportFor — that
 		// distinction is invisible to the actual CLI process, which just fires
@@ -144,19 +185,19 @@ func (t *Turns) ingestResolvedHook(
 		//
 		// inflight.FromAPITransport(ctx) is what tells the two deliveries apart.
 		// Without it this guard cannot distinguish "a hooks POST echoing an
-		// api-owned event" from "the api-transport delivery of that SAME event,
-		// arriving through this exact call" — pumpAPIConn's own IngestHook calls
-		// satisfy TransportFor==api and HasLiveAPIConnection==true just as
-		// thoroughly as the companion PTY's hooks copy does, so an unmarked call
-		// used to drop BOTH: session_start through turn_stop reported successful
-		// ingestion while the ledger never gained a single turn — confirmed live,
-		// the "Codex still not worky" bug.
-		slog.DebugContext(ctx, "agent: ingest hook: dropping a hooks-delivered copy of an api-owned event",
+		// owner: api event" from "the api-transport delivery of that SAME
+		// event, arriving through this exact call" — pumpAPIConn's own
+		// IngestHook calls satisfy owner==api and HasLiveAPIConnection==true
+		// just as thoroughly as the companion PTY's hooks copy does, so an
+		// unmarked call used to drop BOTH: session_start through turn_stop
+		// reported successful ingestion while the ledger never gained a single
+		// turn — confirmed live, the "Codex still not worky" bug.
+		slog.DebugContext(ctx, "agent: ingest hook: dropping a hooks-delivered copy of an owner-declared event",
 			"event", ev.Kind, "runner_id", runnerID, "provider", runner.ProviderID)
 		return nil
 	}
 
-	if namesAnotherConversation(runner, ev) {
+	if t.namesAnotherConversation(ctx, runner, ev) {
 		// Not necessarily foreign: a codex-shaped provider pushes a spawned
 		// subagent's OWN complete turn/item stream over this SAME connection,
 		// carrying the CHILD's own thread id as session_id — see
@@ -229,13 +270,34 @@ func (t *Turns) ReplayStartupHook(
 	}
 }
 
-// apiOwnsThisEvent reports whether THIS CALL is a redundant hooks-delivered
-// echo of an event the api connection already reports — never true for the
-// api-transport delivery itself (inflight.FromAPITransport), since canonical
-// being api-owned and a live connection existing are both true for that call
-// as well; only the ORIGIN of this specific delivery tells the two apart. See
-// the call site's own comment for the full mechanism and the bug an unmarked
-// check caused.
+// channelFor is the delivery channel THIS ingest call actually arrived on —
+// pumpAPIConn (apiconn.go) marks its own ctx (inflight.WithAPITransport)
+// before calling IngestHook; an HTTP hook relay POST marks nothing, so the
+// zero value here is hooks. It is the SAME origin marker ownerDropsThisDelivery
+// already reads, for a different guard — see that function's own doc comment
+// for why only this ORIGIN, never an event's static Transport (or, since
+// design spec P6b, its declared owner:), can tell the two deliveries apart.
+func channelFor(ctx context.Context) engineagents.Channel {
+	if inflight.FromAPITransport(ctx) {
+		return engineagents.ChannelAPI
+	}
+	return engineagents.ChannelHooks
+}
+
+// ownerDropsThisDelivery reports whether THIS CALL is a redundant echo of an
+// event the descriptor's own owner: declaration (design spec P6b tag 1) says
+// another, live, DISPATCHED channel already reports. Never true for that
+// other channel's OWN delivery (inflight.FromAPITransport / channelFor),
+// since owner and liveness are both true for that call as well; only the
+// ORIGIN of this specific delivery tells the two apart. See the call site's
+// own comment for the full mechanism and the bug an unmarked check caused.
+//
+// owner: replaces ONLY apiOwnsThisEvent's old static
+// descriptor.TransportFor(canonical) == "api" guess — the chat-theft root
+// cause (design spec 1.1: transport is declared statically per event, but
+// shape arrives per message). Declaring an owner says who is AUTHORITATIVE;
+// it does NOT say whether that owner actually carried THIS turn, which is
+// why the liveness pair below is unconditional, exactly as it was before:
 //
 // HasDispatchedOverAPI, not just HasLiveAPIConnection: a connection can be
 // live yet have carried NOTHING of this runner's own doing — the spawn that
@@ -247,14 +309,56 @@ func (t *Turns) ReplayStartupHook(
 // presumed duplicate of a report that was never actually made. Confirmed
 // live: a message answered normally by the CLI never appeared in the ledger
 // at all, api transport dutifully "covering" a turn it was never asked to
-// carry.
-func (t *Turns) apiOwnsThisEvent(ctx context.Context, runnerID string, descriptor engineagents.Agent, canonical string) bool {
-	if inflight.FromAPITransport(ctx) {
+// carry. This is the zero-writer incident design spec P6b requires stay
+// impossible — see TestRegression_ALiveButUndispatchedConnectionNever
+// MakesTheCompanionPTYsHooksRedundant (ingest_internal_test.go).
+//
+// Only owner: api is ever checked against liveness: there is no "hooks
+// channel is live" signal distinct from "the runner exists at all" — a
+// hooks-transport PTY IS the runner — so an event whose owner: names hooks
+// (or declares none) is never dropped by this function.
+func (t *Turns) ownerDropsThisDelivery(
+	ctx context.Context, runnerID string, descriptor engineagents.Agent, canonical string,
+) bool {
+	owner := descriptor.EventOwner(canonical)
+	if owner == engineagents.OwnerEither {
 		return false
 	}
-	return descriptor.TransportFor(canonical) == "api" &&
-		t.runners.HasLiveAPIConnection(runnerID) &&
-		t.runners.HasDispatchedOverAPI(runnerID)
+	if string(channelFor(ctx)) == owner {
+		return false
+	}
+	if owner != engineagents.OwnerAPI {
+		return false
+	}
+	return t.runners.HasLiveAPIConnection(runnerID) && t.runners.HasDispatchedOverAPI(runnerID)
+}
+
+// surfaceGated reports whether canonical opts OUT of the surface currently in
+// front of the user — design spec P6b tag 2. The event's own surfaces: list
+// is checked BEFORE ever asking ShowingNativeView: most events declare none
+// (nil means every surface — "nothing changes unless a descriptor opts in"),
+// so the common case never touches the Runners port at all.
+//
+// NO CROWBAR-SIDE VETO: whatever the descriptor names is honoured as-is, even
+// a surface where this event is the only writer of a ledger fact — that is
+// reported (TestSurfaceGatedEvents_AreReportedLoudly, descriptor package),
+// never rejected here.
+//
+// ShowingNativeView is only accurate for a NON-HOTSWAP provider (codex): a
+// hotswap provider's terminal is a second window onto a session Crowbar
+// still drives, so it never calls SwitchToTerminal and this reads false even
+// while the TUI is on screen — inert for claude until that signal covers
+// hotswap (design spec P6b's own stated limit).
+func (t *Turns) surfaceGated(runnerID string, descriptor engineagents.Agent, canonical string) bool {
+	surfaces := descriptor.EventSurfaces(canonical)
+	if len(surfaces) == 0 {
+		return false
+	}
+	surface := engineagents.SurfaceChat
+	if t.runners.ShowingNativeView(runnerID) {
+		surface = engineagents.SurfaceTerminal
+	}
+	return !slices.Contains(surfaces, surface)
 }
 
 func (t *Turns) ingestHookNow(
@@ -277,45 +381,6 @@ func (t *Turns) ingestHookNow(
 		return fmt.Errorf("agent: ingest hook: runner: %w", err)
 	}
 	return t.ingestResolvedHook(ctx, runner, provider, canonicalEvent, rawPayload)
-}
-
-// namesAnotherConversation reports whether ev describes a conversation other
-// than the one this runner is on — in which case it is not this chat's to
-// record, whatever wire carried it here.
-//
-// A CONNECTION IS NOT A CONVERSATION. Confirmed live (codex-cli 0.149.1): codex
-// pushes a child thread's COMPLETE, independent turn/started..item/*..
-// turn/completed cycle down the SAME websocket the runner's own thread uses,
-// having never been asked to open it — for a collab agent, and for the review,
-// compaction and memory-consolidation threads it spawns on its own. Measured on
-// a security review that delegated to a sub-agent: the child's turn/completed
-// landed 83 SECONDS before the user's turn actually ended, and closeTurnFromStop
-// filed it against the user's chat — StopTurn, Working=false, spinner dark,
-// while codex was still writing the answer. The child's assistant messages were
-// recorded into the user's transcript on the way past, and its
-// thread/status/changed(idle) armed the 5s provider-idle fuse under that same
-// live turn.
-//
-// inbound.Parse skips its own ownership guard for api-transport events, on the
-// reasoning that the socket "IS the scoping". It is not. This is the check that
-// actually scopes them, and it needs no provider vocabulary to do it: the
-// descriptor already maps session_id for exactly these events, so all that was
-// missing was the identity comparison.
-//
-// session_start is exempt: it is the one event that legitimately announces a
-// session this runner does not have yet, and move.Decide already arbitrates
-// whether that binds, moves or is ignored.
-func namesAnotherConversation(
-	runner engineagents.Runner,
-	ev engineagents.CanonicalEvent,
-) bool {
-	if ev.Kind == engineagents.HookSessionStart {
-		return false
-	}
-	if ev.SessionID == "" || runner.CurrentSession == "" {
-		return false
-	}
-	return ev.SessionID != runner.CurrentSession
 }
 
 func (t *Turns) chatForRunner(

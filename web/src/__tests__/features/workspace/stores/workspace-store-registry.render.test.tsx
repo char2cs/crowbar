@@ -89,8 +89,7 @@ describe('workspace registry notifications vs. the render path', () => {
       // 'ws-a' with NO store registered for 'ws-a' yet, so the child's own
       // render is what mints it.
       useSidebarStore.setState({ repos: [repoWithChat('c1', 'ws-a')] })
-      const { paneActions, activePaneId } = windowPaneStore.getState()
-      paneActions.setPaneChat(activePaneId, 'c1', null)
+      windowPaneStore.getState().paneActions.openChat('c1')
     })
 
     expect(renderPhaseUpdates(errors.mock.calls)).toEqual([])

@@ -4,7 +4,8 @@ import { useUIState } from '@/features/window/stores/ui-state-store'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import type { WindowPaneState } from '@/features/panes/stores/window-pane-store.types'
 import type { PaneActions } from '@/features/panes/stores/slices/pane-slice'
-import type { PaneGroup, LayoutNode } from '@/features/panes/types/pane'
+import type { PaneGroup, LayoutNode, ViewRecord } from '@/features/panes/types/pane'
+import { showingLayout } from '@/features/panes/lib/view-state'
 
 /**
  * Task 26: panes are window-level now (`windowPaneStore`, created once, never
@@ -17,15 +18,12 @@ function usePaneStore<T>(selector: (state: WindowPaneState) => T): T {
   return useStore(windowPaneStore, selector)
 }
 
-export const useRootLayout = (): LayoutNode => usePaneStore((s) => s.rootLayout)
+/** Every view record by id. Stable across writes that touch no record. */
+export const useViews = (): Record<string, ViewRecord> => usePaneStore((s) => s.views)
 
-/** The open-but-not-showing views' trees, keyed by view id (`PaneSlice`).
- *  Referentially stable across every mutation that doesn't add, remove or
- *  re-tile a parked view — so growing the SHOWING view never re-renders the
- *  dormant ones. */
-export const useParkedViews = (): Record<string, LayoutNode> => usePaneStore((s) => s.parkedViews)
+export const useStageLayout = (): LayoutNode => usePaneStore((s) => s.stage)
 
-export const useActiveViewId = (): string => usePaneStore((s) => s.activeViewId)
+export const useActiveViewId = (): string | null => usePaneStore((s) => s.activeViewId)
 
 export const useFullscreenPaneId = (): string | null => usePaneStore((s) => s.fullscreenPaneId)
 
@@ -57,7 +55,7 @@ export const usePaneById = (paneId: string): PaneGroup | null =>
  * stable and does not re-render every consumer on unrelated store writes.
  */
 export const useVisiblePaneCount = (): number => {
-  const rootLeaves = usePaneStore((s) => getAllLeafIds(s.rootLayout).length)
+  const rootLeaves = usePaneStore((s) => getAllLeafIds(showingLayout(s)).length)
   const bottomLeaves = usePaneStore((s) => getAllLeafIds(s.bottomLayout).length)
   const fullscreenPaneId = usePaneStore((s) => s.fullscreenPaneId)
   const isBottomPaneVisible = useUIState((s) => s.isBottomPaneVisible)

@@ -55,7 +55,7 @@ func TestValidate_CarriesTheThreeRulesThatWereInGo(t *testing.T) {
 		{"turn_stop", "message"},
 		{"message_delta", "message_id"},
 	} {
-		err := v.Validate("acme", map[string]map[string]string{tc.event: {}})
+		err := v.Validate("acme", map[string]map[string][]string{tc.event: {}})
 		if err == nil {
 			t.Errorf("%s with no %s must be rejected", tc.event, tc.missing)
 			continue
@@ -71,8 +71,8 @@ func TestValidate_CarriesTheThreeRulesThatWereInGo(t *testing.T) {
 
 func TestValidate_UnknownEvent_IsRejected(t *testing.T) {
 	v := load(t)
-	err := v.Validate("acme", map[string]map[string]string{
-		"invent_a_new_event": {"session_id": "session_id"},
+	err := v.Validate("acme", map[string]map[string][]string{
+		"invent_a_new_event": {"session_id": {"session_id"}},
 	})
 	if err == nil {
 		t.Fatal("the vocabulary is CLOSED; an unknown event must be rejected")
@@ -84,8 +84,8 @@ func TestValidate_UnknownEvent_IsRejected(t *testing.T) {
 
 func TestValidate_UnknownFieldWithinAKnownEvent_IsRejected(t *testing.T) {
 	v := load(t)
-	err := v.Validate("acme", map[string]map[string]string{
-		"session_start": {"session_id": "session_id", "not_a_field": "x"},
+	err := v.Validate("acme", map[string]map[string][]string{
+		"session_start": {"session_id": {"session_id"}, "not_a_field": {"x"}},
 	})
 	if err == nil {
 		t.Fatal("a field outside required+optional must be rejected, or a typo maps silently to nothing")
@@ -96,18 +96,18 @@ func TestValidate_UnknownFieldWithinAKnownEvent_IsRejected(t *testing.T) {
 // for a broader grant, which Go must never enumerate.
 func TestValidate_PrefixFamilyAcceptsAnyMemberButNotAnUnrelatedField(t *testing.T) {
 	v := load(t)
-	ok := map[string]map[string]string{"permission": {
-		"prompt_id":                       "prompt_id",
-		"suggestion_label.addRules":       "Add a permanent rule for this",
-		"suggestion_label.somethingNewer": "A term this provider invented",
+	ok := map[string]map[string][]string{"permission": {
+		"prompt_id":                       {"prompt_id"},
+		"suggestion_label.addRules":       {"Add a permanent rule for this"},
+		"suggestion_label.somethingNewer": {"A term this provider invented"},
 	}}
 	if err := v.Validate("acme", ok); err != nil {
 		t.Fatalf("a prefix family must accept any member: %v", err)
 	}
 
-	bad := map[string]map[string]string{"permission": {
-		"prompt_id":           "prompt_id",
-		"suggestion_labelXXX": "not under the family",
+	bad := map[string]map[string][]string{"permission": {
+		"prompt_id":           {"prompt_id"},
+		"suggestion_labelXXX": {"not under the family"},
 	}}
 	if err := v.Validate("acme", bad); err == nil {
 		t.Fatal("a near-miss on the family prefix must still be rejected")
@@ -117,9 +117,9 @@ func TestValidate_PrefixFamilyAcceptsAnyMemberButNotAnUnrelatedField(t *testing.
 // Capability is key-presence: declaring no telemetry is legal, not an error.
 func TestValidate_APartialProviderIsAccepted(t *testing.T) {
 	v := load(t)
-	if err := v.Validate("acme", map[string]map[string]string{
-		"session_start": {"session_id": "session_id"},
-		"turn_stop":     {"message": "msg"},
+	if err := v.Validate("acme", map[string]map[string][]string{
+		"session_start": {"session_id": {"session_id"}},
+		"turn_stop":     {"message": {"msg"}},
 	}); err != nil {
 		t.Fatalf("a partial provider must be accepted, got: %v", err)
 	}
@@ -129,10 +129,10 @@ func TestValidate_APartialProviderIsAccepted(t *testing.T) {
 // on dots it would reject every real telemetry mapping.
 func TestValidate_DottedCanonicalFieldsAreAccepted(t *testing.T) {
 	v := load(t)
-	if err := v.Validate("acme", map[string]map[string]string{
+	if err := v.Validate("acme", map[string]map[string][]string{
 		"telemetry": {
-			"context.used_tokens": "context_window.total_input_tokens",
-			"cost.total_usd":      "cost.total_cost_usd",
+			"context.used_tokens": {"context_window.total_input_tokens"},
+			"cost.total_usd":      {"cost.total_cost_usd"},
 		},
 	}); err != nil {
 		t.Fatalf("dotted canonical names must be accepted, got: %v", err)
@@ -143,9 +143,9 @@ func TestValidate_DottedCanonicalFieldsAreAccepted(t *testing.T) {
 // on it is flaky.
 func TestValidate_ErrorIsDeterministic(t *testing.T) {
 	v := load(t)
-	in := map[string]map[string]string{
-		"session_start": {"a": "1", "b": "2", "c": "3", "d": "4"},
-		"turn_stop":     {"z": "9", "y": "8"},
+	in := map[string]map[string][]string{
+		"session_start": {"a": {"1"}, "b": {"2"}, "c": {"3"}, "d": {"4"}},
+		"turn_stop":     {"z": {"9"}, "y": {"8"}},
 	}
 	first := v.Validate("acme", in).Error()
 	for range 20 {

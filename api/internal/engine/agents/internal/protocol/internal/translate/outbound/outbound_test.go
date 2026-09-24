@@ -11,13 +11,13 @@ func desc() *spec.Descriptor {
 	return &spec.Descriptor{
 		ID: "acme",
 		Events: map[string]spec.EventSpec{
-			"compact_start": {Out: "prompt", Send: map[string]string{"text": "/compact"}},
-			"interrupt":     {Out: "turn/interrupt", Send: map[string]string{"threadId": "{session_id}"}},
+			"compact_start": {Out: spec.WireRef{"prompt"}, Send: map[string]string{"text": "/compact"}},
+			"interrupt":     {Out: spec.WireRef{"turn/interrupt"}, Send: map[string]string{"threadId": "{session_id}"}},
 			"prompt": {
-				Out:  "turn/start",
+				Out:  spec.WireRef{"turn/start"},
 				Send: map[string]string{"threadId": "{session_id}", "input": "{text}"},
 			},
-			"session_start": {In: "SessionStart", Map: map[string]string{"session_id": "session_id"}},
+			"session_start": {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": {"session_id"}}},
 		},
 	}
 }

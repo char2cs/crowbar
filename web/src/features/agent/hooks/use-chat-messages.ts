@@ -254,31 +254,6 @@ export function useChatMessages(options: ChatMessagesOptions) {
     }
   }, [loadInitial])
 
-  // A lifecycle frame changes the server-folded working value. Fetching on both
-  // edges confirms the user and assistant hook messages. Poll while working (or
-  // awaiting acceptance) because a turn_stop can legitimately leave Working true
-  // while provider-reported async work continues.
-  useEffect(() => {
-    if (!visible) return
-    void refresh()
-    if (!working && !awaiting) return
-    const timer = window.setInterval(() => void refresh(), MESSAGE_POLL_MS)
-    return () => window.clearInterval(timer)
-  }, [working, turnRevision, providerId, visible, awaiting, refresh])
-
-  const loadOlder = useCallback(async () => {
-    const before = oldestCursorRef.current
-    if (!before) return
-    try {
-      const page = await listChatMessages(wsId, chatId, { before, limit: MESSAGE_PAGE_SIZE })
-      applyMessages(page.items)
-      oldestCursorRef.current = page.oldestCursor
-      setHasOlder(page.hasMore)
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)))
-    }
-  }, [wsId, chatId, applyMessages])
-
   // The message(s) being said right now, as bubbles below the recorded ones —
   // one per still-open item, in arrival order (Codex can have more than one
   // open per turn; Claude never does, so this is a single-entry array there,
@@ -299,6 +274,11 @@ export function useChatMessages(options: ChatMessagesOptions) {
   // always "msg-" + the SAME streamed message id regardless of whether its
   // text got replaced, so matching a ledger row's turnId against
   // "msg-"+this bubble's id is the reliable signal instead.
+  //
+  // Computed BEFORE the poll effect below, not just for read order: that
+  // effect's own bail condition depends on `streamingBubbles.length`, so an
+  // unconfirmed bubble must be known before it decides whether to keep
+  // polling.
   const streamingBubbles = useMemo(() => {
     if (!streamingMessages?.length) return EMPTY_MESSAGES
     const bubbles: AgentChatMessage[] = []
@@ -316,6 +296,39 @@ export function useChatMessages(options: ChatMessagesOptions) {
     }
     return bubbles.length ? bubbles : EMPTY_MESSAGES
   }, [streamingMessages, messages, providerId])
+
+  // A lifecycle frame changes the server-folded working value. Fetching on both
+  // edges confirms the user and assistant hook messages. Poll while working (or
+  // awaiting acceptance) because a turn_stop can legitimately leave Working true
+  // while provider-reported async work continues.
+  //
+  // ALSO poll while a streaming bubble is unconfirmed (no matching ledger row
+  // yet), even once working/awaiting both go false: the falling edge races the
+  // backend actually persisting the turn's final row, and a poll landing a beat
+  // too early used to be the only one that would ever fire — nothing re-armed
+  // it, so a bubble whose row committed a moment later was stranded forever.
+  // This is evidence-driven, not time-driven: it keeps polling for as long as
+  // (and only while) an orphan actually exists, never on a fixed timeout.
+  useEffect(() => {
+    if (!visible) return
+    void refresh()
+    if (!working && !awaiting && streamingBubbles.length === 0) return
+    const timer = window.setInterval(() => void refresh(), MESSAGE_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [working, turnRevision, providerId, visible, awaiting, refresh, streamingBubbles.length])
+
+  const loadOlder = useCallback(async () => {
+    const before = oldestCursorRef.current
+    if (!before) return
+    try {
+      const page = await listChatMessages(wsId, chatId, { before, limit: MESSAGE_PAGE_SIZE })
+      applyMessages(page.items)
+      oldestCursorRef.current = page.oldestCursor
+      setHasOlder(page.hasMore)
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)))
+    }
+  }, [wsId, chatId, applyMessages])
 
   // The store-side twin of the suppression above: once a streamed message is
   // confirmed (same `"msg-" + id` match), its entry in streamingMessages[chatId]

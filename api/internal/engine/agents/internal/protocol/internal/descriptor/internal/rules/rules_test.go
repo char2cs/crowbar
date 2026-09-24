@@ -16,8 +16,8 @@ func valid() *spec.Descriptor {
 	d.Spawn.InteractiveRequired = true
 	d.Runtime.Hooks.Format = "json"
 	d.Events = map[string]spec.EventSpec{
-		spec.HookSessionStart: {In: "SessionStart", Map: map[string]string{"session_id": "session_id"}},
-		spec.HookTurnStop:     {In: "Stop", Map: map[string]string{"message": "last"}},
+		spec.HookSessionStart: {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": {"session_id"}}},
+		spec.HookTurnStop:     {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": {"last"}}},
 	}
 	return d
 }
@@ -552,11 +552,269 @@ func TestSelection_AcceptsBothBlocksAndTheirAbsence(t *testing.T) {
 	require.NoError(t, rules.Apply(valid()))
 }
 
+func withAPITransport(d *spec.Descriptor) *spec.Descriptor {
+	d.Runtime.Transport = "api"
+	d.Runtime.API = spec.APISpec{
+		Protocol: "jsonrpc2",
+		Serve:    []string{"probe", "app-server", "--listen", "unix://{socket}"},
+	}
+	return d
+}
+
+// An api-transport spawn whose connection comes up forks NO process, so
+// apply: — an argv — reaches nothing. Declaring a selection with no api
+// carrier is that silent drop, made at descriptor-load time instead of at
+// the third chat that quietly ran the wrong model.
+func TestSelection_RejectsAnAPITransportSelectionWithNoAPICarrier(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		mutate  func(*spec.Descriptor)
+		wantMsg string
+	}{
+		{
+			"model declares no api_apply",
+			func(d *spec.Descriptor) {
+				d.Effort.APIApply = []spec.InjectStep{passArg(map[string]any{"arg": "-c", "value": `e="{effort}"`})}
+			},
+			"model.api_apply is empty",
+		},
+		{
+			"effort declares no api_apply",
+			func(d *spec.Descriptor) {
+				d.Model.APIApply = []spec.InjectStep{passArg(map[string]any{"arg": "-c", "value": `m="{model}"`})}
+			},
+			"effort.api_apply is empty",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := withSelection(withAPITransport(valid()))
+			tc.mutate(d)
+
+			err := rules.Apply(d)
+
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestSelection_AcceptsAnAPITransportSelectionThatDeclaresBothCarriers(t *testing.T) {
+	d := withSelection(withAPITransport(valid()))
+	d.Model.APIApply = []spec.InjectStep{passArg(map[string]any{"arg": "-c", "value": `m="{model}"`})}
+	d.Effort.APIApply = []spec.InjectStep{passArg(map[string]any{"arg": "-c", "value": `e="{effort}"`})}
+
+	assert.NoError(t, rules.Apply(d))
+}
+
+// A hooks-transport spawn always forks the vendor's own PTY, so apply: is
+// carrier enough and api_apply: is meaningless there — claude must not be
+// dragged into declaring one.
+func TestSelection_AHooksTransportSelectionNeedsNoAPICarrier(t *testing.T) {
+	assert.NoError(t, rules.Apply(withSelection(valid())))
+}
+
 func TestSelection_AcceptsAnEmptyModelCatalogue(t *testing.T) {
 	d := withSelection(valid())
 	d.Model.Available = nil
 
 	require.NoError(t, rules.Apply(d))
+}
+
+func withModelDiscover(d *spec.Descriptor) *spec.Descriptor {
+	d.Model = &spec.ModelSpec{
+		Discover: &spec.ModelDiscoverSpec{
+			Command:   []string{"debug", "models"},
+			Adapter:   spec.ModelDiscoverAdapterJSON,
+			ItemsPath: "models[]",
+			KeepWhen:  &spec.ModelFieldMatch{Field: "visibility", Equals: "list"},
+			OrderBy:   "priority",
+			Item: spec.ModelItemMapping{
+				ID: "{slug}", Label: "{display_name}",
+				Efforts: "supported_reasoning_levels[].effort", DefaultEffort: "{default_reasoning_level}",
+			},
+		},
+		Strategy: spec.DeliveryRestartTUI,
+		Apply:    []spec.InjectStep{passArg(map[string]any{"arg": "--model", "value": "{model}"})},
+	}
+	return d
+}
+
+func TestModelDiscover_AcceptsAWellFormedBlock(t *testing.T) {
+	require.NoError(t, rules.Apply(withModelDiscover(valid())))
+}
+
+func TestModelDiscover_RejectsAvailableAndDiscoverTogether(t *testing.T) {
+	d := withModelDiscover(valid())
+	d.Model.Available = []string{"gpt-6-astra"}
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "mutually exclusive")
+}
+
+func TestModelDiscover_RejectsTheBrokenShapes(t *testing.T) {
+	testCases := []struct {
+		name    string
+		mutate  func(*spec.Descriptor)
+		wantMsg string
+	}{
+		{"no command", func(d *spec.Descriptor) { d.Model.Discover.Command = nil }, "command must be fixed non-empty argv"},
+		{
+			"templated command",
+			func(d *spec.Descriptor) { d.Model.Discover.Command = []string{"{message}"} },
+			"command must be fixed argv",
+		},
+		{
+			"forbidden flag",
+			func(d *spec.Descriptor) {
+				d.Spawn.ForbidFlags = []string{"debug"}
+			},
+			"forbidden flag",
+		},
+		{"unsupported adapter", func(d *spec.Descriptor) { d.Model.Discover.Adapter = "xml" }, "unsupported adapter"},
+		{"no items_path", func(d *spec.Descriptor) { d.Model.Discover.ItemsPath = "" }, "items_path is required"},
+		{"no item id", func(d *spec.Descriptor) { d.Model.Discover.Item.ID = "" }, "requires id and label"},
+		{"no item label", func(d *spec.Descriptor) { d.Model.Discover.Item.Label = "" }, "requires id and label"},
+		{
+			"keep_when with no field",
+			func(d *spec.Descriptor) { d.Model.Discover.KeepWhen = &spec.ModelFieldMatch{Equals: "list"} },
+			"keep_when.field is required",
+		},
+		{
+			"default_when with no field",
+			func(d *spec.Descriptor) { d.Model.Discover.DefaultWhen = &spec.ModelFieldMatch{Equals: true} },
+			"default_when.field is required",
+		},
+		{
+			"timeout above the ceiling",
+			func(d *spec.Descriptor) { d.Model.Discover.TimeoutMS = spec.MaxModelDiscoverTimeoutMS + 1 },
+			"timeout_ms must be between",
+		},
+		{
+			"max_stdout_bytes above the ceiling",
+			func(d *spec.Descriptor) { d.Model.Discover.MaxStdoutBytes = spec.MaxModelDiscoverMaxStdoutBytes + 1 },
+			"max_stdout_bytes must be between",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := withModelDiscover(valid())
+			tc.mutate(d)
+			err := rules.Apply(d)
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestEffortCatalog_AcceptsEmptyAvailableWhenModelDiscoverDeclared(t *testing.T) {
+	d := withModelDiscover(valid())
+	d.Effort = &spec.EffortSpec{
+		Strategy: spec.DeliveryRestartTUI,
+		Apply:    []spec.InjectStep{passArg(map[string]any{"arg": "--effort", "value": "{effort}"})},
+	}
+
+	require.NoError(t, rules.Apply(d), "efforts come from the same probe as model.discover — no static map needed")
+}
+
+func withModelManifest(d *spec.Descriptor) *spec.Descriptor {
+	d.Model = &spec.ModelSpec{
+		Manifest: &spec.ModelManifestSpec{
+			URL:       "https://example.com/model-manifest.json",
+			ItemsPath: "providers.test.models[]",
+			KeepWhen:  &spec.ModelFieldMatch{Field: "status", Equals: "current"},
+			Item: spec.ModelItemMapping{
+				ID: "{id}", Label: "{label}", Efforts: "efforts[]",
+			},
+		},
+		Strategy: spec.DeliveryRestartTUI,
+		Apply:    []spec.InjectStep{passArg(map[string]any{"arg": "--model", "value": "{model}"})},
+	}
+	return d
+}
+
+func TestModelManifest_AcceptsAWellFormedBlock(t *testing.T) {
+	require.NoError(t, rules.Apply(withModelManifest(valid())))
+}
+
+func TestModelCatalog_RejectsEveryPairOfSources(t *testing.T) {
+	testCases := []struct {
+		name   string
+		mutate func(*spec.Descriptor)
+	}{
+		{"available + discover", func(d *spec.Descriptor) {
+			d.Model = withModelDiscover(&spec.Descriptor{}).Model
+			d.Model.Available = []string{"a"}
+		}},
+		{"available + manifest", func(d *spec.Descriptor) {
+			d.Model = withModelManifest(&spec.Descriptor{}).Model
+			d.Model.Available = []string{"a"}
+		}},
+		{"discover + manifest", func(d *spec.Descriptor) {
+			d.Model = withModelDiscover(&spec.Descriptor{}).Model
+			d.Model.Manifest = withModelManifest(&spec.Descriptor{}).Model.Manifest
+		}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := valid()
+			tc.mutate(d)
+
+			err := rules.Apply(d)
+
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), "mutually exclusive")
+		})
+	}
+}
+
+func TestModelManifest_RejectsTheBrokenShapes(t *testing.T) {
+	testCases := []struct {
+		name    string
+		mutate  func(*spec.Descriptor)
+		wantMsg string
+	}{
+		{"no url", func(d *spec.Descriptor) { d.Model.Manifest.URL = "" }, "must be an https URL"},
+		{"non-https url", func(d *spec.Descriptor) { d.Model.Manifest.URL = "http://example.com/m.json" }, "must be an https URL"},
+		{"no items_path", func(d *spec.Descriptor) { d.Model.Manifest.ItemsPath = "" }, "items_path is required"},
+		{"no item id", func(d *spec.Descriptor) { d.Model.Manifest.Item.ID = "" }, "requires id and label"},
+		{"no item label", func(d *spec.Descriptor) { d.Model.Manifest.Item.Label = "" }, "requires id and label"},
+		{
+			"keep_when with no field",
+			func(d *spec.Descriptor) { d.Model.Manifest.KeepWhen = &spec.ModelFieldMatch{Equals: "current"} },
+			"keep_when.field is required",
+		},
+		{
+			"timeout above the ceiling",
+			func(d *spec.Descriptor) { d.Model.Manifest.TimeoutMS = spec.MaxModelManifestTimeoutMS + 1 },
+			"timeout_ms must be between",
+		},
+		{
+			"ttl above the ceiling",
+			func(d *spec.Descriptor) { d.Model.Manifest.TTLMS = spec.MaxModelManifestTTLMS + 1 },
+			"ttl_ms must be between",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := withModelManifest(valid())
+			tc.mutate(d)
+			err := rules.Apply(d)
+			require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
+}
+
+func TestEffortCatalog_AcceptsEmptyAvailableWhenModelManifestDeclared(t *testing.T) {
+	d := withModelManifest(valid())
+	d.Effort = &spec.EffortSpec{
+		Strategy: spec.DeliveryRestartTUI,
+		Apply:    []spec.InjectStep{passArg(map[string]any{"arg": "--effort", "value": "{effort}"})},
+	}
+
+	require.NoError(t, rules.Apply(d), "efforts come from the same manifest rows as the model list — no static map needed")
 }
 
 func TestSelection_RejectsTheBrokenShapes(t *testing.T) {
@@ -705,4 +963,182 @@ func TestApply_RejectsAContentFreeNoticeNeedle(t *testing.T) {
 // message_delta and turn_failed are optional capabilities, not obligations.
 func TestApply_ADescriptorWithOnlyTheRequiredEventsIsValid(t *testing.T) {
 	require.NoError(t, rules.Apply(valid()))
+}
+
+func TestApply_DeclaringNoSurfacesIsValid(t *testing.T) {
+	require.NoError(t, rules.Apply(valid()))
+}
+
+func TestApply_AcceptsDeclaredSurfaces(t *testing.T) {
+	d := valid()
+	d.Surfaces = map[string]spec.SurfaceSpec{
+		spec.SurfaceChat:     {Channel: spec.ChannelHooks},
+		spec.SurfaceTerminal: {Channel: spec.ChannelHooks},
+	}
+
+	assert.NoError(t, rules.Apply(d))
+}
+
+func TestApply_RejectsAnUnknownSurfaceName(t *testing.T) {
+	d := valid()
+	d.Surfaces = map[string]spec.SurfaceSpec{"bogus": {Channel: spec.ChannelHooks}}
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "unknown surface")
+}
+
+func TestApply_RejectsAnUnknownSurfaceChannel(t *testing.T) {
+	d := valid()
+	d.Surfaces = map[string]spec.SurfaceSpec{spec.SurfaceChat: {Channel: "carrier-pigeon"}}
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "channel")
+}
+
+func TestApply_RejectsAnAPIChannelSurfaceWhenRuntimeDeclaresNoAPITransport(t *testing.T) {
+	d := valid() // no runtime.api section at all
+	d.Surfaces = map[string]spec.SurfaceSpec{spec.SurfaceChat: {Channel: spec.ChannelAPI}}
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "no api transport")
+}
+
+func TestApply_RejectsATerminalSurfaceWhenTheDescriptorStructurallyHasNone(t *testing.T) {
+	d := valid()
+	d.Runtime.Transport = "api"
+	d.Runtime.API = spec.APISpec{Protocol: "jsonrpc2"} // no Attach: no terminal at all
+	d.Surfaces = map[string]spec.SurfaceSpec{spec.SurfaceTerminal: {Channel: spec.ChannelAPI}}
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "no terminal")
+}
+
+// An api-CHANNEL terminal is the api transport's own attached view, and the
+// only argv that renders it (runtime.api.attach) names a {session_id} that
+// does not exist until a session has been established. Without hotswap
+// nothing renders it at spawn at all (apiconn.go's applyAPITransport gate) —
+// it is reached only by SwitchToTerminal, which needs a completed turn. So
+// that one combination cannot serve a brand-new chat.
+func TestApply_RejectsTerminalStartHereOnAnAPIChannelWithoutHotswap(t *testing.T) {
+	d := valid()
+	d.Runtime.Transport = "api"
+	d.Runtime.API = spec.APISpec{Protocol: "jsonrpc2", Attach: []string{"probe", "resume", "{session_id}"}}
+	d.Runtime.Hotswap = false
+	d.Surfaces = map[string]spec.SurfaceSpec{
+		spec.SurfaceTerminal: {Channel: spec.ChannelAPI, StartHere: true},
+	}
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "start_here")
+}
+
+func TestApply_AcceptsTerminalStartHereOnAnAPIChannelWithHotswap(t *testing.T) {
+	d := valid()
+	d.Runtime.Transport = "api"
+	d.Runtime.API = spec.APISpec{Protocol: "jsonrpc2", Attach: []string{"probe", "resume", "{session_id}"}}
+	d.Runtime.Hotswap = true
+	d.Surfaces = map[string]spec.SurfaceSpec{
+		spec.SurfaceTerminal: {Channel: spec.ChannelAPI, StartHere: true},
+	}
+
+	assert.NoError(t, rules.Apply(d))
+}
+
+// A hooks-CHANNEL terminal is the descriptor's own spawn.cmd PTY, live from
+// the instant it forks and naming no session at all — so it is spawnable into
+// from birth whether or not the descriptor hotswaps.
+func TestApply_AcceptsTerminalStartHereOnAHooksChannelWithoutHotswap(t *testing.T) {
+	d := valid()
+	d.Runtime.Hotswap = false
+	d.Surfaces = map[string]spec.SurfaceSpec{
+		spec.SurfaceTerminal: {Channel: spec.ChannelHooks, StartHere: true},
+	}
+
+	assert.NoError(t, rules.Apply(d))
+}
+
+// codex's own shape: api transport, attach declared WITHOUT hotswap, and a
+// terminal surface fed by the hooks channel. Its native TUI at birth is the
+// ordinary `codex` PTY every spawn already forks, not the session-scoped
+// `codex resume {id}` SwitchToTerminal needs — so start_here is legal here,
+// and the idle-only attach restriction stays where it belongs, on the SWITCH.
+func TestApply_AcceptsTerminalStartHereForAnAPITransportWithAHooksTerminal(t *testing.T) {
+	d := valid()
+	d.Runtime.Transport = "api"
+	d.Runtime.API = spec.APISpec{Protocol: "jsonrpc2", Attach: []string{"probe", "resume", "{session_id}"}}
+	d.Runtime.Hotswap = false
+	d.Surfaces = map[string]spec.SurfaceSpec{
+		spec.SurfaceChat:     {Channel: spec.ChannelAPI, StartHere: true},
+		spec.SurfaceTerminal: {Channel: spec.ChannelHooks, StartHere: true},
+	}
+
+	assert.NoError(t, rules.Apply(d))
+}
+
+// Design spec P6b tag 1: owner: is a spelling check only, never a policy
+// veto on WHICH events may declare one.
+func TestApply_DeclaringNoOwnerIsValid(t *testing.T) {
+	require.NoError(t, rules.Apply(valid()))
+}
+
+func TestApply_AcceptsEveryDeclaredOwnerValue(t *testing.T) {
+	for _, owner := range []string{spec.OwnerAPI, spec.OwnerHooks, spec.OwnerEither} {
+		d := valid()
+		e := d.Events[spec.HookTurnStop]
+		e.Owner = owner
+		d.Events[spec.HookTurnStop] = e
+
+		assert.NoError(t, rules.Apply(d), "owner: %q must be accepted", owner)
+	}
+}
+
+func TestApply_RejectsAnUnknownOwnerValue(t *testing.T) {
+	d := valid()
+	e := d.Events[spec.HookTurnStop]
+	e.Owner = "carrier-pigeon"
+	d.Events[spec.HookTurnStop] = e
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "owner")
+}
+
+// Design spec P6b tag 2: per-event surfaces: is a spelling check only — NO
+// CROWBAR-SIDE VETO on which events may gate off a surface, even the only
+// writer of a ledger fact (that is reported, not rejected — see
+// TestSurfaceGatedEvents_AreReportedLoudly, descriptor package).
+func TestApply_DeclaringNoPerEventSurfacesIsValid(t *testing.T) {
+	require.NoError(t, rules.Apply(valid()))
+}
+
+func TestApply_AcceptsKnownPerEventSurfaces(t *testing.T) {
+	d := valid()
+	e := d.Events[spec.HookTurnStop]
+	e.Surfaces = []string{spec.SurfaceChat, spec.SurfaceTerminal}
+	d.Events[spec.HookTurnStop] = e
+
+	assert.NoError(t, rules.Apply(d))
+}
+
+func TestApply_RejectsAnUnknownPerEventSurface(t *testing.T) {
+	d := valid()
+	e := d.Events[spec.HookTurnStop]
+	e.Surfaces = []string{"underwater"}
+	d.Events[spec.HookTurnStop] = e
+
+	err := rules.Apply(d)
+
+	require.ErrorIs(t, err, rules.ErrInvalidDescriptor)
+	assert.Contains(t, err.Error(), "unknown surface")
 }

@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import { IS_MAC } from '@/utils/platform'
 import {
-  useRootLayout,
-  useParkedViews,
+  useViews,
+  useStageLayout,
   useActiveViewId,
   useFullscreenPaneId,
   usePaneActions,
@@ -13,6 +13,7 @@ import { PaneContainer } from './pane-container'
 import { PaneNodeRenderer } from './pane-node-renderer'
 import { PaneBoundary } from './pane-boundary'
 import { ROOT_PANE_POSITION } from '../types/pane'
+import { getFirstLeafId } from '../utils/pane-layout'
 
 /** Module-level so the object identities are stable across renders — inline
  *  literals would hand every view's wrapper a new `style` prop every render. */
@@ -20,38 +21,29 @@ const PARKED_VIEW_STYLE: React.CSSProperties = { display: 'none' }
 const SHOWING_VIEW_STYLE: React.CSSProperties = {}
 
 export function SplitViewRoot() {
-  const rootLayout = useRootLayout()
-  const parkedViews = useParkedViews()
+  const records = useViews()
+  const stage = useStageLayout()
   const activeViewId = useActiveViewId()
   const fullscreenPaneId = useFullscreenPaneId()
   const { exitPaneFullscreen } = usePaneActions()
 
   /**
-   * EVERY open view, showing and parked alike, in ONE list at ONE position in
-   * the tree, sorted by a key that has nothing to do with which is on screen.
-   *
-   * That last part is the whole point and was learned the hard way. Rendering
-   * the showing view in one place and the parked ones in another looks
-   * equivalent — both keep every view mounted — and is not: switching views
-   * moves a subtree from one parent to the other, which React can only do by
-   * UNMOUNTING it and mounting a new one. Measured live: parking a view with a
-   * running shell in it destroyed the xterm, and because re-initialisation is
-   * gated on `isVisible` (terminal.tsx), the terminal never came back — a
-   * parked view quietly lost the thing parking it was supposed to protect.
-   *
-   * One list, `key`ed by view id, so a view keeps its identity and its DOM no
-   * matter which is active: switching only flips `showing` and a `style`, and
-   * React reorders (never remounts) if the sort puts it elsewhere.
+   * Every record plus the stage, in ONE list keyed by id and sorted by
+   * something unrelated to which is showing: rendering the showing view in a
+   * different place than the others would REMOUNT it on every switch, which
+   * destroys a parked terminal's xterm for good. The stage is keyed by its
+   * first pane id — the id a promoted stage's record takes — so a chat landing
+   * in it keeps its DOM.
    */
   const views = useMemo(() => {
-    const all = [
-      { id: activeViewId, layout: rootLayout, showing: true },
-      ...Object.entries(parkedViews).map(([id, layout]) => ({ id, layout, showing: false })),
-    ]
-    // Sorted by id, NOT by "active first" — an order that moved with the
-    // active view would reshuffle the list on every switch for no reason.
+    const all = Object.values(records).map((view) => ({
+      id: view.id,
+      layout: view.layout,
+      showing: view.id === activeViewId,
+    }))
+    all.push({ id: getFirstLeafId(stage), layout: stage, showing: activeViewId === null })
     return all.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  }, [activeViewId, rootLayout, parkedViews])
+  }, [records, stage, activeViewId])
 
   // Subscribe to ONLY the fullscreen pane (or nothing) — never the whole
   // `panes` record. Reading the whole record re-rendered SplitViewRoot, and

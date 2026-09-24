@@ -1,0 +1,16 @@
+{
+  "method": "item/commandExecution/requestApproval",
+  "params": {
+    "threadId": "01a090df-569c-7393-a274-9d92400ce8eb",
+    "turnId": "01a090df-57c4-7a73-ad72-03021a76744c",
+    "itemId": "exec-b66701af-f5d8-4eaa-bc72-e73629df4aae",
+    "startedAtMs": 1789136961566,
+    "environmentId": "local",
+    "reason": "Allow the exact curl command to access example.com outside the restricted sandbox?",
+    "command": "/bin/zsh -lc 'curl -sS https://example.com -o /dev/null -w \"%{http_code}\"'",
+    "cwd": "/private/tmp/cbx/probe",
+    "commandActions": [{"type": "unknown", "command": "curl -sS https://example.com"}],
+    "proposedExecpolicyAmendment": ["curl", "-sS", "https://example.com"],
+    "availableDecisions": ["accept", {"acceptWithExecpolicyAmendment": {"execpolicy_amendment": ["curl"]}}, "cancel"]
+  }
+}

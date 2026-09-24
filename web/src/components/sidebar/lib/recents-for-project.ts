@@ -1,175 +1,64 @@
-import {
-  getAllActiveWorkspaceIds,
-  getOrCreateWorkspaceStore,
-} from '@/features/workspace/stores/workspace-store-registry'
 import { getHomeWorkspaceId } from '@/features/workspace/lib/home-workspace-resolver'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
-import { getHomeTree } from '@/lib/store/home-tree'
-import { deriveRecentsEntries } from './recents-entries'
-import { chatIconIndex } from './rows-from-repo'
+import { resolveChatWorkspaceId } from '@/features/panes/lib/pane-chat-workspace'
+import type { HomeTree } from '@/lib/store/home-tree'
 import type { Repo } from '@/lib/store/sidebar'
-import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
-import type { RecentsEntry } from '@/features/panes/types/recents-entry'
+import { chatIconIndex, type ChatIconFields } from './rows-from-repo'
 
-// Re-exported under its original name for existing importers/tests — the
-// canonical declaration lives in recents-band.tsx (the render contract every
-// caller of this module ultimately feeds), so the two can't drift apart.
-export type { RecentsBandEntry as ProjectRecentsEntry }
-
-/**
- * Every workspace id under `projectId`'s repos — the repo-home id
- * (`defaultWorkspaceId`, not itself a `Workspace` row) included, PLUS the
- * project's own home-workspace id if resolved.
- *
- * Project home (`/ide/$projectId/home`, the landing surface every project
- * switch goes to) is a real, store-backed `WorkspaceView` but deliberately
- * carries no tree row and sits outside `Repo.workspaces` entirely
- * (`workspace-host.tsx`: "Home is a project-level concept, not a repo
- * workspace"). Omitting it here would silently exclude any chat opened on
- * project home from that project's own Recents band.
- */
-export function workspaceIdsForProject(repos: readonly Repo[], projectId: string): string[] {
-  const ids: string[] = []
+export function repoChatWorkspaceId(
+  repos: readonly Repo[],
+  projectId: string,
+  chatId: string,
+): string | null {
   for (const repo of repos) {
     if (repo.projectId !== projectId) continue
-    if (repo.defaultWorkspaceId) ids.push(repo.defaultWorkspaceId)
-    for (const ws of repo.workspaces) ids.push(ws.id)
+    const chat = repo.chats?.find((c) => c.id === chatId)
+    if (chat?.workspaceId) return chat.workspaceId
   }
-  const homeId = getHomeWorkspaceId(projectId)
-  if (homeId) ids.push(homeId)
-  return ids
+  return null
+}
+
+export function homeChatWorkspaceId(
+  homeTrees: Readonly<Record<string, HomeTree>>,
+  projectId: string,
+  chatId: string,
+): string | null {
+  const home = homeTrees[projectId]?.chats.find((c) => c.id === chatId)
+  if (!home) return null
+  return home.workspaceId || getHomeWorkspaceId(projectId) || null
 }
 
 /**
- * Recents entries for every workspace under `projectId`'s repos — spec §4:
- * "Recents is per space for the same reason [no row carries its project]".
- *
- * Only workspaces that ALREADY have a live store — `getAllActiveWorkspaceIds`,
- * populated by `WorkspaceHost`'s active + keep-alive-retained set — are read.
- * A workspace nobody has opened this session has no working/dormant chats to
- * show.
- *
- * Task 26: panes/dormantArrangements are WINDOW-level now (one flat store
- * for the whole app, not one per workspace — see window-pane-store.ts), so
- * this no longer aggregates N separate per-workspace stores' OWN pane trees.
- * `ROOT_PANE_ID`/`BOTTOM_PANE_ID` are no longer duplicated per workspace
- * either (there is exactly one pane store), so the old workspace-qualified
- * id (`${wsId}:${id}`) this function used to mint to dodge that collision is
- * gone — every pane/dormant-arrangement id is already globally unique.
- * What's left to do here is project SCOPING: this project's chats are
- * spread across its own workspaces' `agentChats` (still per-workspace — a
- * chat "belongs" to whichever workspace store's `agentChats.chats` names
- * it), so a single project-wide chat-id set and merged `working` map are
- * built from just `projectWsIds`, and `deriveRecentsEntries` is called ONCE
- * against the one pane store's panes/dormantArrangements, filtered to that
- * set — a pane or dormant arrangement holding some OTHER project's chat is
- * excluded rather than resolved against the wrong store (there is no
- * "wrong store" to resolve against any more, but a wrong PROJECT is still a
- * real thing to guard against; two panes on screen can legitimately belong
- * to different projects' workspaces at once).
+ * The workspace a band member's chat belongs to. The sidebar's own chat
+ * lists answer first — they survive a reload before any workspace store
+ * mounts — then the registered stores. `listChats` is repo-scoped, so the
+ * chat's own `workspaceId` is used, never the store that happened to carry it.
  */
-export function recentsForProject(repos: readonly Repo[], projectId: string): RecentsBandEntry[] {
-  const projectWsIdSet = new Set(workspaceIdsForProject(repos, projectId))
-  const projectWsIds = getAllActiveWorkspaceIds().filter((wsId) => projectWsIdSet.has(wsId))
-  // The tree's own icon fields (rows-from-repo.ts's `chatIconIndex`) for
-  // every workspace-owning chat in THIS project's repos — see
-  // `RecentsBandEntry.chatIcons`'s own doc on why `recents-band.tsx` needs
-  // this at all.
-  const projectRepos = repos.filter((r) => r.projectId === projectId)
-  const icons = chatIconIndex(projectRepos)
-
-  // chatId -> the workspace whose store owns it (still per-workspace state —
-  // AgentChatsSlice did not move in Task 26). Every RecentsBandEntry needs
-  // this to render (recents-band.tsx resolves a chat's live data by it).
-  //
-  // `chat.workspaceId` — the chat's OWN denormalized field, same authority
-  // `resolveChatOwnerWorkspaceId` (workspace-store-registry.ts) leans on —
-  // never the iterating store's own `wsId`: `listChats` is repo-scoped, so
-  // every workspace store in a repo is seeded with that whole repo's chats,
-  // and the iterating store is just whichever one happened to carry a copy.
-  // Stamping `wsId` here made the LAST store iterated that also knew about a
-  // chat overwrite an EARLIER, correct entry with an arbitrary sibling
-  // workspace's id — live-reported as a thread's Recents row focusing the
-  // right pane but navigating (and scoping the file explorer) to a
-  // completely different workspace of the same repo.
-  //
-  // Seeded from the SIDEBAR's own chat lists first — every repo's `chats`
-  // and the project's home tree — so a persisted dormant entry survives a
-  // reload: its chat's workspace store is not mounted until someone opens it
-  // again, and reading only the live registry left the band empty until
-  // then. The active-store loop then overlays what is live (and `working`).
-  const chatWorkspace = new Map<string, string>()
-  const working: Record<string, boolean> = {}
-  for (const repo of projectRepos) {
-    for (const chat of repo.chats ?? []) {
-      if (chat.workspaceId) chatWorkspace.set(chat.id, chat.workspaceId)
-    }
-  }
-  const homeId = getHomeWorkspaceId(projectId)
-  for (const chat of getHomeTree(projectId).chats) {
-    const wsId = chat.workspaceId || homeId
-    if (wsId) chatWorkspace.set(chat.id, wsId)
-  }
-  for (const wsId of projectWsIds) {
-    const { agentChats } = getOrCreateWorkspaceStore(wsId).getState()
-    for (const chat of agentChats.chats) {
-      // `chat.workspaceId` is preferred above, but it is the chat's OWN claim
-      // and can name a workspace outside this project entirely: a store
-      // mounted during a cross-project navigation gets seeded wholesale with
-      // whatever chat list the caller had. Re-checking it against the set both
-      // filters below assume keeps a foreign chat from minting a band row that
-      // renders but can never be opened.
-      const owner = chat.workspaceId || wsId
-      if (!projectWsIdSet.has(owner)) continue
-      chatWorkspace.set(chat.id, owner)
-    }
-    Object.assign(working, agentChats.working)
-  }
-
-  const { panes, dormantArrangements, recentsOrder, activeViewId } = windowPaneStore.getState()
-  const projectPanes = Object.values(panes).filter(
-    (p) => p.chatId != null && chatWorkspace.has(p.chatId),
+export function recentsChatWorkspaceId(
+  repos: readonly Repo[],
+  homeTrees: Readonly<Record<string, HomeTree>>,
+  projectId: string,
+  chatId: string,
+): string {
+  return (
+    repoChatWorkspaceId(repos, projectId, chatId) ??
+    homeChatWorkspaceId(homeTrees, projectId, chatId) ??
+    resolveChatWorkspaceId(chatId) ??
+    ''
   )
-  // Trim each arrangement down to ITS OWN chats in this project, rather than
-  // keeping (or dropping) the whole entry because ONE chat matched — a SET
-  // spanning two projects used to leak in whole to both projects' bands the
-  // instant any single member belonged there. A member that isn't this
-  // project's is simply not this project's business to draw.
-  const projectDormant: RecentsEntry[] = []
-  for (const e of dormantArrangements) {
-    const chatIds = e.chatIds.filter((id) => chatWorkspace.has(id))
-    if (chatIds.length > 0) projectDormant.push({ ...e, chatIds })
-  }
+}
 
-  return deriveRecentsEntries(
-    projectPanes,
-    working,
-    projectDormant,
-    recentsOrder,
-    activeViewId,
-  ).map((entry) => ({
-    ...entry,
-    // Ids are already globally unique (one pane store, real chat/nanoid ids)
-    // — no more workspace-qualification needed, so localId is just id.
-    localId: entry.id,
-    // Kept for `recents-actions.ts`'s single-target navigation — still the
-    // first chat's workspace, same as before.
-    workspaceId: chatWorkspace.get(entry.chatIds[0]) ?? '',
-    // Every member resolved to ITS OWN workspace (spec §5.3/§4) — a SET can
-    // span more than one within this project, and `recents-band.tsx` reads
-    // this per chat rather than assuming the entry's first chat speaks for
-    // all of them.
-    chatWorkspaces: Object.fromEntries(
-      entry.chatIds.map((id) => [id, chatWorkspace.get(id) ?? '']),
-    ),
-    // Only chats worth overriding — a chat absent here owns no workspace and
-    // `recents-band.tsx` already renders it correctly as a bare bubble by
-    // default.
-    chatIcons: Object.fromEntries(
-      entry.chatIds.flatMap((id) => {
-        const icon = icons.get(id)
-        return icon ? [[id, icon] as const] : []
-      }),
-    ),
-  }))
+const iconCache = new WeakMap<readonly Repo[], Map<string, ChatIconFields>>()
+
+/** The tree's own branch/lock/PR glyph fields for a workspace-owning chat,
+ *  shared across every row for one `repos` snapshot. */
+export function recentsChatIcon(
+  repos: readonly Repo[],
+  chatId: string,
+): ChatIconFields | undefined {
+  let index = iconCache.get(repos)
+  if (!index) {
+    index = chatIconIndex(repos)
+    iconCache.set(repos, index)
+  }
+  return index.get(chatId)
 }

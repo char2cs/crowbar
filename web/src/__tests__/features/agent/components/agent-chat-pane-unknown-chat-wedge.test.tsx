@@ -10,6 +10,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 
 const {
   getChatFn,
@@ -132,18 +133,7 @@ const paneWorkspace = new Map<string, string>()
 
 function openChatPane(_store: Store, chatId: string, runnerId: string, wsId = 'w1') {
   const id = nanoid()
-  windowPaneStore.setState((s) => {
-    s.panes[id] = {
-      id,
-      type: 'group',
-      chatId,
-      runnerId: runnerId || null,
-      editorTabIds: [],
-      activeEditorTabId: null,
-      editorOpen: false,
-    }
-    return s
-  })
+  seedChatPaneRecord(windowPaneStore, id, chatId, runnerId || null)
   paneWorkspace.set(id, wsId)
   return id
 }
@@ -282,14 +272,17 @@ describe('a queued prompt for a chat missing from the seeded list', () => {
 
     // The whole bug in one assertion: a queued head, an idle chat, a live runner
     // on the backend and a visible, active pane — and not one POST attempted.
+    // undefined for model/effort: this item was restored from storage and
+    // staged neither, and '' would now be a PICK of the provider's own
+    // default rather than silence.
     expect(submitPromptFn).toHaveBeenCalledWith(
       'w1',
       'c-wedged',
       'does this ever reach the daemon',
       'req-wedged',
       '',
-      '',
-      '',
+      undefined,
+      undefined,
     )
   })
 

@@ -62,7 +62,7 @@ export function getFirstLeafId(root: LayoutNode): string {
 
 /**
  * `leafId` names the leaf to insert instead of minting one. Used by the MOVE
- * half of a merge (`mergePaneIntoView`): the pane already exists and has been
+ * half of a merge (`movePane`): the pane already exists and has been
  * lifted out of the tree that held it, so the split has to re-home THAT id
  * rather than create a second pane and leave the first stranded.
  */

@@ -42,7 +42,6 @@ import { useGitStore } from '@/features/git/stores/git-store'
 import { useSettingsStore } from '@/features/settings/store'
 import { toast } from '@/features/window/stores/toast-store'
 import { isWorkspaceLockedInSidebar, useSidebarStore } from '@/lib/store/sidebar'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
 import { Button } from '@/components/ui/button'
 import { Dropdown, type MenuItem } from '@/components/ui/dropdown'
 import { Input } from '@/components/ui/input'
@@ -77,6 +76,8 @@ const getPathBaseName = (path: string): string => {
 }
 
 interface FileExplorerTreeProps {
+  /** The workspace this tree shows; keys every file-tree-store and daemon call. */
+  workspaceId: string | null
   files: FileEntry[]
   activePath?: string
   updateActivePath?: (path: string) => void
@@ -121,6 +122,7 @@ const handleRootDrop = (e: React.DragEvent) => {
 
 // react-doctor-disable-next-line no-giant-component -- accepted: cohesive virtualized tree — keyboard nav, search, drag-drop and gitignore all operate over one shared row model + refs; this is the tree's core, splitting hurts locality.
 function FileExplorerTreeComponent({
+  workspaceId,
   files,
   activePath,
   updateActivePath,
@@ -173,11 +175,9 @@ function FileExplorerTreeComponent({
   const revealPathInTree = useFileSystemStore((state) => state.revealPathInTree)
   const isFileTreeLoading = useFileSystemStore((state) => state.isFileTreeLoading)
 
-  // The file explorer always renders the active workspace (see the fuller
-  // comment further down where this also gates git-status lookup) — every
-  // file-tree-store call below is keyed by this so a workspace's own expanded
-  // folders never leak into (or get clobbered by) another workspace's.
-  const activeWorkspaceId = getWorkspaceScope()?.wsId ?? null
+  // Every file-tree-store call below is keyed by this so a workspace's own
+  // expanded folders never leak into (or get clobbered by) another workspace's.
+  const activeWorkspaceId = workspaceId
 
   const handleAutoExpandDirectory = useCallback(
     (path: string) => {
@@ -618,6 +618,7 @@ function FileExplorerTreeComponent({
 
   const { editingValue, setEditingValue, startInlineEditing, handleKeyDown, handleBlur } =
     useFileExplorerInlineEditing({
+      workspaceId: activeWorkspaceId,
       files,
       rootFolderPath,
       onUpdateFiles,
@@ -781,6 +782,7 @@ function FileExplorerTreeComponent({
 
   const { setContextMenu, handleContextMenu, contextMenuElement, fileFeedback } =
     useFileExplorerContextMenu({
+      workspaceId: activeWorkspaceId,
       rootFolderPath,
       // Locked worktrees refuse writes — hide every mutation item (New File/Folder,
       // Upload, Duplicate, Rename, Delete, Cut, env-template).
@@ -1045,7 +1047,7 @@ function FileExplorerTreeComponent({
               // clobbers). Say so instead of leaving the user with a silently
               // unfinished move, and never leave the rejection unhandled.
               clipboardActions
-                .paste(targetDir)
+                .paste(targetDir, activeWorkspaceId)
                 .then((results) => {
                   onRefreshDirectory?.(targetDir)
                   const failed = results.filter((result) => !result.success)

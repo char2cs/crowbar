@@ -156,7 +156,7 @@ func TestSpawnChatWithImportedWorktree_StartAndClearFailure_StillDiscardsTheWork
 // protected-branch provisioning, the placeholder rows).
 func TestAttachWorkspace_PointsTheRowAtItsWorkspace(t *testing.T) {
 	f := newFixture(t)
-	chatID, err := f.usecase.MintChat(f.ctx, "")
+	chatID, err := f.usecase.MintChat(f.ctx, "", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -171,7 +171,7 @@ func TestAttachWorkspace_PointsTheRowAtItsWorkspace(t *testing.T) {
 // that row back.
 func TestAttachWorkspace_Failure_IsReported(t *testing.T) {
 	f, chats, _ := newFaultFixture(t)
-	chatID, err := f.usecase.MintChat(f.ctx, "")
+	chatID, err := f.usecase.MintChat(f.ctx, "", "")
 	require.NoError(t, err)
 	f.wait()
 	chats.failSetWorkspace = errImportedWorktreeBoom

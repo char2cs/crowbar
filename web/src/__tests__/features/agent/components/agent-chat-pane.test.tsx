@@ -10,6 +10,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
 import { resetChatPresentationMemoryForTests } from '@/features/agent/hooks/use-chat-presentation'
 import { nanoid } from 'nanoid'
 
@@ -247,6 +248,10 @@ function liveChat(o: {
   pty: string
   title?: string
   provider?: string
+  /** The chat's own durable landing surface (design spec 2.5). Omitted is the
+   *  provider's default face, which is every fixture here but the terminal-born
+   *  one below. */
+  surface?: 'chat' | 'terminal'
 }): AgentChat {
   return {
     id: o.id,
@@ -254,6 +259,7 @@ function liveChat(o: {
     title: o.title ?? `Chat ${o.id}`,
     liveRunnerId: o.runnerId,
     terminalSessionId: o.pty,
+    surface: o.surface,
     activeProviderId: o.provider ?? 'codex',
     createdAt: '',
     order: 0,
@@ -357,18 +363,7 @@ function openChatPane(
   wsId = 'w1',
 ) {
   const id = nanoid()
-  windowPaneStore.setState((s) => {
-    s.panes[id] = {
-      id,
-      type: 'group',
-      chatId,
-      runnerId: runnerId || null,
-      editorTabIds: [],
-      activeEditorTabId: null,
-      editorOpen: false,
-    }
-    return s
-  })
+  seedChatPaneRecord(windowPaneStore, id, chatId, runnerId || null)
   paneWorkspace.set(id, wsId)
   return id
 }
@@ -497,9 +492,13 @@ describe('AgentChatPane', () => {
         ])
     })
 
-    // The pane re-points at the chat the runner is in NOW — and that is the whole
-    // relabel now: ChatHead reads `agentChats.chats.find(...).title` by chat id, so
-    // the new chat's title follows the pane's own chatId with nothing to mirror.
+    // The surface follows the runner at once; the PANE record is retargeted by
+    // the stream's `moved` frame alone (one writer), never by this component.
+    expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c1', runnerId: 'r1' })
+    expect(await screen.findByTestId('xterm')).toBe(term)
+    await act(async () => {
+      windowPaneStore.getState().paneActions.retargetPane(paneId, 'c2', 'r1')
+    })
     expect(paneOf(store, paneId)).toMatchObject({ chatId: 'c2', runnerId: 'r1' })
     // ...while the terminal is the SAME DOM NODE. Not a remount: the very same
     // xterm instance, still attached to the same live PTY.
@@ -594,29 +593,32 @@ describe('AgentChatPane', () => {
       err.mockRestore()
     })
 
-    // THE OTHER real bug the user hit, and the one `no conversation to resume`
-    // above does NOT model: a chat whose `activeProviderId` is EMPTY — no runner
-    // has EVER been placed on it, ever (AgentChatDTO's own doc: "Empty only on a
-    // chat no runner has ever been placed on"). resumeChat is not merely likely to
-    // fail there — the backend REFUSES it outright, deterministically, every
-    // single retry ("no conversation to resume": store.go's LastConversation
-    // finds nothing to resolve). Reviving such a chat has to call switchProvider
-    // (an ordinary fresh spawn — switchProviderLocked's own doc names this exact
-    // case: "a chat no provider has ever run on... its very first spawn"), which
-    // can actually succeed, instead of retrying an operation that structurally
-    // never can.
-    it('revives a chat that has NEVER run via switchProvider, not the doomed resumeChat', async () => {
+    // An EMPTY `activeProviderId` used to be read here as "no runner has ever been
+    // placed on this chat", and the pane resolved it by starting
+    // `providers.find((p) => p.enabled)` — the first enabled provider. These two
+    // cases asserted exactly that:
+    //
+    //   expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'claude', …)
+    //   expect(resumeChatFn).not.toHaveBeenCalled()
+    //
+    // The premise was wrong and the guess was the live data-integrity bug. Empty
+    // did not mean "never ran": a dormant CODEX chat reported empty too, because
+    // codex binds by its own connection identity and records nothing a chat born
+    // on it could be resolved from. So clicking such a row converted it to claude
+    // — codex transcript, claude composer, no warning, no marker. The daemon now
+    // resolves it from the chat's own durable vendor, and the pane asks rather
+    // than guesses.
+    it('resumes a chat whose provider is unnamed rather than inventing one', async () => {
       const revived = deferred<string>()
-      switchProviderFn.mockReturnValue(revived.promise)
+      resumeChatFn.mockReturnValue(revived.promise)
 
       const store = seedWorkspace([dormantChat({ id: 'c1', provider: '' })])
       const paneId = openChatPane(store, 'c1', '')
       await renderPane(store, paneId)
 
-      // The FIRST enabled provider (claude) — the same fallback a fresh create uses.
-      expect(switchProviderFn).toHaveBeenCalledWith('w1', 'c1', 'claude', expect.any(AbortSignal))
-      expect(resumeChatFn).not.toHaveBeenCalled()
-      expect(screen.getByText(/starting this chat/i)).toBeTruthy()
+      expect(resumeChatFn).toHaveBeenCalledWith('w1', 'c1', expect.any(AbortSignal))
+      expect(switchProviderFn).not.toHaveBeenCalled()
+      expect(screen.getByText(/resuming this chat/i)).toBeTruthy()
 
       await act(async () => {
         revived.resolve('r9')
@@ -627,17 +629,19 @@ describe('AgentChatPane', () => {
       expect(toastErrorFn).not.toHaveBeenCalled()
     })
 
-    it('reports the failure through switchProvider (never resumeChat) for a chat that has never run', async () => {
+    it('settles on the Resume button when a chat it cannot name is refused', async () => {
       const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-      switchProviderFn.mockRejectedValue(new Error('claude: not on PATH'))
+      resumeChatFn.mockRejectedValue(new Error('agent: resume chat: no conversation to resume'))
 
       const store = seedWorkspace([dormantChat({ id: 'c1', provider: '' })])
       await renderPane(store, openChatPane(store, 'c1', ''))
 
       expect(screen.getByText(/could not restart this agent/i)).toBeTruthy()
       expect(screen.getByTestId('pane-resume')).toBeTruthy()
-      expect(resumeChatFn).not.toHaveBeenCalled()
-      expect(switchProviderFn).toHaveBeenCalledTimes(1)
+      expect(resumeChatFn).toHaveBeenCalledTimes(1)
+      // An honest refusal, not a conversion: the user names the provider from the
+      // picker, which is the one gesture that IS asking for one.
+      expect(switchProviderFn).not.toHaveBeenCalled()
       err.mockRestore()
     })
 
@@ -784,12 +788,16 @@ describe('AgentChatPane', () => {
 
       // Believe the overtaken payload and the prompt never goes out.
       await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+      // undefined, not '': this item was restored from storage and staged no
+      // model/effort of its own. '' is a PICK of the provider's own default
+      // now, so sending it here would clear the chat's sticky selection every
+      // time a queued prompt survived a reload.
       expect(submitPromptFn.mock.calls[0]?.slice(2)).toEqual([
         'survive reload',
         clientRequestId,
         '',
-        '',
-        '',
+        undefined,
+        undefined,
       ])
     })
 
@@ -1822,6 +1830,35 @@ describe('AgentChatPane', () => {
 
       await vi.waitFor(() => expect(switchToTerminalFn).toHaveBeenCalledTimes(1))
       expect(switchToTerminalFn).toHaveBeenCalledWith('w-shown', 'c2')
+    })
+
+    // THE BUG, as the user reported it: "Can't start a chat with codex TUI
+    // alone. It's only allowing me to start a thread on the native chat
+    // interface, and then go TUI."
+    //
+    // A chat BORN on the terminal surface has no api connection behind it —
+    // the daemon never opened one (spawnRunner's surfaceForSpawn) — so its own
+    // PTY IS the conversation. Asking for an attach anyway is refused, because
+    // that attach is `codex resume {id}` against an api session this chat never
+    // had: "provider has no completed turn yet to show its native view of".
+    // The switch guard is right; asking was the mistake.
+    it('a terminal-BORN chat shows its own PTY without asking for an attach', async () => {
+      const store = seedWorkspace([
+        liveChat({ id: 'c1', runnerId: 'r1', pty: 'pty1', provider: 'codex', surface: 'terminal' }),
+      ])
+      store.getState().setAgentProviders([providers[0], { ...providers[1], hotswap: false }])
+      const paneId = openChatPane(store, 'c1', 'r1')
+      await renderPane(store, paneId)
+
+      await pressToggle()
+
+      expect(switchToTerminalFn).not.toHaveBeenCalled()
+      expect(screen.getByRole('tab', { name: /^terminal$/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+      expect(screen.getByTestId('xterm')).toHaveAttribute('data-session-id', 'pty1')
+      expect(toastErrorFn).not.toHaveBeenCalled()
     })
 
     it('a HIDDEN chat ignores the chord — a background split must not switch', async () => {

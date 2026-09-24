@@ -237,10 +237,10 @@ func TestParseProbe_UnsupportedWhenNoProbeIsDeclared(t *testing.T) {
 func TestParseCallback_FallsBackToTheV3TelemetryEvent(t *testing.T) {
 	d := &spec.Descriptor{ID: "codex", Events: map[string]spec.EventSpec{
 		"telemetry": {
-			In: "thread/tokenUsage/updated",
-			Map: map[string]string{
-				spec.FactContextUsedTokens:     "tokenUsage.total.totalTokens",
-				spec.FactContextCapacityTokens: "tokenUsage.modelContextWindow",
+			In: spec.WireRef{"thread/tokenUsage/updated"},
+			Map: spec.FieldMap{
+				spec.FactContextUsedTokens:     {"tokenUsage.total.totalTokens"},
+				spec.FactContextCapacityTokens: {"tokenUsage.modelContextWindow"},
 			},
 		},
 	}}
@@ -263,8 +263,8 @@ func TestParseCallback_FallsBackToTheV3TelemetryEvent(t *testing.T) {
 func TestParseCallback_TheV2BlockTakesPrecedenceOverTheEvent(t *testing.T) {
 	d := withCallback(map[string]string{spec.FactContextUsedTokens: "v2.used"})
 	d.Events = map[string]spec.EventSpec{"telemetry": {
-		In:  "some/event",
-		Map: map[string]string{spec.FactContextUsedTokens: "v3.used"},
+		In:  spec.WireRef{"some/event"},
+		Map: spec.FieldMap{spec.FactContextUsedTokens: {"v3.used"}},
 	}}
 
 	got, err := telemetry.ParseCallback(d, []byte(`{"v2":{"used":7},"v3":{"used":9}}`), at)
@@ -278,7 +278,7 @@ func TestParseCallback_TheV2BlockTakesPrecedenceOverTheEvent(t *testing.T) {
 // "this provider has no telemetry" stays distinguishable from "it reported nothing".
 func TestParseCallback_UnsupportedWhenNeitherFormIsDeclared(t *testing.T) {
 	d := &spec.Descriptor{ID: "bare", Events: map[string]spec.EventSpec{
-		"turn_stop": {In: "Stop", Map: map[string]string{"message": "m"}},
+		"turn_stop": {In: spec.WireRef{"Stop"}, Map: spec.FieldMap{"message": {"m"}}},
 	}}
 
 	_, err := telemetry.ParseCallback(d, []byte(`{}`), at)

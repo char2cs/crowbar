@@ -19,10 +19,10 @@ func answering() *spec.Descriptor {
 		ID: "vendor",
 		Events: map[string]spec.EventSpec{
 			"permission": {
-				Ask:            "PermissionRequest",
+				Ask:            spec.WireRef{"PermissionRequest"},
 				TimeoutSeconds: 270,
 				AnswersInto:    "answers",
-				Map:            map[string]string{"tool_name": "tool_name", "tool_input": "tool_input"},
+				Map:            spec.FieldMap{"tool_name": {"tool_name"}, "tool_input": {"tool_input"}},
 				Reply: map[string]string{
 					"allow": `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",` +
 						`"decision":{"behavior":"allow"}}}`,
@@ -33,7 +33,7 @@ func answering() *spec.Descriptor {
 				},
 			},
 			"elicitation": {
-				Ask:            "Elicitation",
+				Ask:            spec.WireRef{"Elicitation"},
 				TimeoutSeconds: 270,
 				Reply: map[string]string{
 					"accept": `{"hookSpecificOutput":{"hookEventName":"Elicitation",` +
@@ -56,7 +56,7 @@ func setEventReply(d *spec.Descriptor, canonical string, timeout int, reply map[
 
 // setEventMap replaces one event's canonical field map, for the tests that probe what
 // happens when a path is not declared.
-func setEventMap(d *spec.Descriptor, canonical string, fields map[string]string) {
+func setEventMap(d *spec.Descriptor, canonical string, fields spec.FieldMap) {
 	e := d.Events[canonical]
 	e.Map = fields
 	d.Events[canonical] = e
@@ -243,7 +243,7 @@ func TestRegression_APayloadCannotSmuggleItsOwnPlaceholder(t *testing.T) {
 
 func TestRender_AnswerWithNoDeclaredToolInputPathCarriesOnlyThePicks(t *testing.T) {
 	d := answering()
-	setEventMap(d, "permission", map[string]string{"tool_name": "tool_name"})
+	setEventMap(d, "permission", spec.FieldMap{"tool_name": {"tool_name"}})
 	out, err := answer.Render(d, "permission", askUserQuestionPayload(),
 		models.AnswerDecision{Key: "answer", Answers: map[string]any{"q": "a"}})
 	require.NoError(t, err)

@@ -173,15 +173,16 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 	agent := apiPushAttachmentTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath)
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
 	rs := &Runners{
-		apiConns:    newAPIConnRegistry(),
-		ws:          fakeWSReader{chatsDir: chatsDir, worktree: worktree},
-		prompts:     agentjournal.NewPromptRequests(),
-		runnerStore: stubRunnerStoreForAPIPush{terminalSession: "term-1"},
+		apiConns:      newAPIConnRegistry(),
+		ws:            fakeWSReader{chatsDir: chatsDir, worktree: worktree},
+		prompts:       agentjournal.NewPromptRequests(),
+		runnerStore:   stubRunnerStoreForAPIPush{terminalSession: "term-1"},
+		conversations: stubConversationsForPromptRestart{},
 	}
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 
@@ -192,7 +193,7 @@ func TestSubmitPromptOverAPI_MaterializesAnAttachmentBeforePushing(t *testing.T)
 	journalDir := rs.prompts.Dir(chatsDir, "chat-1")
 
 	submission, handled, err := rs.submitPromptOverAPI(
-		ctx, chat, journalDir, uuid.NewString(), textHash, live, worktree, text,
+		ctx, chat, journalDir, uuid.NewString(), textHash, live, restartOnChangeAgent{}, worktree, text,
 	)
 	require.NoError(t, err)
 	assert.True(t, handled)
@@ -250,14 +251,15 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUnc
 	agent := apiPushAttachmentTestAgent(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	apiConn, err := agent.StartAPIConn(ctx, sockPath)
+	apiConn, err := agent.StartAPIConn(ctx, sockPath, nil)
 	require.NoError(t, err)
 	defer apiConn.Close()
 
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(),
-		ws:       fakeWSReader{chatsDir: chatsDir, worktree: worktree},
-		prompts:  agentjournal.NewPromptRequests(),
+		apiConns:      newAPIConnRegistry(),
+		ws:            fakeWSReader{chatsDir: chatsDir, worktree: worktree},
+		prompts:       agentjournal.NewPromptRequests(),
+		conversations: stubConversationsForPromptRestart{},
 	}
 	rs.apiConns.set("runner-1", &apiconn{driver: apiConn, ctx: ctx})
 
@@ -269,7 +271,7 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUnc
 	requestID := uuid.NewString()
 
 	submission, handled, err := rs.submitPromptOverAPI(
-		ctx, chat, journalDir, requestID, textHash, live, worktree, text,
+		ctx, chat, journalDir, requestID, textHash, live, restartOnChangeAgent{}, worktree, text,
 	)
 	assert.True(t, handled)
 	assert.Equal(t, domain.AgentPromptSubmission{}, submission)
@@ -300,9 +302,10 @@ func TestSubmitPromptOverAPI_PushFailureAfterSuccessfulMaterialize_StillMarksUnc
 // branch after Begin succeeds in this function follows that same idiom.
 func TestSubmitPromptOverAPI_MaterializeFailure_MarksTheDispatchUncertain(t *testing.T) {
 	rs := &Runners{
-		apiConns: newAPIConnRegistry(),
-		ws:       boomWorkspaceReader{},
-		prompts:  agentjournal.NewPromptRequests(),
+		apiConns:      newAPIConnRegistry(),
+		ws:            boomWorkspaceReader{},
+		prompts:       agentjournal.NewPromptRequests(),
+		conversations: stubConversationsForPromptRestart{},
 	}
 	// A dummy entry is enough: materialization fails before pushPromptOverAPI
 	// ever dereferences the connection.
@@ -316,7 +319,7 @@ func TestSubmitPromptOverAPI_MaterializeFailure_MarksTheDispatchUncertain(t *tes
 	requestID := uuid.NewString()
 
 	submission, handled, err := rs.submitPromptOverAPI(
-		context.Background(), chat, journalDir, requestID, textHash, live, "/worktree", text,
+		context.Background(), chat, journalDir, requestID, textHash, live, restartOnChangeAgent{}, "/worktree", text,
 	)
 
 	assert.True(t, handled)

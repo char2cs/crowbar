@@ -29,11 +29,15 @@ func Resolve(d *spec.Descriptor, wireMethod string, params map[string]any) (stri
 
 	for _, name := range names {
 		ev := d.Events[name]
-		wire, direction := ev.WireEvent()
+		// The api transport is the only channel this package ever resolves a
+		// wire frame FOR — WireEventFor/WhenFor(ChannelAPI) reads a
+		// channel-scoped event's own api: block, and falls back to a legacy
+		// event's flat in:/when: unchanged.
+		wire, direction := ev.WireEventFor(spec.ChannelAPI)
 		if direction == "out" || !wire.Has(wireMethod) {
 			continue
 		}
-		if !mapping.Match(params, ev.When) {
+		if !mapping.Match(params, ev.WhenFor(spec.ChannelAPI)) {
 			continue
 		}
 		return name, true

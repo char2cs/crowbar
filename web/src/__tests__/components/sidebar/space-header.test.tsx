@@ -1,8 +1,9 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SpaceHeader } from '@/components/sidebar/space-header'
 import * as rowActions from '@/components/sidebar/lib/row-actions'
+import { useAgentProvidersStore } from '@/features/settings/stores/agent-providers-store'
 import type { Project } from '@/lib/types'
 
 vi.mock('@/components/sidebar/lib/row-actions', async (importOriginal) => ({
@@ -327,6 +328,129 @@ describe('SpaceHeader', () => {
 
     expect(onDeleteSpace).toHaveBeenCalledTimes(1)
     expect(onToggle).not.toHaveBeenCalled()
+  })
+
+  // THE BUG: "can't start chats directly on a CLI, it always obligates me to
+  // use the native chat" — the header's own Thread button, like the row's,
+  // had no way to land the new chat on Terminal without flipping
+  // chatIsDefaultPresentation (Settings → Chat) globally. This is the
+  // discoverable, visible affordance for it: a second item in the SAME
+  // overflow menu Import a repo / Create a folder already live in.
+  describe('New thread in Terminal (overflow menu)', () => {
+    afterEach(() => {
+      useAgentProvidersStore.setState({ status: 'idle', providers: [] })
+    })
+
+    it('clicking it calls onCreateThreadTerminal, not onToggleFold or plain onCreateThread', async () => {
+      useAgentProvidersStore.setState({
+        status: 'ready',
+        providers: [
+          { id: 'claude', enabled: true, hasTerminal: true, terminalStartHere: true },
+        ] as never,
+      })
+      const user = userEvent.setup()
+      const onToggle = vi.fn()
+      const onCreateThread = vi.fn()
+      const onCreateThreadTerminal = vi.fn()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={onToggle}
+          onCreateThread={onCreateThread}
+          onCreateThreadTerminal={onCreateThreadTerminal}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteSpace={vi.fn()}
+        />,
+      )
+      fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+      await user.click(screen.getByTestId('delete-menu'))
+      await user.click(await screen.findByText('New thread in Terminal'))
+
+      expect(onCreateThreadTerminal).toHaveBeenCalledTimes(1)
+      expect(onCreateThread).not.toHaveBeenCalled()
+      expect(onToggle).not.toHaveBeenCalled()
+    })
+
+    // House rule: absence, not a disabled control.
+    it('is ABSENT, not disabled, when the enabled provider declares no terminal', async () => {
+      useAgentProvidersStore.setState({
+        status: 'ready',
+        providers: [{ id: 'claude', enabled: true, hasTerminal: false }] as never,
+      })
+      const user = userEvent.setup()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onCreateThread={vi.fn()}
+          onCreateThreadTerminal={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteSpace={vi.fn()}
+        />,
+      )
+      fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+      await user.click(screen.getByTestId('delete-menu'))
+
+      expect(await screen.findByText('Import a repo')).toBeInTheDocument()
+      expect(screen.queryByText('New thread in Terminal')).not.toBeInTheDocument()
+    })
+
+    // THE surfaces: fix (design spec 2.5): hasTerminal alone used to gate
+    // this. codex HAS a terminal (attach) that is only reachable by
+    // switching to it after a turn — never a launch target for a chat that
+    // does not exist yet.
+    it('is ABSENT when the enabled provider has a terminal that is not a start_here surface', async () => {
+      useAgentProvidersStore.setState({
+        status: 'ready',
+        providers: [{ id: 'codex', enabled: true, hasTerminal: true }] as never,
+      })
+      const user = userEvent.setup()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onCreateThread={vi.fn()}
+          onCreateThreadTerminal={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteSpace={vi.fn()}
+        />,
+      )
+      fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+      await user.click(screen.getByTestId('delete-menu'))
+
+      expect(await screen.findByText('Import a repo')).toBeInTheDocument()
+      expect(screen.queryByText('New thread in Terminal')).not.toBeInTheDocument()
+    })
+
+    // No enabled provider resolved yet is not evidence of "no terminal" —
+    // the plain Thread button offers itself unconditionally too and leaves
+    // the refusal to click-time resolution; this matches it.
+    it('is still offered when no provider is enabled yet', async () => {
+      useAgentProvidersStore.setState({ status: 'idle', providers: [] })
+      const user = userEvent.setup()
+      render(
+        <SpaceHeader
+          project={makeProject('p1')}
+          folded={false}
+          onToggleFold={vi.fn()}
+          onCreateThread={vi.fn()}
+          onCreateThreadTerminal={vi.fn()}
+          onImportRepo={vi.fn()}
+          onCreateFolder={vi.fn()}
+          onDeleteSpace={vi.fn()}
+        />,
+      )
+      fireEvent.mouseEnter(screen.getByTestId('space-header-row'))
+      await user.click(screen.getByTestId('delete-menu'))
+
+      expect(await screen.findByText('New thread in Terminal')).toBeInTheDocument()
+    })
   })
 
   it('keyboard-activating the thread button fires its own handler, not onToggleFold', async () => {

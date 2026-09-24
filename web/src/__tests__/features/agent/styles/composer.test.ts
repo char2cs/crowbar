@@ -30,7 +30,11 @@ const transcriptCss = read('src/features/agent/styles/transcript.css')
  * never actually reached the screen.
  */
 function cascadedDeclarations(css: string, selector: string): Record<string, string> {
-  const escaped = selector.replace(/[.\\]/g, '\\$&')
+  // Escapes every regex metacharacter, not just `.` — a selector with a
+  // pseudo-class argument (`:not(:disabled)`) has unescaped parens that used
+  // to turn into a capture group instead of literal text, silently matching
+  // nothing.
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const pattern = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 'g')
   const declarations: Record<string, string> = {}
   for (const match of css.matchAll(pattern)) {
@@ -81,5 +85,56 @@ describe('empty chat document — font size', () => {
   it('is no longer the old 16px drafting size', () => {
     const doc = cascadedDeclarations(composerCss, '.agent-chat .doc')
     expect(doc['font-size']).not.toBe('16px')
+  })
+})
+
+// REGRESSION: `.agent-chat .underbar` used `flex-wrap: wrap`, so once `.left`
+// (the model/effort/switcher cluster) and `.right` (queued count + the
+// context gauge/Compact chip) could not both fit on one line, `.right`
+// dropped to its own wrapped line — pushed toward, sometimes through, the
+// dock's bottom edge. Measured live at a 640px viewport: three lines, the
+// gauge on the last pixel row. `.right` must stay on the baseline row always;
+// `.left` absorbs the pressure instead.
+describe('underbar — .right never leaves the baseline row', () => {
+  it('the row itself does not wrap', () => {
+    const underbar = cascadedDeclarations(composerCss, '.agent-chat .underbar')
+    expect(underbar['flex-wrap']).toBe('nowrap')
+  })
+
+  it('.right holds its natural width — it never shrinks or wraps off the row', () => {
+    const right = cascadedDeclarations(composerCss, '.agent-chat .underbar .right')
+    expect(right['flex']).toBe('none')
+  })
+
+  it('.left clips its own overflow instead of growing the row taller', () => {
+    const left = cascadedDeclarations(composerCss, '.agent-chat .underbar .left')
+    // The helper expands the `overflow` shorthand into both longhands (see
+    // its own doc above) rather than keying it as `overflow`.
+    expect(left['overflow-x']).toBe('hidden')
+    expect(left['overflow-y']).toBe('hidden')
+  })
+})
+
+// User call, overruling an earlier "always dimly visible" change: Compact
+// must stay fully hidden until the gauge is hovered, and then appear ON TOP
+// OF the bar itself (`.gstack` stacks `.gbar` and `.gaction` in the same grid
+// cell), not beside `.gpct`'s percentage text and not as a second element
+// widening the row.
+describe('gauge — Compact stays hidden until hover, then overlays the bar', () => {
+  it('.gaction is fully hidden at rest', () => {
+    const gaction = cascadedDeclarations(composerCss, '.gauge .gaction')
+    expect(gaction.opacity).toBe('0')
+  })
+
+  it('.gaction becomes visible on hover', () => {
+    const hovered = cascadedDeclarations(composerCss, '.gauge.chip:hover:not(:disabled) .gaction')
+    expect(Number(hovered.opacity)).toBe(1)
+  })
+
+  it('.gbar and .gaction share the same grid cell — the overlay sits on the bar', () => {
+    const stack = cascadedDeclarations(composerCss, '.gauge .gstack')
+    const cell = cascadedDeclarations(composerCss, '.gauge .gstack > *')
+    expect(stack.display).toBe('grid')
+    expect(cell['grid-area']).toBe('1 / 1')
   })
 })

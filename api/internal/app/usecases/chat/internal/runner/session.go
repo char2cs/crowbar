@@ -34,7 +34,14 @@ func (rs *Runners) HandleSessionStart(
 		return fmt.Errorf("agent: ingest hook: lookup session: %w", err)
 	}
 
-	switch d := engineagents.Decide(runner.CurrentSession, ev.SessionID, knownChatID, known); d.Kind {
+	// Not history, but Crowbar's own doing: a driver that recovers a lost session
+	// opens a conversation NO caller asked for (see sessionorigin.go). Unclaimed,
+	// it reads as a /clear and takes the user's message into a chat of its own.
+	originated := rs.OriginatedSession(runner.ID, ev.SessionID)
+
+	switch d := engineagents.Decide(
+		runner.CurrentSession, ev.SessionID, knownChatID, known, originated,
+	); d.Kind {
 	case engineagents.MoveNoop:
 		return nil
 	case engineagents.MoveBind:
@@ -98,7 +105,10 @@ func (rs *Runners) moveToNewChat(
 		ID:          newChatID,
 		WorkspaceID: runner.WorkspaceID,
 		Type:        domain.ChatTypeChat,
-		Now:         time.Now(),
+		// The CLI walking in IS this chat's vendor — a /clear mints the row
+		// around the runner, so it is born on whoever moved onto it.
+		ProviderID: runner.ProviderID,
+		Now:        time.Now(),
 	})
 	if err != nil {
 		return fmt.Errorf("agent: ingest hook: mint chat: %w", err)
@@ -120,6 +130,10 @@ func (rs *Runners) moveToNewChat(
 	// Releasing it is what stops a switch on the old chat waiting for an answer that is now
 	// being written somewhere else.
 	rs.inflightTurns.Complete(runner.ID)
+	// Same rule for the DELIVERY it left behind, and the same reason every other
+	// departure path runs this (lifecycle.go): once the move commits, this runner
+	// can no longer confirm a prompt into the chat it left.
+	rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
 	// And the turn must be closed on the chat itself, not just released in memory. Left open
 	// it is durable: the chat reads Working forever, and the workspace's derived overlay
 	// keeps it in the mid-turn set for the life of the daemon — a sidebar spinner running
@@ -141,11 +155,15 @@ func (rs *Runners) moveToKnownChat(
 	if _, err := rs.runnerStore.Move(ctx, runner.ID, toChatID, sessionID, true, time.Now(), model, effort); err != nil {
 		return fmt.Errorf("agent: ingest hook: move to known chat: %w", err)
 	}
+	// The destination's vendor is now whoever just walked in — the same fact a
+	// spawn records, on the one placement path that never goes through one.
+	rs.recordChatProvider(ctx, toChatID, runner.ProviderID)
 	// Whatever it was mid-way through on the chat it just left is over there (see
 	// moveToNewChat) — released in memory, and closed on the chat so the vacated chat
 	// cannot go on advertising a turn whose turn_stop is landing elsewhere.
 	rs.inflightTurns.Complete(runner.ID)
 	if runner.CurrentChatID != toChatID {
+		rs.reconcilePromptRunnerDeparture(ctx, runner, runner.CurrentChatID)
 		rs.closeAbandonedTurn(ctx, runner.CurrentChatID, runner)
 	}
 

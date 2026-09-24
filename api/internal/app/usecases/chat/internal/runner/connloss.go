@@ -26,9 +26,9 @@ import (
 // unrelated one.
 //
 // Forgetting the registry entry FIRST is the load-bearing half. While it stood,
-// HasLiveAPIConnection answered true forever and apiOwnsThisEvent (turn's
+// HasLiveAPIConnection answered true forever and ownerDropsThisDelivery (turn's
 // ingest.go) went on discarding the companion PTY's hooks copy of every
-// api-owned event as a redundant duplicate of a transport that no longer
+// owner: api event as a redundant duplicate of a transport that no longer
 // existed — so the chat fell permanently silent on top of spinning forever.
 func (rs *Runners) onAPIConnLost(ctx context.Context, runnerID string) {
 	if ctx.Err() != nil {

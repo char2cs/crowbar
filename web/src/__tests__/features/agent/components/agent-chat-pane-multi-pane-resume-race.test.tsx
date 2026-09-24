@@ -30,6 +30,8 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { seedChatPaneRecord } from '@/__tests__/__fixtures__/view-state'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 
 const { getChatFn, resumeChatFn, listMessagesFn, submitPromptFn, slashCatalogFn, saveReconnectFn } =
   vi.hoisted(() => ({
@@ -145,27 +147,25 @@ type Store = ReturnType<typeof seedWorkspace>
 // A real `PaneGroup` carries no workspace id (pane-container reads it from the
 // ambient WorkspaceStoreContext), so the harness keeps it beside the pane.
 const paneWorkspace = new Map<string, string>()
+const shadowPanes = new Map<string, { chatId: string; runnerId: string }>()
 
 function openChatPane(_store: Store, chatId: string, runnerId: string, wsId = 'w1') {
   const id = nanoid()
-  windowPaneStore.setState((s) => {
-    s.panes[id] = {
-      id,
-      type: 'group',
-      chatId,
-      runnerId: runnerId || null,
-      editorTabIds: [],
-      activeEditorTabId: null,
-      editorOpen: false,
-    }
-    return s
-  })
+  // Law 4: the store holds one pane per chat. A second pane on the same chat
+  // (the split this file is about) lives beside the store, in the harness.
+  if (chatPaneIndex(windowPaneStore.getState().panes).has(chatId)) {
+    shadowPanes.set(id, { chatId, runnerId })
+  } else {
+    seedChatPaneRecord(windowPaneStore, id, chatId, runnerId || null)
+  }
   paneWorkspace.set(id, wsId)
   return id
 }
 
 function PaneHost({ paneId }: { paneId: string }) {
-  const group = useStore(windowPaneStore, (s) => s.panes[paneId])
+  const stored = useStore(windowPaneStore, (s) => s.panes[paneId])
+  const shadow = shadowPanes.get(paneId)
+  const group = stored ?? (shadow && { id: paneId, ...shadow })
   if (!group) return null
   return createElement(AgentChatPane, {
     chatId: group.chatId ?? '',
@@ -180,6 +180,7 @@ function PaneHost({ paneId }: { paneId: string }) {
 beforeEach(() => {
   resetWindowPaneStoreForTests()
   paneWorkspace.clear()
+  shadowPanes.clear()
   for (const f of [
     getChatFn,
     resumeChatFn,

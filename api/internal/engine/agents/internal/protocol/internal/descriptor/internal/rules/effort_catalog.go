@@ -15,6 +15,12 @@ func (effortCatalog) Check(d *spec.Descriptor) error {
 		return nil
 	}
 	if len(d.Effort.Available) == 0 {
+		if d.Model != nil && (d.Model.Discover != nil || d.Model.Manifest != nil) {
+			// Efforts come from the same probe/manifest as the model list —
+			// see modelDiscover/modelManifest — so a static available: map
+			// is expected absent.
+			return nil
+		}
 		return invalid(d.ID, "effort.available declares no models")
 	}
 	keys := make([]string, 0, len(d.Effort.Available))

@@ -6,6 +6,7 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
 
 vi.mock('@/lib/persistence/workspace-layout', () => ({
   saveWorkspaceLayout: vi.fn().mockResolvedValue(undefined),
@@ -52,20 +53,19 @@ afterEach(() => {
   resetWindowPaneStoreForTests()
 })
 
-/** Two views, each one pane: `ROOT_PANE_ID` and a second one. Returns the
- *  second view/pane id (they are the same — `addPane` names a view after the
- *  pane it mints). */
-function openSecondView(): string {
+/** Two views, each one pane. The first is the promoted stage, so its view id
+ *  is `ROOT_PANE_ID` too; returns the second's pane and view ids. */
+function openSecondView(): { pane: string; view: string } {
   const { paneActions } = windowPaneStore.getState()
-  paneActions.setPaneChat(ROOT_PANE_ID, 'chat-1', null)
-  const second = paneActions.addPane()!
-  paneActions.setPaneChat(second, 'chat-2', null)
-  return second
+  paneActions.openChat('chat-1')
+  paneActions.openChat('chat-2')
+  const pane = chatPaneIndex(windowPaneStore.getState().panes).get('chat-2')!
+  return { pane, view: windowPaneStore.getState().panes[pane].viewId! }
 }
 
 describe('SplitViewRoot — only the active view occupies the content area', () => {
   it('renders every open view, and hides all but the showing one', async () => {
-    const second = openSecondView()
+    const { pane: second, view: secondView } = openSecondView()
     await act(async () => {
       render(createElement(SplitViewRoot))
     })
@@ -80,7 +80,7 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
     const parkedRoot = document.querySelector(`[data-view-root="${ROOT_PANE_ID}"]`)!
     expect(parkedRoot.getAttribute('style')).toContain('display: none')
     expect(parkedRoot.hasAttribute('inert')).toBe(true)
-    expect(document.querySelector(`[data-view-root="${second}"]`)!.hasAttribute('inert')).toBe(
+    expect(document.querySelector(`[data-view-root="${secondView}"]`)!.hasAttribute('inert')).toBe(
       false,
     )
   })
@@ -94,7 +94,7 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
    * gated on `isVisible`, it never came back.
    */
   it('switching views does NOT remount either view — parking is not a teardown', async () => {
-    const second = openSecondView()
+    const { pane: second, view: secondView } = openSecondView()
     await act(async () => {
       render(createElement(SplitViewRoot))
     })
@@ -109,7 +109,7 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
 
     // ...and back again, so neither direction of the swap is a teardown.
     await act(async () => {
-      windowPaneStore.getState().paneActions.activateView(second)
+      windowPaneStore.getState().paneActions.activateView(secondView)
     })
 
     expect(mountsOf(ROOT_PANE_ID)).toBe(1)
@@ -141,8 +141,9 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
 
     let third = ''
     await act(async () => {
-      third = windowPaneStore.getState().paneActions.addPane()!
-      windowPaneStore.getState().paneActions.setPaneChat(third, 'chat-3', null)
+      windowPaneStore.getState().paneActions.openChat('chat-3')
+      const pane = chatPaneIndex(windowPaneStore.getState().panes).get('chat-3')!
+      third = windowPaneStore.getState().panes[pane].viewId!
     })
 
     const showing = [...document.querySelectorAll('[data-view-root]')].filter(
@@ -153,20 +154,35 @@ describe('SplitViewRoot — only the active view occupies the content area', () 
   })
 
   it('closing the showing view reveals the one behind it, without remounting it', async () => {
-    const second = openSecondView()
+    const { pane: second, view: secondView } = openSecondView()
     await act(async () => {
       render(createElement(SplitViewRoot))
     })
     expect(mountsOf(ROOT_PANE_ID)).toBe(1)
 
     await act(async () => {
-      windowPaneStore.getState().paneActions.closeView(second)
+      windowPaneStore.getState().paneActions.closeView(secondView)
     })
 
     expect(screen.queryByTestId(`pane-${second}`)).toBeNull()
     expect(screen.getByTestId(`pane-${ROOT_PANE_ID}`).getAttribute('data-showing')).toBe('true')
     // The revealed view was parked, not rebuilt — it is the same instance it
     // has been since it was opened.
+    expect(mountsOf(ROOT_PANE_ID)).toBe(1)
+  })
+
+  it('a chat landing in the stage promotes it without remounting the stage pane', async () => {
+    await act(async () => {
+      render(createElement(SplitViewRoot))
+    })
+    const before = screen.getByTestId(`pane-${ROOT_PANE_ID}`)
+
+    await act(async () => {
+      windowPaneStore.getState().paneActions.openChat('chat-1')
+    })
+
+    expect(windowPaneStore.getState().activeViewId).toBe(ROOT_PANE_ID)
+    expect(screen.getByTestId(`pane-${ROOT_PANE_ID}`)).toBe(before)
     expect(mountsOf(ROOT_PANE_ID)).toBe(1)
   })
 })

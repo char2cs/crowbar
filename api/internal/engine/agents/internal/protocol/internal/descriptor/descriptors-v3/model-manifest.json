@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-22T00:00:00Z",
+  "providers": {
+    "claude": {
+      "models": [
+        {
+          "id": "fable",
+          "label": "Fable",
+          "status": "current",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "opus",
+          "label": "Opus",
+          "status": "current",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "sonnet",
+          "label": "Sonnet",
+          "status": "current",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "haiku",
+          "label": "Haiku",
+          "status": "current",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "opusplan",
+          "label": "Opus Plan",
+          "status": "current",
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        }
+      ]
+    }
+  },
+  "_note": "Model ids, display labels, and PER-MODEL effort lists. Efforts are per model because support varies by model -- measured on codex, whose discovery returns ultra for gpt-6-astra but not for gpt-5.6-luna, and neither max nor ultra for gpt-5.5. UNVERIFIED for claude: `claude --help` documents ONE global enum (low, medium, high, xhigh, max) and the CLI does not validate --effort at all (it silently accepts `none` and `ultra`), so no per-model difference could be measured here. Every row therefore carries the full enum. If a model turns out to support fewer, correcting it is a one-line edit to that row -- which is the entire point of this file. NO DEFAULT is declared: claude's default is account-dependent (measured 2026-09-22, `claude -p --output-format json` resolved it to claude-opus-5-5 here), so a shared manifest cannot state one; Crowbar learns the real model from each turn's launch report."
+}

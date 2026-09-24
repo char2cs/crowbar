@@ -15,6 +15,7 @@ const {
   deleteChat,
   toastError,
   getHomeWorkspaceId,
+  presetChatLandingPresentation,
 } = vi.hoisted(() => ({
   postWorkspace: vi.fn(() => Promise.resolve()),
   createChat: vi.fn(() => Promise.resolve('chat-1')),
@@ -22,6 +23,7 @@ const {
   deleteChat: vi.fn(() => Promise.resolve()),
   toastError: vi.fn(),
   getHomeWorkspaceId: vi.fn(),
+  presetChatLandingPresentation: vi.fn(),
 }))
 
 vi.mock('@/lib/api', async (importOriginal) => ({
@@ -37,6 +39,7 @@ vi.mock('@/features/agent/api/agent-api', async (importOriginal) => ({
 vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { error: toastError, success: vi.fn(), info: vi.fn() },
 }))
+vi.mock('@/features/agent/hooks/use-chat-presentation', () => ({ presetChatLandingPresentation }))
 // `handleOpen`'s home branch reads this directly (see `resolveHomeRow`) —
 // the real resolver needs an async fetch+cache round trip these tests have
 // no reason to exercise; `handleCreateHomeThread`'s own tests never needed
@@ -68,7 +71,6 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { viewIdOf } from '@/features/panes/lib/pane-views'
 
 const repo = (over: Partial<Repo> = {}): Repo => ({
   id: 'r1',
@@ -212,7 +214,7 @@ describe('handleOpen', () => {
     it('opens into a pane immediately after navigating, even while the active PANE already holds a chat from a DIFFERENT workspace', async () => {
       resetWindowPaneStoreForTests()
       setActiveWorkspaceId('ws-other') // some other workspace is "active"
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'already-open-chat', null)
+      windowPaneStore.getState().paneActions.openChat('already-open-chat')
       const navigate = vi.fn()
 
       handleOpen('c1', [withChat({ id: 'c1', workspaceId: 'ws-a' })], navigate)
@@ -309,8 +311,8 @@ describe('handleOpen', () => {
         const panes = windowPaneStore.getState().panes
         expect(panes[ROOT_PANE_ID]?.chatId).toBe('c1')
         expect(Object.values(panes).find((p) => p.chatId === 'c2')?.id).not.toBe(ROOT_PANE_ID)
-        // The drop's merge would have grouped c1+c2 into one Recents entry.
-        expect(windowPaneStore.getState().dormantArrangements).toEqual([])
+        // The drop's merge would have grouped c1+c2 into one Recents row.
+        expect(windowPaneStore.getState().viewOrder).toHaveLength(2)
       })
 
       it('a chat already up is gone TO rather than opened a second time', () => {
@@ -527,7 +529,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
 
     handleCreate('c1', 'thread', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'c1')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'c1', undefined)
   })
 
   it('Fork forks the ground workspace’s OWNING BRANCH, never the bubble’s own id', async () => {
@@ -567,7 +569,7 @@ describe('a bubble chat row resolves Fork/Thread through its GROUND workspace', 
     })
 
     handleCreate('c1', 'thread', vi.fn())
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-1', 'claude', 'c1')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-1', 'claude', 'c1', undefined)
 
     handleCreate('c1', 'workspace', vi.fn())
     confirmArmedBranchName()
@@ -609,7 +611,7 @@ describe('a project-home chat row resolves Thread through its home workspace, an
 
     handleCreate('c1', 'thread', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude', 'c1')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude', 'c1', undefined)
     expect(usePendingCreatesStore.getState().entries).toMatchObject([
       { kind: 'chat', projectId: 'p1', parentId: 'c1' },
     ])
@@ -667,6 +669,27 @@ describe('a project-home chat row resolves Thread through its home workspace, an
     await Promise.resolve()
 
     expect(usePendingCreatesStore.getState().entries).toEqual([])
+  })
+
+  it('presets Terminal for a project-home thread too, when asked for one', async () => {
+    getHomeWorkspaceId.mockReturnValue('home-ws-1')
+    useHomeTreeStore.setState({
+      trees: {
+        p1: {
+          chats: [{ id: 'c1', repoId: '', workspaceId: 'home-ws-1', title: 'Existing', order: 0 }],
+          folders: [],
+        },
+      },
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    handleCreate('c1', 'thread', vi.fn(), 'terminal')
+    await Promise.resolve()
+
+    expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
   })
 
   it('Fork is a silent no-op — no repo, no worktree to clone', () => {
@@ -996,7 +1019,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     handleCreate('ws-a', 'thread', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
   })
 
   // The regression that made "Thread does nothing" reproducible: a workspace
@@ -1012,7 +1035,7 @@ describe('creating a workspace off a REGULAR fork row', () => {
 
     handleCreate('ws-a', 'thread', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
   })
 
   // A precondition that stops the click has to SAY so. Silence here is
@@ -1105,7 +1128,18 @@ describe('handleCreateHomeThread', () => {
 
     await handleCreateHomeThread('p1', 'home-ws-1', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('home-ws-1', 'claude', '', undefined)
+  })
+
+  it('presets the new chat onto Terminal when asked for one', async () => {
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    await handleCreateHomeThread('p1', 'home-ws-1', vi.fn(), 'terminal')
+
+    expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
   })
 
   it('opens straight into a pane when the home workspace is already active', async () => {
@@ -1325,7 +1359,42 @@ describe('starting a thread on a real workspace', () => {
 
     handleCreate('ws-a', 'thread', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
+  })
+
+  // THE BUG: "can't start chats directly on a CLI, it always obligates me to
+  // use the native chat" — no creation entry point could land a single new
+  // chat on Terminal without flipping chatIsDefaultPresentation globally. An
+  // optional 4th `presentation` arg is the fix: handleCreate presets the
+  // landed chat's surface before opening it, same seam an in-pane pick uses.
+  it('presets the new chat onto Terminal when asked for one', async () => {
+    useSidebarStore.setState({
+      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    handleCreate('ws-a', 'thread', vi.fn(), 'terminal')
+    await Promise.resolve()
+
+    expect(presetChatLandingPresentation).toHaveBeenCalledExactlyOnceWith('chat-1', 'terminal')
+  })
+
+  it('never presets a surface for an ordinary create', async () => {
+    useSidebarStore.setState({
+      repos: [repo({ workspaces: [{ id: 'ws-a', branch: 'alpha', age: '', order: 0 }] })],
+    })
+    useAgentProvidersStore.setState({
+      status: 'ready',
+      providers: [{ id: 'claude', enabled: true }] as never,
+    })
+
+    handleCreate('ws-a', 'thread', vi.fn())
+    await Promise.resolve()
+
+    expect(presetChatLandingPresentation).not.toHaveBeenCalled()
   })
 
   // Regression, reported live: a repo-scoped thread's placement is ALSO a
@@ -1436,15 +1505,14 @@ describe('starting a thread on a real workspace', () => {
       providers: [{ id: 'claude', enabled: true }] as never,
     })
     setActiveWorkspaceId('ws-a')
-    // The chat the user is already "in" — the active pane is occupied, so
-    // the new thread must open into a brand-new view (addPane), not fill
-    // this one in place.
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'existing-chat', null)
+    // The chat the user is already "in" — the new thread must open as a
+    // row of its own, never into this pane.
+    windowPaneStore.getState().paneActions.openChat('existing-chat')
     // hydrate.ts's own answer for last session, landed before ide-shell.tsx's
     // bootstrap effect has run even once this session — `activeProjectId` is
     // still null at this point, exactly as it is right after hydrate.
     windowPaneStore.setState((s) => ({
-      viewProjects: { ...s.viewProjects, [ROOT_PANE_ID]: 'p1' },
+      views: { ...s.views, [ROOT_PANE_ID]: { ...s.views[ROOT_PANE_ID], projectId: 'p1' } },
       activeViewByProject: { ...s.activeViewByProject, p1: ROOT_PANE_ID },
     }))
     const navigate = vi.fn()
@@ -1456,7 +1524,7 @@ describe('starting a thread on a real workspace', () => {
       (p) => p.chatId === 'chat-1',
     )
     expect(newPane).toBeDefined()
-    expect(windowPaneStore.getState().activeViewId).toBe(viewIdOf(newPane!))
+    expect(windowPaneStore.getState().activeViewId).toBe(newPane!.viewId)
 
     // The route resolves and ide-shell.tsx's effect finally fires — the
     // first `setActiveProject` call this session.
@@ -1464,7 +1532,7 @@ describe('starting a thread on a real workspace', () => {
 
     // The thread that was already, correctly, on screen must still be
     // showing — not silently reverted to the existing chat.
-    expect(windowPaneStore.getState().activeViewId).toBe(viewIdOf(newPane!))
+    expect(windowPaneStore.getState().activeViewId).toBe(newPane!.viewId)
     const activePane = windowPaneStore.getState().panes[windowPaneStore.getState().activePaneId]
     expect(activePane?.chatId).toBe('chat-1')
   })
@@ -1690,7 +1758,12 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
 
     handleCreate('develop-row', 'thread', vi.fn())
 
-    expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-locked', 'claude', 'develop-row')
+    expect(createChat).toHaveBeenCalledExactlyOnceWith(
+      'ws-locked',
+      'claude',
+      'develop-row',
+      undefined,
+    )
   })
 
   describe('pending-create rows — placement and lifecycle', () => {
@@ -1823,7 +1896,7 @@ describe('a branch row is addressed by its owning chat, and is still a workspace
         order: 1,
         workspaceId: 'ws-a',
       })
-      expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a')
+      expect(createChat).toHaveBeenCalledExactlyOnceWith('ws-a', 'claude', 'ws-a', undefined)
     })
 
     it('cancelling a naming entry drops the row and releases the lock — a fresh "+" click arms again', () => {

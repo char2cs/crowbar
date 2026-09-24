@@ -4,11 +4,12 @@ import { SpaceScroller } from '@/components/sidebar/space-scroller'
 import { handleCreateHomeThread } from '@/components/layout/space-content-actions'
 import { performCreateHomeFolder } from '@/components/sidebar/lib/row-actions'
 import { useHomeTreeStore } from '@/lib/store/home-tree'
-import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
-import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
 import { usePendingCreatesStore, getInitialPendingCreatesState } from '@/lib/store/pending-creates'
 import { getWorkspaceScope, __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
-import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import type { Project } from '@/lib/types'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
@@ -40,6 +41,7 @@ const useHomeWorkspaceStateMock = vi.hoisted(() =>
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   useHomeWorkspaceState: (projectId: string | null) => useHomeWorkspaceStateMock(projectId),
   ensureHomeWorkspaceResolved: vi.fn(),
+  getHomeWorkspaceId: vi.fn(() => 'home-ws-1'),
 }))
 
 // SpacePanel's ONLY import from this module — mocked wholesale so the
@@ -69,7 +71,10 @@ const onPaneDrop = vi.fn()
 // what every fixture here needs, so it is left unmocked (mocking the whole
 // module would also replace `SidebarTree`'s own `collapsedChatRows` read,
 // which every rendered row here depends on).
-vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
+vi.mock('@/features/workspace/stores/workspace-store-registry', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/features/workspace/stores/workspace-store-registry')
+  >()),
   getAllActiveWorkspaceIds: () => [],
   // Nothing is mounted here: a Recents member row falls back to the sidebar's
   // own chat record (`useRecentsChat`).
@@ -78,7 +83,6 @@ vi.mock('@/features/workspace/stores/workspace-store-registry', () => ({
     getState: () => ({
       panes: {},
       agentChats: { working: {}, chats: [] },
-      dormantArrangements: [],
     }),
     subscribe: () => () => {},
   }),
@@ -113,8 +117,6 @@ function makeRow(id: string, label: string, over: Partial<SidebarRow> = {}): Sid
   }
 }
 
-const noRecents = () => [] as RecentsBandEntry[]
-
 /**
  * jsdom lays nothing out, so `clientWidth` is 0 and the scroller's
  * panel-index arithmetic (`scrollLeft / clientWidth`) can't identify a panel.
@@ -130,6 +132,7 @@ describe('SpaceScroller', () => {
   beforeEach(() => {
     // jsdom does not implement scrollTo
     HTMLElement.prototype.scrollTo = vi.fn()
+    resetWindowPaneStoreForTests()
     useHomeTreeStore.setState({ trees: {} })
     usePendingCreatesStore.setState(getInitialPendingCreatesState())
     __resetWorkspaceScopesForTest()
@@ -148,7 +151,6 @@ describe('SpaceScroller', () => {
         activeProjectId="p1"
         onActiveProjectChange={vi.fn()}
         rowsForProject={() => []}
-        recentsForProject={noRecents}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
@@ -174,7 +176,6 @@ describe('SpaceScroller', () => {
         activeProjectId="p1"
         onActiveProjectChange={onChange}
         rowsForProject={() => []}
-        recentsForProject={noRecents}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
@@ -210,7 +211,6 @@ describe('SpaceScroller', () => {
         activeProjectId="p1"
         onActiveProjectChange={onChange}
         rowsForProject={() => []}
-        recentsForProject={noRecents}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
@@ -247,7 +247,6 @@ describe('SpaceScroller', () => {
         activeProjectId="p1"
         onActiveProjectChange={onChange}
         rowsForProject={() => []}
-        recentsForProject={noRecents}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
@@ -278,7 +277,6 @@ describe('SpaceScroller', () => {
         activeProjectId="p2"
         onActiveProjectChange={vi.fn()}
         rowsForProject={() => []}
-        recentsForProject={noRecents}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
@@ -309,7 +307,6 @@ describe('SpaceScroller', () => {
       projects,
       onActiveProjectChange: vi.fn(),
       rowsForProject: () => [],
-      recentsForProject: noRecents,
       onOpen: vi.fn(),
       onTrash: vi.fn(),
       onCreate: vi.fn(),
@@ -359,7 +356,6 @@ describe('SpaceScroller', () => {
         activeProjectId="p1"
         onActiveProjectChange={vi.fn()}
         rowsForProject={() => [row]}
-        recentsForProject={noRecents}
         onOpen={onOpen}
         onTrash={vi.fn()}
         onCreate={onCreate}
@@ -388,20 +384,13 @@ describe('SpaceScroller', () => {
   it("renders each project's RecentsBand below its SidebarTree, in the same scroll region", () => {
     const projects = [makeProject('p1')]
     const row = makeRow('row-1', 'Fix the thing')
-    const entry: RecentsBandEntry = {
-      id: 'e1',
-      localId: 'e1',
-      chatIds: ['chat-1'],
-      state: 'dormant',
-      workspaceId: 'ws-1',
-    }
+    windowPaneStore.getState().paneActions.openChat('chat-1', { projectId: 'p1' })
     render(
       <SpaceScroller
         projects={projects}
         activeProjectId="p1"
         onActiveProjectChange={vi.fn()}
         rowsForProject={() => [row]}
-        recentsForProject={() => [entry]}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
@@ -424,8 +413,8 @@ describe('SpaceScroller', () => {
     expect(tree.compareDocumentPosition(band) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('calls recentsForProject/onFocusRecent/onCloseRecent with the right project and entry', () => {
-    const recentsForProject = vi.fn(() => [] as RecentsBandEntry[])
+  it("each project's band draws only that project's rows", () => {
+    windowPaneStore.getState().paneActions.openChat('chat-1', { projectId: 'p1' })
     const projects = [makeProject('p1'), makeProject('p2')]
     render(
       <SpaceScroller
@@ -433,7 +422,6 @@ describe('SpaceScroller', () => {
         activeProjectId="p1"
         onActiveProjectChange={vi.fn()}
         rowsForProject={() => []}
-        recentsForProject={recentsForProject}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
@@ -445,8 +433,9 @@ describe('SpaceScroller', () => {
         onTrashProject={vi.fn()}
       />,
     )
-    expect(recentsForProject).toHaveBeenCalledWith('p1')
-    expect(recentsForProject).toHaveBeenCalledWith('p2')
+    const [p1Panel, p2Panel] = screen.getAllByTestId('space-panel')
+    expect(within(p1Panel).queryByTestId('recents-band')).toBeInTheDocument()
+    expect(within(p2Panel).queryByTestId('recents-band')).not.toBeInTheDocument()
   })
 
   // Spec §6: "the tree keeps a bottom inset the height of the card." An
@@ -468,7 +457,6 @@ describe('SpaceScroller', () => {
         activeProjectId="p1"
         onActiveProjectChange={vi.fn()}
         rowsForProject={() => []}
-        recentsForProject={noRecents}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
@@ -501,7 +489,6 @@ describe('SpaceScroller', () => {
         activeProjectId="p1"
         onActiveProjectChange={vi.fn()}
         rowsForProject={() => []}
-        recentsForProject={noRecents}
         onOpen={vi.fn()}
         onTrash={vi.fn()}
         onCreate={vi.fn()}
@@ -530,20 +517,14 @@ describe('SpaceScroller', () => {
 
     const renderScroller = (overrides: Partial<{ onTrashProject: () => void }> = {}) => {
       const projects = [makeProject('p1'), makeProject('p2')]
-      const entry: RecentsBandEntry = {
-        id: 'e1',
-        localId: 'e1',
-        chatIds: ['chat-1'],
-        state: 'dormant',
-        workspaceId: 'ws-1',
-      }
+      windowPaneStore.getState().paneActions.openChat('chat-1', { projectId: 'p1' })
+      windowPaneStore.getState().paneActions.adoptBackgroundChat('chat-2', 'p2')
       render(
         <SpaceScroller
           projects={projects}
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => [makeRow('row-1', 'Fix the thing')]}
-          recentsForProject={() => [entry]}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -643,7 +624,6 @@ describe('SpaceScroller', () => {
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => [makeRow('row-1', 'Fix the thing', { kind: 'branch' })]}
-          recentsForProject={noRecents}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={onCreate}
@@ -680,7 +660,6 @@ describe('SpaceScroller', () => {
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => []}
-          recentsForProject={noRecents}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -718,6 +697,42 @@ describe('SpaceScroller', () => {
       fireEvent.click(screen.getByText('Create a folder'))
 
       expect(performCreateHomeFolder).toHaveBeenCalledWith('p1')
+    })
+
+    // THE BUG: "can't start chats directly on a CLI, it always obligates me
+    // to use the native chat" — same "start THIS chat on the CLI" affordance
+    // as the sidebar row's own context-menu item, at the project-home level:
+    // the SAME handleCreateHomeThread the plain thread button calls, with
+    // the optional 4th (presentation) argument the fix added.
+    it("the overflow's New thread in Terminal presets the project-home thread onto Terminal", () => {
+      renderScroller()
+      const header = screen.getAllByTestId('space-header-row')[0]
+
+      fireEvent.mouseEnter(header)
+      fireEvent.click(screen.getByTestId('delete-menu'))
+      fireEvent.click(screen.getByText('New thread in Terminal'))
+
+      expect(handleCreateHomeThread).toHaveBeenCalledWith(
+        'p1',
+        'home-ws-1',
+        expect.any(Function),
+        'terminal',
+      )
+    })
+
+    it('the overflow’s New thread in Terminal also refuses with a toast, not silently, before the home workspace resolves', async () => {
+      useHomeWorkspaceStateMock.mockReturnValue({ wsId: null, owningChatId: null, error: false })
+      const { toast } = await import('@/features/window/stores/toast-store')
+      renderScroller()
+      const header = screen.getAllByTestId('space-header-row')[0]
+      const callsBefore = vi.mocked(handleCreateHomeThread).mock.calls.length
+
+      fireEvent.mouseEnter(header)
+      fireEvent.click(screen.getByTestId('delete-menu'))
+      fireEvent.click(screen.getByText('New thread in Terminal'))
+
+      expect(handleCreateHomeThread).toHaveBeenCalledTimes(callsBefore)
+      expect(toast.error).toHaveBeenCalledWith("Can't start a new thread yet")
     })
   })
 
@@ -763,7 +778,6 @@ describe('SpaceScroller', () => {
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => [makeRow('row-1', 'Repo thread', { kind: 'branch' })]}
-          recentsForProject={noRecents}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -841,7 +855,6 @@ describe('SpaceScroller', () => {
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => []}
-          recentsForProject={noRecents}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -913,7 +926,6 @@ describe('SpaceScroller', () => {
               },
             }),
           ]}
-          recentsForProject={noRecents}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -994,7 +1006,6 @@ describe('SpaceScroller', () => {
               },
             }),
           ]}
-          recentsForProject={noRecents}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -1030,7 +1041,6 @@ describe('SpaceScroller', () => {
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => [makeRow('row-1', 'Repo thread', { kind: 'branch' })]}
-          recentsForProject={noRecents}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -1059,7 +1069,6 @@ describe('SpaceScroller', () => {
           activeProjectId="p2"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => []}
-          recentsForProject={noRecents}
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -1078,18 +1087,9 @@ describe('SpaceScroller', () => {
     })
   })
 
-  // REGRESSION (live-reported: "rows on recents cannot be reorder"). The
-  // band's own re-render signal (`subscribeRecentsTick`) watched panes,
-  // dormant arrangements and the active view — but not `recentsOrder`, the
-  // one input to `deriveRecentsEntries` a reorder actually writes. The drop
-  // landed, the order was persisted, and the rows went on drawing in the old
-  // order until something unrelated re-rendered the panel.
+  // REGRESSION (live-reported: "rows on recents cannot be reorder"): a
+  // reorder that writes only `viewOrder` must re-render the band.
   describe('the dragged Recents order (spec §8.1)', () => {
-    const DORMANT = [
-      { id: 'e1', chatIds: ['chat-a'], state: 'dormant' as const },
-      { id: 'e2', chatIds: ['chat-b'], state: 'dormant' as const },
-    ]
-
     function renderBand() {
       useHomeTreeStore.setState({
         trees: {
@@ -1108,13 +1108,6 @@ describe('SpaceScroller', () => {
           activeProjectId="p1"
           onActiveProjectChange={vi.fn()}
           rowsForProject={() => []}
-          // The real derivation, so the order under test is the one
-          // production computes — only the inputs are fixtures.
-          recentsForProject={() =>
-            deriveRecentsEntries([], {}, DORMANT, windowPaneStore.getState().recentsOrder).map(
-              (entry) => ({ ...entry, localId: entry.id, workspaceId: 'home-ws-1' }),
-            )
-          }
           onOpen={vi.fn()}
           onTrash={vi.fn()}
           onCreate={vi.fn()}
@@ -1133,18 +1126,19 @@ describe('SpaceScroller', () => {
         (el) => el.getAttribute('data-testid'),
       )
 
-    it('re-renders the band when a reorder writes recentsOrder, with no other state changing', () => {
-      windowPaneStore.setState({ recentsOrder: [] })
+    it('re-renders the band when a reorder writes viewOrder, with no other state changing', () => {
+      resetWindowPaneStoreForTests()
+      const { paneActions } = windowPaneStore.getState()
+      paneActions.openChat('chat-a', { projectId: 'p1' })
+      paneActions.openChat('chat-b', { projectId: 'p1' })
       renderBand()
       expect(bandOrder()).toEqual(['recents-row-chat-a', 'recents-row-chat-b'])
 
+      const [first, second] = windowPaneStore.getState().viewOrder
       act(() => {
-        windowPaneStore
-          .getState()
-          .paneActions.reorderRecentsEntry('e2', 'e1', 'before', ['e1', 'e2'])
+        windowPaneStore.getState().paneActions.reorderView(second, first, 'before')
       })
 
-      expect(windowPaneStore.getState().recentsOrder).toEqual(['e2', 'e1'])
       expect(bandOrder()).toEqual(['recents-row-chat-b', 'recents-row-chat-a'])
     })
   })

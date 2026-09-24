@@ -1,5 +1,5 @@
 // web/src/__tests__/components/layout/IDEShell.test.tsx
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import React from 'react'
 import { IDEShell } from '@/components/layout/ide-shell'
@@ -11,6 +11,9 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
+import { chatPaneIndex } from '@/features/panes/lib/view-selectors'
+import { __resetHomeWorkspaceResolverForTest } from '@/features/workspace/lib/home-workspace-resolver'
+import { useFocusedWorkspaceContextStore } from '@/features/window/stores/focused-workspace-context-store'
 
 const router = vi.hoisted(() => ({ pathname: '/', navigate: vi.fn() }))
 
@@ -28,9 +31,45 @@ vi.mock('@/features/workspace/components/workspace-view', () => ({
     return <div data-testid="workspace-view" />
   },
 }))
-vi.mock('@/components/layout/sidebar-carousel', () => ({
-  SidebarCarousel: () => <div data-testid="sidebar-carousel" />,
+const { sidebarCarouselMock } = vi.hoisted(() => ({
+  sidebarCarouselMock: vi.fn(),
 }))
+vi.mock('@/components/layout/sidebar-carousel', () => ({
+  SidebarCarousel: (props: Record<string, unknown>) => {
+    sidebarCarouselMock(props)
+    return <div data-testid="sidebar-carousel" />
+  },
+}))
+// `useActivePaneWorkspaceId` alone, overridable per-test — every other export
+// (usePaneWorkspaceIds, usePaneEditorWorkspaceIds, useViewWorkspaceIds) stays
+// real. The override exists only to stand in for a project-home chat's
+// resolution, which normally requires a REGISTERED workspace store (a real
+// chat record, seeded via the registry) rather than the sidebar-hint path
+// every other test here already uses via `sidebarState.repos[].chats` — home
+// chats ride no repo, so that hint can never name one.
+const { activePaneWorkspaceIdOverride } = vi.hoisted(() => ({
+  activePaneWorkspaceIdOverride: { current: undefined as string | null | undefined },
+}))
+vi.mock('@/features/panes/hooks/use-chat-workspace-id', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/panes/hooks/use-chat-workspace-id')>()
+  return {
+    ...actual,
+    useActivePaneWorkspaceId: () => {
+      const real = actual.useActivePaneWorkspaceId()
+      return activePaneWorkspaceIdOverride.current !== undefined
+        ? activePaneWorkspaceIdOverride.current
+        : real
+    },
+  }
+})
+const { fetchHomeWorkspaceMock } = vi.hoisted(() => ({
+  fetchHomeWorkspaceMock: vi.fn().mockRejectedValue(new Error('not mocked for this test')),
+}))
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return { ...actual, fetchHomeWorkspace: (projectId: string) => fetchHomeWorkspaceMock(projectId) }
+})
 const { sidebarProjectHeaderMock } = vi.hoisted(() => ({
   sidebarProjectHeaderMock: vi.fn(),
 }))
@@ -120,12 +159,20 @@ describe('IDEShell', () => {
     useProjectDataStore.setState({ data: idle() })
     sidebarState.repos = []
     workspaceViewMock.mockClear()
+    sidebarCarouselMock.mockClear()
+    activePaneWorkspaceIdOverride.current = undefined
+    // ide-shell.tsx now kicks off `ensureHomeWorkspaceResolved` for the active
+    // project on EVERY route, not just the home one — the resolver's cache is
+    // a module singleton, so a prior test's resolution for the same project id
+    // ('p1' throughout this file) would otherwise leak into the next one.
+    __resetHomeWorkspaceResolverForTest()
+    fetchHomeWorkspaceMock.mockReset().mockRejectedValue(new Error('not mocked for this test'))
     // A fresh windowPaneStore starts on the empty-stage fallback pane (no
     // chat, no editor tabs) — which now hides SidebarCarousel (see "hiding
     // with nothing open" below). Every OTHER test here is about chrome that
     // only makes sense alongside a real view, so it needs one seeded in.
     resetWindowPaneStoreForTests()
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'test-chat', null)
+    windowPaneStore.getState().paneActions.openChat('test-chat')
   })
 
   it('renders project header', () => {
@@ -313,7 +360,7 @@ describe('IDEShell', () => {
 
     it('shows SidebarCarousel once a real chat is open', () => {
       resetWindowPaneStoreForTests()
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'test-chat', null)
+      windowPaneStore.getState().paneActions.openChat('test-chat')
 
       render(<IDEShell />)
 
@@ -346,11 +393,9 @@ describe('IDEShell', () => {
         },
       ]
       resetWindowPaneStoreForTests()
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', null)
-      const secondPaneId = windowPaneStore
-        .getState()
-        .paneActions.splitPane(ROOT_PANE_ID, 'horizontal', undefined, 'after')
-      windowPaneStore.getState().paneActions.setPaneChat(secondPaneId!, 'chat-b', null)
+      windowPaneStore.getState().paneActions.openChat('chat-a')
+      windowPaneStore.getState().paneActions.dropChatOnPane('chat-b', ROOT_PANE_ID, 'right')
+      const secondPaneId = chatPaneIndex(windowPaneStore.getState().panes).get('chat-b')
       windowPaneStore.getState().paneActions.setActivePane(secondPaneId!)
 
       render(<IDEShell />)
@@ -396,9 +441,9 @@ describe('IDEShell', () => {
       ]
       resetWindowPaneStoreForTests()
       const paneActions = () => windowPaneStore.getState().paneActions
-      paneActions().setPaneChat(ROOT_PANE_ID, 'chat-a', null)
-      const secondPaneId = paneActions().splitPane(ROOT_PANE_ID, 'horizontal', undefined, 'after')!
-      paneActions().setPaneChat(secondPaneId, 'chat-b', null)
+      paneActions().openChat('chat-a')
+      paneActions().dropChatOnPane('chat-b', ROOT_PANE_ID, 'right')
+      const secondPaneId = chatPaneIndex(windowPaneStore.getState().panes).get('chat-b')!
       // The asymmetry that used to move the shell's `activeEditorTabId`: one
       // pane holds an editor tab, the other holds only its chat.
       paneActions().setActivePane(ROOT_PANE_ID)
@@ -430,7 +475,7 @@ describe('IDEShell', () => {
         },
       ]
       resetWindowPaneStoreForTests()
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', null)
+      windowPaneStore.getState().paneActions.openChat('chat-a')
 
       render(<IDEShell />)
 
@@ -438,6 +483,59 @@ describe('IDEShell', () => {
         .map(([props]) => props as { wsId: string; active: boolean })
         .find((p) => p.active)
       expect(activeCall?.wsId).toBe('ws-a')
+    })
+  })
+
+  // Live-reported: "on a split view, the file explorer of a thread doesn't
+  // appear... only when in a view with threads AND branch threads opened."
+  // The active pane holds a project-home chat (rides no repo — home is a
+  // project-level concept per home-workspace-resolver.ts), while the ROUTE
+  // sits on a repo workspace of the SAME project (a branch thread in the
+  // same split). `ide-shell.tsx` used to resolve `homeWorkspaceId`/
+  // `homeWorkspacePath` only when the ROUTE itself was on the home path
+  // (`homeProjectId = homeRouteMatch ? activeProjectIdFromRoute : undefined`),
+  // so off the home route they stayed undefined even though the active pane's
+  // own workspace WAS the home one — sending the sidebar's path lookup into
+  // `use-ide-shell-workspace-retention.ts`'s `!isHomeRoute` dead end.
+  describe('mixed split: a project-home pane active while the route sits on a repo workspace', () => {
+    it("resolves the sidebar's file-explorer path to the HOME workspace's own path, not the empty state", async () => {
+      router.pathname = '/ide/p1/r1/ws-a'
+      sidebarState.repos = [
+        {
+          id: 'r1',
+          projectId: 'p1',
+          localPath: '/repo-a',
+          workspaces: [{ id: 'ws-a', localPath: '/repo-a' }],
+          // The branch thread sharing the split with the project-home chat.
+          chats: [{ id: 'chat-a', workspaceId: 'ws-a' }],
+        },
+      ]
+      fetchHomeWorkspaceMock.mockResolvedValueOnce({
+        id: 'ws-home-1',
+        projectId: 'p1',
+        kind: 'home',
+        owningChatId: 'home-chat-1',
+        localPath: '/Users/mateo/projects/rabbyte-labs',
+      })
+      resetWindowPaneStoreForTests()
+      windowPaneStore.getState().paneActions.openChat('home-chat-1')
+      // Stands in for the active pane's chat having already resolved to the
+      // home workspace (via the registry — see the mock's own doc above);
+      // that resolution is NOT the bug here and is exercised for real by the
+      // "active pane, not the route, decides" tests above.
+      activePaneWorkspaceIdOverride.current = 'ws-home-1'
+
+      render(<IDEShell />)
+
+      await waitFor(() => {
+        expect(useFocusedWorkspaceContextStore.getState().rootPath).toBe(
+          '/Users/mateo/projects/rabbyte-labs',
+        )
+      })
+      // Not repo r1's own checkout borrowed as a stand-in for "the project's root".
+      const ctx = useFocusedWorkspaceContextStore.getState()
+      expect(ctx.rootPath).not.toBe('/repo-a')
+      expect(ctx).toMatchObject({ workspaceId: 'ws-home-1', isProjectHome: true, repoId: null })
     })
   })
 })

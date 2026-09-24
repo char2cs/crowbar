@@ -15,6 +15,10 @@ import {
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
 import { getInitialState, useSidebarStore, type Repo } from '@/lib/store/sidebar'
+import {
+  getOrCreateWorkspaceStore,
+  destroyWorkspaceStore,
+} from '@/features/workspace/stores/workspace-store-registry'
 
 const repoWithOwnPath: Repo = {
   id: 'r1',
@@ -49,12 +53,12 @@ afterEach(() => {
 describe('useIdeShellWorkspaceRetention — project-home chat, before it resolves via a pane', () => {
   it("resolves sidebarWorkspacePath to the home workspace's REAL path, not the empty state", () => {
     useSidebarStore.getState().setRepos([repoWithOwnPath])
-    const { activePaneId, paneActions } = windowPaneStore.getState()
+    const { paneActions } = windowPaneStore.getState()
     // A freshly opened project-home chat: no workspace store has it yet, and
     // it is not (and never is) present in any repo's own `chats` array, so
     // the sidebar hint this hook's `activePaneWorkspaceId` leans on cannot
     // name a workspace for it either.
-    paneActions.setPaneChat(activePaneId, 'home-chat-1', null)
+    paneActions.openChat('home-chat-1')
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(
@@ -77,8 +81,8 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
 
   it("still falls back to a project repo's path when the real home path is not known yet", () => {
     useSidebarStore.getState().setRepos([repoWithOwnPath])
-    const { activePaneId, paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(activePaneId, 'home-chat-1', null)
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.openChat('home-chat-1')
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(undefined, 'ws-home-1', 'p1', undefined, true, null),
@@ -90,8 +94,8 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
   })
 
   it('effectiveActiveWorkspaceId still resolves to the home workspace either way', () => {
-    const { activePaneId, paneActions } = windowPaneStore.getState()
-    paneActions.setPaneChat(activePaneId, 'home-chat-1', null)
+    const { paneActions } = windowPaneStore.getState()
+    paneActions.openChat('home-chat-1')
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(
@@ -109,22 +113,23 @@ describe('useIdeShellWorkspaceRetention — project-home chat, before it resolve
 })
 
 /**
- * The other half of the same live bug: the file explorer sometimes never
- * loads on project home at all. Unlike the describe block above (where
- * `activePaneWorkspaceId` is null because nothing can resolve the chat yet),
- * here it resolves to a REAL, but STALE, workspace id — a pane left over
- * from a repo the user previously visited. Nothing clears `windowPaneStore`'s
- * pane/chatId state on navigating to project home, so the active pane can
- * still name a chat whose sidebar hint points at that other repo's
- * workspace. The route says home; the pane disagrees and, before this fix,
- * unconditionally won.
+ * The other half of the same live bug, in its CURRENT form (views-as-tabs):
+ * a view can split a project-home chat's pane alongside a branch-workspace
+ * chat's pane. Focusing the branch pane must flip the file explorer to the
+ * branch worktree even though the route stays on `/ide/<project>/home` — a
+ * pane never navigates. The old fallback here ("home always wins on the
+ * home route") was written for a DIFFERENT, now-impossible case — a stale
+ * pane left over from a previously-visited repo, back when nothing cleared
+ * `windowPaneStore`'s pane/chatId state on navigating to home. The pane
+ * store's integrity invariant now guarantees `activePaneId` is a pane of the
+ * showing view, so a focused pane's workspace is never stale; it must win.
  */
-describe('useIdeShellWorkspaceRetention — home route with a stale pane-derived workspace id', () => {
-  it('prefers the home workspace over a stale non-home activePaneWorkspaceId when isHomeRoute is true', () => {
+describe('useIdeShellWorkspaceRetention — home route with a split pane focused on a branch workspace', () => {
+  it('resolves to the focused pane workspace, not home, when the active pane holds a branch-workspace chat', () => {
     useSidebarStore.getState().setRepos([
       {
         id: 'r2',
-        projectId: 'p2',
+        projectId: 'p1',
         name: 'other-repo',
         avatarLabel: 'O',
         avatarColor: 'o',
@@ -132,20 +137,19 @@ describe('useIdeShellWorkspaceRetention — home route with a stale pane-derived
         workspaces: [],
         chats: [
           {
-            id: 'stale-chat-1',
+            id: 'branch-chat-1',
             repoId: 'r2',
-            title: 'stale',
+            title: 'branch',
             order: 0,
             workspaceId: 'ws-other-repo',
           },
         ],
       },
     ])
-    const { activePaneId, paneActions } = windowPaneStore.getState()
-    // The leftover pane from a previously-visited repo: its chat resolves,
-    // via the sidebar hint, to that OTHER repo's workspace — even though the
-    // route has since navigated to project home.
-    paneActions.setPaneChat(activePaneId, 'stale-chat-1', null)
+    const { paneActions } = windowPaneStore.getState()
+    // The split's OTHER pane: a branch-workspace chat, focused, while the
+    // route is still on project home.
+    paneActions.openChat('branch-chat-1')
 
     const { result } = renderHook(() =>
       useIdeShellWorkspaceRetention(
@@ -158,6 +162,85 @@ describe('useIdeShellWorkspaceRetention — home route with a stale pane-derived
       ),
     )
 
+    expect(result.current.effectiveActiveWorkspaceId).toBe('ws-other-repo')
+  })
+
+  it('falls back to the home workspace when the active pane is the chatless stage (no branch pane focused)', () => {
+    useSidebarStore.getState().setRepos([repoWithOwnPath])
+    // No `openChat` call: the active pane is the chatless stage/tray, so
+    // `activePaneWorkspaceId` resolves to null.
+
+    const { result } = renderHook(() =>
+      useIdeShellWorkspaceRetention(
+        undefined,
+        'ws-home-1',
+        'p1',
+        undefined,
+        true, // isHomeRoute
+        '/Users/mateo/projects/rabbyte-labs',
+      ),
+    )
+
     expect(result.current.effectiveActiveWorkspaceId).toBe('ws-home-1')
+  })
+})
+
+/**
+ * The mixed-split live bug (see ide-shell.test.tsx's "mixed split" describe
+ * for the wiring half of this fix): a project-home chat's pane active while
+ * the ROUTE sits on a repo workspace of the same project — `isHomeRoute` is
+ * FALSE here, unlike every block above.
+ *
+ * This hook's own `sidebarWorkspaceId === homeWorkspaceId` branch
+ * (use-ide-shell-workspace-retention.ts) never checked `isHomeRoute` — so it
+ * already resolves correctly whenever `homeWorkspaceId`/`homeWorkspacePath`
+ * are the REAL, matching ones. The bug was never in this hook: it was
+ * `ide-shell.tsx` handing it `undefined`/`null` for both off the home route
+ * (`homeProjectId = homeRouteMatch ? activeProjectIdFromRoute : undefined`).
+ * This test locks in the hook's own half of the contract — that a correctly
+ * resolved `homeWorkspaceId` is honored regardless of `isHomeRoute` — so a
+ * future regression in the OTHER direction (re-adding an `isHomeRoute` check
+ * to that branch) fails here too.
+ */
+describe('useIdeShellWorkspaceRetention — project-home pane, route on a DIFFERENT (repo) workspace of the same project', () => {
+  afterEach(() => {
+    destroyWorkspaceStore('ws-home-1')
+  })
+
+  it("resolves sidebarWorkspacePath to the home workspace's own path even though isHomeRoute is false", () => {
+    useSidebarStore.getState().setRepos([repoWithOwnPath])
+    const { paneActions } = windowPaneStore.getState()
+    // The active pane's chat resolving to the home workspace via the
+    // REGISTRY (not the sidebar hint, which can't name a home chat — see the
+    // project-home-chat block above): a registered store is what the real
+    // app has once the pane's own chat has streamed at least once, which is
+    // exactly the "file explorer stuck empty, but the chat itself renders
+    // fine" shape of the live bug.
+    getOrCreateWorkspaceStore('ws-home-1').getState().upsertAgentChat({
+      id: 'home-chat-1',
+      workspaceId: 'ws-home-1',
+      title: 'home-chat-1',
+      liveRunnerId: '',
+      terminalSessionId: '',
+      activeProviderId: 'claude',
+      createdAt: '2026-01-01T00:00:00Z',
+      order: 0,
+    })
+    paneActions.openChat('home-chat-1')
+
+    const { result } = renderHook(() =>
+      useIdeShellWorkspaceRetention(
+        'ws-a', // activeWorkspaceId — the route's own repo workspace
+        'ws-home-1', // homeWorkspaceId — resolved for the active PROJECT, not the route
+        'p1',
+        'r1',
+        false, // isHomeRoute — the route is on a repo, not home
+        '/Users/mateo/projects/rabbyte-labs',
+      ),
+    )
+
+    expect(result.current.sidebarWorkspacePath).toBe('/Users/mateo/projects/rabbyte-labs')
+    expect(result.current.sidebarWorkspacePath).not.toBe('')
+    expect(result.current.sidebarWorkspacePath).not.toBe(repoWithOwnPath.localPath)
   })
 })

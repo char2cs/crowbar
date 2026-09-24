@@ -1,0 +1,11 @@
+{
+  "session_id": "019fafaf-4f2c-7551-806e-eda96d1cefed",
+  "turn_id": "019fafaf-4f54",
+  "transcript_path": null,
+  "cwd": "/h/.codex/memories",
+  "hook_event_name": "Stop",
+  "model": "gpt-5.6-terra",
+  "permission_mode": "bypassPermissions",
+  "stop_hook_active": false,
+  "last_assistant_message": "MEMORY-AGENT-REPLY"
+}

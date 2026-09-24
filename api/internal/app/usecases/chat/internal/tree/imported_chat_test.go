@@ -33,7 +33,7 @@ func TestCreateChat_ImportPlacesTheChatBeforeAttachingTheWorktree(t *testing.T) 
 	chats.NextID = "c-new"
 
 	chatID, _, err := uc.CreateChat(context.Background(), "", "claude", "c1",
-		tree.WorktreeSpec{Mode: tree.WorktreeImport, Import: importSpec("feature/x")})
+		tree.WorktreeSpec{Mode: tree.WorktreeImport, Import: importSpec("feature/x")}, "")
 
 	require.NoError(t, err)
 	assert.Equal(t, "c-new", chatID)

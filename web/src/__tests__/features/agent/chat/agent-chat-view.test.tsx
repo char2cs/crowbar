@@ -2,7 +2,12 @@ import { createElement, createRef } from 'react'
 import type { ReactNode } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentChatMessage, AgentProvider, SlashCatalog } from '@/features/agent/api/agent-api'
+import type {
+  AgentChatMessage,
+  AgentProvider,
+  AgentTelemetry,
+  SlashCatalog,
+} from '@/features/agent/api/agent-api'
 import { promptQueueStorageKey } from '@/features/agent/lib/prompt-queue-persistence'
 import {
   __resetScrollPositionsForTests,
@@ -34,6 +39,7 @@ vi.mock('@/features/agent/api/agent-api', () => ({
   setChatSelection: (...args: unknown[]) => setSelectionFn(...args),
   listChatActivity: (...args: unknown[]) => activityFn(...args),
   stopChat: (...args: unknown[]) => stopChatFn(...args),
+  getChatTelemetry: (...args: unknown[]) => telemetryFn(...args),
 }))
 
 // The prompt box is a Plate editor, and **jsdom never delivers a keydown to a
@@ -126,6 +132,7 @@ const providers: AgentProvider[] = [
 
 let initialMessages: AgentChatMessage[]
 const activityFn = vi.fn()
+const telemetryFn = vi.fn()
 const emptyActivity = { toolCalls: [], subagents: [], interruptions: [], choices: [] }
 let incrementalMessages: AgentChatMessage[]
 let olderMessages: AgentChatMessage[]
@@ -203,10 +210,20 @@ const baseProps = () => ({
   provider: 'codex',
   model: '',
   effort: '',
+  // Declared so `setup`/`rerenderProps` accept it — most suites here have no
+  // live launch report to hand down, so the component's own default ('') is
+  // fine left unset.
+  launchModel: '' as string | undefined,
+  // Declared so `setup` accepts it. The component defaults it to true — an
+  // ordinary pane speaks for its chat's selection; see the prop's own doc.
+  selectionKnown: undefined as boolean | undefined,
   onSelectionChange: vi.fn(),
   // The surface controls moved into the chat's own provider bar, so the pane
   // hands their state down rather than drawing them itself.
   presentation: 'chat' as const,
+  // The chat's CURRENT surface, handed down by the pane — see
+  // AgentChatViewProps.onTerminalSurface.
+  onTerminalSurface: false,
   splitEnabled: false,
   onSelectPresentation: vi.fn(),
 })
@@ -308,6 +325,8 @@ beforeEach(() => {
   vi.useRealTimers()
   activityFn.mockReset()
   activityFn.mockResolvedValue(emptyActivity)
+  telemetryFn.mockReset()
+  telemetryFn.mockResolvedValue(null)
   initialMessages = []
   incrementalMessages = []
   olderMessages = []
@@ -1492,7 +1511,10 @@ describe('AgentChatView model + effort selection', () => {
     expect(setSelectionFn).not.toHaveBeenCalled()
   })
 
-  it('sends with no model/effort at all when the chat has no sticky selection yet', async () => {
+  // '' on the wire is a PICK of the provider's own default, not silence —
+  // the pane has an authoritative copy of this chat and it says "no model".
+  // Silence is `undefined`, which the next test covers.
+  it("sends '' for model/effort when the chat's own selection is the provider default", async () => {
     setup({ providers: selectable, model: '', effort: '' })
     await enterPrompt('go')
 
@@ -1500,21 +1522,129 @@ describe('AgentChatView model + effort selection', () => {
     expect(submitPromptFn).toHaveBeenCalledWith('w1', 'c1', 'go', expect.any(String), '', '', '')
   })
 
-  // The MODEL half of the picker must never sit blank just because nothing
-  // has been picked yet — `models` is descriptor order (the provider's own
-  // ranking), so its first entry is what actually runs. Display-only: the
-  // earlier test proves the ACTUAL send still carries '' (let the provider
-  // decide), this one proves the composer doesn't lie about that by showing
-  // nothing. EFFORT gets no such fallback: unlike model it is not fixed at
-  // spawn, so a catalogue guess would assert a level nobody confirmed — see
-  // the tests below instead.
-  it('shows the provider catalogue default for model when nothing has been picked yet', async () => {
+  // The other side of that coin, and why it needs its own signal: `model`
+  // and `effort` both fall back to '' while the chat LIST is still in flight
+  // (AgentChatPane reads them off a row that is not there yet), and '' is now
+  // a real pick that CLEARS the daemon's copy. A pane that cannot yet speak
+  // for the chat must therefore stage nothing at all rather than an empty
+  // pair, or opening a chat and sending before its row lands would silently
+  // wipe the model it was pinned to.
+  it('stages nothing at all when this pane holds no authoritative selection yet', async () => {
+    setup({ providers: selectable, model: '', effort: '', selectionKnown: false })
+    await enterPrompt('go')
+
+    await waitFor(() => expect(submitPromptFn).toHaveBeenCalledTimes(1))
+    expect(submitPromptFn).toHaveBeenCalledWith(
+      'w1',
+      'c1',
+      'go',
+      expect.any(String),
+      '',
+      undefined,
+      undefined,
+    )
+  })
+
+  // `models` is catalogue/descriptor order, not a default flag — codex's own
+  // catalog carries no per-model default marker, so a first-entry guess can
+  // assert a model nobody confirmed the moment ordering changes. Nothing
+  // confirmed yet must read "Default" (the honest "provider decides"), same
+  // as effort already does, never the catalogue's first entry. The earlier
+  // test proves the ACTUAL send still carries '' (let the provider decide);
+  // this one proves the composer doesn't lie about that by showing a guess.
+  it('shows Default for model when nothing has been picked yet, never the catalogue order', async () => {
     setup({ providers: selectable, model: '', effort: '' })
     await composer()
 
     expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
-      'Agent: Codex, model gpt-5.6-sol, effort Default',
+      'Agent: Codex, model Default, effort Default',
     )
+  })
+
+  // THE REGRESSION: "Default" is a DISPLAY label — the honest "provider
+  // decides" — not a value. With no model confirmed, the picker used to
+  // receive that label pre-baked into its own `model` prop (the accessible
+  // name above proves the label shows), and its effort slider echoes
+  // whatever `model` currently holds straight back out on every effort
+  // pick (agent-selection-picker.tsx's `pickEffort`). So changing effort
+  // alone — nothing to do with model at all — staged the literal string
+  // "Default" as the model, which the backend does not treat as unset
+  // (selection.go gates on `sel.Model != ""`) and which a real CLI accepts
+  // silently rather than rejecting.
+  //
+  // `selectable`'s own `efforts['']` entry (declared above) is the real,
+  // documented contract for "no model chosen yet" (agent-api.ts's own doc
+  // on `AgentProvider.efforts`) — a picker seeing the RAW '' value finds
+  // it and draws the slider; a picker seeing the label "Default" does not,
+  // which is exactly why this could not be driven before the fix.
+  it('changing effort with no model confirmed never stages "Default" as the model', async () => {
+    const onSelectionChange = vi.fn()
+    setup({ providers: selectable, model: '', effort: '', onSelectionChange })
+    await composer()
+
+    fireEvent.click(screen.getByTestId('agent-selection-picker'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Low' }))
+
+    expect(onSelectionChange).toHaveBeenCalledWith('codex', '', 'low')
+    for (const call of onSelectionChange.mock.calls) {
+      expect(call[1]).not.toBe('Default')
+    }
+  })
+
+  // THE SNAP-BACK REGRESSION: the picker showed the REAL launch model while a
+  // turn was live, then flipped to `models[0]` (a guess nobody confirmed) the
+  // instant `live` dropped — happened for every chat with no sticky pick, on
+  // every provider, the moment a turn (or its whole runner) ended. Backend
+  // AgentChat.launchModel is absent exactly when liveRunnerId is, so the fix
+  // has to remember the last CONFIRMED launch model itself rather than
+  // falling through to the catalogue's first entry.
+  it('keeps showing the last confirmed launch model after the turn ends, never the catalogue default', async () => {
+    initialMessages = [message(1, 'assistant', 'reply')]
+    const view = setup({
+      providers: selectable,
+      model: '',
+      effort: '',
+      live: true,
+      launchModel: 'gpt-5.6-luna',
+    })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-luna, effort Default',
+    )
+
+    // The turn ends: `live` drops and the backend's own launchModel goes with
+    // it. The chat still has no sticky pick of its own.
+    view.rerenderProps({ live: false, launchModel: '' })
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-luna, effort Default',
+    )
+  })
+
+  // A parallel change makes codex's model list DYNAMICALLY discovered, so
+  // `models` can be legitimately empty even with `modelSelect` declared —
+  // still discovering, not "this provider has no catalogue". Must render
+  // sensibly (no picker, never an invented chip) in both states this bug
+  // touched: live, and right after the turn that dropped `live` ends.
+  it('renders no picker at all, live or not, when the provider declares model-select but an empty catalogue', async () => {
+    const emptyCatalogue: AgentProvider[] = [
+      { ...providers[0], modelSelect: true, effortSelect: true, models: [], efforts: {} },
+      providers[1],
+    ]
+    initialMessages = [message(1, 'assistant', 'reply')]
+    const view = setup({
+      providers: emptyCatalogue,
+      model: '',
+      effort: '',
+      live: true,
+      launchModel: 'gpt-5.6-luna',
+    })
+    await composer()
+    expect(screen.queryByTestId('agent-selection-picker')).not.toBeInTheDocument()
+
+    view.rerenderProps({ live: false, launchModel: '' })
+    expect(screen.queryByTestId('agent-selection-picker')).not.toBeInTheDocument()
   })
 
   // A real sticky pick — the caller's own selection, not a guess — wins over
@@ -1533,6 +1663,31 @@ describe('AgentChatView model + effort selection', () => {
     )
   })
 
+  // THE REPORTED REGRESSION: picking a model on a LIVE chat looked like it
+  // did nothing at all. The chip read the RUNNING value whenever a runner was
+  // up (`live ? launchModel || model : ...`), so it kept painting whatever
+  // the CLI had been spawned with and swallowed the pick until the next send
+  // actually restarted the process — the exact "click a model and wait for it
+  // to load" the staging design exists to remove. A pick is local and
+  // instant; the chip says what the NEXT message will run as, and the launch
+  // report only fills the gap when nothing has been picked at all (the
+  // snap-back test above still pins that fallback).
+  it('shows a pick immediately while a runner is live, never the running launch model', async () => {
+    initialMessages = [message(1, 'assistant', 'reply')]
+    setup({
+      providers: selectable,
+      model: 'gpt-5.6-luna',
+      effort: 'high',
+      live: true,
+      launchModel: 'gpt-5.6-sol',
+    })
+    await composer()
+
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-luna, effort high',
+    )
+  })
+
   // Effort is not fixed for the session the way model is (no restart_tui for
   // it) — a provider can and does report a DIFFERENT level turn to turn, so
   // the picker must track the newest report, not freeze on the first one.
@@ -1544,8 +1699,10 @@ describe('AgentChatView model + effort selection', () => {
     setup({ providers: selectable })
     await composer()
 
+    // No sticky pick and no launch report yet: model reads "Default", never
+    // the catalogue's first entry (see the test above).
     expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
-      'Agent: Codex, model gpt-5.6-sol, effort medium',
+      'Agent: Codex, model Default, effort medium',
     )
   })
 
@@ -1560,8 +1717,9 @@ describe('AgentChatView model + effort selection', () => {
     setup({ providers: selectable })
     await composer()
 
+    // Same "no catalogue guess" rule as above — model reads "Default".
     expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
-      'Agent: Codex, model gpt-5.6-sol, effort high',
+      'Agent: Codex, model Default, effort high',
     )
   })
 
@@ -1582,6 +1740,47 @@ describe('AgentChatView model + effort selection', () => {
 
     expect(await screen.findByText('Ask')).toBeInTheDocument()
     expect(screen.queryByTestId('message-turn-actions')).toBeNull()
+  })
+
+  // THE BUG: even after a turn completes, the trigger read bare "Default"
+  // with no clue which model actually answered — Crowbar already receives
+  // that fact via telemetry (agent-api.ts's `AgentTelemetry.model`), it was
+  // just never shown. Display only: the SELECTION stays '' throughout (see
+  // the next test).
+  it('shows the telemetry-reported model next to Default once a report arrives, with no sticky pick', async () => {
+    initialMessages = [message(1, 'assistant', 'reply')]
+    telemetryFn.mockResolvedValue({
+      observedAt: '2026-09-23T00:00:00Z',
+      source: 'callback',
+      model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
+    } satisfies AgentTelemetry)
+    setup({ providers: selectable, model: '', effort: '' })
+    await composer()
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-selection-picker')).toHaveTextContent('Claude Sonnet 4.5'),
+    )
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model Default (reported Claude Sonnet 4.5), effort Default',
+    )
+  })
+
+  // A real sticky pick still wins — the report is informational only, never
+  // a silent override of what the next send actually carries.
+  it('keeps an explicit sticky model selection even when telemetry reports a different one', async () => {
+    initialMessages = [message(1, 'assistant', 'reply')]
+    telemetryFn.mockResolvedValue({
+      observedAt: '2026-09-23T00:00:00Z',
+      source: 'callback',
+      model: { id: 'claude-sonnet-4-5', displayName: 'Claude Sonnet 4.5' },
+    } satisfies AgentTelemetry)
+    setup({ providers: selectable, model: 'gpt-5.6-luna', effort: 'high' })
+    await composer()
+
+    await waitFor(() => expect(telemetryFn).toHaveBeenCalled())
+    expect(screen.getByTestId('agent-selection-picker')).toHaveAccessibleName(
+      'Agent: Codex, model gpt-5.6-luna, effort high',
+    )
   })
 })
 
@@ -2277,5 +2476,48 @@ describe('AgentChatView blankSignpost', () => {
     await screen.findByText('Question')
 
     expect(container.querySelector('[data-testid="stub-signpost"]')).toBeNull()
+  })
+})
+
+// ── The compaction surface rule ─────────────────────────────────────
+//
+// Compaction is a CROWBAR NATIVE-CHAT affordance, not a provider capability
+// the TUI is missing: on the provider's own terminal the user types
+// `/compact` themselves, and a Crowbar button over someone else's UI is a
+// control that errors (the daemon refuses it — ErrCompactionOffSurface).
+//
+// The house rule the gauge states for itself is ABSENCE, never a greyed-out
+// or dead control, so the whole chip goes rather than being disabled.
+describe('AgentChatView compaction surface rule', () => {
+  const compactor = [{ ...providers[0], compaction: true }, providers[1]]
+
+  // A BLANK chat renders the document surface, which has no provider bar
+  // under it at all — so the control under test needs a ledger to exist.
+  beforeEach(() => {
+    initialMessages = [message(1, 'assistant', 'earlier turn')]
+  })
+
+  it('offers compaction on Crowbar’s own chat surface', async () => {
+    setup({ providers: compactor, live: true })
+
+    await composer() // wait for the first paint past the ledger load
+    expect(screen.getByTestId('agent-context-gauge').tagName).toBe('BUTTON')
+  })
+
+  // REGRESSION: a chat on the provider's TERMINAL surface drew a Compact
+  // button that always errored. Provider-independent — the gate is the
+  // surface, never which channel could carry the gesture.
+  it('offers no compaction while the chat is on the provider’s terminal', async () => {
+    setup({ providers: compactor, live: true, onTerminalSurface: true })
+
+    await composer() // wait for the first paint past the ledger load
+    expect(screen.queryByTestId('agent-context-gauge')).toBeNull()
+  })
+
+  it('offers no compaction for a provider that declares no gesture', async () => {
+    setup({ providers, live: true })
+
+    await composer()
+    expect(screen.queryByTestId('agent-context-gauge')).toBeNull()
   })
 })

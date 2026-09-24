@@ -6,11 +6,17 @@ import { cn } from '@/lib/utils'
 const WARN_AT = 85
 
 /**
- * How much of the model's context this chat has spent.
+ * How much of the model's context this chat has spent, and the one gesture
+ * that spends less.
  *
- * Renders NOTHING until the provider reports. A provider that sends no usage
- * gets no gauge rather than an empty one, because "not reported" and "zero" are
- * different facts and a 0% bar over the first is a lie.
+ * The BAR renders nothing until the provider reports — a provider that sends
+ * no usage gets no gauge rather than an empty one, because "not reported" and
+ * "zero" are different facts and a 0% bar over the first is a lie. COMPACTION
+ * is a different, unrelated provider capability (AgentChatView's own
+ * `onCompact` gate never looks at telemetry) and must not go hostage to a
+ * report that has not arrived yet, or one a daemon restart wiped — so it is
+ * offered on its own, bar-less, whenever `onCompact` is given and there is no
+ * report to show alongside it.
  */
 export function AgentContextGauge({
   telemetry,
@@ -30,7 +36,22 @@ export function AgentContextGauge({
   onCompact?: () => void
 }) {
   const used = telemetry?.context?.usedPercent
-  if (used === undefined) return null
+  if (used === undefined) {
+    // No usage report — never invent a 0% bar for it — but compaction is
+    // still reachable on its own when the caller has decided to offer it.
+    if (!onCompact) return null
+    return (
+      <button
+        type="button"
+        className="gauge chip compact-only"
+        title="Compact the conversation"
+        data-testid="agent-context-gauge"
+        onClick={onCompact}
+      >
+        Compact
+      </button>
+    )
+  }
   const pct = Math.max(0, Math.min(100, used))
   const bar = (
     <span className={cn('gbar', pct >= WARN_AT && 'warn')}>
@@ -56,14 +77,14 @@ export function AgentContextGauge({
       data-testid="agent-context-gauge"
       onClick={onCompact}
     >
-      {bar}
-      {/* Swapped by CSS on hover (composer.css) — the same instant the row's
-          other chips turn interactive, this one turns from a report into an
-          offer instead of adding a second element beside it. */}
-      <span className="gtext">
-        <span className="gpct">{Math.round(used)}% context</span>
+      {/* `.gaction` stacks on the bar itself (composer.css `.gstack`, same
+          grid-cell technique as before) — hidden until hover, then painted
+          on top of the bar, never beside `.gpct` and never widening the row. */}
+      <span className="gstack">
+        {bar}
         <span className="gaction">Compact</span>
       </span>
+      <span className="gpct">{Math.round(used)}% context</span>
     </button>
   )
 }

@@ -56,13 +56,13 @@ func ParseCallback(d *spec.Descriptor, raw []byte, now time.Time) (models.Teleme
 // behaviour it already had.
 func callbackMapping(d *spec.Descriptor) (
 	format string,
-	fields map[string]string,
+	fields spec.FieldMap,
 	windows []spec.TelemetryRateLimitMap,
 	ok bool,
 ) {
 	if d.Telemetry != nil && d.Telemetry.Callback != nil {
 		cb := d.Telemetry.Callback
-		return cb.Format, cb.Fields, cb.RateLimits, true
+		return cb.Format, wrapFields(cb.Fields), cb.RateLimits, true
 	}
 	ev, declared := d.Events[spec.HookTelemetry]
 	if !declared || len(ev.Map) == 0 {
@@ -144,10 +144,23 @@ func ParseProbe(d *spec.Descriptor, raw []byte, now time.Time) (models.Telemetry
 	if err != nil {
 		return models.Telemetry{}, err
 	}
-	out := mapFacts(probe.Fields, decoded)
+	out := mapFacts(wrapFields(probe.Fields), decoded)
 	out.ObservedAt = now
 	out.Source = models.TelemetrySourceProbe
 	return out, nil
+}
+
+// wrapFields lifts a plain single-path field table (TelemetryCallbackSpec/
+// TelemetryProbeSpec.Fields — carried over from v2 unchanged, never
+// alternation-capable) into a FieldMap, so mapFacts has one shape to read
+// regardless of which of the two places a descriptor declared its telemetry
+// mapping in.
+func wrapFields(m map[string]string) spec.FieldMap {
+	out := make(spec.FieldMap, len(m))
+	for k, v := range m {
+		out[k] = []string{v}
+	}
+	return out
 }
 
 func decode(format string, raw []byte) (map[string]any, error) {
@@ -164,7 +177,7 @@ func decode(format string, raw []byte) (map[string]any, error) {
 	return m, nil
 }
 
-func mapFacts(fields map[string]string, decoded map[string]any) models.Telemetry {
+func mapFacts(fields spec.FieldMap, decoded map[string]any) models.Telemetry {
 	var out models.Telemetry
 
 	capacity := readInt(fields, decoded, spec.FactContextCapacityTokens)
@@ -210,10 +223,10 @@ func mapRateLimits(windows []spec.TelemetryRateLimitMap, decoded map[string]any)
 	out := make([]models.RateLimitWindow, 0, len(windows))
 	for _, w := range windows {
 		window := models.RateLimitWindow{ID: w.ID, Label: w.Label}
-		if pct, ok := mapping.Float(decoded, w.UsedPercent); ok {
+		if pct, ok := mapping.Float(decoded, []string{w.UsedPercent}); ok {
 			window.UsedPercent = &pct
 		}
-		if at, ok := mapping.Time(decoded, w.ResetsAt); ok {
+		if at, ok := mapping.Time(decoded, []string{w.ResetsAt}); ok {
 			window.ResetsAt = &at
 		}
 
@@ -228,34 +241,34 @@ func mapRateLimits(windows []spec.TelemetryRateLimitMap, decoded map[string]any)
 	return out
 }
 
-func readInt(fields map[string]string, decoded map[string]any, fact string) *int {
-	path, mapped := fields[fact]
+func readInt(fields spec.FieldMap, decoded map[string]any, fact string) *int {
+	paths, mapped := fields[fact]
 	if !mapped {
 		return nil
 	}
-	v, ok := mapping.Int(decoded, path)
+	v, ok := mapping.Int(decoded, paths)
 	if !ok {
 		return nil
 	}
 	return &v
 }
 
-func readFloat(fields map[string]string, decoded map[string]any, fact string) *float64 {
-	path, mapped := fields[fact]
+func readFloat(fields spec.FieldMap, decoded map[string]any, fact string) *float64 {
+	paths, mapped := fields[fact]
 	if !mapped {
 		return nil
 	}
-	v, ok := mapping.Float(decoded, path)
+	v, ok := mapping.Float(decoded, paths)
 	if !ok {
 		return nil
 	}
 	return &v
 }
 
-func readString(fields map[string]string, decoded map[string]any, fact string) string {
-	path, mapped := fields[fact]
+func readString(fields spec.FieldMap, decoded map[string]any, fact string) string {
+	paths, mapped := fields[fact]
 	if !mapped {
 		return ""
 	}
-	return mapping.String(decoded, path)
+	return mapping.String(decoded, paths)
 }

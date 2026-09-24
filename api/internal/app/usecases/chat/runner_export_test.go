@@ -5,8 +5,15 @@ import (
 	"time"
 
 	"github.com/char2cs/crowbar/api/internal/adapter/store/agentjournal"
+	"github.com/char2cs/crowbar/api/internal/app/usecases/chat/internal/runner"
 	engineagents "github.com/char2cs/crowbar/api/internal/engine/agents"
 )
+
+// WaitingForPromptDeliveryLog is the log record a provider switch emits at the
+// INSTANT it parks on a committed-but-unconfirmed prompt delivery, exposed to
+// this package's external tests. Same role as WaitingForTurnLog, for the
+// window just before the turn exists.
+const WaitingForPromptDeliveryLog = runner.WaitingForPromptDeliveryLog
 
 // SetPromptJournalDirSync installs a deterministic durability fault for external
 // package tests. It is test-only surface; production always uses fsync+close on

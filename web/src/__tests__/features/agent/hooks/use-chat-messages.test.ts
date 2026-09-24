@@ -652,3 +652,114 @@ describe('onStreamingSettled: prunes confirmed ids, never a still-streaming one'
     expect(onStreamingSettled).not.toHaveBeenCalledWith(expect.arrayContaining(['delta-2']))
   })
 })
+
+// Regression: a turn can end (working AND awaiting both already false) a
+// beat before its final row is actually queryable in the ledger. The poll
+// effect used to arm its setInterval on `working || awaiting` alone, so once
+// both were false it took exactly the one refresh already in flight and
+// never asked again — a bubble whose row committed a moment later than that
+// refresh was stranded on screen forever, spinner and all, with no way back
+// short of a full remount. Live, twice: chats b1fb213e-5416-4052-9a85-
+// c9b3ae82428b and 411d550a-30eb-44b2-863b-2d59ed5f8592.
+describe('stranded streaming bubble: reconcile survives working/awaiting already false', () => {
+  beforeEach(() => {
+    listChatMessagesFn.mockReset()
+  })
+
+  it('keeps polling until an unconfirmed bubble is matched, even though working/awaiting never change', async () => {
+    let calls = 0
+    listChatMessagesFn.mockImplementation(async () => {
+      calls++
+      // The first several calls land before the backend has the final row —
+      // the race this regression depends on. High enough that the mount's
+      // own one-shot refresh chain (loadInitial's fetch, plus the poll
+      // effect's single bailed-then-retried refresh — 3 calls, no interval)
+      // cannot reach it by itself: only a still-armed interval can.
+      if (calls < 6) return { cursor: 0, oldestCursor: 0, hasMore: false, items: [] }
+      return {
+        cursor: 5,
+        oldestCursor: 5,
+        hasMore: false,
+        items: [message(5, { role: 'assistant', turnId: 'msg-delta-1', text: 'final summary' })],
+      }
+    })
+    const onStreamingSettled = vi.fn()
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'codex',
+      visible: true,
+      working: false,
+      turnRevision: 0,
+      awaiting: false,
+      streamingMessages: [{ id: 'delta-1', text: 'final summary' }],
+      onStreamingSettled,
+      onApply: () => {},
+      pendingEvidence: () => false,
+      pendingBaselines: (): number[] => [],
+      onRecoveryExhausted: () => {},
+    }
+    vi.useFakeTimers()
+    try {
+      const { result } = renderHook(() => useChatMessages(options))
+      await vi.advanceTimersByTimeAsync(0)
+
+      // The row hasn't landed yet: the bubble is still up, unconfirmed.
+      expect(result.current.streamingBubbles).toHaveLength(1)
+      expect(onStreamingSettled).not.toHaveBeenCalled()
+
+      // Nothing about working/awaiting/turnRevision ever changes from here —
+      // only a still-armed poll interval can make another call happen. Small
+      // steps, not one big jump: each step is a real call boundary that lets
+      // React apply the state update the previous poll produced before the
+      // next one fires, same as any other fake-timer-driven poll in this
+      // suite (see use-agent-activity.test.tsx).
+      for (let i = 0; i < 30 && result.current.streamingBubbles.length > 0; i++) {
+        await vi.advanceTimersByTimeAsync(200)
+      }
+
+      expect(result.current.streamingBubbles).toHaveLength(0)
+      expect(onStreamingSettled).toHaveBeenCalledWith(['delta-1'])
+      expect(calls).toBeGreaterThanOrEqual(6)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops polling once the bubble is confirmed, rather than continuing forever', async () => {
+    listChatMessagesFn.mockResolvedValueOnce({
+      cursor: 5,
+      oldestCursor: 5,
+      hasMore: false,
+      items: [message(5, { role: 'assistant', turnId: 'msg-delta-1', text: 'final summary' })],
+    })
+    listChatMessagesFn.mockResolvedValue({ cursor: 5, oldestCursor: 5, hasMore: false, items: [] })
+    const options = {
+      wsId: 'ws',
+      chatId: 'c1',
+      providerId: 'codex',
+      visible: true,
+      working: false,
+      turnRevision: 0,
+      awaiting: false,
+      streamingMessages: [{ id: 'delta-1', text: 'final summary' }],
+      onApply: () => {},
+      pendingEvidence: () => false,
+      pendingBaselines: (): number[] => [],
+      onRecoveryExhausted: () => {},
+    }
+    vi.useFakeTimers()
+    try {
+      const { result } = renderHook(() => useChatMessages(options))
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.waitFor(() => expect(result.current.streamingBubbles).toHaveLength(0))
+
+      const callsAtSettle = listChatMessagesFn.mock.calls.length
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      expect(listChatMessagesFn.mock.calls.length).toBe(callsAtSettle)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

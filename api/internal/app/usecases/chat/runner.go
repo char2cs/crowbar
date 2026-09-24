@@ -62,18 +62,21 @@ type RunnerUsecase interface {
 	// at-most-once against clientRequestID: a retry replays the original outcome
 	// rather than prompting twice.
 	//
-	// provider/model/effort are the STAGED selection the composer is showing
-	// right now — not necessarily what the chat already holds. Empty means
-	// "the composer has nothing staged, use the current/sticky value as-is."
-	// A non-empty provider that differs from the chat's current one is
-	// switched to via SwitchProvider BEFORE the prompt is delivered; a
-	// non-empty model/effort pair is committed via SetChatSelection next.
+	// provider/selection are the STAGED pick the composer is showing right
+	// now — not necessarily what the chat already holds. An empty provider is
+	// "nothing staged, use the current one as-is"; a non-empty one that
+	// differs from the chat's current one is switched to via SwitchProvider
+	// BEFORE the prompt is delivered. A nil selection is "nothing staged,
+	// leave the sticky model/effort alone"; a non-nil one is committed via
+	// SetChatSelection next, INCLUDING an all-empty one, which clears the
+	// chat back to the provider's own default (domain.ChatSelection).
 	// Picking a row in the UI never mutates the chat on its own — provider
 	// included — it only takes effect bundled with the next message, one
 	// atomic call instead of two (or three).
 	SubmitPrompt(
 		ctx context.Context,
-		chatID, text, clientRequestID, provider, model, effort string,
+		chatID, text, clientRequestID, provider string,
+		selection *domain.ChatSelection,
 	) (domain.AgentPromptSubmission, error)
 
 	// SlashCatalog probes the chat's live CLI for the slash commands it declares.
@@ -116,6 +119,16 @@ type RunnerUsecase interface {
 	// HasLiveAPIConnection reports whether a runner has an ACTIVE api-transport
 	// connection right now — see chatRuntime's own use (handlers/chats.go).
 	HasLiveAPIConnection(runnerID string) bool
+
+	// TelemetryOnChatSurface is the CHAT-scoped form of a capability a
+	// provider-scoped flag cannot answer: two chats of the same provider can
+	// be on different surfaces. See runner/capabilities.go.
+	TelemetryOnChatSurface(ctx context.Context, chatID string) bool
+
+	// RetireAPIConnection ends ONE runner's api-transport connection — the
+	// workspace-delete cascade's seam for a runner whose process is that
+	// connection rather than a PTY. See the implementation's own doc.
+	RetireAPIConnection(runnerID string)
 
 	// ShutdownAPIConnections kills every live api-transport connection this
 	// daemon still holds. It is the shutdown-time counterpart to
@@ -303,6 +316,17 @@ func (u *Usecase) StopChat(
 
 // SwitchProvider replaces the chat's CLI with another provider's, waiting for any
 // turn in flight so the outgoing CLI is never killed mid-answer.
+//
+// Switching to the provider the chat is ALREADY on is deliberately NOT a no-op
+// here, unlike SubmitPrompt's staged half (which skips it so an ordinary resend
+// does not pay for a switch nobody asked for). This verb means "tear the CLI
+// down and put a fresh one on the chat as X", and a same-provider call is the
+// one respawn primitive Promote has: its chat's WorkspaceID just changed, so the
+// live CLI is running in the wrong worktree and rebuilding it as itself is the
+// entire point. Nothing reachable from the UI sends an identity switch anyway —
+// the dropdown lists only the OTHER providers and ⌘/ skips a cycle that lands
+// back where it started — so a guard here would cost that primitive and buy
+// nothing.
 func (u *Usecase) SwitchProvider(
 	ctx context.Context,
 	chatID string,
@@ -323,7 +347,7 @@ func (u *Usecase) SwitchProvider(
 // provider equal to the chat's current one, or left empty, never switches at
 // all — an idle resend must not pay for a switch it never asked for.
 //
-// A non-empty model/effort commits the chat's sticky selection NEXT — same
+// A non-nil selection commits the chat's sticky model/effort NEXT — same
 // validation the standalone PATCH .../selection route runs, so a bad value
 // still 400s here exactly as it would there, before anything is sent to the
 // CLI and, critically, before the provider switch above is even attempted —
@@ -332,14 +356,19 @@ func (u *Usecase) SwitchProvider(
 // what lets the composer hold a picked model/effort as pure local state and
 // never write it anywhere until the user actually sends.
 //
+// A selection whose BOTH halves are "" is a real pick, not silence: it clears
+// the chat back to the provider's own default, the same distinct fact
+// domain.Chat.Model documents. Only nil means "nothing staged".
+//
 // The whole sequence — switch, selection, delivery — runs under ONE hold of
 // the chat's spawn gate (Runners.SubmitPromptWithSwitch), not three separate
 // ones: see that method's own doc for the race a gap between them opened.
 func (u *Usecase) SubmitPrompt(
 	ctx context.Context,
-	chatID, text, clientRequestID, provider, model, effort string,
+	chatID, text, clientRequestID, provider string,
+	selection *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
-	return u.runners.SubmitPromptWithSwitch(ctx, chatID, text, clientRequestID, provider, model, effort)
+	return u.runners.SubmitPromptWithSwitch(ctx, chatID, text, clientRequestID, provider, selection)
 }
 
 // SlashCatalog probes the chat's provider for the slash commands it offers.
@@ -417,6 +446,18 @@ func (u *Usecase) AttachedTerminalSession(runnerID string) (string, bool) {
 // connection right now.
 func (u *Usecase) HasLiveAPIConnection(runnerID string) bool {
 	return u.runners.HasLiveAPIConnection(runnerID)
+}
+
+// TelemetryOnChatSurface reports whether this chat can still receive usage
+// reports on the surface it is on now.
+func (u *Usecase) TelemetryOnChatSurface(ctx context.Context, chatID string) bool {
+	return u.runners.TelemetryOnChatSurface(ctx, chatID)
+}
+
+// RetireAPIConnection ends one runner's api-transport connection, for the
+// workspace-delete cascade's PTY-less runners.
+func (u *Usecase) RetireAPIConnection(runnerID string) {
+	u.runners.RetireAPIConnection(runnerID)
 }
 
 // ShutdownAPIConnections kills every live api-transport connection this

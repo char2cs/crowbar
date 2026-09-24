@@ -42,6 +42,7 @@ function makePane(overrides: Partial<PaneGroup> = {}): PaneGroup {
     editorTabIds: [],
     activeEditorTabId: null,
     editorOpen: false,
+    viewId: null,
     ...overrides,
   }
 }
@@ -95,10 +96,10 @@ function renderHeader(pane: PaneGroup, wsId: string | null = 'w1') {
     agentChats: { ...s.agentChats, chats: [makeChat()] },
   }))
   resetWindowPaneStoreForTests()
-  windowPaneStore.setState((s) => {
-    s.panes[pane.id] = pane
-    return s
-  })
+  // The bottom tray never holds a chat; the header is handed its pane directly.
+  if (pane.id !== BOTTOM_PANE_ID && pane.chatId) {
+    windowPaneStore.getState().paneActions.openChat(pane.chatId)
+  }
   return render(
     createElement(
       WorkspaceStoreContext.Provider,

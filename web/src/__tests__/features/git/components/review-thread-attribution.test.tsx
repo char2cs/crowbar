@@ -26,12 +26,11 @@ vi.mock('@/features/window/stores/toast-store', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }))
 
-const { openAgentChatFn } = vi.hoisted(() => ({ openAgentChatFn: vi.fn() }))
-vi.mock('@/features/agent/lib/open-agent-chat', () => ({
-  openAgentChat: (...a: unknown[]) => openAgentChatFn(...a),
-}))
-
 import { ReviewThreadItem } from '@/features/git/components/review-thread-item'
+import {
+  resetWindowPaneStoreForTests,
+  windowPaneStore,
+} from '@/features/panes/stores/window-pane-store'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
 import {
   destroyWorkspaceStore,
@@ -116,8 +115,14 @@ function renderThread(messages: ReviewMessage[]) {
   )
 }
 
+const openChatFn = vi.fn()
+
 beforeEach(() => {
-  openAgentChatFn.mockReset()
+  resetWindowPaneStoreForTests()
+  openChatFn.mockReset()
+  windowPaneStore.setState((s) => ({
+    paneActions: { ...s.paneActions, openChat: openChatFn },
+  }))
 })
 
 afterEach(() => {
@@ -177,7 +182,8 @@ describe('review message — the chat it came out of', () => {
 
     await userEvent.click(link)
 
-    expect(openAgentChatFn).toHaveBeenCalledWith(getOrCreateWorkspaceStore(WS), WS, 'c1')
+    expect(openChatFn).toHaveBeenCalledWith('c1', expect.anything())
+    expect(getOrCreateWorkspaceStore(WS).getState().agentChats.activeChatId).toBe('c1')
   })
 
   it('calls a chat nobody has named yet what every other surface calls it', () => {
@@ -201,7 +207,7 @@ describe('review message — the chat it came out of', () => {
     expect(screen.queryByText(UNTITLED_CHAT_LABEL)).toBeNull()
 
     await userEvent.click(deleted)
-    expect(openAgentChatFn).not.toHaveBeenCalled()
+    expect(openChatFn).not.toHaveBeenCalled()
   })
 
   // "Deleted" is a claim, and an unseeded store is not evidence for it. The chat

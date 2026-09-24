@@ -4,6 +4,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { showingLayout } from '@/features/panes/lib/view-state'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 import type { EditorTabBase } from '@/features/panes/types/pane-content'
 import { getOwningChatId } from '@/lib/workspace-scope'
@@ -66,7 +67,7 @@ describe('pane command actions', () => {
 
     expect(splitActiveEditorGroup('horizontal')).toBe(true)
 
-    const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const rootIds = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(rootIds).toHaveLength(2)
     for (const id of rootIds) {
       expect(windowPaneStore.getState().panes[id]?.editorTabIds).toContain('buffer-a')
@@ -98,7 +99,7 @@ describe('pane command actions', () => {
 
     expect(splitActiveEditorGroup('horizontal')).toBe(true)
 
-    const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const rootIds = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(rootIds).toHaveLength(2)
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).toEqual(['terminal-a'])
     const newPaneId = rootIds.find((id) => id !== ROOT_PANE_ID)
@@ -119,7 +120,7 @@ describe('pane command actions', () => {
 
     paneActions.setActivePane(splitPaneId)
     expect(closeActiveEditorGroup()).toBe(true)
-    const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const rootIds = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(rootIds).toHaveLength(1)
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toEqual(['buffer-a'])
   })
@@ -137,7 +138,7 @@ describe('pane command actions', () => {
     paneActions.setActivePane(ROOT_PANE_ID)
 
     expect(closeOtherEditorGroups()).toBe(true)
-    const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const rootIds = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(rootIds).toHaveLength(1)
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toContain('buffer-a')
     expect(paneActions.getPaneById(ROOT_PANE_ID)?.editorTabIds).toContain('buffer-b')
@@ -158,7 +159,7 @@ describe('pane command actions', () => {
     expect(bottomRightPaneId).not.toBeNull()
     if (!bottomRightPaneId) return
 
-    const rootLayout = windowPaneStore.getState().rootLayout
+    const rootLayout = showingLayout(windowPaneStore.getState())
     expect(rootLayout.type).toBe('split')
     if (rootLayout.type !== 'split') return
 
@@ -166,7 +167,7 @@ describe('pane command actions', () => {
 
     expect(resetEditorGroupSizes()).toBe(true)
 
-    const nextRoot = windowPaneStore.getState().rootLayout
+    const nextRoot = showingLayout(windowPaneStore.getState())
     expect(nextRoot.type).toBe('split')
     if (nextRoot.type !== 'split') return
     expect(nextRoot.sizes).toEqual([50, 50])
@@ -236,7 +237,7 @@ describe('ensurePaneChatThenOpen', () => {
 
   it('runs openTab directly when the pane already has a chat — never consults the owning chat', async () => {
     const { ensurePaneChatThenOpen } = await import('@/features/panes/utils/pane-command-actions')
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'existing-chat', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('existing-chat', { runnerId: 'runner-1' })
     const openTab = vi.fn()
 
     ensurePaneChatThenOpen('ws-1', ROOT_PANE_ID, openTab)
@@ -274,7 +275,7 @@ describe('ensurePaneChatThenOpen', () => {
     const paneActions = windowPaneStore.getState().paneActions
     const otherPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
     if (!otherPaneId) throw new Error('split failed')
-    paneActions.setPaneChat(otherPaneId, 'owning-chat-1', null)
+    paneActions.dropChatOnPane('owning-chat-1', otherPaneId, 'center')
     paneActions.setActivePane(ROOT_PANE_ID)
     vi.mocked(getOwningChatId).mockReturnValue('owning-chat-1')
     const openTab = vi.fn()
@@ -336,63 +337,5 @@ describe('openBranchReviewForWorkspace', () => {
     const before = windowPaneStore.getState().activePaneId
     expect(openBranchReviewForWorkspace(null, 'some-pane')).toBeNull()
     expect(windowPaneStore.getState().activePaneId).toBe(before)
-  })
-})
-
-// Regression for the "only one view at a time" bug: ⌘N (and anything else
-// opening a freshly-resolved chat id) used to write straight into the active
-// pane via setPaneChat, which ARCHIVES whatever that pane held into
-// dormantArrangements — closing it, not parking it — instead of minting a
-// view of its own (spec §8.4). These exercise the REAL store (not mocked
-// paneActions), so a regression shows up as the old chat actually landing in
-// dormantArrangements/vanishing from parkedViews, not just as a mock call.
-describe('openChatIdInOwnView', () => {
-  beforeEach(() => {
-    resetWindowPaneStoreForTests()
-  })
-
-  it('parks the showing view (keeps it LIVE) instead of archiving it, when opening a new chat', async () => {
-    const { openChatIdInOwnView } = await import('@/features/panes/utils/pane-command-actions')
-    const paneActions = windowPaneStore.getState().paneActions
-    paneActions.setPaneChat(ROOT_PANE_ID, 'old-chat', 'runner-1')
-
-    openChatIdInOwnView('new-chat')
-
-    const state = windowPaneStore.getState()
-    // The old view is not lost: it must be live in parkedViews, never
-    // archived into dormantArrangements.
-    expect(state.dormantArrangements.some((a) => a.chatIds.includes('old-chat'))).toBe(false)
-    const parkedTrees = Object.values(state.parkedViews)
-    const parkedHasOldChat = parkedTrees.some((tree) =>
-      getAllLeafIds(tree).some((paneId) => state.panes[paneId]?.chatId === 'old-chat'),
-    )
-    expect(parkedHasOldChat).toBe(true)
-    // The new chat takes the screen, as its own view.
-    const shownIds = getAllLeafIds(state.rootLayout)
-    expect(shownIds.some((id) => state.panes[id]?.chatId === 'new-chat')).toBe(true)
-  })
-
-  it('fills a genuinely vacant active pane in place — no new view for an empty stage', async () => {
-    const { openChatIdInOwnView } = await import('@/features/panes/utils/pane-command-actions')
-
-    openChatIdInOwnView('chat-1')
-
-    const state = windowPaneStore.getState()
-    expect(state.panes[ROOT_PANE_ID]?.chatId).toBe('chat-1')
-    expect(state.activePaneId).toBe(ROOT_PANE_ID)
-    expect(Object.keys(state.parkedViews)).toHaveLength(0)
-  })
-
-  it('reveals a chat already open elsewhere instead of duplicating it into a second pane', async () => {
-    const { openChatIdInOwnView } = await import('@/features/panes/utils/pane-command-actions')
-    const paneActions = windowPaneStore.getState().paneActions
-    const otherPaneId = paneActions.splitPane(ROOT_PANE_ID, 'horizontal')
-    if (!otherPaneId) throw new Error('split failed')
-    paneActions.setPaneChat(otherPaneId, 'chat-1', null)
-    paneActions.setActivePane(ROOT_PANE_ID)
-
-    openChatIdInOwnView('chat-1')
-
-    expect(windowPaneStore.getState().activePaneId).toBe(otherPaneId)
   })
 })

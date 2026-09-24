@@ -738,7 +738,7 @@ func TestNoteThreadLineage_IsNotAttributedToAnyProvider(t *testing.T) {
 func TestMintChat_CreatesTheChatAndNoRunner(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -754,7 +754,7 @@ func TestMintChat_SurfacesACreateFailure(t *testing.T) {
 	f, chatStore, _ := newFaultFixture(t)
 	chatStore.failCreate = errors.New("chat store down")
 
-	_, err := f.usecase.MintChat(f.ctx, "ws1")
+	_, err := f.usecase.MintChat(f.ctx, "ws1", "")
 	require.ErrorContains(t, err, "chat store down")
 }
 
@@ -766,7 +766,7 @@ func TestStartRunner_ATheadPlacedBeforeItsFirstSpawnIsToldItsLineage(t *testing.
 	f := newFixture(t)
 
 	parentID, _ := f.spawn(t, "claude")
-	threadID, err := f.usecase.MintChat(f.ctx, "ws1")
+	threadID, err := f.usecase.MintChat(f.ctx, "ws1", "")
 	require.NoError(t, err)
 	f.wait()
 	thread(t, f, threadID, parentID)
@@ -784,7 +784,7 @@ func TestStartRunner_ATheadPlacedBeforeItsFirstSpawnIsToldItsLineage(t *testing.
 func TestStartRunner_AnUnplacedChatIsToldNothingExtra(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -811,7 +811,7 @@ func TestStartRunner_UnknownChat_StartsNothing(t *testing.T) {
 func TestNoteThreadLineage_SaysNothingInAChatThatHasNotSpoken(t *testing.T) {
 	f := newFixture(t)
 
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -851,7 +851,7 @@ func TestStartRunner_ThreadsAChatTheReadModelStillReportsUnplaced(t *testing.T) 
 	f, chatStore, _ := newFaultFixture(t)
 
 	parentID, _ := f.spawn(t, "claude")
-	threadID, err := f.usecase.MintChat(f.ctx, "ws1")
+	threadID, err := f.usecase.MintChat(f.ctx, "ws1", "")
 	require.NoError(t, err)
 	f.wait()
 	thread(t, f, threadID, parentID)
@@ -913,6 +913,12 @@ func TestAssembleHandoff_UnknownChat_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
+// resumeClaudeWithGap's callers all stamp session_id: "sid-claude" on the
+// user_prompt they then deliver. It is the conversation this resumed runner
+// was launched on, and a real CLI's own hook carries it — mustJSON's
+// placeholder "s1" names a conversation the runner is on no transport, which
+// namesAnotherConversation (turn/ingest.go) correctly refuses.
+//
 // resumeClaudeWithGap drives the one path where Crowbar's own context document comes
 // back at it as a user prompt: claude switched away and then BACK. A resumed
 // hooks-transport CLI cannot be reached through any config channel (verified against
@@ -936,20 +942,12 @@ func resumeClaudeWithGap(t *testing.T, f testFixture) (chatID, claudeRunnerID, i
 	codexRunner, err := f.usecase.SwitchProvider(f.ctx, chatID, "codex")
 	require.NoError(t, err)
 	f.wait()
-	// codex's turn_stop maps threadId/turn.items[type=agentMessage].text (see
-	// codex.yaml), NOT the flat last_assistant_message shape turn() builds for
-	// claude — using turn() here would silently extract an empty message.
+	// codexTurnStop delivers codex's real api-shaped turn_stop (threadId/
+	// turn.items[type=agentMessage].text — see codex.yaml), NOT the flat
+	// last_assistant_message shape turn() builds for claude — using turn()
+	// here would silently extract an empty message.
 	f.announce(t, codexRunner, "sid-codex-away")
-	require.NoError(t, f.usecase.IngestHook(f.ctx, codexRunner, "codex", "turn_stop",
-		mustJSON(t, map[string]any{
-			"threadId": "sid-codex-away",
-			"turn": map[string]any{
-				"items": []any{
-					map[string]any{"type": "agentMessage", "text": "codex spoke while claude was away"},
-				},
-			},
-		})))
-	f.wait()
+	codexTurnStop(t, f, codexRunner, "sid-codex-away", "codex spoke while claude was away")
 
 	claudeRunnerID, err = f.usecase.SwitchProvider(f.ctx, chatID, "claude")
 	require.NoError(t, err)
@@ -982,7 +980,7 @@ func TestResumeClaude_InjectedPointer_IsNotRecordedAsAUserTurn(t *testing.T) {
 	chatID, claudeRunner, injected := resumeClaudeWithGap(t, f)
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunner, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": injected})))
+		mustJSON(t, map[string]any{"prompt": injected, "session_id": "sid-claude"})))
 	f.wait()
 
 	handoff, err := f.usecase.AssembleHandoff(f.ctx, chatID)
@@ -1003,7 +1001,7 @@ func TestResumeClaude_InjectedPointer_StillOpensTheTurn(t *testing.T) {
 	chatID, claudeRunner, injected := resumeClaudeWithGap(t, f)
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunner, "claude", "user_prompt",
-		mustJSON(t, map[string]any{"prompt": injected})))
+		mustJSON(t, map[string]any{"prompt": injected, "session_id": "sid-claude"})))
 	f.wait()
 
 	assert.True(t, f.chat(t, chatID).Working, "the CLI is answering the gap: the chat must read as working")
@@ -1020,7 +1018,7 @@ func TestResumeClaude_UserRetypesThePointer_IsRecorded(t *testing.T) {
 
 	for range 2 {
 		require.NoError(t, f.usecase.IngestHook(f.ctx, claudeRunner, "claude", "user_prompt",
-			mustJSON(t, map[string]any{"prompt": injected})))
+			mustJSON(t, map[string]any{"prompt": injected, "session_id": "sid-claude"})))
 		f.wait()
 	}
 
@@ -1267,7 +1265,7 @@ func TestRegression_SetChatSelection_ConcurrentStandaloneAndStagedNeverLogAStale
 	}()
 	go func() {
 		<-start
-		_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hi", uuid.NewString(), "", "haiku", "low")
+		_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hi", uuid.NewString(), "", &domain.ChatSelection{Model: "haiku", Effort: "low"})
 		done <- err
 	}()
 	close(start)
@@ -1361,7 +1359,7 @@ func TestSpawn_UnselectedChatSpawnsIdenticalArgv(t *testing.T) {
 	baseline := f.term.calls[0].argv
 
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "", ""))
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString(), "", "", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "hello", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 
 	replacement := f.term.calls[f.term.callCount()-1].argv
@@ -1379,7 +1377,7 @@ func TestSpawn_CarriesTheSelectionIntoTheArgvAndRecordsItOnTheRunner(t *testing.
 	chatID, _ := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "with a model", uuid.NewString(), "", "", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "with a model", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 
 	call := f.term.calls[f.term.callCount()-1]
@@ -1403,7 +1401,7 @@ func TestSubmitPrompt_CommitsAStagedSelectionItselfBeforeSpawning(t *testing.T) 
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", "opus", "high")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", &domain.ChatSelection{Model: "opus", Effort: "high"})
 	require.NoError(t, err)
 
 	call := f.term.calls[f.term.callCount()-1]
@@ -1428,7 +1426,7 @@ func TestSubmitPrompt_StagedProviderSwitchesBeforeDelivering(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "codex", "", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "codex", nil)
 	require.NoError(t, err)
 	f.wait()
 
@@ -1462,7 +1460,7 @@ func TestSubmitPrompt_SameProviderNeverTriggersASwitch(t *testing.T) {
 	chatID, _ := f.spawn(t, "claude")
 
 	spawned := f.term.callCount()
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "first", uuid.NewString(), "", "", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "first", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 	ordinaryDelta := f.term.callCount() - spawned
 
@@ -1474,7 +1472,7 @@ func TestSubmitPrompt_SameProviderNeverTriggersASwitch(t *testing.T) {
 	turn(t, f, live.ID, "claude", "reply")
 	afterOrdinary := f.term.callCount()
 
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "second", uuid.NewString(), "claude", "", "")
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "second", uuid.NewString(), "claude", nil)
 	require.NoError(t, err)
 	stagedSameProviderDelta := f.term.callCount() - afterOrdinary
 
@@ -1494,7 +1492,7 @@ func TestSubmitPrompt_RefusesAndNeverSpawnsOnAnInvalidStagedSelection(t *testing
 	chatID, _ := f.spawn(t, "claude")
 	callsBefore := f.term.callCount()
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", "gpt-5", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", &domain.ChatSelection{Model: "gpt-5", Effort: ""})
 
 	require.ErrorIs(t, err, apperr.ErrInvalidArgument)
 	assert.Equal(t, callsBefore, f.term.callCount(), "an invalid selection must not spawn a replacement runner")
@@ -1611,7 +1609,7 @@ func TestSubmitPrompt_TheRestartResumesTheNativeConversation(t *testing.T) {
 	turn(t, f, runnerID, "claude", "the conversation exists")
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "keep my history", uuid.NewString(), "", "", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "keep my history", uuid.NewString(), "", nil)
 
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
@@ -1625,7 +1623,7 @@ func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T)
 	writeDescriptor(t, f, "claude", selectingDescriptorBody)
 	chatID, _ := f.spawn(t, "claude")
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", ""))
-	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "under opus", uuid.NewString(), "", "", "")
+	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "under opus", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 
 	require.NoError(t, f.usecase.IngestHook(f.ctx, first.RunnerID, "claude", "user_prompt",
@@ -1633,18 +1631,95 @@ func TestSubmitPrompt_ClearingBackToTheDefaultAlsoForcesTheRestart(t *testing.T)
 	turn(t, f, first.RunnerID, "claude", "answered")
 
 	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "", ""))
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "back to default", uuid.NewString(), "", "", "")
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "back to default", uuid.NewString(), "", nil)
 
 	require.NoError(t, err)
 	call := f.term.calls[f.term.callCount()-1]
 	assert.Less(t, indexOf(call.argv, "--model"), 0, "the default carries no model flag")
 }
 
+// THE REGRESSION. "" is a REAL pick — "the provider's own default", the same
+// distinct fact domain.Chat.Model's own doc records — and the composer stages
+// it like any other. Gated on "either half is non-empty" (as this path once
+// was) an all-empty pick read as "nothing staged, keep what you have", so a
+// chat pinned to opus had NO way back to the default at all: the picker no
+// longer PATCHes .../selection on its own, which makes the send the only door.
+// The test above proves the same clearing still works through the standalone
+// PATCH; this one proves it works through the door the UI actually uses.
+func TestRegression_SubmitPrompt_AnExplicitlyEmptyStagedSelectionClearsBackToTheDefault(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", selectingDescriptorBody)
+	chatID, _ := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
+
+	_, err := f.usecase.SubmitPrompt(
+		f.ctx, chatID, "back to default", uuid.NewString(), "", &domain.ChatSelection{})
+
+	require.NoError(t, err)
+	chat := f.chat(t, chatID)
+	assert.Empty(t, chat.Model, "an explicitly empty pick clears the sticky model")
+	assert.Empty(t, chat.Effort)
+	call := f.term.calls[f.term.callCount()-1]
+	assert.Less(t, indexOf(call.argv, "--model"), 0, "the default carries no model flag")
+	assert.Less(t, indexOf(call.argv, "--effort"), 0, "nor an effort one")
+}
+
+// A nil selection is the OTHER half of the same contract: the composer staged
+// nothing, so the chat's sticky pair must survive the send untouched. Without
+// this, making "" mean "clear it" would quietly turn every caller that passes
+// no selection at all into one that wipes the chat's model.
+func TestSubmitPrompt_ANilStagedSelectionLeavesTheStickyPairAlone(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", selectingDescriptorBody)
+	chatID, _ := f.spawn(t, "claude")
+	require.NoError(t, f.usecase.SetChatSelection(f.ctx, chatID, "opus", "high"))
+
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "nothing staged", uuid.NewString(), "", nil)
+
+	require.NoError(t, err)
+	chat := f.chat(t, chatID)
+	assert.Equal(t, "opus", chat.Model)
+	assert.Equal(t, "high", chat.Effort)
+}
+
+// Idempotency is the whole point of clientRequestId, and the staged selection
+// now rides the SAME body. A retry must replay the original outcome and must
+// not narrate the selection change a second time — setChatSelectionLocked
+// records a divider only against the value it READ first, so a replay of an
+// already-committed pick has nothing left to differ from.
+func TestRegression_SubmitPrompt_ReplayingAStagedSelectionStaysAtMostOnce(t *testing.T) {
+	f := newFixture(t)
+	writeDescriptor(t, f, "claude", selectingDescriptorBody)
+	chatID, _ := f.spawn(t, "claude")
+	requestID := uuid.NewString()
+	staged := &domain.ChatSelection{Model: "opus", Effort: "high"}
+
+	first, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", staged)
+	require.NoError(t, err)
+	spawned := f.term.callCount()
+
+	second, err := f.usecase.SubmitPrompt(f.ctx, chatID, "at most once", requestID, "", staged)
+
+	require.NoError(t, err)
+	assert.Equal(t, first, second, "the replay answers with the original delivery identity")
+	assert.Equal(t, spawned, f.term.callCount(), "and never forks a second CLI")
+	ints, err := f.activity.Interruptions(f.ctx, chatID)
+	require.NoError(t, err)
+	changes := 0
+	for _, interruption := range ints {
+		if interruption.Kind == engineagents.InterruptModelChanged ||
+			interruption.Kind == engineagents.InterruptEffortChanged {
+			changes++
+		}
+	}
+	assert.Equal(t, 2, changes, "one model divider and one effort divider, not two of each")
+}
+
 func TestSubmitPrompt_NoSwitchUnderARestartingDeliveryIsUnchanged(t *testing.T) {
 	f := newFixture(t)
 	chatID, _ := f.spawn(t, "claude")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "ordinary message", uuid.NewString(), "", "", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "ordinary message", uuid.NewString(), "", nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, f.term.callCount(), "the original spawn plus the delivery restart")
@@ -1702,7 +1777,7 @@ func TestRegression_UnseededChatHonoursAnExplicitLevelOnItsNextRestart(t *testin
 
 	require.NoError(t, f.usecase.SetChatPermissionLevel(f.ctx, chatID, "full-auto"))
 
-	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", "", "")
+	_, err = f.usecase.SubmitPrompt(f.ctx, chatID, "go", uuid.NewString(), "", nil)
 	require.NoError(t, err)
 
 	live, err := f.liveRunnerFor(t, chatID)
@@ -1724,19 +1799,27 @@ func TestResolveProviders_PublishesTheCatalogueAndItsAbsence(t *testing.T) {
 	claude := list[byID["claude"]]
 	assert.True(t, claude.ModelSelect)
 	assert.True(t, claude.EffortSelect)
-	assert.Equal(t, []string{"sonnet", "opus", "haiku"}, claude.Models)
-	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, claude.Efforts[""])
+	// Resolved synchronously off the embedded model-manifest.json bundle
+	// (model.manifest:, not a live probe) — deterministic even offline.
+	assert.Equal(t, []string{"fable", "opus", "sonnet", "haiku", "opusplan"}, claude.Models)
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, claude.Efforts[""],
+		"the '' key is the union of every model's own levels — see modeldiscovery.effortsOf")
 	for _, model := range claude.Models {
 		assert.NotEmpty(t, claude.Efforts[model], "every selectable model must answer its levels")
 	}
+	assert.Empty(t, claude.DefaultModel, "claude's manifest states no default, so this is unknown")
 
+	// codex's catalogue is DISCOVERED at runtime (model.discover:), not
+	// declared — with no codex binary in this test environment nothing has
+	// resolved, so both are empty rather than a stale hand-maintained list.
+	// The discovery mapping itself is modeldiscovery's own tests.
 	codex := list[byID["codex"]]
 	assert.True(t, codex.ModelSelect)
 	assert.True(t, codex.EffortSelect)
-	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"},
-		codex.Efforts["gpt-5.6-sol"])
-	assert.Equal(t, []string{"low", "medium", "high", "xhigh"}, codex.Efforts["gpt-5.4"])
-	assert.NotContains(t, codex.Efforts, "")
+	assert.Empty(t, codex.Models)
+	assert.Empty(t, codex.Efforts)
+	assert.Empty(t, codex.DefaultModel,
+		"codex's own debug models states no per-model default — unknown, never Models[0]")
 }
 
 func TestResolveProviders_AProviderDeclaringNothingReportsNoCatalogue(t *testing.T) {
@@ -1775,7 +1858,7 @@ func TestSetChatSelection_ADormantChatIsJudgedByItsLastProvider(t *testing.T) {
 
 func TestSetChatSelection_AChatNoProviderHasEverRunOnIsUnprocessable(t *testing.T) {
 	f := newFixture(t)
-	chatID, err := f.usecase.MintChat(f.ctx, "ws1")
+	chatID, err := f.usecase.MintChat(f.ctx, "ws1", "")
 	require.NoError(t, err)
 	f.wait()
 
@@ -1837,7 +1920,7 @@ runtime:
 `)
 	chatID, _ := f.spawn(t, "claude")
 
-	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "nowhere to go", uuid.NewString(), "", "", "")
+	_, err := f.usecase.SubmitPrompt(f.ctx, chatID, "nowhere to go", uuid.NewString(), "", nil)
 
 	require.ErrorIs(t, err, agentusecase.ErrPromptUnsupported)
 }

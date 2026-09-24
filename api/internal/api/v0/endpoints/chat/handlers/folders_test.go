@@ -45,6 +45,7 @@ type fakeChatTree struct {
 	// what an IMPORT is asserted through, since it flattens to the same
 	// OwnWorktree=false a plain chat does.
 	gotWorktree     agentusecase.WorktreeSpec
+	gotSurface      string
 	createChatCalls int
 	gotHomeID       string
 	folder          domain.Folder
@@ -137,6 +138,7 @@ func (f *fakeChatTree) CreateChat(
 	providerID string,
 	parentID string,
 	worktree agentusecase.WorktreeSpec,
+	surface string,
 ) (string, string, error) {
 	f.gotCreate2 = createChatCall{
 		WorkspaceID: workspaceID,
@@ -145,6 +147,7 @@ func (f *fakeChatTree) CreateChat(
 		OwnWorktree: worktree.Mode == agentusecase.WorktreeFork,
 	}
 	f.gotWorktree = worktree
+	f.gotSurface = surface
 	f.createChatCalls++
 	return f.placed.ID, "runner-1", f.err
 }

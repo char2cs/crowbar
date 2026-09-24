@@ -162,3 +162,27 @@ func TestRegression_UpdateRepo_LeavingTheRootDensifiesTheWholeLevel(t *testing.T
 	assert.Equal(t, 2, nodeRow(t, nodes, "repo-B").Order, "repo-B stays after c2")
 	assert.Equal(t, 3, nodeRow(t, nodes, "F").Order)
 }
+
+// TestRegression_UpdateRepo_SiblingRepoFiledInAFolderIsNotReminted reproduces
+// the live "reorder repos: mint <id>: node: create: create node: exists:
+// asynx: validation failed" failure: once ANY repo of the project is filed
+// inside a home folder, every later root-level repo drag refused, because
+// withNodelessRows read "absent from ListByParent("")" as "has no Node row".
+func TestRegression_UpdateRepo_SiblingRepoFiledInAFolderIsNotReminted(t *testing.T) {
+	repos, nodes, _, _, uc := newHomeLevelFixture(t)
+	ctx := context.Background()
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-B", ProjectID: "pA"}))
+	require.NoError(t, repos.Save(ctx, domain.Repository{ID: "repo-C", ProjectID: "pA"}))
+	nodes.Rows = []domain.Node{
+		{ID: "repo-A", Kind: domain.NodeKindRepo, Order: 0},
+		{ID: "repo-C", Kind: domain.NodeKindRepo, Order: 1},
+		{ID: "repo-B", Kind: domain.NodeKindRepo, ParentID: "f1", Order: 0},
+	}
+
+	_, err := uc.UpdateRepo(ctx, "repo-A", project.RepoUpdate{Order: index(1)})
+	require.NoError(t, err)
+	assert.Equal(t, "f1", nodeRow(t, nodes, "repo-B").ParentID,
+		"a repo filed in a folder must not be dragged to the root by a sibling's reorder")
+	assert.Equal(t, 1, nodeRow(t, nodes, "repo-A").Order)
+	assert.Equal(t, 0, nodeRow(t, nodes, "repo-C").Order)
+}

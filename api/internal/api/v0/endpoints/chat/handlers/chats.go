@@ -30,6 +30,17 @@ type createRequest struct {
 	// create is about to cut.
 	Branch string               `json:"branch"`
 	Import *createImportRequest `json:"import"`
+	// Surface is the VIEW the new chat is born on — design spec 2.5's
+	// `surfaces.<name>`. Omitted (the overwhelming majority) means the
+	// provider's own default landing, byte-identical to every create made
+	// before this field existed. "terminal" births the chat directly on the
+	// provider's own CLI: no api connection is opened for it, so its PTY is
+	// the conversation rather than a companion nobody is looking at.
+	//
+	// A provider that does not declare that surface launchable
+	// (surfaces.terminal.start_here) falls back to its default at spawn
+	// rather than failing the create — see spawnRunner's surfaceForSpawn.
+	Surface string `json:"surface"`
 }
 
 // createImportRequest is the import half of the create body. Its PRESENCE is
@@ -100,8 +111,12 @@ func (h *Handlers) Create(
 	if !ok {
 		return
 	}
+	if !knownSurface(body.Surface) {
+		libs.WriteErr(ctx, http.StatusBadRequest, "unknown surface: "+body.Surface)
+		return
+	}
 
-	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID, worktree)
+	chatID, _, err := h.folders.CreateChat(rctx, wsID, body.Provider, body.ParentID, worktree, body.Surface)
 	if err != nil {
 		status, msg := libs.StatusAndMessage(err)
 		libs.WriteErr(ctx, status, msg)
@@ -120,6 +135,19 @@ func (h *Handlers) Create(
 	h.broadcastFolder(chatID, wsID, "placement_set")
 
 	libs.WriteMutationOK(ctx, http.StatusCreated, chatID)
+}
+
+// knownSurface accepts the create body's `surface`: one of the surface names
+// design spec 2.5 defines, or "" for the provider's own default landing. It
+// is a SPELLING check only — whether the chosen provider can actually launch
+// onto that surface is the descriptor's answer, resolved at spawn.
+func knownSurface(surface string) bool {
+	switch surface {
+	case "", agents.SurfaceChat, agents.SurfaceTerminal:
+		return true
+	default:
+		return false
+	}
 }
 
 // worktreeSpec reads the create body's three mutually exclusive answers to "and
@@ -296,17 +324,19 @@ func (h *Handlers) Get(
 		chat, rt, h.chatWorktree(ctx.Request.Context(), chat)))
 }
 
-// chatRuntime derives a chat's process view at read time by joining the two runner
-// projections: the runner PLACED on it (if any) and the conversations it has hosted.
-// Nothing here is read off the chat aggregate, because a chat stores no process facts.
+// chatRuntime derives a chat's process view at read time by joining the runner
+// projections: the runner PLACED on it (if any), the conversations it has hosted,
+// and — while dormant — its interruption ledger. Nothing here is read off the chat
+// aggregate, because a chat stores no process facts.
 //
 // A dormant chat is NOT an error: agentrunner.ErrNotFound from LiveRunnerForChat means
 // no live row exists, which means no PTY exists, which is the liveness answer — so it
-// yields a nil LiveRunner and the read continues to the history, whose last entry
-// supplies the provider the FE still needs (glyph, dropdown, Resume). Any OTHER error
-// is a genuine read failure and propagates: an empty liveRunnerId must mean "dormant"
-// and never "the projection broke", or the frontend would silently treat a broken read
-// as a dead CLI.
+// yields a nil LiveRunner and the read continues to the history and the interruption
+// ledger, which together supply the provider the FE still needs (glyph, dropdown,
+// Resume) even for a provider that never wrote a conversation row — see
+// dto.ChatRuntime.Interruptions. Any OTHER error is a genuine read failure and
+// propagates: an empty liveRunnerId must mean "dormant" and never "the projection
+// broke", or the frontend would silently treat a broken read as a dead CLI.
 func (h *Handlers) chatRuntime(
 	ctx context.Context,
 	chatID string,
@@ -325,6 +355,18 @@ func (h *Handlers) chatRuntime(
 		return dto.ChatRuntime{}, err
 	}
 
+	// Interruptions is activeProviderId's second fallback source, and is only ever
+	// consulted for a DORMANT chat (a live runner's provider always wins) — so it
+	// is read only when live is nil, sparing every live chat in a list this extra
+	// query.
+	var interruptions []domain.ActivityInterruption
+	if live == nil {
+		interruptions, err = h.turns.Interruptions(ctx, chatID)
+		if err != nil {
+			return dto.ChatRuntime{}, err
+		}
+	}
+
 	var attachedSessionID string
 	var hasLiveAPIConn bool
 	if live != nil {
@@ -341,29 +383,42 @@ func (h *Handlers) chatRuntime(
 	return dto.ChatRuntime{
 		LiveRunner:           live,
 		Conversations:        convs,
+		Interruptions:        interruptions,
 		TerminalWait:         h.runners.TerminalWait(chatID),
 		AttachedSessionID:    attachedSessionID,
 		HasLiveAPIConnection: hasLiveAPIConn,
 	}, nil
 }
 
-// requireChatInWorkspace loads chatID, 404ing on an unknown id. When the
-// request still names a workspace — the home mount's injected :wsId, since a
-// project home's chats stay workspace-scoped — it additionally 404s unless
-// chatID belongs to that workspace, exactly as before Task 17. A repo-scoped
-// request names no workspace at all, so for it this is an existence check
-// only: the model spec addresses a chat by id alone (§5.1), and a chat's
-// workspace is optional and mutable, so there is no stale-proof "wrong scope"
-// comparison left to make.
+// requireChatInWorkspace loads chatID, 404ing on an unknown id, and holds it to
+// the scope of the mount it was reached through — EVERY mount, not only the one
+// that happens to bind a workspace.
+//
+// The home mount injects :wsId (RequireHomeWorkspace) and a project home's chats
+// stay workspace-scoped, so there the test is the stored workspace, exactly as
+// before Task 17 — and exactly what the home list (ListChatsByWorkspace) is.
+//
+// The repo mount binds :repoId and no workspace at all. Addressing a chat by id
+// alone (model spec §5.1) retired the WORKSPACE comparison there and it stays
+// retired — any of the repo's own workspaces is legitimate — but it never
+// retired the REPO boundary, and nothing re-asserted it: every chat id in the
+// daemon resolved through a repo mount, project-home chats included, which no
+// repo's list will ever mention. So the repo mount compares the chat's GROUND
+// against :repoId (chatGround), the same membership ListChatsInRepo computes
+// for the list beside it.
+//
+// A request naming neither cannot happen on any mounted route (the repo group
+// always binds :repoId, the home group always injects :wsId) and is left alone,
+// the same posture listChats takes on the same impossible input.
 //
 // It is the by-id scope check shared by Get/Switch/Rename/Handoff (and
 // Delete, Task 5): every one of those routes takes a bare chat id with no
-// other scoping input. The unknown-id and wrong-workspace cases both return
-// HTTP 404 (never the chat body), so no cross-workspace chat is ever served
-// to a workspace-scoped caller; the two responses carry DIFFERENT body
+// other scoping input. The unknown-id and wrong-scope cases both return
+// HTTP 404 (never the chat body), so no out-of-scope chat is ever served
+// to the caller; the two responses carry DIFFERENT body
 // messages ("chat not found in workspace" vs the mapped GetChat not-found
 // text), so a probe can still tell "exists elsewhere" from "does not exist" —
-// an accepted minor, the scope check's job is to deny cross-workspace ACCESS,
+// an accepted minor, the scope check's job is to deny cross-scope ACCESS,
 // not to perfectly hide existence. ok is false exactly when the caller must
 // return immediately because a response was already written (either this 404
 // or a mapped GetChat error).
@@ -377,11 +432,60 @@ func (h *Handlers) requireChatInWorkspace(
 		libs.WriteErr(ctx, status, msg)
 		return domain.Chat{}, false
 	}
-	if wsID := ctx.Param("wsId"); wsID != "" && chat.WorkspaceID != wsID {
+	if !h.chatInMountScope(ctx, chat) {
 		libs.WriteErr(ctx, http.StatusNotFound, "chat not found in workspace")
 		return domain.Chat{}, false
 	}
 	return chat, true
+}
+
+// chatInMountScope answers whether chat may be addressed through THIS mount.
+func (h *Handlers) chatInMountScope(
+	ctx *gin.Context,
+	chat domain.Chat,
+) bool {
+	if wsID := ctx.Param("wsId"); wsID != "" {
+		return chat.WorkspaceID == wsID
+	}
+	repoID := ctx.Param("repoId")
+	if repoID == "" || h.worktrees == nil {
+		return true
+	}
+	ground, ok := h.chatGround(ctx.Request.Context(), chat)
+	if !ok {
+		return true
+	}
+	return ground.RepoID == repoID
+}
+
+// chatGround resolves the workspace a chat RUNS on: its own, or — for a bubble,
+// which carries none — the one its cwd walk lands on (model spec §3.2). A
+// resolved workspace's RepoID is a WHOLE answer even when empty: that is
+// exactly what a project-home workspace is.
+//
+// !ok means "no answer", never "no repo", and the caller must wave it through.
+// A row whose whole ancestry owns no workspace has no scope to be held to (the
+// posture matchScopeOrUnscoped takes on the socket) and a failed read is not a
+// scope verdict; 404ing either would hand the client's vanished-chat recovery
+// the very deletion this check exists to prevent. It is the one asymmetry with
+// ListChatsInRepo, which merely drops such a row from a list.
+func (h *Handlers) chatGround(
+	ctx context.Context,
+	chat domain.Chat,
+) (domain.Workspace, bool) {
+	workspaceID := chat.WorkspaceID
+	if workspaceID == "" {
+		resolved, ok, err := h.chats.CwdWorkspaceID(ctx, chat.ID)
+		if err != nil || !ok {
+			return domain.Workspace{}, false
+		}
+		workspaceID = resolved
+	}
+	ws, err := h.worktrees.Get(ctx, workspaceID)
+	if err != nil {
+		return domain.Workspace{}, false
+	}
+	return ws, true
 }
 
 // Rename handles POST .../repos/:repoId/chats/:id/rename: sets the

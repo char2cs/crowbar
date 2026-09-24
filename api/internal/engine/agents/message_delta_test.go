@@ -25,7 +25,7 @@ const (
 )
 
 func TestAgent_ParseHookMapsAMessageDelta(t *testing.T) {
-	ev, err := get(t, "claude").ParseHook(agents.HookMessageDelta, []byte(alphaDeltaZero))
+	ev, err := get(t, "claude").ParseHook(agents.HookMessageDelta, []byte(alphaDeltaZero), agents.ChannelHooks)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Delta)
@@ -39,7 +39,7 @@ func TestAgent_ParseHookMapsAMessageDelta(t *testing.T) {
 }
 
 func TestAgent_ParseHookReadsTheFinalDelta(t *testing.T) {
-	ev, err := get(t, "claude").ParseHook(agents.HookMessageDelta, []byte(alphaDeltaFinal))
+	ev, err := get(t, "claude").ParseHook(agents.HookMessageDelta, []byte(alphaDeltaFinal), agents.ChannelHooks)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Delta)
@@ -50,9 +50,9 @@ func TestAgent_ParseHookReadsTheFinalDelta(t *testing.T) {
 func TestAgent_ParseHookSeparatesTwoMessagesOfOneTurn(t *testing.T) {
 	claude := get(t, "claude")
 
-	alpha, err := claude.ParseHook(agents.HookMessageDelta, []byte(alphaDeltaZero))
+	alpha, err := claude.ParseHook(agents.HookMessageDelta, []byte(alphaDeltaZero), agents.ChannelHooks)
 	require.NoError(t, err)
-	omega, err := claude.ParseHook(agents.HookMessageDelta, []byte(omegaDeltaZero))
+	omega, err := claude.ParseHook(agents.HookMessageDelta, []byte(omegaDeltaZero), agents.ChannelHooks)
 	require.NoError(t, err)
 
 	assert.Equal(t, alpha.Delta.TurnID, omega.Delta.TurnID)
@@ -65,7 +65,7 @@ const stopFailurePayload = `{"session_id":"57000ce3","transcript_path":"/tmp/t.j
   "last_assistant_message":"API Error: Connection refused — a firewall or proxy may be blocking it (ConnectionRefused)"}`
 
 func TestAgent_ParseHookMapsAFailedTurn(t *testing.T) {
-	ev, err := get(t, "claude").ParseHook(agents.HookTurnFailed, []byte(stopFailurePayload))
+	ev, err := get(t, "claude").ParseHook(agents.HookTurnFailed, []byte(stopFailurePayload), agents.ChannelHooks)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Failure)
@@ -74,7 +74,7 @@ func TestAgent_ParseHookMapsAFailedTurn(t *testing.T) {
 }
 
 func TestAgent_ParseHookToleratesAFailedTurnWithNoDetail(t *testing.T) {
-	ev, err := get(t, "claude").ParseHook(agents.HookTurnFailed, []byte(stopFailurePayload))
+	ev, err := get(t, "claude").ParseHook(agents.HookTurnFailed, []byte(stopFailurePayload), agents.ChannelHooks)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Failure)
@@ -96,7 +96,7 @@ func TestAgent_CodexMapsAFailedTurnOffTurnStatus(t *testing.T) {
 	  "error":{"message":"stream error: exceeded retry limit",
 	           "additionalDetails":"connection reset by peer"}}}`)
 
-	ev, err := get(t, "codex").ParseHook(agents.HookTurnFailed, raw)
+	ev, err := get(t, "codex").ParseHook(agents.HookTurnFailed, raw, agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Failure)
@@ -112,7 +112,7 @@ func TestAgent_CodexMapsAFailedTurnOffTurnStatus(t *testing.T) {
 // not a hook. See the mixed transport design spec.
 func TestAgent_CodexObservesMessageDeltaOverAPITransport(t *testing.T) {
 	ev, err := get(t, "codex").ParseHook(agents.HookMessageDelta,
-		[]byte(`{"threadId":"t1","itemId":"m1","turnId":"tn1","delta":"partial text"}`))
+		[]byte(`{"threadId":"t1","itemId":"m1","turnId":"tn1","delta":"partial text"}`), agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Delta)

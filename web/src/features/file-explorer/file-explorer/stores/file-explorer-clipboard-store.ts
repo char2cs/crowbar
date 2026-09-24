@@ -26,7 +26,7 @@ interface FileClipboardStore {
   actions: {
     copy: (entries: ClipboardEntry[]) => Promise<void>
     cut: (entries: ClipboardEntry[]) => Promise<void>
-    paste: (targetDirectory: string) => Promise<PastedEntry[]>
+    paste: (targetDirectory: string, wsId?: string | null) => Promise<PastedEntry[]>
     clear: () => Promise<void>
     setClipboard: (state: FileClipboardState | null) => void
   }
@@ -53,11 +53,11 @@ const useFileClipboardStoreBase = create<FileClipboardStore>()((set, get) => ({
      * the tree half-moved, and the daemon refuses an occupied destination on
      * BOTH verbs (409), so a paste can never clobber an existing file.
      */
-    paste: async (targetDirectory: string) => {
+    paste: async (targetDirectory: string, explicitWsId?: string | null) => {
       const clipboard = get().clipboard
       if (!clipboard || clipboard.entries.length === 0) return []
 
-      const wsId = getActiveWorkspaceId()
+      const wsId = explicitWsId === undefined ? getActiveWorkspaceId() : explicitWsId
       if (!wsId) throw new Error('no active workspace for paste')
 
       const results: PastedEntry[] = []

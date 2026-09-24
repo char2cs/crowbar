@@ -64,7 +64,7 @@ func TestRegression_CodexToolCallsCarryATargetAndAResult(t *testing.T) {
 		},
 	} {
 		t.Run(tc.variant, func(t *testing.T) {
-			ev, err := get(t, "codex").ParseHook(agents.HookToolPost, []byte(tc.raw))
+			ev, err := get(t, "codex").ParseHook(agents.HookToolPost, []byte(tc.raw), agents.ChannelAPI)
 
 			require.NoError(t, err)
 			require.NotNil(t, ev.Tool)
@@ -85,7 +85,7 @@ func TestRegression_CodexToolPreCarriesTheSameTarget(t *testing.T) {
 	raw := []byte(`{"item":{"type":"commandExecution","id":"c1","command":"go build ./...",
 	  "cwd":"/w","status":"inProgress"},"threadId":"t","turnId":"tn"}`)
 
-	ev, err := get(t, "codex").ParseHook(agents.HookToolPre, []byte(raw))
+	ev, err := get(t, "codex").ParseHook(agents.HookToolPre, raw, agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
@@ -99,7 +99,7 @@ func TestRegression_CodexFailedToolCarriesItsError(t *testing.T) {
 	  "status":"failed","arguments":{},"error":{"message":"server closed the connection"},
 	  "durationMs":12},"threadId":"t","turnId":"tn"}`)
 
-	ev, err := get(t, "codex").ParseHook(agents.HookToolFail, raw)
+	ev, err := get(t, "codex").ParseHook(agents.HookToolFail, raw, agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Tool)
@@ -117,7 +117,7 @@ func TestRegression_CodexStreamsItsReasoning(t *testing.T) {
 	  "itemId":"rs_052b6896240d8d9d016aa02d538cd087d2b6f5760993ec63b9",
 	  "delta":"**Clarifying ambiguous wording**","summaryIndex":0}`)
 
-	ev, err := get(t, "codex").ParseHook(agents.HookReasoningDelta, raw)
+	ev, err := get(t, "codex").ParseHook(agents.HookReasoningDelta, raw, agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Delta)
@@ -133,7 +133,7 @@ func TestRegression_CodexStreamsItsReasoning(t *testing.T) {
 func TestAgent_ReasoningAndMessageDeltasAreDistinctEvents(t *testing.T) {
 	assert.NotEqual(t, agents.HookMessageDelta, agents.HookReasoningDelta)
 
-	_, err := get(t, "claude").ParseHook(agents.HookReasoningDelta, []byte(`{"delta":"x"}`))
+	_, err := get(t, "claude").ParseHook(agents.HookReasoningDelta, []byte(`{"delta":"x"}`), agents.ChannelHooks)
 	require.Error(t, err, "claude declares no reasoning stream, and must not claim one")
 }
 
@@ -146,7 +146,7 @@ func TestRegression_CodexStreamsARunningCommandsOutput(t *testing.T) {
 	  "turnId":"01a081af-7550-79d0-a51e-6424d9724c88",
 	  "itemId":"call_PQbUMzNNrlEGDg3Y4zc7JwNW","delta":"line 2\n"}`)
 
-	ev, err := get(t, "codex").ParseHook(agents.HookToolOutputDelta, raw)
+	ev, err := get(t, "codex").ParseHook(agents.HookToolOutputDelta, raw, agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.NotNil(t, ev.Delta)
@@ -170,7 +170,7 @@ func TestRegression_CodexReportsItsPlan(t *testing.T) {
 	          {"step":"List the top-level directory contents.","status":"pending"},
 	          {"step":"Check repository status, then summarize.","status":"completed"}]}`)
 
-	ev, err := get(t, "codex").ParseHook(agents.HookPlanUpdate, raw)
+	ev, err := get(t, "codex").ParseHook(agents.HookPlanUpdate, raw, agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.Len(t, ev.Plan, 3)
@@ -186,7 +186,7 @@ func TestAgent_AnUnmappedPlanStatusPassesThrough(t *testing.T) {
 	raw := []byte(`{"threadId":"t","turnId":"tn",
 	  "plan":[{"step":"something","status":"somethingCodexAddedLater"}]}`)
 
-	ev, err := get(t, "codex").ParseHook(agents.HookPlanUpdate, raw)
+	ev, err := get(t, "codex").ParseHook(agents.HookPlanUpdate, raw, agents.ChannelAPI)
 
 	require.NoError(t, err)
 	require.Len(t, ev.Plan, 1)

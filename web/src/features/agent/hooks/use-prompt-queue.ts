@@ -431,8 +431,12 @@ export function usePromptQueue(options: PromptQueueOptions) {
           item.text,
           item.clientRequestId,
           item.provider ?? '',
-          item.model ?? '',
-          item.effort ?? '',
+          // Passed THROUGH, never coerced: `undefined` is "staged nothing"
+          // and '' is a pick of the provider's own default. Flattening the
+          // first into the second put both on the wire as "" and left the
+          // daemon no way to tell them apart.
+          item.model,
+          item.effort,
         )
         // Success means the replacement TUI exists, not that the provider has
         // accepted the message. Keep this row as the FIFO head until user_prompt
@@ -592,9 +596,13 @@ export function usePromptQueue(options: PromptQueueOptions) {
         // Baked in at enqueue time, not read fresh at dispatch: a later pick
         // must never bleed onto an earlier queued message. See the field's
         // own doc comment on PromptQueueItem.
+        // '' is KEPT for model/effort — a pick of the provider's own
+        // default — and only `undefined` (nothing staged) is dropped.
+        // Provider has no such reading: a chat always runs SOME provider,
+        // so '' there really is "nothing staged".
         ...(provider ? { provider } : {}),
-        ...(model ? { model } : {}),
-        ...(effort ? { effort } : {}),
+        ...(model !== undefined ? { model } : {}),
+        ...(effort !== undefined ? { effort } : {}),
       }
       const next = [...queueRef.current, item]
       if (!canPersistPromptQueue(wsId, chatId, next)) {

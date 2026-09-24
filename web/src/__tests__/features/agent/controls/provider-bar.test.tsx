@@ -53,4 +53,27 @@ describe('ProviderBar', () => {
     renderBar(undefined)
     expect(screen.getByTestId('agent-context-gauge').tagName).toBe('SPAN')
   })
+
+  it('passes reportedModel through to the selection cluster unchanged', () => {
+    const selectableProvider: AgentProvider = {
+      ...provider,
+      modelSelect: true,
+      models: ['sonnet'],
+    }
+    render(
+      <ProviderBar
+        provider={selectableProvider}
+        providers={[selectableProvider]}
+        model=""
+        effort=""
+        reportedModel="Claude Sonnet 4.5"
+        telemetry={telemetry}
+        presentation="chat"
+        splitEnabled={false}
+        onSelectionChange={vi.fn()}
+        onSelectPresentation={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('agent-selection-picker')).toHaveTextContent('Claude Sonnet 4.5')
+  })
 })

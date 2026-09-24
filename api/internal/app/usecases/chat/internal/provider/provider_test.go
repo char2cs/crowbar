@@ -56,6 +56,61 @@ func TestResolveProviders_ListsTheShippedDescriptors(t *testing.T) {
 	}
 }
 
+// TestResolveProviders_CarriesTerminalStartHereFromTheDescriptor pins the
+// wiring against the real shipped descriptors (design spec 2.5): both
+// shipped providers declare a terminal a brand-new chat may land on —
+// claude's PTY IS claude, and codex's terminal surface is fed by the hooks
+// channel, i.e. the ordinary `codex` PTY every spawn already forks.
+func TestResolveProviders_CarriesTerminalStartHereFromTheDescriptor(t *testing.T) {
+	t.Parallel()
+
+	table := newTable(t, func(engineagents.Agent) bool { return false })
+
+	providers, err := table.ResolveProviders(t.Context())
+
+	require.NoError(t, err)
+	byID := map[string]domain.AgentProvider{}
+	for _, p := range providers {
+		byID[p.ID] = p
+	}
+	require.True(t, byID["claude"].HasTerminal)
+	assert.True(t, byID["claude"].TerminalStartHere)
+	require.True(t, byID["codex"].HasTerminal)
+	assert.True(t, byID["codex"].TerminalStartHere,
+		"codex's terminal surface rides the hooks channel: spawnable from birth, no session to resume")
+}
+
+// TestResolveProviders_ClaudeEffortsCarriesTheEmptyModelKey pins the wire
+// contract resolveEfforts implements (provider.go): Efforts has a key for
+// every model in Models, PLUS "" for the provider's own default model — a
+// bad "" key previously made the effort picker vanish entirely (regression
+// this guards). Claude's models AND per-model efforts both now resolve from
+// model.manifest: (not model.discover:), synchronously off the embedded
+// model-manifest.json bundle, so this is deterministic with no live probe
+// and no network involved.
+func TestResolveProviders_ClaudeEffortsCarriesTheEmptyModelKey(t *testing.T) {
+	t.Parallel()
+
+	table := newTable(t, func(engineagents.Agent) bool { return false })
+
+	providers, err := table.ResolveProviders(t.Context())
+
+	require.NoError(t, err)
+	var claude domain.AgentProvider
+	for _, p := range providers {
+		if p.ID == "claude" {
+			claude = p
+		}
+	}
+	require.NotEmpty(t, claude.Models, "claude's manifest-derived catalogue must have resolved")
+	require.NotNil(t, claude.Efforts, "a bad '' key must never make the whole map vanish")
+	assert.NotEmpty(t, claude.Efforts[""],
+		"'' is the union of every model's own levels — see modeldiscovery.effortsOf")
+	for _, model := range claude.Models {
+		assert.NotEmpty(t, claude.Efforts[model], "every selectable model must answer its levels")
+	}
+}
+
 // Connected is the install probe's answer, not a stored flag. It is injected so
 // this never depends on the host having claude or codex on its PATH.
 func TestResolveProviders_ConnectedComesFromTheInstallProbe(t *testing.T) {

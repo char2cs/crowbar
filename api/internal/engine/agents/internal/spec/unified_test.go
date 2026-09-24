@@ -18,13 +18,13 @@ func v3() *spec.Descriptor {
 			},
 		},
 		Events: map[string]spec.EventSpec{
-			"session_start": {In: "SessionStart", Map: map[string]string{"session_id": "session_id"}},
+			"session_start": {In: spec.WireRef{"SessionStart"}, Map: spec.FieldMap{"session_id": {"session_id"}}},
 			"permission": {
-				Ask: "PermissionRequest", TimeoutSeconds: 270, AnswersInto: "answers",
+				Ask: spec.WireRef{"PermissionRequest"}, TimeoutSeconds: 270, AnswersInto: "answers",
 				Reply: map[string]string{"allow": "{}"},
 			},
-			"observed_only": {Ask: "Watched", Answerable: &no, Map: map[string]string{}},
-			"compact_start": {Out: "prompt", Send: map[string]string{"text": "/compact"}},
+			"observed_only": {Ask: spec.WireRef{"Watched"}, Answerable: &no, Map: spec.FieldMap{}},
+			"compact_start": {Out: spec.WireRef{"prompt"}, Send: map[string]string{"text": "/compact"}},
 		},
 	}
 }
@@ -32,7 +32,7 @@ func v3() *spec.Descriptor {
 func TestEventFields_ReadsTheEventTable(t *testing.T) {
 	d := v3()
 	f, ok := d.EventFields("session_start")
-	if !ok || f["session_id"] != "session_id" {
+	if !ok || len(f["session_id"]) != 1 || f["session_id"][0] != "session_id" {
 		t.Errorf("EventFields = (%v,%v)", f, ok)
 	}
 	if _, ok := d.EventFields("never_declared"); ok {
@@ -111,5 +111,43 @@ func TestTransportFor_FallsBackToTheRuntimeDefault(t *testing.T) {
 	d.Events["session_start"] = e
 	if got := d.TransportFor("session_start"); got != "api" {
 		t.Errorf("a per-event transport must win, got %q", got)
+	}
+}
+
+// Design spec P6b tag 1: absent owner: means Either, never a channel — a
+// delivery must never be dropped on liveness alone with no explicit owner.
+func TestEventOwner_AbsentMeansEither(t *testing.T) {
+	d := v3()
+	if got := d.EventOwner("session_start"); got != spec.OwnerEither {
+		t.Errorf("EventOwner = %q, want %q for an event with no owner: declared", got, spec.OwnerEither)
+	}
+}
+
+func TestEventOwner_ReadsTheDeclaredValue(t *testing.T) {
+	d := v3()
+	e := d.Events["session_start"]
+	e.Owner = spec.OwnerAPI
+	d.Events["session_start"] = e
+	if got := d.EventOwner("session_start"); got != spec.OwnerAPI {
+		t.Errorf("EventOwner = %q, want %q", got, spec.OwnerAPI)
+	}
+}
+
+// Design spec P6b tag 2: nil surfaces: means every surface.
+func TestEventSurfaces_AbsentMeansNil(t *testing.T) {
+	d := v3()
+	if got := d.EventSurfaces("session_start"); got != nil {
+		t.Errorf("EventSurfaces = %v, want nil for an event with no surfaces: declared", got)
+	}
+}
+
+func TestEventSurfaces_ReadsTheDeclaredList(t *testing.T) {
+	d := v3()
+	e := d.Events["session_start"]
+	e.Surfaces = []string{spec.SurfaceChat}
+	d.Events["session_start"] = e
+	got := d.EventSurfaces("session_start")
+	if len(got) != 1 || got[0] != spec.SurfaceChat {
+		t.Errorf("EventSurfaces = %v, want [%s]", got, spec.SurfaceChat)
 	}
 }

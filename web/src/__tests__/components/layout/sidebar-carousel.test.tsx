@@ -3,13 +3,47 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { SidebarCarousel } from '@/components/layout/sidebar-carousel'
 import { getInitialState, useSidebarStore } from '@/lib/store/sidebar'
+import {
+  publishFocusedWorkspaceContext,
+  type FocusedWorkspaceContext,
+} from '@/features/window/stores/focused-workspace-context-store'
 
+const { treeProps } = vi.hoisted(() => ({ treeProps: vi.fn() }))
 vi.mock('@/features/file-explorer/components/file-explorer-tree', () => ({
-  FileExplorerTree: () => <div data-testid="panel-files" />,
+  FileExplorerTree: (props: { workspaceId: string | null; rootFolderPath?: string }) => {
+    treeProps(props)
+    return <div data-testid="panel-files" />
+  },
 }))
 vi.mock('@/features/git/components/git-panel', () => ({
   GitPanel: () => <div data-testid="panel-git" />,
 }))
+
+const REPO_CTX: FocusedWorkspaceContext = {
+  projectId: 'p1',
+  workspaceId: 'ws-repo',
+  isProjectHome: false,
+  repoId: 'r1',
+  repoPath: '/repo',
+  rootPath: '/repo',
+}
+const BRANCH_CTX: FocusedWorkspaceContext = {
+  projectId: 'p1',
+  workspaceId: 'ws-branch',
+  isProjectHome: false,
+  repoId: 'r1',
+  repoPath: '/worktrees/branch',
+  rootPath: '/worktrees/branch',
+}
+const HOME_CTX: FocusedWorkspaceContext = {
+  projectId: 'p1',
+  workspaceId: 'ws-home',
+  isProjectHome: true,
+  repoId: null,
+  repoPath: null,
+  rootPath: '/projects/p1',
+}
+const HOME_MATCH = { params: { projectId: 'p1' } }
 vi.mock('@/components/error-boundary', () => ({
   ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -64,6 +98,8 @@ vi.mock('@phosphor-icons/react', () => ({
 describe('SidebarCarousel', () => {
   beforeEach(() => {
     useSidebarStore.setState(getInitialState())
+    publishFocusedWorkspaceContext(REPO_CTX)
+    treeProps.mockClear()
     mockMatch = null
     // jsdom does not implement scrollTo
     HTMLElement.prototype.scrollTo = vi.fn()
@@ -74,18 +110,18 @@ describe('SidebarCarousel', () => {
   })
 
   it('mounts both panels: Files and Git', () => {
-    render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+    render(<SidebarCarousel />)
     expect(screen.getByTestId('panel-files')).toBeInTheDocument()
     expect(screen.getByTestId('panel-git')).toBeInTheDocument()
   })
 
   it('the card has exactly two panels', () => {
-    render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+    render(<SidebarCarousel />)
     expect(screen.getAllByTestId('carousel-panel')).toHaveLength(2)
   })
 
   it('renders the panels in Files, Git order (index math must not be off-by-one)', () => {
-    render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+    render(<SidebarCarousel />)
     const container = screen.getByTestId('panel-files').closest('[data-sidebar-carousel]')
     const testIds = Array.from(container?.querySelectorAll('[data-testid^="panel-"]') ?? []).map(
       (el) => el.getAttribute('data-testid'),
@@ -94,7 +130,7 @@ describe('SidebarCarousel', () => {
   })
 
   it('scrolls to the Git panel index (1) when activeTab is git', () => {
-    render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+    render(<SidebarCarousel />)
     const container = screen
       .getByTestId('panel-files')
       .closest('[data-sidebar-carousel]') as HTMLElement
@@ -119,7 +155,7 @@ describe('SidebarCarousel', () => {
     // only "selected" affordance is full opacity, the space mark's own idiom
     // (`!isActive && 'opacity-60'`), reused here for consistency.
     it('renders the head tabs, icon only, using the same ghost Button recipe as the rest of the footer', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       expect(screen.queryByText('Files')).not.toBeInTheDocument()
       expect(screen.queryByText('Git')).not.toBeInTheDocument()
       const filesTab = screen.getByRole('button', { name: 'Files' })
@@ -129,7 +165,7 @@ describe('SidebarCarousel', () => {
     })
 
     it('the active tab is full opacity, the inactive one dimmed — same idiom as the space marks', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       expect(screen.getByRole('button', { name: 'Files' })).not.toHaveClass('opacity-60')
       expect(screen.getByRole('button', { name: 'Git' })).toHaveClass('opacity-60')
     })
@@ -139,37 +175,75 @@ describe('SidebarCarousel', () => {
     // the store's real, un-overridden default (beforeEach only calls
     // getInitialState(), no activeTab override) to catch that gap.
     it('the Files tab is active by default, before any click or route effect', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
       expect(screen.getByRole('button', { name: 'Git' })).toHaveAttribute('aria-pressed', 'false')
     })
 
     it('holds exactly two glyphs — Files and Git — off the home route', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Git' })).toBeInTheDocument()
     })
 
     it('clicking the Git glyph switches activeTab', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       fireEvent.click(screen.getByRole('button', { name: 'Git' }))
       expect(useSidebarStore.getState().activeTab).toBe('git')
     })
 
-    // Git has no meaning without a repo, and the project-home route has no
-    // active workspace — carried over from the retired SidebarTabBar.
-    it('hides the Git glyph on the home route', () => {
-      mockMatch = { params: { projectId: 'p1' } }
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
-      expect(screen.queryByRole('button', { name: 'Git' })).not.toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument()
-    })
+    // The panel follows the focused workspace context, never the route
+    // (mockMatch names project home in the split cases to prove it's ignored).
+    describe('scope follows the focused workspace context', () => {
+      it('hides the Git glyph when project home is focused', () => {
+        publishFocusedWorkspaceContext(HOME_CTX)
+        render(<SidebarCarousel />)
+        expect(screen.queryByRole('button', { name: 'Git' })).not.toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument()
+      })
 
-    it('resets activeTab to files when navigating to the home route with git active', () => {
-      useSidebarStore.setState({ activeTab: 'git' })
-      mockMatch = { params: { projectId: 'p1' } }
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
-      expect(useSidebarStore.getState().activeTab).toBe('files')
+      it('home route, branch pane focused: Git is visible and Files is scoped to the branch', () => {
+        mockMatch = HOME_MATCH
+        publishFocusedWorkspaceContext(BRANCH_CTX)
+        render(<SidebarCarousel />)
+        expect(screen.getByRole('button', { name: 'Git' })).toBeInTheDocument()
+        expect(treeProps).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            workspaceId: 'ws-branch',
+            rootFolderPath: '/worktrees/branch',
+          }),
+        )
+      })
+
+      it('focus moves to the home pane with Git active: Git hides, Files takes over, scoped to home', () => {
+        mockMatch = HOME_MATCH
+        publishFocusedWorkspaceContext(BRANCH_CTX)
+        useSidebarStore.setState({ activeTab: 'git' })
+        render(<SidebarCarousel />)
+        expect(useSidebarStore.getState().activeTab).toBe('git')
+
+        act(() => publishFocusedWorkspaceContext(HOME_CTX))
+
+        expect(screen.queryByRole('button', { name: 'Git' })).not.toBeInTheDocument()
+        expect(useSidebarStore.getState().activeTab).toBe('files')
+        expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        )
+        expect(treeProps).toHaveBeenLastCalledWith(
+          expect.objectContaining({ workspaceId: 'ws-home', rootFolderPath: '/projects/p1' }),
+        )
+      })
+
+      it('no split, repo route: both glyphs, Git stays active, Files scoped to the repo', () => {
+        useSidebarStore.setState({ activeTab: 'git' })
+        render(<SidebarCarousel />)
+        expect(screen.getByRole('button', { name: 'Git' })).toHaveAttribute('aria-pressed', 'true')
+        expect(useSidebarStore.getState().activeTab).toBe('git')
+        expect(treeProps).toHaveBeenLastCalledWith(
+          expect.objectContaining({ workspaceId: 'ws-repo', rootFolderPath: '/repo' }),
+        )
+      })
     })
 
     // The head now matches every other sidebar row's height (ROW_BASE's
@@ -177,12 +251,12 @@ describe('SidebarCarousel', () => {
     // style activity bar, not a compact tab strip.
     describe('the head matches the standard row height (h-9)', () => {
       it('the head row is locked to h-9', () => {
-        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+        render(<SidebarCarousel />)
         expect(screen.getByTestId('carousel-head')).toHaveClass('h-9')
       })
 
       it('the tabs track spans the row so the icons center in the leftover space, not against the fold toggle', () => {
-        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+        render(<SidebarCarousel />)
         const list = screen.getByTestId('tabs-list')
         expect(list).toHaveClass('flex-1')
         expect(list).toHaveClass('justify-center')
@@ -192,7 +266,7 @@ describe('SidebarCarousel', () => {
       // fold toggle, which reads as shifted left of the row's true middle —
       // a phantom spacer matching the toggle's own icon-sm width balances it.
       it('a phantom spacer on the left matches the fold toggle icon-sm width, centering the icons on the row', () => {
-        render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+        render(<SidebarCarousel />)
         const head = screen.getByTestId('carousel-head')
         const spacer = head.querySelector('[aria-hidden="true"].size-8')
         expect(spacer).not.toBeNull()
@@ -229,7 +303,7 @@ describe('SidebarCarousel', () => {
     }
 
     it('ignores a settled scroll offset that no gesture produced', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+      render(<SidebarCarousel />)
       const el = carousel()
       selectGitAndSettle(el)
 
@@ -243,7 +317,7 @@ describe('SidebarCarousel', () => {
     })
 
     it('ignores scrolls while the sidebar is collapsed to zero width', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+      render(<SidebarCarousel />)
       const el = carousel()
       selectGitAndSettle(el)
 
@@ -257,7 +331,7 @@ describe('SidebarCarousel', () => {
     })
 
     it('still follows a wheel/swipe gesture onto the neighbouring panel', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repos/default" />)
+      render(<SidebarCarousel />)
       const el = carousel()
       // Start from Files (index 0) this time — Git (index 1) is the last panel,
       // so the neighbouring-panel gesture here must move left, onto Files.
@@ -271,50 +345,38 @@ describe('SidebarCarousel', () => {
 
   describe('the floating card (spec §6)', () => {
     it('opens at one third of the sidebar height', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />)
+      render(<SidebarCarousel sidebarHeight={900} />)
       expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
     })
 
     it('the resize handle is the top 6px', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       const handle = screen.getByTestId('carousel-resize-handle')
       expect(handle).toHaveClass('h-1.5') // matches pane-sash.tsx's confirmed w-1.5/h-1.5 = 6px
     })
 
     it('renders with no explicit height before the rail has been measured', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       expect(screen.getByTestId('carousel-card')).not.toHaveAttribute('style')
     })
 
     it('reports its own height so an ancestor can inset the tree by the same amount', () => {
       const onHeightChange = vi.fn()
-      render(
-        <SidebarCarousel
-          activeWorkspaceRepoPath="/repo"
-          sidebarHeight={900}
-          onHeightChange={onHeightChange}
-        />,
-      )
+      render(<SidebarCarousel sidebarHeight={900} onHeightChange={onHeightChange} />)
       expect(onHeightChange).toHaveBeenCalledWith(300)
     })
 
     it('resizing the sidebar keeps the card at its own committed fraction, not a frozen pixel value', () => {
-      const { rerender } = render(
-        <SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />,
-      )
+      const { rerender } = render(<SidebarCarousel sidebarHeight={900} />)
       expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
-      rerender(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={1200} />)
+      rerender(<SidebarCarousel sidebarHeight={1200} />)
       expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '400px' })
     })
 
     it('dragging the top handle up grows the card and persists the new fraction', () => {
       const onHeightChange = vi.fn()
       const { unmount } = render(
-        <SidebarCarousel
-          activeWorkspaceRepoPath="/repo"
-          sidebarHeight={900}
-          onHeightChange={onHeightChange}
-        />,
+        <SidebarCarousel sidebarHeight={900} onHeightChange={onHeightChange} />,
       )
       const handle = screen.getByTestId('carousel-resize-handle')
       fireEvent.pointerDown(handle, { button: 0, clientY: 500 })
@@ -328,19 +390,13 @@ describe('SidebarCarousel', () => {
 
       // Persisted as a proportion of the rail — a fresh mount at the same
       // rail height opens back at the dragged size, not the one-third default.
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />)
+      render(<SidebarCarousel sidebarHeight={900} />)
       expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '400px' })
     })
 
     it('a plain click on the handle (no movement) never commits a height change', () => {
       const onHeightChange = vi.fn()
-      render(
-        <SidebarCarousel
-          activeWorkspaceRepoPath="/repo"
-          sidebarHeight={900}
-          onHeightChange={onHeightChange}
-        />,
-      )
+      render(<SidebarCarousel sidebarHeight={900} onHeightChange={onHeightChange} />)
       onHeightChange.mockClear()
       const handle = screen.getByTestId('carousel-resize-handle')
       fireEvent.pointerDown(handle, { button: 0, clientY: 500 })
@@ -360,13 +416,7 @@ describe('SidebarCarousel', () => {
         vi.useFakeTimers()
         try {
           const onHeightChange = vi.fn()
-          render(
-            <SidebarCarousel
-              activeWorkspaceRepoPath="/repo"
-              sidebarHeight={900}
-              onHeightChange={onHeightChange}
-            />,
-          )
+          render(<SidebarCarousel sidebarHeight={900} onHeightChange={onHeightChange} />)
           onHeightChange.mockClear()
           const handle = screen.getByTestId('carousel-resize-handle')
 
@@ -397,7 +447,6 @@ describe('SidebarCarousel', () => {
           const railRef = { current: document.createElement('div') }
           render(
             <SidebarCarousel
-              activeWorkspaceRepoPath="/repo"
               sidebarHeight={900}
               railRef={railRef}
               onHeightChange={onHeightChange}
@@ -435,7 +484,6 @@ describe('SidebarCarousel', () => {
             <div ref={railRef}>
               <Sibling />
               <SidebarCarousel
-                activeWorkspaceRepoPath="/repo"
                 sidebarHeight={900}
                 railRef={railRef}
                 onHeightChange={setCommittedHeight}
@@ -491,14 +539,14 @@ describe('SidebarCarousel', () => {
     }
 
     it('renders the caret unrotated, body visible, before any click', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       expect(caret()).not.toHaveClass('rotate-180')
       expect(carousel()).not.toHaveClass('hidden')
       expect(carousel()).toHaveClass('flex')
     })
 
     it('clicking the caret folds the card: hides the body, keeps the head and its tab selection', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       fireEvent.click(screen.getByRole('button', { name: 'Git' }))
       expect(useSidebarStore.getState().activeTab).toBe('git')
 
@@ -514,13 +562,13 @@ describe('SidebarCarousel', () => {
     })
 
     it('keeps both panels mounted while folded — not unmounted', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       fireEvent.click(foldToggle())
       expect(screen.getAllByTestId('carousel-panel')).toHaveLength(2)
     })
 
     it('clicking again unfolds it: same DOM node, scroll position not reset', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       const before = carousel()
       Object.defineProperty(before, 'scrollLeft', {
         value: 137,
@@ -539,7 +587,7 @@ describe('SidebarCarousel', () => {
     })
 
     it('collapses the card height to just the head while folded, and restores it on unfold', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />)
+      render(<SidebarCarousel sidebarHeight={900} />)
       expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
 
       fireEvent.click(foldToggle())
@@ -564,7 +612,7 @@ describe('SidebarCarousel', () => {
     // its head, drops everything under it" collapse the manual toggle
     // already does.
     it('folds the card the moment a row drag starts, and restores it the moment the drag ends', async () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} />)
+      render(<SidebarCarousel sidebarHeight={900} />)
       expect(screen.getByTestId('carousel-card')).toHaveStyle({ height: '300px' })
 
       try {
@@ -589,7 +637,7 @@ describe('SidebarCarousel', () => {
     })
 
     it('hides the resize handle while folded — there is nothing to drag', () => {
-      render(<SidebarCarousel activeWorkspaceRepoPath="/repo" />)
+      render(<SidebarCarousel />)
       expect(screen.getByTestId('carousel-resize-handle')).toBeInTheDocument()
 
       fireEvent.click(foldToggle())
@@ -629,9 +677,7 @@ describe('SidebarCarousel', () => {
       }
       try {
         const railRef = { current: document.createElement('div') }
-        render(
-          <SidebarCarousel activeWorkspaceRepoPath="/repo" sidebarHeight={900} railRef={railRef} />,
-        )
+        render(<SidebarCarousel sidebarHeight={900} railRef={railRef} />)
         expect(railRef.current.style.getPropertyValue('--card-bottom-inset')).toBe('300px')
 
         fireEvent.click(foldToggle())

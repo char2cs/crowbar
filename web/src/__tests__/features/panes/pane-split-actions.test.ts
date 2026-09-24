@@ -4,6 +4,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
+import { showingLayout } from '@/features/panes/lib/view-state'
 import { getAllLeafIds } from '@/features/panes/utils/pane-layout'
 
 describe('pane split actions', () => {
@@ -17,7 +18,7 @@ describe('pane split actions', () => {
     const paneId = createPaneBeside(ROOT_PANE_ID, 'horizontal')
 
     expect(paneId).not.toBeNull()
-    const rootIds = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const rootIds = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(rootIds).toHaveLength(2)
     expect(windowPaneStore.getState().activePaneId).toBe(paneId)
   })

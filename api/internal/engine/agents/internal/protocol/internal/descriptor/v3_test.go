@@ -28,7 +28,7 @@ events:
     map: { message: turn.lastAgentMessage }
   tool_pre:
     in: item/started
-    when: { item.type: commandExecution || fileChange }
+    when: { item.type: { any_of: [commandExecution, fileChange] } }
     map: { tool_id: item.id }
   permission:
     ask: approval/request
@@ -51,13 +51,13 @@ func mustParse(t *testing.T, y string) *spec.Descriptor {
 
 func TestParseV3_LoadsEachDirection(t *testing.T) {
 	d := mustParse(t, minimalV3)
-	if got := d.Events["session_start"].In; got != "thread/started" {
+	if got := d.Events["session_start"].In.Name(); got != "thread/started" {
 		t.Errorf("session_start.in = %q", got)
 	}
-	if got := d.Events["compact_start"].Out; got != "thread/compact/start" {
+	if got := d.Events["compact_start"].Out.Name(); got != "thread/compact/start" {
 		t.Errorf("compact_start.out = %q", got)
 	}
-	if got := d.Events["permission"].Ask; got != "approval/request" {
+	if got := d.Events["permission"].Ask.Name(); got != "approval/request" {
 		t.Errorf("permission.ask = %q", got)
 	}
 	if got := d.Events["permission"].TimeoutSeconds; got != 270 {
@@ -66,8 +66,8 @@ func TestParseV3_LoadsEachDirection(t *testing.T) {
 	if got := d.Events["permission"].Reply["allow"]; got == "" {
 		t.Error("permission.reply.allow is empty")
 	}
-	if got := d.Events["tool_pre"].When["item.type"]; got != "commandExecution || fileChange" {
-		t.Errorf("tool_pre.when = %q", got)
+	if got := d.Events["tool_pre"].When["item.type"]; len(got) != 2 || got[0] != "commandExecution" || got[1] != "fileChange" {
+		t.Errorf("tool_pre.when = %v", got)
 	}
 	if got := d.Events["compact_start"].Send["threadId"]; got != "{session_id}" {
 		t.Errorf("compact_start.send = %q", got)
@@ -130,6 +130,178 @@ func TestParseV3_PerEventTransportOverridesTheRuntimeDefault(t *testing.T) {
 	}
 	if got := d.TransportFor("not_declared"); got != "api" {
 		t.Errorf("TransportFor of an undeclared event = %q, want the runtime default", got)
+	}
+}
+
+// channelSplitTooPre is the design spec's own tool_pre example (docs/plans/
+// 2026-09-22-descriptor-channel-split.md, 2.1), REPLACING minimalV3's own
+// legacy-form tool_pre — proving a channel-scoped event coexists with the
+// OTHER legacy flat-form events in the same descriptor (session_start,
+// turn_stop, permission, compact_start), which is exactly what P2 promises
+// ("legacy events keep working unchanged").
+const channelSplitTooPre = `  tool_pre:
+    required: [session_id, tool_id, tool_name]
+    api:
+      in: item/started
+      when: { item.type: { any_of: [commandExecution, fileChange] } }
+      map: { session_id: threadId, tool_id: item.id, tool_name: item.type }
+      fixtures: [item-started.commandExecution.json]
+    hooks:
+      in: PreToolUse
+      map: { session_id: session_id, tool_id: tool_use_id, tool_name: tool_name }
+      fixtures: [pre-tool-use.bash.json]
+`
+
+const legacyToolPre = `  tool_pre:
+    in: item/started
+    when: { item.type: { any_of: [commandExecution, fileChange] } }
+    map: { tool_id: item.id }
+`
+
+func withChannelSplitEvent(base string) string {
+	return strings.Replace(base, legacyToolPre, channelSplitTooPre, 1)
+}
+
+func TestParseV3_ChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
+	d := mustParse(t, withChannelSplitEvent(minimalV3))
+
+	ev := d.Events["tool_pre"]
+	if ev.API == nil || ev.Hooks == nil {
+		t.Fatalf("tool_pre must carry both channel blocks: api=%v hooks=%v", ev.API, ev.Hooks)
+	}
+	if got := ev.API.In.Name(); got != "item/started" {
+		t.Errorf("tool_pre.api.in = %q", got)
+	}
+	if got := ev.Hooks.In.Name(); got != "PreToolUse" {
+		t.Errorf("tool_pre.hooks.in = %q", got)
+	}
+	if got := ev.Required; len(got) != 3 {
+		t.Errorf("tool_pre.required = %v", got)
+	}
+
+	// Legacy events in the SAME descriptor are unaffected.
+	if got := d.Events["session_start"].In.Name(); got != "thread/started" {
+		t.Errorf("session_start.in = %q (legacy events must still parse unchanged)", got)
+	}
+}
+
+// vocab.Validate must see the UNION of both channel blocks' mapped fields, or
+// a bad field name in either block would silently escape validation.
+func TestParseV3_RejectsAnUnknownFieldInAChannelBlock(t *testing.T) {
+	bad := strings.Replace(withChannelSplitEvent(minimalV3),
+		"map: { session_id: session_id, tool_id: tool_use_id, tool_name: tool_name }",
+		"map: { session_id: session_id, tool_id: tool_use_id, tool_name: tool_name, no_such_field: x }", 1)
+	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+		t.Fatal("an unknown field in a channel block's map: must be rejected, same as a legacy event's")
+	}
+}
+
+func TestParseV3_RejectsAnEventMixingFlatAndChannelForms(t *testing.T) {
+	bad := strings.Replace(withChannelSplitEvent(minimalV3),
+		"  tool_pre:\n    required:",
+		"  tool_pre:\n    in: item/started\n    required:", 1)
+	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+		t.Fatal("an event declaring both a flat in: and channel blocks is ambiguous and must be rejected")
+	}
+}
+
+func TestParseV3_RejectsAnEventMixingFlatMapAndChannelForms(t *testing.T) {
+	bad := strings.Replace(withChannelSplitEvent(minimalV3),
+		"  tool_pre:\n    required: [session_id, tool_id, tool_name]",
+		"  tool_pre:\n    required: [session_id, tool_id, tool_name]\n    map: { tool_id: x }", 1)
+	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+		t.Fatal("an event declaring both a flat map: and channel blocks is ambiguous and must be rejected")
+	}
+}
+
+// A channel-scoped event whose blocks name no wire method at all is exactly
+// as broken as a legacy event with no in:/out:/ask: — checkEvent's "names
+// nothing" rule must reach through channel blocks too.
+func TestParseV3_RejectsAChannelBlockEventDeclaringNoWireName(t *testing.T) {
+	bad := strings.Replace(withChannelSplitEvent(minimalV3),
+		"    api:\n      in: item/started\n", "    api:\n", 1)
+	bad = strings.Replace(bad, "    hooks:\n      in: PreToolUse\n", "    hooks:\n", 1)
+	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+		t.Fatal("channel blocks naming no in: on either channel must be rejected")
+	}
+}
+
+// legacyPermission is minimalV3's own flat permission event, replaced below by
+// its channel-split counterpart the same way channelSplitTooPre replaces
+// legacyToolPre.
+const legacyPermission = `  permission:
+    ask: approval/request
+    timeout_seconds: 270
+    map: { prompt_id: "$rpc.id" }
+    reply: { allow: '{"decision":"approved"}', deny: '{"decision":"denied"}' }
+`
+
+// channelSplitPermission mirrors codex.yaml's own migrated permission shape
+// (docs/plans/2026-09-22-descriptor-channel-split.md P2b): an ASK-direction
+// event, channel-split, reply: staying flat on the event (see ChannelBlock's
+// own doc comment on why it is not per-block).
+const channelSplitPermission = `  permission:
+    required: [session_id, tool_name]
+    timeout_seconds: 270
+    api:
+      ask: approval/request
+      map: { prompt_id: "$rpc.id" }
+    hooks:
+      ask: PermissionRequest
+      map: { prompt_id: prompt_id }
+    reply: { allow: '{"decision":"approved"}', deny: '{"decision":"denied"}' }
+`
+
+func withChannelSplitAskEvent(base string) string {
+	return strings.Replace(base, legacyPermission, channelSplitPermission, 1)
+}
+
+func TestParseV3_AskChannelBlockEventParsesAlongsideLegacyEvents(t *testing.T) {
+	d := mustParse(t, withChannelSplitAskEvent(minimalV3))
+
+	ev := d.Events["permission"]
+	if ev.API == nil || ev.Hooks == nil {
+		t.Fatalf("permission must carry both channel blocks: api=%v hooks=%v", ev.API, ev.Hooks)
+	}
+	if got := ev.API.Ask.Name(); got != "approval/request" {
+		t.Errorf("permission.api.ask = %q", got)
+	}
+	if got := ev.Hooks.Ask.Name(); got != "PermissionRequest" {
+		t.Errorf("permission.hooks.ask = %q", got)
+	}
+	if got := ev.Reply["allow"]; got == "" {
+		t.Error("permission.reply.allow is empty — reply: must stay flat across the split")
+	}
+
+	// The other legacy events in the same descriptor are unaffected.
+	if got := d.Events["session_start"].In.Name(); got != "thread/started" {
+		t.Errorf("session_start.in = %q (legacy events must still parse unchanged)", got)
+	}
+}
+
+// The whole point of the split, for an ask event too: AnswerFor must resolve
+// the reply channel from the channel-scoped shape exactly as it did for the
+// flat one.
+func TestParseV3_AnAskChannelSplitEventIsAnswerable(t *testing.T) {
+	d := mustParse(t, withChannelSplitAskEvent(minimalV3))
+
+	got, ok := d.AnswerFor("permission")
+	if !ok {
+		t.Fatal("a channel-split ask event with reply: templates must be answerable")
+	}
+	if got.TimeoutSeconds != 270 || got.Responses["allow"] == "" {
+		t.Errorf("AnswerFor(permission) = %+v", got)
+	}
+}
+
+// A block naming BOTH in: and ask: is ambiguous — mirrors the flat-vs-channel
+// mixing rejections above, one level down.
+func TestParseV3_RejectsAChannelBlockDeclaringBothInAndAsk(t *testing.T) {
+	bad := strings.Replace(withChannelSplitAskEvent(minimalV3),
+		"    api:\n      ask: approval/request\n",
+		"    api:\n      ask: approval/request\n      in: approval/request\n", 1)
+	if _, err := descriptor.ParseV3([]byte(bad)); err == nil {
+		t.Fatal("a channel block declaring both in: and ask: is ambiguous and must be rejected")
 	}
 }
 

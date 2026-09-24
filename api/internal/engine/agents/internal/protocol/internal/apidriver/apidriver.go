@@ -27,17 +27,30 @@ type Event struct {
 	AskID     json.RawMessage
 }
 
+// SessionOrigin is told that this connection is about to produce a session of
+// its OWN, in place of the one its caller named. It is called before the
+// replacement exists — a provider can announce a new session before the call
+// that creates it has returned — and the func it returns takes the id once
+// there is one, or "" when nothing came of the attempt.
+//
+// Crowbar must know about every session Crowbar itself originates: the runner
+// layer infers "a session I have never seen means the user typed /clear" from
+// absence, and that inference is only sound while this is the one channel
+// through which a driver can mint one behind its back.
+type SessionOrigin func() func(sessionID string)
+
 type Driver struct {
-	conn *wsrpc.Conn
-	d    *spec.Descriptor
-	out  chan Event
+	conn   *wsrpc.Conn
+	d      *spec.Descriptor
+	out    chan Event
+	origin SessionOrigin
 
 	// mu guards established and remembered.
 	//
 	// established is set once this connection has itself run an event's Fresh
-	// or Resume steps successfully — never re-entered on a later Dispatch for
-	// the same event, so a second message on an already-live connection goes
-	// straight to Action.
+	// or Resume steps successfully, so a second message on an already-live
+	// connection goes straight to Action. Nothing ON THE WIRE clears it; only
+	// reopen does, and only when a lost session is being recovered.
 	//
 	// remembered holds every field ANY step's capture: has ever pulled out of a
 	// response on this connection — session_id from thread/start, turn_id from
@@ -62,7 +75,12 @@ type Driver struct {
 // Start dials socketPath, runs the descriptor's declared handshake call, sends
 // `initialized` (mirroring the sequence codex's own fixture-capture script uses),
 // and starts translating inbound frames into canonical Events.
-func Start(ctx context.Context, d *spec.Descriptor, socketPath string) (*Driver, error) {
+//
+// origin may be nil for a caller that does not care which sessions this
+// connection produced itself — see SessionOrigin for who does.
+func Start(
+	ctx context.Context, d *spec.Descriptor, socketPath string, origin SessionOrigin,
+) (*Driver, error) {
 	conn, err := wsrpc.Dial(ctx, socketPath)
 	if err != nil {
 		return nil, err
@@ -83,9 +101,24 @@ func Start(ctx context.Context, d *spec.Descriptor, socketPath string) (*Driver,
 		return nil, fmt.Errorf("apidriver: %s initialized: %w", d.ID, err)
 	}
 
-	drv := &Driver{conn: conn, d: d, out: make(chan Event, 64), remembered: map[string]string{}}
+	drv := &Driver{
+		conn: conn, d: d, out: make(chan Event, 64), origin: origin,
+		remembered: map[string]string{},
+	}
 	go drv.translateLoop()
 	return drv, nil
+}
+
+// originate opens a claim that this connection is about to produce a session of
+// its own, and returns the func that closes it with whatever id came of the
+// attempt. Claims nest: a recovery holds one across both of its attempts, so
+// the handover from one to the other leaves no unclaimed instant for an
+// announcement to arrive in.
+func (drv *Driver) originate() func(string) {
+	if drv.origin == nil {
+		return func(string) {}
+	}
+	return drv.origin()
 }
 
 func (drv *Driver) translateLoop() {
@@ -99,8 +132,47 @@ func (drv *Driver) translateLoop() {
 		if !ok {
 			continue // this provider's descriptor does not map this wire method
 		}
-		drv.out <- Event{Canonical: canonical, Raw: frame.Params, AskID: frame.ID}
+		raw := frame.Params
+		// by_wire: (design spec F1) — a literal field the matched wire method
+		// itself names, merged in BEFORE the event reaches map: resolution.
+		// This is the only place the wire method that actually matched is
+		// known at all; downstream (inbound.Parse) only ever sees the
+		// resulting bytes, no different from a field the provider sent itself.
+		if overlay := byWireOverlay(drv.d, canonical, frame.Method); len(overlay) > 0 {
+			if merged, err := withOverlay(params, overlay); err == nil {
+				raw = merged
+			}
+		}
+		drv.out <- Event{Canonical: canonical, Raw: raw, AskID: frame.ID}
 	}
+}
+
+// byWireOverlay is the literal synthetic fields this event's api: block
+// declares for wireMethod (spec.ChannelBlock.ByWire) — see that field's own
+// doc comment. Nil for a legacy event, or a channel-scoped one that declares
+// none for this wire method: the ordinary case, where map: reads the
+// provider's own payload unchanged.
+func byWireOverlay(d *spec.Descriptor, canonical, wireMethod string) map[string]string {
+	ev, ok := d.Events[canonical]
+	if !ok || ev.API == nil {
+		return nil
+	}
+	return ev.API.ByWire[wireMethod]
+}
+
+// withOverlay merges overlay's literal fields into decoded (already-parsed
+// params) and re-marshals. decoded is copied, never mutated in place — a
+// concurrent when: match against the original params map must keep seeing
+// only what the provider actually sent.
+func withOverlay(decoded map[string]any, overlay map[string]string) (json.RawMessage, error) {
+	merged := make(map[string]any, len(decoded)+len(overlay))
+	for k, v := range decoded {
+		merged[k] = v
+	}
+	for k, v := range overlay {
+		merged[k] = v
+	}
+	return json.Marshal(merged)
 }
 
 // Events delivers every canonical event this driver has resolved, in arrival
@@ -201,7 +273,23 @@ func (drv *Driver) EstablishSession(
 	if !resuming {
 		steps = ev.Fresh
 	}
+	// The conversation this chat's FIRST message opens is Crowbar's own doing
+	// just as much as a recovery's replacement is, and this is the path EVERY
+	// fresh api-transport chat takes. Unclaimed (what this did before), nothing
+	// downstream had any record that the conversation it was watching was ours:
+	// CurrentSession and LaunchSessionID both stay empty on a pure api-transport
+	// spawn — measured 47 of 49 real codex turn rows — so the hook ingress'
+	// ownership guard had nothing to compare against and waved every child
+	// thread the provider pushed down this same connection into the user's
+	// transcript. Opened BEFORE the call, for the reason SessionOrigin states:
+	// the provider can announce the new conversation over this connection
+	// before the call that mints it has returned.
+	settle := drv.originate()
 	if err := drv.runSteps(ctx, steps, out); err != nil {
+		// Settled empty FIRST: the fallback below opens a claim of its own, and a
+		// claim left open here would never be closed by it — they nest via the
+		// pending counter, they do not hand over.
+		settle("")
 		// A resume that fails because the session is GONE is not a fatal error:
 		// the id came from a prior life of this chat and the provider has since
 		// forgotten it, so no amount of retrying that id can ever work. Left
@@ -217,6 +305,7 @@ func (drv *Driver) EstablishSession(
 		return drv.establishFresh(ctx, ev, values)
 	}
 	drv.markEstablished(out)
+	settle(out["session_id"])
 	return out, nil
 }
 
@@ -256,23 +345,19 @@ func (drv *Driver) sessionLost(err error) bool {
 	return false
 }
 
-// establishFresh abandons whatever session this connection thought it had and
-// mints a genuinely new one by running the SAME Fresh steps a chat's
-// first-ever message runs — the one path that cannot depend on the provider
-// still remembering anything.
+// reopen assembles the value set a re-establish runs with — birth (the settings
+// the original session was born with: sandbox, approval policy, handoff
+// context) overlaid with the caller's current values (the text actually being
+// sent) — and drops everything the session we are leaving behind left standing.
 //
-// The value set is birth (the settings the original session was born with:
-// sandbox, approval policy, handoff context) overlaid with the caller's
-// current values (the text actually being sent), minus session_id — blanking
-// it is what makes this Fresh rather than another doomed Resume.
-//
-// remembered is cleared wholesale, not just of session_id: every other field
-// in it (turn_id, most of all) was captured from the dead session and would
-// otherwise be handed to a Send against the new one, which is a different kind
-// of wrong answer than simply not knowing it yet.
-func (drv *Driver) establishFresh(
-	ctx context.Context, ev spec.EventSpec, values map[string]string,
-) (map[string]string, error) {
+// `established` is a claim about this connection's own history that nothing on
+// the wire can clear, so it is cleared HERE or the next EstablishSession
+// short-circuits over a session that is gone. remembered goes wholesale, not
+// just session_id: every other field in it (turn_id, most of all) was captured
+// from that session and would otherwise be handed to a Send against the new
+// one, a different kind of wrong answer than simply not knowing it yet. Both
+// are restated by markEstablished once a recovery actually succeeds.
+func (drv *Driver) reopen(values map[string]string) map[string]string {
 	drv.mu.Lock()
 	out := cloneValues(drv.birth)
 	drv.established = false
@@ -282,12 +367,96 @@ func (drv *Driver) establishFresh(
 	for k, v := range values {
 		out[k] = v
 	}
+	return out
+}
+
+// establishFresh abandons whatever session this connection thought it had and
+// mints a genuinely new one by running the SAME Fresh steps a chat's
+// first-ever message runs — the one path that cannot depend on the provider
+// still remembering anything, and so the LAST one to try: it starts an empty
+// conversation, which is the user's own history thrown away.
+func (drv *Driver) establishFresh(
+	ctx context.Context, ev spec.EventSpec, values map[string]string,
+) (map[string]string, error) {
+	settle := drv.originate()
+	out := drv.reopen(values)
 	out["session_id"] = ""
 	if err := drv.runSteps(ctx, ev.Fresh, out); err != nil {
+		settle("")
 		return nil, fmt.Errorf("apidriver: %s: establish replacement session: %w", drv.d.ID, err)
 	}
 	drv.markEstablished(out)
+	settle(out["session_id"])
 	return out, nil
+}
+
+// reestablish re-enters the session the provider says it no longer has, by
+// running the event's OWN declared Resume steps with the id we still hold.
+//
+// A provider forgetting a session is not the same as a session ceasing to
+// exist: an app-server pages an idle conversation out of memory, which is what
+// a resume call is for. Measured — the process that created the thread, nine
+// hours earlier, was still alive when it reported the thread unknown.
+func (drv *Driver) reestablish(
+	ctx context.Context, ev spec.EventSpec, values map[string]string, sessionID string,
+) (map[string]string, error) {
+	settle := drv.originate()
+	out := drv.reopen(values)
+	out["session_id"] = sessionID
+	if err := drv.runSteps(ctx, ev.Resume, out); err != nil {
+		settle("")
+		return nil, fmt.Errorf("apidriver: %s: re-enter session: %w", drv.d.ID, err)
+	}
+	drv.markEstablished(out)
+	settle(out["session_id"])
+	return out, nil
+}
+
+// recoverLostSession answers an Action the provider refused because it does not
+// have the session: re-enter it, and only mint a replacement once the provider
+// has refused the held id on its own resume path too. Either way the Action is
+// re-run, so the message the caller was delivering still lands.
+func (drv *Driver) recoverLostSession(
+	ctx context.Context, ev spec.EventSpec, values map[string]string, lostSessionID string,
+) (map[string]string, error) {
+	// A claim held across BOTH attempts, reporting no id of its own (whichever
+	// attempt succeeds already does): the instant BETWEEN them is one an
+	// announcement can land in.
+	defer drv.originate()("")
+
+	out, err := drv.reenterAndAct(ctx, ev, values, lostSessionID)
+	if err == nil {
+		return out, nil
+	}
+	if !errors.Is(err, errNoResumePath) && !drv.sessionLost(err) {
+		return nil, err
+	}
+	slog.WarnContext(ctx, "apidriver: the held session could not be re-entered; replacing it",
+		"provider", drv.d.ID, "lost_session_id", lostSessionID, "err", err)
+
+	out, err = drv.establishFresh(ctx, ev, values)
+	if err != nil {
+		return nil, err
+	}
+	return out, drv.runSteps(ctx, ev.Action, out)
+}
+
+// errNoResumePath means there was nothing to re-enter — no id held, or a
+// descriptor that declares no Resume steps for this event — so the Fresh
+// fallback is the only answer left.
+var errNoResumePath = errors.New("apidriver: no declared resume path")
+
+func (drv *Driver) reenterAndAct(
+	ctx context.Context, ev spec.EventSpec, values map[string]string, lostSessionID string,
+) (map[string]string, error) {
+	if lostSessionID == "" || len(ev.Resume) == 0 {
+		return nil, errNoResumePath
+	}
+	out, err := drv.reestablish(ctx, ev, values, lostSessionID)
+	if err != nil {
+		return nil, err
+	}
+	return out, drv.runSteps(ctx, ev.Action, out)
 }
 
 // fillBlanksFromRemembered overwrites every blank value in out with what this
@@ -313,11 +482,11 @@ func fillBlanksFromRemembered(out, remembered map[string]string) map[string]stri
 // The established latch is a claim about THIS connection's own history, never
 // a fact about the provider: it is set once and nothing on the wire can clear
 // it. So a session that dies after it was set leaves every later Action
-// naming a thread that is gone, forever — the message is refused, the caller
+// naming a session that is gone, forever — the message is refused, the caller
 // records the delivery as uncertain, and the chat wedges with nothing
 // streaming and no way back. An Action refused for exactly that reason is
-// therefore retried ONCE against a replacement session, which is the only
-// outcome that is not either a lie or a dead end.
+// therefore recovered ONCE (see recoverLostSession), which is the only outcome
+// that is not either a lie or a dead end.
 func (drv *Driver) Dispatch(
 	ctx context.Context, canonical string, values map[string]string,
 ) (map[string]string, error) {
@@ -325,25 +494,22 @@ func (drv *Driver) Dispatch(
 	if err != nil {
 		return nil, err
 	}
-	action := drv.d.Events[canonical].Action
-	err = drv.runSteps(ctx, action, out)
+	ev := drv.d.Events[canonical]
+	err = drv.runSteps(ctx, ev.Action, out)
 	if err == nil {
 		return out, nil
 	}
 	if !drv.sessionLost(err) {
 		return nil, err
 	}
-	slog.WarnContext(ctx, "apidriver: session is gone under an established connection; rebinding",
+	slog.WarnContext(ctx, "apidriver: session is gone under an established connection; recovering",
 		"provider", drv.d.ID, "event", canonical, "lost_session_id", out["session_id"], "err", err)
 
-	rebound, rebindErr := drv.establishFresh(ctx, drv.d.Events[canonical], values)
-	if rebindErr != nil {
-		return nil, fmt.Errorf("%w (after %v)", rebindErr, err)
+	recovered, recoverErr := drv.recoverLostSession(ctx, ev, values, out["session_id"])
+	if recoverErr != nil {
+		return nil, fmt.Errorf("%w (after %v)", recoverErr, err)
 	}
-	if err := drv.runSteps(ctx, action, rebound); err != nil {
-		return nil, err
-	}
-	return rebound, nil
+	return recovered, nil
 }
 
 // InjectAt runs the descriptor's inject step declared for lifecycle moment at
@@ -422,7 +588,7 @@ func (drv *Driver) runSteps(ctx context.Context, steps []spec.CallStep, values m
 			return fmt.Errorf("apidriver: %s: %s: parse response: %w", drv.d.ID, step.Call, err)
 		}
 		for field, path := range step.Capture {
-			if v, ok := mapping.Scalar(decoded, path); ok {
+			if v, ok := mapping.Scalar(decoded, []string{path}); ok {
 				values[field] = v
 				drv.mu.Lock()
 				drv.remembered[field] = v

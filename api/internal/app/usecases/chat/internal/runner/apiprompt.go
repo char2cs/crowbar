@@ -2,7 +2,7 @@
 // ALREADY-established api-transport connection, and answers whether one ever
 // has been — the seam submitPromptOverAPI (prompts.go) reads to decide
 // between the fast dispatch-only path and a full replacement spawn, and the
-// one apiOwnsThisEvent (turn/ingest.go) reads to tell a connection that is
+// one ownerDropsThisDelivery (turn/ingest.go) reads to tell a connection that is
 // merely live from one that is actually carrying the current turn.
 //
 // Split out of apiconn.go, which establishes and pumps a connection — a

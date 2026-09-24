@@ -20,7 +20,6 @@ import {
   Warning,
 } from '@phosphor-icons/react'
 import { useCallback, useMemo, useState } from 'react'
-import { getActiveWorkspaceStoreRef } from '@/features/workspace/stores/workspace-store-ref'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
 import { readFile as readTextFile, writeFile } from '@/features/file-system/controllers/platform'
 import {
@@ -30,7 +29,6 @@ import {
 } from '@/features/file-explorer/lib/env-template'
 import { useFileClipboardStore } from '@/features/file-explorer/stores/file-explorer-clipboard-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
-import { getWorkspaceScope } from '@/lib/workspace-scope'
 import type { ContextMenuState } from '@/features/file-system/types/app'
 import { Button } from '@/components/ui/button'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
@@ -38,6 +36,8 @@ import { AppDialog as Dialog } from '@/components/ui/dialog'
 import { getBaseName, getDirName, getRelativePath, joinPath } from '@/utils/path-helpers'
 
 interface UseFileExplorerContextMenuOptions {
+  /** The workspace the tree shows — every workspace-keyed action uses it. */
+  workspaceId: string | null
   rootFolderPath?: string
   /**
    * True when the active workspace is a protected/locked worktree. The daemon
@@ -98,6 +98,7 @@ function formatFileSize(sizeHeader: string | null): string {
 }
 
 export function useFileExplorerContextMenu({
+  workspaceId,
   rootFolderPath,
   isLocked = false,
   onFileSelect,
@@ -123,7 +124,6 @@ export function useFileExplorerContextMenu({
     Map<string, 'copied-path' | 'copied-rel' | 'created' | 'err'>
   >(new Map())
   const clipboardActions = useFileClipboardStore((state) => state.actions)
-  const clipboard = useFileClipboardStore((state) => state.clipboard)
 
   function flashFeedback(path: string, kind: 'copied-path' | 'copied-rel' | 'created' | 'err') {
     setFileFeedback((prev) => new Map(prev).set(path, kind))
@@ -170,9 +170,7 @@ export function useFileExplorerContextMenu({
 
         await writeFile(createdPath, templateContent)
 
-        const wsStore = getActiveWorkspaceStoreRef()
-        if (wsStore) {
-          const workspaceId = wsStore.getState().workspaceId
+        if (workspaceId) {
           // Task 26: buffers are window-level — scope by workspaceId too, or
           // a sibling worktree's buffer at the same relative path could get
           // this content instead.
@@ -199,7 +197,7 @@ export function useFileExplorerContextMenu({
         console.error('Failed to create env template file:', error)
       }
     },
-    [onCreateNewFileInDirectory, onRefreshDirectory],
+    [onCreateNewFileInDirectory, onRefreshDirectory, workspaceId],
   )
 
   const handleEnvOverwriteConfirm = useCallback(() => {
@@ -292,7 +290,7 @@ export function useFileExplorerContextMenu({
             // '' doesn't match relative paths, so the root collapses everything
             // via collapseAll(); a subdir collapses just its own subtree.
             const treeStore = useFileTreeStore.getState()
-            const wsId = getWorkspaceScope()?.wsId ?? ''
+            const wsId = workspaceId ?? ''
             if (isRootTarget) treeStore.collapseAll(wsId)
             else treeStore.collapsePath(wsId, contextMenu.path)
           },
@@ -307,7 +305,7 @@ export function useFileExplorerContextMenu({
               type: 'terminal',
               name: folderName,
               workingDirectory: dirTargetPath,
-              workspaceId: getActiveWorkspaceStoreRef()?.getState().workspaceId,
+              workspaceId: workspaceId ?? undefined,
             })
           },
         },
@@ -532,7 +530,6 @@ export function useFileExplorerContextMenu({
     return items
   }, [
     canRemoveWorkspaceRootPath,
-    clipboard,
     clipboardActions,
     contextMenu,
     createEnvTemplateFile,
@@ -552,6 +549,7 @@ export function useFileExplorerContextMenu({
     onUploadFile,
     isWorkspaceRootPath,
     rootFolderPath,
+    workspaceId,
   ])
 
   const hasDialog = Boolean(envOverwriteDialog || propertiesDialog)

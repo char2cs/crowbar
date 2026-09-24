@@ -15,7 +15,7 @@ import (
 	"github.com/char2cs/crowbar/api/internal/engine/agents/internal/spec"
 )
 
-//go:embed descriptors-v3/*.yaml
+//go:embed descriptors-v3/*.yaml descriptors-v3/*.json
 var embedded embed.FS
 
 const (
@@ -25,6 +25,12 @@ const (
 	embeddedDir = "descriptors-v3"
 	overrideDir = "descriptors"
 	yamlSuffix  = ".yaml"
+
+	// modelManifestFile is the one bundled model.manifest: fallback, shared by
+	// every provider that declares that source — not provider-scoped, since
+	// the descriptor's own items_path is what picks a provider's rows out of
+	// it.
+	modelManifestFile = embeddedDir + "/model-manifest.json"
 )
 
 var ErrUnknown = fmt.Errorf("agents: unknown provider")
@@ -105,6 +111,19 @@ func All(ctx context.Context, homeDir string) ([]*spec.Descriptor, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// EmbeddedModelManifest is the bundled model.manifest: fallback — read fresh
+// on every call (it never changes at runtime) rather than cached, so a
+// missing/corrupt embed degrades to nil bytes rather than panicking or
+// blocking boot; ProbeManifest's own ErrMalformedOutput carries that
+// forward.
+func EmbeddedModelManifest() []byte {
+	data, err := embedded.ReadFile(modelManifestFile)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 func Installed(cmd string) bool {

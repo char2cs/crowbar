@@ -139,8 +139,7 @@ import {
   windowPaneStore,
   resetWindowPaneStoreForTests,
 } from '@/features/panes/stores/window-pane-store'
-import { viewIdOf } from '@/features/panes/lib/pane-views'
-import { deriveRecentsEntries } from '@/components/sidebar/lib/recents-entries'
+import { showingLayout, viewChatIds } from '@/features/panes/lib/view-state'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 import type { AgentChat } from '@/features/agent/api/agent-api'
 
@@ -159,19 +158,25 @@ import type { AgentChat } from '@/features/agent/api/agent-api'
  * sequence here.
  */
 
-/** Which VIEW the pane holding `chatId` belongs to — the grouping fact a
- *  merge writes and a click never shares (features/panes/lib/pane-views.ts). */
+/** Which view record holds `chatId` — the grouping fact a merge writes and a
+ *  click never shares. */
 function liveViewOf(chatId: string): string | undefined {
   const pane = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === chatId)
-  return pane && viewIdOf(pane)
+  return pane?.viewId ?? undefined
 }
 
-/** The chats of every LIVE Recents row, in band order — one row per view. */
+function paneOfChat(chatId: string): string {
+  return Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === chatId)!.id
+}
+
+function viewOfPane(paneId: string): string {
+  return windowPaneStore.getState().panes[paneId].viewId!
+}
+
+/** The chats of every Recents row, in band order — one row per view. */
 function liveRecents(): string[][] {
-  const { panes, dormantArrangements, recentsOrder } = windowPaneStore.getState()
-  return deriveRecentsEntries(Object.values(panes), {}, dormantArrangements, recentsOrder)
-    .filter((e) => e.state === 'live')
-    .map((e) => [...e.chatIds].sort())
+  const state = windowPaneStore.getState()
+  return state.viewOrder.map((id) => [...viewChatIds(state, id)].sort())
 }
 
 const branchRow = (id: string, over: Partial<SidebarRow> = {}): SidebarRow => ({
@@ -284,10 +289,6 @@ afterEach(() => {
   // Task 26: panes/buffers are a window-level singleton now, never destroyed
   // by destroyWorkspaceStore — reset it to a pristine store between tests.
   resetWindowPaneStoreForTests()
-  // `recentsOrder` isn't in `resetWindowPaneStoreForTests`'s own field list
-  // (that helper predates it) — cleared explicitly here so a reorder written
-  // in one test can't leak an id into the next one's assertions.
-  windowPaneStore.setState({ recentsOrder: [] })
 })
 
 describe('performSidebarDrop — reordering (no lineage change)', () => {
@@ -1823,7 +1824,7 @@ describe('performSidebarPaneDrop — a workspace row', () => {
   })
 
   it('splits an occupied pane exactly as a chat row does, into ONE view', () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('c1', { runnerId: 'runner-1' })
 
     performSidebarPaneDrop([workspaceRow('owner-a', 'ws-a')], ROOT_PANE_ID, 'right')
 
@@ -1832,7 +1833,7 @@ describe('performSidebarPaneDrop — a workspace row', () => {
     )
     expect(opened?.id).toBeDefined()
     expect(opened?.id).not.toBe(ROOT_PANE_ID)
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toHaveLength(2)
     expect(liveViewOf('owner-a')).toBe(liveViewOf('c1'))
   })
 
@@ -1869,7 +1870,7 @@ describe('performSidebarPaneDrop — a chat that already has a view of its own',
 
   it('splits the showing pane, rather than switching to the dragged chat’s parked view', () => {
     parkChatInOwnView('c1', 'c2')
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(1)
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toHaveLength(1)
 
     performSidebarPaneDrop(
       [chatRow('c1', 'ws-1')],
@@ -1877,7 +1878,7 @@ describe('performSidebarPaneDrop — a chat that already has a view of its own',
       'right',
     )
 
-    const leaves = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const leaves = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(leaves).toHaveLength(2)
     expect(leaves.map((id) => windowPaneStore.getState().panes[id]?.chatId).sort()).toEqual([
       'c1',
@@ -1895,15 +1896,14 @@ describe('performSidebarPaneDrop — a chat that already has a view of its own',
     )
 
     expect(liveViewOf('c1')).toBe(liveViewOf('c2'))
-    // c1's own view held nothing else, so it is gone rather than parked empty.
-    expect(windowPaneStore.getState().parkedViews).toEqual({})
+    // c1's own view held nothing else, so it is gone rather than left empty.
     expect(liveRecents()).toEqual([['c1', 'c2']])
   })
 
   it('MOVES the pane it already had — same pane, same runner, never a second one', () => {
     parkChatInOwnView('c1', 'c2')
     const before = Object.values(windowPaneStore.getState().panes).find((p) => p.chatId === 'c1')!
-    windowPaneStore.getState().paneActions.setPaneChat(before.id, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.setPaneRunner(before.id, 'runner-1')
 
     performSidebarPaneDrop(
       [chatRow('c1', 'ws-1')],
@@ -1939,7 +1939,7 @@ describe('performSidebarPaneDrop — a chat that already has a view of its own',
 
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], windowPaneStore.getState().activePaneId, 'left')
 
-    const leaves = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const leaves = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(windowPaneStore.getState().panes[leaves[0]]?.chatId).toBe('c1')
   })
 
@@ -1954,7 +1954,7 @@ describe('performSidebarPaneDrop — a chat that already has a view of its own',
       'bottom',
     )
 
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toHaveLength(2)
     expect(liveViewOf('c1')).toBe(liveViewOf('c2'))
   })
 })
@@ -1971,7 +1971,7 @@ describe('performSidebarPaneDrop — plain open (spec §8.1 "middle of a pane")'
 describe('performSidebarPaneDrop — already up (spec §8.2)', () => {
   it('a chat already live in another pane goes TO it — reveal, never a second setPaneChat', () => {
     const otherPane = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
-    windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.dropChatOnPane('c1', otherPane, 'center')
     windowPaneStore.getState().paneActions.setActivePane(ROOT_PANE_ID)
 
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'center')
@@ -1984,12 +1984,13 @@ describe('performSidebarPaneDrop — already up (spec §8.2)', () => {
   })
 
   it('dropping a chat onto the exact pane already showing it is a harmless no-op', () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('c1', { runnerId: 'runner-1' })
 
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], ROOT_PANE_ID, 'right')
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
-    expect(Object.keys(windowPaneStore.getState().panes)).toHaveLength(2) // root + bottom only — no split made
+    // One pane in one view — no split made.
+    expect(Object.values(windowPaneStore.getState().panes).filter((p) => p.viewId)).toHaveLength(1)
   })
 })
 
@@ -2001,11 +2002,11 @@ describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2
     const newPane = Object.values(panes).find((p) => p.chatId === 'c1')
     expect(newPane).toBeDefined()
     expect(newPane?.id).not.toBe(ROOT_PANE_ID)
-    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
+    expect(windowPaneStore.getState().viewOrder).toHaveLength(1)
   })
 
   it('a center drop onto an OCCUPIED pane never swaps — it merges instead (rule 1: every drop adds)', () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('c1', { runnerId: 'runner-1' })
 
     performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'center')
 
@@ -2016,7 +2017,7 @@ describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2
   })
 
   it('an edge drop onto an occupied pane puts both chats in ONE view ("side by side")', () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('c1', { runnerId: 'runner-1' })
 
     performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right')
 
@@ -2027,7 +2028,7 @@ describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2
   })
 
   it('merging into a pane already part of a view GROWS that view rather than starting a second', () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('c1', { runnerId: 'runner-1' })
     performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now one view
 
     performSidebarPaneDrop([chatRow('c3', 'ws-1')], ROOT_PANE_ID, 'bottom')
@@ -2037,17 +2038,19 @@ describe('performSidebarPaneDrop — merging (spec §8.1 "edge of a pane", §8.2
   })
 
   it('dropping an already-grouped chat elsewhere reveals it in place — the view is untouched', () => {
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'c1', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('c1', { runnerId: 'runner-1' })
     performSidebarPaneDrop([chatRow('c2', 'ws-1')], ROOT_PANE_ID, 'right') // c1+c2 now one view
     const view = liveViewOf('c1')
 
-    const freshPane = windowPaneStore.getState().paneActions.addPane()!
+    windowPaneStore.getState().paneActions.openChat('c9')
+    const freshPane = windowPaneStore
+      .getState()
+      .paneActions.splitPane(paneOfChat('c9'), 'horizontal')!
     performSidebarPaneDrop([chatRow('c1', 'ws-1')], freshPane, 'center')
 
-    // The empty view the drop was aimed at evaporates as the c1+c2 view comes
-    // back over it — an arrangement with nothing in it is not something to
-    // switch back to.
-    expect(windowPaneStore.getState().panes[freshPane]).toBeUndefined()
+    // Revealed where it is: the chatless pane the drop was aimed at is not
+    // filled with a second copy.
+    expect(windowPaneStore.getState().panes[freshPane]?.chatId).toBeNull()
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
     expect(liveViewOf('c1')).toBe(view)
     expect(liveViewOf('c2')).toBe(view)
@@ -2072,7 +2075,7 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
     openChatInOwnPane(chatRow('c1', 'ws-1'))
 
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([ROOT_PANE_ID])
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toEqual([ROOT_PANE_ID])
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
   })
 
@@ -2106,21 +2109,20 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
     // all three (see "an edge drop onto an occupied pane puts both chats in
     // ONE view" above) — three clicks are three separate rows.
     expect(liveRecents()).toEqual([['c1'], ['c2'], ['c3']])
-    expect(windowPaneStore.getState().dormantArrangements).toEqual([])
   })
 
   // The subtler half of "makes its own view": the pane a click REUSES can
   // already be one member of a view somebody merged earlier, and filling it
   // in place would silently have added this chat to that group — the same
   // "it appended to what I was looking at" complaint, one level down.
-  it('pulls a REUSED pane out of whatever view it was merged into first', () => {
+  it('never fills a chatless pane of an existing view — a click is a row of its own', () => {
     openChatInOwnPane(chatRow('c1', 'ws-1'))
     const merged = windowPaneStore.getState().paneActions.splitPane(ROOT_PANE_ID, 'horizontal')!
-    expect(viewIdOf(windowPaneStore.getState().panes[merged])).toBe(liveViewOf('c1'))
+    expect(windowPaneStore.getState().panes[merged].viewId).toBe(liveViewOf('c1'))
 
     openChatInOwnPane(chatRow('c2', 'ws-1'))
 
-    expect(windowPaneStore.getState().panes[merged]?.chatId).toBe('c2')
+    expect(windowPaneStore.getState().panes[merged]?.chatId).toBeNull()
     expect(liveViewOf('c2')).not.toBe(liveViewOf('c1'))
     expect(liveRecents()).toEqual([['c1'], ['c2']])
   })
@@ -2133,18 +2135,16 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
     // THE BUG. Three separately clicked chats used to draw as three columns
     // at once: each click appended a peer leaf to the one shared tiling tree,
     // so "its own view" was true in the data and invisible on screen.
-    const showing = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const showing = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(showing).toHaveLength(1)
     expect(windowPaneStore.getState().panes[showing[0]]?.chatId).toBe('c3')
 
     // Nothing was swapped out or lost: the other two are open, off screen,
     // each still holding exactly the chat it was opened with.
-    const parked = Object.values(windowPaneStore.getState().parkedViews)
-    expect(parked).toHaveLength(2)
-    const chatIds = parked
-      .flatMap((tree) => getAllLeafIds(tree))
-      .map((id) => windowPaneStore.getState().panes[id]?.chatId)
-    expect([...chatIds].sort()).toEqual(['c1', 'c2'])
+    const state = windowPaneStore.getState()
+    const offScreen = state.viewOrder.filter((id) => id !== state.activeViewId)
+    expect(offScreen).toHaveLength(2)
+    expect(offScreen.flatMap((id) => viewChatIds(state, id)).sort()).toEqual(['c1', 'c2'])
     // And every one of them keeps its Recents row — a switcher needs targets.
     expect(liveRecents()).toEqual([['c1'], ['c2'], ['c3']])
   })
@@ -2153,11 +2153,11 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
     openChatInOwnPane(chatRow('c1', 'ws-1'))
     const c1Pane = windowPaneStore.getState().activePaneId
     openChatInOwnPane(chatRow('c2', 'ws-1'))
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).not.toContain(c1Pane)
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).not.toContain(c1Pane)
 
     openChatInOwnPane(chatRow('c1', 'ws-1'))
 
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([c1Pane])
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toEqual([c1Pane])
     expect(windowPaneStore.getState().activePaneId).toBe(c1Pane)
     expect(
       Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId === 'c1'),
@@ -2167,28 +2167,23 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
   it('a chat already up is gone TO, never opened twice', () => {
     openChatInOwnPane(chatRow('c1', 'ws-1'))
     openChatInOwnPane(chatRow('c2', 'ws-1'))
-    const paneCount = getAllLeafIds(windowPaneStore.getState().rootLayout).length
+    const paneCount = getAllLeafIds(showingLayout(windowPaneStore.getState())).length
 
     openChatInOwnPane(chatRow('c1', 'ws-1'))
 
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(paneCount)
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toHaveLength(paneCount)
     expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
     expect(
       Object.values(windowPaneStore.getState().panes).filter((p) => p.chatId === 'c1'),
     ).toHaveLength(1)
   })
 
-  it('reuses an empty pane left on screen instead of adding another one beside it', () => {
+  it('fills the empty stage in place: the first click promotes it into a row', () => {
     openChatInOwnPane(chatRow('c1', 'ws-1'))
-    const second = windowPaneStore.getState().paneActions.addPane()!
 
-    openChatInOwnPane(chatRow('c2', 'ws-1'))
-
-    expect(windowPaneStore.getState().panes[second]?.chatId).toBe('c2')
-    // Filled in place rather than opening a third view beside it — and it is
-    // the only thing on screen, with c1's view parked behind it.
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toEqual([second])
-    expect(Object.keys(windowPaneStore.getState().parkedViews)).toEqual([ROOT_PANE_ID])
+    expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('c1')
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toEqual([ROOT_PANE_ID])
+    expect(windowPaneStore.getState().viewOrder).toEqual([ROOT_PANE_ID])
   })
 
   it('opens a chat whose workspace is not the routed one — the resolver replaced that refusal', () => {
@@ -2228,7 +2223,7 @@ describe('openChatInOwnPane — a click makes its own view (spec §8.4)', () => 
 describe('performSidebarPaneDrop — cross-workspace', () => {
   it('splits for a chat whose workspace is not the routed one', () => {
     setActiveWorkspaceId('ws-visible') // ws-visible is what's on screen
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'already-here', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('already-here', { runnerId: 'runner-1' })
 
     performSidebarPaneDrop([chatRow('c1', 'ws-offscreen')], ROOT_PANE_ID, 'right')
 
@@ -2283,7 +2278,7 @@ describe('performSidebarDrop — targetInRecents', () => {
     setActiveWorkspaceId('ws-x')
     const store = getOrCreateWorkspaceStore('ws-x')
     store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
 
     await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
 
@@ -2317,31 +2312,31 @@ describe('performSidebarDrop — targetInRecents', () => {
     setActiveWorkspaceId('ws-x')
     const store = getOrCreateWorkspaceStore('ws-x')
     store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
-    const otherPane = windowPaneStore.getState().paneActions.addPane()!
-    windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
+    windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
+    windowPaneStore.getState().paneActions.openChat('chat-b', { runnerId: 'runner-2' })
+    const otherPane = paneOfChat('chat-b')
 
     await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'into', true)
 
     // chat-b stayed exactly where it already was — no new pane, no swap.
     expect(windowPaneStore.getState().panes[otherPane]?.chatId).toBe('chat-b')
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.chatId).toBe('chat-a')
-    expect(Object.keys(windowPaneStore.getState().panes)).toHaveLength(3)
+    expect(Object.values(windowPaneStore.getState().panes).filter((p) => p.viewId)).toHaveLength(2)
   })
 
   it('above/below a Recents entry reorders the persisted Recents order instead of writing a tree placement', async () => {
     const store = getOrCreateWorkspaceStore('ws-x')
     store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
+    windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
     // `addPane`, not `splitPane` — two INDEPENDENT views, which is what two
     // Recents rows to reorder means. A split would merge them into one.
-    const otherPane = windowPaneStore.getState().paneActions.addPane()!
-    windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
+    windowPaneStore.getState().paneActions.openChat('chat-b', { runnerId: 'runner-2' })
+    const otherPane = paneOfChat('chat-b')
 
     await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-a', 'ws-x'), 'before', true)
 
     expect(setChatPlacement).not.toHaveBeenCalled()
-    expect(windowPaneStore.getState().recentsOrder).toEqual([otherPane, ROOT_PANE_ID])
+    expect(windowPaneStore.getState().viewOrder).toEqual([otherPane, ROOT_PANE_ID].map(viewOfPane))
   })
 
   it('a second reorder only moves the dragged entry, leaving every other tracked id in place', async () => {
@@ -2349,19 +2344,23 @@ describe('performSidebarDrop — targetInRecents', () => {
     store
       .getState()
       .seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x'), chat('chat-c', 'ws-x')])
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
-    const paneB = windowPaneStore.getState().paneActions.addPane()!
-    windowPaneStore.getState().paneActions.setPaneChat(paneB, 'chat-b', 'runner-2')
-    const paneC = windowPaneStore.getState().paneActions.addPane()!
-    windowPaneStore.getState().paneActions.setPaneChat(paneC, 'chat-c', 'runner-3')
+    windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
+    windowPaneStore.getState().paneActions.openChat('chat-b', { runnerId: 'runner-2' })
+    const paneB = paneOfChat('chat-b')
+    windowPaneStore.getState().paneActions.openChat('chat-c', { runnerId: 'runner-3' })
+    const paneC = paneOfChat('chat-c')
     // Natural order: [ROOT(a), paneB(b), paneC(c)]. Move c before a.
     await performSidebarDrop([chatRow('chat-c', 'ws-x')], chatRow('chat-a', 'ws-x'), 'before', true)
-    expect(windowPaneStore.getState().recentsOrder).toEqual([paneC, ROOT_PANE_ID, paneB])
+    expect(windowPaneStore.getState().viewOrder).toEqual(
+      [paneC, ROOT_PANE_ID, paneB].map(viewOfPane),
+    )
 
     // Now move b to sit after c — a and c's relative order must not change.
     await performSidebarDrop([chatRow('chat-b', 'ws-x')], chatRow('chat-c', 'ws-x'), 'after', true)
 
-    expect(windowPaneStore.getState().recentsOrder).toEqual([paneC, paneB, ROOT_PANE_ID])
+    expect(windowPaneStore.getState().viewOrder).toEqual(
+      [paneC, paneB, ROOT_PANE_ID].map(viewOfPane),
+    )
   })
 
   // REGRESSION (live-reported: "rows on recents cannot be reorder"). Recents
@@ -2393,9 +2392,9 @@ describe('performSidebarDrop — targetInRecents', () => {
     function twoLiveViews(): string {
       const store = getOrCreateWorkspaceStore('ws-x')
       store.getState().seedAgentChats([chat('chat-a', 'ws-x'), chat('chat-b', 'ws-x')])
-      windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
-      const otherPane = windowPaneStore.getState().paneActions.addPane()!
-      windowPaneStore.getState().paneActions.setPaneChat(otherPane, 'chat-b', 'runner-2')
+      windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
+      windowPaneStore.getState().paneActions.openChat('chat-b', { runnerId: 'runner-2' })
+      const otherPane = paneOfChat('chat-b')
       return otherPane
     }
 
@@ -2408,7 +2407,9 @@ describe('performSidebarDrop — targetInRecents', () => {
       await performSidebarDrop([ownerRow], chatRow('chat-a', 'ws-x'), 'before', true)
 
       expect(setChatPlacement).not.toHaveBeenCalled()
-      expect(windowPaneStore.getState().recentsOrder).toEqual([otherPane, ROOT_PANE_ID])
+      expect(windowPaneStore.getState().viewOrder).toEqual(
+        [otherPane, ROOT_PANE_ID].map(viewOfPane),
+      )
     })
 
     it('takes a drop as the TARGET of a reorder', async () => {
@@ -2418,7 +2419,9 @@ describe('performSidebarDrop — targetInRecents', () => {
       await performSidebarDrop([chatRow('chat-a', 'ws-x')], ownerRow, 'before', true)
 
       expect(setChatPlacement).not.toHaveBeenCalled()
-      expect(windowPaneStore.getState().recentsOrder).toEqual([ROOT_PANE_ID, otherPane])
+      expect(windowPaneStore.getState().viewOrder).toEqual(
+        [ROOT_PANE_ID, otherPane].map(viewOfPane),
+      )
     })
 
     it('merges into the view when dropped on its middle', async () => {
@@ -2451,9 +2454,9 @@ describe('performSidebarDrop — targetInRecents', () => {
     getOrCreateWorkspaceStore('home-ws-2')
       .getState()
       .seedAgentChats([chat('home-chat', 'home-ws-2')])
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
-    const homePane = windowPaneStore.getState().paneActions.addPane()!
-    windowPaneStore.getState().paneActions.setPaneChat(homePane, 'home-chat', 'runner-2')
+    windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
+    windowPaneStore.getState().paneActions.openChat('home-chat', { runnerId: 'runner-2' })
+    const homePane = paneOfChat('home-chat')
 
     await performSidebarDrop(
       [chatRow('chat-a', 'ws-x')],
@@ -2463,7 +2466,7 @@ describe('performSidebarDrop — targetInRecents', () => {
     )
 
     expect(setChatPlacement).not.toHaveBeenCalled()
-    expect(windowPaneStore.getState().recentsOrder).toEqual([homePane, ROOT_PANE_ID])
+    expect(windowPaneStore.getState().viewOrder).toEqual([homePane, ROOT_PANE_ID].map(viewOfPane))
   })
 
   // REGRESSION: a home chat's Recents entry is stamped from the resolver
@@ -2484,9 +2487,9 @@ describe('performSidebarDrop — targetInRecents', () => {
     getOrCreateWorkspaceStore('home-ws-2')
       .getState()
       .seedAgentChats([chat('home-chat', 'home-ws-2')])
-    windowPaneStore.getState().paneActions.setPaneChat(ROOT_PANE_ID, 'chat-a', 'runner-1')
-    const homePane = windowPaneStore.getState().paneActions.addPane()!
-    windowPaneStore.getState().paneActions.setPaneChat(homePane, 'home-chat', 'runner-2')
+    windowPaneStore.getState().paneActions.openChat('chat-a', { runnerId: 'runner-1' })
+    windowPaneStore.getState().paneActions.openChat('home-chat', { runnerId: 'runner-2' })
+    const homePane = paneOfChat('home-chat')
 
     await performSidebarDrop(
       [chatRow('chat-a', 'ws-x')],
@@ -2496,7 +2499,7 @@ describe('performSidebarDrop — targetInRecents', () => {
     )
 
     expect(setChatPlacement).not.toHaveBeenCalled()
-    expect(windowPaneStore.getState().recentsOrder).toEqual([homePane, ROOT_PANE_ID])
+    expect(windowPaneStore.getState().viewOrder).toEqual([homePane, ROOT_PANE_ID].map(viewOfPane))
   })
 })
 
@@ -2606,7 +2609,7 @@ describe('performSidebarDrop — dropping onto a Recents row (spec §8.1)', () =
     const c1Pane = windowPaneStore.getState().activePaneId
     openChatInOwnPane(chatRow('c2', 'ws-1'))
     // c1's view is parked; c2's is showing.
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).not.toContain(c1Pane)
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).not.toContain(c1Pane)
 
     // `targetInRecents` is what `use-sidebar-drag.ts`'s hit test threads
     // through when the drop lands on a band row rather than a tree row.
@@ -2617,7 +2620,7 @@ describe('performSidebarDrop — dropping onto a Recents row (spec §8.1)', () =
     expect(liveRecents()).toEqual([['c1', 'c3'], ['c2']])
     // ...and the user is looking at the thing they just acted on, with both
     // chats genuinely on screen together.
-    const showing = getAllLeafIds(windowPaneStore.getState().rootLayout)
+    const showing = getAllLeafIds(showingLayout(windowPaneStore.getState()))
     expect(showing).toHaveLength(2)
     const showingChats = showing.map((id) => windowPaneStore.getState().panes[id]?.chatId)
     expect([...showingChats].sort()).toEqual(['c1', 'c3'])
@@ -2640,6 +2643,6 @@ describe('performSidebarDrop — dropping onto a Recents row (spec §8.1)', () =
     void performSidebarDrop([chatRow('c2', 'ws-1')], chatRow('c1', 'ws-1'), 'into', true)
 
     expect(liveViewOf('c2')).toBe(liveViewOf('c1'))
-    expect(getAllLeafIds(windowPaneStore.getState().rootLayout)).toHaveLength(2)
+    expect(getAllLeafIds(showingLayout(windowPaneStore.getState()))).toHaveLength(2)
   })
 })

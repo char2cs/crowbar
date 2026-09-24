@@ -85,20 +85,22 @@ func providerDTOs(in []domain.AgentProvider) []dto.AgentProviderDTO {
 	out := make([]dto.AgentProviderDTO, 0, len(in))
 	for _, p := range in {
 		out = append(out, dto.AgentProviderDTO{
-			ID:               p.ID,
-			DisplayName:      p.DisplayName,
-			Icon:             p.Icon,
-			Connected:        p.Connected,
-			Enabled:          p.Enabled,
-			MCPEnabled:       p.MCPEnabled,
-			Compaction:       p.Compaction,
-			Hotswap:          p.Hotswap,
-			HasTerminal:      p.HasTerminal,
-			ModelSelect:      p.ModelSelect,
-			EffortSelect:     p.EffortSelect,
-			Models:           p.Models,
-			Efforts:          p.Efforts,
-			PermissionLevels: p.PermissionLevels,
+			ID:                p.ID,
+			DisplayName:       p.DisplayName,
+			Icon:              p.Icon,
+			Connected:         p.Connected,
+			Enabled:           p.Enabled,
+			MCPEnabled:        p.MCPEnabled,
+			Compaction:        p.Compaction,
+			Hotswap:           p.Hotswap,
+			HasTerminal:       p.HasTerminal,
+			TerminalStartHere: p.TerminalStartHere,
+			ModelSelect:       p.ModelSelect,
+			EffortSelect:      p.EffortSelect,
+			Models:            p.Models,
+			DefaultModel:      p.DefaultModel,
+			Efforts:           p.Efforts,
+			PermissionLevels:  p.PermissionLevels,
 		})
 	}
 	return out

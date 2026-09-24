@@ -33,7 +33,9 @@ type GORMStores struct {
 	TerminalSessions         store.Store[domain.TerminalSession, string]
 	AgentProviderPreferences store.Store[domain.AgentProviderPreference, string]
 	AgentPermissionDefault   store.Store[domain.AgentPermissionDefault, string]
+	AgentModelManifestFetch  store.Store[domain.AgentModelManifestFetch, string]
 	Folders                  store.ScopedStore[domain.Folder, string]
+	AgentChatTelemetry       store.Store[domain.AgentChatTelemetry, string]
 }
 
 // Container holds every application usecase, composing the aggregate
@@ -375,17 +377,19 @@ func newAgentWiring(
 		return agentWiring{}, err
 	}
 	chat := agentusecase.New(agentusecase.Deps{
-		Chats:           repos.AgentChat,
-		Runners:         repos.AgentRunner,
-		Activity:        repos.AgentActivity,
-		Agents:          engines.Agents,
-		Terminal:        engines.Terminal,
-		Workspace:       wsReader,
-		Worktree:        worktreeChildCreator{worktree: workspaceUsecase},
-		Lineage:         lineage,
-		ProviderPrefs:   gormStores.AgentProviderPreferences,
-		PermissionPrefs: gormStores.AgentPermissionDefault,
-		Home:            crowbarHome,
+		Chats:                   repos.AgentChat,
+		Runners:                 repos.AgentRunner,
+		Activity:                repos.AgentActivity,
+		Agents:                  engines.Agents,
+		Terminal:                engines.Terminal,
+		Workspace:               wsReader,
+		Worktree:                worktreeChildCreator{worktree: workspaceUsecase},
+		Lineage:                 lineage,
+		ProviderPrefs:           gormStores.AgentProviderPreferences,
+		PermissionPrefs:         gormStores.AgentPermissionDefault,
+		ModelManifestFetchPrefs: gormStores.AgentModelManifestFetch,
+		ChatTelemetry:           gormStores.AgentChatTelemetry,
+		Home:                    crowbarHome,
 		// Installed is left nil: the usecase defaults to Agent.Installed, the real
 		// install probe. Only tests inject a stub to isolate from the host PATH.
 		Minter: minter,

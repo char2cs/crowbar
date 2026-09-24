@@ -9,6 +9,7 @@ import {
   useViewWorkspaceIds,
 } from '@/features/panes/hooks/use-chat-workspace-id'
 import { useWorkspaceProviderStream } from '@/features/workspace/stores/hooks/use-workspace-provider-stream'
+import { usePublishFocusedWorkspaceContext } from './use-publish-focused-workspace-context'
 
 // Ids can never contain NUL/SOH (workspace-host.tsx's own NUL guarantee,
 // extended here with a second delimiter for a chatId/wsId pair within one
@@ -49,6 +50,7 @@ export function useIdeShellWorkspaceRetention(
   activeRepoIdFromRoute: string | undefined,
   isHomeRoute: boolean,
   homeWorkspacePath: string | null = null,
+  projectPath = '',
 ): IdeShellWorkspaceRetention {
   // The chat the ACTIVE PANE is showing, and the workspace that chat belongs
   // to — resolved before `effectiveActiveWorkspaceId` below, which now leans
@@ -131,18 +133,17 @@ export function useIdeShellWorkspaceRetention(
   // view" retention test (workspaceKeepAliveMinutes and its time-window
   // policy are gone; see keep-alive-policy.ts).
   const viewWorkspaceIds = useViewWorkspaceIds()
-  // The workspace WorkspaceHost should treat as "active": on project home,
-  // the resolved home workspace ALWAYS wins — nothing clears
-  // `windowPaneStore`'s pane/chatId state on navigating to home, so
-  // `activePaneWorkspaceId` can still resolve to a real but STALE workspace
-  // left over from a previously-visited repo, and the route, not that leftover
-  // pane, is the authority on "home" (caught live: the file explorer stuck
-  // empty because WorkspaceActiveEffects never mounted for the true home
-  // workspace). Off home, the active pane's own workspace still wins, then
-  // the routed workspace.
-  const effectiveActiveWorkspaceId = isHomeRoute
-    ? (homeWorkspaceId ?? activePaneWorkspaceId ?? activeWorkspaceId ?? null)
-    : (activePaneWorkspaceId ?? activeWorkspaceId ?? homeWorkspaceId ?? null)
+  // The workspace WorkspaceHost should treat as "active": the focused pane's
+  // workspace wins on EVERY route, including home — the pane store's
+  // integrity invariant guarantees `activePaneId` is a pane of the showing
+  // view (or the chatless stage/tray), so it can never be a stale leftover
+  // from another project. Falls back to the routed workspace (home:
+  // `homeWorkspaceId`, else `activeWorkspaceId`), then the other one.
+  const effectiveActiveWorkspaceId =
+    activePaneWorkspaceId ??
+    (isHomeRoute ? homeWorkspaceId : activeWorkspaceId) ??
+    (isHomeRoute ? activeWorkspaceId : homeWorkspaceId) ??
+    null
   // Open the per-:wsId workspace WS stream for the viewed workspace. Beyond data,
   // this is what starts the daemon's per-connection provider poll so a branch with
   // an open PR flips to the green pr-open icon (the list stream never starts it).
@@ -152,17 +153,8 @@ export function useIdeShellWorkspaceRetention(
   // IDE shell — sidebar provider, carousel, offscreen panels and workspace host
   // included. Returning the resolved path lets Zustand bail out unless the
   // active workspace's actual filesystem scope changed.
-  // Falls back to `homeWorkspaceId` too now (matching `effectiveActiveWorkspaceId`
-  // above) — a project-home chat's pane can resolve straight to the home
-  // workspace before any repo-scoped store even exists for it, and this used to
-  // stop one step short of that, at `activeWorkspaceId` (undefined on the home
-  // route, which has no repoId/wsId segments of its own).
-  // Falls back to `homeWorkspaceId` too now (matching `effectiveActiveWorkspaceId`
-  // above) — a project-home chat's pane can resolve straight to the home
-  // workspace before any repo-scoped store even exists for it, and this used to
-  // stop one step short of that, at `activeWorkspaceId` (undefined on the home
-  // route, which has no repoId/wsId segments of its own).
-  const sidebarWorkspaceId = activePaneWorkspaceId ?? activeWorkspaceId ?? homeWorkspaceId
+  // Same id as `effectiveActiveWorkspaceId` — the panel's path and scope must never diverge.
+  const sidebarWorkspaceId = effectiveActiveWorkspaceId
   const sidebarWorkspacePath = useSidebarStore((s) => {
     // The home workspace is never one of `s.repos`' own workspaces (it rides
     // no repo — home-workspace-resolver.ts), so resolve its REAL on-disk path
@@ -191,6 +183,18 @@ export function useIdeShellWorkspaceRetention(
       s.repos.find((r) => r.projectId === activeProjectIdFromRoute)?.localPath ??
       ''
     )
+  })
+
+  // The sidebar panel's one scope authority — see focused-workspace-context-store.ts.
+  usePublishFocusedWorkspaceContext({
+    workspaceId: effectiveActiveWorkspaceId,
+    homeWorkspaceId,
+    projectId: activeProjectIdFromRoute ?? null,
+    routeWorkspaceId: activeWorkspaceId,
+    routeRepoId: activeRepoIdFromRoute,
+    isHomeRoute,
+    workspacePath: sidebarWorkspacePath,
+    projectPath,
   })
 
   return {

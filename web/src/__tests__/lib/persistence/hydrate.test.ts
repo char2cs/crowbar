@@ -24,7 +24,6 @@ import {
   hydratePreferences,
   hydrateSidebar,
   hydrateWindowPaneLayout,
-  restoreWindowViews,
 } from '@/lib/persistence/hydrate'
 import { ApiError } from '@/lib/api'
 import { getDB, resetDB } from '@/lib/persistence/idb'
@@ -38,7 +37,8 @@ import {
 import type { EditorContent } from '@/features/panes/types/pane-content'
 import { IDBFactory } from 'fake-indexeddb'
 import { ROOT_PANE_ID } from '@/features/panes/constants/pane'
-import { createLeaf, createSplit, getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { createLeaf, getAllLeafIds } from '@/features/panes/utils/pane-layout'
+import { viewIntegrityViolations } from '@/features/panes/lib/view-integrity'
 import { saveSidebarUI } from '@/lib/persistence/sidebar-ui'
 import { saveWorkspaceHierarchy } from '@/lib/persistence/workspace-hierarchy'
 import { useSidebarStore } from '@/lib/store/sidebar'
@@ -84,9 +84,13 @@ async function seedDB(workspaceId: string) {
         editorTabIds: [],
         activeEditorTabId: null,
         editorOpen: false,
+        viewId: null,
       },
     },
-    rootLayout: createLeaf(ROOT_PANE_ID),
+    views: {},
+    viewOrder: [],
+    activeViewId: null,
+    stage: createLeaf(ROOT_PANE_ID),
     bottomLayout: createLeaf('bottom-pane'),
     activePaneId: ROOT_PANE_ID,
     mostRecentActivePaneIds: [ROOT_PANE_ID],
@@ -162,54 +166,119 @@ describe('hydrateWindowPaneLayout', () => {
     expect(after.panes).toEqual(before.panes)
   })
 
-  it('restores panes/buffers from the one window-session row', async () => {
+  it('restores the views, the stage and the buffers from the one window-session row', async () => {
     const db = await getDB()
-    const rightPaneId = 'pane-right'
+    const layout: WorkspaceLayout = {
+      workspaceId: WINDOW_SESSION_ID,
+      panes: {
+        [ROOT_PANE_ID]: pane(ROOT_PANE_ID, null, { editorTabIds: ['buf-1'] }),
+        'pane-a': pane('pane-a', 'view-a', { chatId: 'chat-a' }),
+        'pane-b': pane('pane-b', 'view-b', { chatId: 'chat-b' }),
+        'bottom-pane': pane('bottom-pane', null),
+      },
+      views: {
+        'view-a': { id: 'view-a', projectId: 'p1', layout: createLeaf('pane-a') },
+        'view-b': { id: 'view-b', projectId: 'p1', layout: createLeaf('pane-b') },
+      },
+      viewOrder: ['view-b', 'view-a'],
+      activeViewId: 'view-a',
+      activeViewByProject: { p1: 'view-a' },
+      stage: createLeaf(ROOT_PANE_ID),
+      bottomLayout: createLeaf('bottom-pane'),
+      activePaneId: 'pane-a',
+      mostRecentActivePaneIds: ['pane-a'],
+      buffers: [buffer('buf-1')],
+      sidebarWidth: 240,
+      rightSidebarWidth: 280,
+      updatedAt: Date.now(),
+    }
+    await db.put('workspace-layout', layout)
+
+    await hydrateWindowPaneLayout()
+
+    const state = windowPaneStore.getState()
+    expect(state.viewOrder).toEqual(['view-b', 'view-a'])
+    expect(state.activeViewId).toBe('view-a')
+    expect(state.activePaneId).toBe('pane-a')
+    expect(getAllLeafIds(state.stage)).toEqual([ROOT_PANE_ID])
+    expect(state.buffers).toHaveLength(1)
+    expect(state.buffers[0]).toMatchObject({ id: 'buf-1', content: 'saved' })
+  })
+
+  it('a payload without views hydrates to an empty band, keeping its buffers', async () => {
+    const db = await getDB()
+    await db.put('workspace-layout', {
+      workspaceId: WINDOW_SESSION_ID,
+      panes: { [ROOT_PANE_ID]: pane(ROOT_PANE_ID, null) },
+      rootLayout: createLeaf(ROOT_PANE_ID),
+      dormantArrangements: [{ id: 'entry-a', chatIds: ['chat-a'], state: 'dormant' }],
+      bottomLayout: createLeaf('bottom-pane'),
+      activePaneId: ROOT_PANE_ID,
+      mostRecentActivePaneIds: [ROOT_PANE_ID],
+      buffers: [buffer('buf-1')],
+      sidebarWidth: 240,
+      rightSidebarWidth: 280,
+      updatedAt: Date.now(),
+    } as unknown as WorkspaceLayout)
+
+    await hydrateWindowPaneLayout()
+
+    const state = windowPaneStore.getState()
+    expect(state.viewOrder).toEqual([])
+    expect(state.views).toEqual({})
+    expect(state.activeViewId).toBeNull()
+    expect(state.buffers).toHaveLength(1)
+  })
+
+  it('a payload whose only record is broken hydrates to an empty band', async () => {
+    const db = await getDB()
+    await db.put('workspace-layout', {
+      workspaceId: WINDOW_SESSION_ID,
+      panes: { 'pane-a': pane('pane-a', 'view-a', { chatId: null }) },
+      views: { 'view-a': { id: 'view-a', projectId: 'p1', layout: createLeaf('pane-a') } },
+      viewOrder: ['view-a'],
+      activeViewId: 'view-a',
+      stage: createLeaf(ROOT_PANE_ID),
+      bottomLayout: createLeaf('bottom-pane'),
+      activePaneId: 'pane-a',
+      mostRecentActivePaneIds: [],
+      buffers: [],
+      sidebarWidth: 240,
+      rightSidebarWidth: 280,
+      updatedAt: Date.now(),
+    })
+
+    await hydrateWindowPaneLayout()
+
+    expect(windowPaneStore.getState().viewOrder).toEqual([])
+    expect(windowPaneStore.getState().activeViewId).toBeNull()
+  })
+
+  // Regression: one violation used to discard the whole band.
+  it('repairs a payload with one broken record, keeping every valid one in order', async () => {
+    const db = await getDB()
     await db.put('workspace-layout', {
       workspaceId: WINDOW_SESSION_ID,
       panes: {
-        [ROOT_PANE_ID]: {
-          id: ROOT_PANE_ID,
-          type: 'group',
-          chatId: null,
-          runnerId: null,
-          editorTabIds: ['buf-1'],
-          activeEditorTabId: 'buf-1',
-          editorOpen: true,
-        },
-        [rightPaneId]: {
-          id: rightPaneId,
-          type: 'group',
-          chatId: null,
-          runnerId: null,
-          editorTabIds: [],
-          activeEditorTabId: null,
-          editorOpen: false,
-        },
+        [ROOT_PANE_ID]: pane(ROOT_PANE_ID, null),
+        'pane-a': pane('pane-a', 'view-a', { chatId: 'chat-a' }),
+        'pane-x': pane('pane-x', 'view-x', { chatId: null }),
+        'pane-b': pane('pane-b', 'view-b', { chatId: 'chat-b' }),
+        'bottom-pane': pane('bottom-pane', null),
       },
-      // Both panes really in the tree — a pane listed in `panes` but in no
-      // layout at all is not a shape anything writes, and leaving it that way
-      // let this assert an `activePaneId` naming a pane nothing could render.
-      rootLayout: createSplit('horizontal', createLeaf(ROOT_PANE_ID), createLeaf(rightPaneId)),
+      views: {
+        'view-a': { id: 'view-a', projectId: 'p1', layout: createLeaf('pane-a') },
+        'view-x': { id: 'view-x', projectId: 'p1', layout: createLeaf('pane-x') },
+        'view-b': { id: 'view-b', projectId: 'p1', layout: createLeaf('pane-b') },
+      },
+      viewOrder: ['view-b', 'view-x', 'view-a', 'view-gone'],
+      activeViewId: 'view-x',
+      activeViewByProject: { p1: 'view-x' },
+      stage: createLeaf(ROOT_PANE_ID),
       bottomLayout: createLeaf('bottom-pane'),
-      activePaneId: rightPaneId,
-      mostRecentActivePaneIds: [rightPaneId, ROOT_PANE_ID],
-      buffers: [
-        {
-          id: 'buf-1',
-          type: 'editor',
-          path: '/src/main.ts',
-          name: 'main.ts',
-          content: 'saved',
-          savedContent: 'saved',
-          isDirty: false,
-          isVirtual: false,
-          isPinned: false,
-          isPreview: false,
-          tokens: [],
-          workspaceId: 'ws-test',
-        },
-      ],
+      activePaneId: 'pane-x',
+      mostRecentActivePaneIds: ['pane-x', 'pane-a'],
+      buffers: [],
       sidebarWidth: 240,
       rightSidebarWidth: 280,
       updatedAt: Date.now(),
@@ -218,44 +287,47 @@ describe('hydrateWindowPaneLayout', () => {
     await hydrateWindowPaneLayout()
 
     const state = windowPaneStore.getState()
-    expect(state.activePaneId).toBe(rightPaneId)
-    expect(Object.keys(state.panes).sort()).toEqual([ROOT_PANE_ID, rightPaneId].sort())
-    expect(state.buffers).toHaveLength(1)
-    expect(state.buffers[0]).toMatchObject({ id: 'buf-1', content: 'saved' })
-  })
-
-  it('restores the dormant Recents rows and the dragged Recents order', async () => {
-    const { layout } = await seedDB(WINDOW_SESSION_ID)
-    const db = await getDB()
-    await db.put('workspace-layout', {
-      ...layout,
-      dormantArrangements: [{ id: 'entry-a', chatIds: ['chat-a'], state: 'dormant' }],
-      recentsOrder: ['entry-b', 'entry-a'],
-    })
-
-    await hydrateWindowPaneLayout()
-
-    const state = windowPaneStore.getState()
-    expect(state.dormantArrangements).toEqual([
-      { id: 'entry-a', chatIds: ['chat-a'], state: 'dormant' },
-    ])
-    expect(state.recentsOrder).toEqual(['entry-b', 'entry-a'])
-  })
-
-  it('replays a record written before Recents was persisted as an empty band', async () => {
-    windowPaneStore.setState({
-      dormantArrangements: [{ id: 'stale', chatIds: ['chat-x'], state: 'dormant' }],
-      recentsOrder: ['stale'],
-    })
-    await seedDB(WINDOW_SESSION_ID)
-
-    await hydrateWindowPaneLayout()
-
-    const state = windowPaneStore.getState()
-    expect(state.dormantArrangements).toEqual([])
-    expect(state.recentsOrder).toEqual([])
+    expect(state.viewOrder).toEqual(['view-b', 'view-a'])
+    expect(Object.keys(state.views).sort()).toEqual(['view-a', 'view-b'])
+    expect(state.panes['pane-x']).toBeUndefined()
+    expect(viewIntegrityViolations(state)).toEqual([])
   })
 })
+
+function pane(
+  id: string,
+  viewId: string | null,
+  over: Partial<WorkspaceLayout['panes'][string]> = {},
+): WorkspaceLayout['panes'][string] {
+  return {
+    id,
+    type: 'group',
+    chatId: null,
+    runnerId: null,
+    editorTabIds: [],
+    activeEditorTabId: over.editorTabIds?.[0] ?? null,
+    editorOpen: false,
+    ...over,
+    viewId,
+  }
+}
+
+function buffer(id: string): EditorContent {
+  return {
+    id,
+    type: 'editor',
+    path: '/src/main.ts',
+    name: 'main.ts',
+    content: 'saved',
+    savedContent: 'saved',
+    isDirty: false,
+    isVirtual: false,
+    isPinned: false,
+    isPreview: false,
+    tokens: [],
+    workspaceId: 'ws-test',
+  } as EditorContent
+}
 
 describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)', () => {
   const WS = 'ws-restore'
@@ -300,9 +372,13 @@ describe('hydrateWorkspace — restored buffer reconciliation (BUG-026/BUG-013)'
           editorTabIds: buffers.map((b) => b.id),
           activeEditorTabId: buffers[0]?.id ?? null,
           editorOpen: true,
+          viewId: null,
         },
       },
-      rootLayout: createLeaf(ROOT_PANE_ID),
+      views: {},
+      viewOrder: [],
+      activeViewId: null,
+      stage: createLeaf(ROOT_PANE_ID),
       bottomLayout: createLeaf('bottom-pane'),
       activePaneId: ROOT_PANE_ID,
       mostRecentActivePaneIds: [ROOT_PANE_ID],
@@ -646,157 +722,5 @@ describe('hydrateSidebar', () => {
     await saveSidebarUI({ collapsedRepos: ['crowbar'], collapsedWorkspaces: [] })
     await hydrateSidebar()
     expect(useSidebarStore.getState().collapsedChatRows.size).toBe(0)
-  })
-})
-
-/**
- * `restoreWindowViews` — the half of hydration that decides what is ON SCREEN
- * after a reload. Pure, so it can be exercised without IndexedDB.
- *
- * Its whole reason to exist is the second describe below: a layout written
- * before views owned their own trees holds every open view tiled into one
- * `rootLayout`, and restoring that verbatim would reproduce the side-by-side
- * tiling this feature removes — on the first launch after shipping it.
- */
-describe('restoreWindowViews', () => {
-  const pane = (id: string, viewId?: string, chatId: string | null = null) => ({
-    id,
-    type: 'group' as const,
-    chatId,
-    runnerId: null,
-    editorTabIds: [],
-    activeEditorTabId: null,
-    editorOpen: false,
-    ...(viewId !== undefined && { viewId }),
-  })
-
-  describe('a record written since views owned their own trees', () => {
-    it('restores exactly one view showing and the rest parked', () => {
-      const parked = { v2: createLeaf('b') }
-      const result = restoreWindowViews({
-        panes: { a: pane('a', 'v1'), b: pane('b', 'v2') },
-        rootLayout: createLeaf('a'),
-        parkedViews: parked,
-        activeViewId: 'v1',
-        activePaneId: 'a',
-      })
-
-      expect(result.activeViewId).toBe('v1')
-      expect(getAllLeafIds(result.rootLayout)).toEqual(['a'])
-      expect(Object.keys(result.parkedViews)).toEqual(['v2'])
-      expect(result.activePaneId).toBe('a')
-    })
-
-    it('never lets the showing view also sit in the parked set', () => {
-      const result = restoreWindowViews({
-        panes: { a: pane('a', 'v1') },
-        rootLayout: createLeaf('a'),
-        // Two authoritative copies of one arrangement; the showing one wins.
-        parkedViews: { v1: createLeaf('a'), v2: createLeaf('b') },
-        activeViewId: 'v1',
-        activePaneId: 'a',
-      })
-
-      expect(Object.keys(result.parkedViews)).toEqual(['v2'])
-    })
-  })
-
-  describe('a record written BEFORE views owned their own trees', () => {
-    it('splits the one tiled tree back into a view each, showing only one', () => {
-      const result = restoreWindowViews({
-        panes: { a: pane('a', 'v1', 'chat-1'), b: pane('b', 'v2', 'chat-2') },
-        rootLayout: createSplit('horizontal', createLeaf('a'), createLeaf('b')),
-        activePaneId: 'b',
-      })
-
-      // The pane the user was on decides which view comes back on screen.
-      expect(result.activeViewId).toBe('v2')
-      expect(getAllLeafIds(result.rootLayout)).toEqual(['b'])
-      expect(Object.keys(result.parkedViews)).toEqual(['v1'])
-      expect(getAllLeafIds(result.parkedViews.v1)).toEqual(['a'])
-    })
-
-    it('keeps a MERGED view whole rather than splitting it per pane', () => {
-      const result = restoreWindowViews({
-        panes: {
-          a: pane('a', 'v1', 'chat-1'),
-          b: pane('b', 'v1', 'chat-2'),
-          c: pane('c', 'v2', 'chat-3'),
-        },
-        rootLayout: createSplit(
-          'horizontal',
-          createSplit('vertical', createLeaf('a'), createLeaf('b')),
-          createLeaf('c'),
-        ),
-        activePaneId: 'a',
-      })
-
-      expect(getAllLeafIds(result.rootLayout).sort()).toEqual(['a', 'b'])
-      expect(getAllLeafIds(result.parkedViews.v2)).toEqual(['c'])
-    })
-
-    it('reads UNTAGGED panes as one view each — the shape before views existed', () => {
-      const result = restoreWindowViews({
-        panes: { a: pane('a'), b: pane('b') },
-        rootLayout: createSplit('horizontal', createLeaf('a'), createLeaf('b')),
-        activePaneId: 'a',
-      })
-
-      expect(getAllLeafIds(result.rootLayout)).toEqual(['a'])
-      expect(Object.keys(result.parkedViews)).toEqual(['b'])
-    })
-  })
-
-  /**
-   * The shape an UPGRADE actually produces, observed live: the new store
-   * persists its defaults (`parkedViews: {}`, `activeViewId` still the boot
-   * value) over a `rootLayout` the old code wrote, which is one tree holding
-   * every open view tiled together. Both new fields are present — and `{}` is
-   * a perfectly truthy empty object — so a restore that checks for their
-   * PRESENCE happily hands the mixed tree back and reproduces the exact
-   * side-by-side tiling this feature removes.
-   */
-  it('re-splits a mixed tree even when the record carries both new fields', () => {
-    const result = restoreWindowViews({
-      panes: { a: pane('a', 'v1', 'chat-1'), b: pane('b', 'v2', 'chat-2') },
-      rootLayout: createSplit('horizontal', createLeaf('a'), createLeaf('b')),
-      parkedViews: {},
-      activeViewId: 'v1',
-      activePaneId: 'b',
-    })
-
-    expect(getAllLeafIds(result.rootLayout)).toEqual(['a'])
-    expect(result.activeViewId).toBe('v1')
-    expect(Object.keys(result.parkedViews)).toEqual(['v2'])
-    expect(getAllLeafIds(result.parkedViews.v2)).toEqual(['b'])
-    // And the focused pane is healed onto the view that actually shows.
-    expect(result.activePaneId).toBe('a')
-  })
-
-  it('keeps already-parked views while re-splitting a mixed showing tree', () => {
-    const result = restoreWindowViews({
-      panes: { a: pane('a', 'v1'), b: pane('b', 'v2'), c: pane('c', 'v3') },
-      rootLayout: createSplit('horizontal', createLeaf('a'), createLeaf('b')),
-      parkedViews: { v3: createLeaf('c') },
-      activeViewId: 'v1',
-      activePaneId: 'a',
-    })
-
-    expect(getAllLeafIds(result.rootLayout)).toEqual(['a'])
-    expect(Object.keys(result.parkedViews).sort()).toEqual(['v2', 'v3'])
-  })
-
-  it('heals an activePaneId that names no pane the showing tree holds', () => {
-    // Otherwise the active-pane ring, the keyboard commands and every
-    // `getActivePane()` caller address a pane nobody can see.
-    const result = restoreWindowViews({
-      panes: { a: pane('a', 'v1') },
-      rootLayout: createLeaf('a'),
-      parkedViews: {},
-      activeViewId: 'v1',
-      activePaneId: 'long-gone',
-    })
-
-    expect(result.activePaneId).toBe('a')
   })
 })

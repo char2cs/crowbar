@@ -33,7 +33,7 @@ func (u *chatFolderUsecase) createImportedWorktreeChat(
 			return "", domain.Workspace{}, "", err
 		}
 	}
-	chatID, err := u.agent.MintChat(ctx, "")
+	chatID, err := u.agent.MintChat(ctx, "", "")
 	if err != nil {
 		return "", domain.Workspace{}, "", fmt.Errorf("agent chat folder: import chat: %w", err)
 	}

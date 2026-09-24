@@ -2,6 +2,10 @@ import React from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { GitPanel } from '@/features/git/components/git-panel'
+import {
+  publishFocusedWorkspaceContext,
+  type FocusedWorkspaceContext,
+} from '@/features/window/stores/focused-workspace-context-store'
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
@@ -80,23 +84,34 @@ vi.mock('@/lib/store/sidebar', () => ({
   ) => sel({ repos: mockActiveWs ? [{ workspaces: [{ id: 'ws-active', ...mockActiveWs }] }] : [] }),
 }))
 
-// pathname is controlled per-test — the project-home route (`/ide/:projectId/home`,
-// no repoId/wsId segments) is what a project-home-scoped chat's pane lands on.
+// The route is mocked only to prove GitPanel ignores it: scope comes from the
+// focused workspace context.
 let mockPathname = '/ide/proj1/repo1/ws-active'
 vi.mock('@tanstack/react-router', () => ({
   useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
     select({ location: { pathname: mockPathname } }),
 }))
-vi.mock('@/lib/workspace-scope', () => ({
-  parseWorkspaceScopeFromPath: (pathname: string) => {
-    const m = pathname.match(/\/ide\/([^/]+)\/([^/]+)\/([^/]+)/)
-    if (!m) return null
-    return { projectId: m[1], repoId: m[2], wsId: m[3] }
-  },
+const { openBranchReviewForWorkspace } = vi.hoisted(() => ({
+  openBranchReviewForWorkspace: vi.fn(),
 }))
-vi.mock('@/features/panes/utils/pane-command-actions', () => ({
-  openBranchReviewForActiveWorkspace: vi.fn(),
-}))
+vi.mock('@/features/panes/utils/pane-command-actions', () => ({ openBranchReviewForWorkspace }))
+
+const REPO_CTX: FocusedWorkspaceContext = {
+  projectId: 'proj1',
+  workspaceId: 'ws-active',
+  isProjectHome: false,
+  repoId: 'repo1',
+  repoPath: '/repo1',
+  rootPath: '/repo1',
+}
+const HOME_CTX: FocusedWorkspaceContext = {
+  projectId: 'proj1',
+  workspaceId: 'ws-home',
+  isProjectHome: true,
+  repoId: null,
+  repoPath: null,
+  rootPath: '/proj1',
+}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -105,6 +120,7 @@ describe('GitPanel', () => {
     mockGitStatus = null
     mockActiveWs = null
     mockPathname = '/ide/proj1/repo1/ws-active'
+    publishFocusedWorkspaceContext(REPO_CTX)
     mockChangedFiles = []
     vi.clearAllMocks()
   })
@@ -179,9 +195,10 @@ describe('GitPanel', () => {
    * always win that race, so the previous real workspace's status can outlive
    * the switch.
    */
-  describe('project-home route (no workspace of its own)', () => {
+  describe('project home focused (no repo of its own)', () => {
     beforeEach(() => {
-      mockPathname = '/ide/proj1/home'
+      mockPathname = '/ide/proj1/repo1/ws-active'
+      publishFocusedWorkspaceContext(HOME_CTX)
     })
 
     it("shows no git content at all rather than another workspace's stale status", () => {
@@ -212,6 +229,32 @@ describe('GitPanel', () => {
       mockGitStatus = { branch: 'develop', ahead: 0, behind: 0, files: [] }
       render(<GitPanel />)
       expect(screen.queryByText('develop')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('home route with a branch-workspace pane focused (split)', () => {
+    const BRANCH_CTX: FocusedWorkspaceContext = {
+      projectId: 'proj1',
+      workspaceId: 'ws-branch',
+      isProjectHome: false,
+      repoId: 'repo1',
+      repoPath: '/worktrees/branch',
+      rootPath: '/worktrees/branch',
+    }
+    beforeEach(() => {
+      mockPathname = '/ide/proj1/home'
+      publishFocusedWorkspaceContext(BRANCH_CTX)
+    })
+
+    it('scopes every section to the focused branch workspace, not the route', () => {
+      mockGitStatus = { branch: 'feat/x', ahead: 1, behind: 0, files: [] }
+      render(<GitPanel />)
+      expect(screen.queryByText('No repository open')).not.toBeInTheDocument()
+      expect(branchSectionProps).toHaveBeenCalledWith(
+        expect.objectContaining({ wsId: 'ws-branch' }),
+      )
+      fireEvent.click(screen.getByRole('button', { name: /Review this branch/i }))
+      expect(openBranchReviewForWorkspace).toHaveBeenCalledWith('ws-branch')
     })
   })
 })

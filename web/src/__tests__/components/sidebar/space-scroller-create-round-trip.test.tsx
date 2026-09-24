@@ -10,7 +10,6 @@ import {
 import { __resetWorkspaceScopesForTest } from '@/lib/workspace-scope'
 import { rowsFromPending } from '@/components/sidebar/lib/rows-from-pending'
 import { UNTITLED_CHAT_LABEL } from '@/features/agent/lib/chat-label'
-import type { RecentsBandEntry } from '@/components/sidebar/recents-band'
 import type { Project } from '@/lib/types'
 import type { SidebarRow } from '@/components/sidebar/types/sidebar-row'
 
@@ -21,6 +20,7 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('@/features/workspace/lib/home-workspace-resolver', () => ({
   useHomeWorkspaceState: () => ({ wsId: 'home-ws-1', owningChatId: 'home-owner', error: false }),
   ensureHomeWorkspaceResolved: vi.fn(),
+  getHomeWorkspaceId: vi.fn(() => 'home-ws-1'),
 }))
 
 vi.mock('@/components/layout/space-content-actions', () => ({
@@ -54,8 +54,6 @@ function makeProject(id: string): Project {
   return { id, name: id, path: `/repos/${id}`, lastActivity: new Date('2026-08-28T00:00:00Z') }
 }
 
-const noRecents = () => [] as RecentsBandEntry[]
-
 function renderScroller(rowsForProject: (projectId: string) => SidebarRow[] = () => []) {
   return render(
     <SpaceScroller
@@ -63,7 +61,6 @@ function renderScroller(rowsForProject: (projectId: string) => SidebarRow[] = ()
       activeProjectId="p1"
       onActiveProjectChange={vi.fn()}
       rowsForProject={rowsForProject}
-      recentsForProject={noRecents}
       onOpen={vi.fn()}
       onTrash={vi.fn()}
       onCreate={vi.fn()}

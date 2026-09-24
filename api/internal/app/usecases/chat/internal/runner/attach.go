@@ -81,18 +81,23 @@ func (rs *Runners) AttachedTerminalSession(runnerID string) (string, bool) {
 	return view.termSessID, true
 }
 
-// ShowingNativeView reports whether runnerID is handed over to its provider's
-// OWN view right now — the same fact as AttachedTerminalSession, asked by a
-// caller that does not care which session it is.
+// ShowingNativeView reports whether the CLI's own UI is the one in front of
+// the user — i.e. whether runnerID's chat is on the terminal surface right
+// now, however it got there.
 //
-// Only a non-hotswap provider can ever be in this state: a hotswap provider's
-// terminal is a second window onto a session Crowbar is still driving, so it
-// never calls SwitchToTerminal at all. That is what makes this the generic
-// signal for "the CLI's own UI is the one in front of the user", rather than a
-// provider name.
+// It reads the surface, NOT this file's attach registry. Those were two
+// independent answers and they disagreed: a chat BORN on the terminal
+// (domain.Chat.Surface, seeded at spawn) has never called SwitchToTerminal
+// and never appears in rs.attached, so it used to report "chat" while its
+// TUI was the only thing on screen. The registry still answers WHICH
+// terminal session the native view is (AttachedTerminalSession above); it is
+// no longer a second opinion on which surface that makes.
+//
+// Still blind to a HOTSWAP provider's terminal, and unavoidably so: both of
+// its faces are live at once over one channel, so Crowbar is never told which
+// one is being looked at (design spec P6b's own stated limit).
 func (rs *Runners) ShowingNativeView(runnerID string) bool {
-	_, ok := rs.attached.get(runnerID)
-	return ok
+	return rs.surfaces.get(runnerID) == engineagents.SurfaceTerminal
 }
 
 // ErrNoNativeTerminal is SwitchToTerminal's refusal for a provider with
@@ -179,6 +184,12 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 	}
 
 	agent, tctx := conn.agent, conn.tctx // capture before drop erases the entry
+	// The native view below becomes this runner's process, so killing the
+	// connection here is a HANDOVER, not a death — see handOverAPIConn. Marked
+	// before the drop: the watcher can observe the process die the instant
+	// drop signals it, and a PTY-less runner would otherwise be reconciled
+	// away underneath the view it is switching to.
+	rs.handOverAPIConn(live.ID)
 	rs.apiConns.drop(live.ID)
 
 	argv := append([]string{binpath.Resolve(attachArgv[0])}, attachArgv[1:]...)
@@ -200,7 +211,28 @@ func (rs *Runners) SwitchToTerminal(ctx context.Context, chatID string) (string,
 		return "", fmt.Errorf("agent: switch to terminal: fork native view: %w", err)
 	}
 	rs.attached.set(live.ID, attachedView{termSessID: termSessID, agent: agent, tctx: tctx})
+	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceTerminal)
 	return termSessID, nil
+}
+
+// moveSurface records, durably and in memory, that chatID is now on
+// `surface`. This is what makes domain.Chat.Surface the CURRENT view rather
+// than the one the chat was born on: the two switch calls are the only
+// moments Crowbar is told the user moved, so they are the only writers.
+//
+// Best-effort on the durable half, deliberately: the view has ALREADY moved
+// by the time this runs (the process is forked, or torn down), and refusing
+// the switch over a failed write would leave the two disagreeing in the
+// worse direction — a chat told it is somewhere its process is not. The
+// in-memory mirror is written regardless, so this session stays consistent
+// with what is actually on screen; a daemon restart re-reads the durable
+// field and is the only thing a lost write costs.
+func (rs *Runners) moveSurface(ctx context.Context, chatID, runnerID, surface string) {
+	rs.surfaces.set(runnerID, surface)
+	if _, err := rs.chats.SetSurface(ctx, chatID, surface); err != nil {
+		slog.WarnContext(ctx, "agent: record the chat's current surface (best-effort, continuing)",
+			"chat_id", chatID, "runner_id", runnerID, "surface", surface, "err", err)
+	}
 }
 
 // SwitchToNative reverses SwitchToTerminal: the native-view PTY is torn down
@@ -236,6 +268,14 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 	// No plan to point at attach either: there is no PTY being forked here, and
 	// the native view this just replaced has already been torn down above.
 	_ = rs.applyAPITransport(ctx, live.ID, live.ProviderID, view.agent, view.tctx, "")
+	// A runner with a PTY of its own is carried by it either way. One without
+	// has just swapped processes again: the re-established connection is the
+	// new one, and if none came back it has none at all. Still under the spawn
+	// gate, so the view's own exit callback cannot race this answer.
+	if live.TerminalSession == "" && !rs.rearmAPIConnExit(live.ID, view.tctx) {
+		rs.exitProcesslessRunner(live.ID)
+	}
+	rs.moveSurface(ctx, chatID, live.ID, engineagents.SurfaceChat)
 	return nil
 }
 
@@ -246,12 +286,18 @@ func (rs *Runners) SwitchToNative(ctx context.Context, chatID string) error {
 // longer exists is worse than one quietly resuming its api connection.
 func (rs *Runners) onAttachExit(chatID, runnerID string) func() {
 	return func() {
-		if _, ok := rs.attached.get(runnerID); !ok {
-			return // already switched back deliberately; nothing to reconcile
+		if _, ok := rs.attached.get(runnerID); ok {
+			if err := rs.SwitchToNative(context.Background(), chatID); err != nil {
+				slog.Error("agent: native view exited: switch back to api transport (best-effort)",
+					"chat_id", chatID, "runner_id", runnerID, "err", err)
+			}
+			return // SwitchToNative already settled what this runner is now
 		}
-		if err := rs.SwitchToNative(context.Background(), chatID); err != nil {
-			slog.Error("agent: native view exited: switch back to api transport (best-effort)",
-				"chat_id", chatID, "runner_id", runnerID, "err", err)
-		}
+		// Torn down deliberately by something that replaces it with NOTHING —
+		// retire, or a provider switch. For a runner with no PTY of its own
+		// this view was its last process, and nothing else would ever carry
+		// its row away.
+		defer rs.spawns.Lock(chatID)()
+		rs.exitProcesslessRunner(runnerID)
 	}
 }

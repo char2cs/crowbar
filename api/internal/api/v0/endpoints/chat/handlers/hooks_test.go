@@ -156,6 +156,11 @@ type fakeAgentUsecase struct {
 	setDefaultLevelCalls []string
 	setDefaultLevelErr   error
 
+	manifestFetchEnabled    bool
+	manifestFetchEnabledErr error
+	setManifestFetchCalls   []bool
+	setManifestFetchErr     error
+
 	// getChat/getChatErr configure GetChat, the call every
 	// requireChatInWorkspace scope check (Get/Switch/Rename/Handoff) makes
 	// first. The zero value (an empty domain.Chat, WorkspaceID "") makes
@@ -172,6 +177,9 @@ type fakeAgentUsecase struct {
 	pending       []domain.ActivityChoice
 	pendingErr    error
 	pendingCalls  []string
+
+	interruptions    []domain.ActivityInterruption
+	interruptionsErr error
 
 	uploadAttachmentCalls []uploadAttachmentCall
 	uploadAttachmentOut   agentusecase.StoredAttachment
@@ -198,6 +206,9 @@ type fakeAgentUsecase struct {
 	abandonErr    error
 	telemetry     engineagents.Telemetry
 	telemetryOK   bool
+	// telemetryOffSurface makes TelemetryOnChatSurface answer false — the
+	// chat is on a surface whose channel carries no usage report.
+	telemetryOffSurface bool
 
 	messagePage  domain.LedgerPage
 	messageErr   error
@@ -215,7 +226,8 @@ type fakeAgentUsecase struct {
 }
 
 type promptCall struct {
-	chatID, text, requestID, provider, model, effort string
+	chatID, text, requestID, provider string
+	selection                         *domain.ChatSelection
 }
 
 type messageCall struct {
@@ -291,6 +303,13 @@ func (f *fakeAgentUsecase) ListChatsInRepo(
 	return nil, nil
 }
 
+func (f *fakeAgentUsecase) CwdWorkspaceID(
+	_ context.Context,
+	_ string,
+) (string, bool, error) {
+	return "", false, nil
+}
+
 func (f *fakeAgentUsecase) GetChat(
 	_ context.Context,
 	_ string,
@@ -312,10 +331,11 @@ func (f *fakeAgentUsecase) ReadMessages(
 
 func (f *fakeAgentUsecase) SubmitPrompt(
 	_ context.Context,
-	chatID, text, requestID, provider, model, effort string,
+	chatID, text, requestID, provider string,
+	selection *domain.ChatSelection,
 ) (domain.AgentPromptSubmission, error) {
 	f.promptCalls = append(f.promptCalls, promptCall{
-		chatID: chatID, text: text, requestID: requestID, provider: provider, model: model, effort: effort,
+		chatID: chatID, text: text, requestID: requestID, provider: provider, selection: selection,
 	})
 	return f.promptResult, f.promptErr
 }
@@ -512,11 +532,34 @@ func (f *fakeAgentUsecase) SetDefaultPermissionLevel(
 	return nil
 }
 
+func (f *fakeAgentUsecase) ModelManifestFetchEnabled(
+	_ context.Context,
+) (bool, error) {
+	return f.manifestFetchEnabled, f.manifestFetchEnabledErr
+}
+
+func (f *fakeAgentUsecase) SetModelManifestFetchEnabled(
+	_ context.Context,
+	enabled bool,
+) error {
+	if f.setManifestFetchErr != nil {
+		return f.setManifestFetchErr
+	}
+	f.setManifestFetchCalls = append(f.setManifestFetchCalls, enabled)
+	return nil
+}
+
 func (f *fakeAgentUsecase) ReadActivity(
 	_ context.Context, chatID string, after int64, limit int,
 ) (agentusecase.ChatActivity, error) {
 	f.activityCalls = append(f.activityCalls, activityCall{chatID: chatID, after: after, limit: limit})
 	return f.activity, f.activityErr
+}
+
+func (f *fakeAgentUsecase) Interruptions(
+	_ context.Context, _ string,
+) ([]domain.ActivityInterruption, error) {
+	return f.interruptions, f.interruptionsErr
 }
 
 func (f *fakeAgentUsecase) ReadToolPayload(
@@ -598,6 +641,10 @@ type answerCall struct {
 
 func (f *fakeAgentUsecase) Telemetry(string) (engineagents.Telemetry, bool) {
 	return f.telemetry, f.telemetryOK
+}
+
+func (f *fakeAgentUsecase) TelemetryOnChatSurface(context.Context, string) bool {
+	return !f.telemetryOffSurface
 }
 
 type activityCall struct {

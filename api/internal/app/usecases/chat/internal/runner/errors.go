@@ -61,6 +61,16 @@ var (
 	// React that this provider has no declarative restart-TUI submission mapping.
 	ErrPromptUnsupported = fmt.Errorf("agent: provider does not support React prompt submission: %w", apperr.ErrUnprocessable)
 
+	// ErrSpawnPromptUndeliverable means a spawn was handed a user message and
+	// could not get it to any carrier. A spawn carries a prompt in exactly one
+	// of two places — the forked PTY's own argv, or a Dispatch down the api
+	// connection it adopted INSTEAD of forking one — and a PTY-less spawn has
+	// only the second. Failing here is the point: reporting success with the
+	// message nowhere is what silently lost a user's prompt (see
+	// carryPromptOverAPIConn), and the caller turns this into the journal's
+	// "uncertain", which keeps the text in the client's own queue.
+	ErrSpawnPromptUndeliverable = fmt.Errorf("agent: spawn runner: the prompt this spawn carries reached no carrier: %w", apperr.ErrBadGateway)
+
 	// ErrPromptSessionUnavailable means there is no live native TUI to replace.
 	// A live lazy TUI need not have announced a session yet; that is a safe fresh
 	// submission, not this error.

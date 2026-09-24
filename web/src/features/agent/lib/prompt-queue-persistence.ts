@@ -23,7 +23,12 @@ export interface PromptQueueItem {
    *  what keeps a later pick from bleeding onto an earlier queued message:
    *  each item carries its own submission's selection, committed atomically
    *  with it (see submitAgentPrompt). Absent means nothing was staged; the
-   *  chat's current provider / sticky selection is used as-is. */
+   *  chat's current provider / sticky selection is used as-is.
+   *
+   *  ABSENT AND '' ARE DIFFERENT for model/effort: '' is a real pick — the
+   *  provider's own default — so it is stored and sent as '', and only
+   *  `undefined` means nothing was staged. Provider has no such reading (a
+   *  chat always runs some provider), so '' there is simply absent. */
   provider?: string
   model?: string
   effort?: string

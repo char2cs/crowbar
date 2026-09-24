@@ -1,0 +1,10 @@
+{
+  "session_id": "019fafae-f27f-7d00-bd23-3bcbce0ece1f",
+  "turn_id": "019fafaf-38cf",
+  "transcript_path": "/h/.codex/sessions/2026/07/29/rollout-019fafae.jsonl",
+  "cwd": "/ws",
+  "hook_event_name": "UserPromptSubmit",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "default",
+  "prompt": "THE-USERS-OWN-QUESTION"
+}

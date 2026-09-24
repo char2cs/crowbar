@@ -156,4 +156,6 @@ func Register(
 	settingsRG.PUT("/settings/chat/providers", h.UpdateProviderPreferences)
 	settingsRG.GET("/settings/chat/permission-level", h.GetDefaultPermissionLevel)
 	settingsRG.PUT("/settings/chat/permission-level", h.PutDefaultPermissionLevel)
+	settingsRG.GET("/settings/chat/model-manifest-fetch", h.GetModelManifestFetchEnabled)
+	settingsRG.PUT("/settings/chat/model-manifest-fetch", h.PutModelManifestFetchEnabled)
 }
