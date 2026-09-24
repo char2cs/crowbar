@@ -927,97 +927,10 @@ fn another_window_survives<'a>(labels: impl Iterator<Item = &'a str>, closing: &
     labels.into_iter().any(|label| label != closing)
 }
 
-/// Stop the Go daemon sidecar: SIGTERM, wait up to 3 s for its graceful shutdown
-/// (Container.Close → Terminal.Shutdown → flush+persist), then SIGKILL.
-///
-/// Called from BOTH ways the app can end, because they are genuinely different code
-/// paths in tao and only one of them was covered before:
-///
-///   1. the last window closing (`on_window_event`), and
-///   2. `RunEvent::Exit` — which is what Cmd+Q produces.
-///
-/// Cmd+Q is `NSApplication.terminate:`, and for a non-document app AppKit does NOT
-/// close windows individually on the way out: tao registers only
-/// `applicationWillTerminate:`, which goes straight to `AppState::exit()` →
-/// `Event::LoopDestroyed` → `RunEvent::Exit`. No `Destroyed` per window, so path (1)
-/// never fired and the daemon was left running — holding its socket, so the NEXT
-/// launch's daemon refuses to bind and dies with code 1. `tauri-plugin-shell`'s own
-/// exit sweep does not cover this: it only reaps children registered by its JS
-/// `spawn` command, and ours comes from `sidecar::spawn` on the Rust side.
-///
-/// Idempotent. `child.lock().take()` yields `None` on the second call, so the last
-/// window closing followed by `Exit` signals once, not twice.
+/// Stop the Go daemon sidecar — see `sidecar::shutdown`. Idempotent.
 fn shutdown_sidecar(app: &tauri::AppHandle, reason: &str) {
-    let Some(state) = app.try_state::<sidecar::SidecarHandle>() else {
-        return;
-    };
-
-    // Tell the supervisor this exit is intentional so neither the output pump nor
-    // the watchdog respawns the daemon.
-    state
-        .shutting_down
-        .store(true, std::sync::atomic::Ordering::SeqCst);
-
-    let Some(child) = state.child.lock().unwrap().take() else {
-        // Already stopped by the other ending. Expected — a last-window close is
-        // followed by Exit — so this is not a warning.
-        log::debug!("daemon shutdown ({reason}): already stopped");
-        return;
-    };
-
-    // Worth an INFO line in production: "did the daemon get stopped, and by which
-    // ending" is the first question when a launch reports a socket already in use.
-    log::info!(
-        "stopping crowbar daemon ({reason}, pid {:?})",
-        state.daemon_pid()
-    );
-
-    // Signals use the health-reported pid via libc, never CommandChild::pid()/kill()
-    // — those lock the shared_child mutex the shell plugin's wait thread holds while
-    // the child lives, deadlocking this path.
-    #[cfg(unix)]
-    {
-        match state.daemon_pid() {
-            Some(pid) => {
-                let pid = pid as libc::pid_t;
-                unsafe { libc::kill(pid, libc::SIGTERM) };
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-                // Poll BEFORE the first sleep: a daemon that exits promptly is the
-                // normal case, and checking first keeps a clean shutdown off the
-                // 100 ms floor. This blocks the event loop — during a window close
-                // the window is still on screen, and under RunEvent::Exit it blocks
-                // inside applicationWillTerminate: — so the budget is deliberately
-                // 3 s, well inside AppKit's quit allowance and far better than the
-                // orphaned daemon the wait exists to prevent.
-                loop {
-                    // kill(pid, 0) returns 0 while the process exists.
-                    if unsafe { libc::kill(pid, 0) } != 0 {
-                        break; // Exited cleanly — no SIGKILL needed.
-                    }
-                    if std::time::Instant::now() >= deadline {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-                // SIGKILL fallback — no-op (ESRCH) if already gone.
-                unsafe { libc::kill(pid, libc::SIGKILL) };
-                drop(child);
-            }
-            None => {
-                // No pid recorded for this child. The live case is a daemon that is
-                // still booting — `spawn` stores the child immediately but only
-                // records the pid once `wait_for_health` returns — plus a daemon
-                // predating pid reporting. Either way the child handle is all we
-                // have, so this path is an ungraceful kill rather than SIGTERM's
-                // flush-and-persist. `kill()` does not block: shared_child's wait
-                // thread does not hold the lock while waiting.
-                let _ = child.kill();
-            }
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = child.kill();
+    if let Some(state) = app.try_state::<sidecar::SidecarHandle>() {
+        sidecar::shutdown(&state, reason);
     }
 }
 
@@ -1190,8 +1103,13 @@ pub fn run() {
                     .close_for_window(label);
 
                 // The sidecar is app-wide, so only the LAST window closing may take it
-                // down — see another_window_survives for why this is a label check and
-                // not `webview_windows().len() > 1`.
+                // down — and only once it is actually gone: a CloseRequested can still
+                // be prevented, and stopping the daemon under a window that stays open
+                // strands it. See another_window_survives for why this is a label check
+                // and not `webview_windows().len() > 1`.
+                if !matches!(event, tauri::WindowEvent::Destroyed) {
+                    return;
+                }
                 let windows = app.webview_windows();
                 if another_window_survives(windows.keys().map(String::as_str), label) {
                     return;
