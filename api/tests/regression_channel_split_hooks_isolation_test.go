@@ -20,7 +20,7 @@ spawn:
   cmd: "cat"
   interactive_required: true
 runtime:
-  transport: api
+  transport: hooks
   hooks:
     format: json
 events:

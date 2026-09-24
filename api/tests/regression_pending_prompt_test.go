@@ -72,7 +72,7 @@ func writeLiveStubProviderDescriptorWithPromptSubmit(
 	t.Helper()
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "livestub.yaml"), []byte(livestubPromptSubmitYAML), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "livestub.yaml"), []byte(stubDescriptor(livestubPromptSubmitYAML)), 0o644))
 }
 
 // TestRegression_PendingPromptSurvivesAFrontendThatForgotItsOwnQueue proves

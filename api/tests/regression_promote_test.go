@@ -56,7 +56,7 @@ func writePromoteStubProviderDescriptor(t *testing.T, h *harness) {
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, "promotestub.yaml"), []byte(promoteStubProviderDescriptorYAML), 0o644))
+		filepath.Join(dir, "promotestub.yaml"), []byte(stubDescriptor(promoteStubProviderDescriptorYAML)), 0o644))
 }
 
 // TestRegression_PromoteFillsABubblesWorkspaceSlotOverHTTP is the route half of

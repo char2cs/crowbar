@@ -9,7 +9,7 @@ import (
 )
 
 func TestValidate_AResumeWithoutLocateIsAWarning(t *testing.T) {
-	rep := descriptorcheck.Validate(minimal("session:\n  resume: { arg: \"--resume {id}\" }\n"))
+	rep := descriptorcheck.Validate(complete("session:\n  resume: { arg: \"--resume {id}\" }\n"))
 	f := findingFor(t, rep, "session.resume_unverified")
 	assert.Equal(t, descriptorcheck.SeverityWarning, f.Severity)
 	assert.True(t, rep.OK(), "a warning does not block the descriptor")

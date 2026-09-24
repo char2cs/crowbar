@@ -50,6 +50,8 @@ type Providers struct {
 	// refuses to serve without it rather than quietly advertising an empty tool
 	// list.
 	tools agenttools.Deps
+	// gate refuses a provider whose descriptor fails static validation.
+	gate *descriptorcheck.Gate
 }
 
 // Deps is everything the provider table is built over.
@@ -77,6 +79,7 @@ func New(d Deps) *Providers {
 		prefs:     d.Prefs,
 		minter:    d.Minter,
 		tools:     d.Tools,
+		gate:      descriptorcheck.NewGate(),
 	}
 }
 
@@ -90,6 +93,13 @@ func (p *Providers) RequireProviderEnabled(
 	}
 	if pref != nil && pref.Disabled {
 		return fmt.Errorf("%w (%q)", ErrProviderDisabled, providerID)
+	}
+	home, err := p.home()
+	if err != nil {
+		return fmt.Errorf("agent: provider %q: home: %w", providerID, err)
+	}
+	if err := p.gate.Require(home, providerID); err != nil {
+		return fmt.Errorf("agent: provider %q: %w: %w", providerID, err, apperr.ErrUnprocessable)
 	}
 	return nil
 }

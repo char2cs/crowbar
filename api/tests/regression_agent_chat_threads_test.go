@@ -104,7 +104,7 @@ func writeThreadStubProviderDescriptor(
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "threadstub.yaml"),
-		[]byte(threadStubProviderDescriptorYAML), 0o644))
+		[]byte(stubDescriptor(threadStubProviderDescriptorYAML)), 0o644))
 }
 
 // newThreadChat creates a chat on the thread stub and returns it with the runner

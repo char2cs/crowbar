@@ -63,6 +63,11 @@ func CheckDescriptor(raw []byte) (*spec.Descriptor, []DescriptorRuleFailure) {
 	return descriptor.Check(raw)
 }
 
+// DescriptorSourceFor is the document Crowbar would load for id.
+func DescriptorSourceFor(homeDir, id string) (DescriptorSource, bool) {
+	return descriptor.SourceFor(homeDir, id)
+}
+
 // DescriptorSources lists every descriptor document, overrides shadowing defaults.
 func DescriptorSources(homeDir string) ([]DescriptorSource, error) {
 	return descriptor.Sources(homeDir)

@@ -66,6 +66,15 @@ func Sources(homeDir string) ([]Source, error) {
 	return out, nil
 }
 
+// SourceFor is the one document Crowbar would load for id: its override, else
+// the shipped default.
+func SourceFor(homeDir, id string) (Source, bool) {
+	if !validID(id) {
+		return Source{}, false
+	}
+	return source(homeDir, id)
+}
+
 func source(homeDir, id string) (Source, bool) {
 	if override := OverridePath(homeDir, id); override != "" {
 		if raw, err := os.ReadFile(override); err == nil { //nolint:gosec // id passed validID; homeDir is daemon-owned

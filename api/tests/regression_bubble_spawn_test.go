@@ -3,13 +3,13 @@
 package tests
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/char2cs/crowbar/api/tests/kit"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
@@ -69,7 +69,7 @@ func writeCwdStubProviderDescriptor(t *testing.T, h *harness) {
 	t.Helper()
 	dir := filepath.Join(h.home, "descriptors")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "cwdstub.yaml"), []byte(cwdStubProviderDescriptorYAML), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "cwdstub.yaml"), []byte(stubDescriptor(cwdStubProviderDescriptorYAML)), 0o644))
 }
 
 // createChatWithProvider creates a chat with an explicit provider, optional
@@ -151,16 +151,14 @@ func readMarkedValue(
 	for {
 		mt, raw, err := conn.ReadMessage()
 		require.NoError(t, err, "PTY ws closed before the marked value arrived")
-		if mt != websocket.TextMessage {
+		if mt != websocket.BinaryMessage {
 			continue
 		}
-		var msg struct {
-			Data string `json:"data"`
-		}
-		if json.Unmarshal(raw, &msg) != nil {
+		data, _, ok := kit.ParseTerminalFrame(raw)
+		if !ok {
 			continue
 		}
-		buf.WriteString(msg.Data)
+		buf.Write(data)
 		if value, ok := valueAfterMarker(buf.String(), marker); ok {
 			return value
 		}

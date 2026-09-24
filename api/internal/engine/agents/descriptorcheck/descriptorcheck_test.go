@@ -85,6 +85,19 @@ func minimal(extra string) []byte {
 	return []byte("id: mini\nspawn:\n  cmd: mini\n  interactive_required: true\nruntime:\n  transport: hooks\n  hooks: { format: json, delivery: http }\n" + extra)
 }
 
+// complete is minimal plus a wired lifecycle, so only extra can fail it.
+func complete(extra string) []byte {
+	return minimal(completeLifecycle + extra)
+}
+
+const completeLifecycle = `hooks_injection:
+  - pass_arg: { arg: --hook, value: "{crowbar_hook} hook any --segment {segid}" }
+events:
+  session_start: { required: [session_id], in: SessionStart, map: { session_id: session_id } }
+  user_prompt: { required: [session_id], in: UserPromptSubmit, map: { session_id: session_id, message: prompt } }
+  turn_stop: { required: [session_id], in: Stop, map: { session_id: session_id, message: last_assistant_message } }
+`
+
 func lineOf(t *testing.T, raw []byte, prefix string) int {
 	t.Helper()
 	for i, l := range strings.Split(string(raw), "\n") {

@@ -1981,7 +1981,7 @@ presentation:
         source: "test"
 `, os.Args[0])
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(descriptor), 0o600,
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(descriptor)), 0o600,
 	))
 
 	chatID, runnerID := f.spawn(t, "codex")
@@ -2076,7 +2076,7 @@ func TestSlashCatalog_UnsupportedWhenTheProviderDeclaresNoCatalogue(t *testing.T
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
 	require.NoError(t, os.MkdirAll(f.ws.worktree, 0o700))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(`
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(`
 id: codex
 spawn:
   cmd: /usr/bin/true
@@ -2094,7 +2094,7 @@ runtime:
   transport: hooks
   hooks:
     format: json
-`), 0o600,
+`)), 0o600,
 	))
 
 	chatID, _ := f.spawn(t, "codex")
@@ -2141,7 +2141,7 @@ func TestSlashCatalog_ResolvesCwdThroughTheAncestorWalkForABubble(t *testing.T) 
 func writeCatalogDescriptor(t *testing.T, f testFixture, command string) {
 	t.Helper()
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(fmt.Sprintf(`
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(fmt.Sprintf(`
 id: codex
 spawn:
   cmd: %s
@@ -2174,7 +2174,7 @@ presentation:
         label: "{name}"
         insert_text: "${name} "
         source: "test"
-`, command)), 0o600,
+`, command))), 0o600,
 	))
 }
 
@@ -2735,7 +2735,7 @@ func TestSubmitPrompt_RefusesAProviderWithNoDeclaredDelivery(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(f.ws.home, "descriptors"), 0o700))
 	require.NoError(t, os.WriteFile(
-		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(`
+		filepath.Join(f.ws.home, "descriptors", "codex.yaml"), []byte(withLifecycle(`
 id: codex
 spawn:
   cmd: /usr/bin/true
@@ -2753,7 +2753,7 @@ runtime:
   transport: hooks
   hooks:
     format: json
-`), 0o600,
+`)), 0o600,
 	))
 	chatID, _ := f.spawn(t, "codex")
 
