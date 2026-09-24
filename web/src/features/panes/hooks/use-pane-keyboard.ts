@@ -76,8 +76,8 @@ export function usePaneKeyboard() {
         // owning chat; it never mints one (pane-command-actions.ts).
         e.preventDefault()
         const targetPaneId = windowPaneStore.getState().activePaneId
-        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, () => {
-          windowPaneStore.getState().bufferActions.openContent({ type: 'terminal' })
+        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, (paneId) => {
+          windowPaneStore.getState().bufferActions.openContent({ type: 'terminal' }, { paneId })
         })
         return
       }
@@ -86,14 +86,17 @@ export function usePaneKeyboard() {
         // Same Law 3 fix as TAB_NEW_TERMINAL above, for a new file.
         e.preventDefault()
         const targetPaneId = windowPaneStore.getState().activePaneId
-        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, () => {
-          windowPaneStore.getState().bufferActions.openContent({
-            type: 'editor',
-            path: 'untitled:Untitled',
-            name: 'Untitled',
-            content: '',
-            isVirtual: true,
-          })
+        ensurePaneChatThenOpen(workspaceStore.getState().workspaceId, targetPaneId, (paneId) => {
+          windowPaneStore.getState().bufferActions.openContent(
+            {
+              type: 'editor',
+              path: 'untitled:Untitled',
+              name: 'Untitled',
+              content: '',
+              isVirtual: true,
+            },
+            { paneId },
+          )
         })
         return
       }

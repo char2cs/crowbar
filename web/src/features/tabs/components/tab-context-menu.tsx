@@ -9,7 +9,7 @@ import {
   X,
 } from '@phosphor-icons/react'
 import type { PaneContent } from '@/features/panes/types/pane-content'
-import { isVirtualContent } from '@/features/panes/types/pane-content'
+import { isEditorContent, isVirtualContent } from '@/features/panes/types/pane-content'
 import { useTerminalStore } from '@/features/terminal/stores/terminal-store'
 import { stripControlChars } from '@/features/terminal/utils/control-chars'
 import { windowPaneStore } from '@/features/panes/stores/window-pane-store'
@@ -155,7 +155,7 @@ const TabContextMenu = ({
           },
         ]
       : []),
-    ...(buffer.path !== 'extensions://marketplace'
+    ...(isEditorContent(buffer) && !buffer.isVirtual
       ? [
           {
             id: 'reload',

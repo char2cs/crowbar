@@ -26,12 +26,7 @@ import { ChatOnlyPaneHeader } from '@/features/tabs/components/chat-only-pane-he
 import { ChatColumnHeader } from '@/features/tabs/components/chat-column-header'
 import { extractDroppedFilePaths } from '@/features/file-system/utils/file-system-dropped-paths'
 import { useTauriFileDrop } from '@/features/file-system/lib/tauri-file-drop'
-import {
-  clearInternalTabDragData,
-  getInternalTabDragData,
-  getInternalTabDragHover,
-  resolveDropTarget,
-} from '@/features/tabs/utils/internal-tab-drag'
+import { useDragStore } from '@/features/panes/stores/drag-store'
 
 import { NewTabView } from './new-tab-view'
 import { BOTTOM_PANE_ID } from '../constants/pane'
@@ -172,14 +167,19 @@ export function PaneContainer({
   // Stable identity: this feeds a memoized drop handler's dep array; an unstable
   // wrapper would defeat that memoization. It only closes over workspaceStore.
   const openTerminalBuffer = useCallback(
-    (options?: {
-      name?: string
-      command?: string
-      workingDirectory?: string
-      remoteConnectionId?: string
-      sessionId?: string
-    }): string =>
-      windowPaneStore.getState().bufferActions.openContent({ type: 'terminal', ...options }),
+    (
+      paneId: string,
+      options?: {
+        name?: string
+        command?: string
+        workingDirectory?: string
+        remoteConnectionId?: string
+        sessionId?: string
+      },
+    ): string =>
+      windowPaneStore
+        .getState()
+        .bufferActions.openContent({ type: 'terminal', ...options }, { paneId }),
     [],
   )
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.()
@@ -249,7 +249,11 @@ export function PaneContainer({
 
   const [isDragOver, setIsDragOver] = useState(false)
   const [isTabDragOver, setIsTabDragOver] = useState(false)
-  const [internalHoverZone, setInternalHoverZone] = useState<DropZone>(null)
+  // Whether a pointer drag from another surface (a sidebar row, an explorer
+  // file) hovers THIS pane — a narrow selector, so no other pane re-renders.
+  const internalHoverZone = useDragStore((s): DropZone =>
+    s.hover.paneId === pane.id ? s.hover.zone : null,
+  )
   const containerRef = useRef<HTMLDivElement>(null)
 
   const rawPaneBuffers = useBuffersByIds(pane.editorTabIds)
@@ -460,41 +464,6 @@ export function PaneContainer({
     [pane.id, activateEditorTabInPane, setActivePane],
   )
 
-  const openFileTreeDropInPane = useCallback(
-    async (
-      fileDragData: { path: string; name: string; isDir: boolean },
-      point: { x: number; y: number },
-    ) => {
-      if (fileDragData.isDir) return
-      if (!handleFileOpen) return
-
-      const target = resolveDropTarget(point)
-      if (target.paneId !== pane.id) return
-
-      // Spec §6.3/§7.2: a file dropped on a pane never gets a pane of its
-      // own, regardless of which zone (edge or center) it lands in — it
-      // always opens as a tab in the EXISTING pane it was dropped on. Unlike
-      // a chat/tab-row drop (handleSplitDrop below), zone is not consulted
-      // here at all.
-      windowPaneStore.getState().paneActions.setActivePane(pane.id)
-
-      try {
-        await handleFileOpen(fileDragData.path, false)
-        const openedTabId =
-          windowPaneStore.getState().paneActions.getActivePane()?.activeEditorTabId ?? null
-        if (openedTabId) {
-          addExistingTabToPane(pane.id, openedTabId)
-          windowPaneStore.getState().paneActions.activateEditorTabInPane(pane.id, openedTabId)
-        }
-      } catch (error) {
-        console.error('Failed to open file from file tree drop:', error)
-      } finally {
-        delete window.__fileDragData
-      }
-    },
-    [handleFileOpen, pane.id, addExistingTabToPane],
-  )
-
   const handleExternalEditorExit = useCallback(() => {
     if (activeBuffer?.type === 'externalEditor') {
       // The external process is already gone, so this buffer must be torn down
@@ -515,48 +484,13 @@ export function PaneContainer({
     }
   }, [activeBuffer, closeBufferForce])
 
-  // Listen for file tree drops on this pane
-  useEffect(() => {
-    const syncHover = () => {
-      const hover = getInternalTabDragHover()
-      setInternalHoverZone(hover.paneId === pane.id ? hover.zone : null)
-    }
-
-    window.addEventListener('crowbar-internal-tab-drag-hover', syncHover)
-    return () => window.removeEventListener('crowbar-internal-tab-drag-hover', syncHover)
-  }, [pane.id])
-
-  useEffect(() => {
-    const handleFileTreeDrop = async (e: CustomEvent) => {
-      const fileDragData = window.__fileDragData
-      if (!fileDragData) return
-
-      await openFileTreeDropInPane(fileDragData as { path: string; name: string; isDir: boolean }, {
-        x: e.detail.x,
-        y: e.detail.y,
-      })
-    }
-
-    window.addEventListener(
-      'file-tree-drop-on-pane',
-      handleFileTreeDrop as unknown as EventListener,
-    )
-    return () => {
-      window.removeEventListener(
-        'file-tree-drop-on-pane',
-        handleFileTreeDrop as unknown as EventListener,
-      )
-    }
-  }, [openFileTreeDropInPane])
-
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
-    const hasTabData =
-      e.dataTransfer.types.includes('application/tab-data') || !!getInternalTabDragData()
+    const hasTabData = e.dataTransfer.types.includes('application/tab-data')
     const hasFilePath = e.dataTransfer.types.includes('text/plain')
-    const hasFileDragData = !!window.__fileDragData
+    const hasFileDragData = !!useDragStore.getState().file
 
     if (hasTabData || hasFilePath || hasFileDragData || e.dataTransfer.types.includes('Files')) {
       e.dataTransfer.dropEffect = 'move'
@@ -586,8 +520,7 @@ export function PaneContainer({
       if (!zone) return
 
       const tabDataString = e.dataTransfer.getData('application/tab-data')
-      const fallbackTabData = getInternalTabDragData()
-      if (!tabDataString && !fallbackTabData) return
+      if (!tabDataString) return
 
       let bufferId: string | undefined
       let sourcePaneId: string | undefined
@@ -598,7 +531,7 @@ export function PaneContainer({
       let currentDirectory: string | undefined
       let remoteConnectionId: string | undefined
       try {
-        const tabData = tabDataString ? JSON.parse(tabDataString) : fallbackTabData
+        const tabData = JSON.parse(tabDataString)
         bufferId = tabData.bufferId
         sourcePaneId = tabData.paneId
         source = tabData.source
@@ -609,8 +542,6 @@ export function PaneContainer({
         remoteConnectionId = tabData.remoteConnectionId
       } catch {
         return
-      } finally {
-        clearInternalTabDragData()
       }
 
       // A tab may never cross a pane boundary via drag — it is only ever
@@ -625,14 +556,13 @@ export function PaneContainer({
 
       if (zone === 'center') {
         if (source === 'terminal-panel' && terminalId) {
-          const newBufferId = openTerminalBuffer({
+          openTerminalBuffer(pane.id, {
             sessionId: terminalId,
             name: terminalName,
             command: initialCommand,
             workingDirectory: currentDirectory,
             remoteConnectionId,
           })
-          addExistingTabToPane(pane.id, newBufferId)
           window.dispatchEvent(
             new CustomEvent('terminal-detach-to-buffer', {
               detail: { terminalId },
@@ -653,14 +583,13 @@ export function PaneContainer({
       // sequence as the split used to run, just targeting the existing pane
       // rather than a freshly created one.
       if (source === 'terminal-panel' && terminalId) {
-        const newBufferId = openTerminalBuffer({
+        openTerminalBuffer(pane.id, {
           sessionId: terminalId,
           name: terminalName,
           command: initialCommand,
           workingDirectory: currentDirectory,
           remoteConnectionId,
         })
-        addExistingTabToPane(pane.id, newBufferId)
         window.dispatchEvent(
           new CustomEvent('terminal-detach-to-buffer', {
             detail: { terminalId },
@@ -674,40 +603,21 @@ export function PaneContainer({
     [pane.id, openTerminalBuffer, addExistingTabToPane],
   )
 
-  // Handle mouse up for file tree drag (which uses mouse events, not HTML5 drag API)
-  const handleMouseUp = useCallback(
-    async (event: React.MouseEvent) => {
-      const fileDragData = window.__fileDragData
-      if (!fileDragData || fileDragData.isDir) {
-        return // Only handle file drops, not directory drops
-      }
-
-      await openFileTreeDropInPane(fileDragData as { path: string; name: string; isDir: boolean }, {
-        x: event.clientX,
-        y: event.clientY,
-      })
-    },
-    [openFileTreeDropInPane],
-  )
-
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
       setIsDragOver(false)
       setIsTabDragOver(false)
-      windowPaneStore.getState().paneActions.setActivePane(pane.id)
 
       // Tab drops are handled by SplitDropOverlay — skip here
-      if (e.dataTransfer.types.includes('application/tab-data') || getInternalTabDragData()) {
-        return
-      }
+      if (e.dataTransfer.types.includes('application/tab-data')) return
 
       const droppedPaths = extractDroppedFilePaths(e.dataTransfer)
       if (droppedPaths.length > 0 && handleFileOpen) {
         for (const droppedPath of droppedPaths) {
           // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open reads the pane's current tab list and appends, so concurrent opens could race on that read-modify-write and land tabs out of drop order. Rare (multi-file drag-drop), not a hot path.
-          await handleFileOpen(droppedPath, false)
+          await handleFileOpen(droppedPath, false, { paneId: pane.id })
         }
         return
       }
@@ -718,10 +628,9 @@ export function PaneContainer({
   const handleTauriFileDrop = useCallback(
     async (paths: string[]) => {
       if (paths.length === 0 || !handleFileOpen) return
-      windowPaneStore.getState().paneActions.setActivePane(pane.id)
       for (const droppedPath of paths) {
         // react-doctor-disable-next-line async-await-in-loop -- kept sequential: each open reads the pane's current tab list and appends, so concurrent opens could race on that read-modify-write and land tabs out of drop order. Rare (multi-file drag-drop), not a hot path.
-        await handleFileOpen(droppedPath, false)
+        await handleFileOpen(droppedPath, false, { paneId: pane.id })
       }
     },
     [pane.id, handleFileOpen],
@@ -1113,7 +1022,6 @@ export function PaneContainer({
       // keyboard-triggered click (Enter/Space on a focused control inside
       // this pane), which carries no preceding mousedown at all.
       onClick={handlePaneClick}
-      onMouseUp={handleMouseUp}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}

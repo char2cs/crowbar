@@ -17,6 +17,7 @@ import {
 import { useChatIsThread } from '@/features/panes/hooks/use-chat-is-thread'
 import { useSettingsStore } from '@/features/settings/store'
 import type { PaneContent } from '@/features/panes/types/pane-content'
+import { reloadTabFromDisk } from '../lib/reload-tab'
 import { useEditorAppStore } from '@/features/editor/stores/editor-app-store'
 import { useSidebarStore } from '@/features/layout/stores/sidebar-store'
 import UnsavedChangesDialog from '@/features/window/components/unsaved-changes-dialog'
@@ -525,36 +526,6 @@ const TabBar = ({
     [buffers, closeTab],
   )
 
-  const handleReloadTab = useCallback(
-    (bufferId: string) => {
-      // Read from getState(), not the rendered-field-gated `buffers`: reload
-      // needs the buffer's LIVE `content`, which that projection deliberately
-      // does not track (it can hold a content-stale object reference).
-      const buf = windowPaneStore.getState().buffers.find((b) => b.id === bufferId)
-      // openContent always assigns a real path (see buffer-slice.ts); bail if
-      // that invariant is ever violated instead of reopening a path-less tab.
-      if (buf && buf.path && buf.path !== 'extensions://marketplace') {
-        const path = buf.path
-        if (paneId) removeEditorTabFromPane(paneId, bufferId)
-        closeBuffer(bufferId)
-        setTimeout(async () => {
-          try {
-            const content = buf.type === 'editor' ? buf.content : ''
-            // openContent (buffer-slice.ts) always adds the reopened tab to
-            // get().activePaneId, never to whichever pane's tab was actually
-            // reloaded — assert THIS pane active first, same fix as the
-            // branch-review shortcut below.
-            if (paneId) setActivePane(paneId)
-            openContent({ type: 'editor', path, name: buf.name, content })
-          } catch (error) {
-            console.error('Failed to reload buffer:', error)
-          }
-        }, 100)
-      }
-    },
-    [closeBuffer, openContent, paneId, removeEditorTabFromPane, setActivePane],
-  )
-
   const handleSplitRight = useMemo(
     () =>
       paneId
@@ -679,22 +650,23 @@ const TabBar = ({
                     isBottomPane={isBottomPane}
                     onNewFile={() => {
                       if (!wsId) return
-                      setActivePane(paneId)
-                      ensurePaneChatThenOpen(wsId, paneId, () => {
-                        openContent({
-                          type: 'editor',
-                          path: 'untitled:Untitled',
-                          name: 'Untitled',
-                          content: '',
-                          isVirtual: true,
-                        })
+                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
+                        openContent(
+                          {
+                            type: 'editor',
+                            path: 'untitled:Untitled',
+                            name: 'Untitled',
+                            content: '',
+                            isVirtual: true,
+                          },
+                          { paneId: target },
+                        )
                       })
                     }}
                     onNewTerminal={() => {
                       if (!wsId) return
-                      setActivePane(paneId)
-                      ensurePaneChatThenOpen(wsId, paneId, () => {
-                        openContent({ type: 'terminal' })
+                      ensurePaneChatThenOpen(wsId, paneId, (target) => {
+                        openContent({ type: 'terminal' }, { paneId: target })
                       })
                     }}
                   />
@@ -754,7 +726,7 @@ const TabBar = ({
         onCloseToRight={handleCloseTabsToRight}
         onCopyPath={handleCopyPath}
         onCopyRelativePath={handleCopyRelativePath}
-        onReload={handleReloadTab}
+        onReload={reloadTabFromDisk}
         onRevealInFinder={handleRevealInFolder ?? undefined}
         onSplitRight={handleSplitRight}
         onSplitDown={handleSplitDown}

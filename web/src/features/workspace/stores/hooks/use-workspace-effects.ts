@@ -1,6 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import deepEqual from 'fast-deep-equal'
-import { useFileSystemStore } from '@/features/file-system/controllers/store'
+import { useFileSystemStore, type FileOpenTarget } from '@/features/file-system/controllers/store'
 import { useBufferActions } from './use-buffer-store'
 import { useFileTreeStore } from '@/features/file-explorer/stores/file-explorer-tree-store'
 import {
@@ -161,13 +161,13 @@ export function useWorkspaceEffects(wsId: string) {
     // every (re)seed. Built once per mount (closures over wsId/bufferActions) so
     // the full seed and the warm fast path install the exact same closures.
     const handlers = {
-      handleFileOpen: async (path: string, revealOrIsDir?: boolean) => {
+      handleFileOpen: async (path: string, revealOrIsDir?: boolean, opts?: FileOpenTarget) => {
         if (revealOrIsDir === true) return
-        await openFileContent(wsId, path, bufferActions, { preview: false })
+        await openFileContent(wsId, path, bufferActions, { preview: false, paneId: opts?.paneId })
       },
-      handleFileSelect: (path: string, isDir?: boolean) => {
+      handleFileSelect: (path: string, isDir?: boolean, opts?: FileOpenTarget) => {
         if (isDir) return
-        void openFileContent(wsId, path, bufferActions, { preview: true })
+        void openFileContent(wsId, path, bufferActions, { preview: true, paneId: opts?.paneId })
       },
       // File-tree mutations. The daemon emits a structural FileChangeEvent on
       // success, which the files-WS effect below reconciles into the tree — so

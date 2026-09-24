@@ -10,21 +10,18 @@ import type { AppFile } from '@/features/file-system/types/app'
 // implementations replace the stubs.
 export const workspaceFoldersSupported: boolean = false
 
+/** Which pane a file opens into (C8). Omitted, the focused pane. */
+export interface FileOpenTarget {
+  paneId?: string
+}
+
 export interface FileSystemState {
   rootFolderPath: string | null
   handleOpenFolder: () => void
   handleOpenFolderByPath: ((path: string) => Promise<void>) | null
-  handleFileOpen: ((path: string, revealOrIsDir?: boolean) => Promise<void>) | null
-  handleFileSelect:
-    | ((
-        path: string,
-        isDir?: boolean,
-        line?: number,
-        column?: number,
-        extra?: unknown,
-        reveal?: boolean,
-      ) => void)
-    | null
+  handleFileOpen:
+    ((path: string, revealOrIsDir?: boolean, opts?: FileOpenTarget) => Promise<void>) | null
+  handleFileSelect: ((path: string, isDir?: boolean, opts?: FileOpenTarget) => void) | null
   addFolderToWorkspace: (path?: string) => Promise<void>
   removeFolderFromWorkspace: (path: string) => Promise<void>
   revealPathInTree: (path: string) => void | Promise<void>

@@ -56,15 +56,10 @@ export function toggleActiveEditorGroupLock(): boolean {
 // active — a different pane in the same split can easily be showing a
 // different chat and workspace entirely.
 //
-// `paneId`, when given, is asserted active FIRST — same fix, same reason, as
-// `ensurePaneChatThenOpen` below: `openContent` (buffer-slice.ts) adds the new
-// tab to `get().activePaneId` UNCONDITIONALLY, never to whatever pane the
-// caller is acting on. Passing a correctly-scoped `wsId` alone (the original
-// half of this fix) stamped the new buffer with the right workspace but
-// still dropped its TAB into whichever pane happened to be active — live-
-// reported as clicking an INACTIVE pane's own review button opening that
-// pane's review inside the ACTIVE pane instead. Omit `paneId` only for a
-// caller with no pane of its own (see `openBranchReviewForActiveWorkspace`).
+// `paneId` names the pane the review lands in (C8) — an INACTIVE pane's own
+// review button opens it in that pane, not in whichever one has focus. Omit
+// it only for a caller with no pane of its own (see
+// `openBranchReviewForActiveWorkspace`).
 export function openBranchReviewForWorkspace(
   wsId: string | null | undefined,
   paneId?: string,
@@ -73,13 +68,9 @@ export function openBranchReviewForWorkspace(
     return null
   }
 
-  if (paneId) {
-    windowPaneStore.getState().paneActions.setActivePane(paneId)
-  }
-
   return windowPaneStore
     .getState()
-    .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' })
+    .bufferActions.openContent({ type: 'branchReview', wsId, name: 'Branch Review' }, { paneId })
 }
 
 // Opens the Branch Review surface for the globally active workspace — for
@@ -93,6 +84,8 @@ export function openBranchReviewForActiveWorkspace(): string | null {
 // Law 3 (spec §7.2): "nothing lands in a pane of its own; everything lands in
 // the editor view [of a chat]". A pane must hold a chat before anything opens
 // into its editor view. When `paneId` already has one, `openTab` just runs.
+// `openTab` is handed the pane to open into — `paneId`, or the pane already
+// showing the workspace's owning chat — and opens there explicitly (C8).
 //
 // Every workspace already has a real, permanent owning chat — the daemon
 // mints one per locked branch, repo home and project home
@@ -105,12 +98,19 @@ export function openBranchReviewForActiveWorkspace(): string | null {
 // chat yet. If no owning chat can be resolved (e.g. the sidebar hasn't
 // loaded this workspace's scope yet), this does nothing — never creates one
 // as a side effect of opening a terminal, a file, or a branch review.
-export function ensurePaneChatThenOpen(wsId: string, paneId: string, openTab: () => void): void {
+export function ensurePaneChatThenOpen(
+  wsId: string,
+  paneId: string,
+  openTab: (paneId: string) => void,
+): void {
   const paneActions = windowPaneStore.getState().paneActions
-  paneActions.setActivePane(paneId)
+  const openIn = (target: string) => {
+    openTab(target)
+    paneActions.setActivePane(target)
+  }
 
   if (windowPaneStore.getState().panes[paneId]?.chatId) {
-    openTab()
+    openIn(paneId)
     return
   }
 
@@ -120,13 +120,12 @@ export function ensurePaneChatThenOpen(wsId: string, paneId: string, openTab: ()
   // A chat already showing somewhere is revealed, never duplicated.
   const existingPaneId = chatPaneIndex(windowPaneStore.getState().panes).get(owningChatId)
   if (existingPaneId) {
-    paneActions.setActivePane(existingPaneId)
-    openTab()
+    openIn(existingPaneId)
     return
   }
 
   paneActions.dropChatOnPane(owningChatId, paneId, 'center')
-  openTab()
+  openIn(paneId)
 }
 
 export function splitActiveEditorGroup(direction: 'horizontal' | 'vertical'): boolean {

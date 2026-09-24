@@ -311,7 +311,8 @@ describe('openBranchReviewForWorkspace', () => {
     const bufferId = openBranchReviewForWorkspace('ws-1', otherPaneId)
 
     expect(bufferId).not.toBeNull()
-    expect(windowPaneStore.getState().activePaneId).toBe(otherPaneId)
+    // Lands in the named pane without needing (or moving) focus (C8).
+    expect(windowPaneStore.getState().activePaneId).toBe(ROOT_PANE_ID)
     expect(windowPaneStore.getState().panes[otherPaneId]?.editorTabIds).toContain(bufferId)
     expect(windowPaneStore.getState().panes[ROOT_PANE_ID]?.editorTabIds).not.toContain(bufferId)
   })

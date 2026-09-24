@@ -369,7 +369,7 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
 
     expect(getOwningChatId).toHaveBeenCalledWith('ws-1')
     expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center')
-    expect(openContent).toHaveBeenCalledWith({ type: 'terminal' })
+    expect(openContent).toHaveBeenCalledWith({ type: 'terminal' }, { paneId: ROOT_PANE_ID })
     expect(createChat).not.toHaveBeenCalled()
   })
 
@@ -392,6 +392,7 @@ describe('usePaneKeyboard — new tab / terminal / file chords', () => {
     expect(dropChatOnPane).toHaveBeenCalledWith('chat-1', ROOT_PANE_ID, 'center')
     expect(openContent).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'editor', isVirtual: true }),
+      { paneId: ROOT_PANE_ID },
     )
     expect(createChat).not.toHaveBeenCalled()
   })
